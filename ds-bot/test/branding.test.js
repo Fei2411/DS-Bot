@@ -32,6 +32,33 @@ test('a document without a title element still gets the DS Bot title', () => {
   assert.doesNotThrow(dispose)
 })
 
+test('a title element created by setting document.title is observed', () => {
+  let observed = null
+  let callback
+  class Observer {
+    constructor(fn) { callback = fn }
+    observe(target) { observed = target }
+    disconnect() {}
+  }
+  let currentTitle = ''
+  let titleElement = null
+  const document = {
+    get title() { return currentTitle },
+    set title(value) {
+      currentTitle = value
+      titleElement ??= { tagName: 'TITLE' }
+    },
+    head: { querySelector: () => titleElement },
+  }
+  const dispose = installTitle(document, Observer)
+  assert.equal(document.title, 'DS Bot')
+  assert.equal(observed, titleElement)
+  document.title = 'DeepSeek Harness'
+  callback()
+  assert.equal(document.title, 'DS Bot')
+  dispose()
+})
+
 test('the Web index and install metadata use DS Bot branding', () => {
   const html = brandHtml(`<!doctype html><head>
     <link rel="manifest" href="./manifest.webmanifest" />
@@ -87,4 +114,25 @@ test('the PWA routes serve a scoped manifest and original DS Bot icons', () => {
     if (path.endsWith('.png')) assert.ok(routes.get(path).handler)
   }
   install({ ctx: { get: () => undefined } })
+})
+
+test('install attaches through ctx.inject when webServer arrives late', () => {
+  const routes = new Map()
+  let transform
+  let injectedDeps
+  let attachFn
+  const web = {
+    tapIndex(fn) { transform = fn; return () => {} },
+    register(route) { routes.set(route.path, route); return () => {} },
+  }
+  const ctx = {
+    inject(deps, fn) { injectedDeps = deps; attachFn = fn },
+    get: () => undefined,
+  }
+  install({ ctx })
+  assert.deepEqual(injectedDeps, ['webServer'])
+  assert.equal(routes.size, 0)
+  attachFn({ webServer: web, effect: fn => fn() })
+  assert.equal(typeof transform, 'function')
+  assert.equal(routes.size, 6)
 })

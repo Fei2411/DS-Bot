@@ -34,10 +34,6 @@ function reply(response, type, body) {
 }
 
 export function install(rt) {
-  const web = rt.ctx.get?.('webServer')
-  if (!web) return
-  rt.ctx.effect(() => web.tapIndex(brandHtml), 'ds-bot: PWA name and icons')
-
   const routes = [
     ['manifest.webmanifest', 'application/manifest+json; charset=utf-8', MANIFEST],
     ['icon.svg', 'image/svg+xml', asset('icon.svg')],
@@ -46,11 +42,21 @@ export function install(rt) {
     ['icon-512.png', 'image/png', asset('icon-512.png')],
     ['icon-maskable-512.png', 'image/png', asset('icon-maskable-512.png')],
   ]
-  for (const [name, type, body] of routes) {
-    rt.ctx.effect(() => web.register({
-      kind: 'exact',
-      path: `/ds-bot/${name}`,
-      handler: (request, response) => reply(response, type, body),
-    }), `ds-bot: PWA ${name}`)
+  const attach = (sub) => {
+    const web = sub.webServer ?? sub.get?.('webServer')
+    if (!web) return
+    sub.effect(() => web.tapIndex(brandHtml), 'ds-bot: PWA name and icons')
+    for (const [name, type, body] of routes) {
+      sub.effect(() => web.register({
+        kind: 'exact',
+        path: `/ds-bot/${name}`,
+        handler: (request, response) => reply(response, type, body),
+      }), `ds-bot: PWA ${name}`)
+    }
+  }
+  if (typeof rt.ctx.inject === 'function') {
+    rt.ctx.inject(['webServer'], attach)
+  } else if (rt.ctx.get?.('webServer') !== undefined) {
+    attach({ webServer: rt.ctx.get('webServer'), effect: (execute, label) => rt.ctx.effect(execute, label) })
   }
 }

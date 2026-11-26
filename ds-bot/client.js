@@ -64596,11 +64596,11 @@ function listedOpener({ list, open, refresh, current: current2, begin, done }) {
 
 // src/client/branding.js
 function installTitle(document2, Observer = globalThis.MutationObserver) {
-  const title = document2.head.querySelector("title");
   const update = () => {
     if (document2.title !== "DS Bot") document2.title = "DS Bot";
   };
   update();
+  const title = document2.head?.querySelector("title") ?? null;
   const observer = new Observer(update);
   if (title !== null) observer.observe(title, { childList: true, characterData: true, subtree: true });
   return () => observer.disconnect();
