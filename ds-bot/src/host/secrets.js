@@ -851,6 +851,24 @@ export function install(rt) {
     }
     return { resolved, failed, errors }
   }
+  function resolveUncachedExternalForBot(botId, signal) {
+    if (botId === undefined || !hasUncachedExternalForBot(botId)) return
+    return resolveExternalForBot(botId, { signal }).catch(error => {
+      if (!signal?.aborted) rt.warn('ds-bot: external secret resolution failed: %s', error?.message ?? 'error')
+    })
+  }
+  const botForSecretSession = sessionId => blocked === undefined && !store.locked ? rt.selfOf(sessionId) : undefined
+  async function prepareSecretEnvForSession(sessionId, signal) {
+    signal?.throwIfAborted()
+    if (rt.hasLoaded?.() === false) await rt.load()
+    if (shouldReload()) await loadSecrets()
+    let botId = botForSecretSession(sessionId)
+    if (botId === undefined && rt.readOnly() !== undefined) {
+      rt.syncReadOnly?.()
+      botId = botForSecretSession(sessionId)
+    }
+    if (rt.botOf(botId) !== undefined) await resolveUncachedExternalForBot(botId, signal)
+  }
   const invalidateExternal = (providerId) => {
     retireCachedExternals(providerId)
     resolver.invalidate(providerId)
@@ -1290,10 +1308,7 @@ export function install(rt) {
   // re-renders a changed success result from its redacted value.
   ctx.on('tools/execute', async (exec, next) => {
     if (hasExternalSecrets && SHELL_ENV_TOOLS.has(exec?.name)) {
-      const botId = resolveBotId(exec)
-      if (botId !== undefined && hasUncachedExternalForBot(botId)) {
-        await resolveExternalForBot(botId).catch(error => rt.warn('ds-bot: external secret resolution failed: %s', error?.message ?? 'error'))
-      }
+      await resolveUncachedExternalForBot(resolveBotId(exec))
     }
     const result = await next()
     if (!hasRedactions || result === null || typeof result !== 'object') return result
@@ -1490,7 +1505,8 @@ export function install(rt) {
     secretStoreStatus,
     secretValue: name => resolvedValueOf(secrets.get(name)),
     canUseSecret: (name, botId) => canUse(secrets.get(name), botId),
-    secretEnvForSession: sessionId => resolveEnv(() => blocked === undefined && !store.locked ? rt.selfOf(sessionId) : undefined),
+    prepareSecretEnvForSession,
+    secretEnvForSession: sessionId => resolveEnv(() => botForSecretSession(sessionId)),
     secretEndpoint,
     forgetBotSecrets,
     loadSecrets,

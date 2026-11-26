@@ -269,6 +269,10 @@ export class LocalAgentAdapter extends LlmAdapter {
       if (existing !== undefined) await this.closeLive(existing)
       throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
     }
+    if (spec.kind === 'codex' && this.deps.prepareSecretEnvForSession !== undefined) {
+      await this.deps.prepareSecretEnvForSession(sessionId, options.signal)
+      options.signal?.throwIfAborted()
+    }
     const resolveSecrets = () => spec.kind === 'codex' ? this.deps.secretEnvForSession?.(sessionId) ?? {} : {}
     let live = this.live.get(sessionId)
     let orphanedPending
@@ -1509,11 +1513,11 @@ export class LocalAgentAdapter extends LlmAdapter {
     const record = live === undefined ? this.deps.record(sessionId) : undefined
     if (live === undefined && record?.cliSessionId === undefined) throw new LlmError('this conversation has no session of its local agent yet', 'LOCAL_AGENT_ERROR')
     if (live?.spec.kind === 'codex' && live.state === 'idle' && live.pending.size === 0) {
-      live = await this.liveFor({ sessionId, provider: live.route, model: live.model }, this.deps.presetFor(sessionId))
+      live = await this.liveFor({ sessionId, provider: live.route, model: live.model, signal }, this.deps.presetFor(sessionId))
     }
     let opened = false
     if (live === undefined || live.engineSession === undefined || live.engineSession.dead === true) {
-      live ??= await this.liveFor({ sessionId, provider: record.route, model: record.model }, this.deps.presetFor(sessionId))
+      live ??= await this.liveFor({ sessionId, provider: record.route, model: record.model, signal }, this.deps.presetFor(sessionId))
       opened = true
       try {
         await this.openFor(live, sessionId)
