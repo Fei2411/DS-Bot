@@ -29869,10 +29869,25 @@ function hasHigherModalThan(container, doc) {
 function useModalFocusTrap(containerRef, active = true, { initialFocusRef } = {}) {
   useSafeLayoutEffect(() => {
     if (!active) return void 0;
-    const container = containerRef?.current;
-    const doc = container?.ownerDocument;
-    if (!container || !doc?.body || typeof doc.addEventListener !== "function") return void 0;
+    const container = containerRef?.current ?? null;
+    const doc = container?.ownerDocument ?? (typeof document === "undefined" ? null : document);
+    if (!doc) return void 0;
     const returnFocus = doc.activeElement;
+    const restorePreviousFocus = () => {
+      const activeEl = doc.activeElement;
+      const insideClosing = Boolean(container && typeof container.contains === "function" && container.contains(activeEl));
+      const shouldRestore = !activeEl || activeEl === doc.body || activeEl === doc.documentElement || insideClosing;
+      if (!shouldRestore || !returnFocus || returnFocus.isConnected === false || typeof returnFocus.focus !== "function") return;
+      if (returnFocus.closest?.("[inert]")) return;
+      const remainingModals = activeModalsIn(doc).filter((m) => m !== container && !(container && typeof container.contains === "function" && container.contains(m)));
+      if (remainingModals.length === 0 || remainingModals.some((m) => typeof m.contains === "function" && m.contains(returnFocus))) {
+        returnFocus.focus({ preventScroll: true });
+      }
+    };
+    if (!container || !doc.body || typeof doc.addEventListener !== "function") {
+      initialFocusRef?.current?.focus?.({ preventScroll: true });
+      return restorePreviousFocus;
+    }
     const held = /* @__PURE__ */ new Set();
     let allowedRoots = [container];
     let disposed = false;
@@ -29959,14 +29974,7 @@ function useModalFocusTrap(containerRef, active = true, { initialFocusRef } = {}
       doc.removeEventListener("focusin", onFocusIn, true);
       doc.removeEventListener("keydown", onKeyDown, true);
       releaseAll();
-      const activeEl = doc.activeElement;
-      const shouldRestore = !activeEl || activeEl === doc.body || activeEl === doc.documentElement || container.contains(activeEl);
-      if (shouldRestore && returnFocus && returnFocus.isConnected !== false && typeof returnFocus.focus === "function" && !returnFocus.closest?.("[inert]")) {
-        const remainingModals = activeModalsIn(doc).filter((m) => m !== container && !container.contains(m));
-        if (remainingModals.length === 0 || remainingModals.some((m) => m.contains(returnFocus))) {
-          returnFocus.focus({ preventScroll: true });
-        }
-      }
+      restorePreviousFocus();
     };
   }, [active, containerRef, initialFocusRef]);
 }
