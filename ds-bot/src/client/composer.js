@@ -80,7 +80,7 @@ export function useDictation(onText) {
   return { listening, note, start, stop }
 }
 
-export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
+export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster, voiceChat = true, disabled = false }) {
   const enterToSend = useRoster(state => sendsOnEnter(state.prefs))
   const composerRoot = useRef(null)
   useEffect(() => {
@@ -245,16 +245,18 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
   const listening = dictation.listening || hostListening
   const note = hostNote || dictation.note
   return h(Fragment, null,
-    pluginMic ? null : h('button', {
+    pluginMic ? (voiceChat ? null : h('span', { ref: composerRoot, hidden: true })) : h('button', {
+      ref: voiceChat ? undefined : composerRoot,
       type: 'button', className: 'bt-mic', 'aria-label': listening ? t('Stop dictation') : t('Dictate'),
       'aria-pressed': listening, title: listening ? t('Stop dictation') : t('Dictate'),
-      disabled: hostBusy,
+      disabled: disabled || hostBusy,
       onMouseDown: keepComposerFocus, onClick: toggleMic,
     }, h(MicIcon)),
-    h('button', {
+    voiceChat ? h('button', {
       ref: composerRoot, type: 'button', className: 'bt-voice', 'aria-label': t('Start voice chat'), title: t('Voice chat'),
+      disabled,
       onMouseDown: keepComposerFocus, onClick: openVoiceChat,
-    }, h(WaveIcon, { size: 18 })),
+    }, h(WaveIcon, { size: 18 })) : null,
     note ? h('span', { className: 'bt-mic-note', role: 'status' }, note) : null)
 }
 

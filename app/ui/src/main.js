@@ -44,11 +44,13 @@ import { WIDGET_CSS } from '../../../ds-bot/src/client/widget-cell.js'
 import { createLocale, setAppLocaleService } from './locale.js'
 import { App } from './app.js'
 import { registerBuiltinToolViews } from './builtin-tool-views.js'
+import { registerClassicPlanView } from './classic-plan-view.js'
 import { registerEngineSettingsPlugin } from './engine-settings-bridge.js'
 import { paintMode } from './mode.js'
 import { pluginRuntime } from './plugin-runtime.js'
 import { slots } from './slots.js'
 import './app.css'
+import './composer-classic.css'
 
 const appLocale = createLocale(navigator.language)
 setAppLocaleService(appLocale)
@@ -56,6 +58,7 @@ installLocale(appLocale)
 installMotionRest()
 pluginRuntime.provide('slots', slots)
 pluginRuntime.use({ id: 'ds-bot.builtin-tool-views', name: 'Built-in tool views' }, () => registerBuiltinToolViews(slots))
+pluginRuntime.use({ id: 'ds-bot.classic-plan-view', name: 'Classic plan card' }, () => registerClassicPlanView(slots))
 registerEngineSettingsPlugin(pluginRuntime)
 globalThis.dsBotPlugins = pluginRuntime
 document.documentElement.lang = appLocale.getLocale().active

@@ -101,6 +101,7 @@ export function install(rt) {
       publish('live', {})
     }, LIVE_DELAY_MS)
   }
+  rt.notifyLive = live
   ctx.on('agent/status', ({ agent, status }) => {
     if (status === 'idle') clearWritingFor(agent?.id)
     if (rt.selfOf(agent.id) !== undefined || rt.agentOf?.(agent.id) !== undefined) live()

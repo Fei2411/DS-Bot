@@ -112,7 +112,7 @@ export function flushDrafts(storage = globalThis.localStorage) {
 
 /**
  * The chat a Session belongs to, with the part its composer is current on.
- * @param {{ byId?: object, roomsById?: object }} roster
+ * @param {{ byId?: object, roomsById?: object, agentOf?: object, agents?: readonly { sessions?: readonly string[] }[] }} roster
  * @param {string} sessionId
  * @returns {{ id: string, part: string } | undefined}
  */
@@ -124,6 +124,9 @@ export function chatOfSession(roster, sessionId) {
   if (bot !== undefined) return { id: bot.id, part: currentPart(bot) }
   const room = roster?.roomsById?.[sessionId] ?? rooms.find(item => (item.sessionId ?? item.id) === sessionId || item.ownParts?.includes(sessionId))
   if (room !== undefined) return { id: room.id, part: room.sessionId ?? room.id }
+  if (roster?.agentOf?.[sessionId] !== undefined || roster?.agents?.some?.(agent => agent?.sessions?.includes?.(sessionId))) {
+    return { id: sessionId, part: sessionId }
+  }
   return undefined
 }
 
