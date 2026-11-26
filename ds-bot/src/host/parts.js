@@ -29,7 +29,7 @@ import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { ownChatSessions, pushThreadPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
+import { isMissingSessionError, ownChatSessions, pushThreadPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -2314,6 +2314,82 @@ export function install(rt) {
     heldRetryTimer.unref?.()
   }
 
+  // Classifies a matching handoff on `agent` so recovery can distinguish:
+  // - 'logged': append-only user/message (or derived message) already present -> one flush proves durability;
+  // - 'queued': still pending in inbox -> flush proves durability only if no inbox splice raced across it;
+  // - 'claimed': removed by preStep inbox.claim() before user/message -> defer (neither duplicate nor clear handoffPending);
+  // - 'missing': absent -> reconstruct and deliver.
+  function inspectHandoffState(agent, match) {
+    const events = agent.session?.snapshotEvents?.()
+    if (Array.isArray(events)) {
+      let logged = (agent.session?.deriveMessages?.() ?? []).some(match)
+      const pending = { 'next-turn': [], 'next-step': [] }
+      const claimed = []
+      for (const ev of events) {
+        if (ev?.type === 'turn/end') {
+          claimed.length = 0
+        } else if (ev?.type === 'user/message') {
+          const src = ev.data?.source ?? ev.data?.message?.source
+          if (match({ source: src })) logged = true
+        } else if (ev?.type === 'agent/inbox/spliced' && ev.data) {
+          const inbox = pending[ev.data.target]
+          if (inbox !== undefined) {
+            const start = ev.data.start
+            const removedCount = ev.data.removedCount ?? 0
+            const inserted = Array.isArray(ev.data.inserted) ? ev.data.inserted : []
+            if (Number.isSafeInteger(start) && start >= 0 && start <= inbox.length
+              && Number.isSafeInteger(removedCount) && removedCount >= 0 && start + removedCount <= inbox.length) {
+              const removed = inbox.splice(start, removedCount, ...inserted)
+              if (inserted.length === 0 && ev.data.outcome !== 'canceled') {
+                for (const msg of removed) claimed.push(msg)
+              }
+            }
+          }
+        }
+      }
+      if (logged) return { state: 'logged', len: events.length }
+      if (pending['next-turn'].some(match) || pending['next-step'].some(match)) return { state: 'queued', len: events.length }
+      if (claimed.some(match)) return { state: 'claimed', len: events.length }
+      if ([...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])].some(match)) return { state: 'queued-live', len: events.length }
+      return { state: 'missing', len: events.length }
+    }
+    if ((agent.session?.deriveMessages?.() ?? []).some(match)) return { state: 'logged' }
+    if ([...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])].some(match)) return { state: 'queued-live' }
+    return { state: 'missing' }
+  }
+
+  // Confirms that a matching handoff on `fresh` is covered by a completed flush barrier:
+  // either an append-only `user/message` existed before flush started, or a queued inbox
+  // entry remained unspliced across the flush. Returns false when the handoff is currently
+  // claimed mid-preStep (before `user/message` is logged) so the caller defers without
+  // duplicating the handoff or clearing `handoffPending`.
+  async function confirmHandoffFlushed(fresh, match, { justQueued = false } = {}) {
+    for (let pass = 0; pass < 4; pass += 1) {
+      const before = inspectHandoffState(fresh, match)
+      if (before.state === 'claimed') return false
+      if (before.state === 'missing') {
+        // Minimal test stubs that record `followup()` without mutating `inbox` or
+        // `snapshotEvents` still flush once when called right after `fresh.followup()`.
+        if (justQueued && pass === 0 && typeof fresh.session?.snapshotEvents !== 'function') {
+          await ctx.sessions.flush(fresh.session)
+          return true
+        }
+        return false
+      }
+      await ctx.sessions.flush(fresh.session)
+      if (before.state === 'logged' || before.len === undefined) return true
+      const afterEvents = fresh.session?.snapshotEvents?.()
+      if (!Array.isArray(afterEvents)) return true
+      const spliceMutated = afterEvents.length < before.len
+        || afterEvents.slice(before.len).some(ev => ev?.type === 'agent/inbox/spliced')
+      if (!spliceMutated) {
+        const after = inspectHandoffState(fresh, match)
+        if (after.state === 'logged' || after.state === 'queued' || after.state === 'queued-live') return true
+      }
+    }
+    return false
+  }
+
   // Recovers a handoff package that was not yet flushed to `target` when the process
   // crashed or errored between flipping the current-part pointer and flushing flush #1.
   async function ensureHandoffDelivered(oldSessionId, owner, targetId, { metaOverride, fallbackSessionId, entries = [] } = {}) {
@@ -2326,9 +2402,11 @@ export function install(rt) {
       if (expectedExchangeId === undefined) return true
       return m.source?.exchangeId === expectedExchangeId
     }
-    const alreadyHasHandoff = (fresh.session?.deriveMessages?.() ?? []).some(matchesExistingHandoff)
-      || [...(fresh.inbox?.nextStep ?? []), ...(fresh.inbox?.nextTurn ?? [])].some(matchesExistingHandoff)
-    if (alreadyHasHandoff) return
+    const existing = inspectHandoffState(fresh, matchesExistingHandoff)
+    if (existing.state === 'claimed') return false
+    if (existing.state !== 'missing') {
+      return confirmHandoffFlushed(fresh, matchesExistingHandoff)
+    }
     const bot = owner.botId === undefined ? undefined : rt.botOf(owner.botId)
     const room = rt.roomOf(owner.roomId)
     const taskEntry = rt.taskBySession?.(targetId)?.task ?? rt.taskBySession?.(oldSessionId)?.task
@@ -2431,7 +2509,7 @@ export function install(rt) {
       content: [{ type: 'text', text }],
       source: handoffSource(recoveredJob, resume, { omitOrigin: hasRuntimeLostUnread }),
     }))
-    await ctx.sessions.flush(fresh.session)
+    return confirmHandoffFlushed(fresh, matchesExistingHandoff, { justQueued: true })
   }
 
   // Splits stacked pending handoffs into batches with at most one distinct primary
@@ -2591,6 +2669,10 @@ export function install(rt) {
           blockedIdx = i
           continue
         }
+        if (entry.owner.missing === true) {
+          entry.held = []
+          continue
+        }
         try {
           const agent = await rt.resolveAgent(entry.sessionId)
           if (switches.has(entry.sessionId)) {
@@ -2630,18 +2712,25 @@ export function install(rt) {
         // source transcripts and reply routing); trailing non-resuming hops consolidate.
         const pendingHandoffs = ready.filter(entry => entry.owner.handoffPending === true)
         if (pendingHandoffs.length > 0) {
+          let handoffDeferred = false
           for (const { entries, newest, resumedEntry, mergedMeta } of planPendingHandoffs(pendingHandoffs)) {
-            await ensureHandoffDelivered(newest.sessionId, newest.owner, target, {
+            const delivered = await ensureHandoffDelivered(newest.sessionId, newest.owner, target, {
               metaOverride: mergedMeta,
               fallbackSessionId: resumedEntry?.sessionId,
               entries,
             })
+            if (!delivered) {
+              retryNeeded = true
+              handoffDeferred = true
+              break
+            }
             for (const entry of entries) {
               delete entry.owner.handoffPending
               delete entry.owner.handoffMeta
             }
             await rt.save()
           }
+          if (handoffDeferred) continue
         }
 
         // Resolve competing copies across successive source parts so a newer merged
@@ -2679,7 +2768,9 @@ export function install(rt) {
         // Target admission is now durable on disk: remove acknowledged originals at once
         // so a later switch of `target` before reminder/archive cleanup cannot replay
         // prompts `target` already answered.
-        for (const { agent, held } of ready) removeForMove(agent, held)
+        for (const { agent, held } of ready) {
+          if (agent !== undefined) removeForMove(agent, held)
+        }
       } catch (error) {
         retryNeeded = true
         rt.warn('ds-bot: input kept in parts targeting %s was not handed on: %s', target, error)
@@ -2694,6 +2785,17 @@ export function install(rt) {
           const liveTarget = threadTargetOf(sessionId, owner)
           if (liveTarget !== target || switches.has(target)) {
             retryNeeded = true
+            continue
+          }
+          if (owner.missing === true) {
+            if (target !== undefined && rt.botOf(owner.botId) !== undefined) {
+              await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
+              await rt.moveSchedules?.(sessionId, target, {
+                resolveTarget: () => threadTargetOf(sessionId, owner),
+              })
+            }
+            delete state.switching[sessionId]
+            await rt.save()
             continue
           }
           await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
@@ -2752,7 +2854,11 @@ export function install(rt) {
       .finally(async () => {
         switches.delete(agent.id)
         if (job.moved) {
-          if (!job.originSent) rt.dropImOrigin?.(job.resumeOrigin)
+          const retainedOrigin = job.kept === true && job.resumeOrigin !== undefined && (
+            state.switching[agent.id]?.handoffMeta?.resumeOrigin === job.resumeOrigin
+            || state.switching[agent.id]?.runtimeLostContext?.resumeOrigin === job.resumeOrigin
+          )
+          if (!job.originSent && !retainedOrigin) rt.dropImOrigin?.(job.resumeOrigin)
           // A move that had to put input back keeps the part marked for the restart/retry pass.
           if (job.kept !== true) {
             delete state.switching[agent.id]
@@ -2893,7 +2999,7 @@ export function install(rt) {
         throw error
       }
     }
-    if (job.moved) {
+    if (job.moved && job.kept !== true) {
       rt.renewMemory(agent.id)
       await rt.closeLocalAgentSession?.(agent.id)?.catch(error => rt.warn('ds-bot: the local agent of earlier part %s did not stop: %s', agent.id, error))
       let finishMove
@@ -3236,15 +3342,27 @@ export function install(rt) {
       }
       const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: budgeted, number: number + 1, resume: handoffResume, overflow: job.overflow, cutoff: job.cutoff === true, runtimeLost: job.runtimeLost === true, failed: job.failed, bare: job.bare, folder, engine, preset: job.preset })
       freshParts.set(freshId, estimateTokens(text))
-      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, handoffResume, { omitOrigin: hasRuntimeLostUnread }) }))
-      await ctx.sessions.flush(fresh.session)
-      // Handoff package is now durably flushed to the fresh part: clear the pending flag
-      // in memory (persisted on the switch's final save; even on a hard crash before that
-      // save, ensureHandoffDelivered sees the flushed handoff on fresh and skips cleanly).
-      if (state.switching[agent.id] !== undefined) {
-        delete state.switching[agent.id].handoffPending
-        delete state.switching[agent.id].handoffMeta
-        job.handoffCleared = true
+      const handoffSrc = handoffSource(job, handoffResume, { omitOrigin: hasRuntimeLostUnread })
+      const matchesHandoff = (m) => m?.source?.handoff === true
+        && (handoffSrc.exchangeId === undefined || m.source?.exchangeId === handoffSrc.exchangeId)
+      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSrc }))
+      const handoffConfirmed = await confirmHandoffFlushed(fresh, matchesHandoff, { justQueued: true })
+      if (handoffConfirmed) {
+        // Handoff package is now durably flushed to the fresh part: clear the pending flag
+        // in memory (persisted on the switch's final save; even on a hard crash before that
+        // save, ensureHandoffDelivered sees the flushed handoff on fresh and skips cleanly).
+        if (state.switching[agent.id] !== undefined) {
+          delete state.switching[agent.id].handoffPending
+          delete state.switching[agent.id].handoffMeta
+          job.handoffCleared = true
+        }
+      } else {
+        // The successor claimed the handoff out of its inbox across flush before
+        // user/message was logged. Keep handoffPending and skip archiving until
+        // heldBack() confirms the logged user/message, while still staging parked/unread
+        // prompts onto fresh immediately so newer prompts cannot overtake them and IM
+        // origin routing stays intact.
+        job.kept = true
       }
       const heldIds = new Set(held.map(m => m?.id).filter(Boolean))
       for (const message of job.carry.splice(0)) {
@@ -4636,5 +4754,114 @@ export function install(rt) {
     return { sessionId: nextId }
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, noteDefaultPresetPending, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  // Replaces a Bot's foreground Session when it is gone from the Session library (#1929).
+  // Runs only when resolving the current Session fails with a missing-session error; if
+  // the Session is actually available again, clears any stale `sessionMissing` marker
+  // and keeps the Bot's continuous conversation intact.
+  const recoveringMissing = new Map()
+  async function recoverMissingSession(botId) {
+    await rt.load()
+    if (readOnly()) throw Object.assign(new Error('DS Bot is read-only in this window'), { code: 'bot/read-only' })
+    const bot = rt.botOf(botId)
+    if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
+    const existing = recoveringMissing.get(bot.id)
+    if (existing !== undefined) return existing
+    const run = (async () => {
+      const lostId = rt.chatOf(bot.id)
+      if (switches.has(lostId)) throw Object.assign(new Error('This conversation is already moving to a new part'), { code: 'bot/busy' })
+      try {
+        await rt.resolveAgent(lostId)
+        if (rt.botOf(bot.id) !== bot || rt.chatOf(bot.id) !== lostId) {
+          return { sessionId: rt.chatOf(bot.id), recovered: false }
+        }
+        if (bot.sessionMissing === lostId) {
+          delete bot.sessionMissing
+          if (!readOnly()) await rt.save()
+          await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
+          if (bot.blocked === undefined) {
+            await rt.releaseKickoff?.(bot).catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', bot.name, error))
+          }
+        }
+        return { sessionId: lostId, recovered: false }
+      } catch (error) {
+        if (!isMissingSessionError(error)) throw error
+      }
+      if (readOnly()) throw Object.assign(new Error('DS Bot is read-only in this window'), { code: 'bot/read-only' })
+      if (rt.botOf(bot.id) !== bot || rt.chatOf(bot.id) !== lostId) {
+        return { sessionId: rt.chatOf(bot.id), recovered: false }
+      }
+      const dir = rt.workDirOf({ botId: bot.id })
+      const presetAtCreation = bot.agentPreset
+      const freshId = await rt.createSession(bot.name, { dir, bot })
+      const picked = await freshRoute(bot, undefined)
+      if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
+      await rt.applyPermission(bot, freshId, undefined)
+        .catch(error => rt.warn('ds-bot: permission for the new part of %s not applied: %s', bot.name, error))
+      if (readOnly() || rt.botOf(bot.id) !== bot || rt.chatOf(bot.id) !== lostId) {
+        await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
+          .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', bot.name, error))
+        return { sessionId: rt.chatOf(bot.id), recovered: false }
+      }
+      bot.sessionId = freshId
+      finishPresetClear(bot, lostId, presetAtCreation !== undefined ? freshId : undefined)
+      if (bot.sessionMissing === lostId) delete bot.sessionMissing
+      if (bot.failures?.[lostId] !== undefined) {
+        delete bot.failures[lostId]
+        if (Object.keys(bot.failures).length === 0) delete bot.failures
+      }
+      // Record durable recovery lineage before dropping `lostId` from `chatOwners` and
+      // before `rt.save()`, so an in-flight `flushSilentNotes(lostId)` cannot discard
+      // buffered notes and a crash after `rt.save()` still resolves `lostId -> freshId`.
+      state.switching[lostId] = { botId: bot.id, missing: true }
+      rt.chatOwners.set(freshId, bot.id)
+      rt.chatOwners.delete(lostId)
+      if (state.questions?.[lostId] !== undefined) {
+        rt.closeCard?.(lostId, state.questions[lostId], 'dismissed')
+        delete state.questions[lostId]
+      }
+      if (state.views?.[lostId] !== undefined) {
+        rt.closeCard?.(lostId, state.views[lostId], 'dismissed')
+        delete state.views[lostId]
+      }
+      rt.renewMemory?.(lostId)
+      await rt.closeLocalAgentSession?.(lostId)?.catch(error => rt.warn('ds-bot: the local agent of earlier part %s did not stop: %s', lostId, error))
+      forgetSessionParts(lostId)
+      rt.forgetSessionTurn?.(lostId)
+      rt.forgetSessionModel?.(lostId)
+      rt.forgetSessionChanges?.(lostId)
+      // Commit replacement ownership and `state.switching[lostId]` to disk BEFORE
+      // moving or removing silent notes from `lostId`, so a crash before `rt.save()`
+      // never strands persisted silent notes under an unowned `freshId`.
+      await rt.save({ required: true })
+      try {
+        await rt.moveSilentNotes?.(lostId, freshId, { awaitFlush: true, rethrow: true })
+        await rt.moveSchedules?.(lostId, freshId, { resolveTarget: () => rt.chatOf(bot.id) })
+        delete state.switching[lostId]
+        await rt.save()
+      } catch (error) {
+        rt.warn('ds-bot: recovery cleanup for %s to %s failed: %s', lostId, freshId, error)
+        scheduleHeldBackRetry()
+      }
+      // A model the user picked while this part was being made went to the parts that were
+      // registered then, and the sync recorded it as applied; this part was not one of them
+      // yet, so the route picked at the top may be the old one. Read it again now that the
+      // part is the Bot's, as the switch does.
+      const now = await freshRoute(bot, undefined)
+      if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {
+        await selectRoute({ name: bot.name }, freshId, now)
+      }
+      if (bot.blocked === undefined) {
+        await rt.releaseKickoff?.(bot).catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', bot.name, error))
+      }
+      return { sessionId: freshId, recovered: true }
+    })()
+    recoveringMissing.set(bot.id, run)
+    try {
+      return await run
+    } finally {
+      if (recoveringMissing.get(bot.id) === run) recoveringMissing.delete(bot.id)
+    }
+  }
+
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, recoverMissingSession, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, noteDefaultPresetPending, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

@@ -968,3 +968,273 @@ test('telemetry consent file stays protected from Bots even when no Bot is priva
   // Direct host path in bash is still blocked even from an unrelated cwd.
   assert.equal((await run('bash', { command: `cat "${telFile}"` }, 'b', agent)).ran, false)
 })
+
+test('apply_patch enforces private Bot, shared-state, API, secret fences and private outbound approval', async (t) => {
+  const approval = fakeApproval('allowed-once')
+  const { rt, run, home, diary, team, project, agentOf, stop } = await start({ services: { approval } })
+  t.after(stop)
+  const notes = join(diary, 'notes.txt')
+  const addPatch = path => `*** Begin Patch\n*** Add File: ${path}\n+hello\n*** End Patch`
+  const updatePatch = path => `*** Begin Patch\n*** Update File: ${path}\n@@\n-secret\n+leaked\n*** End Patch`
+  const deletePatch = path => `*** Begin Patch\n*** Delete File: ${path}\n*** End Patch`
+  const movePatch = (from, to) => `*** Begin Patch\n*** Update File: ${from}\n*** Move to: ${to}\n@@\n-a\n+b\n*** End Patch`
+
+  // Non-private Bot cannot add, update, delete, or move into/out of a private Bot's folder or shared state.
+  for (const input of [
+    addPatch(join(diary, 'injected.txt')),
+    updatePatch(notes),
+    deletePatch(notes),
+    movePatch(join(team, 'open.txt'), join(diary, 'moved.txt')),
+    movePatch(notes, join(team, 'stolen.txt')),
+    updatePatch(relative(team, notes)),
+    addPatch(join(home, 'memory', 'bots', P, 'MEMORY.md')),
+    updatePatch(join(home, 'state.json')),
+    updatePatch(join(home, 'secrets.json')),
+    deletePatch(join(home, 'chat-index.sqlite')),
+  ]) {
+    const res = await run('apply_patch', { input }, 'b')
+    assert.equal(res.ran, false, `expected private block for:\n${input}`)
+    assert.match(res.error, CLOSED)
+  }
+
+  // Symlink into private Bot's folder is also blocked for apply_patch.
+  if (process.platform !== 'win32') {
+    symlinkSync(diary, join(project, 'patch-link'))
+    const viaLink = await run('apply_patch', { input: addPatch(join(project, 'patch-link', 'via-link.txt')) }, 'b')
+    assert.equal(viaLink.ran, false)
+    assert.match(viaLink.error, CLOSED)
+  }
+
+  // API, telemetry, and secret storage files are blocked for apply_patch.
+  for (const file of [join(home, 'api-tokens.json'), join(home, 'mcp.json'), join(home, 'telemetry.json')]) {
+    const res = await run('apply_patch', { input: addPatch(file) }, 'b')
+    assert.equal(res.ran, false, `expected API/telemetry block for ${file}`)
+    assert.match(res.error, /API token|telemetry|private Bot/)
+  }
+  for (const file of [join(home, 'secret-refs', 'ref.json'), join(home, 'secret-files', 'a', 'k.secret'), join(home, 'secret-files', 'b', 'own.secret')]) {
+    const res = await run('apply_patch', { input: addPatch(file) }, 'b')
+    assert.equal(res.ran, false, `expected secret block for ${file}`)
+    assert.match(res.error, /secret|private Bot/i)
+  }
+
+  // Normal open files stay allowed for non-private Bots.
+  assert.deepEqual(await run('apply_patch', { input: addPatch(join(team, 'ok.txt')) }, 'b'), { ran: true })
+  assert.deepEqual(await run('apply_patch', { input: movePatch(join(project, 'a.txt'), join(project, 'b.txt')) }, 'b'), { ran: true })
+  // Valid apply_patch whose hunk context mentions an example "*** Update File:" header for a private path must not false-positive.
+  const patchWithHeaderInContext = [
+    '*** Begin Patch',
+    `*** Update File: ${join(project, 'doc.md')}`,
+    '@@',
+    ` *** Update File: ${notes}`,
+    '-old line',
+    '+new line',
+    '*** End Patch',
+  ].join('\n')
+  assert.deepEqual(await run('apply_patch', { input: patchWithHeaderInContext }, 'b'), { ran: true })
+
+  // Private Bot can apply_patch inside its own folder without approval.
+  assert.deepEqual(await run('apply_patch', { input: addPatch(join(diary, 'inside.txt')) }, P), { ran: true })
+  assert.deepEqual(await run('apply_patch', { input: movePatch('notes.txt', 'notes2.txt') }, P), { ran: true })
+  assert.equal(approval.requests.length, 0)
+
+  // Private Bot changing or moving files outside its folder requires user approval.
+  assert.deepEqual(await run('apply_patch', { input: addPatch(join(project, 'out.txt')) }, P), { ran: true })
+  assert.equal(approval.requests.length, 1)
+  assert.match(approval.requests[0].reason, /outside its own folder/)
+  assert.deepEqual(await run('apply_patch', { input: movePatch('notes.txt', join(project, 'exported.txt')) }, P), { ran: true })
+  assert.equal(approval.requests.length, 2)
+
+  // TOCTOU: if effective cwd changes during approval, apply_patch must fail closed.
+  const privateAgent = agentOf(P)
+  privateAgent.session.header.cwd = project
+  rt.requestActionApproval = async () => { privateAgent.session.header.cwd = team; return 'allowed-once' }
+  const shifted = await run('apply_patch', { input: addPatch('rel.txt') }, P, privateAgent)
+  assert.equal(shifted.ran, false)
+  assert.match(shifted.error, /destination changed/)
+})
+
+test('run_code enforces private Bot, shared-state, API, secret fences and private Bot escalation approval', async (t) => {
+  const approval = fakeApproval('allowed-once')
+  let standingMode = 'workspace-write'
+  const { run, home, diary, team, project, agentOf, stop } = await start({
+    services: {
+      approval,
+      sandboxPolicy: { resolve: () => ({ mode: standingMode }) },
+    },
+  })
+  t.after(stop)
+  const notes = join(diary, 'notes.txt')
+  const posix = path => path.replace(/\\/g, '/')
+  const writerAgent = agentOf('b')
+  writerAgent.session.header.cwd = project
+
+  // Non-private Bot cannot reference private Bot files, relative traversals, symlinks, memory, or shared files in run_code.
+  for (const code of [
+    `const fs = await import('node:fs'); return fs.readFileSync(${JSON.stringify(notes)}, 'utf8')`,
+    `const fs = await import('node:fs'); return fs.readFileSync('${posix(notes)}', 'utf8')`,
+    `const fs = await import('node:fs'); return fs.readFileSync('../diary/notes.txt', 'utf8')`,
+    `return ${JSON.stringify(join(home, 'memory', 'bots', P, 'MEMORY.md'))}`,
+    `return '${notes.replace(/[\\/]/g, '\\\\')}'`,
+    `return '${P}'`,
+    `const fs = await import('node:fs'); return fs.readFileSync(${JSON.stringify(join(home, 'state.json'))}, 'utf8')`,
+    `const fs = await import('node:fs'); return fs.readFileSync(${JSON.stringify(join(home, 'chat-index.sqlite'))}, 'utf8')`,
+  ]) {
+    const res = await run('run_code', { code, description: 'Read file' }, 'b', writerAgent)
+    assert.equal(res.ran, false, `expected private block for run_code: ${code}`)
+    assert.match(res.error, CLOSED)
+  }
+
+  // Non-private Bot cannot directly import or invoke raw host filesystem/process escape modules in run_code when private Bots exist.
+  for (const code of [
+    "const fs = await import('node:fs'); return fs.readFileSync(['.', 'x'].join('/'), 'utf8')",
+    "const fs = await import('fs'); return fs.readdirSync('.')",
+    "const fsp = await import('node:fs/promises'); return await fsp.readdir('.')",
+    "import cp from 'node:child_process'; return cp.execSync('pwd')",
+    "const cp = require('child_process'); return cp.execSync('pwd')",
+    "return process.binding('fs')",
+    "return process.dlopen({}, 'x')",
+    "return process.getBuiltinModule('node:fs')",
+    "return `${await import('node:fs')}`",
+  ]) {
+    const res = await run('run_code', { code, description: 'Direct host module' }, 'b', writerAgent)
+    assert.equal(res.ran, false, `expected direct host module block for run_code: ${code}`)
+    assert.match(res.error, CLOSED)
+  }
+
+  if (process.platform !== 'win32') {
+    symlinkSync(diary, join(project, 'code-link'))
+    const viaLink = await run('run_code', { code: "return fs.readFileSync('code-link/notes.txt', 'utf8')", description: 'Read link' }, 'b', writerAgent)
+    assert.equal(viaLink.ran, false)
+    assert.match(viaLink.error, CLOSED)
+  }
+
+  // API, telemetry, and secret storage references are blocked in run_code (including Windows double-backslash paths and relative traversals).
+  for (const code of [
+    `return fs.readFileSync(${JSON.stringify(join(home, 'api-tokens.json'))}, 'utf8')`,
+    `return '${join(home, 'api-tokens.json').replace(/[\\/]/g, '\\\\')}'`,
+    `return fs.readFileSync(${JSON.stringify(join(home, 'mcp.json'))}, 'utf8')`,
+    `return fs.readFileSync(${JSON.stringify(join(home, 'telemetry.json'))}, 'utf8')`,
+  ]) {
+    const res = await run('run_code', { code, description: 'Read api' }, 'b', writerAgent)
+    assert.equal(res.ran, false)
+    assert.match(res.error, /API token|telemetry|private Bot/)
+  }
+  for (const code of [
+    `return fs.readFileSync(${JSON.stringify(join(home, 'secret-refs', 'ref.json'))}, 'utf8')`,
+    `return '${join(home, 'secret-refs', 'ref.json').replace(/[\\/]/g, '\\\\')}'`,
+    `return fs.readFileSync(${JSON.stringify(join(home, 'secret-files', 'a', 'k.secret'))}, 'utf8')`,
+    `return '${join(home, 'secret-files', 'a', 'k.secret').replace(/[\\/]/g, '\\\\')}'`,
+  ]) {
+    const res = await run('run_code', { code, description: 'Read secret' }, 'b', writerAgent)
+    assert.equal(res.ran, false)
+    assert.match(res.error, /secret|private Bot/i)
+  }
+
+  // Normal open code in run_code stays allowed for non-private Bots, including workspace files named api-*/mcp.json
+  // and writing JS source strings that mention node:fs via tools.write.
+  for (const cwd of [project, team]) {
+    writerAgent.session.header.cwd = cwd
+    assert.deepEqual(await run('run_code', { code: "return await tools.read({ file_path: 'src/index.js' })", description: 'Read open file' }, 'b', writerAgent), { ran: true })
+    assert.deepEqual(await run('run_code', { code: "return await tools.read({ file_path: 'src/api-client.ts' })", description: 'Read workspace api client' }, 'b', writerAgent), { ran: true })
+    assert.deepEqual(await run('run_code', { code: "return await tools.read({ file_path: 'docs/api-routes.md' })", description: 'Read workspace api docs' }, 'b', writerAgent), { ran: true })
+    assert.deepEqual(await run('run_code', { code: "return await tools.read({ file_path: 'config/mcp.json' })", description: 'Read workspace mcp config' }, 'b', writerAgent), { ran: true })
+    assert.deepEqual(await run('run_code', { code: 'return await tools.write({ file_path: "src/helper.js", content: "import fs from \'node:fs\'\\nexport default fs\\n" })', description: 'Write JS file via tool' }, 'b', writerAgent), { ran: true })
+  }
+  // Relative traversal from team workspace (<home>/workspace) up to rt.home API/MCP/telemetry files stays blocked.
+  writerAgent.session.header.cwd = team
+  for (const rel of ['../api-tokens.json', '../mcp.json', '../telemetry.json']) {
+    const res = await run('run_code', { code: `return await tools.read({ file_path: '${rel}' })`, description: 'Traverse to host api file' }, 'b', writerAgent)
+    assert.equal(res.ran, false, `expected block for ${rel}`)
+    assert.match(res.error, /API token|telemetry|private Bot/)
+  }
+  // Bare API/MCP filenames when cwd is rt.home itself stay blocked.
+  writerAgent.session.header.cwd = home
+  for (const bare of ['api-tokens.json', 'mcp.json', 'telemetry.json']) {
+    const res = await run('run_code', { code: `return await tools.read({ file_path: '${bare}' })`, description: 'Bare host api file' }, 'b', writerAgent)
+    assert.equal(res.ran, false, `expected block for bare ${bare} in home`)
+    assert.match(res.error, /API token|telemetry|private Bot/)
+  }
+  writerAgent.session.header.cwd = project
+
+  // Private Bot inside its own folder under workspace-write runs without extra approval.
+  const privateAgent = agentOf(P)
+  privateAgent.session.header.cwd = diary
+  assert.deepEqual(await run('run_code', { code: 'return 1 + 1', description: 'Compute locally' }, P, privateAgent), { ran: true })
+  assert.equal(approval.requests.length, 0)
+
+  // Private Bot requesting danger-full-access requires user approval.
+  assert.deepEqual(await run('run_code', { code: 'return 1', description: 'Escalate', sandbox_permissions: 'danger-full-access', justification: 'test' }, P, privateAgent), { ran: true })
+  assert.equal(approval.requests.length, 1)
+  assert.match(approval.requests[0].reason, /outside its own folder fence/)
+
+  // Private Bot with standing danger-full-access requires user approval.
+  standingMode = 'danger-full-access'
+  assert.deepEqual(await run('run_code', { code: 'return 1', description: 'Standing full' }, P, privateAgent), { ran: true })
+  assert.equal(approval.requests.length, 2)
+  standingMode = 'workspace-write'
+
+  // Private Bot with cwd outside its own folder requires user approval.
+  privateAgent.session.header.cwd = team
+  assert.deepEqual(await run('run_code', { code: 'return 1', description: 'Outside cwd' }, P, privateAgent), { ran: true })
+  assert.equal(approval.requests.length, 3)
+})
+
+test('run_code allows workspace api-*/mcp.json files while guardApiFiles still blocks rt.home API/MCP/telemetry files', async (t) => {
+  const { run, home, team, project, agentOf, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const agent = agentOf('b')
+  for (const cwd of [project, team]) {
+    agent.session.header.cwd = cwd
+    for (const file of ['src/api-client.ts', 'docs/api-routes.md', 'config/mcp.json']) {
+      assert.deepEqual(await run('run_code', { code: `return await tools.read({ file_path: '${file}' })`, description: 'Read workspace file' }, 'b', agent), { ran: true })
+    }
+  }
+  // Host-owned API/MCP/telemetry files under rt.home remain blocked via absolute, Windows-escaped, relative traversal, and home-cwd paths.
+  agent.session.header.cwd = project
+  for (const code of [
+    `return await tools.read({ file_path: ${JSON.stringify(join(home, 'api-tokens.json'))} })`,
+    `return '${join(home, 'api-tokens.json').replace(/[\\/]/g, '\\\\')}'`,
+    `return await tools.read({ file_path: ${JSON.stringify(join(home, 'mcp.json'))} })`,
+    `return await tools.read({ file_path: ${JSON.stringify(join(home, 'telemetry.json'))} })`,
+  ]) {
+    const res = await run('run_code', { code, description: 'Read host api file' }, 'b', agent)
+    assert.equal(res.ran, false, `expected guardApiFiles block for: ${code}`)
+    assert.match(res.error, /API token|telemetry/)
+  }
+  agent.session.header.cwd = team
+  for (const rel of ['../api-tokens.json', '../mcp.json', '../telemetry.json']) {
+    const res = await run('run_code', { code: `return await tools.read({ file_path: '${rel}' })`, description: 'Traverse to host api file' }, 'b', agent)
+    assert.equal(res.ran, false, `expected guardApiFiles block for: ${rel}`)
+    assert.match(res.error, /API token|telemetry/)
+  }
+  agent.session.header.cwd = home
+  for (const bare of ['api-tokens.json', 'mcp.json', 'telemetry.json']) {
+    const res = await run('run_code', { code: `return await tools.read({ file_path: '${bare}' })`, description: 'Bare host api file' }, 'b', agent)
+    assert.equal(res.ran, false, `expected guardApiFiles block for bare ${bare}`)
+    assert.match(res.error, /API token|telemetry/)
+  }
+})
+
+test('privacy shell and run_code guards normalize Windows UNC and repeated slashes consistently', async (t) => {
+  const { run, rt, diary, agentOf, stop } = await start()
+  t.after(stop)
+  const writerAgent = agentOf('b')
+  // Repeated slashes on the private Bot's real diary folder are blocked.
+  const repeated = await run('bash', { command: `cat ${diary.replace(/[\\/]/g, '//')}/notes.txt` }, 'b', writerAgent)
+  assert.equal(repeated.ran, false, 'expected bash block for repeated slashes on diary')
+  assert.match(repeated.error, CLOSED)
+  // UNC private folder matches single/double backslash, forward-slash, and JS-escaped UNC forms.
+  rt.state.bots[P].workDir = process.platform === 'win32' ? '\\\\fileserver\\team\\private-vault' : '//fileserver/team/private-vault'
+  for (const cmd of [
+    'type \\\\fileserver\\team\\private-vault\\notes.md',
+    'cat //fileserver/team/private-vault/notes.md',
+    'cat //fileserver//team///private-vault/notes.md',
+  ]) {
+    const res = await run('bash', { command: cmd }, 'b', writerAgent)
+    assert.equal(res.ran, false, `expected bash block for UNC path: ${cmd}`)
+    assert.match(res.error, CLOSED)
+  }
+  const codeRes = await run('run_code', { code: 'return "\\\\\\\\fileserver\\\\team\\\\private-vault\\\\notes.md"' }, 'b', writerAgent)
+  assert.equal(codeRes.ran, false, 'expected run_code block for escaped UNC path')
+  assert.match(codeRes.error, CLOSED)
+})

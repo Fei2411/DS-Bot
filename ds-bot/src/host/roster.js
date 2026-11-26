@@ -1,6 +1,6 @@
 // Roster: creating, changing, and deleting Bots and group chats, the Main Bot role, and
 // the first Main Bot of a new team.
-import { openSessions, ownChatSessions, retiredTaskSessionIds } from './threads.js'
+import { isMissingSessionError, openSessions, ownChatSessions, retiredTaskSessionIds } from './threads.js'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { agentAvatar } from '../client/agent-routes.js'
@@ -447,18 +447,31 @@ export function install(rt) {
   function sendKickoff(bot, greeting) {
     // A greeting waiting for its model may still be waiting when the host goes away.
     if (rt.hostClosing?.() === true) return
+    if (bot.sessionMissing === rt.chatOf(bot.id)) {
+      sentKickoffs.set(bot.id, greeting)
+      holdKickoffAgain(bot.id)
+      return
+    }
     sentKickoffs.set(bot.id, greeting)
     const text = greeting.afterUser ? `${AFTER_USER} ${writeIn(rt.uiLanguage?.())}\n${OWN_RULES}` : greeting.text
     void rt.deliver({ fromId: greeting.from ?? undefined, ...(greeting.from === 'api:external' ? { fromName: 'External API' } : {}), toId: bot.id, text, role: 'kickoff' })
-      .catch(error => rt.warn('ds-bot: kickoff failed: %s', error))
+      .catch((error) => {
+        if (isMissingSessionError(error)) {
+          const missingId = rt.chatOf(bot.id)
+          if (missingId !== undefined && bot.sessionMissing !== missingId) bot.sessionMissing = missingId
+          holdKickoffAgain(bot.id)
+        }
+        rt.warn('ds-bot: kickoff failed: %s', error)
+      })
   }
 
   // A held greeting goes out once its Bot has a model, on that model once its provider
-  // is registered. False while the Bot has none.
+  // is registered. False while the Bot has none or its current Session is missing.
   const releasing = new Set()
   async function releaseKickoff(bot) {
     const greeting = bot.kickoff
     if (greeting === undefined || !bot.model) return false
+    if (bot.sessionMissing === rt.chatOf(bot.id)) return false
     delete bot.kickoff
     releasing.add(bot.id)
     await rt.save().catch((error) => { releasing.delete(bot.id); throw error })

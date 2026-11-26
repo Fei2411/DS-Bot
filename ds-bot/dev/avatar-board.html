@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DS Bot · Avatar state board</title>
+<!--
+  Every state a Bot can be in, at the sizes the app shows marks, in both themes, all
+  moving at once. The test: with the labels hidden, can you tell what each Bot is doing
+  from its motion alone? Serve the repository root (for example
+  `python3 -m http.server`) and open /ds-bot/dev/avatar-board.html.
+-->
+<style>
+  :root { color-scheme: light; --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #ececec; color: #141414; font: 13px/1.45 var(--font); }
+  header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 18px; background: rgba(236,236,236,.92); backdrop-filter: blur(8px); border-bottom: .5px solid rgba(20,20,20,.1); }
+  header b { font-weight: 600; margin-right: 6px; }
+  .group { display: flex; align-items: center; gap: 6px; color: rgba(20,20,20,.6); }
+  .chip { appearance: none; border: .5px solid rgba(20,20,20,.15); background: #fff; color: #141414; border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+  .chip[aria-pressed=true] { background: #141414; color: #fff; border-color: #141414; }
+  select { font: inherit; font-size: 12px; background: #fff; color: #141414; border: .5px solid rgba(20,20,20,.15); border-radius: 8px; padding: 3px 6px; }
+  .status { margin-left: auto; font: 11px ui-monospace, "SF Mono", Menlo, monospace; color: rgba(20,20,20,.5); }
+  main { display: flex; flex-wrap: wrap; gap: 0; }
+  .panel { flex: 1 1 560px; padding: 8px 18px 24px; --bg: #ffffff; --ink: #141414; --ink2: rgba(20,20,20,.6); --ink3: rgba(20,20,20,.36); --line: rgba(20,20,20,.08); background: var(--bg); color: var(--ink); }
+  .panel.dark { --bg: #141414; --ink: #f2f2f2; --ink2: rgba(242,242,242,.6); --ink3: rgba(242,242,242,.36); --line: rgba(255,255,255,.08); color-scheme: dark; }
+  table { border-collapse: collapse; width: 100%; }
+  th { font-weight: 500; font-size: 11px; color: var(--ink3); text-align: center; padding: 8px 0 4px; }
+  th:first-child { text-align: left; }
+  td { height: 84px; text-align: center; border-top: .5px solid var(--line); }
+  td.name { text-align: left; width: 150px; color: var(--ink2); }
+  td.name b { display: block; color: var(--ink); font-weight: 500; }
+  body.blind td.name b, body.blind td.name span { visibility: hidden; }
+  body.blind td.name::before { content: attr(data-n); color: var(--ink); font-weight: 600; }
+  .bt-mark { display: inline-block; position: relative; line-height: 0; flex: none; vertical-align: middle; }
+  .bt-mark svg { width: 100%; height: 100%; overflow: visible; }
+  .bt-mark[data-live3d] > svg { visibility: hidden; }
+  .bt-mark-live { position: absolute; pointer-events: none; }
+</style>
+</head>
+<body>
+<header>
+  <b>State board</b>
+  <span class="group">Character <select id="shape"></select></span>
+  <span class="group">Motion level <span id="tiers"></span></span>
+  <span class="group">Interface motion <span id="effects"></span></span>
+  <span class="group"><button class="chip" id="rest" aria-pressed="false">Window resting</button></span>
+  <span class="group"><button class="chip" id="blind" aria-pressed="false">Blind test</button><button class="chip" id="shuffle">Shuffle</button></span>
+  <span class="status" id="status"></span>
+</header>
+<main id="main"></main>
+<script type="module">
+import { characterMarkup, MASK_ID, PICKER_SHAPES, SHAPES, CHARACTER_COLORS } from '../src/client/characters.js'
+import { INKS } from '../src/client/inks.js'
+import { LiveMark } from '../src/client/avatar/live.js'
+import { STATES } from '../src/client/avatar/states.js'
+
+// The rows: each state, what it means in the app, and how the app reaches it. A row
+// with `cycle` replays how the state comes about (done follows a piece of work).
+const ROWS = [
+  { state: 'idle', zh: '空闲', note: 'nothing running' },
+  { state: 'thinking', zh: '思考', note: 'the model is reasoning' },
+  { state: 'searching', zh: '查找', note: 'reading, searching, browsing' },
+  { state: 'working', zh: '干活', note: 'writing, running commands' },
+  { state: 'sending', zh: '发给别的 Bot', note: 'delegating, messaging a Bot' },
+  { state: 'relaying', zh: '群里转发', note: 'passing messages in a group' },
+  { state: 'waiting', zh: '等交出去的活', note: 'handed work on, not back yet' },
+  { state: 'background', zh: '后台任务', note: 'background tasks running' },
+  { state: 'alert', zh: '等你回答', note: 'a question or approval for you' },
+  { state: 'failed', zh: '出错', note: 'the last turn failed' },
+  { state: 'done', zh: '完成', note: 'replays: work, then done', cycle: true },
+  { state: 'replied', zh: '有未读回复', note: 'finished, reply not read yet' },
+  { state: 'sleeping', zh: '打盹', note: 'lively level, long without input' },
+].filter(row => Object.hasOwn(STATES, row.state))
+const SIZES = [18, 22, 28, 36, 60]
+
+// Character inks, light on the page and dark inside the dark panel.
+const inkCss = document.createElement('style')
+inkCss.textContent = Object.entries(INKS).map(([name, [light, dark]]) => `.panel{--bt-ink-${name}:${light}}.panel.dark{--bt-ink-${name}:${dark}}`).join('')
+document.head.append(inkCss)
+
+let serial = 0
+const flat = (shape, color) => characterMarkup(shape, color).replaceAll(MASK_ID, `sb-${serial += 1}`)
+function mount(host, { shape, color, size, state, seed }) {
+  host.style.width = `${size}px`
+  host.style.height = `${size}px`
+  host.innerHTML = `<svg viewBox="0 0 100 100">${flat(shape, color)}</svg>`
+  return new LiveMark(host, { look: { shape, color }, def: SHAPES[shape], size, seed, live: true, state })
+}
+
+const ui = { shape: 'mixed', order: ROWS.map((_, index) => index) }
+let marks = []
+const timers = []
+
+function lookOf(rowIndex) {
+  const shape = ui.shape === 'mixed' ? PICKER_SHAPES[(rowIndex * 7 + 3) % PICKER_SHAPES.length] : ui.shape
+  const color = shape === 'whale' ? 'deepseek' : CHARACTER_COLORS[(rowIndex * 5 + 2) % CHARACTER_COLORS.length]
+  return { shape, color }
+}
+
+function build() {
+  for (const mark of marks) mark.destroy()
+  for (const timer of timers.splice(0)) clearInterval(timer)
+  marks = []
+  const main = document.getElementById('main')
+  main.textContent = ''
+  for (const theme of ['light', 'dark']) {
+    const panel = document.createElement('section')
+    panel.className = `panel ${theme}`
+    const table = document.createElement('table')
+    table.innerHTML = `<tr><th>${theme}</th>${SIZES.map(size => `<th>${size}px</th>`).join('')}</tr>`
+    ui.order.forEach((rowIndex, position) => {
+      const row = ROWS[rowIndex]
+      const tr = document.createElement('tr')
+      const name = document.createElement('td')
+      name.className = 'name'
+      name.dataset.n = String(position + 1)
+      name.innerHTML = `<b>${row.zh}</b><span>${row.state} · ${row.note}</span>`
+      tr.append(name)
+      const look = lookOf(rowIndex)
+      const rowMarks = SIZES.map((size, column) => {
+        const td = document.createElement('td')
+        const host = document.createElement('span')
+        host.className = 'bt-mark'
+        td.append(host)
+        tr.append(td)
+        const seed = rowIndex * 1009 + column * 97 + (theme === 'dark' ? 31 : 0)
+        return mount(host, { ...look, size, state: row.cycle ? 'working' : row.state, seed })
+      })
+      marks.push(...rowMarks)
+      if (row.cycle) {
+        // Work for a few seconds, then done; it settles to idle on its own.
+        let step = 0
+        timers.push(setInterval(() => {
+          step = (step + 1) % 3
+          for (const mark of rowMarks) mark.update({ state: step === 0 ? 'working' : step === 1 ? 'done' : 'idle' })
+        }, 2400))
+      }
+      table.append(tr)
+    })
+    panel.append(table)
+    main.append(panel)
+  }
+  applyRest()
+}
+
+const select = document.getElementById('shape')
+for (const value of ['mixed', ...PICKER_SHAPES]) select.append(new Option(value, value))
+select.addEventListener('change', () => { ui.shape = select.value; build() })
+
+function chips(id, values, initial, onPick) {
+  const box = document.getElementById(id)
+  for (const value of values) {
+    const button = document.createElement('button')
+    button.className = 'chip'
+    button.textContent = value
+    button.setAttribute('aria-pressed', String(value === initial))
+    button.addEventListener('click', () => {
+      for (const other of box.children) other.setAttribute('aria-pressed', String(other === button))
+      onPick(value)
+    })
+    box.append(button)
+  }
+}
+chips('tiers', ['quiet', 'normal', 'lively'], 'normal', (value) => { document.body.dataset.btMotion = value })
+document.body.dataset.btMotion = 'normal'
+chips('effects', ['full', 'reduced', 'off'], 'full', (value) => { if (value === 'full') delete document.body.dataset.btEffects; else document.body.dataset.btEffects = value })
+
+// Resting: as after REST_MS without input, but held until turned off, so a glance at
+// the board without touching it can be tried at once.
+let resting = false
+function applyRest() { for (const mark of marks) mark.act(engine => engine.rest(resting)) }
+document.getElementById('rest').addEventListener('click', (event) => {
+  resting = !resting
+  event.currentTarget.setAttribute('aria-pressed', String(resting))
+  applyRest()
+})
+document.getElementById('blind').addEventListener('click', (event) => {
+  const on = !document.body.classList.contains('blind')
+  document.body.classList.toggle('blind', on)
+  event.currentTarget.setAttribute('aria-pressed', String(on))
+})
+document.getElementById('shuffle').addEventListener('click', () => {
+  const order = [...ui.order]
+  for (let i = order.length - 1; i > 0; i -= 1) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]] }
+  ui.order = order
+  build()
+})
+
+// Frame cost, so a change that makes marks busier shows its price.
+const status = document.getElementById('status')
+let frames = 0
+let spent = 0
+let last = performance.now()
+const raf = window.requestAnimationFrame
+window.requestAnimationFrame = fn => raf((time) => { const t0 = performance.now(); fn(time); spent += performance.now() - t0; frames += 1 })
+setInterval(() => {
+  const now = performance.now()
+  status.textContent = `${marks.length} marks · ${Math.round((frames * 1000) / (now - last))} fps · ${(frames ? spent / frames : 0).toFixed(2)} ms / frame`
+  frames = 0
+  spent = 0
+  last = now
+}, 1000)
+
+build()
+</script>
+</body>
+</html>

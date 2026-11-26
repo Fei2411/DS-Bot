@@ -82,6 +82,27 @@ export function install(rt) {
   const flushingSilent = new Set()
   const isBusyAgent = (agent, sessionId) => agent?.status === 'running' || rt.live?.get(sessionId)?.turn !== undefined
   const syncSilent = (sessionId) => { rt.noteSilent?.(sessionId, pendingSilent.get(sessionId)) }
+  const switchingOwnerOf = (sessionId) => (
+    sessionId !== undefined && state.switching != null && Object.hasOwn(state.switching, sessionId)
+      ? state.switching[sessionId]
+      : undefined
+  )
+  const appendUniqueSilent = (targetList, entries, toSessionId) => {
+    const seenIds = new Set(targetList.map(item => item?.message?.source?.exchangeId).filter(Boolean))
+    const seenMsgIds = new Set(targetList.map(item => item?.message?.id).filter(Boolean))
+    for (const entry of entries ?? []) {
+      if (entry?.message === undefined) continue
+      const exId = entry.message?.source?.exchangeId
+      const msgId = entry.message?.id
+      if ((exId !== undefined && seenIds.has(exId)) || (msgId !== undefined && seenMsgIds.has(msgId))) continue
+      if (exId !== undefined) seenIds.add(exId)
+      if (msgId !== undefined) seenMsgIds.add(msgId)
+      targetList.push({
+        message: entry.message,
+        ...(entry.ledger !== undefined ? { ledger: { ...entry.ledger, sessionId: toSessionId } } : {}),
+      })
+    }
+  }
   const waitIdleBriefly = (agent, timeoutMs = 2000) => {
     if (typeof agent?.whenIdle !== 'function') return Promise.resolve()
     return new Promise((resolve) => {
@@ -151,7 +172,7 @@ export function install(rt) {
     try {
       const agent = await resolveAgent(sessionId).catch(() => undefined)
       if (agent === undefined) {
-        if (rt.selfOf?.(sessionId) === undefined) {
+        if (rt.selfOf?.(sessionId) === undefined && switchingOwnerOf(sessionId) === undefined) {
           pendingSilent.delete(sessionId)
           syncSilent(sessionId)
         }
@@ -190,24 +211,30 @@ export function install(rt) {
   const takeSilentNotes = (sessionId) => takeSilentEntries(sessionId).map(entry => entry.message)
   const moveSilentNotes = (fromSessionId, toSessionId, { awaitFlush = false, rethrow = false } = {}) => {
     if (fromSessionId === undefined || toSessionId === undefined || fromSessionId === toSessionId) return Promise.resolve()
-    const entries = takeSilentEntries(fromSessionId)
-    if (entries.length > 0) {
-      const targetList = pendingSilent.get(toSessionId) ?? []
-      const seenIds = new Set(targetList.map(item => item?.message?.source?.exchangeId).filter(Boolean))
-      const seenMsgIds = new Set(targetList.map(item => item?.message?.id).filter(Boolean))
-      for (const entry of entries) {
-        const exId = entry?.message?.source?.exchangeId
-        const msgId = entry?.message?.id
-        if ((exId !== undefined && seenIds.has(exId)) || (msgId !== undefined && seenMsgIds.has(msgId))) continue
-        if (exId !== undefined) seenIds.add(exId)
-        if (msgId !== undefined) seenMsgIds.add(msgId)
-        targetList.push({
-          message: entry.message,
-          ...(entry.ledger !== undefined ? { ledger: { ...entry.ledger, sessionId: toSessionId } } : {}),
-        })
+    const fromStartup = rt.peekStartupSilent?.(fromSessionId) ?? []
+    const fromMemory = pendingSilent.get(fromSessionId) ?? []
+    const entries = fromStartup.length > 0 ? [...fromStartup, ...fromMemory] : fromMemory
+    const toStartup = rt.peekStartupSilent?.(toSessionId) ?? []
+    if (entries.length > 0 || toStartup.length > 0) {
+      const existingTarget = pendingSilent.get(toSessionId) ?? []
+      const targetList = []
+      appendUniqueSilent(targetList, toStartup, toSessionId)
+      appendUniqueSilent(targetList, existingTarget, toSessionId)
+      appendUniqueSilent(targetList, entries, toSessionId)
+      // Persist destination before removing source so a crash mid-move never drops notes.
+      if (targetList.length > 0) {
+        pendingSilent.set(toSessionId, targetList)
+        syncSilent(toSessionId)
       }
-      pendingSilent.set(toSessionId, targetList)
-      syncSilent(toSessionId)
+      if (toStartup.length > 0) rt.clearStartupSilent?.(toSessionId)
+      if (pendingSilent.has(fromSessionId) || fromStartup.length > 0) {
+        pendingSilent.delete(fromSessionId)
+        rt.clearStartupSilent?.(fromSessionId)
+        syncSilent(fromSessionId)
+      }
+    } else if (pendingSilent.has(fromSessionId)) {
+      pendingSilent.delete(fromSessionId)
+      syncSilent(fromSessionId)
     }
     if (!pendingSilent.has(toSessionId)) return Promise.resolve()
     if (awaitFlush) return flushSilentNotes(toSessionId, { rethrow })
@@ -219,31 +246,31 @@ export function install(rt) {
     const touched = new Set()
     for (const [oldSid, list] of Object.entries(savedMap)) {
       if (!Array.isArray(list) || list.length === 0) continue
-      const botId = rt.selfOf?.(oldSid)
+      const switching = switchingOwnerOf(oldSid)
+      const botId = rt.selfOf?.(oldSid) ?? switching?.botId
       const bot = botId === undefined ? undefined : rt.botOf(botId)
       if (bot === undefined) continue
       const groupOwner = rt.groupOwners?.get(oldSid)
+      const switchingRoom = switching?.roomId !== undefined ? rt.roomOf(switching.roomId) : undefined
       const destSid = groupOwner !== undefined
         ? (rt.roomOf(groupOwner.roomId)?.sessions?.[botId] ?? oldSid)
-        : (threadCurrentOfPart(bot, oldSid) ?? (rt.isBotSession?.(oldSid) ? oldSid : rt.chatOf(botId)))
+        : switchingRoom !== undefined
+          ? (switchingRoom.sessions?.[botId] ?? oldSid)
+          : (threadCurrentOfPart(bot, oldSid)
+            ?? (switching?.next !== undefined && rt.chatOwners?.has(switching.next) ? switching.next : undefined)
+            ?? (rt.isBotSession?.(oldSid) ? oldSid : rt.chatOf(botId)))
       if (destSid === undefined) continue
       const destList = pendingSilent.get(destSid) ?? []
-      const seenIds = new Set(destList.map(item => item?.message?.source?.exchangeId).filter(Boolean))
-      for (const raw of list) {
-        const message = raw?.message
-        if (message === undefined) continue
-        const exId = message?.source?.exchangeId
-        if (exId !== undefined && seenIds.has(exId)) continue
-        if (exId !== undefined) seenIds.add(exId)
-        destList.push({
-          message,
-          ...(raw.ledger !== undefined ? { ledger: { ...raw.ledger, sessionId: destSid } } : {}),
-        })
-      }
+      appendUniqueSilent(destList, list, destSid)
       if (destList.length > 0) {
         pendingSilent.set(destSid, destList)
         syncSilent(destSid)
         touched.add(destSid)
+      }
+      if (destSid !== oldSid) {
+        pendingSilent.delete(oldSid)
+        rt.clearStartupSilent?.(oldSid)
+        syncSilent(oldSid)
       }
     }
     for (const sid of touched) await flushSilentNotes(sid)
