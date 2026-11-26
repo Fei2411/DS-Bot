@@ -1,5 +1,5 @@
 // End-to-end test of the streaming Markdown fast path in app/ui/src/primitives.js, with
-// the real react-markdown pipeline and the real React reconciler (jsdom). It proves two
+// the real react-markdown pipeline and the real React 19 reconciler (mini-dom). It proves two
 // things the unit tests cannot:
 //
 //  1. The split render's DOM is identical to the settled full-document render, so a reply
@@ -13,17 +13,10 @@ import { build } from 'esbuild'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createRequire } from 'node:module'
-// jsdom comes from the plugin's harness install, as the other DOM tests load it.
-const harness = process.env.DSH_HARNESS ?? fileURLToPath(new URL('../../ds-bot/dev/harness', import.meta.url))
-const { JSDOM } = createRequire(join(harness, 'package.json'))('jsdom')
+import { installMiniDom } from './mini-dom.mjs'
 
-// jsdom globals must exist before react-dom evaluates.
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true })
-for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'MutationObserver', 'Event', 'CustomEvent', 'DocumentFragment', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame']) {
-  if (globalThis[key] === undefined) globalThis[key] = dom.window[key]
-}
-if (globalThis.window === undefined) globalThis.window = dom.window
+// Minimal DOM globals must exist before react-dom evaluates.
+installMiniDom()
 
 const reactMarkdown = fileURLToPath(import.meta.resolve('react-markdown'))
 

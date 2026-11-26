@@ -1,5 +1,5 @@
 // Live language switch over the memoized transcript rows, tested end to end with the
-// real React reconciler (jsdom). It proves the two halves of the memo contract:
+// real React 19 reconciler (mini-dom). It proves the two halves of the memo contract:
 //
 //  1. While a reply streams in chunks, the committed rows never render again — counting
 //     every memoized component's invocation through a React shim.
@@ -18,23 +18,10 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { createRequire } from 'node:module'
-// The harness resolution hook must register before session-log.js (a ds-bot module that
-// imports @deepseek-ai peers) is even resolved, and static imports resolve before any
-// module body runs — so both the hook and the ds-bot import are dynamic.
-await import('./harness-bootstrap.mjs')
+import { installMiniDom } from './mini-dom.mjs'
 import { createLocale } from '../ui/src/locale.js'
-const { applyFrame, emptyLog } = await import('../../ds-bot/src/client/session-log.js')
 
-// jsdom comes from the plugin's harness install, as the other DOM tests load it.
-const harness = process.env.DSH_HARNESS ?? fileURLToPath(new URL('../../ds-bot/dev/harness', import.meta.url))
-const { JSDOM } = createRequire(join(harness, 'package.json'))('jsdom')
-
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true })
-for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'MutationObserver', 'Event', 'CustomEvent', 'DocumentFragment', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame']) {
-  if (globalThis[key] === undefined) globalThis[key] = dom.window[key]
-}
-if (globalThis.window === undefined) globalThis.window = dom.window
+installMiniDom()
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 // The bundle must resolve the app's own react at runtime (one copy for the host's locale
@@ -75,6 +62,7 @@ export { createElement, Fragment } from 'react'
 export { createRoot } from 'react-dom/client'
 export { act } from 'react'
 export { renderCounts, resetRenderCounts } from ${JSON.stringify(reactCountPath)}
+export { applyFrame, emptyLog } from ${JSON.stringify(join(rootDir, 'ds-bot/src/client/session-log.js'))}
 export { SessionTranscript } from ${JSON.stringify(join(appDir, 'ui/src/session-chat.js'))}
 export { installLocale } from ${JSON.stringify(join(rootDir, 'ds-bot/src/client/i18n.js'))}
 export { setAppLocaleService } from ${JSON.stringify(join(appDir, 'ui/src/locale.js'))}
@@ -105,12 +93,12 @@ const { outputFiles } = await build({
   plugins: [reactAliasPlugin],
   logLevel: 'silent',
   // The entry lives in a temp dir, so React and the @deepseek-ai peers resolve through
-  // the app's install and the harness checkout, as the test runner itself resolves them.
-  nodePaths: [join(appDir, 'node_modules'), join(harness, 'node_modules')],
+  // the app's own install — matching the standalone `Desktop app profile` CI job.
+  nodePaths: [join(appDir, 'node_modules')],
 })
 const bundlePath = join(dir, 'bundle.mjs')
 writeFileSync(bundlePath, outputFiles[0].text)
-const { createElement: h, createRoot, act, renderCounts, resetRenderCounts, SessionTranscript, installLocale, setAppLocaleService } = await import(bundlePath)
+const { createElement: h, createRoot, act, renderCounts, resetRenderCounts, applyFrame, emptyLog, SessionTranscript, installLocale, setAppLocaleService } = await import(bundlePath)
 
 // One locale service, shared with the bundle: `installLocale` binds the bundle's `t()`
 // and registers every dictionary into it; `setAppLocaleService` is what the rows'
