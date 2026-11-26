@@ -79,7 +79,7 @@ const contrast = (ink, paper) => {
 }
 
 test('the user ink reads on the user surface in every built-in theme and mode', () => {
-  for (const id of ['deepseek', 'mono', 'paper', 'moonlight']) {
+  for (const id of Object.keys(allThemes())) {
     for (const dark of [false, true]) {
       const vars = themeVars(allThemes()[id], dark)
       const ratio = contrast(over(vars['--bt-user-ink'], vars['--bt-user']), over(vars['--bt-user'], vars['--bt-main']))
@@ -98,7 +98,7 @@ const varsOf = (theme, accent, dark) => {
 
 test('the accent ink is the more readable of the two inks for every accent', () => {
   const cases = []
-  for (const id of ['deepseek', 'mono', 'paper', 'moonlight']) {
+  for (const id of Object.keys(allThemes())) {
     for (const dark of [false, true]) cases.push([`${id} ${dark ? 'dark' : 'light'}`, allThemes()[id], undefined, dark])
   }
   for (const ink of ACCENT_INKS) {
@@ -158,7 +158,7 @@ const resolve = (value, vars) => {
 }
 
 test('a user message stays readable when a dark skin repaints the host bubble', () => {
-  for (const id of ['deepseek', 'mono', 'paper', 'moonlight']) {
+  for (const id of Object.keys(allThemes())) {
     const vars = { ...themeVars(allThemes()[id], true), ...DARK_SKIN }
     const page = vars['--bt-main']
     for (const selector of ['.bt-ubody', '[class*="_userRow"] [class*="_bubble"]']) {
