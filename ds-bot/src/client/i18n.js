@@ -1744,6 +1744,8 @@ const ZH = {
   // A Session that is still landing
   'Opening…': '正在打开…',
   'Still opening…': '还在打开…',
+  'This session is not available yet.': '这个会话暂时还打不开。',
+  'This session is no longer available.': '这个会话已不存在。',
   'Add files': '添加文件',
   'Reference a chat': '引用对话',
   'Chat with {name}': '与 {name} 的对话',
