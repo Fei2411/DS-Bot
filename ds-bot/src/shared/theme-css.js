@@ -25,7 +25,7 @@ const isNameCode = code => code === 0x2d || code === 0x5f || (code >= 0x30 && co
 // Functions whose argument is a resource. url() is inspected because data: and fragments
 // stay; the others can carry a bare string or several candidates, so they count as a
 // fetch as soon as they appear.
-const REMOTE_FUNCTIONS = new Set(['image-set', '-webkit-image-set', 'src'])
+const REMOTE_FUNCTIONS = new Set(['image-set', '-webkit-image-set', 'image', 'src'])
 
 /**
  * Scan stylesheet text (or one declaration value) for file loads.
@@ -45,14 +45,23 @@ function scanThemeCss(text) {
     i = end === -1 ? n : end + 2
   }
 
-  // A string, exactly as CSS reads it: backslash escapes the next character (or continues
-  // the string over a newline), so a quote can never hide inside one.
+  // A string, per CSS Syntax Level 3 §4.3.5: backslash escapes the next character (or
+  // continues the string over a newline, including CRLF), while an unescaped newline
+  // terminates the string immediately as a bad-string token so subsequent rules cannot
+  // hide behind an unclosed quote.
   const skipString = () => {
     const quote = source[i]
     i += 1
     while (i < n) {
       const ch = source[i]
-      if (ch === '\\') { i = Math.min(i + 2, n); continue }
+      if (ch === '\\') {
+        i = Math.min(i + (source[i + 1] === '\r' && source[i + 2] === '\n' ? 3 : 2), n)
+        continue
+      }
+      if (ch === '\n' || ch === '\r' || ch === '\f') {
+        fetches = true
+        return
+      }
       i += 1
       if (ch === quote) return
     }
@@ -72,7 +81,11 @@ function scanThemeCss(text) {
         at += 1
         while (at < n) {
           const c = source[at]
-          if (c === '\\') { at = Math.min(at + 2, n); continue }
+          if (c === '\\') {
+            at = Math.min(at + (source[at + 1] === '\r' && source[at + 2] === '\n' ? 3 : 2), n)
+            continue
+          }
+          if (c === '\n' || c === '\r' || c === '\f') break
           at += 1
           if (c === quote) break
         }
@@ -106,7 +119,12 @@ function scanThemeCss(text) {
       let closed = false
       while (i < n) {
         const c = source[i]
-        if (c === '\\') { malformed = true; i = Math.min(i + 2, n); continue }
+        if (c === '\\') {
+          malformed = true
+          i = Math.min(i + (source[i + 1] === '\r' && source[i + 2] === '\n' ? 3 : 2), n)
+          continue
+        }
+        if (c === '\n' || c === '\r' || c === '\f') { malformed = true; break }
         if (c === quote) { closed = true; i += 1; break }
         content += c
         i += 1

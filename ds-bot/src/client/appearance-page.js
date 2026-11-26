@@ -276,7 +276,7 @@ function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, ds
       h('div', { className: 'bt-look-theme bt-look-new' },
         h('button', { type: 'button', className: 'bt-look-tact', onClick: create }, t('New theme')),
         h('label', { className: 'bt-look-tact' }, t('Import…'),
-          h('input', { type: 'file', accept: 'application/json,.json', hidden: true, onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run(importFile(file)) } })))),
+          h('input', { type: 'file', accept: 'application/json,.json,.jsonc', hidden: true, onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run(importFile(file)) } })))),
     h(Row, { label: t('Accent'), tour: 'accent' },
       h('div', { className: 'bt-swatches' },
         h('button', { type: 'button', className: 'bt-swatch bt-swatch-default', title: t('Theme accent'), 'aria-label': t('Theme accent'), 'aria-pressed': !prefs.accent, onClick: () => { dropAccent(); triggerColorMorph(); return run(actions.setPrefs({ accent: null })) } }),

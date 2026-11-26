@@ -154,29 +154,42 @@ const mounted = new WeakMap()
 export function mountUserStylesheet(doc, css) {
   if (!userStylesheetSupported(doc)) return false
   const view = doc.defaultView ?? globalThis
-  let entry
+  let entry = mounted.get(doc)
   try {
-    entry = mounted.get(doc)
-    if (!entry) {
-      const sheet = new view.CSSStyleSheet()
-      doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet]
-      if (!doc.adoptedStyleSheets.includes(sheet)) return false
-      entry = { sheet, text: undefined }
-      mounted.set(doc, entry)
-    }
     // Renders repeat with the stylesheet unchanged; re-parsing and re-sanitizing the same
     // text on every one of them is wasted work in the middle of a stream.
     const text = themeCssWithoutImports(css)
-    if (text !== entry.text) {
-      entry.text = ''
+    if (!entry || text !== entry.text) {
+      // Parse and sanitize on an offline sheet before adopting it, so unsanitized rules
+      // never touch the live document even briefly.
+      const sheet = new view.CSSStyleSheet()
       try {
-        entry.sheet.replaceSync(text)
+        sheet.replaceSync(text)
       } catch {
         // Invalid input must never end up half-applied; nor may what an engine chokes on.
-        entry.sheet.replaceSync('')
+        sheet.replaceSync('')
       }
-      sanitizeUserSheet(entry.sheet, view)
-      entry.text = text
+      sanitizeUserSheet(sheet, view)
+      const prev = entry?.sheet
+      doc.adoptedStyleSheets = [...doc.adoptedStyleSheets.filter(item => item !== prev), sheet]
+      if (!doc.adoptedStyleSheets.includes(sheet)) {
+        if (entry) entry.text = undefined
+        try { prev?.replaceSync('') } catch { /* old sheet already detached */ }
+        return false
+      }
+      if (prev && prev !== sheet) {
+        try { prev.replaceSync('') } catch { /* old sheet already detached */ }
+      }
+      if (entry) {
+        entry.sheet = sheet
+        entry.text = text
+      } else {
+        entry = { sheet, text }
+        mounted.set(doc, entry)
+      }
+    } else if (!doc.adoptedStyleSheets.includes(entry.sheet)) {
+      doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, entry.sheet]
+      if (!doc.adoptedStyleSheets.includes(entry.sheet)) return false
     }
 
     if (!entry.observer && typeof view.MutationObserver === 'function' && typeof doc.head?.querySelectorAll === 'function') {

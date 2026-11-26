@@ -410,7 +410,7 @@ test('theme import accepts both ds-bot theme files and VS Code themes', async (t
     roster, actions, run, Section, Row, Choice, Switch: () => null, ownWindow: false,
   }))
   const tree = draw()
-  const picker = find(tree, node => node.type === 'input' && node.props?.type === 'file' && node.props?.accept === 'application/json,.json')
+  const picker = find(tree, node => node.type === 'input' && node.props?.type === 'file' && node.props?.accept === 'application/json,.json,.jsonc')
   assert.ok(picker, 'the import file input is there')
 
   // A VS Code theme imports as a theme of your own, without touching the appearance.

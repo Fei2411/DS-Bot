@@ -21447,7 +21447,7 @@ var flatWidthOf = (prefs) => percent(prefs?.flatWidth, 100);
 // src/shared/theme-css.js
 var isCssSpace = (ch) => ch === " " || ch === "	" || ch === "\n" || ch === "\f" || ch === "\r";
 var isNameCode = (code) => code === 45 || code === 95 || code >= 48 && code <= 57 || code >= 65 && code <= 90 || code >= 97 && code <= 122 || code >= 128;
-var REMOTE_FUNCTIONS = /* @__PURE__ */ new Set(["image-set", "-webkit-image-set", "src"]);
+var REMOTE_FUNCTIONS = /* @__PURE__ */ new Set(["image-set", "-webkit-image-set", "image", "src"]);
 function scanThemeCss(text) {
   const source = String(text ?? "");
   const n = source.length;
@@ -21464,8 +21464,12 @@ function scanThemeCss(text) {
     while (i < n) {
       const ch = source[i];
       if (ch === "\\") {
-        i = Math.min(i + 2, n);
+        i = Math.min(i + (source[i + 1] === "\r" && source[i + 2] === "\n" ? 3 : 2), n);
         continue;
+      }
+      if (ch === "\n" || ch === "\r" || ch === "\f") {
+        fetches = true;
+        return;
       }
       i += 1;
       if (ch === quote) return;
@@ -21482,9 +21486,10 @@ function scanThemeCss(text) {
         while (at < n) {
           const c = source[at];
           if (c === "\\") {
-            at = Math.min(at + 2, n);
+            at = Math.min(at + (source[at + 1] === "\r" && source[at + 2] === "\n" ? 3 : 2), n);
             continue;
           }
+          if (c === "\n" || c === "\r" || c === "\f") break;
           at += 1;
           if (c === quote) break;
         }
@@ -21516,8 +21521,12 @@ function scanThemeCss(text) {
         const c = source[i];
         if (c === "\\") {
           malformed = true;
-          i = Math.min(i + 2, n);
+          i = Math.min(i + (source[i + 1] === "\r" && source[i + 2] === "\n" ? 3 : 2), n);
           continue;
+        }
+        if (c === "\n" || c === "\r" || c === "\f") {
+          malformed = true;
+          break;
         }
         if (c === quote) {
           closed = true;
@@ -21739,26 +21748,43 @@ var mounted = /* @__PURE__ */ new WeakMap();
 function mountUserStylesheet(doc, css) {
   if (!userStylesheetSupported(doc)) return false;
   const view = doc.defaultView ?? globalThis;
-  let entry;
+  let entry = mounted.get(doc);
   try {
-    entry = mounted.get(doc);
-    if (!entry) {
-      const sheet = new view.CSSStyleSheet();
-      doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet];
-      if (!doc.adoptedStyleSheets.includes(sheet)) return false;
-      entry = { sheet, text: void 0 };
-      mounted.set(doc, entry);
-    }
     const text = themeCssWithoutImports(css);
-    if (text !== entry.text) {
-      entry.text = "";
+    if (!entry || text !== entry.text) {
+      const sheet = new view.CSSStyleSheet();
       try {
-        entry.sheet.replaceSync(text);
+        sheet.replaceSync(text);
       } catch {
-        entry.sheet.replaceSync("");
+        sheet.replaceSync("");
       }
-      sanitizeUserSheet(entry.sheet, view);
-      entry.text = text;
+      sanitizeUserSheet(sheet, view);
+      const prev = entry?.sheet;
+      doc.adoptedStyleSheets = [...doc.adoptedStyleSheets.filter((item) => item !== prev), sheet];
+      if (!doc.adoptedStyleSheets.includes(sheet)) {
+        if (entry) entry.text = void 0;
+        try {
+          prev?.replaceSync("");
+        } catch {
+        }
+        return false;
+      }
+      if (prev && prev !== sheet) {
+        try {
+          prev.replaceSync("");
+        } catch {
+        }
+      }
+      if (entry) {
+        entry.sheet = sheet;
+        entry.text = text;
+      } else {
+        entry = { sheet, text };
+        mounted.set(doc, entry);
+      }
+    } else if (!doc.adoptedStyleSheets.includes(entry.sheet)) {
+      doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, entry.sheet];
+      if (!doc.adoptedStyleSheets.includes(entry.sheet)) return false;
     }
     if (!entry.observer && typeof view.MutationObserver === "function" && typeof doc.head?.querySelectorAll === "function") {
       const marker = () => {
@@ -34472,7 +34498,7 @@ function walkJsonc(source, visit) {
   }
 }
 function stripJsonc(text) {
-  const source = String(text ?? "");
+  const source = String(text ?? "").replace(/^\uFEFF/, "");
   let uncommented = source.slice();
   walkJsonc(source, (kind, start, end) => {
     if (kind !== "comment") return;
@@ -34540,11 +34566,12 @@ function parseVscodeTheme(text, fallbackLabel = "VS Code theme") {
     if (typeof value !== "string" || !HEX3.test(value)) return void 0;
     let hex = value.toLowerCase();
     if (hex.length === 4 || hex.length === 5) hex = `#${hex.slice(1).split("").map((ch) => ch + ch).join("")}`;
+    if (hex.length === 9 && parseInt(hex.slice(7, 9), 16) < 32) return void 0;
     return hex.slice(0, 7);
   };
   const canvas = opaque(colors["editor.background"]) ?? (typeDark ?? true ? VSCODE_DEFAULTS.dark : VSCODE_DEFAULTS.light);
   const dark = typeDark ?? hslOf2(canvas)[2] < 0.5;
-  if (!Object.values(colors).some((value) => typeof value === "string" && HEX3.test(value))) {
+  if (!Object.values(colors).some((value) => opaque(value) !== void 0)) {
     throw new Error("This file is not a VS Code theme");
   }
   const accent = MAP.accent.map((key) => flattenColor(colors[key], canvas)).find(Boolean) ?? VSCODE_DEFAULTS.accent;
@@ -34865,7 +34892,7 @@ function ThemeSection({ prefs, actions, run: run2, Section: Section2, Row: Row4,
           "label",
           { className: "bt-look-tact" },
           t("Import…"),
-          (0, import_react28.createElement)("input", { type: "file", accept: "application/json,.json", hidden: true, onChange: (event) => {
+          (0, import_react28.createElement)("input", { type: "file", accept: "application/json,.json,.jsonc", hidden: true, onChange: (event) => {
             const file = event.target.files?.[0];
             event.target.value = "";
             if (file) void run2(importFile(file));

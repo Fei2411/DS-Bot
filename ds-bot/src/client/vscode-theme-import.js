@@ -52,7 +52,7 @@ function walkJsonc(source, visit) {
  * @returns {string}
  */
 export function stripJsonc(text) {
-  const source = String(text ?? '')
+  const source = String(text ?? '').replace(/^\uFEFF/, '')
   let uncommented = source.slice()
   walkJsonc(source, (kind, start, end) => {
     if (kind !== 'comment') return
@@ -132,21 +132,23 @@ export function parseVscodeTheme(text, fallbackLabel = 'VS Code theme') {
   // Legacy high-contrast themes are the dark kind; only hclight is light.
   const typeDark = rawType === 'dark' || rawType === 'hcblack' || rawType === 'hc' ? true : rawType === 'light' || rawType === 'hclight' ? false : undefined
   // The canvas is the bottom-most surface: there is nothing under it to composite with,
-  // so its own alpha channel is dropped instead of flattened. Missing or unreadable, it
-  // falls back to the default canvas of VS Code's own themes for the mode.
+  // so a visible alpha color drops its alpha channel while a nearly transparent value
+  // (< 0x20, matching flattenColor) reads as unset and falls back to the mode default
+  // instead of turning a transparent light theme into solid black.
   const opaque = (value) => {
     if (typeof value !== 'string' || !HEX.test(value)) return undefined
     let hex = value.toLowerCase()
     if (hex.length === 4 || hex.length === 5) hex = `#${hex.slice(1).split('').map(ch => ch + ch).join('')}`
+    if (hex.length === 9 && parseInt(hex.slice(7, 9), 16) < 0x20) return undefined
     return hex.slice(0, 7)
   }
   const canvas = opaque(colors['editor.background']) ?? (typeDark ?? true ? VSCODE_DEFAULTS.dark : VSCODE_DEFAULTS.light)
   // The file's type decides the mode; the canvas's lightness decides when it does not say.
   const dark = typeDark ?? hslOf(canvas)[2] < 0.5
 
-  // A colors dictionary without a single color is not a theme: every slot would come out
-  // of thin air.
-  if (!Object.values(colors).some(value => typeof value === 'string' && HEX.test(value))) {
+  // A colors dictionary without a single visible color is not a theme: every slot would
+  // come out of thin air.
+  if (!Object.values(colors).some(value => opaque(value) !== undefined)) {
     throw new Error('This file is not a VS Code theme')
   }
 

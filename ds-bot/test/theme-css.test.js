@@ -21,6 +21,7 @@ const fetching = [
   ['url("d\\61ta:image/png;base64,AA==")', 'escape hiding a scheme inside a quoted url'],
   ['image-set(url(data:image/png;base64,AA==) 1x)', 'image-set even with a data url'],
   ['-webkit-image-set("https://evil.example" 1x)', 'prefixed image-set with a bare string'],
+  ['image("https://evil.example/x.png")', 'CSS Images 4 image() with a bare string'],
   ['src(url(data:x))', 'src() even with a data url'],
   ['url()', 'empty url'],
   ['url("")', 'empty quoted url'],
@@ -104,6 +105,27 @@ test('themeCssWithoutImports blanks whole statements in place and keeps everythi
   assert.equal(themeCssWithoutImports('.a{} @import "x"').includes('"x"'), false)
   // Nothing to blank: the text is returned as given.
   assert.equal(themeCssWithoutImports('.a{color:red}'), '.a{color:red}')
+})
+
+test('unescaped newlines terminate CSS strings so subsequent rules and @import cannot hide behind an unclosed quote', () => {
+  // Unclosed quote before LF / CR / FF closes as a bad-string token, so the next line's
+  // remote url() and @import are still scanned and stripped instead of swallowed as text.
+  for (const nl of ['\n', '\r', '\f', '\r\n']) {
+    const withUrl = `.a{content:"unclosed${nl}}.b{background:url(https://evil.example/a.png)}.c{content:"x"}`
+    assert.equal(themeCssLoadsRemoteFiles(withUrl), true, `url after unclosed quote (${JSON.stringify(nl)})`)
+    const withImport = `.a{content:"unclosed${nl}}@import "https://evil.example/a.css";${nl}.c{content:"x"}`
+    assert.equal(themeCssLoadsRemoteFiles(withImport), true, `@import after unclosed quote (${JSON.stringify(nl)})`)
+    const stripped = themeCssWithoutImports(withImport)
+    assert.equal(stripped.includes('evil.example'), false, `@import stripped after unclosed quote (${JSON.stringify(nl)})`)
+    assert.ok(stripped.endsWith('.c{content:"x"}'))
+  }
+  // An unclosed quoted url() before a newline also terminates at the newline rather than eating @import.
+  const brokenUrlThenImport = '.a{background:url("data:x\n}@import "https://evil.example/b.css";\n.b{content:"y")}'
+  assert.equal(themeCssLoadsRemoteFiles(brokenUrlThenImport), true)
+  assert.equal(themeCssWithoutImports(brokenUrlThenImport).includes('evil.example'), false)
+  // Valid backslash-escaped line continuations (\LF and \CRLF) stay inside the string.
+  assert.equal(themeCssLoadsRemoteFiles('.a{content:"line1 \\\n url(https://evil.example) line2"}'), false)
+  assert.equal(themeCssLoadsRemoteFiles('.a{content:"line1 \\\r\n @import \\"https://evil.example\\" line2"}'), false)
 })
 
 // --- The CSSOM sanitizer, over stand-in rules of the same shape. ---
@@ -349,9 +371,16 @@ const parseMini = (text) => {
 }
 
 function fakeDocument() {
+  let parseCount = 0
+  let mountedDuringParse = false
   class FakeSheet {
     constructor() { this.cssRules = []; this.texts = [] }
-    replaceSync(text) { this.texts.push(text); this.cssRules = parseMini(text) }
+    replaceSync(text) {
+      if (text !== '' && doc.adoptedStyleSheets.includes(this)) mountedDuringParse = true
+      parseCount += 1
+      this.texts.push(text)
+      this.cssRules = parseMini(text)
+    }
     deleteRule(index) { this.cssRules.splice(index, 1) }
   }
   const observers = []
@@ -371,6 +400,8 @@ function fakeDocument() {
     fireMutations: () => observers.forEach(observer => observer.callback([])),
     removeMarker: () => { hasMarker = false },
     sheet: () => doc.adoptedStyleSheets[0],
+    parseCount: () => parseCount,
+    mountedDuringParse: () => mountedDuringParse,
   }
 }
 
@@ -425,16 +456,29 @@ test('userCss never returns text for injection and syncs the constructed sheet i
   assert.equal(userCss({ css: '.a{}' }, false, undefined), '')
 })
 
-test('an unchanged stylesheet is not re-parsed or re-sanitized on every render', () => {
-  const { doc, sheet } = fakeDocument()
+test('an unchanged stylesheet is not re-parsed or re-sanitized on every render, and sheets are parsed offline before adoption', () => {
+  const { doc, sheet, parseCount, mountedDuringParse } = fakeDocument()
   mountUserStylesheet(doc, '.a{color:red}')
-  assert.equal(sheet().texts.length, 1)
+  const first = sheet()
+  assert.equal(parseCount(), 1)
+  assert.equal(mountedDuringParse(), false, 'raw stylesheet parses offline before adoption')
   mountUserStylesheet(doc, '.a{color:red}')
-  assert.equal(sheet().texts.length, 1, 'same text: nothing re-parsed')
+  assert.equal(parseCount(), 1, 'same text: nothing re-parsed')
+  assert.equal(sheet(), first)
+  // If another caller replaces adoptedStyleSheets, unchanged text re-adopts without re-parsing.
+  doc.adoptedStyleSheets = []
+  mountUserStylesheet(doc, '.a{color:red}')
+  assert.equal(parseCount(), 1)
+  assert.equal(sheet(), first)
+  // Updating parses offline on a fresh sheet, swaps it in, and empties the detached previous sheet.
   mountUserStylesheet(doc, '.a{color:blue}')
-  assert.equal(sheet().texts.length, 2, 'new text: re-parsed once')
+  assert.equal(doc.adoptedStyleSheets.length, 1)
+  assert.equal(first.cssRules.length, 0, 'detached previous sheet is emptied')
+  assert.equal(mountedDuringParse(), false, 'updates also parse offline before adoption')
+  const countAfterUpdate = parseCount()
   mountUserStylesheet(doc, '')
-  assert.equal(sheet().texts.length, 3)
+  assert.ok(parseCount() > countAfterUpdate)
+  assert.equal(sheet().cssRules.length, 0)
 })
 
 test('out-of-range hex escapes clamp to U+FFFD without throwing or poisoning the sheet cache', () => {

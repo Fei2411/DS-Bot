@@ -161,6 +161,41 @@ test('a file without usable colors is rejected, and so is non-JSON', () => {
   assert.equal(parseVscodeTheme(JSON.stringify({ type: 'dark', name: '  ', colors: { 'editor.background': '#1e1e1e' } }), 'Fallback').label, 'Fallback')
 })
 
+test('transparent editor.background falls back to the mode default canvas instead of black, and all-transparent color dicts are rejected', () => {
+  // Light glass/transparent theme with #00000000 canvas must stay readable on a light canvas,
+  // never stripping alpha to solid black (#000000).
+  const lightGlass = parseVscodeTheme(JSON.stringify({
+    name: 'Light Glass',
+    type: 'light',
+    colors: {
+      'editor.background': '#00000000',
+      'editor.foreground': '#1f2328',
+    },
+  }))
+  assert.notEqual(lightGlass.light.bg, '#000000')
+  assert.ok(contrast(lightGlass.light.text, lightGlass.light.bg) >= 7, `light glass text must remain readable on light canvas (${lightGlass.light.bg})`)
+  assert.equal(lightGlass.light.text, '#1f2328')
+
+  // Shorthand 4-digit transparent #0000 also falls back to mode default.
+  const shortGlass = parseVscodeTheme(JSON.stringify({
+    type: 'light',
+    colors: { 'editor.background': '#0000', 'editor.foreground': '#222222' },
+  }))
+  assert.notEqual(shortGlass.light.bg, '#000000')
+  assert.ok(contrast(shortGlass.light.text, shortGlass.light.bg) >= 7)
+
+  // A colors map containing only invisible transparent placeholders has no usable colors.
+  assert.throws(() => parseVscodeTheme(JSON.stringify({
+    type: 'light',
+    colors: { 'editor.background': '#00000000', 'focusBorder': '#0000', 'foreground': '#11223310' },
+  })), /VS Code theme/)
+
+  // UTF-8 BOM prefixed JSONC parses cleanly.
+  const bom = parseVscodeTheme(`\uFEFF${ONE_DARK}`)
+  assert.equal(bom.label, 'One Dark Pro')
+  assert.equal(bom.dark.bg, '#282c34')
+})
+
 test('tokenColors and other noise are ignored, comments in strings survive', () => {
   const theme = parseVscodeTheme(`{
     "name": "Sole // mate",
