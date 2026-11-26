@@ -6,9 +6,29 @@ import { AGENT_LOGOS } from './agent-logos.js'
 
 // Local-agent routes carry this prefix ('local-codex-cli'); the maps below are
 // keyed by the CLI's own name. Custom agents ('local-acp-*') share the 'AC' mark.
+// Profile routes ('local-claude-code@work') inherit their base CLI's logo & badge.
 const PREFIX = 'local-'
 const CUSTOM_PREFIX = `${PREFIX}acp-`
-const cliOf = route => (typeof route === 'string' && route.startsWith(PREFIX) ? route.slice(PREFIX.length) : undefined)
+const PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
+
+export function splitProfileRoute(route) {
+  if (typeof route !== 'string') return null
+  const at = route.indexOf('@')
+  if (at <= 0 || route.indexOf('@', at + 1) !== -1) return null
+  const baseRoute = route.slice(0, at)
+  const profileId = route.slice(at + 1)
+  if (!baseRoute.startsWith(PREFIX) || baseRoute.startsWith(CUSTOM_PREFIX)) return null
+  const cli = baseRoute.slice(PREFIX.length)
+  if (!Object.hasOwn(AGENT_BADGES, cli) || !PROFILE_ID_RE.test(profileId)) return null
+  return { baseRoute, profileId }
+}
+
+const cliOf = (route) => {
+  if (typeof route !== 'string' || !route.startsWith(PREFIX)) return undefined
+  const split = splitProfileRoute(route)
+  const base = split ? split.baseRoute : route
+  return base.slice(PREFIX.length)
+}
 
 // CLI name -> [glyph, ink name].
 export const AGENT_BADGES = {
