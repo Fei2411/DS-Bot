@@ -252,14 +252,40 @@ export function extractTurnFacts(events, { roster, sessionId } = {}) {
   return { turns, openTurn }
 }
 
-/**
- * Converts a SessionLog into ordered display rows for a DM chat.
- * @param {import('../../../ds-bot/src/client/session-log.js').SessionLog} log
- * @param {{ roster?: object, sessionId?: string }} [options]
- * @returns {object[]}
- */
-export function buildSessionRows(log, { roster, sessionId } = {}) {
-  const items = transcriptOf(log)
+const hiddenTurn = (roster, sessionId, turn) => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)
+
+// Committed rows of one events array never change afterwards: a stream chunk only grows
+// the reply being written, it never touches the events the window already holds. They
+// are cached on the events array itself, and inside it once more on the roster (two
+// nested WeakMaps, so a dropped log or roster takes its entries with it): a stream-only
+// frame finds its rows in O(1) as the very same objects, and interleaving rosters never
+// evict each other. The roster and the session id shape the rows, so a cached entry only
+// serves a call whose roster and session id are the ones it was built with.
+const committedRowsCache = new WeakMap()
+const NO_ROSTER = {}
+
+function committedRowsOf(events, roster, sessionId) {
+  let byRoster = committedRowsCache.get(events)
+  if (byRoster === undefined) {
+    byRoster = new WeakMap()
+    committedRowsCache.set(events, byRoster)
+  }
+  const key = typeof roster === 'object' && roster !== null ? roster : NO_ROSTER
+  // One roster almost always means one session here, so the slot holds a short list of
+  // entries and a lookup scans it; building never evicts another session id's rows.
+  const entries = byRoster.get(key) ?? []
+  const cached = entries.find(entry => entry.roster === roster && entry.sessionId === sessionId)
+  if (cached !== undefined) return cached
+  const entry = buildCommittedRows(events, roster, sessionId)
+  entries.push(entry)
+  if (entries.length > 4) entries.shift()
+  byRoster.set(key, entries)
+  return entry
+}
+
+function buildCommittedRows(events, roster, sessionId) {
+  // transcriptOf reads the events alone; the rest of the log plays no part here.
+  const items = transcriptOf({ events })
   const rows = []
   // Maps every callId / subCallId to its handle so upgrades (preparing -> start -> result)
   // and PTC nested dispatches update the exact ToolCallBlock in place without wrapper drift.
@@ -267,7 +293,7 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
   const turnStarts = new Map()
   let currentTurn
   let currentStep
-  const hidden = turn => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)
+  const hidden = turn => hiddenTurn(roster, sessionId, turn)
 
   const addTopTool = (block, { seq, time, turn, step }) => {
     const row = {
@@ -680,44 +706,63 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
     }
   }
 
-  // Live in-progress reply from DSH's BlockAssembler. `writingBlocks` returns [] once the
-  // committed assistant/message for that (turn, step) has landed, so nothing duplicates.
+  return { rows, callsById, roster, sessionId }
+}
+
+// Live in-progress reply rows from DSH's BlockAssembler, rebuilt per stream chunk. They
+// are the only rows a stream-only frame can change; everything before them comes from
+// the memoized committed build. `writingBlocks` returns [] once the committed
+// assistant/message for that (turn, step) has landed, so nothing duplicates.
+function writingRows(log, committed, roster, sessionId) {
+  const rows = []
   const writing = writingBlocks(log)
   const writingTurn = log.writing?.turn
   const writingStep = log.writing?.step
-  if (writing.length > 0 && !hidden(writingTurn)) {
-    const attemptId = log.writing?.attemptId ?? 'live'
-    const { reasoning, activity } = splitReasoning(writing)
-    const texts = writing
-      .filter(block => block?.type === 'text' && typeof block.text === 'string')
-      .map(block => stripToolCallTags(block.text))
-      .filter(text => text.trim() !== '')
-    if (reasoning !== '' || activity.length > 0 || texts.length > 0) {
-      rows.push({
-        kind: 'assistant',
-        key: `writing:${attemptId}`,
-        seq: null,
-        time: null,
-        turn: writingTurn,
-        step: writingStep,
-        attemptId,
-        reasoning,
-        reasoningMs: undefined,
-        activity,
-        texts,
-        streaming: true,
-        thinkingLive: reasoning !== '' && texts.length === 0,
-      })
-    }
-    let toolIdx = 0
-    for (const block of writing) {
-      if (block?.type !== 'tool-call') continue
-      const callId = block.id || `writing-${attemptId}-${toolIdx}`
-      toolIdx += 1
-      if (callsById.has(callId)) continue
-      const name = typeof block.name === 'string' ? block.name : ''
-      const argsRaw = stringifyArgs(block.arguments)
-      addTopTool({
+  if (writing.length === 0 || hiddenTurn(roster, sessionId, writingTurn)) return rows
+  const taken = new Set(committed.callsById.keys())
+  const attemptId = log.writing?.attemptId ?? 'live'
+  const { reasoning, activity } = splitReasoning(writing)
+  const texts = writing
+    .filter(block => block?.type === 'text' && typeof block.text === 'string')
+    .map(block => stripToolCallTags(block.text))
+    .filter(text => text.trim() !== '')
+  if (reasoning !== '' || activity.length > 0 || texts.length > 0) {
+    rows.push({
+      kind: 'assistant',
+      key: `writing:${attemptId}`,
+      seq: null,
+      time: null,
+      turn: writingTurn,
+      step: writingStep,
+      attemptId,
+      reasoning,
+      reasoningMs: undefined,
+      activity,
+      texts,
+      streaming: true,
+      thinkingLive: reasoning !== '' && texts.length === 0,
+    })
+  }
+  let toolIdx = 0
+  for (const block of writing) {
+    if (block?.type !== 'tool-call') continue
+    const callId = block.id || `writing-${attemptId}-${toolIdx}`
+    toolIdx += 1
+    if (taken.has(callId)) continue
+    taken.add(callId)
+    const name = typeof block.name === 'string' ? block.name : ''
+    const argsRaw = stringifyArgs(block.arguments)
+    rows.push({
+      kind: 'tool',
+      key: `call:${callId}`,
+      seq: null,
+      time: null,
+      turn: writingTurn,
+      step: writingStep,
+      callId,
+      toolName: name,
+      phase: 'preparing',
+      block: {
         phase: 'preparing',
         turn: writingTurn,
         step: writingStep,
@@ -726,9 +771,21 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
         argsRaw,
         args: makeToolArgs(block.arguments, { sealed: false }),
         subCalls: [],
-      }, { seq: null, time: null, turn: writingTurn, step: writingStep })
-    }
+      },
+    })
   }
-
   return rows
+}
+
+/**
+ * Converts a SessionLog into ordered display rows for a DM chat.
+ * @param {import('../../../ds-bot/src/client/session-log.js').SessionLog} log
+ * @param {{ roster?: object, sessionId?: string }} [options]
+ * @returns {object[]}
+ */
+export function buildSessionRows(log, { roster, sessionId } = {}) {
+  const events = Array.isArray(log?.events) ? log.events : []
+  const committed = committedRowsOf(events, roster, sessionId)
+  const live = writingRows(log, committed, roster, sessionId)
+  return live.length === 0 ? committed.rows : [...committed.rows, ...live]
 }
