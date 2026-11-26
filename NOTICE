@@ -10,6 +10,10 @@ Third-party code in this repository
 DeepSeek Harness (https://github.com/deepseek-ai/deepseek-harness)
 MIT License, Copyright (c) 2026 DeepSeek
 
+  - ds-bot/test/fixtures/code-mode-tools.json captures the 23 model-facing
+    tool schemas from the headless benchmark. Canonical outputs in this test
+    fixture use a generic JSON schema; the captured parameter schemas and
+    descriptions are from DeepSeek Harness.
   - mobile/src/ui/icons.tsx FishLogo, app/ui/src/primitives.js FishLogo, and
     ds-bot/src/client/provider-logos.js DEEPSEEK_PATH draw DSH's official mark,
     the path of FishLogo in @deepseek-ai/dsh-client-ui-primitives (owner: DeepSeek),
