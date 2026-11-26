@@ -2197,6 +2197,11 @@ export function install(rt) {
   // and delegation tools. The restricts are kept with the Session's scope, so they
   // lift with it.
   const hideBotUnusedTools = (agent) => {
+    try {
+      rt.scopeCodeMode?.(agent)
+    } catch (error) {
+      rt.warn?.('ds-bot: scoping code-mode for %s failed: %s', agent?.session?.id, error)
+    }
     shareBotTools(agent)
     const id = agent?.session?.id
     // The shell shadows go with the scope, so a reload or a Session that leaves
@@ -2321,7 +2326,7 @@ export function install(rt) {
         // Cleared whatever happens below: the names are offered once, not on
         // every step.
         held.unlisted.clear()
-        if (!assembled.tools.some(tool => tool.name === 'run_code') && typeof ctx.tools?.schemas === 'function') {
+        if (!(assembled.tools.length === 1 && assembled.tools[0].name === 'run_code') && typeof ctx.tools?.schemas === 'function') {
           try {
             const wanted = new Set(pending)
             const current = new Map(ctx.tools.schemas(agent).filter(schema => wanted.has(schema.name)).map(schema => [schema.name, schema]))
@@ -2530,5 +2535,6 @@ export function install(rt) {
     }))
   }
 
-  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, syncScopedSession, hiddenTeamToolsFor, hiddenSessionTools, addTeamTool, removeTeamTool, reapplyToolMasks, resumePausedWork, cancelWorkByUser, abortWorkExecution })
+  const hiddenToolsFor = id => new Set([...HIDDEN_TOOLS, ...hiddenSessionTools(id)])
+  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, syncScopedSession, hiddenTeamToolsFor, hiddenSessionTools, hiddenToolsFor, addTeamTool, removeTeamTool, reapplyToolMasks, resumePausedWork, cancelWorkByUser, abortWorkExecution })
 }

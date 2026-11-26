@@ -137,6 +137,8 @@ export const ES = {
   'A new reply is waiting': "Tienes una nueva respuesta",
   'Opening…': 'Abriendo…',
   'Still opening…': 'Sigue abriendo…',
+  'This session is not available yet.': 'Esta sesión aún no está disponible.',
+  'This session is no longer available.': 'Esta sesión ya no está disponible.',
   "Android beta": "Android beta",
   "Cannot reach the Server. Trying again…": "No se puede conectar con el servidor. Reintentando…",
   "No phones yet": "Aún no hay teléfonos",

@@ -137,6 +137,8 @@ export const JA = {
   'A new reply is waiting': "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",
+  "This session is not available yet.": "このセッションはまだ開けません。",
+  "This session is no longer available.": "このセッションはもう存在しません。",
   "Android beta": "Android ベータ版",
   "Cannot reach the Server. Trying again…": "サーバーに接続できません。再試行しています…",
   "No phones yet": "スマートフォンはまだありません",
