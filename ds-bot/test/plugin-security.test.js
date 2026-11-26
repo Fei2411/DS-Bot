@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime, defineBotPlugin } from '../index.js'
 import { parsePluginRegistry } from '../src/host/plugins/catalog.js'
@@ -247,9 +247,10 @@ test('hashPluginTree resolves a symlinked root (pnpm layout) while internal esca
 })
 
 test('localPluginDirOf resolves only local path specs', () => {
-  assert.equal(localPluginDirOf('/abs/path/plugin'), '/abs/path/plugin')
-  assert.equal(localPluginDirOf('file:/abs/path/plugin'), '/abs/path/plugin')
-  assert.equal(localPluginDirOf('link:/abs/path/plugin'), '/abs/path/plugin')
+  const expected = resolve('/abs/path/plugin')
+  assert.equal(localPluginDirOf('/abs/path/plugin'), expected)
+  assert.equal(localPluginDirOf('file:/abs/path/plugin'), expected)
+  assert.equal(localPluginDirOf('link:/abs/path/plugin'), expected)
   assert.equal(localPluginDirOf('some-npm-package'), null)
   assert.equal(localPluginDirOf('github:org/repo'), null)
   assert.equal(localPluginDirOf('https://example.com/x.tgz'), null)
