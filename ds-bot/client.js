@@ -25013,7 +25013,8 @@ div:has(> nav [class*="_marks"]){display:none!important}
    the flow, and long text or a wide block wraps inside it instead of running off
    the edge. This covers the group's chat flow, not only DS Bot's own panels. */
 @media (max-width:640px){
-.bt-msg,.bt-astack[data-lead]>.bt-msg{position:relative;max-width:100%}
+.bt-msg,.bt-astack[data-lead]>.bt-msg{max-width:100%}
+.bt-msg{position:relative}
 .bt-msg-line{position:static}
 .bt-tools{top:100%;bottom:auto;left:auto;right:4px;margin-left:0;margin-top:2px;border-radius:999px;padding:2px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
 .bt-tools::after{top:-6px;bottom:auto;left:0;right:0;width:auto;height:8px}
@@ -29256,12 +29257,12 @@ function useEscape(onClose, active = true, { priority = 0 } = {}) {
   (0, import_react6.useEffect)(() => {
     if (!active) return void 0;
     const layer = { ref, priority };
-    if (escapeLayers.length === 0) window.addEventListener("keydown", onEscapeKey);
+    if (escapeLayers.length === 0 && typeof window !== "undefined") window.addEventListener("keydown", onEscapeKey);
     escapeLayers.push(layer);
     return () => {
       const index = escapeLayers.indexOf(layer);
       if (index !== -1) escapeLayers.splice(index, 1);
-      if (escapeLayers.length === 0) window.removeEventListener("keydown", onEscapeKey);
+      if (escapeLayers.length === 0 && typeof window !== "undefined") window.removeEventListener("keydown", onEscapeKey);
     };
   }, [active, priority]);
 }

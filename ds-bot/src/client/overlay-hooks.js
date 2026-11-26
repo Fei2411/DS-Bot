@@ -62,12 +62,12 @@ export function useEscape(onClose, active = true, { priority = 0 } = {}) {
   useEffect(() => {
     if (!active) return undefined
     const layer = { ref, priority }
-    if (escapeLayers.length === 0) window.addEventListener('keydown', onEscapeKey)
+    if (escapeLayers.length === 0 && typeof window !== 'undefined') window.addEventListener('keydown', onEscapeKey)
     escapeLayers.push(layer)
     return () => {
       const index = escapeLayers.indexOf(layer)
       if (index !== -1) escapeLayers.splice(index, 1)
-      if (escapeLayers.length === 0) window.removeEventListener('keydown', onEscapeKey)
+      if (escapeLayers.length === 0 && typeof window !== 'undefined') window.removeEventListener('keydown', onEscapeKey)
     }
   }, [active, priority])
 }
