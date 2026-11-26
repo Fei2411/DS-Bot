@@ -1214,3 +1214,27 @@ test('run_code allows workspace api-*/mcp.json files while guardApiFiles still b
     assert.match(res.error, /API token|telemetry/)
   }
 })
+
+test('privacy shell and run_code guards normalize Windows UNC and repeated slashes consistently', async (t) => {
+  const { run, rt, diary, agentOf, stop } = await start()
+  t.after(stop)
+  const writerAgent = agentOf('b')
+  // Repeated slashes on the private Bot's real diary folder are blocked.
+  const repeated = await run('bash', { command: `cat ${diary.replace(/[\\/]/g, '//')}/notes.txt` }, 'b', writerAgent)
+  assert.equal(repeated.ran, false, 'expected bash block for repeated slashes on diary')
+  assert.match(repeated.error, CLOSED)
+  // UNC private folder matches single/double backslash, forward-slash, and JS-escaped UNC forms.
+  rt.state.bots[P].workDir = process.platform === 'win32' ? '\\\\fileserver\\team\\private-vault' : '//fileserver/team/private-vault'
+  for (const cmd of [
+    'type \\\\fileserver\\team\\private-vault\\notes.md',
+    'cat //fileserver/team/private-vault/notes.md',
+    'cat //fileserver//team///private-vault/notes.md',
+  ]) {
+    const res = await run('bash', { command: cmd }, 'b', writerAgent)
+    assert.equal(res.ran, false, `expected bash block for UNC path: ${cmd}`)
+    assert.match(res.error, CLOSED)
+  }
+  const codeRes = await run('run_code', { code: 'return "\\\\\\\\fileserver\\\\team\\\\private-vault\\\\notes.md"' }, 'b', writerAgent)
+  assert.equal(codeRes.ran, false, 'expected run_code block for escaped UNC path')
+  assert.match(codeRes.error, CLOSED)
+})

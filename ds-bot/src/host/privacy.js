@@ -44,9 +44,10 @@ const fold = text => (process.platform === 'linux' ? text : text.toLowerCase())
 const overlap = (a, b) => within(a, b) || within(b, a)
 const expandHome = (path) => (path === '~' ? homedir() : /^~[\\/]/.test(path) ? join(homedir(), path.slice(2)) : path)
 const strings = value => (typeof value === 'string' ? [value] : Array.isArray(value) ? value.flatMap(strings) : value && typeof value === 'object' ? Object.values(value).flatMap(strings) : [])
-// The same path as a shell writes it: forward slashes, and on Windows both drive forms.
+// The same path as a shell writes it: collapsed forward slashes, and on Windows both drive forms.
+const normalizeSlashes = text => text.replace(/[\\/]+/g, '/')
 const asShell = (path) => {
-  const slashed = path.replace(/\\/g, '/')
+  const slashed = normalizeSlashes(path)
   const drive = /^([a-z]):\//i.exec(slashed)
   return drive ? [slashed, `/${drive[1]}${slashed.slice(2)}`] : [slashed]
 }
@@ -672,7 +673,7 @@ export function install(rt) {
   // Text a shell runs: a closed path anywhere in it closes the command. A path that the
   // command builds, or reaches by walking up from a folder, is not seen.
   async function ownerInText(text, self, memo = new Map()) {
-    const flat = fold(text.replace(/\\+/g, '/'))
+    const flat = fold(normalizeSlashes(text))
     const bots = protectedBots()
     for (const bot of bots) {
       if (bot.id === self) continue
@@ -1020,7 +1021,7 @@ export function install(rt) {
     }
     if (SHELL_TOOLS.includes(name)) {
       const rawText = strings(args).join('\n')
-      const flat = fold(rawText.replace(/\\+/g, '/'))
+      const flat = fold(normalizeSlashes(rawText))
       if (name !== 'run_code' && (flat.includes('api-') || flat.includes('mcp.json'))) throw closedApi()
       const protectedPaths = await apiProtectedFiles(memo)
       for (const file of protectedPaths) {
@@ -1205,7 +1206,7 @@ export function install(rt) {
         }
       }
       const rawText = strings(args).join('\n')
-      const flat = fold(rawText.replace(/\\+/g, '/'))
+      const flat = fold(normalizeSlashes(rawText))
       const hasRootBoundary = (text, at, len) => {
         const before = at === 0 ? '' : text[at - 1]
         if (before !== '' && /[a-z0-9_.-]/i.test(before)) return false
@@ -1295,7 +1296,7 @@ export function install(rt) {
         for (let i = 0; i < segment.length; i += 1) {
           const tok = segment[i]
           if (isPlainSearchPattern(tok, i, exempt)) continue
-          const tokFlat = fold(tok.value.replace(/\\+/g, '/'))
+          const tokFlat = fold(normalizeSlashes(tok.value))
           if (/(?:^|[^a-z0-9_.-])secret-refs(?:$|[^a-z0-9_.-])/i.test(tokFlat)) {
             throw closedSecret()
           }
