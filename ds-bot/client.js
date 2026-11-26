@@ -41409,9 +41409,11 @@ var stepReasoning = (step) => reasoningText(step).split("\n").filter((line) => !
 var stepActivity = (step) => reasoningText(step).split("\n").filter(isActivity).map((line) => line.slice(ACTIVITY.length).trim()).filter(Boolean);
 
 // src/shared/group-replies.js
+var HANDLE_PREFIX = /^\s*§\d+§\s*/;
+var stripRelayPrefix = (text) => typeof text === "string" ? text.replace(HANDLE_PREFIX, "") : text;
 function relayRange(text) {
   try {
-    const value = JSON.parse(text);
+    const value = JSON.parse(stripRelayPrefix(text));
     if (Number.isInteger(value?.from)) return { from: value.from, ...Number.isInteger(value.to) ? { to: value.to } : {}, ...typeof value.anchor === "string" ? { anchor: value.anchor } : {} };
   } catch {
   }
@@ -41421,25 +41423,28 @@ var RELAY_LIST = /"replies"\s*:\s*\[/;
 var PRUNE_MARKER = /\[\.\.\. tool result middle pruned \.\.\.\]/;
 var SAVE_TOKEN_NOTICE = /\n\n\[save-token #[\da-z]+ (?:compressed|losslessly re-encoded): [\d,]+ -> [\d,]+ bytes[\s\S]*\]$/;
 var compressedRelayPreview = (text) => {
-  const notice = SAVE_TOKEN_NOTICE.exec(text);
-  return notice === null ? void 0 : text.slice(0, notice.index);
+  const body = stripRelayPrefix(text);
+  if (typeof body !== "string") return void 0;
+  const notice = SAVE_TOKEN_NOTICE.exec(body);
+  return notice === null ? void 0 : body.slice(0, notice.index);
 };
 var REPLY_ELISION = / \.\.\.\[\+(\d+) chars\]\.\.\. /;
 function parseReplies(text) {
-  const preview = compressedRelayPreview(text);
+  const body = stripRelayPrefix(text);
+  const preview = compressedRelayPreview(body);
   if (preview !== void 0) {
     const replies2 = parseReplies(preview).replies.filter((reply) => reply && typeof reply === "object" && !reply.__omitted__ && (typeof reply.text !== "string" || !REPLY_ELISION.test(reply.text)));
     return { replies: replies2, broken: true };
   }
   try {
-    const replies2 = JSON.parse(text)?.replies;
+    const replies2 = JSON.parse(body)?.replies;
     return { replies: Array.isArray(replies2) ? replies2 : [], broken: false };
   } catch {
   }
   const replies = [];
-  const head = RELAY_LIST.exec(text);
+  const head = RELAY_LIST.exec(body);
   if (head) {
-    for (const piece of text.slice(head.index + head[0].length).split(PRUNE_MARKER)) {
+    for (const piece of body.slice(head.index + head[0].length).split(PRUNE_MARKER)) {
       const first = piece.indexOf('{"');
       if (first !== -1) scanReplies(piece, first, replies);
     }
