@@ -17,7 +17,7 @@ import { PendingHandoff } from './handoff-card.js'
 import { PendingComputerHandoff } from './computer.js'
 import { WorkPauseCard } from './work-pause-card.js'
 import { ProposalCard } from './learning-card.js'
-import { currentPart } from './text.js'
+import { currentPart, previewOf } from './text.js'
 import { t } from './i18n.js'
 import { INBOX_SECTIONS, inboxSummary, inboxTag } from './inbox-text.js'
 
@@ -104,11 +104,11 @@ function ItemCard({ item, bot, roster, actions, hooks, run, busy }) {
   switch (item.kind) {
     case 'approval': {
       const approval = hooks.approvals.find(entry => entry.id === item.ref)
-      return approval && bot ? h(ApprovalCard, { approval, bot, actions }) : null
+      return approval && bot ? h(ApprovalCard, { approval, bot, actions }) : h('div', { className: 'bt-q-foot' }, button('Open in chat', open, true))
     }
     case 'computer': {
       const ask = hooks.asks[item.ref]
-      return ask && bot ? h(ComputerAppApprovalCard, { ask, bot, actions }) : null
+      return ask && bot ? h(ComputerAppApprovalCard, { ask, bot, actions }) : h('div', { className: 'bt-q-foot' }, button('Open in chat', open, true))
     }
     case 'question': {
       const question = roster.questions?.[item.sessionId]
@@ -294,7 +294,7 @@ function Empty({ text }) {
  * three groups, each item opening into its own card. New replies: the conversations
  * with replies not read yet; opening one reads it.
  */
-export function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSessionStatus, useBotCompletions, useBrowserHolds, useBrowserTabs, useBrowserPages }) {
+export function InboxPane({ paneLeft, roster, actions, useSessions, useWork, useComputer, useSessionStatus, useBotCompletions, useBrowserHolds, useBrowserTabs, useBrowserPages }) {
   const [tab, setTab] = useState('wait')
   const [who, setWho] = useState('all')
   const [open, setOpen] = useState(null)
@@ -344,9 +344,23 @@ export function InboxPane({ paneLeft, roster, actions, useWork, useComputer, use
   const botUnread = (useBotCompletions ? completedBots : statusBots) ?? ''
   const roomUnread = (useSessionStatus ?? useNothing)(map => (roster.rooms ?? []).filter(room => map?.get?.(room.sessionId ?? room.id)?.completionUnread === true).map(room => room.id).join('|')) ?? ''
   const unreadParts = new Set(botUnread.split('|').filter(Boolean))
+  const unreadRoomIds = roomUnread.split('|').filter(Boolean)
+  const roomMetaKey = (useSessions ?? useNothing)(list => unreadRoomIds.map((id) => {
+    const room = roster.roomsById?.[id]
+    if (!room) return ''
+    const part = room.sessionId ?? room.id
+    return `${id}\u0000${list?.byId?.[part]?.updatedAt ?? 0}\u0000${previewOf(list, part)}`
+  }).join('\u0001')) ?? ''
+  const roomMeta = new Map(roomMetaKey ? roomMetaKey.split('\u0001').filter(Boolean).map((entry) => {
+    const [id, at, preview] = entry.split('\u0000')
+    return [id, { at: Number(at) || 0, preview: preview ?? '' }]
+  }) : [])
   const replies = [
     ...(roster.bots ?? []).filter(bot => unreadParts.has(currentPart(bot))).map(bot => ({ id: bot.id, bot, at: bot.lastAt ?? 0, preview: bot.preview })),
-    ...roomUnread.split('|').filter(Boolean).map(id => roster.roomsById?.[id]).filter(Boolean).map(room => ({ id: room.id, room, at: room.lastAt ?? 0, preview: room.preview })),
+    ...unreadRoomIds.map(id => roster.roomsById?.[id]).filter(Boolean).map((room) => {
+      const meta = roomMeta.get(room.id)
+      return { id: room.id, room, at: room.lastAt || meta?.at || 0, preview: room.preview || meta?.preview || '' }
+    }),
   ].sort((a, b) => b.at - a.at)
 
   useFlip(list, `${tab}|${who}|${open}|${shown.map(item => item.id).join(',')}|${replies.map(entry => entry.id).join(',')}`, '[data-flip]')
@@ -357,7 +371,9 @@ export function InboxPane({ paneLeft, roster, actions, useWork, useComputer, use
     const step = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1 }[event.key]
     if (step === undefined || event.metaKey || event.ctrlKey || event.altKey) return
     if (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable=true],.bt-ib-detail')) return
-    const ids = shown.filter(item => !gone.has(item.id)).map(item => item.id)
+    const ids = tab === 'wait'
+      ? shown.filter(item => !gone.has(item.id)).map(item => item.id)
+      : replies.map(entry => `reply:${entry.id}`)
     if (ids.length === 0) return
     event.preventDefault()
     const at = ids.findIndex(id => refs.current.get(id) === document.activeElement)
@@ -420,6 +436,7 @@ export function InboxPane({ paneLeft, roster, actions, useWork, useComputer, use
               : h('div', { className: 'bt-ib-list bt-ib-replies' }, replies.map(entry => h('div', { key: entry.id, className: 'bt-ib-row', 'data-flip': `reply-${entry.id}` },
                   h('div', { className: 'bt-ib-head' },
                     h('button', {
+                      ref: (node) => { const key = `reply:${entry.id}`; if (node) refs.current.set(key, node); else refs.current.delete(key) },
                       type: 'button', className: 'bt-ib-sum',
                       onClick: () => { actions.openSession(entry.id); actions.closeInbox?.() },
                     },

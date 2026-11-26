@@ -98,7 +98,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     ui.inbox === true && !ui.newChat ? h(OverlayBoundary, {
       name: 'inbox', reset: 'inbox',
       onDismiss: () => actions.closeInbox?.(), actions,
-    }, createPortal(h(InboxPane, { paneLeft: layout.column, roster, actions, useWork, useComputer, useSessionStatus, useBotCompletions, useBrowserHolds, useBrowserTabs, useBrowserPages }), document.body)) : null,
+    }, createPortal(h(InboxPane, { paneLeft: layout.column, roster, actions, useSessions, useWork, useComputer, useSessionStatus, useBotCompletions, useBrowserHolds, useBrowserTabs, useBrowserPages }), document.body)) : null,
     ui.palette ? h(OverlayBoundary, {
       name: 'palette', reset: paletteToken,
       onDismiss: () => actions.closePalette?.(paletteToken), actions,

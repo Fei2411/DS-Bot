@@ -147,7 +147,7 @@ export function install(rt) {
         add('goal', goal.id ?? room.id, goal.updatedAt, { roomId: room.id, botId: room.admin ?? undefined }, { text: clip(stage?.title ?? goal.title) })
       }
       // A group stopped at its relay limit, waiting for Continue.
-      if (room.idlePaused !== undefined) {
+      if (room.idlePaused != null) {
         add('room-paused', room.id, room.idlePaused.at, { roomId: room.id }, { limit: room.idlePaused.limit, count: room.idlePaused.count })
       }
     }
@@ -156,13 +156,13 @@ export function install(rt) {
     // known only once the model list has been read.
     const catalogKnown = (rt.cachedCatalog?.() ?? []).length > 0
     for (const bot of Object.values(state.bots ?? {})) {
-      if (bot.blocked !== undefined) {
+      if (bot.blocked != null) {
         add('blocked', bot.id, bot.blocked.at, { botId: bot.id, sessionId: rt.chatOf?.(bot.id) }, {
           text: String(bot.blocked.code ?? ''),
           ...(bot.blocked.status !== undefined ? { status: bot.blocked.status } : {}),
           ...(bot.blocked.provider ? { provider: String(bot.blocked.provider) } : {}),
         })
-      } else if (bot.kickoff !== undefined && catalogKnown && rt.isUsable?.(bot.model) === false) {
+      } else if (bot.kickoff != null && catalogKnown && rt.isUsable?.(bot.model) === false) {
         add('model', bot.id, bot.createdAt, { botId: bot.id, sessionId: rt.chatOf?.(bot.id) })
       }
     }

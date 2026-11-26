@@ -41945,11 +41945,11 @@ function ItemCard({ item, bot, roster, actions, hooks, run: run2, busy }) {
   switch (item.kind) {
     case "approval": {
       const approval = hooks.approvals.find((entry) => entry.id === item.ref);
-      return approval && bot ? (0, import_react44.createElement)(ApprovalCard, { approval, bot, actions }) : null;
+      return approval && bot ? (0, import_react44.createElement)(ApprovalCard, { approval, bot, actions }) : (0, import_react44.createElement)("div", { className: "bt-q-foot" }, button("Open in chat", open, true));
     }
     case "computer": {
       const ask = hooks.asks[item.ref];
-      return ask && bot ? (0, import_react44.createElement)(ComputerAppApprovalCard, { ask, bot, actions }) : null;
+      return ask && bot ? (0, import_react44.createElement)(ComputerAppApprovalCard, { ask, bot, actions }) : (0, import_react44.createElement)("div", { className: "bt-q-foot" }, button("Open in chat", open, true));
     }
     case "question": {
       const question = roster.questions?.[item.sessionId];
@@ -42153,7 +42153,7 @@ function Empty({ text }) {
     (0, import_react44.createElement)("span", { className: "bt-ib-empty-text" }, text)
   );
 }
-function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSessionStatus, useBotCompletions, useBrowserHolds, useBrowserTabs, useBrowserPages }) {
+function InboxPane({ paneLeft, roster, actions, useSessions, useWork, useComputer, useSessionStatus, useBotCompletions, useBrowserHolds, useBrowserTabs, useBrowserPages }) {
   const [tab, setTab] = (0, import_react44.useState)("wait");
   const [who, setWho] = (0, import_react44.useState)("all");
   const [open, setOpen] = (0, import_react44.useState)(null);
@@ -42201,9 +42201,23 @@ function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSession
   const botUnread = (useBotCompletions ? completedBots : statusBots) ?? "";
   const roomUnread = (useSessionStatus ?? useNothing)((map) => (roster.rooms ?? []).filter((room2) => map?.get?.(room2.sessionId ?? room2.id)?.completionUnread === true).map((room2) => room2.id).join("|")) ?? "";
   const unreadParts = new Set(botUnread.split("|").filter(Boolean));
+  const unreadRoomIds = roomUnread.split("|").filter(Boolean);
+  const roomMetaKey = (useSessions ?? useNothing)((list2) => unreadRoomIds.map((id) => {
+    const room2 = roster.roomsById?.[id];
+    if (!room2) return "";
+    const part = room2.sessionId ?? room2.id;
+    return `${id}\0${list2?.byId?.[part]?.updatedAt ?? 0}\0${previewOf(list2, part)}`;
+  }).join("")) ?? "";
+  const roomMeta = new Map(roomMetaKey ? roomMetaKey.split("").filter(Boolean).map((entry) => {
+    const [id, at, preview] = entry.split("\0");
+    return [id, { at: Number(at) || 0, preview: preview ?? "" }];
+  }) : []);
   const replies = [
     ...(roster.bots ?? []).filter((bot) => unreadParts.has(currentPart(bot))).map((bot) => ({ id: bot.id, bot, at: bot.lastAt ?? 0, preview: bot.preview })),
-    ...roomUnread.split("|").filter(Boolean).map((id) => roster.roomsById?.[id]).filter(Boolean).map((room2) => ({ id: room2.id, room: room2, at: room2.lastAt ?? 0, preview: room2.preview }))
+    ...unreadRoomIds.map((id) => roster.roomsById?.[id]).filter(Boolean).map((room2) => {
+      const meta = roomMeta.get(room2.id);
+      return { id: room2.id, room: room2, at: room2.lastAt || meta?.at || 0, preview: room2.preview || meta?.preview || "" };
+    })
   ].sort((a, b2) => b2.at - a.at);
   useFlip(list, `${tab}|${who}|${open}|${shown.map((item) => item.id).join(",")}|${replies.map((entry) => entry.id).join(",")}`, "[data-flip]");
   const toggle = (id) => setOpen((current2) => current2 === id ? null : id);
@@ -42211,7 +42225,7 @@ function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSession
     const step = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1 }[event.key];
     if (step === void 0 || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.target instanceof Element && event.target.closest("input,textarea,select,[contenteditable=true],.bt-ib-detail")) return;
-    const ids = shown.filter((item) => !gone.has(item.id)).map((item) => item.id);
+    const ids = tab === "wait" ? shown.filter((item) => !gone.has(item.id)).map((item) => item.id) : replies.map((entry) => `reply:${entry.id}`);
     if (ids.length === 0) return;
     event.preventDefault();
     const at = ids.findIndex((id) => refs.current.get(id) === document.activeElement);
@@ -42326,6 +42340,11 @@ function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSession
             (0, import_react44.createElement)(
               "button",
               {
+                ref: (node) => {
+                  const key = `reply:${entry.id}`;
+                  if (node) refs.current.set(key, node);
+                  else refs.current.delete(key);
+                },
                 type: "button",
                 className: "bt-ib-sum",
                 onClick: () => {
@@ -64377,7 +64396,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       reset: "inbox",
       onDismiss: () => actions.closeInbox?.(),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react94.createElement)(InboxPane, { paneLeft: layout.column, roster, actions, useWork, useComputer, useSessionStatus, useBotCompletions, useBrowserHolds, useBrowserTabs, useBrowserPages }), document.body)) : null,
+    }, (0, import_react_dom16.createPortal)((0, import_react94.createElement)(InboxPane, { paneLeft: layout.column, roster, actions, useSessions, useWork, useComputer, useSessionStatus, useBotCompletions, useBrowserHolds, useBrowserTabs, useBrowserPages }), document.body)) : null,
     ui.palette ? (0, import_react94.createElement)(OverlayBoundary, {
       name: "palette",
       reset: paletteToken,

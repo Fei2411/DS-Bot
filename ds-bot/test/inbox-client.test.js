@@ -178,7 +178,7 @@ test('an approval is answered from its row without opening it', async (t) => {
 test('New replies lists the chats with a reply not read yet; opening one leaves the inbox', async (t) => {
   const { draw, completions, ui, opened } = await openPage(t)
   let tree = draw()
-  button(tree, 'New replies').props.onClick()
+  all(tree, node => node.type === 'button' && textOf(node).startsWith('New replies'))[0].props.onClick()
   tree = draw()
   assert.match(textOf(tree), /No new replies/)
   completions.set({ writer: true })
@@ -443,4 +443,42 @@ test('watchBotCompletions marks replies on the active chat unread while Inbox co
   ui.set({ inbox: false, inboxTarget: null })
   assert.deepEqual(unread.getSnapshot(), { w1: true }, 'closing Inbox without navigating clears the revealed chat')
   stop()
+})
+
+test('New replies falls back to sessions preview and timestamp for unread groups', async (t) => {
+  const before = { window: globalThis.window, document: globalThis.document, requestAnimationFrame: globalThis.requestAnimationFrame, cancelAnimationFrame: globalThis.cancelAnimationFrame }
+  globalThis.requestAnimationFrame = () => 0
+  globalThis.cancelAnimationFrame = () => {}
+  globalThis.window = { addEventListener: () => {}, removeEventListener: () => {}, matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }) }
+  globalThis.document = { addEventListener: () => {}, removeEventListener: () => {}, body: { dataset: {}, hasAttribute: () => false }, documentElement: { hasAttribute: () => false }, activeElement: null, querySelector: () => null, hasFocus: () => true }
+  const { harness, InboxPane } = await load()
+  t.after(() => { harness.unmount(); Object.assign(globalThis, before) })
+  const roster = {
+    bots: [{ id: 'chief', name: 'Chief', sessionId: 'chief', lastAt: 100, preview: 'Older bot reply', createdAt: 1 }],
+    rooms: [{ id: 'ops', name: 'Ops', sessionId: 'ops', members: ['chief'] }],
+    byId: { chief: { id: 'chief', name: 'Chief', sessionId: 'chief', lastAt: 100, preview: 'Older bot reply', createdAt: 1 } },
+    roomsById: { ops: { id: 'ops', name: 'Ops', sessionId: 'ops', members: ['chief'] } },
+    inbox: { count: 0, counts: { decide: 0, fix: 0, suggest: 0 }, items: [] },
+  }
+  const sessions = {
+    ids: ['ops'],
+    byId: { ops: { updatedAt: 500, projectionValues: { turnOutline: [{ turn: -1, response: 'Group finished deploying' }] } } },
+  }
+  const draw = () => harness.render(harness.React.createElement(InboxPane, {
+    paneLeft: 280, roster, actions: { closeInbox: () => {}, openSession: () => {} },
+    useSessions: pick => pick(sessions),
+    useWork: pick => pick({ approvals: [], paused: [] }),
+    useComputer: pick => pick({ asks: {}, holds: {} }),
+    useBrowserHolds: pick => pick({}),
+    useSessionStatus: pick => pick(new Map([['ops', { completionUnread: true }]])),
+    useBotCompletions: pick => pick({ chief: true }),
+  }))
+  let tree = draw()
+  all(tree, node => node.type === 'button' && textOf(node).startsWith('New replies'))[0].props.onClick()
+  tree = draw()
+  const rows = all(tree, node => hasClass(node, 'bt-ib-row'))
+  assert.equal(rows.length, 2)
+  assert.match(textOf(rows[0]), /Ops/)
+  assert.match(textOf(rows[0]), /Group finished deploying/)
+  assert.match(textOf(rows[1]), /Chief/)
 })

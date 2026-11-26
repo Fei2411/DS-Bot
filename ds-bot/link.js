@@ -9112,7 +9112,9 @@ function parsePushEnvelope(input) {
 function isPushNoticeEntry(value) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const entry = value;
-  return typeof entry.seq === "number" && Number.isSafeInteger(entry.seq) && entry.seq >= 0 && typeof entry.kind === "string" && entry.kind.length > 0 && entry.kind.length <= 64 && typeof entry.botId === "string" && entry.botId.length > 0 && entry.botId.length <= 256 && typeof entry.name === "string" && entry.name.length <= 256 && typeof entry.text === "string" && entry.text.length <= 2e3 && typeof entry.time === "number" && Number.isFinite(entry.time) && entry.time >= 0 && (entry.roomId === void 0 || typeof entry.roomId === "string" && entry.roomId.length <= 256) && (entry.title === void 0 || typeof entry.title === "string" && entry.title.length <= 256) && (entry.sessionId === void 0 || typeof entry.sessionId === "string" && entry.sessionId.length <= 256);
+  const hasBotId = typeof entry.botId === "string" && entry.botId.length > 0 && entry.botId.length <= 256;
+  const hasRoomId = typeof entry.roomId === "string" && entry.roomId.length > 0 && entry.roomId.length <= 256;
+  return typeof entry.seq === "number" && Number.isSafeInteger(entry.seq) && entry.seq >= 0 && typeof entry.kind === "string" && entry.kind.length > 0 && entry.kind.length <= 64 && (hasBotId || hasRoomId) && (entry.botId === void 0 || hasBotId) && (entry.roomId === void 0 || hasRoomId) && typeof entry.name === "string" && entry.name.length <= 256 && typeof entry.text === "string" && entry.text.length <= 2e3 && typeof entry.time === "number" && Number.isFinite(entry.time) && entry.time >= 0 && (entry.title === void 0 || typeof entry.title === "string" && entry.title.length <= 256) && (entry.sessionId === void 0 || typeof entry.sessionId === "string" && entry.sessionId.length <= 256);
 }
 function deriveSealKeys(es, ss, header, ephPub, hostPub, recipientPub, hostDeviceId) {
   const ikm = concatBytes4(es, ss);

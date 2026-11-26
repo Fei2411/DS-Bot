@@ -19,6 +19,8 @@ const MOBILE_ZH: Record<string, string> = {
   'Pick a folder from Folders.': '请从“文件夹”中选择一个文件夹。',
   'Asks for the secret {name}': '请求密钥 {name}',
   'Wants to send an email': '想发送一封邮件',
+  'Computer handoff': '电脑交接',
+  'Send email': '发送邮件',
   '{bot} asks for the secret {name}': '{bot} 请求密钥 {name}',
   'Pair with your computer': '与电脑配对',
   'On the computer, open DS Bot, go to Settings → Phone and show a QR code. Then scan it here.': '在电脑上打开 DS Bot，进入设置 → 手机，出示二维码，然后在这里扫描。',
