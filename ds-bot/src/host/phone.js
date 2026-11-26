@@ -24,6 +24,7 @@ import {
   sealPushEnvelope,
 } from '../../link.js'
 import { BROWSER_ALLOWED } from '../shared/browser-endpoints.js'
+import { computerOnlyError, unclassifiedRemoteError } from '../shared/remote-endpoints.js'
 
 const FILE = 'phone.json'
 const SERVER = /^wss?:\/\/[^\s/?#@]+(\/[^\s?#]*)?$/i
@@ -116,31 +117,13 @@ async function postUnifiedPush(endpoint, bodyText, urgency, signal, allowLoopbac
 
 export function remoteAccessError(device, endpoint) {
   if (device === undefined) return { code: 'bot/refused', message: 'This device is not paired', details: {} }
-  if (endpoint.startsWith('phone-')) return { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} }
-  // A Session's whole log, any Session's (session-follow.js), is read by the window on the
-  // computer; a phone reads the team's chats.
-  if (endpoint.startsWith('session-')) return { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} }
-  if (endpoint.startsWith('api-')) return { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} }
+  // Pairing, Session logs and external API tokens had their own messages before the
+  // classification moved into shared/remote-endpoints.js; browsers keep seeing them.
+  if (endpoint.startsWith('phone-') || endpoint.startsWith('session-') || endpoint.startsWith('api-')) return computerOnlyError(endpoint)
   if (device.kind !== 'phone' && !BROWSER_ALLOWED.has(endpoint)) {
     return { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
   }
-  if (endpoint.startsWith('mcp-')) return { code: 'bot/refused', message: 'MCP access is set up on the computer', details: {} }
-  if (endpoint.startsWith('workspace-') || endpoint.startsWith('terminal-')) {
-    return { code: 'bot/refused', message: 'Workspace files and terminals are available on the computer', details: {} }
-  }
-  if (endpoint.startsWith('engine-')) {
-    return { code: 'bot/refused', message: 'Engine settings are managed on the computer', details: {} }
-  }
-  if (endpoint.startsWith('plugins-')) {
-    return { code: 'bot/refused', message: 'Plugins are managed on the computer', details: {} }
-  }
-  if (endpoint.startsWith('speech-')) {
-    return { code: 'bot/refused', message: 'Voice input settings and transcription are available on the computer', details: {} }
-  }
-  if (endpoint.startsWith('telemetry-')) {
-    return { code: 'bot/refused', message: 'Privacy and telemetry settings are managed on the computer', details: {} }
-  }
-  return undefined
+  return computerOnlyError(endpoint) ?? unclassifiedRemoteError(endpoint)
 }
 
 // A browser may not open DSH Agent chats, so it may not read their media or answer their approvals either.

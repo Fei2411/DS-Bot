@@ -78,6 +78,36 @@ export interface Question {
   multiSelect?: boolean
 }
 
+/**
+ * One thing that waits for the user, as the host's inbox lists it (ds-bot/src/host/
+ * inbox.js). `id` is `kind:ref`; the fields after `text` belong to some kinds only.
+ */
+export interface InboxItem {
+  id: string
+  kind: string
+  group: 'decide' | 'fix' | 'suggest'
+  ref: string
+  at: number
+  botId?: string
+  roomId?: string
+  sessionId?: string
+  taskId?: string
+  text?: string
+  tool?: string
+  note?: string
+  taskTitle?: string
+  need?: 'fill' | 'allow'
+  connectorId?: string
+  to?: string
+  surface?: 'browser' | 'computer'
+  reason?: string
+  status?: number
+  provider?: string
+  limit?: number
+  count?: number
+  proposal?: 'skill' | 'agents'
+}
+
 export interface Approval {
   id: string
   sessionId: string
@@ -137,10 +167,12 @@ export interface TeamState {
   views?: Record<string, ShownView>
   secretRequests?: Record<string, SecretRequest[]>
   connectorRequests?: Record<string, ConnectorRequest[]>
+  mailRequests?: Record<string, MailRequest[]>
   learning?: Record<string, LearningProposal[]>
   connectors?: ConnectorsView
   capabilities?: CapabilityItem[]
   browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }>
+  inbox?: { count: number; counts: Record<'decide' | 'fix' | 'suggest', number>; items: InboxItem[] } | null
   btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string; status?: string }[]>
   sideChats?: Record<string, { chatId: string; entries?: { id: string; question?: string; answer?: string; status?: string; failure?: string }[] }[]>
   capabilityStatuses?: Record<string, Record<string, CapabilityStatus> | CapabilityStatus>
@@ -162,6 +194,20 @@ export interface TeamState {
 
 /** A card as the computer keeps it: `view` is the root node of the blueprint. */
 export interface ShownView { id?: string; title?: string; view?: unknown }
+
+/** A pending outgoing email request awaiting the user's confirmation. */
+export interface MailRequest {
+  id: string
+  sessionId?: string
+  to?: string
+  cc?: string
+  bcc?: string
+  subject?: string
+  body?: string
+  attachments?: (string | { name?: string; path?: string; size?: number })[]
+  attachmentDetails?: { name?: string; path?: string; size?: number }[]
+  status?: string
+}
 
 /** Opens the encrypted link to the computer. The pairing code goes only with the first connection. */
 export async function openLink(computer: SavedComputer, identity: PhoneIdentity, pairingCode?: string): Promise<RpcClient> {

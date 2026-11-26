@@ -1,11 +1,24 @@
 import { currentPart, turnOutlineOf } from './text.js'
 
-export function watchBotCompletions({ roster, sessions, statuses, unread }) {
+export function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
   const seen = new Map()
+  let lastTarget = null
+  let pendingTarget = null
   const sync = () => {
     const team = roster.getSnapshot()
     const list = sessions.getSnapshot()
     const statusMap = statuses?.getSnapshot()
+    const uiSnap = ui?.getSnapshot?.()
+    const inboxOpen = uiSnap?.inbox === true
+    const rawTarget = typeof uiSnap?.inboxTarget === 'string' && uiSnap.inboxTarget !== '' ? uiSnap.inboxTarget : null
+    if (inboxOpen) {
+      lastTarget = null
+      pendingTarget = null
+    } else if (rawTarget !== lastTarget) {
+      lastTarget = rawTarget
+      pendingTarget = rawTarget
+    }
+    if (pendingTarget !== null && (list.byId[pendingTarget]?.retainedBy?.mainView ?? 0) > 0) pendingTarget = null
     const previous = unread.getSnapshot()
     const next = {}
     const parts = new Set()
@@ -13,7 +26,7 @@ export function watchBotCompletions({ roster, sessions, statuses, unread }) {
       const id = currentPart(bot)
       parts.add(id)
       const row = list.byId[id]
-      const active = (row?.retainedBy?.mainView ?? 0) > 0
+      const active = (row?.retainedBy?.mainView ?? 0) > 0 && !inboxOpen && (pendingTarget === null || pendingTarget === id)
       const status = statusMap?.get(id)
       const hidden = team.exchangeTurns?.[id] ?? []
       const outline = turnOutlineOf(list, id)
@@ -48,6 +61,7 @@ export function watchBotCompletions({ roster, sessions, statuses, unread }) {
   const offRoster = roster.subscribe(sync)
   const offSessions = sessions.subscribe(sync)
   const offStatus = statuses?.subscribe(sync)
+  const offUi = ui?.subscribe?.(sync)
   sync()
-  return () => { offRoster(); offSessions(); offStatus?.() }
+  return () => { offRoster(); offSessions(); offStatus?.(); offUi?.() }
 }

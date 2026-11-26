@@ -515,6 +515,7 @@ export function App() {
     actions.closePalette()
     actions.closeVoice()
     actions.closeShortcuts()
+    actions.closeInbox?.()
     actions.closeOverlay()
     actions.reportError(error, 'overlay')
   }

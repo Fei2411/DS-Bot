@@ -449,11 +449,11 @@ test('archived-list excludes Bot/group segments and archived-unarchive refuses r
 
 test('Classic Agent approvals bridge into approvalsView without botId, and session-scoped stop-agent cancels only the targeted session', async () => {
   const { install: installApprovals } = await import('../src/host/approvals.js')
+  const { install: installInbox } = await import('../src/host/inbox.js')
   const { install: installTurns } = await import('../src/host/turns.js')
   const { fakeContext } = await import('./fake-ctx.js')
   const ctx = fakeContext()
   const cancelled = []
-  const approvalWaitCalls = []
   const rt = {
     ctx,
     state: { bots: {}, rooms: {}, agents: { a1: { id: 'a1', sessions: ['cs-1', 'cs-2'] } } },
@@ -469,13 +469,13 @@ test('Classic Agent approvals bridge into approvalsView without botId, and sessi
     agentById: id => (id === 'a1' ? { id: 'a1', sessions: ['cs-1', 'cs-2'] } : undefined),
     agentOf: sid => (sid === 'cs-1' || sid === 'cs-2' ? { id: 'a1', sessions: ['cs-1', 'cs-2'] } : undefined),
     resolveAgent: async sid => ({ cancel: reason => cancelled.push([sid, reason]) }),
-    approvalWaiting: entry => approvalWaitCalls.push(entry),
     switchJobs: () => [],
   }
   installTurns(rt)
   installApprovals(rt)
+  installInbox(rt)
 
-  // Classic Agent approval request queues in approvalsView without botId, never triggers bot-only approvalWaiting or activity['undefined'].
+  // Classic Agent approval request queues in approvalsView without botId, never reaches the Bot inbox or activity['undefined'].
   let nextCalled = false
   const approvalMiddleware = ctx.listeners.get('approval/request').at(-1)
   const outcomePromise = approvalMiddleware({
@@ -495,7 +495,7 @@ test('Classic Agent approvals bridge into approvalsView without botId, and sessi
   assert.equal(view[0].sessionId, 'cs-1')
   assert.equal('botId' in view[0], false)
   assert.equal(view[0].answerable, true)
-  assert.equal(approvalWaitCalls.length, 0, 'Classic Agent approval must not trigger Bot mobile approvalWaiting')
+  assert.equal(rt.inboxView().count, 0, 'A Classic Agent approval is not a Bot\'s: the inbox (and the phone notices it drives) leaves it out')
   assert.equal('undefined' in rt.activityView(), false, 'activityView must not gain an undefined key')
 
   rt.answerApproval(view[0].id, 'allow')
