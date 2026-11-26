@@ -2117,6 +2117,42 @@ export function install(rt) {
     heldRetryTimer.unref?.()
   }
 
+  // Checks whether `agent` already holds or received a handoff matching `match`,
+  // covering live inbox, derived messages, logged user/message events (including
+  // handoffs later compacted out of deriveMessages), and the in-flight preStep
+  // window after inbox.claim() removes a handoff before user/message is logged.
+  function hasExistingHandoff(agent, match) {
+    if ([...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])].some(match)) return true
+    if ((agent.session?.deriveMessages?.() ?? []).some(match)) return true
+    const events = agent.session?.snapshotEvents?.()
+    if (!Array.isArray(events)) return false
+    const pending = { 'next-turn': [], 'next-step': [] }
+    const claimed = []
+    for (const ev of events) {
+      if (ev?.type === 'turn/end') {
+        claimed.length = 0
+      } else if (ev?.type === 'user/message') {
+        const src = ev.data?.source ?? ev.data?.message?.source
+        if (match({ source: src })) return true
+      } else if (ev?.type === 'agent/inbox/spliced' && ev.data) {
+        const inbox = pending[ev.data.target]
+        if (inbox !== undefined) {
+          const start = ev.data.start
+          const removedCount = ev.data.removedCount ?? 0
+          const inserted = Array.isArray(ev.data.inserted) ? ev.data.inserted : []
+          if (Number.isSafeInteger(start) && start >= 0 && start <= inbox.length
+            && Number.isSafeInteger(removedCount) && removedCount >= 0 && start + removedCount <= inbox.length) {
+            const removed = inbox.splice(start, removedCount, ...inserted)
+            if (inserted.length === 0 && ev.data.outcome !== 'canceled') {
+              for (const msg of removed) claimed.push(msg)
+            }
+          }
+        }
+      }
+    }
+    return pending['next-turn'].some(match) || pending['next-step'].some(match) || claimed.some(match)
+  }
+
   // Recovers a handoff package that was not yet flushed to `target` when the process
   // crashed or errored between flipping the current-part pointer and flushing flush #1.
   async function ensureHandoffDelivered(oldSessionId, owner, targetId, { metaOverride, fallbackSessionId } = {}) {
@@ -2129,13 +2165,11 @@ export function install(rt) {
       if (expectedExchangeId === undefined) return true
       return m.source?.exchangeId === expectedExchangeId
     }
-    const alreadyHasHandoff = (fresh.session?.deriveMessages?.() ?? []).some(matchesExistingHandoff)
-      || [...(fresh.inbox?.nextStep ?? []), ...(fresh.inbox?.nextTurn ?? [])].some(matchesExistingHandoff)
-    if (alreadyHasHandoff) {
-      // A prior flush failure can leave the handoff buffered in memory (fresh.inbox or
-      // unflushed session log) while handoffPending is still set. Confirm durability on
-      // disk before returning so the caller never clears handoffPending or archives the
-      // old part while the handoff is still unflushed.
+    if (hasExistingHandoff(fresh, matchesExistingHandoff)) {
+      // A prior flush failure can leave the handoff buffered in memory (fresh.inbox,
+      // in-flight preStep claim, or unflushed session log) while handoffPending is still
+      // set. Confirm durability on disk before returning so the caller never clears
+      // handoffPending or archives the old part while the handoff is still unflushed.
       await ctx.sessions.flush(fresh.session)
       return
     }

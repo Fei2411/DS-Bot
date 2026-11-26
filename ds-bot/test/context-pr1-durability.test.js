@@ -1406,9 +1406,69 @@ test('ensureHandoffDelivered still flushes fresh.session when handoff already ex
     assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
     assert.deepEqual(host.state().switching, {})
   }
+
+  // 3) Handoff already claimed out of fresh.inbox during preStep (logged as agent/inbox/spliced
+  // removal before user/message is written) while handoffPending is still true.
+  {
+    let s1Flushes = 0
+    let failOnce = true
+    const host = makeSwitchFixture({
+      fail: {
+        onFlush: (session) => {
+          if (session.id !== 's1') return
+          s1Flushes += 1
+          if (failOnce) {
+            failOnce = false
+            throw new Error('transient s1 claimed-window flush failure')
+          }
+        },
+      },
+    })
+    t.after(host.stop)
+    await host.rt.load()
+
+    const bot = host.rt.state.bots.b
+    bot.sessionId = 's1'
+    bot.segments = [{ sessionId: 'b', endedAt: Date.now() - 1_000 }]
+    host.rt.chatOwners.set('s1', 'b')
+    host.rt.state.switching = {
+      b: {
+        botId: 'b',
+        handoffPending: true,
+        handoffMeta: {
+          resume: true,
+          info: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-inflight-claim', senderName: 'Chief' },
+        },
+      },
+    }
+    await host.rt.save()
+
+    const s1 = host.agentOf('s1')
+    const claimedHandoff = createUserMessage({
+      content: [{ type: 'text', text: '[Handoff · part 2]\nIn-flight claim window' }],
+      source: { kind: SOURCE_KIND, form: 'handoff', handoff: true, exchangeId: 'ex-inflight-claim' },
+    })
+    // Empty inbox and empty deriveMessages (user/message not appended yet), only spliced insert + claim in snapshotEvents.
+    s1.session.snapshotEvents = () => [
+      { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 0, inserted: [claimedHandoff] } },
+      { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } },
+    ]
+
+    await host.rt.heldBack()
+    assert.equal(s1Flushes, 1, 'retry must detect in-flight claimed handoff and flush without duplicating')
+    assert.equal(host.state().switching.b?.handoffPending, true)
+    assert.equal(s1.calls.filter(([kind]) => kind === 'followup').length, 0)
+    assert.deepEqual(host.archived, [])
+
+    await host.rt.heldBack()
+    assert.equal(s1Flushes, 2)
+    assert.equal(s1.calls.filter(([kind]) => kind === 'followup').length, 0, 'must not inject duplicate handoff during preStep claim window')
+    assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
+    assert.deepEqual(host.state().switching, {})
+  }
 })
 
-test('real DSH JSONL persistence flushes buffered handoff on retry before clearing handoffPending and archiving old part', async (t) => {
+test('real DSH JSONL persistence flushes buffered handoff out of drainPaused on retry before clearing handoffPending and archiving old part', async (t) => {
   const rootDir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsb-pr1-jsonl-')))
   const home = join(rootDir, 'home')
   const sessionsDir = join(rootDir, 'sessions')
@@ -1450,7 +1510,50 @@ test('real DSH JSONL persistence flushes buffered handoff on retry before cleari
 
   root.llm.registerAdapter(['mock'], new MinimalAdapter())
   await mountAgentLoopTestHarness(root)
-  const { agents, sessions, sessionPersistence } = await new Promise(resolve => root.inject(['agents', 'sessions', 'sessionPersistence'], resolve))
+  const { agents, sessionPersistence } = await new Promise(resolve => root.inject(['agents', 'sessionPersistence'], resolve))
+
+  // Inject real persistence write failures inside JsonlSessionHandle.persistContiguous for part-1's
+  // handoff batch so JsonlSessionHandle enters genuine `drainPaused = true` and retains buffered events
+  // without background 200ms auto-drain until explicit sessions.flush() succeeds.
+  let handoffPersistAttempts = 0
+  let failHandoffPersists = 2
+  let part1Handle
+  const origCreate = sessionPersistence.create.bind(sessionPersistence)
+  sessionPersistence.create = async (header, options) => {
+    const handle = await origCreate(header, options)
+    if (header?.id === 'part-1') {
+      part1Handle = handle
+      const origPersist = handle.persistContiguous.bind(handle)
+      handle.persistContiguous = async (batch) => {
+        const hasHandoff = Array.isArray(batch) && batch.some(ev =>
+          ev.type === 'agent/inbox/spliced'
+          && Array.isArray(ev.data?.inserted)
+          && ev.data.inserted.some(m => m?.source?.handoff === true))
+        if (hasHandoff) {
+          handoffPersistAttempts += 1
+          if (failHandoffPersists > 0) {
+            failHandoffPersists -= 1
+            throw new Error('simulated JSONL disk write failure')
+          }
+        }
+        return origPersist(batch)
+      }
+    }
+    return handle
+  }
+
+  const readDiskHandoffInserts = async () => {
+    const readHandle = await sessionPersistence.open('part-1', 'read')
+    try {
+      const { events } = await readHandle.read()
+      return events.filter(ev =>
+        ev.type === 'agent/inbox/spliced'
+        && Array.isArray(ev.data?.inserted)
+        && ev.data.inserted.some(m => m?.source?.handoff === true))
+    } finally {
+      await readHandle.close()
+    }
+  }
 
   const archived = []
   let partCounter = 0
@@ -1505,22 +1608,6 @@ test('real DSH JSONL persistence flushes buffered handoff on retry before cleari
     questions: {},
   }))
 
-  // Wrap real sessions.flush so the first two flush attempts on part-1 fail transiently,
-  // while the third runs the real JsonlSessionPersistence drain + flush to disk.
-  const origFlush = sessions.flush.bind(sessions)
-  let part1FlushAttempts = 0
-  let failRemaining = 2
-  sessions.flush = async (session) => {
-    if (session?.id === 'part-1') {
-      part1FlushAttempts += 1
-      if (failRemaining > 0) {
-        failRemaining -= 1
-        throw new Error('simulated transient JSONL flush failure')
-      }
-    }
-    return origFlush(session)
-  }
-
   const rt = createRuntime(root, { home, checkRatio: 0.4, scheduleAttachWaitMs: 0 })
   await rt.load()
   const { agent: oldAgent } = await agents.create({
@@ -1538,36 +1625,28 @@ test('real DSH JSONL persistence flushes buffered handoff on retry before cleari
   oldAgent.followup(createUserMessage({ content: [{ type: 'text', text: 'Prepare release notes' }], source: { kind: 'user' } }))
   await turnDone
 
-  // Wait for pointer flip m1 -> part-1 and initial handoff flush failure #1.
-  assert.equal(await waitFor(() => rt.chatOf('m1') === 'part-1' && part1FlushAttempts === 1, 5_000), true, 'switch must create part-1 and fail initial handoff flush')
-  // Wait for runSwitch catch/finally to settle (leaving switches empty and handoffPending true).
-  assert.equal(await waitFor(() => !rt.isSwitchingPart('m1'), 5_000), true)
+  // Wait for pointer flip m1 -> part-1, real persistContiguous failure #1, and runSwitch cleanup.
+  assert.equal(await waitFor(() => rt.chatOf('m1') === 'part-1' && handoffPersistAttempts === 1 && !rt.isSwitchingPart('m1'), 5_000), true, 'switch must create part-1 and fail initial JSONL persist')
+  assert.equal(part1Handle?.drainPaused, true, 'real JsonlSessionHandle must enter drainPaused=true after persistContiguous fails')
   assert.equal(rt.state.switching.m1?.handoffPending, true, 'handoffPending must remain set after initial JSONL flush failure')
   assert.deepEqual(archived, [], 'old part must not be archived after failed handoff flush')
+  assert.equal((await readDiskHandoffInserts()).length, 0, 'disk JSONL must have 0 handoff events while drainPaused after failure #1')
 
-  // Retry #1 (flush attempt #2 also fails): ensureHandoffDelivered MUST invoke sessions.flush(part-1)
+  // Retry #1 (persist attempt #2 also fails): ensureHandoffDelivered MUST invoke sessions.flush(part-1)
   // rather than returning early because the handoff is already in part-1's memory.
   await rt.heldBack()
-  assert.equal(part1FlushAttempts, 2, 'heldBack retry #1 must call sessions.flush on part-1')
+  assert.equal(handoffPersistAttempts, 2, 'heldBack retry #1 must drive drainBuffered/persistContiguous on part-1')
+  assert.equal(part1Handle?.drainPaused, true, 'JsonlSessionHandle stays drainPaused=true after retry #1 fails')
   assert.equal(rt.state.switching.m1?.handoffPending, true, 'handoffPending must remain set while retry flush fails')
   assert.deepEqual(archived, [], 'old part must remain unarchived while retry flush fails')
+  assert.equal((await readDiskHandoffInserts()).length, 0, 'disk JSONL must still have 0 handoff events after retry #1 fails')
 
-  // Retry #2 (flush attempt #3 delegates to real JsonlSessionPersistence): drains to disk,
-  // clears handoffPending, archives old part, and leaves exactly one handoff in the JSONL file.
+  // Retry #2 (persist attempt #3 succeeds): drains buffered handoff out of drainPaused to disk,
+  // clears handoffPending, archives old part, and persists exactly one handoff in the JSONL file.
   await rt.heldBack()
-  assert.equal(part1FlushAttempts, 3, 'heldBack retry #2 must call real sessions.flush on part-1')
+  assert.equal(handoffPersistAttempts, 3, 'heldBack retry #2 must flush buffered handoff to real JSONL storage')
+  assert.equal(part1Handle?.drainPaused, false, 'JsonlSessionHandle leaves drainPaused after durable flush')
   assert.deepEqual(rt.state.switching, {}, 'switching marker cleared after durable JSONL flush')
   assert.deepEqual(archived, ['m1'], 'old part archived after durable JSONL flush')
-
-  const readHandle = await sessionPersistence.open('part-1', 'read')
-  try {
-    const { events } = await readHandle.read()
-    const handoffInserts = events.filter(ev =>
-      ev.type === 'agent/inbox/spliced'
-      && Array.isArray(ev.data?.inserted)
-      && ev.data.inserted.some(m => m?.source?.handoff === true))
-    assert.equal(handoffInserts.length, 1, 'real JSONL file on disk must durably persist exactly one handoff message')
-  } finally {
-    await readHandle.close()
-  }
+  assert.equal((await readDiskHandoffInserts()).length, 1, 'real JSONL file on disk must durably persist exactly one handoff message')
 })
