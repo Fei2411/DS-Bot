@@ -42126,7 +42126,8 @@ function PresentedFiles({ files, openFile, actions }) {
     const canOpen = typeof openFile === "function" || typeof actions?.openFile === "function";
     if (!canOpen && target === null) return (0, import_react37.createElement)("span", { key: file.path, className: "bt-ufile", title: file.path }, body);
     const open = () => {
-      const attempt = typeof openFile === "function" ? Promise.resolve().then(() => openFile(file.path)) : typeof actions?.openFile === "function" ? Promise.resolve().then(() => actions.openFile(file.sessionId ? { path: file.path, sessionId: file.sessionId } : file.path)) : savePresentedFile(target);
+      const fallback = target !== null ? () => savePresentedFile(target) : void 0;
+      const attempt = typeof openFile === "function" ? Promise.resolve().then(() => openFile(file.path)) : typeof actions?.openFile === "function" ? Promise.resolve().then(() => actions.openFile(file.sessionId ? { path: file.path, sessionId: file.sessionId, ...fallback ? { onUnavailable: fallback } : {} } : fallback ? { path: file.path, onUnavailable: fallback } : file.path)) : savePresentedFile(target);
       void attempt.catch(() => canOpen && target !== null ? savePresentedFile(target) : Promise.reject(new Error())).catch(() => {
         actions?.notice?.(t("Could not save this file"));
       });

@@ -95,15 +95,27 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
     const extMeta = [(file.name.split('.').pop() ?? '').toUpperCase(), file.bytes !== undefined ? `${Math.max(1, Math.round(file.bytes / 1024))} KB` : ''].filter(Boolean).join(' · ')
     const subMeta = file.description && file.description !== '' ? file.description : extMeta
     const isPresented = file.attachmentId === undefined && file.seq !== undefined
+    const canAct = file.attachmentId !== undefined || file.seq !== undefined
+    const label = (
+      <>
+        <Text style={[type.small, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{file.name}</Text>
+        {subMeta !== '' ? <Text style={[type.caption, { color: p.ink3 }]} numberOfLines={1}>{subMeta}</Text> : null}
+      </>
+    )
     return (
-      <View key={file.attachmentId ?? `${file.seq}:${file.index}:${file.name}`}
+      <View key={file.attachmentId ?? `${file.seq ?? 'legacy'}:${file.index ?? 0}:${file.name}`}
         style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: p.line2, backgroundColor: p.card }}>
-        <Pressable accessibilityRole="button" onPress={() => (isPresented ? onSaveFile?.(file) : onOpenFile?.(file))}
-          style={{ flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8 }}>
-          <Text style={[type.small, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{file.name}</Text>
-          {subMeta !== '' ? <Text style={[type.caption, { color: p.ink3 }]} numberOfLines={1}>{subMeta}</Text> : null}
-        </Pressable>
-        {onSaveFile === undefined ? null : (
+        {canAct ? (
+          <Pressable accessibilityRole="button" onPress={() => (isPresented ? onSaveFile?.(file) : onOpenFile?.(file))}
+            style={{ flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8 }}>
+            {label}
+          </Pressable>
+        ) : (
+          <View style={{ flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8 }}>
+            {label}
+          </View>
+        )}
+        {!canAct || onSaveFile === undefined ? null : (
           <Pressable accessibilityRole="button" accessibilityLabel={t('Save {name}', { name: file.name })} onPress={() => onSaveFile(file)}
             style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, opacity: pressed ? 0.6 : 1 })}>
             <Text style={[type.small, { color: p.accent, fontWeight: '600' }]}>{t('Save')}</Text>

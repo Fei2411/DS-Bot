@@ -1960,3 +1960,38 @@ test('group presented files filter out protected data directory paths', async (t
   const result = JSON.parse(await running)
   assert.deepEqual(result.replies[0].presented, [{ path: '/work/ok.pdf', sessionId: first.sessionId, seq: 40, index: 1 }])
 })
+
+test('in-round pass-with-files reports admin goal tasks and late [PASS] with @mention does not wake another member', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const [adminId, memberId] = room.members
+  rt.state.rooms[room.id].admin = adminId
+  rt.state.rooms[room.id].mode = 'admin'
+  const reported = []
+  rt.goalTaskReported = (roomId, botId) => reported.push([roomId, botId])
+
+  await emit(room.id, userMessage('Deliver the file'))
+  const running = relay(room.id, 'relay-goal-pass')
+  const first = await turnFor(sent)
+  const memberName = rt.botOf(memberId).name
+  await answer(first.sessionId, first.message.source.exchangeId, `@${memberName} please send the report.`, 1)
+  const second = await turnFor(sent, first)
+  await emit(second.sessionId, { seq: 50, type: 'deliverables/presented', data: { turn: 1, callId: 'p-goal', files: [{ path: '/work/report.pdf', description: 'Report' }] } })
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 1)
+  const third = await turnFor(sent, first, second)
+  await answer(third.sessionId, third.message.source.exchangeId, 'Thanks, received.', 2)
+  await running
+  assert.deepEqual(reported, [[room.id, memberId]], 'in-round pass with presented files must call goalTaskReported')
+
+  // Late reply with `[PASS] @<other>` + files must NOT parse `@<other>` as a request route.
+  const adminName = rt.botOf(adminId).name
+  sent.length = 0
+  await emit(second.sessionId, { seq: 51, type: 'deliverables/presented', data: { turn: 2, callId: 'p-late-pass', files: [{ path: '/work/final.pdf' }] } })
+  await rt.lateRoomReply(second.sessionId, { role: 'room', roomId: room.id, askedBy: adminId }, `[PASS] @${memberName} @${adminName}`)
+  const posts = sent.filter(entry => entry.sessionId === room.id && entry.message.source?.role === 'post')
+  assert.equal(posts.length, 1)
+  assert.equal(posts[0].message.source.route?.kind, 'result', 'late pass-with-files routes back to askedBy, not as a request')
+  assert.deepEqual(posts[0].message.source.route?.to, [adminId])
+  assert.deepEqual(posts[0].message.source.presented, [{ path: '/work/final.pdf', sessionId: second.sessionId, seq: 51, index: 0 }])
+})

@@ -1361,6 +1361,22 @@ export function install(rt) {
     }
   }
 
+  async function guardPresentData(exec) {
+    if (exec.name !== 'present' || typeof rt.inData !== 'function') return
+    const paths = presentPathsOf(exec.arguments ?? {})
+    if (paths.length === 0) return
+    const base = exec.agent?.session?.header?.cwd
+    for (const path of paths) {
+      const full = base === undefined ? resolve(path) : resolve(base, path)
+      const candidates = new Set([full])
+      const realPath = await (rt.realBeyond ?? rt.real)?.(full)
+      if (realPath) candidates.add(realPath)
+      for (const candidate of candidates) {
+        if (await rt.inData(candidate)) throw new Error('Files inside DeepSeek Harness data cannot be presented')
+      }
+    }
+  }
+
   // Before the tools' own hooks, so that a closed call never reaches a card they show.
   ctx.on('tools/execute', async (exec, next) => {
     const self = await callerOf(exec)
@@ -1372,6 +1388,7 @@ export function install(rt) {
       const memo = new Map()
       await guardApiFiles(exec, memo)
       await guardSecretFiles(exec, self, memo)
+      await guardPresentData(exec)
     }
     return next()
   })

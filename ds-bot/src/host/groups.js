@@ -2349,7 +2349,7 @@ export function install(rt) {
       }
     }
     // A result the admin asked for reports its goal task; a failed model call puts it back.
-    if (slot.status === 'posted' && slot.by === room.admin && final !== undefined) rt.goalTaskReported?.(room.id, member.id)
+    if (slot.status === 'posted' && slot.by === room.admin && (final !== undefined || files.length > 0)) rt.goalTaskReported?.(room.id, member.id)
     if (reply?.failure !== undefined) rt.goalTaskReset?.(room.id, member.id, 'Could not finish: its model call failed')
     // Yielding to work, approval or an unanswered turn keeps the task pending.
     // A timed-out ('missed') slot whose member has left or is no longer active also exits
@@ -3357,7 +3357,7 @@ export function install(rt) {
       // The admin asked for this result: its goal task is reported at once, even
       // while the other members of the batch still work.
       if (askedBy === room.admin && (!isPass(text) || shown || hasFiles)) rt.goalTaskReported?.(room.id, member.id)
-      const route = speechRoute(room, member, text, { resultRef: info.resultRef, askedBy, batch, explicitCalls })
+      const route = isPass(text) ? roomNote() : speechRoute(room, member, text, { resultRef: info.resultRef, askedBy, batch, explicitCalls })
       const named = route.kind === 'request' ? addressedMembers(route, room.members.map(rt.botOf).filter(Boolean), member.id) : []
       expandScopedReports(room.id, member.id, named)
       let waitingPeers = false

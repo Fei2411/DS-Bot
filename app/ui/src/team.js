@@ -680,7 +680,8 @@ export function createTeam() {
       if (target === '') return
       const fileSessionId = typeof path?.sessionId === 'string' && path.sessionId !== '' ? path.sessionId : null
       const fileRoot = typeof path?.root === 'string' && path.root !== '' ? path.root : null
-      openWorkspaceTab('preview', prev => ({ ...prev, file: target, fileSessionId, fileRoot }), fileSessionId)
+      const fileFallback = typeof path?.onUnavailable === 'function' ? path.onUnavailable : null
+      openWorkspaceTab('preview', prev => ({ ...prev, file: target, fileSessionId, fileRoot, fileFallback }), fileSessionId)
     },
     openChanges: async (changes) => {
       if (!changes || typeof changes !== 'object' || typeof changes.sessionId !== 'string' || !Number.isInteger(changes.seq)) return
@@ -705,7 +706,7 @@ export function createTeam() {
               ...prev,
               tabs: remaining,
               tab: prev.tab === tabId ? remaining[remaining.length - 1] : prev.tab,
-              ...(tabId === 'preview' ? { file: null, fileSessionId: null, fileRoot: null } : {}),
+              ...(tabId === 'preview' ? { file: null, fileSessionId: null, fileRoot: null, fileFallback: null } : {}),
               ...(tabId === 'changes' ? { changes: null } : {}),
             },
           }

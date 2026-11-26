@@ -1246,7 +1246,7 @@ test('present tool cannot expose private Bot files, host API files, or secret fi
   const privateRes = await run('present', { files: [{ path: join(diary, 'notes.txt') }] }, 'b', writerAgent)
   assert.equal(privateRes.ran, false)
   assert.match(privateRes.error, CLOSED)
-  // Without any private Bot, guardApiFiles and guardSecretFiles still block present.
+  // Without any private Bot, guardApiFiles, guardSecretFiles, and guardPresentData still block present.
   rt.state.bots[P].private = false
   const apiRes = await run('present', { files: [{ path: join(home, 'api-tokens.json') }] }, 'b', writerAgent)
   assert.equal(apiRes.ran, false)
@@ -1254,4 +1254,10 @@ test('present tool cannot expose private Bot files, host API files, or secret fi
   const secretRes = await run('present', { files: [{ path: join(home, 'secret-refs', 'tok.json') }] }, 'b', writerAgent)
   assert.equal(secretRes.ran, false)
   assert.match(secretRes.error, /secret/)
+  const stateRes = await run('present', { files: [{ path: join(home, 'state.json') }] }, 'b', writerAgent)
+  assert.equal(stateRes.ran, false)
+  assert.match(stateRes.error, /DeepSeek Harness data/)
+  const secretsJsonRes = await run('present', { files: [{ path: join(home, 'secrets.json') }] }, 'b', writerAgent)
+  assert.equal(secretsJsonRes.ran, false)
+  assert.match(secretsJsonRes.error, /DeepSeek Harness data/)
 })

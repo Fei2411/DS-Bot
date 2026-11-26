@@ -1372,3 +1372,54 @@ test('room-chat emits FileRef-compliant files with name and locator for group pr
   assert.equal(dl.value.name, 'summary.md')
   assert.equal(Buffer.from(dl.value.bytes, 'base64').toString('utf8'), '# Summary\nAll good.')
 })
+
+test('file-download rejects presented files in private Bot folders, protected data roots, and unowned sessions', async (t) => {
+  const { call, ctx, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const privateDir = mkdtempSync(join(tmpdir(), 'ds-bot-mob-priv-'))
+  t.after(() => rmSync(privateDir, { recursive: true, force: true }))
+  const privateFile = join(privateDir, 'diary.txt')
+  writeFileSync(privateFile, 'top secret')
+  rt.state.bots[writer.id].private = true
+  rt.state.bots[writer.id].workDir = privateDir
+
+  const dataFile = join(rt.home, 'state.json')
+  writeFileSync(dataFile, '{"secret":true}')
+
+  const memberSession = 'member-room-sec-1'
+  ;(rt.state.rooms[room.id].sessions ??= {})[chief] = memberSession
+  rt.groupOwners.set(memberSession, { botId: chief, roomId: room.id })
+  history[memberSession] = [
+    {
+      seq: 3, time: 300, type: 'deliverables/presented',
+      data: { turn: 1, files: [{ path: privateFile }, { path: dataFile }] },
+    },
+  ]
+  ctx.sessions.get = id => (id === memberSession ? { seq: 4 } : { seq: 2 })
+
+  const privDl = await call('file-download', { sessionId: memberSession, seq: 3, index: 0, offset: 0 })
+  assert.equal(privDl.ok, false)
+  assert.equal(privDl.error.code, 'bot/not-found')
+  assert.match(privDl.error.message, /no longer available/)
+
+  const dataDl = await call('file-download', { sessionId: memberSession, seq: 3, index: 1, offset: 0 })
+  assert.equal(dataDl.ok, false)
+  assert.equal(dataDl.error.code, 'bot/not-found')
+  assert.match(dataDl.error.message, /no longer available/)
+
+  const unownedDl = await call('file-download', { sessionId: 'foreign-session', seq: 3, index: 0, offset: 0 })
+  assert.equal(unownedDl.ok, false)
+  assert.equal(unownedDl.error.code, 'bot/not-found')
+  assert.match(unownedDl.error.message, /Unknown session/)
+
+  // A session owned by a group member that is no longer in owned parts of that room is refused.
+  rt.pastOwners.set('orphan-part', { botId: chief, roomId: room.id })
+  history['orphan-part'] = [
+    { seq: 1, time: 100, type: 'deliverables/presented', data: { turn: 1, files: [{ path: dataFile }] } },
+  ]
+  const orphanDl = await call('file-download', { sessionId: 'orphan-part', seq: 1, index: 0, offset: 0 })
+  assert.equal(orphanDl.ok, false)
+  assert.equal(orphanDl.error.code, 'bot/not-found')
+  assert.match(orphanDl.error.message, /no longer available/)
+})
