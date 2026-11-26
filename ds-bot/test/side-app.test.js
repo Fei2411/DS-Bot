@@ -420,7 +420,7 @@ test('side-app-bytes serves whitelisted images and refuses other types, escapes 
   write(root, 'cert.pem', 'KEY')
   const { rt } = harness({ root })
   const descriptor = await openWithTool(rt, root, 'guide.md', 'open_reader')
-  const image = { app: 'reader', sessionId: 's1', displayPath: 'pic.png', workspaceTag: descriptor.workspaceTag }
+  const image = { app: 'reader', sessionId: 's1', displayPath: 'pic.png', workspaceTag: descriptor.workspaceTag, article: 'guide.md' }
   const first = await rt.sideAppEndpoint('side-app-bytes', { file: image })
   assert.equal(first.kind, 'bytes')
   assert.equal(first.mime, 'image/png')
@@ -455,7 +455,7 @@ test('side-app-bytes accepts the body the Reader sends for an image beside a nes
   const { rt } = harness({ root })
   const descriptor = await openWithTool(rt, root, 'docs/post.md', 'open_reader')
   // Shape of ds-bot/src/client/side-file-source.js fetchImage: sessionId beside `file`, not inside it.
-  const body = { sessionId: 's1', file: { app: descriptor.app, displayPath: 'docs/img/a.png', workspaceTag: descriptor.workspaceTag } }
+  const body = { sessionId: 's1', file: { app: descriptor.app, displayPath: 'docs/img/a.png', workspaceTag: descriptor.workspaceTag, article: 'docs/post.md' } }
   const got = await rt.sideAppEndpoint('side-app-bytes', body)
   assert.equal(got.kind, 'bytes')
   assert.equal(got.mime, 'image/png')

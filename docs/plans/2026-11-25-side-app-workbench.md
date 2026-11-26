@@ -8,7 +8,7 @@
 
 | V1 交付 | 用户能做什么 |
 |---|---|
-| 工作台 | 在右侧标签条切换既有 App 和多个文件标签，拖宽、收起，关闭后可从聊天卡片重开。 |
+| 工作台 | 在同一个工作台切换既有 App 和多个文件标签，关闭后可从聊天卡片重开。支持右侧停靠、右侧覆盖抽屉、居中浮窗，设置可指定新会话默认形态，每个 Bot 自己的聊天和每个群聊可独立覆盖。 |
 | Canvas | 打开真实 `.html` / `.htm`，运行沙箱内的本地交互原型，加载获准的同目录相对资源，切换 Render / Source / Changes，随文件变化刷新。 |
 | Reader | 打开真实 `.md` / `.markdown` / `.mdx`，用目录定位，在 Read / Source / Changes 间切换，选一段放入聊天待修改，审阅前后版本。MDX 按普通 Markdown 渲染，JSX、表达式和模块声明均不执行。 |
 | 工具与卡片 | Bot 在自己的 DS Bot 界面聊天中调用 `open_canvas` / `open_reader`，聊天留下可重开的卡片，改文件继续用同一会话的 `write` / `edit`。 |
@@ -31,7 +31,23 @@
 
 DS Bot 自己的面板是 V1 的唯一挂载面。它已经管理浏览器 guest、侧聊、宽度、让位和退场。保留与 DSH 右栏的现有互斥规则，不注册 `sidebarRightTabs`。内建注册项只声明 `id`、顺序、适用主体、宽度、标签提供方和视图。外壳管理活动标签、焦点、拖拽与显隐，App 自己持有模式及文件读取状态。已有 `ui.side`、`ui.task` 和浏览器标签目标沿用。先完成等价迁移，再接新 App。
 
-新文件标签键为 `(subjectId, app, workspaceTag, displayPath)`。重复打开聚焦旧标签，同名时显示最短可区分的目录。每个主体最多 8 个文件标签，满时提示关闭一项，避免静默丢失未审阅 Diff。浏览器等既有标签保留自己的策略。持久化标签元数据、上次活动标签、模式和宽度，整页重载后先收起面板。旧 browser 宽度作为迁移默认值。正文、Diff、预览地址和权限凭据仅存内存。1280px 及窄宽状态都沿用现有空间判断，优先保留聊天的 420px，面板折叠后可通过原入口恢复。详情保留 320px，Browser 保留 360px 最小 / 520px 默认，Canvas 初始 560px，Reader 初始 480px。空间不足时隐藏次要工具入口，面板主体优先可用。[UI 标准](../design/ui-standard.md)
+新文件标签键为 `(subjectId, app, workspaceTag, displayPath)`。重复打开聚焦旧标签，同名时显示最短可区分的目录。每个主体最多 8 个文件标签，满时提示关闭一项，避免静默丢失未审阅 Diff。浏览器等既有标签保留自己的策略。持久化标签元数据、上次活动标签、模式和宽度，整页重载后先收起面板。旧 browser 宽度作为迁移默认值。正文、Diff、预览地址和权限凭据仅存内存。停靠时优先保留聊天的 420px，面板折叠后可通过原入口恢复。详情保留 320px，Browser 保留 360px 最小 / 520px 默认，Canvas 初始 560px，Reader 初始 480px。空间不足时隐藏次要工具入口，面板主体优先可用。[UI 标准](../design/ui-standard.md)
+
+### 3.1 工作台形态与会话设置
+
+| 选项 | 布局规则 |
+|---|---|
+| `Docked right` (`docked`) | 沿用当前右侧停靠、拖宽和让宽行为。窄窗仍由现有规则折起，用户显式展开时可临时覆盖。 |
+| `Drawer right` (`drawer`) | 从右侧覆盖聊天区域。保持聊天列宽与左侧栏原有布局。抽屉宽度随可用视口限制。 |
+| `Centered` (`centered`) | 在应用窗口内居中浮起。保持聊天列宽，按视口限制尺寸，内容独立滚动。窄窗时使用贴近全宽的居中面板并保留关闭按钮。 |
+
+- **全局入口**放在 `Settings → Appearance` 的 `Side App layout for new conversations`。保存到现有团队偏好。全局未设时默认 `Docked right`。[AppearancePage](../../ds-bot/src/client/appearance-page.js#L692) · [宿主偏好](../../ds-bot/src/host/channel.js#L266)
+- **会话入口**在 Bot 聊天或群聊的标题菜单中提供 `Side App layout`，面板关闭时也可访问。面板工具菜单可复用同一选择器。显示当前选项和 `Reset to original layout`。切换立即应用到当前会话，刷新后仍有效。保存失败时保留原值并使用现有错误反馈。
+- **存储语义**按稳定的 Bot ID 或群 ID 记录创建默认和可选覆盖，避免使用当前 DSH Session ID 或临时 part ID。新建 Bot 自聊或群聊时，在已有创建事务中捕获当时的全局默认。有效值为 `override ?? initial ?? 'docked'`。升级前已存在、导入且无记录、字段无效的会话使用停靠。这一回退不受全局设置与首次访问时点影响。重置移除覆盖，回到会话创建时的默认，旧会话回到停靠。换 part、压缩、重命名、刷新与重启都保持同一会话的设置。复用团队设置及现有 Bot/群用户侧更新入口与校验。[Bot 创建](../../ds-bot/src/host/roster.js#L206) · [群创建](../../ds-bot/src/host/roster.js#L706) · [界面主体映射](../../ds-bot/src/client/team-actions.js#L14)
+- **同一外壳**切形态时只切几何与动画状态，当前 App、标签、文件模式、阅读/审阅状态、聊天输入与 Browser tab 继续使用原实例。保持 Canvas iframe 和 Browser guest 的实例身份，并在新边界稳定后更新 guest 的位置及裁剪。Drawer 和 Centered 都采用非模态面板以保留聊天焦点，并保持清楚的 Tab 顺序与可访问名称。打开或切换时，实时 `open_*` 保持当前会话和焦点，异步领取完成时再次确认仍在发起会话。手动进入面板可用键盘操作。Esc 优先关闭最上层的菜单或选段控件，然后关闭当前面板。若关闭前焦点在面板内，回到打开它的控件，控件不存在时回到会话标题的工作台入口。焦点在聊天输入框时继续留在输入框。iframe/guest 聚焦时验证 Esc 行为与键盘可达的关闭入口。[面板外壳](../../ds-bot/src/client/overlays.js#L38) · [Esc 层级](../../ds-bot/src/client/overlay-hooks.js#L6)
+- **与 DSH 右栏互斥**适用于全部三种形态。保留现有最后一次打开动作优先规则及换会话保护。工作台打开时使用既有路径收起 DSH 右栏。用户明确打开 DSH 文件/审阅时收起工作台。换会话时解析目标会话的形态，防止 DSH 右栏随会话自动出现时夺回界面。互斥、缩窗折起与临时覆盖仅改变本次显示，保存的形态持续有效。桌面复用同一外壳，并沿用自身工作区右栏的关闭与会话切换规则。[right-panel.js](../../ds-bot/src/client/right-panel.js#L1) · [frame-layout.js](../../ds-bot/src/client/frame-layout.js#L55) · [桌面工作区右栏](../../app/ui/src/app.js#L370)
+
+### 3.2 Canvas 与 Reader
 
 ```text
              Browser · Bot · Side Chat · draft.html × · report.md ×
@@ -66,7 +82,8 @@ Reader       Contents  [ Read   | Source | Changes ]
 
 - 入口基准为调用时自身聊天的有效 Session 工作目录。建议 V1 仅支持这个工作根，接受工作区相对路径或能规范化为同根相对路径的绝对路径。历史 part 的当前可授权根须与 `workspaceTag` 一致。换工作目录后打开同名文件须发新工具调用，旧卡不能静默重绑。保留隐私 Bot、会话与数据根的已有拒绝语义。额外工作文件夹或旧 part 根若需扩大支持，应先补独立授权证据。[额外工作文件夹](2026-11-10-extra-folders.md) · [隐私 Bot](2026-10-27-private-bots.md)
 - 校验统一在宿主完成并覆盖每次 open/read/preview/资源请求。用规范工作根与真实路径做边界检查，拒绝目录、越界、会话/团队数据目录、链接或 junction 逃逸以及异常路径。Windows 盘符、UNC、设备名、编码和大小写要有边界用例。实现须对替换路径期间的检查与实际读取一致性做防御性核验。UI 不发送任意文件写入请求，修改遵循 Bot 当前沙箱及审批规则。
-- HTML 和脚本视为不受信内容。iframe 只启用所需脚本能力，禁止 `allow-same-origin`、弹窗、顶层导航、表单提交与下载。预览文件服务只接受 `GET` / `HEAD`，禁止列目录。高熵、短时效、可撤销的 capability 绑定入口 HTML 和资源根，资源根限定为入口 HTML 的同目录子树。每次资源读取均以 realpath 检查，拒绝路径穿越、点文件、`.git`、密钥类文件及 symlink 或 junction 逃逸。只提供获准的 CSS、JS、普通图片等资源类型。预览不发送 referrer、不缓存，响应使用正确 MIME。CSP 必须有 `connect-src 'none'`，并限制子资源来源。预览承载还须验证宿主 API 隔离、外联和预览内导航约束。
+- HTML 和脚本视为不受信内容。iframe 只启用所需脚本能力，禁止 `allow-same-origin`、弹窗、顶层导航、表单提交与下载。预览文件服务只接受 `GET` / `HEAD`，禁止列目录。高熵、短时效、可撤销的 capability 绑定入口 HTML 和资源根，资源根限定为入口 HTML 的同目录子树。每次资源读取均以 realpath 检查，拒绝路径穿越、点文件、`.git`、密钥类文件及 symlink 或 junction 逃逸，并复用会话/团队数据根拒绝。只提供获准的 CSS、JS、普通图片等资源类型。预览不发送 referrer、不缓存，响应使用正确 MIME。CSP 必须有 `connect-src 'none'`，并限制子资源来源；响应头另带 `sandbox allow-scripts`（不带 `allow-same-origin`），使文档在 iframe 之外被直接打开时仍保持 opaque origin，隔离不依赖外层 iframe。预览承载还须验证宿主 API 隔离、外联和预览内导航约束。
+- **端点授权的文档绑定（Hiro 预审修订）**。`side-app-read` 按卡片 app 校验目标扩展名（canvas 卡不读 Markdown，reader 卡不读 HTML）；`side-app-bytes` 仅服务 reader，且请求体必须带 `file.article` 文章路径——图片经 realpath 后须落在该文章同目录子树内，文章自身须为 Markdown 扩展名，使图片通道不能退化为任意工作区图片读取；Diff 基底查询绑定记录所属会话（他会话编辑同文件不可见）并拒绝超过保留期的过期基底；票据过期后 `side-app-preview` 一律重签并返回 `preview` 形状，`unchanged` 只在票据存活且版本一致时回答，绝不让同内容响应指向已死的旧地址。
 - Stage 2 先覆盖路径穿越、敏感文件、过期票据和外联的安全单测，再在 Web 和桌面真实浏览器分别验证相对 CSS、JS、图片可用，宿主凭据/API、未授权文件与外部网络均不可达。真实浏览器覆盖预览内导航，宿主层验证票据不能跨文件或资源根使用，过期即拒绝。涉及路由只走文档化插件接口。未通过相应安全门槛的环境关闭可交互 Render，保留 Source 与 Reader，并将实测差距交 Sherry。降级状态不计入完整 V1 验收。[DSH Filesystem 官方契约](https://deepseek-harness.github.io/deepseek-harness/reference/subsystems/filesystem.md) · [插件开发边界](../plugin-development.md)
 
 ## 6. 阶段、依赖与验收证据
@@ -77,11 +94,15 @@ Reader       Contents  [ Read   | Source | Changes ]
 | 2a · Leia + Noah，Mago 并行准备验证 | 隔离运行环境与安全探针。Leia 验证路由、工作根、历史卡片与资源承载；Noah 验证现有渲染原语、原右栏行为与桌面样式；Mago 准备真实文件 fixtures 和回归基线。 | 记录实际 DSH 版本、worktree/branch、原面板截图与安全探针结果。Canvas 真实 Render 依赖 §5 探针过关。 |
 | 2b · Noah 容器；Leia 宿主 | 并行。Noah 先适配详情 / Browser / Side Chat / 任务，按 §4 用契约 fixture 开发。Leia 实现工具、工作根解析、刷新与授权端点。 | 容器回归全绿。失败和成功形状在假机和宿主一致。文件根和历史记录至少各有一条真实通过与拒绝证据。 |
 | 2c · Noah Canvas / Reader；Leia 真实接线 | 依赖 2b；Canvas 另依赖安全探针。共用文件源、只读 Source 和统一 Diff。 | mock Bot 生成真实 HTML/Markdown 并调用 `open_*`，两套 UI 在真实文件上可从聊天打开、编辑后刷新，并保留可重开的历史卡。 |
-| 3 · Mago 验收、Hiro 独立审查、Ema 体验 | 依赖 2c。Mago 在隔离 bench 跑检查和回归，Hiro 复核路径、票据、历史权限和既有 App 迁移，Ema 操作端到端任务。 | 以提交或工作树版本、命令输出/退出码、浏览器断言、Web/桌面截图或录屏、独立审查结论作为证据。Sherry 判定完成。 |
+| 2d · Noah 形态与设置；Mago 增量测试 | 基于 2b 的外壳与 §3.1 契约。Noah 负责设置和外壳接线，包含复用宿主存储所需的最小接线。Mago 先备迁移、尺寸与键盘用例，接线后运行。Leia 完成当前同步工作。 | 三形态、创建默认、旧会话回退与单会话独立覆盖通过单测。重新 build，产物检查、lint 与全量测试通过。 |
+| 3 · Mago 验收、Hiro 独立审查、Ema 体验 | 依赖 2c 与 2d。Mago 在隔离 bench 跑检查和回归，Hiro 复核路径、票据、历史权限、既有 App 迁移及布局接线，Ema 在 Web 和桌面验证三种面板的实际操作。 | 以提交或工作树版本、命令输出/退出码、浏览器断言、Web/桌面截图或录屏、独立审查结论作为证据。Sherry 判定完成。 |
 
 | 场景 | 要观察到的结果 |
 |---|---|
-| 既有行为 | Browser 在四种切换/收起状态下 guest 正确显隐，拖宽/导入/独立浏览器标签照旧，详情、侧聊、任务不丢本地状态；DSH 右栏与工作台互斥；已有 `show_view` 与 8 KiB 门禁通过。 |
+| 既有行为 | Browser 在四种切换/收起状态下 guest 正确显隐，拖宽/导入/独立浏览器标签照旧。详情、侧聊、任务保持本地状态。已有 `show_view` 与 8 KiB 门禁通过。 |
+| 三种形态（单测与 Web/桌面） | 正常宽度下仅停靠让出聊天宽度。抽屉贴右、浮窗居中，两者覆盖几何正确。三种形态来回切换保留活动标签、Canvas、Reader 的阅读位置和未审阅 Diff、Browser guest 与聊天输入。缩至 508px 和窄 Web 视口，关闭按钮、标签滚动与内容仍可操作，回到宽窗恢复保存的形态。 |
+| 会话默认与覆盖（单测与界面） | 先准备旧 Bot/群（未访问），全局设为 Centered 后新建 Bot/群，旧会话首次访问仍停靠。再将默认设为 Drawer right，先前会话保持原值，新建会话采用抽屉。分别设置群 A 停靠、群 B 居中和某个 Bot 抽屉，换会话、刷新与换 part 后各自保留。重置单一覆盖后回到创建值或旧会话停靠。带非法布局值的数据回退停靠，保存非法输入报错。 |
+| 互斥与键盘（实机） | 对三种形态分别验证工作台与 DSH 右栏双向打开、窄屏 DSH 全屏和换会话时保持互斥。`open_*` 保留输入焦点。菜单/选段弹层先响应 Esc，第二次 Esc 关闭面板，按焦点来源正确恢复。由键盘进入及退出面板，包括预览与 Browser guest。 |
 | 卡片与作用域 | 前台实时成功在面板关闭时打开，在面板已开时切到目标 App，整个过程保留会话和聊天焦点。后台完成和历史加载仅展示卡片。重载、旧 part 回看时点击卡片能重开同一文件且不重复标签。跨会话、改工作目录、删文件、超限与错误格式都给正确结果。桌面与 Web 分别取证。 |
 | Canvas | 相对 CSS、JS、图片实际加载，预览内按钮可交互。保存 HTML 和仅修改允许资产分别触发刷新。暂停与手动刷新正常，拖动不重载。测试覆盖 4 MiB 文本与 8 MiB HTML 两个边界，§5 安全单测和浏览器证据齐全。 |
 | Reader | 三种支持的后缀均可阅读，MDX 内容按普通 Markdown 显示，`.txt` 被拒绝。大纲可跳转，窄宽可操作，刷新保留阅读位置。`Add to chat` 保留输入区既有内容且不发送，显式 `Send` 走现有聊天。分别取证 Bot 写入的宿主基底、版本不匹配与外部编辑的客户端快照降级、`Mark reviewed` 清空已审阅变化。多处命中时不附行号。 |
@@ -117,3 +138,4 @@ Sherry 已有条件批准 Canvas 文件服务。Stage 2 按本文实施，Canvas
 ## 变更
 
 - 2026-11-25 归并 Noah 的前端设计与 Leia 的宿主侦察，定为一份 Stage 1 实施计划。
+- 2026-11-26 纳入三种工作台形态、仅供新会话采用的默认值、单会话持久覆盖和对应验收。

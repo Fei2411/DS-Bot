@@ -77,8 +77,11 @@ const ASSET_MIMES = new Map([
 const SENSITIVE_NAME = /(?:^|[\\/])(?:\.env(?:\.\w+)?|\.git(?:[\\/].*)?|\.ssh(?:[\\/].*)?|\.gnupg(?:[\\/].*)?|\.aws(?:[\\/].*)?|\.npmrc|\.netrc|\.pypirc|\.htpasswd|id_rsa|id_dsa|id_ecdsa|id_ed25519|known_hosts|secrets?\.(?:json|ya?ml|toml|env)|credentials?(?:\.(?:json|ya?ml|toml|env))?|(?:server|private|client)[-.]key\.(?:pem|key)|[^\s\\/]+\.(?:pem|key|p12|pfx|keystore|jks|kdbx))$/i
 
 // Scripts run because a draft is meant to be interactive; everything that would let
-// them reach the network, the host, or another frame is off.
+// them reach the network, the host, or another frame is off. The CSP sandbox mirrors
+// the iframe's sandbox attribute so a document opened outside it (shared link, a new
+// tab) keeps an opaque origin instead of inheriting the host page's.
 const CSP = [
+  'sandbox allow-scripts',
   "default-src 'none'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
@@ -177,6 +180,16 @@ export function install(rt) {
     const rootPrefix = root.endsWith(sep) ? root : root + sep
     const displayPath = (real === root ? basename(real) : real.startsWith(rootPrefix) ? real.slice(rootPrefix.length) : basename(real)).split(sep).join('/')
     return { realPath: real, displayPath, root }
+  }
+
+  // A descriptor claims a file beside its own document; the subtree proof binds the
+  // bytes to that document instead of the whole working root. The document itself is
+  // validated as the kind its app reads, so a card cannot re-anchor to an unrelated file.
+  async function resolveSiblingOf(root, documentPath, target) {
+    const document = await resolveInRoot(root, documentPath)
+    if (!within(target.realPath, dirname(document.realPath))) throw forbidden('That file is not inside the document folder')
+    if (await rt.inData?.(target.realPath)) throw forbidden('That path is inside DeepSeek Harness or team data, which cannot be opened here')
+    return document
   }
 
   async function statTarget(realPath) {
@@ -404,6 +417,7 @@ export function install(rt) {
       if (!within(real, ticket.root)) return errorPage(404, 'Not found')
       if (rel.split('/').some(part => part === '..' || part === '.' || part.startsWith('.'))) return errorPage(404, 'Not found')
       if (SENSITIVE_NAME.test(real)) return errorPage(404, 'Not found')
+      if (await rt.inData?.(real)) return errorPage(404, 'Not found')
     }
     const ext = extname(real).toLowerCase()
     const mime = ASSET_MIMES.get(ext)
@@ -500,7 +514,7 @@ export function install(rt) {
     if (app !== undefined && file.app !== app) throw invalid('That card belongs to another app')
     if (typeof file.displayPath !== 'string' || file.displayPath === '') throw invalid('No file named')
     const target = await resolveInRoot(root, file.displayPath)
-    return { sessionId, target, root, agent }
+    return { sessionId, target, root, agent, app: file.app }
   }
 
   // ---- endpoints ---------------------------------------------------------------
@@ -524,7 +538,10 @@ export function install(rt) {
   }
 
   async function sideAppRead(body) {
-    const { target } = await authorizeFile(body)
+    const { target, app } = await authorizeFile(body)
+    // The card's app binds what may be read: a canvas card never reads Markdown and a
+    // reader card never reads HTML, however the caller rewrites displayPath.
+    fileKind(app, target.realPath)
     const info = await statTarget(target.realPath)
     const isHtml = CANVAS_EXTENSIONS.has(extname(target.realPath).toLowerCase())
     if (isHtml && info.size > HTML_LIMIT) throw tooLarge('The HTML file is larger than 8 MiB')
@@ -549,11 +566,18 @@ export function install(rt) {
   ])
   const IMAGE_LIMIT = 4 * 1024 * 1024
 
-  // Raw bytes of one workspace file for the reader's images. Same root and tag
-  // authorization as the document itself, so a card cannot widen its reach by
-  // pointing at another file type or another root.
+  // Raw bytes of one workspace image for the reader. Beyond the root and tag the card
+  // authorizes, the caller names the article it renders (`file.article`): the image
+  // must sit inside that article's own directory, so the endpoint never widens into a
+  // general workspace image read.
   async function sideAppBytes(body) {
-    const { target } = await authorizeFile(body)
+    const { target, root, app } = await authorizeFile(body)
+    if (app !== 'reader') throw invalid('Only the Reader reads image bytes here')
+    const article = body?.file?.article
+    if (typeof article !== 'string' || article === '') throw invalid('Name the article this image belongs to')
+    const document = await resolveSiblingOf(root, article, target)
+    const documentExt = extname(document.realPath).toLowerCase()
+    if (!READER_EXTENSIONS.has(documentExt)) throw invalid('The article is not a Markdown document')
     const ext = extname(target.realPath).toLowerCase()
     const mime = IMAGE_MIMES.get(ext)
     if (mime === undefined) throw invalid(`Only image files can be read here (png, jpg, gif, webp, avif, svg), not ${ext || 'this file'}`)
@@ -566,10 +590,15 @@ export function install(rt) {
   }
 
   async function sideAppDiff(body) {
-    const { target } = await authorizeFile(body)
+    const { sessionId, target } = await authorizeFile(body)
     const revision = typeof body.revision === 'string' ? body.revision : ''
     const entry = diffBases.get(foldKey(target.realPath))
-    if (entry === undefined || revision === '' || entry.afterRevision !== revision) return { kind: 'unavailable' }
+    // A base answers only the conversation whose writes produced it, while it is young:
+    // another session editing the same file or an hour-old write is the client-snapshot case.
+    if (
+      entry === undefined || revision === '' || entry.afterRevision !== revision
+      || entry.sessionId !== sessionId || Date.now() - entry.at > DIFF_KEEP_MS
+    ) return { kind: 'unavailable' }
     return {
       kind: 'host',
       before: entry.before,
@@ -586,11 +615,15 @@ export function install(rt) {
     // One live ticket per file and session: a repeat call refreshes it instead of
     // multiplying routes, and a renamed entry gets a fresh one.
     let ticket = [...tickets.values()].find(item => item.entryReal === target.realPath && item.sessionId === sessionId)
+    if (ticket !== undefined) ticket = renewTicket(ticket.id, sessionId)
+    // A ticket that lapsed while the client polled is dead: reissue rather than renew,
+    // so the answer always carries a live frameUrl, never an unchanged dead address.
+    const fresh = ticket === undefined
     if (ticket === undefined) ticket = issueTicket({ entryReal: target.realPath, displayPath: target.displayPath, sessionId })
-    else renewTicket(ticket.id, sessionId)
-    if (ticket === undefined) return { kind: 'preview-unavailable', reason: 'The preview ticket expired; reopen the Canvas' }
     const { revision, truncated } = await previewRevision(ticket)
-    if (typeof body.knownPreviewRevision === 'string' && body.knownPreviewRevision === revision) {
+    // A fresh ticket never answers `unchanged`: its frame URL differs from the one the
+    // client holds, and unchanged bytes on a dead address would leave the preview dark.
+    if (!fresh && typeof body.knownPreviewRevision === 'string' && body.knownPreviewRevision === revision) {
       return { kind: 'unchanged', previewRevision: revision, frameUrl: frameUrl(ticket), expiresAt: ticket.expiresAt }
     }
     return { kind: 'preview', frameUrl: frameUrl(ticket), expiresAt: ticket.expiresAt, previewRevision: revision, ...(truncated ? { manifestTruncated: true } : {}) }
