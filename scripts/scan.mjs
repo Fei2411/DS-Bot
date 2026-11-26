@@ -89,10 +89,10 @@ const files = walk(root).map(path => relative(root, path).split('\\').join('/'))
 
 for (const file of files) {
   for (const rule of FORBIDDEN_FILES) {
-    if (rule.re.test(file)) add(MUST, 'forbidden-file', file, 0, rule.why)
+    if (file !== '.scan-extra' && rule.re.test(file)) add(MUST, 'forbidden-file', file, 0, rule.why)
   }
-  // The scanner names the patterns it looks for.
-  if (file === SELF) continue
+  // The scanner and the local pattern file name the patterns they look for.
+  if (file === SELF || file === '.scan-extra') continue
   const data = readFileSync(join(root, file))
   if (data.includes(0)) continue
   const lines = data.toString('utf8').split('\n')
