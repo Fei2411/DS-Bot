@@ -53,7 +53,7 @@ function FlatMark({ look, dark, size }: { look: MarkLook; dark: boolean; size: n
   )
 }
 
-export function Mark({ look, dark, size = 24, seed, state = 'idle', live = false, pokeable = false }: { look: MarkLook; dark: boolean; size?: number; seed?: string } & MotionProps) {
+export function Mark({ look, dark, size = 24, seed, state = 'idle', live = false, pokeable = false, label }: { look: MarkLook; dark: boolean; size?: number; seed?: string; label?: string } & MotionProps) {
   const markState = MARK_STATES.includes(state) ? state : 'idle'
   // Made once the mark has something to show, and kept until it goes, so it plays its
   // way back to rest instead of jumping there when the state ends.
@@ -65,15 +65,17 @@ export function Mark({ look, dark, size = 24, seed, state = 'idle', live = false
   const id = shapeId(look.shape)
   return (
     <LiveMark look={photo ? { shape: 'image', color: look.color, image: look.image } : { shape: id, color: look.color }} def={photo ? undefined : shapeOf(look.shape)}
-      dark={dark} size={size} seed={fnv1a(seed ?? look.shape)} state={markState} live={live} pokeable={pokeable}>
+      dark={dark} size={size} seed={fnv1a(seed ?? look.shape)} state={markState} live={live} pokeable={pokeable} label={label}>
       {flat}
     </LiveMark>
   )
 }
 
 export function BotMark({ bot, dark, size = 36, ...motion }: { bot: unknown; dark: boolean; size?: number } & MotionProps) {
-  const id = (bot as { id?: unknown } | null | undefined)?.id
-  return <Mark look={lookOf(bot)} dark={dark} size={size} seed={id === undefined || id === '' ? undefined : String(id)} {...motion} />
+  const entry = bot as { id?: unknown; name?: unknown } | null | undefined
+  const id = entry?.id
+  const label = typeof entry?.name === 'string' && entry.name !== '' ? entry.name : undefined
+  return <Mark look={lookOf(bot)} dark={dark} size={size} seed={id === undefined || id === '' ? undefined : String(id)} label={label} {...motion} />
 }
 
 // Marks settle with a short hop when a run finishes, as on the desktop (mark.js useSettled).

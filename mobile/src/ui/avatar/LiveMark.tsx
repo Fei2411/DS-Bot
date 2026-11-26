@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
-import { Pressable, View, type GestureResponderEvent } from 'react-native'
+import { Pressable, View, type AccessibilityActionEvent, type GestureResponderEvent } from 'react-native'
 import Svg, { ClipPath, Defs, G, LinearGradient, Mask, Path, Rect, Stop } from 'react-native-svg'
 import { NavigationContext } from '@react-navigation/native'
 import { GRADIENTS, INKS, inkName, isHex } from '../../../../ds-bot/src/client/inks.js'
 import { CONFETTI_INKS, FLAT_ORIGIN, MARGIN } from '../../../../ds-bot/src/client/avatar/stage.js'
+import { t } from '../i18n.ts'
 import { LiveMark as Live, type Look, type Picture, type Pose } from './clock.ts'
 import { avatarClock } from './host.ts'
 import { paintShapes, type Ink, type Node } from './paint.ts'
@@ -58,13 +59,15 @@ export interface LiveMarkProps {
   live?: boolean
   // A tap pokes it; a touch held on it pets it.
   pokeable?: boolean
+  // Optional accessible name (e.g. the Bot's name) for screen readers when pokeable.
+  label?: string
   // The flat art.
   children: ReactNode
 }
 
 type Shown = { scene: Node[] } | { pose: Pose } | null
 
-export function LiveMark({ look, def, dark, size, seed, state = 'idle', live = false, pokeable = false, children }: LiveMarkProps) {
+export function LiveMark({ look, def, dark, size, seed, state = 'idle', live = false, pokeable = false, label, children }: LiveMarkProps) {
   const onScreen = useOnScreen()
   const [shown, setShown] = useState<Shown>(null)
   const mark = useRef<Live | null>(null)
@@ -100,7 +103,33 @@ export function LiveMark({ look, def, dark, size, seed, state = 'idle', live = f
   useEffect(() => { mark.current?.redraw() }, [dark])
 
   const petting = useRef(false)
+  const petTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (petTimer.current !== null) {
+      clearTimeout(petTimer.current)
+      petTimer.current = null
+    }
+  }, [])
   const touch = pokeable ? {
+    accessible: true,
+    accessibilityRole: 'button' as const,
+    accessibilityLabel: label ? `${label}, ${t('Poke')}` : t('Poke'),
+    accessibilityActions: [
+      { name: 'activate', label: t('Poke') },
+      { name: 'longpress', label: t('Pet') },
+    ],
+    onAccessibilityAction: (event: AccessibilityActionEvent) => {
+      if (event.nativeEvent.actionName === 'longpress') {
+        if (petTimer.current !== null) clearTimeout(petTimer.current)
+        mark.current?.act(engine => engine.pet(true, 1))
+        petTimer.current = setTimeout(() => {
+          petTimer.current = null
+          mark.current?.act(engine => engine.pet(false))
+        }, 900)
+      } else {
+        mark.current?.act(engine => engine.poke())
+      }
+    },
     onPress: () => mark.current?.act(engine => engine.poke()),
     onLongPress: (event: GestureResponderEvent) => {
       petting.current = true
@@ -130,7 +159,7 @@ export function LiveMark({ look, def, dark, size, seed, state = 'idle', live = f
     </Svg>
   ) : null
   const box = { width: size, height: size }
-  if (touch) return <Pressable accessible={false} style={box} {...touch}>{art}{drawing}</Pressable>
+  if (touch) return <Pressable style={box} {...touch}>{art}{drawing}</Pressable>
   return <View style={box}>{art}{drawing}</View>
 }
 
