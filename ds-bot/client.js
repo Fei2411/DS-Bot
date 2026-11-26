@@ -21801,11 +21801,20 @@ function liveSprings(apply2) {
         frame2 = requestAnimationFrame(step);
       }
     },
-    stop: () => cancelAnimationFrame(frame2)
+    reset: () => {
+      values.clear();
+      for (const key of Object.keys(current2)) delete current2[key];
+      cancelAnimationFrame(frame2);
+      frame2 = 0;
+    },
+    stop: () => {
+      cancelAnimationFrame(frame2);
+      frame2 = 0;
+    }
   };
 }
 var CHOSEN = '[aria-pressed="true"],[aria-selected="true"],[aria-current="page"]';
-function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trail = SPRING_TRAIL, box: given } = {}) {
+function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trail = SPRING_TRAIL, box: given, syncKey } = {}) {
   const ownBox = (0, import_react.useRef)(null);
   const box = given ?? ownBox;
   const thumb = (0, import_react.useRef)(null);
@@ -21813,15 +21822,22 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
   if (own.current === null) {
     own.current = {
       key: void 0,
+      syncKey: void 0,
       axis,
       node: null,
       observer: null,
-      springs: liveSprings(({ start, end }) => {
+      springs: liveSprings((values) => {
         const knob = thumb.current;
         if (!knob) return;
         const currentAxis = own.current.axis;
-        knob.style.transform = currentAxis === "x" ? `translateX(${start}px)` : `translateY(${start}px)`;
-        knob.style[currentAxis === "x" ? "width" : "height"] = `${Math.max(0, end - start)}px`;
+        if (currentAxis === "both") {
+          knob.style.transform = `translate3d(${values.x0}px,${values.y0}px,0)`;
+          knob.style.width = `${Math.max(0, values.x1 - values.x0)}px`;
+          knob.style.height = `${Math.max(0, values.y1 - values.y0)}px`;
+          return;
+        }
+        knob.style.transform = currentAxis === "x" ? `translateX(${values.start}px)` : `translateY(${values.start}px)`;
+        knob.style[currentAxis === "x" ? "width" : "height"] = `${Math.max(0, values.end - values.start)}px`;
       })
     };
   }
@@ -21835,11 +21851,33 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
       knob.dataset.hidden = "";
       return;
     }
-    const start = currentAxis === "x" ? chosen.offsetLeft : chosen.offsetTop;
-    const end = start + (currentAxis === "x" ? chosen.offsetWidth : chosen.offsetHeight);
     const { springs } = own.current;
     const before = springs.target();
     const hidden = knob.dataset.hidden !== void 0;
+    if (currentAxis === "both") {
+      const x0 = chosen.offsetLeft;
+      const x1 = x0 + chosen.offsetWidth;
+      const y0 = chosen.offsetTop;
+      const y1 = y0 + chosen.offsetHeight;
+      if (jump && !hidden && before?.x0 === x0 && before?.x1 === x1 && before?.y0 === y0 && before?.y1 === y1 && container.dataset.glide !== void 0) return;
+      delete knob.dataset.hidden;
+      const forwardX = before === null || x0 >= before.x0;
+      const forwardY = before === null || y0 >= before.y0;
+      springs.set(
+        { x0, x1, y0, y1 },
+        {
+          x0: forwardX ? trail : lead,
+          x1: forwardX ? lead : trail,
+          y0: forwardY ? trail : lead,
+          y1: forwardY ? lead : trail
+        },
+        jump || hidden || before === null || reducedMotion()
+      );
+      container.dataset.glide = "";
+      return;
+    }
+    const start = currentAxis === "x" ? chosen.offsetLeft : chosen.offsetTop;
+    const end = start + (currentAxis === "x" ? chosen.offsetWidth : chosen.offsetHeight);
     if (jump && !hidden && before?.start === start && before?.end === end && container.dataset.glide !== void 0) return;
     delete knob.dataset.hidden;
     const forward = before === null || start >= before.start;
@@ -21850,18 +21888,24 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
     const state = own.current;
     const node = box.current;
     const axisChanged = axis !== state.axis;
-    if (node === state.node && key === state.key && !axisChanged) return;
-    const fresh = node !== state.node || axisChanged;
+    const syncChanged = syncKey !== state.syncKey;
+    if (node === state.node && key === state.key && !axisChanged && !syncChanged) return;
+    const keyChanged = key !== state.key;
+    const fresh = node !== state.node || axisChanged || !keyChanged && syncChanged;
     state.key = key;
+    state.syncKey = syncKey;
     if (axisChanged) {
       state.axis = axis;
+      state.springs.reset();
       if (thumb.current) {
+        thumb.current.style.transform = "";
         thumb.current.style.width = "";
         thumb.current.style.height = "";
       }
     }
     if (node !== state.node) {
       state.observer?.disconnect();
+      if (!node) state.springs.stop();
       state.node = node;
       state.observer = node && typeof ResizeObserver === "function" ? new ResizeObserver(() => place(true)) : null;
       state.observer?.observe(node);
@@ -21870,15 +21914,107 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
   });
   (0, import_react.useEffect)(() => () => {
     own.current.observer?.disconnect();
+    own.current.observer = null;
+    own.current.node = null;
     own.current.springs.stop();
   }, []);
-  return { box, thumb };
+  return { box, thumb, sync: () => place(true) };
+}
+var segButtons = (node) => Array.from(node.children).filter((child) => child.tagName === "BUTTON" && !child.hidden);
+function segOverflow(node, buttons) {
+  const style = typeof getComputedStyle === "function" ? getComputedStyle(node) : null;
+  const padLeft = parseFloat(style?.paddingLeft) || 0;
+  const padRight = parseFloat(style?.paddingRight) || 0;
+  const rightEdge = node.clientWidth - padRight + 1;
+  return buttons.some((button) => button.scrollWidth > button.clientWidth + 1 || button.offsetLeft < padLeft - 1 || button.offsetLeft + button.offsetWidth > rightEdge);
+}
+function fitSegmented(node) {
+  if (!node) return void 0;
+  const buttons = segButtons(node);
+  if (buttons.length <= 1 || node.clientWidth === 0) {
+    delete node.dataset.layout;
+    return void 0;
+  }
+  delete node.dataset.layout;
+  if (!segOverflow(node, buttons)) return void 0;
+  const count = buttons.length;
+  const candidates = [];
+  if (count >= 6 && count % 3 === 0) candidates.push("grid-3");
+  if (count === 2 || count >= 4 && count % 2 === 0) candidates.push("grid-2");
+  else if (count > 2) candidates.push("wrap");
+  candidates.push("stack");
+  for (const layout of candidates) {
+    node.dataset.layout = layout;
+    if (!segOverflow(node, buttons)) return layout;
+  }
+  return node.dataset.layout;
 }
 function Segmented({ label, value, className, children }) {
-  const glide2 = useGlide(value);
+  const box = (0, import_react.useRef)(null);
+  const fitRef = (0, import_react.useRef)({ sig: null, parentW: -1, rowW: -1, nodeW: -1, observer: null, node: null });
+  const syncThumb = (0, import_react.useRef)(null);
+  const reconcile = (force = false) => {
+    const node = box.current;
+    if (!node) return;
+    const state = fitRef.current;
+    const buttons = segButtons(node);
+    const cs = typeof getComputedStyle === "function" ? getComputedStyle(buttons[0] ?? node) : null;
+    const font = cs ? `${cs.fontWeight}\0${cs.fontSize}\0${cs.fontFamily}` : "";
+    const sig = `${font}\0${buttons.map((button) => button.textContent).join("\0")}`;
+    const parent = node.parentElement;
+    const row = typeof node.closest === "function" ? node.closest(".bt-set-row") : null;
+    const parentW = parent?.clientWidth ?? -1;
+    const rowW = row?.clientWidth ?? -1;
+    const nodeW = node.clientWidth;
+    if (!force && sig === state.sig && parentW === state.parentW && rowW === state.rowW && nodeW === state.nodeW) return;
+    fitSegmented(node);
+    state.sig = sig;
+    state.parentW = parent?.clientWidth ?? -1;
+    state.rowW = row?.clientWidth ?? -1;
+    state.nodeW = node.clientWidth;
+    syncThumb.current?.();
+  };
+  (0, import_react.useLayoutEffect)(() => {
+    const node = box.current;
+    const state = fitRef.current;
+    if (node !== state.node) {
+      state.observer?.disconnect();
+      state.node = node;
+      state.sig = null;
+      if (node && typeof ResizeObserver === "function") {
+        const observer = new ResizeObserver(() => reconcile(false));
+        observer.observe(node);
+        if (node.parentElement) observer.observe(node.parentElement);
+        const row = typeof node.closest === "function" ? node.closest(".bt-set-row") : null;
+        if (row && row !== node.parentElement) observer.observe(row);
+        state.observer = observer;
+      } else {
+        state.observer = null;
+      }
+    }
+    reconcile(false);
+  });
+  (0, import_react.useEffect)(() => {
+    let alive = true;
+    const fonts = typeof document !== "undefined" ? document.fonts : null;
+    if (fonts && fonts.status !== "loaded" && fonts.ready) {
+      void fonts.ready.then(() => {
+        if (alive) reconcile(true);
+      }, () => {
+      });
+    }
+    return () => {
+      alive = false;
+      fitRef.current.observer?.disconnect();
+      fitRef.current.observer = null;
+      fitRef.current.node = null;
+    };
+  }, []);
+  const glide2 = useGlide(value, { axis: "both", box });
+  syncThumb.current = glide2.sync;
   return (0, import_react.createElement)(
     "div",
-    { ref: glide2.box, className: className ? `bt-seg ${className}` : "bt-seg", role: "group", "aria-label": label },
+    { ref: box, className: className ? `bt-seg ${className}` : "bt-seg", role: "group", "aria-label": label },
     (0, import_react.createElement)("span", { ref: glide2.thumb, className: "bt-thumb", "aria-hidden": true }),
     children
   );
@@ -22550,7 +22686,7 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-tab{position:relative;z-index:1;border:0;background:none;border-radius:999px;padding:4px 8px;font-size:13px;line-height:20px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-tab:hover{color:var(--bt-ink)}
 .bt-tab[aria-selected=true]{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-tabs>.bt-thumb{top:0;bottom:0;border-radius:999px;background:var(--bt-hover)}
+.bt-tabs>.bt-thumb{border-radius:999px;background:var(--bt-hover)}
 .bt-tabs[data-glide] .bt-tab[aria-selected=true]{background:transparent}
 .bt-drawer-body{flex:1;overflow-y:auto;padding:20px 16px 16px;font-size:13px;line-height:18px;display:flex;flex-direction:column;gap:16px}
 .bt-empty{text-align:center;color:var(--bt-ink-3);font-size:13px;line-height:18px;padding:8px 12px}
@@ -22578,16 +22714,16 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-avatar-anchor{position:relative}
 .bt-avatar-trigger{position:relative;width:64px;height:64px;border:0;border-radius:50%;background:none;cursor:pointer;padding:0}
 .bt-avatar-pencil{position:absolute;right:-2px;bottom:-2px;width:22px;height:22px;border-radius:50%;background:var(--bt-main);border:1px solid var(--bt-line-2);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.12)}
-.bt-avedit{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);width:288px;box-sizing:border-box;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);border-radius:16px;box-shadow:var(--bt-glass-shadow),0 16px 40px rgba(0,0,0,.16);padding:12px;z-index:70;display:flex;flex-direction:column;gap:12px;color:var(--bt-ink);transform-origin:top center;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
+.bt-avedit{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);width:min(304px,calc(100vw - 32px));box-sizing:border-box;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);border-radius:16px;box-shadow:var(--bt-glass-shadow),0 16px 40px rgba(0,0,0,.16);padding:12px;z-index:70;display:flex;flex-direction:column;gap:12px;color:var(--bt-ink);transform-origin:top center;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
 .bt-avedit[data-leaving]{animation:bt-pop-out .12s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
 .bt-bs .bt-avedit{transform-origin:32px 0}
-.bt-avedit-top{display:flex;align-items:center;justify-content:space-between}
-.bt-avedit-tabs{position:relative;display:flex;gap:2px;background:var(--bt-hover);border-radius:999px;padding:2px}
-.bt-avedit-tab{position:relative;z-index:1;border:0;background:none;border-radius:999px;padding:3px 10px;font-size:12px;line-height:16px;color:var(--bt-ink-2);cursor:pointer}
+.bt-avedit-top{display:flex;align-items:center;justify-content:space-between;gap:4px;flex-wrap:wrap}
+.bt-avedit-tabs{position:relative;display:flex;gap:2px;max-width:100%;background:var(--bt-hover);border-radius:999px;padding:2px}
+.bt-avedit-tab{position:relative;z-index:1;border:0;background:none;border-radius:999px;padding:3px 8px;font-size:12px;line-height:16px;white-space:nowrap;color:var(--bt-ink-2);cursor:pointer}
 .bt-avedit-tab[aria-selected=true]{background:var(--bt-main);color:var(--bt-ink)}
 .bt-avedit-tabs>.bt-thumb{top:2px;bottom:2px;border-radius:999px;background:var(--bt-main);box-shadow:0 1px 2px rgba(0,0,0,.06)}
 .bt-avedit-tabs[data-glide] .bt-avedit-tab[aria-selected=true]{background:transparent}
-.bt-avedit-reset{color:var(--bt-ink-3)}
+.bt-avedit-reset{padding:3px 6px;color:var(--bt-ink-3)}
 .bt-avedit-reset:hover{color:var(--bt-ink)}
 .bt-shapes{display:flex;flex-direction:column;gap:4px}
 .bt-shape-row{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
@@ -22619,7 +22755,6 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-drawer-model{display:flex;flex-direction:column}
 .bt-drawer-model .bt-note{margin-top:6px}
 .bt-drawer-permission{display:flex;flex-direction:column}
-.bt-seg.bt-permissions button{height:auto;min-height:30px;min-width:0;padding:6px 4px;line-height:18px;white-space:normal}
 .bt-seg button.bt-perm-danger,.bt-seg button.bt-perm-danger[aria-pressed=true],.bt-kv span.bt-perm-danger{color:var(--bt-danger)}
 
 /* Settings dialog: a 212px searchable nav rail beside the page. */
@@ -22915,7 +23050,7 @@ body[data-ds-dark-theme] .bt-tour-spot{box-shadow:0 0 0 4px color-mix(in srgb,va
 .bt-browser-import-body .bt-import-item{width:calc(100% + 16px);margin:0 -8px;padding:8px}
 .bt-browser-import-body .bt-import-item-alt{padding:7px 8px}
 .bt-browser-import-body .bt-import-list{margin:0 -8px}
-.bt-set-card{flex-shrink:0;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column;overflow:clip}
+.bt-set-card{flex-shrink:0;container-type:inline-size;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column;overflow:clip}
 .bt-set-row{display:flex;align-items:center;gap:16px;min-height:48px;padding:12px 16px;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;width:100%;box-sizing:border-box;border-radius:0;transition:background-color .14s ease}
 button.bt-set-row{cursor:pointer}
 button.bt-set-row:hover{background:var(--bt-hover)}
@@ -22926,7 +23061,8 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
 .bt-set-hint{font-size:12px;line-height:17px;color:color-mix(in srgb,var(--bt-ink-2) 55%,var(--bt-ink-3))}
 .bt-set-hint.bt-capability-hint{color:var(--bt-ink-2)}
-.bt-set-control{flex:none;display:flex;align-items:center;gap:8px}
+.bt-set-control{flex:0 1 auto;min-width:0;max-width:100%;display:flex;align-items:center;gap:8px}
+.bt-set-row:where(:not(.bt-bs-stack))>.bt-set-control:where(:has(>.bt-seg)){max-width:72%}
 .bt-set-places .bt-set-control{flex:0 1 auto;max-width:50%;min-width:0}
 /* Shrinkable, so a long model name gets its ellipsis instead of pushing Reset out of the card. */
 .bt-set-model .bt-set-control{flex:0 1 auto;min-width:0;max-width:65%}
@@ -22951,13 +23087,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-browser-action-choice:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-browser-action-check{display:inline-flex;align-items:center;color:var(--bt-accent)}
 .bt-browser-action-check svg{width:13px;height:13px}
-.bt-browser-form>.bt-set-row>.bt-set-control{flex:0 1 64%;min-width:0;justify-content:flex-end}
+.bt-browser-form>.bt-set-row>.bt-set-control{flex:0 1 72%;min-width:0;justify-content:flex-end}
 .bt-browser-form :is(.bt-select,.bt-sel){width:auto;min-width:160px;max-width:260px}
 .bt-browser-form>.bt-set-row+.bt-set-row{border-top:.5px solid var(--bt-line)}
 .bt-browser-site{width:min(320px,100%);max-width:320px}
-.bt-browser-seg{max-width:100%;overflow-x:auto;scrollbar-width:none}
-.bt-browser-seg::-webkit-scrollbar{display:none}
-.bt-browser-seg button{flex:none;padding:0 10px;white-space:nowrap}
+.bt-browser-seg{max-width:100%}
 .bt-browser-form-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:.5px solid var(--bt-line)}
 .bt-plugins-page{display:flex;flex-direction:column;gap:14px;container-type:inline-size}
 .bt-plg-bar{display:flex;align-items:center;gap:8px}
@@ -23076,8 +23210,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-plg-confirm{display:inline-flex;align-items:center;gap:6px}
 .bt-danger-btn{color:var(--bt-danger);background:color-mix(in srgb,var(--bt-danger) 10%,transparent)}
 .bt-danger-btn:hover{background:color-mix(in srgb,var(--bt-danger) 16%,transparent)}
-.bt-plg-form .bt-seg button{flex:none;padding:0 12px;white-space:nowrap}
-.bt-plg-form>.bt-set-row>.bt-set-control{flex:0 1 64%;min-width:0;justify-content:flex-end}
+.bt-plg-form>.bt-set-row>.bt-set-control{flex:0 1 72%;min-width:0;justify-content:flex-end}
 .bt-plg-form>.bt-set-row+.bt-set-row{border-top:.5px solid var(--bt-line)}
 .bt-plg-field{width:min(360px,100%)}
 .bt-plg-source-form{display:flex;align-items:center;gap:8px;padding:12px 16px;flex-wrap:wrap}
@@ -23187,9 +23320,6 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-connector-banner{padding:0 0 8px}
 .bt-mail-form{gap:10px}
 .bt-mail-seg{align-self:flex-start}
-/* Six providers share the width: a label that wraps would leave its fixed-height
-   button and spill out of the pill, so every provider name stays on one line. */
-.bt-mail-seg button{white-space:nowrap}
 .bt-mail-guide{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--bt-hover);font-size:12px;line-height:18px;color:var(--bt-ink-2)}
 .bt-mail-guide ol{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:2px}
 .bt-mail-links{display:flex;gap:16px}
@@ -23458,10 +23588,10 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
 .bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-seg{position:relative;display:inline-flex;gap:2px;padding:2px;max-width:100%;border-radius:10px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line);box-sizing:border-box}
+.bt-seg{position:relative;display:inline-flex;gap:2px;padding:2px;min-width:0;max-width:100%;border-radius:10px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line);box-sizing:border-box}
 .bt-motion-seg,.bt-look-seg{width:auto;min-width:216px;max-width:100%}
 /* A range input: the track fills with the accent up to the thumb (--bt-fill). */
-.bt-range{display:flex;align-items:center;gap:10px;width:216px}
+.bt-range{display:flex;align-items:center;gap:10px;width:216px;max-width:100%}
 .bt-range input{flex:1;min-width:0;height:20px;margin:0;background:none;-webkit-appearance:none;appearance:none;cursor:pointer}
 .bt-range input::-webkit-slider-runnable-track{height:4px;border-radius:999px;background:linear-gradient(to right,var(--bt-accent) var(--bt-fill),var(--bt-active) var(--bt-fill))}
 .bt-range input::-moz-range-track{height:4px;border-radius:999px;background:linear-gradient(to right,var(--bt-accent) var(--bt-fill),var(--bt-active) var(--bt-fill))}
@@ -23470,12 +23600,20 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-range input:active::-webkit-slider-thumb{scale:1.15}
 .bt-range input:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px;border-radius:999px}
 .bt-range output{flex:none;width:38px;text-align:right;font-size:13px;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
-.bt-seg button{position:relative;z-index:1;flex:1 0 auto;min-height:30px;padding:0 12px;border:0;border-radius:8px;background:none;font:inherit;font-size:13px;line-height:30px;white-space:nowrap;color:var(--bt-ink-2);cursor:pointer;transition:background-color .15s ease,color .15s ease,box-shadow .15s ease,${spring(SPRING_TAP, "scale")}}
+.bt-seg button{position:relative;z-index:1;flex:1 0 auto;min-height:30px;padding:0 12px;border:0;border-radius:8px;background:none;font:inherit;font-size:13px;line-height:30px;white-space:nowrap;text-align:center;color:var(--bt-ink-2);cursor:pointer;transition:background-color .15s ease,color .15s ease,box-shadow .15s ease,${spring(SPRING_TAP, "scale")}}
+.bt-seg button:hover:not(:disabled):not([aria-pressed=true]){color:var(--bt-ink)}
 .bt-seg button[aria-pressed=true]{background:var(--bt-seg-thumb);color:var(--bt-ink);box-shadow:var(--bt-seg-shadow)}
 .bt-seg button:disabled{opacity:.4;cursor:default}
 .bt-seg button:active:not(:disabled){scale:.96}
-.bt-seg>.bt-thumb{top:2px;bottom:2px;border-radius:8px;background:var(--bt-seg-thumb);box-shadow:var(--bt-seg-shadow)}
+.bt-seg>.bt-thumb{border-radius:8px;background:var(--bt-seg-thumb);box-shadow:var(--bt-seg-shadow)}
 .bt-seg[data-glide] button[aria-pressed=true]{background:transparent;box-shadow:none}
+.bt-seg[data-layout]{width:100%;min-width:0;align-self:stretch}
+.bt-seg[data-layout=grid-2]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.bt-seg[data-layout=grid-3]{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.bt-seg[data-layout=stack]{display:grid;grid-template-columns:minmax(0,1fr)}
+.bt-seg[data-layout=wrap]{display:flex;flex-wrap:wrap}
+.bt-seg[data-layout] button{flex:1 1 auto;min-width:0;height:auto;min-height:30px;padding:5px 8px;line-height:18px;white-space:normal;display:inline-flex;align-items:center;justify-content:safe center;text-align:center}
+.bt-seg[data-layout=stack] button{overflow-wrap:anywhere}
 @keyframes bt-rise{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
 
 /* Memory dialog: a summary of every entry, the entries behind the menu, "Ask or update" below. */
@@ -23618,6 +23756,22 @@ body[data-ds-dark-theme] .bt-soft-sm.bt-with-icon:not(.bt-tour-trigger):hover:no
    or scroll instead of overflowing. These rules sit at the end of the sheet:
    the base column widths below would otherwise win the cascade back. */
 body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brightness(.94)}
+/* Narrow cards (the 320px details panel on desktop as well as phones) stack rows
+   from their own width instead of relying on viewport media queries. */
+@container (max-width:440px){
+  .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
+  .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-row>.bt-set-control{max-width:100%;justify-content:flex-start}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack)),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
+  .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1}
+  .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-action-list{justify-content:flex-start}
+  .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
+  .bt-la-row>.bt-set-copy{width:auto}
+  .bt-set-model .bt-set-control,.bt-set-places .bt-set-control{max-width:none}
+  .bt-motion-seg,.bt-look-seg{min-width:0;width:100%}
+  .bt-range{width:100%}
+}
 @media (max-width:920px){
   .bt-ov-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
@@ -23651,9 +23805,10 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
   .bt-theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
   .bt-set-row>.bt-set-copy{width:100%}
+  .bt-set-row>.bt-set-control{max-width:100%}
   .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack)),button.bt-set-row,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child){flex-direction:row;align-items:center;justify-content:space-between}
   .bt-set-row:is(.bt-set-collapse,.bt-bs-row:not(.bt-bs-stack))>.bt-set-copy,button.bt-set-row>.bt-set-copy,.bt-set-row:has(>.bt-set-control>.bt-switch:only-child)>.bt-set-copy{width:auto;flex:1}
-  .bt-browser-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-form>.bt-set-row>.bt-set-control,.bt-plg-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
   .bt-browser-action-list{justify-content:flex-start}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
   .bt-la-row>.bt-set-copy{width:auto}
@@ -34817,7 +34972,8 @@ body[data-bt-effects=off] :is(.bt-swatch,.bt-look-theme){animation:none;transiti
 .bt-font-empty{padding:10px 10px 6px;font-size:12px;line-height:16px;color:var(--bt-ink-3);text-align:center}
 .bt-font-custom-box{margin-top:4px;padding-top:4px;border-top:.5px solid var(--bt-line)}
 .bt-font-custom-tag{color:var(--bt-ink-3);font-size:12px;margin-right:6px}
-.bt-look-kinds{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 16px}
+.bt-look-kinds{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px 16px}
+@container (max-width:360px){.bt-look-kinds{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .bt-look-kind{display:flex;align-items:flex-end;height:54px;padding:6px 8px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-card);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;box-sizing:border-box}
 .bt-look-kind[data-kind=color]{background:var(--bt-bubble)}
 .bt-look-kind[data-kind=gradient]{background:linear-gradient(135deg,var(--bt-accent),var(--bt-bubble))}
@@ -35030,7 +35186,7 @@ function AvatarEditor({ bot, room: room2, actions, run: run2, onClose, leaving =
     return () => window.removeEventListener("paste", onPaste);
   }, [tab, bot, room2]);
   const hasPhoto = Boolean(look.image);
-  const glide2 = useGlide(tab);
+  const glide2 = useGlide(tab, { syncKey: `${t("Bot")}:${t("Upload")}:${t("Library")}` });
   return (0, import_react30.createElement)(
     "div",
     { ref, className: "bt-avedit", role: "dialog", "aria-label": t("Avatar editor"), "data-leaving": leaving || void 0 },
@@ -35265,17 +35421,18 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
   );
 }
 var BOT_SETTINGS_CSS = `
-.bt-bs{display:flex;flex-direction:column;gap:22px}
+.bt-bs{display:flex;flex-direction:column;gap:22px;container-type:inline-size}
 .bt-bs-hero{display:flex;align-items:center;gap:14px;padding:2px 4px}
 .bt-bs-who{display:flex;flex-direction:column;min-width:0;gap:2px}
 .bt-bs-name{font-size:17px;line-height:24px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-bs-sub{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
-.bt-bs .bt-avedit{left:0;transform:none;width:min(284px,calc(100vw - 32px))}
+.bt-bs .bt-avedit{left:-4px;transform:none;width:min(304px,100cqi,calc(100vw - 32px))}
 .bt-bs-row{min-height:48px}
 label.bt-bs-row{cursor:text}
 .bt-bs-row>.bt-set-copy{flex:1 1 auto}
 .bt-bs-label{font-size:13px;line-height:18px;font-weight:500}
 .bt-bs-row .bt-model-trigger{flex:none;max-width:58%}
+.bt-bs-row .bt-sel{flex:0 1 auto;min-width:0;max-width:58%}
 .bt-bs-input{flex:0 1 220px;width:0;min-width:96px;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:.5px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-bs-input:hover{background:var(--bt-hover)}
 .bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent);text-align:left}
@@ -46946,9 +47103,9 @@ var SERVICES_CSS = `
 .bt-svc-line{padding:10px 16px}
 .bt-svc-line .bt-svc-state{white-space:normal;align-items:flex-start}
 .bt-svc-line .bt-svc-dot{margin-top:4.5px}
-.bt-svc-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.bt-svc-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;min-width:0;max-width:100%}
+@container (max-width:440px){.bt-svc-actions{justify-content:flex-start}}
 .bt-svc-note{font-size:12px;line-height:16px;color:var(--bt-ink-2)}
-.bt-svc .bt-svc-seg button{white-space:nowrap}
 .bt-svc :focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 `;
 var DEFAULTS = { ocr: false, tts: "system", voice: "stella" };
@@ -51395,8 +51552,8 @@ var PROVIDERS_CSS = `
 .bt-provider-models{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .bt-provider-models .bt-tag{max-width:220px}
 .bt-provider-add{gap:12px;animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
-.bt-provider-add .bt-seg{align-self:flex-start}
-.bt-provider-add .bt-seg button{flex:none;padding:0 14px;white-space:nowrap}
+.bt-provider-add .bt-seg:not([data-layout]){align-self:flex-start}
+.bt-provider-add .bt-seg:not([data-layout]) button{padding:0 14px}
 .bt-provider-add .bt-seg button:disabled{opacity:.45;cursor:default}
 .bt-provider-form{display:flex;flex-direction:column;gap:10px}
 .bt-provider-form .bt-secret-field{min-height:36px;align-items:center;gap:8px}
@@ -60868,7 +61025,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     ...bot && roster.computer?.enabled === true ? ["computer"] : []
   ];
   const activeTab = tabs.includes(tab) ? tab : "details";
-  const glide2 = useGlide(`${activeTab}:${tabs.join(",")}`);
+  const glide2 = useGlide(`${activeTab}:${tabs.join(",")}`, { axis: "both", syncKey: `${tabs.map((key) => t(TAB_LABELS[key])).join(",")}:${activeTaskCount}` });
   const last = (0, import_react88.useRef)({ view, tab: activeTab, move: void 0 });
   if (last.current.view !== view) last.current = { view, tab: activeTab, move: view === "settings" ? "in" : "out" };
   else if (last.current.tab !== activeTab) last.current = { view, tab: activeTab, move: "tab" };
