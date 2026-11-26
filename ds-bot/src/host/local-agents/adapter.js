@@ -1033,6 +1033,9 @@ export class LocalAgentAdapter extends LlmAdapter {
         sentInstructions = true
       }
     }
+    if (live.spec.kind === 'codex' && live.dead) {
+      throw live.closeFailure?.error ?? new LlmError('the Codex session closed before its prompt was sent', 'LOCAL_AGENT_EXIT')
+    }
     // A card can outlive the CLI's turn: the CLI finished — often by timing out on the
     // call it bridged out — while the user was still deciding. The answer then has to
     // start a turn of its own, or the user's decision never reaches the agent and the

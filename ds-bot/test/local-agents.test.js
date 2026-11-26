@@ -2142,6 +2142,37 @@ test('codex receives image blocks on first replay turn, delta turn, and image-on
   assert.match(second.text, new RegExp(`data:image/jpeg;base64,${jpgBytes.toString('base64')}`))
 })
 
+test('codex retries an unsent image prompt after a secret change closes the bridge', async (t) => {
+  const records = {}
+  const reading = Promise.withResolvers()
+  const image = Promise.withResolvers()
+  const bytes = Buffer.from([137, 80, 78, 71, 1, 2, 3, 4])
+  const ref = { attachmentId: 'att-secret-change', mediaType: 'image/png', bytes: bytes.length, width: 1, height: 1 }
+  let secrets = { DSH_SECRET_ENV_PROBE: 'scoped-test-value' }
+  const adapter = makeAdapter({
+    records,
+    attachments: { readImage: () => { reading.resolve(); return image.promise } },
+    secretEnvForSession: () => secrets,
+  })
+  t.after(() => adapter.dispose())
+  const route = { provider: 'local-codex-cli' }
+  const messages = [user('m1', 'hello')]
+  await collect(adapter.stream(options('s1', messages, route)))
+  const request = options('s1', [...messages, imageMsg('m2', 'describe this', ref)], route)
+  const pending = collect(adapter.stream(request))
+  const rejected = assert.rejects(pending, { code: 'LOCAL_AGENT_EXIT' })
+  await reading.promise
+  secrets = {}
+  await adapter.secretsChanged()
+  image.resolve({ ref, data: bytes })
+  await rejected
+  assert.equal(records.s1.handedId, 'm1')
+
+  const retried = await collect(adapter.stream(request))
+  assert.match(retried.text, new RegExp(`data:image/png;base64,${bytes.toString('base64')}`))
+  assert.equal(records.s1.handedId, 'm2')
+})
+
 test('claude receives Anthropic base64 image blocks for text+image and image-only turns', async (t) => {
   const pngBytes = Buffer.from([137, 80, 78, 71, 9, 8, 7, 6])
   const pngRef = { attachmentId: 'att-c1', mediaType: 'image/png', bytes: pngBytes.length, width: 1, height: 1 }
