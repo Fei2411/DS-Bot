@@ -601,7 +601,8 @@ export function install(rt) {
     // `appliedModel` updated, and the preferred provider then returned).
     const owesWrite = (sessionId) => {
       if (ownChanged || forced(sessionId) || sessionRetry.has(sessionId)) return true
-      const applied = sessionSelections.get(sessionId)
+      const witnessed = state.sessionModelSelections?.[sessionId]
+      const applied = sessionSelections.get(sessionId) ?? (witnessed?.requested ?? witnessed)
       return applied !== undefined && !sameSelection(applied, route)
     }
     // A Bot's model is the model of every part of its own chat, the background ones

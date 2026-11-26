@@ -1042,6 +1042,55 @@ test('restoring a preferred provider after a partial fallback apply reconciles b
   assert.deepEqual(selected, [])
 })
 
+test('restoring a preferred provider after restart reconciles a background part left on fallback', async () => {
+  const { rt: firstRt, selected: firstSelected } = bench({ providers: { fallback: ['y'] }, fallback: { provider: 'fallback', model: 'y' } })
+  const bot = {
+    id: 'b1', name: 'Writer', model: 'preferred/x', appliedModel: 'preferred/x',
+    tasks: [{ id: 't1', sessionId: 'b1-bg', status: 'running', segments: [] }],
+  }
+  firstRt.state.bots = { b1: bot }
+  const firstSelect = firstRt.ctx.sessionController.selectModel
+  firstRt.ctx.sessionController.selectModel = async (request) => {
+    if (request.sessionId === 'b1') throw new Error('session "b1" not found')
+    return firstSelect(request)
+  }
+  await assert.rejects(firstRt.applyModel(bot), /session "b1" not found/)
+  assert.equal(bot.appliedModel, 'preferred/x')
+  assert.deepEqual(firstSelected, ['b1-bg:fallback/y'])
+  assert.deepEqual(firstRt.state.sessionModelSelections['b1-bg'].requested, { provider: 'fallback', model: 'y' })
+
+  // Simulate process restart: fresh module instance (empty in-memory sessionSelections and
+  // sessionRetry) loaded with the persisted state, now with preferred/x restored.
+  const persisted = structuredClone(firstRt.state)
+  const { rt: restarted, selected: restartedSelected } = bench({
+    providers: { preferred: ['x'], fallback: ['y'] },
+    fallback: { provider: 'fallback', model: 'y' },
+  })
+  Object.assign(restarted.state, persisted)
+  await restarted.syncModels()
+  assert.deepEqual(restartedSelected, ['b1-bg:preferred/x'])
+  assert.deepEqual(restarted.state.sessionModelSelections['b1-bg'].requested, { provider: 'preferred', model: 'x' })
+
+  // Legacy flat sessionModelSelections shape is also reconciled after restart.
+  const { rt: legacyRt, selected: legacySelected } = bench({
+    providers: { preferred: ['x'], fallback: ['y'] },
+    fallback: { provider: 'fallback', model: 'y' },
+  })
+  Object.assign(legacyRt.state, {
+    bots: {
+      b1: {
+        id: 'b1', name: 'Writer', model: 'preferred/x', appliedModel: 'preferred/x',
+        tasks: [{ id: 't1', sessionId: 'b1-bg', status: 'running', segments: [] }],
+      },
+    },
+    sessionModelSelections: {
+      'b1-bg': { provider: 'fallback', model: 'y' },
+    },
+  })
+  await legacyRt.syncModels()
+  assert.deepEqual(legacySelected, ['b1-bg:preferred/x'])
+})
+
 test('a direct applyModel consumes pending forced sessionRetry for group and cold task Sessions and clears it', async () => {
   const route = { provider: 'deepseek', model: 'v4-flash' }
   const { rt, selected } = bench({
