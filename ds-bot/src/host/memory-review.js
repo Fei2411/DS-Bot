@@ -57,11 +57,21 @@ export function installReview(rt, memory) {
   // A long message often ends with what the user wants of it, so both ends stay.
   const ends = (text, max) => (text.length > max ? `${text.slice(0, Math.ceil(max * 2 / 3))} …(middle cut)… ${text.slice(-Math.floor(max / 3))}` : text)
 
+  // Neutralize embedded line breaks inside non-owner lines so no Bot reply, relay,
+  // or echoed external text can start a column-0 `User:` line inside the quoted
+  // transcript. Indenting continuation lines keeps transcripts readable while
+  // keeping column-0 `User: ` exclusive to verified owner messages.
+  const indentContinuations = text => String(text ?? '').replace(/\r\n?|\n|\u2028|\u2029/g, '\n  ')
+
   // Lines say who spoke. The user's lines are kept longest: what they say is what
   // the review keeps; the rest is there to make it understood.
-  const reviewLine = (who, text, bot) => (who === 'user'
-    ? ends(text, REVIEW_USER_LINE_MAX)
-    : clip(who === 'you' ? `${bot.name}: ${text.replace(/^You: /, '')}` : text, REVIEW_OTHER_LINE_MAX))
+  const reviewLine = (who, text, bot) => {
+    if (who === 'user') return ends(text, REVIEW_USER_LINE_MAX)
+    const raw = who === 'you'
+      ? `${inlineUntrusted(bot.name)}: ${text.replace(/^You: /, '')}`
+      : (/^\s*user\s*:/i.test(text) ? `[Bot] ${text}` : text)
+    return indentContinuations(clip(raw, REVIEW_OTHER_LINE_MAX))
+  }
 
   // The channel a user-input line arrived on. DSH tags every prompt it admits
   // with the caller's requestId as source.rpcId; the desktop and web composer
@@ -86,25 +96,48 @@ export function installReview(rt, memory) {
   // question-card answers as user lines — is the same.
   async function* transcriptLines(sessionId, signal) {
     let answers = []
+    let pendingUsers = []
     const scan = {}
+    // Flush a cluster of consecutive user prompts together with the assistant replies
+    // that followed them. If ANY prompt in the cluster came from an external channel
+    // (including when an owner steers while an external prompt is still unanswered:
+    // `user(external) -> user(owner) -> assistant`), tag the shared replies external
+    // too so echoed attacker text stays out of the transcript while the owner's own
+    // message is preserved.
+    function* flushCluster() {
+      if (pendingUsers.length === 0) return
+      const tainted = pendingUsers.some(item => item.trust === 'external')
+      const keep = pendingUsers[0].keepAnswers
+      if (keep && answers.length > 0) {
+        yield* (tainted ? answers.map(item => ({ ...item, trust: 'external' })) : answers)
+      }
+      for (const item of pendingUsers) {
+        if (item.line !== undefined) yield item.line
+      }
+      answers = []
+      pendingUsers = []
+    }
     for await (const event of rt.eventsBackwards(sessionId, signal, Infinity, scan)) {
       const entry = rt.historyEntry(event, false)
       if (entry === undefined) continue
       if (entry.answer) {
+        if (pendingUsers.length > 0) yield* flushCluster()
         answers.push({ text: `You: ${entry.text}`, time: event.time, seq: event.seq, who: 'you', trust: 'bot' })
         continue
       }
       const trust = trustOf(entry.who, event.data?.source)
-      // Replies to an external turn can echo or summarize attacker-controlled text:
-      // tag them external too so chatBatch advances its cursor past them and drops
-      // the whole turn, never feeding external replies into the review model.
-      const kept = entry.keepAnswers
-        ? (trust === 'external' ? answers.map(item => ({ ...item, trust: 'external' })) : answers)
-        : []
+      if (entry.who === 'user' && entry.keepAnswers) {
+        const line = entry.text !== '' ? { text: `User: ${entry.text}`, time: event.time, seq: event.seq, who: 'user', trust } : undefined
+        pendingUsers.push({ trust, keepAnswers: true, line })
+        continue
+      }
+      if (pendingUsers.length > 0) yield* flushCluster()
+      const kept = entry.keepAnswers ? answers : []
       answers = []
       yield* kept
       if (entry.text !== '') yield { text: entry.who === 'user' ? `User: ${entry.text}` : entry.text, time: event.time, seq: event.seq, who: entry.who, trust }
     }
+    if (pendingUsers.length > 0) yield* flushCluster()
     if (answers.length > 0 && scan.capped === true && scan.complete !== true) {
       for (const item of answers) {
         if (item.text !== `You: ${HANDOFF_ACK}`) yield item
