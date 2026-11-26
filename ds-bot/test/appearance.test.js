@@ -219,7 +219,9 @@ test('the page stylesheet follows the appearance, and safe appearance drops the 
   assert.match(css, /html body\{--bt-pane:transparent;--bt-wash:rgba\(252,252,252,0\.8\);--bt-skin-main:rgba\(252,252,252,0\.94\);--bt-skin-sidebar:rgba\(247,247,247,0\.4\);--bt-skin-card:rgba\(255,255,255,0\.94\)\}/)
   assert.match(css, /html body::after\{[^}]*background:linear-gradient\(rgba\(252,252,252,0\.8\),rgba\(252,252,252,0\.8\)\),linear-gradient\(rgba\(255,255,255,0\.3\)/)
   assert.match(css, /html body\[data-ds-dark-theme\]::after\{background:linear-gradient\(rgba\(20,20,20,0\.8\)/)
-  assert.ok(css.endsWith('.x{color:red}'))
+  // The user stylesheet never joins the generated sheet's text: it reaches the page only
+  // through the sanitized constructed stylesheet (theme-css.js, covered in theme-css.test).
+  assert.doesNotMatch(css, /color:red/)
   // In DSH the font size is DSH's setting; the fonts go through DSH's own font variables too.
   const inDsh = appearanceCss({ appearance, theme })
   assert.doesNotMatch(inDsh, /--bt-fs/)

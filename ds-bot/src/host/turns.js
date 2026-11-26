@@ -831,7 +831,13 @@ export function install(rt) {
       if (job.roomId === undefined) merged[job.botId] = 'thinking'
       else merged[job.botId ?? job.roomId] ??= 'thinking'
     }
-    for (const approval of rt.approvalsView?.() ?? []) if (approval.botId) merged[approval.botId] = 'alert'
+    // Only answerable foreground DM approvals alert the Bot's own mascot; group approvals
+    // live on the group row/island (#1623) and background task approvals live in the task deck.
+    for (const approval of rt.approvalsView?.() ?? []) {
+      if (approval.botId && approval.roomId === undefined && approval.taskId === undefined && approval.answerable !== false) {
+        merged[approval.botId] = 'alert'
+      }
+    }
     // Waiting for work it handed on shows only while no turn of the Bot runs.
     for (const botId of Object.keys(rt.waitingView?.() ?? {})) merged[botId] ??= 'waiting'
     return merged
@@ -1192,6 +1198,9 @@ export function install(rt) {
         endCall(id, entry, event.data?.callId)
         break
       case 'turn/start':
+        // A model that could not be applied before is tried again now that a turn has
+        // proved its Session can be reached; the first try may have come too early (#1937).
+        if (rt.readOnly?.() === undefined) void rt.retryModel?.(rt.selfOf?.(id))
         setActivity(id, 'thinking')
         entry.turn = event.data.turn
         entry.since = event.time ?? Date.now()
@@ -1637,6 +1646,24 @@ export function install(rt) {
           const config = session.requestHeader?.()?.config
           const ref = config?.provider && config?.model ? `${config.provider}/${config.model}` : undefined
           if (ref !== undefined) void rt.routeRefused(ref, rt.botOf(rt.selfOf(id))).catch(error => rt.warn('ds-bot: %s still failing: %s', ref, error))
+        }
+        // A turn refused before its request left because the Session's selection names
+        // a provider with no adapter, or a model DSH no longer serves, applies the Bot's
+        // model again and rewrites that selection, so the next turn can run (#1937).
+        if ((failure?.code === 'NO_ADAPTER' || failure?.code === 'UNKNOWN_MODEL') && rt.readOnly?.() === undefined) {
+          const bot = rt.botOf(rt.selfOf(id))
+          if (bot !== undefined) {
+            // The turned-away Session is the one whose own selection is wrong; only it
+            // is rewritten, not every part and group of the Bot (#2002 review).
+            void Promise.resolve(rt.reapplyModel?.(bot, id))
+              .catch(error => rt.warn('ds-bot: model for %s still not applied: %s', bot.name, error))
+          } else {
+            const room = rt.roomOf?.(id)
+            if (room !== undefined) {
+              void Promise.resolve(rt.selectRoomSession?.(id, room, { force: true }))
+                .catch(error => rt.warn('ds-bot: model for the group Session %s not applied: %s', id, error))
+            }
+          }
         }
         const held = rt.groupOwners.has(id) ? rt.takeRoomSteps?.(id) ?? '' : ''
         if (switched) {

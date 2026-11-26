@@ -436,6 +436,44 @@ test('a turn refused for not being a model endpoint refuses that route', () => {
   assert.equal(calls.length, 1)
 })
 
+// #1937: the first sign that a Session's selection names a provider with no adapter is
+// a turn that fails before its request leaves. The Bot's model is applied again there,
+// which rewrites the selection, so the next turn can run.
+test('a turn refused for a Session with no adapter applies the Bot model again', () => {
+  const { rt, emit } = turnsHost()
+  const calls = []
+  rt.reapplyModel = async (bot, sessionId) => { calls.push([bot?.id, sessionId]) }
+  const session = { id: 'b', requestHeader: () => ({ config: { provider: 'gone', model: 'x' } }) }
+  emit('b', 'turn/start', { turn: 1 }, session)
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'NO_ADAPTER', message: 'no adapter registered for provider "gone"' } } }, session)
+  assert.deepEqual(calls, [['b', 'b']])
+  // A model DSH no longer serves is the same kind of failure.
+  emit('b', 'turn/start', { turn: 2 }, session)
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'error', error: { code: 'UNKNOWN_MODEL', message: 'unknown model' } } }, session)
+  assert.deepEqual(calls, [['b', 'b'], ['b', 'b']])
+  // An ordinary failure takes no such path.
+  emit('b', 'turn/start', { turn: 3 }, session)
+  emit('b', 'turn/end', { turn: 3, reason: failed }, session)
+  assert.equal(calls.length, 2)
+  // A group's own Session heals its selection with force too.
+  const room = { id: 'r1', members: ['b'] }
+  const roomCalls = []
+  rt.roomOf = id => (id === 'r1' ? room : undefined)
+  rt.selectRoomSession = async (sessionId, target, options) => { roomCalls.push([sessionId, target?.id, options?.force]) }
+  const roomSession = { id: 'r1', requestHeader: () => ({ config: { provider: 'gone', model: 'x' } }) }
+  emit('r1', 'turn/start', { turn: 1 }, roomSession)
+  emit('r1', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'NO_ADAPTER', message: 'no adapter registered for provider "gone"' } } }, roomSession)
+  assert.deepEqual(roomCalls, [['r1', 'r1', true]])
+})
+
+test('a turn start retries a model that failed to apply before it', () => {
+  const { rt, emit } = turnsHost()
+  const calls = []
+  rt.retryModel = async botId => { calls.push(botId) }
+  emit('b', 'turn/start', { turn: 1 })
+  assert.deepEqual(calls, ['b'])
+})
+
 test('issueUrl fills the issue form, keeps the versions when the errors are too long, and falls back to the clipboard', async () => {
   const { issueUrl } = await import('../src/client/diagnostics.js')
   const base = 'https://github.com/Fei-Craft/DS-Bot/issues/new'
