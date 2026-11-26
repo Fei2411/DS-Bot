@@ -127,6 +127,17 @@ export function install(rt) {
   const { ctx, state } = rt
 
   const malformedRetries = new WeakMap()
+  const singleToolRetries = new WeakMap()
+  serviceOf(ctx, 'systemPrompt')?.context?.({
+    name: 'ds-bot:single-tool-retry',
+    order: 0,
+    required: true,
+    text: ({ agent, signal }) => {
+      if (agent === undefined || signal === undefined || signal.aborted || singleToolRetries.get(signal) !== agent.id) return ''
+      singleToolRetries.delete(signal)
+      return 'For this response only, call at most one tool. If you need more than one tool, wait for the result before calling another.'
+    },
+  })
   ctx.on?.('agent/request-error', async (payload, next) => {
     const decided = await next()
     const { agent, turn, step, signal, failure } = payload
@@ -143,6 +154,9 @@ export function install(rt) {
     retries.count += 1
     rt.warn(`Retrying malformed model response for ${agent.id} (turn ${turn}, step ${step}, retry ${retries.count}/${MALFORMED_RETRIES})`)
     if (!await waitRetryDelay(250, signal)) return undefined
+    if (signal !== undefined && failure.code === 'MALFORMED_RESPONSE' && failure.message?.startsWith('Tool call "')) {
+      singleToolRetries.set(signal, agent.id)
+    }
     return { kind: 'retry' }
   }, { prepend: true })
 

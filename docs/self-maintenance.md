@@ -163,7 +163,7 @@ Use this checklist when inspecting live Bot behavior, compaction, tools, channel
 
 1. **Models & Context Thresholds (`steward.js`, `parts.js`, `providers.js`):**
    - `DEFAULT_WINDOW = 500000` when a model reports no window; DSH `0.2.2-rc.1` `dsh-llm-pi-ai` and `dsh-llm-deepseek` set `DEFAULT_CONTEXT_WINDOW = 1000000` when `contextWindow` is omitted. Set explicit `contextWindow` and `maxTokens`; for multimodal models configure per-model `input` (or `inputModalities`) in `models:` or the route-level `defaultInput: [text, image]` fallback.
-   - Math: `usable = max(window - reserve, floor(window / 2))`, `hard = floor(usable * 0.95)`, `check = min(floor(usable * checkRatio), hard, checkTokens)` (`DEFAULT_CHECK_RATIO = 0.8`, `DEFAULT_CHECK_TOKENS = 380000`).
+   - Math: `usable = max(window - reserve, floor(window / 2))`, `hard = floor(usable * 0.95)`, `check = min(floor(usable * checkRatio), hard)` (further capped only when `checkTokens` is explicitly configured; `DEFAULT_CHECK_RATIO = 0.8`).
    - Unusable (`needsKey: true`) models are skipped in fallback selection; `prefs.defaultBotModel` ignores local-agent routes.
 2. **Context Steward Checkpoints vs. Handoff Parts (`steward.js`, `parts.js`):**
    - DSH native compaction is bypassed (`compactIfNeeded` no-op; `compactNow` refused). At end-of-turn above `check`, steward (`STEWARD_MAX_TOKENS = 4096`) emits `{"action":"compact"}` (in-place `[Checkpoint N]`, keeping `RECENT_TOKENS = 16384` verbatim) or `{"action":"switch"}` (new part opening with `[Handoff · part N]`, `NOTE_MAX_TOKENS = 8192` / retry `16384`, silent `HANDOFF_ACK`, retry cooldown `60s -> 300s -> 900s`).

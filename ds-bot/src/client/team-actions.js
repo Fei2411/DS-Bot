@@ -249,6 +249,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     removeProvider: provider => after(call('provider-remove', { provider })),
     // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
     resume: botId => after(call('resume', { botId })),
+    // Escape hatch when continuous context overflow prevents auto-switching.
+    newPart: (botId, sessionId) => after(call('new-part', { botId, ...(sessionId ? { sessionId } : {}) })),
     folders: () => call('folders'),
     folderPick: () => call('folder-pick'),
     folderList: path => call('folder-list', { path: path ?? '' }),

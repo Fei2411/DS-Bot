@@ -39,7 +39,8 @@ import { linesFor } from './steward.js'
 import { estimateTokens, splitRef, textOf, unquote } from './text.js'
 import { EMPTY_MAIN, GONE, DENIED, MAIN, MEMORY_LIMITS, NO_MATCH, REFUSED, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isEmptyTopic, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE, wordsOf } from './memory-entries.js'
 import { entryWords, pickRecalled, rankEntries } from './memory-search.js'
-import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, RECALL_HEADING, RECALL_NOTE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
+import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, OWN_HEADING, OWN_MEMORY_SOURCE, RECALL_HEADING, RECALL_NOTE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
+import { install as ensureContextRuntime } from './context-runtime.js'
 import { installReview } from './memory-review.js'
 import { installTidy } from './memory-tidy.js'
 import { output } from './tools.js'
@@ -966,9 +967,7 @@ export function install(rt) {
     summaryFailures.delete(botId)
     news.delete(botId)
     windows.delete(botId)
-    const prefix = `${botId}:`
-    for (const key of modelWindows.keys()) if (key.startsWith(prefix)) modelWindows.delete(key)
-    for (const key of windowAsked.keys()) if (key.startsWith(prefix)) windowAsked.delete(key)
+    contextRuntime.clearWindowCache()
     mainCache.delete(dir)
     recallCache.delete(dir)
     tailsRead.delete(join(dir, 'journal.jsonl'))
@@ -1037,38 +1036,23 @@ export function install(rt) {
   // ---------------------------------------------------------------------------
   // The prompt section, frozen per Session.
 
-  // What a Bot's model leaves room for, from the last time it was asked (keyed per model
-  // ref so switching models takes effect immediately, including to unknown-window models).
+  // What a Bot's model leaves room for, resolved through the shared ContextRuntime
+  // window resolver so parts.js, memory.js, and channel.js always agree.
+  const contextRuntime = rt.contextRuntime ?? ensureContextRuntime(rt)
   const windows = new Map()
-  const modelWindows = new Map()
-  const windowAsked = new Map()
   async function noteWindow(bot, sessionId) {
     const route = await modelFor(bot).catch(() => undefined)
     if (route === undefined) {
       windows.delete(bot.id)
       return
     }
-    if (rt.isLocalAgentRoute?.(route.provider) === true) {
-      const sid = sessionId ?? rt.chatOf?.(bot.id) ?? bot.id
-      const localSize = rt.localAgentContext?.(sid)?.size
-      if (typeof localSize === 'number' && localSize > 0) windows.set(bot.id, linesFor({ window: localSize }).usable)
-      else windows.delete(bot.id)
+    const sid = sessionId ?? rt.chatOf?.(bot.id) ?? bot.id
+    const resolved = await contextRuntime.resolveWindow(sid, { route, cacheMs: WINDOW_ASK_MS }).catch(() => undefined)
+    if (resolved === undefined || resolved.source === 'default' || !(resolved.window > 0)) {
+      windows.delete(bot.id)
       return
     }
-    const cacheKey = `${bot.id}:${route.provider}/${route.model}`
-    if (modelWindows.has(cacheKey) && Date.now() - (windowAsked.get(cacheKey) ?? 0) < WINDOW_ASK_MS) {
-      const cached = modelWindows.get(cacheKey)
-      if (cached === undefined) windows.delete(bot.id)
-      else windows.set(bot.id, cached)
-      return
-    }
-    windowAsked.set(cacheKey, Date.now())
-    const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
-    const size = info?.context?.contextWindow
-    const usable = typeof size === 'number' && size > 0 ? linesFor({ window: size, reserve: info.defaultMaxTokens }).usable : undefined
-    modelWindows.set(cacheKey, usable)
-    if (usable === undefined) windows.delete(bot.id)
-    else windows.set(bot.id, usable)
+    windows.set(bot.id, linesFor({ window: resolved.window, reserve: resolved.reserve }).usable)
   }
   const windowUsable = bot => windows.get(bot.id)
   const windowTokens = (bot) => {
@@ -1152,24 +1136,27 @@ export function install(rt) {
       return { lines: [], failed: true }
     }
   }
-  function memorySection(bot) {
+  function ownMemoryBody(bot) {
     const own = ownScope(bot.id)
     const main = sectionRead(join(dirOf(own), MAIN))
     const team = sectionRead(join(dirOf(TEAM), MAIN))
     const ownTopics = sectionTopics(own)
     const teamTopics = sectionTopics(TEAM)
     const lines = [
-      '# Your memory',
-      memoryRules(reviewOn),
-      teamRule(rt.isMain(bot.id), writesTeam(bot.id), rt.isPrivate(bot.id)),
-      '',
-      '## Your memory (MEMORY.md)',
+      OWN_HEADING,
       ...sectionEntries(main, ownTopics.lines, bot),
       '',
       '## Team memory, shared by every Bot (team/MEMORY.md)',
       ...sectionEntries(team, teamTopics.lines, bot),
     ]
     return { text: lines.join('\n'), failed: main.failed !== undefined || team.failed !== undefined || ownTopics.failed === true || teamTopics.failed === true }
+  }
+  function memoryRulesSection(bot) {
+    return [
+      '# Your memory',
+      memoryRules(reviewOn),
+      teamRule(rt.isMain(bot.id), writesTeam(bot.id), rt.isPrivate(bot.id)),
+    ].join('\n')
   }
   function groupSection(roomId, bot) {
     const group = groupScope(roomId)
@@ -1195,6 +1182,8 @@ export function install(rt) {
 
   /** @type {Map<string, string>} */
   const frozen = new Map()
+  /** @type {Map<string, string>} */
+  const ownSnapshots = new Map()
   const snapshotPath = sessionId => join(root, 'snapshots', `${safeId(sessionId)}.md`)
   // Where a Session's memory stands: the time of its snapshot, then of the last update.
   // `.seen` stores a plain ISO timestamp (written atomically), while `seenAtIds` tracks
@@ -1269,51 +1258,32 @@ export function install(rt) {
     if (sessionId === undefined) return ''
     const bot = rt.botOf(rt.selfOf(sessionId))
     if (bot === undefined) return ''
-    // A section frozen under another role (made a Main Bot or a group admin since, or no
-    // longer one) is frozen again, so the rule it states matches what the tools allow.
-    // A group Session's section is the Bot's own; its group's memory comes as a message
-    // (see the agent/pre-step below), so both share the provider's cached prefix, tools
-    // included: the provider puts the tools after the whole system prompt.
+    // The system prompt carries only the static memory rules so every Session of
+    // this Bot (own chat, group chats, background tasks, new parts) shares one
+    // byte-identical system prompt + tool prefix cache even as MEMORY.md evolves.
+    // Dynamic resident memory entries arrive in a part-opening snapshot message
+    // (ownSnapshot in agent/pre-step), matching groupSnapshot and refreshing when
+    // the context epoch advances after compaction. Legacy sessions that already
+    // froze entries in snapshots/<sessionId>.md keep them there until renewed.
     const marks = [memoryRules(reviewOn), teamRule(rt.isMain(bot.id), writesTeam(bot.id), rt.isPrivate(bot.id))]
     const holds = text => marks.every(mark => text.includes(mark))
     const kept = frozen.get(sessionId)
-    if (kept !== undefined && holds(kept)) return kept
-    const pending = pendingChange()
+    if (kept !== undefined && (kept.includes(OWN_HEADING) || kept.includes(GROUP_HEADING)) && holds(kept)) return kept
     const path = snapshotPath(sessionId)
-    const snap = existsSync(path) ? sectionRead(path) : { text: '' }
-    if (pending.pending === true || pending.failed === true) {
-      if (pending.pending === true) void recover().catch(error => rt.warn('ds-bot: memory recovery failed: %s', error?.message ?? error))
-      // Only a previously committed snapshot is safe while files may be half-written.
-      if (snap.text !== '' && holds(snap.text)) return snap.text
-      return ['# Your memory', ...marks, '', 'Memory is unavailable until its pending change has been recovered. Use bot_recall after recovery.'].join('\n')
-    }
-    let text = snap.text
-    // A render that could not read everything is used but not kept: it is written
-    // down neither as the snapshot nor as the frozen copy, so the next render tries
-    // the files again.
-    let failed = snap.failed !== undefined
-    if (text === '' || !holds(text)) {
-      const ownKeys = new Set([scopeKey(ownScope(bot.id)), scopeKey(TEAM)])
-      const cursor = cursorBeforeRead(ownKeys, botJournalPaths(bot.id))
-      const section = memorySection(bot)
-      text = section.text
-      failed = failed || section.failed
-      if (!failed && rt.readOnly() === undefined) {
-        try {
-          writeFileAtomicSync(path, text)
-          markSeen(sessionId, cursor.time, cursor.ids)
-        } catch (error) {
-          rt.warn('ds-bot: memory snapshot for %s not saved: %s', bot.name, error)
-        }
+    if (existsSync(path)) {
+      const snap = sectionRead(path)
+      if (snap.text !== '' && (snap.text.includes(OWN_HEADING) || snap.text.includes(GROUP_HEADING)) && holds(snap.text)) {
+        if (snap.failed === undefined) frozen.set(sessionId, snap.text)
+        return snap.text
       }
     }
-    if (!failed) frozen.set(sessionId, text)
-    return text
+    return memoryRulesSection(bot)
   }
   // The Session's next render freezes the memory as it is then.
   function renewMemory(sessionId) {
     if (sessionId === undefined) return
     frozen.delete(sessionId)
+    ownSnapshots.delete(sessionId)
     seenTimes.delete(sessionId)
     seenAtIds.delete(sessionId)
     groupSeen.delete(sessionId)
@@ -1324,15 +1294,14 @@ export function install(rt) {
   // tasks, archived segments, removed group members, or deleted Bots/groups.
   function pruneSnapshots() {
     if (rt.readOnly() !== undefined || rt.hasLoaded?.() === false) return 0
-    const dir = join(root, 'snapshots')
-    let entries
-    try {
-      entries = readdirSync(dir)
-    } catch {
-      return 0
-    }
     const live = new Set()
-    const keep = (sid) => { if (typeof sid === 'string' && sid !== '') live.add(safeId(sid)) }
+    const liveRaw = new Set()
+    const keep = (sid) => {
+      if (typeof sid === 'string' && sid !== '') {
+        live.add(safeId(sid))
+        liveRaw.add(sid)
+      }
+    }
     for (const sid of rt.chatOwners?.keys?.() ?? []) keep(sid)
     for (const sid of rt.groupOwners?.keys?.() ?? []) keep(sid)
     for (const sid of rt.roomOwners?.keys?.() ?? []) keep(sid)
@@ -1354,6 +1323,15 @@ export function install(rt) {
       keep(oldSid)
       keep(sw?.next)
     }
+    contextRuntime.prune(liveRaw)
+    rt.pruneLocalAgentSessions?.(liveRaw)
+    const dir = join(root, 'snapshots')
+    let entries
+    try {
+      entries = readdirSync(dir)
+    } catch {
+      entries = []
+    }
     let removed = 0
     for (const name of entries) {
       if (!name.endsWith('.md') && !name.endsWith('.seen')) continue
@@ -1364,7 +1342,7 @@ export function install(rt) {
         removed += 1
       } catch { /* already gone */ }
     }
-    for (const map of [frozen, seenTimes, seenAtIds, groupSeen]) {
+    for (const map of [frozen, ownSnapshots, seenTimes, seenAtIds, groupSeen]) {
       for (const sid of map.keys()) {
         if (!live.has(safeId(sid))) map.delete(sid)
       }
@@ -1381,13 +1359,15 @@ export function install(rt) {
     const pending = pendingChange()
     if (pending.pending === true || pending.failed === true) return undefined
     const path = snapshotPath(sessionId)
-    const previous = frozen.get(sessionId) ?? (existsSync(path) ? sectionRead(path).text : '')
+    const legacy = frozen.get(sessionId) ?? (existsSync(path) ? sectionRead(path).text : '')
+    const marks = [memoryRules(reviewOn), teamRule(rt.isMain(bot.id), writesTeam(bot.id), rt.isPrivate(bot.id))]
+    const hasLegacySystemEntries = legacy.includes(OWN_HEADING) && marks.every(mark => legacy.includes(mark))
     const roomId = roomIdOf(sessionId)
     const member = roomId !== undefined && rt.roomOf(roomId)?.members.includes(bot.id) === true
     const ownKeys = new Set([scopeKey(ownScope(bot.id)), scopeKey(TEAM)])
     const cursor = cursorBeforeRead(ownKeys, botJournalPaths(bot.id))
-    const own = memorySection(bot)
-    if (own.failed) return undefined
+    const ownBody = ownMemoryBody(bot)
+    if (ownBody.failed) return undefined
     let group
     let groupCursor
     if (member) {
@@ -1396,17 +1376,23 @@ export function install(rt) {
       if (readGroup.failed) return undefined
       group = readGroup.text
     }
+    const ownFullLegacy = hasLegacySystemEntries ? `${memoryRulesSection(bot)}\n\n${ownBody.text}` : undefined
     if (rt.readOnly() === undefined) {
       try {
-        writeFileAtomicSync(path, own.text)
+        if (ownFullLegacy !== undefined) writeFileAtomicSync(path, ownFullLegacy)
         markSeen(sessionId, cursor.time, cursor.ids)
       } catch (error) {
         rt.warn('ds-bot: memory snapshot for %s not saved: %s', bot.name, error)
       }
     }
     if (groupCursor !== undefined) groupSeen.set(sessionId, groupCursor)
-    frozen.set(sessionId, own.text)
-    return { previous: previous || undefined, own: own.text, ...(group === undefined ? {} : { group }) }
+    ownSnapshots.set(sessionId, ownBody.text)
+    if (ownFullLegacy !== undefined) frozen.set(sessionId, ownFullLegacy)
+    return {
+      previous: hasLegacySystemEntries ? legacy : undefined,
+      own: ownFullLegacy ?? ownBody.text,
+      ...(group === undefined ? {} : { group }),
+    }
   }
 
   ctx.effect(() => ctx.systemPrompt.section({
@@ -1416,11 +1402,16 @@ export function install(rt) {
     text: context => sectionFor(context?.agent?.id),
   }), 'ds-bot: memory section')
 
-  // A group Session reads its group's memory from a snapshot message, put in before
-  // its first step and again once a checkpoint has condensed it away, so the memory
-  // stays frozen with the conversation and the prompt stays the Bot's own. A Session
-  // frozen with the group's memory in its prompt keeps it there.
+  // Resident own+team memory and group memory arrive as part-opening snapshot
+  // messages (and refresh whenever the context epoch advances after a DSH
+  // checkpoint or CLI compaction), keeping the system prompt + tool prefix
+  // byte-identical across every Session of the Bot. Legacy Sessions that already
+  // froze entries in their system prompt keep them there.
+  const isOwnMemory = message => message?.source?.kind === OWN_MEMORY_SOURCE
   const isGroupMemory = message => message?.source?.kind === GROUP_MEMORY_SOURCE
+  const isCommittedInEpoch = (message, epoch) => message?.source?.pending !== true
+    && message?.source?.failed !== true
+    && (epoch === 0 ? true : (message.source?.epoch ?? 0) >= epoch)
   ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
     const decision = await next()
     if (decision.kind === 'reject' || signal?.aborted || !Array.isArray(decision.messages)) return decision
@@ -1438,9 +1429,17 @@ export function install(rt) {
       return derivedHistory
     }
     const front = []
+    const ownSnap = ownSnapshot(agent, bot, decision, historyOf)
+    if (ownSnap !== undefined) front.push(ownSnap)
     const snapshot = member ? groupSnapshot(agent, roomId, bot, decision, historyOf) : undefined
     if (snapshot !== undefined) front.push(snapshot)
-    const update = memoryUpdate(agent, bot, member ? roomId : undefined, { groupRefreshed: snapshot !== undefined })
+    const ownUnavailable = ownSnap?.source?.pending === true || ownSnap?.source?.failed === true
+    const update = ownUnavailable
+      ? undefined
+      : memoryUpdate(agent, bot, member ? roomId : undefined, {
+          groupRefreshed: snapshot !== undefined,
+          historyOf,
+        })
     if (update !== undefined) front.push(update)
     const recalled = autoRecall(agent, bot, member ? roomId : undefined, decision, front, historyOf)
     if (recalled !== undefined) front.push(recalled)
@@ -1460,7 +1459,7 @@ export function install(rt) {
   }
   const GROUP_ROUND_START = /This round so far[^\n]*:\n/g
   const GROUP_ROUND_EMPTY = /(?:^|\n\n)Nothing new in this round since your last message\.(?:\n\n|$)/
-  const GROUP_ROUND_END = /\n\n(?:Conversations the user referenced in this round:|Still at work on |Members answer this message |Called together with you:|Also in this round:|Reply with your message for the group)/
+  const GROUP_ROUND_END = /\n\n(?:Conversations the user referenced in this round:|Still at work on |Members answer this message |Called together with you:|Also in this round:|Reply with your message for the group|Reply for the group)/
   function recallQueryOf(message, { group = false } = {}) {
     let raw = textOf(message.content)
     if (raw.trim() === '') return ''
@@ -1515,17 +1514,25 @@ export function install(rt) {
     const said = decision.messages.findLast(isRecallTrigger)
     const query = said === undefined ? '' : recallQueryOf(said, { group: roomId !== undefined })
     if (query.trim() === '') return undefined
+    const epoch = contextRuntime.epochOf(agent.id)
     const history = historyOf !== undefined
       ? historyOf()
       : (() => { try { return agent.session?.deriveMessages?.() ?? [] } catch { return [] } })()
-    const shown = new Set(history.filter(isRecalled).flatMap(message => message.source.ids ?? []))
+    const shown = new Set(
+      history
+        .filter(message => isRecalled(message) && (epoch === 0 || (message.source?.epoch ?? 0) >= epoch))
+        .flatMap(message => message.source.ids ?? []),
+    )
     const own = ownScope(bot.id)
     const scopes = [own, ...(roomId === undefined ? [] : [groupScope(roomId)]), TEAM]
     let candidates
     try {
       candidates = scopes.flatMap(scope => recallEntries(scope).map(entry => ({ ...entry, tag: tagOf(scope, bot.id) })))
       // Also surface MEMORY.md entries that were omitted by the 2% resident window cap.
-      const ownSnap = frozen.get(agent.id) ?? (existsSync(snapshotPath(agent.id)) ? sectionRead(snapshotPath(agent.id)).text : windowTokens(bot) !== undefined ? sectionFor(agent.id) : '')
+      const ownMsg = [...history, ...front, ...decision.messages].findLast(message => isOwnMemory(message) && message.source?.pending !== true && message.source?.failed !== true)
+      const ownSnap = ownMsg !== undefined
+        ? textOf(ownMsg.content)
+        : ownSnapshots.get(agent.id) ?? frozen.get(agent.id) ?? (existsSync(snapshotPath(agent.id)) ? sectionRead(snapshotPath(agent.id)).text : '')
       if (ownSnap.includes(OMITTED_ENTRIES_MARK)) {
         const splitAt = ownSnap.indexOf('## Team memory')
         const ownPart = splitAt === -1 ? ownSnap : ownSnap.slice(0, splitAt)
@@ -1555,16 +1562,53 @@ export function install(rt) {
     const text = [RECALL_HEADING, RECALL_NOTE, '', ...picked.map(item => item.line)].join('\n')
     return createUserMessage({
       content: [{ type: 'text', text }],
-      source: { kind: MEMORY_RECALL_SOURCE, form: 'snapshot', ids: picked.map(item => item.id), sections: [{ name: MEMORY_RECALL_SOURCE, text }] },
+      source: { kind: MEMORY_RECALL_SOURCE, form: 'snapshot', epoch, ids: picked.map(item => item.id), sections: [{ name: MEMORY_RECALL_SOURCE, text }] },
+    })
+  }
+
+  function ownSnapshot(agent, bot, decision, historyOf) {
+    if (sectionFor(agent.id).includes(OWN_HEADING)) return undefined
+    const epoch = contextRuntime.epochOf(agent.id)
+    if (decision.messages.some(message => isOwnMemory(message) && isCommittedInEpoch(message, epoch))) return undefined
+    const history = historyOf !== undefined
+      ? historyOf()
+      : (() => { try { return agent.session?.deriveMessages?.() ?? [] } catch { return [] } })()
+    if (history.some(message => isOwnMemory(message) && isCommittedInEpoch(message, epoch))) return undefined
+    const pending = pendingChange()
+    if (pending.pending === true || pending.failed === true) {
+      if (pending.pending === true) void recover().catch(error => rt.warn('ds-bot: memory recovery failed: %s', error?.message ?? error))
+      const text = 'Memory is unavailable until its pending change has been recovered. Use bot_recall after recovery.'
+      return createUserMessage({
+        content: [{ type: 'text', text }],
+        source: { kind: OWN_MEMORY_SOURCE, form: 'snapshot', epoch, pending: true, sections: [{ name: OWN_MEMORY_SOURCE, text }] },
+      })
+    }
+    const ownKeys = new Set([scopeKey(ownScope(bot.id)), scopeKey(TEAM)])
+    const cursor = cursorBeforeRead(ownKeys, botJournalPaths(bot.id))
+    const own = ownMemoryBody(bot)
+    if (!own.failed) {
+      ownSnapshots.set(agent.id, own.text)
+      markSeen(agent.id, cursor.time, cursor.ids)
+    }
+    return createUserMessage({
+      content: [{ type: 'text', text: own.text }],
+      source: {
+        kind: OWN_MEMORY_SOURCE,
+        form: 'snapshot',
+        epoch,
+        ...(own.failed ? { failed: true } : { watermark: { time: cursor.time, ids: [...cursor.ids] } }),
+        sections: [{ name: OWN_MEMORY_SOURCE, text: own.text }],
+      },
     })
   }
 
   function groupSnapshot(agent, roomId, bot, decision, historyOf) {
-    if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return undefined
+    const epoch = contextRuntime.epochOf(agent.id)
+    if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(message => isGroupMemory(message) && isCommittedInEpoch(message, epoch))) return undefined
     const history = historyOf !== undefined
       ? historyOf()
       : (() => { try { return agent.session?.deriveMessages?.() ?? [] } catch { return [] } })()
-    if (history.some(isGroupMemory)) return undefined
+    if (history.some(message => isGroupMemory(message) && isCommittedInEpoch(message, epoch))) return undefined
     const pending = pendingChange()
     if (pending.pending === true || pending.failed === true) {
       if (pending.pending === true) void recover().catch(error => rt.warn('ds-bot: memory recovery failed: %s', error?.message ?? error))
@@ -1579,6 +1623,7 @@ export function install(rt) {
       source: {
         kind: GROUP_MEMORY_SOURCE,
         form: 'snapshot',
+        epoch,
         watermark: { time: groupCursor.time, ids: [...groupCursor.ids] },
         sections: [{ name: GROUP_MEMORY_SOURCE, text: group.text }],
       },
@@ -1612,12 +1657,32 @@ export function install(rt) {
   // What changed in the memory a Session has in view since it last looked, as a message
   // of its own at the end of the conversation: the prompt above stays byte for byte, so
   // the provider's prefix cache holds. A Session's own writes are not news to it.
-  function memoryUpdate(agent, bot, roomId, { groupRefreshed = false } = {}) {
+  function memoryUpdate(agent, bot, roomId, { groupRefreshed = false, historyOf } = {}) {
     const sessionId = agent.id
     const own = ownScope(bot.id)
     const keys = new Set([scopeKey(own), scopeKey(TEAM), ...(roomId === undefined ? [] : [scopeKey(groupScope(roomId))])])
     const paths = botJournalPaths(bot.id)
-    const seen = seenOf(sessionId)
+    let seen = seenOf(sessionId)
+    let seenIds = seenAtIds.get(sessionId)
+    if (seen === undefined || seenIds === undefined) {
+      const history = historyOf !== undefined
+        ? historyOf()
+        : (() => { try { return agent.session?.deriveMessages?.() ?? [] } catch { return [] } })()
+      const latestOwn = history.findLast(message =>
+        (isOwnMemory(message) && typeof message?.source?.watermark?.time === 'string')
+        || (message?.source?.kind === MEMORY_UPDATE_SOURCE && typeof message?.source?.ownWatermark?.time === 'string'))
+      const ownWm = latestOwn?.source?.kind === MEMORY_UPDATE_SOURCE ? latestOwn.source.ownWatermark : latestOwn?.source?.watermark
+      if (typeof ownWm?.time === 'string') {
+        if (seen === undefined) {
+          seen = ownWm.time
+          seenTimes.set(sessionId, seen)
+        }
+        if (seenIds === undefined && ownWm.time === seen && Array.isArray(ownWm.ids)) {
+          seenIds = new Set(ownWm.ids)
+          seenAtIds.set(sessionId, seenIds)
+        }
+      }
+    }
     if (seen === undefined) {
       const initial = cursorBeforeRead(keys, paths)
       markSeen(sessionId, initial.time, initial.ids)
@@ -1629,13 +1694,14 @@ export function install(rt) {
       rt.warn('ds-bot: memory update for %s not read: %s', bot.name, error?.message ?? error)
       return undefined
     }
-    const baseCursor = { time: seen, ids: seenAtIds.get(sessionId) }
+    const baseCursor = { time: seen, ids: seenIds }
     let gCursor
     if (roomId !== undefined) {
       gCursor = groupSeen.get(sessionId)
       if (gCursor === undefined) {
-        let history = []
-        try { history = agent.session?.deriveMessages?.() ?? [] } catch { /* ignore */ }
+        const history = historyOf !== undefined
+          ? historyOf()
+          : (() => { try { return agent.session?.deriveMessages?.() ?? [] } catch { return [] } })()
         const latest = history.findLast(message =>
           (isGroupMemory(message) && typeof message?.source?.watermark?.time === 'string')
           || (message?.source?.kind === MEMORY_UPDATE_SOURCE && typeof message?.source?.groupWatermark?.time === 'string'))
@@ -1663,19 +1729,21 @@ export function install(rt) {
     const ownTeamMatched = matched.filter(row => !row.scope.startsWith('group:'))
     const groupMatched = matched.filter(row => row.scope.startsWith('group:'))
     const nextGroup = groupMatched.length > 0 && gCursor !== undefined ? advanceCursor(gCursor, groupMatched) : undefined
-    if (nextGroup !== undefined) groupSeen.set(sessionId, nextGroup)
     const nextBase = advanceCursor(baseCursor, gCursor !== undefined ? ownTeamMatched : matched)
-    markSeen(sessionId, nextBase.time, nextBase.ids)
     const text = updateText(changes, bot)
-    return createUserMessage({
+    const message = createUserMessage({
       content: [{ type: 'text', text }],
       source: {
         kind: MEMORY_UPDATE_SOURCE,
         form: 'snapshot',
-        ...(nextGroup === undefined ? {} : { groupWatermark: { time: nextGroup.time, ids: [...nextGroup.ids] } }),
+        ownWatermark: { time: nextBase.time, ...(nextBase.ids === undefined ? {} : { ids: [...nextBase.ids] }) },
+        ...(nextGroup === undefined ? {} : { groupWatermark: { time: nextGroup.time, ...(nextGroup.ids === undefined ? {} : { ids: [...nextGroup.ids] }) } }),
         sections: [{ name: MEMORY_UPDATE_SOURCE, text }],
       },
     })
+    if (nextGroup !== undefined) groupSeen.set(sessionId, nextGroup)
+    markSeen(sessionId, nextBase.time, nextBase.ids)
+    return message
   }
 
   const rowEntry = line => splitMeta(String(line ?? '').replace(/^\s*[-*]\s+/, ''))

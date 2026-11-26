@@ -1706,6 +1706,10 @@ var JA = {
   "The account is out of quota": "アカウントの利用枠または残高が不足しています",
   "Too many requests to the model": "モデルへのリクエストが多すぎます",
   "The conversation is too long for the model": "会話が長すぎてモデルの上限を超えています",
+  "The local agent session could not be resumed": "ローカルエージェントのセッションを再開できませんでした",
+  "This conversation no longer fits in the context window. Start a new part to continue.": "この会話はコンテキストウィンドウに収まらなくなりました。新しいパートに切り替えて続行してください。",
+  "Start a new part": "新しいパートに切り替え",
+  "Starting a new part…": "新しいパートに切り替え中…",
   "The model service refused the request": "モデルサービスがリクエストを拒否しました",
   "The model service failed": "モデルサービスでエラーが発生しました",
   "The model took too long to answer": "モデルの応答がタイムアウトしました",
@@ -5004,6 +5008,10 @@ var KO = {
   "The account is out of quota": "계정 할당량이 소진되었습니다",
   "Too many requests to the model": "모델 요청이 너무 많습니다",
   "The conversation is too long for the model": "대화가 모델 허용 한도를 초과했습니다",
+  "The local agent session could not be resumed": "로컬 에이전트 세션을 다시 시작할 수 없습니다",
+  "This conversation no longer fits in the context window. Start a new part to continue.": "이 대화가 컨텍스트 창을 초과했습니다. 계속하려면 새 파트로 전환하세요.",
+  "Start a new part": "새 파트로 전환",
+  "Starting a new part…": "새 파트로 전환 중…",
   "The model service refused the request": "모델 서비스가 요청을 거부했습니다",
   "The model service failed": "모델 서비스 오류",
   "The model took too long to answer": "모델 응답 시간이 초과되었습니다",
@@ -8308,6 +8316,10 @@ var ES = {
   "The account is out of quota": "La cuenta se quedó sin cuota",
   "Too many requests to the model": "Demasiadas solicitudes al modelo",
   "The conversation is too long for the model": "La conversación es demasiado larga para el modelo",
+  "The local agent session could not be resumed": "No se pudo reanudar la sesión del agente local",
+  "This conversation no longer fits in the context window. Start a new part to continue.": "Esta conversación ya no cabe en la ventana de contexto. Inicia una nueva parte para continuar.",
+  "Start a new part": "Iniciar una nueva parte",
+  "Starting a new part…": "Iniciando una nueva parte…",
   "The model service refused the request": "El servicio de modelos rechazó la solicitud",
   "The model service failed": "El servicio de modelos falló",
   "The model took too long to answer": "El modelo tardó demasiado en responder",
@@ -11573,6 +11585,10 @@ var FR = {
   "The account is out of quota": "Le quota du compte est épuisé",
   "Too many requests to the model": "Trop de requêtes envoyées au modèle",
   "The conversation is too long for the model": "La discussion est trop longue pour le modèle",
+  "The local agent session could not be resumed": "Impossible de reprendre la session de l’agent local",
+  "This conversation no longer fits in the context window. Start a new part to continue.": "Cette discussion ne tient plus dans la fenêtre de contexte. Passez à une nouvelle partie pour continuer.",
+  "Start a new part": "Passer à une nouvelle partie",
+  "Starting a new part…": "Passage à une nouvelle partie…",
   "The model service refused the request": "Le service de modèles a refusé la requête",
   "The model service failed": "Le service de modèles a rencontré une erreur",
   "The model took too long to answer": "Le modèle a mis trop de temps à répondre",
@@ -14871,6 +14887,10 @@ var DE = {
   "The account is out of quota": "Das Kontokontingent ist aufgebraucht",
   "Too many requests to the model": "Zu viele Anfragen an das Modell",
   "The conversation is too long for the model": "Der Chatverlauf ist zu lang für das Modell",
+  "The local agent session could not be resumed": "Die lokale Agent-Sitzung konnte nicht fortgesetzt werden",
+  "This conversation no longer fits in the context window. Start a new part to continue.": "Diese Unterhaltung passt nicht mehr in das Kontextfenster. Starte einen neuen Abschnitt, um fortzufahren.",
+  "Start a new part": "Neuen Abschnitt starten",
+  "Starting a new part…": "Neuer Abschnitt wird gestartet…",
   "The model service refused the request": "Der Modelldienst hat die Anfrage abgelehnt",
   "The model service failed": "Fehler beim Modelldienst",
   "The model took too long to answer": "Zeitüberschreitung bei der Modellantwort",
@@ -18253,6 +18273,10 @@ var ZH = {
   "The account is out of quota": "账户额度已用尽",
   "Too many requests to the model": "模型请求太频繁",
   "The conversation is too long for the model": "对话太长，超出模型上限",
+  "The local agent session could not be resumed": "本地代理会话无法恢复",
+  "This conversation no longer fits in the context window. Start a new part to continue.": "这段对话已超出上下文窗口。换到新的一段即可继续。",
+  "Start a new part": "换到新的一段",
+  "Starting a new part…": "正在换到新的一段…",
   "The model service refused the request": "模型服务拒绝了请求",
   "The model service failed": "模型服务出错",
   "The model took too long to answer": "模型响应超时",
@@ -19467,6 +19491,7 @@ var FAILURES = {
   ACCOUNT_TOKEN_INVALID: "The DeepSeek account sign-in has expired",
   RATE_LIMIT: "Too many requests to the model",
   CONTEXT_WINDOW_EXCEEDED: "The conversation is too long for the model",
+  LOCAL_AGENT_SESSION_LOST: "The local agent session could not be resumed",
   INVALID_REQUEST: "The model service refused the request",
   SERVER: "The model service failed",
   TIMEOUT: "The model took too long to answer",
@@ -20745,6 +20770,8 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     removeProvider: (provider) => after(call2("provider-remove", { provider })),
     // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
     resume: (botId) => after(call2("resume", { botId })),
+    // Escape hatch when continuous context overflow prevents auto-switching.
+    newPart: (botId, sessionId) => after(call2("new-part", { botId, ...sessionId ? { sessionId } : {} })),
     folders: () => call2("folders"),
     folderPick: () => call2("folder-pick"),
     folderList: (path2) => call2("folder-list", { path: path2 ?? "" }),
@@ -58004,6 +58031,8 @@ function failureText2(code, { name, provider, status }) {
       return t("The model service failed.");
     case "INTERRUPTED":
       return t("DeepSeek Harness stopped before this turn finished.");
+    case "CONTEXT_WINDOW_EXCEEDED":
+      return t("This conversation no longer fits in the context window. Start a new part to continue.");
     case "MODEL_SWITCH_COMPACTION_FAILED":
       return t("The conversation could not be compacted for this model. Try again or choose another model.");
     default:
@@ -58028,6 +58057,8 @@ function fixesFor(code, { canSignIn, official, topUp, onAccount = false }) {
       return official ? ["top-up"] : [];
     case "ACCOUNT_QUOTA":
       return topUp ? ["top-up"] : [];
+    case "CONTEXT_WINDOW_EXCEEDED":
+      return ["new-part", "model"];
     case "MODEL_SWITCH_COMPACTION_FAILED":
       return ["model", "model-settings"];
     default:
@@ -58042,6 +58073,7 @@ var FIX_LABELS = {
   "sign-in": (signedIn) => signedIn ? t("Use the DeepSeek account") : t("Sign in with a DeepSeek account"),
   "use-account": () => t("Use a DeepSeek account instead"),
   "sign-in-again": () => t("Sign in again"),
+  "new-part": () => t("Start a new part"),
   model: () => t("Pick another model"),
   "top-up": () => t("Top up ↗")
 };
@@ -58112,6 +58144,7 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
   const topUp = topUpOf(account);
   const [keying, setKeying] = (0, import_react79.useState)(false);
   const [retry, setRetry] = (0, import_react79.useState)("idle");
+  const [switching, setSwitching] = (0, import_react79.useState)("idle");
   const [error, setError] = (0, import_react79.useState)("");
   const [joining, setJoining] = (0, import_react79.useState)(null);
   const blocked = bot?.blocked?.code === data.code ? bot.blocked : void 0;
@@ -58167,12 +58200,21 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     setJoining({ from: bot.model });
     actions.signIn();
   };
+  const startNewPart = () => {
+    setSwitching("busy");
+    setError("");
+    void Promise.resolve(actions.newPart(bot.id, sessionId)).then(() => setSwitching("sent"), (failure) => {
+      setSwitching("idle");
+      setError(hostText(failure?.message ?? String(failure)));
+    });
+  };
   const runs = {
     key: keyHere ? () => setKeying((value) => !value) : keyElsewhere,
     rekey: keyHere ? () => setKeying((value) => !value) : keyElsewhere,
     "sign-in": viaAccount,
     "use-account": viaAccount,
     "sign-in-again": () => actions.signIn(),
+    "new-part": typeof actions.newPart === "function" ? startNewPart : void 0,
     model: actions.showDetails ? () => actions.showDetails(sessionId) : void 0,
     "model-settings": manageModels(actions)
   };
@@ -58192,6 +58234,9 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     const className = primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm";
     if (fix === "top-up") {
       return (0, import_react79.createElement)("a", { key: fix, className: `${className} bt-fail-link`, href: data.code === "ACCOUNT_QUOTA" ? topUp : TOP_UP_URL, target: "_blank", rel: "noopener noreferrer" }, FIX_LABELS[fix]());
+    }
+    if (fix === "new-part") {
+      return (0, import_react79.createElement)("button", { key: fix, type: "button", className, disabled: switching !== "idle", onClick: startNewPart }, switching === "idle" ? FIX_LABELS[fix]() : t("Starting a new part…"));
     }
     const toggles = keyHere && (fix === "key" || fix === "rekey");
     return (0, import_react79.createElement)("button", { key: fix, type: "button", className, "aria-expanded": toggles ? keying : void 0, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn));
