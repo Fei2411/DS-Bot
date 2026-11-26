@@ -1,0 +1,23 @@
+// Enable ccache for all CMake-based Android native builds in CI (root + RN/Expo subprojects).
+def ccacheBin = System.getenv('CCACHE_BIN')
+if (ccacheBin != null && !ccacheBin.isEmpty() && new File(ccacheBin).canExecute()) {
+    allprojects {
+        afterEvaluate { project ->
+            if (!project.plugins.hasPlugin('com.android.application') && !project.plugins.hasPlugin('com.android.library')) {
+                return
+            }
+            def android = project.extensions.findByName('android')
+            if (android == null || android.externalNativeBuild?.cmake?.path == null) {
+                return
+            }
+            def cmake = android.defaultConfig?.externalNativeBuild?.cmake
+            if (cmake == null) {
+                return
+            }
+            cmake.arguments(
+                "-DCMAKE_C_COMPILER_LAUNCHER=${ccacheBin}",
+                "-DCMAKE_CXX_COMPILER_LAUNCHER=${ccacheBin}"
+            )
+        }
+    }
+}

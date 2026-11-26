@@ -104,15 +104,21 @@ jobs:
       - name: Install the phone link's packages
         run: npm ci --no-fund --no-audit --prefix ../link
       - run: npm ci --no-fund --no-audit
-      - name: Cache DSH test harness
+      - name: Restore DSH test harness
         id: harness-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ds-bot/dev/harness/node_modules
           key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('ds-bot/dev/harness/package.json') }}
       - name: Install DSH test harness
         if: steps.harness-cache.outputs.cache-hit != 'true'
         run: npm run harness
+      - name: Save DSH test harness
+        if: github.event_name != 'release' && steps.harness-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: ${{ steps.harness-cache.outputs.cache-primary-key }}
       - run: npm test
       - run: npm run lint
 
@@ -166,14 +172,21 @@ jobs:
           key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
       - run: node scripts/seed-electron-checksums.mjs
-      - name: Cache the locked runtime archives
-        uses: actions/cache@v4
+      - name: Restore the locked runtime archives
+        id: runtime-cache
+        uses: actions/cache/restore@v4
         with:
           path: app/build/runtime-cache
           key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
       - run: npm run dist
+      - name: Save the locked runtime archives
+        if: github.event_name != 'release' && steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/build/runtime-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - name: Save Electron and the build tools
-        if: steps.downloads.outputs.cache-hit != 'true'
+        if: github.event_name != 'release' && steps.downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -205,22 +218,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: arm64, runner: macos-latest }
-          - { arch: x64, runner: macos-26-intel }
+          - { arch: arm64, cache_arch: ARM64, runner: macos-latest }
+          # Build Intel x64 on Apple Silicon via Rosetta + x64 Node to avoid Intel runner queue spikes and 2x slower VMs.
+          - { arch: x64, cache_arch: X64, runner: macos-latest }
     defaults:
       run:
         shell: bash
         working-directory: app
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure Rosetta 2 is available
+        if: matrix.arch == 'x64'
+        run: pkgutil --pkg-info com.apple.pkg.RosettaUpdateAuto >/dev/null 2>&1 || softwareupdate --install-rosetta --agree-to-license
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          architecture: ${{ matrix.arch }}
           cache: npm
           cache-dependency-path: app/package-lock.json
       - name: Name the download cache
         id: downloads-key
-        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=electron-downloads-${{ runner.os }}-${{ matrix.cache_arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
       - name: Restore Electron and the build tools
         id: downloads
         uses: actions/cache/restore@v4
@@ -231,23 +249,40 @@ jobs:
           key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
       - run: node scripts/seed-electron-checksums.mjs
-      - name: Cache the locked runtime archives
-        uses: actions/cache@v4
+      - name: Restore the locked runtime archives
+        id: runtime-cache
+        uses: actions/cache/restore@v4
         with:
           path: app/build/runtime-cache
-          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
-      - run: npm run dist
+          key: runtime-cache-${{ runner.os }}-${{ matrix.cache_arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
+      - run: npm run dist -- --${{ matrix.arch }}
         env:
-          # Standard Deflate level 5 cuts macOS Intel zip time substantially with ~1% size difference.
+          # Standard Deflate level 5 cuts macOS zip time substantially with ~1% size difference.
           ELECTRON_BUILDER_COMPRESSION_LEVEL: '5'
+      - name: Save the locked runtime archives
+        if: github.event_name != 'release' && steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/build/runtime-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - name: Save Electron and the build tools
-        if: steps.downloads.outputs.cache-hit != 'true'
+        if: github.event_name != 'release' && steps.downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
             ~/Library/Caches/electron
             ~/Library/Caches/electron-builder
           key: ${{ steps.downloads.outputs.cache-primary-key }}
+      - name: Check packaged binary architecture
+        run: |
+          if [ "${{ matrix.arch }}" = x64 ]; then
+            exe="dist-pack/mac/DS Bot.app/Contents/MacOS/DS Bot"
+            expected=x86_64
+          else
+            exe="dist-pack/mac-arm64/DS Bot.app/Contents/MacOS/DS Bot"
+            expected=arm64
+          fi
+          file -b "$exe" | grep -F "$expected"
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
       - name: Upload zip artifact
@@ -288,14 +323,21 @@ jobs:
           key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
       - run: node scripts/seed-electron-checksums.mjs
-      - name: Cache the locked runtime archives
-        uses: actions/cache@v4
+      - name: Restore the locked runtime archives
+        id: runtime-cache
+        uses: actions/cache/restore@v4
         with:
           path: app/build/runtime-cache
           key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
       - run: npm run dist
+      - name: Save the locked runtime archives
+        if: github.event_name != 'release' && steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/build/runtime-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - name: Save Electron and the build tools
-        if: steps.downloads.outputs.cache-hit != 'true'
+        if: github.event_name != 'release' && steps.downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -356,17 +398,36 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npx expo prebuild --platform android --no-install
+      - name: Install ccache
+        run: |
+          if ! command -v ccache >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq ccache
+          fi
+          echo "CCACHE_BIN=$(command -v ccache)" >> "$GITHUB_ENV"
+      - name: Restore Android C++ ccache
+        id: ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: android-ccache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/plugins/**') }}
+          restore-keys: android-ccache-${{ runner.os }}-${{ runner.arch }}-
       - uses: gradle/actions/setup-gradle@v4
         with:
-          # Tag builds cannot share newly written caches with later tags; only workflow_dispatch
-          # on a branch writes the Gradle cache so release tags read it without bloating quota.
+          # Tag builds cannot share newly written caches with later tags; main's scheduled CI
+          # and branch workflow_dispatch runs keep Gradle and ccache warm.
           cache-read-only: ${{ github.event_name == 'release' }}
       - name: Build the APK
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          CCACHE_BASEDIR: ${{ github.workspace }}
+          CCACHE_NOHASHDIR: 'true'
+          CCACHE_SLOPPINESS: include_file_mtime,include_file_ctime,time_macros
+          CCACHE_MAXSIZE: 600M
         run: |
+          export CCACHE_DIR="$HOME/.ccache"
+          mkdir -p "$CCACHE_DIR"
           if [ -n "$KEYSTORE_BASE64" ]; then
             printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
             export DSBOT_ANDROID_KEYSTORE="$RUNNER_TEMP/upload.jks" DSBOT_ANDROID_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" DSBOT_ANDROID_KEY_ALIAS="$KEY_ALIAS"
@@ -376,11 +437,18 @@ jobs:
           else
             echo "::warning::No upload key: this dry run signs the APK with the debug key."
           fi
-          (cd android && ./gradlew assembleRelease --no-daemon --build-cache --console=plain -PreactNativeArchitectures=arm64-v8a,armeabi-v7a)
+          (cd android && ./gradlew assembleRelease --no-daemon --build-cache --console=plain -PreactNativeArchitectures=arm64-v8a,armeabi-v7a --init-script "$GITHUB_WORKSPACE/.github/gradle/ccache.init.gradle")
+          ccache -s || true
           rm -f "$RUNNER_TEMP/upload.jks"
           version="$(node -p "require('../ds-bot/package.json').version")"
           mkdir -p dist
           cp android/app/build/outputs/apk/release/app-release.apk "dist/DS-Bot-$version-android.apk"
+      - name: Save Android C++ ccache
+        if: github.event_name != 'release' && steps.ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
       - name: Check the signature
         run: |
           if unzip -l dist/DS-Bot-*-android.apk | grep -Eq 'lib/(x86|x86_64)/'; then
@@ -467,7 +535,7 @@ jobs:
             "$RUNNER_TEMP/packages/DS-Bot-$version-mac-arm64.zip" \
             "$RUNNER_TEMP/packages/DS-Bot-$version-mac-x64.zip" \
             "$RUNNER_TEMP/packages/DS-Bot-$version-linux-amd64.deb"
-          gh release upload "$TAG" "$RUNNER_TEMP"/packages/* "$RUNNER_TEMP"/attach/* --clobber
+          node scripts/release-upload.mjs "$TAG" "$RUNNER_TEMP"/packages/* "$RUNNER_TEMP"/attach/*
       - name: Put the download table on top of the notes
         if: github.event_name == 'release'
         run: gh release edit "$TAG" --notes-file "$RUNNER_TEMP/body.md"
