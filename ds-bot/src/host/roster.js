@@ -13,6 +13,7 @@ const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete', '*'
 export const API_ACTOR = Symbol('external API')
 const API_ROOM_FIELDS = new Set(['name', 'notice', 'mode', 'members', 'add', 'remove', 'avatar'])
 const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/
+const TERMINAL_COORD_STATUSES = new Set(['done', 'failed', 'stopped'])
 
 const OWN_RULES = 'Where your instructions say otherwise, follow them.'
 const writeIn = language => `Write in ${language ?? 'the user\'s language if known; otherwise Chinese'}.`
@@ -59,6 +60,86 @@ export function install(rt) {
   const { ctx, defaults, state } = rt
 
   let bootstrapping = null
+
+  // Atomically stops all active coordination-db works/calls/waits for a deleted Bot,
+  // deleted group, or removed group member, notifies/wakes upstream callers, and aborts
+  // any live DSH execution BEFORE sessions are archived.
+  async function stopCoordWorks({ botId, botIds, roomId, reason, by } = {}) {
+    const db = rt.coordDb
+    if (!db || db.readonly || db.isClosed?.()) return { stoppedWorkIds: [], wokenWorkIds: [] }
+    const targetBots = botIds !== undefined ? new Set(botIds) : (botId !== undefined ? new Set([botId]) : undefined)
+    const stoppedWorkIds = new Set()
+    const wokenWorkIds = new Set()
+    const settledEvents = []
+    try {
+      db.transaction(() => {
+        const candidateIds = new Set()
+        if (targetBots !== undefined && roomId !== undefined) {
+          for (const memberId of targetBots) {
+            for (const work of db.listWorks({ botId: memberId, roomId, activeOnly: true, limit: 1000 })) {
+              candidateIds.add(work.workId)
+            }
+          }
+          for (const call of db.listCalls({ status: 'open', limit: 1000 })) {
+            if (call.roomId !== roomId) continue
+            if (targetBots.has(call.calleeBotId)) candidateIds.add(call.childWorkId)
+            if (targetBots.has(call.callerBotId)) {
+              const parent = db.getWork(call.parentWorkId)
+              if (parent && parent.roomId === roomId) candidateIds.add(parent.workId)
+            }
+          }
+        } else if (targetBots !== undefined) {
+          for (const memberId of targetBots) {
+            for (const work of db.listWorks({ botId: memberId, activeOnly: true, limit: 1000 })) {
+              candidateIds.add(work.workId)
+            }
+          }
+          for (const call of db.listCalls({ status: 'open', limit: 1000 })) {
+            if (targetBots.has(call.calleeBotId)) candidateIds.add(call.childWorkId)
+            if (targetBots.has(call.callerBotId)) {
+              candidateIds.add(call.parentWorkId)
+              candidateIds.add(call.childWorkId)
+            }
+          }
+        } else if (roomId !== undefined) {
+          for (const work of db.listWorks({ roomId, activeOnly: true, limit: 1000 })) {
+            candidateIds.add(work.workId)
+          }
+          for (const call of db.listCalls({ status: 'open', limit: 1000 })) {
+            if (call.roomId === roomId) candidateIds.add(call.childWorkId)
+          }
+        }
+
+        for (const workId of candidateIds) {
+          const current = db.getWork(workId)
+          if (!current || TERMINAL_COORD_STATUSES.has(current.status)) continue
+          const res = db.stopWork(workId, { reason, by, cascadeChildren: true })
+          if (res.settled) {
+            stoppedWorkIds.add(workId)
+            settledEvents.push(res)
+            for (const childId of res.stoppedChildren ?? []) stoppedWorkIds.add(childId)
+            for (const parentId of res.wokenParents ?? []) wokenWorkIds.add(parentId)
+            for (const askerId of res.wokenAskers ?? []) wokenWorkIds.add(askerId)
+          }
+        }
+      })
+    } catch (error) {
+      rt.warn?.('ds-bot: stopping coordination works failed: %s', error?.message ?? error)
+    }
+
+    for (const settled of settledEvents) {
+      rt.emitWorkSettled?.({ outcome: 'stopped', ...settled })
+    }
+
+    if (stoppedWorkIds.size > 0 && typeof rt.abortWorkExecution === 'function') {
+      await Promise.allSettled([...stoppedWorkIds].map(workId =>
+        Promise.resolve(rt.abortWorkExecution(workId, { reason, by, cascadeChildren: false })).catch(() => {})))
+    }
+    if (wokenWorkIds.size > 0) {
+      void Promise.resolve(rt.kickScheduler?.()).catch(() => {})
+    }
+    return { stoppedWorkIds: [...stoppedWorkIds], wokenWorkIds: [...wokenWorkIds] }
+  }
 
   // The team folder is DS Bot's own: deleted, it is made again before a Session needs it.
   async function keepTeamFolder() {
@@ -993,6 +1074,16 @@ export function install(rt) {
     if (added.length > 0) changes.push(`added ${names(added)}`)
     // A deleted Bot still listed goes without a word.
     if (names(removed) !== '') changes.push(`removed ${names(removed)}`)
+    // Atomically stop coordination works/calls/waits for removed members and notify upstream
+    // BEFORE dropping their group sessions.
+    const coordStopPromise = removed.length > 0
+      ? stopCoordWorks({
+          botIds: removed,
+          roomId: room.id,
+          reason: 'Member was removed from the group',
+          by: typeof actorId === 'string' ? actorId : 'user',
+        })
+      : undefined
     // A member who leaves and comes back starts from a fresh look at the log.
     const noteCleanups = []
     for (const member of removed) {
@@ -1070,6 +1161,7 @@ export function install(rt) {
       }
     }
     await rt.save()
+    if (coordStopPromise !== undefined) await coordStopPromise.catch(() => {})
     if (noteCleanups.length > 0) await Promise.allSettled(noteCleanups)
     for (const member of removed) {
       await rt.stopMemberRoomTasks?.(room.id, member, 'removed from group')
@@ -1086,6 +1178,8 @@ export function install(rt) {
     if (room === undefined) throw new Error('Unknown group chat')
     // Before the group's Sessions leave the state, which the archive reads.
     const archived = rt.archiveGroupMemory(room)
+    // Atomically stop all coordination works/calls/waits tied to this group and notify upstream.
+    await stopCoordWorks({ roomId: room.id, reason: 'Group chat was deleted', by: 'roster:deleteRoom' })
     await rt.stopRoomTasks?.(room.id, 'group deleted')
       .catch(error => rt.warn('ds-bot: stopping tasks of deleted group %s failed: %s', room.name, error))
     const noteCleanups = []
@@ -1229,6 +1323,9 @@ export function install(rt) {
       sentKickoffs.delete(id)
       clearPresetWarnings(id)
       for (const hook of botDeleteHooks) await hook(id)
+      // Atomically stop all coordination works/calls/waits for this Bot and notify upstream
+      // BEFORE releasing turns, dropping state, or archiving Sessions.
+      await stopCoordWorks({ botId: id, reason: 'Bot was deleted', by: 'roster:deleteBot' })
       rt.forgetBotTasks?.(bot)
       rt.forgetBotPermissions?.(id)
       // Before the Bot and its group Sessions leave the state, which the archive reads.

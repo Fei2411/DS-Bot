@@ -622,6 +622,7 @@ export function install(rt) {
 
   const hasLoaded = () => storeReady
   const notifyStoreSync = () => {
+    rt.refreshCoordDb?.()
     rt.onStoreSync?.()
     rt.syncDeepseekTools?.()
     rt.onApiStoreSync?.()
@@ -809,6 +810,9 @@ export function install(rt) {
         void retireParts()
         if ((foldedOpenParts || storageMigrated) && !(state.retiredParts?.length > 0) && stuck === undefined && !stopped) {
           void save().catch(error => warn('ds-bot: saving the migrated Bot team failed: %s', error))
+        }
+        if (!stopped && stuck === undefined) {
+          void rt.adoptLiveWork?.().catch(error => warn('ds-bot: adopting work after lock takeover failed: %s', error))
         }
         return
       }

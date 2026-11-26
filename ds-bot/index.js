@@ -8,7 +8,8 @@ import * as branding from './src/host/branding.js'
 import * as telemetry from './src/host/telemetry.js'
 import * as store from './src/host/store.js'
 import * as contextRuntime from './src/host/context-runtime.js'
-import * as coordination from './src/host/coordination.js'
+import * as coordinationDb from './src/host/coordination-db.js'
+import * as dshAdapter from './src/host/dsh-adapter.js'
 import * as models from './src/host/models.js'
 import * as providers from './src/host/providers.js'
 import * as chatgpt from './src/host/chatgpt.js'
@@ -81,10 +82,11 @@ export { name, inject } from './src/host/entry.js'
 // Each module's install(rt) registers its listeners, tools, and effects, and puts on `rt`
 // the functions other modules call; they call them through `rt` at run time, never during
 // install. Listeners run and tools are listed in registration order, so this order holds:
-// usage meters model requests after every listener that rewrites them. privacy checks a
-// call before the hooks of tools do, so a closed call never reaches a card they show.
+// store → contextRuntime → coordinationDb → ledger → dshAdapter come first so every
+// module sees `rt.coordDb` and the unified D1–D4 adapter; usage meters model requests
+// after every listener that rewrites them; privacy checks a call before tools do;
 // extraFolders answers an approval ahead of approvals, which would show it to the user.
-const MODULES = [diagnostics, branding, store, contextRuntime, ledger, coordination, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, telemetry, thinking, mobile, feed, fonts, sessionFollow, workspacePanel, engineSettings, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
+const MODULES = [diagnostics, branding, store, contextRuntime, coordinationDb, ledger, dshAdapter, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, telemetry, thinking, mobile, feed, fonts, sessionFollow, workspacePanel, engineSettings, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
 
 export function apply(ctx, config = {}) {
   ctx.effect(() => installSocketTosGuard(), 'ds-bot: socket type of service')

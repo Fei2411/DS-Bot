@@ -284,12 +284,21 @@ export function install(rt) {
   const privateBots = () => Object.values(state.bots).filter(bot => bot.private === true)
   // Deleting a private Bot does not make the files and memory it leaves behind public.
   const protectedBots = () => [...new Map([...(state.privateArchives ?? []), ...privateBots()].map(bot => [bot.id, bot])).values()]
+  const coordSessionsOf = (botId) => {
+    if (!rt.coordDb || rt.coordDb.isClosed?.()) return []
+    try {
+      return rt.coordDb.listWorks({ botId, limit: 200 }).map(work => work.sessionId).filter(Boolean)
+    } catch {
+      return []
+    }
+  }
   // Every Session a private Bot speaks from: its own chat, the parts it opened while it
   // was busy (a background part reads and writes in that Bot's name), its earlier parts
   // and its groups. A deleted Bot's archive lists them itself.
   const sessionsOf = bot => [...new Set([bot.id, ...(bot.sessionIds ?? [
     rt.chatOf(bot.id), ...(bot.segments ?? []).map(segment => segment.sessionId),
     ...openSessions(bot), ...retiredTaskSessionIds(bot), ...rt.groupSessionsOf(bot.id),
+    ...coordSessionsOf(bot.id),
   ])])]
   const dataRoots = () => [rt.dshHome, rt.home, process.env.DS_BOT_USER_DSH_HOME?.trim()].filter(Boolean)
 
@@ -503,6 +512,43 @@ export function install(rt) {
   // The Bot a tool argument names, as the tools and the memory scopes read it.
   const botNamed = ref => (typeof ref === 'string' && ref !== '' ? rt.findBot(ref) ?? rt.findBot(unquote(ref)) : undefined)
 
+  // Read-only lookup against coordination.sqlite for privacy checks on works & calls.
+  const coordWorkFor = (refOrSessionId) => {
+    if (!rt.coordDb || rt.coordDb.isClosed?.() || typeof refOrSessionId !== 'string' || refOrSessionId === '') return undefined
+    try {
+      const clean = refOrSessionId.replace(/^#/, '')
+      return rt.coordDb.getWork(clean)
+        ?? rt.coordDb.getWorkByRef(clean)
+        ?? rt.coordDb.getWork(`handoff:${clean}`)
+        ?? rt.coordDb.getWork(`task:${clean}`)
+        ?? rt.coordDb.getWorkBySessionId(refOrSessionId)
+    } catch {
+      return undefined
+    }
+  }
+  const coordCallsOf = (workId) => {
+    if (!rt.coordDb || rt.coordDb.isClosed?.() || !workId) return { incoming: [], outgoing: [] }
+    try {
+      return {
+        incoming: rt.coordDb.listCalls({ childWorkId: workId, limit: 50 }),
+        outgoing: rt.coordDb.listCalls({ parentWorkId: workId, limit: 50 }),
+      }
+    } catch {
+      return { incoming: [], outgoing: [] }
+    }
+  }
+  const isPrivacyScopedWork = (work) => work !== undefined && (work.privacyScoped === true || work.visibility === 'private' || isPrivate(work.botId))
+
+  // Privacy-scoped work can never implicitly escalate its visible scope to a group room;
+  // only an explicit publish/approval flow may cross into room visibility.
+  function checkWorkVisibility(workOrId, visibleScope, { explicitPublish = false } = {}) {
+    if (visibleScope !== 'room' || explicitPublish === true) return
+    const work = typeof workOrId === 'string' ? coordWorkFor(workOrId) : workOrId
+    if (isPrivacyScopedWork(work)) {
+      throw new Error('Privacy-scoped work cannot be shared to a group chat without explicit user approval.')
+    }
+  }
+
   // Tools between Bots. Other Bots may not reach a private Bot; what a private Bot sends
   // to them is the user's to allow. A private Bot is no member of a group, which the
   // roster checks as the members are written.
@@ -512,14 +558,37 @@ export function install(rt) {
       const bot = botNamed(ref)
       return bot !== undefined && isPrivate(bot.id) && bot.id !== self ? bot : undefined
     }
+    const activeCoordWork = coordWorkFor(exec.agent?.id) ?? coordWorkFor(exec.agent?.session?.id)
     switch (exec.name) {
       case 'delegate_work':
       case 'message_bot': {
         const body = String(args.goal ?? args.message ?? '')
         const bot = target(args.to)
         if (bot) throw new Error(`Not sent: ${bot.name} is a private Bot, and other Bots cannot delegate work to it. Ask the user to pass it on.`)
+        const inGroup = rt.groupOwners?.has(exec.agent?.id) || rt.taskOwners?.get(exec.agent?.id)?.roomId !== undefined
+        if (inGroup && (isPrivate(self) || isPrivacyScopedWork(activeCoordWork))) {
+          throw new Error('Not sent: privacy-scoped work cannot be escalated into a group chat.')
+        }
         const to = botNamed(args.to)
-        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} send this to ${to.name}?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 把下面的内容发给 ${to.name} 吗？\n\n${body}` })
+        if ((isPrivate(self) || isPrivacyScopedWork(activeCoordWork)) && to !== undefined && to.id !== self) {
+          const senderName = rt.botOf(self)?.name ?? 'This Bot'
+          await approve(exec, { en: `Let ${senderName} send this to ${to.name}?\n\n${body}`, zh: `允许 ${senderName} 把下面的内容发给 ${to.name} 吗？\n\n${body}` })
+        }
+        return
+      }
+      case 'post_to_group': {
+        if (isPrivate(self)) {
+          throw new Error(`Not sent: ${rt.botOf(self).name} is a private Bot and cannot post to a group chat.`)
+        }
+        if (isPrivacyScopedWork(activeCoordWork)) {
+          const body = String(args.message ?? '')
+          const groupLabel = typeof args.group === 'string' && args.group.trim() !== '' ? args.group.trim() : 'the group'
+          const senderName = rt.botOf(self)?.name ?? 'This Bot'
+          await approve(exec, {
+            en: `Let ${senderName} share this from privacy-scoped work into ${groupLabel}?\n\n${body}`,
+            zh: `允许 ${senderName} 把隐私工作中的下面内容发到群「${groupLabel}」吗？\n\n${body}`,
+          })
+        }
         return
       }
       case 'note_bot': {
@@ -527,7 +596,10 @@ export function install(rt) {
         const bot = target(args.to)
         if (bot) throw new Error(`Not sent: ${bot.name} is a private Bot, and other Bots cannot leave notes for it. Ask the user to pass it on.`)
         const to = botNamed(args.to)
-        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} leave this note for ${to.name}?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 给 ${to.name} 留这条静默留言吗？\n\n${body}` })
+        if ((isPrivate(self) || isPrivacyScopedWork(activeCoordWork)) && to !== undefined && to.id !== self) {
+          const senderName = rt.botOf(self)?.name ?? 'This Bot'
+          await approve(exec, { en: `Let ${senderName} leave this note for ${to.name}?\n\n${body}`, zh: `允许 ${senderName} 给 ${to.name} 留这条静默留言吗？\n\n${body}` })
+        }
         return
       }
       case 'ask_back': {
@@ -535,9 +607,18 @@ export function install(rt) {
         const explicit = typeof args.work_id === 'string' && args.work_id.trim() !== '' ? args.work_id.trim() : undefined
         const activeId = explicit ?? rt.workOf?.(rt.live?.get(exec.agent?.id)?.info)
         const active = activeId !== undefined ? rt.resolveWork?.(activeId)?.work : undefined
-        const to = active?.from ? rt.botOf(active.from) : undefined
+        let fromBotId = active?.from
+        if (fromBotId === undefined) {
+          const cw = (explicit ? coordWorkFor(explicit) : undefined) ?? (activeId ? coordWorkFor(activeId) : undefined) ?? activeCoordWork
+          const incoming = cw ? coordCallsOf(cw.workId).incoming : []
+          fromBotId = incoming.find(c => c.status === 'open')?.callerBotId ?? incoming[0]?.callerBotId
+        }
+        const to = fromBotId ? rt.botOf(fromBotId) : undefined
         if (to !== undefined && isPrivate(to.id) && to.id !== self) throw new Error(`Not sent: ${to.name} is a private Bot, and other Bots cannot message it.`)
-        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} ask ${to.name} this?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 向 ${to.name} 追问下面的问题吗？\n\n${body}` })
+        if ((isPrivate(self) || isPrivacyScopedWork(activeCoordWork)) && to !== undefined && to.id !== self) {
+          const senderName = rt.botOf(self)?.name ?? 'This Bot'
+          await approve(exec, { en: `Let ${senderName} ask ${to.name} this?\n\n${body}`, zh: `允许 ${senderName} 向 ${to.name} 追问下面的问题吗？\n\n${body}` })
+        }
         return
       }
       case 'answer_work': {
@@ -549,23 +630,49 @@ export function install(rt) {
           : turnAskWork !== undefined
             ? rt.resolveWork?.(turnAskWork)?.work
             : rt.needInputWorksFor?.(self)?.[0]?.work
-        const to = active?.to ? rt.botOf(active.to) : undefined
+        let toBotId = active?.to
+        if (toBotId === undefined) {
+          const cw = (explicit ? coordWorkFor(explicit) : undefined) ?? (turnAskWork ? coordWorkFor(turnAskWork) : undefined)
+          if (cw) {
+            toBotId = cw.botId
+          } else if (activeCoordWork && rt.coordDb && !rt.coordDb.isClosed?.()) {
+            try {
+              const incomingAsks = rt.coordDb.listWaits({ kind: 'ask', targetWorkId: activeCoordWork.workId, status: 'open', limit: 10 })
+              const asker = incomingAsks[0] ? rt.coordDb.getWork(incomingAsks[0].workId) : undefined
+              toBotId = asker?.botId
+            } catch { /* ignore */ }
+          }
+        }
+        const to = toBotId ? rt.botOf(toBotId) : undefined
         if (to !== undefined && isPrivate(to.id) && to.id !== self) throw new Error(`Not sent: ${to.name} is a private Bot, and other Bots cannot message it.`)
-        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} send this answer to ${to.name}?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 把下面的答复发给 ${to.name} 吗？\n\n${body}` })
+        if ((isPrivate(self) || isPrivacyScopedWork(activeCoordWork)) && to !== undefined && to.id !== self) {
+          const senderName = rt.botOf(self)?.name ?? 'This Bot'
+          await approve(exec, { en: `Let ${senderName} send this answer to ${to.name}?\n\n${body}`, zh: `允许 ${senderName} 把下面的答复发给 ${to.name} 吗？\n\n${body}` })
+        }
         return
       }
       case 'cancel_work': {
         const ref = typeof args.target === 'string' ? args.target.trim() : ''
         const byRef = ref !== '' ? rt.resolveWork?.(ref)?.work : undefined
+        const byCoord = ref !== '' ? coordWorkFor(ref) : undefined
+        const coordCalls = byCoord ? coordCallsOf(byCoord.workId) : { incoming: [], outgoing: [] }
         const byName = botNamed(ref)
-        const touched = [byRef?.to ? rt.botOf(byRef.to) : undefined, byRef?.from ? rt.botOf(byRef.from) : undefined, byName].filter(Boolean)
+        const touched = [
+          byRef?.to ? rt.botOf(byRef.to) : undefined,
+          byRef?.from ? rt.botOf(byRef.from) : undefined,
+          byCoord?.botId ? rt.botOf(byCoord.botId) : undefined,
+          ...coordCalls.incoming.map(c => rt.botOf(c.callerBotId)),
+          ...coordCalls.outgoing.map(c => rt.botOf(c.calleeBotId)),
+          byName,
+        ].filter(Boolean)
         const locked = touched.find(bot => isPrivate(bot.id) && bot.id !== self)
         if (locked !== undefined) throw new Error(`Not cancelled: ${locked.name} is a private Bot, and other Bots cannot touch its work.`)
-        const to = byRef?.to ? rt.botOf(byRef.to) : byName
+        const to = byRef?.to ? rt.botOf(byRef.to) : (byCoord?.botId ? rt.botOf(byCoord.botId) : byName)
         const reason = String(args.reason ?? '').trim()
-        if (isPrivate(self) && to !== undefined && to.id !== self) {
+        if ((isPrivate(self) || isPrivacyScopedWork(activeCoordWork)) && to !== undefined && to.id !== self) {
           const detail = reason !== '' ? `\n\n${reason}` : ''
-          await approve(exec, { en: `Let ${rt.botOf(self).name} cancel work on ${to.name}?${detail}`, zh: `允许 ${rt.botOf(self).name} 取消发给 ${to.name} 的工单吗？${detail}` })
+          const senderName = rt.botOf(self)?.name ?? 'This Bot'
+          await approve(exec, { en: `Let ${senderName} cancel work on ${to.name}?${detail}`, zh: `允许 ${senderName} 取消发给 ${to.name} 的工单吗？${detail}` })
         }
         return
       }
@@ -701,6 +808,10 @@ export function install(rt) {
     join(rt.home, 'api-audit.jsonl'),
     join(rt.home, 'api-config.json'),
     join(rt.home, 'api-runs.json'),
+    join(rt.home, 'coordination.sqlite'),
+    join(rt.home, 'coordination.sqlite-wal'),
+    join(rt.home, 'coordination.sqlite-shm'),
+    join(rt.home, 'coordination.sqlite-journal'),
     join(rt.home, 'telemetry.json'),
   ].map(file => spellings(file, memo)))).flat()
 
@@ -723,7 +834,7 @@ export function install(rt) {
     if (SEARCH_TOOLS.includes(name)) {
       const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
       const pattern = typeof args.pattern === 'string' ? fold(args.pattern) : ''
-      if (pattern.includes('api-') || pattern.includes('mcp.json')) throw closedApi()
+      if (pattern.includes('api-') || pattern.includes('mcp.json') || pattern.includes('coordination.sqlite')) throw closedApi()
       const base = folder()
       const [keys, protectedPaths] = await Promise.all([
         spellings(base === undefined ? where : resolve(base, where), memo),
@@ -734,7 +845,7 @@ export function install(rt) {
     }
     if (SHELL_TOOLS.includes(name)) {
       const flat = fold(strings(args).join('\n').replace(/\\/g, '/'))
-      if (flat.includes('api-') || flat.includes('mcp.json')) throw closedApi()
+      if (flat.includes('api-') || flat.includes('mcp.json') || flat.includes('coordination.sqlite')) throw closedApi()
       const protectedPaths = await apiProtectedFiles(memo)
       for (const file of protectedPaths) {
         if (asShell(file).some(spelled => flat.includes(spelled))) throw closedApi()
@@ -1080,5 +1191,5 @@ export function install(rt) {
   // What the settings list shows. Session ids stay on the host.
   const archivesView = () => (state.privateArchives ?? []).map(({ id, name, workDir }) => ({ id, name, ...(workDir === undefined ? {} : { workDir }) }))
 
-  Object.assign(rt, { isPrivate, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, releaseArchive, archivesView })
+  Object.assign(rt, { isPrivate, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, checkWorkVisibility, releaseArchive, archivesView })
 }

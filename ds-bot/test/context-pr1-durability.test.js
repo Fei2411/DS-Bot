@@ -796,9 +796,8 @@ test('startup resend logged on successor before handOnHeld does not duplicate th
   const stableTransferId = heldOriginal.source?.transferId
   assert.ok(typeof stableTransferId === 'string' && stableTransferId.length > 0, 'rt.deliver stamps a stable transferId')
 
-  const persisted = host.rt.coordination.loadInitialState()
-  const journalEntry = persisted.queued?.b?.find(item => item.args?.exchangeId === 'ex-dup-restart')
-  assert.equal(journalEntry?.args?.transferId, stableTransferId, 'coordination store persists the exact same transferId')
+  const journalEntry = (host.rt.unreadOf?.('b') ?? []).find(item => item?.exchangeId === 'ex-dup-restart')
+  assert.equal(journalEntry?.transferId, stableTransferId, 'pending delivery journal preserves the exact same transferId')
 
   // 2) Simulate crash after saving pointer flip (b -> b-next) before moving b's inbox,
   // and startup resend delivering the journal entry to b-next (new message id, same transferId)
@@ -810,8 +809,19 @@ test('startup resend logged on successor before handOnHeld does not duplicate th
   await host.rt.save()
 
   const nextAgent = host.agentOf('b-next')
-  // Simulate startup resendQueued calling deliver with the journaled args on the new part.
-  await host.rt.deliver({ ...journalEntry.args, sessionId: 'b-next', steer: false, resent: true })
+  // Simulate startup resend calling deliver with the journaled transferId on the new part.
+  await host.rt.deliver({
+    fromId: 'b',
+    fromName: 'Kai',
+    toId: 'b',
+    sessionId: 'b-next',
+    role: 'request',
+    exchangeId: 'ex-dup-restart',
+    transferId: journalEntry.transferId,
+    text: 'Append one line to audit.log',
+    steer: false,
+    resent: true,
+  })
   const resentMsg = nextAgent.inbox.nextTurn.find(m => m?.source?.exchangeId === 'ex-dup-restart')
   assert.ok(resentMsg, 'startup resend reached new part inbox')
   assert.equal(resentMsg.source?.transferId, stableTransferId, 'startup resend carries the same stable transferId')

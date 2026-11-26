@@ -365,12 +365,14 @@ function decide(body) {
     const said = lines.slice(openAt + 1)
       .map(line => /^[^:\n]{1,40}: \D*?(\d+)/.exec(line)?.[1])
       .filter(Boolean).map(Number)
-    const mentioner = /^\[Group chat [^\]]*· (\S+) mentioned you\]/.exec(userText)?.[1]
+    const mentioner = /^\[Group chat [^\]]*· (\S+) (?:mentioned you|delegated a task to you)\]/.exec(userText)?.[1]
     const latestMembersLine = [...messages].reverse()
       .filter(m => m.role === 'user')
       .map(m => /^Members: .*/m.exec(textOf(m.content))?.[0])
       .find(Boolean) ?? ''
-    const peer = /^Members: the user, ([^,\n]+?)(?:,| and you)/.exec(latestMembersLine)?.[1]?.replace(/ \(admin\)$/, '')
+    const peersMatch = /^Members: the user, ([^\n]+?) and you/.exec(latestMembersLine)?.[1]
+    const peers = peersMatch ? peersMatch.split(/,\s*/).map(name => name.replace(/ \(admin\)$/, '').trim()).filter(Boolean) : []
+    const peer = peers[0] ?? /^Members: the user, ([^,\n]+?)(?:,| and you)/.exec(latestMembersLine)?.[1]?.replace(/ \(admin\)$/, '')
     const room = /^\[Group chat "([^"]+)"/.exec(userText)?.[1] ?? ''
     const leads = /^Members: .* and you \(admin\)\./.test(latestMembersLine)
     if (userText.includes('route-contract:')) {
@@ -411,29 +413,62 @@ function decide(body) {
     if (/提权/.test(userLine) && !leads && shell) {
       return [text('这一步要写工作区外的文件，我申请一次提权。'), tool(shell, { command: 'echo ok', description: '在工作区外写一个测试文件', justification: ESCALATION, sandbox_permissions: 'danger-full-access' })]
     }
-    // "派活 N": the admin hands a member N seconds of work: a file lookup, then a model
-    // step that takes N seconds. The member posts the result when done, and the admin
-    // answers the result.
-    const handed = /^\S+: @(\S+) 干活 (\d+)/m.exec(block)
+    // "派活 N": the admin hands a member N seconds of work via delegate_work: a file lookup,
+    // then a model step that takes N seconds. The member posts the result when done, and
+    // the admin answers the result.
+    const handed = /(?:^|\n)[^\n]*?(?:@(\S+)\s+)?干活\s+(\d+)/m.exec(block) ?? /干活\s+(\d+)/.exec(userText)
+    const handedSeconds = handed ? (handed[2] ?? handed[1]) : undefined
     const lookup = ['glob', 'grep', 'read'].find(name => tools.has(name))
-    if ((ask = /派活\s*(\d+)/.exec(userLine)) && leads && peer) return [text(`@${peer} 干活 ${ask[1]}`)]
-    if (handed?.[1] === me && mentioner && lookup) return [tool(lookup, { pattern: `${HANDED_WORK}-${handed[2]}-*` })]
-    const steps = /^\S+: @(\S+) 分步干活 (\d+)/m.exec(block)
-    if ((ask = /分步\s*(\d+)/.exec(userLine)) && leads && peer) return [text(`@${peer} 分步干活 ${ask[1]}`)]
-    if (steps?.[1] === me && mentioner && lookup) return [text('收到，我先看看目录。'), tool(lookup, { pattern: `${STEPPED_WORK}-1-${steps[2]}-*` })]
+    if ((ask = /派活\s*(\d+)/.exec(userLine)) && leads && peer) {
+      return tools.has('delegate_work')
+        ? [tool('delegate_work', { to: peer, goal: `干活 ${ask[1]}` })]
+        : [text(`@${peer} 干活 ${ask[1]}`)]
+    }
+    if (handedSeconds && mentioner && lookup && (handed[1] === undefined || handed[1] === me || handed[2] === undefined)) {
+      return [tool(lookup, { pattern: `${HANDED_WORK}-${handedSeconds}-*` })]
+    }
+    const steps = /(?:^|\n)[^\n]*?(?:@(\S+)\s+)?分步干活\s+(\d+)/m.exec(block) ?? /分步干活\s+(\d+)/.exec(userText)
+    const stepsSeconds = steps ? (steps[2] ?? steps[1]) : undefined
+    if ((ask = /分步\s*(\d+)/.exec(userLine)) && leads && peer) {
+      return tools.has('delegate_work')
+        ? [tool('delegate_work', { to: peer, goal: `分步干活 ${ask[1]}` })]
+        : [text(`@${peer} 分步干活 ${ask[1]}`)]
+    }
+    if (stepsSeconds && mentioner && lookup && (steps[1] === undefined || steps[1] === me || steps[2] === undefined)) {
+      return [text('收到，我先看看目录。'), tool(lookup, { pattern: `${STEPPED_WORK}-1-${stepsSeconds}-*` })]
+    }
     if (/分步干完了/.test(block) && leads) return [text('收到，辛苦了。')]
-    if (/^\S+: 干完了/.test(userLine) && leads) return [text('收到，辛苦了。')]
-    // Ping-pong: whoever is mentioned mentions back, to exercise the loop guard.
-    if (/来回|回你/.test(block)) return [text(mentioner ? `@${mentioner} 回你` : leads && peer ? `@${peer} 来回` : '[PASS]')]
+    if ((/^\S+: 干完了/.test(userLine) || /干完了，用了/.test(block)) && leads) return [text('收到，辛苦了。')]
+    // Ping-pong: whoever is delegated delegates back, to exercise wait-cycle / stagnation guards.
+    if (/来回|回你/.test(block)) {
+      if (tools.has('delegate_work')) {
+        if (mentioner) return [tool('delegate_work', { to: mentioner, goal: '回你' })]
+        if (leads && peer) return [tool('delegate_work', { to: peer, goal: '来回' })]
+        return [text('[PASS]')]
+      }
+      return [text(mentioner ? `@${mentioner} 回你` : leads && peer ? `@${peer} 来回` : '[PASS]')]
+    }
+    if (/讨论/.test(userLine)) {
+      if (leads) {
+        return tools.has('delegate_work') && peers.length > 0
+          ? [text('大家各说一句。'), ...peers.map(name => tool('delegate_work', { to: name, goal: '大家各说一句。' }))]
+          : [text('@all 大家各说一句。')]
+      }
+      return [text('我觉得可以。')]
+    }
     if (mentioner) return [text('进度正常，今天能交。')]
-    if (/安排/.test(userLine)) return [text(leads && peer ? `@${peer} 你先说说进度。` : '[PASS]')]
+    if (/安排/.test(userLine)) {
+      if (!leads || !peer) return [text('[PASS]')]
+      return tools.has('delegate_work')
+        ? [tool('delegate_work', { to: peer, goal: '你先说说进度。' })]
+        : [text(`@${peer} 你先说说进度。`)]
+    }
     // 调用 <tool> <json> in a group: the same generic trigger as in a Bot's own chat,
     // so a member's turn can drive a real tool (a write, a shell command) in the group.
     if ((ask = /调用\s*(\S+)(?:\s+([\s\S]+))?/.exec(userLine))) {
       if (!tools.has(ask[1])) return [text(`The tool ${ask[1]} is not in my tool list.`)]
       try { return [tool(ask[1], ask[2] ? JSON.parse(ask[2]) : {})] } catch { return [text(`Bad JSON for ${ask[1]}.`)] }
     }
-    if (/讨论/.test(userLine)) return [text(leads ? '@all 大家各说一句。' : '我觉得可以。')]
     return [text(`${me}：${leads ? '我是群管理员，需要拍板时找我。' : '我负责自己那一摊，有需要直接点我。'}`)]
   }
   // Secret cards: ask for a key, and use it once the card says it is saved or allowed.
