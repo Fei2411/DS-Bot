@@ -26,7 +26,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { GROUP_LINE_READ, HISTORY_PAGE, HISTORY_TIMEOUT_MS, INSTANT_WORK_TOOLS, ROOM_IDLE_RELAY_LIMIT, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, ROOM_ZERO_WORK_RELAY_LIMIT, SOURCE_KIND, TEXT_KEPT, isWorkTool } from './constants.js'
 import { escapeRegExp, excerpt, headOf, reminderPrompts, splitRef, textOf } from './text.js'
-import { viaOf } from '../shared/im-platforms.js'
+import { viaIsIm, viaOf } from '../shared/im-platforms.js'
 import { REPLY_ELISION, parseReplies, relayRange } from '../shared/group-replies.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
@@ -296,7 +296,10 @@ export function extractGroupSessionLines(events, botNameOf = () => undefined) {
       const time = Number.isFinite(event.time) ? { time: event.time } : {}
       if (source?.kind === 'user') {
         const text = [textOf(content), ...files.map(fileLine)].filter(Boolean).join('\n')
-        lines.push({ who: 'User', text, ...(files.length > 0 ? { files } : {}), ...time })
+        // The channel the post came in over survives the backfill exactly as a
+        // live post keeps it: a backfilled IM or API line is no owner's line either.
+        const via = viaOf(source)
+        lines.push({ who: 'User', text, ...(files.length > 0 ? { files } : {}), ...(via === undefined ? {} : { via }), ...time })
       } else if (source?.kind === 'schedule') {
         const prompts = reminderPrompts(textOf(content))
         const text = prompts.length > 0 ? prompts.join('\n') : textOf(content)
@@ -1879,7 +1882,10 @@ export function install(rt) {
     for (const line of lines) {
       const classified = rt.classifyRoomUserSource?.(roomSid, line.source)
       if (classified?.ignored !== true) {
-        const origin = classified !== undefined ? classified.origin : (line.via ? rt.captureImOrigin?.(roomSid) : undefined)
+        // Only a real IM platform may keep the group's IM origin; any other external
+        // channel (the API token's posts carry via 'api') reads as non-IM input here,
+        // so replies are never forwarded out of the team for them.
+        const origin = classified !== undefined ? classified.origin : (viaIsIm(line.via) ? rt.captureImOrigin?.(roomSid) : undefined)
         noteRoomUserOrigin(room, origin)
       }
       say(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}) })
@@ -2430,7 +2436,7 @@ export function install(rt) {
         continue
       }
       // The user's message, as one the round takes in from the Session's inbox.
-      noteRoomUserOrigin(room, post.via !== undefined ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : undefined)
+      noteRoomUserOrigin(room, viaIsIm(post.via) ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : undefined)
       const text = [post.text, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
       say(room, { who: 'User', text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.via === undefined ? {} : { via: post.via }), session: true })
       unpauseRoomIdle(room)
@@ -2459,11 +2465,15 @@ export function install(rt) {
     const holder = { roomId: room.id, slots: [], starting: true, abort: controller, ...(anchor !== undefined ? { anchor } : {}) }
     holder.ready = new Promise((resolve) => { holder.settle = resolve })
     rt.roomProgress.set(key, holder)
+    rt.publishFeed?.('live', {})
     const run = runRoundFrom(room, queued, agent, key, controller.signal, holder)
       .catch(error => rt.warn('ds-bot: group round in %s failed: %s', room.name, error))
       .finally(() => {
         holder.settle(undefined)
-        if (rt.roomProgress.get(key) === holder) rt.roomProgress.delete(key)
+        if (rt.roomProgress.get(key) === holder) {
+          rt.roomProgress.delete(key)
+          rt.publishFeed?.('live', {})
+        }
       })
     const runs = roundRuns.get(room.id) ?? new Set()
     runs.add(run)
@@ -2531,7 +2541,7 @@ export function install(rt) {
     const hasUserPost = userPosts.length > 0
     if (hasUserPost) {
       const roomIm = rt.captureImOrigin?.(rt.sessionOfRoom(room))
-      for (const post of userPosts) noteRoomUserOrigin(room, post.via !== undefined ? roomIm : undefined)
+      for (const post of userPosts) noteRoomUserOrigin(room, viaIsIm(post.via) ? roomIm : undefined)
       rt.goalUserMessage?.(room.id)
     }
     // An event post, and a member post that calls nobody, never pick the speakers
@@ -2784,6 +2794,7 @@ export function install(rt) {
         laterPosts.delete(room.id)
         startRound(room, later, agent)
       } else if (!disposed) {
+        rt.publishFeed?.('live', {})
         void settleRoomReports(room.id).catch(error => rt.warn('ds-bot: settling reports in %s failed: %s', room.name, error))
       }
     }

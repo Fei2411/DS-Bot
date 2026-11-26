@@ -18,13 +18,14 @@ import { avatarPhoto } from '../team/avatar-photo.ts'
 import { t, timeLabel, weekdayShort } from '../ui/i18n.ts'
 import { roomTitle } from '../ui/phrases.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
+import { lookOf, PICKER_SHAPES } from '../../../ds-bot/src/client/characters.js'
 import { Avatar, COLOR_PAINT, RoomAvatar } from '../ui/marks.tsx'
 import { inkColor, radius, shadow, type as typeScale, useTheme, type Palette } from '../ui/tokens.ts'
 import type { Bot, Room, TeamState } from '../connection.ts'
 import { capabilityStatusText } from '../team/capabilities.ts'
 import { ModelMenu, ModelPicker } from './model-menu.tsx'
 
-export const SHAPES = ['acorn', 'berry', 'bunny', 'gem', 'gumdrop', 'kitty', 'moon', 'peanut', 'star', 'wave']
+export const SHAPES = PICKER_SHAPES
 export const COLORS = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta', 'gray', 'aurora']
 
 export const pickPhoto = async (): Promise<string | null> => {
@@ -423,8 +424,9 @@ export function BotEdit({ route, navigation }: any) {
       if (image !== null) save({ avatar: { ...bot.avatar, image } })
     } catch (err) { setPhotoError(err instanceof Error ? err.message : String(err)) }
   }
-  const shape = bot.avatar?.shape ?? 'star'
-  const color = bot.color ?? 'blue'
+  const look = lookOf(bot)
+  const shape = look.shape
+  const color = look.color
   const main = isMain(team, bot.id)
   return (
     <Screen title={bot.name}>

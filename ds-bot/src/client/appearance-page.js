@@ -861,7 +861,8 @@ body[data-bt-effects=off] :is(.bt-swatch,.bt-look-theme){animation:none;transiti
 .bt-font-empty{padding:10px 10px 6px;font-size:12px;line-height:16px;color:var(--bt-ink-3);text-align:center}
 .bt-font-custom-box{margin-top:4px;padding-top:4px;border-top:.5px solid var(--bt-line)}
 .bt-font-custom-tag{color:var(--bt-ink-3);font-size:12px;margin-right:6px}
-.bt-look-kinds{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 16px}
+.bt-look-kinds{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px 16px}
+@container (max-width:360px){.bt-look-kinds{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .bt-look-kind{display:flex;align-items:flex-end;height:54px;padding:6px 8px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-card);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;box-sizing:border-box}
 .bt-look-kind[data-kind=color]{background:var(--bt-bubble)}
 .bt-look-kind[data-kind=gradient]{background:linear-gradient(135deg,var(--bt-accent),var(--bt-bubble))}

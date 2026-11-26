@@ -77,6 +77,30 @@ if (startPage !== undefined) {
       ipcRenderer.on('ds-bot:computer-action', handler)
       return () => { ipcRenderer.removeListener('ds-bot:computer-action', handler) }
     },
+    // Syncs active desktop shortcut bindings to the main process so focused Bot browser views
+    // forward matching global shortcuts back to the window without hijacking ordinary web keys.
+    syncShortcuts: (bindings) => {
+      if (!Array.isArray(bindings)) return
+      const clean = bindings.slice(0, 64).map((entry) => {
+        if (!entry || typeof entry !== 'object' || typeof entry.id !== 'string' || typeof entry.code !== 'string') return null
+        return {
+          id: entry.id.slice(0, 64),
+          code: entry.code.slice(0, 32),
+          mod: entry.mod === true,
+          ctrl: entry.ctrl === true,
+          alt: entry.alt === true,
+          shift: entry.shift === true,
+        }
+      }).filter(Boolean)
+      ipcRenderer.send('ds-bot:sync-shortcuts', clean)
+    },
+    onShortcut: (run) => {
+      if (typeof run !== 'function') return () => {}
+      ipcRenderer.removeAllListeners('ds-bot:shortcut')
+      const handler = (_event, id) => { if (typeof id === 'string' && id) run(id) }
+      ipcRenderer.on('ds-bot:shortcut', handler)
+      return () => { ipcRenderer.removeListener('ds-bot:shortcut', handler) }
+    },
   })
   // Only plain numbers cross; the main process checks that they make a box inside the page.
   const placeOf = (value) => {
