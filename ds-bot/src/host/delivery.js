@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { HISTORY_TIMEOUT_MS, LONG_HEAD, MESSAGE_INLINE_MAX, READ_LINE_MAX, SOURCE_KIND, TEXT_KEPT, TEXT_SHOW_MAX } from './constants.js'
+import { isContextOnlySource } from './context-messages.js'
 import { headOf, textOf } from './text.js'
 import { addressedSession, sameConversation, threadCurrentOfPart } from './threads.js'
 import { workNotes } from './work-notes.js'
@@ -256,16 +257,10 @@ export function install(rt) {
     return true
   }
 
-  const NON_WAKING_PRE_STEP_KINDS = new Set([
-    'working-directory', 'runtime-context', 'time-context', 'ds-bot-time-context',
-    'bot-memory', 'skill-catalog', 'compact-checkpoint', 'snapshot',
-  ])
   const isWakingPreStepMessage = (msg) => {
     const src = msg?.source
     if (src === undefined) return true
-    if (src.form === 'snapshot' || NON_WAKING_PRE_STEP_KINDS.has(src.kind)) return false
-    if (src.kind === SOURCE_KIND && (src.silent === true || ['note', 'cancelled', 'stopped'].includes(src.role))) return false
-    return true
+    return !isContextOnlySource(src)
   }
 
   // Deterministically prepend any buffered silent notices before step 1 of a real

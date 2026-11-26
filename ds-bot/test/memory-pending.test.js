@@ -75,16 +75,21 @@ test('a change that cannot be published stays pending, and is finished before th
   assert.match(read('bots', 'b2', 'travel.md'), /Trip to Kyoto/)
   assert.ok(existsSync(pendingFile(home)), 'the change is pending')
   await warned(home, 'is pending')
-  const prompt = () => ctx.sections.get('bot-memory').text({ agent: { id: 'b2' } })
-  assert.match(prompt(), /memory.*unavailable/i)
-  assert.doesNotMatch(prompt(), /\[\[travel\]\]/)
+  const ownSnapText = async () => {
+    const step = ctx.listeners.get('agent/pre-step').find(listener => /memoryUpdate/.test(String(listener)))
+    const decision = await step({ agent: { id: 'b2', session: { deriveMessages: () => [] } }, messages: [], step: 1, signal: AbortSignal.timeout(10_000) }, async () => ({ kind: 'enter', messages: [] }))
+    const msg = decision.messages.find(m => m.source?.kind === 'ds-bot-own-memory')
+    return (msg?.content ?? []).map(b => b.text).join('')
+  }
+  assert.match(await ownSnapText(), /memory.*unavailable/i)
+  assert.doesNotMatch(await ownSnapText(), /\[\[travel\]\]/)
   // The change log is there again: the next read finishes the change.
   rmSync(join(home, 'memory', 'journal.jsonl'), { recursive: true, force: true })
   assert.match(await tool('bot_recall', { query: 'Kyoto' }, 'b2'), /Trip to Kyoto/)
   assert.ok(!existsSync(pendingFile(home)), 'the change is finished')
   assert.deepEqual(journal().map(row => [row.op, row.scope, row.file]), [['add', 'bot:b2', 'travel.md']])
   assert.match(read('bots', 'b2', 'MEMORY.md'), /- \[\[travel\]\]/)
-  assert.match(prompt(), /\[\[travel\]\]/)
+  assert.match(await ownSnapText(), /\[\[travel\]\]/)
   // Reading again does not write a second row.
   await tool('bot_recall', {}, 'b2')
   assert.equal(journal().length, 1)
@@ -182,12 +187,18 @@ test('a record of a change that cannot be read stops the memory', async (t) => {
   assert.match(await tool('bot_recall', {}, 'b2'), /pending\.json is not readable/)
   assert.doesNotMatch(await failureText(tool('bot_remember', { text: 'Second fact' }, 'b2')), /Second fact/)
   assert.equal(read('bots', 'b2', 'MEMORY.md'), before)
-  const prompt = () => ctx.sections.get('bot-memory').text({ agent: { id: 'b2' } })
-  assert.doesNotMatch(prompt(), /First fact/)
-  assert.match(prompt(), /memory.*unavailable/i)
+  const ownSnapText = async () => {
+    const step = ctx.listeners.get('agent/pre-step').find(listener => /memoryUpdate/.test(String(listener)))
+    const decision = await step({ agent: { id: 'b2', session: { deriveMessages: () => [] } }, messages: [], step: 1, signal: AbortSignal.timeout(10_000) }, async () => ({ kind: 'enter', messages: [] }))
+    const msg = decision.messages.find(m => m.source?.kind === 'ds-bot-own-memory')
+    return (msg?.content ?? []).map(b => b.text).join('')
+  }
+  const unavailable = await ownSnapText()
+  assert.doesNotMatch(unavailable, /First fact/)
+  assert.match(unavailable, /memory.*unavailable/i)
   assert.equal(existsSync(join(home, 'memory', 'snapshots', 'b2.md')), false)
   rmSync(pendingFile(home))
-  assert.match(prompt(), /First fact/)
+  assert.match(await ownSnapText(), /First fact/)
 })
 
 test('a prompt keeps its committed snapshot while an unfinished change is recovered', async (t) => {
