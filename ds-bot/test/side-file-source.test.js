@@ -12,6 +12,78 @@ const { outputFiles } = await build({
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
+// A miniature hook runtime: enough of React's semantics to drive effects for real —
+// state updates apply, effects run after render with dependency comparison, and a
+// re-render or unmount runs each cleanup first. Hook tests that need it opt in with
+// hooks.activate(); everything else keeps the inert stubs.
+function hookRuntime() {
+  const runtime = { instances: [] }
+  const api = {
+    useState(init) {
+      const inst = runtime.current
+      const slot = inst.slots[inst.index] ?? { value: typeof init === 'function' ? init() : init }
+      inst.slots[inst.index] = slot
+      inst.index += 1
+      const setState = (next) => {
+        slot.value = typeof next === 'function' ? next(slot.value) : next
+      }
+      return [slot.value, setState]
+    },
+    useRef(value) {
+      const inst = runtime.current
+      const slot = inst.slots[inst.index] ?? { current: value }
+      inst.slots[inst.index] = slot
+      inst.index += 1
+      return slot
+    },
+    useMemo(make, deps) {
+      const inst = runtime.current
+      const slot = inst.slots[inst.index] ?? {}
+      const changed = slot.deps === undefined || deps === undefined || deps.some((dep, at) => dep !== slot.deps[at])
+      if (changed) { slot.value = make(); slot.deps = deps }
+      inst.slots[inst.index] = slot
+      inst.index += 1
+      return slot.value
+    },
+    useEffect(fn, deps) {
+      const inst = runtime.current
+      inst.effects.push({ fn, deps, slot: inst.index })
+      inst.index += 1
+    },
+    useLayoutEffect: undefined,
+    useSyncExternalStore: (subscribe, get) => get(),
+    createElement: () => null,
+  }
+  api.useLayoutEffect = api.useEffect
+  const render = (inst) => {
+    runtime.current = inst
+    inst.index = 0
+    inst.effects = []
+    inst.fn(...inst.args)
+    for (const effect of inst.effects) {
+      const prev = inst.active.get(effect.slot)
+      const changed = prev === undefined || effect.deps === undefined || prev.deps === undefined || effect.deps.some((dep, at) => dep !== prev.deps[at])
+      if (!changed) continue
+      prev?.cleanup?.()
+      const cleanup = effect.fn()
+      inst.active.set(effect.slot, { deps: effect.deps, cleanup: typeof cleanup === 'function' ? cleanup : undefined })
+    }
+    runtime.current = undefined
+  }
+  return {
+    api,
+    activate() { Object.assign(react, api) },
+    mount(fn, ...args) {
+      const inst = { fn, args, slots: [], active: new Map(), index: 0, effects: [] }
+      render(inst)
+      return {
+        rerender(...next) { inst.args = next; render(inst) },
+        unmount() { for (const entry of inst.active.values()) entry.cleanup?.(); inst.active.clear() },
+      }
+    },
+  }
+}
+const hooks = hookRuntime()
 const react = { createElement: () => null, useEffect() {}, useLayoutEffect() {}, useMemo: make => make(), useRef: current => ({ current }), useState: init => [init, () => {}], useSyncExternalStore: (sub, get) => get() }
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
@@ -20,7 +92,7 @@ runInNewContext(outputFiles[0].text, {
   fetch: async () => { throw new Error('no network in tests') },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { createFileSession, startPolling, sessionFor, dropSession, chooseBase, nextPreview, POLL_MS } = module.exports
+const { createFileSession, startPolling, sessionFor, dropSession, chooseBase, nextPreview, useHostBase, POLL_MS } = module.exports
 const plain = value => JSON.parse(JSON.stringify(value))
 // Promises made in the bundle's context take extra turns; a macrotask lets them all land.
 const settle = () => new Promise(resolve => setImmediate(resolve))
@@ -271,6 +343,49 @@ test('a session id that merely starts like another is not dropped with it', () =
   assert.notEqual(sessionFor({ ...base, sessionId: 's1' }, read), short)
   dropSession(base.key, 's1')
   dropSession(base.key, 's10')
+})
+
+test('a host base answer is bound to its own conversation, never shown in another tab or session', async () => {
+  hooks.activate()
+  let latest = 'unset'
+  const render = (tab, revision) => { latest = useHostBase(tab, revision, true, render.request) }
+  const first = { key: 'k-a', sessionId: 's1', app: 'reader', displayPath: 'docs/a.md', workspaceTag: 'w1' }
+  const other = { key: 'k-b', sessionId: 's2', app: 'reader', displayPath: 'docs/a.md', workspaceTag: 'w1' }
+  const host = () => ({ kind: 'host', before: 'x', baseRevision: 'rb', revision: 'r1' })
+  let resolveRequest
+  render.request = () => new Promise((resolve) => { resolveRequest = resolve })
+
+  // s1's own answer arrives while s1's tab is on screen: it shows.
+  const live = hooks.mount(render, first, 'r1')
+  await settle()
+  resolveRequest(host())
+  await settle()
+  live.rerender(first, 'r1')
+  assert.equal(latest?.kind, 'host', 'its own answer shows in its own conversation')
+  assert.equal(latest.forRevision, 'r1')
+
+  // Switching to another part of the same file at the same revision: the answer on
+  // screen belongs to s1, so nothing may show until s2's own answer arrives.
+  render.request = () => new Promise((resolve) => { resolveRequest = resolve })
+  live.rerender(other, 'r1')
+  assert.equal(latest, null, "another session must not inherit this one's base, even at the same revision")
+
+  // And a late answer for s1, landing after the switch, never surfaces in s2 either.
+  const stale = render.request
+  void stale
+  live.rerender(other, 'r1')
+  await settle()
+  assert.equal(latest, null, 'a late answer from the previous conversation never surfaces here')
+  live.unmount()
+
+  // Positive control for the second conversation: its own answer does show.
+  const matched = hooks.mount(render, other, 'r1')
+  await settle()
+  resolveRequest(host())
+  await settle()
+  matched.rerender(other, 'r1')
+  assert.equal(latest?.kind, 'host', 'the new conversation still gets its own base')
+  matched.unmount()
 })
 
 test('a renewed ticket for unchanged content moves the frame to the new address', () => {

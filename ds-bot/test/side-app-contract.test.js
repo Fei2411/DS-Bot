@@ -543,6 +543,39 @@ test('diff bases stay separate for two sessions writing the same file', async (t
   assert.equal(second.revision, shaOf('b2'), 'the served revision is this session’s own after text, proven by the match itself')
 })
 
+test('the preview scan enforces read-time limits on the entry bytes it hashes', async (t) => {
+  const root = tempRoot(t)
+  write(root, 'site/index.html', '<h1>small</h1>')
+  const { rt } = harness({ root })
+  const entryReal = await realpath(join(root, 'site', 'index.html'))
+  const ticket = rt.sideAppInternals.issueTicket({ entryReal, displayPath: 'site/index.html', sessionId: 's1' })
+  // The ticket was issued for a small entry; the file then grows past the 8 MiB HTML
+  // limit. The scan must not hash those bytes wholesale: a read-time limit rejects
+  // them, the same way the serve path refuses the file.
+  write(root, 'site/index.html', `<${'a'.repeat(8 * 1024 * 1024)}>`)
+  await assert.rejects(
+    rt.sideAppInternals.previewRevision(ticket),
+    error => error?.code === 'bot/too-large' || /too large/i.test(error?.message ?? ''),
+    'an entry past the read-time limit must not be hashed into memory',
+  )
+  const served = await rt.sideAppInternals.serveAsset(ticket, `/api/bot-canvas/${ticket.id}/index.html`)
+  assert.equal(served.status, 413, 'the serve path already refuses the same file as too large')
+})
+
+test('an entry grown past the limit after opening degrades its preview instead of erroring', async (t) => {
+  const root = tempRoot(t)
+  write(root, 'page.html', '<h1>small</h1>')
+  const { rt } = harness({ root })
+  const descriptor = await openWithTool(rt, root, 'page.html')
+  write(root, 'page.html', `<${'a'.repeat(8 * 1024 * 1024)}>`)
+  const answer = await rt.sideAppEndpoint('side-app-preview', fileBody(descriptor)).catch(error => error)
+  assert.equal(
+    answer instanceof Error ? 'thrown' : answer.kind,
+    'preview-unavailable',
+    'the endpoint degrades an oversized entry rather than crashing the preview poll',
+  )
+})
+
 test('diff bases never merge across unknown turns or broken version chains', async (t) => {
   const root = tempRoot(t)
   const { rt, fireExecute } = harness({ root })
