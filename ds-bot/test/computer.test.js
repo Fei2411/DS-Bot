@@ -388,6 +388,64 @@ const maskingAgent = (ctx, id, denied) => ({
   },
 })
 
+test('tools/change bursts refresh masking once without scheduling another refresh for their own restrictions', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const masked = new Map()
+  const agents = ['m1', 'w1'].map(id => {
+    const agent = maskingAgent(ctx, id, [])
+    agent.ctx.tools.restrict = ({ deny: [name] }) => {
+      const names = masked.get(id) ?? new Set()
+      masked.set(id, names)
+      names.add(name)
+      ctx.emit('tools/change')
+      return () => {
+        names.delete(name)
+        ctx.emit('tools/change')
+      }
+    }
+    return agent
+  })
+  let listed = 0
+  ctx.get = name => name === 'agents' ? { list: () => { listed++; return agents } } : undefined
+  let schemas = 0
+  let tools = [{ name: 'cua' }]
+  ctx.tools.schemas = () => { schemas++; return tools }
+
+  for (let i = 0; i < 20; i++) ctx.emit('tools/change')
+  t.mock.timers.tick(49)
+  assert.equal(listed, 0)
+  tools = [...tools, { name: 'cua_driver_native__click' }]
+  ctx.emit('tools/change')
+  t.mock.timers.tick(1)
+  assert.equal(listed, 1)
+  assert.equal(schemas, agents.length)
+  assert.deepEqual([...masked], agents.map(({ id }) => [id, new Set(tools.map(({ name }) => name))]))
+  t.mock.timers.tick(50)
+  assert.equal(listed, 1)
+
+  ctx.emit('agent/disposed', { agent: agents[0] })
+  assert.equal(masked.get('m1').size, 0)
+  t.mock.timers.tick(50)
+  assert.equal(listed, 1)
+
+  tools.push({ name: 'cua_driver_native__list_windows' })
+  ctx.emit('tools/change')
+  assert.equal(masked.get('w1').has('cua_driver_native__list_windows'), false)
+  ctx.emit('agent/status', { agent: agents[1], status: 'running' })
+  assert.equal(masked.get('w1').has('cua_driver_native__list_windows'), true)
+  tools.push({ name: 'cua_driver_native__list_apps' })
+  ctx.emit('tools/change')
+  assert.equal(masked.get('w1').has('cua_driver_native__list_apps'), true)
+  assert.equal(listed, 1)
+  await ctx.dispose()
+  const listedAtDispose = listed
+  t.mock.timers.tick(50)
+  assert.equal(listed, listedAtDispose)
+})
+
 test('a plain Session keeps DSH\'s own computer use while the DS Bot switch is off (#1101)', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })

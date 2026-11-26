@@ -16,9 +16,33 @@ const shutdown = new AbortController()
 let stdinClosed = false
 let exiting = false
 let graceTimer
+let notificationStreamStarted = false
 
 const send = (message) => {
   process.stdout.write(`${JSON.stringify(message)}\n`)
+}
+
+function startNotificationStream() {
+  if (notificationStreamStarted || shutdown.signal.aborted) return
+  notificationStreamStarted = true
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'text/event-stream',
+  }
+  if (sessionId !== undefined) headers['mcp-session-id'] = sessionId
+  void fetch(url, { method: 'GET', headers, signal: shutdown.signal })
+    .then(async (response) => {
+      if (!response.ok || response.body === null) return
+      const contentType = response.headers.get('content-type') ?? ''
+      if (!contentType.includes('text/event-stream')) {
+        await response.body.cancel().catch(() => {})
+        return
+      }
+      await readSse(response.body, (msg) => {
+        if (!shutdown.signal.aborted && msg !== null && typeof msg === 'object') send(msg)
+      })
+    })
+    .catch(() => {})
 }
 
 const sendError = (id, code, message) => {
@@ -139,6 +163,9 @@ async function forward(raw) {
       for (const item of data) send(item)
     } else {
       send(data)
+      if (parsed?.method === 'initialize' && data?.result?.capabilities?.tools?.listChanged === true) {
+        startNotificationStream()
+      }
     }
   } catch {
     if (hasId) sendError(parsed.id, -32603, 'Invalid MCP JSON response')

@@ -2219,7 +2219,10 @@ export function install(rt) {
     maskConnectorTools(agent, held)
     maskPluginTools(agent, held)
   }
-  ctx.on('tools/change', () => reapplyToolMasks())
+  ctx.on('tools/change', () => {
+    reapplyToolMasks()
+    rt.notifyLocalAgentToolsChanged?.()
+  })
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
   // recording path resolves it again once the session is known as a Bot's; meanwhile
   // the guard refuses the question and delegation tools in any Bot Session, and a
@@ -2261,12 +2264,24 @@ export function install(rt) {
   // assembly hook drops hidden tools and their guidance for that Bot Session.
   // restrict still masks what it can, so lookup and execution stay aligned, and the
   // guard refuses calls.
-  const filterAssembled = (id, assembled) => {
+  const filterAssembled = (agent, id, assembled) => {
     if (!rt.isBotSession(id) || assembled === undefined || assembled === null) return assembled
     const hidden = new Set([...HIDDEN_TOOLS, ...hiddenSessionTools(id)])
+    const localCli = rt.contextRuntime?.isLocal?.(agent?.session ?? id) === true
+    const bridged = localCli ? new Set([...rt.teamTools.map(def => def.name), 'approve_agent_action']) : undefined
     const dropTool = tool => hidden.has(tool?.name)
-    const dropSection = section => HIDDEN_SECTIONS.has(section?.name)
-      || (typeof section?.name === 'string' && section.name.startsWith('tool:') && hidden.has(section.name.slice(5)))
+    const dropSection = (section) => {
+      const name = section?.name
+      if (HIDDEN_SECTIONS.has(name)) return true
+      if (typeof name === 'string' && name.startsWith('tool:')) {
+        const toolName = name.slice(5)
+        if (hidden.has(toolName)) return true
+        // Local agent CLIs use their own file/shell/search tools and only receive
+        // DS Bot's bridged team tools over MCP; strip DSH's built-in tool prose.
+        if (bridged !== undefined && !bridged.has(toolName)) return true
+      }
+      return false
+    }
     const filterTools = Array.isArray(assembled.tools) && assembled.tools.some(dropTool)
     const filterSections = Array.isArray(assembled.sections) && assembled.sections.some(dropSection)
     if (!filterTools && !filterSections) return assembled
@@ -2330,7 +2345,7 @@ export function install(rt) {
         }
       }
     }
-    return filterAssembled(id, assembled)
+    return filterAssembled(agent, id, assembled)
   })
 
   // DSH adds tools after system-prompt/assemble. Transform the final request through
