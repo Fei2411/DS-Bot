@@ -3236,19 +3236,16 @@ test('a send that keeps answering 5xx keeps an exhausted send for manual retry w
   const fail = () => Object.assign(new Error('Feishu answered 502'), { status: 502, retryAfter: 0.005 })
   s.fake.fails.push(fail(), fail(), fail(), fail())
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'first' }] } })
-  await delay(120)
+  await waitFor(() => s.rt.imStatusView()[conn.id].state === 'error', { label: 'the first message pauses after four attempts' })
   assert.equal(s.fake.sent.filter(job => job.text === 'first').length, 4, 'the first message pauses after four attempts')
   const status = s.rt.imStatusView()[conn.id]
   assert.equal(status.state, 'error')
   assert.match(status.error, /Send failed after 4 attempts: Feishu answered 502/)
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'second' }] } })
-  await delay(40)
-  assert.equal(s.fake.sent.filter(job => job.text === 'second').length, 1, 'the next message is not held behind the failed one')
+  await waitFor(() => s.fake.sent.filter(job => job.text === 'second').length === 1, { label: 'the next message is not held behind the failed one' })
   assert.equal(s.rt.imStatusView()[conn.id].state, 'error', 'a later success cannot hide an undelivered message')
   await s.rt.imEndpoint('im-retry', { id: conn.id })
-  await delay(40)
-  assert.equal(s.fake.sent.filter(job => job.text === 'first').length, 5)
-  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+  await waitFor(() => s.fake.sent.filter(job => job.text === 'first').length === 5 && s.rt.imStatusView()[conn.id].state === 'ready', { label: 'manual retry delivers the retained first message' })
 })
 
 test('a retrying send shows a retrying status before the budget runs out', async (t) => {
@@ -3330,7 +3327,7 @@ test('an approval card whose send exhausts retries is retained and re-delivered 
     { agent: { id: 'a' }, toolName: 'bash', reason: 'run it', signal: original.signal },
     () => new Promise(() => {}),
   )
-  await delay(140)
+  await waitFor(() => s.rt.imStatusView()[conn.id].state === 'error', { label: 'the approval card pauses after four attempts' })
   assert.equal(s.fake.sent.filter(job => /bash/.test(job.text)).length, 4)
 
   // Try again resumes the original card and its pending delivery callback.
