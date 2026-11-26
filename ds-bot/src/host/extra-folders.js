@@ -4,6 +4,7 @@
 // change that lands in the Session's folder or one of its extra folders, DS Bot answers
 // the approval itself. The paths of a shell command cannot be read reliably, so a shell
 // command still asks the user.
+import { dirname } from 'node:path'
 import { within } from './folders.js'
 import { unquote } from './text.js'
 
@@ -15,9 +16,9 @@ export const MAX_EXTRA_DIRS = 8
 // The file tools that change files, and how each names what it changes.
 const PATH_ARGS = { write: 'file_path', edit: 'file_path' }
 // The reason dsh-sandbox gives an escalation, up to the model's justification.
-const ESCALATION = 'escalate sandbox to danger-full-access:'
+export const ESCALATION = 'escalate sandbox to danger-full-access:'
 
-const targetsOf = (name, args) => {
+export const targetsOf = (name, args) => {
   if (Object.hasOwn(PATH_ARGS, name)) {
     const path = args?.[PATH_ARGS[name]]
     return typeof path === 'string' && path.trim() !== '' ? [path] : []
@@ -140,5 +141,69 @@ export function install(rt) {
     text: context => sectionFor(context?.agent?.id),
   }), 'ds-bot: extra folders section')
 
-  Object.assign(rt, { extraDirsOf, extraDirsOfSession, cleanExtraDirs, approveExtraDirs, onLocalAgent })
+  // Resolves the minimal real parent directories that would need to be added to extraDirs
+  // so future calls of this file tool on the same target(s) proceed without re-asking.
+  // Returns [] whenever the call is ineligible (private Bot, local agent, non-workspace-write,
+  // guarded or private-clashing path, or adding would exceed MAX_EXTRA_DIRS).
+  async function resolvableExtraDirs({ session, botId, roomId, name, args }) {
+    const bot = rt.botOf(botId)
+    if (bot === undefined || bot.private === true || onLocalAgent(bot)) return []
+    const room = rt.roomOf(roomId)
+    const targets = targetsOf(name, args)
+    if (targets.length === 0) return []
+    const policy = ctx.get?.('sandboxPolicy')?.resolve?.({ session })
+    const base = rt.sessionFolder(session)
+    const fs = ctx.get?.('fs')
+    if (policy?.mode !== 'workspace-write' || base === undefined) return []
+    if (typeof fs?.resolve !== 'function' || typeof fs.processPath !== 'function' || typeof fs.processPathFromHostPath !== 'function') return []
+    const currentExtras = extraDirsOf({ botId, roomId })
+    const existingDirs = [policy.workspaceRoot ?? session?.header?.cwd, ...currentExtras].filter(Boolean)
+    const roots = (await Promise.all(existingDirs.map(async dir => (await rt.isFolder(dir) ? rt.real(dir) : undefined)))).filter(Boolean)
+    const needed = []
+    for (const target of targets) {
+      const resolved = fs.processPath(await fs.resolve(target, { cwd: base }))
+      if (fs.processPathFromHostPath(resolved) !== resolved || await rt.guarded(resolved)) return []
+      if (roots.some(root => within(resolved, root))) continue
+      let candidate = dirname(resolved)
+      while (!(await rt.isFolder(candidate))) {
+        const up = dirname(candidate)
+        if (up === candidate) return []
+        candidate = up
+      }
+      const realDir = await rt.real(candidate)
+      if (await rt.guarded(realDir)) return []
+      if (await rt.privateClash?.(realDir, botId)) return []
+      if (!needed.includes(realDir)) needed.push(realDir)
+    }
+    if (needed.length === 0) return []
+    const holder = room?.workDir !== undefined ? room : bot
+    const baseList = Array.isArray(holder.extraDirs) ? holder.extraDirs : []
+    const combined = [...new Set([...baseList, ...needed])]
+    if (combined.length > MAX_EXTRA_DIRS) return []
+    return needed
+  }
+
+  // Persists extra directories granted via "Always allow" onto the owning room (when the room
+  // pins its own working folder) or Bot, enforcing the exact same folder and privacy guards.
+  async function grantExtraDirs({ botId, roomId, dirs }) {
+    await rt.load()
+    const bot = rt.botOf(botId)
+    if (bot === undefined || bot.private === true || onLocalAgent(bot)) {
+      throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+    }
+    const room = rt.roomOf(roomId)
+    const holder = room?.workDir !== undefined ? room : bot
+    const current = Array.isArray(holder.extraDirs) ? holder.extraDirs : []
+    const cleaned = await cleanExtraDirs([...current, ...(Array.isArray(dirs) ? dirs : [])])
+    for (const dir of cleaned) {
+      if (await rt.privateClash?.(dir, botId)) {
+        throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+      }
+    }
+    holder.extraDirs = cleaned
+    await rt.save()
+    return cleaned
+  }
+
+  Object.assign(rt, { extraDirsOf, extraDirsOfSession, cleanExtraDirs, approveExtraDirs, onLocalAgent, resolvableExtraDirs, grantExtraDirs })
 }

@@ -120,6 +120,7 @@ export function remoteAccessError(device, endpoint) {
   // A Session's whole log, any Session's (session-follow.js), is read by the window on the
   // computer; a phone reads the team's chats.
   if (endpoint.startsWith('session-')) return { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} }
+  if (endpoint.startsWith('job-')) return { code: 'bot/refused', message: 'Background jobs are available on the computer', details: {} }
   if (endpoint.startsWith('api-')) return { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} }
   if (device.kind !== 'phone' && !BROWSER_ALLOWED.has(endpoint)) {
     return { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }

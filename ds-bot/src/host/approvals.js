@@ -4,10 +4,26 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { cleanText } from './diagnostics.js'
 import { REFERENCE_KIND, REPLY_KIND } from './constants.js'
 import { reviewApproval, reviewContext, reviewSessionIds, REVIEW_TIMEOUT_MS } from './approval-review.js'
+import { ESCALATION } from './extra-folders.js'
 
 const OUTCOMES = { allow: 'allowed-once', reject: 'rejected' }
+const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete'])
+const BROWSER_GRANT_MAX = 50
+const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/
+const FILE_ESCALATION_TOOLS = new Set(['write', 'edit', 'apply_patch'])
 const sessionOf = agent => agent?.session?.id ?? agent?.id
 const keyOf = (agent, callId) => JSON.stringify([sessionOf(agent), callId])
+
+function cleanDisplayReason(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out = {}
+  for (const [lang, text] of Object.entries(raw)) {
+    if (typeof lang === 'string' && lang.length <= 16 && typeof text === 'string' && text.trim() !== '') {
+      out[lang] = text.slice(0, 500)
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
 
 async function nativeEvidence(ctx, exec) {
   const evidence = { kind: 'tool', tool: exec.name, arguments: JSON.parse(JSON.stringify(exec.arguments ?? {})) }
@@ -43,7 +59,7 @@ export function install(rt) {
       try { listener(kind, data) } catch (error) { rt.warn('ds-bot: approval listener failed: %s', error) }
     }
   }
-  const view = ({ answer, cancelReview, ownerSessionId, lineageSessionIds, privacy: _, ...entry }) => {
+  const view = ({ answer, cancelReview, ownerSessionId, lineageSessionIds, persistAlways, answering, privacy: _, ...entry }) => {
     const taskSessionId = rt.taskOwners?.has(entry.sessionId) ? entry.sessionId : ownerSessionId ?? entry.sessionId
     const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(taskSessionId) : undefined
     const liveEntry = liveTask === undefined ? undefined : rt.taskBySession?.(taskSessionId)?.task
@@ -58,6 +74,34 @@ export function install(rt) {
   }
   const changed = entry => emit('updated', view(entry))
 
+  async function persistBrowserGrant(botId, site, kind) {
+    await rt.load()
+    const bot = rt.botOf(botId)
+    if (!bot || bot.private === true) {
+      throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+    }
+    const normalizedSite = String(site ?? '').trim().toLowerCase()
+    if (!HOSTNAME.test(normalizedSite) || !BROWSER_GRANT_KINDS.has(kind)) {
+      throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+    }
+    const existing = Array.isArray(bot.browserGrants)
+      ? bot.browserGrants.map(grant => ({ ...grant, kinds: [...(grant.kinds ?? [])] }))
+      : []
+    const match = existing.find(grant => grant && grant.site === normalizedSite && grant.until === undefined)
+    if (match) {
+      if (!match.kinds.includes('*') && !match.kinds.includes(kind)) {
+        match.kinds = [...new Set([...match.kinds, kind])].sort()
+      }
+    } else {
+      if (existing.length >= BROWSER_GRANT_MAX) {
+        throw Object.assign(new Error(`Browser grants must be an array of at most ${BROWSER_GRANT_MAX} entries`), { code: 'bot/refused' })
+      }
+      existing.push({ site: normalizedSite, kinds: [kind] })
+    }
+    bot.browserGrants = existing
+    await rt.save()
+  }
+
   // Queued user input is not a user/message until the pending tool yields.
   ctx.on('session/event', (session, event) => {
     const input = event.type === 'agent/inbox/spliced' && event.data?.inserted?.some(message => ['user', REFERENCE_KIND, REPLY_KIND].includes(message.source?.kind))
@@ -71,12 +115,21 @@ export function install(rt) {
   // events release both successful and rejected calls, including PTC sub-calls.
   ctx.on('tools/pre-execute', async (exec, next) => {
     const owner = await ownerOf(exec.agent)
-    if (!owner || !enabled(owner)) return next()
-    if (exec.callId !== undefined) {
+    if (!owner) return next()
+    if (enabled(owner)) {
+      if (exec.callId !== undefined) {
+        const key = keyOf(exec.agent, exec.callId)
+        const readEvidence = () => nativeEvidence(ctx, exec)
+        const evidence = await readEvidence().catch(() => ({ kind: 'tool', tool: exec.name }))
+        executions.set(key, { evidence, readEvidence })
+        if (executions.size > 1000) executions.delete(executions.keys().next().value)
+      }
+    } else if (FILE_ESCALATION_TOOLS.has(exec.name) && exec.arguments?.sandbox_permissions !== undefined && exec.callId !== undefined) {
+      // Capture only the file-tool arguments needed to evaluate "Always allow" extra-folder eligibility,
+      // never touching workingDirectory.ensure when automatic review is off.
       const key = keyOf(exec.agent, exec.callId)
-      const readEvidence = () => nativeEvidence(ctx, exec)
-      const evidence = await readEvidence().catch(() => ({ kind: 'tool', tool: exec.name }))
-      executions.set(key, { evidence, readEvidence })
+      const evidence = { kind: 'tool', tool: exec.name, arguments: JSON.parse(JSON.stringify(exec.arguments ?? {})) }
+      executions.set(key, { evidence })
       if (executions.size > 1000) executions.delete(executions.keys().next().value)
     }
     return next()
@@ -177,14 +230,30 @@ export function install(rt) {
     const original = request.signal
     const linked = new AbortController()
     const reviewer = new AbortController()
+    const displayReason = cleanDisplayReason(request.displayReason)
     const entry = {
       id, sessionId: owner.sessionId, ownerSessionId: owner.ownerSessionId, lineageSessionIds: owner.lineageSessionIds,
       ...(owner.botId !== undefined ? { botId: owner.botId } : {}),
       ...(owner.roomId ? { roomId: owner.roomId } : {}),
       ...(owner.taskId ? { taskId: owner.taskId, ...(owner.taskTitle ? { taskTitle: owner.taskTitle } : {}) } : {}),
       tool: String(request.toolName ?? ''), reason: String(request.reason ?? '').slice(0, 500),
+      ...(displayReason ? { displayReason } : {}),
       ...(request.privacy === true ? { privacy: true } : {}),
       detail: rt.callDetail?.(owner.sessionId, request.callId) ?? {}, at: Date.now(),
+    }
+    // "Always allow" is offered only when DS Bot has a real, visible, revocable persistence
+    // store for the grant: browser site/action grants (`bot.browserGrants`) and non-private
+    // file-tool sandbox escalations (`extraDirs`). Shell commands, privacy gates, folder grants,
+    // local agents, and classic sessions stay strictly one-time.
+    if (owner.botId !== undefined && request.privacy !== true) {
+      const bot = rt.botOf(owner.botId)
+      if (bot && bot.private !== true && explicit?.kind === 'browser' && explicit.action && BROWSER_GRANT_KINDS.has(explicit.action.kind)) {
+        const site = String(explicit.action.host ?? '').trim().toLowerCase()
+        if (HOSTNAME.test(site)) {
+          entry.alwaysAllow = { kind: 'browser', site, action: explicit.action.kind }
+          entry.persistAlways = () => persistBrowserGrant(owner.botId, site, explicit.action.kind)
+        }
+      }
     }
     const automatic = enabled(owner)
     if (automatic) entry.review = { status: 'reviewing' }
@@ -239,6 +308,27 @@ export function install(rt) {
       if (owner.botId !== undefined) rt.approvalWaiting?.(entry)
       original?.addEventListener('abort', abort, { once: true })
       emit('open', view(entry))
+      if (owner.botId !== undefined
+        && request.privacy !== true
+        && !explicit
+        && !entry.alwaysAllow
+        && FILE_ESCALATION_TOOLS.has(entry.tool)
+        && entry.reason.startsWith(ESCALATION)
+        && execution?.arguments
+        && typeof rt.resolvableExtraDirs === 'function') {
+        void rt.resolvableExtraDirs({
+          session: request.agent?.session,
+          botId: owner.botId,
+          roomId: owner.roomId,
+          name: entry.tool,
+          args: execution.arguments,
+        }).then((dirs) => {
+          if (!pending.has(id) || entry.answering || !Array.isArray(dirs) || dirs.length === 0) return
+          entry.alwaysAllow = { kind: 'extra-dir', dirs }
+          entry.persistAlways = () => rt.grantExtraDirs({ botId: owner.botId, roomId: owner.roomId, dirs })
+          changed(entry)
+        }).catch(() => {})
+      }
       if (original?.aborted) return complete('cancelled')
       if (!automatic) return manual()
       const timeout = new Promise((_, fail) => {
@@ -286,7 +376,22 @@ export function install(rt) {
   function answerApproval(id, choice) {
     const entry = pending.get(String(id ?? ''))
     if (!entry?.answer) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+    if (choice === 'always') {
+      if (!entry.alwaysAllow || typeof entry.persistAlways !== 'function') {
+        throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+      }
+      if (entry.answering) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+      entry.answering = true
+      return Promise.resolve().then(() => entry.persistAlways()).then(() => {
+        if (!pending.has(entry.id)) return
+        entry.answer('allowed-once')
+      }, (error) => {
+        entry.answering = false
+        throw error
+      })
+    }
     if (!Object.hasOwn(OUTCOMES, choice)) throw Object.assign(new Error('Choose allow or reject'), { code: 'bot/invalid' })
+    if (entry.answering) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
     entry.answer(OUTCOMES[choice])
   }
   const cancelApprovals = sessionId => {

@@ -135,6 +135,9 @@ export function ShortcutsDialog({
         { id: 'fixed:send', keys: enterToSend ? ['Enter'] : [mod, 'Enter'], label: t('Send message') },
         { id: 'fixed:newline', keys: enterToSend ? [shift, 'Enter'] : ['Enter'], label: t('New line') },
         { id: 'fixed:stop-esc', keys: ['Esc', 'Esc'], label: t('Stop generating') },
+        { id: 'fixed:approval-allow', keys: ['Enter'], label: t('Allow approval') },
+        { id: 'fixed:approval-always', keys: [shift, 'Enter'], label: t('Always allow approval') },
+        { id: 'fixed:approval-reject', keys: ['Esc'], label: t('Reject approval') },
         { id: 'fixed:esc', keys: ['Esc'], label: t('Close dialog or menu') },
       ],
     })

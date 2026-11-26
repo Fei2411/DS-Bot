@@ -183,7 +183,10 @@ export function ApprovalCard({ approval, bot, actions, showBot = false }) {
     approval.answerable
       ? h('div', { className: 'bt-mw-actions' },
         h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('reject') }, t('Reject')),
-        h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: () => answer('allow') }, t('Allow once')))
+        h('button', { type: 'button', className: approval.alwaysAllow ? 'bt-q-btn' : 'bt-q-submit', disabled: busy, onClick: () => answer('allow') }, t('Allow once')),
+        approval.alwaysAllow
+          ? h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: () => answer('always') }, t('Always allow'))
+          : null)
       : h('div', { className: 'bt-mw-actions' },
         h('button', { type: 'button', className: 'bt-q-btn', onClick: () => actions.openSession(bot.id) }, t("Open {name}'s chat", { name: bot.name }))))
 }

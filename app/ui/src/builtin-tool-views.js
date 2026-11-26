@@ -3,27 +3,48 @@
 // always win cleanly. Every meta parser defensively narrows DSH 0.2.2-rc.1 contracts
 // (FsReadMeta, FsDiffMeta, SearchMeta, WebSearchMeta, WebFetchMeta, shell exit markers)
 // and degrades gracefully to folded output when replay metadata is absent.
-import { createElement as h, useMemo, useState } from 'react'
-import { writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
+import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
+import { fileSizeText } from '../../../ds-bot/src/client/dsh-primitives.js'
 import {
   BlocksIcon,
   CheckIcon,
-  ChevronRightIcon,
   CodeIcon,
-  CopyIcon,
   DiffIcon,
   FileIcon,
   FolderIcon,
   GlobeIcon,
   ImageIcon,
   ListCheckIcon,
-  PeopleIcon,
   SearchIcon,
   TerminalIcon,
 } from '../../../ds-bot/src/client/icons.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
+import { BROWSER_TOOL_NAMES, BrowserToolView, ComputerToolView } from './browser-computer-tool-views.js'
+import { ToolImageThumb } from './image-lightbox.js'
+import { OFFICE_TOOL_NAMES, OfficeCliCard, OfficeToolView, parseOfficeCliCommand } from './office-tool-view.js'
 import { TOOL_VIEW_SLOT, slots as defaultSlots } from './slots.js'
+import {
+  BackgroundJobPanel,
+  JOB_TOOL_NAMES,
+  JobToolView,
+  SUBAGENT_TOOL_NAMES,
+  SubagentToolView,
+  parseBackgroundJobIdFromShell,
+} from './subagent-job-tool-views.js'
 import { CodeSection, argSummary, formatArgs, formatResult, formatToolDuration } from './tool-card.js'
+import {
+  MiniCopy,
+  ToolCardShell,
+  compact,
+  errorLineOf,
+  parseExitStatus,
+  readArgText,
+  readArgValue,
+  safeWebHref,
+  shortPath,
+} from './tool-view-shared.js'
+
+export { parseExitStatus, safeWebHref, shortPath }
 
 export const BUILTIN_TOOL_PRIORITY = 100
 
@@ -31,57 +52,6 @@ const READ_FOLD_LINES = 16
 const DIFF_FOLD_LINES = 20
 const SEARCH_FOLD_ITEMS = 16
 const MAX_LCS_CELLS = 40_000
-
-function compact(value, max = 96) {
-  const flat = String(value ?? '').replace(/\s+/g, ' ').trim()
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
-}
-
-function readArgText(block, ...keys) {
-  for (const key of keys) {
-    const value = block?.args?.text?.(key)
-    if (typeof value === 'string' && value !== '') return value
-  }
-  return ''
-}
-
-function readArgValue(block, key) {
-  const fromPartial = block?.args?.value?.(key)
-  if (fromPartial !== undefined) return fromPartial
-  const raw = block?.call?.argsRaw ?? block?.argsRaw
-  if (typeof raw !== 'string' || raw.trim() === '') return undefined
-  try {
-    const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? parsed[key] : undefined
-  } catch {
-    return undefined
-  }
-}
-
-export function shortPath(raw, cwd) {
-  if (typeof raw !== 'string' || raw === '') return ''
-  if (typeof cwd === 'string' && cwd !== '') {
-    const normRaw = raw.replaceAll('\\', '/')
-    const normCwd = cwd.replaceAll('\\', '/').replace(/\/+$/, '')
-    if (normRaw === normCwd) return '.'
-    if (normRaw.startsWith(`${normCwd}/`)) return normRaw.slice(normCwd.length + 1)
-  }
-  return raw
-}
-
-// Exact mirror of `@deepseek-ai/dsh-shell/render` `parseExitStatus`.
-export function parseExitStatus(text) {
-  const source = typeof text === 'string' ? text : ''
-  const signal = /\n\[killed by signal: ([^\]\n]+)\]$/.exec(source)
-  if (signal?.[1] !== undefined) {
-    return { body: source.slice(0, signal.index), signal: signal[1] }
-  }
-  const exit = /\n\[exit code: (\d+)\]$/.exec(source)
-  if (exit?.[1] !== undefined) {
-    return { body: source.slice(0, exit.index), exitCode: Number(exit[1]) }
-  }
-  return { body: source, exitCode: 0 }
-}
 
 // Defensive narrowing of DSH `FsReadMeta` (`@deepseek-ai/dsh-tool-fs/read-render`).
 export function readMetaFromMeta(meta) {
@@ -314,19 +284,6 @@ export function webFetchMetaFromMeta(meta) {
   return { url: meta.url, statusCode: meta.statusCode, truncated: meta.truncated }
 }
 
-export function safeWebHref(raw) {
-  if (typeof raw !== 'string' || raw.trim() === '') return null
-  try {
-    const parsed = new URL(raw.trim())
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
-    const host = parsed.hostname.replace(/^www\./i, '')
-    const path = parsed.pathname === '/' ? '' : parsed.pathname
-    return { href: parsed.toString(), host, display: `${host}${path}` }
-  } catch {
-    return null
-  }
-}
-
 export function parseTodoItems(block) {
   const raw = readArgValue(block, 'todos')
   if (!Array.isArray(raw)) return []
@@ -353,68 +310,38 @@ export function parsePresentedFiles(block) {
   return files
 }
 
-function errorLineOf(block, isError) {
-  if (!isError) return ''
-  return [block?.error?.code, block?.error?.reason].filter(Boolean).join(' · ')
-}
-
-function MiniCopy({ text }) {
-  const [copied, setCopied] = useState(false)
-  const copy = () => {
-    void writeClipboard(text).then((ok) => {
-      if (!ok) return
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1000)
-    })
-  }
-  return h('button', {
-    type: 'button',
-    className: 'bt-mini dsb-tool-copy',
-    'aria-label': copied ? t('Copied') : t('Copy'),
-    title: copied ? t('Copied') : t('Copy'),
-    onClick: copy,
-  }, copied ? h(CheckIcon) : h(CopyIcon))
-}
-
-function ToolCardShell({ icon, label, summary, summaryTitle, badges, phase, isError, duration, expanded, onToggle, hasBody, children }) {
-  const running = phase === 'preparing' || phase === 'start'
-  return h('div', {
-    className: 'dsb-tool',
-    'data-phase': phase,
-    'data-error': isError || undefined,
-    'data-open': expanded || undefined,
-  },
-  h('button', {
-    type: 'button',
-    className: 'dsb-tool-head',
-    disabled: !hasBody,
-    'aria-expanded': hasBody ? expanded : undefined,
-    onClick: hasBody ? onToggle : undefined,
-  },
-  h('span', { className: 'dsb-tool-dot', 'aria-hidden': true }),
-  icon ? h('span', { className: 'dsb-tool-icon', 'aria-hidden': true }, h(icon)) : null,
-  h('span', { className: 'dsb-tool-name' }, label),
-  summary ? h('span', { className: 'dsb-tool-summary', title: summaryTitle ?? summary }, summary) : null,
-  h('span', { className: 'dsb-tool-meta' },
-    badges,
-    running ? h('span', { className: 'dsb-tool-state' }, t('Running'))
-      : isError && (!badges || badges.length === 0) ? h('span', { className: 'dsb-tool-state' }, t('Error'))
-        : duration ? h('span', { className: 'dsb-tool-time' }, duration) : null,
-    hasBody ? h('span', { className: 'dsb-tool-chev', 'aria-hidden': true }, h(ChevronRightIcon)) : null)),
-  expanded && hasBody ? h('div', { className: 'dsb-tool-body' }, children) : null)
-}
-
-function ShellToolView({ block, phase, useDisclosure }) {
-  const disclosure = useDisclosure()
+function ShellToolView({ block, cwd, phase, useDisclosure, openFile, sessionId, feed, readOnly }) {
   const command = readArgText(block, 'command', 'cmd')
-  const description = readArgText(block, 'description')
+  const parsedOffice = useMemo(() => parseOfficeCliCommand(command), [command])
   const rawResult = useMemo(() => (phase === 'result' ? formatResult(block) : ''), [phase, block])
   const parsed = useMemo(() => (phase === 'result' ? parseExitStatus(rawResult) : null), [phase, rawResult])
+  const bgJobId = useMemo(
+    () => (phase === 'result' ? parseBackgroundJobIdFromShell(rawResult, block?.meta) : ''),
+    [phase, rawResult, block?.meta],
+  )
+  const disclosure = useDisclosure(Boolean(bgJobId))
+  const autoOpened = useRef(Boolean(bgJobId))
+  useEffect(() => {
+    if (!autoOpened.current && bgJobId) {
+      autoOpened.current = true
+      disclosure.setExpanded(true)
+    }
+  }, [bgJobId, disclosure])
+
+  if (parsedOffice) {
+    return h(OfficeCliCard, { parsedCli: parsedOffice, command, block, cwd, phase, useDisclosure, openFile })
+  }
+
+  const description = readArgText(block, 'description')
+  const runInBg = readArgValue(block, 'run_in_background') === true
   const nonZero = parsed !== null && ('signal' in parsed || parsed.exitCode !== 0)
   const isError = phase === 'result' && (block?.isError === true || nonZero)
   const errLine = errorLineOf(block, block?.isError === true)
   const duration = formatToolDuration(block, phase)
   const badges = []
+  if (bgJobId || runInBg) {
+    badges.push(h('span', { key: 'bg', className: 'dsb-tool-pill' }, t('Background')))
+  }
   if (parsed && 'signal' in parsed) {
     badges.push(h('span', { key: 'sig', className: 'dsb-tool-pill', 'data-tone': 'danger' }, t('signal {signal}', { signal: parsed.signal })))
   } else if (parsed && parsed.exitCode !== 0) {
@@ -422,7 +349,7 @@ function ShellToolView({ block, phase, useDisclosure }) {
   }
   const summary = description ? compact(description) : (command ? compact(`$ ${command}`) : '')
   const bodyText = parsed ? parsed.body : ''
-  const hasBody = command !== '' || bodyText !== '' || errLine !== ''
+  const hasBody = command !== '' || bodyText !== '' || errLine !== '' || bgJobId !== ''
 
   return h(ToolCardShell, {
     icon: TerminalIcon,
@@ -439,6 +366,9 @@ function ShellToolView({ block, phase, useDisclosure }) {
   },
   command !== '' ? h(CodeSection, { label: t('Command'), text: command }) : null,
   errLine !== '' ? h('div', { className: 'dsb-tool-errline', role: 'status' }, errLine) : null,
+  bgJobId !== '' && sessionId
+    ? h(BackgroundJobPanel, { sessionId, jobId: bgJobId, feed, readOnly, initialStatus: 'running' })
+    : null,
   bodyText !== '' ? h(CodeSection, { label: t('Output'), text: bodyText, error: isError }) : null)
 }
 
@@ -500,26 +430,58 @@ function ReadToolView({ block, cwd, phase, useDisclosure }) {
     : rawResult !== '' ? h(CodeSection, { label: isError ? t('Error') : t('Result'), text: rawResult, error: isError }) : null)
 }
 
-function ReadImageToolView({ block, cwd, phase, useDisclosure }) {
-  const disclosure = useDisclosure()
+function ReadImageToolView({ block, cwd, phase, useDisclosure, openFile, loadImage }) {
+  const imageBlocks = useMemo(
+    () => (Array.isArray(block?.content) ? block.content.filter(item => item?.type === 'image' && item.attachment) : []),
+    [block?.content],
+  )
+  const disclosure = useDisclosure(imageBlocks.length > 0)
+  const autoOpened = useRef(imageBlocks.length > 0)
+  useEffect(() => {
+    if (!autoOpened.current && imageBlocks.length > 0) {
+      autoOpened.current = true
+      disclosure.setExpanded(true)
+    }
+  }, [imageBlocks.length, disclosure])
   const isError = phase === 'result' && block?.isError === true
-  const rawPath = readArgText(block, 'file_path', 'path')
+  const rawPath = (typeof block?.meta?.path === 'string' && block.meta.path !== '' ? block.meta.path : '') || readArgText(block, 'file_path', 'path')
   const displayPath = shortPath(rawPath, cwd)
-  const imageBlock = Array.isArray(block?.content) ? block.content.find(item => item?.type === 'image') : undefined
-  const dims = imageBlock?.attachment?.width && imageBlock?.attachment?.height
-    ? `${imageBlock.attachment.width}×${imageBlock.attachment.height}`
-    : ''
-  const badges = dims ? [h('span', { key: 'dims', className: 'dsb-tool-pill' }, dims)] : []
-  const rawResult = phase === 'result' ? formatResult(block) : ''
+  const firstAttachment = imageBlocks[0]?.attachment
+  const orig = firstAttachment?.originalDimensions
+  const w = orig?.width ?? firstAttachment?.width
+  const hgt = orig?.height ?? firstAttachment?.height
+  const dims = Number.isFinite(w) && Number.isFinite(hgt) && w > 0 && hgt > 0 ? `${w}×${hgt}` : ''
+  const size = Number.isFinite(firstAttachment?.bytes) && firstAttachment.bytes > 0 ? fileSizeText(firstAttachment.bytes) : ''
+  const badges = []
+  if (dims) badges.push(h('span', { key: 'dims', className: 'dsb-tool-pill' }, dims))
+  if (size) badges.push(h('span', { key: 'size', className: 'dsb-tool-pill' }, size))
+  const textOnlyResult = useMemo(() => {
+    if (phase !== 'result') return ''
+    if (imageBlocks.length === 0) return formatResult(block)
+    return (Array.isArray(block?.content) ? block.content : [])
+      .filter(item => item?.type === 'text' && typeof item.text === 'string' && item.text.trim() !== '')
+      .map(item => item.text)
+      .join('\n')
+  }, [phase, imageBlocks.length, block])
   const errLine = errorLineOf(block, isError)
-  const hasBody = rawResult !== '' || errLine !== ''
+  const canPreview = typeof openFile === 'function' && rawPath !== '' && !isError && phase === 'result'
+  const headerAction = canPreview
+    ? h('button', {
+      type: 'button',
+      className: 'dsb-tool-action',
+      title: rawPath,
+      onClick: () => openFile(rawPath),
+    }, t('Preview'))
+    : null
+  const hasBody = imageBlocks.length > 0 || textOnlyResult !== '' || errLine !== ''
 
   return h(ToolCardShell, {
     icon: ImageIcon,
-    label: t('Image'),
+    label: t('Read image'),
     summary: displayPath,
     summaryTitle: rawPath || undefined,
     badges,
+    headerAction,
     phase,
     isError,
     duration: formatToolDuration(block, phase),
@@ -528,7 +490,16 @@ function ReadImageToolView({ block, cwd, phase, useDisclosure }) {
     hasBody,
   },
   errLine !== '' ? h('div', { className: 'dsb-tool-errline', role: 'status' }, errLine) : null,
-  rawResult !== '' ? h(CodeSection, { label: isError ? t('Error') : t('Result'), text: rawResult, error: isError }) : null)
+  imageBlocks.length > 0 ? h('div', { className: 'dsb-tool-shots' },
+    imageBlocks.map((item, index) => h(ToolImageThumb, {
+      key: item.attachment.attachmentId ?? index,
+      attachment: item.attachment,
+      loadImage,
+      alt: displayPath || item.attachment.name || t('Image'),
+    }))) : null,
+  textOnlyResult !== '' && (isError || imageBlocks.length === 0)
+    ? h(CodeSection, { label: isError ? t('Error') : t('Result'), text: textOnlyResult, error: isError })
+    : null)
 }
 
 function previewDiffsFromArgs(toolName, block) {
@@ -945,18 +916,6 @@ const WorkingDirectoryToolView = makeSimpleToolView({
   summaryOf: (block, cwd) => shortPath(readArgText(block, 'cd', 'path', 'cwd', 'directory'), cwd),
 })
 
-const JobToolView = makeSimpleToolView({
-  icon: TerminalIcon,
-  label: 'Background job',
-  summaryOf: (block, _cwd, toolName) => compact(readArgText(block, 'job_id', 'id') || toolName),
-})
-
-const SubagentToolView = makeSimpleToolView({
-  icon: PeopleIcon,
-  label: 'Subagent',
-  summaryOf: block => compact(readArgText(block, 'description', 'prompt', 'task') || argSummary(block?.args)),
-})
-
 const BUILTIN_VIEWS = [
   ['bash', ShellToolView],
   ['pwsh', ShellToolView],
@@ -978,10 +937,12 @@ const BUILTIN_VIEWS = [
   ['run_code', RunCodeToolView],
   ['skill', SkillToolView],
   ['working_directory', WorkingDirectoryToolView],
-  ['job_list', JobToolView],
-  ['job_output', JobToolView],
-  ['job_kill', JobToolView],
-  ['subagent', SubagentToolView],
+  ...OFFICE_TOOL_NAMES.map(name => [name, OfficeToolView]),
+  ...BROWSER_TOOL_NAMES.map(name => [name, BrowserToolView]),
+  ['cua', ComputerToolView],
+  ['computer_handoff', ComputerToolView],
+  ...JOB_TOOL_NAMES.map(name => [name, JobToolView]),
+  ...SUBAGENT_TOOL_NAMES.map(name => [name, SubagentToolView]),
 ]
 
 /**

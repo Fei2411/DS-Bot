@@ -385,7 +385,10 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
           : isApproval
             ? h(Fragment, null,
                 h('button', { type: 'button', className: 'bt-btask-btn', disabled: busy, onClick: () => answerApproval('reject') }, t('Reject')),
-                h('button', { type: 'button', className: 'bt-btask-btn is-primary', disabled: busy, onClick: () => answerApproval('allow') }, t('Allow once')))
+                h('button', { type: 'button', className: approvalItem.approval?.alwaysAllow ? 'bt-btask-btn' : 'bt-btask-btn is-primary', disabled: busy, onClick: () => answerApproval('allow') }, t('Allow once')),
+                approvalItem.approval?.alwaysAllow
+                  ? h('button', { type: 'button', className: 'bt-btask-btn is-primary', disabled: busy, onClick: () => answerApproval('always') }, t('Always allow'))
+                  : null)
             : taskActive
               ? h('button', { type: 'button', className: 'bt-btask-btn is-danger', disabled: busy, onClick: stopFocusedTask }, t('Stop'))
               : null)))
