@@ -804,11 +804,10 @@ export const ES = {
   'Manage models': 'Gestionar modelos',
 
   // Shapes
-  Whale: 'Ballena', Star: 'Estrella', Moon: 'Luna', Wave: 'Onda', Squircle: 'Cuadrículo', Bull: 'Toro', Blossom: 'Flor',
-  Dolphin: 'Delfín', Octopus: 'Pulpo', Turtle: 'Tortuga', Crab: 'Cangrejo', Pufferfish: 'Pez globo', Jellyfish: 'Medusa',
-  Starfish: 'Estrella de mar', Seahorse: 'Caballito de mar',
-  Gumdrop: 'Gominola', Peanut: 'Cacahuete', Bubbles: 'Burbujas', Saucer: 'Platillo', Sprout: 'Brote', Bunny: 'Conejo',
-  Kitty: 'Gatito', Beacon: 'Faro', Plus: 'Más', Magnet: 'Imán', Acorn: 'Bellota', Pebbles: 'Guijarros', Cushion: 'Cojín',
+  Whale: 'Ballena', Star: 'Estrella', Moon: 'Luna', Cloud: 'Nube', Spark: 'Chispa', Bear: 'Oso', Puppy: 'Cachorro',
+  Squircle: 'Cuadrículo', Blossom: 'Flor', Octopus: 'Pulpo',
+  Gumdrop: 'Gominola', Peanut: 'Cacahuete', Saucer: 'Platillo', Sprout: 'Brote', Bunny: 'Conejo',
+  Kitty: 'Gatito', Beacon: 'Faro', Plus: 'Más', Magnet: 'Imán', Acorn: 'Bellota', Pebbles: 'Guijarros',
   Ring: 'Anillo', Gem: 'Gema',
 
   // Colors
@@ -2158,6 +2157,14 @@ export const ES = {
   'Dictation provider': 'Proveedor de dictado',
   'Use DeepSeek for dictation': 'Usar DeepSeek para el dictado',
   'In use': 'En uso',
+  'Stopped by the security kill list': 'Detenido por la lista de bloqueo de seguridad',
+  'Approval needed': 'Requiere aprobación',
+  'Unverifiable': 'No verificable',
+  'Plugin files cannot be verified': 'No se pueden verificar los archivos del plugin',
+  'Approving…': 'Aprobando…',
+  'Execution tier': 'Nivel de ejecución',
+  'This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.': 'Este plugin cambió desde que fue aprobado: sus capacidades, nivel de ejecución, entrada ejecutable, contenido o ubicación. Permanecerá detenido hasta que apruebes el plugin tal como está ahora.',
+  'Runs the latest published version at start time; approval does not pin exact bytes.': 'Ejecuta la última versión publicada al iniciarse; la aprobación no fija los bytes exactos.',
   'Not ready': 'No listo',
   "Couldn't read the reply": 'No se pudo leer la respuesta',
   "Couldn't reach the speech service": 'No se pudo conectar con el servicio de voz',
@@ -2575,6 +2582,11 @@ export const ES = {
 }
 
 export const HOST_ERRORS_ES = [
+  [/^Plugin disabled by the kill list: (.+)$/, 'Plugin desactivado por la lista de bloqueo: $1'],
+  [/^Plugin disabled by the kill list\.$/, 'Plugin desactivado por la lista de bloqueo.'],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, 'Este plugin cambió desde que fue aprobado (capacidades, nivel de ejecución, entrada ejecutable, contenido o ubicación). Necesita aprobación explícita antes de poder ejecutarse de nuevo.'],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\..*$/, 'No se pueden verificar los archivos del plugin ($1). No puede ejecutarse hasta que su directorio sea seguro de leer. Si el problema persiste, elimínalo y vuelve a instalarlo.'],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot be approved until its directory is safe to read\..*$/, 'No se pueden verificar los archivos del plugin ($1). No puede aprobarse hasta que su directorio sea seguro de leer. Si el problema persiste, elimínalo y vuelve a instalarlo.'],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, 'No se pudo conectar con el servidor de correo en $1. Comprueba la dirección del servidor.'],
   [/^Model (.+) is not available\. Available: (.*)$/, 'El modelo $1 no está disponible. Disponibles: $2'],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, 'La clave API de $1 está configurada fuera de DS Bot y no se puede cambiar aquí'],

@@ -908,13 +908,14 @@ var JA = {
   "Whale": "クジラ",
   "Star": "星",
   "Moon": "月",
-  "Wave": "ウェーブ",
+  "Cloud": "雲",
+  "Spark": "ほのお",
+  "Bear": "クマ",
+  "Puppy": "コイヌ",
   "Squircle": "スクワークル",
-  "Bull": "ツノ",
   "Blossom": "花",
   "Gumdrop": "ドロップ",
   "Peanut": "ピーナッツ",
-  "Bubbles": "バブル",
   "Saucer": "UFO",
   "Sprout": "ふたば",
   "Bunny": "ウサギ",
@@ -924,17 +925,9 @@ var JA = {
   "Magnet": "マグネット",
   "Acorn": "どんぐり",
   "Pebbles": "小石",
-  "Cushion": "クッション",
   "Ring": "リング",
   "Gem": "宝石",
-  "Dolphin": "イルカ",
   "Octopus": "タコ",
-  "Turtle": "カメ",
-  "Crab": "カニ",
-  "Pufferfish": "フグ",
-  "Jellyfish": "クラゲ",
-  "Starfish": "ヒトデ",
-  "Seahorse": "タツノオトシゴ",
   "Black": "ブラック",
   "Brown": "ブラウン",
   "Red": "レッド",
@@ -2256,6 +2249,14 @@ var JA = {
   "Dictation provider": "音声入力プロバイダー",
   "Use DeepSeek for dictation": "音声入力に DeepSeek を使う",
   "In use": "使用中",
+  "Stopped by the security kill list": "セキュリティキルリストによって停止されました",
+  "Approval needed": "再承認が必要",
+  "Unverifiable": "検証できません",
+  "Plugin files cannot be verified": "プラグインファイルを検証できません",
+  "Approving…": "承認中…",
+  "Execution tier": "実行ティア",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "このプラグインは承認後に変更されました：機能、実行ティア、実行エントリ、コンテンツ、または配置。現状のまま承認するまで停止したままです。",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "起動時に公開された最新バージョンを実行します。承認は正確なバイトを固定しません。",
   "Not ready": "準備未完了",
   "Couldn't read the reply": "返信を読み上げられませんでした",
   "Couldn't reach the speech service": "音声認識サービスに接続できません",
@@ -2672,6 +2673,11 @@ var JA = {
   "Built-in engine": "内蔵エンジン"
 };
 var HOST_ERRORS_JA = [
+  [/^Plugin disabled by the kill list: (.+)$/, "プラグインはセキュリティキルリストによって無効化されました：$1"],
+  [/^Plugin disabled by the kill list\.$/, "プラグインはセキュリティキルリストによって無効化されました。"],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "このプラグインは承認後に変更されました（機能、実行ティア、実行エントリ、コンテンツ、または配置）。明示的な承認なしには再実行できません。"],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\..*$/, "プラグインファイルを検証できません（$1）。ディレクトリが安全に読み取れるまで実行できません。解決しない場合は削除して再インストールしてください。"],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot be approved until its directory is safe to read\..*$/, "プラグインファイルを検証できません（$1）。ディレクトリが安全に読み取れるまで承認できません。解決しない場合は削除して再インストールしてください。"],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "メールサーバー $1 に接続できませんでした。サーバーアドレスを確認してください。"],
   [/^Model (.+) is not available\. Available: (.*)$/, "モデル $1 は利用できません。利用可能: $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "$1 の API キーは DS Bot の外部で設定されているため、ここでは変更できません"],
@@ -4187,21 +4193,15 @@ var KO = {
   Whale: "고래",
   Star: "별",
   Moon: "달",
-  Wave: "파동",
+  Cloud: "구름",
+  Spark: "불꽃",
+  Bear: "곰",
+  Puppy: "강아지",
   Squircle: "둥근 사각형",
-  Bull: "뿔",
   Blossom: "꽃",
-  Dolphin: "돌고래",
   Octopus: "문어",
-  Turtle: "거북이",
-  Crab: "게",
-  Pufferfish: "복어",
-  Jellyfish: "해파리",
-  Starfish: "불가사리",
-  Seahorse: "해마",
   Gumdrop: "젤리",
   Peanut: "땅콩",
-  Bubbles: "거품",
   Saucer: "비행접시",
   Sprout: "새싹",
   Bunny: "토끼",
@@ -4211,7 +4211,6 @@ var KO = {
   Magnet: "자석",
   Acorn: "도토리",
   Pebbles: "조약돌",
-  Cushion: "쿠션",
   Ring: "링",
   Gem: "보석",
   // Colors
@@ -5563,6 +5562,14 @@ var KO = {
   "Dictation provider": "받아쓰기 제공자",
   "Use DeepSeek for dictation": "받아쓰기에 DeepSeek 사용",
   "In use": "사용 중",
+  "Stopped by the security kill list": "보안 킬 리스트에 의해 중지됨",
+  "Approval needed": "재승인 필요",
+  "Unverifiable": "검증할 수 없음",
+  "Plugin files cannot be verified": "플러그인 파일을 검증할 수 없습니다",
+  "Approving…": "승인 중…",
+  "Execution tier": "실행 계층",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "이 플러그인은 승인 후 변경되었습니다: 기능, 실행 계층, 실행 진입점, 콘텐츠 또는 위치. 현재 상태 그대로 승인할 때까지 중지 상태를 유지합니다.",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "시작 시 최신 게시 버전을 실행합니다. 승인은 정확한 바이트를 고정하지 않습니다.",
   "Not ready": "준비되지 않음",
   "Couldn't read the reply": "답변을 읽지 못했습니다",
   "Couldn't reach the speech service": "음성 인식 서비스에 연결할 수 없습니다",
@@ -5979,6 +5986,11 @@ var KO = {
   "Built-in engine": "내장 엔진"
 };
 var HOST_ERRORS_KO = [
+  [/^Plugin disabled by the kill list: (.+)$/, "플러그인이 보안 킬 리스트에 의해 비활성화되었습니다: $1"],
+  [/^Plugin disabled by the kill list\.$/, "플러그인이 보안 킬 리스트에 의해 비활성화되었습니다."],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "이 플러그인은 승인 후 변경되었습니다(기능, 실행 계층, 실행 진입점, 콘텐츠 또는 위치). 명시적 승인 전까지 다시 실행할 수 없습니다."],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\..*$/, "플러그인 파일을 검증할 수 없습니다($1). 디렉터리를 안전하게 읽을 수 있을 때까지 실행할 수 없습니다. 문제가 지속되면 제거 후 다시 설치하세요."],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot be approved until its directory is safe to read\..*$/, "플러그인 파일을 검증할 수 없습니다($1). 디렉터리를 안전하게 읽을 수 있을 때까지 승인할 수 없습니다. 문제가 지속되면 제거 후 다시 설치하세요."],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "메일 서버 $1에 연결할 수 없습니다. 서버 주소를 확인하세요."],
   [/^Model (.+) is not available\. Available: (.*)$/, "모델 $1을(를) 사용할 수 없습니다. 사용 가능: $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "$1의 API 키는 DS Bot 외부에서 설정되어 여기서 변경할 수 없습니다"],
@@ -7495,21 +7507,15 @@ var ES = {
   Whale: "Ballena",
   Star: "Estrella",
   Moon: "Luna",
-  Wave: "Onda",
+  Cloud: "Nube",
+  Spark: "Chispa",
+  Bear: "Oso",
+  Puppy: "Cachorro",
   Squircle: "Cuadrículo",
-  Bull: "Toro",
   Blossom: "Flor",
-  Dolphin: "Delfín",
   Octopus: "Pulpo",
-  Turtle: "Tortuga",
-  Crab: "Cangrejo",
-  Pufferfish: "Pez globo",
-  Jellyfish: "Medusa",
-  Starfish: "Estrella de mar",
-  Seahorse: "Caballito de mar",
   Gumdrop: "Gominola",
   Peanut: "Cacahuete",
-  Bubbles: "Burbujas",
   Saucer: "Platillo",
   Sprout: "Brote",
   Bunny: "Conejo",
@@ -7519,7 +7525,6 @@ var ES = {
   Magnet: "Imán",
   Acorn: "Bellota",
   Pebbles: "Guijarros",
-  Cushion: "Cojín",
   Ring: "Anillo",
   Gem: "Gema",
   // Colors
@@ -8871,6 +8876,14 @@ var ES = {
   "Dictation provider": "Proveedor de dictado",
   "Use DeepSeek for dictation": "Usar DeepSeek para el dictado",
   "In use": "En uso",
+  "Stopped by the security kill list": "Detenido por la lista de bloqueo de seguridad",
+  "Approval needed": "Requiere aprobación",
+  "Unverifiable": "No verificable",
+  "Plugin files cannot be verified": "No se pueden verificar los archivos del plugin",
+  "Approving…": "Aprobando…",
+  "Execution tier": "Nivel de ejecución",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "Este plugin cambió desde que fue aprobado: sus capacidades, nivel de ejecución, entrada ejecutable, contenido o ubicación. Permanecerá detenido hasta que apruebes el plugin tal como está ahora.",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "Ejecuta la última versión publicada al iniciarse; la aprobación no fija los bytes exactos.",
   "Not ready": "No listo",
   "Couldn't read the reply": "No se pudo leer la respuesta",
   "Couldn't reach the speech service": "No se pudo conectar con el servicio de voz",
@@ -9287,6 +9300,11 @@ var ES = {
   "Built-in engine": "Motor integrado"
 };
 var HOST_ERRORS_ES = [
+  [/^Plugin disabled by the kill list: (.+)$/, "Plugin desactivado por la lista de bloqueo: $1"],
+  [/^Plugin disabled by the kill list\.$/, "Plugin desactivado por la lista de bloqueo."],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "Este plugin cambió desde que fue aprobado (capacidades, nivel de ejecución, entrada ejecutable, contenido o ubicación). Necesita aprobación explícita antes de poder ejecutarse de nuevo."],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\..*$/, "No se pueden verificar los archivos del plugin ($1). No puede ejecutarse hasta que su directorio sea seguro de leer. Si el problema persiste, elimínalo y vuelve a instalarlo."],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot be approved until its directory is safe to read\..*$/, "No se pueden verificar los archivos del plugin ($1). No puede aprobarse hasta que su directorio sea seguro de leer. Si el problema persiste, elimínalo y vuelve a instalarlo."],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "No se pudo conectar con el servidor de correo en $1. Comprueba la dirección del servidor."],
   [/^Model (.+) is not available\. Available: (.*)$/, "El modelo $1 no está disponible. Disponibles: $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "La clave API de $1 está configurada fuera de DS Bot y no se puede cambiar aquí"],
@@ -10785,23 +10803,17 @@ var FR = {
   "Saving": "Enregistrement",
   "Manage models": "Gérer les modèles",
   "Whale": "Baleine",
-  "Dolphin": "Dauphin",
   "Octopus": "Poulpe",
-  "Turtle": "Tortue",
-  "Crab": "Crabe",
-  "Pufferfish": "Poisson-globe",
-  "Jellyfish": "Méduse",
-  "Starfish": "Étoile de mer",
-  "Seahorse": "Hippocampe",
   "Star": "Étoile",
   "Moon": "Lune",
-  "Wave": "Onde",
+  "Cloud": "Nuage",
+  "Spark": "Flamme",
+  "Bear": "Ours",
+  "Puppy": "Chiot",
   "Squircle": "Squircle",
-  "Bull": "Taureau",
   "Blossom": "Fleur",
   "Gumdrop": "Bonbon",
   "Peanut": "Cacahuète",
-  "Bubbles": "Bulles",
   "Saucer": "Soucoupe",
   "Sprout": "Pousse",
   "Bunny": "Lapin",
@@ -10811,7 +10823,6 @@ var FR = {
   "Magnet": "Aimant",
   "Acorn": "Gland",
   "Pebbles": "Galets",
-  "Cushion": "Coussin",
   "Ring": "Anneau",
   "Gem": "Gemme",
   "Black": "Noir",
@@ -12135,6 +12146,14 @@ var FR = {
   "Dictation provider": "Fournisseur de dictée",
   "Use DeepSeek for dictation": "Utiliser DeepSeek pour la dictée",
   "In use": "En cours d’utilisation",
+  "Stopped by the security kill list": "Arrêté par la liste de blocage de sécurité",
+  "Approval needed": "Approbation requise",
+  "Unverifiable": "Invérifiable",
+  "Plugin files cannot be verified": "Les fichiers du plugin ne peuvent pas être vérifiés",
+  "Approving…": "Approbation…",
+  "Execution tier": "Niveau d'exécution",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "Ce plugin a changé depuis son approbation : capacités, niveau d'exécution, entrée exécutable, contenu ou emplacement. Il reste arrêté jusqu'à ce que vous approuviez le plugin tel qu'il est maintenant.",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "Exécute la dernière version publiée au démarrage ; l'approbation ne fige pas les octets exacts.",
   "Not ready": "Pas prêt",
   "Couldn't read the reply": "Impossible de lire la réponse",
   "Couldn't reach the speech service": "Impossible de joindre le service vocal",
@@ -12551,6 +12570,11 @@ var FR = {
   "Built-in engine": "Moteur intégré"
 };
 var HOST_ERRORS_FR = [
+  [/^Plugin disabled by the kill list: (.+)$/, "Plugin désactivé par la liste de blocage : $1"],
+  [/^Plugin disabled by the kill list\.$/, "Plugin désactivé par la liste de blocage."],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "Ce plugin a changé depuis son approbation (capacités, niveau d'exécution, entrée exécutable, contenu ou emplacement). Il nécessite une approbation explicite avant de pouvoir s'exécuter à nouveau."],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\..*$/, "Les fichiers du plugin ne peuvent pas être vérifiés ($1). Il ne peut pas s’exécuter tant que son répertoire ne peut pas être lu en toute sécurité. Si le problème persiste, supprimez-le puis réinstallez-le."],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot be approved until its directory is safe to read\..*$/, "Les fichiers du plugin ne peuvent pas être vérifiés ($1). Il ne peut pas être approuvé tant que son répertoire ne peut pas être lu en toute sécurité. Si le problème persiste, supprimez-le puis réinstallez-le."],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Impossible de joindre le serveur de messagerie à l’adresse $1. Vérifiez l’adresse du serveur."],
   [/^Model (.+) is not available\. Available: (.*)$/, "Le modèle $1 n’est pas disponible. Disponibles : $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "La clé API de $1 est définie hors de DS Bot et ne peut pas être modifiée ici"],
@@ -14066,21 +14090,15 @@ var DE = {
   Whale: "Wal",
   Star: "Stern",
   Moon: "Mond",
-  Wave: "Welle",
+  Cloud: "Wolke",
+  Spark: "Funke",
+  Bear: "Bär",
+  Puppy: "Welpe",
   Squircle: "Squircle",
-  Bull: "Stier",
   Blossom: "Blüte",
-  Dolphin: "Delfin",
   Octopus: "Oktopus",
-  Turtle: "Schildkröte",
-  Crab: "Krabbe",
-  Pufferfish: "Kugelfisch",
-  Jellyfish: "Qualle",
-  Starfish: "Seestern",
-  Seahorse: "Seepferdchen",
   Gumdrop: "Fruchtgummi",
   Peanut: "Erdnuss",
-  Bubbles: "Blasen",
   Saucer: "Untertasse",
   Sprout: "Keimling",
   Bunny: "Hase",
@@ -14090,7 +14108,6 @@ var DE = {
   Magnet: "Magnet",
   Acorn: "Eichel",
   Pebbles: "Kiesel",
-  Cushion: "Kissen",
   Ring: "Ring",
   Gem: "Edelstein",
   // Colors
@@ -15442,6 +15459,14 @@ var DE = {
   "Dictation provider": "Diktatanbieter",
   "Use DeepSeek for dictation": "DeepSeek für das Diktat verwenden",
   "In use": "In Verwendung",
+  "Stopped by the security kill list": "Von der Sicherheits-Kill-Liste gestoppt",
+  "Approval needed": "Genehmigung erforderlich",
+  "Unverifiable": "Nicht verifizierbar",
+  "Plugin files cannot be verified": "Plugin-Dateien können nicht verifiziert werden",
+  "Approving…": "Genehmigen…",
+  "Execution tier": "Ausführungsebene",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "Dieses Plugin hat sich seit der Genehmigung geändert: Fähigkeiten, Ausführungsebene, ausführbarer Einstieg, Inhalt oder Platzierung. Es bleibt gestoppt, bis du das Plugin genau so genehmigst, wie es jetzt ist.",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "Führt beim Start die neueste veröffentlichte Version aus; die Genehmigung fixiert keine exakten Bytes.",
   "Not ready": "Nicht bereit",
   "Couldn't read the reply": "Antwort konnte nicht vorgelesen werden",
   "Couldn't reach the speech service": "Sprachdienst nicht erreichbar",
@@ -15858,6 +15883,11 @@ var DE = {
   "Built-in engine": "Integrierte Engine"
 };
 var HOST_ERRORS_DE = [
+  [/^Plugin disabled by the kill list: (.+)$/, "Plugin von der Kill-Liste deaktiviert: $1"],
+  [/^Plugin disabled by the kill list\.$/, "Plugin von der Kill-Liste deaktiviert."],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "Dieses Plugin hat sich seit der Genehmigung geändert (Fähigkeiten, Ausführungsebene, ausführbarer Einstieg, Inhalt oder Platzierung). Es benötigt eine explizite Genehmigung, bevor es wieder ausgeführt werden kann."],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\..*$/, "Plugin-Dateien können nicht verifiziert werden ($1). Es kann nicht ausgeführt werden, bis sein Verzeichnis sicher gelesen werden kann. Besteht das Problem weiterhin, entferne das Plugin und installiere es erneut."],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot be approved until its directory is safe to read\..*$/, "Plugin-Dateien können nicht verifiziert werden ($1). Es kann nicht genehmigt werden, bis sein Verzeichnis sicher gelesen werden kann. Besteht das Problem weiterhin, entferne das Plugin und installiere es erneut."],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Mailserver unter $1 nicht erreichbar. Bitte prüfe die Serveradresse."],
   [/^Model (.+) is not available\. Available: (.*)$/, "Modell $1 ist nicht verfügbar. Verfügbar: $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "Der API-Schlüssel für $1 wurde außerhalb von DS Bot gesetzt und kann hier nicht geändert werden"],
@@ -17285,21 +17315,15 @@ var ZH = {
   Whale: "鲸鱼",
   Star: "星星",
   Moon: "月亮",
-  Wave: "声波",
+  Cloud: "云朵",
+  Spark: "火苗",
+  Bear: "小熊",
+  Puppy: "小狗",
   Squircle: "圆角方",
-  Bull: "牛角",
   Blossom: "花朵",
-  Dolphin: "海豚",
   Octopus: "章鱼",
-  Turtle: "海龟",
-  Crab: "螃蟹",
-  Pufferfish: "河豚",
-  Jellyfish: "水母",
-  Starfish: "海星",
-  Seahorse: "海马",
   Gumdrop: "软糖",
   Peanut: "花生",
-  Bubbles: "泡泡",
   Saucer: "飞碟",
   Sprout: "嫩芽",
   Bunny: "兔子",
@@ -17309,7 +17333,6 @@ var ZH = {
   Magnet: "磁铁",
   Acorn: "橡果",
   Pebbles: "石子",
-  Cushion: "靠垫",
   Ring: "圆环",
   Gem: "宝石",
   // Colors
@@ -17493,6 +17516,14 @@ var ZH = {
   "Dictation provider": "听写提供方",
   "Use DeepSeek for dictation": "用 DeepSeek 听写",
   "In use": "使用中",
+  "Stopped by the security kill list": "已被安全拦截列表停用",
+  "Approval needed": "需要重新批准",
+  Unverifiable: "无法验证",
+  "Plugin files cannot be verified": "插件文件无法验证",
+  "Approving…": "批准中…",
+  "Execution tier": "执行层级",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "这个插件在批准后发生了变化：能力、执行层级、可执行入口、内容或位置。它已停止运行，确认按现在的样子批准后才会重新运行。",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "每次启动时运行最新发布的版本；批准不固定具体代码。",
   // Phone
   Phone: "手机",
   "Off. Phones cannot reach this computer.": "已关闭。手机连不上这台电脑。",
@@ -18979,6 +19010,11 @@ var ZH = {
   "Built-in engine": "内置引擎"
 };
 var HOST_ERRORS = [
+  [/^Plugin disabled by the kill list: (.+)$/, "插件已被安全拦截列表停用：$1"],
+  [/^Plugin disabled by the kill list\.$/, "插件已被安全拦截列表停用。"],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "这个插件在批准后发生了变化（能力、执行层级、可执行入口、内容或位置）。需要明确批准后才能重新运行。"],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\..*$/, "插件文件无法验证（$1）。目录可安全读取前它不能运行；问题依旧的话，移除后重新安装。"],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot be approved until its directory is safe to read\..*$/, "插件文件无法验证（$1）。目录可安全读取前无法批准；问题依旧的话，移除后重新安装。"],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "连不上邮件服务器 $1，请检查服务器地址。"],
   [/^Model (.+) is not available\. Available: (.*)$/, "模型 $1 不可用。可用的：$2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "$1 的 API key 是在 DS Bot 之外设置的，这里改不了"],
@@ -19609,42 +19645,56 @@ function lruSet(map, key, value, max) {
 // src/client/characters.js
 var CHARACTERS = {
   whale: { label: "Whale", body: "M65.3 20.9l5.1 .1 4.8 .9 4.8 1.7 4.3 2.3 3.8 3.1 3 3.4 2.3 3.8 1.6 4.3 .9 4.3 0 4.8-.8 4.8-1.4 4.3-2.3 4.3-3.2 4.3-3.4 3.3-4.3 3.1-7.2 3.5-7.6 1.7-7.2 .1-9.6-1.6-3.3-1-2.9-1.7-8.8-8.9-6-4.7-3.3-.5-7.7 1.1-4.8-.1-4.7-1.2-1.9-1.2-1-1-.5-1.5 .4-1.4 1.1-1.3 1.9-1.3 4.7-1.5 7.7-.6 1.1-.5 .7-1 0-1.4-2.8-7.2-1.2-5.3-.1-4.3 .4-1.4 .9-1.2 1.9-.2 2 1 2.2 2.3 2.2 3.4 3.2 7.6 1.9 9.7 .5-.1 1.1-7.2 1.8-4.8 3.2-5.2 3.9-4.3 4.9-3.9 5.6-2.9 5.8-1.9z", paints: [["M93.3 55.8l1-.3 .1 1.2-2.4 5.3-3.4 4.8-3.8 3.8-4.8 3.4-5.7 2.8-4.8 1.5-4.8 .4 20.1-17.4 5.2-3.7z", "#fff", 1]], shade: "M88.6 29.5l2.4 2.9 1.9 2.8 2.4 6.3 .5 3.3 .1 5.3-1.5 6.6-1.9 4.3-2 3.3-4.8 5.4-5.7 4.3-7.2 3.3-6.2 1.5-6.7 .1-3.3-.2-9.6-1.8-3.3-1.5-2.4-1.9-8.6-8.9-5.3-3.9-3.3-.1-2.9 .2-3.3 .8-5.8 0-4.3-1-2.9-1.9 .6-.6 3.8-1.3 10.5-2.5 4.3 .9 1.4-.1 2.2-1.7 .5-1.4-.3-1.5-1.2-1.4-2.2-1.4-1.2-1.9-.6-12 .4-3.3 .5-.5 2.9 3.8 2.4 4.8 1.9 5.7 .7 5.8 .7 2.8 2.1 2.4 2.7 5.5 3.8 4.3 2.9 2.2 3.3 1 3.4-.4 6.2-3 7.1-4.5 7.3-5.6 6.6-5.9 5.9-6.5 3.7-5.3 1.7-4.2 .1-2.9z", light: "M55.6 22.8l1.9-.3 1.5 .3 .6 1 .1 .9-2 4.3-3.8 5.3-5.8 6.2-5.4 4.4-4.8 2.3-1.4 0-1.2-.5-.8-1.9 .5-3.3 2.5-4.8 3.3-4.3 2.4-2.4 5.3-3.9zM19.3 28.1l-1.4 2 .3-1.1zM21.7 49.1l.6 .5-.3 .5-.8 0zM35.8 52l1.2-.4 .9 .7 .7 1.6-.4 .9-1.2 .1-2.6-.5zM7.2 52.9l-2.9 2.9 1.2-1.6z", eyes: [[72.5, 48.4, 9.3, 23, -15.8], [85.6, 43.4, 7, 22.9, -21.2]] },
-  star: { label: "Star", body: "M40.1 4.4l1.5-.4 1.9 .1 5.2 1.1 1.9 .9 13.2 14.9 17.1-.8 5.2 1.1 1.8 .9 1.7 1.6 .7 2.4-.4 1.9-9.7 23.6 5.6 23.7 .1 1.9-.6 1.4-2.1 1.8-2.3 .5-19.9-1.8-16.6 15.5-1.9 1-1.9 .3-7-1.5-2.6-2.1-.9-2.4-2.8-24.1-16-13.6-1.1-1.5-.5-1.9 .4-1.9 1.2-1.5 18.9-13.6 7.1-24.6 1-1.7z", shade: "M52 7.7l14.3 16.1 1 2.9 .3 3.1 19.4-1.3 2-1.4 .7-2.3-.4-1 .5 .5 .5 1.9-.4 1.9-9.8 23.2 5.5 23.1 .1 3.4-2 2.4-2.8 .8-19.4-2.1-1.9 1.4-14.7 14-2.4 1.4-3.3 .1-4.7-1-2-1 .6-.2 3.3 .8 2.8 .1 5.1-2.1 .7-.9 .4-2.4-2.6-22.7-.3-.3-1.4 .2-1.4 .7-5.7 .7-5.6-1.2-16.7-13.8 1-.1 5.2 1 3.8-1.1 1-.7 1.9-.4 .4-.4 1.5 .3 .4-.4 1 .2 18-12.8 6.7-23.5 0-1.8-.4-.5-.3-1.9 .4-2.4z", light: "M40.1 4.4l2-.1 4.7 1 .7 1-.5 1.4-2.8 1.5-6.6 23.1 .7 1.2 .6 .3-18.1 12.5-1.8 2.1-3.4 .7-5.2-1.2-.3-.4 .3-.9 1.4-1.4 18.3-12.9 .9-2.3 6.4-22.7 .8-1.4z", eyes: [[53.9, 53.4, 7.2, 18.8, -10], [65.1, 49.2, 7.2, 18.8, -10]] },
-  dolphin: { label: "Dolphin", body: "M33.8 19.8l1.5-.5 2.6 1 6.3 6.3 3.2 1.5 7.6-.5 5.1 .4 5 1.2 9.6 3.3 3.1 .6 2.6 .1 10.8-1.3 1.9 .3 1.4 .9 1.1 1.5 .4 1.7-.4 1.9-1.5 1.9-9.3 5.5-2.5 2-2.5 3.3-3.2 6.9-3.1 4.5-4.6 4.4-5.7 3.7-4.4 1.7-7 1.6-5.1 .6-4.4-.2-4.4-.8-4.5-1.5-3.8-1.9-5.1-3.3-1.9 .8-1.9 1.7-3.9 7.1-2 2.6-2.3 1.6-1.9 .1-1.4-1.7-.4-2.6 .3-3.1 1.6-6.4-.3-5.7-.8-1.9-2.8-3.3-1.9-3.3-.9-2.9 .4-2.5 1.1-1.2 1.3-.5 3.1 .5 3.8 2.1 5.1 4.6 1.9 .6 4.9-9.9 7-8.9 .5-3.2-.9-7.6 .6-2.6z", paints: [["M68 50.9l1.6-.6 .6 .1 1.8 1.1 1.1 1.3 .9 1.9 .4 1.9-.4 3.8-1.2 2.5-3.9 3.8-5 3.3-2.6 1.2-.8 0-2.2-1.9-1-2.6 .2-3.8 1.1-3.8 1.5-3.2 1.9-2.5z", "#fff", 1]], shade: "M38.8 22.3l.3-.4 .7 .2 3.6 4-2.4 1.1-1.9 .3-1.2-.5 .1-2.2zM94.9 33.7l.9 1.9 0 1.9-.6 1.3-2.1 1.9-8.3 4.7-2.6 2.3-2.2 2.5-3.4 7.6-2.6 3.8-5 5.1-3.9 2.6-5.7 2.6-7.6 1.8-10.8 .2-3.8-.8-5-1.9-2.6-1.3-5.1-3.6-2.5 1.2-1.7 1.8-4 7.6-2.6 2.7-2.5 1.1-1.3-.6 4.2-7.7 2.4-7.6 3-4.1 2.5-.9 2.5 .1 5.7 2.6 4.5 1 2.5-.1 5.7-1.5 7.2-4.1 8.4-5.7 7.3-6 5.1-5.2 1.9-1.2 2.5-.7 6.3 .6 3.2-.2 8.9-3.2 .9-1.2zM11.4 49l3-.2 3.7 4-1 1.9-3.3 3.1-2 1.6-1.2 .3-3.2-3.1-.5-1.9 1.2-3.2 1.2-1.3z", light: "M33.9 19.8l-1.2 1.9 .1-.7zM32.6 35l.2-.3 6.7 2.2 1.7 1.3-5.8 6.3-8.3 8-2.6 .7-3.3-.4 4-8.9 3.8-5zM4.8 46.4l.1 .7-.7 .6zM10.5 68.6l.2 0 0 1.3-.8 2-.2-.7 .7-1.3z", eyes: [[55.6, 50.7, 7.2, 17.9, -15.7], [68.7, 45.7, 5.6, 17.9, -20.7]] },
-  octopus: { label: "Octopus", body: "M42.8 4.4l4.9-.4 4.2 .2 4.3 .7 4.2 1.3 4.2 2 3.5 2.3 3.4 3 2.4 2.8 3.5 6.4 1.6 7-.3 7-.8 3.5-1.6 4.2 .2 .7 1.3 2.9 9.1 13.3 .6 1.4 0 2.1-1 2.1-1.5 1.3-1.4 .5-2.1-.1-1.4-.5-9.2-6.5-.7-.4-.7 .2 .3 4.1 3.8 15.5-.3 1.4-1 1.7-1.4 1.1-1.4 .5-2.1-.1-2.1-1.1-7.7-12-1.4-1.5-.8 0-.7 3.7-.7 17.5-1.4 2.4-1.4 1-1.4 .4-2.8-.5-2-1.8-4.3-15.9-1.4-2.5-.7-.5-.7 .1-2.1 3-5.6 14.3-2.2 2-2.8 .4-1.4-.4-1.4-1.1-1.3-2.3 .8-22.5-.2-3.5-1.5-5.6-5.2-11.2-1.7-5-.9-5.6 .5-6.3 1.4-4.9 2-4.3 2.8-4.2 4-4.2 4.2-3.3 5-2.7 4.9-1.9z", paints: [["M62.3 58.5l2.3-.7 .9 .7 .1 4.2-1.1 3.5-1.3 1.8-2.1 1.5-5.7 1.4-.7-1.1-.3-1.5 .1-1.4 .7-2.1 2.9-3.5z", "#fff", 1]], shade: "M71.9 14.9l.7 0 2.7 3.5 2 4.3 1.4 4.9 0 9.1-1.5 5.6-1.1 2.1 1.4 3.6 9.7 14 0 3.5-.7 1.4-2.2 1.6-3.5-.1-8.5-6.1-2.1-1.1-.7 .2 .3 4.8 3.3 12 .2 2.1-.3 2.8-1.4 1.6-1.4 .7-3.5 0-1.4-.9 1.4-.3 1-1.1-4.2-8.4-4.5-1.1-1.4-1-1.4-2-.8 .4-.5 .9-.5 4.2-.4 16.1-1.2 2.2-2.3 1.4-2.1 .1-2.1-.8 3.2-2.2 .8-.7 0-.7-1.1-14.7-2.2-2.9-2.1-.5-2.1 .8-2.1 1.5-2.8-1-1.3 1.4-2.6 5.6-3.2 9.1-1.4 2.3-.7 .6-2.1 .8-2.1-.1-1.4-.7 3.3-2.2 1.3-1.4 4.8-18.2 .2-6.4-1.8-8.4 .2-1.4 .8-1.4 1.1-1.4 7.7-3.8 8.4-5.4 6.3-4.9 5.4-4.9 5.2-5.7 3.5-5 2.1-4.8z", light: "M37.1 5.8l2.5 0 1.2 .7 .5 1.4-.1 1.4-2.2 4.9-4.3 5.6-5.8 5.7-5.8 4-4.2 1.6-2.1 .1-1.4-.6-1-1.6 .2-3.5 2.1-4.3 3.6-4.9 3.6-3.5 4.8-3.4 4.3-2.2z", eyes: [[55.3, 44.6, 7.8, 17.3, -7.5], [72, 38.4, 5.5, 17.6, -3.8]] },
-  turtle: { label: "Turtle", body: "M34.6 21.1l8-.6 4.5 .5 3.8 1 5.7 2.5 7.6 6 2.6 1 2.5-.4 5.7-2.6 3.8-.9 4.5 .1 4.4 1.3 2.6 1.5 1.9 1.7 1.6 2.2 1.3 2.5 .7 2.6 .2 3.1-.5 3.2-1 2.6-1.9 3.1-3 2.9-3.2 2-3.8 1.3-3.1 .3-3.2-.2-3.2-.9-5.7-2.5-1.9-.2-1.3 .5-1.1 1.9 0 3.2 4.5 14.6-.8 2.9-1.3 1.3-1.3 .6-2.5 .2-2.6-1.2-10.1-14-1.9-2.1-1.3-.7-9.5 2.1-25.4 11.9-1.9 .3-1.9-.4-1.5-.9-1-1.3-.5-1.2 0-2 1.1-2.4 4.2-3.9 1.6-2.5 0-1.3-2.5-6.4-.6-4.4 .6-5.7 1.8-5.1 3.8-5.7 5.7-5.2 7-3.9z", paints: [["M44.1 40.7l3-.6 2.5 .6 2.6 1.9 1.1 1.9 .4 2.6-.4 2.5-1.2 1.9-2.5 1.8-2.5 .4-1.9-.4-2.4-1.8-1.2-1.9-.7-2.5 .2-2.6 .9-2z", "#fff", 1]], shade: "M62.8 31.2l2.7 4.7 4.6 11.2 1.7 2.5 1.9 1.1 1.9 .4 .7-.3 4.4-3 3.9-3.3 5.7-6.4 1.2-2.2 1-2.8 .3-.1 .6 .8 1.4 2.5 1.2 5.1-.7 4.9-1.8 4-2 2.5-3.2 2.5-2.5 1.4-4.4 1.2-3.8 .1-5.1-1.3-4.5-2.4-3.1-.1-1.3 1.2-.6 1.2 .2 4.5 4.3 12.7 0 1.9-.6 1.2-2 2-1.3 .5-1.9 0-2.5-1.2 1.8-.6 1.1-.7 .2-.6-6.7-12.1-1.5-.5-5.1 .3-1.9-2.1-1.3-.6-3.8 1-5.7 .9-16.5 8-2.6 .9-5.7 3-1.9 .6-1.3 0-2.6-1.3 2.6-1 3.2-2.8 5.7-3.6 21.6-11.5 8.8-5.9 5.2-4.3 5.5-5.8 2.7-4z", light: "M29.9 22.3l3.2 .1 1.1 1.2 .2 1.3-1.6 4.4-4.3 5.7-5.6 5.1-5 3.2-4.5 1.5-1.9-.1-1.3-.6-.7-1.5 0-2.5 2.6-5.1 2.6-3.2 5.8-5 4.3-2.6zM74.9 28.7l2-.3 .6 .3 .1 .6-.6 1.9-1.7 2.6-.9 .6-1.9 .2-1.9-.8-1.3-1.7-.1-.9zM13.1 57.2l1 .1 .9 1.2 .2 1.3-.8 1.9-5.9 5.1-1.7 1.9-1 .7-1.3 .1-.1-.8 .8-1.3 5.5-5.1 .6-1.2 0-1.3 .8-1.8z", eyes: [[82.1, 44.3, 6.8, 15.9, -11.9], [91.7, 39.6, 4.6, 15.9, -19.9]] },
-  crab: { label: "Crab", body: "M92.2 16.6l1.5-.1 1.3 .7 .8 1.2 .1 1.8-4.2 10.7-2.6 3.6-1.5 4.2-1.6 2.7-2.5 2.1-3.5 1.4-4.2 0-5.4-2-1.2 .7-.6 1-.2 1.3 .4 1.8 5.9 9.6 .1 1.8-1.1 1.8-2.1 .9-1.8-.5-12-9.4-15.6 4.6-.6 .3-.3 1.1-2.5 12-1.3 1.8-2.5 .5-2-1.1-.8-1.8-.8-5.2-.5 2.2-1.3 3-3.1 3.6-3.5 2.1-5.7 1.5-5.1 6.6-1.8 .5-2-1.1-.7-1.8-.2-8.4-2.5-4.8-.8-3-.2-3 .4-2.4 1.1-3 1.5-2.4 4.9-4.2-.2-2.4 .3-2.4 2-4.8 2.7-3.6 3.9-3.6 5.4-3.5 6.6-3 6.6-2 7.2-1.1 6-.1 6 .9 4.8 1.7 4.8 3.1 .6 0 3.6-3 2.4-1.2 3-.5 3.6 .1 1.8-.5z", paints: [["M62 44.1l.6 .1 .6 .8-.3 2.1-2 2.4-2.5 2.2-7.2 2.2-2.4-.3-1.2-.8 0-2.1 1.5-1.8 1.5-.4 5.4 1.5 4.8-5.2z", "#fff", 1]], shade: "M95.5 17.8l.1 3-3.6 9.5-3.4 4.8-1.3 4.2-1.9 2.6-1.9 1.6-3.5 1.4-4.8-.2-4.2-1.8-1.2 .1-1.1 1.1-.5 2.4 .6 1.8 5.9 9-.1 2.4-1.2 1.4-1.2 .5-1.8 0-12-9.4-1.2-.3-1.2 .3-6 2.2-8.4 2.3-.9 3-2.1 10.7-1.2 1.3-1.8 .6-1.9-.6 3.4-3 .9-8.5-.6-.7-1.2-.4-3-.2-1.8 .3-.5 .5 .5 .6 0 3.6-.5 2.4-1.3 3-1.8 2.4-4.2 3-3.6 1.2-2.4 .2-1.6 1.6-3.8 5.4-1.8 .3-1.3-.3 2.8-2.4 4.6-10.8 1.1-1.4 5.2-4.6 2.9-3.6 1.9-3.6 .5-3 3.9-.7 4.8-1.7 13.3-6 10.7-6.5 3-2.5 3-3 .6 .5 3.6 6.5 1.2 1.4 3.6-1.2 4.2-3 2.9-3 1.9-2.6 4.1-3.1zM66.6 50.7l.4 0 5.8 7.2 0 .6-1.2 1.2-.6 0-8.1-7.8z", light: "M92.5 16.6l.1 .6-.4 .6-6.8 6.9-1.8 .4-1.6-.7 1.6-.9 7.7-6.4zM73.5 25l1.7-.6 1.2 .5 0 1.3-.5 1.2-3.1 3.4-3 1.9-.6-.1-.9-1.7-.3-1.2 .3-.6 3.3-3zM34.8 25.6l2.6 0 .7 .6 .2 1.2-1.5 3.5-2.8 3.6-4.1 4.2-3.5 3-4.6 3-2.8 1.2 2.4 1.2 .6 .6-.2 .6-6.6 .4-.2-.4 1-1.2-.2-.3-2.4-.6-.7-.9-.2-1.2 .2-1.8 2.5-4.2 4.8-4.9 3.1-2.3 6.5-3.5zM12.7 49.5l1.9-.3 1 .3 .3 .6-.3 1.8-1.4 2.4-4.4 3.9-2.4 1.1-1.8 0-.6-.6-.1-1.4 1.3-2.4 1.9-2.4 2.3-1.8 1.8-.6z", eyes: [[45, 42.8, 7.4, 17.7, -18.3], [61.7, 36.6, 5.4, 17.9, -29.3]] },
-  puffer: { label: "Pufferfish", body: "M40.1 4.7l1.8-.7 2 .7 .9 1.3 2.6 6.7 .7 1 .7 .3 4.8 .7 .7-.3 4.4-5.6 1.8-.7 1.3 .4 1.3 1.7-.1 6.8 .2 .9 .7 .4 2.1 .2 2-.6 5.5-4.2 1.4-.2 1.8 .8 .9 1.4 .1 1.3-2.1 6.2 0 4.2 1 2.7 3.8 7.6 1.8 6.2 1.7 1.1 6.8 1.4 1.5 1.6 .1 1.4-.9 1.5-6.8 3.7-1.8 1.7-1.9 7.5-3.1 6.9-2.8 4.2-5 5.5-1.9 2.7-.7 3.5 .4 6.8-.5 1.4-1.3 1.1-1.4 .1-1.1-.5-5.1-5.7-2.1-1-2-.4-7.6 .7-1.4 1.1-2.3 3.9-1.8 .7-1.4-.6-.7-1-.5-3.2-.8-1.6-5.6-1.6-5.5-2.6-4.8-3.2-4.1-3.9-5.5-6.8-3.2-8.5-1.3-6.9 .1-7.6 1.4-6.9 2.9-6.8 4.8-6.9 5.6-5.3 6.2-3.8 8.3-3.2 2-8.4z", paints: [["M70.8 64.5l2.7 .2 1.4 .9 .7 1 .2 3.4-1.6 4.2-2.7 3.7-5.5 4.8-3.5 1.4-2.7-.2-1.2-1.5-.2-2.7 .9-3.5 1.6-3.4 2.3-3.2 2.4-2.3 2.4-1.7z", "#fff", 1]], shade: "M44.5 6l.3 0 .5 1.4 1.7 4.8 1.6 2.8-1.9-.1-1.6-1.3-1.5-6.2 .1-.7zM62.5 9.5l.4 1.4-.1 6.8 .5 1.4 1.5 1.4 .2 .7-.4 .6-1.4-.4-1.2-.9-1.4-2.8 .2-3.4 .9-3.4zM77 15l.7 1.4 0 .6-2.5 6.9 0 2.8 1.4 4.1 1.8 2.8 2 4.1 1.7 6.2 2.5 3.3 1.3 1.2 .7 .2 5.5-.6 0 2.1-1.4 1.3-6.1 3-2 1.9-1.5 6.9-3.4 7.5-2.7 4.2-5.3 5.5-2.1 3.4 0 9.6-.3 1.4-.6 .7-1.4 .3-1.6-.3 1.2-1.4-1.7-3.5-.7-.6-1.3 .1-1.4 .7-1.4-1.2-3.4-1.4-8.3 .7-1.9 1.8-.9 2.1-1.3 1.5-1.4 .5-1.4-.6 1.4-.4 1-1 .6-1.4 .2-4.2-1.1-1.8-2.1-.8-2.7 .4-.6 .9 .6 2.2-3.5-.9-4.8-1.9-2.7-1.5-4.9-3.4-4.2-4.2 4.2 1.3 2.1 .1 .6-.7-4.7-4.2-2.1-.2-.7-.7-2.9-.4 2.9-2.2 4.1-.9 3.3 .4 3.6 2 1.6 2.1 1.2 3.2 .7-.1 4.8-2.1 6.2-3.5 5.5-3.8 5.7-4.7 5.7-5.5 4.9-5.5 4.3-6.2 2.8-4.8 1.9-4.9 .7-3.4 0-2.8-.6-3.4 .3-2.1zM21.2 31.5l2.1 1.3-.1 1.5-1.3 1.4-2 .2-2.1-2.3 1.4-.5z", light: "M40.3 4.7l.9-.3 .2 .3-.4 .6-1.2 1-.7-.3zM58.9 8.8l.9-.3 .2 .3-1.3 1.4-3.1 6-1.3 1.4-1.4 0-.7-.6-.3-1.3 1-.2 1.9-1.2zM72.7 14.3l.8-.3 .6 .3-3.3 3.7-2.1 .9-1.5-.5 2.9-1.6zM36.8 15l1-.2 .7 1.6 1.3 4.1-.1 2.1-2.4 4.8-3.7 4.6-.7 .2-2.4-2.1-2.4-.9-6.2-.3-.7-.7-1.3 .2-1.6 1.7-1.2 .6-.4 .8-.2 1.4 1.4 1.4-.7 8.9-3.5 .4-2.5-1.1-1-2.1 .7-4.1 2.1-4.1 4-5.5 4.2-4.2 4.9-3.4 5.5-2.7zM17.8 61.1l1 0 .9 .7 .2 1-.6 1-4.3 2.7-1.4 1.5-1.3 .4-.1-.4 2.2-2.2 .6 0 .6-.6 .8-2.6z", eyes: [[56.6, 53.5, 9.1, 21.7, -12.7], [73.9, 47, 6.3, 21.5, -17.3]] },
-  jelly: { label: "Jellyfish", body: "M53.3 4.1l6.6 0 6.8 1 9.8 2.3 7.8 2.8 4.2 2.4 3.7 3.6 2.1 3.7 .8 3.8-.3 3.8-1.2 3.7-1.7 3-3.7 5.3-.1 7.5-1.8 15.8 .2 6.8-.7 2.3-1 1.2-1.5 .9-5.4 .9-1.1 2.2-1.2 5.3-.8 1.5-1.6 1.5-2.7 1-6.1-.6-1.5 .4-.8 1.5-.7 4.5-.6 1.5-1.6 1.6-2.3 .7-3-.8-4-4.5-2-1.3-2.3-.9-.7-.1-.8 .4-2.2 3.4-2.3 1.5-3 .1-2.3-1.4-1-1.7-1.2-3.8-1.5-2.9-9.1-13.4-5.1-12.3-2.3-3-4.9-4.5-1.9-2.3-1.6-3-.8-3.7 .4-4.5 2.2-5.3 3.9-5.3 5.6-5.1 6-4.1 8.3-4.2 9.1-5.6 6-2.3z", shade: "M91.8 16.9l.5-.7 2.3 4.5 .1 6.8-.8 3-1.5 3-3.6 4.5-.8 1.5-.1 9.8-.9 6.8-.4 .7-.1 12.8-.8 2.3-1.7 1.6-1.5 .7-3.8 .1-.8 .6-1.1 1.5-1 5.3-.6 1.5-1 1.5-1.5 .9-2.2 .7-3.1-.1-.7-.5-1.5 0-1.5 0-.8 .5-1.2 2.2-.3 3.8-.6 1.5-1.6 1.6-1.5 .6-1.5 .1-2.3-.8-.9-.8 2.4-.4 2.2-1.8-1.4-2.1-1.5-1.1-1.6 .2-2.2 1.8-3.8-2.3-3-.1-2.2 3.6-2.3 1.5-3 .1-1.5-.7 3-2 1-1.2-.7-3-1.8-5.2-1.5-2.4-1.5-1-5.3-.5-.9-.7-1.1-1.5 1.3-5.2-.1-5.3-4.9-5.3-5.6-3.5-1.5-.6-.7 .3-1.5-1.9-4-3.3 1 .6 3.7 .7 6.8-.2 6-.8 13.8-3.3 15.6-5.5 13.9-6.5 10.9-6.6 3.8-2.9 3.7-3.5 2.3-3zM78.9 51.6l.7 0 .8 2.2 .2 2.3-.4 3.7-.6 2.3-.9 1.3-.8 .9-1.4 .8-1.5-1.1-.8-1.5-.8-3.4 .1-4.5 1.5-1.7zM49.6 59.8l1.3 0 1.6 .8 1.9 10.5 1.2 4.5 .2 2.3-.3 2.3-.8 1.6-.8 .6-1.5-.2-2.3-1.7-2.2-4-2-5.4-.2-3.7 .5-3.1 1.6-3.7zM62.7 59.8l1-.7 1 .7 2.1 6.1 2.8 3.7 .5 1.5 0 2.3-.6 1.5-1.3 1.7-1.5 .7-1.5 0-1.5-.8-1.5-1.8-3-5.1 .1-5.3 1.4-.6 .6-.9z", light: "M43.4 6.4l1.4 0-4.4 3.7-4 3.8-2.3 3-1.5 3 .2 1.9 1.5 .6 3-.5 6.1-1.7 .2 .5-4 5.3-3.8 3.7-4.6 3.8-3.5 2.3-8.4 4-3.8 1.1-3.7 .4-3-.5-2.1-1.3-.8-1.5-.1-1.5 1.3-3.8 3.1-4.5 5.3-5.3 6.1-4.5 6.7-3.7 3-1.1 4.7-3.4z", eyes: [[61.7, 34.1, 6.8, 16.8, -21], [78.5, 27.8, 5.5, 17, -29.2]] },
-  starfish: { label: "Starfish", body: "M41 4.2l4.5 .1 6.4 1.4 2.8 1.3 2.8 2.5 6.4 9.5 .7 .3 9.9-1.8 7.8 1.5 2.8 1 2.7 1.8 1.7 2.2 1.3 2.8 .5 2.8-.7 4.3-5 9.9-3.5 8.4 1.5 6.4 4 12-.2 4.3-2.1 4.2-1.6 1.7-2.1 1.4-4.3 1.2-2.8-.1-12.7-3.1-11.5 13-3.4 2.1-3.5 .7-2.8-.3-7.1-1.6-2.8-1.4-2.5-2.3-1.6-2.8-.7-2.8-.5-18.4-.5-.7-12.6-8.5-2.6-3.6-1-4.2 .3-2.8 .7-2.1 2.6-3.7 2.1-1.6 13.7-7.5 .4-.6 3.3-17.7 .9-2.9 1.5-2.4 1.9-1.8 2.3-1.4z", shade: "M57.4 9.8l.9 .7 5.6 8.5 0 .7 2.9 2.8 0 .7 1.4 1.5 0 1.4 .8 .7-.1 5.6 .6 1-.5-.3-.9-2.1-1.2-1.4-3.7-2.2-2.1-.6-2.2 .1-4.9 1.4-.5-.8-1.2-5 .9-4.9 2.9-4.1zM88.5 23.2l.1-.2 .9 1 1.3 2.8 0 6.3-6.1 12.1-2.8 7 1.4 6.4 4.1 11.3-.1 5-1.5 3.5-2.8 2.9-2.8 1.5-2.9 .6-2.8-.1-12.7-3.2-2.6 2.5-8.1 9.9-2.8 2.1-2.1 .9-7-.1-.8-.4-5.4-1.1-2.3-1.2-.9-.9 .9-.3 4.9 1 2.8-.4 3.6-1.7 4.3-3.5 .4-.7-.1-5.7-1.1-9.2 .5-4.9-1.2-.2-.7 .7-1.4 0-2.1 1.1-2.2 .1-1.4 .7-4.2-.1-.7-.7-2.1 0-.7-.7-2.2-.1-1.4-1.5-.7 0-12.7-8.5 1.4-.2 4.9 1 2.9-.4 2.4-1.1 3.2-2.3 5-4.8 2.1-1.2 4.2-.5 2 .3 .6 4.9 1 2.2 1.4 1.5 1.4 .7 2.1 .2 4.3-1.2 6.3-3.9 5.7-5.2 3.7-4.9 1.5-2.8 1.1-3.5 2-2.1 2.3-1.7 2.8-1.4 9.9-2.4 1.4-2.6z", light: "M38.6 4.9l2-.3 6.3 1.5 .3 1.6-1.2 2.1-2.6 2.7-2.8 1.5-7.8-1.3-.3-1.5 1-2.1 2.8-2.9zM34.6 30.3l1.7 .1 .4 1.3 1 1 1.5 .2 0 .6-.8 0-13.4 6.9-2.6 4.1-3 2.5-2.2 .8-7-1.2-.7-.7 0-.7 1.4-2.9 2.1-2.1 2.1-1.4 6.4-3.1 8.5-5 .7 .4 2.1-.1z", eyes: [[59.7, 54.2, 7, 16.6, -10], [71.5, 49.7, 5.4, 16.6, -10]] },
-  seahorse: { label: "Seahorse", body: "M44.6 4l1.9 .3 1.4 1 1.1 1.8 .8 4.3 1.6 2.9 2.5 2.6 7.3 6.1 2.4 1.4 3.1 1.1 10.4 1.1 2 1.3 1.3 2.4-.4 3-1.7 2-11.6 3.3-4.4 2.1-3.4 3.6-1.9 4.3-.3 2.5 .5 1.2 1.2 1.2 5.1 3.1 2.1 1.8 2.2 3 1.2 3.7 .2 3.7-.7 3-1.1 2.5-3.2 4.2-.4 1.3 .4 .8 3.7 2.8 1.6 1.9 1.3 2.4 .3 2.5-.4 1.8-1.1 1.8-1.7 1.4-1.8 .7-2.5 0-2.4-.7-4.9-3.8-1.8-.8-9.8-.1-2.5-.6-1.8-1-2-1.8-1.5-2.4-1.8-8.6-.8-.6-5.5-1.7-3.7-2.4-3.2-3.8-2-4.9-.4-3.7 .4-3.7 3.6-9.1 .5-2.5-.3-2.4-1.6-4.9-.3-3.1 .4-4.2 1.1-3.7 3.1-5.3 3.6-4.5 8.6-6.8 4.2-4.1z", paints: [["M57.4 63.9l2.6 .7 1.8 1.7 1 2.5-.2 2.4-1.3 2.5-2 1.6-3 1.1-2.5-.2-1.4-.7-1.1-1.2-.4-1.9 .3-1.8 1-2.4 1.6-2.4 1.9-1.5z", "#fff", 0.35]], shade: "M48.3 5.9l.7 1.2 .2 3 .6 1.9 .6 1.2 2.8 3-.6 .6-1.2-.3-1.2-.9-2.4-3.6-.5-3.7zM58.1 26l1.9 .7 5.4 3.9 3.7 1.2 8.6-.6 1.3-1.5 .5-1.3 .8 1.9-.1 2.4-.6 1.3-1.3 1.3-1.2 .6-10.4 2.5-4.3 1.9-2.9 2.8-1.2 1.9-1.2 2.4-.6 2.4 0 1.3 1.9 3-.3 6.7 .6 2.4 .6 1 1.3 .8 4.2-1.8 .9-1.8 .4-2.5 1.9 3.2 1.1 3.6 .1 3.1-.7 3-1.8 3.6-3 3.8 0 1.2 .6 .6 .3 1.2-1.2 4.9 .5 1.8 .3 .4 .6-.3 2.4-2.5 1.3-2.5 1.8 2.6 .6 1.8 .1 2.4-.6 1.8-1.1 1.2-1.4 1.4-1.8 .6-3.1 0-1.8-.7-1.2-.6-3.1-2.9-2.4-1.2-10.4-.1-3.7-1.4-1.3-1.2 3.1-.7 3.7-2.7 2.2-3.3 .3-1.2-.2-1.3-.7-.6-1.6-.4-6.7-.2-3.1-.5-1.2-1.2-4.9-1.3-2.4-1.2-3.7-3.1 .6 .4 3.1-.1 3-1 3.1-1.6 5.2-3.8 4.8-4.9 1.8-5.5 0-2.4-.5-1.9-1.2-1.8-1.6-1.4-6.7-3.5-.4-.6 .2-.6 7.1-5.5 5.3-5 7.4-2.2z", light: "M42.9 4.6l1.2-.2 .4 .2-.2 .7-13.9 19.5-4 3.5-1.9 .8-1.2-.3-.3-.9 .3-2.5 2.4-4.3 3.1-4.2 2.5-2.5 5.4-3.9zM23.2 47.4l.7-.6 2 1.2 .8 1.2 .1 1.3-.4 1.3-1.9 2.2-2.4 1.1-.6-.2-.5-.8-.1-1.2 .5-1.8z", eyes: [[44.1, 32.3, 7.4, 17.8, -13], [55.1, 29.6, 6.3, 17.9, -18.3]] },
-  moon: { label: "Moon", body: "M45.8 4.2l4.7-.2 4.2 .4 10.2 2.4 3.7 1.6 3.6 2.1 3.3 2.5 3 3.1 4.6 6.7 3.4 8.3 1.5 8.8 .1 4.6-.8 7.8-2.6 8.8-3.9 7.7-5.1 6.7-6.1 5.3-4.1 2.6-3.6 1.6-27.2 10.2-2.8 .7-2.6 0-5.7-1.3-2-.8-1.9-1.7-1.1-2.6-6.5-37.7-.2-5.2 .8-7.7 1.3-5.2 3.1-7.8 4.2-6.7 3-3.6 3.9-3.6 6.3-4.2 4.1-1.8z", paints: [["M57.6 9.9l.2-.3 .2 .3 2 4.7 1.9 1.9 2.6 .5 1.5-.7 1.1-1.1 .4 .4-.1 1.6-.7 1.5-2.2 2.5-1.6 .7-2 0-1.6-.8-1.3-1.4-.8-2-.4-2.6 .1-3.1z", "#1783FF", 1]], shade: "M74.3 13.5l2.1 1.5 .3-.4-.3-.6 2.1 2.1 4.6 6.7 3.1 7.4 1.5 7.6 .1 10.4-.6 4.6-2.5 8.3-4.2 8.2-3.1 4.2-5.7 5.7-6.2 4.2-4.6 2-28 10.3-4.1 0-5.2-1.1-2-.9-.5-.7 .5 .5 1.5 0 3.6 1 2.6-.3 5.7-2.1 2.1-2.1-5.4-31.5-.2-4.1 .4-1.1-.1-2.6 .5-3.6 1.8-7.7 2.8-6.7 1.9-3.1 3.9-5.2 3.2-3.1 2.5-2 5.2-2.9 3.1-1.1 3.1-.8 2.1 0 .5-.4 2.6 .2 1-.3 1.6 .4 1-.5 2.1 .8 1-.8 2.1 1.2z", light: "M38 6.3l1.7-.3 2.5 .2 .6 .4 1.5 0 .5 .5 1.6 .3-3.1 1.3 .4 .7-2.5 1.6-.5 1-2.5 2.1-2.7 2.9-6.2 7.9-1.5 2.7-1 .9-1.2 2.6-1.4 1-1.3 3.7-1.3 .3-6-1.4-1 3.6-.8 0 .9-3.6-.5-1 1.1-3.6 2.7-5.7 4.1-6.2 5.7-5.8 3.1-2.4 3.6-2.2z", eyes: [[51.6, 48.5, 8.4, 22.1, -10], [66.8, 42.9, 8.4, 22.1, -10]] },
-  wave: { label: "Wave", body: "M46.1 4l6.1 .3 9.6 2.1 4.5 1.8 4.1 2.4 3.5 2.8 4.4 4.8 2.6 4 2.1 4.1 2.2 6 4.8 26 .5 5.3-.3 4.1-1.2 3.8-1.5 2.8-2.4 2.5-2.1 1.4-3.1 1-3 .3-8.1-1.5-3.2 5.3-2.1 2.1-2.5 1.5-2.8 1-3 .4-9.1-1.6-2.7 4.2-3.4 3.1-4 1.7-4.6 .1-7-1.5-3.5-1.9-3.4-3.5-2.1-4-1.5-5.6-3.7-20.7-.6-5.6-.1-5 .5-6.1 2.3-9.6 2.3-5.5 2.7-4.9 2.7-3.7 3.2-3.6 4.2-3.6 4.7-2.9 4.4-2 4-1.2z", paints: [["M61.6 48.5l2.2-.3 2 1.1 1.1 2.2 .3 3-.6 3.1-1.5 3.5-2.5 4.1-2.4 2.8-5-2.2-3-2.2-2.3-3-.7-3.5 .6-2.6 1.8-2.1 1.6-.7 1.5 0 1.5 .6 1.5 1.3 2-3.6z", "#fff", 0.4]], shade: "M69.3 13.6l2.6 1.3 .5-.3 .5-1.3 2 1.7 .5 0 2.5 2.7 3.5 5.5 3.6 8.6 1.5 6.6 3.5 19.7 .5 5.5-.4 4.6-2 5-1 1.6-2.6 2.5-3 1.5-2.1 .5-4 0-6.6-1.4-1.4 2.9-1.9 2.5-2.7 2.6-3.1 1.5-2.5 .6-4 .1-7.1-1.5-1.5 2.8-2.6 3-2 1.6-3 1.4-4.5 .6-7.1-1.5-3.6-1.5-3.5-3.1 6.6 1.5 2.8-.5 .5-.5-.3-.5 3.2-2-.4-1 1.4-1.5-.3-1 .7-1.6-.2-2.5-3.4-19.2 .3-.5-.6-5 .5-.5-.1-4.6 .4-.5 .3-4 1-4.1 1.5-4.5 3.8-7.7 5.5-6.9 3.1-2.6 6.5-3.9 7.6-2.2 3.1 0 .5-.4 3 .5 1-.5 2.5 1z", light: "M36.5 6.1l2-.3 .5 .6 4.1 .5 1 .7-3.3 1.5-.3 1.2-3 2-.3 .8-2.8 2.6-3.5 4-3.9 5-2 3.6-1 .5-1.7 4-1.5 .5-1.4 4.6-1.6 .2-.5-.4-5.6-.9-.4-.4 1.4-5.1 1.5-3.5 2.6-5.1 4-5.5 6.6-6.2 4-2.5z", eyes: [[47.5, 37.2, 8.4, 22.1, -10], [61.6, 31.9, 8.4, 22.1, -10]] },
-  squircle: { label: "Squircle", body: "M54.5 4.2l3.9-.2 3.7 .3 11.6 2.7 3.1 1.6 2.8 1.9 2.6 2.7 2.2 3.1 2.4 4.8 1.9 5.8 3.7 19.4 .8 11.1-.4 4.7-1 4.7-1.3 3.5-1.8 3.4-4.8 5.8-6.4 4.7-8 4-14.2 5.3-9.5 2.2-7.4 .1-10.5-2.2-5.3-2.5-4.3-3.7-3.3-4.8-2.7-6.3-2.4-9.5-2.8-17.9-.2-7.8 1.3-7.9 2.2-5.3 2.8-4.2 4.1-4.2 4.3-3.1 6.3-3.4 11.6-4.6 7.9-2.7z", shade: "M80.5 11.6l2.1 2.1 2.1 3.2 3.2 7.3 2.1 8.4 2.7 15.8 .5 7.9-.6 7.4-2 6.3-3.8 6.3-4.2 4.3-2.6 2-6.9 3.8-15.2 6.2-9.5 2.7-6.8 .6-6.2-.7-8.5-2-5.8-3.2-3.2-3.3 .5 .4 1.1-.2 5.8 1.4 2.1-.8 1.4-.7-.3-.5 1.4-1.1-.1-1 .8-.5 0-1.1 1.1-1 .1-2.1 .4-.6-.2-3.6-2.4-17.9-.2-9.5 .8-5.3 1.1-3.6 1.2-2.7 2.2-3.5 2.7-2.8 3.1-2.5 5.8-3.2 17.9-6.9 5.3-1.4 8.4-1.4 1.6-1.1 .5 .1 .9-1.5z", light: "M39.4 8.4l1.2 0-1.6 .7-1-.1 1-.1zM36.8 9.5l1 0 .6 .9 4.2 .6 .7 .6-3.8-.4-.3 .4 1.9 .3 .1 .7-3.2 1.6-6.9 5.8-5.3 6-4.7 6.1-3.8 3.7-.2 .5-1.8 .1-6.8-1.7 .4-3.6 2.1-4.2 2.2-3.2 4.2-4.3 4.2-3 3.1-1.8 5.3-2.5zM35.1 10.5l1.7 0-.5 .4zM36.5 11.1l.3-.5 2.2 .1 .4 .4-.4 .3z", eyes: [[52.6, 52.4, 8.4, 22.1, -10], [67.3, 46.9, 8.4, 22.1, -10]] },
-  zed: { label: "Bull", body: "M77 4.4l1.1-.4 1.1 .2 1.2 1.3 2 9.8 2.2 5.9 .4 2.8-.3 2.1-.8 1.7-4.7 5.1-1.3 1.9-.4 1.7 .1 1.6 1 1.7 4.4 .2 3.8 1.3 2 1.7 .6 1.6-.3 1.7-.7 1.1-3.5 2.7 1.7 6 .4 5.9-.8 6.6-1.9 6-3.4 5.9-4.4 5.3-5.5 4.4-6 3.1-6.5 2-7.1 .7-6.5-.7-6.5-2.1-6-3.4-4.8-4.4-3.5-4.9-3.1-6.7-3.3 1.1-2.7 .3-2-.6-1.1-1.1-.3-2.2 .9-2.7 2.9-3.8 4.6-3.8 1.8-7.1-6.3-1.8-1.6-1.3-1.3-1.8-.6-2.7 0-6.6-1.4-8.7 .2-1.1 1.5-1.4 1.1-.1 1 .5 5.5 7.9 2.2 2.2 2.7 1.4 4.9 .4 .5-.1 6.5-5.1 6.6-3.2 6-1.6 8.7-.7 3.8-.9 2.7-1.5 3.9-3.2 3-3.8 2.4-4.9 2.1-10z", paints: [["M61 36.5l1.9 .7 1.4 2-.7 5.4 .3 .4 2.8-1.2 1.1 0 1 .9 .5 1.6-.5 .8-1 .5-7.1 2.4-1.1-.5-.9-1.6 1.4-5.4-.5-.6-3.3 1.1-1.1-.1-1.6-1-1-1.6 .5-.9z", "#fff", 1]], shade: "M80.2 5.5l.6 1.6 1.3 8.2 2.5 6 .2 3.7-.1 1.1-1.2 2.2-5.2 5.4-1.1 3.3 .9 2.7 3.8 3.9 1.6 .1 4.4-1.4 1.2 1.2 .1 1.1-.2 1.7-.6 1.1-3.6 2.7 .9 2.2 1.1 5.4 .1 6-1.1 6.5-2.3 6-3.8 6-6 6-4.9 3.3-5.9 2.6-7.1 1.7-7.1 .1-6-1.1-5.9-2.3-4.4-2.7-4.4-4.5 3.8 .4 5.5-1.5 7.6-3.9 6.8-4.7 7.9-6.5 7.1-6.9 5.4-6.5 4.4-6.7 1.8-4.4 .4-3.2-.3-1.1-3.3-3.8-.8-2.8 .8-2.7 6.2-7 .8-2.2-.1-2.7-1.7-4.4-.8-8.2zM14.9 29.9l.1-.5 4 6.5 2.3 2.7-1.4 .1-2-.6-3.6-7.1zM24.3 44.6l1-.3 1.1 .2 3.3 2.9 1.7 .5 .3 1.6-.5 2.2-1 1.6-1.6 1.5-1.6 .7-1.7 .1-3.2-2.2-2.2 0-2.7-.6-2.9-1.6 3.9-1.6 2.2-1.7 2.2-2.3zM21 68.6l.5-.5 1.1 .1 1.1 .5 .8 1 .6 2.7-.1 1.1-.7 1.1-.6 .1-2.2-1.2-2.7 1.1-3.8 .6-2.7-1.2 3.4-1.6z", light: "M77 4.4l.6-.2 .1 .7-1.2 .8-.1-.8zM74.2 15.8l.6 1.1 .1 2.7-.6 2.2-1 1.6-5.5 5-1.7 .7-3.3 .3 .1-.6 2.1-1.2 4.2-3.6 2.7-3.9zM11.7 28.9l.8 0-.1 .5-1.2 .8-.1-.8zM44.3 32.1l3.1 0 .8 1.1 0 1.1-1.9 4.3-3 4.1-1.7-1.1-2.1-.8-4.4-.6-4.4 .1 5.5-4.4zM22 54.4l.6 0-.3 .6 .2 .5 2.3 2.7 .4 1.7-1 .9-4.8 2.3-7.1 7.8 0-1.8 2.1-3.3 6.4-5.4 1.2-4.3z", eyes: [[61.8, 69, 9.5, 22.3, -10.5], [78.4, 62.7, 6.9, 22.2, -11.2]] },
-  hex: { label: "Blossom", body: "M38.8 4.2l2.6-.1 6 1.3 2 1.3 3 3.3 12-4.5 2-.5 6.5 1.1 2.9 1.6 4.9 6 .8 2 .3 2-.2 2.5-1.9 7-1.3 2.2-1.9 1.8 2.9 1.3 1.8 1.7 10.1 12.5 1.5 3 .1 4-1.8 7-.9 2-2.8 2.7-7.1 2.7-5.2 20-.8 2-1.4 1.9-1.5 1.1-6.5 2.6-3 .2-6.5-1.6-2-1.4-4-4.9-16 5.7-2 .1-4.5-1-3-1.2-5.2-6-1.3-3 0-3.5 2-8.5-10.8-13.4-1.4-3-.3-2 .3-2.5 1.7-6.5 1.8-3 2.2-1.8 5.9-2.2 2.1-.4 2.5 .3 .4-.4-.7-2.5 .1-2.5 4.8-18.5 1-2.5 2.9-2.9z", shade: "M49.7 7.7l.2-.4 .5 .4 2 2.3 0 .7 1.6 1.5 1 2 .1 1.5-.3 .5 .6 1.3 17.5-6.5 2.5-1.3 1-1.5 4.5 6 .6 1.5 .3 3-1.9 8-1 2-3 3-.3 1 .4 .5-1.7 3 .1 .5-.5 .5 0 .7 5.5-2.2 1.5-1.5 2 2 8 10 1 1.5 1 2.5-.1 4-1.9 7-1.1 1.9-2.9 2.5-6.8 2.5-4.7 19-1.5 3.5-2.5 2.5-6.5 2.6-4 0-5.5-1.4-2.2-1.7-3.2-4 4.9 .8 2.5-1.4 1.5-2.6 .7-2.3 1.7-6.5-.4-.3-.6 .8-.7 3.5-1.1 1.5 .3 .5-.3 .5-.7-.5-1.4-5.5-.5 1-.2 2-.9 1-.1 1.5-1.1 2-2.7 2.8-1 .4-1 .1-15.5 5.8-3-.1-4.5-1-2-1-2-2-2.2-3 .2-.2 4 .9 2-1.1 1.7-1.6 1.3-3.2 1.7-6.3 1.1-2.5-.3-.3-.5 .2-6.5-.3-.5-.5-2 0-.5-.5-1.7-.1-10.4-13.4 4.1 .7 3.1-1.7 1.3-2 2.5-8.5 .9-1.5 1.7-1.3 6.5-2.7 2-1.5-.3-.5 .3-.5 1.5-1.2 1.5-3 5.6-20.3 1.9-2 6-2.4 1.1-.6zM73.2 31.2l1.5 0-.8 1-34 12.7-1 .1-1.5-.5-2 .8-1.9-2.6 .4-.9 2 .5 1.5 1 .5-.4 1 .5 1-.3 1 .4 3-1.5 1 .1 3-1.6 1 .1 3-1.6 1 .1 3-1.6 2.5-.5 1.5-1 2.5-.5 1.5-1 2.5-.5 1.5-1 2.5-.5 1.5-1 1 0zM61.3 74.6l.1-.2 .4 .2-.4 1.7z", light: "M33.4 6.2l3 .1 1.9 .9-.1 .5-1.8 2.5-3.4 3.5-4.5 17-3.6-.9-1 .4 0-1 4.4-16.5 0-1.5 2.1-3.1zM68.2 6.2l1.2 0zM14.9 37.7l3.5 .9 .4 .6-.3 1-5 5.5-1.1 4.6-2.5-.5-2 .1 0-1.7 1-4.5 1-2.5 2-2.1zM19.4 71.6l4 .7 1.8 .8-1.2 1-1.1 5.1-4.5-.5-.5-.6 1.4-5z", eyes: [[49.8, 55.5, 6.7, 17.7, -10], [61.6, 51.1, 6.7, 17.7, -10]] },
-  gumdrop: { body: "M38.7 4.5l4.4-.5 4.6 .8 4.1 1.9 3.7 3.2 23.2 36.6 2.3 5 1.4 5.1 .7 6.4-.7 6.4-1.8 6.1-3.1 5.7-4.1 5.1-5.2 4.2-5.8 3.1-6 1.8-6.4 .6-6.4-.6-6-1.8-5.9-3.1-5.1-4.2-4.1-5.1-3-5.4-1.9-6.4-.7-6 .5-5.9 9-41.6 2-4.1 2.6-3.2 3.4-2.5z", shade: "M54.9 9.5l1.9 2.3 22.9 36.5 1.8 4.6 .9 3.7 .6 4.1-.1 5.9-1.4 6.4-2.3 5.5-3.7 5.4-4.1 4.2-4.5 3.3-7.3 3.2-6.4 1.2-6.4 0-5.1-.9-5.9-2.1-5.5-3.3-4.6-4.1 .5-.3 4.1 .8 5.5-1 6.4-2.6 7.3-4.5 7.2-5.7 6.5-6.4 5.5-6.9 3.5-5.9-18.1-37 1.1-3.7 .2-2.3z", light: "M37.1 4.9l2.5 0 .8 1.4-.5 2.1-1.8 2.9-3.2 3.2-3.2 2.1-2.3 .7-1.8-.1-.7-.9 .1-1.8 2.4-4.1 2.7-2.8z", eyes: [[52.1, 40.3, 9.7, 22.9, -15.2], [64.8, 35.6, 6.3, 23, -27]] },
-  peanut: { body: "M43.5 4l6.6 .7 5.8 2.2 5.4 3.8 4.1 4.7 2 3.8 1.4 4.3 1.3 11.9 1 4.3 1.6 3.8 5.8 10.5 1.4 3.8 .8 4.3 .1 6.2-1 5.7-2.1 5.5-3.2 4.9-4.1 4.3-4.8 3.4-5.6 2.4-5.7 1.3-6.1 .1-5.8-1.1-5.7-2.2-4.7-3.1-4.3-4.1-3.3-4.8-2.5-5.7-1.2-5.7-.1-6.7 1.7-9 .4-4.3-.5-4.7-2.5-9.6-.6-3.8 .2-5.2 1.2-5.2 1.5-3.4 2.2-3.3 2.5-2.9 2.8-2.3 3.4-2.1 3.4-1.4 3.8-.9z", shade: "M62.7 12.6l2.6 2.8 2.8 5.8 1.1 4.2 1 11.9 1 3.4 2.3 4.7 4.2 6.7 1.9 4.7 .9 3.8 .2 2.9-.1 6.2-.5 3.3-1.9 5.3-3.4 5.7-3.4 3.8-4.2 3.3-5.7 2.9-4.8 1.4-5.7 .6-6.2-.6-3.8-1-5.2-2.3-4.8-3.4-2.9-2.8 3.9 .8 5.2-.7 6.2-2.5 5.7-3.3 6.7-5.1 6.2-5.9 5.1-6.2 3.5-5.7-1.1-2.8-2.4-2.4-3.2-1.7-11.5-4.1-2.7-1.8-1.6-2.4-.2-2.4 .8-2.9 7.8-8 4.9-7.7 1.6-5.2z", light: "M35.9 5.4l3.2-.2 1.3 .7 .5 1-.5 3.3-2.9 4.8-4.1 4.1-4.8 3.3-4.2 1.5-1.5 0-1.4-.6-.7-1.2 .2-2.4 1.9-3.8 2.4-3.3 4.3-3.9z", eyes: [[50.9, 31.5, 8.7, 20.5, -11.9], [64.2, 26.5, 5.7, 20.3, -16.3]] },
-  saucer: { body: "M45 22.7l6.7 .1 6.7 1.9 4.3 2.5 3.5 3.1 2.8 3.5 2.5 4.5 6.8 .9 5.6 1.2 4.5 1.6 3.5 2.1 2.8 2.8 1.3 3.5-.5 3.5-2 3.5-2.6 2.8-3.5 2.8-4.5 2.8-5.1 2.6-12 4.4-13.6 3.1-13.6 1.5-12.6-.3-5.5-.7-5-1.2-4.1-1.6-3.5-2-2.8-3.1-1.1-3 .5-3.5 2-3.6 2.7-3 3.7-2.9 10.3-5.6 .7-5.1 1.5-4.5 2.6-4.5 3.1-3.5 3-2.4 3.5-2 3.5-1.4z", shade: "M66.5 31.3l.3-.2 .6 .7 1.9 2.5 2 4.5 1.6 1.5 .1 1.5-1.7 1.7-3 1.2-3.1 .5-3.1-.3 4-8.1 .7-3.5zM94.9 47.4l1.1 3-.5 3.5-2.1 3.5-4 4.1-5 3.5-6.1 3.1-7 2.9-6.6 2.1-8 2-9.1 1.5-6.5 .6-11.6 0-4.5-.2-8-1.4-4.6-1.5-3.6-2.1 4.1 1.2 5.1 .8 7 .3 6-.2 15.1-1.9 15.6-3.6 14.5-5.1 5.4-2.5 5.3-3.1 4-3 2.3-2.5 1.2-2.1zM7.3 71l.7 .5z", light: "M40.6 23.7l2.8 0 .8 .5 .7 1.5-.8 3.6-2.6 4-3.9 4-4.5 3.2-4.6 1.7-2.5-.4-1-1.4 0-1.6 .9-2.5 2.1-3.5 2.6-3 3-2.6 3.5-2.1zM22.4 47.4l.7 0-.5 .5 0 1.5 .4 .8 2 1.4 3 1.2 9.1 2 15.1 1.1-.2 1.5-2.2 3.6-3 2.5-4.9 2.5-6 2-7.9 1.5-6.5 .5-7.1-.4-4.9-1.1-3-1.5-1.6-1.7-.6-2.3 1.1-3.1 2.9-3.5 4.1-3.5 4.1-2.6z", eyes: [[53.6, 45, 7.8, 18.4, -14.5], [66.2, 40.3, 5, 18.3, -25.1]] },
-  bunny: { body: "M49.3 4.4l1.5-.4 2 1.2 1.6 2.7 1.2 3.4 1.6 8.9 .2 6-.2 6.4 .6 3 2.4 2.5 5.4 3 3.4 2.4 5.1 5.5 2.4 3.9 1.7 4 1.1 4.4 .4 4.5-.5 5.9-1.6 5.5-2.8 5.4-3.6 4.5-4.6 3.8-4.9 2.7-5.5 1.7-5.9 .7-6-.5-5.4-1.7-4.9-2.5-4.7-3.7-3.8-4.5-2.7-4.9-1.8-5.5-.7-5.9 .6-6.5 1.9-5.9 3.1-5.4 4.6-5.5-.4-2-3.4-8.4-1.8-6.9-.6-6.9 .3-3 .6-2 1.3-1.4 2-.1 2.5 1.5 2.1 2.5 4 6.9 2.1 5.5 1.7 5.9 1.5 2.1 1.8-1.6 .7-2-.4-12.4 1-8.9 1.6-4.9z", shade: "M52.7 5.4l2.1 3.5 1.9 7.4 .7 7.9-.5 8.4 .8 3.6-4.4-2.5-2.1-2.6 1.4-17.3zM31.2 15.3l.3-.5 2 2.5 2.9 4.9 2.5 6 1.7 6.4 1.4 2.5 0 .5-1.1 .9-4.5 1.9-2.4 .2-1.2-.6zM71.5 46l3.6 4.4 2.9 6 1.5 6.4 .1 5.5-1.1 6.3-2 5-3.4 5.4-3.5 3.6-4 2.9-6.4 3-4 1-6.9 .5-5.9-1-5.5-2-5.4-3.5-3.6-3.4 2.6 .7 2.5 .1 2.9-.5 4-1.3 8.4-4.6 8.7-6.8 7.4-7.9 5.3-7.9 1.3-3 1-3.5 .2-2.9-.2-2z", light: "M49.3 4.4l.6 0-3.6 6.2 1-3.7zM26 13.3l.5-.4 .2 .4-1.7 2.2 0-.7zM44.8 34.6l.5-.1 1.2 1.1 .8 1 0 .7-.5 .3-4-.5zM45.1 42.5l.8 0-.3 1-2.4 4.5-3.8 4.4-4.1 3.5-3.8 2.4-4 1.6-2.9 .1-1.8-1.1-.4-2.5 1.1-3.5 3.5-5.4 3-3.1 .2 1.6 .8 .8 3 .1 4.4-1.2z", eyes: [[59.2, 69.2, 8.2, 19.3, -12], [72.9, 64, 5.6, 19.1, -15.4]] },
-  kitty: { body: "M62.4 4.2l1.6-.1 1.5 1.2 7.4 21.3 3.7 6.4 6.2 7.4 3.1 5.9 1.5 4.8 .7 5.3-.2 5.4-1.1 5.3-3 7.4-4.4 6.4-5.3 5.4-6.9 4.6-7.5 3.1-8 1.7-8 .2-7.4-1.4-4.3-1.5-3.7-1.8-3.8-2.5-3.1-2.7-2.7-3-2.5-3.7-1.9-3.7-1.4-4.3-.9-5.3 .1-5.8 1.4-7 1.6-4.2 2-3.8 .8-3.2 .2-20.2 1.1-1.4 1.1-.3 1.1 .3 12.2 9.7 5.9-2.5 8-2.1 3.2-1.8 2.3-2.4 8.3-16z", shade: "M64.9 5.8l.1-.3 .7 .3 6.5 19.7 3.1 5.9 2.5 3.2-1.6-.8-2.6-2.4-5.1-8zM79.4 36.7l2.2 2.1 1.6 2.2 3.3 6.9 1.5 6.9-.1 6.4-1.6 7.5-3.1 6.9-3.8 5.3-5.3 5.4-6.4 4.3-7 3.1-6.3 1.6-4.3 .6-5.3 0-7.5-1.1-5.8-2-5.9-3.3-5.9-5.4 2.7 .7 3.2-.1 3.7-.8 5.2-1.9 10.3-5.5 11-7.8 10.7-9.6 7.8-9.1 3-4.6 1.6-3.4 .7-3.2z", light: "M62.4 4.2l.5-.1 0 .6-.8 1.1-4.5 14.4 .2 2.7-.3 1.6-1.1 1-2 .6-6.9-.5 2.6-1.3 3.1-3 8.1-16zM18.7 20.7l1.1-.5 0 .8-1.1 .9-.6-.1zM39.5 27.7l2.6-.3 1.9 .8 .4 1.6-.7 1.8-4.2-1.5-5.4 .2 0-.5zM16 47.4l.3 4.2 1.6 2.2 3 2.1-.6 .5-3.7 .6-1.1-.3-1.1-1.1-.4-1.8 .4-2.7z", eyes: [[59.6, 65.1, 9.4, 22.6, -11.9], [77.5, 58.4, 7, 22.5, -14]] },
-  beacon: { body: "M40 4.1l2.7 0 2.5 .9 2 1.7 1.1 2.1 .5 2-.2 2.1-2.1 4.1-.4 1.6 1.5 7.7 9-3.1 4.1-.2 18.5 4 3.1 1.6 2.4 2.3 1.3 2.1 .9 2.6 5.8 33.4-.4 3.1-1.3 3.1-2 2.5-2.6 1.9-41.7 15.7-4.1 .7-19.6-4-3.5-1.9-2.5-2.5-1.2-2.1-.8-2.6-5.7-32.9 .4-3.1 1-2.7 1.7-2.5 2.4-1.9 28.4-10.9-1.5-9.3-.7-1-3.5-3.3-.9-1.9-.4-2 .5-2.6 1.1-2.1 1.7-1.5z", shade: "M47.1 7.2l.4 0 .8 1.6 .3 2-.2 2.6-2.5 4.7 1.5 8.2 0 2 .5 .6 .1 1.5 .5 1-1.2 .4-1.3-.4-.3-.5-1.9-10.3-4.1-1.5-3.2-2.6 3.1-.9 3.2-2.2 2.5-2.6zM84.2 30.9l1.2 1.1 1.5 3.6 5.7 32.4 0 2.6-1 3.6-1 1.5-3.1 3.2-4.2 1.9-40.6 15-4.2 0-16.4-3.6-3.6-1.4-2.6-2.2 .5 .4 17.5 3.4 3.8-1.2 5-3.4 1-1.3-5.4-30.3 .2-.6 3.1-3.4 40.2-15.1 2-3.6z", light: "M38.5 4.7l2 0-.1 1-.8 1.4-2.6 2.2-1 .4-1.1-.1-.1-.8 .7-1.6 1.5-1.6zM55 23.7l1.1 .1-1.6 .6-.9-.2 .9 0zM52.4 24.7l1 0-3 1.2-.9-.1 2.4-.6zM48.3 26.3l1 0-1.5 .6zM40 29.4l1.1 0-3.1 1.2-.9-.2 2.5-.5zM35.9 30.9l1 0-3 1.2-.9-.1 2.5-.6zM31.8 32.5l1 0-3 1.2-.9-.2 2.4-.5zM40.2 33l.4-.4 1-.1 1.6 .8 3 .7-1.5 .5-4.1 0-.9-1zM27.7 34l1 0-3 1.2-1-.2 2.5-.5zM23.6 35.6l1 0-3 1.1-1-.1 2.5-.5zM19.4 37.1l1 0-2.4 .8-.5 .7 15.4 3.3 .5 .3 .3 1.1-1.1 2.6-3.3 3.3-3.1 1.5-17.5-3.6-.6-1.2 .5-1.6 3.2-3.7 2.1-1.4 2.5-1.1 1 0 .6-.5 1 0z", eyes: [[55.5, 65.3, 8.4, 22.1, -10], [74.2, 58.3, 8.4, 22.1, -10]] },
-  plus: { body: "M44.6 4.3l3.3-.1 11.9 2.5 2.5 1.3 1.3 1.4 .7 1.6 2.1 11.4 4.1-1.2 2.1 0 12.3 2.6 2.8 1.6 1.2 1.5 .7 1.5 3.8 21.6-.5 3.1-1 1.5-1.3 1.3-17 6.6 3.4 20.4-.4 2.5-1.2 2.1-2.3 1.6-19 6.9-2-.2-11.9-2.5-2.5-1.3-1.3-1.4-.7-1.6-2.1-11.4-4.1 1.2-2.1 0-12.3-2.6-2.8-1.6-1.2-1.5-.7-1.5-3.8-21.6 .5-3.1 1-1.5 1.3-1.3 17-6.6-3.4-20.4 .2-2 1.1-2.2 2.6-2z", shade: "M63.2 9.4l.7 .6 .5 1.5 2.1 13.3 .6 .6 0 2.5 .5 .5 .1 2.6 .5 .5 .1 2.1-.8 3.1 19-7.1 1-1.2 1-2.1 1.1 2.1 .4 2.6 3.2 18 0 3.1-1 2-2.2 2.1-15.9 5.8-.8 .8 3.6 19.5-.1 2.6-1.5 2.6-2.2 1.6-16.4 6.1-2.1 .6-2.5 0-12.4-2.7-2.2-1.5 12.5 2.5 2.4-1 2.7-2-3.9-22.1-3.8 3.5-1 .4-2.6 .5-1.5 1-2.6 .5-1.5 1-2.6 .4-1.5 1-4.6 1.5-2.5 0-11.9-2.6-2.7-1.6 12.4 2.3 2.6-.9 2.4-1.9-3.4-20.5 .3-.5 1.7-1.8 18.6-6.9 .3-.6-.7-1-3.8-22.1 2.1-2.1 16.4-6.1 .6-.5z", light: "M28.4 10.5l1.1 .5 10.2 2.1 .5 .4-.1 1.1-1.9 2.3-2.1 1-12.3-2.5-.1-1.3 1-1.6 1.2-1zM11.4 43.3l11.4 2.2 1 .6 0 .8-1.5 2.3-2.6 1.4-12.3-2.6-.2-1.1 .6-1 2.2-2.1z", eyes: [[54.5, 53.1, 6.1, 15.9, -10], [64.5, 49.4, 6.1, 15.9, -10]] },
-  magnet: { body: "M71.9 4.2l1.2-.2 12.1 2.6 .5 .3 .6 1 6.2 35.6 .6 5.8-.1 5.7-.7 5.8-1.5 5.7-2.2 5.8-4.2 7.3-5.5 6.5-6.5 5-7.1 3.4-6.3 1.3-6.3 0-15.2-3.1-5.2-1.8-5.2-3-4.6-4.1-4-5.2-2.9-5.8-2.4-7.8-6.4-36.2 25-9.5 13.1 2.9 .5 .9 6.3 35.3 1.8-3.9 .5-4.7-6.3-36.1 .4-.6z", shade: "M86.2 9.5l.5 1 5.8 33 .6 4.7 0 5.2-.6 5.8-2.1 8.4-3.1 7.3-3.7 5.8-6.3 6.8-5.7 4.1-5.8 2.7-6.8 1.5-6.3 0-15.2-3.1-5.7-2-5.2-3.2-5.9-5.8 .1-.7 11.5 2.5 .3-3.4-1.9-13.6-5.7-32.4 1-.1 18.3-6.9 .9-.9 .4-1 6.1 35 1.6 2.1 .1 .6 4 4.7 3.2 1.1 3.6-.6 3.2-1.9 2.4-2.8 1.9-4.2 .6-3.7-6.4-36.6 19.3-7.1 .8-.8z", light: "M53.6 54.5l.7-.4 12 2.8 .6 1.8-.6 2.1-2.1 2.4-2.6 1-1.5 0-6.3-1.4-1.6-2.6-.2-2.1z", eyes: [[59.6, 82.1, 6.1, 15.9, -10], [72, 77.5, 6.1, 15.9, -10]] },
-  acorn: { body: "M47.6 4l2.1 .6 1.3 1.5 .4 1.5-.4 5.2 .3 .3 8.8-.1 7.7 1 7.3 2.1 5.7 2.9 3.6 2.9 2.6 3 1.8 3.4 .9 3.7 0 4.1-1 3.6-1.7 2.2-3.9 3 2.9 8.3 .9 8.3-.9 8.3-2.7 7.7-4.2 6.8-2.9 3.1-3.2 2.6-6.7 3.8-3.7 1.2-4.1 .8-7.2 0-7.3-1.7-7-3.6-5.9-5.1-4.8-6.3-3.3-7.3-1.8-7.7-.1-8.3-4.5-1.5-2.6-1.7-2.6-4.1-1.1-4.1 0-4.2 1.2-4.1 2.2-4.1 2.8-3.7 5.2-4.6 6.3-3.8 7.2-3.2 8.3-2.3 .9-8.3 1.2-1.4z", shade: "M50.6 6.1l.1-.5 .6 2-.6 5.7 .2 2.1-1.2 .2-1.2-.7 .5-6.8zM85.8 23.7l1.7 2 1.6 3.7 .6 2.6-.1 4.1-.5 2.6-1.1 2.1-2.1 2-2.9 2.1 1.4 3.1 1.6 5.2 .9 8.8-.5 5.7-1.4 5.7-2.2 5.1-2.6 4.2-5.1 5.7-5.2 3.6-4.7 2.2-6.2 1.5-7.7 .1-5.7-1.2-6.8-3-4.6-3.2-4.2-4.2 2.1 1 2.1 .3 3.1-.3 3.1-.9 6.4-3.1 6.5-4.6 6.6-5.8 5.9-6.4 5.6-7.9 4-7.4-2.4 .4-.5 .5-1.1 0-.5 .5-1 0-.5 .5-1.1 0-.5 .5-1 0-.5 .6-1.6-.1-.5 .5-1.6 0-.5 .5-3.6 .5-.5 .5-2.1-.1-.5 .6-2.1-.1-.5 .7-3.1-.2-.5 .5-3.1 0-.5 .7-4.7-.2-.5 .7-15.6-.3 0-.3 8.3-.6 11.4-2.4 11.4-3.8 10.5-4.8 9.2-5.7 6-5.2 2.2-2.6 1.6-2.9 .5-1.7z", light: "M46 4.5l1.1-.1 0 .6-1.5 1.6-1.1 .2-.1-.7zM38.5 15.9l5 0 3.3 1.6 1.6 3.1 .1 3.1-.9 3.1-1.9 3.1-3.2 3.6-4 3.1-3.6 2.1-8.5 3.2-4.1 .7-4.2 .1-3.1-.5-2.6-1.5-1.1-2 .1-2.1 .5-1.5 2.1-3.7 4.1-4.6 3.7-3.1 5.1-3.2 6.3-3z", eyes: [[63.6, 63.3, 9.6, 22.7, -11.9], [79.5, 57.3, 6.5, 22.5, -15.5]] },
-  pebbles: { body: "M47.3 4.5l2.7-.4 2.7 .1 13.7 3 4.3 2.1 3.3 3.4 1.3 2.2 1 2.8 2 12-.5 4.3-3.1 7.7 .2 .5 8.4 1.9 2.7 1 3.3 2.1 2.7 2.8 2.4 4.3 1.4 6.5 .1 4.4-.8 3.8-1.3 2.7-2 2.8-2.4 2.2-2.7 1.6-45.5 17-3.3 .6-3.2-.2-19.2-4.2-4.9-2.8-3.4-3.8-1.9-4.4-1.3-7.7 .2-3.2 .8-2.8 1.3-2.7 2-2.7 3.2-2.8 7.9-3.8 2.5-2.2-.4-1.6-5.4-6.1-1.8-3.8-2.3-12.5 .2-3.3 .7-2.7 2.6-4.4 2.2-2 2.2-1.4z", shade: "M73.2 12.2l.4 0 1.5 2.2 1.2 3.3 1.8 11.4-.2 4.4-3.3 7.6 0 1.1 .6 1.1-1.2 1.3-26.8 10.1-3.2 .5-5.8-.4-15.2-3.3-1.4-.5-3.5-3.8 .2-.3 1.6 .2 10.9 2.2 2.8-.5 4.4-2.2 5-3.8 .1-.6-1.5-8.7 4-4.5 24.2-9.2 2.4-3.8zM90.9 48.8l2.8 3.8 1 2.8 1.2 6 0 4.3-1.1 3.9-1.7 3.2-3.8 3.9-2.7 1.7-42.1 15.8-5.5 1.6-3.8 0-18-3.8-4.9-2.1-3.4-2.9 17.6 3.8 2.7-.2 3.3-1.2 4.3-2.6 4.4-3.6-.4-3.8 4.4-4.9 42.5-16 2.1-3.1 1.1-2.8 .5-3.3z", light: "M45.6 5.1l1.5 0-.4 .2-22.9 8.5 11.4 2.5 .6 .8 0 1.6-1.5 2.8-1.9 2.2-2.8 2.1-3.1 1.2-13.2-2.8-.1-2.2 1.2-2.2 1.7-2.2 2.7-2.2 2.2-1.1 2.2-.5 .5-.5 2.8-.6 1.6-1.1 2.7-.5 1.7-1.1 2.7-.6 1.6-1 2.8-.6 1.6-1.1 2.8-.5zM21.6 53.2l15.8 3.6 1.2 .7-.1 .9-.8 .8-3.1 1.6-1.3 3.8-3 3.8-3.3 2.5-3.3 1.4-18-3.6-.6-1.3 .6-2.2 1.6-2.7 1.7-1.8 3.8-2.8 5.5-2.2z", eyes: [[51.2, 34.1, 6.9, 18.1, -10], [66.4, 28.4, 6.9, 18.1, -10]] },
-  cushion: { body: "M64.2 4.4l3.3-.4 2.8 .2 3.9 .8 2.8 1.1 2.7 1.7 2.4 2.1 1.9 2.4 1.5 2.8 1.2 3.9 7.1 40.6-.1 5-1.4 4.5-1.6 2.9-1.9 2.2-2.2 1.9-2.8 1.7-45.6 17.1-3.4 .9-3.4 .2-4.5-.7-3.4-1.2-3.3-2-2.9-2.7-2.3-3.4-1.5-3.9-7.3-41.7 .1-5 1.4-4.5 1.6-2.9 1.9-2.2 2.2-1.9 2.8-1.7z", shade: "M82.1 10l2.9 4 1.6 4.5 7.3 42.2-.5 5.1-1.1 3.3-1.7 2.9-4.6 4.5-3.3 1.7-46.8 17.4-5.6 .2-4-.7-3.3-1.2-3.4-2.2-1.7-1.8 .6 .4 3.3 .2 4.5-1.2 5.1-2.8 5.3-4.4-6.9-39.4 5-5.7 43.9-16.4 2.3-3.6 1.1-2.8 .5-3.6z", light: "M62.3 4.9l1.8 .1-43.4 16.1 1.1 .4 .8 .9 .1 1.7-1.6 3.4-2.6 3-3.4 2.7-3.4 1.5-3.4-.2-.8-.8-.2-1.2 .4-1.6 1.7-2.9 3.4-3.5 2.3-1.6 3.4-1.6 5.6-1.8 .6-.5 1.1 0 .5-.6 2.3-.5 .6-.6 1.1 0 .6-.6 2.2-.5 .6-.6 1.1 0 .6-.6 2.2-.5 .6-.6 1.1 0 .6-.5 2.2-.6 .6-.6 1.1 0 .6-.5 2.2-.6 .6-.5 1.1-.1 .6-.5 2.2-.6 .6-.5 1.1-.1 .6-.5 2.2-.6 .6-.5 1.1 0 .6-.6 2.2-.6 .6-.5 1.1 0z", eyes: [[51.1, 57.2, 8.4, 22.1, -10], [69.9, 50.1, 8.4, 22.1, -10]] },
-  ring: { body: "M48.1 4.3l8-.1 7.8 1.8 7.3 3.5 6.7 5.4 5.2 6.7 4.1 8.3 2.3 8.9 .7 9-1 9.5-2.5 8.9-4.1 8.3-5.3 7.3-6.6 6.1-7.3 4.5-7.8 2.7-8.4 .9-7.2-.8-7.3-2.5-6.7-4.1-5.6-5.3-4.5-6.5-3.5-7.8-2-8.4-.6-8.4 .9-8.9 2.2-8.4 3.5-7.8 4.9-7.2 5.8-6.1 6.3-4.5 7.1-3.3zM50.5 33.8l2.3-.3 1.7 .4 1.6 1.1 2 2.2 1.3 2.8 .8 2.7 .4 3.4-.1 3.3-1.4 6.2-3 5.6-2.2 2.4-2.2 1.6-2.3 1-2.2 .3-1.7-.4-1.6-1.1-2.8-3.7-1.5-5.2-.1-5.5 1.2-5.6 2.4-5 3.6-4z", shade: "M76.2 14.9l1.1-.5 3.4 3.8 2.8 3.9 2.3 4.5 1.6 3.9 1.6 5.6 1.1 8.3-.4 10.1-1.3 6.1-2.6 7.8-4.6 8.3-4.4 5.6-6.2 5.7-6.1 3.8-7.2 2.9-6.2 1.1-7.8-.1-7.2-1.7-3.9-1.6-4-2.2-5.5-4.5-2.8-3.4 1.7-.6 2.4-2.1 2-2.8 1.2-2.8 1.2-5 1.1-13.4 1.4-7.8 2.5-7.8 3.8-7.3 3.3-4.5 3.4-3.4 3.9-3.1 4.4-2.6 3.9-1.5 4.5-1.1 12.3-.9zM50.5 33.8l.6-.3 2.8 0 1.6 .9 2.7 2.8 3 1.4 3.3 .5 6.1 .2 3.9 .9 1.7 1 1.7 1.6 2.1 4.4 .7 4.5-.3 5-1.2 5-1.9 4.5-2.8 4.2-3.3 3.6-3.9 2.8-3.9 1.7-3.4 .6-3.3-.1-3.4-1.1-2.5-1.7-2.5-3-3.6-7-2.9-3.4-2.1-5-.6-5.6 .6-4.4 1-3.4 2.3-4.4 1.4-2.1 2.3-2.2 2.7-1.7z", light: "M41.1 5.9l.5 .1 .2 .5-.3 .6-12.4 13.3-13.1 18.1-2.3 2.1-1.1 0-.2-1.2 .2-2.8 1.6-5 4.6-8.3 3.9-5.1 4.4-4.4 4.5-3.4 5-2.8zM60.5 53.3l1.2-.3 1.1 .6 1.1 1.3 .8 1.8-.2 3.3-1.5 2.8-2 1.7-2.6 1-7.3 .2 2.2-1.4 2.6-2.6z", eyes: [[56.2, 84.6, 5.3, 13.3, -6.8], [71.7, 78.8, 5.1, 13.4, -6.5]] },
-  gem: { body: "M57 9.3l2.9-.4 14.9 3.5 19.6 14.1 1 1.4 .6 1.6-.5 2.6-27.1 56.5-1.6 1.8-2.1 .7-15.9-3.4-42.9-30.7-1.3-1.6-.6-1.6 .5-2.6 12-25.2 1.1-1.5 1.5-1z", shade: "M75.7 14.6l.1-.4 .6 .2 16.9 12.3 1.1 .7 .5-.2 .5 .7 .6 2.6-.5 1.6-26.4 55.1-1.2 2.1-1.1 1.1-1.6 .6-2.1 0-14.3-3.3-42.8-30.7 1.5-.2 11.6 2.5 2.2-.7 2.8-2.6 11.9-24.9 .6-.8 38.2-14.2z", light: "M19.1 23.6l1.1-.4 .5 .5 11.7 2.2 1 .9-.2 .5-1.8 2.7-11.7 24.4-1.6 .6-13.3-2.8-.5-.5 12.1-25.4 1.2-1.7z", eyes: [[51.4, 42.9, 6.7, 17.7, -10], [66.1, 37.4, 6.7, 17.7, -10]] }
+  star: { label: "Star", body: "M40.1 4.4l1.5-.4 1.9 .1 5.2 1.1 1.9 .9 13.2 14.9 17.1-.8 5.2 1.1 1.8 .9 1.7 1.6 .7 2.4-.4 1.9-9.7 23.6 5.6 23.7 .1 1.9-.6 1.4-2.1 1.8-2.3 .5-19.9-1.8-16.6 15.5-1.9 1-1.9 .3-7-1.5-2.6-2.1-.9-2.4-2.8-24.1-16-13.6-1.1-1.5-.5-1.9 .4-1.9 1.2-1.5 18.9-13.6 7.1-24.6 1-1.7z", eyes: [[53.9, 53.4, 7.2, 18.8, -10], [65.1, 49.2, 7.2, 18.8, -10]] },
+  moon: { label: "Moon", body: "M44.4 4.3l8-.1 11.7 2.5 6.6 2.6 5.6 3.8 5.6 5.7 4.4 7.1 3.1 7.9 1.5 8.5 .1 9.4-1.6 9.4-3.2 8.9-4.9 8.4-5.9 6.8-7 5.4-7.5 3.6-8 1.7-7.5-.2-10.7-2.3-5.8-2.1-5-3-5.3-4.7-4.7-6.1-3.4-7.1-1.6-6.1 .3-4.2 .5-.9 .9-.4 7.5 1.7 6.1 5.3 1.5 0 2.8-1.1 2.5-1.8 2.3-2.3 2.2-3.1 2.7-6.3 .9-7-.9-6.6-1.3-3.1-1.6-2.5-1.8-1.9-1.3-.7-2.8 .9-6.1 3.1-1.9 .4-7-1.6-.7-1.2 .1-1.9 1.1-3.7 2.2-3.8 3.9-4.8 4.3-4.1 4.6-3.2 4.7-2.5 4.7-1.7z", eyes: [[61.3, 54.8, 6.9, 18.1, -10], [72.4, 50.7, 6.9, 18.1, -10]] },
+  cloud: { label: "Cloud", body: "M43.6 11.6l6.7 .1 6.6 1.9 5.3 3.4 7.7 7.9 11.3 2.5 3.6 1.6 3.6 2.5 4.1 4.7 2.6 5.7 .9 6.6-1.1 6.5-1.5 3.6-1.9 2.9-4.9 5.3-17 11.4-6.8 3.5-8.9 2.8-9.5 1.3-13.1 2.5-6.5 .2-5.9-1.1-4.2-1.8-3.6-2.6-2.7-3-2.2-3.6-1.5-4.2-.7-4.1 .2-4.2 1-4.1 1.5-3.6 2.4-3.6 8.6-8.8 1.8-2.5 1.3-2.9 2.5-10.7 1.7-3.6 2.2-3.2 3.5-3.6 3.9-2.7 4.5-1.9z", eyes: [[55.7, 62.2, 8.5, 20.1, -10.7], [74.4, 55.5, 6.8, 20, -11.5]] },
+  spark: { label: "Spark", body: "M32.9 4.3l2.9-.2 2.3 1 21.5 19.1 1.5-.7 2.4-2.3 1.9-1.1 2.3-.1 2.1 1.2 1.2 1.7 3.1 7.6 8.4 13.9 2.6 6.5 1.2 6.2-.2 7-1.6 7-3.1 6.4-4.4 5.8-5.3 4.8-6.3 3.9-6.4 2.4-7 1.4-7 .1-6.9-1.2-6.4-2.4-5.8-3.7-5-4.8-3.7-5.5-2.4-6.1-.9-4-.3-4.1 .3-4.6 .8-4.1 2.5-7 6-11 1.8-4.1 .9-3.4 3.4-21.5 1.2-2.5z", eyes: [[60.7, 67.1, 8.3, 19.7, -11.2], [76.9, 61, 6.2, 19.6, -12.1]] },
+  bear: { label: "Bear", body: "M63.8 4.5l5.2-.4 4.9 1.4 3.9 2.8 2.9 4.4 1 3.2 .1 3.9-.5 2.7-1.7 4.4-.2 2.1 .9 2.2 3.8 4.4 2.6 3.8 1.9 3.9 1.3 3.8 1 4.4 .3 4.9-.3 4.9-1.1 4.9-2.8 7.1-4.3 6.7-5.7 5.9-6.9 4.7-7.6 3.3-7.7 1.8-8.2 .2-7.6-1.3-7.1-2.7-6.6-4.3-5.4-5.5-3.6-6.1-2.5-7.1-.8-7.1 .6-7.1 2.1-7.1-3.5-3.3-2.3-3.8-1.1-4.3 .5-5 1.3-3.2 2.5-3.3 2.9-2.2 3.8-1.5 4.4-.4 3.9 .8 3.8 2 3.2 3.3 7.1-2.9 8.2-2 1.1-.7 .9-1.3 1.3-6.1 2.2-4 3.3-3.1z", eyes: [[62.1, 63.9, 9, 21.4, -11.5], [80.4, 57, 6.7, 21.3, -13.3]] },
+  puppy: { label: "Puppy", body: "M48.2 13.7l4.1 0 4.3 .5 7.7 2.3 3.8-2.2 3.9-.5 3.2 .8 2.8 1.7 2.2 2.7 15 26.4 .8 4.4-.3 2.2-.9 2.2-2.6 3.1-3.8 1.9-3.8 .2-3.9-1.3-3.8 6.5-4.9 5.5-5.5 4.2-6.6 3.2-4.4 1.3-4.3 .8-5 .2-4.3-.4-4.4-1-4.4-1.6-3.8-2-3.9-2.8-.4 .8-1.4 7.1-1.2 2.2-1.9 2-2.7 1.6-2.8 .6-2.7-.1-2.7-.9-2.3-1.5-1.8-2.2-1.2-2.8-.3-2.7 5.5-34.5 1.1-3.2 1.3-1.7 1.8-1.7 4.1-1.6 5.4-7.7 3.4-3.3 3.8-2.8 4.3-2.4 4.4-1.8 4.4-1.1z", eyes: [[58, 51.9, 8.8, 20.6, -11.1], [74.8, 45.6, 6.3, 20.5, -12.6]] },
+  kitty: { body: "M62.4 4.2l1.6-.1 1.5 1.2 7.4 21.3 3.7 6.4 6.2 7.4 3.1 5.9 1.5 4.8 .7 5.3-.2 5.4-1.1 5.3-3 7.4-4.4 6.4-5.3 5.4-6.9 4.6-7.5 3.1-8 1.7-8 .2-7.4-1.4-4.3-1.5-3.7-1.8-3.8-2.5-3.1-2.7-2.7-3-2.5-3.7-1.9-3.7-1.4-4.3-.9-5.3 .1-5.8 1.4-7 1.6-4.2 2-3.8 .8-3.2 .2-20.2 1.1-1.4 1.1-.3 1.1 .3 12.2 9.7 5.9-2.5 8-2.1 3.2-1.8 2.3-2.4 8.3-16z", eyes: [[59.6, 65.1, 9.4, 22.6, -11.9], [77.5, 58.4, 7, 22.5, -14]] },
+  bunny: { body: "M49.3 4.4l1.5-.4 2 1.2 1.6 2.7 1.2 3.4 1.6 8.9 .2 6-.2 6.4 .6 3 2.4 2.5 5.4 3 3.4 2.4 5.1 5.5 2.4 3.9 1.7 4 1.1 4.4 .4 4.5-.5 5.9-1.6 5.5-2.8 5.4-3.6 4.5-4.6 3.8-4.9 2.7-5.5 1.7-5.9 .7-6-.5-5.4-1.7-4.9-2.5-4.7-3.7-3.8-4.5-2.7-4.9-1.8-5.5-.7-5.9 .6-6.5 1.9-5.9 3.1-5.4 4.6-5.5-.4-2-3.4-8.4-1.8-6.9-.6-6.9 .3-3 .6-2 1.3-1.4 2-.1 2.5 1.5 2.1 2.5 4 6.9 2.1 5.5 1.7 5.9 1.5 2.1 1.8-1.6 .7-2-.4-12.4 1-8.9 1.6-4.9z", eyes: [[59.2, 69.2, 8.2, 19.3, -12], [72.9, 64, 5.6, 19.1, -15.4]] },
+  octopus: { label: "Octopus", body: "M41.9 4.2l4.4-.2 4.5 .3 8 2 4 1.7 3.5 2.1 3.4 2.7 2.8 3 2.4 3.3 1.9 3.4 1.5 4 .8 4 .3 4-.3 4.5-.9 4-1.4 4 1.4 1.5 9.8 5.7 1.7 1.5 1.2 1.6 .9 2.3 .4 2.3-.2 2.3-.8 2.3-1.6 2.2-2.2 1.8-2.9 1.1-2.3 .1-2.2-.3-6.6-3.2 2.7 6.2 .2 4-.6 2.3-1.4 2.3-1.8 1.7-1.7 1-4 .8-4-.9-2.8-2-2.3-3.6-.3 .7 .2 5.7-1.6 3.8-1.7 1.8-2 1.3-2.6 .8-2.3 .1-3.4-.9-3-2.3-1.7-2.8-1.3-5.2-.3-.6-.6 .1-3.1 7.9-2 2.9-1.7 1.3-2.3 1-2.3 .4-2.3-.2-2.4-.8-2.4-1.7-1.7-2.3-.9-2.3-.3-2.3 .3-2.2 4.8-13.8 .4-3.4-1.2-3.4-6.9-7.9-3.4-6.4-1.2-4-.6-4 0-4 .5-4.5 1.6-5.2 2.5-5.1 3.2-4.6 4.3-4.3 5-3.7 5.3-2.7 5.7-1.9z", eyes: [[53.6, 44.1, 8.6, 19.9, -10], [71.1, 37.5, 6.1, 19.9, -10]] },
+  sprout: { label: "Sprout", body: "M63.2 4.1l3 .2 1.2 .8 .7 1.1 .3 1.6-.2 2.1-1.6 4.2-3.6 5-4.7 4.4-4.8 3-5.4 1.7-.3 1.1 .4 2.6 .6 .5 4.7-.1 4.3 .5 6.3 1.7 6.3 3.2 5.7 4.9 4.4 6.1 2.6 6.8 .8 7.4-1.1 7.4-2.4 6.3-3.7 5.7-4.8 5-5.7 4-6.3 2.8-6.9 1.6-6.8 .2-6.8-1-4.8-1.6-4.7-2.5-4.1-3.2-3.5-3.7-2.7-4.2-2-4.7-1.1-4.7-.4-5.3 .6-4.7 1.2-4.8 2.1-4.7 2.8-4.2 3.4-3.9 4.2-3.5 4.8-2.9 5.4-2.3 0-1.6-.2-.4-3.1 1.6-3.7 .7-3.7-.2-3.7-.9-3.1-1.5-2.6-2.1-1.4-2.4 0-2.1 .9-1.6 1.5-1.2 2.6-1 2.7-.4 5.7 .5 6.3 2.6 .3-3.1 1.3-1.9 2.1-.7 2.6 .9 4-5.7 4.4-4.5 5.1-3.3z", eyes: [[59.4, 69.3, 8.7, 20.6, -11.1], [75.5, 63.2, 6.3, 20.6, -12.6]] },
+  bloom: { label: "Blossom", body: "M45 4.1l3-.1 2.9 .4 2.9 .9 2.8 1.5 2.4 1.9 2.1 2.3 3 5.3 4-1.3 4.6-.4 4.6 .9 4 2 3.7 3.3 2.7 4 1.5 4.6 .4 4.6-.7 4.6-1.9 4.6-2.2 3.3-4.1 3.6-.5 1.1 3.1 4.1 1.6 2.8 1.2 3.5 .6 3.4-.1 4.1-.8 3.4-1.4 3.5-1.9 2.9-2.3 2.5-2.8 2-3 1.5-2.8 .9-3.5 .3-2.8-.2-6.4-2-2.8 4.9-4.1 3.9-5.1 2.5-5.8 .8-4-.6-4-1.7-3.5-2.6-2.5-3.1-2.3-4.6-.9-4.6 .3-5.1 1.4-4.6-6.3-2.6-2.7-2-2.2-2.3-1.8-2.9-1.2-2.9-.8-3.4-.2-3.5 .4-3.4 1.1-3.5 1.8-3.4 2.2-2.9 2.8-2.4 2.9-1.7 3.4-1.2 4.1-.5 .3-.5-.9-5.2 .3-4.6 1.3-4.6 2.4-4.1 2.6-2.8 3.1-2.3 3.5-1.5z", eyes: [[54.2, 55.2, 8, 18.1, -10], [69.4, 49.5, 5.1, 18.1, -10]] },
+  acorn: { body: "M47.6 4l2.1 .6 1.3 1.5 .4 1.5-.4 5.2 .3 .3 8.8-.1 7.7 1 7.3 2.1 5.7 2.9 3.6 2.9 2.6 3 1.8 3.4 .9 3.7 0 4.1-1 3.6-1.7 2.2-3.9 3 2.9 8.3 .9 8.3-.9 8.3-2.7 7.7-4.2 6.8-2.9 3.1-3.2 2.6-6.7 3.8-3.7 1.2-4.1 .8-7.2 0-7.3-1.7-7-3.6-5.9-5.1-4.8-6.3-3.3-7.3-1.8-7.7-.1-8.3-4.5-1.5-2.6-1.7-2.6-4.1-1.1-4.1 0-4.2 1.2-4.1 2.2-4.1 2.8-3.7 5.2-4.6 6.3-3.8 7.2-3.2 8.3-2.3 .9-8.3 1.2-1.4z", eyes: [[63.6, 63.3, 9.6, 22.7, -11.9], [79.5, 57.3, 6.5, 22.5, -15.5]] },
+  squircle: { label: "Squircle", body: "M54.5 4.2l3.9-.2 3.7 .3 11.6 2.7 3.1 1.6 2.8 1.9 2.6 2.7 2.2 3.1 2.4 4.8 1.9 5.8 3.7 19.4 .8 11.1-.4 4.7-1 4.7-1.3 3.5-1.8 3.4-4.8 5.8-6.4 4.7-8 4-14.2 5.3-9.5 2.2-7.4 .1-10.5-2.2-5.3-2.5-4.3-3.7-3.3-4.8-2.7-6.3-2.4-9.5-2.8-17.9-.2-7.8 1.3-7.9 2.2-5.3 2.8-4.2 4.1-4.2 4.3-3.1 6.3-3.4 11.6-4.6 7.9-2.7z", eyes: [[52.6, 52.4, 8.4, 22.1, -10], [67.3, 46.9, 8.4, 22.1, -10]] },
+  gumdrop: { body: "M38.7 4.5l4.4-.5 4.6 .8 4.1 1.9 3.7 3.2 23.2 36.6 2.3 5 1.4 5.1 .7 6.4-.7 6.4-1.8 6.1-3.1 5.7-4.1 5.1-5.2 4.2-5.8 3.1-6 1.8-6.4 .6-6.4-.6-6-1.8-5.9-3.1-5.1-4.2-4.1-5.1-3-5.4-1.9-6.4-.7-6 .5-5.9 9-41.6 2-4.1 2.6-3.2 3.4-2.5z", eyes: [[52.1, 40.3, 9.7, 22.9, -15.2], [64.8, 35.6, 6.3, 23, -27]] },
+  peanut: { body: "M43.5 4l6.6 .7 5.8 2.2 5.4 3.8 4.1 4.7 2 3.8 1.4 4.3 1.3 11.9 1 4.3 1.6 3.8 5.8 10.5 1.4 3.8 .8 4.3 .1 6.2-1 5.7-2.1 5.5-3.2 4.9-4.1 4.3-4.8 3.4-5.6 2.4-5.7 1.3-6.1 .1-5.8-1.1-5.7-2.2-4.7-3.1-4.3-4.1-3.3-4.8-2.5-5.7-1.2-5.7-.1-6.7 1.7-9 .4-4.3-.5-4.7-2.5-9.6-.6-3.8 .2-5.2 1.2-5.2 1.5-3.4 2.2-3.3 2.5-2.9 2.8-2.3 3.4-2.1 3.4-1.4 3.8-.9z", eyes: [[50.9, 31.5, 8.7, 20.5, -11.9], [64.2, 26.5, 5.7, 20.3, -16.3]] },
+  saucer: { body: "M45 22.7l6.7 .1 6.7 1.9 4.3 2.5 3.5 3.1 2.8 3.5 2.5 4.5 6.8 .9 5.6 1.2 4.5 1.6 3.5 2.1 2.8 2.8 1.3 3.5-.5 3.5-2 3.5-2.6 2.8-3.5 2.8-4.5 2.8-5.1 2.6-12 4.4-13.6 3.1-13.6 1.5-12.6-.3-5.5-.7-5-1.2-4.1-1.6-3.5-2-2.8-3.1-1.1-3 .5-3.5 2-3.6 2.7-3 3.7-2.9 10.3-5.6 .7-5.1 1.5-4.5 2.6-4.5 3.1-3.5 3-2.4 3.5-2 3.5-1.4z", eyes: [[53.6, 45, 7.8, 18.4, -14.5], [66.2, 40.3, 5, 18.3, -25.1]] },
+  beacon: { body: "M40 4.1l2.7 0 2.5 .9 2 1.7 1.1 2.1 .5 2-.2 2.1-2.1 4.1-.4 1.6 1.5 7.7 9-3.1 4.1-.2 18.5 4 3.1 1.6 2.4 2.3 1.3 2.1 .9 2.6 5.8 33.4-.4 3.1-1.3 3.1-2 2.5-2.6 1.9-41.7 15.7-4.1 .7-19.6-4-3.5-1.9-2.5-2.5-1.2-2.1-.8-2.6-5.7-32.9 .4-3.1 1-2.7 1.7-2.5 2.4-1.9 28.4-10.9-1.5-9.3-.7-1-3.5-3.3-.9-1.9-.4-2 .5-2.6 1.1-2.1 1.7-1.5z", eyes: [[55.5, 65.3, 8.4, 22.1, -10], [74.2, 58.3, 8.4, 22.1, -10]] },
+  pebbles: { body: "M47.3 4.5l2.7-.4 2.7 .1 13.7 3 4.3 2.1 3.3 3.4 1.3 2.2 1 2.8 2 12-.5 4.3-3.1 7.7 .2 .5 8.4 1.9 2.7 1 3.3 2.1 2.7 2.8 2.4 4.3 1.4 6.5 .1 4.4-.8 3.8-1.3 2.7-2 2.8-2.4 2.2-2.7 1.6-45.5 17-3.3 .6-3.2-.2-19.2-4.2-4.9-2.8-3.4-3.8-1.9-4.4-1.3-7.7 .2-3.2 .8-2.8 1.3-2.7 2-2.7 3.2-2.8 7.9-3.8 2.5-2.2-.4-1.6-5.4-6.1-1.8-3.8-2.3-12.5 .2-3.3 .7-2.7 2.6-4.4 2.2-2 2.2-1.4z", eyes: [[51.2, 34.1, 6.9, 18.1, -10], [66.4, 28.4, 6.9, 18.1, -10]] },
+  plus: { body: "M44.6 4.3l3.3-.1 11.9 2.5 2.5 1.3 1.3 1.4 .7 1.6 2.1 11.4 4.1-1.2 2.1 0 12.3 2.6 2.8 1.6 1.2 1.5 .7 1.5 3.8 21.6-.5 3.1-1 1.5-1.3 1.3-17 6.6 3.4 20.4-.4 2.5-1.2 2.1-2.3 1.6-19 6.9-2-.2-11.9-2.5-2.5-1.3-1.3-1.4-.7-1.6-2.1-11.4-4.1 1.2-2.1 0-12.3-2.6-2.8-1.6-1.2-1.5-.7-1.5-3.8-21.6 .5-3.1 1-1.5 1.3-1.3 17-6.6-3.4-20.4 .2-2 1.1-2.2 2.6-2z", eyes: [[54.5, 53.1, 6.1, 15.9, -10], [64.5, 49.4, 6.1, 15.9, -10]] },
+  magnet: { body: "M71.9 4.2l1.2-.2 12.1 2.6 .5 .3 .6 1 6.2 35.6 .6 5.8-.1 5.7-.7 5.8-1.5 5.7-2.2 5.8-4.2 7.3-5.5 6.5-6.5 5-7.1 3.4-6.3 1.3-6.3 0-15.2-3.1-5.2-1.8-5.2-3-4.6-4.1-4-5.2-2.9-5.8-2.4-7.8-6.4-36.2 25-9.5 13.1 2.9 .5 .9 6.3 35.3 1.8-3.9 .5-4.7-6.3-36.1 .4-.6z", eyes: [[59.6, 82.1, 6.1, 15.9, -10], [72, 77.5, 6.1, 15.9, -10]] },
+  ring: { body: "M48.1 4.3l8-.1 7.8 1.8 7.3 3.5 6.7 5.4 5.2 6.7 4.1 8.3 2.3 8.9 .7 9-1 9.5-2.5 8.9-4.1 8.3-5.3 7.3-6.6 6.1-7.3 4.5-7.8 2.7-8.4 .9-7.2-.8-7.3-2.5-6.7-4.1-5.6-5.3-4.5-6.5-3.5-7.8-2-8.4-.6-8.4 .9-8.9 2.2-8.4 3.5-7.8 4.9-7.2 5.8-6.1 6.3-4.5 7.1-3.3zM50.5 33.8l2.3-.3 1.7 .4 1.6 1.1 2 2.2 1.3 2.8 .8 2.7 .4 3.4-.1 3.3-1.4 6.2-3 5.6-2.2 2.4-2.2 1.6-2.3 1-2.2 .3-1.7-.4-1.6-1.1-2.8-3.7-1.5-5.2-.1-5.5 1.2-5.6 2.4-5 3.6-4z", eyes: [[56.2, 84.6, 5.3, 13.3, -6.8], [71.7, 78.8, 5.1, 13.4, -6.5]] },
+  gem: { body: "M57 9.3l2.9-.4 14.9 3.5 19.6 14.1 1 1.4 .6 1.6-.5 2.6-27.1 56.5-1.6 1.8-2.1 .7-15.9-3.4-42.9-30.7-1.3-1.6-.6-1.6 .5-2.6 12-25.2 1.1-1.5 1.5-1z", eyes: [[51.4, 42.9, 6.7, 17.7, -10], [66.1, 37.4, 6.7, 17.7, -10]] }
 };
-var PICKER_SHAPES = Object.keys(CHARACTERS);
+var LEGACY_SHAPES = /* @__PURE__ */ new Set(["magnet", "ring", "gem"]);
+var SHAPE_ALIASES = Object.freeze({
+  zed: "bear",
+  wave: "octopus",
+  hex: "bloom",
+  cushion: "squircle",
+  dolphin: "whale",
+  turtle: "acorn",
+  crab: "octopus",
+  puffer: "cloud",
+  jelly: "octopus",
+  starfish: "star",
+  seahorse: "whale"
+});
+var PICKER_SHAPES = Object.keys(CHARACTERS).filter((id) => !LEGACY_SHAPES.has(id));
 var PICKER_COLUMNS = 5;
-var DEFAULT_SHAPES = ["star", "moon", "dolphin", "octopus", "turtle", "crab", "puffer", "jelly", "starfish", "seahorse", "gumdrop", "peanut", "bunny", "kitty", "acorn"];
+var DEFAULT_SHAPES = ["star", "moon", "cloud", "octopus", "spark", "bear", "puppy", "sprout", "bloom", "squircle", "gumdrop", "peanut", "bunny", "kitty", "acorn"];
 var FALLBACK_SHAPE = "gumdrop";
 var MAIN_LOOK = Object.freeze({ shape: "whale", color: "deepseek" });
 var CHARACTER_COLORS = ["black", "brown", "red", "orange", "yellow", "green", "cyan", "blue", "violet", "magenta", "gray", "aurora"];
 var DEFAULT_COLORS = CHARACTER_COLORS.filter((color) => !["black", "gray", "brown"].includes(color) && !GRADIENTS[color]);
 var isColor = (color) => isHex(color) || Object.hasOwn(INKS, color);
+var SHAPES = {};
+for (const [id, character] of Object.entries(CHARACTERS)) {
+  const layers = (character.paints ?? []).map(([d, fill2, opacity]) => `<path d="${d}" fill="${fill2}" fill-opacity="${opacity}"/>`).join("");
+  SHAPES[id] = { label: character.label ?? id[0].toUpperCase() + id.slice(1), size: 100, path: character.body, layers, eyes: character.eyes };
+}
 function fnv1a(text) {
   let value = 2166136261;
   for (let index = 0; index < text.length; index += 1) value = Math.imul(value ^ text.charCodeAt(index), 16777619);
@@ -19663,24 +19713,21 @@ function defaultShape(id) {
   return DEFAULT_SHAPES[((value ^ value >>> 16) >>> 0) % DEFAULT_SHAPES.length];
 }
 var colorOf = (bot) => isColor(bot?.color) ? bot.color : bot?.id ? defaultColor(String(bot.id)) : "black";
+var resolveShape = (id) => typeof id === "string" && !Object.hasOwn(SHAPES, id) && Object.hasOwn(SHAPE_ALIASES, id) ? SHAPE_ALIASES[id] : id;
 function lookOf(bot) {
   const avatar = bot?.avatar ?? {};
+  const stored = resolveShape(avatar.shape);
   return {
-    shape: hasShape(avatar.shape) ? avatar.shape : bot?.id ? defaultShape(String(bot.id)) : FALLBACK_SHAPE,
+    shape: hasShape(stored) ? stored : bot?.id ? defaultShape(String(bot.id)) : FALLBACK_SHAPE,
     image: avatar.image,
     color: colorOf(bot)
   };
 }
-var SHAPES = {};
-for (const [id, character] of Object.entries(CHARACTERS)) {
-  const layers = [
-    ...(character.paints ?? []).map(([d, fill2, opacity]) => `<path d="${d}" fill="${fill2}" fill-opacity="${opacity}"/>`),
-    `<path d="${character.shade}" fill="#000" fill-opacity=".07"/>`
-  ].join("");
-  SHAPES[id] = { label: character.label ?? id[0].toUpperCase() + id.slice(1), size: 100, path: character.body, layers, eyes: character.eyes };
-}
-var hasShape = (id) => typeof id === "string" && Object.hasOwn(SHAPES, id);
-var shapeId = (id) => hasShape(id) ? id : FALLBACK_SHAPE;
+var hasShape = (id) => typeof id === "string" && Object.hasOwn(SHAPES, resolveShape(id));
+var shapeId = (id) => {
+  const resolved = resolveShape(id);
+  return typeof resolved === "string" && Object.hasOwn(SHAPES, resolved) ? resolved : FALLBACK_SHAPE;
+};
 var shapeOf = (id) => SHAPES[shapeId(id)];
 function bodyOf(def, paint, flat = false) {
   if (def.path) return `<g fill-rule="evenodd"><path d="${def.path}" fill="${paint}"/>${flat ? "" : def.layers}</g>`;
@@ -19701,10 +19748,11 @@ var MAX_MARKUP_CACHE = 256;
 var MAX_MASK_CACHE = 128;
 var markupCache = /* @__PURE__ */ new Map();
 function characterMarkup(shape, color) {
-  const key = `${shape}|${color}`;
+  const resolved = shapeId(shape);
+  const key = `${resolved}|${color}`;
   let markup = lruGet(markupCache, key);
   if (markup === void 0) {
-    const def = shapeOf(shape);
+    const def = SHAPES[resolved];
     const eyes = `<g class="bt-gaze"><g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join("")}${def.eyes.map(happyEyeMarkup).join("")}</g></g>`;
     const stops = GRADIENTS[color];
     const gradient = stops ? `<linearGradient id="${MASK_ID}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${stops.map(([offset, value]) => `<stop offset="${offset}" stop-color="${value}"/>`).join("")}</linearGradient>` : "";
@@ -19717,12 +19765,13 @@ function characterMarkup(shape, color) {
 var svgUrl = (inner, size) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}">${inner}</svg>`)}")`;
 var maskCache = /* @__PURE__ */ new Map();
 function maskOf(shape) {
-  let mask = lruGet(maskCache, shape);
+  const resolved = shapeId(shape);
+  let mask = lruGet(maskCache, resolved);
   if (mask === void 0) {
-    const def = shapeOf(shape);
+    const def = SHAPES[resolved];
     const body = `<g mask="url(#e)">${bodyOf(def, "#000", true)}</g>`;
     mask = svgUrl(`<mask id="e" ${maskBox(def.size)}>${holes(def, def.eyes.map(eyeMarkup).join("").replaceAll('class="bt-eye"', 'fill="#000"'))}</mask>${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}`, def.size);
-    lruSet(maskCache, shape, mask, MAX_MASK_CACHE);
+    lruSet(maskCache, resolved, mask, MAX_MASK_CACHE);
   }
   return mask;
 }
@@ -20919,6 +20968,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     pluginsToggle: (id, enabled) => after(call2("plugins-toggle", { id, enabled })),
     pluginsRemove: (id) => after(call2("plugins-remove", { id })),
     pluginsUpdate: (id, version) => after(call2("plugins-update", { id, ...version ? { version } : {} })),
+    pluginsConsent: (id) => after(call2("plugins-consent", { id })),
     pluginsSlotSet: (slot, id) => after(call2("plugins-slot-set", { slot, id })),
     pluginsBotToggle: (id, botId, enabled) => after(call2("plugins-bot-toggle", { id, botId, enabled })),
     pluginsCustomSave: (body) => after(call2("plugins-custom-save", body)),
@@ -21350,7 +21400,7 @@ function registerShape(id, shape) {
   };
   const refresh = () => {
     markupCache.clear();
-    maskCache.delete(id);
+    maskCache.clear();
     registry.set((value) => value + 1);
   };
   refresh();
@@ -22238,8 +22288,8 @@ body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-gaze,body[data-bt-effects=red
 .bt-mark[data-state=searching] .bt-b{animation:bt-seek 1s ease-in-out infinite}
 .bt-mark[data-state=searching] .bt-eyes{animation:bt-scan 1.6s ease-in-out infinite}
 .bt-mark[data-state=working] .bt-b{animation:bt-bob 1.6s ease-in-out infinite}
-.bt-mark[data-state=working]:is([data-shape=star],[data-shape=hex],[data-shape=plus],[data-shape=gem],[data-shape=magnet],[data-shape=ring]) .bt-b{animation:bt-wiggle 1.4s ease-in-out infinite;transform-origin:50% 50%}
-.bt-mark[data-state=working]:is([data-shape=gumdrop],[data-shape=peanut],[data-shape=cushion],[data-shape=squircle],[data-shape=moon],[data-shape=wave]) .bt-b{animation:bt-squash 1.2s ease-in-out infinite}
+.bt-mark[data-state=working]:is([data-shape=star],[data-shape=bloom],[data-shape=plus],[data-shape=gem],[data-shape=magnet],[data-shape=ring]) .bt-b{animation:bt-wiggle 1.4s ease-in-out infinite;transform-origin:50% 50%}
+.bt-mark[data-state=working]:is([data-shape=gumdrop],[data-shape=peanut],[data-shape=squircle],[data-shape=moon],[data-shape=cloud],[data-shape=spark],[data-shape=sprout],[data-shape=octopus]) .bt-b{animation:bt-squash 1.2s ease-in-out infinite}
 .bt-mark[data-state=working] .bt-eye{animation:bt-blink 2.4s ease-in-out infinite}
 .bt-mark[data-state=sending] .bt-b{animation:bt-dash 1.1s cubic-bezier(.4,0,.2,1) infinite}
 /* Waiting for teammates to hand back work circles like coordinating them. */
@@ -22725,8 +22775,7 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-avedit-tabs[data-glide] .bt-avedit-tab[aria-selected=true]{background:transparent}
 .bt-avedit-reset{padding:3px 6px;color:var(--bt-ink-3)}
 .bt-avedit-reset:hover{color:var(--bt-ink)}
-.bt-shapes{display:flex;flex-direction:column;gap:4px}
-.bt-shape-row{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+.bt-shapes{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
 .bt-shape{position:relative;aspect-ratio:1;border:0;border-radius:10px;background:none;color:var(--bt-ink);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .bt-shape:hover{background:var(--bt-hover)}
 .bt-shape .bt-ring{position:absolute;left:50%;top:50%;width:36px;height:36px;translate:-50% -50%;overflow:visible;opacity:0;scale:.82;pointer-events:none;transition:opacity .14s ease,${spring(SPRING_POP, "scale")}}
@@ -23171,7 +23220,9 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 @keyframes bt-plg-shine{0%{background-position:100% 0}100%{background-position:0 0}}
 @keyframes bt-plg-done{0%{opacity:.4;transform:scale(.94)}100%{opacity:1;transform:none}}
 .bt-plg-text{min-width:0;display:flex;flex-direction:column;gap:1px}
-.bt-plg-name{display:inline-flex;align-items:center;gap:6px;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-plg-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink)}
+.bt-plg-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-plg-name .bt-tag{flex:none}
 .bt-plg-sub{font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-plg-tile[data-error] .bt-plg-sub{color:var(--bt-danger)}
 .bt-plg-tile[data-warn] .bt-plg-sub{color:var(--bt-warn)}
@@ -23180,6 +23231,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-plg-btn:disabled{opacity:.5;cursor:default}
 .bt-plg-btn svg{width:13px;height:13px}
 .bt-plg-btn-done{background:none;color:var(--bt-ink-2);box-shadow:inset 0 0 0 1px var(--bt-line);cursor:default}
+.bt-plg-btn-approve{background:var(--bt-accent-soft);color:var(--bt-accent)}
+.bt-plg-btn-approve:hover:not(:disabled){background:color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+.bt-tag[data-tone=error]{background:color-mix(in srgb,var(--bt-danger) 12%,transparent);color:var(--bt-danger)}
+.bt-tag[data-tone=warn]{background:color-mix(in srgb,var(--bt-warn) 14%,transparent);color:var(--bt-warn)}
+.bt-plg-note{margin:4px 2px 0;font-size:12px;line-height:18px;color:var(--bt-ink-3)}
 .bt-plg-ext-card{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;border:1px dashed var(--bt-line-2);background:color-mix(in srgb,var(--bt-card) 60%,transparent)}
 .bt-plg-ext-mark{flex:none;width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-plg-ext-mark svg{width:20px;height:20px}
@@ -23815,7 +23871,7 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
   .bt-set-model .bt-set-control{max-width:none}
   .bt-settings-layer .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
-  .bt-shape-row{grid-template-columns:repeat(4,1fr)}
+  .bt-shapes{grid-template-columns:repeat(4,1fr)}
 }
 /* iOS zooms the whole page on focused inputs under 16px. */
 @media (max-width:640px) and (pointer:coarse){
@@ -35117,14 +35173,12 @@ function ShapeRing({ shape, size }) {
   return (0, import_react30.createElement)("svg", { className: "bt-ring", viewBox: `0 0 ${def.size} ${def.size}`, "aria-hidden": true, dangerouslySetInnerHTML: { __html: markup } });
 }
 function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
-  const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter((id) => !Object.hasOwn(CHARACTERS, id))];
-  if (!shapes.includes(look.shape)) shapes.push(look.shape);
-  const rows2 = [];
-  for (let index = 0; index < shapes.length; index += PICKER_COLUMNS) rows2.push(shapes.slice(index, index + PICKER_COLUMNS));
+  const builtIn = new Set(PICKER_SHAPES);
+  const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter((id) => !builtIn.has(id) && (!Object.hasOwn(CHARACTERS, id) || typeof SHAPES[id]?.body === "function"))];
   return (0, import_react30.createElement)(
     import_react30.Fragment,
     null,
-    (0, import_react30.createElement)("div", { className: "bt-shapes", role: "group", "aria-label": t("Character shape") }, rows2.map((row, index) => (0, import_react30.createElement)("div", { key: index, className: "bt-shape-row" }, row.map((id) => (0, import_react30.createElement)("button", {
+    (0, import_react30.createElement)("div", { className: "bt-shapes", role: "group", "aria-label": t("Character shape") }, shapes.map((id) => (0, import_react30.createElement)("button", {
       key: id,
       type: "button",
       className: "bt-shape",
@@ -35132,7 +35186,7 @@ function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
       title: t(shapeOf(id).label),
       "aria-pressed": !hasPhoto && look.shape === id,
       onClick: () => onShape(id)
-    }, (0, import_react30.createElement)(ShapeRing, { shape: id, size: 36 }), (0, import_react30.createElement)(BotMark, { look: { shape: id, color: look.color }, size: 36 })))))),
+    }, (0, import_react30.createElement)(ShapeRing, { shape: id, size: 36 }), (0, import_react30.createElement)(BotMark, { look: { shape: id, color: look.color }, size: 36 })))),
     (0, import_react30.createElement)("div", { className: "bt-colors", role: "group", "aria-label": t("Character color") }, CHARACTER_COLORS.map((color) => (0, import_react30.createElement)("button", {
       key: color,
       type: "button",
@@ -37350,7 +37404,13 @@ var IM_PLATFORMS = [
   }
 ];
 var imPlatform = (id) => IM_PLATFORMS.find((platform) => platform.id === id);
-var viaOf = (source) => typeof source?.rpcId === "string" && source.rpcId.startsWith("im:") ? source.rpcId.split(":")[1] : void 0;
+var viaOf = (source) => {
+  const rpcId = typeof source?.rpcId === "string" ? source.rpcId : "";
+  if (rpcId.startsWith("im:")) return rpcId.split(":")[1];
+  if (rpcId.startsWith("api:")) return "api";
+  return void 0;
+};
+var viaIsIm = (via) => typeof via === "string" && imPlatform(via) !== void 0;
 
 // src/client/user-message.js
 var import_react36 = require("react");
@@ -49304,11 +49364,20 @@ function Subview3({ title, onBack, end = null, children }) {
     children
   );
 }
-function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy }) {
+function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent }) {
   const name = localizedField(plugin, "name") || plugin.name || plugin.id;
   const isBusy = busyId === plugin.id;
   const disabled = readOnly || busyId !== null;
   const isSlot = Boolean(plugin.slot);
+  if (plugin.killed || plugin.status === "unverifiable") return null;
+  if (plugin.consentRequired) {
+    return (0, import_react56.createElement)("button", {
+      type: "button",
+      className: "bt-plg-btn bt-plg-btn-approve",
+      disabled,
+      onClick: () => onConsent(plugin.id)
+    }, isBusy ? t("Approving…") : t("Approve"));
+  }
   if (isSlot) {
     if (plugin.active && plugin.desired !== false) {
       return (0, import_react56.createElement)("span", { className: "bt-plg-btn bt-plg-btn-done" }, (0, import_react56.createElement)(CheckIcon), t("In use"));
@@ -49369,13 +49438,13 @@ function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSl
     onChange: (next) => onToggle(plugin.id, next)
   });
 }
-function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActivateSlot, onInstall, onToggle, onCopy }) {
+function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActivateSlot, onInstall, onToggle, onCopy, onConsent }) {
   const name = localizedField(plugin, "name") || plugin.name || plugin.id;
   const desc = localizedField(plugin, "description") || plugin.description || "";
   const isActive = Boolean(plugin.slot ? plugin.active && plugin.desired !== false : plugin.installed && plugin.enabled);
   const fresh = useJustActivated(isActive);
   const subtitle = plugin.error ? hostText(plugin.error) : plugin.status === "restart-required" ? t("Restart required") : desc;
-  const tone = plugin.status === "error" || plugin.error ? "error" : plugin.status === "restart-required" ? "warn" : void 0;
+  const tone = plugin.status === "error" || plugin.killed || plugin.status === "unverifiable" || plugin.error && !plugin.consentRequired ? "error" : plugin.status === "restart-required" || plugin.consentRequired ? "warn" : void 0;
   return (0, import_react56.createElement)(
     "div",
     {
@@ -49399,16 +49468,19 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
         (0, import_react56.createElement)(
           "span",
           { className: "bt-plg-name" },
-          name,
-          plugin.custom ? (0, import_react56.createElement)("span", { className: "bt-tag" }, t("Added")) : null
+          (0, import_react56.createElement)("span", { className: "bt-plg-label" }, name),
+          plugin.custom && !plugin.killed && !plugin.consentRequired && plugin.status !== "unverifiable" ? (0, import_react56.createElement)("span", { className: "bt-tag" }, t("Added")) : null,
+          plugin.killed ? (0, import_react56.createElement)("span", { className: "bt-tag", "data-tone": "error" }, t("Stopped")) : null,
+          plugin.consentRequired ? (0, import_react56.createElement)("span", { className: "bt-tag", "data-tone": "warn" }, t("Approval needed")) : null,
+          plugin.status === "unverifiable" ? (0, import_react56.createElement)("span", { className: "bt-tag", "data-tone": "error" }, t("Unverifiable")) : null
         ),
         subtitle ? (0, import_react56.createElement)("span", { className: "bt-plg-sub" }, subtitle) : null
       )
     ),
-    (0, import_react56.createElement)(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy })
+    (0, import_react56.createElement)(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent })
   );
 }
-function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, onBack, onActivateSlot, onInstall, onToggle, onUpdate, onRemove, onBotToggle, onCopy, Section: Section2, Row: Row4 }) {
+function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, onBack, onActivateSlot, onInstall, onToggle, onUpdate, onRemove, onBotToggle, onCopy, onConsent, Section: Section2, Row: Row4 }) {
   const [confirmRemove, setConfirmRemove] = (0, import_react56.useState)(false);
   const name = localizedField(plugin, "name") || plugin.name || plugin.id;
   const desc = localizedField(plugin, "description") || plugin.description || "";
@@ -49442,11 +49514,31 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
           (0, import_react56.createElement)("span", { className: "bt-plg-detail-name" }, name),
           metaParts ? (0, import_react56.createElement)("span", { className: "bt-plg-detail-meta" }, metaParts) : null
         ),
-        (0, import_react56.createElement)(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy })
+        plugin.consentRequired ? null : (0, import_react56.createElement)(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent })
       ),
-      plugin.error ? (0, import_react56.createElement)("div", { className: "bt-plg-detail-err", role: "alert" }, hostText(plugin.error)) : null
+      plugin.error && !plugin.consentRequired ? (0, import_react56.createElement)("div", { className: "bt-plg-detail-err", role: "alert" }, hostText(plugin.error)) : null
     ),
+    plugin.consentRequired ? (0, import_react56.createElement)(
+      "div",
+      { className: "bt-plg-banner", "data-tone": "warn", role: "alert" },
+      (0, import_react56.createElement)("span", null, t("This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.")),
+      (0, import_react56.createElement)(
+        "div",
+        { className: "bt-plg-banner-actions" },
+        (0, import_react56.createElement)("button", {
+          type: "button",
+          className: "bt-send bt-soft-sm",
+          disabled,
+          onClick: () => onConsent(plugin.id)
+        }, busyId === plugin.id ? t("Approving…") : t("Approve"))
+      )
+    ) : null,
     desc ? (0, import_react56.createElement)("p", { className: "bt-plg-about" }, desc) : null,
+    plugin.unpinnedSpec ? (0, import_react56.createElement)(
+      "p",
+      { className: "bt-plg-note" },
+      t("Runs the latest published version at start time; approval does not pin exact bytes.")
+    ) : null,
     plugin.supportsPerBot && plugin.installed && bots.length > 0 ? (0, import_react56.createElement)(
       Section2,
       { title: t("Bot access") },
@@ -49473,6 +49565,7 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
       plugin.mcp?.url ? (0, import_react56.createElement)(Row4, { label: t("URL") }, (0, import_react56.createElement)("code", { className: "bt-plg-code" }, plugin.mcp.url)) : null,
       plugin.mcp?.command ? (0, import_react56.createElement)(Row4, { label: t("Command") }, (0, import_react56.createElement)("code", { className: "bt-plg-code" }, [plugin.mcp.command, ...plugin.mcp.args ?? []].join(" "))) : null,
       plugin.toolPrefixes?.length ? (0, import_react56.createElement)(Row4, { label: t("Tools") }, (0, import_react56.createElement)("code", { className: "bt-plg-code" }, plugin.toolPrefixes.join(", "))) : null,
+      plugin.execution ? (0, import_react56.createElement)(Row4, { label: t("Execution tier") }, (0, import_react56.createElement)("span", { className: "bt-chip" }, plugin.execution)) : null,
       homepageUrl ? (0, import_react56.createElement)(Row4, { label: t("Homepage") }, (0, import_react56.createElement)("a", { className: "bt-plg-link", href: homepageUrl, target: "_blank", rel: "noopener noreferrer" }, homepageUrl)) : null,
       repoUrl && repoUrl !== homepageUrl ? (0, import_react56.createElement)(Row4, { label: t("Repository") }, (0, import_react56.createElement)("a", { className: "bt-plg-link", href: repoUrl, target: "_blank", rel: "noopener noreferrer" }, repoUrl)) : null,
       plugin.updatable && plugin.installed || plugin.removable ? (0, import_react56.createElement)(
@@ -49800,7 +49893,7 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
       setSubview(null);
     }
   }, [initialFilter]);
-  const load = (0, import_react56.useCallback)((refresh = false) => {
+  const load = (0, import_react56.useCallback)((refresh = false, { keepError = false } = {}) => {
     if (!actions.pluginsList) {
       setLoading(false);
       return Promise.resolve();
@@ -49808,7 +49901,7 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
     const seq = ++seqRef.current;
     if (refresh) setRefreshing(true);
     else if (!hasViewRef.current) setLoading(true);
-    setError("");
+    if (!keepError) setError("");
     return Promise.resolve(refresh && actions.pluginsCatalogRefresh ? actions.pluginsCatalogRefresh() : actions.pluginsList(refresh)).then((next) => {
       if (!aliveRef.current || seq !== seqRef.current) return;
       if (next) {
@@ -49871,6 +49964,7 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
   });
   const handleActivateSlot = (slot, id) => {
     void exec(id, actions.pluginsSlotSet(slot, id)).catch(() => {
+      void load(false, { keepError: true });
     });
   };
   const handleInstall = (plugin) => {
@@ -49885,6 +49979,11 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
   };
   const handleToggle = (id, enabled) => {
     void exec(id, actions.pluginsToggle(id, enabled)).catch(() => {
+      void load(false, { keepError: true });
+    });
+  };
+  const handleConsent = (id) => {
+    void exec(id, actions.pluginsConsent(id)).catch(() => {
     });
   };
   const handleUpdate = (id) => {
@@ -50011,6 +50110,7 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
         onRemove: handleRemove,
         onBotToggle: handleBotToggle,
         onCopy: handleCopy,
+        onConsent: handleConsent,
         Section: Section2,
         Row: Row4
       })
@@ -50069,7 +50169,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
               onActivateSlot: handleActivateSlot,
               onInstall: handleInstall,
               onToggle: handleToggle,
-              onCopy: handleCopy
+              onCopy: handleCopy,
+              onConsent: handleConsent
             }))
           )
         ) : null,
@@ -50090,7 +50191,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
               onActivateSlot: handleActivateSlot,
               onInstall: handleInstall,
               onToggle: handleToggle,
-              onCopy: handleCopy
+              onCopy: handleCopy,
+              onConsent: handleConsent
             }))
           )
         ) : null
@@ -50189,7 +50291,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
             onActivateSlot: handleActivateSlot,
             onInstall: handleInstall,
             onToggle: handleToggle,
-            onCopy: handleCopy
+            onCopy: handleCopy,
+            onConsent: handleConsent
           }))
         )
       ) : null,
@@ -50214,7 +50317,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
             onActivateSlot: handleActivateSlot,
             onInstall: handleInstall,
             onToggle: handleToggle,
-            onCopy: handleCopy
+            onCopy: handleCopy,
+            onConsent: handleConsent
           }))
         )
       ) : null,
@@ -50240,7 +50344,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
             onActivateSlot: handleActivateSlot,
             onInstall: handleInstall,
             onToggle: handleToggle,
-            onCopy: handleCopy
+            onCopy: handleCopy,
+            onConsent: handleConsent
           }))
         )
       ) : null,

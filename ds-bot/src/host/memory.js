@@ -37,7 +37,7 @@ import { assembleLlmStream } from './models.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
 import { linesFor } from './steward.js'
 import { estimateTokens, splitRef, textOf, unquote } from './text.js'
-import { EMPTY_MAIN, GONE, DENIED, MAIN, MEMORY_LIMITS, NO_MATCH, REFUSED, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isEmptyTopic, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE, wordsOf } from './memory-entries.js'
+import { EMPTY_MAIN, GONE, DENIED, MAIN, MEMORY_LIMITS, NO_MATCH, RECENT_REMOVAL, REFUSED, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isEmptyTopic, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, readdMatch, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE, wordsOf } from './memory-entries.js'
 import { entryWords, pickRecalled, rankEntries } from './memory-search.js'
 import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, OWN_HEADING, OWN_MEMORY_SOURCE, RECALL_HEADING, RECALL_NOTE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { install as ensureContextRuntime } from './context-runtime.js'
@@ -92,6 +92,13 @@ const FAILED = 'memory/failed'
 const EMPTY = 'memory/empty'
 const NEWS_TEXT_MAX = 160
 const SNAPSHOT_PRUNE_MS = 30 * 60_000
+// The re-add guard: an entry memory dropped is not silently re-added within this
+// window. The scan reads back from the end of each log until a row older than the
+// window turns up, bounded in bytes so a large log stays a bounded read.
+const READD_WINDOW_MS = 14 * 24 * 60 * 60_000
+const READD_SCAN_CHUNK = 64 * 1024
+const READD_SCAN_MAX_BYTES = 4 * 1024 * 1024
+const READD_CLIP = 160
 
 
 export function install(rt) {
@@ -560,6 +567,209 @@ export function install(rt) {
     return recentRows.some(row => row.scope === key && (time === undefined || row.time > time) && row.op !== 'tidy' && row.op !== 'tidy-undo')
   }
 
+  // ---------------------------------------------------------------------------
+  // The re-add guard.
+  //
+  // An entry memory dropped — removed, or retired by a tidy — is not silently
+  // re-added within a window. Without it, an injection that lands in memory once
+  // is permanent in effect: the user removes it, the next review of the same
+  // poisoned lines saves it again, and the removal undoes nothing. The guard
+  // scans the scope's own change logs (and its retired.jsonl, where tidy batches
+  // keep their soft archive) for what left within the window, and an automated
+  // write too close to one of those texts is refused. The user's own writes —
+  // the memory panel, a restore, a move — never face it: an explicit user action
+  // is exactly the override the guard leaves open. The scan is read-only evidence
+  // and advisory: a log it cannot read yields no evidence, and the write then
+  // faces the real failure the same way it would without the guard, so a broken
+  // log can never make the guard itself the thing that breaks memory.
+
+  // The cutoff is bucketed to the hour so the scan cache holds across the writes
+  // of one hour; the guard's window is days, so an hour of slack is no gap.
+  const readdCutoff = () => {
+    const windowMs = typeof config.memoryReaddGuardMs === 'number' ? config.memoryReaddGuardMs : READD_WINDOW_MS
+    return new Date(Math.floor((Date.now() - windowMs) / 3_600_000) * 3_600_000).toISOString()
+  }
+
+  // The rows of one JSONL log back to the cutoff, newest first. Reads back from
+  // the end, doubling until one whole row older than the cutoff is in, bounded by
+  // READD_SCAN_MAX_BYTES. Append-only order makes the cutoff meaningful; a row
+  // without a time or written out of order is kept as fresh evidence, erring on
+  // the side of the guard.
+  function rowsToCutoff(path, cutoff) {
+    let size
+    try {
+      const stat = statSync(path, { throwIfNoEntry: false })
+      if (stat === undefined || stat.isDirectory()) return []
+      size = stat.size
+    } catch {
+      // The scan is advisory evidence, not the write itself: a log that cannot
+      // be read yields no evidence, and the write below faces the real failure —
+      // the change stays pending and recovers, exactly as without the guard.
+      return []
+    }
+    if (size === 0) return []
+    // Expanding tails; a few reads of the end for a log under the byte bound, and
+    // the whole scan stays within READD_SCAN_MAX_BYTES.
+    let bytes = READD_SCAN_CHUNK
+    for (;;) {
+      const start = Math.max(0, size - bytes)
+      const buf = readBufferFrom(path, start, size - start)
+      if (buf === undefined) return []
+      const firstNl = buf.indexOf(0x0a)
+      // Cut at a newline so a row split by the scan is not half-read; the first
+      // line of a file read whole (start 0) is complete as it is.
+      const body = start === 0 ? buf : (firstNl === -1 ? Buffer.alloc(0) : buf.subarray(firstNl + 1))
+      const rows = []
+      let older = false
+      for (const line of body.toString('utf8').split('\n')) {
+        if (line === '') continue
+        try {
+          const row = JSON.parse(line)
+          if (row === null || typeof row !== 'object') continue
+          if (typeof row.time === 'string' && row.time !== '' && row.time < cutoff) older = true
+          rows.push(row)
+        } catch { /* a line cut by the scan or half-written */ }
+      }
+      if (older || start === 0) return rows.reverse()
+      if (bytes >= Math.min(READD_SCAN_MAX_BYTES, size)) return rows.reverse()
+      bytes = Math.min(bytes * 2, READD_SCAN_MAX_BYTES, size)
+    }
+  }
+
+  /** @type {Map<string, {sig: string, window: string, entries: Array<{text: string, mergedInto?: string}>}>} */
+  const droppedCache = new Map()
+  const signatureOf = (path) => {
+    try {
+      const stat = statSync(path, { bigint: true, throwIfNoEntry: false })
+      return stat === undefined || stat.isDirectory() ? undefined : `${stat.ino}:${stat.size}:${stat.mtimeNs}`
+    } catch {
+      return undefined
+    }
+  }
+
+  // The texts one file says left this memory within the window. The journal row
+  // of a remove carries the line it took out in `before`; retired.jsonl rows are
+  // written one batch at a time with the full line in `line`. Rows some later
+  // restore already undid are no evidence: the removal did not stand. Entries
+  // the tidy retired as expired (why 'ended') do not count — the fact was already
+  // over, not removed or forgotten; re-adding it when it recurs is legitimate.
+  // `key` scopes the evidence: the shared journal holds every scope's rows, and a
+  // removal in one memory must never guard another — a fact Bot B dropped cannot
+  // block what Bot A or a group keeps. Per-scope journals (a private Bot's, and
+  // retired.jsonl, which sits inside the scope's own folder) hold only their own
+  // scope's rows, so they pass undefined and keep every row.
+  function droppedInFile(path, cutoff, kind, key) {
+    const sig = signatureOf(path)
+    if (sig === undefined) return []
+    const cached = droppedCache.get(`${path}::${key ?? ''}`)
+    if (cached?.sig === sig && cached.window === cutoff) return cached.entries
+    let scanned = []
+    try {
+      scanned = rowsToCutoff(path, cutoff)
+    } catch { /* advisory evidence: a log that cannot be read yields none */ }
+    const restored = new Set()
+    for (const row of scanned) if (typeof row.restored === 'string') restored.add(row.restored)
+    // Only rows inside the window are evidence; the scan itself reads a little
+    // past the cutoff to know it reached far enough.
+    const fresh = row => typeof row.time !== 'string' || row.time === '' || row.time >= cutoff
+    const entries = []
+    const note = (raw, mergedInto) => {
+      if (typeof raw !== 'string') return
+      const { text } = splitMeta(String(raw).replace(/^\s*[-*]\s+/, ''))
+      if (text !== '') entries.push({ text, mergedInto })
+    }
+    if (kind === 'retired') {
+      // `scanned` is newest-first. Track forward merge edges (`sourceId -> into`)
+      // from newer batches so older merge constituents resolve transitively to the
+      // current survivor ID across repeated merges. Non-merge retirements and
+      // expirations place a `null` tombstone so lineage never crosses a retirement.
+      const nextTarget = new Map()
+      const resolveTarget = (id) => {
+        let cur = id
+        const seen = new Set()
+        while (nextTarget.has(cur)) {
+          if (seen.has(cur)) return undefined
+          seen.add(cur)
+          const next = nextTarget.get(cur)
+          if (next === null) return undefined
+          cur = next
+        }
+        return cur
+      }
+      for (const row of scanned) {
+        if (!fresh(row)) continue
+        const raw = typeof row.line === 'string' ? row.line : undefined
+        const parsed = raw === undefined ? undefined : splitMeta(String(raw).replace(/^\s*[-*]\s+/, ''))
+        const sourceId = parsed !== undefined && parsed.text !== '' ? entryId(parsed) : undefined
+        if (row.why === 'ended') {
+          if (sourceId !== undefined) nextTarget.set(sourceId, null)
+          continue
+        }
+        if (row.why === 'merged' && typeof row.into === 'string' && row.into !== '') {
+          note(raw, resolveTarget(row.into))
+          if (sourceId !== undefined && sourceId !== row.into) nextTarget.set(sourceId, row.into)
+        } else {
+          note(raw, undefined)
+          if (sourceId !== undefined) nextTarget.set(sourceId, null)
+        }
+      }
+    } else {
+      for (const row of scanned) {
+        if (row.op !== 'remove' || !fresh(row) || restored.has(row.id)) continue
+        // A row that names another scope is no evidence here; one that names none
+        // predates scoped rows and stays evidence for the scope the file serves.
+        if (key !== undefined && row.scope !== undefined && row.scope !== key) continue
+        note(row.before, undefined)
+      }
+    }
+    if (droppedCache.size > 64) droppedCache.clear()
+    droppedCache.set(`${path}::${key ?? ''}`, { sig, window: cutoff, entries })
+    return entries
+  }
+
+  // The logs a scope's leavers land in: its own journal path, the scope's journal
+  // files a private Bot writes beside its memory, and retired.jsonl in the same
+  // folder. Nothing outside the scope is scanned: evidence stays where the entry
+  // would go back, and a private Bot's removed entries never leak into another
+  // scope's guard.
+  function droppedEntries(scope) {
+    if (config.memoryReaddGuard === false) return []
+    const cutoff = readdCutoff()
+    const key = scopeKey(scope)
+    const paths = new Set(botJournalPaths(key.startsWith('bot:') ? key.slice(4) : undefined))
+    const journals = []
+    for (const path of paths) {
+      try {
+        // The shared journal is filtered to this scope's rows; a journal inside the
+        // scope's own folder holds only its rows and needs no filter.
+        if (existsSync(path)) journals.push(...droppedInFile(path, cutoff, 'journal', path === journalPath ? key : undefined))
+      } catch { /* advisory evidence: a log that cannot be read yields none */ }
+    }
+    const retired = join(dirOf(scope), 'retired.jsonl')
+    try {
+      if (existsSync(retired)) journals.push(...droppedInFile(retired, cutoff, 'retired'))
+    } catch { /* advisory evidence */ }
+    return journals
+  }
+
+  // The removed or retired entry `text` would silently bring back, or undefined
+  // when nothing this close left within the window. Journal removals and explicit
+  // retirements are always guarded; only a tidy merge constituent whose transitive
+  // merge lineage leads to a live input entry that still carries it is exempted so
+  // routine corrections on a merged memory are not self-blocked.
+  function readdGuarded(scope, text, { liveInputs } = {}) {
+    const inputs = Array.isArray(liveInputs) ? liveInputs : []
+    for (const dropped of droppedEntries(scope)) {
+      if (!readdMatch(text, dropped.text)) continue
+      if (dropped.mergedInto !== undefined && inputs.some(input => input.id === dropped.mergedInto && readdMatch(input.text, dropped.text))) continue
+      return dropped.text
+    }
+    return undefined
+  }
+  const readdRefusal = dropped => Object.assign(new Error(
+    `This closely matches "${String(dropped).slice(0, READD_CLIP)}", which memory dropped within the last 14 days. Memory does not silently re-add what was removed; the user can restore it from the memory panel's change history, or save it as a new entry there.`),
+    { code: RECENT_REMOVAL })
+
   // Publishes a change: the files it touches, then the row that goes with it in the
   // change log. A change that cannot be published stays pending: the record is left
   // behind, and the change is finished before memory is read or written again.
@@ -602,6 +812,7 @@ export function install(rt) {
     try {
       await applySteps(steps)
       await journalRow(record.row)
+      droppedCache.clear()
       await unlink(pendingPath(root)).catch(error => { if (error?.code !== 'ENOENT') throw error })
     } catch (error) {
       rt.warn('ds-bot: memory change %s is pending: %s', id, error)
@@ -618,6 +829,7 @@ export function install(rt) {
     if (record === undefined) return
     await applySteps(record.steps)
     await journalRow(record.row)
+    droppedCache.clear()
     await unlink(pendingPath(root)).catch(error => { if (error?.code !== 'ENOENT') throw error })
   }
 
@@ -840,6 +1052,14 @@ export function install(rt) {
       }
       return { changed: false, file: same.file, message: `Already in ${label} (${fileName(same.file)}): "${same.text}". Nothing changed.` }
     }
+    // A write that is not the user's own — a Bot saving for itself or the memory
+    // review writing on its own — does not silently re-add what memory dropped
+    // within the guard window. The exact-copy case above already returned, so a
+    // hit here is always a re-add under the window.
+    if (actor?.id !== 'user') {
+      const dropped = readdGuarded(scope, text)
+      if (dropped !== undefined) throw readdRefusal(dropped)
+    }
     const id = moving && meta.id !== undefined && entries.some(entry => entryId(entry) === meta.id)
       ? newEntryId(entries)
       : (meta.id ?? newEntryId(entries))
@@ -898,6 +1118,14 @@ export function install(rt) {
       const duplicate = allEntries(files).find(entry => squash(entry.text) === squash(text) && !(entry.file === old.file && entry.line === old.line))
       if (duplicate !== undefined) {
         throw Object.assign(new Error(`Already in ${label} (${fileName(duplicate.file)}): "${duplicate.text}". Remove the old entry instead of duplicating it.`), { code: REFUSED })
+      }
+      // The new text faces the same re-add guard an add does: replacing one entry
+      // with what memory dropped is the same laundering in another shape. An edit
+      // that merely goes back and forth between two live versions never matches,
+      // because the guard only reads removals, never a replace's before-line.
+      if (actor?.id !== 'user') {
+        const dropped = readdGuarded(scope, text, { liveInputs: [{ id: entryId(old), text: old.text }] })
+        if (dropped !== undefined) throw readdRefusal(dropped)
       }
       const hasUntil = Object.hasOwn(meta, 'until')
       const keptUntil = !hasUntil && old.meta.until !== undefined ? { until: old.meta.until } : {}
@@ -2800,7 +3028,7 @@ export function install(rt) {
 
   const { memoryReviews, forgetBotReview, forgetGroupReview } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow, taskOwnerOf })
 
-  const { tidyView, undoTidy, tidyNow, tidyTick, forgetScope: forgetTidyScope } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, searchEntries, publish, writeStep, removeStep, appendStep, truncateStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince, noteWindow, windowUsable })
+  const { tidyView, undoTidy, tidyNow, tidyTick, forgetScope: forgetTidyScope } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, searchEntries, publish, writeStep, removeStep, appendStep, truncateStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince, noteWindow, windowUsable, readdGuarded })
 
   async function memoryTidyUndo(body) {
     const panel = panelOf(body)
