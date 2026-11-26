@@ -5,7 +5,7 @@
 // working root; and a ticketed web-server route serves a Canvas entry document and
 // its same-directory assets to the sandboxed preview iframe.
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { open, readdir, stat } from 'node:fs/promises'
+import { lstat, open, readdir, stat } from 'node:fs/promises'
 import { basename, dirname, extname, resolve, sep } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { output } from './tools.js'
@@ -168,11 +168,33 @@ export function install(rt) {
 
   // Reads stat and bytes through one open handle: what the checks approved is what
   // the caller gets, even if the path is swapped in between. Size and kind come from
-  // the handle's own fstat, never from a separate look at the path. Even without a
-  // caller limit the read is capped: a file that grows past fstat never lands whole
-  // in memory.
+  // the handle's own fstat, never from a separate look at the path. The read itself
+  // is bounded: at most ceiling+1 bytes are ever buffered — one extra byte proves
+  // overflow, and a file growing after fstat never lands whole in memory.
   const READ_HARD_CAP = 16 * 1024 * 1024
+  async function readBounded(handle, ceiling) {
+    const chunks = []
+    let total = 0
+    const scratch = Buffer.allocUnsafe(Math.min(64 * 1024, ceiling + 1))
+    for (;;) {
+      const room = ceiling + 1 - total
+      if (room <= 0) break
+      const { bytesRead } = await handle.read(scratch, 0, Math.min(scratch.length, room), null)
+      if (bytesRead === 0) break
+      chunks.push(Buffer.from(scratch.buffer, scratch.byteOffset, bytesRead))
+      total += bytesRead
+    }
+    return Buffer.concat(chunks, total)
+  }
+
   async function readVerified(realPath, { limit, oversized } = {}) {
+    // The final component is re-probed without following links immediately before
+    // open: a path swapped to a symlink since its realpath check never opens. This
+    // shrinks the swap window to the open call itself; ancestors and the remaining
+    // race are the documented platform boundary, not something this layer claims.
+    const linkProbe = await lstat(realPath).catch(() => undefined)
+    if (linkProbe === undefined) throw notFound('The file is no longer there')
+    if (!linkProbe.isFile()) throw invalid('That path is not a file')
     let handle
     try {
       handle = await open(realPath, 'r')
@@ -184,7 +206,7 @@ export function install(rt) {
       if (!info.isFile()) throw invalid('That path is not a file')
       const ceiling = limit !== undefined ? Math.min(limit, READ_HARD_CAP) : READ_HARD_CAP
       if (info.size > ceiling) throw tooLarge(oversized ?? 'The file is too large')
-      const bytes = await handle.readFile()
+      const bytes = await readBounded(handle, ceiling)
       if (bytes.length > ceiling) throw tooLarge(oversized ?? 'The file is too large')
       return { bytes, size: info.size }
     } finally {
@@ -392,8 +414,9 @@ export function install(rt) {
     let counted = 0
     let truncated = false
     // The entry is part of the scan's own authorization: gone, mutated into a
-    // non-file, or grown past the serving limit makes the scan fail, never a hash
-    // of oversized bytes read wholesale into memory.
+    // non-file, sitting inside harness or team data, or grown past the serving
+    // limit makes the scan fail, never a hash of oversized bytes read wholesale.
+    if (await rt.inData?.(ticket.entryReal)) throw forbidden('That path is inside DeepSeek Harness or team data, which cannot be opened here')
     const entryRead = await readVerified(ticket.entryReal, { limit: HTML_LIMIT, oversized: 'The HTML file is larger than 8 MiB' }).catch(error => error)
     if (entryRead instanceof Error) throw entryRead
     hash.update(entryRead.bytes)
@@ -455,11 +478,11 @@ export function install(rt) {
     if (rel === '' || rel.endsWith('/')) return errorPage(404, 'Not found')
     const candidate = resolve(ticket.root, rel)
     const real = (await rt.realBeyond?.(candidate).catch(() => undefined)) ?? (await rt.real?.(candidate).catch(() => undefined)) ?? candidate
+    if (await rt.inData?.(real)) return errorPage(404, 'Not found')
     if (real !== ticket.entryReal) {
       if (!within(real, ticket.root)) return errorPage(404, 'Not found')
       if (rel.split('/').some(part => part === '..' || part === '.' || part.startsWith('.'))) return errorPage(404, 'Not found')
       if (SENSITIVE_NAME.test(real)) return errorPage(404, 'Not found')
-      if (await rt.inData?.(real)) return errorPage(404, 'Not found')
     }
     const ext = extname(real).toLowerCase()
     const mime = ASSET_MIMES.get(ext)
