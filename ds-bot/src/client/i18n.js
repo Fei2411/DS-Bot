@@ -2264,6 +2264,7 @@ const ZH = {
   "Showing first {count} rows": "仅显示前 {count} 行",
   "Converted from {ext}": "已从 {ext} 转换",
   "Preview unavailable in this environment": "当前环境暂不支持预览",
+  "Scripts and external or local resources are blocked in this preview": "此预览已阻止脚本以及外部或本地资源",
   "Select a file to preview": "选择一个文件进行预览",
   "Preview": "预览",
   "File truncated for preview": "文件较大，仅展示预览片段",
@@ -2438,6 +2439,7 @@ const ZH = {
 // Host errors stay English, since Bots read them too; they are translated where the
 // interface shows them. Static ones go through ZH, these carry names or numbers.
 const HOST_ERRORS = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "这些外观设置只能在电脑上修改：$1"],
   [/^Plugin disabled by the kill list: (.+)$/, '插件已被安全拦截列表停用：$1'],
   [/^Plugin disabled by the kill list\.$/, '插件已被安全拦截列表停用。'],
   [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, '这个插件在批准后发生了变化（能力、执行层级、可执行入口、内容或位置）。需要明确批准后才能重新运行。'],

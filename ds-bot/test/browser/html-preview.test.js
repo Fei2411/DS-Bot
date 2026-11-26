@@ -37,9 +37,11 @@ test('HTML preview strips remote references and its CSP blocks injected network 
           <a id="out" href="http://127.0.0.1:PORT/evil-link">out</a>
           <form action="http://127.0.0.1:PORT/evil-form"><button>go</button></form>
           <iframe src="http://127.0.0.1:PORT/evil-frame"></iframe>
+          <svg><a xlink:href="http://127.0.0.1:PORT/evil-xlink">x</a><set attributeName="xlink:href" to="http://127.0.0.1:PORT/evil-smil" /></svg>
+          <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
           <script>window.pwned=true;fetch('http://127.0.0.1:PORT/evil-fetch');parent.window.pwned=true</script>
         </body></html>`).replaceAll('PORT', String(port))}
-        const clean = prepareHtmlPreview(input)
+        const clean = prepareHtmlPreview(input, 'Scripts and external or local resources are blocked in this preview')
         window.cleanPreview = clean
         const frame = document.createElement('iframe')
         frame.setAttribute('sandbox', '')
@@ -83,6 +85,8 @@ test('HTML preview strips remote references and its CSP blocks injected network 
   assert.equal(clean.includes('<script'), false)
   assert.equal(clean.includes('<iframe'), false)
   assert.equal(clean.includes('http-equiv="refresh"'), false)
+  assert.match(clean, /Scripts and external or local resources are blocked/)
+  assert.equal(clean.includes('data:image/svg'), false)
 
   const frames = page.frames()
   assert.equal(frames.length >= 3, true)

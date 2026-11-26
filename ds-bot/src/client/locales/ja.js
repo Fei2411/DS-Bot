@@ -2404,6 +2404,7 @@ export const JA = {
   "Showing first {count} rows": "先頭 {count} 行を表示",
   "Converted from {ext}": "{ext} から変換済み",
   "Preview unavailable in this environment": "この環境ではプレビューできません",
+  "Scripts and external or local resources are blocked in this preview": "このプレビューではスクリプトと外部またはローカルのリソースがブロックされています",
   "Select a file to preview": "プレビューするファイルを選択",
   "Preview": "プレビュー",
   "File truncated for preview": "プレビュー用に一部のみ表示しています",
@@ -2576,6 +2577,7 @@ export const JA = {
 }
 
 export const HOST_ERRORS_JA = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は現在の DeepSeek Harness で利用できません。Bot の設定で別のプリセットを選んでください。"],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は実行できません: $2。Bot の設定で別のプリセットを選んでください。"],
   [/^An agent preset must be named by its id$/, "Agent プリセットは id で指定する必要があります"],

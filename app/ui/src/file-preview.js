@@ -169,7 +169,7 @@ export function FilePreview({ file, loading, error, onRetry }) {
   const [mode, setMode] = useState('preview')
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef(0)
-  const htmlPreview = useMemo(() => (file?.kind === 'html' ? prepareHtmlPreview(file.text) : null), [file?.kind, file?.text])
+  const htmlPreview = useMemo(() => (file?.kind === 'html' ? prepareHtmlPreview(file.text, t('Scripts and external or local resources are blocked in this preview')) : null), [file?.kind, file?.text])
 
   useEffect(() => {
     setMode('preview')

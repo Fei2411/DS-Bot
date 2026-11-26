@@ -2439,6 +2439,7 @@ export const KO = {
   "Showing first {count} rows": "처음 {count}행 표시",
   "Converted from {ext}": "{ext}에서 변환됨",
   "Preview unavailable in this environment": "이 환경에서는 미리 보기를 사용할 수 없습니다",
+  "Scripts and external or local resources are blocked in this preview": "이 미리 보기에서는 스크립트와 외부 또는 로컬 리소스가 차단됩니다",
   "Select a file to preview": "미리 볼 파일을 선택하세요",
   "Preview": "미리 보기",
   "File truncated for preview": "미리 보기를 위해 파일 일부만 표시됩니다",
@@ -2611,6 +2612,7 @@ export const KO = {
 }
 
 export const HOST_ERRORS_KO = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"은(는) 현재 DeepSeek Harness에서 사용할 수 없습니다. Bot 설정에서 다른 프리셋을 선택하세요.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"을(를) 실행할 수 없습니다: $2. Bot 설정에서 다른 프리셋을 선택하세요.'],
   [/^An agent preset must be named by its id$/, 'Agent 프리셋은 id로 지정해야 합니다'],

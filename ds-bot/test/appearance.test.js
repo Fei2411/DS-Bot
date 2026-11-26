@@ -139,13 +139,13 @@ test('the appearance and the themes of your own are saved with the team', async 
 })
 
 
-test('a paired device cannot change the computer window stylesheet or material', async (t) => {
+test('a paired device cannot change computer-window appearance fields', async (t) => {
   const { rt, call } = team(t)
-  assert.equal((await call('set-prefs', { appearance: { css: 'body{--x:red}', material: false, radius: 40 } })).ok, true)
+  assert.equal((await call('set-prefs', { appearance: { css: 'body{--x:red}', material: false, mode: 'dark', uiFont: 'Inter', codeFont: 'Menlo', fontSize: 16, lineHeight: 1.8, radius: 40 } })).ok, true)
   const before = (await call('state', {})).value.prefs.appearance
-  assert.deepEqual(before, { css: 'body{--x:red}', material: false, radius: 40 })
+  assert.deepEqual(before, { css: 'body{--x:red}', material: false, mode: 'dark', uiFont: 'Inter', codeFont: 'Menlo', fontSize: 16, lineHeight: 1.8, radius: 40 })
 
-  for (const appearance of [{ css: 'body{display:none}' }, { css: null }, { material: true }]) {
+  for (const appearance of [{ css: 'body{display:none}' }, { css: null }, { material: true }, { mode: 'light' }, { uiFont: 'Arial' }, { codeFont: 'Courier' }, { fontSize: 12 }, { lineHeight: 1.4 }]) {
     const answer = await rt.channelCall('set-prefs', { appearance }, undefined, true)
     assert.equal(answer.ok, false)
     assert.equal(answer.error.code, 'bot/refused')

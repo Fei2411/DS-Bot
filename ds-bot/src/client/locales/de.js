@@ -2439,6 +2439,7 @@ export const DE = {
   "Showing first {count} rows": "Erste {count} Zeilen werden angezeigt",
   "Converted from {ext}": "Aus {ext} konvertiert",
   "Preview unavailable in this environment": "Vorschau in dieser Umgebung nicht verfügbar",
+  "Scripts and external or local resources are blocked in this preview": "Skripte sowie externe oder lokale Ressourcen sind in dieser Vorschau blockiert",
   "Select a file to preview": "Datei für Vorschau auswählen",
   "Preview": "Vorschau",
   "File truncated for preview": "Datei für Vorschau gekürzt",
@@ -2611,6 +2612,7 @@ export const DE = {
 }
 
 export const HOST_ERRORS_DE = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" ist in diesem DeepSeek Harness nicht verfügbar. Wähle eine andere in den Bot-Einstellungen.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" kann nicht ausgeführt werden: $2. Wähle eine andere in den Bot-Einstellungen.'],
   [/^An agent preset must be named by its id$/, 'Eine Agent-Voreinstellung muss über ihre ID benannt werden'],

@@ -2533,6 +2533,7 @@ var JA = {
   "Showing first {count} rows": "先頭 {count} 行を表示",
   "Converted from {ext}": "{ext} から変換済み",
   "Preview unavailable in this environment": "この環境ではプレビューできません",
+  "Scripts and external or local resources are blocked in this preview": "このプレビューではスクリプトと外部またはローカルのリソースがブロックされています",
   "Select a file to preview": "プレビューするファイルを選択",
   "Preview": "プレビュー",
   "File truncated for preview": "プレビュー用に一部のみ表示しています",
@@ -2704,6 +2705,7 @@ var JA = {
   "Built-in engine": "内蔵エンジン"
 };
 var HOST_ERRORS_JA = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は現在の DeepSeek Harness で利用できません。Bot の設定で別のプリセットを選んでください。"],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は実行できません: $2。Bot の設定で別のプリセットを選んでください。"],
   [/^An agent preset must be named by its id$/, "Agent プリセットは id で指定する必要があります"],
@@ -5882,6 +5884,7 @@ var KO = {
   "Showing first {count} rows": "처음 {count}행 표시",
   "Converted from {ext}": "{ext}에서 변환됨",
   "Preview unavailable in this environment": "이 환경에서는 미리 보기를 사용할 수 없습니다",
+  "Scripts and external or local resources are blocked in this preview": "이 미리 보기에서는 스크립트와 외부 또는 로컬 리소스가 차단됩니다",
   "Select a file to preview": "미리 볼 파일을 선택하세요",
   "Preview": "미리 보기",
   "File truncated for preview": "미리 보기를 위해 파일 일부만 표시됩니다",
@@ -6053,6 +6056,7 @@ var KO = {
   "Built-in engine": "내장 엔진"
 };
 var HOST_ERRORS_KO = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"은(는) 현재 DeepSeek Harness에서 사용할 수 없습니다. Bot 설정에서 다른 프리셋을 선택하세요.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"을(를) 실행할 수 없습니다: $2. Bot 설정에서 다른 프리셋을 선택하세요.'],
   [/^An agent preset must be named by its id$/, "Agent 프리셋은 id로 지정해야 합니다"],
@@ -9232,6 +9236,7 @@ var ES = {
   "Showing first {count} rows": "Mostrando las primeras {count} filas",
   "Converted from {ext}": "Convertido de {ext}",
   "Preview unavailable in this environment": "Vista previa no disponible en este entorno",
+  "Scripts and external or local resources are blocked in this preview": "Los scripts y los recursos externos o locales están bloqueados en esta vista previa",
   "Select a file to preview": "Selecciona un archivo para previsualizar",
   "Preview": "Vista previa",
   "File truncated for preview": "Archivo truncado para la vista previa",
@@ -9403,6 +9408,7 @@ var ES = {
   "Built-in engine": "Motor integrado"
 };
 var HOST_ERRORS_ES = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "Estos ajustes de apariencia solo se pueden cambiar en este ordenador: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'El preajuste de Agent "$1" no está disponible en este DeepSeek Harness. Elige otro en los ajustes del Bot.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'El preajuste de Agent "$1" no puede ejecutarse: $2. Elige otro en los ajustes del Bot.'],
   [/^An agent preset must be named by its id$/, "Un preajuste de Agent debe indicarse por su id"],
@@ -12538,6 +12544,7 @@ var FR = {
   "Showing first {count} rows": "Affichage des {count} premières lignes",
   "Converted from {ext}": "Converti depuis {ext}",
   "Preview unavailable in this environment": "Aperçu indisponible dans cet environnement",
+  "Scripts and external or local resources are blocked in this preview": "Les scripts et les ressources externes ou locales sont bloqués dans cet aperçu",
   "Select a file to preview": "Sélectionnez un fichier à prévisualiser",
   "Preview": "Aperçu",
   "File truncated for preview": "Fichier tronqué pour l'aperçu",
@@ -12709,6 +12716,7 @@ var FR = {
   "Built-in engine": "Moteur intégré"
 };
 var HOST_ERRORS_FR = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » n’est pas disponible dans ce DeepSeek Harness. Choisissez-en un autre dans les paramètres du Bot."],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » ne peut pas fonctionner : $2. Choisissez-en un autre dans les paramètres du Bot."],
   [/^An agent preset must be named by its id$/, "Un préréglage Agent doit être désigné par son id"],
@@ -15887,6 +15895,7 @@ var DE = {
   "Showing first {count} rows": "Erste {count} Zeilen werden angezeigt",
   "Converted from {ext}": "Aus {ext} konvertiert",
   "Preview unavailable in this environment": "Vorschau in dieser Umgebung nicht verfügbar",
+  "Scripts and external or local resources are blocked in this preview": "Skripte sowie externe oder lokale Ressourcen sind in dieser Vorschau blockiert",
   "Select a file to preview": "Datei für Vorschau auswählen",
   "Preview": "Vorschau",
   "File truncated for preview": "Datei für Vorschau gekürzt",
@@ -16058,6 +16067,7 @@ var DE = {
   "Built-in engine": "Integrierte Engine"
 };
 var HOST_ERRORS_DE = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" ist in diesem DeepSeek Harness nicht verfügbar. Wähle eine andere in den Bot-Einstellungen.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" kann nicht ausgeführt werden: $2. Wähle eine andere in den Bot-Einstellungen.'],
   [/^An agent preset must be named by its id$/, "Eine Agent-Voreinstellung muss über ihre ID benannt werden"],
@@ -19051,6 +19061,7 @@ var ZH = {
   "Showing first {count} rows": "仅显示前 {count} 行",
   "Converted from {ext}": "已从 {ext} 转换",
   "Preview unavailable in this environment": "当前环境暂不支持预览",
+  "Scripts and external or local resources are blocked in this preview": "此预览已阻止脚本以及外部或本地资源",
   "Select a file to preview": "选择一个文件进行预览",
   "Preview": "预览",
   "File truncated for preview": "文件较大，仅展示预览片段",
@@ -19222,6 +19233,7 @@ var ZH = {
   "Built-in engine": "内置引擎"
 };
 var HOST_ERRORS = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "这些外观设置只能在电脑上修改：$1"],
   [/^Plugin disabled by the kill list: (.+)$/, "插件已被安全拦截列表停用：$1"],
   [/^Plugin disabled by the kill list\.$/, "插件已被安全拦截列表停用。"],
   [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "这个插件在批准后发生了变化（能力、执行层级、可执行入口、内容或位置）。需要明确批准后才能重新运行。"],
@@ -21430,7 +21442,7 @@ var FIELDS = {
   }
 };
 var APPEARANCE_FIELDS = Object.keys(FIELDS);
-var COMPUTER_APPEARANCE_FIELDS = /* @__PURE__ */ new Set(["css", "material"]);
+var COMPUTER_APPEARANCE_FIELDS = /* @__PURE__ */ new Set(["css", "mode", "uiFont", "codeFont", "fontSize", "lineHeight", "material"]);
 function patchAppearance(current2, patch) {
   if (patch === null || typeof patch !== "object" || Array.isArray(patch)) refuse("An appearance change names its fields");
   const next = { ...current2 };

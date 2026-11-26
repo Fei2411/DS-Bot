@@ -2404,6 +2404,7 @@ export const FR = {
   "Showing first {count} rows": "Affichage des {count} premières lignes",
   "Converted from {ext}": "Converti depuis {ext}",
   "Preview unavailable in this environment": "Aperçu indisponible dans cet environnement",
+  "Scripts and external or local resources are blocked in this preview": "Les scripts et les ressources externes ou locales sont bloqués dans cet aperçu",
   "Select a file to preview": "Sélectionnez un fichier à prévisualiser",
   "Preview": "Aperçu",
   "File truncated for preview": "Fichier tronqué pour l'aperçu",
@@ -2576,6 +2577,7 @@ export const FR = {
 }
 
 export const HOST_ERRORS_FR = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » n’est pas disponible dans ce DeepSeek Harness. Choisissez-en un autre dans les paramètres du Bot."],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » ne peut pas fonctionner : $2. Choisissez-en un autre dans les paramètres du Bot."],
   [/^An agent preset must be named by its id$/, "Un préréglage Agent doit être désigné par son id"],

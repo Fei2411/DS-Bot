@@ -262,7 +262,7 @@ export function install(rt) {
     if (remote && body.appearance !== null && typeof body.appearance === 'object' && !Array.isArray(body.appearance)) {
       const blocked = Object.keys(body.appearance).filter(field => COMPUTER_APPEARANCE_FIELDS.has(field))
       if (blocked.length > 0) {
-        throw Object.assign(new Error('Custom CSS and window material can only be changed on this computer'), { code: 'bot/refused' })
+        throw Object.assign(new Error(`These appearance fields can only be changed on this computer: ${blocked.join(', ')}`), { code: 'bot/refused' })
       }
     }
     const model = await defaultModelOf(body)
