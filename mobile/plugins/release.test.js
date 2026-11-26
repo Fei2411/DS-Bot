@@ -49,13 +49,11 @@ test('applyArchs preserves debug architectures while enabling uncompressed 16KB 
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
     { type: 'property', key: 'org.gradle.jvmargs', value: '-Xmx4096m -XX:MaxMetaspaceSize=1024m' },
     { type: 'property', key: 'android.experimental.disableCompileSdkChecks', value: 'true' },
-    { type: 'property', key: 'org.gradle.parallel', value: 'true' },
   ])
   assert.deepEqual(applyArchs([]), [
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
     { type: 'property', key: 'android.experimental.disableCompileSdkChecks', value: 'true' },
     { type: 'property', key: 'org.gradle.jvmargs', value: '-Xmx4096m -XX:MaxMetaspaceSize=1024m' },
-    { type: 'property', key: 'org.gradle.parallel', value: 'true' },
   ])
 })
 

@@ -55,12 +55,12 @@ function sign(gradle) {
 // AGP 9 stamps Expo 58 prebuilt AARs with minCompileSdk=37 when compiling against SDK 36;
 // disableCompileSdkChecks bypasses that metadata guard while compiling/linking against SDK 36.
 // Raise JVM heap and Metaspace above Expo's 2G/512M defaults so R8 release minification does
-// not thrash GC or exhaust Metaspace, and enable parallel subproject compilation.
+// not thrash GC or exhaust Metaspace. Leave org.gradle.parallel at its default: parallel Gradle
+// subprojects multiply CMake/Ninja jobs and oversubscribe 4-core CI runners.
 const GRADLE_OVERRIDES = [
   ['expo.useLegacyPackaging', 'false'],
   ['android.experimental.disableCompileSdkChecks', 'true'],
   ['org.gradle.jvmargs', '-Xmx4096m -XX:MaxMetaspaceSize=1024m'],
-  ['org.gradle.parallel', 'true'],
 ]
 
 function applyArchs(properties) {

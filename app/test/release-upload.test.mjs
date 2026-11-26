@@ -150,3 +150,26 @@ test('CLI validates arguments and invokes gh release upload --clobber for each f
     `release upload v0.3.11 ${fileB} --clobber`,
   ].sort())
 })
+
+test('uploadReleaseAssets passes abortSignal to in-flight uploads and aborts siblings on fatal error', async () => {
+  let siblingAborted = false
+  await assert.rejects(
+    () => uploadReleaseAssets('v0.3.11', ['slow.zip', 'fatal.zip'], {
+      concurrency: 2,
+      retryDelaysMs: [],
+      log: () => {},
+      runImpl: (_tag, file, signal) => new Promise((done) => {
+        if (file === 'fatal.zip') {
+          setTimeout(() => done({ code: 1, signal: null, stderr: 'HTTP 403' }), 15)
+          return
+        }
+        signal.addEventListener('abort', () => {
+          siblingAborted = true
+          done({ code: null, signal: 'SIGTERM', stderr: '' })
+        }, { once: true })
+      }),
+    }),
+    /failed fatal\.zip after 1\/1 attempts \(exit 1: HTTP 403\)/u,
+  )
+  assert.equal(siblingAborted, true)
+})

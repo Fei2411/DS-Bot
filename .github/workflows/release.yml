@@ -161,7 +161,10 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - name: Name the download cache
         id: downloads-key
-        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+        run: |
+          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
       - name: Restore Electron and the build tools
         id: downloads
         uses: actions/cache/restore@v4
@@ -170,10 +173,11 @@ jobs:
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
           key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
       - run: npm ci --no-fund --no-audit
         env:
           # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
-          # under dist.mjs retries, and avoids electron/install.js Rosetta arch overrides.
+          # under dist.mjs retries, avoiding an unused binary download during npm ci.
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: node scripts/seed-electron-checksums.mjs
       - name: Restore the locked runtime archives
@@ -222,27 +226,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: arm64, cache_arch: ARM64, runner: macos-latest }
-          # Build Intel x64 on Apple Silicon via Rosetta + x64 Node to avoid Intel runner queue spikes and 2x slower VMs.
-          - { arch: x64, cache_arch: X64, runner: macos-latest }
+          - { arch: arm64, runner: macos-latest }
+          - { arch: x64, runner: macos-26-intel }
     defaults:
       run:
         shell: bash
         working-directory: app
     steps:
       - uses: actions/checkout@v4
-      - name: Ensure Rosetta 2 is available
-        if: matrix.arch == 'x64'
-        run: pkgutil --pkg-info com.apple.pkg.RosettaUpdateAuto >/dev/null 2>&1 || softwareupdate --install-rosetta --agree-to-license
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          architecture: ${{ matrix.arch }}
           cache: npm
           cache-dependency-path: app/package-lock.json
       - name: Name the download cache
         id: downloads-key
-        run: echo "key=electron-downloads-${{ runner.os }}-${{ matrix.cache_arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+        run: |
+          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
       - name: Restore Electron and the build tools
         id: downloads
         uses: actions/cache/restore@v4
@@ -251,10 +253,11 @@ jobs:
             ~/Library/Caches/electron
             ~/Library/Caches/electron-builder
           key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
       - run: npm ci --no-fund --no-audit
         env:
           # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
-          # under dist.mjs retries, and avoids electron/install.js Rosetta arch overrides.
+          # under dist.mjs retries, avoiding an unused binary download during npm ci.
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: node scripts/seed-electron-checksums.mjs
       - name: Restore the locked runtime archives
@@ -262,8 +265,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: app/build/runtime-cache
-          key: runtime-cache-${{ runner.os }}-${{ matrix.cache_arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
-      - run: npm run dist -- --${{ matrix.arch }}
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
+      - run: npm run dist
         env:
           # Standard Deflate level 5 cuts macOS zip time substantially with ~1% size difference.
           ELECTRON_BUILDER_COMPRESSION_LEVEL: '5'
@@ -320,7 +323,10 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - name: Name the download cache
         id: downloads-key
-        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+        run: |
+          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
       - name: Restore Electron and the build tools
         id: downloads
         uses: actions/cache/restore@v4
@@ -329,10 +335,11 @@ jobs:
             ~/.cache/electron
             ~/.cache/electron-builder
           key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
       - run: npm ci --no-fund --no-audit
         env:
           # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
-          # under dist.mjs retries, and avoids electron/install.js Rosetta arch overrides.
+          # under dist.mjs retries, avoiding an unused binary download during npm ci.
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: node scripts/seed-electron-checksums.mjs
       - name: Restore the locked runtime archives

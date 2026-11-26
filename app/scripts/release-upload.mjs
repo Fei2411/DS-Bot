@@ -23,13 +23,22 @@ function sleep(ms, signal) {
   })
 }
 
-export function runGhUpload(tag, file) {
+export function runGhUpload(tag, file, abortSignal) {
   return new Promise((done, fail) => {
-    const child = spawn('gh', ['release', 'upload', tag, file, '--clobber'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn('gh', ['release', 'upload', tag, file, '--clobber'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      signal: abortSignal,
+    })
     let stderr = ''
     child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8') })
     child.stdout.on('data', (chunk) => { process.stdout.write(chunk) })
-    child.once('error', fail)
+    child.once('error', (error) => {
+      if (abortSignal?.aborted && error?.name === 'AbortError') {
+        done({ code: null, signal: 'SIGTERM', stderr: '' })
+        return
+      }
+      fail(error)
+    })
     child.once('close', (code, signal) => { done({ code, signal, stderr: stderr.trim() }) })
   })
 }
@@ -39,7 +48,8 @@ async function uploadOne(tag, file, { runImpl, sleepImpl, retryDelaysMs, log, ab
   const attempts = retryDelaysMs.length + 1
   for (let attempt = 1; ; attempt += 1) {
     if (abortSignal.aborted) return
-    const { code, signal, stderr } = await runImpl(tag, file)
+    const { code, signal, stderr } = await runImpl(tag, file, abortSignal)
+    if (abortSignal.aborted) return
     if (code === 0 && signal === null) {
       log(`release-upload: uploaded ${label}`)
       return
