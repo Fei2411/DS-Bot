@@ -7,7 +7,8 @@ import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
-import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+import { botPendingOf, dmMarkState, isBrowserHandoff, isComputerHandoff, lastTurnFailed, latestTurnOf, useBotHandoff, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+export { botPendingOf } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { SidebarTaskPill, taskCountsOf } from './bot-tasks.js'
 import { reducedMotion } from './activity-row.js'
@@ -61,22 +62,6 @@ const useApproval = (useWork, useComputer, matchApproval, matchAsk) => {
   return tool || app
 }
 
-const hasPendingRequest = list => Array.isArray(list) && list.some(entry => entry?.status === 'pending')
-
-// Pending user-action cards stored on the roster for one Bot's DM:
-// skill / AGENTS.md learning proposals, secret / connector / mail approvals,
-// and ask_user / show_view cards.
-export function botPendingOf(roster, bot) {
-  const id = bot.id
-  const part = currentPart(bot)
-  const learning = (roster?.learning?.[id]?.length ?? 0) > 0
-  const cardApproval = hasPendingRequest(roster?.secretRequests?.[id])
-    || hasPendingRequest(roster?.connectorRequests?.[id])
-    || hasPendingRequest(roster?.mailRequests?.[id])
-  const question = roster?.questions?.[part] !== undefined || roster?.views?.[part] !== undefined
-  return { learning, cardApproval, question }
-}
-
 // Work running in group Sessions, as "botId|tool" keys so a row redraws only when it
 // changes: the groups one Bot works in, or the members at work in one group.
 // Picked as text, so a row redraws only when what it shows changes.
@@ -94,9 +79,6 @@ const waitingFor = (roster, waits) => {
   const names = [...(waits?.bots ?? []).map(id => roster.byId[id]?.name), ...(waits?.rooms ?? []).map(id => roster.roomsById[id]?.name)].filter(Boolean)
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
-
-const isBrowserHandoff = hold => hold?.callId !== undefined
-const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))
 
 const sameBotRow = (a, b) => a.bot === b.bot
   && a.wide === b.wide
@@ -132,6 +114,7 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   const active = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
   const pendingInteraction = useSessionStatus(map => map.get(part)?.pendingInteraction !== undefined)
   const unread = pendingInteraction || completionUnread || (marked && !active)
+  const finished = completionUnread && !active
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
@@ -143,11 +126,7 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   )
   const useReadBgWork = useWork ?? useFalse
   const bgApproval = useReadBgWork(work => (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === id && entry.taskId !== undefined && entry.answerable !== false))
-  const useReadBrowserHolds = useBrowserHolds ?? useFalse
-  const useReadComputer = useComputer ?? useFalse
-  const browserHandoff = useReadBrowserHolds(map => isBrowserHandoff(map?.[id]))
-  const computerHandoff = useReadComputer(comp => isComputerHandoff(comp?.holds?.[id]))
-  const handoff = browserHandoff || computerHandoff
+  const handoff = useBotHandoff(id, useBrowserHolds, useComputer)
   const pending = botPendingOf(roster, bot)
   const blockingApproval = fgApproval || pending.cardApproval
   const nonBlockingApproval = bgApproval || pending.learning
@@ -162,9 +141,22 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   // a running turn paused on a card still wears the alert mark; any remaining
   // 'alert' activity comes from a group, background-task, or unanswerable approval
   // and is stripped while the foreground turn runs.
+  const taskCounts = taskCountsOf({ bot })
+  const failed = lastTurnFailed(bot, useSessions(list => latestTurnOf(list, part)))
   const blockingAlert = blockingApproval || pending.question || handoff
   const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
-  const state = botState(running || away, dmDoing, alert)
+  const state = dmMarkState({
+    running: running || away,
+    doing,
+    failed,
+    background: taskCounts.active > 0,
+    waitingApproval: taskCounts.waitingApproval > 0,
+    replied: finished,
+    fgApproval,
+    bgApproval,
+    handoff,
+    pending,
+  })
   const waitLine = blockingApproval ? t('Waiting for your approval')
     : pending.question ? t('Waiting for your answer')
       : handoff ? t('Waiting for you') : null
@@ -182,7 +174,6 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
     actions.openMenu({ kind: 'bot', id, x: event.clientX, y: event.clientY })
   }
   const pinned = bot.pinned === true && !tile
-  const taskCounts = taskCountsOf({ bot })
   const openTasks = () => { actions.openSession(id); actions.openTaskDeck?.(id) }
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', taskCounts.active > 0 ? t('{count} background tasks running', { count: taskCounts.active }) : '', waitsFor, waitLine || deferredWaitLine || '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
   if (tile && wide) {

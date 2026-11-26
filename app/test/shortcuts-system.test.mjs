@@ -50,7 +50,7 @@ const { outputFiles } = await build({
       export { ShortcutsDialog, matchGlobalShortcut } from './ui/src/shortcuts.js'
       export { ShortcutsPage } from '../ds-bot/src/client/shortcuts-page.js'
       export { createShortcutStore } from '../ds-bot/src/client/shortcuts-model.js'
-      export { ESCAPE_PRIORITY, useEscape } from '../ds-bot/src/client/overlay-hooks.js'
+      export { ESCAPE_PRIORITY, settingsOwnsKeyboard, useEscape } from '../ds-bot/src/client/overlay-hooks.js'
     `,
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
     loader: 'js',
@@ -71,6 +71,12 @@ function loadUi() {
   const reactStub = {
     createElement,
     Fragment: ({ children }) => ({ type: 'fragment', props: { children } }),
+    Component: class {},
+    createContext: v => ({ Provider: ({ children }) => children, _v: v }),
+    useContext: c => c?._v,
+    useCallback: fn => fn,
+    useLayoutEffect() {},
+    useId: () => 'id',
     useState(init) {
       const i = active.i++
       const slots = active.s
@@ -486,4 +492,17 @@ test('Classic mode ShortcutsDialog and ShortcutsPage omit Bot-only shortcuts and
   } finally {
     pageInst.unmount()
   }
+})
+
+test('settingsOwnsKeyboard blocks Settings ⌘K while ShortcutsDialog is mounted above Settings', () => {
+  const { exports } = loadUi()
+  const { settingsOwnsKeyboard } = exports
+  const settingsNode = { isConnected: true, closest: () => null }
+  const shortcutsNode = { isConnected: true, closest: () => null }
+  const leavingNode = { isConnected: true, closest: sel => (sel === '[data-leaving]' ? {} : null) }
+
+  assert.equal(settingsOwnsKeyboard(settingsNode, { querySelectorAll: () => [settingsNode] }), true)
+  assert.equal(settingsOwnsKeyboard(settingsNode, { querySelectorAll: () => [settingsNode, shortcutsNode] }), false)
+  assert.equal(settingsOwnsKeyboard(settingsNode, { querySelectorAll: () => [settingsNode, leavingNode] }), true)
+  assert.equal(settingsOwnsKeyboard({ isConnected: false }, { querySelectorAll: () => [settingsNode] }), false)
 })

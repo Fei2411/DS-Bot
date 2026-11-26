@@ -24,6 +24,19 @@ const escapeLayers = []
 export function hasEscapeLayer() {
   return escapeLayers.length > 0
 }
+
+// True when Settings owns the active keyboard modal layer (not covered by another
+// non-leaving modal dialog such as ShortcutsDialog, PresetModal, or a DSH modal).
+export function settingsOwnsKeyboard(dialog, doc = typeof document === 'undefined' ? null : document) {
+  if (dialog && dialog.isConnected === false) return false
+  if (!doc || typeof doc.querySelectorAll !== 'function') return true
+  for (const modal of doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')) {
+    if (modal === dialog) continue
+    if (typeof modal.closest === 'function' && modal.closest('[data-leaving]')) continue
+    return false
+  }
+  return true
+}
 const topEscapeLayer = () => {
   let top = null
   for (const layer of escapeLayers) {

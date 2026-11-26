@@ -21,6 +21,7 @@ const MALFORMED_RETRIES = 2
 const GEMINI_MALFORMED = new Set([
   'Provider stopped with: MALFORMED_FUNCTION_CALL',
   'Provider stopped with: UNEXPECTED_TOOL_CALL',
+  'Provider stopped with: MALFORMED_RESPONSE',
   'Unhandled stop reason: MALFORMED_RESPONSE',
 ])
 

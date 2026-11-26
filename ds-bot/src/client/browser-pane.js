@@ -923,7 +923,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
               ? h('div', { key: `details:${subjectId}:${pane.renaming ? 'rename' : ''}:${pane.tab ?? ''}`, className: 'bt-panel-view' },
                   h(DetailsDrawer, {
                     sessionId: pane.id, startRenaming: pane.renaming, startTab: pane.tab, hasStrip,
-                    roster, actions: panelActions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useComputer,
+                    roster, actions: panelActions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer,
                   }))
               : null)
 }

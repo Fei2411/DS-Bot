@@ -169,18 +169,22 @@ export const CLIPS = {
     }), side(rng))
   },
 
-  // ---- Thinking.
+  // ---- Thinking: the head tips slowly to one side and stays there a while, then to the
+  // other. The slow tilt is what reads as thinking, down to the smallest mark.
   ponder(rng) {
-    return mirror(clip(2.2, {
-      roll: [[0, 0], [1.1, 3], [2.2, 0]],
-      pitch: [[0, 0], [1.1, -2], [2.2, 0]],
-      gx: [[0, 0], [1.1, 0.2], [2.2, 0]],
+    const hold = 0.7 + rng() * 0.8
+    return mirror(clip(1.4 + hold, {
+      roll: [[0, 0], [0.7, 12], [0.7 + hold, 12, 'linear'], [1.4 + hold, 0]],
+      x: [[0, 0], [0.7, 3.5], [0.7 + hold, 3.5, 'linear'], [1.4 + hold, 0]],
+      pitch: [[0, 0], [0.7, -2], [0.7 + hold, -2, 'linear'], [1.4 + hold, 0]],
+      gx: [[0, 0], [0.5, 0.3], [0.7 + hold, 0.3, 'linear'], [1.3 + hold, 0]],
     }), side(rng))
   },
   // Tips the head the other way and looks up to the other side.
   ponderSwap() {
     return clip(2.4, {
-      roll: [[0, 0], [0.6, -14], [1.8, -14, 'linear'], [2.4, 0]],
+      roll: [[0, 0], [0.6, -17], [1.8, -17, 'linear'], [2.4, 0]],
+      x: [[0, 0], [0.6, -4], [1.8, -4, 'linear'], [2.4, 0]],
       gx: [[0, 0], [0.16, -0.95, 'snap'], [1.8, -0.95, 'linear'], [2.15, 0]],
       yaw: [[0, 0], [0.6, -3], [1.8, -3, 'linear'], [2.4, 0]],
     }, { blink: [0.3] })
@@ -192,14 +196,16 @@ export const CLIPS = {
     })
   },
 
-  // ---- Searching.
+  // ---- Searching: quick looks one way, the other, and back, the body following the
+  // eyes. Quick and side to side, unlike thinking's slow tilt.
   scan(rng) {
-    return mirror(clip(1.4, {
-      gx: [[0, 0], [0.08, 0.9, 'snap'], [0.58, 0.9, 'linear'], [0.66, -0.9, 'snap'], [1.05, -0.9, 'linear'], [1.25, 0]],
-      yaw: [[0, 0], [0.35, 4], [0.95, -4], [1.4, 0]],
-      x: [[0, 0], [0.35, 1.2], [0.95, -1.2], [1.4, 0]],
-      pitch: [[0, 0], [0.35, 2], [0.95, 2], [1.4, 0]],
-    }, { blink: [0.6] }), side(rng))
+    return mirror(clip(1.5, {
+      gx: [[0, 0], [0.08, 0.95, 'snap'], [0.5, 0.95, 'linear'], [0.58, -0.95, 'snap'], [1, -0.95, 'linear'], [1.08, 0.6, 'snap'], [1.3, 0.6, 'linear'], [1.5, 0]],
+      x: [[0, 0], [0.25, 4.5], [0.5, 4.5, 'linear'], [0.75, -4.5], [1, -4.5, 'linear'], [1.25, 2], [1.5, 0]],
+      roll: [[0, 0], [0.25, 4], [0.75, -4], [1.25, 2], [1.5, 0]],
+      yaw: [[0, 0], [0.25, 3], [0.75, -3], [1.25, 1.5], [1.5, 0]],
+      pitch: [[0, 0], [0.3, 2], [1.2, 2, 'linear'], [1.5, 0]],
+    }, { blink: [0.55] }), side(rng))
   },
   peer() {
     return clip(1.3, {
@@ -216,12 +222,13 @@ export const CLIPS = {
     })
   },
 
-  // ---- Working: steady, small, busy.
+  // ---- Working: a quick, steady beat with the head down, as if typing. The fastest
+  // regular rhythm of any state.
   type(rng) {
     const s = side(rng)
     return clip(0.82, {
-      pitch: [[0, 0], [0.09, 3.5, 'out'], [0.2, 0], [0.29, 3, 'out'], [0.4, 0], [0.49, 3.5, 'out'], [0.6, 0], [0.69, 2.5, 'out'], [0.82, 0]],
-      y: [[0, 0], [0.09, 1, 'out'], [0.2, 0], [0.29, 0.9, 'out'], [0.4, 0], [0.49, 1, 'out'], [0.6, 0], [0.69, 0.7, 'out'], [0.82, 0]],
+      pitch: [[0, 0], [0.09, 4, 'out'], [0.2, 0], [0.29, 3.5, 'out'], [0.4, 0], [0.49, 4, 'out'], [0.6, 0], [0.69, 3, 'out'], [0.82, 0]],
+      y: [[0, 0], [0.09, 1.8, 'out'], [0.2, 0], [0.29, 1.6, 'out'], [0.4, 0], [0.49, 1.8, 'out'], [0.6, 0], [0.69, 1.3, 'out'], [0.82, 0]],
       sq: [[0, 0], [0.09, 0.02], [0.2, 0], [0.49, 0.02], [0.6, 0], [0.82, 0]],
       gx: [[0, 0], [0.12, -0.3 * s], [0.7, 0.3 * s, 'linear'], [0.82, 0]],
     })
@@ -254,28 +261,33 @@ export const CLIPS = {
     })
   },
 
-  // ---- Relaying in a group: turns from one side to the other, passing words along.
+  // ---- Relaying in a group: leans to one side as if taking the words, then swings
+  // across to pass them on. Even, both ways, unlike sending's one dash.
   relay(rng) {
     return mirror(clip(2, {
+      x: [[0, 0], [0.4, -6], [0.75, -6, 'linear'], [1.2, 6], [1.6, 6, 'linear'], [2, 0]],
+      roll: [[0, 0], [0.4, -6], [0.75, -6, 'linear'], [1.2, 6], [1.6, 6, 'linear'], [2, 0]],
       yaw: [[0, 0], [0.4, -4.5], [0.75, -4.5, 'linear'], [1.2, 4], [1.6, 4, 'linear'], [2, 0]],
-      x: [[0, 0], [0.4, -1.8], [0.75, -1.8, 'linear'], [1.2, 1.6], [1.6, 1.6, 'linear'], [2, 0]],
       gx: [[0, 0], [0.1, -0.85, 'snap'], [0.75, -0.85, 'linear'], [0.85, 0.85, 'snap'], [1.6, 0.85, 'linear'], [1.9, 0]],
-      roll: [[0, 0], [0.4, 3], [1.2, -3], [2, 0]],
     }, { blink: [0.8] }), side(rng))
   },
 
-  // ---- Waiting on other Bots.
+  // ---- Waiting on other Bots: taps its foot, three quick small hops on the spot, and
+  // looks over to where the work went.
   tap() {
     return clip(0.96, {
-      y: [[0, 0], [0.1, -1.8, 'out'], [0.2, 0, 'in'], [0.42, -1.8, 'out'], [0.52, 0, 'in'], [0.74, -1.8, 'out'], [0.84, 0, 'in'], [0.96, 0]],
-      sq: [[0, 0], [0.2, 0.03, 'out'], [0.3, 0], [0.52, 0.03, 'out'], [0.62, 0], [0.84, 0.03, 'out'], [0.96, 0]],
+      y: [[0, 0], [0.1, -3.5, 'out'], [0.2, 0, 'in'], [0.42, -3.5, 'out'], [0.52, 0, 'in'], [0.74, -3.5, 'out'], [0.84, 0, 'in'], [0.96, 0]],
+      sq: [[0, 0], [0.2, 0.045, 'out'], [0.3, 0], [0.52, 0.045, 'out'], [0.62, 0], [0.84, 0.045, 'out'], [0.96, 0]],
     })
   },
+  // Looks over to one side, where the work went, and leans after it for a while.
   patient(rng) {
-    return mirror(clip(2, {
-      yaw: [[0, 0], [0.6, 3], [1.4, 3, 'linear'], [2, 0]],
-      gx: [[0, 0], [0.12, 0.6, 'snap'], [1.5, 0.6, 'linear'], [1.9, 0]],
-      roll: [[0, 0], [0.6, 2], [1.4, 2, 'linear'], [2, 0]],
+    const hold = 0.8 + rng() * 0.8
+    return mirror(clip(1.2 + hold, {
+      x: [[0, 0], [0.6, 3.5], [0.6 + hold, 3.5, 'linear'], [1.2 + hold, 0]],
+      roll: [[0, 0], [0.6, 5], [0.6 + hold, 5, 'linear'], [1.2 + hold, 0]],
+      yaw: [[0, 0], [0.6, 3], [0.6 + hold, 3, 'linear'], [1.2 + hold, 0]],
+      gx: [[0, 0], [0.12, 0.8, 'snap'], [0.7 + hold, 0.8, 'linear'], [1.1 + hold, 0]],
     }), side(rng))
   },
   sigh() {
@@ -286,7 +298,17 @@ export const CLIPS = {
     })
   },
 
-  // ---- Needs you: two hops to catch your eye, then a small nudge now and then.
+  // ---- Background tasks: working's nod, at half its pace: busy, but calmly.
+  hum() {
+    return clip(1.4, {
+      pitch: [[0, 0], [0.3, 9, 'out'], [0.7, 0], [1, 8, 'out'], [1.4, 0]],
+      y: [[0, 0], [0.3, 4.5, 'out'], [0.7, 0], [1, 4, 'out'], [1.4, 0]],
+      sq: [[0, 0], [0.3, 0.05, 'out'], [0.7, 0], [1, 0.045, 'out'], [1.4, 0]],
+    })
+  },
+
+  // ---- Needs you: two hops to catch your eye, and two smaller ones every few seconds
+  // until you answer.
   attention() {
     return clip(0.96, {
       y: [[0, 0], [0.08, 0.6, 'out'], [0.24, -10, 'out'], [0.4, 0, 'in'], [0.46, 0.4, 'out'], [0.6, -7, 'out'], [0.76, 0, 'in'], [0.96, 0]],
@@ -294,10 +316,29 @@ export const CLIPS = {
       pupil: [[0, 0], [0.24, 0.08], [0.6, 0.06], [0.96, 0]],
     })
   },
-  nudge() {
-    return clip(0.56, {
-      y: [[0, 0], [0.06, 0.4, 'out'], [0.18, -4.5, 'out'], [0.34, 0, 'in'], [0.56, 0]],
-      sq: [[0, 0], [0.06, 0.05, 'out'], [0.14, -0.05, 'out'], [0.28, 0], [0.36, 0.06, 'out'], [0.46, -0.015], [0.56, 0]],
+  call() {
+    return clip(0.9, {
+      y: [[0, 0], [0.07, 0.5, 'out'], [0.22, -7, 'out'], [0.38, 0, 'in'], [0.44, 0.4, 'out'], [0.58, -5, 'out'], [0.74, 0, 'in'], [0.9, 0]],
+      sq: [[0, 0], [0.07, 0.06, 'out'], [0.15, -0.07, 'out'], [0.3, 0], [0.38, 0.08, 'out'], [0.47, -0.05, 'out'], [0.6, 0], [0.74, 0.06, 'out'], [0.82, -0.015], [0.9, 0]],
+      scale: [[0, 0], [0.22, 0.04], [0.58, 0.03], [0.9, 0]],
+      pupil: [[0, 0], [0.22, 0.06], [0.9, 0]],
+    })
+  },
+
+  // ---- Failed: shakes its head, no, and sinks with a sigh now and then.
+  shake() {
+    return clip(0.8, {
+      x: [[0, 0], [0.1, 5, 'out'], [0.24, -5], [0.38, 4.2], [0.52, -3.2], [0.66, 1.2], [0.8, 0]],
+      roll: [[0, 0], [0.1, 6, 'out'], [0.24, -6], [0.38, 5], [0.52, -3.5], [0.66, 1.2], [0.8, 0]],
+      yaw: [[0, 0], [0.1, 3], [0.24, -3], [0.38, 2.5], [0.52, -2], [0.8, 0]],
+    })
+  },
+  slump() {
+    return clip(1.6, {
+      y: [[0, 0], [0.5, -1.2], [1.1, 2.6, 'in'], [1.6, 0]],
+      sq: [[0, 0], [0.5, -0.04], [1.1, 0.07, 'out'], [1.6, 0]],
+      pitch: [[0, 0], [0.5, -3], [1.1, 5], [1.6, 0]],
+      lid: [[0, 0], [0.9, 0.35], [1.5, 0]],
     })
   },
 
