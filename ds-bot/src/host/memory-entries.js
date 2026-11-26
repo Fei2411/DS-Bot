@@ -24,8 +24,55 @@ export const NO_MATCH = 'memory/no-match'
 export const GONE = 'memory/bot-gone'
 export const DENIED = 'memory/denied'
 export const REFUSED = 'memory/refused'
+// A write too close to an entry memory dropped within the re-add guard window.
+export const RECENT_REMOVAL = 'memory/recent-removal'
 // The codes the memory review routes on. A failure that carries one keeps it.
-export const ROUTED = new Set([NO_MATCH, GONE, DENIED, REFUSED])
+export const ROUTED = new Set([NO_MATCH, GONE, DENIED, REFUSED, RECENT_REMOVAL])
+
+// How close two entries read to each other for the re-add guard. The measure is
+// containment, not Jaccard: what matters is how much of the smaller text the
+// larger one carries, because filler rewording of the same fact — "the user
+// likes the plain black tea", "用户比较喜欢红茶" — adds tokens rather than
+// replacing them, and Jaccard punishes exactly that. Stop words and inflections
+// fall out in `wordsOf`, so what is compared is the fact's own words. At or past
+// `READD_SIMILARITY` of the smaller text shared, one counts as the other
+// re-added. One guard keeps the measure honest: fewer than `READD_SHARED_MIN`
+// shared words is coincidence, not closeness. There is deliberately no smarter
+// exception: a lexical scan cannot tell "does not like" the correction apart
+// from "no doubt" the filler, and any such door is the guard's own bypass —
+// a real correction is the user's, and the user's own writes never face the
+// guard at all.
+export const READD_SIMILARITY = 0.8
+export const READD_SHARED_MIN = 2
+
+// The share of the smaller text's words the larger one carries: 1 when the
+// shorter text is word-for-word inside the longer. Empty token sets fall back
+// to the exact `squash` comparison the caller already makes, so they score 0 here.
+export function tokenOverlap(a, b) {
+  const first = wordsOf(a)
+  const second = wordsOf(b)
+  if (first.size === 0 || second.size === 0) return 0
+  let shared = 0
+  for (const word of first) if (second.has(word)) shared += 1
+  return shared / Math.min(first.size, second.size)
+}
+const sharedTokens = (a, b) => {
+  const first = wordsOf(a)
+  const second = wordsOf(b)
+  let shared = 0
+  for (const word of first) if (second.has(word)) shared += 1
+  return shared
+}
+
+// The entries a write must not silently bring back while the removal is fresh:
+// identical after `squash`, or this close by words.
+export const readdMatch = (text, dropped) => {
+  const candidate = squash(text)
+  if (candidate === '') return false
+  if (squash(dropped) === candidate) return true
+  if (sharedTokens(candidate, dropped) < READD_SHARED_MIN) return false
+  return tokenOverlap(candidate, dropped) >= READD_SIMILARITY
+}
 // What a review shows of memory, in characters of entry text.
 export const REVIEW_MEMORY_MAX = 16_000
 

@@ -647,6 +647,24 @@ const ZH = {
   'This model is not available now. Pick another one.': '这个模型现在不可用，请换一个。',
   'Every message of this Bot runs on it.': '这个 Bot 的每条消息都用它。',
   'Applies from the next message.': '从下一条消息开始生效。',
+  // Agent preset: the harness preset a Bot's own sessions run on.
+  'Agent preset': 'Agent 预设',
+  'Agent preset: {preset}': 'Agent 预设：{preset}',
+  'Default (Standard)': '默认（标准）',
+  'Default (DSH default)': '默认（DSH 默认）',
+  'The standard agent preset': '标准 Agent 预设',
+  'The default for new tasks in DeepSeek Harness.': 'DeepSeek Harness 为新任务选择的默认预设。',
+  'Missing preset': '找不到这个预设',
+  'This preset cannot start.': '这个预设无法启动。',
+  'This preset cannot start. Pick another one.': '这个预设无法启动。请换一个。',
+  'This preset cannot start ({reason}). Pick another one.': '这个预设无法启动（{reason}）。请换一个。',
+  'This preset is not in the profile anymore. Pick another one.': '这个预设已不在当前 profile 中。请换一个。',
+  'The preset list could not be loaded.': '无法加载预设列表。',
+  'DS Bot needs the Bot\'s own prompt, which this preset replaces': '这个预设会覆盖 Bot 的身份和指令，无法用于 Bot。',
+  'DS Bot could not verify that it keeps the Bot\'s own prompt': '无法确认这个预设是否保留 Bot 的身份和指令，请选择其他预设。',
+  'Applies from the next conversation segment.': '从下一段对话开始生效。',
+  'The Bot runs on the default agent preset.': 'Bot 会使用默认 Agent 预设。',
+  'The Bot runs on the {name} agent preset.': 'Bot 会使用 {name} Agent 预设。',
   Profile: '资料',
   Label: '标签',
   'Add a label': '添加标签',
@@ -902,6 +920,14 @@ const ZH = {
   'Dictation provider': '听写提供方',
   'Use DeepSeek for dictation': '用 DeepSeek 听写',
   'In use': '使用中',
+  'Stopped by the security kill list': '已被安全拦截列表停用',
+  'Approval needed': '需要重新批准',
+  Unverifiable: '无法验证',
+  'Plugin files cannot be verified': '插件文件无法验证',
+  'Approving…': '批准中…',
+  'Execution tier': '执行层级',
+  'This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.': '这个插件在批准后发生了变化：能力、执行层级、可执行入口、内容或位置。它已停止运行，确认按现在的样子批准后才会重新运行。',
+  'Runs the latest published version at start time; approval does not pin exact bytes.': '每次启动时运行最新发布的版本；批准不固定具体代码。',
 
   // Phone
   Phone: '手机',
@@ -2407,7 +2433,19 @@ const ZH = {
 // Host errors stay English, since Bots read them too; they are translated where the
 // interface shows them. Static ones go through ZH, these carry names or numbers.
 const HOST_ERRORS = [
+  [/^Plugin disabled by the kill list: (.+)$/, '插件已被安全拦截列表停用：$1'],
+  [/^Plugin disabled by the kill list\.$/, '插件已被安全拦截列表停用。'],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, '这个插件在批准后发生了变化（能力、执行层级、可执行入口、内容或位置）。需要明确批准后才能重新运行。'],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\..*$/, '插件文件无法验证（$1）。目录可安全读取前它不能运行；问题依旧的话，移除后重新安装。'],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot be approved until its directory is safe to read\..*$/, '插件文件无法验证（$1）。目录可安全读取前无法批准；问题依旧的话，移除后重新安装。'],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, '连不上邮件服务器 $1，请检查服务器地址。'],
+  [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, '这个 Agent 预设「$1」在当前 DeepSeek Harness 中不可用。请在 Bot 设置里换一个预设。'],
+  [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, '这个 Agent 预设「$1」无法运行：$2。请在 Bot 设置里换一个预设。'],
+  [/^An agent preset must be named by its id$/, 'Agent 预设必须用它的 id 来指定'],
+  [/^The agent preset "(.+)" cannot be used for a Bot: (.+)\. Pick another preset in the Bot's settings\.$/, '这个 Agent 预设「$1」不能用于 Bot：$2。请在 Bot 设置里换一个预设。'],
+  [/^The default agent preset "(.+)" cannot be used for a Bot: (.+)\. Choose a preset for the Bot in its settings\.$/, '默认 Agent 预设「$1」不能用于 Bot：$2。请在 Bot 设置里为这个 Bot 选一个预设。'],
+  [/^The agent preset "(.+)" of (.+) cannot run a Bot in this DeepSeek Harness, so it keeps the preset its running conversations were made with\. Pick another preset in the Bot's settings\.$/, '$2 的 Agent 预设「$1」无法在当前 DeepSeek Harness 中运行 Bot，因此已有的对话会继续沿用创建时的预设。请在 Bot 设置里换一个预设。'],
+  [/^Only the user can choose the agent preset of (.+)$/, '只有你能选择 $1 的 Agent 预设'],
   [/^Model (.+) is not available\. Available: (.*)$/, '模型 $1 不可用。可用的：$2'],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, '$1 的 API key 是在 DS Bot 之外设置的，这里改不了'],
   [/^(.+) takes no API key here$/, '$1 不能在这里填 API key'],
@@ -2856,6 +2894,12 @@ export function installLocale(locale) {
 
 export function t(key, params) {
   return bound ? bound(key, params) : fill(key, params)
+}
+
+// The host owns built-in preset copy, including languages DS Bot does not translate.
+export function presetText(key) {
+  const value = service?.bind('settings.agentPreset')(key)
+  return typeof value === 'string' && value !== key ? value : undefined
 }
 
 // A message from the host, in the interface language.
