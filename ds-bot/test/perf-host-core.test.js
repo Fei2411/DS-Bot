@@ -25,7 +25,7 @@ import { install as installExternalApi } from '../src/host/api/index.js'
 import { install as installMemory } from '../src/host/memory.js'
 import { avatarRef, clearAvatarRefCache, install as installMobile } from '../src/host/mobile.js'
 import { install as installModels } from '../src/host/models.js'
-import { install as installParts } from '../src/host/parts.js'
+import { historyEntry, install as installParts } from '../src/host/parts.js'
 import { install as installPermissions } from '../src/host/permissions.js'
 import { install as installPrivacy } from '../src/host/privacy.js'
 import { install as installRequests } from '../src/host/requests.js'
@@ -35,6 +35,18 @@ import { install as installTasks } from '../src/host/tasks.js'
 import { install as installTurns } from '../src/host/turns.js'
 import { install as installUsage } from '../src/host/usage.js'
 import { fakeContext } from './fake-ctx.js'
+
+
+// The review reads transcripts through rt.eventsBackwards + rt.historyEntry (raw
+// events carry the source a line's trust lives on). A fake session of one user
+// line, newest first as the real index yields them, projected by the same
+// historyEntry parts.js installs on the real rt.
+const fakeTranscript = (text) => ({
+  eventsBackwards: async function* () {
+    yield { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } }
+  },
+  historyEntry: (event, group) => historyEntry(event, group),
+})
 
 const tempDirs = []
 after(() => {
@@ -802,9 +814,10 @@ test('memory-review.js does not cancel pending review timer on agent/disposed', 
     isMain: id => id === 'a',
     isPrivate: () => false,
     partsOfThread: () => [{ sessionId: 'a' }],
-    async *partLines() {
+    ...fakeTranscript('Remember that we always ship with tests.'),
+    eventsBackwards: async function* () {
       partLinesCalls += 1
-      yield { seq: 1, who: 'user', text: 'Remember that we always ship with tests.' }
+      yield { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Remember that we always ship with tests.' }] } }
     },
     desiredModel: async () => 'deepseek/deepseek-chat',
     defaultModel: async () => 'deepseek/deepseek-chat',
@@ -1853,8 +1866,9 @@ test('memory-review.js deleting a Bot while its review is queued does not reject
     isMain: id => id === 'a',
     isPrivate: () => false,
     partsOfThread: id => [{ sessionId: id }],
-    async *partLines(id) {
-      yield { seq: 1, who: 'user', text: `Fact for ${id}` }
+    ...fakeTranscript(''),
+    eventsBackwards: async function* (id) {
+      yield { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: `Fact for ${id}` }] } }
     },
     desiredModel: async () => 'deepseek/deepseek-chat',
     defaultModel: async () => 'deepseek/deepseek-chat',
@@ -2165,9 +2179,7 @@ test('memory-review.js forgetBotReview cancels pending failure retry timers', as
     isMain: id => id === 'a',
     isPrivate: () => false,
     partsOfThread: id => [{ sessionId: id }],
-    async *partLines() {
-      yield { seq: 1, who: 'user', text: 'Remember my test preference.' }
-    },
+    ...fakeTranscript('Remember my test preference.'),
     desiredModel: async () => 'deepseek/deepseek-chat',
     defaultModel: async () => 'deepseek/deepseek-chat',
     tagUsage: msgs => msgs,

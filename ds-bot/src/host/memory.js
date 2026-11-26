@@ -653,10 +653,15 @@ export function install(rt) {
   // restore already undid are no evidence: the removal did not stand. Entries
   // the tidy retired as expired (why 'ended') do not count — the fact was already
   // over, not removed or forgotten; re-adding it when it recurs is legitimate.
-  function droppedInFile(path, cutoff, kind) {
+  // `key` scopes the evidence: the shared journal holds every scope's rows, and a
+  // removal in one memory must never guard another — a fact Bot B dropped cannot
+  // block what Bot A or a group keeps. Per-scope journals (a private Bot's, and
+  // retired.jsonl, which sits inside the scope's own folder) hold only their own
+  // scope's rows, so they pass undefined and keep every row.
+  function droppedInFile(path, cutoff, kind, key) {
     const sig = signatureOf(path)
     if (sig === undefined) return []
-    const cached = droppedCache.get(path)
+    const cached = droppedCache.get(`${path}::${key ?? ''}`)
     if (cached?.sig === sig && cached.window === cutoff) return cached.texts
     let scanned = []
     try {
@@ -678,11 +683,14 @@ export function install(rt) {
     } else {
       for (const row of scanned) {
         if (row.op !== 'remove' || !fresh(row) || restored.has(row.id)) continue
+        // A row that names another scope is no evidence here; one that names none
+        // predates scoped rows and stays evidence for the scope the file serves.
+        if (key !== undefined && row.scope !== undefined && row.scope !== key) continue
         note(row.before)
       }
     }
     if (droppedCache.size > 64) droppedCache.clear()
-    droppedCache.set(path, { sig, window: cutoff, texts })
+    droppedCache.set(`${path}::${key ?? ''}`, { sig, window: cutoff, texts })
     return texts
   }
 
@@ -699,7 +707,9 @@ export function install(rt) {
     const journals = []
     for (const path of paths) {
       try {
-        if (existsSync(path)) journals.push(...droppedInFile(path, cutoff, 'journal'))
+        // The shared journal is filtered to this scope's rows; a journal inside the
+        // scope's own folder holds only its rows and needs no filter.
+        if (existsSync(path)) journals.push(...droppedInFile(path, cutoff, 'journal', path === journalPath ? key : undefined))
       } catch { /* advisory evidence: a log that cannot be read yields none */ }
     }
     const retired = join(dirOf(scope), 'retired.jsonl')

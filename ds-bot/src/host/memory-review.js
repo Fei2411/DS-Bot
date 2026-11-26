@@ -157,9 +157,12 @@ export function installReview(rt, memory) {
   }
 
   // What is new in a group, from its log: the members' Sessions hold the same
-  // messages wrapped in turn prompts. A user post that came in over IM carries
-  // `via`; those senders are not the verified owner, so their lines stay out of
-  // the transcript exactly as external lines of a Bot's own chat do.
+  // messages wrapped in turn prompts. A user post that came in over an external
+  // channel carries `via` — the IM platform's name, or 'api' for a local API
+  // token's post (viaOf tags both, so the same rpcId classifies owner trust in a
+  // private chat and in a group). Those senders are not the verified owner, so
+  // their lines stay out of the transcript exactly as external lines of a Bot's
+  // own chat do.
   function groupBatch(room, since) {
     const direct = line => line.botId !== undefined || line.who !== 'User' || line.via === undefined
     const reached = (room.log ?? []).filter(line => line.kind === undefined && typeof line.text === 'string' && line.text.trim() !== '')

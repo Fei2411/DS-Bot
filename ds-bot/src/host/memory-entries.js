@@ -29,25 +29,64 @@ export const RECENT_REMOVAL = 'memory/recent-removal'
 // The codes the memory review routes on. A failure that carries one keeps it.
 export const ROUTED = new Set([NO_MATCH, GONE, DENIED, REFUSED, RECENT_REMOVAL])
 
-// How close two entries read to each other for the re-add guard: the share of
-// words they have in common (word overlap), with `wordsOf` doing the tokenizing —
-// stop words and inflections fall out, so filler rewording of the same fact still
-// matches. At or past `READD_SIMILARITY` one text counts as the other re-added.
+// How close two entries read to each other for the re-add guard. The measure is
+// containment, not Jaccard: what matters is how much of the smaller text the
+// larger one carries, because filler rewording of the same fact — "the user
+// likes the plain black tea", "用户比较喜欢红茶" — adds tokens rather than
+// replacing them, and Jaccard punishes exactly that. Stop words and inflections
+// fall out in `wordsOf`, so what is compared is the fact's own words. At or past
+// `READD_SIMILARITY` of the smaller text shared, one counts as the other
+// re-added. Two guards keep the measure honest: fewer than `READD_SHARED_MIN`
+// shared words is coincidence, not closeness, and a text that flips the negation
+// ("likes" against "does not like", "喜欢" against "不喜欢") is the opposite of
+// the dropped fact — correcting memory, not laundering it back — so it never
+// counts as a re-add however close the words are.
 export const READD_SIMILARITY = 0.8
-export function tokenJaccard(a, b) {
+export const READD_SHARED_MIN = 2
+
+// Han negators: 不/没/无/非/别 are the productive ones; 未 and 莫 are rarer but
+// unambiguous in a fact. Counted on the raw text, position-independent.
+const NEGATORS_HAN = /[不没无非别未莫]/gu
+// One bit of negation per text, scanned before `wordsOf` drops the English ones
+// as closed-class glue: n't for contractions, the standalone words, and every
+// Han negator. Only the parity matters — a double negation reads positive, which
+// is as close as a text scan gets to the truth of it.
+function negationParity(text) {
+  const lower = squash(text)
+  const en = (lower.match(/\bnot\b|\bno\b|\bnever\b|n't/gu) ?? []).length
+  const han = (lower.match(NEGATORS_HAN) ?? []).length
+  return (en + han) % 2
+}
+
+// The share of the smaller text's words the larger one carries: 1 when the
+// shorter text is word-for-word inside the longer. Empty token sets fall back
+// to the exact `squash` comparison the caller already makes, so they score 0 here.
+export function tokenOverlap(a, b) {
   const first = wordsOf(a)
   const second = wordsOf(b)
-  if (first.size === 0 || second.size === 0) return squash(a) === squash(b) ? 1 : 0
+  if (first.size === 0 || second.size === 0) return 0
   let shared = 0
   for (const word of first) if (second.has(word)) shared += 1
-  return shared / (first.size + second.size - shared)
+  return shared / Math.min(first.size, second.size)
 }
+const sharedTokens = (a, b) => {
+  const first = wordsOf(a)
+  const second = wordsOf(b)
+  let shared = 0
+  for (const word of first) if (second.has(word)) shared += 1
+  return shared
+}
+
 // The entries a write must not silently bring back while the removal is fresh:
-// identical after `squash`, or this close by words.
+// identical after `squash`, or this close by words — unless the new text negates
+// what the dropped one said, which is a correction memory must be free to keep.
 export const readdMatch = (text, dropped) => {
   const candidate = squash(text)
   if (candidate === '') return false
-  return squash(dropped) === candidate || tokenJaccard(candidate, dropped) >= READD_SIMILARITY
+  if (squash(dropped) === candidate) return true
+  if (negationParity(candidate) !== negationParity(dropped)) return false
+  if (sharedTokens(candidate, dropped) < READD_SHARED_MIN) return false
+  return tokenOverlap(candidate, dropped) >= READD_SIMILARITY
 }
 // What a review shows of memory, in characters of entry text.
 export const REVIEW_MEMORY_MAX = 16_000

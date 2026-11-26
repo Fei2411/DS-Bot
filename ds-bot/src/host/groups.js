@@ -26,7 +26,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { GROUP_LINE_READ, HISTORY_PAGE, HISTORY_TIMEOUT_MS, INSTANT_WORK_TOOLS, ROOM_IDLE_RELAY_LIMIT, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, ROOM_ZERO_WORK_RELAY_LIMIT, SOURCE_KIND, TEXT_KEPT, isWorkTool } from './constants.js'
 import { escapeRegExp, excerpt, headOf, reminderPrompts, splitRef, textOf } from './text.js'
-import { viaOf } from '../shared/im-platforms.js'
+import { viaIsIm, viaOf } from '../shared/im-platforms.js'
 import { REPLY_ELISION, parseReplies, relayRange } from '../shared/group-replies.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
@@ -1879,7 +1879,10 @@ export function install(rt) {
     for (const line of lines) {
       const classified = rt.classifyRoomUserSource?.(roomSid, line.source)
       if (classified?.ignored !== true) {
-        const origin = classified !== undefined ? classified.origin : (line.via ? rt.captureImOrigin?.(roomSid) : undefined)
+        // Only a real IM platform may keep the group's IM origin; any other external
+        // channel (the API token's posts carry via 'api') reads as non-IM input here,
+        // so replies are never forwarded out of the team for them.
+        const origin = classified !== undefined ? classified.origin : (viaIsIm(line.via) ? rt.captureImOrigin?.(roomSid) : undefined)
         noteRoomUserOrigin(room, origin)
       }
       say(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}) })
@@ -2430,7 +2433,7 @@ export function install(rt) {
         continue
       }
       // The user's message, as one the round takes in from the Session's inbox.
-      noteRoomUserOrigin(room, post.via !== undefined ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : undefined)
+      noteRoomUserOrigin(room, viaIsIm(post.via) ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : undefined)
       const text = [post.text, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
       say(room, { who: 'User', text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.via === undefined ? {} : { via: post.via }), session: true })
       unpauseRoomIdle(room)
@@ -2531,7 +2534,7 @@ export function install(rt) {
     const hasUserPost = userPosts.length > 0
     if (hasUserPost) {
       const roomIm = rt.captureImOrigin?.(rt.sessionOfRoom(room))
-      for (const post of userPosts) noteRoomUserOrigin(room, post.via !== undefined ? roomIm : undefined)
+      for (const post of userPosts) noteRoomUserOrigin(room, viaIsIm(post.via) ? roomIm : undefined)
       rt.goalUserMessage?.(room.id)
     }
     // An event post, and a member post that calls nobody, never pick the speakers
