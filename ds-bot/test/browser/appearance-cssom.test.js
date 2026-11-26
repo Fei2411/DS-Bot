@@ -178,3 +178,25 @@ test('replaceSync drops @import and normalizes escapes into CSSOM', async () => 
     server.close()
   }
 })
+
+test('empty @layer blocks survive sanitization so cascade layer order stays intact', async () => {
+  const { server, origin } = await startServer()
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await (await browser.newContext()).newPage()
+    await page.goto(`${origin}/`)
+    await page.addScriptTag({ content: await getBundle() })
+    const css = '@layer first {} @layer second { .probe { color: rgb(0, 0, 255) } } @layer first { .probe { color: rgb(255, 0, 0) } }'
+    const color = await page.evaluate((source) => {
+      window.__themecss.mountUserStylesheet(document, source)
+      return getComputedStyle(document.querySelector('.probe')).color
+    }, css)
+    // Because `first` was declared before `second`, `second` wins (blue) — dropping the
+    // empty `@layer first {}` block would invert layer order and turn `.probe` red.
+    assert.equal(color, 'rgb(0, 0, 255)')
+  } finally {
+    await browser.close()
+    server.close()
+  }
+})
+

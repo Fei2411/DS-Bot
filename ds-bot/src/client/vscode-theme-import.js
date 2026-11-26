@@ -150,9 +150,8 @@ export function parseVscodeTheme(text, fallbackLabel = 'VS Code theme') {
     throw new Error('This file is not a VS Code theme')
   }
 
-  const mode = deriveThemeMode(canvas, VSCODE_DEFAULTS.accent, dark ? 'dark' : 'light')
-  const accent = MAP.accent.map(key => flattenColor(colors[key], canvas)).find(Boolean)
-  if (accent !== undefined) mode.accent = accent
+  const accent = MAP.accent.map(key => flattenColor(colors[key], canvas)).find(Boolean) ?? VSCODE_DEFAULTS.accent
+  const mode = deriveThemeMode(canvas, accent, dark ? 'dark' : 'light')
   for (const key of ['text', 'sidebar', 'bubble', 'card']) {
     const found = MAP[key].map(name => flattenColor(colors[name], canvas)).find(Boolean)
     if (found !== undefined) mode[key] = found

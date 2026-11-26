@@ -163,14 +163,23 @@ export function deriveThemeMode(canvasHex, accentHex, appearance) {
   const [hue, saturation, lightness] = hslOf(canvas)
   const dark = appearance === undefined ? lightness < 0.5 : appearance === 'dark'
   const step = (delta) => hexOfHsl(hue, saturation, Math.min(1, Math.max(0, lightness + delta)))
+  const text = readableOn(dark ? '#f2f2f2' : '#141414', canvas)
+  // Surfaces step off the canvas in the mode's direction; on a mid-tone canvas where a
+  // step toward the chosen text drops below READABLE, step the same distance away instead.
+  const awaySign = contrast(text, '#000000') > contrast(text, '#ffffff') ? -1 : 1
+  const surface = (delta) => {
+    const preferred = step(delta)
+    if (contrast(text, preferred) >= READABLE) return preferred
+    return step(awaySign * Math.abs(delta))
+  }
   return {
     accent,
     bg: canvas,
-    text: readableOn(dark ? '#f2f2f2' : '#141414', canvas),
-    sidebar: step(dark ? 0.03 : -0.03),
-    bubble: step(dark ? 0.075 : -0.075),
+    text,
+    sidebar: surface(dark ? 0.03 : -0.03),
+    bubble: surface(dark ? 0.075 : -0.075),
     // Cards float a little lighter than the canvas in both modes.
-    card: step(0.045),
+    card: surface(0.045),
     user: accent,
     userText: accentInk(accent),
   }

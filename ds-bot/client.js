@@ -21163,14 +21163,21 @@ function deriveThemeMode(canvasHex, accentHex, appearance) {
   const [hue, saturation, lightness] = hslOf(canvas);
   const dark = appearance === void 0 ? lightness < 0.5 : appearance === "dark";
   const step = (delta) => hexOfHsl(hue, saturation, Math.min(1, Math.max(0, lightness + delta)));
+  const text = readableOn(dark ? "#f2f2f2" : "#141414", canvas);
+  const awaySign = contrast(text, "#000000") > contrast(text, "#ffffff") ? -1 : 1;
+  const surface = (delta) => {
+    const preferred = step(delta);
+    if (contrast(text, preferred) >= READABLE) return preferred;
+    return step(awaySign * Math.abs(delta));
+  };
   return {
     accent,
     bg: canvas,
-    text: readableOn(dark ? "#f2f2f2" : "#141414", canvas),
-    sidebar: step(dark ? 0.03 : -0.03),
-    bubble: step(dark ? 0.075 : -0.075),
+    text,
+    sidebar: surface(dark ? 0.03 : -0.03),
+    bubble: surface(dark ? 0.075 : -0.075),
     // Cards float a little lighter than the canvas in both modes.
-    card: step(0.045),
+    card: surface(0.045),
     user: accent,
     userText: accentInk(accent)
   };
@@ -21551,7 +21558,7 @@ function sanitizeUserSheet(sheet, view) {
       if (style) cleanStyle(style);
       if (type !== void 0 && CONTAINERS.has(type)) {
         cleanList(rule);
-        if (type !== "CSSKeyframesRule" && (rule.cssRules?.length ?? 0) === 0) drop(index);
+        if (type !== "CSSKeyframesRule" && type !== "CSSLayerBlockRule" && (rule.cssRules?.length ?? 0) === 0) drop(index);
         continue;
       }
       if (rule.cssRules) cleanList(rule);
@@ -34225,9 +34232,8 @@ function parseVscodeTheme(text, fallbackLabel = "VS Code theme") {
   if (!Object.values(colors).some((value) => typeof value === "string" && HEX3.test(value))) {
     throw new Error("This file is not a VS Code theme");
   }
-  const mode = deriveThemeMode(canvas, VSCODE_DEFAULTS.accent, dark ? "dark" : "light");
-  const accent = MAP.accent.map((key) => flattenColor(colors[key], canvas)).find(Boolean);
-  if (accent !== void 0) mode.accent = accent;
+  const accent = MAP.accent.map((key) => flattenColor(colors[key], canvas)).find(Boolean) ?? VSCODE_DEFAULTS.accent;
+  const mode = deriveThemeMode(canvas, accent, dark ? "dark" : "light");
   for (const key of ["text", "sidebar", "bubble", "card"]) {
     const found = MAP[key].map((name) => flattenColor(colors[name], canvas)).find(Boolean);
     if (found !== void 0) mode[key] = found;

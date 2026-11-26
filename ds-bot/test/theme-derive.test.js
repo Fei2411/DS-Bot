@@ -62,9 +62,13 @@ test('on a mid-tone canvas the text strengthens to the most readable endpoint', 
   assert.equal(mode.text, '#000000')
   assert.ok(contrast(mode.text, mode.bg) >= 4.5)
   // A canvas on the lightness boundary still derives coherently.
-  for (const canvas of ['#808080', '#7f7f7f']) {
-    const boundary = deriveThemeMode(canvas, '#4d6bfe')
-    assert.ok(contrast(boundary.text, boundary.bg) >= 4.5, canvas)
+  for (const canvas of ['#757575', '#767676', '#777777', '#808080', '#7f7f7f']) {
+    for (const forced of [undefined, 'light', 'dark']) {
+      const boundary = deriveThemeMode(canvas, '#4d6bfe', forced)
+      for (const surface of ['bg', 'sidebar', 'bubble', 'card']) {
+        assert.ok(contrast(boundary.text, boundary[surface]) >= 4.5, `${canvas} (${forced ?? 'auto'}) ${surface} contrast=${contrast(boundary.text, boundary[surface]).toFixed(2)}`)
+      }
+    }
   }
 })
 

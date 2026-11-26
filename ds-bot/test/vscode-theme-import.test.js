@@ -145,6 +145,8 @@ test('fallback keys chain in order', () => {
   assert.equal(theme.dark.bubble, '#252526', 'tabsBackground when panel is missing')
   assert.equal(theme.dark.card, '#3c3c3c', 'dropdown when editorWidget is missing')
   assert.equal(theme.dark.accent, '#007fd4', 'focusBorder when button.background is missing')
+  assert.equal(theme.dark.user, '#007fd4', 'imported accent drives the user message bubble in the imported mode too')
+  assert.equal(theme.light.user, '#007fd4', 'and in the derived opposite mode')
 })
 
 test('a file without usable colors is rejected, and so is non-JSON', () => {

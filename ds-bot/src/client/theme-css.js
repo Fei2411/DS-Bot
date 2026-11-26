@@ -101,7 +101,9 @@ export function sanitizeUserSheet(sheet, view) {
       if (style) cleanStyle(style)
       if (type !== undefined && CONTAINERS.has(type)) {
         cleanList(rule)
-        if (type !== 'CSSKeyframesRule' && (rule.cssRules?.length ?? 0) === 0) drop(index)
+        // Empty @keyframes and @layer blocks carry no fetching declarations, and dropping
+        // an empty @layer block would reverse cascade layer ordering for later rules.
+        if (type !== 'CSSKeyframesRule' && type !== 'CSSLayerBlockRule' && (rule.cssRules?.length ?? 0) === 0) drop(index)
         continue
       }
       // A nested rule inside a style rule (CSS nesting) carries child rules too.

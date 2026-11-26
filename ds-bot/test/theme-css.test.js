@@ -237,10 +237,12 @@ test('grouping rules are cleaned recursively and dropped once empty', () => {
       new CSSStyleRule('.d', [['color', 'blue']]),
     ]),
   )
-  assert.equal(rules.length, 2, 'the media and layer blocks emptied and are gone')
+  assert.equal(rules.length, 3, 'the media block dropped once empty; the empty @layer stays to preserve cascade order')
   assert.equal(rules[0].conditionText, '(display:grid)')
   assert.equal(rules[0].cssRules.length, 1)
-  assert.equal(rules[1].cssRules[0].style.getPropertyValue('color'), 'blue')
+  assert.equal(rules[1].name, 'mine')
+  assert.equal(rules[1].cssRules.length, 0, 'the unsafe rule inside @layer is gone')
+  assert.equal(rules[2].cssRules[0].style.getPropertyValue('color'), 'blue')
 })
 
 test('unknown rules are dropped unless they are bare statements or carry verifiable style', () => {
