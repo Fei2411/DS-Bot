@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { TeamState } from '../connection.ts'
-import { botHasPending, pendingCountOf, pendingItemsOf, roomHasPending } from './pending.ts'
+import { botHasPending, chatTargetOf, computerAsksForChat, pendingCountOf, pendingItemsOf, questionsForChat, roomHasPending } from './pending.ts'
 import { setLang } from '../ui/i18n.ts'
 
 const baseTeam: TeamState = {
@@ -138,4 +138,56 @@ test('a host that sends its inbox decides what Needs you lists, a group card und
   // Nothing waits: the old fields are not read.
   assert.equal(pendingCountOf(inboxTeam([])), 0)
   setLang('system')
+})
+
+test('distinct group questions preserve separate focus targets and render all asking member questions in the room', () => {
+  const team: TeamState = {
+    ...baseTeam,
+    questions: {
+      'r1-b1': { id: 'q-chief', question: 'Ship now?' },
+      'r1-b2': { id: 'q-coder', question: 'Which branch?' },
+    },
+    inbox: {
+      count: 2,
+      counts: { decide: 2, fix: 0, suggest: 0 },
+      items: [
+        { id: 'question:q-chief', kind: 'question', group: 'decide', ref: 'q-chief', at: 10, botId: 'b1', roomId: 'r1', sessionId: 'r1-b1', text: 'Ship now?' },
+        { id: 'question:q-coder', kind: 'question', group: 'decide', ref: 'q-coder', at: 20, botId: 'b2', roomId: 'r1', sessionId: 'r1-b2', text: 'Which branch?' },
+      ],
+    },
+  }
+  const rows = pendingItemsOf(team)
+  assert.deepEqual(rows.map(row => chatTargetOf(row)), [
+    { kind: 'room', id: 'r1', focus: 'question-q-chief' },
+    { kind: 'room', id: 'r1', focus: 'question-q-coder' },
+  ])
+  const chatQuestions = questionsForChat(team, { room: baseTeam.rooms![0], sessionId: 'r1' })
+  assert.deepEqual(chatQuestions.map(entry => ({ sessionId: entry.sessionId, id: entry.question.id, botName: entry.botName })), [
+    { sessionId: 'r1-b1', id: 'q-chief', botName: 'Chief' },
+    { sessionId: 'r1-b2', id: 'q-coder', botName: 'Coder' },
+  ])
+})
+
+test('group computer-access asks route to the room chat instead of the member private chat', () => {
+  const team = {
+    ...baseTeam,
+    computerLive: {
+      asks: {
+        'ask-group': { id: 'ask-group', botId: 'b2', roomId: 'r1', appName: 'Safari' },
+        'ask-direct': { id: 'ask-direct', botId: 'b2', appName: 'Terminal' },
+      },
+    },
+    inbox: {
+      count: 2,
+      counts: { decide: 2, fix: 0, suggest: 0 },
+      items: [
+        { id: 'computer:ask-group', kind: 'computer', group: 'decide', ref: 'ask-group', at: 10, botId: 'b2', roomId: 'r1', text: 'Safari' },
+        { id: 'computer:ask-direct', kind: 'computer', group: 'decide', ref: 'ask-direct', at: 20, botId: 'b2', text: 'Terminal' },
+      ],
+    },
+  } as TeamState
+  const roomAsks = computerAsksForChat(team, { room: baseTeam.rooms![0] })
+  assert.deepEqual(roomAsks, [{ id: 'ask-group', botId: 'b2', roomId: 'r1', appName: 'Safari', botName: 'Coder' }])
+  const botAsks = computerAsksForChat(team, { bot: baseTeam.bots[1] })
+  assert.deepEqual(botAsks, [{ id: 'ask-direct', botId: 'b2', appName: 'Terminal', botName: 'Coder' }])
 })

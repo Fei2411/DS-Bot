@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { SectionList, StyleSheet, Text, View, Pressable } from 'react-native'
 import { useTeam } from '../team/context.tsx'
-import { pendingItemsOf, type PendingItem } from '../nav/pending.ts'
+import { chatTargetOf, pendingItemsOf, type PendingItem } from '../nav/pending.ts'
 import { INBOX_SECTIONS } from '../../../ds-bot/src/client/inbox-text.js'
 import { t } from '../ui/i18n.ts'
 import { roomTitle } from '../ui/phrases.ts'
@@ -34,7 +34,7 @@ export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
     const groupName = room ? roomTitle(room) : undefined
     return { name: [bot?.name, groupName].filter(Boolean).join(' · '), bot, room }
   }
-  const target = (row: PendingItem): ChatTarget | null => (row.roomId ? { kind: 'room', id: row.roomId } : row.botId ? { kind: 'bot', id: row.botId } : null)
+  const target = (row: PendingItem): ChatTarget | null => chatTargetOf(row)
 
   return (
     <SectionList

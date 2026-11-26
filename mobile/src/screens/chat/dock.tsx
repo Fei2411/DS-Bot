@@ -42,22 +42,36 @@ function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title:
   )
 }
 
-export function Dock({ question, sessionId, questionSessionId, viewSessionId, approvals, learning = [], secrets = [], connectorRequests = [], mailRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, call, p, maxHeight, expanded, onExpand }: {
+export function Dock({ question, questions, sessionId, questionSessionId, viewSessionId, approvals, learning = [], secrets = [], connectorRequests = [], mailRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, views, call, p, maxHeight, expanded, onExpand }: {
   view?: ShownView
+  views?: { sessionId: string; view: ShownView }[]
   questionSessionId?: string; viewSessionId?: string
   secrets?: SecretRequest[]; connectorRequests?: ConnectorRequest[]; mailRequests?: MailRequest[]; botName?: string; onOpenConnector?: (connectorId: string) => void
   btw?: BtwCardData[]; handoff?: HandoffData; onViewBrowser?: () => void
   maxHeight?: number; expanded: string | null; onExpand: (key: string | null) => void
-  question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
+  question?: Question
+  questions?: { sessionId: string; question: Question; botName?: string }[]
+  sessionId: string; approvals: Approval[]; call: Call; p: Palette
   learning?: LearningProposal[]
 }) {
   interface CardEntry { key: string; title: string; needs: boolean; order: number; body: React.ReactNode }
   const { height: windowHeight } = useWindowDimensions()
   const cap = maxHeight ?? Math.round(windowHeight * 0.52)
   const cards: CardEntry[] = []
+  const questionEntries = questions ?? (question !== undefined ? [{ sessionId: questionSessionId ?? sessionId, question }] : [])
+  const viewEntries = views ?? (view !== undefined ? [{ sessionId: viewSessionId ?? sessionId, view }] : [])
   for (const proposal of learning) cards.push({ key: `learning-${proposal.id}`, title: proposal.kind === 'agents' ? t('AGENTS.md update') : `${t(proposal.action === 'update' ? 'Skill update' : 'New skill')} · ${proposal.name}`, needs: true, order: 0, body: <LearningCard proposal={proposal} call={call} p={p} /> })
   for (const approval of approvals) cards.push({ key: `approval-${approval.id}`, title: approval.tool ?? t('Approval'), needs: true, order: 0, body: <ApprovalCard approval={approval} call={call} p={p} bare /> })
-  if (question !== undefined) cards.push({ key: 'question', title: question.question ?? t('Question'), needs: true, order: 1, body: <QuestionCard question={question} sessionId={questionSessionId ?? sessionId} call={call} p={p} bare /> })
+  for (const entry of questionEntries) {
+    const title = entry.question.question ?? t('Question')
+    cards.push({
+      key: entry.question.id ? `question-${entry.question.id}` : `question-${entry.sessionId}`,
+      title: entry.botName ? `${entry.botName} · ${title}` : title,
+      needs: true,
+      order: 1,
+      body: <QuestionCard question={entry.question} sessionId={entry.sessionId} call={call} p={p} bare />,
+    })
+  }
   for (const secret of secrets) cards.push({ key: `secret-${secret.id}`, title: secret.kind === 'allow' ? t('Allow a secret') : (secret.name ? t('{name} needs a key', { name: secret.name }) : t('A secret is needed')), needs: true, order: 2, body: <SecretCard secret={secret} call={call} p={p} bare /> })
   for (const request of connectorRequests) {
     cards.push({
@@ -78,7 +92,15 @@ export function Dock({ question, sessionId, questionSessionId, viewSessionId, ap
     })
   }
   if (handoff !== undefined) cards.push({ key: 'handoff', title: t('Browser handoff'), needs: true, order: 3, body: <HandoffCard handoff={handoff} botId={sessionId.split(':')[0]} onView={onViewBrowser} call={call} p={p} bare /> })
-  if (view !== undefined) cards.push({ key: `view-${view.id ?? 'view'}`, title: view.title || t('Card'), needs: true, order: 4, body: <ViewCard sessionId={viewSessionId ?? sessionId} id={view.id} title={view.title} root={view.view} p={p} bare /> })
+  for (const entry of viewEntries) {
+    cards.push({
+      key: `view-${entry.view.id ?? entry.sessionId}`,
+      title: entry.view.title || t('Card'),
+      needs: true,
+      order: 4,
+      body: <ViewCard sessionId={entry.sessionId} id={entry.view.id} title={entry.view.title} root={entry.view.view} p={p} bare />,
+    })
+  }
   for (const card of btw) cards.push({ key: `btw-${card.id}`, title: card.question ?? t('Aside'), needs: false, order: 5, body: <BtwCard card={card} sessionId={sessionId} call={call} p={p} bare /> })
   if (cards.length === 0) return null
   const chosen = cards.find(card => card.key === expanded)

@@ -1,4 +1,4 @@
-import type { Bot, InboxItem, Room, TeamState } from '../connection.ts'
+import type { Bot, InboxItem, Question, Room, ShownView, TeamState } from '../connection.ts'
 import { inboxSummary } from '../../../ds-bot/src/client/inbox-text.js'
 import { t } from '../ui/i18n.ts'
 
@@ -9,8 +9,10 @@ export interface PendingItem {
   key: string
   kind: string
   group: PendingGroup
+  ref?: string
   botId?: string
   roomId?: string
+  sessionId?: string
   summary: string
 }
 
@@ -34,8 +36,10 @@ function fromInbox(team: TeamState, items: InboxItem[]): PendingItem[] {
       key: item.id,
       kind: item.kind,
       group: item.group,
+      ...(typeof item.ref === 'string' && item.ref !== '' ? { ref: item.ref } : {}),
       ...(item.botId !== undefined ? { botId: item.botId } : {}),
       ...(item.roomId !== undefined ? { roomId: item.roomId } : {}),
+      ...(item.sessionId !== undefined ? { sessionId: item.sessionId } : {}),
       summary: inboxSummary(item, t, (id: string) => names.get(id)),
     }))
 }
@@ -51,7 +55,7 @@ function fromTeam(team: TeamState): PendingItem[] {
   for (const [sessionId, question] of Object.entries(team.questions ?? {})) {
     const bot = botBySession.get(sessionId)
     if (bot !== undefined && question !== undefined) {
-      items.push({ kind: 'question', group: 'decide', key: `q-${question.id}`, botId: bot.id, summary: question.question })
+      items.push({ kind: 'question', group: 'decide', key: `q-${question.id}`, ref: question.id, botId: bot.id, sessionId, summary: question.question })
     }
   }
   for (const approval of team.work?.approvals ?? []) {
@@ -60,7 +64,9 @@ function fromTeam(team: TeamState): PendingItem[] {
       kind: 'approval',
       group: 'decide',
       key: `a-${approval.id}`,
+      ref: approval.id,
       botId: approval.botId,
+      sessionId: approval.sessionId,
       ...(approval.roomId !== undefined ? { roomId: approval.roomId } : {}),
       summary: [approval.taskTitle, approval.tool, approval.reason].filter(Boolean).join(' · '),
     })
@@ -69,7 +75,7 @@ function fromTeam(team: TeamState): PendingItem[] {
     if (!botById.has(botId)) continue
     for (const req of list ?? []) {
       if (req.status === 'pending') {
-        items.push({ kind: 'secret', group: 'decide', key: `s-${req.id}`, botId, summary: req.name ? t('Asks for the secret {name}', { name: req.name }) : t('A secret is needed') })
+        items.push({ kind: 'secret', group: 'decide', key: `s-${req.id}`, ref: req.id, botId, summary: req.name ? t('Asks for the secret {name}', { name: req.name }) : t('A secret is needed') })
       }
     }
   }
@@ -83,6 +89,7 @@ function fromTeam(team: TeamState): PendingItem[] {
         kind: 'connector',
         group: 'decide',
         key: `c-${req.id}`,
+        ref: req.id,
         botId,
         summary: req.purpose ? `${name} · ${req.purpose}` : t('{bot} needs {name}', { bot: bot.name, name }),
       })
@@ -91,19 +98,19 @@ function fromTeam(team: TeamState): PendingItem[] {
   const holds = team.browserHolds ?? {}
   for (const [botId, hold] of Object.entries(holds)) {
     if (hold.callId !== undefined && botById.has(botId)) {
-      items.push({ kind: 'handoff', group: 'decide', key: `h-${hold.callId}`, botId, summary: hold.note ?? hold.reason ?? t('Browser handoff') })
+      items.push({ kind: 'handoff', group: 'decide', key: `h-${hold.callId}`, ref: hold.callId, botId, summary: hold.note ?? hold.reason ?? t('Browser handoff') })
     }
   }
   for (const [sessionId, view] of Object.entries(team.views ?? {})) {
     const bot = botBySession.get(sessionId)
     if (bot !== undefined && view !== undefined) {
-      items.push({ kind: 'view', group: 'decide', key: `v-${view.id ?? sessionId}`, botId: bot.id, summary: view.title ?? 'View' })
+      items.push({ kind: 'view', group: 'decide', key: `v-${view.id ?? sessionId}`, ref: view.id ?? sessionId, botId: bot.id, sessionId, summary: view.title ?? 'View' })
     }
   }
   for (const [botId, proposals] of Object.entries(team.learning ?? {})) {
     if (!botById.has(botId)) continue
     for (const proposal of proposals) {
-      items.push({ kind: 'learning', group: 'suggest', key: `learning-${proposal.id}`, botId, summary: proposal.kind === 'agents' ? `${proposal.folder}/AGENTS.md` : `skills/${proposal.name}/SKILL.md` })
+      items.push({ kind: 'learning', group: 'suggest', key: `learning-${proposal.id}`, ref: proposal.id, botId, summary: proposal.kind === 'agents' ? `${proposal.folder}/AGENTS.md` : `skills/${proposal.name}/SKILL.md` })
     }
   }
   return items
@@ -120,4 +127,98 @@ export function botHasPending(team: TeamState | null, bot: Bot): boolean {
 
 export function roomHasPending(team: TeamState | null, room: Room): boolean {
   return pendingItemsOf(team).some(item => item.roomId === room.id)
+}
+
+export function dockFocusKeyOf(item: Pick<PendingItem, 'kind' | 'ref' | 'sessionId'>): string | undefined {
+  const ref = item.ref
+  switch (item.kind) {
+    case 'question': return ref ? `question-${ref}` : (item.sessionId ? `question-${item.sessionId}` : undefined)
+    case 'view': return ref ? `view-${ref}` : (item.sessionId ? `view-${item.sessionId}` : undefined)
+    case 'approval': return ref ? `approval-${ref}` : undefined
+    case 'secret': return ref ? `secret-${ref}` : undefined
+    case 'connector': return ref ? `connector-${ref}` : undefined
+    case 'mail': return ref ? `mail-${ref}` : undefined
+    case 'learning': return ref ? `learning-${ref}` : undefined
+    case 'handoff': return 'handoff'
+    default: return undefined
+  }
+}
+
+export function chatTargetOf(row: PendingItem): { kind: 'bot' | 'room'; id: string; focus?: string } | null {
+  const base = row.roomId ? { kind: 'room' as const, id: row.roomId } : row.botId ? { kind: 'bot' as const, id: row.botId } : null
+  if (base === null) return null
+  const focus = dockFocusKeyOf(row)
+  return focus !== undefined ? { ...base, focus } : base
+}
+
+export function questionsForChat(
+  team: TeamState | null,
+  target: { room?: Room; sessionId: string },
+): { sessionId: string; question: Question; botName?: string }[] {
+  const result: { sessionId: string; question: Question; botName?: string }[] = []
+  const seen = new Set<string>()
+  const names = new Map((Array.isArray(team?.bots) ? team.bots : []).map(bot => [bot.id, bot.name]))
+  const direct = target.sessionId !== '' ? team?.questions?.[target.sessionId] : undefined
+  if (direct !== undefined) {
+    seen.add(target.sessionId)
+    result.push({ sessionId: target.sessionId, question: direct })
+  }
+  if (target.room !== undefined) {
+    for (const item of team?.inbox?.items ?? []) {
+      if (item.roomId !== target.room.id || item.kind !== 'question' || typeof item.sessionId !== 'string') continue
+      if (seen.has(item.sessionId)) continue
+      const question = team?.questions?.[item.sessionId]
+      if (question === undefined) continue
+      seen.add(item.sessionId)
+      result.push({
+        sessionId: item.sessionId,
+        question,
+        ...(item.botId !== undefined && names.has(item.botId) ? { botName: names.get(item.botId) } : {}),
+      })
+    }
+  }
+  return result
+}
+
+export function viewsForChat(
+  team: TeamState | null,
+  target: { room?: Room; sessionId: string },
+): { sessionId: string; view: ShownView }[] {
+  const result: { sessionId: string; view: ShownView }[] = []
+  const seen = new Set<string>()
+  const direct = target.sessionId !== '' ? team?.views?.[target.sessionId] : undefined
+  if (direct !== undefined) {
+    seen.add(target.sessionId)
+    result.push({ sessionId: target.sessionId, view: direct })
+  }
+  if (target.room !== undefined) {
+    for (const item of team?.inbox?.items ?? []) {
+      if (item.roomId !== target.room.id || item.kind !== 'view' || typeof item.sessionId !== 'string') continue
+      if (seen.has(item.sessionId)) continue
+      const view = team?.views?.[item.sessionId]
+      if (view === undefined) continue
+      seen.add(item.sessionId)
+      result.push({ sessionId: item.sessionId, view })
+    }
+  }
+  return result
+}
+
+export function computerAsksForChat(
+  team: TeamState | null,
+  target: { bot?: Bot; room?: Room },
+): { id: string; botId: string; botName: string; appName?: string; roomId?: string }[] {
+  const asks = (team as {
+    computerLive?: { asks?: Record<string, { id: string; botId: string; appName?: string; roomId?: string }> }
+  } | null)?.computerLive?.asks ?? {}
+  const names = new Map((Array.isArray(team?.bots) ? team.bots : []).map(bot => [bot.id, bot.name]))
+  const list = Object.values(asks).filter(ask => {
+    if (target.room !== undefined) return ask.roomId === target.room.id
+    if (target.bot !== undefined) return ask.botId === target.bot.id && ask.roomId === undefined
+    return false
+  })
+  return list.map(ask => ({
+    ...ask,
+    botName: names.get(ask.botId) ?? target.bot?.name ?? '',
+  }))
 }
