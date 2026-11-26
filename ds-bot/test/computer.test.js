@@ -801,12 +801,25 @@ test('computer_handoff: the hold answers done, skip and takeover', async (t) => 
   // the call shows the hold in the Bot's own chat
   const hold = Object.entries(rt.computerLive().holds ?? {})[0]
   assert.notEqual(hold, undefined)
-  // done: the Bot gets the handback message
+  assert.equal(hold[1].fromBot, true)
+  // taking over a Bot handoff preserves fromBot, id, and at until the user settles it
+  await rt.computerEndpoint('hold-answer', { botId: 'w1', outcome: 'takeover' })
+  const taken = rt.computerLive().holds?.w1
+  assert.equal(taken?.by, 'user')
+  assert.equal(taken?.fromBot, true)
+  assert.equal(taken?.id, hold[1].id)
+  assert.equal(taken?.at, hold[1].at)
+  // done: the Bot gets the handback message and clears the hold
   await rt.computerEndpoint('hold-answer', { botId: 'w1', outcome: 'done' })
+  assert.equal(rt.computerLive().holds?.w1, undefined)
   const reply = JSON.parse(followups.at(-1).content[0].text)
   assert.equal(reply.kind, 'answer_to_pending_handoff')
   assert.equal(reply.outcome, 'done')
   assert.match(reply.message, /gave the computer back|handed/)
+  // a plain user takeover with no prior Bot handoff is not marked fromBot
+  await rt.computerEndpoint('hold-answer', { botId: 'w1', outcome: 'takeover' })
+  assert.equal(rt.computerLive().holds?.w1?.by, 'user')
+  assert.equal(rt.computerLive().holds?.w1?.fromBot, undefined)
 })
 
 test('a cua call DS Bot never decided asks by card instead of saying revoked', async (t) => {

@@ -22,6 +22,8 @@ const isCssSpace = ch => ch === ' ' || ch === '\t' || ch === '\n' || ch === '\f'
 const isNameCode = code => code === 0x2d || code === 0x5f || (code >= 0x30 && code <= 0x39)
   || (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a) || code >= 0x80
 
+const urlAllowedByDefault = content => content.startsWith('#') || (content.length >= 5 && content.slice(0, 5).toLowerCase() === 'data:')
+
 // Functions whose argument is a resource. url() is inspected because data: and fragments
 // stay; the others can carry a bare string or several candidates, so they count as a
 // fetch as soon as they appear.
@@ -33,7 +35,7 @@ const REMOTE_FUNCTIONS = new Set(['image-set', '-webkit-image-set', 'image', 'sr
  * @returns {{ fetches: boolean, imports: Array<[number, number]> }} - `imports` are the
  *   [start, end) spans of whole `@import` statements, for blanking them out
  */
-function scanThemeCss(text) {
+function scanThemeCss(text, allowUrl = urlAllowedByDefault) {
   const source = String(text ?? '')
   const n = source.length
   let fetches = false
@@ -148,8 +150,7 @@ function scanThemeCss(text) {
       if (/[ \t\n\f\r]/.test(content)) malformed = true
     }
     if (malformed || content === '') { fetches = true; return }
-    if (content.startsWith('#')) return
-    if (content.length >= 5 && content.slice(0, 5).toLowerCase() === 'data:') return
+    if (allowUrl(content)) return
     fetches = true
   }
 
@@ -226,7 +227,7 @@ function scanThemeCss(text) {
  * @param {string} value
  * @returns {boolean}
  */
-export const themeCssValueFetches = value => scanThemeCss(value).fetches
+export const themeCssValueFetches = (value, allowUrl) => scanThemeCss(value, allowUrl).fetches
 
 /**
  * Whether stylesheet text can make the page load a file, counting @import. One scanner
@@ -234,7 +235,7 @@ export const themeCssValueFetches = value => scanThemeCss(value).fetches
  * @param {string} css
  * @returns {boolean}
  */
-export const themeCssLoadsRemoteFiles = css => scanThemeCss(css).fetches
+export const themeCssLoadsRemoteFiles = (css, allowUrl) => scanThemeCss(css, allowUrl).fetches
 
 /**
  * The stylesheet with every @import statement blanked to spaces (positions kept, so the

@@ -34,6 +34,7 @@ import { SECRET_CSS } from '../../../ds-bot/src/client/secret-card.js'
 import { SERVICES_CSS } from '../../../ds-bot/src/client/services-settings.js'
 import { SIDE_CSS } from '../../../ds-bot/src/client/side-chat.js'
 import { RETURN_CSS, SIDEBAR_CSS } from '../../../ds-bot/src/client/sidebar.js'
+import { INBOX_CSS } from '../../../ds-bot/src/client/inbox.js'
 import { CONVERSATION_CSS, SHELL_CSS, installStyles } from '../../../ds-bot/src/client/styles.js'
 import { TASK_CSS } from '../../../ds-bot/src/client/task-board.js'
 import { ANNOTATION_CSS } from '../../../ds-bot/src/client/text-annotation.js'
@@ -67,7 +68,7 @@ if (/mac/iu.test(navigator.userAgentData?.platform ?? navigator.platform)) docum
 
 // The Bot views' own stylesheets, the same ones the plugin puts in DSH.
 for (const [tag, text] of [
-  ['shell', SHELL_CSS], ['sidebar', SIDEBAR_CSS + RETURN_CSS],
+  ['shell', SHELL_CSS], ['sidebar', SIDEBAR_CSS + RETURN_CSS + INBOX_CSS],
   ['conversation', CONVERSATION_CSS + PASTE_CSS + OPENING_CSS + USER_MESSAGE_CSS + WIDGET_CSS + CHANGES_CSS + HANDOFF_CSS + TURN_ERROR_CSS + QUEUE_CSS + ANNOTATION_CSS],
   ['secrets', SECRET_CSS], ['providers', PROVIDERS_CSS + SERVICES_CSS], ['connectors', CONNECTOR_CSS + CONNECTORS_PAGE_CSS + IM_CSS],
   ['models', MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + AVATAR_LIBRARY_CSS + GROUP_SETTINGS_CSS],
