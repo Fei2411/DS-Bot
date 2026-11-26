@@ -2,7 +2,7 @@ import { call } from './api.js'
 import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
-import { teamActions } from './team-actions.js'
+import { sectionFoldWrites, teamActions } from './team-actions.js'
 import { themeCss, shellTokens, surfaceColors, registry, registerShape, registerTheme, allThemes, themesOf, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
 import { appearanceCss, backgroundShown, onSafeAppearance, pictureUrl, safeAppearance, userCss, watchSafeAppearance } from './appearance.js'
 import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
@@ -216,6 +216,7 @@ export function apply(ctx) {
   // Pulls can overlap (the poll and a navigation); an older answer never wins.
   let pulls = 0
   let applied = 0
+  const foldWrites = sectionFoldWrites()
   let avatarIncomplete = false
   const pull = async () => {
     const order = ++pulls
@@ -280,7 +281,7 @@ export function apply(ctx) {
     }
     // On a browser with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...hydrated.bots, ...hydrated.rooms].map(entry => entry.id))
-    roster.set(indexRoster(hydrated))
+    roster.set(indexRoster({ ...hydrated, sections: foldWrites.reconcile(hydrated.sections, hydrated.revision) }))
     try {
       const ids = (hydrated.agents ?? []).flatMap(agent => agent.sessions ?? [])
       localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids))
@@ -714,7 +715,7 @@ export function apply(ctx) {
     }
   }
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }),
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites }),
     // The files a group row names open DSH's own review tab for that turn. The tab reads
     // the changes of the Session the shell shows, so that Session is opened first; the same
     // call then retries until its right column is mounted. This jump is the one place a

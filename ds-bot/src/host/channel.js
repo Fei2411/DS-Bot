@@ -748,9 +748,14 @@ export function install(rt) {
         case 'set-flags':
           await rt.load()
           return ok(await rt.setFlags(body.id, body))
-        case 'section-save':
+        case 'section-save': {
           await rt.load()
-          return ok(await rt.saveSection(body))
+          const saved = await rt.saveSection(body)
+          if (body.withRevision !== true) return ok(saved)
+          // Read the current section and revision together: a concurrent save may have won.
+          const section = state.sections?.find(entry => entry.id === saved.id)
+          return ok({ section: section ? { ...section } : null, revision: state.revision })
+        }
         case 'section-order':
           await rt.load()
           await rt.reorderSections(body.ids)
