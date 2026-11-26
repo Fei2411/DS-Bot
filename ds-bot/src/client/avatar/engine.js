@@ -9,10 +9,10 @@ import { STATES, stateName } from './states.js'
 //
 // Motion levels (`tier`): quiet plays only the states' own motion; normal adds petting,
 // pokes, and following the pointer; lively adds life at rest (blinks, glances,
-// fidgets, dozing off) and repeats the call for attention. A resting mark below lively
-// holds still, so a quiet window stays quiet. `effects` (the interface motion setting): `reduced`
-// keeps one-shot moves and expressions but no loops; `off` holds still and changes
-// expressions in place.
+// fidgets, dozing off). Once nobody has touched the window for a while (`rest`), a mark
+// keeps only its state's own moves, further apart, so idle and asleep hold still.
+// `effects` (the interface motion setting): `reduced` keeps one-shot moves and
+// expressions but no loops; `off` holds still and changes expressions in place.
 
 // Spring per channel: [ω (rad/s), damping ratio]. Squash is loose so it jiggles; eyes
 // are quick so a glance snaps; the head is slower than the eyes it follows.
@@ -20,8 +20,6 @@ const SPRINGS = {
   x: [13, 0.7], y: [13, 0.7], yaw: [9, 0.78], pitch: [11, 0.75], roll: [11, 0.7],
   sq: [16, 0.42], scale: [14, 0.6], gx: [30, 0.9], gy: [30, 0.9], lid: [22, 1], pupil: [18, 0.55],
 }
-const POSITION = new Set(['x', 'y'])
-const ROTATION = new Set(['yaw', 'pitch', 'roll'])
 
 // Seeded random numbers (mulberry32), so a Bot's moves differ from its neighbor's.
 export function random(seed) {
@@ -49,6 +47,10 @@ const POKE_WINDOW = 1.6
 // each wait is SNEAK_DEEPER times the last, so it sleeps deeper the longer nobody comes.
 const SNEAK_FIRST = [7, 14]
 const SNEAK_DEEPER = 1.7
+// While the window rests, a state's own moves come REST_GAP seconds [min, max] apart.
+const REST_GAP = [4, 7]
+// States with nothing going on: their motion is life at rest, not news.
+const AMBIENT = new Set(['idle', 'sleeping'])
 
 export class Avatar {
   constructor({ seed = 1, size = 36, live = false, tier = 'normal', effects = 'full', state = 'idle' } = {}) {
@@ -245,7 +247,6 @@ export class Avatar {
     // Clips on top.
     const out = {}
     for (const name of CHANNELS) out[name] = this.springs[name].x
-    const amp = this.lod === 'chip' ? { pos: 0.7, rot: 0.8 } : { pos: 1, rot: 1 }
     let clipFace = null
     let blinks = 0
     for (const play of this.clips) {
@@ -253,12 +254,7 @@ export class Avatar {
       if (play.fade < 0) play.weight = Math.max(0, play.weight - dt / 0.25)
       const { clip } = play
       const t = Math.min(play.t, clip.dur)
-      for (const [name, keys] of Object.entries(clip.tracks)) {
-        let value = sampleTrack(keys, t) * play.weight
-        if (POSITION.has(name)) value *= amp.pos
-        else if (ROTATION.has(name) && name !== 'yaw') value *= amp.rot
-        out[name] += value
-      }
+      for (const [name, keys] of Object.entries(clip.tracks)) out[name] += sampleTrack(keys, t) * play.weight
       if (clip.face) for (const [at, face] of clip.face) if (t >= at) clipFace = face === null ? undefined : face
       if (clip.blink) for (const at of clip.blink) if (!play.blinked?.includes(at) && t >= at) { (play.blinked ??= []).push(at); blinks += 1 }
       moving = true
@@ -317,17 +313,27 @@ export class Avatar {
     if (def.next) times.push(this.stateSince + def.hold)
     if (this.override.face) times.push(this.override.faceUntil)
     if (this.sneaks()) times.push(this.sneakAt())
-    if (this.still || this.resting) return Math.max(0, Math.min(...times) - this.time)
-    if (this.loopOf(STATES[this.state])) times.push(this.nextLoop)
+    if (this.still) return Math.max(0, Math.min(...times) - this.time)
+    if (this.resting) {
+      if (this.stateLoop(def)) times.push(this.nextLoop)
+      return Math.max(0, Math.min(...times.filter(Number.isFinite)) - this.time)
+    }
+    if (this.loopOf(def)) times.push(this.nextLoop)
     if (this.blinks()) times.push(this.nextBlink)
     if (this.glances()) times.push(this.saccade.until > this.time ? this.saccade.until : this.saccade.next)
     return Math.max(0, Math.min(...times.filter(Number.isFinite)) - this.time)
   }
 
-  // Resting: nobody has touched the window for a while. Moves under way finish, but
-  // nothing new starts until it is lifted, even under a pointer left on the mark.
+  // Resting: nobody has touched the window for a while. Moves under way finish. A state
+  // keeps showing what the Bot is doing, a move every REST_GAP seconds, also under a
+  // pointer left on the mark: someone glancing at the screen to see how the work goes is
+  // not touching anything. Idle and asleep hold still; fidgets, glances, blinks and
+  // petting wait for input.
   rest(on) {
+    const changed = this.resting !== on
     this.resting = on
+    // A pointer left on the mark leans and smiles only while someone is around.
+    if (changed && this.petting) this.retarget()
     if (!on) { this.nextLoop = Math.min(this.nextLoop, this.time + 0.4 + this.rng() * 1.2); this.nextBlink = Math.min(this.nextBlink, this.time + 0.3 + this.rng()) }
   }
 
@@ -341,7 +347,7 @@ export class Avatar {
       this.play('sneak')
       this.sneak = { wait: this.sneak.wait * SNEAK_DEEPER, at: this.time }
     }
-    if (this.resting) return
+    if (this.resting) { this.loopOn(def, this.stateLoop(def), REST_GAP); return }
     if (this.blinks() && this.time >= this.nextBlink) {
       this.blink()
       this.nextBlink = this.time + def.blink[0] + this.rng() * (def.blink[1] - def.blink[0])
@@ -358,22 +364,26 @@ export class Avatar {
       }
     }
     // The state's clips.
+    const loop = this.loopOf(def)
+    this.loopOn(def, loop, loop?.gap)
+  }
+
+  // Plays the next clip of `loop` once its time has come, `gap` seconds [min, max] after
+  // the last one ends.
+  loopOn(def, loop, gap) {
     if (this.time < this.nextLoop) return
     if (this.clips.some(play => !play.blink && play.weight >= 1)) return
-    const loop = this.loopOf(def)
-    if (!loop) { this.nextLoop = this.petting || def.next ? this.time + 0.5 : Infinity; return }
+    if (!loop) { this.nextLoop = this.petted || def.next ? this.time + 0.5 : Infinity; return }
     this.play(this.draw(loop.bag))
-    const played = this.clips[this.clips.length - 1]
-    const dur = played?.clip.dur ?? 0
-    this.nextLoop = this.time + dur + loop.gap[0] + this.rng() * (loop.gap[1] - loop.gap[0])
+    const dur = this.clips.at(-1)?.clip.dur ?? 0
+    this.nextLoop = this.time + dur + gap[0] + this.rng() * (gap[1] - gap[0])
   }
 
   // Blinks are part of every state's motion (they repeat, so reduced motion has none);
   // at rest only a lively mark blinks.
   blinks() {
     const def = STATES[this.state]
-    const ambient = this.state === 'idle' || this.state === 'sleeping'
-    return !!def.blink && !this.calm && (!ambient || !!this.petting || (this.live && this.tier === 'lively'))
+    return !!def.blink && !this.calm && (!AMBIENT.has(this.state) || this.petted || (this.live && this.tier === 'lively'))
   }
 
   // Peeks while asleep, on large lively marks (only they doze off).
@@ -384,17 +394,30 @@ export class Avatar {
 
   // Small glances while resting, on large lively marks.
   glances() {
-    return this.state === 'idle' && this.live && this.tier === 'lively' && !this.calm && this.lod !== 'chip' && !this.gazeTarget && !this.petting
+    return this.state === 'idle' && this.live && this.tier === 'lively' && !this.calm && this.lod !== 'chip' && !this.gazeTarget && !this.petted
   }
 
   loopOf(def) {
     if (this.calm) return null
-    if (this.petting) return { bag: { nuzzle: 1 }, gap: [0.05, 0.3] }
-    if (this.lod === 'chip' && def.compact) return def.compact
-    if (def.loop) return def.loop
+    if (this.petted) return { bag: { nuzzle: 1 }, gap: [0.05, 0.3] }
+    const own = this.stateLoop(def)
+    if (own) return own
     if (def.lively && this.tier === 'lively') return def.lively
     if (def.idle && this.live && this.tier === 'lively' && this.lod !== 'chip') return def.idle
     return null
+  }
+
+  // Petting counts while someone is around: a pointer left on the mark of a resting
+  // window is nobody's hand, so the mark shows its state, face and pose.
+  get petted() { return !!this.petting && !this.resting }
+
+  // The moves that show what the Bot is doing: they play at every motion level, and on
+  // through a resting window, also under a pointer left on the mark. Idle and asleep
+  // show nothing going on, so a resting window holds them still.
+  stateLoop(def) {
+    if (this.calm) return null
+    if (this.resting ? AMBIENT.has(this.state) : this.petted) return null
+    return (this.lod === 'chip' && def.compact) || def.loop || null
   }
 
   // A weighted draw that avoids playing the same clip twice in a row.
@@ -430,7 +453,7 @@ export class Avatar {
       target.gx += this.saccade.gx
       target.gy += this.saccade.gy
     }
-    if (this.petting) {
+    if (this.petted) {
       // Leans into the hand and sinks under it a little, eyes on you.
       target.x = (pose.x ?? 0) + this.petting.side * 1.2
       target.roll = (pose.roll ?? 0) - this.petting.side * 5
@@ -452,7 +475,7 @@ export class Avatar {
   // The face the mark is going to, clips aside: a held face over petting over the state's.
   faceWanted() {
     if (this.override.face && this.time < this.override.faceUntil) return this.override.face
-    if (this.petting) return this.time - this.petting.since > 0.35 ? 'happy' : 'content'
+    if (this.petted) return this.time - this.petting.since > 0.35 ? 'happy' : 'content'
     return STATES[this.state].face
   }
 
