@@ -92,7 +92,7 @@ function ThemedShell({ lang, openLink, onOpenLinkHandled }: { lang?: string; ope
       <NavigationContainer key={lang} theme={navTheme} initialState={navState.current} onStateChange={state => { navState.current = state }}>
         <ErrorBoundary>
           <ShellB openLink={openLink} onOpenLinkHandled={onOpenLinkHandled} />
-          <ReleaseNotesModal />
+          <ReleaseNotesModal host="auto" />
         </ErrorBoundary>
       </NavigationContainer>
     </ThemeContext.Provider>

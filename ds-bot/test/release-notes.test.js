@@ -842,6 +842,19 @@ test('SettingsShell renders manual ReleaseNotesDialog in Classic Agent mode (wit
   assert.ok(rnDialog, 'SettingsShell renders ReleaseNotesDialog even when Overlays is not mounted')
   assert.match(rnDialog.textContent, /What's new in v0\.3\.10/)
 
+  // Tab and Shift+Tab stay trapped inside ReleaseNotesDialog instead of reaching covered Settings controls.
+  const rnClose = rnDialog.querySelector('.bt-rn-close')
+  const rnOk = rnDialog.querySelector('.bt-rn-ok')
+  assert.equal(dom.window.document.activeElement, rnDialog)
+  await act(async () => {
+    dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))
+  })
+  assert.equal(dom.window.document.activeElement, rnOk, 'Shift+Tab from dialog wraps to last focusable control inside dialog')
+  await act(async () => {
+    dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+  })
+  assert.equal(dom.window.document.activeElement, rnClose, 'Tab from last control wraps to first focusable control inside dialog')
+
   // Pressing Escape closes only ReleaseNotesDialog, leaving Settings open.
   await act(async () => {
     dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))

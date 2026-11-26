@@ -133,4 +133,18 @@ describe('pre-update release notes summary', () => {
     const untouched = JSON.parse(readFileSync(join(from, 'bot', 'state.json'), 'utf8'))
     assert.equal('lastSeenVersion' in untouched, false)
   })
+
+  test('preserves backtick angle-bracket tokens and avoids double-decoding numeric entities in summaries', () => {
+    const htmlWithCode = [
+      '<ul>',
+      '<li>Preserve `</DSML>` and `<ThemedShell />` tokens in summaries</li>',
+      '<li>Literal &#38;lt; and &amp;lt; stay escaped, while &#x27;ok&#x27; decodes</li>',
+      '</ul>',
+    ].join('\n')
+    const summary = summarizeReleaseNotes(htmlWithCode)
+    assert.match(summary, /<\/DSML>/)
+    assert.match(summary, /<ThemedShell \/>/)
+    assert.match(summary, /&lt;/)
+    assert.match(summary, /'ok'/)
+  })
 })

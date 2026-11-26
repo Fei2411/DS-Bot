@@ -134,8 +134,9 @@ export function openMobileReleaseNotes(options: { current?: string | null; mode?
   })
 }
 
-export function closeMobileReleaseNotes(): void {
+export function closeMobileReleaseNotes(mode?: 'auto' | 'manual'): void {
   if (!modalState.open) return
+  if (mode !== undefined && modalState.mode !== mode) return
   publish({ ...modalState, open: false })
 }
 

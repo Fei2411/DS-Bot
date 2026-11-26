@@ -8,22 +8,23 @@ export const RELEASES_URL = 'https://api.github.com/repos/Fei-Craft/DS-Bot/relea
 export const RELEASE_PAGE = 'https://github.com/Fei-Craft/DS-Bot/releases/latest'
 const MB = 1024 * 1024
 
+const NAMED_ENTITIES = {
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  amp: '&',
+}
+
 function decodeEntities(text) {
-  return text
-    .replace(/&#x([0-9a-f]+);/giu, (match, hex) => {
-      const cp = Number.parseInt(hex, 16)
-      return Number.isFinite(cp) && cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : match
-    })
-    .replace(/&#(\d+);/gu, (match, dec) => {
-      const cp = Number.parseInt(dec, 10)
-      return Number.isFinite(cp) && cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : match
-    })
-    .replace(/&lt;/gu, '<')
-    .replace(/&gt;/gu, '>')
-    .replace(/&quot;/gu, '"')
-    .replace(/&apos;/gu, "'")
-    .replace(/&nbsp;/gu, ' ')
-    .replace(/&amp;/gu, '&')
+  return text.replace(/&(?:#x([0-9a-f]+)|#(\d+)|(lt|gt|quot|apos|nbsp|amp));/giu, (match, hex, dec, named) => {
+    if (named) return NAMED_ENTITIES[named.toLowerCase()] ?? match
+    const cp = hex ? Number.parseInt(hex, 16) : Number.parseInt(dec, 10)
+    return Number.isFinite(cp) && cp > 0 && cp <= 0x10ffff && (cp < 0xd800 || cp > 0xdfff)
+      ? String.fromCodePoint(cp)
+      : match
+  })
 }
 
 function cleanNoteLine(raw) {
@@ -57,9 +58,16 @@ export function summarizeReleaseNotes(raw, { maxItems = 4, maxChars = 280 } = {}
   if (text.trim() === '') return ''
   // Strip generated download table blocks first.
   text = text.replace(/<!--\s*downloads\s*-->[\s\S]*?<!--\s*\/downloads\s*-->/giu, '')
-  // Convert HTML fragments (electron-updater may supply HTML from GitHub releases) to lines.
-  if (/<[a-z][\s\S]*>/iu.test(text)) {
-    text = text
+  // Convert HTML fragments (electron-updater may supply HTML from GitHub releases) to lines,
+  // while preserving inline backtick code spans such as `</DSML …>` or `<ThemedShell />`.
+  const codeSpans = []
+  const protectedText = text.replace(/`([^`\n]+)`/gu, (_, code) => {
+    const idx = codeSpans.length
+    codeSpans.push(code)
+    return `\uE000${idx}\uE001`
+  })
+  if (/<[a-z][\s\S]*>/iu.test(protectedText)) {
+    text = protectedText
       .replace(/<\s*table\b[^>]*>[\s\S]*?<\s*\/\s*table\s*>/giu, '\n')
       .replace(/<\s*h([1-6])\b[^>]*>/giu, (_, level) => `\n${'#'.repeat(Number(level))} `)
       .replace(/<\s*br\s*\/?>/giu, '\n')
@@ -67,6 +75,7 @@ export function summarizeReleaseNotes(raw, { maxItems = 4, maxChars = 280 } = {}
       .replace(/<\s*li\b[^>]*>/giu, '- ')
       .replace(/<[^>]+>/gu, ' ')
     text = decodeEntities(text)
+    text = text.replace(/\uE000(\d+)\uE001/gu, (_, idx) => `\`${codeSpans[Number(idx)] ?? ''}\``)
   }
 
   const bullets = []

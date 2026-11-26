@@ -17,6 +17,7 @@ import { MemoryDialog } from './memory-panel.js'
 import { reducedMotion, useLinger } from './motion.js'
 import { OpeningCover, openingModel } from './opening.js'
 import { OverlayBoundary } from './overlay-boundary.js'
+import { settingsOwnsKeyboard } from './overlay-hooks.js'
 
 // How long a closing dialog or menu stays for its exit (see their [data-leaving] CSS).
 const DIALOG_EXIT_MS = 160
@@ -117,7 +118,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     && settledClaimVersion !== rnCurrent
     && typeof actions.claimReleaseNotes === 'function'
   const showNotice = roster.ready === true && roster.telemetryPrompt === true && !noticeDismissed
-    && !settings && !ui.settings && !owner && !ui.newChat && !ui.palette && !ui.inbox && !ui.voice && !ui.exchange && !ui.groupSearch && !ui.shortcuts && !opening
+    && !settings && !ui.settings && !ui.signIn && !owner && !ui.newChat && !ui.palette && !ui.inbox && !ui.voice && !ui.exchange && !ui.groupSearch && !ui.shortcuts && !opening
     && !ui.releaseNotes && !releaseNotesOpen && !releaseNotesTarget && !releaseNotesPendingHere
   const [noticeOpen, noticeLeaving] = useLinger(showNotice ? 'notice' : null, DIALOG_EXIT_MS)
 
@@ -128,6 +129,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     && rnPending.length > 0
     && !settings
     && !ui.settings
+    && !ui.signIn
     && !owner
     && !ui.newChat
     && !ui.inbox
@@ -149,6 +151,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     const delayMs = globalThis.dsBotApp ? 650 : 0
     const run = () => {
       if (!mountedRef.current || claimedVersionRef.current === version) return
+      if (!settingsOwnsKeyboard(null)) return
       claimedVersionRef.current = version
       // Note: claimReleaseNotes triggers a state pull that clears rnPending before resolving,
       // which re-runs this effect's cleanup. Guard with mountedRef (component unmount only)

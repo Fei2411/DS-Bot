@@ -25133,14 +25133,14 @@ body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]):not(.bt-spin):not(
 .bt-rn-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
 .bt-rn-item{display:flex;align-items:flex-start;gap:10px;font-size:14px;line-height:22px;color:var(--bt-ink)}
 .bt-rn-dot{flex:none;width:6px;height:6px;margin-top:8px;border-radius:50%;corner-shape:round;background:var(--bt-accent)}
-.bt-rn-text{flex:1;min-width:0}
+.bt-rn-text{flex:1;min-width:0;overflow-wrap:anywhere}
 .bt-rn-outro{margin:2px 0 0;font-size:12px;line-height:18px;color:var(--bt-ink-3)}
 .bt-rn-empty{margin:4px 0;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
 .bt-rn-foot{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px 16px;border-top:1px solid var(--bt-line)}
 .bt-rn-link{font-size:12px;line-height:16px;color:var(--bt-ink-2);text-decoration:none;transition:color .12s ease}
 .bt-rn-link:hover{color:var(--bt-accent);text-decoration:underline}
 .bt-rn-link:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px;border-radius:4px}
-.bt-rn-ok{height:36px;padding:0 20px;font-size:14px;line-height:20px;font-weight:500}
+.bt-rn-ok{flex:none;white-space:nowrap;height:36px;padding:0 20px;font-size:14px;line-height:20px;font-weight:500}
 @media (prefers-reduced-motion:reduce){.bt-rn-dialog,.bt-rn-layer[data-leaving] .bt-rn-dialog{animation:none}}
 body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::after,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-rn-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::after{animation:none!important;transition:none!important}
 body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-spin){animation-timing-function:steps(8)!important;transition:none!important}
@@ -62357,6 +62357,15 @@ function selectReleaseNotes(entry, locale = "en") {
 // src/client/release-notes-dialog.js
 var import_react75 = require("react");
 var DEFAULT_RELEASES_URL = "https://github.com/Fei-Craft/DS-Bot/releases";
+var FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+function focusablesIn(container) {
+  if (!container || typeof container.querySelectorAll !== "function") return [];
+  return Array.from(container.querySelectorAll(FOCUSABLE)).filter((el) => {
+    if (el.tabIndex < 0) return false;
+    if (typeof el.closest === "function" && el.closest('[inert],[aria-hidden="true"]')) return false;
+    return true;
+  });
+}
 function localizeBlock(entry, loc) {
   const picked = selectReleaseNotes(entry, loc);
   if (picked === null) return null;
@@ -62379,20 +62388,66 @@ function ReleaseNotesDialog({
   onClose
 }) {
   const titleId = (0, import_react75.useId)();
+  const layerRef = (0, import_react75.useRef)(null);
   const dialogRef = (0, import_react75.useRef)(null);
   const locale = language();
   useEscape(() => {
     if (!leaving) onClose?.();
   }, !leaving, { priority: 20 });
   (0, import_react75.useEffect)(() => {
-    const previous = typeof document !== "undefined" ? document.activeElement : null;
-    dialogRef.current?.focus?.({ preventScroll: true });
+    if (leaving || typeof document === "undefined") return void 0;
+    const previous = document.activeElement;
+    const dialog = dialogRef.current;
+    const layer = layerRef.current;
+    dialog?.focus?.({ preventScroll: true });
+    const savedInert = /* @__PURE__ */ new Map();
+    if (layer && document.body) {
+      let ownRoot = layer;
+      while (ownRoot.parentElement && ownRoot.parentElement !== document.body) {
+        ownRoot = ownRoot.parentElement;
+      }
+      if (ownRoot.parentElement === document.body) {
+        for (const sibling of Array.from(document.body.children)) {
+          if (sibling === ownRoot) continue;
+          savedInert.set(sibling, sibling.inert);
+          sibling.inert = true;
+        }
+      }
+    }
+    const onKeyDown = (event) => {
+      if (event.key !== "Tab" || event.defaultPrevented || !dialog) return;
+      const list = focusablesIn(dialog);
+      if (list.length === 0) {
+        event.preventDefault();
+        dialog.focus?.({ preventScroll: true });
+        return;
+      }
+      const first = list[0];
+      const last = list[list.length - 1];
+      const active = document.activeElement;
+      const inside = active && typeof dialog.contains === "function" && dialog.contains(active);
+      if (event.shiftKey) {
+        if (!inside || active === dialog || active === first) {
+          event.preventDefault();
+          last.focus?.({ preventScroll: true });
+        }
+      } else if (!inside || active === dialog || active === last) {
+        event.preventDefault();
+        first.focus?.({ preventScroll: true });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
     return () => {
-      if (previous && typeof previous.focus === "function" && previous.isConnected !== false) {
+      window.removeEventListener("keydown", onKeyDown);
+      for (const [el, prev] of savedInert) el.inert = prev;
+      savedInert.clear();
+      const active = document.activeElement;
+      const shouldRestore = active === null || active === document.body || active === document.documentElement || dialog && typeof dialog.contains === "function" && dialog.contains(active);
+      if (shouldRestore && previous && typeof previous.focus === "function" && previous.isConnected !== false) {
         previous.focus({ preventScroll: true });
       }
     };
-  }, []);
+  }, [leaving]);
   const cleanCurrent = cleanSemver(current2);
   const entry = (0, import_react75.useMemo)(
     () => cleanCurrent ? getReleaseEntry(cleanCurrent, releases) : null,
@@ -62407,7 +62462,7 @@ function ReleaseNotesDialog({
   const changelogHref = typeof notesUrl === "string" && notesUrl.startsWith("https://") ? notesUrl : DEFAULT_RELEASES_URL;
   return (0, import_react75.createElement)(
     "div",
-    { className: "bt-rn-layer", "data-leaving": leaving || void 0 },
+    { ref: layerRef, className: "bt-rn-layer", "data-leaving": leaving || void 0 },
     (0, import_react75.createElement)("div", { className: "bt-scrim", onClick: () => {
       if (!leaving) onClose?.();
     } }),
@@ -69880,15 +69935,16 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   };
   const [noticeDismissed, setNoticeDismissed] = (0, import_react95.useState)(false);
   const releaseNotesPendingHere = roster.ready === true && !roster.readOnly && rnCurrent !== null && rnPending.length > 0 && settledClaimVersion !== rnCurrent && typeof actions.claimReleaseNotes === "function";
-  const showNotice = roster.ready === true && roster.telemetryPrompt === true && !noticeDismissed && !settings && !ui.settings && !owner && !ui.newChat && !ui.palette && !ui.inbox && !ui.voice && !ui.exchange && !ui.groupSearch && !ui.shortcuts && !opening && !ui.releaseNotes && !releaseNotesOpen && !releaseNotesTarget && !releaseNotesPendingHere;
+  const showNotice = roster.ready === true && roster.telemetryPrompt === true && !noticeDismissed && !settings && !ui.settings && !ui.signIn && !owner && !ui.newChat && !ui.palette && !ui.inbox && !ui.voice && !ui.exchange && !ui.groupSearch && !ui.shortcuts && !opening && !ui.releaseNotes && !releaseNotesOpen && !releaseNotesTarget && !releaseNotesPendingHere;
   const [noticeOpen, noticeLeaving] = useLinger(showNotice ? "notice" : null, DIALOG_EXIT_MS2);
-  const canAutoRelease = roster.ready === true && !roster.readOnly && pageVisible && rnCurrent !== null && rnPending.length > 0 && !settings && !ui.settings && !owner && !ui.newChat && !ui.inbox && !ui.palette && !ui.groupSearch && !ui.exchange && !ui.voice && !ui.shortcuts && !opening && !noticeOpen && !ui.releaseNotes && autoReleaseNotes === null && claimedVersionRef.current !== rnCurrent && typeof actions.claimReleaseNotes === "function";
+  const canAutoRelease = roster.ready === true && !roster.readOnly && pageVisible && rnCurrent !== null && rnPending.length > 0 && !settings && !ui.settings && !ui.signIn && !owner && !ui.newChat && !ui.inbox && !ui.palette && !ui.groupSearch && !ui.exchange && !ui.voice && !ui.shortcuts && !opening && !noticeOpen && !ui.releaseNotes && autoReleaseNotes === null && claimedVersionRef.current !== rnCurrent && typeof actions.claimReleaseNotes === "function";
   (0, import_react95.useEffect)(() => {
     if (!canAutoRelease) return void 0;
     const version = rnCurrent;
     const delayMs = globalThis.dsBotApp ? 650 : 0;
     const run2 = () => {
       if (!mountedRef.current || claimedVersionRef.current === version) return;
+      if (!settingsOwnsKeyboard(null)) return;
       claimedVersionRef.current = version;
       void Promise.resolve(actions.claimReleaseNotes(version)).then((result) => {
         if (!mountedRef.current) return;

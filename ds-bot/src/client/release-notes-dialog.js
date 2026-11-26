@@ -17,6 +17,16 @@ import {
 } from '../shared/release-notes.js'
 
 const DEFAULT_RELEASES_URL = 'https://github.com/Fei-Craft/DS-Bot/releases'
+const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+
+function focusablesIn(container) {
+  if (!container || typeof container.querySelectorAll !== 'function') return []
+  return Array.from(container.querySelectorAll(FOCUSABLE)).filter((el) => {
+    if (el.tabIndex < 0) return false
+    if (typeof el.closest === 'function' && el.closest('[inert],[aria-hidden="true"]')) return false
+    return true
+  })
+}
 
 function localizeBlock(entry, loc) {
   const picked = selectReleaseNotes(entry, loc)
@@ -41,23 +51,75 @@ export function ReleaseNotesDialog({
   onClose,
 }) {
   const titleId = useId()
+  const layerRef = useRef(null)
   const dialogRef = useRef(null)
   const locale = language()
 
   // Escape closes only this topmost layer (priority > Settings dialog).
   useEscape(() => { if (!leaving) onClose?.() }, !leaving, { priority: 20 })
 
-  // Save prior focus on mount, move keyboard focus into the dialog container (without
-  // drawing an unsolicited button focus ring on open), and restore focus on close.
+  // Save prior focus, inert background siblings, trap Tab/Shift+Tab inside the dialog while
+  // open (!leaving), and restore focus safely without stealing focus the user already moved.
   useEffect(() => {
-    const previous = typeof document !== 'undefined' ? document.activeElement : null
-    dialogRef.current?.focus?.({ preventScroll: true })
+    if (leaving || typeof document === 'undefined') return undefined
+    const previous = document.activeElement
+    const dialog = dialogRef.current
+    const layer = layerRef.current
+    dialog?.focus?.({ preventScroll: true })
+
+    const savedInert = new Map()
+    if (layer && document.body) {
+      let ownRoot = layer
+      while (ownRoot.parentElement && ownRoot.parentElement !== document.body) {
+        ownRoot = ownRoot.parentElement
+      }
+      if (ownRoot.parentElement === document.body) {
+        for (const sibling of Array.from(document.body.children)) {
+          if (sibling === ownRoot) continue
+          savedInert.set(sibling, sibling.inert)
+          sibling.inert = true
+        }
+      }
+    }
+
+    const onKeyDown = (event) => {
+      if (event.key !== 'Tab' || event.defaultPrevented || !dialog) return
+      const list = focusablesIn(dialog)
+      if (list.length === 0) {
+        event.preventDefault()
+        dialog.focus?.({ preventScroll: true })
+        return
+      }
+      const first = list[0]
+      const last = list[list.length - 1]
+      const active = document.activeElement
+      const inside = active && typeof dialog.contains === 'function' && dialog.contains(active)
+      if (event.shiftKey) {
+        if (!inside || active === dialog || active === first) {
+          event.preventDefault()
+          last.focus?.({ preventScroll: true })
+        }
+      } else if (!inside || active === dialog || active === last) {
+        event.preventDefault()
+        first.focus?.({ preventScroll: true })
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+
     return () => {
-      if (previous && typeof previous.focus === 'function' && previous.isConnected !== false) {
+      window.removeEventListener('keydown', onKeyDown)
+      for (const [el, prev] of savedInert) el.inert = prev
+      savedInert.clear()
+      const active = document.activeElement
+      const shouldRestore = active === null
+        || active === document.body
+        || active === document.documentElement
+        || (dialog && typeof dialog.contains === 'function' && dialog.contains(active))
+      if (shouldRestore && previous && typeof previous.focus === 'function' && previous.isConnected !== false) {
         previous.focus({ preventScroll: true })
       }
     }
-  }, [])
+  }, [leaving])
 
   const cleanCurrent = cleanSemver(current)
   const entry = useMemo(
@@ -78,7 +140,7 @@ export function ReleaseNotesDialog({
     ? notesUrl
     : DEFAULT_RELEASES_URL
 
-  return h('div', { className: 'bt-rn-layer', 'data-leaving': leaving || undefined },
+  return h('div', { ref: layerRef, className: 'bt-rn-layer', 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-scrim', onClick: () => { if (!leaving) onClose?.() } }),
     h('div', {
       ref: dialogRef,

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import {
   cleanSemver,
@@ -23,11 +23,23 @@ function activeLocale(): string {
   }
 }
 
-export function ReleaseNotesModal({ releases = RELEASE_NOTES as MobileReleaseNotesEntry[] }: { releases?: MobileReleaseNotesEntry[] } = {}) {
+export function ReleaseNotesModal({
+  releases = RELEASE_NOTES as MobileReleaseNotesEntry[],
+  host = 'all',
+}: {
+  releases?: MobileReleaseNotesEntry[]
+  host?: 'auto' | 'manual' | 'all'
+} = {}) {
   const { p } = useTheme()
   const modal = useMobileReleaseNotes()
   const locale = activeLocale()
   const current = cleanSemver(modal.current ?? currentAppVersion())
+  const ownsModal = host === 'all' || modal.mode === host
+
+  // Clear a manual modal if its hosting screen unmounts while open (e.g. closing the Settings sheet).
+  useEffect(() => () => {
+    if (host === 'manual') closeMobileReleaseNotes('manual')
+  }, [host])
 
   const entry = useMemo(
     () => (current ? (getReleaseEntry(current, releases) as MobileReleaseNotesEntry | null) : null),
@@ -38,7 +50,7 @@ export function ReleaseNotesModal({ releases = RELEASE_NOTES as MobileReleaseNot
     [entry, locale],
   )
 
-  if (!modal.open) return null
+  if (!modal.open || !ownsModal) return null
 
   const titleText = current
     ? t("What's new in v{version}", { version: current })
@@ -50,12 +62,12 @@ export function ReleaseNotesModal({ releases = RELEASE_NOTES as MobileReleaseNot
       visible={modal.open}
       transparent
       animationType="fade"
-      onRequestClose={closeMobileReleaseNotes}
+      onRequestClose={() => closeMobileReleaseNotes()}
     >
       <View style={styles.backdrop}>
         <Pressable
           style={StyleSheet.absoluteFill}
-          onPress={closeMobileReleaseNotes}
+          onPress={() => closeMobileReleaseNotes()}
         />
         <View style={[styles.card, { backgroundColor: p.main, borderColor: p.line2 }, shadow(4)]}>
           <View style={styles.header}>
@@ -66,7 +78,7 @@ export function ReleaseNotesModal({ releases = RELEASE_NOTES as MobileReleaseNot
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={t('Close')}
-              onPress={closeMobileReleaseNotes}
+              onPress={() => closeMobileReleaseNotes()}
               style={({ pressed }) => [styles.closeBtn, pressed && { backgroundColor: p.hover }]}
             >
               <Text style={{ fontSize: 18, color: p.ink2 }}>×</Text>
@@ -98,7 +110,7 @@ export function ReleaseNotesModal({ releases = RELEASE_NOTES as MobileReleaseNot
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              onPress={closeMobileReleaseNotes}
+              onPress={() => closeMobileReleaseNotes()}
               style={({ pressed }) => [styles.primaryBtn, { backgroundColor: p.accent, opacity: pressed ? 0.85 : 1 }]}
             >
               <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Got it')}</Text>

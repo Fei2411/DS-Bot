@@ -10,6 +10,7 @@ import { useTeam } from '../team/context.tsx'
 import { useAppUpdate } from '../team/app-update-store.ts'
 import { currentAppVersion } from '../team/app-version.ts'
 import { openMobileReleaseNotes } from '../team/release-notes.ts'
+import { ReleaseNotesModal } from '../ui/ReleaseNotesModal.tsx'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
 import { radius, shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
@@ -791,6 +792,7 @@ export function About({ navigation }: any) {
           <Row label={t('Repository')} hint="github.com/Fei-Craft/DS-Bot" onPress={() => void Linking.openURL('https://github.com/Fei-Craft/DS-Bot')} />
         </Section>
       </ScrollView>
+      <ReleaseNotesModal host="manual" />
     </Screen>
   )
 }
