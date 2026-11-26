@@ -56,7 +56,13 @@ export const CAPABILITIES = [
   'write-state',
   'push-register',
 ]
-export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval', 'secret', 'connector', 'handoff', 'learning']
+export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval', 'secret', 'connector', 'handoff', 'learning', 'mail', 'computer', 'goal', 'blocked', 'paused', 'alert']
+// The notice each kind of inbox item sends (inbox.js). A source's own kinds send 'alert'.
+const INBOX_NOTICE_KIND = {
+  question: 'question', view: 'view', approval: 'approval', secret: 'secret', connector: 'connector',
+  handoff: 'handoff', learning: 'learning', mail: 'mail', computer: 'computer', goal: 'goal',
+  blocked: 'blocked', model: 'blocked', paused: 'paused', 'room-paused': 'paused',
+}
 
 // Notices live in memory: a client away longer than this many notices, or across a
 // restart (a new `boot`), reads the team again instead.
@@ -237,22 +243,17 @@ export function install(rt) {
     else if (line.kind === 'done') botNotice(line.botId, { kind: 'done', ...base, text: '' })
   }
 
-  // A card in a Bot's own chat waits for the user.
-  rt.cardShown = (sessionId, kind, text) => {
-    const botId = rt.chatOwners.get(sessionId)
-    if (botId !== undefined) botNotice(botId, { kind, sessionId, text })
-  }
-  rt.approvalWaiting = (entry) => {
-    if (!entry.botId) return
-    const room = rt.roomOf(entry.roomId)
-    botNotice(entry.botId, { kind: 'approval', sessionId: entry.sessionId, ...(room ? { roomId: room.id, title: room.name } : {}), text: entry.tool })
-  }
-  rt.learningProposed = (proposal) => {
-    if (!proposal?.botId) return
-    const label = proposal.kind === 'agents' ? `${proposal.folder}/AGENTS.md` : `skills/${proposal.name}/SKILL.md`
-    const sessionId = rt.chatOf?.(proposal.botId)
-    botNotice(proposal.botId, { kind: 'learning', ...(sessionId ? { sessionId } : {}), text: label })
-  }
+  // Whatever waits on the user, wherever it was asked: a new inbox item (inbox.js) is
+  // one notice. The kind names what waits; the text is the item's own summary, and the
+  // phone decides how much of it a notification shows.
+  const offInbox = rt.onInboxAdded?.((item) => {
+    const kind = INBOX_NOTICE_KIND[item.kind] ?? 'alert'
+    const room = item.roomId === undefined ? undefined : rt.roomOf(item.roomId)
+    const text = item.kind === 'approval' ? item.tool ?? '' : item.text ?? ''
+    const entry = { kind, ...(item.sessionId ? { sessionId: item.sessionId } : {}), ...(room ? { roomId: room.id, title: room.name } : {}), text }
+    if (item.botId !== undefined && rt.botOf(item.botId) !== undefined) botNotice(item.botId, entry)
+    else if (room !== undefined) addNotice({ name: room.name, ...entry })
+  })
 
   ctx.on('session/event', (session, event) => {
     const id = session?.id
@@ -282,18 +283,8 @@ export function install(rt) {
     }, LIVE_SIGNAL_MS)
   }
   const offApproval = rt.onApproval?.(() => liveChanged())
-  const seenHolds = new Map()
-  const offHolds = rt.browserChannel?.subscribeHolds?.((botId, hold) => {
-    liveChanged()
-    if (hold === null || hold?.callId === undefined) {
-      seenHolds.delete(botId)
-      return
-    }
-    if (seenHolds.get(botId) === hold.callId) return
-    seenHolds.set(botId, hold.callId)
-    const sessionId = hold.sessionId ?? rt.chatOf?.(botId)
-    botNotice(botId, { kind: 'handoff', ...(sessionId ? { sessionId } : {}), text: hold.note || hold.reason || '' })
-  })
+  const offHolds = rt.browserChannel?.subscribeHolds?.(() => liveChanged())
+  const offInboxChange = rt.onInboxChanged?.(() => liveChanged())
 
   ctx.effect(() => () => {
     for (const timer of roomTimers.values()) clearTimeout(timer)
@@ -302,6 +293,8 @@ export function install(rt) {
     liveTimer = undefined
     offApproval?.()
     offHolds?.()
+    offInboxChange?.()
+    offInbox?.()
     clearAvatarRefCache()
   }, 'ds-bot: mobile room signals')
 

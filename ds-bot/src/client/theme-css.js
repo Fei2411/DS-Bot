@@ -47,20 +47,20 @@ const URL_SHORTHANDS = ['background', 'border-image', '-webkit-border-image', 'l
 
 // Strip every declaration whose value can load a file. Custom properties are scanned
 // too: a url() stored in one reaches other properties through var() at use time.
-function cleanStyle(style) {
+function cleanStyle(style, allowUrl) {
   if (!style || typeof style.getPropertyValue !== 'function' || typeof style.removeProperty !== 'function') return
   for (const name of declarationItems(style)) {
-    if (themeCssValueFetches(style.getPropertyValue(name))) style.removeProperty(name)
+    if (themeCssValueFetches(style.getPropertyValue(name), allowUrl)) style.removeProperty(name)
   }
   for (const name of URL_SHORTHANDS) {
     const value = style.getPropertyValue(name)
-    if (value !== '' && themeCssValueFetches(value)) style.removeProperty(name)
+    if (value !== '' && themeCssValueFetches(value, allowUrl)) style.removeProperty(name)
   }
   // The backstop: whatever shape a value takes in whatever engine -- a shorthand nobody
   // listed, a serialization quirk, a pending substitution that hid from every scan above
   // -- the declarations that remain must not be able to load a file, read as the browser
   // itself serializes them. If anything fetching still shows, the whole block goes.
-  if (typeof style.cssText === 'string' && themeCssLoadsRemoteFiles(style.cssText)) {
+  if (typeof style.cssText === 'string' && themeCssLoadsRemoteFiles(style.cssText, allowUrl)) {
     try { style.cssText = '' } catch { /* read-only block: the loop below still clears it */ }
     if (style.cssText !== '') {
       for (const name of declarationItems(style)) style.removeProperty(name)
@@ -69,6 +69,8 @@ function cleanStyle(style) {
   }
 }
 
+export const sanitizeStyleDeclarations = cleanStyle
+
 /**
  * Remove everything that can load a file from a parsed sheet's rule tree, in place.
  * Unknown rules are dropped unless they are known statements: a rule this code does not
@@ -76,7 +78,7 @@ function cleanStyle(style) {
  * @param {object} sheet - a CSSStyleSheet (or a stand-in of the same shape)
  * @param {object} [view] - the window the sheet belongs to, for cross-realm class checks
  */
-export function sanitizeUserSheet(sheet, view) {
+export function sanitizeUserSheet(sheet, view, allowUrl) {
   // Rules delete through their owner (the sheet, the grouping rule), never through the
   // CSSRuleList itself: the list is a read-only live view.
   const cleanList = (owner) => {
@@ -95,11 +97,11 @@ export function sanitizeUserSheet(sheet, view) {
         // block, a cleaned block would already read empty.
         const initial = typeof rule.initialValue === 'string' ? rule.initialValue : ''
         const styleInitial = style && typeof style.getPropertyValue === 'function' ? style.getPropertyValue('initial-value') : ''
-        if (themeCssValueFetches(initial) || themeCssValueFetches(styleInitial)) drop(index)
-        else if (style) cleanStyle(style)
+        if (themeCssValueFetches(initial, allowUrl) || themeCssValueFetches(styleInitial, allowUrl)) drop(index)
+        else if (style) cleanStyle(style, allowUrl)
         continue
       }
-      if (style) cleanStyle(style)
+      if (style) cleanStyle(style, allowUrl)
       if (type !== undefined && CONTAINERS.has(type)) {
         cleanList(rule)
         // Empty @keyframes and @layer blocks carry no fetching declarations, and dropping

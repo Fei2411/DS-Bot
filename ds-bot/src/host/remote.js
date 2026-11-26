@@ -8,6 +8,7 @@
 // A plain-JS plugin has no Typert generator, so the Gateway serves these methods from
 // their `@Remote` markers (its source mode): simple parameter names, JSON values.
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { computerOnlyError, unclassifiedRemoteError } from '../shared/remote-endpoints.js'
 
 export const RPC_NAMESPACE = 'dsBot'
 const RPC_ENDPOINTS = Object.freeze({ call: `${RPC_NAMESPACE}/call`, feed: `${RPC_NAMESPACE}/feed` })
@@ -172,38 +173,8 @@ export function createRemoteService(rt) {
     // Computer-only actions (phone pairing, the native desktop folder dialog, Session logs) stay local.
     async call(endpoint, payload, signal) {
       const name = typeof endpoint === 'string' ? endpoint : ''
-      if (name.startsWith('phone-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} } }
-      }
-      if (name.startsWith('api-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} } }
-      }
-      if (name.startsWith('mcp-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'MCP access is set up on the computer', details: {} } }
-      }
-      if (name === 'folder-pick') {
-        return { ok: false, error: { code: 'bot/refused', message: 'Folders are chosen in a window on the computer', details: {} } }
-      }
-      // A Session's whole log, any Session's, is for the window on the computer, as on the
-      // phone link (phone.js); a remote client reads the team's chats.
-      if (name.startsWith('session-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} } }
-      }
-      if (name.startsWith('job-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Background jobs are available on the computer', details: {} } }
-      }
-      if (name.startsWith('workspace-') || name.startsWith('terminal-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Workspace files and terminals are available on the computer', details: {} } }
-      }
-      if (name.startsWith('engine-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Engine settings are managed on the computer', details: {} } }
-      }
-      if (name.startsWith('plugins-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Plugins are managed on the computer', details: {} } }
-      }
-      if (name.startsWith('speech-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Voice input settings and transcription are available on the computer', details: {} } }
-      }
+      const denied = computerOnlyError(name) ?? unclassifiedRemoteError(name)
+      if (denied !== undefined) return { ok: false, error: denied }
       if (name === 'image' && payload?.parent !== undefined && payload?.parent !== null && String(payload.parent).trim() !== '') {
         return { ok: false, error: { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} } }
       }

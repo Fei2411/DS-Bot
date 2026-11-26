@@ -799,10 +799,12 @@ export function install(rt) {
         const moreForBot = [...pendingAsks.values()].some(item => item.botId === botId)
         if (ctl.waitingFor === 'app-access' && !moreForBot) ctl.waitingFor = undefined
         settleControl(botId)
+        rt.inboxChanged?.()
         resolve(answer)
       },
     }
     pendingAsks.set(id, entry)
+    rt.inboxChanged?.()
     const ctl = controlOf(botId)
     if (ctl.state !== 'user') {
       ctl.state = 'waiting'
@@ -1068,6 +1070,7 @@ export function install(rt) {
     holds.delete(botId)
     controlOf(botId).waitingFor = undefined
     settleControl(botId)
+    rt.inboxChanged?.()
     if (outcome === 'takeover') return true
     const settled = outcome === 'done' ? 'done' : 'skipped'
     try {
@@ -1081,6 +1084,7 @@ export function install(rt) {
       await ctx.sessions.flush(agent.session)
     } catch (error) {
       holds.set(botId, hold)
+      rt.inboxChanged?.()
       throw error
     }
     return true
@@ -1092,7 +1096,18 @@ export function install(rt) {
     ctl.state = 'user'
     ctl.waitingFor = undefined
     const hold = holds.get(botId)
-    holds.set(botId, { id: hold?.id ?? randomUUID(), by: 'user', surface: 'computer', reason: hold?.reason ?? 'takeover', note: hold?.note ?? 'The user is operating the computer.', ...(hold?.callId !== undefined ? { callId: hold.callId } : {}) })
+    const fromBot = hold?.by === 'bot' || hold?.fromBot === true || hold?.callId !== undefined
+    holds.set(botId, {
+      id: hold?.id ?? randomUUID(),
+      by: 'user',
+      surface: 'computer',
+      reason: hold?.reason ?? 'takeover',
+      note: hold?.note ?? 'The user is operating the computer.',
+      at: Number.isFinite(hold?.at) ? hold.at : Date.now(),
+      ...(fromBot ? { fromBot: true } : {}),
+      ...(hold?.callId !== undefined ? { callId: hold.callId } : {}),
+    })
+    rt.inboxChanged?.()
     return true
   }
   const handBack = async (botId) => {
@@ -1100,6 +1115,7 @@ export function install(rt) {
     const ctl = controlOf(botId)
     ctl.state = 'idle'
     ctl.waitingFor = undefined
+    rt.inboxChanged?.()
     const sessionId = rt.chatOf(botId)
     await rt.ensureCapabilities?.(sessionId)
     const agent = await rt.resolveAgent(sessionId)
@@ -1135,14 +1151,16 @@ export function install(rt) {
       const callId = rt.chatOwners.get(sessionId) === bot.id && typeof exec.callId === 'string' ? exec.callId : undefined
       holds.set(bot.id, {
         id: randomUUID(),
-        by: 'bot', surface: 'computer',
+        by: 'bot', fromBot: true, surface: 'computer',
         reason: HANDOFF_REASONS.includes(args.reason) ? args.reason : 'other',
         note: String(args.note ?? '').slice(0, 500),
         ...(callId !== undefined ? { callId } : {}),
+        at: Date.now(),
       })
       const ctl = controlOf(bot.id)
       ctl.state = 'waiting'
       ctl.waitingFor = 'handoff'
+      rt.inboxChanged?.()
       return 'Handed to the user. End your turn now; their answer arrives as a new message.'
     },
   })

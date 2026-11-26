@@ -8,6 +8,7 @@ import { RelayTransport, RpcClient, SecureTransport, deviceIdFor, generateKeyPai
 import { startRelayServer } from '../../link/server/server.ts'
 import { fakeContext } from './fake-ctx.js'
 import { BROWSER_ALLOWED, DEFAULT_SERVER, install as installPhone, remoteAccessError } from '../src/host/phone.js'
+import { COMPUTER_ONLY_ENDPOINTS, COMPUTER_ONLY_PREFIXES, TEAM_COMPUTER_PREFIX_EXCEPTIONS, TEAM_ENDPOINTS, isClassifiedEndpoint, isComputerOnlyEndpoint, isTeamEndpoint } from '../src/shared/remote-endpoints.js'
 
 const TEAM = {
   version: 1,
@@ -169,11 +170,43 @@ test('remote state and live polls never disclose pairing offers, including attac
 test('the host enforces a default-deny browser allowlist across every channel route, and fails closed on unknown devices', async t => {
   const channelSrc = readFileSync(new URL('../src/host/channel.js', import.meta.url), 'utf8')
   const computerSrc = readFileSync(new URL('../src/host/computer/index.js', import.meta.url), 'utf8')
+  const workspaceSrc = readFileSync(new URL('../src/host/workspace-panel.js', import.meta.url), 'utf8')
+  const engineSrc = readFileSync(new URL('../src/host/engine-settings.js', import.meta.url), 'utf8')
+  const pluginsSrc = readFileSync(new URL('../src/host/plugins/index.js', import.meta.url), 'utf8')
+  const sessionSrc = readFileSync(new URL('../src/host/session-follow.js', import.meta.url), 'utf8')
+  const connectorsSrc = readFileSync(new URL('../src/host/connectors/index.js', import.meta.url), 'utf8')
   const gatedSrc = readFileSync(new URL('../../mobile/src/team/gated.ts', import.meta.url), 'utf8')
   const channelRoutes = new Set([...channelSrc.matchAll(/case\s+'([^']+)':/g)].map(match => match[1]))
   const computerRoutes = [...computerSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `computer-${match[1]}`)
+  const workspaceBody = workspaceSrc.slice(workspaceSrc.indexOf('async function workspaceEndpoint'), workspaceSrc.indexOf('async function terminalEndpoint'))
+  const terminalBody = workspaceSrc.slice(workspaceSrc.indexOf('async function terminalEndpoint'), workspaceSrc.indexOf('async function terminalDispose'))
+  const workspaceRoutes = [...workspaceBody.matchAll(/name === '([^']+)'/g)].map(match => `workspace-${match[1]}`)
+  const terminalRoutes = [...terminalBody.matchAll(/name === '([^']+)'/g)].map(match => `terminal-${match[1]}`)
+  const engineRoutes = [...engineSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `engine-${match[1]}`)
+  const pluginRoutes = [...pluginsSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `plugins-${match[1]}`)
+  const sessionRoutes = [...sessionSrc.matchAll(/name !== '([^']+)'/g)].map(match => `session-${match[1]}`)
+  const connectorRoutes = [...connectorsSrc.matchAll(/async '([^']+)'\(/g)].map(match => match[1])
   const gatedRoutes = new Set([...gatedSrc.matchAll(/'([^']+)'/g)].map(match => match[1]))
-  const allHostRoutes = new Set([...channelRoutes, ...computerRoutes])
+  const allHostRoutes = new Set([...channelRoutes, ...computerRoutes, ...workspaceRoutes, ...terminalRoutes, ...engineRoutes, ...pluginRoutes, ...sessionRoutes, ...connectorRoutes])
+
+  // Every host endpoint is explicitly classified. A new endpoint fails here until a
+  // maintainer decides whether it acts on the team or on this computer.
+  for (const endpoint of allHostRoutes) {
+    assert.equal(isClassifiedEndpoint(endpoint), true, `${endpoint} is not classified in shared/remote-endpoints.js`)
+    assert.equal(TEAM_ENDPOINTS.has(endpoint) && COMPUTER_ONLY_ENDPOINTS.has(endpoint), false, `${endpoint} is classified twice`)
+  }
+  for (const endpoint of TEAM_ENDPOINTS) {
+    if (COMPUTER_ONLY_PREFIXES.some(prefix => endpoint.startsWith(prefix))) {
+      assert.equal(TEAM_COMPUTER_PREFIX_EXCEPTIONS.has(endpoint), true, `${endpoint} matches a computer-only prefix without being a named exception`)
+      assert.equal(isComputerOnlyEndpoint(endpoint), false, `${endpoint} is a named team exception`)
+    }
+  }
+  assert.equal(isComputerOnlyEndpoint('computer-not-an-endpoint'), true, 'an accidental computer-* team entry must still fail closed')
+  TEAM_ENDPOINTS.add('computer-not-an-endpoint')
+  assert.equal(isComputerOnlyEndpoint('computer-not-an-endpoint'), true, 'computer-* prefix wins over the team set outside named exceptions')
+  TEAM_ENDPOINTS.delete('computer-not-an-endpoint')
+  for (const endpoint of BROWSER_ALLOWED) assert.equal(isTeamEndpoint(endpoint), true, `browser endpoint ${endpoint} is not a team endpoint`)
+  for (const endpoint of TEAM_ENDPOINTS) assert.equal(allHostRoutes.has(endpoint) || endpoint === 'hello' || endpoint === 'notices' || endpoint === 'push-register' || endpoint === 'push-unregister', true, `team endpoint ${endpoint} is not a real host route`)
 
   // Every allowlisted endpoint must be a real host route and strictly disjoint from GATED.
   for (const endpoint of BROWSER_ALLOWED) {
@@ -204,8 +237,20 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'api-token-create'), { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} })
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-add'), undefined)
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'session-page').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'folder-pick').message, 'Folders are chosen in a window on the computer')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'computer-open-settings').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'computer-shot').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'browser-wait').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'chatgpt-sign-in').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'computer-stop'), undefined)
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'computer-app-answer'), undefined)
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'computer-app-answer').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-import-scan').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-import').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'future-unlisted-endpoint').code, 'bot/refused')
   assert.equal(BROWSER_ALLOWED.has('session-page'), false)
-  for (const localOnly of ['workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open', 'engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe', 'telemetry-status', 'telemetry-update', 'telemetry-reset-id', 'telemetry-clear-log', 'telemetry-client-error']) {
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'job-list').message, 'Background jobs are available on the computer')
+  for (const localOnly of ['job-list', 'job-read', 'job-kill', 'workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open', 'engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe', 'telemetry-status', 'telemetry-update', 'telemetry-reset-id', 'telemetry-clear-log', 'telemetry-client-error']) {
     assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, localOnly).code, 'bot/refused')
     assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, localOnly).code, 'bot/refused')
     assert.equal(BROWSER_ALLOWED.has(localOnly), false)
@@ -231,8 +276,12 @@ test('the host enforces a default-deny browser allowlist across every channel ro
     for (const endpoint of deniedEndpoints) {
       const payload = endpoint === 'connector-add' ? { name: 'pwn', command: 'id', args: [] } : {}
       const answer = await link.client.rpc('bot', { endpoint, payload })
-      if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
-      else assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
+      if (kind === 'browser') {
+        const legacyComputerMessage = endpoint.startsWith('phone-') || endpoint.startsWith('session-') || endpoint.startsWith('api-')
+        if (!legacyComputerMessage) assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
+        else assert.equal(answer.ok, false, endpoint)
+      } else if (isTeamEndpoint(endpoint)) assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
+      else assert.equal(answer.ok, false, endpoint)
     }
     // DSH Agent chats are phone-only, and so is their media.
     for (const endpoint of ['image', 'file-download', 'markdown-image']) {

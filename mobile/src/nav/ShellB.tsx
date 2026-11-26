@@ -203,7 +203,7 @@ function ChatScreenB({ route, navigation }: any) {
   const params = route.params as ChatTarget | undefined
   // On launch the saved chat is read while the team state is still on its way.
   useEffect(() => { if (linked === true && team === null && params !== undefined) prefetchChat(call, computer?.hostDeviceId ?? '', params) }, [linked, team === null])
-  useEffect(() => { if (params) void SecureStore.setItemAsync(LAST_KEY, JSON.stringify(params)) }, [params])
+  useEffect(() => { if (params) void SecureStore.setItemAsync(LAST_KEY, JSON.stringify({ kind: params.kind, id: params.id })) }, [params?.kind, params?.id])
   const fallback = team?.bots?.find(b => b.id === team?.mainBotId) ?? team?.bots?.[0]
   const kind = params?.kind ?? 'bot'
   const id = params?.id ?? fallback?.id ?? ''
@@ -234,7 +234,7 @@ function ChatScreenB({ route, navigation }: any) {
     </View>
   )
   const onMissing = () => { void SecureStore.deleteItemAsync(LAST_KEY); if (fallback !== undefined) navigation.setParams({ kind: 'bot', id: fallback.id }) }
-  return <ChatView key={`${computer?.hostDeviceId ?? ''}:${kind}:${id}`} bot={bot} room={room} agent={agent} header={header} onMissing={onMissing} />
+  return <ChatView key={`${computer?.hostDeviceId ?? ''}:${kind}:${id}`} bot={bot} room={room} agent={agent} focus={params?.focus} focusToken={params} header={header} onMissing={onMissing} />
 }
 
 function NeedsSheet({ navigation }: any) {

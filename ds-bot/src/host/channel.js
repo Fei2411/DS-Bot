@@ -9,6 +9,7 @@ import { threadCurrentOfPart, threadOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { validateOnePasswordConfig } from './secret-providers/onepassword.js'
 import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
+import { COMPUTER_APPEARANCE_FIELDS } from '../shared/appearance.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
@@ -224,6 +225,9 @@ export function install(rt) {
     // Browser holds (handoffs and takeovers) change without bumping state.revision,
     // so they ride on live() to reconcile unchanged-revision polls.
     browserHolds: rt.browserChannel?.holdSnapshot?.() ?? {},
+    // Everything across the team that waits on the user (inbox.js): one list for the
+    // sidebar, the inbox page, the phone and notifications.
+    inbox: rt.inboxView?.() ?? null,
     // Plugin runtime summary (active slots, restart status, installed count) updates
     // asynchronously as slots reconcile, so it rides on live().
     plugins: rt.pluginsSummary?.() ?? null,
@@ -257,7 +261,13 @@ export function install(rt) {
   // unsaved too, so a refused change never shows up later with the next save.
   // Model catalog checks run before anything changes; the rest applies in one step so a
   // refused change cannot roll back another request's save.
-  async function setPrefs(body, requests = {}) {
+  async function setPrefs(body, requests = {}, { remote = false } = {}) {
+    if (remote && body.appearance !== null && typeof body.appearance === 'object' && !Array.isArray(body.appearance)) {
+      const blocked = Object.keys(body.appearance).filter(field => COMPUTER_APPEARANCE_FIELDS.has(field))
+      if (blocked.length > 0) {
+        throw Object.assign(new Error(`These appearance fields can only be changed on this computer: ${blocked.join(', ')}`), { code: 'bot/refused' })
+      }
+    }
     const model = await defaultModelOf(body)
     let approvalModel
     if (body.approvalModel !== undefined) {
@@ -500,7 +510,7 @@ export function install(rt) {
           return ok(await rt.duplicateBot(body.id))
         case 'set-prefs':
           await rt.load()
-          await setPrefs(body, requests)
+          await setPrefs(body, requests, { remote })
           return ok(state.prefs)
         case 'exchange': {
           await rt.load()
@@ -1096,7 +1106,7 @@ export function install(rt) {
           // Taking over a handoff keeps its reason, note, and call, so its card stays up.
           const asked = rt.browserChannel.holdOf(botId)
           rt.browserChannel.setHold(botId, asked?.callId !== undefined
-            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId, ...(asked.sessionId !== undefined ? { sessionId: asked.sessionId } : {}) }
+            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId, ...(Number.isFinite(asked.at) ? { at: asked.at } : {}), ...(asked.sessionId !== undefined ? { sessionId: asked.sessionId } : {}) }
             : { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' })
           return ok(true)
         }

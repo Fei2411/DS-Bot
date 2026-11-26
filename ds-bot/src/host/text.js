@@ -24,11 +24,22 @@ export const unquote = text => String(text ?? '').trim().replace(/^["'“”「�
 export const escapeRegExp = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 // The part of a long message around the first match, so a search hit stays visible.
+// Both ends are snapped to a character boundary: an offset can land between the two
+// halves of an astral character, and slicing there puts a lone surrogate into the chat
+// line, which every platform renders as a replacement character.
 export const excerpt = (text, wanted, max = OWN_CHAT_LINE_MAX) => {
   if (text.length <= max) return text
-  const at = wanted === '' ? 0 : Math.max(0, text.toLowerCase().indexOf(wanted) - 120)
-  return `${at > 0 ? '…' : ''}${text.slice(at, at + max)}…`
+  const found = wanted === '' ? -1 : text.toLowerCase().indexOf(wanted)
+  let start = found === -1 ? 0 : Math.max(0, found - 120)
+  if (isLowSurrogate(text.charCodeAt(start))) start += 1
+  const end = startOfCut(text, Math.min(text.length, start + max))
+  return `${start > 0 ? '…' : ''}${text.slice(start, end)}…`
 }
+
+const isHighSurrogate = code => code >= 0xd800 && code <= 0xdbff
+const isLowSurrogate = code => code >= 0xdc00 && code <= 0xdfff
+// The offset to stop at so the slice never ends on the high half of a pair.
+const startOfCut = (text, at) => (at > 0 && at < text.length && isHighSurrogate(text.charCodeAt(at - 1)) ? at - 1 : at)
 
 // An upper bound: a CJK character is about one token, other text about a third.
 export const estimateTokens = (text) => {
