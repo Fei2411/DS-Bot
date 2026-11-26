@@ -1,4 +1,4 @@
-import { Platform } from 'react-native'
+import { AppState, Platform } from 'react-native'
 import { openPushEnvelope, parsePushEnvelope } from '../../../link/src/index.ts'
 import { callBot, openLink } from '../connection.ts'
 import { listComputers, loadComputer, loadIdentity, readPrefs } from '../store.ts'
@@ -52,8 +52,8 @@ async function handlePushWakeup(rawPayload?: string): Promise<void> {
 
 async function handlePeriodicSync(): Promise<void> {
   if (DEMO) return
-  // Never open a second socket with the same phone identity while keepalive or UI link is already connected.
-  if (keepaliveAbort !== null || isForegroundLinkOnline()) return
+  // Never open a second socket with the same phone identity while keepalive or UI link is active.
+  if (keepaliveAbort !== null || isForegroundLinkOnline() || AppState.currentState === 'active') return
   const prefs = readNotifyPrefsFromRecord(await readPrefs().catch(() => ({} as Record<string, string>)))
   if (!prefs.enabled || prefs.bgMode === 'off') return
   const [identity, computer] = await Promise.all([loadIdentity(), loadComputer()])
@@ -111,49 +111,66 @@ async function handleKeepalive(): Promise<void> {
   const signal = controller.signal
 
   while (!signal.aborted) {
-    if (DEMO) break
+    if (DEMO || isForegroundLinkOnline() || AppState.currentState === 'active') break
     const prefs = readNotifyPrefsFromRecord(await readPrefs().catch(() => ({} as Record<string, string>)))
-    if (!prefs.enabled || prefs.bgMode !== 'instant') break
+    if (signal.aborted || !prefs.enabled || prefs.bgMode !== 'instant') break
     const [identity, computer] = await Promise.all([loadIdentity(), loadComputer()])
-    if (computer === undefined || !isValidWsServerUrl(computer.server)) break
+    if (signal.aborted || computer === undefined || !isValidWsServerUrl(computer.server)) break
 
     const cursor = createNoticeCursor()
     const saved = await loadNoticeCursor(computer.hostDeviceId)
+    if (signal.aborted) break
     if (saved !== null) {
       cursor.connect({ boot: saved.boot, seq: saved.seq })
     }
 
     let client: Awaited<ReturnType<typeof openLink>> | undefined
+    let offClose: (() => void) | undefined
+    let offEvent: (() => void) | undefined
+    let onAbort: (() => void) | undefined
     try {
       await updateBackgroundStatusText(t('Connecting…'))
-      client = await openLink(computer, identity)
       if (signal.aborted) break
-      const hello = await callBot<{ api: number | null; boot: string; seq: number }>(client, 'hello', {})
-      if (signal.aborted || hello.api === null) break
+      client = await openLink(computer, identity)
 
-      await updateBackgroundStatusText(computer.name ? t('Connected to {name}', { name: computer.name }) : t('Connected'))
-      const closed = new Promise<void>(resolve => {
-        client!.onClose(resolve)
-        signal.addEventListener('abort', () => resolve(), { once: true })
-      })
+      // Bind close, abort, and event listeners immediately after openLink() so an early
+      // socket drop or stopKeepalive signal during hello/notices can never leave await closed hung.
+      let resolveClosed!: () => void
+      const closed = new Promise<void>(resolve => { resolveClosed = resolve })
+      let socketClosed = false
+      const markClosed = () => {
+        if (socketClosed) return
+        socketClosed = true
+        resolveClosed()
+      }
+      onAbort = () => {
+        markClosed()
+        void client?.close().catch(() => {})
+      }
+      offClose = client.onClose(markClosed)
+      if (signal.aborted) {
+        onAbort()
+        break
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
 
-      // Buffer live notices while catch-up RPC is in flight so live arrivals never drop earlier catch-up items.
-      let catchingUp = saved !== null
+      let catchingUp = true
+      let activeBoot = ''
       const bufferedLive: NoticeEntry[] = []
 
       const deliverLive = (entry: NoticeEntry) => {
-        if (!cursor.acceptLive(hello.boot, entry)) return
+        if (!cursor.acceptLive(activeBoot, entry)) return
         void deliverSystemNotice(entry, {
           hostId: computer.hostDeviceId,
           hostName: computer.name,
-          boot: hello.boot,
+          boot: activeBoot,
           appActive: false,
           dedupe: true,
         })
       }
 
-      client.onEvent(({ event, data }: { event: string; data: unknown }) => {
-        if (signal.aborted || event !== 'notice') return
+      offEvent = client.onEvent(({ event, data }: { event: string; data: unknown }) => {
+        if (signal.aborted || socketClosed || event !== 'notice') return
         const entry = data as NoticeEntry
         if (catchingUp) {
           bufferedLive.push(entry)
@@ -162,52 +179,95 @@ async function handleKeepalive(): Promise<void> {
         deliverLive(entry)
       })
 
-      if (saved === null) {
-        cursor.connect(hello)
-        await saveNoticeCursor(computer.hostDeviceId, hello.boot, hello.seq)
-      } else {
-        const answer = await callBot<NoticeCursorAnswer>(client, 'notices', { boot: saved.boot, since: saved.seq }).catch(() => null)
-        cursor.connect(hello)
-        if (answer !== null && !signal.aborted) {
-          const nextBoot = typeof answer.boot === 'string' && answer.boot.length > 0 ? answer.boot : hello.boot
-          const list = Array.isArray(answer.notices) ? (answer.notices as NoticeEntry[]) : []
-          for (const entry of list) {
+      const hello = await callBot<{ api: number | null; boot: string; seq: number }>(client, 'hello', {})
+      if (signal.aborted || hello.api === null) break
+      if (!socketClosed) {
+        activeBoot = hello.boot
+        await updateBackgroundStatusText(computer.name ? t('Connected to {name}', { name: computer.name }) : t('Connected'))
+        if (signal.aborted) break
+      }
+
+      if (!socketClosed) {
+        if (saved === null) {
+          cursor.connect(hello)
+          await saveNoticeCursor(computer.hostDeviceId, hello.boot, hello.seq)
+          while (bufferedLive.length > 0 && !signal.aborted) {
+            const entry = bufferedLive.shift()!
+            if (!cursor.acceptLive(activeBoot, entry)) continue
             await deliverSystemNotice(entry, {
               hostId: computer.hostDeviceId,
               hostName: computer.name,
-              boot: nextBoot,
+              boot: activeBoot,
               appActive: false,
               dedupe: true,
             })
           }
-          await saveNoticeCursor(computer.hostDeviceId, nextBoot, typeof answer.seq === 'number' ? answer.seq : hello.seq)
+          catchingUp = false
+        } else {
+          const answer = await callBot<NoticeCursorAnswer>(client, 'notices', { boot: saved.boot, since: saved.seq }).catch(() => null)
+          if (answer !== null && !signal.aborted) {
+            const { sameBoot } = cursor.connect(hello)
+            const nextBoot = typeof answer.boot === 'string' && answer.boot.length > 0 ? answer.boot : hello.boot
+            activeBoot = nextBoot
+            const list = Array.isArray(answer.notices) ? (answer.notices as NoticeEntry[]) : []
+            let completedBatch = true
+            for (const entry of list) {
+              if (signal.aborted) {
+                completedBatch = false
+                break
+              }
+              await deliverSystemNotice(entry, {
+                hostId: computer.hostDeviceId,
+                hostName: computer.name,
+                boot: nextBoot,
+                appActive: false,
+                dedupe: true,
+              })
+            }
+            if (completedBatch && !signal.aborted) {
+              cursor.acceptCatchUp(hello.boot, sameBoot, answer)
+              const finalSeq = typeof answer.seq === 'number' ? answer.seq : hello.seq
+              await saveNoticeCursor(computer.hostDeviceId, nextBoot, finalSeq)
+              while (bufferedLive.length > 0 && !signal.aborted) {
+                const entry = bufferedLive.shift()!
+                if (!cursor.acceptLive(activeBoot, entry)) continue
+                await deliverSystemNotice(entry, {
+                  hostId: computer.hostDeviceId,
+                  hostName: computer.name,
+                  boot: activeBoot,
+                  appActive: false,
+                  dedupe: true,
+                })
+              }
+              catchingUp = false
+            }
+          }
         }
-        while (bufferedLive.length > 0 && !signal.aborted) {
-          const entry = bufferedLive.shift()!
-          if (!cursor.acceptLive(hello.boot, entry)) continue
-          await deliverSystemNotice(entry, {
-            hostId: computer.hostDeviceId,
-            hostName: computer.name,
-            boot: hello.boot,
-            appActive: false,
-            dedupe: true,
-          })
-        }
-        catchingUp = false
-      }
 
-      await closed
+        if (!signal.aborted && !socketClosed && !catchingUp) {
+          await closed
+        }
+      }
     } catch {
       /* backoff before retry */
     } finally {
+      if (onAbort !== undefined) signal.removeEventListener('abort', onAbort)
+      offClose?.()
+      offEvent?.()
       await client?.close().catch(() => {})
     }
 
     if (signal.aborted) break
     await updateBackgroundStatusText(t('Reconnecting…'))
+    if (signal.aborted) break
     await new Promise<void>(resolve => {
-      const timer = setTimeout(resolve, 5_000)
-      signal.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })
+      const done = () => {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', done)
+        resolve()
+      }
+      const timer = setTimeout(done, 5_000)
+      signal.addEventListener('abort', done, { once: true })
     })
   }
   if (keepaliveAbort === controller) keepaliveAbort = null

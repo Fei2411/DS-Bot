@@ -435,6 +435,13 @@ export const DE = {
   'Custom agents': 'Benutzerdefinierte Agenten',
   'ACP-compatible agents, added by command.': 'ACP-kompatible Agenten, per Befehl hinzugefügt.',
   'Add agent': 'Agent hinzufügen',
+  Profiles: 'Profile',
+  'Add profile': 'Profil hinzufügen',
+  'Profile name': 'Profilname',
+  'Config folder': 'Konfigurationsordner',
+  'Default folder': 'Standardordner',
+  'No profiles added': 'Keine Profile hinzugefügt',
+  'Not installed': 'Nicht installiert',
   'Copies the sign-in command': 'Kopiert den Anmeldebefehl',
   'Sign in': 'Anmelden',
   'Sign-in command copied. Run it in a terminal: {command}': 'Anmeldebefehl kopiert. Führe ihn im Terminal aus: {command}',
@@ -833,7 +840,7 @@ export const DE = {
   Graphite: 'Graphit', Rose: 'Rosé', Sky: 'Himmelblau', Tangerine: 'Mandarine', Cobalt: 'Kobaltblau',
 
   // Themes
-  DeepSeek: 'DeepSeek', Mono: 'Monochrom', Paper: 'Papier', Moonlight: 'Mondlicht',
+  DeepSeek: 'DeepSeek', Mono: 'Monochrom', Paper: 'Papier', Moonlight: 'Mondlicht', Celadon: 'Seladon',
 
   // Settings dialog
   General: 'Allgemein',
@@ -1623,6 +1630,7 @@ export const DE = {
   'Starting a new part…': 'Neuer Abschnitt wird gestartet…',
   'The model service refused the request': 'Der Modelldienst hat die Anfrage abgelehnt',
   'The model service failed': 'Fehler beim Modelldienst',
+  'The model service this Bot is set to no longer exists': 'Der Modelldienst dieses Bots existiert nicht mehr',
   'The model took too long to answer': 'Zeitüberschreitung bei der Modellantwort',
   'Could not reach the model service': 'Modelldienst nicht erreichbar',
   "The conversation could not be compacted for the model switch": "Die Unterhaltung konnte für den Modellwechsel nicht komprimiert werden",

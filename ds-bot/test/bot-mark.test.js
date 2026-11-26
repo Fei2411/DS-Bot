@@ -4,9 +4,10 @@ import { runInNewContext } from 'node:vm'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
+import { STATES, stateName } from '../src/client/avatar/states.js'
 
 const bundle = await build({
-  stdin: { contents: "export { botState, BotAvatar, BotMark, RoomAvatar } from './src/client/mark.js'\nexport { SHELL_CSS } from './src/client/styles.js'", resolveDir: dirname(dirname(fileURLToPath(import.meta.url))) },
+  stdin: { contents: "export { botState, BotAvatar, BotMark, RoomAvatar } from './src/client/mark.js'", resolveDir: dirname(dirname(fileURLToPath(import.meta.url))) },
   bundle: true, format: 'cjs', platform: 'node', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -25,7 +26,7 @@ const react = {
   useState: initial => [states.length > 0 ? states.shift() : initial, value => sets.push(value)], useEffect: () => {}, useRef: current => ({ current }), useLayoutEffect: () => {}, Fragment: 'fragment',
 }
 runInNewContext(bundle.outputFiles[0].text, { module, exports: module.exports, require: name => (name === 'react' ? react : {}) })
-const { botState, BotAvatar, BotMark, RoomAvatar, SHELL_CSS } = module.exports
+const { botState, BotAvatar, BotMark, RoomAvatar } = module.exports
 
 test('a group photo replaces its collage at all sizes and a broken photo falls back', () => {
   const image = 'data:image/png;base64,iVBORw0KGgo='
@@ -51,8 +52,11 @@ test('a Bot that waits for work it handed on has a mark of its own, behind a run
   assert.equal(botState(true, 'searching', false), 'searching')
   assert.equal(botState(false, 'waiting', true), 'alert')
   assert.equal(botState(false, undefined, false), 'idle')
-  // It moves like a Bot coordinating its teammates.
-  assert.match(SHELL_CSS, /\.bt-mark:is\(\[data-state=orbit\],\[data-state=waiting\]\) \.bt-b\{animation:bt-sway/)
+  // Waiting and relaying each have motion of their own in the avatar engine.
+  assert.equal(stateName('waiting'), 'waiting')
+  assert.equal(stateName('orbit'), 'relaying')
+  assert.ok(STATES.waiting.loop && STATES.relaying.loop)
+  assert.equal(stateName('no such state'), 'idle')
 })
 
 test('a waiting Bot does not wear the working badge, since no turn of it runs', () => {
@@ -70,11 +74,11 @@ test('a photo that does not load shows the Bot\'s character instead', () => {
   img.props.onError()
   assert.deepEqual(sets, [photo])
   // Rendered again with that photo marked broken: the character, not an empty image.
-  states.push(false, photo)
+  states.push(photo)
   const mark = BotMark({ bot })
   assert.equal(mark.children[0].type, 'svg')
   assert.notEqual(mark.props['data-shape'], 'image')
   // A new photo is tried again.
-  states.push(false, photo)
+  states.push(photo)
   assert.equal(BotMark({ bot: { ...bot, avatar: { ...bot.avatar, image: `${photo}AA` } } }).children[0].type, 'img')
 })

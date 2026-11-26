@@ -1602,10 +1602,12 @@ test('skin.js reuses a single 1x1 canvas with willReadFrequently, guards null co
   assert.equal(removed, 0)
 })
 
-test('mark.js shares global gaze hub, deduplicates --bt-gx/--bt-gy, and sameRoomAvatar checks resolved members, +N count, and image fallback', async () => {
+test('mark.js shares one pointer listener and one observer across marks, skips a repeated pointer position, and sameRoomAvatar checks resolved members, +N count, and image fallback', async () => {
   const winListeners = new Map()
   let observers = 0
   const dom = new JSDOM('<!doctype html><body></body>')
+  // A page in view: JSDOM reports itself hidden unless told otherwise.
+  Object.defineProperty(dom.window.document, 'hidden', { value: false })
   const fakeWin = Object.assign(Object.create(dom.window), {
     addEventListener: (type, fn) => {
       if (!winListeners.has(type)) winListeners.set(type, new Set())
@@ -1617,48 +1619,56 @@ test('mark.js shares global gaze hub, deduplicates --bt-gx/--bt-gy, and sameRoom
     MutationObserver: class { constructor() { observers += 1 } observe() {} disconnect() {} },
   })
   const rafs = []
-  const writes = []
-  const mkNode = () => ({
-    isConnected: true,
-    getBoundingClientRect: () => ({ left: 100, top: 100, width: 36, height: 36 }),
-    style: {
-      setProperty: (k, v) => { writes.push([k, v]) },
-      removeProperty: () => {},
-    },
-  })
-  let refCount = 0
+  let measured = 0
+  const nodes = []
+  const mkNode = () => {
+    const node = {
+      isConnected: true,
+      dataset: {},
+      getBoundingClientRect: () => { measured += 1; return { left: 100, top: 100, width: 36, height: 36 } },
+      style: { setProperty() {}, removeProperty() {} },
+    }
+    nodes.push(node)
+    return node
+  }
   const { exports, flushEffects, unmount } = await loadClientModule('mark.js', {
     window: fakeWin,
     document: dom.window.document,
     MutationObserver: fakeWin.MutationObserver,
     IntersectionObserver: fakeWin.IntersectionObserver,
+    performance,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
     requestAnimationFrame: (fn) => { rafs.push(fn); return rafs.length },
     cancelAnimationFrame: () => {},
   }, {
     memo: (comp, compare) => Object.assign(props => comp(props), { compare }),
-    useRef: (init) => {
-      const idx = refCount++
-      if (init === null && idx % 2 === 0) return { current: mkNode() }
-      return { current: init }
-    },
+    // The mark's element ref is the one made with null.
+    useRef: init => ({ current: init === null ? mkNode() : init }),
   })
   for (let k = 0; k < 5; k += 1) {
     exports.BotMark({ bot: { id: `b${k}`, name: `B${k}`, color: 'blue', avatar: { shape: 'whale' } }, size: 36, gaze: true })
   }
   flushEffects()
 
+  // Every mark shares the live clock's listeners: one for the pointer, one observer of
+  // the motion settings.
   assert.equal(winListeners.get('pointermove')?.size ?? 0, 1)
   assert.equal(observers, 1)
 
   const move = [...winListeners.get('pointermove')][0]
   move({ clientX: 220, clientY: 160 })
   while (rafs.length > 0) rafs.shift()()
-  const firstCount = writes.length
-  assert.ok(firstCount > 0)
+  assert.equal(measured, 5)
+  // In mark radii from the middle: (220 - 118) / 18 across, (160 - 118) / 18 down.
+  for (const node of nodes) assert.deepEqual({ ...node.__btLive.engine.gazeTarget }, { x: 102 / 18, y: 42 / 18 })
 
+  // The same position again measures nothing.
   move({ clientX: 220, clientY: 160 })
   while (rafs.length > 0) rafs.shift()()
-  assert.equal(writes.length, firstCount)
+  assert.equal(measured, 5)
 
   // Verify RoomAvatar comparator on resolved visible slots, +N count, and image fallback.
   const cmp = exports.RoomAvatar.compare
