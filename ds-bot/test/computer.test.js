@@ -259,8 +259,9 @@ test('macOS consent answerer: grants allow, the card answers, Always records, DS
 })
 
 test('legacy macOS getApp accepts task approval and records grants under the returned app identity (#2308)', async (t) => {
-  for (const choice of ['once', 'always']) {
-    await t.test(choice, { timeout: 3000 }, async (t) => {
+  for (const scenario of ['once', 'always', 'always without a bundle ID']) {
+    await t.test(scenario, { timeout: 3000 }, async (t) => {
+      const choice = scenario === 'once' ? 'once' : 'always'
       const services = { loader: { import: async name => ({ name }) } }
       const { ctx, home, rt } = setup({ services })
       withProvider(ctx, services)
@@ -271,20 +272,23 @@ test('legacy macOS getApp accepts task approval and records grants under the ret
       const consent = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
       const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
       const agent = { id: 'w1' }
-      const bundleId = 'com.apple.Notes'
+      rt.selfOf = id => (id === 'w1-fresh' ? 'w1' : id)
+      rt.isBotSession = id => id === 'w1' || id === 'w1-fresh'
+      const bundleId = scenario === 'always without a bundle ID' ? undefined : 'com.apple.Notes'
+      const appPath = '/System/Applications/Notes.app/Contents/MacOS/Notes'
       const selected = { isError: false, value: { appHandle: 'notes-handle', pid: 42, name: 'Notes', bundleId } }
-      let providerAllowed = false
-      const getApp = (callId) => track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent, callId }, async () => {
-        if (!providerAllowed) {
-          const answer = await consent({ agent, questions: [{
+      const providerAllowed = new Set()
+      const getApp = (callId, { agent: caller = agent, path = appPath, result = selected } = {}) => track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: caller, callId }, async () => {
+        if (!providerAllowed.has(caller)) {
+          const answer = await consent({ agent: caller, questions: [{
             id: 'cua-app-access',
             question: 'Allow Computer Use to launch if needed, read, capture, and control Notes?',
-            detail: 'Application: /System/Applications/Notes.app/Contents/MacOS/Notes\nTask access applies to the selected application instance, including its launch if needed.',
+            detail: `Application: ${path}\nTask access applies to the selected application instance, including its launch if needed. macOS permissions and approval of sensitive actions remain separate. Saved access can be revoked by removing its allowedApps entry from this provider configuration. Task access ends with the task.`,
             options: [{ label: 'Allow for this task' }, { label: 'Deny' }],
           }] }, async () => assert.fail('DS Bot did not handle the provider approval'))
-          providerAllowed = answer.answers[0]?.selected[0] === 'Allow for this task'
+          if (answer.answers[0]?.selected[0] === 'Allow for this task') providerAllowed.add(caller)
         }
-        return providerAllowed ? selected : { isError: true, error: { code: 'APP_ACCESS_DENIED' } }
+        return providerAllowed.has(caller) ? result : { isError: true, error: { code: 'APP_ACCESS_DENIED' } }
       })
       const pending = getApp('get-notes')
       await new Promise(resolve => setImmediate(resolve))
@@ -292,16 +296,42 @@ test('legacy macOS getApp accepts task approval and records grants under the ret
       await rt.computerEndpoint('app-answer', { id: ask.id, answer: choice })
       const outcome = await pending
       const apps = rt.computerView().bots.w1.apps
-      assert.deepEqual(Object.keys(apps), choice === 'always' ? [bundleId] : [])
+      assert.deepEqual(Object.keys(apps), scenario === 'always' ? [bundleId] : [])
       assert.deepEqual(outcome, selected)
       assert.equal(ask.appName, 'Notes')
-      if (choice === 'always') {
+      if (scenario === 'always') {
         assert.equal(apps[bundleId].id, bundleId)
         assert.equal(apps[bundleId].name, 'Notes')
         assert.deepEqual(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).bots.w1.computer.apps, apps)
       }
       assert.deepEqual(await getApp('get-notes-again'), selected)
       assert.deepEqual(rt.computerLive().asks, {})
+      const fresh = { id: 'w1-fresh' }
+      const later = getApp('get-notes-fresh', { agent: fresh })
+      await new Promise(resolve => setImmediate(resolve))
+      const asks = Object.values(rt.computerLive().asks)
+      if (scenario === 'always') {
+        assert.equal(asks.length, 0, 'a fresh provider request for the saved app should not ask again')
+        assert.deepEqual(await later, selected)
+        assert.equal(apps[bundleId].path, appPath)
+        const other = getApp('same-name-different-path', { agent: { ...fresh }, path: '/Applications/Notes.app/Contents/MacOS/Notes' })
+        await new Promise(resolve => setImmediate(resolve))
+        const otherAsks = Object.values(rt.computerLive().asks)
+        assert.equal(otherAsks.length, 1)
+        await rt.computerEndpoint('app-answer', { id: otherAsks[0].id, answer: 'deny' })
+        assert.equal((await other).error.code, 'APP_ACCESS_DENIED')
+        const changed = await getApp('same-path-different-bundle', {
+          agent: { ...fresh },
+          result: { ...selected, value: { ...selected.value, bundleId: 'example.Notes' } },
+        })
+        assert.equal(changed.isError, true)
+        assert.match(changed.content[0].text, /saved grant does not match/)
+        assert.deepEqual(Object.keys(rt.computerView().bots.w1.apps), [bundleId])
+      } else {
+        assert.equal(asks.length, 1)
+        await rt.computerEndpoint('app-answer', { id: asks[0].id, answer: 'deny' })
+        assert.equal((await later).error.code, 'APP_ACCESS_DENIED')
+      }
     })
   }
 })
