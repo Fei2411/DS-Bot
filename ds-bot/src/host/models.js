@@ -22,6 +22,7 @@ const GEMINI_MALFORMED = new Set([
   'Provider stopped with: MALFORMED_FUNCTION_CALL',
   'Provider stopped with: UNEXPECTED_TOOL_CALL',
   'Unhandled stop reason: MALFORMED_RESPONSE',
+  'Provider stopped with: MALFORMED_RESPONSE',
 ])
 
 function failureCode(failure) {

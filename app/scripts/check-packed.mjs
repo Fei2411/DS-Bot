@@ -405,9 +405,23 @@ async function chat(cdp) {
   const main = await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'state', payload: {} }) }).then(r => r.json()).then(r => r.value.mainBotId)")
   await evaluate(`document.querySelector(${JSON.stringify(`[data-bot-id="${main}"]`)}).click()`)
   await until("document.querySelector('.bt-model-chip:not(.bt-model-chip-quiet)')", 'the model choice')
-  await evaluate("document.querySelector('.bt-model-chip:not(.bt-model-chip-quiet)').click()")
-  // The mock model's greeting for a new team.
-  await until(text('先让团队帮你做哪块'), 'the greeting')
+  // The chip is rebound while the first team state arrives. A single DOM click can land on a
+  // detached chip under Xvfb, leaving the team without a model forever; click it again only
+  // while the unchosen chip is still there, and say how often the check had to do so.
+  const greeting = text('先让团队帮你做哪块')
+  const greetingDeadline = Date.now() + 120_000
+  let modelClicks = 0
+  let nextModelClick = 0
+  for (;;) {
+    if (await evaluate(`(async () => Boolean(await (${greeting})))()`)) break
+    if (Date.now() >= greetingDeadline) throw new Error(`timed out waiting for the greeting after ${modelClicks} model-choice click(s)`)
+    if (Date.now() >= nextModelClick && await evaluate("document.querySelector('.bt-model-chip:not(.bt-model-chip-quiet)') !== null")) {
+      await evaluate("document.querySelector('.bt-model-chip:not(.bt-model-chip-quiet)').click()")
+      modelClicks += 1
+      nextModelClick = Date.now() + 5_000
+    }
+    await sleep(250)
+  }
   // Click the composer through the input pipeline. A bare focus() is not enough where no window
   // manager gives the window focus (xvfb in CI): the text and the Enter would go nowhere.
   const box = "[...document.querySelectorAll('[role=textbox][contenteditable=true], textarea')].at(-1)"
@@ -677,7 +691,14 @@ try {
   console.log('check-packed: passed')
 } catch (error) {
   failed = true
-  console.error(`check-packed: FAILED: ${error instanceof Error ? error.message : String(error)}`)
+  let detail = error instanceof Error ? error.message : String(error)
+  try {
+    if (existsSync(join(work, 'mock.log'))) {
+      const log = readFileSync(join(work, 'mock.log'), 'utf8')
+      detail += `; mock model log tail: ${log.length === 0 ? '<empty>' : log.slice(-4000)}`
+    } else detail += '; mock model log: <missing>'
+  } catch {}
+  console.error(`check-packed: FAILED: ${detail}`)
 }
 stopChildren()
 await sleep(500)

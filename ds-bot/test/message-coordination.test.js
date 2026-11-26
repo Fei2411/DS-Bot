@@ -332,7 +332,11 @@ test('work-notes persist in SQLite, reject third-party Bots, and inject on next 
 
 test('dead group session stops infinite model selection retry (#2265)', async (t) => {
   const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-2265-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  let ctx
+  t.after(async () => {
+    await ctx?.dispose()
+    rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam({
@@ -357,13 +361,12 @@ test('dead group session stops infinite model selection retry (#2265)', async (t
     },
     resolveAgent: async () => ({ error: { code: 'session/not-found', message: 'not found' } }),
   }
-  const ctx = fakeContext({
+  ctx = fakeContext({
     services: { llm, sessionController },
   })
   ctx.llm = llm
   ctx.sessionController = sessionController
   const rt = createRuntime(ctx, { home })
-  t.after(async () => { await ctx.dispose() })
   await rt.load()
 
   await rt.syncRoomSessions?.()
