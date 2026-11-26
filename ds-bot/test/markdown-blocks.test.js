@@ -22,17 +22,32 @@ test('unsafe input falls back: empty, CRLF, BOM, link definitions, footnotes, ht
   assert.equal(splitMarkdownBlocks('see [x][y]\n\n[y]: https://example.com\n'), null)
   assert.equal(splitMarkdownBlocks('paragraph\n\n  [id]: /url\n\ntail\n'), null)
   // ...from inside blockquotes (nested included) and list items, in a label that holds
-  // escaped brackets, and even across a newline inside the label. Any line that starts
-  // with `[` after the container prefixes counts, so none of these can slip through.
+  // escaped brackets, and even across a newline inside the label. The scan is
+  // escape-aware and precise, so none of these can slip through.
   assert.equal(splitMarkdownBlocks('[x]\n\n> [x]: https://example.com\n\ntail\n'), null)
   assert.equal(splitMarkdownBlocks('[x]\n\n> > [x]: https://example.com\n\ntail\n'), null)
   assert.equal(splitMarkdownBlocks('[x]\n\n- item\n\n    [x]: https://example.com\n\ntail\n'), null)
   assert.equal(splitMarkdownBlocks('[x]\n\n1. [x]: https://example.com\n\ntail\n'), null)
   assert.equal(splitMarkdownBlocks('[a\\]b]\n\n[a\\]b]: https://example.com\n\ntail\n'), null)
   assert.equal(splitMarkdownBlocks('[x]\n\n[long\nlabel]: https://example.com\n\ntail\n'), null)
-  // The price of the coarse check: a plain line starting with `[` bails as well.
-  assert.equal(splitMarkdownBlocks('para\n\n[a] is just bracket text\n\nmore\n'), null)
-  assert.equal(splitMarkdownBlocks('- [ ] todo\n- [x] done\n\npara\n'), null)
+  // Container prefixes carry tabs exactly as spaces (`-\t[x]: /url` is a definition
+  // inside a list item), and the definition can land on the final line without a
+  // trailing newline — the streaming steady state.
+  assert.equal(splitMarkdownBlocks('see [x]\n\n-\t[x]: /url\n'), null)
+  assert.equal(splitMarkdownBlocks('see [x]\n\n1.\t[x]: /url\n'), null)
+  assert.equal(splitMarkdownBlocks('see [x]\n\n>\t[x]: /url\n'), null)
+  assert.equal(splitMarkdownBlocks('see [x]\n\n- item\n\n\t[x]: /url\n'), null)
+  assert.equal(splitMarkdownBlocks('see [x]\n\nprose\n\n[x]: /url'), null)
+  assert.equal(splitMarkdownBlocks('text[^1]\n\nprose\n\n[^1]: the note'), null)
+  // Brackets that never open a definition cost nothing: task lists, inline links,
+  // bracketed text and bracketed expressions all split.
+  assert.ok(splitMarkdownBlocks('- [ ] todo\n- [x] done\n\npara\n\nmore\n') !== null)
+  assert.ok(splitMarkdownBlocks('para\n\n[a] is just bracket text\n\nmore\n') !== null)
+  assert.ok(splitMarkdownBlocks('- [the docs](https://a.com) here\n\nmore\n\ntail\n') !== null)
+  assert.ok(splitMarkdownBlocks('para\n\n    [x] = compute()\n\nmore\n\ntail\n') !== null)
+  // A bracket left open at the end of its line could continue into a definition label
+  // on the next one, so it bails even when it turns out to be plain text.
+  assert.equal(splitMarkdownBlocks('para\n\n[unclosed bracket\n\nmore\n'), null)
   // Inline brackets never start a line, so inline links split normally.
   assert.ok(splitMarkdownBlocks('para with [text](https://a.com)\n\nmore\n\nend\n') !== null)
   assert.ok(splitMarkdownBlocks('para with [x][y] dangling\n\nmore text here\n') !== null)

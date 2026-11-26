@@ -247,6 +247,159 @@ test('reference definitions in containers and escaped labels fall back to the wh
   }
 })
 
+
+test('a definition on the final line without a trailing newline never splits', async () => {
+  // The streaming steady state has no trailing newline; a reference definition or a
+  // footnote definition that lands there reaches backwards across the document exactly
+  // as any other, so these fall back to the one correct whole-document parse.
+  const { splitMarkdownBlocks } = await import('../../ds-bot/src/client/markdown-blocks.js')
+  const prose = 'prose that fills the reply well past the split threshold. '.repeat(12)
+  const cases = {
+    finalLineLinkDef: `See [the link] you need.
+
+${prose}
+
+[the link]: https://example.com`,
+    finalLineFootnoteDef: `The text carries a note[^1] inside it.
+
+${prose}
+
+[^1]: the note itself`,
+  }
+  const fold = html => html.replace(/>\n</g, '><')
+  for (const [name, text] of Object.entries(cases)) {
+    assert.ok(text.length > 512, `${name} passes the split threshold`)
+    assert.ok(!text.endsWith('\n'), `${name} ends without a trailing newline`)
+    assert.equal(splitMarkdownBlocks(text), null, `${name} never splits`)
+    const settled = mounted()
+    settled.render(h(MarkdownText, { text, labels }))
+    const reference = fold(settled.container.innerHTML)
+    settled.unmount()
+    const streamed = mounted()
+    streamed.render(h(MarkdownText, { text, streaming: true, labels }))
+    assert.equal(fold(streamed.container.innerHTML), reference, `${name} matches the settled render byte for byte`)
+    streamed.unmount()
+  }
+  // The reference actually resolves and the footnote actually links in the fallback.
+  const linked = mounted()
+  linked.render(h(MarkdownText, { text: cases.finalLineLinkDef, streaming: true, labels }))
+  assert.match(linked.container.innerHTML, /href="https:\/\/example\.com"/)
+  linked.unmount()
+})
+
+test('tab-prefixed container definitions fall back to the whole-document parse', async () => {
+  // A tab separates a list marker or blockquote marker from its content exactly as a
+  // space does, so a definition behind one is a definition all the same.
+  const { splitMarkdownBlocks } = await import('../../ds-bot/src/client/markdown-blocks.js')
+  const prose = 'prose that fills the reply well past the split threshold. '.repeat(12)
+  const cases = {
+    tabAfterDashMarker: `Use [x] inline.
+
+${prose}
+
+-	[x]: /url
+
+tail
+`,
+    tabAfterOrderedMarker: `Use [x] inline.
+
+${prose}
+
+1.	[x]: /url
+
+tail
+`,
+    tabAfterQuoteMarker: `Use [x] inline.
+
+${prose}
+
+>	[x]: /url
+
+tail
+`,
+    tabListContinuation: `Use [x] inline.
+
+${prose}
+
+- item
+
+	[x]: /url
+
+tail
+`,
+  }
+  const fold = html => html.replace(/>\n</g, '><')
+  for (const [name, text] of Object.entries(cases)) {
+    assert.ok(text.length > 512, `${name} passes the split threshold`)
+    assert.equal(splitMarkdownBlocks(text), null, `${name} never splits`)
+    const settled = mounted()
+    settled.render(h(MarkdownText, { text, labels }))
+    const reference = fold(settled.container.innerHTML)
+    settled.unmount()
+    const streamed = mounted()
+    streamed.render(h(MarkdownText, { text, streaming: true, labels }))
+    assert.equal(fold(streamed.container.innerHTML), reference, `${name} matches the settled render byte for byte`)
+    streamed.unmount()
+  }
+})
+
+test('brackets that never open a definition split normally: task lists, inline links, bracketed expressions', async () => {
+  // The split only yields to real reference definitions; ordinary bracket syntax in LLM
+  // output keeps the streaming fast path, and the pieces render exactly the whole.
+  const { splitMarkdownBlocks } = await import('../../ds-bot/src/client/markdown-blocks.js')
+  const prose = 'prose that fills the reply well past the split threshold. '.repeat(12)
+  const cases = {
+    taskList: `- [ ] the first task
+- [x] the second task
+
+${prose}
+
+A closing paragraph.
+`,
+    linkInListItem: `- [the docs](https://example.com) and more prose
+
+${prose}
+
+A closing paragraph.
+`,
+    inlineLinkLine: `[the docs](https://example.com) starts this line as an inline link
+
+${prose}
+
+A closing paragraph.
+`,
+    bracketExpression: `para
+
+    [x] = compute()
+
+${prose}
+
+A closing paragraph.
+`,
+  }
+  const fold = html => html.replace(/>\n</g, '><')
+  for (const [name, text] of Object.entries(cases)) {
+    assert.ok(text.length > 512, `${name} passes the split threshold`)
+    const blocks = splitMarkdownBlocks(text)
+    assert.ok(blocks !== null && blocks.length > 1, `${name} splits into real blocks`)
+    assert.equal(blocks.join(''), text, `${name} joins back exactly`)
+    const settled = mounted()
+    settled.render(h(MarkdownText, { text, labels }))
+    const reference = fold(settled.container.innerHTML)
+    settled.unmount()
+    const streamed = mounted()
+    // Stream it chunk by chunk, as a reply arrives.
+    let acc = ''
+    for (let at = 0; at < text.length; at += 13) {
+      acc = text.slice(0, at + 13)
+      streamed.render(h(MarkdownText, { text: acc, streaming: true, labels }))
+    }
+    streamed.render(h(MarkdownText, { text, streaming: true, labels }))
+    assert.equal(fold(streamed.container.innerHTML), reference, `${name} streamed matches the settled render byte for byte`)
+    streamed.unmount()
+  }
+})
+
 test('teardown: the bundle file goes away with the temp directory', () => {
   rmSync(dir, { recursive: true, force: true })
 })

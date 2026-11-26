@@ -30,15 +30,13 @@
 
 const LIST_MARKER = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?=[ \t]|$)/
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
+const FOOTNOTE_REFERENCE = /\[\^[^\]\n]+\]/
 // Link reference definitions reach across the whole document from wherever they sit —
 // inside blockquotes (nested included) and list items — so the check strips the
-// container prefixes a definition can hide behind before looking at the label. The
-// label itself can hold escaped brackets and even a newline inside it, so the check is
-// deliberately coarse: any line that starts with `[` counts, whatever follows. False
-// positives only cost the split; a missed definition would corrupt the render.
-const LINK_DEFINITION = /^\[/
-const FOOTNOTE_REFERENCE = /\[\^[^\]\n]+\]/
-const CONTAINER_PREFIX = /^(?:>+ *|\d{1,9}[.)] +|[-+*] +| *)/
+// container prefixes a definition can hide behind before scanning the label itself.
+// The whitespace a container can carry, ASCII space and tab both (`-\t[x]: /url` is a
+// definition inside a list item exactly as `- [x]: /url` is).
+const CONTAINER_PREFIX = /^(?:>+[ \t]*|\d{1,9}[.)][ \t]+|[-+*][ \t]+|[ \t]*)/
 
 // Container prefixes a definition can hide behind, stripped as far as they nest
 // (`> > [x]: url` is a definition inside a quote inside a quote).
@@ -49,6 +47,30 @@ const stripContainerPrefixes = (line) => {
     if (next === rest) return rest
     rest = next
   }
+}
+
+// Whether the line can open a link reference (or footnote) definition once its container
+// prefixes are off. A definition is `[` label `]` immediately followed by `:`, so the
+// scan walks the label escape-aware:
+//   - no unescaped `]` on the line at all could be a label the next line finishes
+//     (`[long` / `label]: url` is one definition), so it bails;
+//   - `]` directly followed by `:` is the definition itself, escaped brackets inside the
+//     label included, so it bails;
+//   - anything else (`[x] = compute()`, `- [ ] todo`, `[text](url)`) never opens a
+//     definition, and the split stands. False positives only cost the split; a missed
+//     definition would corrupt the render.
+const opensLinkDefinition = (line) => {
+  const rest = stripContainerPrefixes(line)
+  if (!rest.startsWith('[')) return false
+  for (let index = 1; index < rest.length; index += 1) {
+    const char = rest[index]
+    if (char === '\\') {
+      index += 1
+      continue
+    }
+    if (char === ']') return rest[index + 1] === ':'
+  }
+  return true
 }
 const RAW_HTML_BLOCK = /^ {0,3}<[A-Za-z/!?]/
 const CONTAINER_DIRECTIVE = /^ {0,3}:::/
@@ -94,7 +116,10 @@ export function splitMarkdownBlocks(text) {
   let previousBlank = true
   let previousLineMarker = false
   let previousLineIndented = false
-  for (let index = 0; index < lines.length - 1; index += 1) {
+  // The guards look at every line, the last one included: while a reply streams the
+  // steady state has no trailing newline, and a definition that lands on the final line
+  // reaches backwards across the whole document exactly as any other.
+  for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
     if (fence !== null) {
       if (fenceClose(line, fence)) {
@@ -118,7 +143,7 @@ export function splitMarkdownBlocks(text) {
         fence = { char: opening[1][0], length: opening[1].length }
       }
       // Anything whose reach crosses block boundaries stops the split outright.
-      if (LINK_DEFINITION.test(stripContainerPrefixes(line))) return null
+      if (opensLinkDefinition(line)) return null
       if (FOOTNOTE_REFERENCE.test(line)) return null
       if (RAW_HTML_BLOCK.test(line)) return null
       if (CONTAINER_DIRECTIVE.test(line)) return null
@@ -130,8 +155,9 @@ export function splitMarkdownBlocks(text) {
       continue
     }
     // A run of blank lines: only the last one can close a block, and only when the next
-    // line is real content that cannot continue what came before.
-    if (!BLANK.test(lines[index + 1])) {
+    // line is real content that cannot continue what came before. The final line never
+    // has a successor, so no boundary opens after it.
+    if (index + 1 < lines.length && !BLANK.test(lines[index + 1])) {
       const next = lines[index + 1]
       const indented = next.startsWith(' ') || next.startsWith('\t')
       // A list marker on the far side only threatens the split when the near side could
