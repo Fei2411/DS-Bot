@@ -33,7 +33,8 @@ async function startServer() {
     hits.push(request.url)
     response.setHeader('content-type', 'text/html; charset=utf-8')
     if (request.url === '/' || request.url === '/index.html') {
-      response.end('<!doctype html><title>cssom</title><body><div class="probe">probe</div><div class="keep">keep</div></body>')
+      const cells = Array.from({ length: 9 }, (_, index) => `<div class="p${index + 1}">p${index + 1}</div>`).join('')
+      response.end(`<!doctype html><title>cssom</title><body><div class="probe">probe</div><div class="keep">keep</div>${cells}</body>`)
       return
     }
     // Any other URL is a fetch the user stylesheet caused; answer it so nothing hangs.
@@ -60,6 +61,7 @@ test('the sanitized user stylesheet loads no file, in a real browser', async (t)
 
   const hostile = `
 @import "${origin}/imported.css";
+@im\\70 ort "${origin}/escaped-import.css";
 .probe { background-image: url(${origin}/probe.png); color: rgb(1, 2, 3) }
 .probe { outline-color: red; list-style-image: u\\72 l(${origin}/escaped.png) }
 .probe { border-image-source: image-set(url(${origin}/imageset.png) 1x) }
@@ -68,6 +70,16 @@ test('the sanitized user stylesheet loads no file, in a real browser', async (t)
 @font-face { font-family: evil; src: url(${origin}/font.woff2) }
 @property --evil { syntax: "<color>"; inherits: false; initial-value: url(${origin}/prop.png) }
 @media (min-width: 1px) { .probe { background: url(${origin}/nested.png) } }
+.p1 { background: var(--nope, url(${origin}/background-var.png)) }
+.p2 { border-image: var(--nope, url(${origin}/border-image-var.png)) 30 fill }
+.p3 { list-style: var(--nope, url(${origin}/list-style-var.png)) }
+.p4 { mask: var(--nope, url(${origin}/mask-var.png)) }
+.p5 { -webkit-mask: var(--nope, url(${origin}/webkit-mask-var.png)) }
+.p6 { background: var(--a, var(--b, url(${origin}/nested-var.png))) }
+.p7 { background: var(--nope, image-set(url(${origin}/imageset-var.png) 1x)) }
+.p8 { background: var(--nope, u\\72 l(${origin}/escaped-var.png)) }
+.p9 { animation: evilframes 1s infinite }
+@keyframes evilframes { from { background: var(--nope, url(${origin}/keyframe-var.png)) } to { opacity: 0.5 } }
 `
   const mounted = await page.evaluate(async ({ css }) => {
     const { mountUserStylesheet, userStylesheetSupported } = window.__themecss
@@ -97,16 +109,18 @@ test('the sanitized user stylesheet loads no file, in a real browser', async (t)
   assert.equal(mounted.probeColor, 'rgb(1, 2, 3)', 'clean declarations still apply')
   assert.ok(mounted.keepBg.includes('data:image/png'), 'an inline data: image survives and applies')
 
-  // Control: the same CSS in a raw <style> element does reach the server, proving the
-  // harness would have caught a leak.
+  // Control: the same vectors in a raw <style> element do reach the server, proving the
+  // harness would have caught a leak -- the plain form and the var() shorthand form alike.
   hits.length = 0
   await page.evaluate(async ({ css }) => {
     const style = document.createElement('style')
     style.textContent = css
     document.head.appendChild(style)
-  }, { css: `.probe { background-image: url(${origin}/control.png) }` })
+  }, { css: `.probe { background-image: url(${origin}/control.png) }
+.p1 { background: var(--nope, url(${origin}/control-var.png)) }` })
   await sleep(600)
-  assert.ok(hits.some(hit => hit === '/control.png'), `control must hit the server: ${hits.join(', ')}`)
+  assert.ok(hits.some(hit => hit === '/control.png'), `plain control must hit the server: ${hits.join(', ')}`)
+  assert.ok(hits.some(hit => hit === '/control-var.png'), `var() control must hit the server: ${hits.join(', ')}`)
 })
 
 test('constructed stylesheets order after <style> elements: the user rules stay last', async () => {

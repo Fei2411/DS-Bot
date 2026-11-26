@@ -7,17 +7,10 @@
 import { cleanTheme } from '../shared/appearance.js'
 import { deriveThemeMode, VSCODE_DEFAULTS } from './themes.js'
 
-/**
- * JSONC as JSON: comments blanked to spaces (so tokens on either side never merge) and
- * trailing commas dropped. Strings are read exactly, escapes included, so a comma or a
- * comment marker inside a string is text.
- * @param {string} text
- * @returns {string}
- */
-export function stripJsonc(text) {
-  const source = String(text ?? '')
+// One pass over JSONC text with a callback for what sits at each position. Strings are
+// read exactly, escapes included, so a comma or a comment marker inside a string is text.
+function walkJsonc(source, visit) {
   const n = source.length
-  let out = ''
   let i = 0
   while (i < n) {
     const ch = source[i]
@@ -28,37 +21,51 @@ export function stripJsonc(text) {
         if (source[end] === '"') { end += 1; break }
         end += 1
       }
-      out += source.slice(i, end)
+      visit('string', i, end)
       i = end
       continue
     }
     if (ch === '/' && source[i + 1] === '/') {
       let end = i
       while (end < n && source[end] !== '\n') end += 1
-      out += ' '.repeat(end - i)
+      visit('comment', i, end)
       i = end
       continue
     }
     if (ch === '/' && source[i + 1] === '*') {
       const close = source.indexOf('*/', i + 2)
       const end = close === -1 ? n : close + 2
-      // Newlines inside the comment stay, so error positions barely move.
-      out += source.slice(i, end).replace(/[^\n]/g, ' ')
+      visit('comment', i, end)
       i = end
       continue
     }
-    if (ch === ',') {
-      let j = i + 1
-      while (j < n && /\s/.test(source[j])) j += 1
-      if (source[j] === '}' || source[j] === ']') {
-        out += ' '
-        i += 1
-        continue
-      }
-    }
-    out += ch
+    visit('char', i, i + 1)
     i += 1
   }
+}
+
+/**
+ * JSONC as JSON: comments blanked to spaces (so tokens on either side never merge), then
+ * trailing commas dropped. Two passes because the comma's lookahead must see past where a
+ * comment used to be. Positions are kept throughout, so error positions barely move.
+ * @param {string} text
+ * @returns {string}
+ */
+export function stripJsonc(text) {
+  const source = String(text ?? '')
+  let uncommented = source.slice()
+  walkJsonc(source, (kind, start, end) => {
+    if (kind !== 'comment') return
+    // Newlines inside the comment stay, so line positions never move.
+    uncommented = uncommented.slice(0, start) + source.slice(start, end).replace(/[^\n]/g, ' ') + uncommented.slice(end)
+  })
+  let out = uncommented
+  walkJsonc(uncommented, (kind, start, end) => {
+    if (kind !== 'char' || uncommented[start] !== ',') return
+    let j = end
+    while (j < uncommented.length && /\s/.test(uncommented[j])) j += 1
+    if (uncommented[j] === '}' || uncommented[j] === ']') out = out.slice(0, start) + ' ' + out.slice(end)
+  })
   return out
 }
 
@@ -73,6 +80,8 @@ function flattenColor(value, canvas) {
   if (hex.length === 4 || hex.length === 5) hex = `#${hex.slice(1).split('').map(ch => ch + ch).join('')}`
   if (hex.length === 7) return hex
   const alpha = parseInt(hex.slice(7, 9), 16) / 255
+  // Nearly invisible: flattening it would reproduce the canvas itself, so it reads as unset.
+  if (alpha < 0x20 / 255) return undefined
   return toHex(channelsOf(hex).map((channel, index) => channel * alpha + channelsOf(canvas)[index] * (1 - alpha)))
 }
 
@@ -120,7 +129,8 @@ export function parseVscodeTheme(text, fallbackLabel = 'VS Code theme') {
   if (colors === null || typeof colors !== 'object' || Array.isArray(colors)) throw new Error('This file is not a VS Code theme')
 
   const rawType = typeof parsed.type === 'string' ? parsed.type.toLowerCase() : ''
-  const typeDark = rawType === 'dark' || rawType === 'hcblack' ? true : rawType === 'light' || rawType === 'hc' || rawType === 'hclight' ? false : undefined
+  // Legacy high-contrast themes are the dark kind; only hclight is light.
+  const typeDark = rawType === 'dark' || rawType === 'hcblack' || rawType === 'hc' ? true : rawType === 'light' || rawType === 'hclight' ? false : undefined
   // The canvas is the bottom-most surface: there is nothing under it to composite with,
   // so its own alpha channel is dropped instead of flattened. Missing or unreadable, it
   // falls back to the default canvas of VS Code's own themes for the mode.

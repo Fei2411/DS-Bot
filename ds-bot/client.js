@@ -21413,13 +21413,36 @@ function scanThemeCss(text) {
       continue;
     }
     if (ch === "@") {
+      const at = i;
       let j = i + 1;
-      while (j < n && isNameCode(source.charCodeAt(j))) j += 1;
-      if (source.slice(i + 1, j).toLowerCase() === "import") {
+      let name = "";
+      while (j < n) {
+        const code = source.charCodeAt(j);
+        if (isNameCode(code)) {
+          name += source[j];
+          j += 1;
+          continue;
+        }
+        if (source[j] === "\\" && j + 1 < n && source[j + 1] !== "\n" && source[j + 1] !== "\r" && source[j + 1] !== "\f") {
+          const rest = source.slice(j + 1);
+          const hex = /^[0-9a-fA-F]{1,6}/.exec(rest);
+          if (hex !== null) {
+            name += String.fromCodePoint(parseInt(hex[0], 16) || 65533);
+            j += 1 + hex[0].length;
+            if (source[j] === "\r" && source[j + 1] === "\n") j += 2;
+            else if (isCssSpace(source[j])) j += 1;
+          } else {
+            name += source[j + 1];
+            j += 2;
+          }
+          continue;
+        }
+        break;
+      }
+      if (name.toLowerCase() === "import") {
         fetches = true;
-        i = j;
-        const end = endOfImport(i);
-        imports.push([i - "import".length - 1, end]);
+        const end = endOfImport(j);
+        imports.push([at, end]);
         i = end;
         continue;
       }
@@ -21480,10 +21503,25 @@ function declarationItems(style) {
   }
   return names;
 }
+var URL_SHORTHANDS = ["background", "border-image", "-webkit-border-image", "list-style", "mask", "-webkit-mask", "-webkit-mask-box-image", "offset"];
 function cleanStyle(style) {
   if (!style || typeof style.getPropertyValue !== "function" || typeof style.removeProperty !== "function") return;
   for (const name of declarationItems(style)) {
     if (themeCssValueFetches(style.getPropertyValue(name))) style.removeProperty(name);
+  }
+  for (const name of URL_SHORTHANDS) {
+    const value = style.getPropertyValue(name);
+    if (value !== "" && themeCssValueFetches(value)) style.removeProperty(name);
+  }
+  if (typeof style.cssText === "string" && themeCssLoadsRemoteFiles(style.cssText)) {
+    try {
+      style.cssText = "";
+    } catch {
+    }
+    if (style.cssText !== "") {
+      for (const name of declarationItems(style)) style.removeProperty(name);
+      for (const name of URL_SHORTHANDS) style.removeProperty(name);
+    }
   }
 }
 function sanitizeUserSheet(sheet, view) {
@@ -21536,22 +21574,27 @@ var mounted = /* @__PURE__ */ new WeakMap();
 function mountUserStylesheet(doc, css) {
   if (!userStylesheetSupported(doc)) return false;
   const view = doc.defaultView ?? globalThis;
+  let entry;
   try {
-    let entry = mounted.get(doc);
+    entry = mounted.get(doc);
     if (!entry) {
       const sheet = new view.CSSStyleSheet();
       doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet];
       if (!doc.adoptedStyleSheets.includes(sheet)) return false;
-      entry = { sheet };
+      entry = { sheet, text: void 0 };
       mounted.set(doc, entry);
     }
-    let text = themeCssWithoutImports(css);
-    try {
-      entry.sheet.replaceSync(text);
-    } catch {
-      entry.sheet.replaceSync("");
+    const text = themeCssWithoutImports(css);
+    if (text !== entry.text) {
+      entry.text = "";
+      try {
+        entry.sheet.replaceSync(text);
+      } catch {
+        entry.sheet.replaceSync("");
+      }
+      sanitizeUserSheet(entry.sheet, view);
+      entry.text = text;
     }
-    sanitizeUserSheet(entry.sheet, view);
     if (!entry.observer && typeof view.MutationObserver === "function" && typeof doc.head?.querySelectorAll === "function") {
       const marker = () => {
         for (const style of doc.head.querySelectorAll("style")) {
@@ -21578,6 +21621,10 @@ function mountUserStylesheet(doc, css) {
     }
     return true;
   } catch {
+    try {
+      entry?.sheet.replaceSync("");
+    } catch {
+    }
     return false;
   }
 }
@@ -34060,10 +34107,8 @@ function MemoryDialog({ owner, actions, leaving = false }) {
 }
 
 // src/client/vscode-theme-import.js
-function stripJsonc(text) {
-  const source = String(text ?? "");
+function walkJsonc(source, visit) {
   const n = source.length;
-  let out = "";
   let i = 0;
   while (i < n) {
     const ch = source[i];
@@ -34080,36 +34125,42 @@ function stripJsonc(text) {
         }
         end += 1;
       }
-      out += source.slice(i, end);
+      visit("string", i, end);
       i = end;
       continue;
     }
     if (ch === "/" && source[i + 1] === "/") {
       let end = i;
       while (end < n && source[end] !== "\n") end += 1;
-      out += " ".repeat(end - i);
+      visit("comment", i, end);
       i = end;
       continue;
     }
     if (ch === "/" && source[i + 1] === "*") {
       const close = source.indexOf("*/", i + 2);
       const end = close === -1 ? n : close + 2;
-      out += source.slice(i, end).replace(/[^\n]/g, " ");
+      visit("comment", i, end);
       i = end;
       continue;
     }
-    if (ch === ",") {
-      let j = i + 1;
-      while (j < n && /\s/.test(source[j])) j += 1;
-      if (source[j] === "}" || source[j] === "]") {
-        out += " ";
-        i += 1;
-        continue;
-      }
-    }
-    out += ch;
+    visit("char", i, i + 1);
     i += 1;
   }
+}
+function stripJsonc(text) {
+  const source = String(text ?? "");
+  let uncommented = source.slice();
+  walkJsonc(source, (kind, start, end) => {
+    if (kind !== "comment") return;
+    uncommented = uncommented.slice(0, start) + source.slice(start, end).replace(/[^\n]/g, " ") + uncommented.slice(end);
+  });
+  let out = uncommented;
+  walkJsonc(uncommented, (kind, start, end) => {
+    if (kind !== "char" || uncommented[start] !== ",") return;
+    let j = end;
+    while (j < uncommented.length && /\s/.test(uncommented[j])) j += 1;
+    if (uncommented[j] === "}" || uncommented[j] === "]") out = out.slice(0, start) + " " + out.slice(end);
+  });
   return out;
 }
 var HEX3 = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
@@ -34121,6 +34172,7 @@ function flattenColor(value, canvas) {
   if (hex.length === 4 || hex.length === 5) hex = `#${hex.slice(1).split("").map((ch) => ch + ch).join("")}`;
   if (hex.length === 7) return hex;
   const alpha = parseInt(hex.slice(7, 9), 16) / 255;
+  if (alpha < 32 / 255) return void 0;
   return toHex2(channelsOf(hex).map((channel3, index) => channel3 * alpha + channelsOf(canvas)[index] * (1 - alpha)));
 }
 var hslOf2 = (hex) => {
@@ -34159,7 +34211,7 @@ function parseVscodeTheme(text, fallbackLabel = "VS Code theme") {
   const colors = parsed.colors;
   if (colors === null || typeof colors !== "object" || Array.isArray(colors)) throw new Error("This file is not a VS Code theme");
   const rawType = typeof parsed.type === "string" ? parsed.type.toLowerCase() : "";
-  const typeDark = rawType === "dark" || rawType === "hcblack" ? true : rawType === "light" || rawType === "hc" || rawType === "hclight" ? false : void 0;
+  const typeDark = rawType === "dark" || rawType === "hcblack" || rawType === "hc" ? true : rawType === "light" || rawType === "hclight" ? false : void 0;
   const opaque = (value) => {
     if (typeof value !== "string" || !HEX3.test(value)) return void 0;
     let hex = value.toLowerCase();
@@ -35089,6 +35141,9 @@ function ChatBackgroundSection({ owner, ownerKind, actions, run: run2, Section: 
 }
 function DeriveColors({ colors, teamAccent, mode, save }) {
   const [pair, setPair] = (0, import_react28.useState)(() => ({ canvas: colors.bg, accent: teamAccent }));
+  (0, import_react28.useEffect)(() => {
+    setPair({ canvas: colors.bg, accent: teamAccent });
+  }, [colors.bg, teamAccent]);
   const well = (label, key) => (0, import_react28.createElement)("input", {
     type: "color",
     className: "bt-look-well",

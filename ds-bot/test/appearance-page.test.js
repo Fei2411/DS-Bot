@@ -446,3 +446,22 @@ test('theme import accepts both ds-bot theme files and VS Code themes', async (t
   assert.match(errors[0].message, /not a DS Bot theme/)
   harness.unmount()
 })
+
+test('the derive wells resync when the palette changes under them', async (t) => {
+  withDocument(t)
+  const { harness, ColorsSection } = await load()
+  const dawn = { bg: '#fafafa', sidebar: '#f0f0f0', bubble: '#eeeeee', card: '#ffffff', text: '#111111', user: '#222222', userText: '#ffffff', accent: '#4d6bfe' }
+  const dusk = { bg: '#101010', sidebar: '#181818', bubble: '#262626', card: '#1c1c1c', text: '#f0f0f0', user: '#f0f0f0', userText: '#101010', accent: '#5b7bff' }
+  let prefs = { theme: 'my-dawn', themes: { 'my-dawn': { label: 'Dawn', light: dawn, dark: dawn, own: true }, 'my-dusk': { label: 'Dusk', light: dusk, dark: dusk, own: true } } }
+  const actions = { setPrefs: () => Promise.resolve() }
+  const draw = () => harness.render(harness.React.createElement(ColorsSection, { prefs, actions, run: p => p, Section, Row, Choice }))
+  let tree = draw()
+  assert.equal(find(tree, node => node.props?.['data-derive'] === 'canvas').props.value, '#fafafa')
+  // Another theme is picked: the wells follow its palette without remounting the section.
+  prefs = { ...prefs, theme: 'my-dusk' }
+  tree = draw()
+  tree = draw() // the resync effect commits after the first draw, so the state shows on the next
+  assert.equal(find(tree, node => node.props?.['data-derive'] === 'canvas').props.value, '#101010')
+  assert.equal(find(tree, node => node.props?.['data-derive'] === 'accent').props.value, '#5b7bff')
+  harness.unmount()
+})

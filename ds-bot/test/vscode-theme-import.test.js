@@ -34,6 +34,29 @@ test('JSONC stripping removes comments and trailing commas but leaves strings al
   assert.equal(stripJsonc(text).split('\n').length, text.split('\n').length)
 })
 
+test('trailing commas before comments still strip, in both comment styles', () => {
+  assert.deepEqual(JSON.parse(stripJsonc('{ "x": 1, // note\n }')), { x: 1 })
+  assert.deepEqual(JSON.parse(stripJsonc('{ "x": 1, /* note */ }')), { x: 1 })
+  assert.deepEqual(JSON.parse(stripJsonc('{ "x": [1, 2,], // note\n "y": 3, }')), { x: [1, 2], y: 3 })
+  // A comma before a comment before a value is a real comma and stays.
+  assert.deepEqual(JSON.parse(stripJsonc('{ "x": [1, // note\n 2] }')), { x: [1, 2] })
+})
+
+test('nearly transparent colors read as unset instead of flattening to the canvas', () => {
+  const theme = parseVscodeTheme(JSON.stringify({
+    type: 'dark',
+    colors: {
+      'editor.background': '#000000',
+      'editor.foreground': '#eeeeee',
+      'button.background': '#ff000000', // fully transparent: must not become a black accent
+      'focusBorder': '#00ff0010',       // 16/255 alpha: below the visibility floor
+      'textLink.foreground': '#0000ff40', // 64/255 alpha: real color, flattens
+    },
+  }))
+  assert.equal(theme.dark.accent, '#000040', 'the only visible accent candidate, flattened, wins')
+  assert.notEqual(theme.dark.accent, '#000000', 'a transparent accent never flattens to the canvas')
+})
+
 test('a VS Code theme imports its colors onto the mapped slots', () => {
   const theme = parseVscodeTheme(ONE_DARK)
   assert.equal(theme.label, 'One Dark Pro')
@@ -96,10 +119,13 @@ test('light themes read light, and the type field wins over the canvas brightnes
   // A dark canvas with type light still derives a light-mode arrangement of its own.
   const odd = parseVscodeTheme(JSON.stringify({ type: 'light', colors: { 'editor.background': '#202020' } }))
   assert.ok(contrast(odd.light.text, odd.light.bg) >= 4.5)
-  // High-contrast theme type ids count as their base kind.
+  // High-contrast theme type ids count as their base kind; legacy plain "hc" is the dark one.
   const hc = parseVscodeTheme(JSON.stringify({ type: 'hcBlack', colors: { 'editor.background': '#000000' } }))
   assert.equal(hc.dark.bg, '#000000')
   assert.ok(contrast(hc.dark.text, hc.dark.bg) >= 7)
+  const legacyHc = parseVscodeTheme(JSON.stringify({ type: 'hc', colors: { 'editor.background': '#000000', 'editor.foreground': '#ffffff' } }))
+  assert.equal(legacyHc.dark.bg, '#000000')
+  assert.equal(legacyHc.dark.text, '#ffffff', 'legacy hc is high-contrast dark, not light')
 })
 
 test('fallback keys chain in order', () => {

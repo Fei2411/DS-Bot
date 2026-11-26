@@ -149,13 +149,35 @@ function scanThemeCss(text) {
       continue
     }
     if (ch === '@') {
+      // The at-rule's name, with escapes decoded: @im\70 ort is @import. A hex escape
+      // takes up to six digits plus one whitespace, any other character stands for itself.
+      const at = i
       let j = i + 1
-      while (j < n && isNameCode(source.charCodeAt(j))) j += 1
-      if (source.slice(i + 1, j).toLowerCase() === 'import') {
+      let name = ''
+      while (j < n) {
+        const code = source.charCodeAt(j)
+        if (isNameCode(code)) { name += source[j]; j += 1; continue }
+        if (source[j] === '\\' && j + 1 < n && source[j + 1] !== '\n' && source[j + 1] !== '\r' && source[j + 1] !== '\f') {
+          const rest = source.slice(j + 1)
+          const hex = /^[0-9a-fA-F]{1,6}/.exec(rest)
+          if (hex !== null) {
+            name += String.fromCodePoint(parseInt(hex[0], 16) || 0xfffd)
+            j += 1 + hex[0].length
+            // One whitespace after a hex escape belongs to the escape (a CRLF counts as one).
+            if (source[j] === '\r' && source[j + 1] === '\n') j += 2
+            else if (isCssSpace(source[j])) j += 1
+          } else {
+            name += source[j + 1]
+            j += 2
+          }
+          continue
+        }
+        break
+      }
+      if (name.toLowerCase() === 'import') {
         fetches = true
-        i = j
-        const end = endOfImport(i)
-        imports.push([i - 'import'.length - 1, end])
+        const end = endOfImport(j)
+        imports.push([at, end])
         i = end
         continue
       }

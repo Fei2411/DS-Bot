@@ -5,7 +5,7 @@
 // Mutating the live CSSStyleSheet means nothing unsanitized is ever serialized back into
 // text or re-parsed, so no double-parse gap exists. Where constructed stylesheets do not
 // exist the user stylesheet simply does not apply -- fail closed.
-import { themeCssValueFetches, themeCssWithoutImports } from '../shared/theme-css.js'
+import { themeCssLoadsRemoteFiles, themeCssValueFetches, themeCssWithoutImports } from '../shared/theme-css.js'
 
 // Rules that hold other rules, per the CSSOM class hierarchy. @keyframes is recursed too
 // (its frames carry style) but survives emptying: an empty group is dropped, an empty
@@ -38,12 +38,33 @@ function declarationItems(style) {
   return names
 }
 
+// Shorthands whose longhands can hold a url(). They need scanning on their own: a
+// shorthand whose value contains var() is kept as a pending substitution -- its longhands
+// then enumerate empty while the url() lives only in the shorthand's own value, which is
+// not enumerated at all, and the browser resolves the fallback at use time.
+const URL_SHORTHANDS = ['background', 'border-image', '-webkit-border-image', 'list-style', 'mask', '-webkit-mask', '-webkit-mask-box-image', 'offset']
+
 // Strip every declaration whose value can load a file. Custom properties are scanned
 // too: a url() stored in one reaches other properties through var() at use time.
 function cleanStyle(style) {
   if (!style || typeof style.getPropertyValue !== 'function' || typeof style.removeProperty !== 'function') return
   for (const name of declarationItems(style)) {
     if (themeCssValueFetches(style.getPropertyValue(name))) style.removeProperty(name)
+  }
+  for (const name of URL_SHORTHANDS) {
+    const value = style.getPropertyValue(name)
+    if (value !== '' && themeCssValueFetches(value)) style.removeProperty(name)
+  }
+  // The backstop: whatever shape a value takes in whatever engine -- a shorthand nobody
+  // listed, a serialization quirk, a pending substitution that hid from every scan above
+  // -- the declarations that remain must not be able to load a file, read as the browser
+  // itself serializes them. If anything fetching still shows, the whole block goes.
+  if (typeof style.cssText === 'string' && themeCssLoadsRemoteFiles(style.cssText)) {
+    try { style.cssText = '' } catch { /* read-only block: the loop below still clears it */ }
+    if (style.cssText !== '') {
+      for (const name of declarationItems(style)) style.removeProperty(name)
+      for (const name of URL_SHORTHANDS) style.removeProperty(name)
+    }
   }
 }
 
@@ -131,23 +152,30 @@ const mounted = new WeakMap()
 export function mountUserStylesheet(doc, css) {
   if (!userStylesheetSupported(doc)) return false
   const view = doc.defaultView ?? globalThis
+  let entry
   try {
-    let entry = mounted.get(doc)
+    entry = mounted.get(doc)
     if (!entry) {
       const sheet = new view.CSSStyleSheet()
       doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet]
       if (!doc.adoptedStyleSheets.includes(sheet)) return false
-      entry = { sheet }
+      entry = { sheet, text: undefined }
       mounted.set(doc, entry)
     }
-    let text = themeCssWithoutImports(css)
-    try {
-      entry.sheet.replaceSync(text)
-    } catch {
-      // Invalid input must never end up half-applied; nor may what an engine chokes on.
-      entry.sheet.replaceSync('')
+    // Renders repeat with the stylesheet unchanged; re-parsing and re-sanitizing the same
+    // text on every one of them is wasted work in the middle of a stream.
+    const text = themeCssWithoutImports(css)
+    if (text !== entry.text) {
+      entry.text = ''
+      try {
+        entry.sheet.replaceSync(text)
+      } catch {
+        // Invalid input must never end up half-applied; nor may what an engine chokes on.
+        entry.sheet.replaceSync('')
+      }
+      sanitizeUserSheet(entry.sheet, view)
+      entry.text = text
     }
-    sanitizeUserSheet(entry.sheet, view)
 
     if (!entry.observer && typeof view.MutationObserver === 'function' && typeof doc.head?.querySelectorAll === 'function') {
       // The plugin marks its sheets through dataset.dshBot (styles.js); the marker is
@@ -179,6 +207,8 @@ export function mountUserStylesheet(doc, css) {
     }
     return true
   } catch {
+    // Whatever failed, nothing unsanitized may stay in the document: the sheet goes empty.
+    try { entry?.sheet.replaceSync('') } catch { /* a sheet this far gone holds nothing either way */ }
     return false
   }
 }

@@ -785,6 +785,9 @@ export function ChatBackgroundSection({ owner, ownerKind, actions, run, Section,
 // The two wells edit local copies only; the derived colors save like any color edit.
 function DeriveColors({ colors, teamAccent, mode, save }) {
   const [pair, setPair] = useState(() => ({ canvas: colors.bg, accent: teamAccent }))
+  // Another theme or another color edit moves the palette: the wells start from what is
+  // in use now, not from when the row first mounted.
+  useEffect(() => { setPair({ canvas: colors.bg, accent: teamAccent }) }, [colors.bg, teamAccent])
   const well = (label, key) => h('input', {
     type: 'color', className: 'bt-look-well', value: pair[key], 'aria-label': label, title: label, 'data-derive': key,
     onChange: event => setPair(current => ({ ...current, [key]: event.target.value })),

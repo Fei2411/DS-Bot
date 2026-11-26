@@ -75,6 +75,23 @@ test('whole stylesheets count @import anywhere outside strings and comments', ()
   assert.equal(themeCssLoadsRemoteFiles('.a{fill:url(#clip)}.b{background:url(data:x)}'), false)
 })
 
+test('escaped @import statements are blanked like plain ones', () => {
+  // \70 is 'p': the rule decodes to @import.
+  const css = '@im\\70 ort "https://evil.example/x.css";\n.a{color:red}'
+  const out = themeCssWithoutImports(css)
+  assert.equal(out.includes('evil.example'), false)
+  assert.equal(out.length, css.length)
+  assert.ok(out.endsWith('.a{color:red}'))
+  assert.equal(themeCssLoadsRemoteFiles(css), true)
+  // Other spellings of the same rule: a hex escape with its trailing whitespace, a plain
+  // character escape, an uppercase hex digit.
+  for (const spelling of ['@\\69mport "x";', '@i\\6d port "x";', '@\\49MPORT "x";']) {
+    assert.equal(themeCssWithoutImports(spelling).includes('"x"'), false, spelling)
+  }
+  // An escaped at-rule that is not @import stays as written.
+  assert.equal(themeCssWithoutImports('@me\\64 ia (min-width:1px){.a{}}'), '@me\\64 ia (min-width:1px){.a{}}')
+})
+
 test('themeCssWithoutImports blanks whole statements in place and keeps everything else', () => {
   const css = '@import url(https://evil.example) screen;\n.a{color:red}\n@import "x";\n.b{content:"@import y"}'
   const out = themeCssWithoutImports(css)
@@ -258,6 +275,60 @@ test('nested style rules (CSS nesting) are cleaned both in style and in their ch
   assert.equal(child.style.getPropertyValue('color'), 'red')
 })
 
+// A declaration block the way Chromium holds a pending substitution: the shorthand's
+// value stays on the shorthand itself (not enumerated), its longhands enumerate empty.
+class PendingShorthandStyle extends MockStyleDecl {
+  constructor(pairs, shorthands) {
+    super(pairs)
+    this.shorthands = new Map(shorthands)
+  }
+  getPropertyValue(name) {
+    if (this.shorthands.has(name)) return this.shorthands.get(name)
+    return super.getPropertyValue(name)
+  }
+  removeProperty(name) {
+    if (this.shorthands.has(name)) {
+      const value = this.shorthands.get(name)
+      this.shorthands.delete(name)
+      return value
+    }
+    return super.removeProperty(name)
+  }
+  get cssText() {
+    const parts = [...this.shorthands.entries()].map(([key, value]) => `${key}: ${value};`)
+    for (const [key, value] of this.map) if (value !== '') parts.push(`${key}: ${value};`)
+    return parts.join(' ')
+  }
+  set cssText(value) {
+    if (value === '') { this.map.clear(); this.shorthands.clear() }
+  }
+}
+
+test('a pending-substitution shorthand with a fetching var() fallback goes out, the clean declarations stay', () => {
+  const style = new PendingShorthandStyle(
+    [['background-image', ''], ['background-color', ''], ['color', 'red']],
+    [['background', 'var(--nope, url(https://evil.example/x.png))']],
+  )
+  const target = new CSSStyleRule('.a', [['x-placeholder', '1']], undefined)
+  target.style = style
+  const [rule] = sanitize(target)
+  assert.equal(rule.style.getPropertyValue('background'), '', 'the shorthand was removed')
+  assert.equal(rule.style.getPropertyValue('color'), 'red', 'the clean declaration stays: the surgical scan was enough')
+})
+
+test('the cssText backstop clears the whole block when a fetch survives per-property scans', () => {
+  // A shorthand this code does not list: nothing per-property catches it, the backstop does.
+  const style = new PendingShorthandStyle(
+    [['color', 'red']],
+    [['future-shorthand', 'var(--x, url(https://evil.example))']],
+  )
+  const target = new CSSStyleRule('.a', [['x-placeholder', '1']], undefined)
+  target.style = style
+  sanitize(target)
+  assert.equal(style.getPropertyValue('future-shorthand'), '', 'the unknown shorthand is gone')
+  assert.equal(style.getPropertyValue('color'), '', 'the whole block went, not just the fetching value')
+})
+
 // --- Mounting as a constructed stylesheet, over a stand-in document. ---
 
 // A tiny parser for the controlled inputs of these tests: rules of the form
@@ -351,3 +422,16 @@ test('userCss never returns text for injection and syncs the constructed sheet i
   // Without a document there is nothing to do, and nothing throws.
   assert.equal(userCss({ css: '.a{}' }, false, undefined), '')
 })
+
+test('an unchanged stylesheet is not re-parsed or re-sanitized on every render', () => {
+  const { doc, sheet } = fakeDocument()
+  mountUserStylesheet(doc, '.a{color:red}')
+  assert.equal(sheet().texts.length, 1)
+  mountUserStylesheet(doc, '.a{color:red}')
+  assert.equal(sheet().texts.length, 1, 'same text: nothing re-parsed')
+  mountUserStylesheet(doc, '.a{color:blue}')
+  assert.equal(sheet().texts.length, 2, 'new text: re-parsed once')
+  mountUserStylesheet(doc, '')
+  assert.equal(sheet().texts.length, 3)
+})
+
