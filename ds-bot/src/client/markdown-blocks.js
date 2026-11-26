@@ -52,8 +52,9 @@ const stripContainerPrefixes = (line) => {
 // Whether the line can open a link reference (or footnote) definition once its container
 // prefixes are off. A definition is `[` label `]` immediately followed by `:`, so the
 // scan walks the label escape-aware:
-//   - no unescaped `]` on the line at all could be a label the next line finishes
-//     (`[long` / `label]: url` is one definition), so it bails;
+//   - no unescaped `]` on the line at all (including a trailing `\` before EOL) could
+//     be a label the next line finishes (`[long` / `label]: url` is one definition), so
+//     it conservatively bails;
 //   - `]` directly followed by `:` is the definition itself, escaped brackets inside the
 //     label included, so it bails;
 //   - anything else (`[x] = compute()`, `- [ ] todo`, `[text](url)`) never opens a
@@ -87,6 +88,16 @@ const slugOf = (text) => {
   let inner = text.replace(/[ \t]+#+[ \t]*$/, '').trim().toLowerCase()
   inner = inner.replace(/[^\p{L}\p{N}_ -]/gu, '')
   return inner.replace(/ /g, '-')
+}
+
+const fenceOpen = (line) => {
+  const match = FENCE_OPEN.exec(line)
+  if (match === null) return null
+  const marker = match[1]
+  // CommonMark §4.5 / micromark code-fenced: a backtick fence's info string cannot
+  // contain any backtick, so that line stays a paragraph (tilde fences have no limit).
+  if (marker[0] === '`' && line.includes('`', match[0].length)) return null
+  return { char: marker[0], length: marker.length }
 }
 
 const fenceClose = (line, fence) => {
@@ -135,13 +146,8 @@ export function splitMarkdownBlocks(text) {
     }
     const blank = BLANK.test(line)
     if (!blank) {
-      const opening = FENCE_OPEN.exec(line)
-      if (opening !== null) {
-        // An info string with the fence's own character does not open a backtick fence,
-        // but treating it as one only ever delays a split; it never splits inside a fence
-        // that CommonMark would see.
-        fence = { char: opening[1][0], length: opening[1].length }
-      }
+      const opening = fenceOpen(line)
+      if (opening !== null) fence = opening
       // Anything whose reach crosses block boundaries stops the split outright.
       if (opensLinkDefinition(line)) return null
       if (FOOTNOTE_REFERENCE.test(line)) return null
@@ -179,9 +185,9 @@ export function splitMarkdownBlocks(text) {
       if (fenceClose(line, insideFence)) insideFence = null
       continue
     }
-    const opening = FENCE_OPEN.exec(line)
+    const opening = fenceOpen(line)
     if (opening !== null) {
-      insideFence = { char: opening[1][0], length: opening[1].length }
+      insideFence = opening
       continue
     }
     const heading = ATX_HEADING.exec(line)

@@ -400,6 +400,29 @@ A closing paragraph.
   }
 })
 
+test('backtick fence lookalikes with backticks in info string never hide definitions or invert real fences', async () => {
+  const { splitMarkdownBlocks } = await import('../../ds-bot/src/client/markdown-blocks.js')
+  const prose = 'prose that fills the reply well past the split threshold. '.repeat(12)
+  const linkCase = `Use [x] inline.\n\n${prose}\n\n\`\`\`a\`b\n\n[x]: https://example.com\n`
+  assert.equal(splitMarkdownBlocks(linkCase), null)
+  const codeCase = `${prose}\n\n\`\`\`markdown example: \`code\`\n\n\`\`\`\nreal code line one\n\nreal code line two\n\`\`\`\n\ntail\n`
+  const blocks = splitMarkdownBlocks(codeCase)
+  assert.ok(blocks !== null && blocks.length > 1)
+  assert.equal(blocks.join(''), codeCase)
+
+  const fold = html => html.replace(/>\n</g, '><')
+  for (const [name, text] of [['hiddenLinkDef', linkCase], ['invertedRealFence', codeCase]]) {
+    const settled = mounted()
+    settled.render(h(MarkdownText, { text, labels }))
+    const reference = fold(settled.container.innerHTML)
+    settled.unmount()
+    const streamed = mounted()
+    streamed.render(h(MarkdownText, { text, streaming: true, labels }))
+    assert.equal(fold(streamed.container.innerHTML), reference, `${name} streamed matches settled byte for byte`)
+    streamed.unmount()
+  }
+})
+
 test('teardown: the bundle file goes away with the temp directory', () => {
   rmSync(dir, { recursive: true, force: true })
 })

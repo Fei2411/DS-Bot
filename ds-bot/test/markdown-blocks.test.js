@@ -100,6 +100,20 @@ test('never splits inside a fence: blank lines, fence lookalikes and boundaries 
     splitMarkdownBlocks('a\n\n```\nx\n   ````\n\nafter\n'),
     ['a\n\n', '```\nx\n   ````\n\n', 'after\n'],
   )
+  // A backtick fence whose info string contains another backtick does NOT open a fence
+  // in CommonMark: guards still run on subsequent lines, and a real fence below it stays
+  // properly tracked instead of inverting open/close state.
+  assert.equal(splitMarkdownBlocks('Use [x]\n\n```a`b\n\n[x]: /url\n'), null)
+  assert.equal(splitMarkdownBlocks('# Same\n\n```a`b\n\n# Same\n\n```\n'), null)
+  assert.deepEqual(
+    splitMarkdownBlocks('```a`b\n\n```\nreal code one\n\nreal code two\n```\n\ntail\n'),
+    ['```a`b\n\n', '```\nreal code one\n\nreal code two\n```\n\n', 'tail\n'],
+  )
+  // Tilde fences DO allow tildes and backticks in their info string.
+  assert.deepEqual(
+    splitMarkdownBlocks('a\n\n~~~x~y`z\ncode one\n\ncode two\n~~~\n\nafter\n'),
+    ['a\n\n', '~~~x~y`z\ncode one\n\ncode two\n~~~\n\n', 'after\n'],
+  )
 })
 
 test('never splits before a list continuation or an indented continuation', () => {
