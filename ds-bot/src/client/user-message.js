@@ -1,9 +1,12 @@
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import * as ui from './dsh-primitives.js'
+import { fileChunks } from '../shared/file-chunks.js'
+import { presentedFileName } from '../shared/group-replies.js'
 import { imPlatform } from '../shared/im-platforms.js'
 import { mentionSpans } from '../shared/mentions.js'
+import { call } from './api.js'
 import { BotMark } from './mark.js'
-import { CheckIcon, CopyIcon } from './icons.js'
+import { CheckIcon, CopyIcon, FileIcon } from './icons.js'
 import { dateLocale, t } from './i18n.js'
 import { noHover } from './motion.js'
 import { clockLabel, messageClock } from './text.js'
@@ -135,6 +138,54 @@ function Attachments({ attachments, renderMessageImages }) {
     return h('span', { key: index, className: 'bt-ufile', title: file.name },
       ui.FileTypeIcon ? h(ui.FileTypeIcon, { path: file.name, className: 'bt-ufile-icon' }) : null,
       h('span', { className: 'bt-ufile-text' }, h('span', { className: 'bt-ufile-name' }, file.name), meta ? h('span', { className: 'bt-ufile-meta' }, meta) : null))
+  }))
+}
+
+async function savePresentedFile(target) {
+  const parts = []
+  let saved
+  for await (const part of fileChunks(call, target)) { parts.push(part.data); saved = part }
+  const url = URL.createObjectURL(new Blob(parts, { type: saved.mime }))
+  const link = Object.assign(document.createElement('a'), { href: url, download: saved.name })
+  document.body.append(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
+// The files a Bot presented in a group, as cards like the files the user sends (#975).
+// A card opens its file in the side panel when an opener is available; on web or when
+// opening fails and a presented locator exists, it falls back to downloading the bytes.
+export function PresentedFiles({ files, openFile, actions }) {
+  if (!files?.length) return null
+  return h('div', { className: 'bt-pfiles' }, files.map((file) => {
+    const name = file.name || presentedFileName(file.path)
+    const meta = file.description ?? ui.fileExtension?.(name)?.toUpperCase().slice(0, 8)
+    const icon = ui.FileTypeIcon
+      ? h(ui.FileTypeIcon, { key: 'icon', path: name, className: 'bt-ufile-icon' })
+      : h('span', { key: 'icon', className: 'bt-ufile-icon bt-pfile-ico', 'aria-hidden': true }, h(FileIcon))
+    const body = [
+      icon,
+      h('span', { key: 'text', className: 'bt-ufile-text' },
+        h('span', { className: 'bt-ufile-name' }, name),
+        meta ? h('span', { className: 'bt-ufile-meta' }, meta) : null),
+    ]
+    const target = typeof file.sessionId === 'string' && file.sessionId !== '' && Number.isInteger(file.seq) && Number.isInteger(file.index)
+      ? { sessionId: file.sessionId, seq: file.seq, index: file.index }
+      : null
+    const canOpen = typeof openFile === 'function' || typeof actions?.openFile === 'function'
+    if (!canOpen && target === null) return h('span', { key: file.path, className: 'bt-ufile', title: file.path }, body)
+    const open = () => {
+      const attempt = typeof openFile === 'function'
+        ? Promise.resolve().then(() => openFile(file.path))
+        : typeof actions?.openFile === 'function'
+          ? Promise.resolve().then(() => actions.openFile(file.sessionId ? { path: file.path, sessionId: file.sessionId } : file.path))
+          : savePresentedFile(target)
+      void attempt
+        .catch(() => (canOpen && target !== null ? savePresentedFile(target) : Promise.reject(new Error())))
+        .catch(() => { actions?.notice?.(t('Could not save this file')) })
+    }
+    return h('button', { key: file.path, type: 'button', className: 'bt-ufile bt-pfile', title: file.path, 'aria-label': t('Open {name}', { name }), onClick: open }, body)
   }))
 }
 
@@ -275,6 +326,15 @@ export const USER_MESSAGE_CSS = `
 .bt-ufile-text{display:flex;flex-direction:column;min-width:0}
 .bt-ufile-name{font-size:14px;line-height:22px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-ufile-meta{font-size:12px;line-height:15px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-pfiles{display:flex;flex-wrap:wrap;gap:8px;max-width:100%}
+.bt-pfiles-row{display:flex;align-items:flex-end;gap:8px;max-width:100%}
+.bt-pfiles-row>.bt-lead{margin-bottom:3px}
+body:not([data-bt-layout=flat]) .bt-group-msg>.bt-pfiles{margin-left:30px}
+.bt-pfile{font:inherit;color:inherit;text-align:start;cursor:pointer;transition:background-color .12s ease}
+.bt-pfile:hover{background:var(--bt-hover)}
+.bt-pfile:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-pfile-ico{display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-pfile-ico svg{width:15px;height:15px}
 .bt-urefs{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
 .bt-uvia{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink-3);font-size:11px;line-height:16px;vertical-align:1px}
 .bt-utools{display:flex;flex:none;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}

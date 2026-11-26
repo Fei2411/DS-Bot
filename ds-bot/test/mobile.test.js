@@ -1329,3 +1329,46 @@ test('image and file-download pass throughSeq, skip empty seq=0 parts, and roomI
   assert.equal(chat.items[0].sessionId, room.id)
   assert.deepEqual(chat.items[0].fileRefs, [roomFileRef])
 })
+
+test('room-chat emits FileRef-compliant files with name and locator for group presented files and downloads bytes', async (t) => {
+  const { call, ctx, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-mob-presented-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const reportPath = join(dir, 'summary.md')
+  writeFileSync(reportPath, '# Summary\nAll good.')
+  const memberSession = 'member-room-s1'
+  ;(rt.state.rooms[room.id].sessions ??= {})[chief] = memberSession
+  rt.groupOwners.set(memberSession, { botId: chief, roomId: room.id })
+  history[memberSession] = [
+    { seq: 7, time: 200, type: 'deliverables/presented', data: { turn: 1, files: [{ path: reportPath, description: 'Final summary' }] } },
+  ]
+  ctx.sessions.get = id => (id === memberSession ? { seq: 8 } : { seq: 5 })
+  history[room.id] = [
+    {
+      seq: 1, time: 210, type: 'user/message',
+      data: {
+        source: {
+          kind: 'bot', role: 'post', senderSessionId: chief, senderName: 'Chief', late: true,
+          presented: [{ path: reportPath, description: 'Final summary', sessionId: memberSession, seq: 7, index: 0 }],
+        },
+        content: [{ type: 'text', text: '[Group post from Chief]\nReport attached.' }],
+      },
+    },
+  ]
+  const chat = (await call('room-chat', { roomId: room.id })).value
+  assert.equal(chat.items.length, 1)
+  assert.deepEqual(chat.items[0].files, [{
+    name: 'summary.md',
+    path: reportPath,
+    description: 'Final summary',
+    sessionId: memberSession,
+    seq: 7,
+    index: 0,
+  }])
+  const dl = await call('file-download', { sessionId: memberSession, seq: 7, index: 0, offset: 0 })
+  assert.equal(dl.ok, true)
+  assert.equal(dl.value.name, 'summary.md')
+  assert.equal(Buffer.from(dl.value.bytes, 'base64').toString('utf8'), '# Summary\nAll good.')
+})
