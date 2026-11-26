@@ -204,11 +204,12 @@ test('other failures, non-Bots, aborts and downstream decisions do not consume r
 test('only Gemini malformed stops among PI_AI_ERROR failures consume malformed retries', async () => {
   const { run, warnings } = handler()
   const p = payload()
-  for (const message of ['Unhandled stop reason: OTHER_REASON', 'pi-ai stream for model "mock" ended pending', 'MALFORMED_RESPONSE', quotedGeminiStop, 'Provider stopped with: MALFORMED_FUNCTION_CALL.']) {
+  for (const message of ['Unhandled stop reason: OTHER_REASON', 'pi-ai stream for model "mock" ended pending', 'MALFORMED_RESPONSE', quotedGeminiStop, 'Provider stopped with: MALFORMED_FUNCTION_CALL.', 'Provider stopped with: MALFORMED_RESPONSE.']) {
     assert.equal(await run({ ...p, failure: { code: 'PI_AI_ERROR', message } }, next), undefined)
   }
   assert.equal(warnings.length, 0)
   assert.deepEqual(await run({ ...p, failure: { code: 'PI_AI_ERROR', message: 'Unhandled stop reason: MALFORMED_RESPONSE' } }, next), { kind: 'retry' })
+  assert.deepEqual(await run({ ...p, failure: { code: 'PI_AI_ERROR', message: 'Provider stopped with: MALFORMED_RESPONSE' } }, next), { kind: 'retry' })
 })
 
 test('Gemini malformed stops leave the retry to a policy that already retries PI_AI_ERROR', async () => {
