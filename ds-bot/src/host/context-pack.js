@@ -9,6 +9,7 @@
 //   - buildCompactDigest: deterministic fallback compaction digest for local CLIs
 //   - buildFallbackContext: non-forked background task recent-context summary
 //   - formatOwnChatBrief: private-chat brief injected into a fresh group session
+import { REPLY_KIND } from './constants.js'
 import { clip as clipText, estimateTokens as defaultEstimateTokens, textOf } from './text.js'
 
 const DEFAULT_TOOL_SKIP = new Set(['ask_user', 'show_view', 'request_secret', 'group_relay'])
@@ -414,7 +415,7 @@ export function buildFallbackContext({
       // Only carry real conversation messages: skip DSH/plugin context injections
       // (memory snapshots/updates/recalls, clock/time samples, workspace instructions,
       // skill catalogs, runtime-context, compact-checkpoint) and internal notices.
-      const allowed = kind === undefined || kind === 'user' || kind === 'reply' || kind === 'schedule' || kind === sourceKind
+      const allowed = kind === undefined || kind === 'user' || kind === REPLY_KIND || kind === 'schedule' || kind === sourceKind
       if (!allowed) continue
       if (kind === sourceKind && (source.handoff === true || source.role === 'task-handoff' || source.role === 'kickoff' || source.role === 'goal' || (source.role === 'request' && source.audience !== 'user'))) continue
       const text = textOf(event.data?.message?.content ?? event.data?.content ?? '').trim()
