@@ -136,8 +136,12 @@ function isPublicIpv6(groups: number[]): boolean {
   if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && ((g4 === 0 && g5 === 0xffff) || (g4 === 0xffff && g5 === 0))) {
     return isPublicIpv4([(g6 >> 8) & 0xff, g6 & 0xff, (g7 >> 8) & 0xff, g7 & 0xff])
   }
-  // 64:ff9b::/96 or 64:ff9b:1::/48 (NAT64)
-  if (g0 === 0x0064 && g1 === 0xff9b && ((g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) || g2 === 1)) {
+  // 64:ff9b:1::/48 (RFC 8215 local-use NAT64 — not globally reachable)
+  if (g0 === 0x0064 && g1 === 0xff9b && g2 === 1) {
+    return false
+  }
+  // 64:ff9b::/96 (RFC 6052 well-known NAT64 prefix — embeds IPv4 in g6..g7)
+  if (g0 === 0x0064 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
     return isPublicIpv4([(g6 >> 8) & 0xff, g6 & 0xff, (g7 >> 8) & 0xff, g7 & 0xff])
   }
   if (g0 === 0x0100 && g1 === 0 && g2 === 0 && g3 === 0) return false // 100::/64 discard

@@ -112,15 +112,23 @@ test('push endpoint, RFC 6890 IP, and urgency validators enforce SSRF boundaries
     'https://[::ffff:127.0.0.1]/up',
     'https://[::ffff:7f00:1]/up',
     'https://[::ffff:192.168.1.10]/up',
+    'https://[64:ff9b::10.0.0.1]/up',
+    'https://[64:ff9b:1:0a00:1:0:808:808]/up',
+    'https://[64:ff9b:1::8.8.8.8]/up',
   ]) {
     assert.equal(isValidPushEndpoint(blocked), false, `expected SSRF reject for ${blocked}`)
   }
+  assert.equal(isValidPushEndpoint('https://[64:ff9b::8.8.8.8]/up'), true)
   assert.equal(isValidPushEndpoint('http://127.0.0.1:9999/up'), false)
   assert.equal(isValidPushEndpoint('http://127.0.0.1:9999/up', { allowLoopbackHttp: true }), true)
   assert.equal(isValidPushEndpoint('http://example.com/up', { allowLoopbackHttp: true }), false)
 
   assert.equal(isPublicIpAddress('8.8.8.8'), true)
   assert.equal(isPublicIpAddress('2001:4860:4860::8888'), true)
+  assert.equal(isPublicIpAddress('64:ff9b::8.8.8.8'), true)
+  assert.equal(isPublicIpAddress('64:ff9b::10.0.0.1'), false)
+  assert.equal(isPublicIpAddress('64:ff9b:1:0a00:1:0:808:808'), false)
+  assert.equal(isPublicIpAddress('64:ff9b:1::8.8.8.8'), false)
   assert.equal(isPublicIpAddress('127.0.0.1'), false)
   assert.equal(isPublicIpAddress('192.168.0.1'), false)
   assert.equal(isPublicIpAddress('::127.0.0.1'), false)

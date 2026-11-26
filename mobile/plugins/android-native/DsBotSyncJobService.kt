@@ -50,6 +50,7 @@ class DsBotSyncJobService : JobService() {
       data = DsBotHeadlessRunner.taskArgs(kind, rawPayload),
       timeoutMs = timeoutMs,
       isKeepalive = false,
+      shouldRun = { !finished.get() && !state.stopped.get() },
       onStarted = { taskId ->
         state.taskId.set(taskId)
         if (finished.get() || state.stopped.get()) {

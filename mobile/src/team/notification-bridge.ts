@@ -45,7 +45,12 @@ function setHostPushSyncState(hostId: string, state: 'unknown' | 'synced' | 'fai
 }
 
 export function resetHostPushSyncState(hostId?: string): void {
-  if (!hostId) return
+  if (!hostId) {
+    if (hostPushStates.size === 0) return
+    hostPushStates.clear()
+    pushSyncListeners.forEach(fn => fn())
+    return
+  }
   setHostPushSyncState(hostId, 'unknown')
 }
 

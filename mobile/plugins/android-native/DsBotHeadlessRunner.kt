@@ -40,10 +40,15 @@ object DsBotHeadlessRunner {
     data: WritableMap,
     timeoutMs: Long,
     isKeepalive: Boolean = false,
+    shouldRun: (() -> Boolean)? = null,
     onStarted: ((Int) -> Unit)? = null,
     onDone: (() -> Unit)? = null,
   ) {
     mainHandler.post {
+      if (shouldRun?.invoke() == false) {
+        onDone?.invoke()
+        return@post
+      }
       val app = context.applicationContext as? ReactApplication
       if (app == null) {
         onDone?.invoke()
@@ -52,9 +57,9 @@ object DsBotHeadlessRunner {
       val config = HeadlessJsTaskConfig(TASK_NAME, data, timeoutMs, true)
       val current = currentReactContext(app)
       if (current != null) {
-        startOnContext(current, config, isKeepalive, onStarted, onDone)
+        startOnContext(current, config, isKeepalive, shouldRun, onStarted, onDone)
       } else {
-        startReactContextAndRun(app, config, isKeepalive, onStarted, onDone)
+        startReactContextAndRun(app, config, isKeepalive, shouldRun, onStarted, onDone)
       }
     }
   }
@@ -105,10 +110,15 @@ object DsBotHeadlessRunner {
     reactContext: ReactContext,
     config: HeadlessJsTaskConfig,
     isKeepalive: Boolean,
+    shouldRun: (() -> Boolean)?,
     onStarted: ((Int) -> Unit)?,
     onDone: (() -> Unit)?,
   ) {
     try {
+      if (shouldRun?.invoke() == false) {
+        onDone?.invoke()
+        return
+      }
       if (isKeepalive && (DsBotNotifyHelper.uiMounted || !DsBotBackgroundService.running.get())) {
         onDone?.invoke()
         return
@@ -160,6 +170,7 @@ object DsBotHeadlessRunner {
     app: ReactApplication,
     config: HeadlessJsTaskConfig,
     isKeepalive: Boolean,
+    shouldRun: (() -> Boolean)?,
     onStarted: ((Int) -> Unit)?,
     onDone: (() -> Unit)?,
   ) {
@@ -177,7 +188,7 @@ object DsBotHeadlessRunner {
             if (!settled.compareAndSet(false, true)) return
             mainHandler.removeCallbacks(timeoutRunnable)
             host.removeReactInstanceEventListener(this)
-            mainHandler.post { startOnContext(context, config, isKeepalive, onStarted, onDone) }
+            mainHandler.post { startOnContext(context, config, isKeepalive, shouldRun, onStarted, onDone) }
           }
         }
         timeoutRunnable = Runnable {
@@ -191,7 +202,7 @@ object DsBotHeadlessRunner {
         if (alreadyReady != null) {
           if (settled.compareAndSet(false, true)) {
             host.removeReactInstanceEventListener(listener)
-            mainHandler.post { startOnContext(alreadyReady, config, isKeepalive, onStarted, onDone) }
+            mainHandler.post { startOnContext(alreadyReady, config, isKeepalive, shouldRun, onStarted, onDone) }
           }
           return
         }
@@ -205,7 +216,7 @@ object DsBotHeadlessRunner {
             if (!settled.compareAndSet(false, true)) return
             mainHandler.removeCallbacks(timeoutRunnable)
             manager.removeReactInstanceEventListener(this)
-            mainHandler.post { startOnContext(context, config, isKeepalive, onStarted, onDone) }
+            mainHandler.post { startOnContext(context, config, isKeepalive, shouldRun, onStarted, onDone) }
           }
         }
         timeoutRunnable = Runnable {
@@ -219,7 +230,7 @@ object DsBotHeadlessRunner {
         if (alreadyReady != null) {
           if (settled.compareAndSet(false, true)) {
             manager.removeReactInstanceEventListener(listener)
-            mainHandler.post { startOnContext(alreadyReady, config, isKeepalive, onStarted, onDone) }
+            mainHandler.post { startOnContext(alreadyReady, config, isKeepalive, shouldRun, onStarted, onDone) }
           }
           return
         }

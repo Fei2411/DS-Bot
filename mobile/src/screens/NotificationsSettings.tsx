@@ -47,21 +47,29 @@ export function NotificationsSettings({ navigation }: any) {
     timersRef.current = []
   }, [])
 
-  const refreshStatus = useCallback(() => {
+  const prevAllowedRef = useRef<boolean | undefined>(undefined)
+
+  const refreshStatus = useCallback((syncIfGranted = false) => {
     if (Platform.OS !== 'android') return
-    if (androidSdk >= 33) {
-      void PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).then(setGranted, () => {})
-    } else {
-      setGranted(true)
-    }
-    void getBackgroundStatus().then(setBgStatus)
-  }, [androidSdk])
+    const checkGranted = androidSdk >= 33
+      ? PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).catch(() => undefined)
+      : Promise.resolve(true)
+    void Promise.all([checkGranted, getBackgroundStatus()]).then(([nextGranted, nextBg]) => {
+      if (nextGranted !== undefined) setGranted(nextGranted)
+      setBgStatus(nextBg)
+      const nowAllowed = nextGranted === true && nextBg?.notificationsEnabled !== false
+      if (syncIfGranted && prevAllowedRef.current === false && nowAllowed) {
+        void applyBackgroundDeliveryPrefs(computer?.name)
+      }
+      if (nextGranted !== undefined) prevAllowedRef.current = nowAllowed
+    })
+  }, [androidSdk, computer?.name])
 
   useEffect(() => {
     void readPrefs().then(setRawPrefs)
     refreshStatus()
     if (Platform.OS !== 'android') return
-    const sub = AppState.addEventListener('change', next => { if (next === 'active') refreshStatus() })
+    const sub = AppState.addEventListener('change', next => { if (next === 'active') refreshStatus(true) })
     const offUp = onUnifiedPushEvent(() => refreshStatus())
     const offSync = subscribeHostPushSyncState(() => bumpPushSync(n => n + 1))
     return () => { sub.remove(); offUp(); offSync() }
@@ -69,8 +77,7 @@ export function NotificationsSettings({ navigation }: any) {
 
   const prefs = readNotifyPrefsFromRecord(rawPrefs)
   const updatePref = async (patch: Record<string, string>, syncBg = false) => {
-    const next = { ...rawPrefs, ...patch }
-    setRawPrefs(next)
+    setRawPrefs(prev => ({ ...prev, ...patch }))
     await writePrefs(patch)
     if (syncBg) {
       await applyBackgroundDeliveryPrefs(computer?.name)
@@ -109,7 +116,7 @@ export function NotificationsSettings({ navigation }: any) {
 
   const pickDistributor = async (pkg: string) => {
     setPickingDistributor(false)
-    resetHostPushSyncState(computer?.hostDeviceId)
+    resetHostPushSyncState()
     await registerUnifiedPush(pkg).catch(() => {})
     timersRef.current.push(setTimeout(refreshStatus, 400))
   }

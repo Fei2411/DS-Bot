@@ -6,6 +6,7 @@ import { ensureUnlock } from './gate'
 import { createNoticeCursor, type NoticeCursorAnswer } from './notices.ts'
 import { OPTIMISTIC, optimistic, withWrites, type Write } from './optimistic.ts'
 import { fillTeamPhotos } from './photos.ts'
+import { acquireTransferHold, hasActiveTransferHolds, onTransferHoldsIdle } from './transfer-hold.ts'
 import { t } from '../ui/i18n.ts'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
 
@@ -127,9 +128,10 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
   const call = useCallback(async (endpoint: string, payload: unknown = {}) => {
     const client = clientRef.current
     if (client === undefined) throw offline()
-    await ensureUnlock(endpoint)
-    if (clientRef.current !== client) throw offline()
+    const releaseTransfer = endpoint === 'file-download' ? acquireTransferHold() : undefined
     try {
+      await ensureUnlock(endpoint)
+      if (clientRef.current !== client) throw offline()
       if (endpoint === 'state' || endpoint === 'hello' || endpoint === 'notices' || endpoint === 'push-register' || endpoint === 'push-unregister') {
         return await callBot(client, endpoint, payload)
       }
@@ -154,6 +156,8 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
         pollRef.current()
       }
       throw localized(failure)
+    } finally {
+      releaseTransfer?.()
     }
   }, [apply])
 
@@ -162,6 +166,8 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
     let connecting = false
     let hadLink = false
     let failStreak = 0
+    let bgDisconnectPending = false
+    let bgDisconnected = false
     let appStatus: string = AppState.currentState ?? 'active'
     let activeClient: RpcClient | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -184,10 +190,19 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
     }
     const disconnectForBackground = () => {
       bgTimer = undefined
-      if (stopped || appStatus === 'active' || hooksRef.current?.keepAliveInBackground?.() === true) return
+      if (stopped || appStatus === 'active' || hooksRef.current?.keepAliveInBackground?.() === true) {
+        bgDisconnectPending = false
+        return
+      }
+      if (hasActiveTransferHolds()) {
+        bgDisconnectPending = true
+        return
+      }
+      bgDisconnectPending = false
       clearTimeout(timer)
       const client = activeClient
       if (client === undefined) return
+      bgDisconnected = true
       activeClient = undefined
       if (clientRef.current === client) clientRef.current = undefined
       setOnline(false)
@@ -195,6 +210,9 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
       hooksRef.current?.onDisconnected?.()
       void client.close()
     }
+    const offTransfersIdle = onTransferHoldsIdle(() => {
+      if (bgDisconnectPending) disconnectForBackground()
+    })
     // One read at a time: a burst of feed events while a Bot works becomes one
     // read now and at most one more after it, not a pile of reads over a slow link.
     let reading = false
@@ -225,6 +243,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
     const connect = async () => {
       if (stopped || connecting || clientRef.current !== undefined) return
       if (appStatus === 'background' && hooksRef.current?.keepAliveInBackground?.() !== true) return
+      bgDisconnected = false
       connecting = true
       let client: RpcClient | undefined
       try {
@@ -383,8 +402,11 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
           setLinked(false)
           void client.close()
         }
-        const code = (failure as { code?: unknown })?.code
-        setError(code === 'bot/not-found' ? t('Update DS Bot on the computer to use this phone.') : errorText(failure))
+        const intentionalBgClose = bgDisconnected && closedAlready && !rejected(failure)
+        if (!intentionalBgClose) {
+          const code = (failure as { code?: unknown })?.code
+          setError(code === 'bot/not-found' ? t('Update DS Bot on the computer to use this phone.') : errorText(failure))
+        }
         if (rejected(failure)) setTeam(null)
         else if (!closedAlready && (appStatus !== 'background' || hooksRef.current?.keepAliveInBackground?.() === true)) {
           connecting = false
@@ -406,6 +428,8 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
         }
         return
       }
+      bgDisconnectPending = false
+      bgDisconnected = false
       if (bgTimer !== undefined) {
         clearTimeout(bgTimer)
         bgTimer = undefined
@@ -422,6 +446,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
       stopped = true
       clearTimeout(timer)
       clearTimeout(bgTimer)
+      offTransfersIdle()
       foreground.remove()
       if (activeClient !== undefined) {
         hooksRef.current?.onDisconnected?.()

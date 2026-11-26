@@ -322,7 +322,7 @@ class DsBotUpdaterModule(reactContext: ReactApplicationContext) : ReactContextBa
           }
           dir.listFiles()?.forEach { child ->
             val canon = child.canonicalFile
-            if (canon != partFile && canon != finalFile && !child.name.endsWith(".part")) {
+            if (canon != partFile && canon != finalFile) {
               child.delete()
             }
           }

@@ -180,64 +180,73 @@ async function handleKeepalive(): Promise<void> {
       })
 
       const hello = await callBot<{ api: number | null; boot: string; seq: number }>(client, 'hello', {})
-      if (signal.aborted || socketClosed || hello.api === null) break
-      activeBoot = hello.boot
+      if (signal.aborted || hello.api === null) break
+      if (!socketClosed) {
+        activeBoot = hello.boot
+        await updateBackgroundStatusText(computer.name ? t('Connected to {name}', { name: computer.name }) : t('Connected'))
+        if (signal.aborted) break
+      }
 
-      await updateBackgroundStatusText(computer.name ? t('Connected to {name}', { name: computer.name }) : t('Connected'))
-      if (signal.aborted || socketClosed) break
-
-      if (saved === null) {
-        cursor.connect(hello)
-        await saveNoticeCursor(computer.hostDeviceId, hello.boot, hello.seq)
-        while (bufferedLive.length > 0 && !signal.aborted && !socketClosed) {
-          const entry = bufferedLive.shift()!
-          if (!cursor.acceptLive(activeBoot, entry)) continue
-          await deliverSystemNotice(entry, {
-            hostId: computer.hostDeviceId,
-            hostName: computer.name,
-            boot: activeBoot,
-            appActive: false,
-            dedupe: true,
-          })
-        }
-        catchingUp = false
-      } else {
-        const answer = await callBot<NoticeCursorAnswer>(client, 'notices', { boot: saved.boot, since: saved.seq }).catch(() => null)
-        cursor.connect(hello)
-        if (answer !== null && !signal.aborted && !socketClosed) {
-          const nextBoot = typeof answer.boot === 'string' && answer.boot.length > 0 ? answer.boot : hello.boot
-          activeBoot = nextBoot
-          const list = Array.isArray(answer.notices) ? (answer.notices as NoticeEntry[]) : []
-          for (const entry of list) {
-            if (signal.aborted || socketClosed) break
+      if (!socketClosed) {
+        if (saved === null) {
+          cursor.connect(hello)
+          await saveNoticeCursor(computer.hostDeviceId, hello.boot, hello.seq)
+          while (bufferedLive.length > 0 && !signal.aborted) {
+            const entry = bufferedLive.shift()!
+            if (!cursor.acceptLive(activeBoot, entry)) continue
             await deliverSystemNotice(entry, {
               hostId: computer.hostDeviceId,
               hostName: computer.name,
-              boot: nextBoot,
+              boot: activeBoot,
               appActive: false,
               dedupe: true,
             })
           }
-          if (!signal.aborted) {
-            await saveNoticeCursor(computer.hostDeviceId, nextBoot, typeof answer.seq === 'number' ? answer.seq : hello.seq)
+          catchingUp = false
+        } else {
+          const answer = await callBot<NoticeCursorAnswer>(client, 'notices', { boot: saved.boot, since: saved.seq }).catch(() => null)
+          if (answer !== null && !signal.aborted) {
+            const { sameBoot } = cursor.connect(hello)
+            const nextBoot = typeof answer.boot === 'string' && answer.boot.length > 0 ? answer.boot : hello.boot
+            activeBoot = nextBoot
+            const list = Array.isArray(answer.notices) ? (answer.notices as NoticeEntry[]) : []
+            let completedBatch = true
+            for (const entry of list) {
+              if (signal.aborted) {
+                completedBatch = false
+                break
+              }
+              await deliverSystemNotice(entry, {
+                hostId: computer.hostDeviceId,
+                hostName: computer.name,
+                boot: nextBoot,
+                appActive: false,
+                dedupe: true,
+              })
+            }
+            if (completedBatch && !signal.aborted) {
+              cursor.acceptCatchUp(hello.boot, sameBoot, answer)
+              const finalSeq = typeof answer.seq === 'number' ? answer.seq : hello.seq
+              await saveNoticeCursor(computer.hostDeviceId, nextBoot, finalSeq)
+              while (bufferedLive.length > 0 && !signal.aborted) {
+                const entry = bufferedLive.shift()!
+                if (!cursor.acceptLive(activeBoot, entry)) continue
+                await deliverSystemNotice(entry, {
+                  hostId: computer.hostDeviceId,
+                  hostName: computer.name,
+                  boot: activeBoot,
+                  appActive: false,
+                  dedupe: true,
+                })
+              }
+              catchingUp = false
+            }
           }
         }
-        while (bufferedLive.length > 0 && !signal.aborted && !socketClosed) {
-          const entry = bufferedLive.shift()!
-          if (!cursor.acceptLive(activeBoot, entry)) continue
-          await deliverSystemNotice(entry, {
-            hostId: computer.hostDeviceId,
-            hostName: computer.name,
-            boot: activeBoot,
-            appActive: false,
-            dedupe: true,
-          })
-        }
-        catchingUp = false
-      }
 
-      if (!signal.aborted && !socketClosed) {
-        await closed
+        if (!signal.aborted && !socketClosed && !catchingUp) {
+          await closed
+        }
       }
     } catch {
       /* backoff before retry */

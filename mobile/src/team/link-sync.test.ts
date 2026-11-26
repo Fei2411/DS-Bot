@@ -578,3 +578,67 @@ test('useTeamLink distinguishes transient hello RPC failure from outdated deskto
   assert.deepEqual(rawCalls, ['push-register'])
   assert.deepEqual(stateCalls, [])
 })
+
+test('useTeamLink holds background disconnect until an active file-download finishes and clears pending disconnect on return', async (t) => {
+  const scheduled: { id: number; ms: number; run: () => void }[] = []
+  const origSetTimeout = globalThis.setTimeout
+  const origClearTimeout = globalThis.clearTimeout
+  const timers = new Map<number, { cleared: boolean }>()
+  let nextTimerId = 1
+  ;(globalThis as any).setTimeout = (fn: () => void, ms: number = 0) => {
+    if (ms >= 1_000) {
+      const id = nextTimerId++
+      timers.set(id, { cleared: false })
+      scheduled.push({ id, ms, run: () => { if (!timers.get(id)?.cleared) fn() } })
+      return id as unknown as ReturnType<typeof setTimeout>
+    }
+    return origSetTimeout(fn, ms)
+  }
+  ;(globalThis as any).clearTimeout = (id: any) => {
+    const entry = timers.get(id)
+    if (entry) entry.cleared = true
+    else origClearTimeout(id)
+  }
+  t.after(() => {
+    globalThis.setTimeout = origSetTimeout
+    globalThis.clearTimeout = origClearTimeout
+  })
+
+  let closes = 0
+  let resolveDownload!: (v: { value: unknown }) => void
+  const h = mountUseTeamLink({
+    onClose() { closes += 1 },
+    async onStateCall() {
+      return { revision: 1, liveKey: 'ok', bots: [], questions: {} }
+    },
+    async onCallBotState(endpoint) {
+      if (endpoint === 'file-download') {
+        return new Promise(resolve => { resolveDownload = resolve })
+      }
+      return { value: true }
+    },
+    linkHooks: { keepAliveInBackground: () => false },
+  })
+  t.after(h.cleanup)
+  h.render()
+  await new Promise(resolve => origSetTimeout(resolve, 20))
+  assert.equal(h.render().online, true)
+
+  // Start a chunked file download, then background the app past the 4s grace timer.
+  const dlPromise = h.render().call('file-download', { sessionId: 's1', offset: 0 })
+  await new Promise(resolve => origSetTimeout(resolve, 10))
+  h.appState('background')
+  const bgEntry = scheduled.find(entry => entry.ms === bgDisconnectMs && !timers.get(entry.id)?.cleared)
+  assert.ok(bgEntry, 'expected background grace timer')
+  bgEntry.run()
+  // Socket must stay open while the download chunk is in flight.
+  assert.equal(closes, 0)
+  assert.equal(h.render().online, true)
+
+  // Once the download finishes while still backgrounded, the deferred disconnect applies immediately.
+  resolveDownload({ value: { bytes: '', done: true } })
+  await dlPromise
+  assert.equal(closes, 1)
+  assert.equal(h.render().online, false)
+  assert.equal(h.render().error, null)
+})

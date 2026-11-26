@@ -1,7 +1,9 @@
 import { Directory, File, FileMode, Paths } from 'expo-file-system'
 import { fileChunks } from '../../../ds-bot/src/shared/file-chunks.js'
+import { acquireTransferHold } from './transfer-hold.ts'
 
 export async function downloadFile(call: (endpoint: string, payload: object) => Promise<unknown>, target: object) {
+  const releaseHold = acquireTransferHold()
   const dir = new Directory(Paths.cache, 'downloads', `${Date.now()}-${Math.random().toString(36).slice(2)}`)
   dir.create({ intermediates: true })
   let file: File | undefined
@@ -24,5 +26,8 @@ export async function downloadFile(call: (endpoint: string, payload: object) => 
     handle = undefined
     dir.delete()
     throw error
-  } finally { handle?.close() }
+  } finally {
+    handle?.close()
+    releaseHold()
+  }
 }
