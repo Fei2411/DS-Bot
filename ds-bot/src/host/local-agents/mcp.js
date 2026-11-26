@@ -35,6 +35,7 @@ export class LoopbackMcp {
     this.tools = tools
     this.onCall = onCall
     this.calls = new Map()
+    this.streams = new Set()
     this.server = createServer((request, response) => void this.serve(request, response).catch(() => {
       if (!response.headersSent) response.writeHead(500)
       response.end()
@@ -56,8 +57,23 @@ export class LoopbackMcp {
     this.calls.clear()
   }
 
+  // Notify connected MCP clients (Streamable HTTP GET SSE streams) that the
+  // Bot's scoped team tool list changed so they refresh tools/list without restart.
+  notifyToolsChanged() {
+    const payload = `data: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' })}\n\n`
+    for (const stream of [...this.streams]) {
+      try {
+        stream.response.write(payload)
+      } catch {
+        stream.close()
+      }
+    }
+  }
+
   close() {
     this.failAll(new Error('the session closed'))
+    for (const stream of [...this.streams]) stream.close()
+    this.streams.clear()
     this.server.close()
     this.server.closeIdleConnections?.()
     const timer = setTimeout(() => this.server.closeAllConnections?.(), 50)
@@ -65,11 +81,41 @@ export class LoopbackMcp {
     this.server.once('close', () => clearTimeout(timer))
   }
 
+  serveStream(response) {
+    response.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    })
+    response.flushHeaders?.()
+    let closed = false
+    const stream = {
+      response,
+      close: () => {
+        if (closed) return
+        closed = true
+        clearInterval(timer)
+        this.streams.delete(stream)
+        try { response.end() } catch {}
+      },
+    }
+    const timer = setInterval(() => {
+      try { response.write(': keepalive\n\n') } catch { stream.close() }
+    }, KEEPALIVE_MS)
+    timer.unref?.()
+    response.on('close', stream.close)
+    this.streams.add(stream)
+  }
+
   async serve(request, response) {
     const auth = request.headers.authorization
     if (auth !== `Bearer ${this.token}`) {
       response.writeHead(401, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'unauthorized' } }))
+      return
+    }
+    if (request.method === 'GET') {
+      this.serveStream(response)
       return
     }
     if (request.method !== 'POST') { response.writeHead(405); response.end(); return }
@@ -93,7 +139,7 @@ export class LoopbackMcp {
   answer({ id, method, params }) {
     switch (method) {
       case 'initialize':
-        return { jsonrpc: '2.0', id, result: { protocolVersion: params?.protocolVersion ?? PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: { name: 'ds-bot', version: '1' } } }
+        return { jsonrpc: '2.0', id, result: { protocolVersion: params?.protocolVersion ?? PROTOCOL_VERSION, capabilities: { tools: { listChanged: true } }, serverInfo: { name: 'ds-bot', version: '1' } } }
       case 'ping':
         return { jsonrpc: '2.0', id, result: {} }
       case 'tools/list':

@@ -1554,6 +1554,7 @@ export function install(rt) {
         const suppressedSubagent = entry.suppressedSubagent === true
         // A turn stopped for a switch goes on in the next part, which answers instead.
         const switched = entry.switched === true
+        const overflowFailure = entry.overflowFailure === true
         // A turn the plugin watched start. A turn/end replayed after a restart, whose
         // turn is settled from the Session's log, is not one (resume.js does that).
         const watched = entry.turn !== undefined
@@ -1569,6 +1570,7 @@ export function install(rt) {
         entry.uiToolCount = 0
         entry.suppressedSubagent = false
         entry.switched = false
+        entry.overflowFailure = false
         entry.lastSwitched = switched
         entry.askedBackWork = undefined
         entry.lastAskedBackWork = askedBackWork
@@ -1623,7 +1625,10 @@ export function install(rt) {
           }).catch(error => rt.warn('ds-bot: handing back a result failed: %s', error))
         }
         const reason = event.data?.reason
-        const failure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
+        const rawFailure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
+        const failure = rawFailure !== undefined && overflowFailure
+          ? { ...rawFailure, code: 'CONTEXT_WINDOW_EXCEEDED' }
+          : rawFailure
         if (failure !== undefined) noteTurnFailure(id, failure)
         // A route that is not a model endpoint refuses every generation; the failed
         // Session's own request names it, so it is refused everywhere from now on.
