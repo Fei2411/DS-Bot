@@ -100,7 +100,7 @@ export function saveLocations({ dataDir, workspace }) {
   const file = locationsFile()
   mkdirSync(dirname(file), { recursive: true })
   const saved = readSaved(file)
-  const kept = saved !== undefined && typeof saved.dataDir === 'string' && resolve(saved.dataDir) === resolve(dataDir) && roomOf(saved.freeAtStart) !== undefined
+  const kept = saved !== undefined && resolve(saved.dataDir) === resolve(dataDir) && roomOf(saved.freeAtStart) !== undefined
   // A full drive gives no room to measure a fifth of: the next save measures again.
   const freeAtStart = kept ? saved.freeAtStart : roomOf(freeSpace(dataDir))
   // A write that fails half way leaves the places that were there.
@@ -112,7 +112,8 @@ const roomOf = bytes => (Number.isFinite(bytes) && bytes > 0 ? bytes : undefined
 
 function readSaved(file) {
   try {
-    return JSON.parse(readFileSync(file, 'utf8'))
+    const saved = JSON.parse(readFileSync(file, 'utf8'))
+    return typeof saved?.dataDir === 'string' && saved.dataDir !== '' ? saved : undefined
   } catch {
     return undefined
   }
@@ -132,8 +133,9 @@ export function chooseLocations() {
   if (process.env.DS_BOT_HOME) return { dataDir: process.env.DS_BOT_HOME, workspace: process.env.DS_BOT_WORKSPACE || undefined }
   const file = locationsFile()
   if (existsSync(file)) {
-    const saved = JSON.parse(readFileSync(file, 'utf8'))
-    return { dataDir: saved.dataDir, workspace: saved.workspace, freeAtStart: roomOf(saved.freeAtStart) }
+    const saved = readSaved(file)
+    if (saved !== undefined) return { dataDir: saved.dataDir, workspace: saved.workspace, freeAtStart: roomOf(saved.freeAtStart) }
+    console.warn('DS Bot: ignoring invalid locations.json; using default locations')
   }
   const { dataDir, workspace } = defaultPlaces()
   const offer = offerOf(dataDir)
