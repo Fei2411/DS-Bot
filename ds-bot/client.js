@@ -68970,9 +68970,9 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   const owner = memory ? memoryOwner(memory) : null;
   const [menu, menuLeaving] = useLinger(ui.menu, MENU_EXIT_MS4);
   const [noticeDismissed, setNoticeDismissed] = (0, import_react94.useState)(false);
-  const showNotice = roster.ready === true && roster.telemetryPrompt === true && !noticeDismissed && !settings && !owner && !ui.newChat && !ui.palette;
-  const [noticeOpen, noticeLeaving] = useLinger(showNotice ? "notice" : null, DIALOG_EXIT_MS2);
   const opening = openingModel({ pending: ui.pendingOpen ?? null, current: current2, roster });
+  const showNotice = roster.ready === true && roster.telemetryPrompt === true && !noticeDismissed && !settings && !owner && !ui.newChat && !ui.palette && !ui.inbox && !ui.voice && !ui.exchange && !ui.groupSearch && !opening;
+  const [noticeOpen, noticeLeaving] = useLinger(showNotice ? "notice" : null, DIALOG_EXIT_MS2);
   const paletteToken = ui.palette?.token;
   const groupSearchToken = ui.groupSearch?.token;
   return (0, import_react94.createElement)(
@@ -71458,6 +71458,7 @@ function apply(ctx) {
     if (value.plugins !== void 0 && JSON.stringify(value.plugins) !== JSON.stringify(current2.plugins ?? null)) live2.plugins = value.plugins;
     if (value.inbox !== void 0 && JSON.stringify(value.inbox) !== JSON.stringify(current2.inbox ?? null)) live2.inbox = value.inbox;
     if (value.readOnly !== void 0 && (value.readOnly ?? null) !== (current2.readOnly ?? null)) live2.readOnly = value.readOnly;
+    if (value.telemetryPrompt !== void 0 && Boolean(value.telemetryPrompt) !== Boolean(current2.telemetryPrompt)) live2.telemetryPrompt = Boolean(value.telemetryPrompt);
     if (value.unchanged || !avatarIncomplete && value.revision === current2.revision && value.modelsKey === current2.modelsKey) {
       if (Object.keys(live2).length > 0 && current2.ready) roster.set({ ...current2, ...live2 });
       return value.liveKey !== void 0 && value.liveKey !== prevLiveKey;

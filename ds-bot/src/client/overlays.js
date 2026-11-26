@@ -74,11 +74,12 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   const owner = memory ? memoryOwner(memory) : null
   const [menu, menuLeaving] = useLinger(ui.menu, MENU_EXIT_MS)
   const [noticeDismissed, setNoticeDismissed] = useState(false)
-  const showNotice = roster.ready === true && roster.telemetryPrompt === true && !noticeDismissed && !settings && !owner && !ui.newChat && !ui.palette
-  const [noticeOpen, noticeLeaving] = useLinger(showNotice ? 'notice' : null, DIALOG_EXIT_MS)
   // A Session the Host made a moment ago is not in the shell's list yet: the asked-for
   // Bot fills the conversation area instead of the chat that was there before.
   const opening = openingModel({ pending: ui.pendingOpen ?? null, current, roster })
+  const showNotice = roster.ready === true && roster.telemetryPrompt === true && !noticeDismissed
+    && !settings && !owner && !ui.newChat && !ui.palette && !ui.inbox && !ui.voice && !ui.exchange && !ui.groupSearch && !opening
+  const [noticeOpen, noticeLeaving] = useLinger(showNotice ? 'notice' : null, DIALOG_EXIT_MS)
   const paletteToken = ui.palette?.token
   const groupSearchToken = ui.groupSearch?.token
   return h(Fragment, null,
