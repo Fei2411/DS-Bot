@@ -231,6 +231,59 @@ test('replacement Agents before disposal and delayed old agent/disposed events p
   ctx.emit('agent/disposed', { agent: newAgent })
 })
 
+test('releaseEntry catches scope.dispose rejections, logs via rt.warn, and avoids unhandled rejections', async t => {
+  const { ctx, register } = await boot(t)
+  register('read')
+  const agent = { session: { id: 'bot-dispose-fail' } }
+  const agentScope = createScope(ctx, agent)
+  agent.ctx = agentScope.ctx
+  t.after(() => agentScope.dispose())
+  const owned = new Set(['bot-dispose-fail'])
+  const warnings = []
+  const unhandled = []
+  const onUnhandled = reason => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  t.after(() => process.off('unhandledRejection', onUnhandled))
+  let rt
+  let disposeCalled = false
+  const plugin = {
+    ...codeMode,
+    apply(scopeCtx, config, options) {
+      codeMode.apply(scopeCtx, config, options)
+      const origDispose = scopeCtx.fiber.dispose.bind(scopeCtx.fiber)
+      scopeCtx.fiber.dispose = async () => {
+        disposeCalled = true
+        await origDispose()
+        throw new Error('dispose boom')
+      }
+    },
+  }
+  const fiber = ctx.plugin({
+    inject: codeMode.inject,
+    apply(child) {
+      rt = {
+        ctx: child,
+        isBotSession: id => owned.has(id),
+        onSaved: () => () => {},
+        warn: (...args) => warnings.push(args.join(' ')),
+      }
+      installBotCodeMode(rt, { ctx: child, plugin, config: Config({}) })
+    },
+  })
+  await fiber
+  t.after(() => fiber.dispose())
+  rt.scopeCodeMode(agent)
+  assert.ok(ctx.tools.selectExecutor(agent) instanceof CodeModeExecutor)
+  // Fire-and-forget release (as in sync / hideBotUnusedTools) must not produce an unhandled rejection.
+  owned.clear()
+  void rt.scopeCodeMode(agent)
+  await new Promise(resolve => setTimeout(resolve, 25))
+  assert.equal(disposeCalled, true)
+  assert.equal(unhandled.length, 0)
+  assert.ok(warnings.some(msg => msg.includes('dispose boom')))
+  assert.ok(ctx.tools.selectExecutor(agent) instanceof NativeToolExecutor)
+})
+
 test('plugin.js mounts code-mode when ptcRuntime arrives asynchronously and keeps the team alive if ptcRuntime disposes', async t => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-code-mode-async-ptc-'))
   const root = new Context()

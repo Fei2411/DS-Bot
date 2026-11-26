@@ -1020,6 +1020,17 @@ test('apply_patch enforces private Bot, shared-state, API, secret fences and pri
   // Normal open files stay allowed for non-private Bots.
   assert.deepEqual(await run('apply_patch', { input: addPatch(join(team, 'ok.txt')) }, 'b'), { ran: true })
   assert.deepEqual(await run('apply_patch', { input: movePatch(join(project, 'a.txt'), join(project, 'b.txt')) }, 'b'), { ran: true })
+  // Valid apply_patch whose hunk context mentions an example "*** Update File:" header for a private path must not false-positive.
+  const patchWithHeaderInContext = [
+    '*** Begin Patch',
+    `*** Update File: ${join(project, 'doc.md')}`,
+    '@@',
+    ` *** Update File: ${notes}`,
+    '-old line',
+    '+new line',
+    '*** End Patch',
+  ].join('\n')
+  assert.deepEqual(await run('apply_patch', { input: patchWithHeaderInContext }, 'b'), { ran: true })
 
   // Private Bot can apply_patch inside its own folder without approval.
   assert.deepEqual(await run('apply_patch', { input: addPatch(join(diary, 'inside.txt')) }, P), { ran: true })
@@ -1062,13 +1073,31 @@ test('run_code enforces private Bot, shared-state, API, secret fences and privat
     `const fs = await import('node:fs'); return fs.readFileSync(${JSON.stringify(notes)}, 'utf8')`,
     `const fs = await import('node:fs'); return fs.readFileSync('${posix(notes)}', 'utf8')`,
     `const fs = await import('node:fs'); return fs.readFileSync('../diary/notes.txt', 'utf8')`,
-    `return '${join(home, 'memory', 'bots', P, 'MEMORY.md')}'`,
+    `return ${JSON.stringify(join(home, 'memory', 'bots', P, 'MEMORY.md'))}`,
+    `return '${notes.replace(/[\\/]/g, '\\\\')}'`,
     `return '${P}'`,
     `const fs = await import('node:fs'); return fs.readFileSync(${JSON.stringify(join(home, 'state.json'))}, 'utf8')`,
     `const fs = await import('node:fs'); return fs.readFileSync(${JSON.stringify(join(home, 'chat-index.sqlite'))}, 'utf8')`,
   ]) {
     const res = await run('run_code', { code, description: 'Read file' }, 'b', writerAgent)
     assert.equal(res.ran, false, `expected private block for run_code: ${code}`)
+    assert.match(res.error, CLOSED)
+  }
+
+  // Non-private Bot cannot directly import or invoke raw host filesystem/process escape modules in run_code when private Bots exist.
+  for (const code of [
+    "const fs = await import('node:fs'); return fs.readFileSync(['.', 'x'].join('/'), 'utf8')",
+    "const fs = await import('fs'); return fs.readdirSync('.')",
+    "const fsp = await import('node:fs/promises'); return await fsp.readdir('.')",
+    "import cp from 'node:child_process'; return cp.execSync('pwd')",
+    "const cp = require('child_process'); return cp.execSync('pwd')",
+    "return process.binding('fs')",
+    "return process.dlopen({}, 'x')",
+    "return process.getBuiltinModule('node:fs')",
+    "return `${await import('node:fs')}`",
+  ]) {
+    const res = await run('run_code', { code, description: 'Direct host module' }, 'b', writerAgent)
+    assert.equal(res.ran, false, `expected direct host module block for run_code: ${code}`)
     assert.match(res.error, CLOSED)
   }
 
@@ -1079,9 +1108,10 @@ test('run_code enforces private Bot, shared-state, API, secret fences and privat
     assert.match(viaLink.error, CLOSED)
   }
 
-  // API, telemetry, and secret storage references are blocked in run_code.
+  // API, telemetry, and secret storage references are blocked in run_code (including Windows double-backslash paths and relative traversals).
   for (const code of [
     `return fs.readFileSync(${JSON.stringify(join(home, 'api-tokens.json'))}, 'utf8')`,
+    `return '${join(home, 'api-tokens.json').replace(/[\\/]/g, '\\\\')}'`,
     `return fs.readFileSync(${JSON.stringify(join(home, 'mcp.json'))}, 'utf8')`,
     `return fs.readFileSync(${JSON.stringify(join(home, 'telemetry.json'))}, 'utf8')`,
   ]) {
@@ -1091,15 +1121,40 @@ test('run_code enforces private Bot, shared-state, API, secret fences and privat
   }
   for (const code of [
     `return fs.readFileSync(${JSON.stringify(join(home, 'secret-refs', 'ref.json'))}, 'utf8')`,
+    `return '${join(home, 'secret-refs', 'ref.json').replace(/[\\/]/g, '\\\\')}'`,
     `return fs.readFileSync(${JSON.stringify(join(home, 'secret-files', 'a', 'k.secret'))}, 'utf8')`,
+    `return '${join(home, 'secret-files', 'a', 'k.secret').replace(/[\\/]/g, '\\\\')}'`,
   ]) {
     const res = await run('run_code', { code, description: 'Read secret' }, 'b', writerAgent)
     assert.equal(res.ran, false)
     assert.match(res.error, /secret|private Bot/i)
   }
 
-  // Normal open code in run_code stays allowed for non-private Bots.
-  assert.deepEqual(await run('run_code', { code: "return await tools.read({ file_path: 'src/index.js' })", description: 'Read open file' }, 'b', writerAgent), { ran: true })
+  // Normal open code in run_code stays allowed for non-private Bots, including workspace files named api-*/mcp.json
+  // and writing JS source strings that mention node:fs via tools.write.
+  for (const cwd of [project, team]) {
+    writerAgent.session.header.cwd = cwd
+    assert.deepEqual(await run('run_code', { code: "return await tools.read({ file_path: 'src/index.js' })", description: 'Read open file' }, 'b', writerAgent), { ran: true })
+    assert.deepEqual(await run('run_code', { code: "return await tools.read({ file_path: 'src/api-client.ts' })", description: 'Read workspace api client' }, 'b', writerAgent), { ran: true })
+    assert.deepEqual(await run('run_code', { code: "return await tools.read({ file_path: 'docs/api-routes.md' })", description: 'Read workspace api docs' }, 'b', writerAgent), { ran: true })
+    assert.deepEqual(await run('run_code', { code: "return await tools.read({ file_path: 'config/mcp.json' })", description: 'Read workspace mcp config' }, 'b', writerAgent), { ran: true })
+    assert.deepEqual(await run('run_code', { code: 'return await tools.write({ file_path: "src/helper.js", content: "import fs from \'node:fs\'\\nexport default fs\\n" })', description: 'Write JS file via tool' }, 'b', writerAgent), { ran: true })
+  }
+  // Relative traversal from team workspace (<home>/workspace) up to rt.home API/MCP/telemetry files stays blocked.
+  writerAgent.session.header.cwd = team
+  for (const rel of ['../api-tokens.json', '../mcp.json', '../telemetry.json']) {
+    const res = await run('run_code', { code: `return await tools.read({ file_path: '${rel}' })`, description: 'Traverse to host api file' }, 'b', writerAgent)
+    assert.equal(res.ran, false, `expected block for ${rel}`)
+    assert.match(res.error, /API token|telemetry|private Bot/)
+  }
+  // Bare API/MCP filenames when cwd is rt.home itself stay blocked.
+  writerAgent.session.header.cwd = home
+  for (const bare of ['api-tokens.json', 'mcp.json', 'telemetry.json']) {
+    const res = await run('run_code', { code: `return await tools.read({ file_path: '${bare}' })`, description: 'Bare host api file' }, 'b', writerAgent)
+    assert.equal(res.ran, false, `expected block for bare ${bare} in home`)
+    assert.match(res.error, /API token|telemetry|private Bot/)
+  }
+  writerAgent.session.header.cwd = project
 
   // Private Bot inside its own folder under workspace-write runs without extra approval.
   const privateAgent = agentOf(P)
@@ -1122,4 +1177,40 @@ test('run_code enforces private Bot, shared-state, API, secret fences and privat
   privateAgent.session.header.cwd = team
   assert.deepEqual(await run('run_code', { code: 'return 1', description: 'Outside cwd' }, P, privateAgent), { ran: true })
   assert.equal(approval.requests.length, 3)
+})
+
+test('run_code allows workspace api-*/mcp.json files while guardApiFiles still blocks rt.home API/MCP/telemetry files', async (t) => {
+  const { run, home, team, project, agentOf, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const agent = agentOf('b')
+  for (const cwd of [project, team]) {
+    agent.session.header.cwd = cwd
+    for (const file of ['src/api-client.ts', 'docs/api-routes.md', 'config/mcp.json']) {
+      assert.deepEqual(await run('run_code', { code: `return await tools.read({ file_path: '${file}' })`, description: 'Read workspace file' }, 'b', agent), { ran: true })
+    }
+  }
+  // Host-owned API/MCP/telemetry files under rt.home remain blocked via absolute, Windows-escaped, relative traversal, and home-cwd paths.
+  agent.session.header.cwd = project
+  for (const code of [
+    `return await tools.read({ file_path: ${JSON.stringify(join(home, 'api-tokens.json'))} })`,
+    `return '${join(home, 'api-tokens.json').replace(/[\\/]/g, '\\\\')}'`,
+    `return await tools.read({ file_path: ${JSON.stringify(join(home, 'mcp.json'))} })`,
+    `return await tools.read({ file_path: ${JSON.stringify(join(home, 'telemetry.json'))} })`,
+  ]) {
+    const res = await run('run_code', { code, description: 'Read host api file' }, 'b', agent)
+    assert.equal(res.ran, false, `expected guardApiFiles block for: ${code}`)
+    assert.match(res.error, /API token|telemetry/)
+  }
+  agent.session.header.cwd = team
+  for (const rel of ['../api-tokens.json', '../mcp.json', '../telemetry.json']) {
+    const res = await run('run_code', { code: `return await tools.read({ file_path: '${rel}' })`, description: 'Traverse to host api file' }, 'b', agent)
+    assert.equal(res.ran, false, `expected guardApiFiles block for: ${rel}`)
+    assert.match(res.error, /API token|telemetry/)
+  }
+  agent.session.header.cwd = home
+  for (const bare of ['api-tokens.json', 'mcp.json', 'telemetry.json']) {
+    const res = await run('run_code', { code: `return await tools.read({ file_path: '${bare}' })`, description: 'Bare host api file' }, 'b', agent)
+    assert.equal(res.ran, false, `expected guardApiFiles block for bare ${bare}`)
+    assert.match(res.error, /API token|telemetry/)
+  }
 })

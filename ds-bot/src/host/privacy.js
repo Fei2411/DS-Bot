@@ -62,15 +62,178 @@ function patchPathsOf(args) {
         if (typeof op.path === 'string' && op.path !== '') paths.add(expandHome(op.path))
         if (typeof op.moveTo === 'string' && op.moveTo !== '') paths.add(expandHome(op.moveTo))
       }
+      return [...paths]
     } catch {
       // Fall through to header scan so malformed or partial patches still cannot bypass fences.
     }
   }
   for (const line of input.split(/\r?\n/)) {
-    const match = /^\s*\*\*\*\s+(?:Add File|Update File|Delete File|Move to):\s*(.+?)\s*$/.exec(line)
+    const match = /^\*\*\*\s+(?:Add File|Update File|Delete File|Move to):\s*(.+?)\s*$/.exec(line)
     if (match !== null && match[1] !== '') paths.add(expandHome(match[1]))
   }
   return [...paths]
+}
+
+const DIRECT_HOST_MODULES = new Set([
+  'fs', 'node:fs', 'fs/promises', 'node:fs/promises',
+  'child_process', 'node:child_process',
+])
+const DIRECT_HOST_EXPLICIT_MODULES = new Set([
+  'node:fs', 'node:fs/promises', 'node:child_process',
+])
+const PROCESS_ESCAPE_PROPS = new Set(['binding', 'dlopen', 'getBuiltinModule'])
+
+// Tokenize JS/TS code enough to detect direct host escape imports/calls (node:fs,
+// child_process, process.binding/dlopen/getBuiltinModule) while ignoring comments and
+// code embedded inside string/template payloads passed to tools.write/edit.
+function hasDirectHostModuleAccess(code) {
+  const tokens = []
+  const templateBraceStack = []
+  let i = 0
+  const len = code.length
+  const prevCanEndExpr = () => {
+    const prev = tokens.at(-1)
+    if (prev === undefined) return false
+    if (prev.kind === 'id') return !['return', 'throw', 'case', 'in', 'of', 'typeof', 'void', 'delete', 'new', 'await', 'yield', 'else', 'do'].includes(prev.value)
+    return prev.kind === 'str' || prev.kind === 'num' || prev.value === ')' || prev.value === ']' || prev.value === '}'
+  }
+  const readTemplateChunk = () => {
+    let val = ''
+    let hasExpr = false
+    while (i < len) {
+      const ch = code[i]
+      if (ch === '\\' && i + 1 < len) {
+        val += code[i + 1]
+        i += 2
+        continue
+      }
+      if (ch === '`') {
+        i += 1
+        return { val, closed: true, hasExpr }
+      }
+      if (ch === '$' && code[i + 1] === '{') {
+        i += 2
+        templateBraceStack.push(0)
+        hasExpr = true
+        return { val, closed: false, hasExpr }
+      }
+      val += ch
+      i += 1
+    }
+    return { val, closed: true, hasExpr }
+  }
+
+  while (i < len) {
+    const ch = code[i]
+    if (/\s/.test(ch)) { i += 1; continue }
+    if (ch === '/' && code[i + 1] === '/') {
+      i += 2
+      while (i < len && code[i] !== '\n') i += 1
+      continue
+    }
+    if (ch === '/' && code[i + 1] === '*') {
+      i += 2
+      while (i < len && !(code[i] === '*' && code[i + 1] === '/')) i += 1
+      i += 2
+      continue
+    }
+    if (ch === '/' && !prevCanEndExpr()) {
+      i += 1
+      let inClass = false
+      while (i < len) {
+        const rc = code[i]
+        if (rc === '\\' && i + 1 < len) { i += 2; continue }
+        if (rc === '[') inClass = true
+        else if (rc === ']') inClass = false
+        else if (rc === '/' && !inClass) { i += 1; break }
+        else if (rc === '\n' || rc === '\r') break
+        i += 1
+      }
+      tokens.push({ kind: 'regex', value: '' })
+      continue
+    }
+    if (ch === '\'' || ch === '"') {
+      const quote = ch
+      i += 1
+      let val = ''
+      while (i < len && code[i] !== quote) {
+        if (code[i] === '\\' && i + 1 < len) {
+          val += code[i + 1]
+          i += 2
+          continue
+        }
+        if (code[i] === '\n' || code[i] === '\r') break
+        val += code[i]
+        i += 1
+      }
+      if (code[i] === quote) i += 1
+      tokens.push({ kind: 'str', value: val })
+      continue
+    }
+    if (ch === '`') {
+      i += 1
+      const chunk = readTemplateChunk()
+      tokens.push({ kind: chunk.closed && !chunk.hasExpr ? 'str' : 'tpl', value: chunk.val })
+      continue
+    }
+    if (ch === '{' && templateBraceStack.length > 0) {
+      templateBraceStack[templateBraceStack.length - 1] += 1
+      tokens.push({ kind: 'punct', value: '{' })
+      i += 1
+      continue
+    }
+    if (ch === '}' && templateBraceStack.length > 0) {
+      if (templateBraceStack[templateBraceStack.length - 1] === 0) {
+        templateBraceStack.pop()
+        i += 1
+        readTemplateChunk()
+        tokens.push({ kind: 'tpl', value: '' })
+        continue
+      }
+      templateBraceStack[templateBraceStack.length - 1] -= 1
+      tokens.push({ kind: 'punct', value: '}' })
+      i += 1
+      continue
+    }
+    if (/[A-Za-z_$]/.test(ch)) {
+      const start = i
+      i += 1
+      while (i < len && /[\w$]/.test(code[i])) i += 1
+      tokens.push({ kind: 'id', value: code.slice(start, i) })
+      continue
+    }
+    if (/[0-9]/.test(ch)) {
+      const start = i
+      i += 1
+      while (i < len && /[\w.]/.test(code[i])) i += 1
+      tokens.push({ kind: 'num', value: code.slice(start, i) })
+      continue
+    }
+    tokens.push({ kind: 'punct', value: ch })
+    i += 1
+  }
+
+  for (let t = 0; t < tokens.length; t += 1) {
+    const tok = tokens[t]
+    const next = tokens[t + 1]
+    const next2 = tokens[t + 2]
+    if (tok.kind === 'str' && DIRECT_HOST_EXPLICIT_MODULES.has(tok.value)) return true
+    if (tok.kind === 'id' && tok.value === 'from' && next?.kind === 'str' && DIRECT_HOST_MODULES.has(next.value)) return true
+    if (tok.kind === 'id' && tok.value === 'import' && next?.kind === 'str' && DIRECT_HOST_MODULES.has(next.value)) return true
+    if (tok.kind === 'id' && (tok.value === 'import' || tok.value === 'require' || tok.value === 'getBuiltinModule')
+      && next?.kind === 'punct' && next.value === '('
+      && next2?.kind === 'str' && DIRECT_HOST_MODULES.has(next2.value)) return true
+    if (tok.kind === 'id' && tok.value === 'process') {
+      if (next?.kind === 'punct' && next.value === '.' && next2?.kind === 'id' && PROCESS_ESCAPE_PROPS.has(next2.value)) return true
+      if (next?.kind === 'punct' && next.value === '?' && next2?.kind === 'punct' && next2.value === '.'
+        && tokens[t + 3]?.kind === 'id' && PROCESS_ESCAPE_PROPS.has(tokens[t + 3].value)) return true
+      if (next?.kind === 'punct' && next.value === '[' && next2?.kind === 'str' && PROCESS_ESCAPE_PROPS.has(next2.value)) return true
+      if (next?.kind === 'punct' && next.value === '?' && next2?.kind === 'punct' && next2.value === '.'
+        && tokens[t + 3]?.kind === 'punct' && tokens[t + 3].value === '['
+        && tokens[t + 4]?.kind === 'str' && PROCESS_ESCAPE_PROPS.has(tokens[t + 4].value)) return true
+    }
+  }
+  return false
 }
 
 // Extract quoted path-like literals from run_code text so relative traversals and symlinks
@@ -509,7 +672,7 @@ export function install(rt) {
   // Text a shell runs: a closed path anywhere in it closes the command. A path that the
   // command builds, or reaches by walking up from a folder, is not seen.
   async function ownerInText(text, self, memo = new Map()) {
-    const flat = fold(text.replace(/\\/g, '/'))
+    const flat = fold(text.replace(/\\+/g, '/'))
     const bots = protectedBots()
     for (const bot of bots) {
       if (bot.id === self) continue
@@ -757,6 +920,10 @@ export function install(rt) {
           const targetBot = await ownerOfPath(candidate, { self, base, memo })
           if (targetBot) refuse(targetBot)
         }
+        const otherPrivate = protectedBots().find(found => found.id !== self)
+        if (otherPrivate !== undefined && typeof args.code === 'string' && hasDirectHostModuleAccess(args.code)) {
+          throw new Error(`${otherPrivate.name} is a private Bot, and other Bots cannot import or invoke direct host filesystem or process modules in run_code. Use tools.* instead.`)
+        }
         if (isPrivate(self)) {
           const own = await spellings(rt.botOf(self).workDir, memo)
           const policyMode = args.sandbox_permissions ?? ctx.get?.('sandboxPolicy')?.resolve?.({ session: exec.agent?.session })?.mode
@@ -853,8 +1020,8 @@ export function install(rt) {
     }
     if (SHELL_TOOLS.includes(name)) {
       const rawText = strings(args).join('\n')
-      const flat = fold(rawText.replace(/\\/g, '/'))
-      if (flat.includes('api-') || flat.includes('mcp.json')) throw closedApi()
+      const flat = fold(rawText.replace(/\\+/g, '/'))
+      if (name !== 'run_code' && (flat.includes('api-') || flat.includes('mcp.json'))) throw closedApi()
       const protectedPaths = await apiProtectedFiles(memo)
       for (const file of protectedPaths) {
         if (asShell(file).some(spelled => flat.includes(spelled))) throw closedApi()
@@ -865,11 +1032,17 @@ export function install(rt) {
           const keys = await spellings(base === undefined ? candidate : resolve(base, candidate), memo)
           if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
         }
+        if (flat.includes('api-') || flat.includes('mcp.json') || flat.includes('telemetry.json')) {
+          const homeKeys = await spellings(rt.home, memo)
+          const baseKeys = base === undefined ? [] : await spellings(base, memo)
+          if (base === undefined || baseKeys.some(k => homeKeys.some(h => within(h, k)))) throw closedApi()
+        }
+        return
       }
       if (flat.includes('telemetry.json')) {
         const base = folder()
-        const homeKeys = await spellings(rt.home)
-        const baseKeys = base === undefined ? [] : await spellings(base)
+        const homeKeys = await spellings(rt.home, memo)
+        const baseKeys = base === undefined ? [] : await spellings(base, memo)
         if (base === undefined || baseKeys.some(k => homeKeys.some(h => overlap(k, h)))) throw closedApi()
       }
     }
@@ -1032,7 +1205,7 @@ export function install(rt) {
         }
       }
       const rawText = strings(args).join('\n')
-      const flat = fold(rawText.replace(/\\/g, '/'))
+      const flat = fold(rawText.replace(/\\+/g, '/'))
       const hasRootBoundary = (text, at, len) => {
         const before = at === 0 ? '' : text[at - 1]
         if (before !== '' && /[a-z0-9_.-]/i.test(before)) return false
@@ -1122,7 +1295,7 @@ export function install(rt) {
         for (let i = 0; i < segment.length; i += 1) {
           const tok = segment[i]
           if (isPlainSearchPattern(tok, i, exempt)) continue
-          const tokFlat = fold(tok.value.replace(/\\/g, '/'))
+          const tokFlat = fold(tok.value.replace(/\\+/g, '/'))
           if (/(?:^|[^a-z0-9_.-])secret-refs(?:$|[^a-z0-9_.-])/i.test(tokFlat)) {
             throw closedSecret()
           }

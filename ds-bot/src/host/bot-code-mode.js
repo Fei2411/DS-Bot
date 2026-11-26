@@ -37,7 +37,7 @@ export function installBotCodeMode(rt, { ctx: scopeCtx = rt.ctx, plugin, config 
         inject: ['tools'],
         apply(child) {
           if (scopes.get(id)?.agent === agent || disposedAgents.has(agent)) {
-            void fiber?.dispose()
+            void fiber?.dispose?.().catch?.(() => {})
             return
           }
           const executor = plugin.createFallbackExecutor(child)
@@ -47,7 +47,7 @@ export function installBotCodeMode(rt, { ctx: scopeCtx = rt.ctx, plugin, config 
             dispose: () => {
               // Dispose the tools.setExecutor() effect synchronously so a same-tick re-scope succeeds.
               disposeExecutor?.()
-              void fiber?.dispose()
+              void fiber?.dispose?.().catch?.(() => {})
             },
           })
         },
@@ -58,7 +58,11 @@ export function installBotCodeMode(rt, { ctx: scopeCtx = rt.ctx, plugin, config 
 
   const releaseEntry = async (id, held, { restore }) => {
     if (scopes.get(id) === held) scopes.delete(id)
-    await held.scope.dispose()
+    try {
+      await held.scope.dispose()
+    } catch (error) {
+      rt.warn?.('ds-bot: disposing code-mode scope for %s failed: %s', id, error)
+    }
     if (restore && scopes.get(id)?.agent !== held.agent) await restoreNative(id, held.agent, held.key)
   }
 
@@ -83,7 +87,9 @@ export function installBotCodeMode(rt, { ctx: scopeCtx = rt.ctx, plugin, config 
       plugin.apply(scope.ctx, config, { filterTools })
       scopes.set(id, { agent, key, scope })
     } catch (error) {
-      void scope.dispose()
+      void Promise.resolve().then(() => scope.dispose()).catch(disposeError => {
+        rt.warn?.('ds-bot: disposing failed code-mode scope for %s failed: %s', id, disposeError)
+      })
       throw error
     }
   }
