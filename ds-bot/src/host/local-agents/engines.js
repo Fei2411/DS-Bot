@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto'
 import { chmodSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, parse, posix, resolve, win32 } from 'node:path'
+import { isInjectedGitConfigEnvKey } from '../git-config-env.js'
 
 export const KINDS = ['acp', 'codex', 'claude']
 export const PROFILE_SEPARATOR = '@'
@@ -297,7 +298,7 @@ export function validateProfileDirUnique(baseRoute, targetDir, profiles = [], {
 
 export function isBlockedProfileEnvKey(key) {
   const upper = String(key ?? '').toUpperCase()
-  return /^GIT_CONFIG_(?:COUNT|PARAMETERS|(?:KEY|VALUE)_\d+)$/.test(upper)
+  return isInjectedGitConfigEnvKey(upper)
     || BLOCKED_PROFILE_ENV.has(upper)
     || BLOCKED_PROFILE_ENV_PREFIX.some(prefix => upper.startsWith(prefix))
 }
