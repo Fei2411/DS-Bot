@@ -3006,7 +3006,7 @@ test('a group backfill whose write fails says so and leaves the room unmarked, s
   team.rooms.r1.seq = 80
   team.rooms.r1.log = allLines.slice(-60)
   writeFileSync(join(home, 'state.json'), JSON.stringify(team))
-  const { call, warnings, stop } = start({ home, history: { r1: legacyGroupEvents(allLines) } })
+  const { call, tool, warnings, stop } = start({ home, history: { r1: legacyGroupEvents(allLines) } })
   const ledgerDir = join(home, 'ledger')
   t.after(() => {
     try { fs.chmodSync(ledgerDir, 0o755) } catch {}
@@ -3017,6 +3017,7 @@ test('a group backfill whose write fails says so and leaves the room unmarked, s
   await rt.ledger.flush('group-r1')
   fs.chmodSync(ledgerDir, 0o555)
   await assert.rejects(rt.backfillGroupLog('r1', 4), /the lines recovered from its Session could not be saved/)
+  assert.match(await tool('read_group_chat', { group: 'Launch', seq: 5 }, 'g3'), /Message 5 of "Launch" could not be recovered just now/, 'a failed recovery does not read as a missing message')
   fs.chmodSync(ledgerDir, 0o755)
   assert.equal(rt.ledger.record('group-r1', 5), undefined, 'the failed write keeps no earlier line')
   assert.deepEqual(warnings.filter(line => line.includes('were not in its Session')), [], 'the lines were in the Session')
@@ -3024,6 +3025,35 @@ test('a group backfill whose write fails says so and leaves the room unmarked, s
   assert.equal(rt.ledger.record('group-r1', 5)?.text, 'User turn 5', 'the retry puts the earlier line into the book')
   await rt.ledger.written('group-r1')
   assert.match(readFileSync(join(ledgerDir, 'group-r1.jsonl'), 'utf8'), /"text":"User turn 5"/)
+})
+
+test('a read-only host recovers a pre-ledger line for its lookup but leaves the room unmarked, so after it takes over the next lookup recovers the line and writes it', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  const allLines = Array.from({ length: 80 }, (_, index) => {
+    const seq = index + 1
+    return seq % 2 === 1
+      ? { who: 'User', text: `User turn ${seq}`, seq, time: 1_000_000 + seq * 1000 }
+      : { who: 'Coder', botId: 'b3', text: `Coder reply ${seq}`, seq, time: 1_000_000 + seq * 1000 }
+  })
+  const team = structuredClone(TEAM)
+  team.rooms.r1.seq = 80
+  team.rooms.r1.log = allLines.slice(-60)
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  writeFileSync(join(home, 'state.lock'), JSON.stringify({ pid: process.ppid, host: hostname(), token: 'other' }))
+  const { call, tool, stop } = start({ home, history: { r1: legacyGroupEvents(allLines) } })
+  t.after(() => stop())
+  await call('state', {})
+  assert.notEqual(rt.readOnly(), undefined)
+  assert.match(await tool('read_group_chat', { group: 'Launch', seq: 5 }, 'g3'), /User turn 5/, 'the read-only lookup still recovers the line')
+  const bookPath = join(home, 'ledger', 'group-r1.jsonl')
+  assert.equal(existsSync(bookPath) && readFileSync(bookPath, 'utf8').includes('"text":"User turn 5"'), false, 'a read-only host writes nothing')
+  // The other host lets go, and this one takes over as the writer.
+  rmSync(join(home, 'state.lock'))
+  await call('state', {})
+  assert.equal(rt.readOnly(), undefined)
+  assert.match(await tool('read_group_chat', { group: 'Launch', seq: 5 }, 'g3'), /User turn 5/, 'the next lookup recovers the line again')
+  await rt.ledger.written('group-r1')
+  assert.match(readFileSync(bookPath, 'utf8'), /"text":"User turn 5"/, 'and the writer saves it')
 })
 
 test('a group memory review whose backfill write fails keeps its place, and the next review reads the recovered lines', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
