@@ -1156,7 +1156,8 @@ export function install(rt) {
       if (!active) {
         const infoWorkId = event.info?.coordWorkId !== undefined ? rt.workOf?.(event.info) : undefined
         const dbWork = infoWorkId !== undefined ? coordDb.getWork(infoWorkId) : undefined
-        if (dbWork && dbWork.kind !== 'foreground' && dbWork.kind !== 'task' && dbWork.kind !== 'room_work'
+        if (dbWork && dbWork.kind !== 'foreground' && dbWork.kind !== 'room_work'
+          && !(dbWork.kind === 'task' && dbWork.originKind !== 'bot')
           && !['done', 'failed', 'stopped'].includes(dbWork.status)) {
           // Turn carrying `coordWorkId` completed after a restart/reload before `activeClaims` was hydrated.
           active = {

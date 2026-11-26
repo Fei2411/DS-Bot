@@ -3730,7 +3730,8 @@ export function install(rt) {
       } else if (!isPass(text) || hasFiles) {
         await postToRoom(room, member, isPass(text) ? '' : text, {
           late: true,
-          route: roomVisible(),
+          route: askedBy ? roomResult(askedBy) : roomVisible(),
+          ...(askedBy ? { askedBy } : {}),
           ...delivered,
           ...(claims === undefined ? {} : { claims }),
           ...(changes === undefined ? {} : { changes }),

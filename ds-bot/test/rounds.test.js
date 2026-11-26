@@ -1907,7 +1907,9 @@ test('in-round pass-with-files reports admin goal tasks and late [PASS] with @me
   const running = relay(room.id, 'relay-goal-pass')
   const first = await turnFor(sent)
   const memberName = rt.botOf(memberId).name
-  await answer(first.sessionId, first.message.source.exchangeId, `@${memberName} please send the report.`, 1)
+  await answer(first.sessionId, first.message.source.exchangeId, `[PASS]`, 1, {
+    during: () => rt.teamTools.find(d => d.name === 'delegate_work').execute({ to: memberName, goal: 'please send the report.' }, { agent: { id: first.sessionId } }),
+  })
   const second = await turnFor(sent, first)
   await emit(second.sessionId, { seq: 50, type: 'deliverables/presented', data: { turn: 1, callId: 'p-goal', files: [{ path: '/work/report.pdf', description: 'Report' }] } })
   await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 1)
