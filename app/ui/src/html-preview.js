@@ -88,7 +88,7 @@ function stripUrls(element) {
   let blocked = false
   for (const attribute of [...element.attributes]) {
     const name = attribute.name.toLowerCase()
-    if (name.startsWith('on') || name === 'srcdoc' || name === 'ping' || LIST_ATTRIBUTES.has(name)) {
+    if (name.startsWith('on') || name === 'srcdoc' || name === 'ping' || name === 'attributionsrc' || LIST_ATTRIBUTES.has(name)) {
       element.removeAttribute(attribute.name)
       blocked = true
       continue

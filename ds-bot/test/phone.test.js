@@ -8,7 +8,7 @@ import { RelayTransport, RpcClient, SecureTransport, deviceIdFor, generateKeyPai
 import { startRelayServer } from '../../link/server/server.ts'
 import { fakeContext } from './fake-ctx.js'
 import { BROWSER_ALLOWED, DEFAULT_SERVER, install as installPhone, remoteAccessError } from '../src/host/phone.js'
-import { COMPUTER_ONLY_ENDPOINTS, TEAM_ENDPOINTS, isClassifiedEndpoint, isTeamEndpoint } from '../src/shared/remote-endpoints.js'
+import { COMPUTER_ONLY_ENDPOINTS, COMPUTER_ONLY_PREFIXES, TEAM_COMPUTER_PREFIX_EXCEPTIONS, TEAM_ENDPOINTS, isClassifiedEndpoint, isComputerOnlyEndpoint, isTeamEndpoint } from '../src/shared/remote-endpoints.js'
 
 const TEAM = {
   version: 1,
@@ -195,6 +195,16 @@ test('the host enforces a default-deny browser allowlist across every channel ro
     assert.equal(isClassifiedEndpoint(endpoint), true, `${endpoint} is not classified in shared/remote-endpoints.js`)
     assert.equal(TEAM_ENDPOINTS.has(endpoint) && COMPUTER_ONLY_ENDPOINTS.has(endpoint), false, `${endpoint} is classified twice`)
   }
+  for (const endpoint of TEAM_ENDPOINTS) {
+    if (COMPUTER_ONLY_PREFIXES.some(prefix => endpoint.startsWith(prefix))) {
+      assert.equal(TEAM_COMPUTER_PREFIX_EXCEPTIONS.has(endpoint), true, `${endpoint} matches a computer-only prefix without being a named exception`)
+      assert.equal(isComputerOnlyEndpoint(endpoint), false, `${endpoint} is a named team exception`)
+    }
+  }
+  assert.equal(isComputerOnlyEndpoint('computer-not-an-endpoint'), true, 'an accidental computer-* team entry must still fail closed')
+  TEAM_ENDPOINTS.add('computer-not-an-endpoint')
+  assert.equal(isComputerOnlyEndpoint('computer-not-an-endpoint'), true, 'computer-* prefix wins over the team set outside named exceptions')
+  TEAM_ENDPOINTS.delete('computer-not-an-endpoint')
   for (const endpoint of BROWSER_ALLOWED) assert.equal(isTeamEndpoint(endpoint), true, `browser endpoint ${endpoint} is not a team endpoint`)
   for (const endpoint of TEAM_ENDPOINTS) assert.equal(allHostRoutes.has(endpoint) || endpoint === 'hello' || endpoint === 'notices' || endpoint === 'push-register' || endpoint === 'push-unregister', true, `team endpoint ${endpoint} is not a real host route`)
 

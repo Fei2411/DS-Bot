@@ -59,6 +59,7 @@ test('HTML preview strips remote references, keeps safe inline rendering, and CS
       <style>body{color:rgb(1,2,3)}</style>
     </head><body style="background:#111111">
       <img id="remote" src="http://127.0.0.1:PORT/evil-img">
+      <img id="attributed" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" attributionsrc="http://127.0.0.1:PORT/evil-attribution">
       <img id="data" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==">
       <a id="out" href="http://127.0.0.1:PORT/evil-link">out</a>
       <form action="http://127.0.0.1:PORT/evil-form"><button>go</button></form>
@@ -96,6 +97,7 @@ test('HTML preview strips remote references, keeps safe inline rendering, and CS
   assert.equal(clean.html.includes('http-equiv=" refresh "'), false)
   assert.equal(clean.html.includes('data:image/svg'), false)
   assert.equal(clean.html.includes('blob:'), false)
+  assert.equal(clean.html.includes('attributionsrc'), false)
 
   const frames = page.frames()
   assert.equal(frames.length >= 3, true)
@@ -105,6 +107,7 @@ test('HTML preview strips remote references, keeps safe inline rendering, and CS
   assert.equal(await first.evaluate(() => getComputedStyle(document.body).color), 'rgb(1, 2, 3)')
   assert.equal(await first.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(17, 17, 17)')
   assert.equal(await first.evaluate(() => document.querySelector('#remote')?.hasAttribute('src') ?? true), false)
+  assert.equal(await first.evaluate(() => document.querySelector('#attributed')?.hasAttribute('attributionsrc') ?? true), false)
   assert.equal(await first.evaluate(() => document.querySelector('#out')?.hasAttribute('href') ?? true), false)
   assert.deepEqual(attacks, [])
 })

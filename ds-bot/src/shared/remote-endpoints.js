@@ -69,6 +69,10 @@ export const COMPUTER_ONLY_ENDPOINTS = new Set([
   'connector-import',
 ])
 
+// The only computer-prefixed endpoints a paired phone may use. Every other computer-*
+// endpoint stays computer-only even if it is accidentally added to the team set.
+export const TEAM_COMPUTER_PREFIX_EXCEPTIONS = new Set(['computer-stop', 'computer-app-answer'])
+
 // Endpoint families whose whole purpose is this computer: pairing, raw Session logs,
 // external API tokens, MCP setup, workspace files and terminals, engine/plugin/speech/
 // telemetry settings, and computer-use mediation. `computer-stop` and
@@ -93,8 +97,9 @@ export function isTeamEndpoint(endpoint) {
 }
 
 export function isComputerOnlyEndpoint(endpoint) {
-  if (TEAM_ENDPOINTS.has(endpoint)) return false
-  return COMPUTER_ONLY_ENDPOINTS.has(endpoint) || COMPUTER_ONLY_PREFIXES.some(prefix => endpoint.startsWith(prefix))
+  if (COMPUTER_ONLY_ENDPOINTS.has(endpoint)) return true
+  if (!COMPUTER_ONLY_PREFIXES.some(prefix => endpoint.startsWith(prefix))) return false
+  return !TEAM_COMPUTER_PREFIX_EXCEPTIONS.has(endpoint)
 }
 
 export function isClassifiedEndpoint(endpoint) {
