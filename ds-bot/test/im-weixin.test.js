@@ -622,3 +622,24 @@ test('weixin skips encrypted media with missing or corrupt key instead of passin
   assert.equal(messages[0].files.length, 0)
   assert.ok(warns.some(line => /missing valid AES key/.test(line)))
 })
+
+test('a chunk never ends on half an emoji', async (t) => {
+  // The limit is counted in UTF-16 units and the cut is a unit offset, so an astral
+  // character that starts just before the limit is sliced in two: WeChat receives a lone
+  // surrogate and draws a replacement character for both halves.
+  const fake = await fakeIlink()
+  const runtime = { cursor: 'c1', contextTokens: { u1: 'tok-u1' } }
+  fake.replies.updates = { ret: 0, msgs: [], get_updates_buf: 'c1' }
+  const handle = weixin.connect(FIELDS, env(fake, runtime), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.calls.some(call => call.path === '/ilink/bot/getupdates'))
+  // One ASCII character shifts every pair, so the 1,800-unit limit lands inside an emoji.
+  const text = `a${'\u{1F600}'.repeat(1000)}`
+  const { parts } = await handle.send({ key: 'u1', kind: 'direct' }, { text })
+  assert.equal(parts.map(part => part.text).join(''), text, 'no character is lost')
+  for (const part of parts) {
+    assert.ok(part.text.length <= 1800, `a chunk of ${part.text.length} units exceeds the limit`)
+    assert.ok(!/[\uD800-\uDBFF]$/.test(part.text), 'a chunk must not end on a lone high surrogate')
+    assert.ok(!/^[\uDC00-\uDFFF]/.test(part.text), 'a chunk must not start on a lone low surrogate')
+  }
+})

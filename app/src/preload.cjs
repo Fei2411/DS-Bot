@@ -68,12 +68,38 @@ if (startPage !== undefined) {
     computer: (entries) => { ipcRenderer.send('ds-bot:computer', computerEntriesOf(entries)) },
     computerCursor: (event) => { const clean = cursorEventOf(event); if (clean !== undefined) ipcRenderer.send('ds-bot:computer-cursor', clean) },
     onComputerAction: (run) => {
-      if (typeof run !== 'function') return
+      if (typeof run !== 'function') return () => {}
       ipcRenderer.removeAllListeners('ds-bot:computer-action')
-      ipcRenderer.on('ds-bot:computer-action', (_event, action) => {
+      const handler = (_event, action) => {
         if (action === null || typeof action !== 'object' || typeof action.kind !== 'string') return
         run({ kind: action.kind, botId: typeof action.botId === 'string' ? action.botId : null })
-      })
+      }
+      ipcRenderer.on('ds-bot:computer-action', handler)
+      return () => { ipcRenderer.removeListener('ds-bot:computer-action', handler) }
+    },
+    // Syncs active desktop shortcut bindings to the main process so focused Bot browser views
+    // forward matching global shortcuts back to the window without hijacking ordinary web keys.
+    syncShortcuts: (bindings) => {
+      if (!Array.isArray(bindings)) return
+      const clean = bindings.slice(0, 64).map((entry) => {
+        if (!entry || typeof entry !== 'object' || typeof entry.id !== 'string' || typeof entry.code !== 'string') return null
+        return {
+          id: entry.id.slice(0, 64),
+          code: entry.code.slice(0, 32),
+          mod: entry.mod === true,
+          ctrl: entry.ctrl === true,
+          alt: entry.alt === true,
+          shift: entry.shift === true,
+        }
+      }).filter(Boolean)
+      ipcRenderer.send('ds-bot:sync-shortcuts', clean)
+    },
+    onShortcut: (run) => {
+      if (typeof run !== 'function') return () => {}
+      ipcRenderer.removeAllListeners('ds-bot:shortcut')
+      const handler = (_event, id) => { if (typeof id === 'string' && id) run(id) }
+      ipcRenderer.on('ds-bot:shortcut', handler)
+      return () => { ipcRenderer.removeListener('ds-bot:shortcut', handler) }
     },
   })
   // Only plain numbers cross; the main process checks that they make a box inside the page.
@@ -115,11 +141,16 @@ if (startPage !== undefined) {
     return {
       rows: rows.map((entry) => {
         if (entry === null || typeof entry !== 'object' || typeof entry.label !== 'string') return undefined
-        return {
+        const clean = {
           label: String(entry.label).slice(0, 80),
           botId: typeof entry.botId === 'string' ? entry.botId : null,
           waiting: entry.waiting === true,
         }
+        if (typeof entry.name === 'string' && entry.name.trim() !== '') clean.name = entry.name.slice(0, 60)
+        if (typeof entry.app === 'string' && entry.app.trim() !== '') clean.app = entry.app.slice(0, 60)
+        if (typeof entry.color === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(entry.color)) clean.color = entry.color
+        if (typeof entry.avatar === 'string' && /^data:image\/(png|jpeg|webp|svg\+xml);base64,[a-zA-Z0-9+/=]+$/.test(entry.avatar) && entry.avatar.length <= 12000) clean.avatar = entry.avatar
+        return clean
       }).filter(entry => entry !== undefined),
       labels: {
         stop: typeof labels.stop === 'string' ? String(labels.stop).slice(0, 30) : undefined,
@@ -641,8 +672,19 @@ function browserBridge() {
     importPick: () => ipcRenderer.invoke('ds-bot:browser-import-pick'),
     importPaste: (text, defaultUrl) => ipcRenderer.invoke('ds-bot:browser-import-paste', String(text), typeof defaultUrl === 'string' ? defaultUrl : undefined),
     importLaunch: (source) => ipcRenderer.invoke('ds-bot:browser-import-launch', String(source)),
+    importOpenPermission: () => ipcRenderer.invoke('ds-bot:browser-import-open-permission'),
     importLive: (source, close, requestId) => ipcRenderer.invoke('ds-bot:browser-import-live', String(source), close === true, typeof requestId === 'string' ? requestId : undefined),
-    importApply: (key, pending, options) => ipcRenderer.invoke('ds-bot:browser-import-apply', String(key), String(pending), options && typeof options === 'object' ? options : undefined),
+    importApply: (key, pending, options) => ipcRenderer.invoke(
+      'ds-bot:browser-import-apply',
+      Array.isArray(key) ? key.map(String) : String(key),
+      String(pending),
+      options && typeof options === 'object'
+        ? {
+            ...(Array.isArray(options.sites) ? { sites: options.sites.map(String) } : {}),
+            persistSession: options.persistSession === true,
+          }
+        : undefined,
+    ),
     importCancel: (pending) => ipcRenderer.invoke('ds-bot:browser-import-cancel', typeof pending === 'string' ? pending : ''),
     onOpenRequested(lease, listener) {
       const id = String(lease)
@@ -669,6 +711,8 @@ function updatesBridge() {
     check: () => ipcRenderer.invoke('ds-bot:app-update-check'),
     install: () => ipcRenderer.invoke('ds-bot:app-update-install'),
     open: () => ipcRenderer.invoke('ds-bot:app-update-open'),
+    download: () => ipcRenderer.invoke('ds-bot:app-update-download'),
+    setAutoUpdate: enabled => ipcRenderer.invoke('ds-bot:app-update-auto', enabled === true),
     subscribe(listener) {
       listeners.add(listener)
       return () => { listeners.delete(listener) }
@@ -692,60 +736,140 @@ function frameless(height, material) {
 // from what is painted, so the color comes from the element itself: the first one up from it
 // that is not transparent.
 function captionColors(mica) {
-  const canvas = document.createElement('canvas')
-  canvas.width = canvas.height = 1
-  const context = canvas.getContext('2d', { willReadFrequently: true })
-  if (context === null) return
-  const opaque = (color) => {
-    context.clearRect(0, 0, 1, 1)
-    context.fillStyle = color
-    context.fillRect(0, 0, 1, 1)
-    const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data
-    return alpha === 0 ? undefined : `rgb(${red}, ${green}, ${blue})`
+  const COALESCE_MS = 80
+  const RGB_RE = /^rgba?\(\s*([\d.]+)\s*[,\s]\s*([\d.]+)\s*[,\s]\s*([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/u
+  const HEX_RE = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/iu
+  let fallbackContext
+  const clampByte = value => Math.max(0, Math.min(255, Math.round(value)))
+  const parseRgb = (color) => {
+    if (typeof color !== 'string') return undefined
+    const trimmed = color.trim()
+    if (trimmed === '' || trimmed === 'transparent') return [0, 0, 0, 0]
+    const rgb = RGB_RE.exec(trimmed)
+    if (rgb !== null) {
+      const red = Number(rgb[1])
+      const green = Number(rgb[2])
+      const blue = Number(rgb[3])
+      const alpha = rgb[4] === undefined ? 1 : (rgb[5] === '%' ? Number(rgb[4]) / 100 : Number(rgb[4]))
+      if (!Number.isFinite(red) || !Number.isFinite(green) || !Number.isFinite(blue) || !Number.isFinite(alpha)) return undefined
+      return [clampByte(red), clampByte(green), clampByte(blue), Math.max(0, Math.min(1, alpha))]
+    }
+    const hex = HEX_RE.exec(trimmed)
+    if (hex !== null) {
+      const digits = hex[1]
+      if (digits.length === 3 || digits.length === 4) {
+        const red = parseInt(digits[0] + digits[0], 16)
+        const green = parseInt(digits[1] + digits[1], 16)
+        const blue = parseInt(digits[2] + digits[2], 16)
+        const alpha = digits.length === 4 ? parseInt(digits[3] + digits[3], 16) / 255 : 1
+        return [red, green, blue, alpha]
+      }
+      const red = parseInt(digits.slice(0, 2), 16)
+      const green = parseInt(digits.slice(2, 4), 16)
+      const blue = parseInt(digits.slice(4, 6), 16)
+      const alpha = digits.length === 8 ? parseInt(digits.slice(6, 8), 16) / 255 : 1
+      return [red, green, blue, alpha]
+    }
+    return undefined
+  }
+  const parseColor = (color) => {
+    const parsed = parseRgb(color)
+    if (parsed !== undefined) return parsed
+    if (fallbackContext === undefined) {
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = 1
+      fallbackContext = canvas.getContext('2d', { willReadFrequently: true })
+    }
+    if (fallbackContext === null) return undefined
+    fallbackContext.clearRect(0, 0, 1, 1)
+    fallbackContext.fillStyle = 'rgba(0, 0, 0, 0)'
+    fallbackContext.fillStyle = color
+    fallbackContext.fillRect(0, 0, 1, 1)
+    const [red, green, blue, alpha] = fallbackContext.getImageData(0, 0, 1, 1).data
+    return [red, green, blue, alpha / 255]
+  }
+  const opaqueRgb = (color) => {
+    const parsed = parseColor(color)
+    return parsed === undefined || parsed[3] === 0 ? undefined : [parsed[0], parsed[1], parsed[2]]
+  }
+  const compositeOver = (base, layer) => {
+    const alpha = layer[3]
+    if (alpha <= 0) return base
+    if (alpha >= 1) return [layer[0], layer[1], layer[2]]
+    const inverse = 1 - alpha
+    return [
+      Math.round(layer[0] * alpha + base[0] * inverse),
+      Math.round(layer[1] * alpha + base[1] * inverse),
+      Math.round(layer[2] * alpha + base[2] * inverse),
+    ]
   }
   // The surface's color with the layers above the caption buttons (a dialog's mask) painted over it.
-  const covered = (base, frame) => {
+  const covered = (baseRgb, frame) => {
     const layers = []
     for (const element of document.elementsFromPoint(innerWidth - 1, 1)) {
       if (frame !== null && (element === frame || element.contains(frame) || frame.contains(element))) break
       for (const pseudo of ['::after', null, '::before']) layers.push(getComputedStyle(element, pseudo).backgroundColor)
     }
-    context.clearRect(0, 0, 1, 1)
-    context.fillStyle = base
-    context.fillRect(0, 0, 1, 1)
-    for (const color of layers.reverse()) {
-      context.fillStyle = color
-      context.fillRect(0, 0, 1, 1)
+    let rgb = baseRgb
+    for (let index = layers.length - 1; index >= 0; index -= 1) {
+      const layer = parseColor(layers[index])
+      if (layer !== undefined && layer[3] > 0) rgb = compositeOver(rgb, layer)
     }
-    const [red, green, blue] = context.getImageData(0, 0, 1, 1).data
-    return `rgb(${red}, ${green}, ${blue})`
+    return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`
   }
   const column = () => {
-    if (!mica) return document.querySelector('div[class*="_sidebarCol"]')
-    const right = document.querySelector('div[class*="_rightbarCol"]')
-    return right !== null && right.getBoundingClientRect().width > 0 ? right : document.querySelector('div[class*="_centerCol"]')
+    if (!mica) return document.querySelector('.dsb-side, div[class*="_sidebarCol"]') ?? document.querySelector('.dsb-frame')
+    const right = document.querySelector('.bt-panel, div[class*="_rightbarCol"]')
+    return right !== null && right.getBoundingClientRect().width > 0
+      ? right
+      : (document.querySelector('.dsb-main, div[class*="_centerCol"]') ?? document.querySelector('.dsb-frame'))
+  }
+  const FRAME_ATTRS = [
+    'style', 'class', 'data-rightbar-collapsed', 'data-rightbar-fullscreen',
+    'data-sidebar-collapsed', 'data-sidebar-drawer', 'data-drawer-open',
+  ]
+  const observedFrames = new WeakSet()
+  const observedPortals = new WeakSet()
+  const watchPortal = (node) => {
+    if (!node || node.nodeType !== 1 || node.id === 'root' || observedPortals.has(node)) return
+    observedPortals.add(node)
+    observer.observe(node, { childList: true })
+  }
+  const watchFrame = (node) => {
+    if (!node || observedFrames.has(node)) return
+    observedFrames.add(node)
+    observer.observe(node, { attributes: true, attributeFilter: FRAME_ATTRS, childList: true })
   }
   let frame
   const surface = () => {
     const start = column()
-    // Opening or closing the right sidebar changes the frame's columns.
-    if (start !== null && frame === undefined) {
-      frame = start.parentElement
-      observer.observe(frame, { attributes: true, attributeFilter: ['style'] })
+    // Opening or closing the right sidebar, drawer mask, or overlay layer changes the frame.
+    const nextFrame = start?.classList?.contains?.('bt-panel')
+      ? (document.querySelector('.dsb-frame') ?? start.parentElement)
+      : (start?.classList?.contains?.('dsb-frame') ? start : start?.parentElement ?? null)
+    if (nextFrame !== null && nextFrame !== document.body && nextFrame !== frame) {
+      frame = nextFrame
+      watchFrame(frame)
     }
     for (let element = start; element !== null; element = element.parentElement) {
-      const color = opaque(getComputedStyle(element).backgroundColor)
-      if (color !== undefined) return [covered(color, frame ?? null), opaque(getComputedStyle(element).color)]
+      const bg = opaqueRgb(getComputedStyle(element).backgroundColor)
+      if (bg !== undefined) {
+        const fg = opaqueRgb(getComputedStyle(element).color)
+        return [covered(bg, frame ?? null), fg === undefined ? undefined : `rgb(${fg[0]}, ${fg[1]}, ${fg[2]})`]
+      }
     }
     return undefined
   }
   let sent = ''
   let tries = 0
+  let retryTimer
   const send = () => {
+    if (retryTimer !== undefined) { clearTimeout(retryTimer); retryTimer = undefined }
+    if (document.hidden) return
     const colors = surface()
     // The frame appears once DSH has booted; until then the main process's colors hold.
     if (colors === undefined || colors[1] === undefined) {
-      if (tries++ < 120) setTimeout(send, 250)
+      if (tries++ < 120) retryTimer = setTimeout(send, 250)
       return
     }
     const current = colors.join()
@@ -753,18 +877,68 @@ function captionColors(mica) {
     sent = current
     ipcRenderer.send('ds-bot:caption-colors', ...colors)
   }
-  // A dialog mounts anywhere in the page, which changes all the time; one look per frame.
-  let queued = false
-  const queue = () => {
-    if (queued) return
-    queued = true
-    requestAnimationFrame(() => { queued = false; send() })
+  // Theme flips update on the next animation frame; layout and style churn coalesce.
+  let rafId
+  let debounceTimer
+  const cancelPending = () => {
+    if (retryTimer !== undefined) { clearTimeout(retryTimer); retryTimer = undefined }
+    if (debounceTimer !== undefined) { clearTimeout(debounceTimer); debounceTimer = undefined }
+    if (rafId !== undefined) { cancelAnimationFrame(rafId); rafId = undefined }
   }
-  const observer = new MutationObserver(queue)
-  observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'style'], childList: true, subtree: true })
-  observer.observe(document.head, { childList: true, subtree: true, characterData: true })
+  const scheduleFrame = () => {
+    if (rafId !== undefined || document.hidden) return
+    rafId = requestAnimationFrame(() => { rafId = undefined; send() })
+  }
+  const queue = (urgent = false) => {
+    if (document.hidden) return
+    if (urgent) {
+      if (debounceTimer !== undefined) { clearTimeout(debounceTimer); debounceTimer = undefined }
+      scheduleFrame()
+      return
+    }
+    if (debounceTimer !== undefined || rafId !== undefined) return
+    debounceTimer = setTimeout(() => { debounceTimer = undefined; scheduleFrame() }, COALESCE_MS)
+  }
+  const isStyleNode = node => node?.nodeName === 'STYLE' || node?.nodeName === 'LINK'
+  const isRelevantHeadMutation = (record) => {
+    const target = record.target
+    if (target === document.head) {
+      for (const node of record.addedNodes ?? []) if (isStyleNode(node)) return true
+      for (const node of record.removedNodes ?? []) if (isStyleNode(node)) return true
+      return false
+    }
+    const element = target?.nodeType === 1 ? target : target?.parentElement
+    return isStyleNode(element)
+  }
+  const observer = new MutationObserver((records) => {
+    let relevant = false
+    let urgent = false
+    for (const record of records) {
+      if (record.target === document.head || document.head?.contains?.(record.target)) {
+        if (!isRelevantHeadMutation(record)) continue
+        relevant = true
+      } else {
+        if (record.target === document.body && record.type === 'childList') {
+          for (const node of record.addedNodes ?? []) watchPortal(node)
+        }
+        relevant = true
+        if (record.type === 'attributes' && (record.target === document.documentElement || record.target === document.body)) {
+          urgent = true
+        }
+      }
+    }
+    if (relevant) queue(urgent)
+  })
+  observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'data-bt-material', 'data-bt-bg', 'style'], childList: true })
+  for (const child of document.body.children ?? []) watchPortal(child)
+  observer.observe(document.head, { childList: true, subtree: true })
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-theme-source', 'style'] })
   // A stylesheet link is added before it loads; its rules apply without another mutation.
-  document.head.addEventListener('load', send, true)
+  document.head.addEventListener('load', () => queue(true), true)
+  window.addEventListener('resize', () => queue(false))
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) cancelPending()
+    else { cancelPending(); send() }
+  })
   send()
 }

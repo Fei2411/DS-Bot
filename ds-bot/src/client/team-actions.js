@@ -1,13 +1,15 @@
 import { countCards, heldCardKey } from './sources.js'
 import { noteClientError } from './diagnostics.js'
+import { chatOfSession } from './draft-keep.js'
 
 // The actions every window that draws the Bot views shares: dialogs and panels (the `ui`
 // source), requests to the host, and the notes the transcript keeps. The shell around the
 // views adds navigation and its own panels. `after` reads the team again once a request
 // is done; `partFor` maps a Bot id, or any part of its chat, to its current part.
-export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
+export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }) {
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
+  const subjectOf = (snap, id) => snap.byId?.[id]?.id ?? snap.roomsById?.[id]?.id ?? id
   // Cards of long pastes, numbered as they come; each waits for the shell's attachment.
   let pastes = 0
   const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } })
@@ -22,6 +24,19 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
   }
   // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
   const openSettings = (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) }
+  const MAX_TURN_CLOCK_SESSIONS = 40
+  const turnClockOrder = new Set()
+  const setTurnClock = (state, sessionId, turns) => {
+    turnClockOrder.delete(sessionId)
+    turnClockOrder.add(sessionId)
+    const next = { ...state, [sessionId]: turns }
+    while (turnClockOrder.size > MAX_TURN_CLOCK_SESSIONS) {
+      const oldest = turnClockOrder.values().next().value
+      turnClockOrder.delete(oldest)
+      delete next[oldest]
+    }
+    return next
+  }
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false })) },
@@ -36,24 +51,38 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     closeVoice: () => { ui.set(state => (state.voice ? { ...state, voice: null } : state)) },
     toggleDetails: (id, force) => {
       ui.set((state) => {
-        const details = force || state.details !== id || state.view !== 'details' ? id : null
+        const snap = roster.getSnapshot()
+        const sameSubject = state.details !== null && subjectOf(snap, state.details) === subjectOf(snap, id)
+        const details = force || !sameSubject || state.view !== 'details' ? id : null
         // A folded panel is open but not shown: its opener then means "show it"
         // (the column yields it room), not "close it".
         if (details === null && panelFolded?.('details') === true) return { ...state, renaming: false, tab: null, details: id, view: 'details', panelYield: true }
-        return { ...state, renaming: false, tab: null, details, view: 'details' }
+        return { ...state, renaming: false, tab: null, details, view: 'details', ...(details === null && state.rightPanel !== undefined ? { rightPanel: null } : {}) }
       })
     },
     // The open panel follows the main view; a subject with no browser (a group
     // chat, an outside Session) settles on the details view. So does one that
-    // does not own the open side chat.
+    // does not own the open side chat. Moving between parts of the same Bot or
+    // group keeps the panel's current view, settings/rename state, and tab intact.
+    // Workspace tabs persist across sessions; a non-team session (e.g. Classic Agent)
+    // keeps workspace when tabs exist and closes the panel otherwise.
     followPanel: (id) => {
       ui.set((state) => {
         if (!state.details || state.details === id) return state
         const snap = roster.getSnapshot()
-        const view = state.view === 'browser' && snap.byId[id] === undefined ? 'details'
-          : state.view === 'side' && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some(chat => chat?.id === state.side) ? 'details'
-            : state.view === 'task' ? 'details'
-              : state.view
+        const hasSubject = snap.byId[id] !== undefined || snap.roomsById?.[id] !== undefined
+        const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
+        if (!hasSubject) {
+          if (hasWorkspace) return { ...state, details: id, view: 'workspace', task: null, renaming: false, tab: null, side: null }
+          if (state.rightPanel !== undefined) return { ...state, details: null, view: 'details', task: null, renaming: false, tab: null, side: null }
+        }
+        if (subjectOf(snap, state.details) === subjectOf(snap, id)) return { ...state, details: id }
+        const view = state.view === 'workspace'
+          ? (state.rightPanel !== undefined && !hasWorkspace ? 'details' : 'workspace')
+          : state.view === 'browser' && snap.byId[id] === undefined ? 'details'
+            : state.view === 'side' && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some(chat => chat?.id === state.side) ? 'details'
+              : state.view === 'task' ? 'details'
+                : state.view
         return { ...state, details: id, view, task: null, renaming: false, tab: null }
       })
     },
@@ -67,8 +96,10 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     openMemory: (id) => { ui.set(state => ({ ...state, memory: id, menu: null, palette: null })) },
     closeMemory: () => { ui.set(state => (state.memory ? { ...state, memory: null } : state)) },
     openConnectors: () => { ui.set(state => ({ ...state, settings: { page: 'connectors', id: null }, menu: null, palette: null, newChat: null })) },
+    hasPlugins: () => true,
+    openPlugins: (focus = null) => openSettings('plugins', focus),
     setPanelView: (view) => {
-      if (view !== 'details' && view !== 'browser' && view !== 'side' && view !== 'task') return
+      if (view !== 'details' && view !== 'browser' && view !== 'side' && view !== 'task' && view !== 'workspace') return
       ui.set(state => (state.details && state.view !== view ? { ...state, view, ...(view === 'details' ? { tab: null } : {}), panelYield: yieldTo(state, view) } : state))
     },
     openTaskDeck: (targetId, taskId = null) => {
@@ -92,6 +123,15 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     stopTask: (botId, taskId) => after(call('bot-stop-task', { botId, taskId })),
     sendTask: (botId, taskId, text) => after(call('bot-task-send', { botId, taskId, text })),
     readTask: (botId, taskId, cursor, steps = false) => call('bot-task-read', { botId, taskId, ...(cursor ? { cursor } : {}), ...(steps ? { steps: true } : {}) }),
+    moveToBackground: (botId, sessionId, expectedTurn) => after(call('bot-move-to-background', {
+      botId,
+      ...(sessionId ? { sessionId } : {}),
+      ...(typeof expectedTurn === 'number' ? { expectedTurn } : {}),
+      operationId: typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `bg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    })),
+    steerQueueBatch: (sessionId, ids) => call('bot-steer-queue', { sessionId, ids }),
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
     openSideChat,
@@ -109,7 +149,11 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       ui.set(state => (state.details && state.view === 'side' && state.side === chatId ? { ...state, view: 'details', side: null } : state))
       return after(call('side-close', { chatId }))
     },
-    closePanel: () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null } : state)) },
+    closePanel: () => {
+      ui.set(state => (state.details || state.rightPanel
+        ? { ...state, details: null, ...(state.rightPanel !== undefined ? { rightPanel: null } : {}), view: 'details', renaming: false, tab: null, side: null, task: null }
+        : state))
+    },
     quote: (sessionId, text) => ui.set(state => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
     // A long paste becomes a card; its text stays here until it goes back into the box.
     addPaste: (sessionId, text, name) => {
@@ -162,7 +206,19 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     closeMenu: () => { ui.set(state => (state.menu ? { ...state, menu: null } : state)) },
     closeNewChat: () => { ui.set(state => (state.newChat || state.newChatSection ? { ...state, newChat: null, newChatSection: null } : state)) },
     closeExchange: () => { ui.set(state => (state.exchange ? { ...state, exchange: null } : state)) },
-    closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
+    closeOverlay: () => {
+      ui.set((state) => {
+        const keepPanel = Boolean(state.newChat || state.exchange)
+        return {
+          ...state,
+          newChat: null,
+          newChatSection: null,
+          exchange: null,
+          details: keepPanel ? state.details : null,
+          ...(keepPanel || state.rightPanel === undefined ? {} : { rightPanel: null }),
+        }
+      })
+    },
     createBot: payload => after(call('create-bot', payload)),
     // The avatar library: photos the user imported once, kept by the host.
     avatarLibrary: (options = {}) => call('avatar-library', options),
@@ -172,12 +228,20 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     updateBot: (id, patch) => after(call('update-bot', { id, ...patch })),
     // Give up one wait the Bot has on a hand-off that will not come back.
     abandonWork: id => after(call('abandon-work', { id })),
+    resumeWork: id => after(call('resume-work', { id })),
+    cancelWork: (id, reason) => after(call('cancel-work', { id, ...(reason ? { reason } : {}) })),
+    resumeRoomPause: roomId => after(call('resume-room-pause', { roomId })),
     refreshModels: () => after(call('models')).catch(() => {}),
     // One local agent's models: the first look starts its CLI, later ones read what it said.
     agentModels: route => after(call('local-agent-models', { route })).catch(() => {}),
     efforts: ref => call('efforts', { ref }),
     // Model providers and their API keys; DSH keeps them, and a key only travels to the host.
     providers: () => call('providers'),
+    chatgpt: () => call('chatgpt'),
+    chatgptSignIn: body => call('chatgpt-sign-in', body),
+    chatgptCancel: () => call('chatgpt-cancel'),
+    chatgptSignOut: () => call('chatgpt-sign-out'),
+    chatgptModels: () => call('chatgpt-models'),
     setProviderKey: (provider, value) => after(call('provider-key', { provider, value })),
     addProvider: body => after(call('provider-add', body)),
     providerModels: body => call('provider-models', body),
@@ -185,6 +249,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     removeProvider: provider => after(call('provider-remove', { provider })),
     // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
     resume: botId => after(call('resume', { botId })),
+    // Escape hatch when continuous context overflow prevents auto-switching.
+    newPart: (botId, sessionId) => after(call('new-part', { botId, ...(sessionId ? { sessionId } : {}) })),
     folders: () => call('folders'),
     folderPick: () => call('folder-pick'),
     folderList: path => call('folder-list', { path: path ?? '' }),
@@ -193,12 +259,23 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     releasePrivate: id => after(call('private-release', { id })),
     duplicateBot: id => after(call('duplicate-bot', { id })),
     setPrefs: prefs => after(call('set-prefs', prefs)),
+    // Background pictures and a chat's own background (docs/plans/2026-11-21-appearance.md).
+    addBackground: image => call('background-add', { image }),
+    setChatBackground: body => after(call('set-chat-background', body)),
     setMain: (id, main = true, options = {}) => after(call('set-main', { id, main, ...options })),
     updateRoom: (id, patch) => after(call('update-room', { id, ...patch })),
     roomTodoCheck: (roomId, id, done) => after(call('room-todo', { roomId, id, done })),
     roomTodoRemove: (roomId, id) => after(call('room-todo', { roomId, id, action: 'remove' })),
     roomTodoClear: roomId => after(call('room-todo', { roomId, action: 'clear' })),
-    send: (sessionId, text) => after(call('send', { sessionId: partFor(sessionId), text })),
+    send: (sessionId, text, options = {}) => after(call('send', {
+      sessionId: partFor(sessionId),
+      text,
+      ...(options.images?.length ? { images: options.images } : {}),
+      ...(options.files?.length ? { files: options.files } : {}),
+    })),
+    stageImage: (mediaType, data, name) => call('stage-image', { mediaType, data, ...(name ? { name } : {}) }),
+    stageFile: (name, data, mediaType) => call('stage-file', { name, data, ...(mediaType ? { mediaType } : {}) }),
+    stopChat: botId => after(call('stop-chat', { botId })),
     answerQuestion: (sessionId, questionId, answer) => after(call('answer-question', { sessionId: partFor(sessionId), questionId, answer })),
     dismissQuestion: sessionId => after(call('dismiss-question', { sessionId })),
     answerView: (sessionId, viewId, action, values) => after(call('view-reply', { sessionId: partFor(sessionId), viewId, action, values })),
@@ -220,27 +297,6 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     computerShot: attachmentId => call('computer-shot', { attachmentId }),
     computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
-    // The endpoint's own options: `roomId` for a member's group conversation, and
-    // `blank` or `handoff` for a Bot's own chat (neither keeps the older behavior).
-    newPart: (botId, { roomId, blank = false, handoff = false } = {}) => after(call('bot-new-part', {
-      botId,
-      ...(roomId !== undefined ? { roomId } : {}),
-      ...(blank ? { blank: true } : {}),
-      ...(handoff ? { handoff: true } : {}),
-    })),
-    // A running part opened from the session list takes no input until it ends.
-    openPart: (botId, sessionId, running = false) => {
-      ui.set(state => ({ ...state, readOnlyPart: running ? sessionId : null }))
-      return after(call('bot-open-part', { botId, sessionId })).catch((error) => {
-        ui.set(state => (state.readOnlyPart === sessionId ? { ...state, readOnlyPart: null } : state))
-        throw error
-      })
-    },
-    clearReadOnlyPart: () => ui.set(state => (state.readOnlyPart === null ? state : { ...state, readOnlyPart: null })),
-    stopChat: botId => {
-      ui.set(state => (state.readOnlyPart === null ? state : { ...state, readOnlyPart: null }))
-      return after(call('stop-chat', { botId }))
-    },
     stopRoomWork: roomId => after(call('stop-room-work', { roomId })),
     goalDraft: (roomId, text) => after(call('goal-draft', { roomId, text })),
     goalControl: (roomId, goalId, action, stopWork) => after(call('goal-control', { roomId, goalId, action, ...(stopWork ? { stopWork: true } : {}) })),
@@ -290,6 +346,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     secretUnlock: passphrase => after(call('secret-unlock', { passphrase })),
     secretEncrypt: passphrase => after(call('secret-encrypt', { passphrase })),
     secretDecrypt: passphrase => after(call('secret-decrypt', { passphrase })),
+    secretRefreshExternal: (providerId, resolve = false) => after(call('secret-refresh-external', { ...(providerId ? { providerId } : {}), ...(resolve ? { resolve: true } : {}) })),
     connectorConnect: (id, payload = {}) => after(call('connector-connect', { id, ...payload })),
     connectorDisconnect: id => after(call('connector-disconnect', { id })),
     connectorRetry: id => after(call('connector-retry', { id })),
@@ -318,11 +375,12 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     phonePair: () => after(call('phone-pair')),
     phonePairCancel: () => after(call('phone-pair-cancel')),
     phoneRemove: id => after(call('phone-remove', { id })),
-    // The answer to mcp-client-add carries the new token once; nothing else does.
-    mcpSet: settings => after(call('mcp-set', settings)),
-    mcpClientAdd: client => after(call('mcp-client-add', client)),
-    mcpClientUpdate: (id, patch) => after(call('mcp-client-update', { id, ...patch })),
-    mcpClientRemove: id => after(call('mcp-client-remove', { id })),
+    apiSet: settings => after(call('api-set', settings)),
+    apiTokenCreate: payload => after(call('api-token-create', payload)),
+    apiTokenUpdate: (keyId, patch) => after(call('api-token-update', { keyId, ...patch })),
+    apiTokenRevoke: keyId => after(call('api-token-revoke', { keyId })),
+    apiAudit: (options = {}) => after(call('api-audit', options)),
+    apiAuditClear: () => call('api-audit-clear', {}),
     imAdd: payload => after(call('im-add', payload)),
     imUpdate: (id, patch) => after(call('im-update', { id, ...patch })),
     imRemove: id => after(call('im-remove', { id })),
@@ -335,7 +393,19 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     saveCapability: capability => after(call('capability-save', capability)),
     deleteCapability: name => after(call('capability-delete', { name })),
     approveCapability: name => after(call('capability-approve', { name })),
-    setBotCapability: (botId, name, attached) => after(call('bot-capability', { botId, name, attached })),
+    setBotCapability: (botId, name, attached, mode = 'always') => after(call('bot-capability', { botId, name, attached, mode })),
+    pluginsList: (refresh = false) => call('plugins-list', { refresh }),
+    pluginsCatalogRefresh: () => call('plugins-catalog-refresh', {}),
+    pluginsInstall: body => after(call('plugins-install', body)),
+    pluginsToggle: (id, enabled) => after(call('plugins-toggle', { id, enabled })),
+    pluginsRemove: id => after(call('plugins-remove', { id })),
+    pluginsUpdate: (id, version) => after(call('plugins-update', { id, ...(version ? { version } : {}) })),
+    pluginsSlotSet: (slot, id) => after(call('plugins-slot-set', { slot, id })),
+    pluginsBotToggle: (id, botId, enabled) => after(call('plugins-bot-toggle', { id, botId, enabled })),
+    pluginsCustomSave: body => after(call('plugins-custom-save', body)),
+    pluginsSourceSave: body => after(call('plugins-source-save', body)),
+    pluginsSourceRemove: id => after(call('plugins-source-remove', { id })),
+    pluginsRetry: () => after(call('plugins-retry', {})),
     schedules: () => call('schedules'),
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),
@@ -364,6 +434,11 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     diagnostics: payload => call('diagnostics', payload),
     diagnosticsLog: () => call('diagnostics-log'),
     diagnosticsClear: () => call('diagnostics-clear'),
+    telemetryStatus: () => call('telemetry-status'),
+    telemetryUpdate: patch => after(call('telemetry-update', patch)),
+    telemetryResetId: () => call('telemetry-reset-id'),
+    telemetryClearLog: () => call('telemetry-clear-log'),
+    telemetryClientError: payload => call('telemetry-client-error', payload).catch(() => {}),
     repoStars: () => call('repo-stars'),
     // A failed action away from any form (a menu, the palette) shows as a toast.
     reportError: (error, where = 'action') => {
@@ -381,7 +456,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         const entry = turns[turn] ?? {}
         const next = key === 'first' && entry.first !== undefined ? Math.min(entry.first, time) : time
         if (entry[key] === next) return state
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, [key]: next } } }
+        return setTurnClock(state, sessionId, { ...turns, [turn]: { ...entry, [key]: next } })
       })
     },
     noteTurnPeer: (sessionId, turn, peerId) => {
@@ -390,7 +465,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         const turns = state[sessionId] ?? {}
         const entry = turns[turn] ?? {}
         if (entry.peer === peerId) return state
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, peer: peerId } } }
+        return setTurnClock(state, sessionId, { ...turns, [turn]: { ...entry, peer: peerId } })
       })
     },
     noteLive: (sessionId, id, entry) => {
@@ -411,6 +486,15 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     noteHeldCard: (sessionId, kind, requestId, delta) => {
       if (sessionId !== undefined) heldCards.set(state => countCards(state, sessionId, [heldCardKey(kind, requestId)], delta))
     },
+    readQuestionDraft: (kind, id, subId) => questionDrafts?.readDraft(kind, id, subId) ?? '',
+    noteQuestionDraft: (entry) => {
+      if (!questionDrafts) return
+      const chatId = entry.chatId ?? chatOfSession(roster?.getSnapshot?.(), entry.sessionId)?.id ?? null
+      questionDrafts.noteDraft({ ...entry, chatId })
+    },
+    beginQuestionSettle: (kind, id, outcome) => questionDrafts?.beginSettle(kind, id, outcome),
+    finishQuestionSettle: (kind, id, succeeded) => questionDrafts?.finishSettle(kind, id, succeeded),
+    consumeRescuedDraft: (chatId, sessionId, taken) => questionDrafts?.consumeRescue(chatId, sessionId, taken),
     clearLive: sessionId => live.set((state) => {
       if (!state[sessionId]) return state
       const next = { ...state }

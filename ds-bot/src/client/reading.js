@@ -79,7 +79,16 @@ const sized = new WeakMap()
 function watchSize(node, onSize) {
   if (typeof ResizeObserver !== 'function') return () => {}
   sizes ??= new ResizeObserver((entries) => {
-    for (const entry of entries) sized.get(entry.target)?.forEach(listener => listener())
+    const bands = new Map()
+    const bandOf = (scroller) => {
+      let band = bands.get(scroller)
+      if (band === undefined) {
+        band = readingBand(scroller)
+        bands.set(scroller, band)
+      }
+      return band
+    }
+    for (const entry of entries) sized.get(entry.target)?.forEach(listener => listener(bandOf))
   })
   const listeners = sized.get(node) ?? new Set()
   sized.set(node, listeners)
@@ -138,22 +147,24 @@ export function ReplyGuide({ box, active }) {
   const [menu, setMenu] = useState(false)
   const pop = useRef(null)
   const trigger = useRef(null)
+  const cachedHeadings = useRef(null)
   useEffect(() => {
     const node = box.current
     const own = active && node ? node.closest('[data-conversation-scroll]') : null
     setScroller(own)
-    if (!own) { setLong(false); return undefined }
-    const check = () => setLong(fillsBand(node.getBoundingClientRect().height, readingBand(own)))
+    if (!own) { setLong(false); cachedHeadings.current = null; return undefined }
+    const check = (bandOf) => setLong(fillsBand(node.getBoundingClientRect().height, bandOf ? bandOf(own) : readingBand(own)))
     const stops = [watchSize(node, check), watchSize(own, check)]
     return () => stops.forEach(stop => stop())
   }, [active])
   useEffect(() => {
-    if (!long || !scroller) { setView(null); return undefined }
+    if (!long || !scroller) { setView(null); cachedHeadings.current = null; return undefined }
     return followScroll(scroller, (band, news) => {
       const node = box.current
       if (!node) return
       const place = pillPlace(node.getBoundingClientRect(), band, news)
       const headings = place ? headingsIn(node) : []
+      cachedHeadings.current = place ? { node, headings, outline: outlineOf(headings) } : null
       const current = sectionAt(headings.map(heading => heading.getBoundingClientRect().top), place ? place.top + PILL + SLACK : 0)
       const maxWidth = place && Number.isFinite(band.right) ? Math.max(120, Math.min(MAX_WIDTH, Math.round(band.right - place.left - GAP))) : undefined
       const next = place && { ...place, current, maxWidth }
@@ -180,8 +191,10 @@ export function ReplyGuide({ box, active }) {
   }, [menu])
   const [shown, leaving] = useLinger(view, 120)
   if (!shown || !scroller) return null
-  const headings = box.current ? headingsIn(box.current) : []
-  const outline = outlineOf(headings)
+  const cached = cachedHeadings.current
+  const cache = cached && cached.node === box.current && cached.headings.every(el => el.isConnected) ? cached : null
+  const headings = cache ? cache.headings : (box.current ? headingsIn(box.current) : [])
+  const outline = cache ? cache.outline : outlineOf(headings)
   const toStart = () => {
     setMenu(false)
     if (box.current) glide(scroller, box.current.getBoundingClientRect().top - readingBand(scroller).top + GAP)

@@ -12,13 +12,14 @@ export const SERVICES_CSS = `
 .bt-svc-state[data-state=missing]{color:var(--bt-danger)}
 .bt-svc-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-ink-3);corner-shape:round}
 .bt-svc-state[data-state=ready] .bt-svc-dot{background:var(--bt-green)}
+.bt-svc-state[data-state=warn] .bt-svc-dot{background:var(--bt-warn)}
 .bt-svc-state[data-state=missing] .bt-svc-dot{background:var(--bt-danger)}
 .bt-svc-line{padding:10px 16px}
-.bt-svc-line .bt-svc-state{white-space:normal}
-.bt-svc-key{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--bt-ink-3);overflow-wrap:anywhere}
-.bt-svc-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.bt-svc-line .bt-svc-state{white-space:normal;align-items:flex-start}
+.bt-svc-line .bt-svc-dot{margin-top:4.5px}
+.bt-svc-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;min-width:0;max-width:100%}
+@container (max-width:440px){.bt-svc-actions{justify-content:flex-start}}
 .bt-svc-note{font-size:12px;line-height:16px;color:var(--bt-ink-2)}
-.bt-svc .bt-svc-seg button{white-space:nowrap}
 .bt-svc :focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 `
 
@@ -27,38 +28,38 @@ const ASR_PROVIDER = 'deepseek-asr'
 const voiceName = id => String(id).charAt(0).toUpperCase() + String(id).slice(1)
 
 // A capability's state comes from the host, not from the preference. A missing
-// credential wins over `enabled`: the preference can be on while the service is
-// not configured, and that must never read as ready.
+// credential wins over `enabled`: an enabled capability that cannot run shows the
+// host reason, while an optional capability that is simply off stays quiet.
 function capabilityState(cap) {
   if (!cap) return { state: 'off', text: t('Off') }
   const usable = cap.supported !== false && cap.configured !== false
   const reason = cap.reason ? hostText(String(cap.reason)) : ''
-  if (!usable) return { state: 'missing', text: reason || t('Not ready') }
+  if (!usable) {
+    if (cap.enabled) return { state: 'missing', text: reason || t('Not ready') }
+    return { state: 'off', text: t('Off') }
+  }
   if (cap.enabled) return { state: 'ready', text: t('Ready') }
-  return { state: 'off', text: reason || t('Off') }
+  return { state: 'off', text: t('Off') }
 }
 
 // The host reports no `enabled` for dictation; its real state is the existing
 // speech Remote's selection plus registration and credentials.
 function asrState(asr, selection, speechAvailable) {
   if (!asr) return { state: 'off', text: t('Off') }
+  const selected = selection?.providerId === ASR_PROVIDER
   const reason = asr.reason ? hostText(String(asr.reason)) : ''
   const notReady = reason || (speechAvailable === false ? t('Set up voice input') : t('Not ready'))
   const usable = asr.registered === true && asr.configured !== false && speechAvailable !== false && asr.ready !== false
-  if (!usable) return { state: 'missing', text: notReady }
-  if (selection?.providerId === ASR_PROVIDER) return { state: 'ready', text: t('In use') }
-  return { state: 'off', text: reason || t('Off') }
-}
-
-function StateLine({ view }) {
-  return h('div', { className: 'bt-svc-line' },
-    h('div', { className: 'bt-svc-state', 'data-state': view.state, role: 'status' },
-      h('span', { className: 'bt-svc-dot', 'aria-hidden': 'true' }),
-      h('span', null, view.text)))
+  if (!usable) {
+    if (selected) return { state: 'missing', text: notReady }
+    return { state: 'off', text: asr.registered === false && reason ? reason : t('Off') }
+  }
+  if (selected) return { state: 'ready', text: t('In use') }
+  return { state: 'off', text: t('Off') }
 }
 
 function Pill({ state, text }) {
-  return h('span', { className: 'bt-svc-state', 'data-state': state },
+  return h('span', { className: 'bt-svc-state', 'data-state': state, role: 'status' },
     h('span', { className: 'bt-svc-dot', 'aria-hidden': 'true' }),
     h('span', null, text))
 }
@@ -72,7 +73,7 @@ function Choice({ label, value, options, disabled, pick, Segmented }) {
 
 // Pure rendering half, so a mock UI test can drive it with a fixed host status.
 export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAvailable, pluginsAvailable,
-  save, selectAsr, onOpenModels, onOpenPlugins, Section, Row, Switch, Segmented }) {
+  save, selectAsr, onOpenModels, onOpenPlugins, onOpenWebSearch, Section, Row, Switch, Segmented }) {
   const prefs = { ...DEFAULTS, ...status?.preferences }
   const key = status?.key ?? {}
   const asr = status?.speech ?? null
@@ -88,54 +89,54 @@ export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAv
     : !asr.registered
       ? (pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Set up voice input')) : null)
       : !asr.configured
-        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenModels }, t('Manage models'))
+        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenModels }, t('Providers'))
         : selected && asrUsable
           ? h(Pill, { state: 'ready', text: t('In use') })
           : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: asrBusy || !asrUsable, onClick: selectAsr }, asrBusy ? t('Saving…') : t('Use DeepSeek for dictation'))
+  const asrHint = asr !== null && !asr.registered && asr.reason && asrView.state !== 'missing'
+    ? hostText(String(asr.reason))
+    : undefined
   return h('div', { className: 'bt-svc' },
     h('style', { 'data-ds-bot': 'deepseek-services' }, SERVICES_CSS),
-    h(Section, { key: 'key', title: t('DeepSeek API'), tour: 'svc-key' },
+    h(Section, { key: 'key', tour: 'svc-key' },
       h(Row, { label: t('API key') },
         h('div', { className: 'bt-svc-actions' },
-          h(Pill, { state: key.configured ? 'ready' : 'missing', text: key.configured ? t('Key set') : t('Needs an API key') }),
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenModels }, t('Manage models')))),
-      status?.endpoint ? h('div', { className: 'bt-svc-line' }, h('span', { className: 'bt-svc-key' }, status.endpoint)) : null,
-      // DSH's Web search switch is a Plugins page item, not a settings section:
-      // Plugins → Web search turns on the new API for search and fetch.
-      h(Row, { label: t('DeepSeek Web Search API'), hint: t('Find it in Plugins → Web search.') },
-        pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Open Plugins')) : null),
+          ready ? h(Pill, { state: key.configured ? 'ready' : 'warn', text: key.configured ? t('Key set') : t('Needs an API key') }) : null,
+          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenModels }, t('Providers')))),
+      h(Row, { label: t('DeepSeek Web Search') },
+        onOpenWebSearch
+          ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenWebSearch }, t('Configure'))
+          : pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Open Plugins')) : null),
       saved || busy ? h('div', { className: 'bt-svc-line' },
         h('span', { className: 'bt-svc-note', role: 'status' }, saved ? t('Saved.') : t('Saving…'))) : null),
-    h(Section, { key: 'ocr', title: t('Image and document reading'), tour: 'svc-ocr' },
-      h(Row, {
-        label: t('Use DeepSeek to read images and documents'),
-        hint: t('Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.'),
-      }, h(Switch, {
-        label: t('Use DeepSeek to read images and documents'), on: prefs.ocr === true, disabled: busy || !ready,
-        onChange: on => save({ ocr: on }),
-      })),
-      h(StateLine, { view: ocrView })),
-    h(Section, { key: 'tts', title: t('Text to speech'), tour: 'svc-tts' },
-      h(Row, { label: t('Read replies aloud') },
-        h(Choice, {
-          label: t('Read replies aloud'), value: prefs.tts, disabled: busy || !ready, Segmented,
-          options: [['system', t('System')], ['deepseek', t('DeepSeek')]], pick: id => save({ tts: id }),
-        })),
+    h(Section, { key: 'caps' },
+      h(Row, { label: t('Image and document reading'), tour: 'svc-ocr' },
+        h('div', { className: 'bt-svc-actions' },
+          ocrView.state !== 'off' ? h(Pill, { state: ocrView.state, text: ocrView.text }) : null,
+          h(Switch, {
+            label: t('Image and document reading'), on: prefs.ocr === true, disabled: busy || !ready,
+            onChange: on => save({ ocr: on }),
+          }))),
+      h(Row, { label: t('Read replies aloud'), tour: 'svc-tts' },
+        h('div', { className: 'bt-svc-actions' },
+          ttsView.state !== 'off' ? h(Pill, { state: ttsView.state, text: ttsView.text }) : null,
+          h(Choice, {
+            label: t('Read replies aloud'), value: prefs.tts, disabled: busy || !ready, Segmented,
+            options: [['system', t('System')], ['deepseek', t('DeepSeek')]], pick: id => save({ tts: id }),
+          }))),
       prefs.tts === 'deepseek' ? h(Row, { label: t('Voice') },
         h(Choice, {
           label: t('Voice'), value: prefs.voice, disabled: busy || !ready, Segmented,
           options: voices.map(id => [id, voiceName(id)]), pick: id => save({ voice: id }),
         })) : null,
-      h(StateLine, { view: ttsView })),
-    h(Section, { key: 'asr', title: t('Speech recognition') },
-      h(Row, { label: t('Dictation provider') },
+      h(Row, { label: t('Speech recognition'), hint: asrHint },
         h('div', { className: 'bt-svc-actions' },
+          asrView.state === 'missing' ? h(Pill, { state: 'missing', text: asrView.text }) : null,
           asrButton,
-          asr?.registered && pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Open Plugins')) : null)),
-      h(StateLine, { view: asrView })))
+          asr?.registered && pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Open Plugins')) : null))))
 }
 
-export function DeepSeekServicesPage({ actions, run, Section, Row, Switch, Segmented }) {
+export function DeepSeekServicesPage({ actions, run, Section, Row, Switch, Segmented, onOpenWebSearch, openEnginePlugins = null }) {
   const [status, setStatus] = useState(null)
   const [selection, setSelection] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -192,10 +193,15 @@ export function DeepSeekServicesPage({ actions, run, Section, Row, Switch, Segme
     h(ServicesForm, {
       status, selection, busy, saved, asrBusy, speechAvailable, pluginsAvailable,
       save, selectAsr, onOpenModels: () => actions.openModels?.(),
-      // DSH's Plugins page opens behind this dialog; close it first or the user
-      // cannot see or reach what openPlugins() navigated to. The setup button
-      // for voice input shares this callback.
-      onOpenPlugins: () => { actions.closeSettings?.(); actions.openPlugins?.() },
+      // DSH's own Web Search API & engine plugin switches live in the nested
+      // `plugins` → `dsh` view when available; otherwise fall back to closing
+      // the dialog and calling the legacy `openPlugins` action.
+      onOpenPlugins: () => {
+        if (openEnginePlugins) { openEnginePlugins(); return }
+        actions.closeSettings?.()
+        actions.openPlugins?.()
+      },
+      onOpenWebSearch,
       Section, Row, Switch, Segmented,
     }))
 }

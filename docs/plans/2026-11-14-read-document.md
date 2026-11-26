@@ -12,15 +12,15 @@ DS Bot 的基础路径不依赖官方 API：图片由主模型或视觉模型读
 ### 凭据来源与网关隔离
 
 - 文档识别只请求官方 `https://api.deepseek.com`（`/v1/tools/ocr`），按用户自己的 DeepSeek API key 用量计费；从不用账号登录凭据。
-- key 在 **Settings → Models** 的 provider key 控件里设置，状态通过凭据服务的 `describe` 查询、调用时才 `resolve` 取值。`key.ref` 是可公开的凭据引用名（默认 `DEEPSEEK_API_KEY`，或 DeepSeek 模型路由声明的 `apiKeyEnv`）；状态只带 `ref` 与 `configured`，不含 key 值、token 或账号凭据，界面也不渲染它们。
+- key 在 **Settings → Models → Providers** 的 provider key 控件里设置，状态通过凭据服务的 `describe` 查询、调用时才 `resolve` 取值。`key.ref` 是可公开的凭据引用名（默认 `DEEPSEEK_API_KEY`，或 DeepSeek 模型路由声明的 `apiKeyEnv`）；状态只带 `ref` 与 `configured`，不含 key 值、token 或账号凭据，界面也不渲染它们。
 - **网关隔离**：DeepSeek 模型路由若通过 `baseURL` 或 `DEEPSEEK_BASE_URL` 指向非官方 origin，那把 key 属于那个网关，绝不能发往 `api.deepseek.com`。当路由的凭据名恰好也叫 `DEEPSEEK_API_KEY`、DS Bot 无法区分两者时，独立能力整体判为未配置并给出原因；路由使用其它凭据名时，独立能力仍解析自己那份 `DEEPSEEK_API_KEY`。
 - 上游错误只回固定的状态短语；响应体可能回显请求或 key，不进入给模型的答案。
 
 ### 状态与持久化
 
-- `deepseekServices()` 返回 `{ endpoint, key, ocr, preferences }`。`ocr` 带 `supported`、`enabled`、`configured`、`reason`；`preferences` 为 `{ ocr }`（语音偏好随后续变更加入）。
+- `deepseekServices()` 返回 `{ endpoint, key, ocr, tts, speech, preferences }`。`ocr` 带 `supported`、`enabled`、`configured`、`reason`；`preferences` 已包含 `ocr`、`tts`、`voice`，语音字段见[DeepSeek 语音](2026-11-14-deepseek-services.md)。
 - 偏好存在 `roster.prefs.deepseekServices`（host 侧 `state.prefs.deepseekServices`）。默认值 `ocr: false` 由读取时 `defaultServices()` 补齐；`normalizeServices` 只保留合法值，未知字段丢弃。
-- `setDeepseekServices({ ocr })` 只接受这一个字段：缺省保留原值，`null` 删除该字段，非法值返回 `bot/invalid`。写回时先用 `normalizeServices` 清洗；只有清洗后的对象为空才删掉整个 `deepseekServices` 键——再持久化并返回同样的状态。
+- `setDeepseekServices` 接受 `ocr`、`tts`、`voice`：缺省保留原值，`null` 删除该字段，非法值返回 `bot/invalid`。写回时先用 `normalizeServices` 清洗；只有清洗后的对象为空才删掉整个 `deepseekServices` 键——再持久化并返回同样的状态。
 - 页面按 `configured` / `supported` / `enabled` 与 `reason` 显示真实就绪状态和未就绪原因；`reason` 走 `hostText()`。
 
 ### OCR：read_document
@@ -59,3 +59,4 @@ DS Bot 的基础路径不依赖官方 API：图片由主模型或视觉模型读
 - 2026-11-14：初版（随 DeepSeek services 设计一起起草）。
 - 2026-11-20：自该设计拆出为独立文档 PR 的设计说明。
 - 2026-11-20：维护者审阅后，本 PR 带上最小 OCR 开关（Settings → DeepSeek services）；关闭态隐藏 `read_document`；隐私 Bot 的长文溢出不再走共享 spill 哈希目录。
+- 2026-11-22：同步已加入语音后的状态字段与偏好更新参数（#1881），补齐 Providers 设置路径，对照 dev 代码校正。

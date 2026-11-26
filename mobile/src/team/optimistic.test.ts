@@ -69,6 +69,7 @@ test('update-room drops the folder on empty and keeps it otherwise', () => {
 test('update-room shallow-merges the patch into that room', () => {
   const next = optimistic(team, 'update-room', { id: 'r1', name: 'Daily', notice: 'Bring updates' })!
   assert.equal(next.rooms![0].name, 'Daily')
+  assert.equal(next.rooms![0].named, true)
   assert.equal(next.rooms![0].notice, 'Bring updates')
   assert.deepEqual(next.rooms![0].members, ['b1', 'b2'])
   assert.equal(next.rooms![1].name, 'Quiet')

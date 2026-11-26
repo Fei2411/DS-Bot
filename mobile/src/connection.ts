@@ -55,6 +55,7 @@ export interface Bot {
 export interface Room {
   id: string
   name: string
+  avatar?: { image?: string; imageRef?: string }
   workDir?: string
   preview?: string
   lastAt?: number
@@ -156,7 +157,7 @@ export interface TeamState {
   }
   activity?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean }>
   exchangeTurns?: Record<string, number[]>
-  prefs?: { theme?: string; accent?: string; layout?: string; width?: number; flatWidth?: number }
+  prefs?: { theme?: string; accent?: string; layout?: string; width?: number; flatWidth?: number; enterToSend?: boolean }
 }
 
 /** A card as the computer keeps it: `view` is the root node of the blueprint. */
@@ -164,6 +165,16 @@ export interface ShownView { id?: string; title?: string; view?: unknown }
 
 /** Opens the encrypted link to the computer. The pairing code goes only with the first connection. */
 export async function openLink(computer: SavedComputer, identity: PhoneIdentity, pairingCode?: string): Promise<RpcClient> {
+  let validServer = false
+  try {
+    const parsed = new URL(computer.server)
+    validServer = (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') && parsed.host.length > 0
+  } catch {
+    validServer = false
+  }
+  if (!validServer) {
+    throw Object.assign(new Error('Invalid relay server address'), { code: 'SERVER_UNREACHABLE' })
+  }
   const relay = new RelayTransport(computer.server, {
     deviceId: identity.deviceId,
     identityKey: identity.publicKey,

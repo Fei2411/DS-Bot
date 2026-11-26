@@ -77,3 +77,24 @@ test('a long line stays whole so the opened hit can show it', () => {
   assert.equal(results[0].before?.text, beside)
   assert.ok(results[0].text.endsWith('needle'))
 })
+
+test('non-chat records (anchor, round, working, approval, notice, lookup) are excluded from hits and skipped for neighbors', () => {
+  const records = [
+    { event: 'anchor', id: 'a1', from: 1, text: 'needle in anchor' },
+    line(1, 'Before conversation', { botId: 'b1', who: 'Kai' }),
+    { seq: 2, time: 1_002, kind: 'working', botId: 'b1', who: 'Kai', text: 'needle working' },
+    { seq: 3, time: 1_003, kind: 'lookup', botId: 'b1', who: 'Kai', text: 'needle lookup' },
+    { seq: 4, time: 1_004, kind: 'notice', reason: 'failed', text: 'needle failure' },
+    line(5, 'Actual needle match', { botId: 'b2', who: 'Mira' }),
+    { seq: 6, time: 1_006, kind: 'approval', botId: 'b2', who: 'Mira', text: 'needle approval' },
+    { event: 'round', from: 1, to: 6, passed: [], failed: [], text: 'needle round' },
+    line(7, 'After conversation', { who: 'User' }),
+  ]
+  const { results, hasMore } = searchGroupBook(records, 'needle')
+  assert.equal(hasMore, false)
+  assert.deepEqual(results.map(hit => hit.seq), [5], 'only real chat messages should match')
+  assert.equal(results[0].before?.seq, 1, 'before neighbor must skip working/lookup/notice rows')
+  assert.equal(results[0].before?.text, 'Before conversation')
+  assert.equal(results[0].after?.seq, 7, 'after neighbor must skip approval/round rows')
+  assert.equal(results[0].after?.text, 'After conversation')
+})

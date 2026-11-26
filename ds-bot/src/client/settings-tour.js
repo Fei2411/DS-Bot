@@ -3,6 +3,7 @@
 // concise action cue telling the user where to click. Runs once automatically on first
 // open, can be replayed from About DS Bot, and every section has its own focused guide.
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { CloseIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
 import { isImeComposing } from './enter-key.js'
 import { t } from './i18n.js'
@@ -91,9 +92,9 @@ const SECTION_TOURS = {
     { target: 'phone-pair', title: 'Pair a phone', cue: 'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.' },
     { target: 'phone-server', title: 'Server', cue: 'Click "Edit" here only if you host your own relay server.' },
   ],
-  mcp: [
-    { target: 'mcp-switch', title: 'MCP access', cue: 'Turn on this switch so other local agents can reach your Bots.' },
-    { target: 'mcp-add', title: 'Add a client', cue: 'Enter a client name, click "Create token", then pick allowed Bots below.' },
+  api: [
+    { target: 'api-switch', title: 'Enable local API server', cue: 'Turn on this switch so other local agents can reach your Bots.' },
+    { target: 'api-add', title: 'Access tokens', cue: 'Click "New token", then choose the allowed targets and scopes before creating it.' },
   ],
   computer: [
     { target: 'comp-switch', title: 'Computer use', cue: 'Turn on this switch and grant system permissions when prompted.' },
@@ -119,12 +120,12 @@ export const hasSectionTour = page => Object.hasOwn(SECTION_TOURS, page)
 export function stepsForTour(mode, { hasProviders = true, hasAdvancedModels = false } = {}) {
   if (mode === 'full') {
     return [
-      { page: 'general', target: 'search', title: 'Search settings', cue: 'Type a keyword here to jump straight to any setting.' },
+      { page: 'overview', target: 'search', title: 'Search settings', cue: 'Click here to search any setting, Bot, or model.' },
       hasProviders
         ? { page: 'models', target: 'provider-list', title: 'Models', cue: 'Click a provider to enter your API key, or click "+ Add a provider".' }
         : { page: 'bot-models', target: 'bm-bar', title: 'Bot models', cue: 'Select Bots below and pick a model here to switch them together.' },
       { page: 'bots', target: 'new-bot', title: 'Team', cue: 'Click "+ New Bot" to add a member, or click any Bot row to edit it.' },
-      { page: 'phone', target: 'phone-pair', title: 'Connect', cue: 'Use the tabs above for connectors or IM, or click here to pair your phone.' },
+      { page: 'phone', target: 'phone-pair', title: 'Connect', cue: 'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.' },
       { page: 'appearance', target: 'theme-grid', title: 'Appearance', cue: 'Pick a theme, accent color, and layout here. Replay this guide anytime in About DS Bot.' },
     ]
   }
@@ -148,11 +149,14 @@ function sameSpot(a, b) {
 
 function findTourTarget(dialogEl, targetKey) {
   if (!dialogEl || !targetKey || typeof dialogEl.querySelector !== 'function') return null
-  const el = dialogEl.querySelector(`[data-tour="${targetKey}"]`)
-  if (!el || typeof el.getBoundingClientRect !== 'function') return null
-  const rect = el.getBoundingClientRect()
-  if (rect.width <= 0 || rect.height <= 0) return null
-  return el
+  // The same target can sit in two places (the rail and, at phone width, Overview);
+  // the one on screen wins.
+  const all = typeof dialogEl.querySelectorAll === 'function' ? [...dialogEl.querySelectorAll(`[data-tour="${targetKey}"]`)] : [dialogEl.querySelector(`[data-tour="${targetKey}"]`)].filter(Boolean)
+  return all.find((el) => {
+    if (typeof el.getBoundingClientRect !== 'function') return false
+    const rect = el.getBoundingClientRect()
+    return rect.width > 0 && rect.height > 0
+  }) ?? null
 }
 
 function resolveStep(dialogEl, step) {
@@ -468,7 +472,9 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
   },
   h('div', { className: 'bt-tour-head' },
     h('span', { className: 'bt-tour-title' }, t(shownStep.title)),
-    steps.length > 1 ? h('span', { className: 'bt-tour-count' }, `${index + 1} / ${steps.length}`) : null),
+    h('div', { className: 'bt-tour-head-end' },
+      steps.length > 1 ? h('span', { className: 'bt-tour-count' }, `${index + 1} / ${steps.length}`) : null,
+      h('button', { type: 'button', className: 'bt-tour-close', 'aria-label': t('Close'), title: t('Close'), onClick: dismiss }, h(CloseIcon)))),
   h('p', { className: 'bt-tour-cue' }, t(shownStep.cue)),
   h('div', { className: 'bt-tour-foot' },
     h('button', { type: 'button', className: 'bt-tour-skip', onClick: dismiss }, t('Skip')),

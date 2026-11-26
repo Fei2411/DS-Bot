@@ -259,12 +259,24 @@ export function taskGoal(room, input, by, memberOf, memberNames, now = Date.now(
   const number = input.stage === undefined ? goal.current + 1 : Number(input.stage)
   const stage = Number.isInteger(number) ? goal.stages[number - 1] : undefined
   if (stage === undefined) return { error: `The goal of "${room.name}" has no stage ${number}.` }
+  const taskId = String(input.task_id ?? '').trim()
   const name = String(input.bot ?? '').trim()
-  if (name === '') return { error: required('bot', 'task') }
-  const bot = memberOf(name)
-  if (bot === undefined) return { error: `${name} is not a member of "${room.name}". Members: ${memberNames.join(', ')}.` }
-  const task = stage.tasks.find(item => item.botId === bot.id)
-  if (task === undefined) return { error: `${name} has no task in stage ${number} of "${room.name}".` }
+  let task
+  if (taskId !== '') {
+    task = stage.tasks.find(item => item.id === taskId)
+    if (task === undefined) return { error: `Stage ${number} of "${room.name}" has no task ${taskId}.` }
+    if (name !== '') {
+      const bot = memberOf(name)
+      if (bot === undefined) return { error: `${name} is not a member of "${room.name}". Members: ${memberNames.join(', ')}.` }
+      if (task.botId !== bot.id) return { error: `Task ${taskId} in stage ${number} of "${room.name}" does not belong to ${name}.` }
+    }
+  } else {
+    if (name === '') return { error: required('bot', 'task') }
+    const bot = memberOf(name)
+    if (bot === undefined) return { error: `${name} is not a member of "${room.name}". Members: ${memberNames.join(', ')}.` }
+    task = stage.tasks.find(item => item.botId === bot.id)
+    if (task === undefined) return { error: `${name} has no task in stage ${number} of "${room.name}".` }
+  }
   const status = input.status === undefined ? undefined : String(input.status)
   const note = input.note === undefined ? undefined : String(input.note).trim()
   if (status === undefined && note === undefined) return { error: required('status or note', 'task') }
@@ -347,14 +359,15 @@ export function completeGoal(room, input, by, now = Date.now()) {
   return { goal, reply: { event: 'complete', title: goal.title, count: goal.stages.length, text: summary } }
 }
 
-export function pauseGoal(room, by, now = Date.now()) {
+export function pauseGoal(room, by, now = Date.now(), reason) {
   const goal = room.goal
   if (goal === undefined) return { error: noGoal(room) }
   if (goal.status !== 'active') return { error: wrongState(room, goal, 'pause', 'active') }
   goal.status = 'paused'
   goal.pausedBy = by
-  touchGoal(goal, { kind: 'pause', by }, now)
-  return { goal, reply: { event: 'pause', title: goal.title, count: goal.stages.length } }
+  const text = typeof reason === 'string' && reason.trim() !== '' ? reason.trim() : undefined
+  touchGoal(goal, { kind: 'pause', by, ...(text ? { text: headOf(text, EVENT_TEXT_MAX) } : {}) }, now)
+  return { goal, reply: { event: 'pause', title: goal.title, count: goal.stages.length, ...(text ? { text } : {}) } }
 }
 
 export function resumeGoal(room, by, now = Date.now()) {
@@ -442,7 +455,12 @@ export function install(rt) {
       if (stage.status === 'passed') lines.push(`[passed] ${n}. ${stage.title}`)
       else if (index === goal.current) {
         lines.push(`[current] ${n}. ${stage.title} — done when: ${stage.acceptance}`)
-        for (const task of stage.tasks) lines.push(`  - ${nameOf(task.botId)}: ${task.task} [${TASK_LABEL[task.status]}]${task.note ? ` — ${task.note}` : ''}`)
+        const botCounts = new Map()
+        for (const task of stage.tasks) botCounts.set(task.botId, (botCounts.get(task.botId) ?? 0) + 1)
+        for (const task of stage.tasks) {
+          const idTag = (botCounts.get(task.botId) ?? 0) > 1 && task.id ? ` (${task.id})` : ''
+          lines.push(`  - ${nameOf(task.botId)}${idTag}: ${task.task} [${TASK_LABEL[task.status]}]${task.note ? ` — ${task.note}` : ''}`)
+        }
         if (stage.reworks > 0) lines.push(`  Sent back ${stage.reworks} ${stage.reworks === 1 ? 'time' : 'times'}. Latest feedback: ${stage.feedback ?? ''}`)
       } else lines.push(`[next] ${n}. ${stage.title}: ${[...new Set(stage.tasks.map(task => nameOf(task.botId)))].join(', ')}`)
     })
@@ -516,17 +534,47 @@ export function install(rt) {
 
   // A goal message into the room's own Session, which relays it as a new round:
   // the user's draft request, a resume after the user continues, or an idle nudge.
-  async function queueGoalRelay(room, goal, text, senderName = 'You') {
-    const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
-    agent.followup(createUserMessage({
-      content: [{ type: 'text', text }],
-      source: { kind: SOURCE_KIND, form: 'relay', role: 'goal', goal, goalId: room.goal?.id, exchangeId: randomUUID(), senderName, roomId: room.id },
-    }))
-    await ctx.sessions.flush(agent.session)
+  async function queueGoalRelay(room, goal, text, senderName = 'You', origin) {
+    const exchangeId = randomUUID()
+    if (goal !== 'draft') rt.noteRoomRelayQueued?.(room.id, exchangeId)
+    try {
+      const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text }],
+        source: { kind: SOURCE_KIND, form: 'relay', role: 'goal', goal, goalId: room.goal?.id, exchangeId, senderName, roomId: room.id, ...(origin?.via === undefined ? {} : { via: origin.via }) },
+      }))
+      await ctx.sessions.flush(agent.session)
+    } catch (error) {
+      if (goal !== 'draft') rt.roomRelayTaken?.(room.id, exchangeId)
+      throw error
+    }
+  }
+
+  // When a group goal finishes or stops without a pending post_to_group report already
+  // delivering to the primary Main Bot, send a short outcome report to that Main Bot's
+  // own chat so it can inform the user (#1894).
+  function notifyMainGoalOutcome(room, goal, { by, fromOwnChat = false, skip = false } = {}) {
+    if (skip || (goal.status !== 'complete' && goal.status !== 'stopped')) return
+    const mainBotId = rt.state?.mainBotIds?.[0]
+    if (mainBotId === undefined || rt.botOf(mainBotId) === undefined) return
+    if (fromOwnChat && by === mainBotId) return
+    if (rt.hasRoomReportFor?.(room.id, mainBotId) === true) return
+    const text = goal.status === 'complete'
+      ? `Goal "${goal.title}" in "${room.name}" is complete.\nSummary: ${goal.summary}\nEvidence: ${goal.evidence}\nTell the user the outcome if it matters to them.`
+      : `Goal "${goal.title}" in "${room.name}" was stopped${goal.reason ? `: ${goal.reason}` : ''}.\nTell the user if it matters to them.`
+    void rt.deliver({
+      toId: mainBotId,
+      role: 'report',
+      roomId: room.id,
+      note: goal.status === 'complete' ? 'goal complete' : 'goal stopped',
+      text,
+    }).catch(error => rt.warn('ds-bot: goal outcome report for %s failed: %s', room.name, error))
   }
 
   // goal-draft { roomId, text }: the user's one-line ask opens a drafting goal.
-  async function goalDraft(roomId, text) {
+  // `origin` marks an external channel's ask (the API passes via 'api') so the
+  // ledger line it becomes is never mistaken for the owner's own words.
+  async function goalDraft(roomId, text, origin) {
     const room = rt.roomOf(roomId)
     if (room === undefined) return { error: 'Unknown group chat' }
     const input = String(text ?? '').trim()
@@ -540,13 +588,13 @@ export function install(rt) {
     if (result.error !== undefined) return { error: result.error }
     announce(room, result.reply)
     await rt.save()
-    await queueGoalRelay(room, 'draft', `[Goal request]\n${input}`)
+    await queueGoalRelay(room, 'draft', `[Goal request]\n${input}`, 'You', origin)
     return {}
   }
 
   // goal-control { roomId, goalId, action, stopWork? }: the user's pause, resume,
   // stop and clear from the goal panel.
-  async function goalControl(roomId, body = {}) {
+  async function goalControl(roomId, body = {}, origin = undefined) {
     const room = rt.roomOf(roomId)
     if (room === undefined) return { error: 'Unknown group chat' }
     const goal = room.goal
@@ -558,22 +606,29 @@ export function install(rt) {
       announce(room, result.reply)
       await rt.save()
       if (body.stopWork === true) await rt.stopRoomWork(room.id)
+      else void rt.settleRoomReports?.(room.id).catch(() => {})
       return {}
     }
     if (action === 'resume') {
       if (goal.status !== 'paused') return { error: wrongState(room, goal, 'resume', 'paused') }
+      const admin = room.members.map(rt.botOf).filter(Boolean).find(bot => rt.isAdminOf(room, bot.id))
+      if (admin === undefined) return { error: 'This group has no admin. Set one in the group settings first.' }
       const result = resumeGoal(room, 'user')
+      rt.clearRoomIdleStreak?.(room.id)
       announce(room, result.reply)
       await rt.save()
-      await queueGoalRelay(room, 'resume', '[Goal resumed]')
+      await queueGoalRelay(room, 'resume', '[Goal resumed]', 'You', origin)
       return {}
     }
     if (action === 'stop') {
       if (!['drafting', 'active', 'paused'].includes(goal.status)) return { error: wrongState(room, goal, 'stop', 'drafting, active or paused') }
+      const mainBotId = rt.state?.mainBotIds?.[0]
+      const mainWaiting = mainBotId !== undefined && rt.hasRoomReportFor?.(room.id, mainBotId) === true
       const result = stopGoal(room, 'Stopped by the user', 'user')
       announce(room, result.reply)
       await rt.save()
       await rt.stopRoomWork(room.id)
+      notifyMainGoalOutcome(room, result.goal, { by: 'user', skip: mainWaiting })
       return {}
     }
     if (action === 'clear') {
@@ -621,7 +676,16 @@ export function install(rt) {
     goal.revision += 1
     goal.updatedAt = Date.now()
     await rt.save()
-    await queueGoalRelay(room, 'nudge', '[Goal check]', 'DS Bot')
+    try {
+      await queueGoalRelay(room, 'nudge', '[Goal check]', 'DS Bot')
+    } catch (error) {
+      rt.warn('ds-bot: goal check relay in %s failed: %s', room.name, error)
+      goal.idle = true
+      goal.revision += 1
+      goal.updatedAt = Date.now()
+      await rt.save().catch(() => {})
+      void rt.settleRoomReports?.(room.id).catch(() => {})
+    }
   }
 
   // Work can outlive its round, so settlement checks an otherwise quiet room.
@@ -645,6 +709,7 @@ export function install(rt) {
     goal.revision += 1
     goal.updatedAt = Date.now()
     void rt.save().catch(() => {})
+    void rt.settleRoomReports?.(roomId).catch(() => {})
   }
 
   // A user post in the room — its own message or a goal draft — brings the goal
@@ -657,6 +722,37 @@ export function install(rt) {
     goal.revision += 1
     goal.updatedAt = Date.now()
     void rt.save().catch(() => {})
+  }
+
+  // When the group loses its admin (unset in updateRoom or admin Bot deleted), an active
+  // goal cannot drive itself; auto-pause with a notice and settle any waiting roomReports.
+  const goalAdminCleared = (room, reason = 'no admin is assigned') => {
+    if (room?.goal?.status !== 'active') return false
+    const result = pauseGoal(room, 'system', Date.now(), reason)
+    if (result.error !== undefined) return false
+    announce(room, result.reply)
+    void rt.settleRoomReports?.(room.id).catch(() => {})
+    return true
+  }
+
+  // When a member leaves the group, annotate its open current-stage goal tasks so the
+  // admin knows to reassign them with group_goal revise.
+  const goalMemberRemoved = (room, botId) => {
+    const goal = room?.goal
+    if (goal === undefined || (goal.status !== 'active' && goal.status !== 'paused')) return false
+    const stage = goal.stages[goal.current]
+    if (stage === undefined) return false
+    let changed = false
+    for (const task of stage.tasks) {
+      if (task.botId !== botId || (task.status !== 'pending' && task.status !== 'working')) continue
+      task.status = 'pending'
+      task.note = 'Member left the group; use revise to reassign'
+      changed = true
+    }
+    if (!changed) return false
+    goal.revision += 1
+    goal.updatedAt = Date.now()
+    return true
   }
 
   const mark = (roomId, botId, from, to, note) => {
@@ -701,6 +797,7 @@ export function install(rt) {
         description: 'start: every stage, in order. revise: replaces the current stage and every stage after it; passed stages stay. Each stage has a title, its own check (how to tell this stage is done) and its tasks, each for one member by exact name',
       },
       bot: { type: 'string', description: 'task: the member whose task changes. rework: only this member\'s task goes back' },
+      task_id: { type: 'string', description: 'task: optional task id (e.g. t1) to pick one task when the same member has multiple tasks in one stage' },
       stage: { type: 'integer', description: 'task: stage number, 1 for the first; the current stage when left out' },
       status: { type: 'string', enum: ['pending', 'working', 'reported', 'done'], description: 'task: the task\'s new status' },
       note: { type: 'string', description: 'task: where the task stands, in a few words' },
@@ -729,7 +826,7 @@ export function install(rt) {
           ? `Only ${admin.name}, the admin of "${room.name}", or a Main Bot changes its goal. Tell the admin in the group.`
           : `Only a Main Bot changes the goal of "${room.name}".`
       }
-      if ((action === 'draft' || action === 'start') && admin === undefined) {
+      if ((action === 'draft' || action === 'start' || action === 'resume') && admin === undefined) {
         return `"${room.name}" has no admin, and a goal needs one to run it. Set an admin with update_group first.`
       }
       const of = memberOf(room)
@@ -778,21 +875,41 @@ export function install(rt) {
           result = resumeGoal(room, self)
           next = 'Resumed. Take the next step now.'
           break
-        case 'stop':
+        case 'stop': {
           result = stopGoal(room, args.reason, self)
           next = 'Stopped.'
-          // The caller keeps running; the other members' work stops.
-          post = async () => {
-            for (const id of room.members.filter(other => other !== self)) await rt.stopMemberWork?.(room.id, id)
-          }
+          // Inside the target group, keep the caller running while stopping other members,
+          // waiting slots, and queued relays; outside it, stop the whole room's active work.
+          const fromInsideTargetRoom = rt.groupOwners.get(exec.agent?.id)?.roomId === room.id
+            || rt.taskOwners?.get(exec.agent?.id)?.roomId === room.id
+          post = fromInsideTargetRoom
+            ? async () => {
+              if (rt.stopOtherRoomWork !== undefined) await rt.stopOtherRoomWork(room.id, self)
+              else for (const id of room.members.filter(other => other !== self)) await rt.stopMemberWork?.(room.id, id)
+            }
+            : async () => {
+              if (rt.stopRoomWork !== undefined) await rt.stopRoomWork(room.id)
+              else for (const id of room.members.filter(other => other !== self)) await rt.stopMemberWork?.(room.id, id)
+            }
           break
+        }
         default:
           return `Unknown action ${action}.`
       }
       if (result.error !== undefined) return result.error
+      if (['start', 'revise', 'pass', 'rework', 'resume'].includes(action)) rt.clearRoomIdleStreak?.(room.id)
+      const mainBotId = rt.state?.mainBotIds?.[0]
+      const mainWaiting = mainBotId !== undefined && rt.hasRoomReportFor?.(room.id, mainBotId) === true
+      const fromOwnChat = !rt.groupOwners.has(exec.agent?.id) && !rt.taskOwners?.has(exec.agent?.id)
       if (result.reply !== undefined) announce(room, result.reply)
       await rt.save()
       if (post !== undefined) await post()
+      if (action === 'complete' || action === 'stop') {
+        notifyMainGoalOutcome(room, result.goal, { by: self, fromOwnChat, skip: mainWaiting })
+      }
+      if (action === 'complete' || action === 'stop' || action === 'pause') {
+        void rt.settleRoomReports?.(room.id).catch(() => {})
+      }
       const ledger = goalLedger(room, member)
       return next === '' ? ledger : `${ledger}\n${next}`
     },
@@ -800,6 +917,7 @@ export function install(rt) {
 
   Object.assign(rt, {
     goalBlock, goalLedger, goalDraft, goalControl, goalDrive, goalSettled, goalUserMessage, goalUserStopped,
+    goalAdminCleared, goalMemberRemoved,
     goalTaskWorking: (roomId, botId) => mark(roomId, botId, 'pending', 'working'),
     goalTaskReported: (roomId, botId) => mark(roomId, botId, 'working', 'reported'),
     goalTaskReset: (roomId, botId, note) => mark(roomId, botId, 'working', 'pending', note),

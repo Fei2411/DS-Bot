@@ -22,7 +22,7 @@
 // `--cursor-modes` lists the modes cursor-agent 2026.11.05 does (agent, plan, ask)
 // and refuses any other, as it does.
 import { spawn } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
@@ -33,6 +33,18 @@ const agyModes = process.argv.includes('--agy-modes')
 const thoughtLevels = process.argv.includes('--thought-levels')
 const legacyModels = process.argv.includes('--legacy-models')
 const loadThoughtLevel = process.argv.includes('--load-thought-level')
+// `--agy-catalog` shapes the catalog like agy acp does: mixed base entries in the
+// model config (one of them ending in a level word), concrete variants in
+// models.availableModels. `--degraded-catalog` answers with the partial snapshot
+// the CLI serves while its catalog is still being fetched (#2145); the `models`
+// listing command always prints the full catalog. `--emit-config-update` sends a
+// config_option_update notice (config only, no models key) after a config switch,
+// like agy does.
+const agyCatalog = process.argv.includes('--agy-catalog')
+const degradedCatalog = process.argv.includes('--degraded-catalog')
+const emitConfigUpdate = process.argv.includes('--emit-config-update')
+// Marks each emitted config_option_update so a test can wait for it exactly.
+const noticeFile = process.argv.find(arg => arg.startsWith('--notice-file='))?.slice('--notice-file='.length)
 const modelResetsThought = process.argv.includes('--model-resets-thought')
 const preserveThoughtOnModel = process.argv.includes('--preserve-thought-on-model')
 const stateFile = process.argv.find(arg => arg.startsWith('--state-file='))?.slice('--state-file='.length)
@@ -41,6 +53,12 @@ const rejectHttpMcp = process.argv.includes('--reject-http-mcp')
 const rejectMcp = process.argv.includes('--reject-mcp')
 const noHttpMcp = process.argv.includes('--no-http-mcp')
 const failFirstInit = process.argv.includes('--fail-first-init')
+const failLoad = process.argv.includes('--fail-load')
+const recordAt = process.argv.indexOf('--record')
+const recordPath = recordAt === -1 ? undefined : process.argv[recordAt + 1]
+const record = (method, params) => {
+  if (recordPath !== undefined) appendFileSync(recordPath, `${JSON.stringify({ method, params })}\n`)
+}
 let initCount = 0
 const authRequired = process.argv.includes('--auth-required')
 const noImage = process.argv.includes('--no-image')
@@ -61,6 +79,40 @@ const saveSaved = () => {
   if (stateFile) writeFileSync(stateFile, JSON.stringify(Object.fromEntries(sessions)))
 }
 const requests = new Map()
+
+// The CLI's plain listing command: full catalog on stdout, progress on stderr.
+const AGY_LISTING = [
+  ['fake-large-low', 'Fake Large (Low)'],
+  ['fake-large-medium', 'Fake Large (Medium)'],
+  ['fake-large-high', 'Fake Large (High)'],
+  ['fake-large-xhigh', 'Fake Large (XHigh)'],
+  ['fake-carbon-medium', 'Fake Carbon (Medium)'],
+  ['fake-carbon-high', 'Fake Carbon (High)'],
+  ['fake-carbon-low', 'Fake Carbon (Low)'],
+  ['fake-small', 'Fake Small'],
+  ['fake-gpt-medium', 'Fake GPT (Medium)'],
+]
+if (process.argv.includes('models')) {
+  process.stderr.write('Fetching available models...\n')
+  for (const [id, name] of AGY_LISTING) process.stdout.write(`${id}\t${name}\n`)
+  process.exit(0)
+}
+const agyModelOptions = [
+  { id: 'fake-large', name: 'Fake Large' },
+  { id: 'fake-small', name: 'Fake Small' },
+  ...(degradedCatalog ? [] : [{ id: 'fake-carbon', name: 'Fake Carbon' }, { id: 'fake-gpt-medium', name: 'Fake GPT (Medium)' }]),
+]
+const agyVariantEntries = AGY_LISTING.filter(([id]) => degradedCatalog ? id.startsWith('fake-large-') || id === 'fake-small' : true).map(([modelId, name]) => ({ modelId, name }))
+const agyModelIds = agyModelOptions.map(entry => entry.id)
+// What a model switch reports as thinking levels, as agy does per model.
+const agyThoughtOptionsOf = model => (model === 'fake-carbon' ? ['low', 'medium', 'high']
+  : model === 'fake-large' ? ['low', 'medium', 'high', 'xhigh']
+    : [])
+const agyConfigOptions = (session, modelOptions = agyModelOptions) => [
+  { id: 'model', category: 'model', name: 'Model', currentValue: session.model ?? 'fake-large', options: modelOptions },
+  { id: 'thought_level', category: 'thought_level', name: 'Thinking Level', currentValue: session.thoughtLevel, options: agyThoughtOptionsOf(session.model ?? 'fake-large').map(value => ({ value, name: value })) },
+  { id: 'mode', category: 'mode', name: 'Mode', currentValue: session.mode, options: MODES.map(value => ({ value, name: value })) },
+]
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`)
 const reply = (id, result) => send({ jsonrpc: '2.0', id, result })
@@ -196,6 +248,13 @@ async function runPrompt(session, prompt, requestId) {
       ],
     })
     const outcome = answer?.result?.outcome
+    if (process.argv.includes('--stall-after-permission')) {
+      session.pendingPrompt = requestId
+      return
+    }
+    if (process.argv.includes('--compact-after-permission')) {
+      send({ jsonrpc: '2.0', method: '_cognition.ai/compaction', params: { status: 'completed', sessionId } })
+    }
     finish(outcome?.outcome === 'selected' && !outcome.optionId.startsWith('reject') ? `allowed via ${outcome.optionId}` : 'denied')
     return
   }
@@ -323,6 +382,7 @@ process.stdin.on('data', (chunk) => {
         break
       }
       case 'session/new': {
+        record('session/new', params)
         if (authRequired) { send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Authentication required' } }); break }
         const servers = params.mcpServers ?? []
         if (rejectMcp && servers.length > 0) { fail(id, 'Invalid params: mcpServers unsupported'); break }
@@ -332,7 +392,7 @@ process.stdin.on('data', (chunk) => {
           fail(id, 'Invalid params: McpServerStdio malformed'); break
         }
         const defaultThought = String(params.cwd ?? '').includes('low-ws') ? 'low' : 'medium'
-        const session = { id: `acp-${++nextId}`, mcp: undefined, mode: MODES[0], thoughtLevel: defaultThought, ...(legacyModels ? { model: 'legacy-std' } : {}) }
+        const session = { id: `acp-${++nextId}`, mcp: undefined, mode: MODES[0], thoughtLevel: defaultThought, ...(legacyModels ? { model: 'legacy-std' } : {}), ...(agyCatalog ? { model: 'fake-large' } : {}) }
         if (server !== undefined) {
           session.mcp = server.command !== undefined
             ? { command: server.command, args: server.args ?? [], env: server.env }
@@ -342,7 +402,7 @@ process.stdin.on('data', (chunk) => {
         saveSaved()
         // Devin lists its commands before it answers session/new.
         update(session.id, { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'status', description: 'Show status' }, ...(listsCompact ? [{ name: 'compact', description: 'Force conversation compaction' }] : [])] })
-        const configOptions = [
+        const configOptions = agyCatalog ? agyConfigOptions(session) : [
           ...(legacyModels ? [] : [{ id: 'model', category: 'model', name: 'Model', options: [{ id: 'fake-large', name: 'Fake Large' }, { id: 'fake-small', name: 'Fake Small' }] }]),
           ...(thoughtLevels ? [{ id: 'thought_level', category: 'thought_level', name: 'Thinking Level', currentValue: defaultThought, options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }] : []),
           { id: 'mode', category: 'mode', name: 'Mode', currentValue: MODES[0], options: MODES.map(value => ({ value, name: value })) },
@@ -352,6 +412,10 @@ process.stdin.on('data', (chunk) => {
             { modelId: 'legacy-std', name: 'Legacy Standard' },
             { modelId: 'legacy-fast', name: 'Legacy Fast' },
           ],
+        } : agyCatalog ? {
+          // The degraded snapshot: the config lists two bases, the variants stop
+          // at them, exactly what a mid-build catalog fetch returns.
+          availableModels: agyVariantEntries,
         } : thoughtLevels ? {
           availableModels: [
             { modelId: 'fake-large-low', name: 'Fake Large (Low)' },
@@ -365,6 +429,8 @@ process.stdin.on('data', (chunk) => {
         break
       }
       case 'session/load': {
+        record('session/load', params)
+        if (failLoad) { fail(id, 'session not found'); break }
         const servers = params.mcpServers ?? []
         if (rejectMcp && servers.length > 0) { fail(id, 'Invalid params: mcpServers unsupported'); break }
         if (rejectHttpMcp && servers.some(entry => entry.type === 'http')) { fail(id, 'Invalid params: http mcp unsupported'); break }
@@ -390,13 +456,25 @@ process.stdin.on('data', (chunk) => {
         break
       }
       case 'session/set_config_option':
-        if (params.configId === 'model' && (legacyModels || !['fake-large', 'fake-small'].includes(params.value))) fail(id, `unknown model ${params.value}`)
+        if (params.configId === 'model' && (legacyModels || !(agyCatalog ? agyModelIds : ['fake-large', 'fake-small']).includes(params.value))) fail(id, `unknown model ${params.value}`)
         else if (params.configId === 'mode' && !MODES.includes(params.value)) { refusedModes++; fail(id, 'Invalid params') }
         else if (params.configId === 'thought_level' && !['low', 'medium', 'high', 'xhigh'].includes(params.value)) fail(id, `unknown thought_level ${params.value}`)
         else {
           if (params.configId === 'model') {
             const session = sessions.get(params.sessionId)
             session.model = params.value
+            if (agyCatalog && emitConfigUpdate) {
+              // agy answers with the full config (thought levels per model, no
+              // models key) and repeats it as a config_option_update notice.
+              saveSaved()
+              const options = agyConfigOptions(session)
+              reply(id, { configOptions: options })
+              setTimeout(() => {
+                update(params.sessionId, { sessionUpdate: 'config_option_update', configOptions: options })
+                if (noticeFile !== undefined) appendFileSync(noticeFile, `${params.sessionId}\n`)
+              }, 10)
+              break
+            }
             if (modelResetsThought || preserveThoughtOnModel) {
               if (modelResetsThought) session.thoughtLevel = params.value === 'fake-small' ? 'low' : 'medium'
               saveSaved()
@@ -415,10 +493,11 @@ process.stdin.on('data', (chunk) => {
         else { sessions.get(params.sessionId).mode = params.modeId; saveSaved(); reply(id, {}) }
         break
       case 'session/set_model':
-        if (!['legacy-std', 'legacy-fast', 'fake-large', 'fake-small'].includes(params.modelId)) fail(id, `unknown model ${params.modelId}`)
+        if (!['legacy-std', 'legacy-fast', 'fake-large', 'fake-small', 'fake-carbon', 'fake-gpt-medium'].includes(params.modelId)) fail(id, `unknown model ${params.modelId}`)
         else { sessions.get(params.sessionId).model = params.modelId; saveSaved(); reply(id, {}) }
         break
       case 'session/prompt':
+        record('session/prompt', params)
         if (lateCancelReply) {
           const session = sessions.get(params.sessionId)
           if (session?.pendingPrompt !== undefined) {

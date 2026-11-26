@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 
 const bundle = await build({
-  stdin: { contents: "export { botState, BotAvatar, BotMark } from './src/client/mark.js'\nexport { SHELL_CSS } from './src/client/styles.js'", resolveDir: dirname(dirname(fileURLToPath(import.meta.url))) },
+  stdin: { contents: "export { botState, BotAvatar, BotMark, RoomAvatar } from './src/client/mark.js'\nexport { SHELL_CSS } from './src/client/styles.js'", resolveDir: dirname(dirname(fileURLToPath(import.meta.url))) },
   bundle: true, format: 'cjs', platform: 'node', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -25,7 +25,24 @@ const react = {
   useState: initial => [states.length > 0 ? states.shift() : initial, value => sets.push(value)], useEffect: () => {}, useRef: current => ({ current }), useLayoutEffect: () => {}, Fragment: 'fragment',
 }
 runInNewContext(bundle.outputFiles[0].text, { module, exports: module.exports, require: name => (name === 'react' ? react : {}) })
-const { botState, BotAvatar, BotMark, SHELL_CSS } = module.exports
+const { botState, BotAvatar, BotMark, RoomAvatar, SHELL_CSS } = module.exports
+
+test('a group photo replaces its collage at all sizes and a broken photo falls back', () => {
+  const image = 'data:image/png;base64,iVBORw0KGgo='
+  const room = { id: 'r', members: ['b', 'c'], avatar: { image } }
+  const roster = { byId: { b: { id: 'b' }, c: { id: 'c' } } }
+  for (const size of [18, 36, 64]) {
+    assert.equal(RoomAvatar({ room, roster, size }).children[0].props.src, image)
+  }
+  sets.length = 0
+  RoomAvatar({ room, roster }).children[0].props.onError()
+  assert.deepEqual(sets, [image])
+  states.push(image)
+  assert.equal(RoomAvatar({ room, roster }).props.className, 'bt-cluster')
+  assert.equal(RoomAvatar({ room: { ...room, avatar: undefined }, roster }).props.className, 'bt-cluster')
+  states.push(image)
+  assert.equal(RoomAvatar({ room: { ...room, avatar: { image: `${image}AA` } }, roster }).children[0].type, 'img')
+})
 
 test('a Bot that waits for work it handed on has a mark of its own, behind a running turn and a question', () => {
   assert.equal(botState(false, 'waiting', false), 'waiting')

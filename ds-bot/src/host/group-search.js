@@ -8,14 +8,23 @@ const SEARCH_MAX = 20
 const TERMS_MAX = 8
 const QUERY_MAX = 200
 
-// One result line: what the chat shows of a record. Records without text (a pause, a
-// failed turn) are skipped: there is nothing to find in them.
+// One result line: only real chat messages (skipping ledger anchors, round summaries,
+// notices, lookups, and blank/working/approval records).
 function lineOf(record) {
-  if (typeof record?.text !== 'string' || record.text.trim() === '') return undefined
+  if (record === undefined || record.event !== undefined || record.kind !== undefined) return undefined
+  if (typeof record.text !== 'string' || record.text.trim() === '') return undefined
   const line = { seq: record.seq, time: record.time, text: record.text }
   if (record.botId !== undefined) line.botId = record.botId
   if (record.who !== undefined) line.name = record.who
   return line
+}
+
+const neighborOf = (records, start, step) => {
+  for (let i = start; i >= 0 && i < records.length; i += step) {
+    const line = lineOf(records[i])
+    if (line !== undefined) return line
+  }
+  return undefined
 }
 
 // Newest first, every word must be in the line, at most SEARCH_MAX hits. Records are
@@ -35,10 +44,10 @@ export function searchGroupBook(records, query, options) {
   for (let at = records.length - 1; at >= 0; at -= 1) {
     const record = records[at]
     if (before !== undefined && !(Number.isInteger(record?.seq) && record.seq < before)) continue
-    const text = lower(at, record?.text)
-    if (text === '' || !terms.every(term => text.includes(term))) continue
     const hit = lineOf(record)
     if (hit === undefined) continue
+    const text = lower(at, record.text)
+    if (text === '' || !terms.every(term => text.includes(term))) continue
     if (skipped < offset) {
       skipped += 1
       continue
@@ -49,8 +58,8 @@ export function searchGroupBook(records, query, options) {
     }
     results.push({
       ...hit,
-      before: at > 0 ? lineOf(records[at - 1]) : undefined,
-      after: at + 1 < records.length ? lineOf(records[at + 1]) : undefined,
+      before: neighborOf(records, at - 1, -1),
+      after: neighborOf(records, at + 1, 1),
     })
   }
   return { results, hasMore }

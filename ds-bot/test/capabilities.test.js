@@ -130,7 +130,7 @@ test('feature catalog is sorted, summarized, empty when absent, and frozen until
   await rt.capabilitySave(mcp('alpha'), { ui: true })
   rt.state.bots.chief.packs = ['zebra', 'alpha']
   const text = render('chief')
-  assert.match(text, /# Feature packs\n- alpha: Echo service\n- zebra: Long x{115} \(0 tools\)\nCall use_pack/)
+  assert.match(text, /# Feature packs\n- alpha: Echo service\n- zebra: Long x{115}\nCall use_pack/)
   rt.state.bots.chief.packs = []
   assert.equal(render('chief'), text)
   assert.equal(render('room-chief'), '')
@@ -208,8 +208,9 @@ test('use_pack tools report empty packs, always-on entries, failures and known c
   assert.equal(await tool('use_pack').execute({ name: 'echo', reason: 'test' }, { agent }), 'echo: ready')
   assert.equal(await rt.usePack('chief', 'empty'), 'empty: ready (empty pack)')
   const text = ctx.sections.get('feature-packs').text({ agent })
-  assert.match(text, /echo: Echo service \(1 tools\)/)
-  assert.match(text, /empty: Includes no items \(0 tools\)/)
+  assert.match(text, /- echo: Echo service\n/)
+  assert.match(text, /- empty: Includes no items\n/)
+  assert.doesNotMatch(text, /\(\d+ tools\)/, 'volatile runtime toolCounts must not appear in prompt text')
   await rt.changeCapabilityAttachment('attach', { name: 'echo' }, 'chief')
   assert.match(await rt.usePack('chief', 'echo'), /already always on/)
   assert.match(await tool('use_pack').execute({ name: 'missing' }, { agent }), /not in your/)
@@ -660,10 +661,10 @@ test('capability tool descriptions and attach results explain approval', async t
     {
       transport: 'How to reach an MCP server: a local command or an HTTP URL',
       command: 'Program that starts a local MCP server',
-      args: 'Arguments for command',
-      env: 'Environment variables for command; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value',
-      url: 'MCP server URL; write $DSH_SECRET_<NAME> in the path or query to insert a saved secret, URL-encoded. Prefer headers for keys',
-      headers: 'HTTP headers; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value',
+      args: 'Arguments for command; write $DSH_SECRET_<NAME> or a one-time secret-ref:<32hex> handle instead of a raw key',
+      env: 'Environment variables for command; write $DSH_SECRET_<NAME> or a one-time secret-ref:<32hex> handle to insert a secret instead of the value',
+      url: 'MCP server URL; write $DSH_SECRET_<NAME> or a one-time secret-ref:<32hex> handle in the path or query to insert a secret, URL-encoded. Prefer headers for keys',
+      headers: 'HTTP headers; write $DSH_SECRET_<NAME> or a one-time secret-ref:<32hex> handle to insert a secret instead of the value',
       content: 'Skill instructions',
     },
   )

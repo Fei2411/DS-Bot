@@ -261,14 +261,34 @@ test('the pinned DSH conversation service has the draft intake the keeper uses',
   const chatMsg = await readFile(join(dirname(chatTypes), 'lib', 'types', 'client', 'conversation-nodes', 'message.d.ts'), 'utf8')
   assert.match(chatMsg, /user: ReferencedUserMessageNode;/)
   assert.match(chatMsg, /steering: ReferencedSteeringMessageNode;/)
+  const uiSessionTypes = require.resolve('@deepseek-ai/dsh-client-ui-session/package.json')
+  const uiSession = await readFile(join(dirname(uiSessionTypes), 'lib', 'types', 'client', 'index.d.ts'), 'utf8')
+  assert.match(uiSession, /useProjection: UseProjection;/)
+  const agentTypes = require.resolve('@deepseek-ai/dsh-agent/package.json')
+  const agent = await readFile(join(dirname(agentTypes), 'lib', 'types', 'types.d.ts'), 'utf8')
+  assert.match(agent, /readonly 'next-step': readonly UserMessage\[\];/)
+  assert.match(agent, /inbox: InboxWireState;/)
 })
 
 
-function loadKeeper(localStorage) {
+function loadKeeper(localStorage, extraGlobals = {}) {
   let cursor = 0
   const slots = []
   const pendingEffects = []
   const depsChanged = (prev, next) => prev === undefined || next === undefined || prev.length !== next.length || next.some((v, i) => !Object.is(v, prev[i]))
+  const scheduleEffect = (fn, deps) => {
+    const i = cursor++
+    const prev = slots[i]
+    if (prev === undefined || depsChanged(prev.deps, deps)) {
+      const cell = prev ?? {}
+      cell.deps = deps
+      slots[i] = cell
+      pendingEffects.push(() => {
+        cell.cleanup?.()
+        cell.cleanup = fn()
+      })
+    }
+  }
   const react = {
     createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
     Fragment: 'fragment',
@@ -277,14 +297,8 @@ function loadKeeper(localStorage) {
       if (slots[i] === undefined) slots[i] = { current: init }
       return slots[i]
     },
-    useEffect: (fn, deps) => {
-      const i = cursor++
-      const prev = slots[i]
-      if (prev === undefined || depsChanged(prev.deps, deps)) {
-        slots[i] = { deps }
-        pendingEffects.push(fn)
-      }
-    },
+    useEffect: scheduleEffect,
+    useLayoutEffect: scheduleEffect,
     useState: init => [typeof init === 'function' ? init() : init, () => {}],
     useMemo: make => make(),
     useCallback: fn => fn,
@@ -295,6 +309,7 @@ function loadKeeper(localStorage) {
     module: mod, exports: mod.exports, localStorage,
     console: { warn: (...args) => warnings.push(args) },
     require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
+    ...extraGlobals,
   })
   const render = (props) => {
     cursor = 0
@@ -302,13 +317,17 @@ function loadKeeper(localStorage) {
     mod.exports.DraftKeeper(props)
     for (const fn of pendingEffects.splice(0)) fn()
   }
+  const unmount = () => {
+    for (const cell of slots) cell?.cleanup?.()
+    slots.length = 0
+  }
   // A fresh mount of the same module: the component's refs start empty, the kept draft
   // stays in storage, as when the user leaves the chat and comes back.
   const remount = (props) => {
-    slots.length = 0
+    unmount()
     render(props)
   }
-  return { ...mod.exports, render, remount, warnings }
+  return { ...mod.exports, render, remount, unmount, warnings }
 }
 
 test('DraftKeeper releases refused drafts, tells the user, and does not retry on every later send', () => {
@@ -487,13 +506,19 @@ const chatSnapshot = (messages = []) => {
   return { views: { get: target => (target === 'chat' ? { order, nodes: { get: k => map.get(k), values: () => [...map.values()] } } : undefined) } }
 }
 
-const sessionHooks = ({ session = { openState: 'open', pendingSubmissions: [] }, messages = [] } = {}) => {
+const sessionHooks = ({ session = { openState: 'open', pendingSubmissions: [] }, messages = [], nextStep = [] } = {}) => {
   const conv = { messages }
+  const inbox = { 'next-step': nextStep }
   return {
     session,
     conv,
+    inbox,
     useSession: pick => pick(session),
     useConversation: pick => pick(chatSnapshot(conv.messages)),
+    useProjection: (key, pick) => {
+      const value = key === 'inbox' ? inbox : undefined
+      return typeof pick === 'function' ? pick(value) : value
+    },
   }
 }
 
@@ -641,6 +666,7 @@ const draftKeeperProps = (state, setDrafts, host = sessionHooks()) => ({
   useInput: pick => pick(state),
   useSession: host.useSession,
   useConversation: host.useConversation,
+  useProjection: host.useProjection,
 })
 
 test("a send never clears another tab's draft, and each tab still clears its own admitted sent text (#2003 review)", () => {
@@ -830,4 +856,225 @@ test("a different draft in another Session does not consume the sent text (#2003
   stateA.phase = 'plain'
   page.remount(propsA)
   assert.deepEqual(setA, ['other'], "B did not consume A's admitted sent text")
+})
+
+test('isSentAdmitted normalizes quote-reply boundaries (blank lines and inline quote separator) without collapsing plain text (#2003 review)', () => {
+  const baseline = captureAdmissionBaseline()
+  // Single newline between quote and body vs DSH serializeDraftPrompt blank line.
+  assert.equal(isSentAdmitted(
+    { text: '> quote\nhello', baseline, admitted: false },
+    { pendingSubmissions: [{ requestId: 'r1', text: '> quote\n\nhello' }] },
+  ), true)
+  // Inline QuoteNode clipboard projection (`> quote Please explain`) vs serialized `> quote\n\nPlease explain`.
+  assert.equal(isSentAdmitted(
+    { text: '> quote Please explain', baseline, admitted: false },
+    { chat: chatSnapshot([{ seq: 1, text: '> quote\n\nPlease explain' }]).views.get('chat') },
+  ), true)
+  // Multi-line quote + intro + reply body across queue and next-step channels.
+  assert.equal(isSentAdmitted(
+    { text: 'intro\n> line 1\n> line 2\nPlease explain', baseline, admitted: false },
+    { queue: [{ id: 'q1', source: { kind: 'user' }, content: [{ type: 'text', text: 'intro\n\n> line 1\n> line 2\n\nPlease explain' }] }] },
+  ), true)
+  assert.equal(isSentAdmitted(
+    { text: 'intro > line 1\n> line 2 Please explain', baseline, admitted: false },
+    { nextStep: [{ id: 's1', source: { kind: 'user' }, content: [{ type: 'text', text: 'intro\n\n> line 1\n> line 2\n\nPlease explain' }] }] },
+  ), true)
+  // Plain text blank-line differences and mismatched replies must NOT falsely match.
+  assert.equal(isSentAdmitted(
+    { text: 'hello\nworld', baseline, admitted: false },
+    { pendingSubmissions: [{ requestId: 'r2', text: 'hello\n\nworld' }] },
+  ), false)
+  assert.equal(isSentAdmitted(
+    { text: 'hello world', baseline, admitted: false },
+    { pendingSubmissions: [{ requestId: 'r3', text: 'hello\n\nworld' }] },
+  ), false)
+  assert.equal(isSentAdmitted(
+    { text: '> quote\nhello', baseline, admitted: false },
+    { pendingSubmissions: [{ requestId: 'r4', text: '> quote\n\nother' }] },
+  ), false)
+})
+
+test('DraftKeeper clears an admitted quote+body reply even when editor draft and serialized prompt differ at the quote boundary (#2003 review)', () => {
+  for (const draftText of ['> quoted text\nPlease explain', '> quoted text Please explain']) {
+    const ls = memoryStorage()
+    const { render, remount } = loadKeeper(ls)
+    const setDrafts = []
+    const state = { draft: draftText, attachmentIds: [], phase: 'plain', queue: [] }
+    const host = sessionHooks()
+    const props = draftKeeperProps(state, setDrafts, host)
+
+    render(props)
+    state.phase = 'sending'
+    render(props)
+
+    // Host serializes quote boundary with a blank line (`\n\n`).
+    host.conv.messages = [{ seq: 1, text: '> quoted text\n\nPlease explain' }]
+    state.phase = 'plain'
+    remount(props)
+    assert.deepEqual(setDrafts, [''], `must clear stale quote reply draft: ${JSON.stringify(draftText)}`)
+    assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), {})
+  }
+})
+
+test('DraftKeeper uses the pre-send baseline so fast local Host acceptance before the sending effect still clears on return (#2003 review)', () => {
+  const ls = memoryStorage()
+  const { render, remount } = loadKeeper(ls)
+  const setDrafts = []
+  const state = { draft: 'fast local send', attachmentIds: [], phase: 'plain', queue: [] }
+  const host = sessionHooks({ messages: [{ seq: 2, text: 'earlier' }] })
+  const props = draftKeeperProps(state, setDrafts, host)
+
+  // Plain render establishes pre-send baseline at seq 2.
+  render(props)
+
+  // Fast local Host admits seq 3 BEFORE DraftKeeper's 'sending' effect runs.
+  state.phase = 'sending'
+  host.conv.messages = [{ seq: 2, text: 'earlier' }, { seq: 3, text: 'fast local send' }]
+  render(props)
+
+  // User navigates away and later returns with stale sent text in editor.
+  state.phase = 'plain'
+  remount(props)
+  assert.deepEqual(setDrafts, [''], 'fast local acceptance must not be absorbed into the send baseline')
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), {})
+})
+
+test('DraftKeeper confirms steering admission via inbox next-step projection when pendingSubmissions already retired (#2003 review)', () => {
+  const ls = memoryStorage()
+  const { render, remount } = loadKeeper(ls)
+  const setDrafts = []
+  const state = { draft: 'stop and check tests', attachmentIds: [], phase: 'plain', queue: [] }
+  const host = sessionHooks({
+    nextStep: [{ id: 'old-steer', source: { kind: 'user' }, content: [{ type: 'text', text: 'stop and check tests' }] }],
+  })
+  const props = draftKeeperProps(state, setDrafts, host)
+
+  render(props)
+  state.phase = 'sending'
+  render(props)
+
+  // Failed/aborted steer: only the pre-existing baseline next-step item exists -> must NOT clear.
+  state.phase = 'plain'
+  remount(props)
+  assert.deepEqual(setDrafts, [], 'pre-existing next-step item must not falsely confirm a failed steer')
+
+  // Retry steer: Host admits a new next-step item and retires pendingSubmissions before step completes.
+  state.phase = 'sending'
+  render(props)
+  host.inbox['next-step'] = [
+    ...host.inbox['next-step'],
+    { id: 'new-steer', source: { kind: 'user' }, content: [{ type: 'text', text: 'stop and check tests' }] },
+  ]
+  state.phase = 'plain'
+  remount(props)
+  assert.deepEqual(setDrafts, [''], 'new inbox next-step item confirms steering admission and clears stale draft')
+})
+
+test('entering sending or dropPartDraft cancels a pending 300ms debounced draft write and syncs cross-tab hasLivePartDraft (#2003 review)', async () => {
+  const ls = memoryStorage()
+  const { render, remount } = loadKeeper(ls, { setTimeout, clearTimeout })
+  const setDrafts = []
+  const state = { draft: 'typed just before enter', attachmentIds: [], phase: 'plain', queue: [] }
+  const host = sessionHooks()
+  const props = draftKeeperProps(state, setDrafts, host)
+
+  // Plain typing schedules a 300ms debounced write (not in storage yet).
+  render(props)
+  assert.equal(ls.getItem(STORAGE.drafts), null, 'debounced write should still be pending')
+
+  // User presses Enter within 300ms -> must clear and cancel the debounce timer.
+  state.phase = 'sending'
+  render(props)
+  await new Promise(resolve => setTimeout(resolve, 350))
+  assert.equal(ls.getItem(STORAGE.drafts), '{}', 'cancelled debounce timer must not resurrect the sent draft')
+
+  // Another tab writes a fresh draft directly into shared storage while this tab's cache holds '{}'.
+  ls.setItem(STORAGE.drafts, JSON.stringify({ bee: { part: 'bee-2', text: 'typed just before enter' } }))
+  host.conv.messages = [{ seq: 1, text: 'typed just before enter' }]
+  state.phase = 'plain'
+  remount(props)
+  assert.deepEqual(setDrafts, [], 'synced hasLivePartDraft must detect another tab writing a fresh draft')
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'typed just before enter' } })
+
+  // Direct dropPartDraft also cancels a pending 300ms debounced write for that part.
+  const ls2 = memoryStorage()
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: 'debounced drop', files: [] }, ls2, { deferMs: 300 })
+  dropPartDraft({ chatId: 'bee', part: 'bee-2' }, ls2)
+  await new Promise(resolve => setTimeout(resolve, 350))
+  assert.equal(ls2.getItem(STORAGE.drafts), '{}')
+})
+
+test('clearing an admitted sent draft lands a rescued question-card draft cleanly without re-injecting the sent text (#2003 review)', () => {
+  const ls = memoryStorage()
+  const { render, remount } = loadKeeper(ls)
+  const setDrafts = []
+  const consumed = []
+  let rescuedMap = {}
+  const state = { draft: 'sent message', attachmentIds: [], phase: 'plain', queue: [], occurrences: [] }
+  const host = sessionHooks()
+  const props = {
+    sessionId: 'bee-2',
+    inputActions: {
+      setDraft: (text) => { setDrafts.push(text); state.draft = text },
+      addAttachments: () => true,
+    },
+    actions: {
+      draftFiles: () => [],
+      restoreDraftFiles: () => [],
+      releaseDraftFiles: () => {},
+      reopenPastes: () => {},
+      consumeRescuedDraft: (chatId, sessionId, text) => {
+        consumed.push([chatId, sessionId, text])
+        rescuedMap = {}
+      },
+    },
+    useRoster: pick => pick(roster),
+    useInput: pick => pick(state),
+    useSession: host.useSession,
+    useConversation: host.useConversation,
+    useProjection: host.useProjection,
+    useRescuedDrafts: pick => pick(rescuedMap),
+  }
+
+  render(props)
+  state.phase = 'sending'
+  render(props)
+
+  // While away, Host admits the sent message and an interrupted question card rescues a draft.
+  rescuedMap = { bee: 'rescued answer' }
+  state.phase = 'plain'
+  host.session.openState = 'loading'
+  remount(props)
+  assert.deepEqual(setDrafts, [], 'waits while session is loading before deciding')
+
+  host.session.openState = 'open'
+  host.conv.messages = [{ seq: 1, text: 'sent message' }]
+  render(props)
+  assert.deepEqual(setDrafts, ['rescued answer'], 'replaces stale sent text with only the rescued answer')
+  assert.deepEqual(consumed, [['bee', 'bee-2', 'rescued answer']])
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'rescued answer' } })
+})
+
+test('maxUserSeqOf skips trailing synthetic user nodes without seq and works with plain iterables without Iterator#filter (#2003 review)', () => {
+  const nodes = new Map([
+    ['u1', { kind: 'user', anchorSeq: 4, data: { seq: 4, content: [{ type: 'text', text: 'durable' }] } }],
+    ['u-opt', { kind: 'user', data: { content: [{ type: 'text', text: 'optimistic' }] } }],
+  ])
+  const chatWithTrailingOptimistic = { order: ['u1', 'u-opt'], nodes }
+  assert.equal(maxUserSeqOf(chatWithTrailingOptimistic), 4)
+
+  // Plain iterable (no `.filter` method, simulating Safari < 18.4 / older WebView).
+  const plainIterable = {
+    [Symbol.iterator]() {
+      const list = [{ kind: 'user', anchorSeq: 6, data: { seq: 6, content: [{ type: 'text', text: 'hello' }] } }]
+      let index = 0
+      return { next: () => (index < list.length ? { value: list[index++], done: false } : { value: undefined, done: true }) }
+    },
+  }
+  const chatWithPlainIterable = { nodes: { values: () => plainIterable } }
+  assert.equal(maxUserSeqOf(chatWithPlainIterable), 6)
+  assert.equal(isSentAdmitted(
+    { text: 'hello', baseline: { maxUserSeq: 5, pendingIds: new Set(), queueIds: new Set() }, admitted: false },
+    { chat: chatWithPlainIterable },
+  ), true)
 })

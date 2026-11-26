@@ -96,27 +96,32 @@ export async function connectImap(account, deps = {}) {
     flagged: msg.flags?.has('\\Flagged') === true,
   })
 
+  const fetchParsedLocked = async (uid, folder) => {
+    const message = await imap.fetchOne(uid, { source: true, envelope: true, bodyStructure: true }, { uid: true })
+    if (message === false) throw new Error('No such message')
+    // Keep optional mail decoding out of plugin activation.
+    const { simpleParser } = await import('mailparser')
+    const parsed = await simpleParser(message.source)
+    return {
+      uid, folder,
+      messageId: parsed.messageId ?? message.envelope?.messageId ?? '',
+      subject: parsed.subject ?? '',
+      from: parsed.from?.text ?? '',
+      to: parsed.to?.text ?? '',
+      cc: parsed.cc?.text ?? '',
+      date: parsed.date?.toISOString?.() ?? '',
+      text: parsed.text ?? '',
+      references: Array.isArray(parsed.references) ? parsed.references : (parsed.references ? [parsed.references] : []),
+      attachments: (parsed.attachments ?? []).map((a, i) => ({ filename: a.filename ?? `attachment-${i + 1}`, size: a.size ?? 0, partId: a.partId })),
+      _inReplyTo: parsed.inReplyTo ?? message.envelope?.inReplyTo ?? '',
+      _parsed: parsed,
+    }
+  }
+
   const parseMessage = async (uid, folder) => {
     const lock = await imap.getMailboxLock(folder)
     try {
-      const message = await imap.fetchOne(uid, { source: true, envelope: true, bodyStructure: true }, { uid: true })
-      if (message === false) throw new Error('No such message')
-      // Keep optional mail decoding out of plugin activation.
-      const { simpleParser } = await import('mailparser')
-      const parsed = await simpleParser(message.source)
-      return {
-        uid, folder,
-        messageId: parsed.messageId ?? message.envelope?.messageId ?? '',
-        subject: parsed.subject ?? '',
-        from: parsed.from?.text ?? '',
-        to: parsed.to?.text ?? '',
-        cc: parsed.cc?.text ?? '',
-        date: parsed.date?.toISOString?.() ?? '',
-        text: parsed.text ?? '',
-        references: parsed.references ?? [],
-        attachments: (parsed.attachments ?? []).map((a, i) => ({ filename: a.filename ?? `attachment-${i + 1}`, size: a.size ?? 0, partId: a.partId })),
-        _parsed: parsed,
-      }
+      return await fetchParsedLocked(uid, folder)
     } finally { lock.release() }
   }
 
@@ -144,20 +149,93 @@ export async function connectImap(account, deps = {}) {
       } finally { lock.release() }
     },
     async read({ uid, folder = 'INBOX', thread = false }) {
-      const main = await parseMessage(uid, folder)
-      if (!thread) return { messages: [strip(main)] }
       const lock = await imap.getMailboxLock(folder)
       try {
-        const related = []
-        const ids = new Set([main.messageId, ...(main.references ?? [])])
-        for await (const msg of imap.fetch('1:*', { envelope: true }, { uid: true })) {
-          const mid = msg.envelope?.messageId
-          const inReply = msg.envelope?.inReplyTo
-          if (msg.uid === uid || ids.has(inReply)) related.push(await parseMessage(msg.uid, folder))
-          if (mid !== undefined && ids.has(mid)) ids.add(mid)
+        const main = await fetchParsedLocked(uid, folder)
+        if (!thread) return { messages: [strip(main)] }
+        const MAX_THREAD_SCAN = 200
+        const MAX_THREAD_MESSAGES = 50
+        const MAX_THREAD_SEED_IDS = 10
+        const refs = (main.references ?? []).filter(Boolean)
+        const allSeedIds = new Set([main.messageId, main._inReplyTo, ...refs].filter(Boolean))
+        const querySeedIds = []
+        const addSeed = (id) => {
+          if (!id || querySeedIds.includes(id) || querySeedIds.length >= MAX_THREAD_SEED_IDS) return
+          querySeedIds.push(id)
         }
+        addSeed(main.messageId)
+        addSeed(main._inReplyTo)
+        if (refs.length > 0) addSeed(refs[0])
+        for (let i = refs.length - 1; i >= 1 && querySeedIds.length < MAX_THREAD_SEED_IDS; i -= 1) {
+          addSeed(refs[i])
+        }
+        const candidateUids = new Map()
+        let searched = false
+        if (typeof imap.search === 'function') {
+          if (querySeedIds.length > 0) {
+            const rejectedHeaders = new Set()
+            const headerNames = ['references', 'in-reply-to', 'message-id']
+            for (const id of querySeedIds) {
+              for (const headerName of headerNames) {
+                if (rejectedHeaders.has(headerName)) continue
+                try {
+                  const hits = await imap.search({ header: { [headerName]: id } }, { uid: true })
+                  searched = true
+                  if (Array.isArray(hits)) for (const hit of hits) candidateUids.set(String(hit), hit)
+                } catch {
+                  // Stop repeating SEARCH HEADER queries for a header type this server rejects.
+                  rejectedHeaders.add(headerName)
+                }
+              }
+            }
+          } else {
+            const baseSubject = main.subject.replace(/^(?:\s*(?:re|fwd|fw)\s*:\s*)+/i, '').trim()
+            if (baseSubject !== '') {
+              try {
+                const hits = await imap.search({ subject: baseSubject }, { uid: true })
+                searched = true
+                if (Array.isArray(hits)) for (const hit of hits) candidateUids.set(String(hit), hit)
+              } catch { /* server may not support subject search */ }
+            }
+          }
+        }
+        const uidKey = String(uid)
+        let fetchRange = null
+        let fetchOptions
+        if (searched) {
+          candidateUids.delete(uidKey)
+          const list = [...candidateUids.values()].slice(-MAX_THREAD_MESSAGES)
+          if (list.length > 0) {
+            fetchRange = list
+            fetchOptions = { uid: true }
+          }
+        } else {
+          const total = Number(imap.mailbox?.exists)
+          fetchRange = Number.isFinite(total) && total > MAX_THREAD_SCAN
+            ? `${Math.max(1, total - MAX_THREAD_SCAN + 1)}:*`
+            : '1:*'
+        }
+        const relatedUids = []
+        if (fetchRange !== null && typeof imap.fetch === 'function') {
+          const ids = new Set(allSeedIds)
+          for await (const msg of imap.fetch(fetchRange, { envelope: true }, fetchOptions)) {
+            const mid = msg.envelope?.messageId
+            const inReply = msg.envelope?.inReplyTo
+            const matches = (inReply !== undefined && ids.has(inReply))
+              || (mid !== undefined && ids.has(mid))
+              || (Array.isArray(fetchRange) && candidateUids.has(String(msg.uid)))
+            if (matches && String(msg.uid) !== uidKey) {
+              relatedUids.push(msg.uid)
+              if (mid) ids.add(mid)
+              if (inReply) ids.add(inReply)
+              if (relatedUids.length >= MAX_THREAD_MESSAGES) break
+            }
+          }
+        }
+        const related = []
+        for (const relUid of relatedUids) related.push(await fetchParsedLocked(relUid, folder))
         related.sort((a, b) => String(a.date).localeCompare(String(b.date)))
-        return { messages: [strip(main), ...related.filter(m => m.uid !== uid).map(strip)] }
+        return { messages: [strip(main), ...related.map(strip)] }
       } finally { lock.release() }
     },
     async saveAttachment({ uid, folder = 'INBOX', filename, to }) {
@@ -199,7 +277,7 @@ export async function connectImap(account, deps = {}) {
   }
 }
 
-const strip = ({ _parsed, ...message }) => message
+const strip = ({ _parsed, _inReplyTo, ...message }) => message
 
 const compose = async (from, { to, cc, bcc, subject, text }) => {
   const MailComposer = (await import('nodemailer/lib/mail-composer')).default
@@ -208,22 +286,29 @@ const compose = async (from, { to, cc, bcc, subject, text }) => {
 
 // Gmail REST API backend for accounts signed in with Google. Same interface.
 export function connectGmail(account, deps = {}) {
-  const send = async (path, init = {}) => {
+  const send = async (path, init = {}, retried = false) => {
     const response = await (deps.fetch ?? fetch)(`https://gmail.googleapis.com/gmail/v1/users/me${path}`, {
       ...init,
+      signal: init.signal ?? AbortSignal.timeout(30_000),
       headers: { Authorization: `Bearer ${deps.token()}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
     })
-    if (response.status === 401 && deps.refresh) {
-      if (await deps.refresh() === true) return send(path, init)
+    if (response.status === 401 && !retried && deps.refresh) {
+      await response.body?.cancel?.().catch(() => {})
+      if (await deps.refresh() === true) return send(path, init, true)
     }
-    if (!response.ok) throw new Error(`Gmail answered ${response.status}`)
+    if (!response.ok) {
+      await response.body?.cancel?.().catch(() => {})
+      throw new Error(`Gmail answered ${response.status}`)
+    }
     return response.json().catch(() => ({}))
   }
   const header = (list, name) => list?.find(h => h.name.toLowerCase() === name.toLowerCase())?.value ?? ''
   const decode = data => data === undefined ? '' : Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
-  const walk = (part, out = { text: '', attachments: [] }) => {
+  const walk = (part, out = { text: '', html: '', attachments: [] }) => {
     if (part === undefined) return out
-    if (part.mimeType === 'text/plain' && part.body?.data) out.text += decode(part.body.data)
+    const mime = String(part.mimeType ?? '').toLowerCase()
+    if (!part.filename && mime === 'text/plain' && part.body?.data) out.text += decode(part.body.data)
+    else if (!part.filename && mime === 'text/html' && part.body?.data) out.html += decode(part.body.data)
     if (part.filename) out.attachments.push({ filename: part.filename, size: part.body?.size ?? 0, attachmentId: part.body?.attachmentId })
     for (const child of part.parts ?? []) walk(child, out)
     return out
@@ -234,7 +319,7 @@ export function connectGmail(account, deps = {}) {
     return {
       uid: full.id, folder: 'gmail', messageId: header(headers, 'Message-ID'),
       subject: header(headers, 'Subject'), from: header(headers, 'From'), to: header(headers, 'To'), cc: header(headers, 'Cc'),
-      date: header(headers, 'Date'), text: body.text, attachments: body.attachments, threadId: full.threadId,
+      date: header(headers, 'Date'), text: body.text.trim() !== '' ? body.text : (body.html ? htmlToText(body.html) : body.text), attachments: body.attachments, threadId: full.threadId,
       references: [header(headers, 'References'), header(headers, 'In-Reply-To')].filter(Boolean),
     }
   }
@@ -290,9 +375,67 @@ export function connectGmail(account, deps = {}) {
   }
 }
 
-const gmailRaw = async (from, { to, cc, bcc, subject, text, inReplyTo, references }) => {
+const HTML_ENTITIES = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+function stripHtmlBlock(source, tag) {
+  // ASCII-only lowercasing preserves 1:1 string indices even around Unicode characters like 'İ'.
+  const lower = source.replace(/[A-Z]/g, c => c.toLowerCase())
+  const open = `<${tag}`
+  const close = `</${tag}`
+  let out = ''
+  let pos = 0
+  while (pos < source.length) {
+    const start = lower.indexOf(open, pos)
+    if (start === -1) { out += source.slice(pos); break }
+    const next = lower[start + open.length]
+    if (next !== undefined && !/[\s>/]/.test(next)) {
+      out += source.slice(pos, start + open.length)
+      pos = start + open.length
+      continue
+    }
+    out += source.slice(pos, start)
+    const openEnd = lower.indexOf('>', start + open.length)
+    if (openEnd === -1) break
+    if (lower[openEnd - 1] === '/') {
+      pos = openEnd + 1
+      continue
+    }
+    const endTag = lower.indexOf(close, openEnd + 1)
+    if (endTag === -1) break
+    const closeEnd = lower.indexOf('>', endTag + close.length)
+    pos = closeEnd === -1 ? source.length : closeEnd + 1
+  }
+  return out
+}
+const decodeHtmlEntities = (text) => text.replace(/&(?:#x([0-9a-f]+)|#(\d+)|([a-z]+));/gi, (full, hex, dec, name) => {
+  if (hex !== undefined) {
+    const n = parseInt(hex, 16)
+    return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : full
+  }
+  if (dec !== undefined) {
+    const n = Number(dec)
+    return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : full
+  }
+  return HTML_ENTITIES[name.toLowerCase()] ?? full
+})
+const htmlToText = (html) => decodeHtmlEntities(
+  stripHtmlBlock(stripHtmlBlock(String(html ?? ''), 'style'), 'script')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:td|th)\s*>/gi, '\t')
+    .replace(/<\/(?:p|div|li|tr|h[1-6]|blockquote)>/gi, '\n')
+    .replace(/<[^>]+>/g, ''),
+)
+  .replace(/[ \t]+\n/g, '\n')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim()
+
+const gmailRaw = async (from, { to, cc, bcc, subject, text, attachments = [], inReplyTo, references }) => {
   const MailComposer = (await import('nodemailer/lib/mail-composer')).default
-  const raw = await new MailComposer({ from, to, cc, bcc, subject, text, ...(inReplyTo ? { inReplyTo, references: references ?? [inReplyTo] } : {}) }).compile().build()
+  const list = Array.isArray(attachments) ? attachments : []
+  const raw = await new MailComposer({
+    from, to, cc, bcc, subject, text,
+    ...(list.length > 0 ? { attachments: list } : {}),
+    ...(inReplyTo ? { inReplyTo, references: references ?? [inReplyTo] } : {}),
+  }).compile().build()
   return raw.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 const gmailDraft = async (send, from, args) => {

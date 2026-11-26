@@ -6,6 +6,8 @@ import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+export const safeStorage = { isEncryptionAvailable: () => false }
+
 // The data of the app in this process: a folder of its own, so that a test never writes
 // into the data of the user.
 const root = mkdtempSync(join(tmpdir(), 'ds-bot-fake-user-data-'))
@@ -39,6 +41,7 @@ export const state = {
   // The cookies of the browser: the Host's address keeps one after the launch URL was used.
   cookies: [],
   paths: {},
+  switches: new Map(),
   dock: { setIcon: () => {} },
 }
 
@@ -163,6 +166,11 @@ class FakeApp extends EventEmitter {
     this.setPath = (name, value) => { state.paths[name] = value }
     this.setName = (name) => { this.name = name }
     this.setAppUserModelId = (id) => { state.appId = id }
+    this.commandLine = {
+      appendSwitch: (name, value = '') => { state.switches.set(name, value) },
+      hasSwitch: (name) => state.switches.has(name),
+      getSwitchValue: (name) => state.switches.get(name) ?? '',
+    }
     // The app starts a tick later, so that a test has its say before the app begins.
     this.whenReady = () => new Promise((done) => { setImmediate(done) })
     this.requestSingleInstanceLock = () => true

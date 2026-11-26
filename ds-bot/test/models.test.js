@@ -172,27 +172,26 @@ test('a Bot model applies its thinking level, and only re-selects on a change', 
   assert.equal(bot.appliedEffort, undefined)
 })
 
-// #1501: a Bot's own chat may keep a part running in the background. The Bot's model is
-// every part's model, so a change that reached only the foreground would leave that part
-// answering on the old route while the settings show the new one.
-test('a model change reaches the part of the own chat running in the background', async () => {
+// A Bot's active background tasks run on the Bot's own model too, so a model or effort
+// change must reach active tasks as well as the foreground chat.
+test('a model change reaches active background tasks too', async () => {
   const { rt, selected } = bench()
-  const bot = { id: 'b1', sessionId: 'b1', model: 'deepseek/v4-flash', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  const bot = { id: 'b1', sessionId: 'b1', model: 'deepseek/v4-flash', tasks: [{ id: 't1', sessionId: 'b1-task', status: 'running', segments: [] }] }
   assert.equal(await rt.applyModel(bot), 'deepseek/v4-flash')
-  assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'b1-bg:deepseek/v4-flash'])
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'b1-task:deepseek/v4-flash'])
   // The same values again write nothing.
   await rt.applyModel(bot)
   assert.equal(selected.length, 2)
 })
 
-test('a thinking-level change reaches the background part too', async () => {
+test('a thinking-level change reaches active background tasks too', async () => {
   const { rt, selected } = bench({ reasoning: { 'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'low' } } } })
-  const bot = { id: 'b1', sessionId: 'b1', model: 'deepseek/v4-flash', effort: 'high', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  const bot = { id: 'b1', sessionId: 'b1', model: 'deepseek/v4-flash', effort: 'high', tasks: [{ id: 't1', sessionId: 'b1-task', status: 'running', segments: [] }] }
   await rt.applyModel(bot)
-  assert.deepEqual(selected, ['b1:deepseek/v4-flash:high', 'b1-bg:deepseek/v4-flash:high'])
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash:high', 'b1-task:deepseek/v4-flash:high'])
   bot.effort = 'low'
   await rt.applyModel(bot)
-  assert.deepEqual(selected.slice(2), ['b1:deepseek/v4-flash:low', 'b1-bg:deepseek/v4-flash:low'])
+  assert.deepEqual(selected.slice(2), ['b1:deepseek/v4-flash:low', 'b1-task:deepseek/v4-flash:low'])
   assert.equal(bot.appliedEffort, 'low')
   // The same level again writes nothing more.
   await rt.applyModel(bot)
@@ -338,6 +337,26 @@ test('an attached Session or Agent cannot use a cold listing and matching witnes
     rt.ctx[registry].get = () => ({})
     await rt.selectSessionModel('g1', route)
     assert.deepEqual(selected, ['g1:deepseek/v4-flash'])
+  }
+})
+
+// The host does not inject `agents`, and Cordis throws from the property of a service
+// that is not injected: an optional chain on `ctx.agents` cannot guard that read.
+test('a host without the agents service injected still reads a stored selection', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  for (const attached of [false, true]) {
+    const services = storedSessions({ g1: { selection: route } })
+    if (attached) services.agents = { get: () => ({}) }
+    const { rt, selected } = bench({ services })
+    const warnings = []
+    rt.warn = (...args) => warnings.push(args)
+    Object.defineProperty(rt.ctx, 'agents', {
+      get() { throw new Error('cannot get property "agents" without inject') },
+    })
+    rt.state.sessionModelSelections = { g1: route }
+    await rt.selectSessionModel('g1', route)
+    assert.deepEqual(selected, attached ? ['g1:deepseek/v4-flash'] : [])
+    assert.deepEqual(warnings, [])
   }
 })
 

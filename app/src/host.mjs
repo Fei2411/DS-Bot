@@ -7,12 +7,15 @@ import { readFileSync } from 'node:fs'
 import { inspect } from 'node:util'
 import { loadLayeredEnv, reportSkippedBundles } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
+import { installSocketTosGuard } from 'ds-bot/socket-tos-guard'
 import { writeAppPatch } from './app-patch.mjs'
 import { CHECK_PROFILE, INSTALL_ANCHOR, loadAppProfile, loadCheckProfile, PROFILE } from './profile.mjs'
 import { reconcileGoal } from './goal-patch.mjs'
 import { reconcileOfficeRuntime } from './office-patch.mjs'
 import { reconcileSearchSelector } from './search-patch.mjs'
 import { unreadableSessions } from './session-check.mjs'
+
+installSocketTosGuard()
 
 const MAX_FATAL_DIAGNOSTIC_CHARS = 64 * 1024
 
@@ -31,6 +34,15 @@ async function main() {
   const office = check === undefined ? reconcileOfficeRuntime(profile) : { patchFiles: [] }
   // ds-bot reads the payload's Node for the Office commands it runs itself.
   if (office.node !== undefined) process.env.DS_BOT_OFFICE_NODE = office.node
+  // ds-bot's plugin runtime reuses the bundled pnpm for npm-packaged MCP presets
+  // when neither npx nor pnpm is installed on the user's PATH.
+  if (pnpm !== undefined) {
+    process.env.DS_BOT_PACKAGE_MANAGER = JSON.stringify({
+      command: process.execPath,
+      args: ['--expose-internals', pnpm],
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+    })
+  }
   const application = runProfile({
     environment: loadLayeredEnv('dsh'),
     profile: check === undefined ? PROFILE : CHECK_PROFILE,

@@ -4,13 +4,17 @@
 // rt.config.mail.connect injects fakes in tests.
 import { randomUUID } from 'node:crypto'
 import { basename, join, resolve, sep } from 'node:path'
-import { realpathSync, statSync } from 'node:fs'
+import { constants as fsConstants, realpathSync, statSync } from 'node:fs'
+import { open as openFile } from 'node:fs/promises'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { PRESETS, presetOf, mailSecretName } from './presets.js'
 import { connectImap, connectGmail } from './transport.js'
 import { output } from '../../tools.js'
-import { refreshTokens, invalidGrant, discover, beginBrowser, exchange } from '../oauth.js'
+import { matchSecretRefs } from '../../secret-refs.js'
+import { refreshTokens, invalidGrant, discover, rediscover, beginBrowser, exchange } from '../oauth.js'
 
+const GOOGLE_ISSUER = 'https://accounts.google.com'
+const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
 const GOOGLE_SCOPES = 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.modify'
 const MAX_REQUESTS = 20
 
@@ -42,8 +46,21 @@ function allAddressesAllowed(to, cc, bcc, allowed) {
 export function install(rt, host) {
   const { state } = rt
   const sessions = new Map()
+  const sessionGen = new Map()
   const connecting = new Map()
   const adding = new Map()
+  const refreshing = new Map()
+  let googleDiscovery
+
+  const invalidateSession = async (id) => {
+    sessionGen.set(id, (sessionGen.get(id) ?? 0) + 1)
+    connecting.delete(id)
+    const old = sessions.get(id)
+    if (old !== undefined) {
+      sessions.delete(id)
+      await old.close?.().catch(() => {})
+    }
+  }
 
   const accounts = () => state.connectors?.mail?.accounts ?? {}
   const accountList = () => Object.values(accounts())
@@ -60,72 +77,198 @@ export function install(rt, host) {
   })
   const googleReady = () => Boolean(googleClient().id && googleClient().secret)
 
-  async function openImap(account, password) {
+  async function openImap(account, password, expectedGen) {
     const factory = rt.config.mail?.connect ?? connectImap
     let session
     session = await factory(account, { password, onGone: () => {
       if (sessions.get(account.id) === session) sessions.delete(account.id)
     } })
     if (session.usable === false) throw new Error('The mail connection closed during verification')
+    if (expectedGen !== undefined && (sessionGen.get(account.id) ?? 0) !== expectedGen) {
+      await session.close?.().catch(() => {})
+      return undefined
+    }
     sessions.set(account.id, session)
     return session
   }
 
   async function connect(account) {
     const key = account.id
+    const wantKind = account.auth === 'google' ? 'gmail' : 'imap'
     const live = sessions.get(key)
-    if (live !== undefined && live.usable !== false) return live
+    if (live !== undefined && live.usable !== false && (live.kind === undefined || live.kind === wantKind)) return live
     if (live !== undefined) {
       sessions.delete(key)
       await live.close?.()
     }
-    if (connecting.has(key)) return connecting.get(key)
+    const gen = sessionGen.get(key) ?? 0
+    const inflight = connecting.get(key)
+    if (inflight !== undefined && inflight.gen === gen) return inflight.promise
     const make = async () => {
       if (account.auth === 'google') {
-        const token = () => rt.secretValue(mailSecretName(account.address, 'TOKEN'))
-        const session = connectGmail(account, { token, fetch: rt.config.mail?.fetch, refresh: () => refreshGoogle(account) })
+        const tokenName = mailSecretName(account.address, 'TOKEN')
+        if (typeof rt.resolveExternalForBot === 'function') {
+          await rt.resolveExternalForBot(undefined, { names: [tokenName] }).catch(() => {})
+        }
+        if ((sessionGen.get(key) ?? 0) !== gen) {
+          const latest = accounts()[key]
+          if (latest !== undefined) return connect(latest)
+          throw new Error('The mail account is gone')
+        }
+        const token = () => rt.secretValue(tokenName)
+        const session = connectGmail(account, { token, fetch: rt.config.mail?.fetch, refresh: () => refreshGoogle(accounts()[key] ?? account) })
         sessions.set(key, session)
         return session
       }
-      const password = rt.secretValue(mailSecretName(account.address, 'PASSWORD'))
+      const passwordName = mailSecretName(account.address, 'PASSWORD')
+      if (typeof rt.resolveExternalForBot === 'function') {
+        await rt.resolveExternalForBot(undefined, { names: [passwordName] }).catch(() => {})
+      }
+      if ((sessionGen.get(key) ?? 0) !== gen) {
+        const latest = accounts()[key]
+        if (latest !== undefined) return connect(latest)
+        throw new Error('The mail account is gone')
+      }
+      const password = rt.secretValue(passwordName)
       if (password === undefined) throw new Error(`The password for ${account.address} is not saved`)
-      return openImap(account, password)
+      const session = await openImap(account, password, gen)
+      if (session === undefined) {
+        const latest = accounts()[key]
+        if (latest !== undefined) return connect(latest)
+        throw new Error('The mail account is gone')
+      }
+      return session
     }
-    const pending = make()
-    connecting.set(key, pending)
+    const entry = { gen, promise: null }
+    entry.promise = make()
+    connecting.set(key, entry)
     try {
-      return await pending
-    } finally { connecting.delete(key) }
+      return await entry.promise
+    } finally {
+      if (connecting.get(key) === entry) connecting.delete(key)
+    }
+  }
+
+  async function resolveGoogleDiscovery() {
+    if (googleDiscovery !== undefined) return googleDiscovery
+    const found = await rediscover(
+      { authorizationServerUrl: GOOGLE_ISSUER, resource: undefined, scope: GOOGLE_SCOPES },
+      { fetch: rt.config.mail?.fetch },
+    )
+    if (found.metadata?.token_endpoint) {
+      googleDiscovery = found
+      return found
+    }
+    // Without metadata the OAuth SDK falls back to accounts.google.com/token, which returns 400.
+    return {
+      authorizationServerUrl: GOOGLE_ISSUER,
+      metadata: {
+        issuer: GOOGLE_ISSUER,
+        token_endpoint: GOOGLE_TOKEN_ENDPOINT,
+        token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
+      },
+      resource: undefined,
+      scope: GOOGLE_SCOPES,
+    }
   }
 
   // Gmail tokens refresh through the same OAuth rules as connectors.
   async function refreshGoogle(account) {
-    if (rt.readOnly() !== undefined) { await rt.loadSecrets(); return false }
-    const refresh = rt.secretValue(mailSecretName(account.address, 'REFRESH'))
-    if (refresh === undefined) return false
-    try {
-      const client = googleClient()
-      const tokens = await refreshTokens(
-        { authorizationServerUrl: 'https://accounts.google.com', metadata: undefined, resource: undefined },
-        { client_id: client.id, client_secret: client.secret },
-        refresh,
-        { scope: GOOGLE_SCOPES, fetch: rt.config.mail?.fetch },
-      )
-      await host.secrets.writeSecret(mailSecretName(account.address, 'TOKEN'), tokens.access_token, `Mailbox ${account.address}`)
-      if (typeof tokens.refresh_token === 'string' && tokens.refresh_token !== '') {
-        await host.secrets.writeSecret(mailSecretName(account.address, 'REFRESH'), tokens.refresh_token, `Mailbox ${account.address}`).catch(() => {})
+    if (disposed) return false
+    if (rt.readOnly?.() !== undefined) { await rt.loadSecrets?.(); return false }
+    const key = account.id ?? account.address
+    if (refreshing.has(key)) return refreshing.get(key)
+    const run = (async () => {
+      const tokenName = mailSecretName(account.address, 'TOKEN')
+      const refreshName = mailSecretName(account.address, 'REFRESH')
+      const liveAccount = () => (account.id !== undefined ? accounts()[account.id] : undefined)
+      const hadLive = liveAccount() !== undefined
+      const gone = () => disposed || (hadLive && liveAccount() === undefined)
+      if (typeof rt.resolveExternalForBot === 'function') {
+        await rt.resolveExternalForBot(undefined, { names: [refreshName] }).catch(() => {})
       }
-      rt.warn('ds-bot: connector mail token refresh succeeded (client: manual/Google)')
-      return true
-    } catch (error) {
-      if (invalidGrant(error)) account.error = 'Sign in again'
-      rt.warn('ds-bot: connector mail token refresh failed (client: manual/Google; %s)', invalidGrant(error) ? 'invalid_grant' : 'refresh error')
-      return false
-    }
+      if (gone()) return false
+      const tokenBefore = rt.secretValue(tokenName)
+      const refresh = rt.secretValue(refreshName)
+      if (typeof refresh !== 'string' || refresh === '') {
+        const target = liveAccount() ?? account
+        target.error = 'Sign in again'
+        await rt.save?.().catch(() => {})
+        rt.warn('ds-bot: connector mail token refresh failed (client: manual/Google; missing refresh token)')
+        return false
+      }
+      const rotated = () => rt.secretValue(refreshName) !== refresh || rt.secretValue(tokenName) !== tokenBefore
+      try {
+        const client = googleClient()
+        const discovery = await resolveGoogleDiscovery()
+        if (gone()) return false
+        const tokens = await refreshTokens(
+          discovery,
+          { client_id: client.id, client_secret: client.secret },
+          refresh,
+          { scope: GOOGLE_SCOPES, fetch: rt.config.mail?.fetch },
+        )
+        if (gone()) return false
+        if (rotated()) return Boolean(rt.secretValue(tokenName))
+        await host.secrets.writeSecret(tokenName, tokens.access_token, `Mailbox ${account.address}`)
+        if (typeof tokens.refresh_token === 'string' && tokens.refresh_token !== '') {
+          await host.secrets.writeSecret(refreshName, tokens.refresh_token, `Mailbox ${account.address}`).catch(() => {
+            rt.warn('ds-bot: connector mail refresh token rotation save failed (client: manual/Google)')
+          })
+        }
+        if (gone()) return false
+        const target = liveAccount() ?? account
+        if (target.error !== undefined) {
+          delete target.error
+          await rt.save?.().catch(() => {})
+        }
+        rt.warn('ds-bot: connector mail token refresh succeeded (client: manual/Google)')
+        return true
+      } catch (error) {
+        if (gone()) return false
+        if (rotated()) return Boolean(rt.secretValue(tokenName))
+        if (invalidGrant(error)) {
+          const target = liveAccount() ?? account
+          target.error = 'Sign in again'
+          await rt.save?.().catch(() => {})
+        }
+        rt.warn('ds-bot: connector mail token refresh failed (client: manual/Google; %s)', invalidGrant(error) ? 'invalid_grant' : 'refresh error')
+        return false
+      }
+    })()
+    refreshing.set(key, run)
+    try { return await run } finally { refreshing.delete(key) }
   }
 
   const workDir = (exec) => {
     try { return rt.sessionFolder?.(exec.agent?.session ?? exec.agent) } catch { return undefined }
+  }
+
+  const insideRoot = (root, inside) => {
+    const prefix = root.endsWith(sep) ? root : root + sep
+    return inside !== root && inside.startsWith(prefix)
+  }
+
+  const resolveAttachments = async (dir, names) => {
+    const out = []
+    for (const name of names ?? []) {
+      if (dir === undefined) throw new Error(`Attachment ${name} is outside the working folder`)
+      const root = realpathSync(dir)
+      const inside = realpathSync(resolve(root, name))
+      if (!insideRoot(root, inside)) throw new Error(`Attachment ${name} is outside the working folder`)
+      if (!statSync(inside).isFile()) throw new Error(`Attachment ${name} must be a regular file`)
+      // O_NONBLOCK prevents opening a FIFO/named pipe from hanging; O_NOFOLLOW blocks a symlink swap after realpathSync.
+      const flags = fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) | (fsConstants.O_NOFOLLOW ?? 0)
+      const handle = await openFile(inside, flags)
+      try {
+        const info = await handle.stat()
+        if (!info.isFile()) throw new Error(`Attachment ${name} must be a regular file`)
+        out.push({ filename: name, content: await handle.readFile() })
+      } finally {
+        await handle.close().catch(() => {})
+      }
+    }
+    return out
   }
 
   const toolExec = async (exec, args, run) => {
@@ -136,11 +279,14 @@ export function install(rt, host) {
     if ((state.connectors?.mail?.offFor ?? []).includes(bot.id)) return 'The mailbox is turned off for you.'
     const account = accountOf(args.account)
     if (account === undefined) return accountList().length === 0 ? 'No mail account is added yet.' : `Name the account: ${accountList().map(a => a.address).join(', ')}`
+    let session
     try {
-      const session = await connect(account)
+      session = await connect(account)
       return await run(session, account, bot)
     } catch (error) {
-      sessions.delete(account.id)
+      const stale = session ?? sessions.get(account.id)
+      if (sessions.get(account.id) === stale) sessions.delete(account.id)
+      void stale?.close?.().catch(() => {})
       throw error
     }
   }
@@ -250,8 +396,9 @@ export function install(rt, host) {
         const bad = (args.attachments ?? []).map(String).filter(name => name !== '').filter((name) => {
           if (dir === undefined) return true
           try {
-            const inside = realpathSync(resolve(dir, name))
-            return inside !== realpathSync(dir) && !inside.startsWith(realpathSync(dir) + sep)
+            const root = realpathSync(dir)
+            const inside = realpathSync(resolve(root, name))
+            return !insideRoot(root, inside) || !statSync(inside).isFile()
           } catch { return true }
         })
         if (bad.length > 0) return `Attachments must be files in your working folder: ${bad.join(', ')} is not.`
@@ -277,7 +424,7 @@ export function install(rt, host) {
         )
         if (skipDraft) {
           const session = await connect(account)
-          const attachments = (request.attachments ?? []).map(name => ({ filename: name, path: realpathSync(resolve(dir ?? '', name)) }))
+          const attachments = await resolveAttachments(dir, request.attachments)
           await session.send({ to: request.to, cc: request.cc || undefined, bcc: request.bcc || undefined, subject: request.subject, text: request.body, attachments, ...(request.replyTo ? { inReplyTo: request.replyTo } : {}) })
           request.status = 'sent'
           request.settledAt = Date.now()
@@ -376,7 +523,11 @@ export function install(rt, host) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) throw new Error('Enter an email address')
       if (adding.has(address)) return adding.get(address)
       const pending = (async () => {
+        const passwordRef = typeof body.secretRef === 'string' ? body.secretRef.trim() : typeof body.passwordRef === 'string' ? body.passwordRef.trim() : ''
         const password = String(body.password ?? '').trim()
+        if (passwordRef !== '' || matchSecretRefs(password).length > 0) {
+          throw new Error('One-time secret-ref handles can only be consumed by Bot host tools (such as save_capability), not via HTTP endpoints.')
+        }
         if (password === '') throw new Error('Enter the authorization code or app password')
         const preset = presetOf(address)
         const provider = typeof body.provider === 'string' ? body.provider : preset?.id ?? 'other'
@@ -384,6 +535,7 @@ export function install(rt, host) {
         const imap = chosen && provider !== 'other' ? chosen.imap : { host: String(body.imapHost ?? '').trim(), port: Number(body.imapPort) || 993, secure: body.imapTls !== false }
         const smtp = chosen && provider !== 'other' ? chosen.smtp : { host: String(body.smtpHost ?? '').trim(), port: Number(body.smtpPort) || 465, secure: body.smtpTls !== false }
         if (imap.host === '' || smtp.host === '') throw new Error('Enter the IMAP and SMTP hosts')
+        if (rt.readOnly() !== undefined) throw new Error(rt.readOnly())
         const existing = accountOf(address)
         const id = existing?.id ?? `m${randomUUID().slice(0, 8)}`
         const account = { ...existing, id, address, provider, auth: 'password', imap, smtp, createdAt: existing?.createdAt ?? Date.now() }
@@ -426,9 +578,7 @@ export function install(rt, host) {
       delete rest[account.id]
       state.connectors = { ...state.connectors, mail: { ...state.connectors.mail, accounts: rest } }
       await rt.save()
-      const session = sessions.get(account.id)
-      sessions.delete(account.id)
-      await session?.close?.().catch(() => {})
+      await invalidateSession(account.id)
       dropGooglePending(account.address)
       syncTools()
       return mailView()
@@ -473,11 +623,7 @@ export function install(rt, host) {
       }
       try {
         const session = await connect(account)
-        const attachments = (request.attachments ?? []).map((name) => {
-          const inside = realpathSync(resolve(request.dir ?? '', name))
-          if (request.dir === undefined || inside !== realpathSync(request.dir) && !inside.startsWith(realpathSync(request.dir) + sep)) throw new Error(`Attachment ${name} is outside the working folder`)
-          return { filename: name, path: inside }
-        })
+        const attachments = await resolveAttachments(request.dir, request.attachments)
         await session.send({ to: request.to, cc: request.cc || undefined, bcc: request.bcc || undefined, subject: request.subject, text: request.body, attachments, ...(request.replyTo ? { inReplyTo: request.replyTo } : {}) })
         request.status = 'sent'; request.settledAt = Date.now()
         await rt.save()
@@ -497,49 +643,109 @@ export function install(rt, host) {
 
   // --- Google sign-in ------------------------------------------------------
 
+  let disposed = false
+  const SIGN_IN_TIMEOUT_MS = 10 * 60_000
   const googlePendings = new Map()
+  const activeGoogleListeners = new Set()
+  const closeGoogleListener = (listener, { immediate = false, response } = {}) => {
+    if (!listener) return
+    listener.close()
+    if (immediate) {
+      listener.closeAllConnections?.()
+      return
+    }
+    listener.closeIdleConnections?.()
+    let scheduled = false
+    const scheduleForceClose = () => {
+      if (scheduled) return
+      scheduled = true
+      const grace = setTimeout(() => listener.closeAllConnections?.(), 250)
+      grace.unref?.()
+      listener.once('close', () => clearTimeout(grace))
+    }
+    if (response && !response.writableFinished) {
+      response.once('finish', scheduleForceClose)
+      response.once('close', scheduleForceClose)
+    } else {
+      scheduleForceClose()
+    }
+  }
   const dropGooglePending = key => {
     const pending = googlePendings.get(key)
     if (pending === undefined) return
     googlePendings.delete(key)
-    pending.listener?.close()
+    if (pending.timer !== undefined) clearTimeout(pending.timer)
+    closeGoogleListener(pending.listener, { immediate: true })
   }
   async function beginGoogle(address) {
+    if (disposed) throw new Error('Mail connector is closed')
+    if (rt.readOnly?.() !== undefined) throw new Error(rt.readOnly())
     const client = googleClient()
-    const discovery = await discover('https://accounts.google.com', { originFallback: true, fetch: rt.config.mail?.fetch ?? fetch })
+    const discovery = await discover(GOOGLE_ISSUER, { originFallback: true, fetch: rt.config.mail?.fetch ?? fetch })
+    if (disposed) throw new Error('Mail connector is closed')
+    if (discovery.metadata?.token_endpoint) {
+      googleDiscovery = { authorizationServerUrl: discovery.authorizationServerUrl, metadata: discovery.metadata, resource: undefined, scope: GOOGLE_SCOPES }
+    }
     dropGooglePending(address)
     const pending = { discovery, address: address || undefined, key: address }
     googlePendings.set(address, pending)
-    const { createServer } = await import('node:http')
-    const listener = createServer((req, res) => {
-      req.on('error', () => res.destroy())
-      res.on('error', () => req.destroy())
-      let url
-      try { url = new URL(req.url ?? '/', 'http://127.0.0.1') } catch { res.writeHead(400); res.end(); return }
-      if (url.pathname !== '/callback') { res.writeHead(404); res.end(); return }
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-      if (!url.searchParams.get('code')) {
-        res.end('<p style="font-family:sans-serif">Google sign-in did not finish — go back to DS Bot and try again.</p>')
-        rt.warn('ds-bot: mail Google sign-in failed: %s', url.searchParams.get('error') ?? 'no code')
-        return
+    let listener
+    try {
+      const { createServer } = await import('node:http')
+      if (disposed) throw new Error('Mail connector is closed')
+      listener = createServer((req, res) => {
+        req.on('error', () => res.destroy())
+        res.on('error', () => req.destroy())
+        let url
+        try { url = new URL(req.url ?? '/', 'http://127.0.0.1') } catch { res.writeHead(400); res.end(); return }
+        if (url.pathname !== '/callback') { res.writeHead(404); res.end(); return }
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', connection: 'close' })
+        if (!url.searchParams.get('code')) {
+          res.end('<p style="font-family:sans-serif">Google sign-in did not finish — go back to DS Bot and try again.</p>')
+          rt.warn('ds-bot: mail Google sign-in failed: %s', url.searchParams.get('error') ?? 'no code')
+          return
+        }
+        res.end('<p style="font-family:sans-serif">Signed in — you can close this tab.</p>')
+        void googleCode({ address, input: url.toString() }, { response: res }).catch(error => rt.warn('ds-bot: mail Google sign-in failed: %s', host.reason(error)))
+      })
+      activeGoogleListeners.add(listener)
+      listener.once('close', () => activeGoogleListeners.delete(listener))
+      listener.on('error', error => {
+        if (listener.listening) rt.warn('ds-bot: mail Google sign-in listener failed: %s', error?.code ?? 'error')
+      })
+      await new Promise((resolve, reject) => { listener.once('error', reject); listener.listen(0, '127.0.0.1', resolve) })
+      if (disposed || googlePendings.get(address) !== pending) {
+        closeGoogleListener(listener, { immediate: true })
+        if (disposed) throw new Error('Mail connector is closed')
+        return mailView()
       }
-      res.end('<p style="font-family:sans-serif">Signed in — you can close this tab.</p>')
-      void googleCode({ address, input: url.toString() }).catch(error => rt.warn('ds-bot: mail Google sign-in failed: %s', host.reason(error)))
-    })
-    listener.on('error', error => {
-      if (listener.listening) rt.warn('ds-bot: mail Google sign-in listener failed: %s', error?.code ?? 'error')
-    })
-    await new Promise((resolve, reject) => { listener.once('error', reject); listener.listen(0, '127.0.0.1', resolve) })
-    pending.listener = listener
-    pending.redirectUri = `http://127.0.0.1:${listener.address().port}/callback`
-    const state = randomUUID()
-    const { url, codeVerifier } = await beginBrowser(discovery, { client_id: client.id, client_secret: client.secret }, pending.redirectUri, { state, scope: GOOGLE_SCOPES })
-    pending.codeVerifier = codeVerifier
-    pending.state = state
-    pending.url = url
+      pending.listener = listener
+      pending.redirectUri = `http://127.0.0.1:${listener.address().port}/callback`
+      const state = randomUUID()
+      const { url, codeVerifier } = await beginBrowser(discovery, { client_id: client.id, client_secret: client.secret }, pending.redirectUri, { state, scope: GOOGLE_SCOPES })
+      if (disposed || googlePendings.get(address) !== pending) {
+        closeGoogleListener(listener, { immediate: true })
+        if (disposed) throw new Error('Mail connector is closed')
+        return mailView()
+      }
+      const authUrl = new URL(url)
+      authUrl.searchParams.set('access_type', 'offline')
+      authUrl.searchParams.set('prompt', 'consent')
+      if (address) authUrl.searchParams.set('login_hint', address)
+      pending.codeVerifier = codeVerifier
+      pending.state = state
+      pending.url = authUrl.toString()
+      pending.timer = setTimeout(() => dropGooglePending(address), SIGN_IN_TIMEOUT_MS)
+      pending.timer.unref?.()
+    } catch (error) {
+      closeGoogleListener(listener, { immediate: true })
+      if (googlePendings.get(address) === pending) dropGooglePending(address)
+      throw error
+    }
     return mailView()
   }
-  async function googleCode(body) {
+  async function googleCode(body, { response } = {}) {
+    if (rt.readOnly?.() !== undefined) throw new Error(rt.readOnly())
     const address = String(body.address ?? '').toLowerCase()
     const pending = googlePendings.get(address) ?? [...googlePendings.values()][0]
     if (pending === undefined) throw new Error('No Google sign-in is waiting')
@@ -550,24 +756,47 @@ export function install(rt, host) {
     const given = url?.searchParams.get('state')
     if (given !== null && pending.state !== undefined && given !== pending.state) throw new Error('The sign-in answer is not for this attempt')
     googlePendings.delete(pending.key ?? pending.address)
-    pending.listener?.close()
+    if (pending.timer !== undefined) clearTimeout(pending.timer)
+    closeGoogleListener(pending.listener, { response })
     const client = googleClient()
     const tokens = await exchange(pending.discovery, { client_id: client.id, client_secret: client.secret }, { code, codeVerifier: pending.codeVerifier, redirectUri: pending.redirectUri, iss: url?.searchParams.get('iss') ?? undefined }, { fetch: rt.config.mail?.fetch })
-    const email = pending.address || await googleEmail(tokens.access_token)
-    const id = `g${randomUUID().slice(0, 8)}`
-    const account = { id, address: email, provider: 'gmail', auth: 'google', createdAt: Date.now() }
-    state.connectors = { ...(state.connectors ?? {}), mail: { ...state.connectors?.mail, accounts: { ...accounts(), [id]: account } } }
+    if (disposed) throw new Error('Mail connector is closed')
+    // Prefer the email Google actually authorized; fall back to the form address only if userinfo is unavailable.
+    const email = await googleEmail(tokens.access_token).catch((error) => {
+      if (pending.address) return pending.address
+      throw error
+    })
+    if (disposed) throw new Error('Mail connector is closed')
+    const existing = accountOf(email)
+    const id = existing?.id ?? `g${randomUUID().slice(0, 8)}`
+    const account = { id, address: email, provider: 'gmail', auth: 'google', createdAt: existing?.createdAt ?? Date.now() }
     await host.secrets.writeSecret(mailSecretName(email, 'TOKEN'), tokens.access_token, `Mailbox ${email}`)
-    if (typeof tokens.refresh_token === 'string') await host.secrets.writeSecret(mailSecretName(email, 'REFRESH'), tokens.refresh_token, `Mailbox ${email}`)
+    if (typeof tokens.refresh_token === 'string' && tokens.refresh_token !== '') {
+      await host.secrets.writeSecret(mailSecretName(email, 'REFRESH'), tokens.refresh_token, `Mailbox ${email}`)
+    }
+    state.connectors = { ...(state.connectors ?? {}), mail: { ...state.connectors?.mail, accounts: { ...accounts(), [id]: account } } }
+    await invalidateSession(id)
     await rt.save()
+    if (existing?.auth === 'password') {
+      const passName = mailSecretName(email, 'PASSWORD')
+      const shared = accountList().some(other => other.id !== id && other.auth === 'password' && mailSecretName(other.address, 'PASSWORD') === passName)
+      if (!shared && rt.secretValue(passName) !== undefined) await rt.secretEndpoint?.('secret-delete', { name: passName }).catch(() => {})
+    }
     syncTools()
     return mailView()
   }
   async function googleEmail(token) {
-    const response = await (rt.config.mail?.fetch ?? fetch)('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${token}` } })
+    const response = await (rt.config.mail?.fetch ?? fetch)('https://openidconnect.googleapis.com/v1/userinfo', {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20_000),
+    })
+    if (!response.ok) {
+      await response.body?.cancel?.().catch(() => {})
+      throw new Error(`Google userinfo answered ${response.status}`)
+    }
     const body = await response.json().catch(() => ({}))
-    if (typeof body.email !== 'string') throw new Error('Google did not say which account this is')
-    return body.email.toLowerCase()
+    if (typeof body.email !== 'string' || body.email.trim() === '') throw new Error('Google did not say which account this is')
+    return body.email.trim().toLowerCase()
   }
 
   const mailView = () => ({
@@ -594,10 +823,19 @@ export function install(rt, host) {
       return endpoints[name](body ?? {})
     },
     async dispose() {
+      disposed = true
       const live = [...sessions.values()]
       sessions.clear()
-      for (const pending of googlePendings.values()) pending.listener?.close()
+      for (const pending of googlePendings.values()) {
+        if (pending.timer !== undefined) clearTimeout(pending.timer)
+        closeGoogleListener(pending.listener, { immediate: true })
+      }
       googlePendings.clear()
+      const listeners = Array.from(activeGoogleListeners)
+      activeGoogleListeners.clear()
+      for (const listener of listeners) {
+        closeGoogleListener(listener, { immediate: true })
+      }
       await Promise.all(live.map(session => session.close?.().catch(() => {})))
     },
     _internals: { sessions, refreshGoogle, mailSecretName },

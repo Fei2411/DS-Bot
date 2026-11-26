@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
+import { PROBE_FORCE_KILL_AFTER_MS, cleanEnv, findEngineExecutable, launchOf, probeEnv, runProbeCommand, spawnAgent, terminateChild } from './discover.js'
 import { acpMode } from './engines.js'
 
 const CLIENT = { name: 'ds-bot', version: '1' }
@@ -36,6 +36,8 @@ export function stdioBridgePath(source = BUNDLED_MCP_STDIO) {
 
 const EFFORT_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
+const TOOL_CALL_CACHE_MAX = 100
+const REPORTED_TOOL_CALLS_MAX = 1_000
 
 // Events a driver reports, normalized for the adapter:
 // {type:'text'|'thought',text} | {type:'activity',text} (one compact line of the
@@ -44,21 +46,29 @@ const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medi
 // {type:'context',used?,size?} (how full the CLI's own context is) |
 // {type:'compaction',status:'started'|'completed'|'failed'}
 export class AcpEngine {
-  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts = new Map(), cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS }) {
+  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts, cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS, onListedUpdate, catalog } = {}) {
     this.route = route
     this.engine = engine
     this.findExecutable = findExecutable
     this.defaultEfforts = defaultEfforts
-    this.sessionEfforts = sessionEfforts
+    this.ownsSessionEfforts = sessionEfforts === undefined
+    this.sessionEfforts = sessionEfforts ?? new Map()
     this.cancelAckTimeoutMs = cancelAckTimeoutMs
+    this.onListedUpdate = onListedUpdate
     this.hasModelConfig = false
     this.child = undefined
     this.peer = undefined
     this.starting = undefined
     this.sessions = new Map()
     this.caps = {}
-    // The modes, options and models this CLI listed last, for a reply that lists none.
-    this.listed = { modes: [], configOptions: [], models: [] }
+    // What the CLI listed: its modes, config options and model variants. None of it
+    // is per-process state — every worker of a cwdPerProcess engine runs the same
+    // CLI — so the workers of one family share one catalog object, and a partial
+    // or bare answer from one process cannot erase what another already listed
+    // (#2145). A probe's temporary worker gets no catalog: its evidence reaches
+    // the family only through the guarded sync in listModels().
+    this.catalog = catalog ?? { listed: { modes: [], configOptions: [], models: [] }, writeEpoch: 0, invalidateEpoch: 0 }
+    this.listed = this.catalog.listed
     // The commands each agent session lists, by the agent's session id.
     this.commands = new Map()
     // For CLIs whose commands follow their process cwd (`cwdPerProcess`): one
@@ -115,23 +125,39 @@ export class AcpEngine {
     return this.maybeRetireWorker(worker) ? worker : undefined
   }
 
-  spawnWorker(cwd) {
+  spawnWorker(cwd, { isolated = false } = {}) {
     return new AcpEngine(
       this.route,
       { ...this.engine, cwdPerProcess: false, ...(cwd ? { spawnCwd: cwd } : {}) },
-      { findExecutable: this.findExecutable, defaultEfforts: new Map(this.defaultEfforts), sessionEfforts: this.sessionEfforts, cancelAckTimeoutMs: this.cancelAckTimeoutMs },
+      {
+        findExecutable: this.findExecutable,
+        defaultEfforts: new Map(this.defaultEfforts),
+        sessionEfforts: this.sessionEfforts,
+        cancelAckTimeoutMs: this.cancelAckTimeoutMs,
+        onListedUpdate: update => this.remember(update),
+        ...(isolated ? {} : { catalog: this.catalog }),
+      },
     )
+  }
+
+  catalogEpoch() {
+    return { write: this.catalog.writeEpoch, invalidate: this.catalog.invalidateEpoch }
+  }
+
+  catalogEpochMatches(epoch) {
+    return epoch.write === this.catalog.writeEpoch && epoch.invalidate === this.catalog.invalidateEpoch
   }
 
   workerOf(session, dshSessionId = session?.dshSessionId) {
     return session?._worker ?? (dshSessionId !== undefined ? this.sessionWorkers.get(dshSessionId) : undefined)
   }
 
-  async ensure() {
+  async ensure({ probe = false } = {}) {
+    if (this.retired) throw Object.assign(new Error(`${this.engine.name} worker is closed`), { code: 'LOCAL_AGENT_EXIT' })
     // A peer exists before its handshake has finished; other callers wait for it.
     if (this.starting !== undefined) return this.starting
     if (this.peer !== undefined) return this.peer
-    const starting = this.startPeer()
+    const starting = this.startPeer({ probe })
     this.starting = starting
     try {
       return await starting
@@ -140,14 +166,14 @@ export class AcpEngine {
     }
   }
 
-  async startPeer() {
+  async startPeer({ probe = false } = {}) {
     const bin = findEngineExecutable(this.engine, name => this.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     this.bin = bin
     const spawnCwd = this.engine.spawnCwd && existsSync(this.engine.spawnCwd) ? this.engine.spawnCwd : undefined
     const child = spawnAgent(bin, this.engine.args ?? [], {
       ...(spawnCwd !== undefined ? { cwd: spawnCwd } : {}),
-      env: cleanEnv(this.engine.env ?? {}),
+      env: (probe ? probeEnv : cleanEnv)(this.engine.env ?? {}),
       stdio: ['pipe', 'pipe', 'inherit'],
       windowsHide: true,
     })
@@ -201,7 +227,7 @@ export class AcpEngine {
       if (this.child === child) {
         this.child = undefined
         this.peer = undefined
-        terminateChild(child)
+        terminateChild(child, probe ? { forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS } : undefined)
       }
       throw error
     }
@@ -216,19 +242,17 @@ export class AcpEngine {
       modes: [],
       toolCalls: new Map(),
       reportedToolCalls: new Set(),
+      failedToolCalls: new Set(),
       push: event => queue.push(event),
       next: () => queue.next(),
     }
   }
 
   sessionFor(dshSessionId) {
-    let session = this.sessions.get(dshSessionId)
-    // A session whose process exited keeps its queue and, with it, the pump
-    // still waiting there: a reopened session needs a fresh one.
-    if (session === undefined || session.dead) {
-      session = this.createSession(dshSessionId)
-      this.sessions.set(dshSessionId, session)
-    }
+    // Each open owns its queue. A forgotten attempt may finish after its replacement;
+    // sharing this object would let the stale cleanup unregister the replacement.
+    const session = this.createSession(dshSessionId)
+    this.sessions.set(dshSessionId, session)
     return session
   }
 
@@ -237,59 +261,118 @@ export class AcpEngine {
     // kept by the agent's session id rather than on a session not known yet.
     if (params?.update?.sessionUpdate === 'available_commands_update') {
       this.commands.set(params.sessionId, (params.update.availableCommands ?? []).map(command => command?.name).filter(Boolean))
-      return
     }
     const session = [...this.sessions.values()].find(entry => entry.acpSessionId === params?.sessionId)
     if (session === undefined) return
     if (session.promptTurn?.cancelled) return
     // Devin CLI 3000.12 reports its compaction this way, not as compaction_update.
     if (method === '_cognition.ai/compaction') {
+      if (session.running) session.promptTurn?.onProgress?.()
       session.push({ type: 'compaction', status: compactionStatus(params?.status) })
       return
     }
     if (method !== 'session/update') return
     const update = params?.update ?? {}
+    if (session.running && typeof update.sessionUpdate === 'string') session.promptTurn?.onProgress?.()
     switch (update.sessionUpdate) {
-      case 'agent_message_chunk': session.push({ type: 'text', text: textOf(update.content) }); break
-      case 'agent_thought_chunk': session.push({ type: 'thought', text: textOf(update.content) }); break
+      case 'agent_message_chunk':
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
+        session.push({ type: 'text', text: textOf(update.content) })
+        break
+      case 'agent_thought_chunk':
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
+        session.push({ type: 'thought', text: textOf(update.content) })
+        break
       case 'tool_call':
       case 'tool_call_update': {
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
         // A permission request names the call only by id; its title, kind and
         // input came with the call's own updates, so they are kept here.
         const id = update.toolCallId
         const known = id === undefined ? undefined : session.toolCalls.get(id)
         const call = mergeCall(known, update)
-        if (id !== undefined) session.toolCalls.set(id, call)
+        const alreadyFailed = id !== undefined && (known?.status === 'failed' || session.failedToolCalls.has(id))
+        const terminal = update.status === 'completed' || update.status === 'failed'
+        if (id !== undefined) {
+          if (terminal) {
+            session.toolCalls.delete(id)
+            if (update.status === 'failed') {
+              session.failedToolCalls.delete(id)
+              session.failedToolCalls.add(id)
+              if (session.failedToolCalls.size > REPORTED_TOOL_CALLS_MAX) {
+                session.failedToolCalls.delete(session.failedToolCalls.values().next().value)
+              }
+            }
+          } else {
+            session.toolCalls.delete(id)
+            session.toolCalls.set(id, call)
+            if (session.toolCalls.size > TOOL_CALL_CACHE_MAX) {
+              session.toolCalls.delete(session.toolCalls.keys().next().value)
+            }
+          }
+        }
+        if (call.status !== 'pending' && !['read', 'search', 'think'].includes(call.kind)) session.cwd = undefined
         const team = ownToolCall(call)
         const described = describeCall(call)
         const reported = id !== undefined && session.reportedToolCalls.has(id)
+        const markReported = () => {
+          if (id === undefined) return
+          session.reportedToolCalls.delete(id)
+          session.reportedToolCalls.add(id)
+          if (session.reportedToolCalls.size > REPORTED_TOOL_CALLS_MAX) {
+            session.reportedToolCalls.delete(session.reportedToolCalls.values().next().value)
+          }
+        }
         if (!reported) {
-          if (update.status === 'failed' && known?.status !== 'failed') {
-            if (id !== undefined) session.reportedToolCalls.add(id)
+          if (update.status === 'failed' && !alreadyFailed) {
+            markReported()
             session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
           } else if (id === undefined || !isAnonymousMcpPlaceholder(call)) {
-            if (id !== undefined) session.reportedToolCalls.add(id)
+            markReported()
             session.push({ type: 'activity', text: `▸ ${described}`, ...(team ? { team: true } : {}) })
           }
-        } else if (update.status === 'failed' && known?.status !== 'failed') {
+        } else if (update.status === 'failed' && !alreadyFailed) {
           session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
-        } else if (update.status !== 'completed' && described !== describeCall(known)) {
+        } else if (update.status !== 'completed' && known !== undefined && described !== describeCall(known)) {
           session.push({ type: 'status', text: described, ...(team ? { team: true } : {}) })
         }
         break
       }
-      case 'plan': session.push({ type: 'thought', text: planText(update.entries) }); break
+      case 'plan':
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
+        session.push({ type: 'thought', text: planText(update.entries) })
+        break
       case 'usage_update': {
         // Devin sends each one twice, the second marked as a subagent's; a real
         // subagent's context is not the session's.
         if (update._meta?.['cognition.ai/subagent_context'] !== undefined) break
-        if (typeof update.used === 'number') session.push({ type: 'context', used: update.used, ...(typeof update.size === 'number' ? { size: update.size } : {}) })
+        if (typeof update.used === 'number') {
+          session.push({ type: 'context', used: update.used, ...(typeof update.size === 'number' ? { size: update.size } : {}) })
+          // Count internal LLM steps during an active prompt turn (ignoring session/load
+          // replays, zero-token placeholders, and back-to-back duplicate snapshots).
+          const turn = session.promptTurn
+          if (turn !== undefined && session.running === true && update.used > 0
+            && (turn.steps === 0 || update.used !== turn.lastUsed || turn.sawStepWork)) {
+            turn.steps += 1
+            turn.lastUsed = update.used
+            turn.sawStepWork = false
+          }
+        }
         break
       }
       case 'config_option_update': {
         if (Array.isArray(update.configOptions)) {
           session.configOptions = update.configOptions
           session.modes = update.modes?.availableModes ?? configOptionsOf(update.configOptions, 'mode')?.options ?? session.modes
+          if (update.configOptions.length > 0) {
+            this.remember(update)
+            this.onListedUpdate?.(update)
+            // Notices carry the config but no model variants, so the catalog is
+            // parsed from what the CLI has listed so far, not this update alone:
+            // parsing it bare would drop the per-model thinking tiers (#2145).
+            const discovered = modelsFromProbe({ configOptions: update.configOptions, models: { availableModels: this.listed.models } })
+            if (discovered.length > 0) session.push({ type: 'models', models: discovered })
+          }
         }
         break
       }
@@ -304,6 +387,7 @@ export class AcpEngine {
     if (method === 'session/request_permission') {
       const session = [...this.sessions.values()].find(entry => entry.acpSessionId === params?.sessionId)
       if (session === undefined) return Promise.reject({ code: -32603, message: 'unknown session' })
+      if (session.running && !session.promptTurn?.cancelled) session.promptTurn?.onProgress?.()
       const options = (params?.options ?? []).map(option => ({ optionId: option.optionId, name: option.name, kind: option.kind }))
       const call = callOf(session, params?.toolCall)
       // Cursor, Devin and Antigravity ask before MCP tool calls. A call to DS Bot's
@@ -312,16 +396,22 @@ export class AcpEngine {
       const once = ownToolCall(call) ? options.find(option => option.kind === 'allow_once') : undefined
       if (once !== undefined) return Promise.resolve({ outcome: { outcome: 'selected', optionId: once.optionId } })
       const action = describeCall(call)
+      const evidence = JSON.stringify(call)
       return new Promise((resolve) => {
         const id = `perm-${Math.random().toString(36).slice(2)}`
         const reply = (optionId) => {
           if (optionId === null) resolve({ outcome: { outcome: 'cancelled' } })
-          else resolve({ outcome: { outcome: 'selected', optionId } })
+          else {
+            if (options.some(option => option.optionId === optionId && option.kind?.startsWith('allow'))
+              && !['read', 'search', 'think'].includes(call.kind)) session.cwd = undefined
+            resolve({ outcome: { outcome: 'selected', optionId } })
+          }
         }
         session.push({
-          type: 'permission', id, reply,
+          type: 'permission', id, reply, cwd: session.cwd,
           action,
           detail: detailText(call, action),
+          evidence,
           options,
           changes: CHANGE_KINDS.has(call.kind),
         })
@@ -366,6 +456,15 @@ export class AcpEngine {
       session._worker = worker
       this.sessionWorkers.set(dshSessionId, worker)
       this.caps.image = worker.caps.image
+      // A family worker shares the catalog object, so what it listed is already
+      // here; only a legacy isolated worker would need the copy.
+      if (worker.catalog !== this.catalog) {
+        this.remember({
+          configOptions: worker.listed.configOptions,
+          modes: { availableModes: worker.listed.modes },
+          models: { availableModels: worker.listed.models },
+        })
+      }
       if (retiredPrev !== undefined) void retiredPrev.close().catch(() => {})
       return session
     } finally {
@@ -415,7 +514,7 @@ export class AcpEngine {
   }
 
   // Resumes an ACP session across the same MCP transport fallback ladder as newSession.
-  async loadSession(peer, { cwd, mcp, resumeId }) {
+  async loadSession(peer, { cwd, mcp, resumeId, resumeOnly = false }) {
     const modes = this.mcpModes(mcp)
     for (let i = 0; i < modes.length; i++) {
       const mode = modes[i]
@@ -426,7 +525,10 @@ export class AcpEngine {
       } catch (error) {
         const text = String(error?.message ?? error)
         if (AUTH_ERROR.test(text) || TIMEOUT_ERROR.test(text)) throw error
-        if (i === modes.length - 1) return { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
+        if (i === modes.length - 1) {
+          if (resumeOnly) throw Object.assign(new Error('the saved local agent session could not be resumed'), { code: 'LOCAL_AGENT_SESSION_LOST' })
+          return { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
+        }
       }
     }
   }
@@ -434,16 +536,16 @@ export class AcpEngine {
   // A new or resumed ACP session for one DS Bot Session.
   async open(dshSessionId, openArgs) {
     if (this.engine.cwdPerProcess) return this.openInWorker(dshSessionId, openArgs)
-    const { cwd, mcp, resumeId, preset, model } = openArgs
+    const { cwd, mcp, resumeId, resumeOnly = false, preset, model } = openArgs
     const peer = await this.ensure()
-    const prior = this.sessions.get(dshSessionId)
-    const created = prior === undefined || prior.dead
     const session = this.sessionFor(dshSessionId)
     try {
       const { reply, loaded } = resumeId !== undefined
-        ? await this.loadSession(peer, { cwd, mcp, resumeId })
+        ? await this.loadSession(peer, { cwd, mcp, resumeId, resumeOnly })
         : { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
       session.acpSessionId = reply?.sessionId ?? resumeId
+      session.cwd = cwd
+      session.resumed = loaded
       const loadedEffort = configOptionsOf(reply?.configOptions ?? [], 'thought_level')?.currentValue
       // Some agents list nothing on session/load: the session reads what this CLI
       // listed before rather than guessing a mode or model list.
@@ -481,7 +583,7 @@ export class AcpEngine {
       }
       return session
     } catch (error) {
-      if (created && this.sessions.get(dshSessionId) === session) this.sessions.delete(dshSessionId)
+      if (this.sessions.get(dshSessionId) === session) this.sessions.delete(dshSessionId)
       throw error
     }
   }
@@ -543,9 +645,9 @@ export class AcpEngine {
     signal?.throwIfAborted()
   }
 
-  async prompt(session, blocks, { signal, effort } = {}) {
+  async prompt(session, blocks, { signal, effort, onProgress } = {}) {
     const worker = this.workerOf(session)
-    if (worker !== undefined && worker !== this) return worker.prompt(session, blocks, { signal, effort })
+    if (worker !== undefined && worker !== this) return worker.prompt(session, blocks, { signal, effort, onProgress })
     // ACP notices have no turn id. Give cancellation a bounded grace period
     // before accepting notices for another prompt on the same session.
     await this.waitForPrompt(session, signal)
@@ -568,19 +670,37 @@ export class AcpEngine {
       }
     }
     signal?.throwIfAborted()
-    const turn = session.promptTurn = { cancelled: false, controller: new AbortController() }
+    const turn = session.promptTurn = {
+      cancelled: false,
+      controller: new AbortController(),
+      onProgress,
+      steps: 0,
+      lastUsed: undefined,
+      sawStepWork: false,
+    }
     const onAbort = () => { turn.cancelled = true }
     signal?.addEventListener('abort', onAbort, { once: true })
     session.running = true
     const reply = session.pendingPrompt = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { signal: turn.controller.signal, timeout: 0 })
     reply.then(
-      result => { if (!turn.cancelled) session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }) },
+      (result) => {
+        if (turn.cancelled) return
+        const calls = positiveInt(result?.usage?.calls)
+          ?? positiveInt(result?.numTurns)
+          ?? positiveInt(result?.num_turns)
+          ?? (turn.steps > 0 ? turn.steps : undefined)
+        const usage = usageOf(result?.usage, calls)
+        session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usage ? { usage } : {}) })
+      },
       error => { if (!turn.cancelled) session.push({ type: 'error', error }) },
     ).finally(() => {
       if (session.promptTurn === turn) session.running = false
       signal?.removeEventListener('abort', onAbort)
     })
-    return reply.catch((error) => { if (!turn.cancelled) throw error })
+    // Errors from `session/prompt` are already delivered in FIFO order through
+    // `session.push({ type: 'error', error })` above; re-throwing here would let
+    // callers push a duplicate error ahead of already-queued `session/update` events.
+    return reply.catch(() => {})
   }
 
   canSteer(session) {
@@ -636,10 +756,20 @@ export class AcpEngine {
       if (retired !== undefined) void retired.close().catch(() => {})
       return
     }
+    const session = this.sessions.get(dshSessionId)
+    const turn = session?.promptTurn
+    if (turn !== undefined) {
+      turn.cancelled = true
+      turn.controller.abort(new Error('the ACP session was closed'))
+    }
+    if (session?.acpSessionId !== undefined) {
+      this.commands.delete(session.acpSessionId)
+      this.sessionEfforts.delete(session.acpSessionId)
+    }
     this.sessions.delete(dshSessionId)
   }
 
-  async close() {
+  async close({ forceKillAfterMs } = {}) {
     for (const pending of this.pendingOpens.values()) {
       for (const token of pending) token.forgotten = true
     }
@@ -652,29 +782,121 @@ export class AcpEngine {
     }
     this.workers.clear()
     this.sessionWorkers.clear()
-    await Promise.all([...toClose].map(worker => worker.close().catch(() => {})))
+    await Promise.all([...toClose].map(worker => worker.close({ forceKillAfterMs }).catch(() => {})))
+    for (const session of this.sessions.values()) {
+      if (session?.acpSessionId !== undefined) this.sessionEfforts.delete(session.acpSessionId)
+    }
+    this.sessions.clear()
+    this.commands.clear()
+    if (this.ownsSessionEfforts) this.sessionEfforts.clear()
     const child = this.child
+    const peer = this.peer
     this.child = undefined
     this.peer = undefined
     this.starting = undefined
-    terminateChild(child)
+    peer?.close?.(new Error(`${this.engine.name} closed`))
+    terminateChild(child, forceKillAfterMs === undefined ? undefined : { forceKillAfterMs })
   }
 
-  remember(reply) {
-    const configOptions = reply?.configOptions
+  invalidateListed() {
+    // Advance generation to reject late pre-refresh probes without wiping already-
+    // discovered modes needed by concurrent session/load resumes before re-probe
+    // completes. The catalog object is shared across the family's workers, so
+    // invalidating it once resets them all; only an isolated probe worker would
+    // need its own, and probe workers never join this.workers.
+    this.catalog.invalidateEpoch += 1
+    this.catalog.writeEpoch += 1
+    this.listed.models = []
+    for (const worker of this.workers.values()) {
+      if (worker.catalog !== this.catalog) worker.invalidateListed()
+    }
+  }
+
+  remember(reply, { epoch } = {}) {
+    // A probe passes the generation it started in. After an invalidation its
+    // evidence is from before the refresh and drops entirely; after ordinary
+    // concurrent writes only its replacing slots (config, modes) drop, while
+    // its variant evidence still unions in — a slower probe's `agy models`
+    // listing is additive either way and losing it would re-degrade notices.
+    const preRefresh = epoch !== undefined && epoch.invalidate !== this.catalog.invalidateEpoch
+    if (preRefresh) return this.listed
+    const stale = epoch !== undefined && epoch.write !== this.catalog.writeEpoch
+    const configOptions = !stale && Array.isArray(reply?.configOptions) && reply.configOptions.length > 0 ? reply.configOptions : undefined
     if (configOptionsOf(configOptions ?? [], 'model') !== undefined) this.hasModelConfig = true
-    const modes = reply?.modes?.availableModes ?? configOptionsOf(configOptions ?? [], 'mode')?.options
-    const models = reply?.models?.availableModels
-    this.listed = {
-      configOptions: configOptions ?? this.listed.configOptions,
-      modes: modes ?? this.listed.modes,
-      models: models ?? this.listed.models,
+    const rawModes = !stale ? reply?.modes?.availableModes ?? configOptionsOf(configOptions ?? [], 'mode')?.options : undefined
+    const modes = Array.isArray(rawModes) && rawModes.length > 0 ? rawModes : undefined
+    const rawModels = reply?.models?.availableModels
+    const models = Array.isArray(rawModels) && rawModels.length > 0 ? rawModels : undefined
+    if (configOptions !== undefined || modes !== undefined || models !== undefined) {
+      if (!stale) this.catalog.writeEpoch += 1
+      // Variant evidence merges by union within an invalidation epoch: the CLI
+      // can answer mid-build with a partial catalog (#2145), and a partial
+      // answer must not erase what a fuller one already listed. The config
+      // keeps last-write-wins: its entries are the CLI's select state, and
+      // variant families it omits still surface through the parse. A real
+      // removal joins with the next invalidation, which clears this state.
+      if (configOptions !== undefined) this.listed.configOptions = configOptions
+      if (modes !== undefined) this.listed.modes = modes
+      if (models !== undefined) this.listed.models = unionById(this.listed.models, models)
     }
     return this.listed
   }
 
+  discoveredModels(session) {
+    const seen = new Set()
+    const availableModels = []
+    for (const list of [session?.models, this.listed.models]) {
+      if (!Array.isArray(list)) continue
+      for (const entry of list) {
+        const id = String(entry?.modelId ?? entry?.id ?? '')
+        if (id === '' || seen.has(id)) continue
+        seen.add(id)
+        availableModels.push(entry)
+      }
+    }
+    return modelsFromProbe({
+      configOptions: session?.configOptions ?? this.listed.configOptions,
+      models: availableModels.length > 0 ? { availableModels } : undefined,
+    })
+  }
+
+  async probeOnOwnPeer({ cwd, mcp, probe }) {
+    const peer = await this.ensure({ probe })
+    const listing = this.probeModelsListing()
+    const reply = await this.newSession(peer, { cwd, mcp })
+    if (reply?.sessionId !== undefined) {
+      this.commands.delete(reply.sessionId)
+      if (this.caps.close) await peer.request('session/close', { sessionId: reply.sessionId }, { timeout: 15_000 }).catch(() => {})
+    }
+    return mergeModelEvidence(reply, await listing)
+  }
+
+  // Some CLIs advertise their catalog in two places at once: the ACP session reply
+  // and a plain listing command (`agy models`). The ACP reply can be a partial
+  // snapshot while the CLI's own catalog is still being built (#2145): the listing
+  // then carries the variants the reply lacks, so both are merged before parsing.
+  async probeModelsListing() {
+    const args = this.engine.modelsArgs
+    if (!Array.isArray(args) || args.length === 0) return []
+    try {
+      const bin = this.bin ?? findEngineExecutable(this.engine, name => this.findExecutable(name))
+      if (bin === undefined) return []
+      const launch = launchOf(bin, args)
+      const result = await runProbeCommand(launch.file, launch.args, {
+        timeoutMs: 10_000,
+        forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS,
+        spawnOptions: launch.options,
+      })
+      return result.ok ? parseModelListing(result.stdout) : []
+    } catch {
+      return []
+    }
+  }
+
   // Models (and per-model thinking levels) the agent advertises on a probe session.
   async listModels({ cwd, mcp }) {
+    const epoch = this.catalogEpoch()
+    const fresherModels = () => modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
     if (this.engine.cwdPerProcess) {
       const live = this.activeWorker()
       if (live !== undefined) {
@@ -682,32 +904,77 @@ export class AcpEngine {
         try {
           const target = live.engine.spawnCwd && existsSync(live.engine.spawnCwd) ? live.engine.spawnCwd : cwd
           const models = await live.listModels({ cwd: target, mcp })
-          this.caps.image = live.caps.image
-          return models
+          if (this.catalogEpochMatches(epoch)) {
+            this.caps.image = live.caps.image
+            if (live.catalog !== this.catalog) {
+              this.remember({
+                configOptions: live.listed.configOptions,
+                modes: { availableModes: live.listed.modes },
+                models: { availableModels: live.listed.models },
+              }, { epoch })
+            }
+            return models
+          }
+          const fresher = fresherModels()
+          return fresher.length > 0 ? fresher : models
         } finally {
           live.inFlight -= 1
           if (this.maybeRetireWorker(live)) await live.close().catch(() => {})
         }
       }
-      const temp = this.spawnWorker(cwd)
+      const temp = this.spawnWorker(cwd, { isolated: true })
       this.probeWorkers.add(temp)
       try {
-        const models = await temp.listModels({ cwd, mcp })
-        this.caps.image = temp.caps.image
-        return models
+        const reply = await temp.probeOnOwnPeer({ cwd, mcp, probe: true })
+        const models = modelsFromProbe(reply)
+        if (this.catalogEpochMatches(epoch)) {
+          this.caps.image = temp.caps.image
+          this.remember(reply, { epoch })
+          return models
+        }
+        // Even when fresher writes landed mid-probe the evidence unions in; only
+        // an invalidation discards a probe wholesale (see remember()).
+        this.remember(reply, { epoch })
+        const fresher = fresherModels()
+        return fresher.length > 0 ? fresher : models
       } finally {
         this.probeWorkers.delete(temp)
-        await temp.close().catch(() => {})
+        await temp.close({ forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS }).catch(() => {})
       }
     }
-    const peer = await this.ensure()
-    const probe = await this.newSession(peer, { cwd, mcp })
-    if (probe?.sessionId !== undefined) {
-      this.commands.delete(probe.sessionId)
-      if (this.caps.close) await peer.request('session/close', { sessionId: probe.sessionId }, { timeout: 15_000 }).catch(() => {})
+    // Reuse an already-running live peer when present. Otherwise run the probe in
+    // an isolated temporary process with probeEnv so a concurrent live session open
+    // never inherits MISE_OFFLINE=1 on the shared engine peer.
+    if (this.peer !== undefined || this.starting !== undefined) {
+      const probe = await this.probeOnOwnPeer({ cwd, mcp, probe: false })
+      const stale = !this.catalogEpochMatches(epoch)
+      this.remember(probe, { epoch })
+      if (stale) {
+        const fresher = fresherModels()
+        if (fresher.length > 0) return fresher
+      }
+      return modelsFromProbe(probe)
     }
-    this.remember(probe)
-    return modelsFromProbe(probe)
+    const temp = new AcpEngine(
+      this.route,
+      { ...this.engine, cwdPerProcess: false },
+      { findExecutable: this.findExecutable, defaultEfforts: new Map(this.defaultEfforts), sessionEfforts: this.sessionEfforts, cancelAckTimeoutMs: this.cancelAckTimeoutMs },
+    )
+    this.probeWorkers.add(temp)
+    try {
+      const probe = await temp.probeOnOwnPeer({ cwd, mcp, probe: true })
+      const stale = !this.catalogEpochMatches(epoch)
+      this.remember(probe, { epoch })
+      if (!stale) {
+        this.caps.image = temp.caps.image
+        return modelsFromProbe(probe)
+      }
+      const fresher = fresherModels()
+      return fresher.length > 0 ? fresher : modelsFromProbe(probe)
+    } finally {
+      this.probeWorkers.delete(temp)
+      await temp.close({ forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS }).catch(() => {})
+    }
   }
 }
 
@@ -723,12 +990,70 @@ function acpPrompt(blocks) {
   return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
+// The trailing token of a concrete variant id, when it is a known thinking level.
+const tierSuffixOf = (id, vocabulary) => vocabulary.find(token => id.endsWith(`-${token}`))
+
+const catalogEntryId = entry => String(entry?.modelId ?? entry?.id ?? entry?.value ?? entry?.name ?? '')
+function unionById(previous = [], next = []) {
+  const seen = new Set()
+  const out = []
+  for (const entry of [...previous, ...next]) {
+    const id = catalogEntryId(entry)
+    if (id === '' || seen.has(id)) continue
+    seen.add(id)
+    out.push(entry)
+  }
+  return out
+}
+
+// Model entries of a CLI's plain listing command output (`agy models` style):
+// one model per line, the id first, its display name after a tab or spacing.
+// Header and progress lines have no id-shaped first token and drop out.
+export function parseModelListing(stdout) {
+  const entries = []
+  const seen = new Set()
+  for (const raw of String(stdout ?? '').split(/\r?\n/u)) {
+    // A listing printed for a terminal may carry color; the id is read uncolored.
+    // eslint-disable-next-line no-control-regex
+    const trimmed = raw.replace(/\x1b\[[0-9;]*m/gu, '').trim()
+    if (trimmed === '') continue
+    const match = /^(\S+)(?:[\t ]{2,}|\t)(.+)$/u.exec(trimmed) ?? /^(\S+)$/u.exec(trimmed)
+    if (match === null) continue
+    const id = match[1]
+    // Model ids carry a digit or a separator; a word alone is a header or noise.
+    if (!/^[\w][\w./-]*$/u.test(id) || !/[\d._-]/u.test(id) || seen.has(id)) continue
+    seen.add(id)
+    entries.push({ modelId: id, name: (match[2] ?? '').trim() || id })
+  }
+  return entries
+}
+
+// The probe reply plus the CLI's own listing entries merged into one evidence set:
+// variant ids either source knows count as variant evidence for the parse.
+function mergeModelEvidence(reply, listingEntries = []) {
+  if (!Array.isArray(listingEntries) || listingEntries.length === 0) return reply ?? {}
+  const availableModels = [...(reply?.models?.availableModels ?? [])]
+  const seen = new Set(availableModels.map(entry => String(entry?.modelId ?? entry?.id ?? '')))
+  for (const entry of listingEntries) {
+    const id = String(entry?.modelId ?? entry?.id ?? '')
+    if (id === '' || seen.has(id)) continue
+    seen.add(id)
+    availableModels.push(entry)
+  }
+  return { ...reply, models: { ...reply?.models, availableModels } }
+}
+
+// The catalog one probe's evidence describes. Base models come from the model
+// config's options when the CLI lists them; `models.availableModels` is variant
+// evidence: an entry `<base>-<level>` proves that base serves that thinking level.
+// The config and the variants can disagree when the CLI answered mid-build (#2145),
+// so variant families the config does not list become bases of their own (when the
+// family shows at least two levels, which tells a real tier suffix from a trailing
+// word of the model's own name), and a concrete entry neither config nor family
+// explains is listed as itself.
 export function modelsFromProbe(probe) {
   const option = configOptionsOf(probe?.configOptions ?? [], 'model')
   const available = probe?.models?.availableModels ?? []
-  const baseModels = (option?.options ?? []).length > 0
-    ? option.options.map(entry => ({ id: String(entry.id ?? entry.value ?? entry.name), name: String(entry.name ?? entry.id ?? entry.value) }))
-    : available.map(entry => ({ id: String(entry.modelId ?? entry.id ?? entry.name), name: String(entry.name ?? entry.modelId ?? entry.id) }))
   const thought = configOptionsOf(probe?.configOptions ?? [], 'thought_level')
   const thoughtOptions = (thought?.options ?? []).map(entry => ({
     id: String(entry.id ?? entry.value ?? entry.name),
@@ -736,20 +1061,78 @@ export function modelsFromProbe(probe) {
     ...(entry.description ? { description: String(entry.description) } : {}),
   }))
   const thoughtById = new Map(thoughtOptions.map(entry => [entry.id, entry]))
-  const availableIds = new Set(available.map(entry => String(entry.modelId ?? entry.id ?? '')).filter(Boolean))
-  const knownEfforts = [...new Set([...EFFORT_ORDER, ...thoughtOptions.map(entry => entry.id)])]
-  const hasVariantMap = (option?.options ?? []).length > 0
-    && availableIds.size > 0
-    && baseModels.some(base => knownEfforts.some(effortId => availableIds.has(`${base.id}-${effortId}`)))
-  return baseModels.map((model) => {
-    // Leave defaultEffort unset so a Bot without a chosen level keeps the CLI's default.
-    if (hasVariantMap) {
-      const efforts = knownEfforts
-        .filter(effortId => availableIds.has(`${model.id}-${effortId}`))
-        .map(effortId => thoughtById.get(effortId) ?? { id: effortId, name: EFFORT_NAMES[effortId] ?? effortId })
-      return efforts.length > 0 ? { ...model, reasoning: { efforts } } : model
+  const vocabulary = [...new Set([...EFFORT_ORDER, ...thoughtOptions.map(entry => entry.id)])]
+  const effortOf = id => thoughtById.get(id) ?? { id, name: EFFORT_NAMES[id] ?? id }
+  const configBases = (option?.options ?? []).map(entry => ({ id: String(entry.id ?? entry.value ?? entry.name), name: String(entry.name ?? entry.id ?? entry.value) }))
+
+  // Group the available entries that end in a known level token by their base id.
+  const groups = new Map() // baseId -> Map(tierId -> entry)
+  const groupOf = (baseId) => {
+    let group = groups.get(baseId)
+    if (group === undefined) {
+      group = new Map()
+      groups.set(baseId, group)
     }
-    return thoughtOptions.length > 0 ? { ...model, reasoning: { efforts: thoughtOptions } } : model
+    return group
+  }
+  const entries = available.map((entry) => {
+    const id = String(entry.modelId ?? entry.id ?? entry.name)
+    const tier = tierSuffixOf(id, vocabulary)
+    if (tier !== undefined && id.length > tier.length + 1) groupOf(id.slice(0, -(tier.length + 1))).set(tier, entry)
+    return { entry, id, tier, baseId: tier === undefined ? undefined : id.slice(0, -(tier.length + 1)) }
+  })
+
+  const configIds = new Set(configBases.map(base => base.id))
+  const variantMode = configBases.some(base => groups.has(base.id))
+  if (!variantMode) {
+    // No evidence this CLI publishes one id per level: every model serves the
+    // thinking levels the config lists, like before variant-aware parsing.
+    const baseModels = configBases.length > 0
+      ? configBases
+      : entries.map(({ entry, id }) => ({ id, name: String(entry.name ?? id) }))
+    return baseModels.map(model => (thoughtOptions.length > 0 ? { ...model, reasoning: { efforts: thoughtOptions } } : model))
+  }
+
+  const consumed = new Set()
+  const tiersOf = (baseId) => {
+    const group = groups.get(baseId)
+    if (group === undefined) return []
+    for (const tier of group.keys()) consumed.add(`${baseId}-${tier}`)
+    return vocabulary.filter(tier => group.has(tier)).map(effortOf)
+  }
+  const out = configBases.map((model) => {
+    // Leave defaultEffort unset so a Bot without a chosen level keeps the CLI's default.
+    const efforts = tiersOf(model.id)
+    return efforts.length > 0 ? { ...model, reasoning: { efforts } } : model
+  })
+
+  // A variant family the config does not list at all: the CLI's own model ids,
+  // collapsed to their base so a pick reaches it the way the config entries do.
+  for (const [baseId, group] of groups) {
+    if (configIds.has(baseId) || group.size < 2) continue
+    for (const tier of group.keys()) consumed.add(`${baseId}-${tier}`)
+    const first = group.values().next().value
+    const stripped = String(first?.name ?? '').replace(/\s*\([^()]*\)\s*$/u, '').trim()
+    out.push({
+      id: baseId,
+      name: stripped !== '' ? stripped : baseId,
+      reasoning: { efforts: vocabulary.filter(tier => group.has(tier)).map(effortOf) },
+    })
+  }
+
+  // Whatever is left over is a concrete model of its own (a single-level model
+  // whose id happens to end in a level word, or a variant of a family too thin
+  // to read). It is listed as itself, untiered, rather than dropped.
+  for (const { entry, id } of entries) {
+    if (consumed.has(id) || configIds.has(id)) continue
+    out.push({ id, name: String(entry.name ?? id) })
+  }
+
+  const seen = new Set()
+  return out.filter((model) => {
+    if (seen.has(model.id)) return false
+    seen.add(model.id)
+    return true
   })
 }
 
@@ -823,7 +1206,7 @@ const callOf = (session, toolCall) => mergeCall(toolCall?.toolCallId === undefin
 // ACP tool kinds that change files or run something.
 const CHANGE_KINDS = new Set(['edit', 'delete', 'move', 'execute'])
 const VERBS = { read: 'Read', edit: 'Edit', delete: 'Delete', move: 'Move', search: 'Search', execute: 'Run', think: 'Think', fetch: 'Fetch' }
-const inputOf = call => (call.rawInput !== null && typeof call.rawInput === 'object' ? call.rawInput : {})
+const inputOf = call => (call?.rawInput !== null && typeof call?.rawInput === 'object' ? call.rawInput : {})
 // One line a person can act on: what kind of action, on what.
 export const describeCall = (call) => {
   const input = inputOf(call)
@@ -850,21 +1233,24 @@ const detailText = (call, action = '') => {
   if (paths.length > 0) lines.push(paths.join(', '))
   return lines.join('\n').slice(0, 4_000)
 }
+const positiveInt = value => (Number.isSafeInteger(value) && value > 0 ? value : undefined)
 // A prompt's usage. Some CLIs fold cached input into inputTokens (Devin: totalTokens is
 // inputTokens + outputTokens), while others (Antigravity) count cachedReadTokens apart.
-export const usageOf = (usage) => {
+export const usageOf = (usage, calls) => {
   if (typeof usage?.inputTokens !== 'number' && typeof usage?.outputTokens !== 'number') return undefined
   const read = usage.cachedReadTokens ?? 0
   const write = usage.cachedWriteTokens ?? 0
   const input = usage.inputTokens ?? 0
   const output = usage.outputTokens ?? 0
   const separate = typeof usage.totalTokens === 'number' && read + write > 0 && usage.totalTokens >= input + read + write + output
+  const resolvedCalls = positiveInt(calls) ?? positiveInt(usage.calls)
   return {
     inputTokens: !separate && read + write <= input ? input - read - write : input,
     outputTokens: output,
     ...(read > 0 ? { cacheReadTokens: read } : {}),
     ...(write > 0 ? { cacheWriteTokens: write } : {}),
     ...(usage.thoughtTokens ? { reasoningTokens: usage.thoughtTokens } : {}),
+    ...(resolvedCalls !== undefined && resolvedCalls > 1 ? { calls: resolvedCalls } : {}),
   }
 }
 const compactionStatus = status => (status === 'completed' ? 'completed' : status === 'started' || status === 'in_progress' ? 'started' : 'failed')
