@@ -32,6 +32,7 @@ const makeTeam = (over = {}) => ({
   works: over.works ?? {},
   questions: {},
   views: {},
+  ...(over.completedMoveOps ? { completedMoveOps: over.completedMoveOps } : {}),
   prefs: over.prefs ?? {},
   revision: 0,
 })
@@ -2023,4 +2024,139 @@ test('round-5 invariants: room.segments object does not crash IM sendUser, recon
   assert.equal(ok3.moved, true)
   assert.equal(env3.rt.state.completedMoveOps?.['op-sup-2']?.moved, true)
   assert.equal(env3.rt.state.completedMoveOps?.['op-sup-1']?.stale, true, 'Move 2 retry must still persist stale tombstone for op-sup-1 after failed stale replay')
+})
+
+test('follow-up durability invariants: capacity eviction during save, failed no-op save, corrupt cold session, and live flush=false auto-retry', async (t) => {
+  // 1) At 64-entry capacity after restart (cold in-memory LRU), while Bot A's save is in flight
+  //    and provisionally evicts op-cap-0, replaying op-cap-0 on busy Bot B must hit op-cap-0's
+  //    durable receipt and NOT move Bot B; when A's save fails, op-cap-0 is restored cleanly.
+  const seededOps = {}
+  for (let i = 0; i < 64; i += 1) {
+    seededOps[`op-cap-${i}`] = { sessionId: `hist-${i}`, taskId: `k_hist_${i}`, moved: true, at: 100 + i }
+  }
+  const env1 = await startEnv({
+    team: makeTeam({
+      completedMoveOps: seededOps,
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1 },
+        b: { id: 'b', name: 'Helper', role: 'Dev', sessionId: 'dm-b', createdAt: 2 },
+      },
+    }),
+  })
+  t.after(env1.stop)
+  const dmA1 = env1.agentMap.get('dm-a')
+  const dmB1 = env1.agentMap.get('dm-b')
+  dmA1.status = 'running'
+  dmB1.status = 'running'
+  await env1.emit('dm-a', 'turn/start', { turn: 1 })
+  await env1.emit('dm-b', 'turn/start', { turn: 1 })
+  const origSave1 = env1.rt.save
+  let rejectSaveA
+  let interceptSaveA = true
+  env1.rt.save = async (opts = {}) => {
+    if (opts?.required && interceptSaveA) {
+      interceptSaveA = false
+      return new Promise((_, reject) => { rejectSaveA = reject })
+    }
+    return origSave1(opts)
+  }
+  const moveA = env1.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-cap-64' })
+  await waitFor(() => typeof rejectSaveA === 'function')
+  // While A's save is pending (having provisionally evicted op-cap-0), replay op-cap-0 against busy Bot B!
+  const replay0 = await env1.rt.moveForegroundToBackground({ botId: 'b', operationId: 'op-cap-0' })
+  assert.deepEqual(replay0, { sessionId: 'hist-0', taskId: 'k_hist_0', moved: true })
+  assert.equal(env1.rt.botOf('b').sessionId, 'dm-b', 'replaying provisionally evicted durable receipt must NOT move Bot B')
+  assert.equal(env1.rt.botOf('b').tasks?.length ?? 0, 0)
+  // Now fail A's save -> op-cap-0 must be back in state.completedMoveOps and op-cap-64 unstaged.
+  rejectSaveA(new Error('disk full for A'))
+  await assert.rejects(() => moveA, /disk full for A/)
+  assert.equal(env1.rt.state.completedMoveOps?.['op-cap-0']?.sessionId, 'hist-0')
+  assert.equal(env1.rt.state.completedMoveOps?.['op-cap-64'], undefined)
+  assert.equal(env1.rt.botOf('b').sessionId, 'dm-b')
+
+  // 2) Natural completion mid-fork whose required save fails MUST retain the no-op in pendingSaveMoveOps
+  //    so retrying the same operationId after Turn 2 starts returns moved:false without moving Turn 2,
+  //    AND if a newer Move 2 commits instead, it also persists op-1's moved:false receipt atomically.
+  let releaseFork2
+  const env2 = await startEnv({
+    forkImpl: async (_opts, make) => new Promise((resolve) => { releaseFork2 = () => resolve({ sessionId: make() }) }),
+  })
+  t.after(env2.stop)
+  const dmA2 = env2.agentMap.get('dm-a')
+  dmA2.status = 'running'
+  await env2.emit('dm-a', 'turn/start', { turn: 1 })
+  const origSave2 = env2.rt.save
+  let failNoOpSave = true
+  env2.rt.save = async (opts = {}) => {
+    if (opts?.required && failNoOpSave) { failNoOpSave = false; throw new Error('no-op save failed') }
+    return origSave2(opts)
+  }
+  const pNoOp = env2.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-noop-fail' })
+  await waitFor(() => typeof releaseFork2 === 'function')
+  dmA2.status = 'idle'
+  await env2.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  releaseFork2()
+  await assert.rejects(() => pNoOp, /no-op save failed/)
+  // Turn 2 starts on dm-a; retrying op-noop-fail must persist & return moved:false, NOT move Turn 2!
+  dmA2.status = 'running'
+  await env2.emit('dm-a', 'turn/start', { turn: 2 })
+  const retryNoOp = await env2.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-noop-fail' })
+  assert.deepEqual(retryNoOp, { sessionId: 'dm-a', taskId: null, moved: false })
+  assert.equal(env2.rt.botOf('a').sessionId, 'dm-a', 'retrying failed no-op save must NOT move Turn 2')
+  assert.equal(env2.rt.botOf('a').tasks?.length ?? 0, 0)
+  assert.equal(env2.rt.state.completedMoveOps?.['op-noop-fail']?.moved, false)
+
+  // 3) SESSION_QUERY_CORRUPT_SESSION whose message includes "not found in surface" must FAIL CLOSED,
+  //    never be misclassified as missing session!
+  const env3 = await startEnv({
+    team: makeTeam({
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a-corrupt', createdAt: 1 },
+        b: { id: 'b', name: 'Helper', role: 'Dev', sessionId: 'dm-b-target', createdAt: 2 },
+      },
+    }),
+  })
+  t.after(env3.stop)
+  delete env3.ctx.sessionController.inspect
+  env3.agentMap.delete('dm-a-corrupt')
+  const query3 = {
+    inspectSession: async (sid) => {
+      if (sid === 'dm-a-corrupt') {
+        throw Object.assign(new Error('session dm-a-corrupt not found in surface index'), { code: 'SESSION_QUERY_CORRUPT_SESSION' })
+      }
+      throw Object.assign(new Error('session not found'), { code: 'SESSION_QUERY_SESSION_NOT_FOUND' })
+    },
+  }
+  const origGet3 = env3.ctx.get
+  env3.ctx.get = name => (name === 'sessionQuery' ? query3 : origGet3(name))
+  await assert.rejects(
+    () => env3.rt.sendUser({ sessionId: 'b', content: [{ type: 'text', text: 'Retry' }], requestId: 'im:telegram:c1:dm-u1:corrupt-1' }),
+    err => err?.code === 'SESSION_QUERY_CORRUPT_SESSION',
+    'SESSION_QUERY_CORRUPT_SESSION containing "not found in surface" must fail closed instead of admitting duplicate',
+  )
+  assert.equal(env3.prompts.length, 0)
+
+  // 4) Live forwardPulledMessages encountering flush() === false MUST schedule automatic retry
+  //    so pendingHandoffInputs drains once flush() returns true (without manual reconcile).
+  let releaseFork4
+  const env4 = await startEnv({
+    forkImpl: async (_opts, make) => new Promise((resolve) => { releaseFork4 = () => resolve({ sessionId: make() }) }),
+  })
+  t.after(env4.stop)
+  let allowFlush4 = false
+  env4.ctx.sessions.flush = async () => allowFlush4
+  const dmA4 = env4.agentMap.get('dm-a')
+  dmA4.status = 'running'
+  await env4.emit('dm-a', 'turn/start', { turn: 1 })
+  const msg4 = { id: 'm-live-unflushed', content: [{ type: 'text', text: 'Drain automatically' }], source: { kind: 'user', rpcId: 'rpc-live-unflushed' } }
+  const handoff4 = env4.rt.handoffForeground(env4.rt.botOf('a'), 'dm-a', [{ msg: msg4, target: 'next-turn', oldAgent: dmA4, originalSessionId: 'dm-a' }])
+  await waitFor(() => typeof releaseFork4 === 'function')
+  releaseFork4()
+  const newSid4 = await handoff4
+  assert.equal(env4.rt.state.pendingHandoffInputs?.length, 1, 'journal stays while live recipient flush returns false')
+  // Now flush becomes available -> automatic scheduled replay must drain the journal without manual reconcile!
+  allowFlush4 = true
+  await waitFor(() => env4.rt.state.pendingHandoffInputs === undefined, 2500)
+  assert.equal(env4.rt.state.pendingHandoffInputs, undefined, 'live flush=false must auto-schedule replay and drain once flush returns true')
+  assert.equal(env4.agentMap.get(newSid4).followups.length, 1, 'already-admitted message must not duplicate on auto-replay')
 })

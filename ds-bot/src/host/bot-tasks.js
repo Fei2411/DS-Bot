@@ -146,6 +146,16 @@ export function install(rt) {
   // Cache of rpcIds/messageIds scanned from immutable cold (settled) sessions after restart.
   const MAX_INSPECTED_SESSIONS = 128
   const inspectedSettledSessionRpcIds = new Map()
+  const activeStagedBatches = new Set()
+  const normalizeMoveReceipt = (persisted) => {
+    if (!persisted || typeof persisted !== 'object' || typeof persisted.sessionId !== 'string') return undefined
+    return {
+      sessionId: persisted.sessionId,
+      taskId: persisted.taskId ?? null,
+      moved: Boolean(persisted.moved),
+      ...(persisted.stale === true ? { stale: true } : {}),
+    }
+  }
   const readCompletedMoveOp = (operationId) => {
     if (typeof operationId !== 'string' || operationId === '') return undefined
     if (isStagedMoveOp(operationId) || inFlightSaveMoveOps.has(operationId) || pendingSaveMoveOps.has(operationId)) {
@@ -154,25 +164,27 @@ export function install(rt) {
     const mem = completedMoveOps.get(operationId)
     if (mem !== undefined) return mem
     const persisted = rt.own(state.completedMoveOps, operationId)
-    if (persisted && typeof persisted === 'object' && typeof persisted.sessionId === 'string') {
-      const normalized = {
-        sessionId: persisted.sessionId,
-        taskId: persisted.taskId ?? null,
-        moved: Boolean(persisted.moved),
-        ...(persisted.stale === true ? { stale: true } : {}),
-      }
+    const normalized = normalizeMoveReceipt(persisted)
+    if (normalized !== undefined) {
       completedMoveOps.set(operationId, normalized)
       return normalized
+    }
+    // While another Bot's required save is still in flight, entries it provisionally evicted
+    // at capacity remain durable on disk; keep them readable so a replay cannot re-execute.
+    for (const batch of activeStagedBatches) {
+      const pendingEvicted = normalizeMoveReceipt(batch.evictedMap?.get(operationId))
+      if (pendingEvicted !== undefined) return pendingEvicted
     }
     return undefined
   }
   // Stages one or more operation receipts using per-key identity-checked rollback tracking
   // so rolling back a failed save NEVER clobbers a concurrent Bot's receipt or a newer
-  // overlapping stage on the same key, while still restoring capacity-evicted entries.
+  // overlapping stage on the same key, while still restoring capacity-evicted entries and
+  // keeping provisionally evicted receipts readable until `rt.save({ required: true })` commits.
   const stagePersistedMoveOps = (entries) => {
     // entries: Array<{ id: string, result: { sessionId, taskId, moved, stale? } }>
     const valid = entries.filter(item => typeof item?.id === 'string' && item.id !== '')
-    if (valid.length === 0) return { active: false, prevById: new Map(), writtenById: new Map(), evicted: [] }
+    if (valid.length === 0) return { active: false, prevById: new Map(), writtenById: new Map(), evicted: [], evictedMap: new Map() }
     if (state.completedMoveOps === null || typeof state.completedMoveOps !== 'object' || Array.isArray(state.completedMoveOps)) {
       state.completedMoveOps = {}
     }
@@ -195,16 +207,25 @@ export function install(rt) {
       writtenById.set(id, recordObj)
     }
     const evicted = []
+    const evictedMap = new Map()
     const keys = Object.keys(state.completedMoveOps)
     for (const key of keys) {
       if (Object.keys(state.completedMoveOps).length <= MAX_MOVE_OPS) break
       if (stagedNow.has(key) || isStagedMoveOp(key)) continue
-      evicted.push([key, state.completedMoveOps[key]])
+      const val = state.completedMoveOps[key]
+      evicted.push([key, val])
+      evictedMap.set(key, val)
       delete state.completedMoveOps[key]
     }
-    return { active: true, prevById, writtenById, evicted }
+    const batch = { active: true, prevById, writtenById, evicted, evictedMap }
+    if (evictedMap.size > 0) activeStagedBatches.add(batch)
+    return batch
+  }
+  const commitStagedMoveOps = (staged) => {
+    if (staged !== undefined) activeStagedBatches.delete(staged)
   }
   const unstagePersistedMoveOps = (staged) => {
+    if (staged !== undefined) activeStagedBatches.delete(staged)
     if (!staged?.active) return
     if (state.completedMoveOps === null || typeof state.completedMoveOps !== 'object' || Array.isArray(state.completedMoveOps)) {
       state.completedMoveOps = {}
@@ -254,6 +275,7 @@ export function install(rt) {
       const staged = stagePersistedMoveOps(validIds.map(id => ({ id, result })))
       try {
         await rt.save({ required: true })
+        commitStagedMoveOps(staged)
       } catch (error) {
         unstagePersistedMoveOps(staged)
         throw error
@@ -1453,6 +1475,7 @@ export function install(rt) {
     }
     admittedRpcIds.clear()
     admittedLogicalRpcIds.clear()
+    activeStagedBatches.clear()
     stagedMoveOps.clear()
     inFlightSaveMoveOps.clear()
     pendingSaveMoveOps.clear()
@@ -1846,19 +1869,27 @@ export function install(rt) {
     ? { ...(source ?? { kind: 'user' }), rpcId: id }
     : source
 
-  // Confirms that the live session currently handling `ref` has flushed to disk (`flush() === true`).
-  const confirmSessionFlushed = async (ref) => {
+  // Confirms that the exact physical session `sessionId` has flushed to disk (`flush() === true`)
+  // and — when `requestId` is supplied on a real session with event/inbox inspection — still
+  // holds that request both before and after flush (so an intercepted in-transit prompt or a
+  // newly switched foreground session can never falsely confirm durability).
+  const confirmSessionFlushed = async (sessionId, requestId) => {
     if (typeof ctx.sessions?.flush !== 'function') return false
-    const sid = rt.botOf(ref) !== undefined
-      ? rt.chatOf(ref)
-      : rt.roomOf(ref) !== undefined
-        ? rt.sessionOfRoom(rt.roomOf(ref))
-        : ref
-    if (sid === undefined) return false
-    const session = ctx.sessions?.get?.(sid) ?? ctx.get('agents')?.get(sid)?.session
+    if (typeof sessionId !== 'string' || sessionId === '') return false
+    const agent = ctx.get('agents')?.get(sessionId)
+    const session = agent?.session ?? ctx.sessions?.get?.(sessionId)
     if (session === undefined) return false
+    const canVerifyAdmission = requestId !== undefined && typeof session.snapshotEvents === 'function'
+    const holdsRequest = () => {
+      if (!canVerifyAdmission) return true
+      return agent !== undefined
+        ? hasSessionAdmission(agent, requestId)
+        : isAdmittedOnSession(session, requestId)
+    }
+    if (!holdsRequest()) return false
     try {
-      return (await ctx.sessions.flush(session)) === true
+      if ((await ctx.sessions.flush(session)) !== true) return false
+      return holdsRequest()
     } catch {
       return false
     }
@@ -1867,22 +1898,34 @@ export function install(rt) {
   // Shared cold-session reader provided by `coordination.js` (`sessionQuery` / `sessionController`).
   const readColdSessionEvents = (sid, signal) => rt.readSessionEvidence(sid, signal)
 
+  const findLiveAdmittedSession = (requestId) => {
+    for (const [sid, set] of admittedRpcIds) {
+      if (set.has(requestId)) return sid
+    }
+    return undefined
+  }
+
   // Checks whether `requestId` was already admitted on the target logical chat —
   // including across a foreground-to-background move where `ref` moved into `bot.tasks[]`,
   // after a host restart when completed handoff sessions are unloaded on disk, and across
   // IM chat rebindings for globally unique `im:` platform message IDs.
-  const isAdmittedForSend = async ({ ref, sessionId, requestId, callerSupplied = true } = {}) => {
-    if (requestId === undefined) return false
+  // Returns `{ admitted, sessionId?, durable? }` so callers know the exact admitting session.
+  const findAdmittedForSend = async ({ ref, sessionId, requestId, callerSupplied = true } = {}) => {
+    if (requestId === undefined) return { admitted: false }
     const owner = logicalOwnerOf(sessionId) ?? logicalOwnerOf(ref)
     const ownerKey = transferOwnerKey(owner)
-    if (ownerKey !== undefined && admittedLogicalRpcIds.get(ownerKey)?.has(requestId)) return true
+    if (ownerKey !== undefined && admittedLogicalRpcIds.get(ownerKey)?.has(requestId)) {
+      return { admitted: true, sessionId: findLiveAdmittedSession(requestId), durable: false }
+    }
     const isImRequest = typeof requestId === 'string' && requestId.startsWith('im:')
     if (isImRequest) {
       for (const set of admittedLogicalRpcIds.values()) {
-        if (set.has(requestId)) return true
+        if (set.has(requestId)) {
+          return { admitted: true, sessionId: findLiveAdmittedSession(requestId), durable: false }
+        }
       }
     }
-    if (hasPendingTransfer(ownerKey, requestId)) return true
+    if (hasPendingTransfer(ownerKey, requestId)) return { admitted: true, sessionId: undefined, durable: false }
     // Ordered newest-first candidate sessions: live target, caller ref, fg-handoff tasks, ended segments.
     const candidates = new Map() // sid -> { immutable: boolean }
     const addCandidate = (sid, immutable = false) => {
@@ -1943,13 +1986,13 @@ export function install(rt) {
     for (const [sid, meta] of candidates) {
       if (admittedRpcIds.get(sid)?.has(requestId)) {
         noteLogicalAdmittedRpc(sessionId ?? sid, requestId)
-        return true
+        return { admitted: true, sessionId: sid, durable: false }
       }
       const agent = agents?.get(sid)
       if (agent !== undefined) {
         if (isAdmittedOn(agent, requestId)) {
           noteAdmittedRpc(sid, requestId)
-          return true
+          return { admitted: true, sessionId: sid, durable: false }
         }
         continue
       }
@@ -1957,25 +2000,25 @@ export function install(rt) {
       if (session !== undefined) {
         if (isAdmittedOnSession(session, requestId)) {
           noteAdmittedRpc(sid, requestId)
-          return true
+          return { admitted: true, sessionId: sid, durable: false }
         }
         continue
       }
       coldCandidates.push([sid, meta])
     }
-    if (!callerSupplied || coldCandidates.length === 0) return false
+    if (!callerSupplied || coldCandidates.length === 0) return { admitted: false }
     let readFailure
     for (const [sid, meta] of coldCandidates) {
       const cached = inspectedSettledSessionRpcIds.get(sid)
       if (cached !== undefined) {
         if (cached.has(requestId)) {
           noteLogicalAdmittedRpc(sessionId ?? sid, requestId)
-          return true
+          return { admitted: true, sessionId: sid, durable: true }
         }
         continue
       }
       const read = await readColdSessionEvents(sid, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
-      if (read.status === 'unavailable') return false
+      if (read.status === 'unavailable') return { admitted: false }
       if (read.status === 'error') {
         readFailure ??= read.error
         continue
@@ -1989,13 +2032,15 @@ export function install(rt) {
       }
       if (foundIds.has(requestId)) {
         noteAdmittedRpc(sid, requestId)
-        return true
+        return { admitted: true, sessionId: sid, durable: true }
       }
     }
     // Fail closed if any cold session could not be read so a duplicate is never silently admitted.
     if (readFailure !== undefined) throw readFailure
-    return false
+    return { admitted: false }
   }
+
+  const isAdmittedForSend = async (args) => (await findAdmittedForSend(args)).admitted === true
 
   const removeForHandoff = (agent, id) => {
     movingHandoffInputs.add(id)
@@ -2106,9 +2151,11 @@ export function install(rt) {
     }
     for (const { key, token } of failedIds) releaseTransferLock(key, token)
     if (confirmedEntries.length > 0) await clearPendingTransfers(confirmedEntries)
+    let needsReplay = failedIds.length > 0
     for (const [key, rerouted] of reroutedByBot) {
       if (key === '__unknown__') {
         for (const item of rerouted) releaseTransferLock(item.transferKey, item.transferToken)
+        if (rerouted.length > 0) needsReplay = true
         continue
       }
       const ownerBot = rt.botOf(key)
@@ -2126,7 +2173,11 @@ export function install(rt) {
         await forwardPulledMessages(fgSid, rerouted, ownerBot.name, { botId: ownerBot.id })
       } else {
         for (const item of rerouted) releaseTransferLock(item.transferKey, item.transferToken)
+        if (rerouted.length > 0) needsReplay = true
       }
+    }
+    if (needsReplay && Array.isArray(state.pendingHandoffInputs) && state.pendingHandoffInputs.length > 0) {
+      scheduleHandoffReplay()
     }
   }
 
@@ -2280,6 +2331,9 @@ export function install(rt) {
               if (handoffInputClaimed(freshAgent, rpcId)) {
                 await flushPendingBuckets()
                 releaseUnconfirmed()
+                if (!recovering && Array.isArray(state.pendingHandoffInputs) && state.pendingHandoffInputs.length > 0) {
+                  scheduleHandoffReplay()
+                }
                 return
               }
               const checkAdmission = recovering
@@ -2306,7 +2360,12 @@ export function install(rt) {
           }
         }
         const allFlushed = await flushPendingBuckets()
-        if (!allFlushed) releaseUnconfirmed()
+        if (!allFlushed) {
+          releaseUnconfirmed()
+          if (!recovering && Array.isArray(state.pendingHandoffInputs) && state.pendingHandoffInputs.length > 0) {
+            scheduleHandoffReplay()
+          }
+        }
         return
       } catch (error) {
         if (attempt < delays.length) {
@@ -2314,6 +2373,9 @@ export function install(rt) {
           continue
         }
         releaseUnconfirmed()
+        if (!recovering && Array.isArray(state.pendingHandoffInputs) && state.pendingHandoffInputs.length > 0) {
+          scheduleHandoffReplay()
+        }
         rt.warn('ds-bot: forwarding queued input to new foreground %s for %s failed: %s', targetSid, botName ?? '?', error)
       }
     }
@@ -2461,7 +2523,9 @@ export function install(rt) {
           if (stillIdle) {
             // Register all operationIds in `inFlightSaveMoveOps` BEFORE releasing `handoffing`
             // or awaiting archival/save so a concurrent retry with the same ID joins this
-            // no-op outcome instead of racing onto a newly started Turn 2.
+            // no-op outcome instead of racing onto a newly started Turn 2. If the required save
+            // fails, preserve the no-op in `pendingSaveMoveOps` so a retry after Turn 2 starts
+            // still resolves as a no-op instead of moving Turn 2.
             const noOpResult = { sessionId: oldSid, taskId: null, moved: false }
             const opIds = [...record.operationIds]
             const finalizeNoOp = (async () => {
@@ -2472,8 +2536,25 @@ export function install(rt) {
                 const staged = stagePersistedMoveOps(opIds.map(id => ({ id, result: noOpResult })))
                 try {
                   await rt.save({ required: true })
+                  commitStagedMoveOps(staged)
+                  record.savedMoveResult = noOpResult
                 } catch (error) {
                   unstagePersistedMoveOps(staged)
+                  const pendingNoOpEntry = {
+                    botId: bot.id,
+                    oldSid,
+                    newSid: oldSid,
+                    taskId: null,
+                    moved: false,
+                    operationIds: new Set(record.operationIds),
+                    savedOperationIds: record.savedOperationIds,
+                    finishPostSave: async () => {},
+                    savingPromise: undefined,
+                  }
+                  for (const id of record.operationIds) {
+                    pendingNoOpEntry.operationIds.add(id)
+                    rememberPendingSaveMoveOp(id, pendingNoOpEntry)
+                  }
                   throw error
                 } finally {
                   for (const id of opIds) removeStagedMoveOp(id)
@@ -2483,6 +2564,8 @@ export function install(rt) {
                   record.savedOperationIds.add(id)
                   rememberMoveOp(id, noOpResult)
                 }
+              } else {
+                record.savedMoveResult = noOpResult
               }
               return noOpResult
             })().finally(() => {
@@ -2728,16 +2811,23 @@ export function install(rt) {
       // Any earlier failed pending-save move for this same Bot is now superseded by this
       // newer move: persist stale tombstones for those old operationIds atomically alongside
       // this commit so a host restart never lets an unretried old ID move a later turn.
-      const supersededOpIds = []
+      const supersededOps = []
       for (const [oldOpId, entry] of pendingSaveMoveOps) {
-        if (entry.botId === bot.id && !saveOpIds.includes(oldOpId)) supersededOpIds.push(oldOpId)
+        if (entry.botId === bot.id && !saveOpIds.includes(oldOpId)) {
+          supersededOps.push({
+            id: oldOpId,
+            result: entry.moved === false
+              ? { sessionId: entry.newSid, taskId: null, moved: false }
+              : { sessionId: newSid, taskId: null, moved: false, stale: true },
+          })
+        }
       }
-      const staleResult = { sessionId: newSid, taskId: null, moved: false, stale: true }
       const pendingEntry = {
         botId: bot.id,
         oldSid,
         newSid,
         taskId: task.id,
+        moved: true,
         operationIds: new Set(saveOpIds),
         savedOperationIds: new Set(),
         finishPostSave,
@@ -2760,15 +2850,16 @@ export function install(rt) {
         deferInputs(record.messages.splice(0))
       }
       const savePromise = (async () => {
-        const allStagedIds = [...saveOpIds, ...supersededOpIds]
+        const allStagedIds = [...saveOpIds, ...supersededOps.map(item => item.id)]
         for (const id of allStagedIds) addStagedMoveOp(id)
         const staged = stagePersistedMoveOps([
           ...saveOpIds.map(id => ({ id, result: moveResult })),
-          ...supersededOpIds.map(id => ({ id, result: staleResult })),
+          ...supersededOps,
         ])
         let checkpointed = record.messages.length
         try {
           await rt.save({ required: true })
+          commitStagedMoveOps(staged)
           record.savedMoveResult = moveResult
         } catch (error) {
           unstagePersistedMoveOps(staged)
@@ -2789,10 +2880,10 @@ export function install(rt) {
           record.savedOperationIds.add(id)
           rememberMoveOp(id, moveResult)
         }
-        for (const id of supersededOpIds) {
+        for (const { id, result } of supersededOps) {
           pendingSaveMoveOps.get(id)?.operationIds.delete(id)
           pendingSaveMoveOps.delete(id)
-          rememberMoveOp(id, staleResult)
+          rememberMoveOp(id, result)
         }
         // The move receipt is durable even if a later input checkpoint fails.
         try {
@@ -2847,9 +2938,11 @@ export function install(rt) {
       const pendingSave = pendingSaveMoveOps.get(operationId)
       if (pendingSave !== undefined) {
         const curBot = rt.botOf(pendingSave.botId)
-        const stillMatches = curBot !== undefined
-          && curBot.sessionId === pendingSave.newSid
-          && (curBot.tasks ?? []).some(t => t?.id === pendingSave.taskId)
+        const isNoOp = pendingSave.moved === false
+        const stillMatches = isNoOp
+          || (curBot !== undefined
+            && curBot.sessionId === pendingSave.newSid
+            && (curBot.tasks ?? []).some(t => t?.id === pendingSave.taskId))
         if (!stillMatches) {
           const allStaleIds = [...pendingSave.operationIds].filter(id => !pendingSave.savedOperationIds.has(id))
           const staleReceipt = { sessionId: curBot?.sessionId ?? pendingSave.newSid, taskId: null, moved: false, stale: true }
@@ -2862,6 +2955,7 @@ export function install(rt) {
             let persisted = false
             try {
               await rt.save({ required: true })
+              commitStagedMoveOps(staged)
               persisted = true
             } catch {
               unstagePersistedMoveOps(staged)
@@ -2881,23 +2975,32 @@ export function install(rt) {
         if (!pendingSave.savedOperationIds.has(operationId)) pendingSave.operationIds.add(operationId)
         if (pendingSave.savingPromise === undefined) {
           const retryOpIds = [...pendingSave.operationIds].filter(id => !pendingSave.savedOperationIds.has(id))
-          const supersededOpIds = []
-          for (const [oldOpId, entry] of pendingSaveMoveOps) {
-            if (entry.botId === pendingSave.botId && entry !== pendingSave && !retryOpIds.includes(oldOpId)) {
-              supersededOpIds.push(oldOpId)
+          const supersededOps = []
+          if (!isNoOp) {
+            for (const [oldOpId, entry] of pendingSaveMoveOps) {
+              if (entry.botId === pendingSave.botId && entry !== pendingSave && !retryOpIds.includes(oldOpId)) {
+                supersededOps.push({
+                  id: oldOpId,
+                  result: entry.moved === false
+                    ? { sessionId: entry.newSid, taskId: null, moved: false }
+                    : { sessionId: pendingSave.newSid, taskId: null, moved: false, stale: true },
+                })
+              }
             }
           }
-          const staleResult = { sessionId: pendingSave.newSid, taskId: null, moved: false, stale: true }
           const retryPromise = (async () => {
-            const result = { sessionId: pendingSave.newSid, taskId: pendingSave.taskId, moved: true }
-            const allStagedIds = [...retryOpIds, ...supersededOpIds]
+            const result = isNoOp
+              ? { sessionId: pendingSave.newSid, taskId: null, moved: false }
+              : { sessionId: pendingSave.newSid, taskId: pendingSave.taskId, moved: true }
+            const allStagedIds = [...retryOpIds, ...supersededOps.map(item => item.id)]
             for (const id of allStagedIds) addStagedMoveOp(id)
             const staged = stagePersistedMoveOps([
               ...retryOpIds.map(id => ({ id, result })),
-              ...supersededOpIds.map(id => ({ id, result: staleResult })),
+              ...supersededOps,
             ])
             try {
               await rt.save({ required: true })
+              commitStagedMoveOps(staged)
             } catch (error) {
               unstagePersistedMoveOps(staged)
               throw error
@@ -2913,10 +3016,10 @@ export function install(rt) {
               pendingSave.savedOperationIds.add(id)
               rememberMoveOp(id, result)
             }
-            for (const id of supersededOpIds) {
+            for (const { id, result: supersededResult } of supersededOps) {
               pendingSaveMoveOps.get(id)?.operationIds.delete(id)
               pendingSaveMoveOps.delete(id)
-              rememberMoveOp(id, staleResult)
+              rememberMoveOp(id, supersededResult)
             }
             await pendingSave.finishPostSave()
             return result
@@ -2933,7 +3036,7 @@ export function install(rt) {
             pendingSave.operationIds.delete(operationId)
             pendingSave.savedOperationIds.add(operationId)
           } catch (error) {
-            if (res.moved === true) {
+            if (res.stale !== true) {
               pendingSave.operationIds.add(operationId)
               rememberPendingSaveMoveOp(operationId, pendingSave)
             }
@@ -2956,12 +3059,13 @@ export function install(rt) {
           inFlight.pendingReceiptEntry?.operationIds.delete(operationId)
           inFlight.savedOperationIds.add(operationId)
         } catch (error) {
-          if (result.moved === true) {
+          if (result.stale !== true) {
             const shared = inFlight.pendingReceiptEntry ??= {
               botId: bot.id,
               oldSid: inFlight.oldSid,
               newSid: result.sessionId,
               taskId: result.taskId,
+              moved: Boolean(result.moved),
               operationIds: new Set(),
               savedOperationIds: inFlight.savedOperationIds,
               finishPostSave: async () => {},
@@ -3450,6 +3554,7 @@ export function install(rt) {
     shouldMoveForeground,
     isLocalCliSession,
     isAdmittedOn,
+    findAdmittedForSend,
     isAdmittedForSend,
     confirmSessionFlushed,
     noteAdmittedRpc,

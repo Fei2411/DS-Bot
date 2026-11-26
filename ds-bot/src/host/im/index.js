@@ -1456,6 +1456,25 @@ export function install(rt) {
       if (inboundKey !== '') seenInboundIds.delete(inboundKey)
     }
     try {
+      // If this platform message was already admitted into DSH (e.g. host crashed after DSH
+      // persisted the prompt but before `conn.seenInbound` was saved), suppress it BEFORE any
+      // card-answer handler so a redelivered ordinary message (like "1") never answers a newly
+      // opened question/view/approval card (#2077).
+      if (inboundKey !== '' && !/^\/(?:start|stop|background|bg|steer)(?:@\S+)?(?:\s|$)/.test(body)) {
+        const priorRequestId = `im:${conn.platform}:${inboundKey}`
+        const admitted = await rt.findAdmittedForSend?.({
+          ref: target?.botId ?? target?.roomId,
+          requestId: priorRequestId,
+          callerSupplied: true,
+        })
+        if (admitted?.admitted === true) {
+          if (admitted.durable === true
+            || (admitted.sessionId !== undefined && await rt.confirmSessionFlushed?.(admitted.sessionId, priorRequestId) === true)) {
+            await persistInboundSeen()
+          }
+          return
+        }
+      }
       if (await answerViewCode(conn, msg.chat, raw.trimStart(), msg.sender.id)) {
         await persistInboundSeen()
         return
@@ -1591,11 +1610,14 @@ export function install(rt) {
         // The turn this starts belongs to this chat: its replies go back here and nowhere else.
         if (conn.platform === 'weixin') await rememberWeixinRequest(conn, requestId, msg.chat.key, msg.sender.id)
         else rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
-        await rt.sendUser({ sessionId, content, requestId, mode: promptMode })
-        // Persist `conn.seenInbound` ONLY after the receiving DSH Session confirms flush() === true
-        // so a crash before session durability can never leave a persisted seen key that suppresses
-        // redelivery of a lost prompt.
-        if (inboundKey !== '' && await rt.confirmSessionFlushed?.(sessionId) === true) {
+        const delivered = await rt.sendUser({ sessionId, content, requestId, mode: promptMode })
+        // Persist `conn.seenInbound` ONLY after the exact receiving DSH Session confirms
+        // flush() === true (or a cold on-disk session already holds `requestId`), never by
+        // resolving the logical Bot/room id whose foreground may have moved since prompt admission.
+        const deliveredSid = delivered?.sessionId
+        if (inboundKey !== ''
+          && (delivered?.durable === true
+            || (deliveredSid !== undefined && await rt.confirmSessionFlushed?.(deliveredSid, requestId) === true))) {
           await persistInboundSeen()
         }
       } catch (error) {

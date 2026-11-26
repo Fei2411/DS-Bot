@@ -1311,14 +1311,20 @@ export function install(rt) {
       ?? (room !== undefined ? rt.sessionOfRoom(room)
         : past !== undefined ? rt.sessionOfRoom(rt.roomOf(past.roomId)) : ref)
     const ownerBotId = rt.chatOwners.get(sessionId)
-    if (await rt.isAdmittedForSend?.({ ref, sessionId, requestId, callerSupplied })) return
+    const admittedBefore = await rt.findAdmittedForSend?.({ ref, sessionId, requestId, callerSupplied })
+    if (admittedBefore?.admitted === true) {
+      return { sessionId: admittedBefore.sessionId, alreadyAdmitted: true, durable: admittedBefore.durable === true }
+    }
     if (ownerBotId !== undefined && !rt.groupOwners.has(sessionId) && !rt.taskOwners?.has(sessionId)) {
       const bot = rt.botOf(ownerBotId)
       if (rt.mustIsolateHiddenWork?.(bot, sessionId)) {
         sessionId = await rt.handoffForeground(bot, sessionId)
       }
     }
-    if (await rt.isAdmittedForSend?.({ ref, sessionId, requestId, callerSupplied })) return
+    const admittedAfter = await rt.findAdmittedForSend?.({ ref, sessionId, requestId, callerSupplied })
+    if (admittedAfter?.admitted === true) {
+      return { sessionId: admittedAfter.sessionId, alreadyAdmitted: true, durable: admittedAfter.durable === true }
+    }
     let blocks = content
     if (Array.isArray(files) && files.length > 0) {
       const uploads = ctx.get?.('fileUploads')
@@ -1348,6 +1354,7 @@ export function install(rt) {
         content: blocks,
       }, AbortSignal.timeout(30_000))
       rt.noteSendPrompted?.(sessionId, requestId)
+      return { sessionId, alreadyAdmitted: false, durable: false }
     } catch (error) {
       if (promptMode === 'steer' && error?.code === 'session/steer-unavailable') {
         await ctx.sessionController.prompt({
@@ -1357,7 +1364,7 @@ export function install(rt) {
           content: blocks,
         }, AbortSignal.timeout(30_000))
         rt.noteSendPrompted?.(sessionId, requestId)
-        return
+        return { sessionId, alreadyAdmitted: false, durable: false }
       }
       throw error
     }

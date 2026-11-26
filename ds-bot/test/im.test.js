@@ -4257,27 +4257,99 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   assert.equal(s.prompts.length, promptsBeforeWx + 1, 'redelivery after rememberWeixinRequest failure must not be swallowed')
   assert.equal(s.prompts.at(-1).content[0].text, 'weixin retryable text')
 
-  // 5) Redelivered ordinary numeric message "1" must NOT answer a question card opened afterward.
+  // 5) Redelivered ordinary numeric message "1" must NOT answer a newly opened question card,
+  //    EVEN when `conn.seenInbound` is missing after a crash/restart and only DSH retains the prompt!
   const origConfirm = s.rt.confirmSessionFlushed
   s.rt.confirmSessionFlushed = async () => true
   await dm(s, 'u1', '1', { messageId: 'num-msg-1' })
   assert.equal(s.prompts.at(-1).content[0].text, '1')
+  const numReqId = s.prompts.at(-1).requestId
   assert.equal(one.seenInbound?.includes(`${one.id}:dm-u1:num-msg-1`), true, 'persisted seenInbound written once session flush confirmed true')
-  // Open a question card and redeliver the exact same messageId "num-msg-1" -> MUST be ignored!
-  let answeredQ = 0
-  const origAnswerQ = s.rt.answerQuestion
-  s.rt.answerQuestion = async (...args) => { answeredQ += 1; return origAnswerQ(...args) }
+  // Register a REAL open question card with IM via the real turn + state.questions + save path.
+  s.imTurn('a')
+  s.fake.sent.length = 0
   s.rt.state.questions[s.rt.chatOf('a')] = { id: 'q-after-1', question: 'Pick one', options: [{ label: 'Alpha' }, { label: 'Beta' }] }
-  s.rt.emitImCard?.(one.id, 'dm-u1', 'q:q-after-1')
-  await dm(s, 'u1', '1', { messageId: 'num-msg-1' })
-  assert.equal(answeredQ, 0, 'redelivered ordinary "1" must NOT answer a newly opened question card')
-  delete s.rt.state.questions[s.rt.chatOf('a')]
-  s.rt.answerQuestion = origAnswerQ
+  await s.rt.save()
+  await s.flush()
+  assert.ok(s.fake.sent.some(entry => entry.text?.includes('Pick one')), 'question card must actually be registered and sent to IM')
+  // Simulate crash/restart before `conn.seenInbound` was persisted: strip seenInbound AND record
+  // `numReqId` in DSH's persisted session events on a fresh runtime sharing the same home!
+  one.seenInbound = one.seenInbound.filter(k => k !== `${one.id}:dm-u1:num-msg-1`)
+  await s.rt.save()
+  await s.close()
+  const sRestart = await start({ home: s.home })
+  t.after(sRestart.stop)
+  await sRestart.rt.imEndpoint('im-retry', { id: one.id })
+  // Populate DSH's durable session events on Bot 'a' with the earlier ordinary "1" prompt.
+  const restartedAgent = sRestart.agentOf(sRestart.rt.chatOf('a'))
+  restartedAgent.session.snapshotEvents = () => [
+    { type: 'user/message', seq: 1, data: { id: 'm-num-1', content: [{ type: 'text', text: '1' }], source: { kind: 'user', rpcId: numReqId } } },
+  ]
+  sRestart.ctx.get = (name) => (name === 'agents' ? sRestart.agents : undefined)
+  let answeredQ = 0
+  const origAnswerQ = sRestart.rt.answerQuestion
+  sRestart.rt.answerQuestion = async (...args) => { answeredQ += 1; return origAnswerQ(...args) }
+  // Re-deliver the exact same platform messageId "num-msg-1" -> DSH admission MUST suppress it BEFORE card handling!
+  await dm(sRestart, 'u1', '1', { messageId: 'num-msg-1' })
+  assert.equal(answeredQ, 0, 'redelivered ordinary "1" (missing seenInbound, retained in DSH) must NOT answer newly opened question card')
+  assert.ok(sRestart.rt.state.questions[sRestart.rt.chatOf('a')] !== undefined, 'question card must remain open')
+  // Prove the card IS genuinely open and answerable by a brand-new messageId "num-msg-2":
+  await dm(sRestart, 'u1', '1', { messageId: 'num-msg-2' })
+  assert.equal(answeredQ, 1, 'fresh "1" with a new platform messageId must answer the open question card')
+  sRestart.rt.answerQuestion = origAnswerQ
 
-  // 6) conn.seenInbound must NOT be persisted when session flush returns false (un-durable session).
-  s.rt.confirmSessionFlushed = async () => false
-  await dm(s, 'u1', 'unflushed prompt', { messageId: 'unflushed-1' })
-  assert.equal(one.seenInbound?.includes(`${one.id}:dm-u1:unflushed-1`), false, 'unflushed session must NOT persist seenInbound key')
+  // 6) conn.seenInbound must NOT be persisted when the EXACT receiving session fails flush,
+  //    even if the Bot's foreground moved to a different session S2 whose flush returns true!
+  const oneR = sRestart.rt.state.im.connections[one.id]
+  const flushedSessions = []
+  const s1Session = {
+    id: 'a',
+    requestHeader: () => undefined,
+    snapshotEvents: () => [],
+  }
+  const s2Session = {
+    id: 'a-moved-fg',
+    requestHeader: () => undefined,
+    snapshotEvents: () => [],
+  }
+  sRestart.agents.set('a', {
+    id: 'a',
+    session: s1Session,
+    inbox: { nextStep: [], nextTurn: [], remove: () => false },
+    followup() {},
+    steer() {},
+    cancel() {},
+    async whenIdle() {},
+  })
+  sRestart.agents.set('a-moved-fg', {
+    id: 'a-moved-fg',
+    session: s2Session,
+    inbox: { nextStep: [], nextTurn: [], remove: () => false },
+    followup() {},
+    steer() {},
+    cancel() {},
+    async whenIdle() {},
+  })
+  const origPromptR = sRestart.ctx.sessionController.prompt
+  sRestart.ctx.sessionController.prompt = async (req) => {
+    const res = await origPromptR(req)
+    // Record prompt on S1 ('a'), then immediately move foreground to S2 ('a-moved-fg')!
+    s1Session.snapshotEvents = () => [
+      { type: 'user/message', seq: 2, data: { id: 'm-s1-unflushed', content: req.content, source: { kind: 'user', rpcId: req.requestId } } },
+    ]
+    sRestart.rt.botOf('a').sessionId = 'a-moved-fg'
+    sRestart.rt.chatOwners.set('a-moved-fg', 'a')
+    return res
+  }
+  sRestart.ctx.sessions.flush = async (session) => {
+    flushedSessions.push(session.id)
+    // S1 ('a') fails to flush (returns false); S2 ('a-moved-fg') would return true!
+    return session.id === 'a-moved-fg'
+  }
+  await dm(sRestart, 'u1', 'unflushed prompt on S1', { messageId: 'unflushed-s1-1' })
+  assert.deepEqual(flushedSessions, ['a'], 'confirmSessionFlushed must flush exact receiving session S1 ("a"), NEVER moved foreground S2')
+  assert.equal(oneR.seenInbound?.includes(`${one.id}:dm-u1:unflushed-s1-1`), false, 'unflushed S1 must NOT persist seenInbound even though S2 flushes true')
+  sRestart.ctx.sessionController.prompt = origPromptR
   s.rt.confirmSessionFlushed = origConfirm
 })
 
