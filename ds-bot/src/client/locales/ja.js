@@ -2187,6 +2187,14 @@ export const JA = {
   "Dictation provider": "音声入力プロバイダー",
   "Use DeepSeek for dictation": "音声入力に DeepSeek を使う",
   "In use": "使用中",
+  "Stopped by the security kill list": "セキュリティキルリストによって停止されました",
+  "Approval needed": "再承認が必要",
+  "Unverifiable": "検証できません",
+  "Plugin files cannot be verified": "プラグインファイルを検証できません",
+  "Approving…": "承認中…",
+  "Execution tier": "実行ティア",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "このプラグインは承認後に変更されました：機能、実行ティア、実行エントリ、コンテンツ、または配置。現状のまま承認するまで停止したままです。",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "起動時に公開された最新バージョンを実行します。承認は正確なバイトを固定しません。",
   "Not ready": "準備未完了",
   "Couldn't read the reply": "返信を読み上げられませんでした",
   "Couldn't reach the speech service": "音声認識サービスに接続できません",
@@ -2602,6 +2610,11 @@ export const JA = {
 }
 
 export const HOST_ERRORS_JA = [
+  [/^Plugin disabled by the kill list: (.+)$/, "プラグインはセキュリティキルリストによって無効化されました：$1"],
+  [/^Plugin disabled by the kill list\.$/, "プラグインはセキュリティキルリストによって無効化されました。"],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "このプラグインは承認後に変更されました（機能、実行ティア、実行エントリ、コンテンツ、または配置）。明示的な承認なしには再実行できません。"],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\..*$/, "プラグインファイルを検証できません（$1）。ディレクトリが安全に読み取れるまで実行できません。解決しない場合は削除して再インストールしてください。"],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot be approved until its directory is safe to read\..*$/, "プラグインファイルを検証できません（$1）。ディレクトリが安全に読み取れるまで承認できません。解決しない場合は削除して再インストールしてください。"],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "メールサーバー $1 に接続できませんでした。サーバーアドレスを確認してください。"],
   [/^Model (.+) is not available\. Available: (.*)$/, "モデル $1 は利用できません。利用可能: $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "$1 の API キーは DS Bot の外部で設定されているため、ここでは変更できません"],

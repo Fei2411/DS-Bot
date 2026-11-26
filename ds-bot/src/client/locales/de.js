@@ -2222,6 +2222,14 @@ export const DE = {
   'Dictation provider': 'Diktatanbieter',
   'Use DeepSeek for dictation': 'DeepSeek für das Diktat verwenden',
   'In use': 'In Verwendung',
+  'Stopped by the security kill list': 'Von der Sicherheits-Kill-Liste gestoppt',
+  'Approval needed': 'Genehmigung erforderlich',
+  'Unverifiable': 'Nicht verifizierbar',
+  'Plugin files cannot be verified': 'Plugin-Dateien können nicht verifiziert werden',
+  'Approving…': 'Genehmigen…',
+  'Execution tier': 'Ausführungsebene',
+  'This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.': 'Dieses Plugin hat sich seit der Genehmigung geändert: Fähigkeiten, Ausführungsebene, ausführbarer Einstieg, Inhalt oder Platzierung. Es bleibt gestoppt, bis du das Plugin genau so genehmigst, wie es jetzt ist.',
+  'Runs the latest published version at start time; approval does not pin exact bytes.': 'Führt beim Start die neueste veröffentlichte Version aus; die Genehmigung fixiert keine exakten Bytes.',
   'Not ready': 'Nicht bereit',
   "Couldn't read the reply": 'Antwort konnte nicht vorgelesen werden',
   "Couldn't reach the speech service": 'Sprachdienst nicht erreichbar',
@@ -2637,6 +2645,11 @@ export const DE = {
 }
 
 export const HOST_ERRORS_DE = [
+  [/^Plugin disabled by the kill list: (.+)$/, 'Plugin von der Kill-Liste deaktiviert: $1'],
+  [/^Plugin disabled by the kill list\.$/, 'Plugin von der Kill-Liste deaktiviert.'],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, 'Dieses Plugin hat sich seit der Genehmigung geändert (Fähigkeiten, Ausführungsebene, ausführbarer Einstieg, Inhalt oder Platzierung). Es benötigt eine explizite Genehmigung, bevor es wieder ausgeführt werden kann.'],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\..*$/, 'Plugin-Dateien können nicht verifiziert werden ($1). Es kann nicht ausgeführt werden, bis sein Verzeichnis sicher gelesen werden kann. Besteht das Problem weiterhin, entferne das Plugin und installiere es erneut.'],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot be approved until its directory is safe to read\..*$/, 'Plugin-Dateien können nicht verifiziert werden ($1). Es kann nicht genehmigt werden, bis sein Verzeichnis sicher gelesen werden kann. Besteht das Problem weiterhin, entferne das Plugin und installiere es erneut.'],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, 'Mailserver unter $1 nicht erreichbar. Bitte prüfe die Serveradresse.'],
   [/^Model (.+) is not available\. Available: (.*)$/, 'Modell $1 ist nicht verfügbar. Verfügbar: $2'],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, 'Der API-Schlüssel für $1 wurde außerhalb von DS Bot gesetzt und kann hier nicht geändert werden'],
