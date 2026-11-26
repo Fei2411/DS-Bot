@@ -39,20 +39,22 @@ test('detectSecrets matches all supported credential formats and preserves prefi
 })
 
 test('detectSecrets masks PEM private key blocks and URL passwords precisely', () => {
+  const pemBegin = join('-----BEGIN ', 'RSA PRIVATE KEY-----')
+  const pemEnd = join('-----END ', 'RSA PRIVATE KEY-----')
   const pem = [
-    '-----BEGIN RSA PRIVATE KEY-----',
+    pemBegin,
     'MIIEowIBAAKCAQEAtestline1',
     'secondLineOfSyntheticBody',
-    '-----END RSA PRIVATE KEY-----',
+    pemEnd,
   ].join('\n')
   const pemSpans = detectSecrets(`Key:\n${pem}\nDone`)
   assert.equal(pemSpans.length, 1)
   assert.equal(pemSpans[0].kind, 'private-key')
   assert.equal(pemSpans[0].masked, [
-    '-----BEGIN RSA PRIVATE KEY-----',
+    pemBegin,
     '*'.repeat('MIIEowIBAAKCAQEAtestline1'.length),
     '*'.repeat('secondLineOfSyntheticBody'.length),
-    '-----END RSA PRIVATE KEY-----',
+    pemEnd,
   ].join('\n'))
 
   const url = 'Connect to postgres://admin:s3cr3tPass!@db.example.internal:5432/app'
@@ -64,7 +66,7 @@ test('detectSecrets masks PEM private key blocks and URL passwords precisely', (
 })
 
 test('detectSecrets avoids false positives and handles multiple independent secrets & selective reveal', () => {
-  assert.deepEqual(detectSecrets('sk-without-any-digits-in-this-token-string'), [])
+  assert.deepEqual(detectSecrets(join('sk-', 'without-any-digits-in-this-token-string')), [])
   assert.deepEqual(detectSecrets('my_ghp_1234567890abcdefABCDEF1234567890abcdef'), [])
   assert.deepEqual(detectSecrets('Normal text with https://example.com/path and foo@bar.com'), [])
 
