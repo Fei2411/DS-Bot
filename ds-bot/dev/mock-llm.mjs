@@ -19,6 +19,7 @@
 //   建群 名: A, B · 群发[回报] 名: 消息 · 改群 名 公告|管理员|模式|加|踢: 值 · 删群 名
 //   看群 名 (read_group_chat) · 转告 名: 消息, also over several lines (message_bot) · 搜索：查询1 | 查询2 (web_search)
 //   进目录 路径 (working_directory with cd)
+//   代码模式烟测 (run_code prints CODE_MODE_OK through bash, if offered)
 //   插话 名: 消息 (message_bot when "now") · 排队 名: 消息 (message_bot when "queue") · 叫停 名: 原因 (stop_bot)
 //   In a message from a Bot: 转告 名: 消息 (hands it on with message_bot) · 慢慢做 N (answers after N seconds)
 //   长文 N / long N (N×1000 characters) · 长任务 N [K] (N steps of K×1000, default 4)
@@ -129,6 +130,11 @@ function decide(body) {
   }).filter(message => message.role !== 'user' || message.content.length > 0)
   const last = messages.at(-1)
   const blocks = Array.isArray(last?.content) ? last.content : []
+  if (last?.role === 'user' && textOf(last.content).trim() === '代码模式烟测') {
+    return tools.has('run_code')
+      ? [tool('run_code', { code: 'console.log((await tools.bash({command: "printf CODE_MODE_OK", description: "Code-mode smoke"})).stdout.text)', description: 'Code-mode smoke' })]
+      : [text('Code-mode is off.')]
+  }
   // A side-chat question (side.js). The first line is the marker; the reply is
   // fixed and calls nothing. Its count of earlier answers proves follow-ups
   // carry the chat's finished pairs.
@@ -200,6 +206,7 @@ function decide(body) {
     const resultText = typeof result.content === 'string' ? result.content : textOf(result.content)
     const call = [...messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.content) && m.content.some(b => b.type === 'tool_use'))
     const used = call?.content.find(b => b.type === 'tool_use' && b.id === result.tool_use_id) ?? call?.content.find(b => b.type === 'tool_use')
+    if (used?.name === 'run_code') return [text(`Code-mode ${result.is_error ? 'failed' : 'ok'}: ${resultText}`)]
     // "长任务 N [K]": N steps in one turn, each adding about K thousand characters (default 4).
     const openerAt = messages.findLastIndex(m => m.role === 'user' && !isResults(m) && /^长任务\s*\d+/.test(textOf(m.content).trimStart()))
     if (openerAt !== -1 && used?.name === 'list_bots') {

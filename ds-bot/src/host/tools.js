@@ -2103,6 +2103,11 @@ export function install(rt) {
   }
 
   const hideBotUnusedTools = (agent) => {
+    try {
+      rt.scopeCodeMode?.(agent)
+    } catch (error) {
+      rt.warn?.('ds-bot: scoping code-mode for %s failed: %s', agent?.session?.id, error)
+    }
     shareBotTools(agent)
     const id = agent?.session?.id
     const shadows = rt.shadowShells?.(agent) ?? []
@@ -2202,7 +2207,7 @@ export function install(rt) {
       } else {
         const pending = [...held.unlisted]
         held.unlisted.clear()
-        if (!assembled.tools.some(tool => tool.name === 'run_code') && typeof ctx.tools?.schemas === 'function') {
+        if (!(assembled.tools.length === 1 && assembled.tools[0].name === 'run_code') && typeof ctx.tools?.schemas === 'function') {
           try {
             const wanted = new Set(pending)
             const current = new Map(ctx.tools.schemas(agent).filter(schema => wanted.has(schema.name)).map(schema => [schema.name, schema]))
@@ -2406,6 +2411,7 @@ export function install(rt) {
     }))
   }
 
+  const hiddenToolsFor = id => new Set([...HIDDEN_TOOLS, ...hiddenSessionTools(id)])
   Object.assign(rt, {
     pickRoom,
     hideBotUnusedTools,
@@ -2413,6 +2419,7 @@ export function install(rt) {
     syncScopedSession,
     hiddenTeamToolsFor,
     hiddenSessionTools,
+    hiddenToolsFor,
     addTeamTool,
     removeTeamTool,
     reapplyToolMasks,

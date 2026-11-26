@@ -72,6 +72,7 @@ import * as maintenanceSkills from './src/host/maintenance-skills.js'
 import * as issueReport from './src/host/issue-report.js'
 import * as manualSkills from './src/host/manual-skills.js'
 import * as localAgents from './src/host/local-agents/index.js'
+import { installBotCodeMode } from './src/host/bot-code-mode.js'
 import * as deepseekServices from './src/host/deepseek-services.js'
 
 export { COLORS } from './src/host/constants.js'
@@ -90,10 +91,10 @@ const MODULES = [diagnostics, branding, store, contextRuntime, coordinationDb, l
 
 export function apply(ctx, config = {}) {
   ctx.effect(() => installSocketTosGuard(), 'ds-bot: socket type of service')
-  createRuntime(ctx, config)
+  return createRuntime(ctx, config)
 }
 
-export function createRuntime(ctx, config = {}) {
+export function createRuntime(ctx, config = {}, codeMode) {
   const dshHome = folders.dshHomeOf(process.env.DSH_HOME)
   const home = config.home ?? join(dshHome, 'bot')
   const rt = {
@@ -114,6 +115,7 @@ export function createRuntime(ctx, config = {}) {
     },
   }
   for (const module of [...MODULES, chatgpt]) module.install(rt)
+  if (codeMode !== undefined) installBotCodeMode(rt, codeMode)
   rt.installed = true
   // A live Agent can be scoped before the last module has added its tools (the memory
   // module starts a load during install): complete the scope now that every tool is in.
