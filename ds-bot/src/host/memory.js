@@ -720,10 +720,13 @@ export function install(rt) {
   }
 
   // The removed or retired entry `text` would silently bring back, or undefined
-  // when nothing this close left within the window.
-  function readdGuarded(scope, text) {
+  // when nothing this close left within the window. `excluding` names live entry
+  // text(s) already present before an edit or merge: matching a dropped or merged
+  // constituent that is already carried by the live entry is not reintroducing it.
+  function readdGuarded(scope, text, { excluding } = {}) {
+    const live = excluding === undefined ? [] : Array.isArray(excluding) ? excluding : [excluding]
     for (const dropped of droppedTexts(scope)) {
-      if (readdMatch(text, dropped)) return dropped
+      if (readdMatch(text, dropped) && !live.some(prior => readdMatch(prior, dropped))) return dropped
     }
     return undefined
   }
@@ -1083,7 +1086,7 @@ export function install(rt) {
       // that merely goes back and forth between two live versions never matches,
       // because the guard only reads removals, never a replace's before-line.
       if (actor?.id !== 'user') {
-        const dropped = readdGuarded(scope, text)
+        const dropped = readdGuarded(scope, text, { excluding: old.text })
         if (dropped !== undefined) throw readdRefusal(dropped)
       }
       const hasUntil = Object.hasOwn(meta, 'until')

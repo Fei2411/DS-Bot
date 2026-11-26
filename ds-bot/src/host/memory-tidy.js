@@ -264,7 +264,7 @@ export function installTidy(rt, memory) {
         // dropped within the guard window, or a removed entry would come back
         // laundered through the tidy itself.
         if (entries.length < 2 || entries.length > budget.left || entryProblem(text) !== undefined) continue
-        if (readdGuarded?.(job.scope, text) !== undefined) continue
+        if (readdGuarded?.(job.scope, text, { excluding: entries.map(entry => entry.text) }) !== undefined) continue
         budget.left -= entries.length
         const [first, ...rest] = entries
         const line = formatEntry(text, { ...first.meta, id: entryId(first), merged: entries.map(entryId).join(' ') })

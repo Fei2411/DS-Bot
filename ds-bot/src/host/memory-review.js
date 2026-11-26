@@ -95,7 +95,12 @@ export function installReview(rt, memory) {
         continue
       }
       const trust = trustOf(entry.who, event.data?.source)
-      const kept = entry.keepAnswers ? answers : []
+      // Replies to an external turn can echo or summarize attacker-controlled text:
+      // tag them external too so chatBatch advances its cursor past them and drops
+      // the whole turn, never feeding external replies into the review model.
+      const kept = entry.keepAnswers
+        ? (trust === 'external' ? answers.map(item => ({ ...item, trust: 'external' })) : answers)
+        : []
       answers = []
       yield* kept
       if (entry.text !== '') yield { text: entry.who === 'user' ? `User: ${entry.text}` : entry.text, time: event.time, seq: event.seq, who: entry.who, trust }
@@ -164,11 +169,21 @@ export function installReview(rt, memory) {
   // their lines stay out of the transcript exactly as external lines of a Bot's
   // own chat do.
   function groupBatch(room, since) {
-    const direct = line => line.botId !== undefined || line.who !== 'User' || line.via === undefined
     const reached = (room.log ?? []).filter(line => line.kind === undefined && typeof line.text === 'string' && line.text.trim() !== '')
-    // The cursor passes external lines too, so ignoring them is final: `through`
-    // is the last line the review reached, kept or dropped.
-    const log = reached.filter(direct)
+    // The cursor passes external turns too, so ignoring them is final: `through`
+    // is the last line the review reached, kept or dropped. Drop both the external
+    // user post and any Bot replies before the next direct owner post so an
+    // external sender cannot launder instructions through a Bot's reply either.
+    let externalTurn = false
+    const log = []
+    for (const entry of reached) {
+      if (entry.botId === undefined && entry.who === 'User') {
+        externalTurn = entry.via !== undefined
+        if (!externalTurn) log.push(entry)
+      } else if (!externalTurn) {
+        log.push(entry)
+      }
+    }
     // A first review reads back at least to the user's latest line, which a round of
     // replies from many members can push out of the last few.
     const lastUser = log.findLastIndex(line => line.who === 'User' && line.botId === undefined)
@@ -228,7 +243,13 @@ export function installReview(rt, memory) {
     }
     if (wantsGroup) {
       const wanted = change.group.trim()
-      const matches = writableRoomsOf(keeper).filter(item => item.name === wanted)
+      const rooms = writableRoomsOf(keeper)
+      const exact = rooms.filter(item => item.name === wanted)
+      // The review prompt lists group names after inlineUntrusted(..., 60), so a
+      // name containing brackets or control chars comes back in its shown form.
+      // Refuse when multiple groups collapse to the same shown name.
+      const shown = rooms.filter(item => inlineUntrusted(item.name, 60) === wanted)
+      const matches = shown.length > 1 ? shown : exact.length > 0 ? exact : shown
       if (matches.length === 0) return { scope: home, error: `the keeper cannot route notes to a group named "${clip(change.group, 60)}"` }
       if (matches.length > 1) return { scope: home, error: `more than one group is named "${clip(change.group, 60)}"` }
       return { scope: groupScope(matches[0].id) }
