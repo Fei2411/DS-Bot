@@ -3,9 +3,9 @@ import { fileChunks } from '../../../ds-bot/src/shared/file-chunks.js'
 import { acquireTransferHold } from './transfer-hold.ts'
 
 export async function downloadFile(call: (endpoint: string, payload: object) => Promise<unknown>, target: object) {
-  const releaseHold = acquireTransferHold()
   const dir = new Directory(Paths.cache, 'downloads', `${Date.now()}-${Math.random().toString(36).slice(2)}`)
   dir.create({ intermediates: true })
+  const releaseHold = acquireTransferHold()
   let file: File | undefined
   let handle: ReturnType<File['open']> | undefined
   let saved: { uri: string; name: string; mime: string } | undefined
@@ -24,7 +24,7 @@ export async function downloadFile(call: (endpoint: string, payload: object) => 
   } catch (error) {
     handle?.close()
     handle = undefined
-    dir.delete()
+    try { dir.delete() } catch {}
     throw error
   } finally {
     handle?.close()
