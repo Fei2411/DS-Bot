@@ -199,6 +199,28 @@ test('transparent editor.background falls back to the mode default canvas instea
   assert.equal(untypedDarkGlass.dark.text, '#d4d4d4')
   assert.ok(contrast(untypedDarkGlass.dark.text, untypedDarkGlass.dark.bg) >= 7, 'untyped transparent dark theme picks dark fallback canvas')
 
+  // Saturated dark-blue sidebar with no type/canvas/foreground uses perceptual contrast
+  // (not HSL lightness) so it imports into dark mode with readable light text.
+  const blueSidebar = parseVscodeTheme(JSON.stringify({
+    colors: {
+      'editor.background': '#00000000',
+      'sideBar.background': '#3030df',
+    },
+  }))
+  assert.equal(blueSidebar.dark.sidebar, '#3030df')
+  assert.ok(contrast(blueSidebar.dark.text, blueSidebar.dark.sidebar) >= 4.5, 'saturated blue sidebar receives dark mode with readable text')
+
+  // Translucent foreground that composites below WCAG readability keeps the derived ink
+  // rather than replacing it with unreadable pale gray text.
+  const translucentFg = parseVscodeTheme(JSON.stringify({
+    colors: {
+      'editor.background': '#00000000',
+      'editor.foreground': '#00000060',
+    },
+  }))
+  assert.ok(contrast(translucentFg.light.text, translucentFg.light.bg) >= 4.5, 'unreadable translucent foreground falls back to derived readable ink in light mode')
+  assert.ok(contrast(translucentFg.dark.text, translucentFg.dark.bg) >= 4.5, 'dark mode also remains readable')
+
   // Shorthand 4-digit transparent #0000 also falls back to mode default.
   const shortGlass = parseVscodeTheme(JSON.stringify({
     type: 'light',

@@ -34571,13 +34571,30 @@ function parseVscodeTheme(text, fallbackLabel = "VS Code theme") {
   };
   const explicitCanvas = opaque(colors["editor.background"]);
   const inferredDark = () => {
-    const fg = MAP.text.map((name) => opaque(colors[name])).find(Boolean);
-    if (fg !== void 0) return contrast(fg, VSCODE_DEFAULTS.dark) >= contrast(fg, VSCODE_DEFAULTS.light);
-    const surface = [...MAP.sidebar, ...MAP.bubble, ...MAP.card].map((name) => opaque(colors[name])).find(Boolean);
-    if (surface !== void 0) return hslOf2(surface)[2] < 0.5;
+    const rawFg = MAP.text.map((name) => colors[name]).find((value) => opaque(value) !== void 0);
+    let fgDarkScore = 0;
+    let fgLightScore = 0;
+    if (rawFg !== void 0) {
+      const onDark = flattenColor(rawFg, VSCODE_DEFAULTS.dark);
+      const onLight = flattenColor(rawFg, VSCODE_DEFAULTS.light);
+      fgDarkScore = onDark ? contrast(onDark, VSCODE_DEFAULTS.dark) : 0;
+      fgLightScore = onLight ? contrast(onLight, VSCODE_DEFAULTS.light) : 0;
+      if (Math.max(fgDarkScore, fgLightScore) >= READABLE) return fgDarkScore >= fgLightScore;
+    }
+    const rawSurface = [...MAP.sidebar, ...MAP.bubble, ...MAP.card].map((name) => colors[name]).find((value) => opaque(value) !== void 0);
+    if (rawSurface !== void 0) {
+      const darkInk = deriveThemeMode(VSCODE_DEFAULTS.dark, VSCODE_DEFAULTS.accent, "dark").text;
+      const lightInk = deriveThemeMode(VSCODE_DEFAULTS.light, VSCODE_DEFAULTS.accent, "light").text;
+      const onDark = flattenColor(rawSurface, VSCODE_DEFAULTS.dark);
+      const onLight = flattenColor(rawSurface, VSCODE_DEFAULTS.light);
+      const darkScore = onDark ? contrast(onDark, darkInk) : 0;
+      const lightScore = onLight ? contrast(onLight, lightInk) : 0;
+      return darkScore >= lightScore;
+    }
+    if (rawFg !== void 0) return fgDarkScore >= fgLightScore;
     return true;
   };
-  const dark = typeDark ?? (explicitCanvas !== void 0 ? hslOf2(explicitCanvas)[2] < 0.5 : inferredDark());
+  const dark = typeDark ?? (explicitCanvas !== void 0 ? contrast(explicitCanvas, "#ffffff") >= contrast(explicitCanvas, "#000000") : inferredDark());
   const canvas = explicitCanvas ?? (dark ? VSCODE_DEFAULTS.dark : VSCODE_DEFAULTS.light);
   if (!Object.values(colors).some((value) => opaque(value) !== void 0)) {
     throw new Error("This file is not a VS Code theme");
@@ -34585,7 +34602,7 @@ function parseVscodeTheme(text, fallbackLabel = "VS Code theme") {
   const accent = MAP.accent.map((key) => flattenColor(colors[key], canvas)).find(Boolean) ?? VSCODE_DEFAULTS.accent;
   const mode = deriveThemeMode(canvas, accent, dark ? "dark" : "light");
   for (const key of ["text", "sidebar", "bubble", "card"]) {
-    const found = MAP[key].map((name) => flattenColor(colors[name], canvas)).find(Boolean);
+    const found = MAP[key].map((name) => flattenColor(colors[name], canvas)).find((color) => color !== void 0 && (key !== "text" || contrast(color, canvas) >= READABLE));
     if (found !== void 0) mode[key] = found;
   }
   const flipped = hexOfHsl2(...(() => {
