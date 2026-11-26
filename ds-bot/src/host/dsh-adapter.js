@@ -4,10 +4,11 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
+import { HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND, TEXT_KEPT } from './constants.js'
 import { isContextOnlySource } from './context-messages.js'
-import { textOf } from './text.js'
+import { headOf, textOf } from './text.js'
 import { isMissingSessionError } from './threads.js'
+import { answerSender, BLOCKING_CODES } from './turns.js'
 
 const isWakingPreStepMessage = (msg) => {
   const src = msg?.source
@@ -708,9 +709,37 @@ export function install(rt) {
   let pendingPumpAll = false
   const pendingBotIds = new Set()
   const pendingWorkIds = new Set()
+  /** @type {Set<string>} workIds currently awaiting async `attachLong` before SQLite settlement */
+  const pendingAttachWorks = new Set()
   const isStopped = db => disposed || !db || db.readonly || db.isClosed()
 
-  async function dispatchClaimedWork(claim) {
+  const pruneStaleActiveClaim = (sessionId) => {
+    const claim = activeClaims.get(sessionId)
+    if (claim === undefined) return undefined
+    const coordDb = rt.coordDb
+    if (coordDb && !coordDb.isClosed?.()) {
+      const w = coordDb.getWork(claim.workId)
+      if (!w || w.status === 'done' || w.status === 'failed' || w.status === 'stopped') {
+        activeClaims.delete(sessionId)
+        if (activeWorkClaims.get(claim.workId) === sessionId) activeWorkClaims.delete(claim.workId)
+        return undefined
+      }
+    }
+    return claim
+  }
+
+  const collectBusySessions = () => {
+    const busy = new Set()
+    for (const sid of [...activeClaims.keys()]) {
+      if (pruneStaleActiveClaim(sid) !== undefined) busy.add(sid)
+    }
+    for (const [sid, entry] of rt.live?.entries?.() ?? []) {
+      if (entry?.turn !== undefined) busy.add(sid)
+    }
+    return busy
+  }
+
+  async function dispatchClaimedWork(claim, { onError } = {}) {
     const coordDb = rt.coordDb
     if (isStopped(coordDb)) return 'stopped'
     const { work, claimToken, claimedRevision, claimedInboxSeq, unreadMessages, notes } = claim
@@ -737,7 +766,10 @@ export function install(rt) {
       })
       return 'yielded'
     }
-    const sessionId = rt.resolveLogicalSession?.(work.logicalAddress) ?? work.sessionId
+    const explicitSessionId = work.kind === 'foreground'
+      ? unreadMessages.find(m => typeof m.payload?.sessionId === 'string' && m.payload.sessionId !== '')?.payload?.sessionId
+      : undefined
+    const sessionId = explicitSessionId ?? rt.resolveLogicalSession?.(work.logicalAddress) ?? work.sessionId
     if (!sessionId) {
       if (work.kind !== 'foreground') {
         const res = coordDb.settleWork({
@@ -753,10 +785,11 @@ export function install(rt) {
       return 'settled'
     }
 
-    // Enforce strict 1:1 active claim mutual exclusion on every session (DSH & local CLI alike)
-    // plus exclusive workspace boundary for local CLI engines.
+    // Enforce strict 1:1 active claim mutual exclusion on every session (DSH & local CLI alike),
+    // never stealing a session already running a user turn, plus exclusive workspace boundary for local CLI engines.
     const cliCap = rt.localAgentCapability?.(work.botId)
-    if (activeClaims.has(sessionId)) {
+    const liveEntry = rt.live?.get?.(sessionId)
+    if (pruneStaleActiveClaim(sessionId) !== undefined || liveEntry?.turn !== undefined) {
       coordDb.requeueInterruptedWork(work.workId, { reason: cliCap?.serialPerSession ? 'cli_session_busy' : 'session_busy' })
       return 'deferred'
     }
@@ -770,7 +803,7 @@ export function install(rt) {
       }
     }
 
-    if (sessionId !== work.sessionId) {
+    if (!explicitSessionId && sessionId !== work.sessionId) {
       coordDb.rebindSession(work.workId, sessionId)
     }
 
@@ -794,6 +827,7 @@ export function install(rt) {
     activeClaims.set(sessionId, claimRecord)
     activeWorkClaims.set(work.workId, sessionId)
 
+    let enqueued = false
     try {
       await rt.ensureCapabilities?.(sessionId)
       if (isStopped(coordDb)) {
@@ -850,6 +884,9 @@ export function install(rt) {
       const resolvedLength = typeof msgPayload.length === 'number'
         ? msgPayload.length
         : (typeof msgPayload.workMeta?.length === 'number' ? msgPayload.workMeta.length : undefined)
+      const resolvedWorkField = work.kind !== 'foreground'
+        ? work.workId
+        : (typeof msgPayload.work === 'string' && !msgPayload.work.startsWith('fg:') ? msgPayload.work : undefined)
       const exchangeId = msgPayload.exchangeId ?? deliveryKey
       const message = createUserMessage({
         content: [
@@ -868,6 +905,7 @@ export function install(rt) {
           coordWorkId: work.workId,
           coordThroughSeq: throughSeq,
           coordRevision: claimedRevision,
+          ...(resolvedWorkField ? { work: resolvedWorkField } : {}),
           ...(resolvedRoomId ? { roomId: resolvedRoomId } : {}),
           ...(resolvedWorkRef ? { workRef: resolvedWorkRef } : {}),
           ...(resolvedReplyTo ? { replyTo: resolvedReplyTo } : {}),
@@ -884,15 +922,25 @@ export function install(rt) {
       } else {
         agent.followup(message, { idempotencyKey: deliveryKey })
       }
+      enqueued = true
       await ctx.sessions?.flush?.(agent.session)
       return 'dispatched'
     } catch (error) {
+      if (enqueued) {
+        // Message was already enqueued into DSH live inbox before flush threw:
+        // keep activeClaims & coordDb delivery intact (never drop or double-deliver).
+        if (error && typeof error === 'object') error.delivered = true
+        rt.warn?.('ds-bot: post-enqueue flush for work %s on %s failed: %s', work.workId, sessionId, error?.message ?? error)
+        onError?.(work.workId, error)
+        return 'dispatched'
+      }
       if (activeClaims.get(sessionId) === claimRecord) activeClaims.delete(sessionId)
       if (activeWorkClaims.get(work.workId) === sessionId) activeWorkClaims.delete(work.workId)
       if (isStopped(coordDb) || error?.code === 'coordination/closed' || error?.code === 'plugin/disposed') {
         return 'stopped'
       }
       rt.warn?.('ds-bot: dispatching work %s to %s failed: %s', work.workId, sessionId, error?.message ?? error)
+      onError?.(work.workId, error)
 
       if (work.kind !== 'foreground' && (isNotFoundSessionError(error) || error?.code === 'bot/unknown')) {
         if (isStopped(coordDb)) return 'stopped'
@@ -936,7 +984,9 @@ export function install(rt) {
     }
   }
 
-  function kickScheduler({ botId, workId } = {}) {
+  const dispatchErrorListeners = new Map()
+
+  function kickScheduler({ botId, workId, throwOnError = false } = {}) {
     if (disposed || rt.readOnly?.() !== undefined) return Promise.resolve()
     const coordDb = rt.coordDb
     if (isStopped(coordDb)) return Promise.resolve()
@@ -945,65 +995,89 @@ export function install(rt) {
     else if (typeof botId === 'string' && botId !== '') pendingBotIds.add(botId)
     else pendingPumpAll = true
 
-    if (pumping !== null) return pumping
+    let capturedError
+    let listenerEntry
+    if (throwOnError && typeof workId === 'string' && workId !== '') {
+      listenerEntry = (err) => { capturedError = err }
+      let set = dispatchErrorListeners.get(workId)
+      if (set === undefined) dispatchErrorListeners.set(workId, set = new Set())
+      set.add(listenerEntry)
+    }
 
-    pumping = (async () => {
-      try {
-        while (!disposed && (pendingPumpAll || pendingWorkIds.size > 0 || pendingBotIds.size > 0)) {
-          const runAll = pendingPumpAll
-          const runWorkIds = [...pendingWorkIds]
-          const runBotIds = [...pendingBotIds]
-          pendingPumpAll = false
-          pendingWorkIds.clear()
-          pendingBotIds.clear()
+    if (pumping === null) {
+      pumping = (async () => {
+        try {
+          while (!disposed && (pendingPumpAll || pendingWorkIds.size > 0 || pendingBotIds.size > 0)) {
+            const runAll = pendingPumpAll
+            const runWorkIds = [...pendingWorkIds]
+            const runBotIds = [...pendingBotIds]
+            pendingPumpAll = false
+            pendingWorkIds.clear()
+            pendingBotIds.clear()
 
-          const deferredWorkIds = new Set()
-          const maxBatch = 64
-          let dispatched = 0
+            const deferredWorkIds = new Set()
+            const maxBatch = 64
+            let dispatched = 0
 
-          const claimAndDispatch = async (filter) => {
-            if (rt.readOnly?.() !== undefined || isStopped(rt.coordDb)) return false
-            try {
-              const claim = rt.coordDb.claimReady({
-                ...filter,
-                respectWorkspaceLock: true,
-                excludeWorkIds: deferredWorkIds,
-              })
-              if (!claim) return false
-              const outcome = await dispatchClaimedWork(claim)
-              if (outcome === 'stopped') return false
-              if (outcome === 'deferred') deferredWorkIds.add(claim.work.workId)
-              dispatched += 1
-              return true
-            } catch (error) {
-              if (disposed || error?.code === 'coordination/closed') return false
-              throw error
+            const notifyError = (failedWorkId, err) => {
+              const listeners = dispatchErrorListeners.get(failedWorkId)
+              if (listeners === undefined) return
+              for (const fn of listeners) fn(err)
             }
-          }
 
-          for (const targetWorkId of runWorkIds) {
-            if (dispatched >= maxBatch) break
-            await claimAndDispatch({ workId: targetWorkId })
-          }
-          if (!runAll) {
-            for (const targetBotId of runBotIds) {
+            const claimAndDispatch = async (filter) => {
+              if (rt.readOnly?.() !== undefined || isStopped(rt.coordDb)) return false
+              try {
+                const claim = rt.coordDb.claimReady({
+                  ...filter,
+                  respectWorkspaceLock: true,
+                  excludeWorkIds: deferredWorkIds,
+                  excludeSessionIds: collectBusySessions(),
+                })
+                if (!claim) return false
+                const outcome = await dispatchClaimedWork(claim, { onError: notifyError })
+                if (outcome === 'stopped') return false
+                if (outcome === 'deferred' || outcome === 'reconciled') deferredWorkIds.add(claim.work.workId)
+                dispatched += 1
+                return true
+              } catch (error) {
+                if (disposed || error?.code === 'coordination/closed') return false
+                throw error
+              }
+            }
+
+            for (const targetWorkId of runWorkIds) {
+              if (dispatched >= maxBatch) break
+              await claimAndDispatch({ workId: targetWorkId })
+            }
+            if (!runAll) {
+              for (const targetBotId of runBotIds) {
+                while (dispatched < maxBatch) {
+                  const more = await claimAndDispatch({ botId: targetBotId })
+                  if (!more) break
+                }
+              }
+            } else {
               while (dispatched < maxBatch) {
-                const more = await claimAndDispatch({ botId: targetBotId })
+                const more = await claimAndDispatch({})
                 if (!more) break
               }
             }
-          } else {
-            while (dispatched < maxBatch) {
-              const more = await claimAndDispatch({})
-              if (!more) break
-            }
           }
+        } finally {
+          pumping = null
         }
-      } finally {
-        pumping = null
-      }
-    })()
-    return pumping
+      })()
+    }
+
+    if (!listenerEntry) return pumping
+    return pumping.finally(() => {
+      const set = dispatchErrorListeners.get(workId)
+      set?.delete(listenerEntry)
+      if (set?.size === 0) dispatchErrorListeners.delete(workId)
+    }).then(() => {
+      if (capturedError !== undefined) throw capturedError
+    })
   }
 
   // Normalized turn lifecycle handler invoked by `turns.js`.
@@ -1048,8 +1122,50 @@ export function install(rt) {
       }
       pendingFallbackNoteAcks.delete(sessionId)
 
-      const active = activeClaims.get(sessionId)
-      if (!active) return
+      let active = activeClaims.get(sessionId)
+      if (!active) {
+        const infoWorkId = event.info?.coordWorkId !== undefined ? rt.workOf?.(event.info) : undefined
+        const dbWork = infoWorkId !== undefined ? coordDb.getWork(infoWorkId) : undefined
+        if (dbWork && dbWork.kind !== 'foreground' && !['done', 'failed', 'stopped'].includes(dbWork.status)) {
+          // Turn carrying `coordWorkId` completed after a restart/reload before `activeClaims` was hydrated.
+          active = {
+            workId: dbWork.workId,
+            claimToken: dbWork.claimToken,
+            claimedRevision: dbWork.claimedRevision ?? dbWork.revision,
+            claimedInboxSeq: dbWork.claimedInboxSeq ?? dbWork.lastDeliveredSeq ?? 0,
+            deliveryKey: dbWork.activeDeliveryKey,
+            throughSeq: event.info?.coordThroughSeq ?? dbWork.lastDeliveredSeq ?? 0,
+            logicalAddress: dbWork.logicalAddress,
+            forceSettle: true,
+          }
+        }
+      }
+      if (!active) {
+        // Late reply for an abandoned coordDb work whose active claim was already cleared:
+        // deliver `[Late answer: ...]` back to the caller via `answerSender` if it finished cleanly.
+        const infoWorkId = event.type === 'turn/ended' && event.info?.coordWorkId !== undefined
+          ? rt.workOf?.(event.info)
+          : undefined
+        if (infoWorkId !== undefined && rt.closedWorkOf?.(infoWorkId)?.status === 'abandoned') {
+          const asker = rt.workAsker?.(infoWorkId)
+          const senderName = rt.botOf?.(rt.selfOf?.(sessionId))?.name ?? 'The other Bot'
+          const replyBody = rt.answerText?.(infoWorkId, event.text ?? '', senderName) ?? (event.text ?? '')
+          if (asker?.senderSessionId !== undefined && replyBody !== '') {
+            if (replyBody.length > MESSAGE_INLINE_MAX && typeof rt.attachLong === 'function') {
+              void rt.attachLong(replyBody, `Answer from ${senderName}.txt`)
+                .then(long => answerSender(rt, sessionId, asker, replyBody, long))
+                .catch(error => rt.warn?.('ds-bot: late answer from %s not sent: %s', senderName, error))
+            } else {
+              answerSender(rt, sessionId, asker, replyBody)
+            }
+          }
+        }
+        // Any non-coordDb turn (e.g. a user turn) ending frees the session for queued works.
+        if (event.type !== 'turn/failed' || !BLOCKING_CODES.has(event.failure?.code)) {
+          queueMicrotask(() => void kickScheduler())
+        }
+        return
+      }
       activeClaims.delete(sessionId)
       if (activeWorkClaims.get(active.workId) === sessionId) activeWorkClaims.delete(active.workId)
 
@@ -1061,13 +1177,14 @@ export function install(rt) {
         return
       }
 
-      const buildResultMeta = (outcome, bodyText, failure) => {
+      const buildResultMeta = (outcome, bodyText, failure, long) => {
         const senderName = rt.botOf?.(work.botId)?.name ?? 'The other Bot'
         const tag = work.workRef ? ` #${work.workRef}` : ''
+        const displayBody = long?.text ?? bodyText
         let renderedText
         if (outcome === 'done') {
           const header = `[Work${tag} completed by ${senderName} · closed; reply [PASS] if nothing needs to be told to the user]`
-          renderedText = typeof bodyText === 'string' && bodyText !== '' ? `${header}\n${bodyText}` : header
+          renderedText = typeof displayBody === 'string' && displayBody !== '' ? `${header}\n${displayBody}` : header
         } else if (outcome === 'failed') {
           const errDetail = failure?.code
             ? ` (${failure.code}${failure.message ? `: ${failure.message}` : ''})`
@@ -1082,14 +1199,19 @@ export function install(rt) {
           ...(work.workRef ? { workRef: work.workRef } : {}),
           senderName,
           renderedText,
+          ...(long?.files?.length ? { files: long.files } : {}),
+          ...(long?.length !== undefined ? { length: long.length } : {}),
           source: {
             replyTo: work.workId,
             ...(work.workRef ? { workRef: work.workRef } : {}),
             senderName,
+            ...(long?.length !== undefined ? { length: long.length } : {}),
           },
         }
       }
 
+      let blockedBotId
+      const wokenAfterFailure = []
       if (isYielded || work.kind === 'foreground') {
         coordDb.yieldWork({
           workId: active.workId,
@@ -1107,7 +1229,30 @@ export function install(rt) {
           error: failure,
           resultMeta: buildResultMeta('failed', event.text, failure),
         })
-        if (res.settled) emitWorkSettled({ outcome: 'failed', ...res })
+        if (res.settled) {
+          emitWorkSettled({ outcome: 'failed', ...res })
+          wokenAfterFailure.push(...(res.wokenParents ?? []), ...(res.wokenAskers ?? []))
+        }
+        // When a blocking provider/quota error hits a Bot (e.g. LOCAL_AGENT_QUOTA, AUTH),
+        // fail its other queued non-foreground works cleanly instead of dispatching them into
+        // the blocked agent and draining waiting user messages.
+        if (BLOCKING_CODES.has(failure?.code) && work.botId) {
+          blockedBotId = work.botId
+          for (const queued of coordDb.listWorks({ botId: work.botId, statuses: ['queued'], limit: 200 })) {
+            if (queued.kind === 'foreground' || queued.workId === active.workId) continue
+            const qRes = coordDb.settleWork({
+              workId: queued.workId,
+              outcome: 'failed',
+              force: true,
+              error: failure,
+              resultMeta: buildResultMeta('failed', '', failure),
+            })
+            if (qRes.settled) {
+              emitWorkSettled({ outcome: 'failed', ...qRes })
+              wokenAfterFailure.push(...(qRes.wokenParents ?? []), ...(qRes.wokenAskers ?? []))
+            }
+          }
+        }
       } else if (event.type === 'turn/aborted') {
         const res = coordDb.settleWork({
           workId: active.workId,
@@ -1132,18 +1277,66 @@ export function install(rt) {
             ackThroughSeq: active.throughSeq,
           })
         } else {
-          const res = coordDb.settleWork({
-            workId: active.workId,
-            outcome: 'done',
-            claimToken: active.claimToken,
-            expectedRevision: active.claimedRevision,
-            expectedInboxSeq: active.claimedInboxSeq,
-            ackThroughSeq: active.throughSeq,
-            summary: event.text,
-            resultMeta: buildResultMeta('done', event.text),
-          })
-          if (res.settled) emitWorkSettled({ outcome: 'done', ...res })
+          const senderName = rt.botOf?.(work.botId)?.name ?? 'The other Bot'
+          const fullText = rt.answerText?.(active.workId, event.text ?? '', senderName) ?? (event.text ?? '')
+          const resultRef = rt.keepResultFile?.(active.workId, fullText)
+          const origLength = fullText.length > TEXT_KEPT ? fullText.length : undefined
+          const finalizeDone = (long) => {
+            if (isStopped(rt.coordDb)) return
+            if (origLength !== undefined) {
+              try { rt.coordDb.updateApiMeta?.(active.workId, { resultLength: origLength }) } catch {}
+            }
+            const res = rt.coordDb.settleWork({
+              workId: active.workId,
+              outcome: 'done',
+              ...(active.forceSettle ? { force: true } : {
+                claimToken: active.claimToken,
+                expectedRevision: active.claimedRevision,
+                expectedInboxSeq: active.claimedInboxSeq,
+              }),
+              ackThroughSeq: active.throughSeq,
+              summary: headOf(fullText, TEXT_KEPT),
+              ...(resultRef ? { resultRef } : {}),
+              resultMeta: {
+                ...buildResultMeta('done', fullText, undefined, long),
+                ...(origLength !== undefined ? { resultLength: origLength } : {}),
+              },
+            })
+            if (res.settled) emitWorkSettled({ outcome: 'done', ...res })
+            queueMicrotask(() => void kickScheduler())
+          }
+          if (fullText.length > MESSAGE_INLINE_MAX && typeof rt.attachLong === 'function') {
+            pendingAttachWorks.add(active.workId)
+            void rt.attachLong(fullText, `Answer from ${senderName}.txt`)
+              .then((long) => {
+                pendingAttachWorks.delete(active.workId)
+                finalizeDone(long)
+              })
+              .catch((error) => {
+                pendingAttachWorks.delete(active.workId)
+                rt.warn?.('ds-bot: attaching long answer for %s failed: %s', active.workId, error?.message ?? error)
+                finalizeDone(undefined)
+              })
+            return
+          }
+          finalizeDone(undefined)
+          return
         }
+      }
+
+      if (blockedBotId !== undefined) {
+        const distinctTargets = [...new Set(wokenAfterFailure)]
+        if (distinctTargets.length > 0) {
+          queueMicrotask(() => {
+            for (const targetWorkId of distinctTargets) {
+              const target = coordDb.getWork(targetWorkId)
+              if (target && target.botId !== blockedBotId) {
+                void kickScheduler({ workId: targetWorkId })
+              }
+            }
+          })
+        }
+        return
       }
 
       queueMicrotask(() => void kickScheduler())
@@ -1299,6 +1492,8 @@ export function install(rt) {
     pendingBotIds.clear()
     pendingWorkIds.clear()
     pendingPumpAll = false
+    pendingAttachWorks.clear()
+    dispatchErrorListeners.clear()
     workSettledListeners.clear()
   }, 'ds-bot: dsh adapter')
 
@@ -1393,6 +1588,7 @@ export function install(rt) {
   Object.assign(rt, {
     dshCapabilities,
     kickScheduler,
+    isPendingAttachWork: workId => pendingAttachWorks.has(workId),
     dispatchNote,
     moveSilentNotes,
     queryDeliveryStatus,

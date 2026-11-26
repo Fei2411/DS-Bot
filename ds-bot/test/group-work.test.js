@@ -3594,6 +3594,9 @@ test('startup settleRoomReports keeps queued reports still present in roomAgent.
   assert.equal(reportWork('rep-vanished'), undefined)
   const surviving = reportWork(reportId)
   assert.equal(surviving?.apiMeta?.status ?? surviving?.meta?.status, 'queued', 'surviving relay must stay queued')
+  // Chief processes report 1 so its foreground claim releases before report 2 arrives.
+  host.begin('a', host.agentOf('a').calls[0][1])
+  host.finish('a', '[PASS]')
 
   // 2) Now DSH drains the inbox and runs the real round -> Chief receives the real reply for A once.
   roomAgent.inbox.nextTurn.length = 0
@@ -3605,6 +3608,8 @@ test('startup settleRoomReports keeps queued reports still present in roomAgent.
   await settle(() => host.agentOf('a').calls.length === 2)
   assert.match(text(host.agentOf('a').calls[1]), /Writer: 重载后正常完成。/)
   assert.doesNotMatch(text(host.agentOf('a').calls[1]), /did not start before DS Bot restarted/)
+  host.begin('a', host.agentOf('a').calls[1][1])
+  host.finish('a', '[PASS]')
 
   // 3) Plugin reload AFTER user/message was already emitted (old plugin's roomInbox was lost):
   //    startup must NOT strand the report forever.
@@ -3621,6 +3626,8 @@ test('startup settleRoomReports keeps queued reports still present in roomAgent.
   await settle(() => host.agentOf('a').calls.length === 3)
   assert.match(text(host.agentOf('a').calls[2]), /did not start before DS Bot restarted/)
   assert.equal(reportWork('rep-after-um'), undefined)
+  host.begin('a', host.agentOf('a').calls[2][1])
+  host.finish('a', '[PASS]')
 
   // 4) Plugin reload DURING DSH preStep window (status: 'running', turn/start emitted, NO user/message yet):
   //    startup holds the report until the turn settles, then automatically re-checks via whenIdle().
@@ -3698,6 +3705,9 @@ test('startup settleRoomReports does not re-insert a relay consumed while resolv
   host.begin('gb')
   host.finish('gb', '并发恢复后正常完成。')
   await settle(() => opsRound() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  host.begin('a', host.agentOf('a').calls[0][1])
+  host.finish('a', '[PASS]')
 
   // Now release Lab's resolveAgent and finish startup. Ops's report must NOT be blocked by a stale re-inserted relay!
   rt.resolveAgent = origResolve

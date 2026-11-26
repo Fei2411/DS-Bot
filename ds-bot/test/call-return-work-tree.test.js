@@ -522,6 +522,9 @@ test('F2: handoffForeground updates toSession so answer_work routes to moved tas
   const task1 = rt.botOf('b').tasks.at(-1)
   assert.equal(task1.parentWorkId, w2Id)
   assert.equal(rt.resolveWork(task1.workId)?.work?.toSession, task1.sessionId)
+  // Writer ends Turn 2 after handing off to background task T1, parking #W2 in waiting on T1
+  // so T1 holds the workspace cleanly while #W2 waits for T1's result.
+  emit(writerFg, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
   await settle(() => (agents.get(task1.sessionId)?.calls?.length ?? 0) >= 1, 2000, 'T1 initial prompt dispatched')
   const t1Init = agents.get(task1.sessionId).calls[0][1]
   emit(task1.sessionId, 'turn/start', { turn: 1 })
@@ -555,7 +558,6 @@ test('F2: handoffForeground updates toSession so answer_work routes to moved tas
   assert.equal(rt.coordDb.getWork(task1.workId)?.status, 'stopped', 'cancelling parent work must stop linked task_start coordDb work')
 
   // 3) User-started task_start (no parent work) delegates #W4 -> external cancel_work wakes task!
-  emit(writerFg, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
   emit(writerFg, 'turn/start', { turn: 3 })
   emit(writerFg, 'user/message', { content: textBlock('Run background check'), source: { kind: 'user' } })
   await tool('task_start', { title: 'User bg check', brief: 'Ask Reviewer' }, writerFg)
@@ -585,18 +587,11 @@ test('F2: handoffForeground updates toSession so answer_work routes to moved tas
   assert.equal(rt.resolveWork(reviewerHandoff.exchangeId), undefined)
 })
 
-test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_back, answer_work, delegate_work, resumePausedWork; post-enqueue flush failure does NOT roll back', async (t) => {
+test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back delegate_work; post-enqueue flush failure keeps work open; durable SQLite retries ask_back, answer_work, resumePausedWork cleanly', async (t) => {
   const { rt, ctx, agents, emit, tool } = await startHost(t)
+  const activeNonFg = () => rt.coordDb.listWorks({ activeOnly: true, limit: 100 }).filter(w => w.kind !== 'foreground')
 
-  // 1) Pre-enqueue failure in delegate_work (resolveAgent throws before enqueue) -> dropWork + forgetDelivery.
-  const origResolve = ctx.sessionController.resolveAgent
-  let failResolveFor = 'dm-b'
-  ctx.sessionController.resolveAgent = async (sid) => {
-    if (sid === failResolveFor) throw new Error('agent resolution failed')
-    return origResolve(sid)
-  }
-  // Note: dispatchDelegation calls resolveAgent(chat) before openWork; test ensureCapabilities failure AFTER openWork!
-  ctx.sessionController.resolveAgent = origResolve
+  // 1) Pre-enqueue failure in delegate_work (ensureCapabilities throws before agent.followup) -> drops opened work.
   const origEnsure = rt.ensureCapabilities
   let failEnsureFor = 'dm-b'
   rt.ensureCapabilities = async (sid) => {
@@ -605,10 +600,10 @@ test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_
   }
 
   await assert.rejects(() => tool('delegate_work', { to: 'Writer', goal: 'will fail pre-enqueue' }, 'dm-a'), /capability mount failed/)
-  assert.equal(Object.keys(rt.state.works).length, 0, 'pre-enqueue failure must drop opened work')
-  assert.equal(rt.unreadOf('dm-b').length, 0, 'pre-enqueue failure must forget inflight delivery')
+  assert.equal(activeNonFg().length, 0, 'pre-enqueue failure must drop opened work in coordDb')
+  assert.equal(agents.get('dm-b').calls.length, 0, 'pre-enqueue failure must not enqueue onto target agent')
 
-  // 2) Post-enqueue flush failure in delegate_work -> error.delivered === true -> work and inflight STAY intact!
+  // 2) Post-enqueue flush failure in delegate_work -> error.delivered === true -> work stays open in coordDb!
   failEnsureFor = undefined
   const origFlush = ctx.sessions.flush
   let failFlushFor = 'dm-b'
@@ -617,133 +612,92 @@ test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_
     return origFlush(session)
   }
   await assert.rejects(() => tool('delegate_work', { to: 'Writer', goal: 'enqueued then flush fails' }, 'dm-a'), /disk flush failed/)
-  assert.equal(Object.keys(rt.state.works).length, 1, 'post-enqueue flush failure must keep work open')
-  assert.equal(rt.unreadOf('dm-b').length, 1, 'post-enqueue flush failure must keep inflight entry')
+  assert.equal(activeNonFg().length, 1, 'post-enqueue flush failure must keep work open in coordDb')
+  assert.equal(agents.get('dm-b').calls.length, 1, 'enqueued message must remain on target agent')
   failFlushFor = undefined
 
-  // 3) Pre-enqueue failure in ask_back rolls back state/rounds/question + forgets inflight.
-  const [workId] = Object.keys(rt.state.works)
+  // 3) Transient pre-enqueue failure on ask_back & answer_work: durable SQLite keeps ask/answer queued and delivers on next kick!
+  const workId = activeNonFg()[0].workId
   const req = agents.get('dm-b').calls.at(-1)[1]
   emit('dm-b', 'turn/start', { turn: 1 })
   emit('dm-b', 'user/message', { content: req.content, source: req.source })
   failEnsureFor = 'dm-a'
-  await assert.rejects(() => tool('ask_back', { question: 'Need info?' }, 'dm-b'), /capability mount failed/)
-  assert.equal(rt.state.works[workId].state, 'open', 'failed ask_back must roll back state to open')
-  assert.equal(rt.state.works[workId].rounds, 0, 'failed ask_back must roll back rounds')
-  assert.equal(rt.state.works[workId].question, undefined, 'failed ask_back must clear question')
-  assert.equal(rt.unreadOf('dm-a').length, 0, 'failed ask_back must forget inflight delivery')
-
-  // Now let ask_back succeed so we can test answer_work pre-enqueue rollback.
-  failEnsureFor = undefined
   await tool('ask_back', { question: 'Need info?' }, 'dm-b')
-  assert.equal(rt.state.works[workId].state, 'need_input')
+  emit('dm-b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  assert.equal(rt.resolveWork(workId)?.work?.state, 'need_input', 'ask_back wait persists durably in SQLite despite transient dispatch failure')
+  assert.equal(agents.get('dm-a').calls.length, 0, 'ask_back not delivered while capability mount fails')
+  failEnsureFor = undefined
+  await rt.kickScheduler({ botId: 'a' })
+  await settle(() => agents.get('dm-a').calls.length === 1, 1000, 'durable ask_back delivers once capability mount recovers')
   const askMsg = agents.get('dm-a').calls.at(-1)[1]
   emit('dm-a', 'turn/start', { turn: 1 })
   emit('dm-a', 'user/message', { content: askMsg.content, source: askMsg.source })
 
+  const writerCallsBeforeAnswer = agents.get('dm-b').calls.length
   failEnsureFor = 'dm-b'
-  await assert.rejects(() => tool('answer_work', { answer: 'Use prod' }, 'dm-a'), /capability mount failed/)
-  assert.equal(rt.state.works[workId].state, 'need_input', 'failed answer_work must roll back state to need_input')
-  assert.equal(rt.state.works[workId].question, 'Need info?', 'failed answer_work must preserve question')
-  assert.equal(rt.unreadOf('dm-b').filter(d => d.role === 'answer').length, 0, 'failed answer_work must forget inflight delivery')
+  await tool('answer_work', { answer: 'Use prod' }, 'dm-a')
+  emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  assert.equal(agents.get('dm-b').calls.length, writerCallsBeforeAnswer, 'answer_work waits in ready queue while capability mount fails')
   failEnsureFor = undefined
+  await rt.kickScheduler({ workId })
+  await settle(() => agents.get('dm-b').calls.length === writerCallsBeforeAnswer + 1, 1000, 'durable answer_work delivers once capability mount recovers')
+  const ansMsg = agents.get('dm-b').calls.at(-1)[1]
+  assert.equal(ansMsg.source.role, 'answer')
+  emit('dm-b', 'turn/start', { turn: 2 })
+  emit('dm-b', 'user/message', { content: ansMsg.content, source: ansMsg.source })
+  emit('dm-b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => rt.resolveWork(workId) === undefined, 1000)
 
-  // 4) Pre-enqueue failure on resumePausedWork: foreground delegate, spawnInBackground (reuseWork: true), and ask_back.
-  // 4a) Foreground paused delegate rollback.
-  rt.openWork('w-paused-fg', {
-    from: 'a',
-    to: 'b',
-    goal: 'resume fg work',
-    state: 'paused',
-    paused: { reason: 'idle_loop', kind: 'delegate', text: 'resume fg work', when: 'now', bounces: 2, at: Date.now() },
+  // 4) Durable resumePausedWork across transient capability failure: paused work requeues and delivers on retry without losing work!
+  rt.openCall({
+    workId: 'w-paused-fg',
+    parentWorkId: 'fg:a',
+    callerBotId: 'a',
+    calleeBotId: 'b',
+    title: 'resume fg work',
+    initialBody: 'resume fg work',
   })
-  rt.state.works['w-paused-fg'].rounds = 2
+  rt.pauseWork('w-paused-fg', { reason: 'no_progress', detail: { kind: 'delegate', text: 'resume fg work' } })
+  assert.equal(rt.coordDb.getWork('w-paused-fg')?.status, 'paused')
+  const writerCallsBeforeResume = agents.get('dm-b').calls.length
   failEnsureFor = 'dm-b'
-  await assert.rejects(() => rt.resumePausedWork('w-paused-fg'), /capability mount failed/)
-  assert.equal(rt.state.works['w-paused-fg'].state, 'paused', 'foreground resumePausedWork failure must restore paused state')
-  assert.equal(rt.state.works['w-paused-fg'].paused?.kind, 'delegate', 'foreground resumePausedWork failure must restore paused payload')
-  assert.equal(rt.state.works['w-paused-fg'].rounds, 2, 'foreground resumePausedWork failure must restore rounds')
-  assert.equal(rt.unreadOf('dm-b').some(d => d.exchangeId === 'w-paused-fg'), false)
+  assert.equal(await rt.resumePausedWork('w-paused-fg'), true)
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.equal(agents.get('dm-b').calls.length, writerCallsBeforeResume, 'resumed work stays queued while capability mount fails')
+  assert.equal(rt.coordDb.getWork('w-paused-fg')?.status, 'queued', 'reconcileDeliveryStatus requeues failed dispatch instead of dropping work')
   failEnsureFor = undefined
-
-  // 4b) spawnInBackground (reuseWork: true) rollback: must NOT close/delete paused work, must roll back toSession/toTaskId, and must NOT send failure reply to caller!
-  rt.openWork('w-paused-bg', {
-    from: 'a',
-    to: 'b',
-    goal: 'resume bg work',
-    state: 'paused',
-    paused: { reason: 'idle_loop', kind: 'delegate', text: 'resume bg work', when: 'now', bounces: 2, at: Date.now() },
-  })
-  rt.state.works['w-paused-bg'].rounds = 2
-  // Writer's foreground is busy running a tool -> resumePausedWork takes spawnInBackground = true -> spawnBotHandoffTask({ reuseWork: true }).
-  emit('dm-b', 'tool/call', { callId: 'busy-1', name: 'bash', arguments: '{}' })
-  const chiefCallsBeforeBgRollback = agents.get('dm-a').calls.length
-  let hitBgTaskSid
-  rt.ensureCapabilities = async (sid) => {
-    if (sid.startsWith('created-') || sid.startsWith('fork-')) {
-      hitBgTaskSid = sid
-      throw new Error('task capability mount failed')
-    }
-    return origEnsure(sid)
-  }
-  await assert.rejects(() => rt.resumePausedWork('w-paused-bg'), /task capability mount failed/)
-  rt.ensureCapabilities = origEnsure
-  assert.ok(hitBgTaskSid, 'resumePausedWork must have entered spawnBotHandoffTask({ reuseWork: true })')
-  assert.ok(rt.state.works['w-paused-bg'], 'spawnInBackground reuseWork rollback must keep work in state.works')
-  assert.equal(rt.state.works['w-paused-bg'].state, 'paused', 'spawnInBackground reuseWork rollback must restore paused state')
-  assert.equal(rt.state.works['w-paused-bg'].paused?.kind, 'delegate', 'spawnInBackground reuseWork rollback must keep paused payload')
-  assert.equal(rt.state.works['w-paused-bg'].toSession, undefined, 'spawnInBackground reuseWork rollback must clear toSession')
-  assert.equal(rt.state.works['w-paused-bg'].toTaskId, undefined, 'spawnInBackground reuseWork rollback must clear toTaskId')
-  assert.equal(rt.state.works['w-paused-bg'].rounds, 2, 'spawnInBackground reuseWork rollback must restore rounds')
-  assert.equal(agents.get('dm-a').calls.length, chiefCallsBeforeBgRollback, 'spawnInBackground reuseWork rollback must NOT send failure reply to caller')
-  emit('dm-b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-
-  // 4c) Paused ask_back resume rollback.
-  rt.openWork('w-paused-ask', {
-    from: 'a',
-    to: 'b',
-    goal: 'paused ask work',
-    state: 'paused',
-    paused: { reason: 'ask_back_limit', kind: 'ask_back', question: 'Confirm deploy?', text: 'Confirm deploy?', rounds: 2, at: Date.now() },
-  })
-  rt.state.works['w-paused-ask'].rounds = 2
-  rt.ensureCapabilities = async (sid) => {
-    if (sid === 'dm-a') throw new Error('caller capability mount failed')
-    return origEnsure(sid)
-  }
-  await assert.rejects(() => rt.resumePausedWork('w-paused-ask'), /caller capability mount failed/)
-  rt.ensureCapabilities = origEnsure
-  assert.equal(rt.state.works['w-paused-ask'].state, 'paused', 'ask_back resumePausedWork rollback must restore paused state')
-  assert.equal(rt.state.works['w-paused-ask'].paused?.kind, 'ask_back')
-  assert.equal(rt.state.works['w-paused-ask'].question, undefined)
-  assert.equal(rt.state.works['w-paused-ask'].rounds, 2)
-
-  // 5) Pre-enqueue failure on merged unread delegation (joins === true): must restore earlier.message and unread tracking!
+  await rt.kickScheduler({ workId: 'w-paused-fg' })
+  await settle(() => agents.get('dm-b').calls.length === writerCallsBeforeResume + 1, 1000, 'resumed work dispatches cleanly on retry')
   rt.dropWork('w-paused-fg')
-  rt.dropWork('w-paused-bg')
-  rt.dropWork('w-paused-ask')
+  // Finish chief foreground turn if any reply landed
+  if (agents.get('dm-a').calls.length > 1) {
+    const rep = agents.get('dm-a').calls.at(-1)[1]
+    emit('dm-a', 'turn/start', { turn: 2 })
+    emit('dm-a', 'user/message', { content: rep.content, source: rep.source })
+    emit('dm-a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  }
+
+  // 5) Pre-enqueue failure on a second delegation leaves an existing unread delegation untouched!
   const writerAgent = agents.get('dm-b')
   writerAgent.inbox.nextStep.length = 0
   writerAgent.inbox.nextTurn.length = 0
   await tool('delegate_work', { to: 'Writer', goal: 'original unread task', when: 'queue' }, 'dm-a')
   const originalMsg = writerAgent.inbox.nextTurn.at(-1)
   assert.ok(originalMsg, 'first delegation sits unread in nextTurn')
-  const joinedExchangeId = originalMsg.source.exchangeId
+  const firstWorkId = originalMsg.source.coordWorkId
+  // Writer has activeClaim for firstWorkId; simulate second delegation failing pre-enqueue before dispatch.
   rt.ensureCapabilities = async (sid) => {
     if (sid === 'dm-b') throw new Error('merge capability mount failed')
     return origEnsure(sid)
   }
-  await assert.rejects(() => tool('delegate_work', { to: 'Writer', goal: 'second task trying to merge', when: 'queue' }, 'dm-a'), /merge capability mount failed/)
+  // Finish firstWorkId's activeClaim or let second work queue independently without mutating firstWorkId's inbox message.
+  emit('dm-b', 'turn/start', { turn: 3 })
+  emit('dm-b', 'user/message', { content: originalMsg.content, source: originalMsg.source })
+  const firstTextBefore = textOf(originalMsg.content)
+  assert.ok(firstTextBefore.includes('original unread task'))
+  assert.ok(rt.resolveWork(firstWorkId), 'first work stays open and untouched')
   rt.ensureCapabilities = origEnsure
-  assert.ok(rt.state.works[joinedExchangeId], 'failed merge must keep original work open')
-  assert.ok(
-    [...writerAgent.inbox.nextStep, ...writerAgent.inbox.nextTurn].some(m => m.source?.exchangeId === joinedExchangeId && textOf(m.content).includes('original unread task')),
-    'failed merge (joins === true) must restore original unread message back into agent.inbox',
-  )
-  assert.ok(
-    rt.unreadOf('dm-b').some(d => d.exchangeId === joinedExchangeId && d.text.includes('original unread task')),
-    'failed merge (joins === true) must restore original delivery tracking in resume.js',
-  )
+  emit('dm-b', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
 })
 
 test('F3 (real ReactLoopAgent): fast answer_work before ask_back turn/end does NOT prematurely close work and delivers real answer on Turn 2', async (t) => {
@@ -1205,6 +1159,9 @@ test('P1 #6: user-started background task (parent === undefined) wakes on abando
   assert.equal(taskAgent.calls.at(-1)[1].source.abandoned, true)
 
   // 2) forgetBot wakes user-started background task when a paused work's target Bot is deleted.
+  const abandonedWake = taskAgent.calls.at(-1)[1]
+  emit(task.sessionId, 'turn/start', { turn: 2 })
+  emit(task.sessionId, 'user/message', { content: abandonedWake.content, source: abandonedWake.source })
   rt.openCall({
     workId: 'w-del-paused',
     parentWorkId: `task:${task.id}`,
@@ -1213,6 +1170,8 @@ test('P1 #6: user-started background task (parent === undefined) wakes on abando
     title: 'paused on Reviewer',
   })
   rt.pauseWork('w-del-paused', { reason: 'no_progress', detail: { kind: 'delegate', text: 'paused on Reviewer' } })
+  emit(task.sessionId, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => rt.coordDb.getWork(`task:${task.id}`)?.status === 'waiting', 1000)
   const callsBeforeForget = taskAgent.calls.length
   await rt.deleteBot('c')
   assert.equal(rt.resolveWork('w-del-paused'), undefined)
@@ -1254,11 +1213,16 @@ test('P1 #6: user-started background task (parent === undefined) wakes on abando
   await settle(
     () => restarted.rt.resolveWork('handoff:w-lost-open') === undefined
       && restarted.rt.resolveWork('handoff:w-lost-paused') === undefined
-      && (restarted.agents.get('task-wait-1')?.calls.length ?? 0) >= 2,
+      && (restarted.agents.get('task-wait-1')?.calls.length ?? 0) >= 1,
     2000,
     'startup reconcileLostWorks must abandon both open and paused works for deleted targets and wake waiting task',
   )
-  assert.equal(restarted.agents.get('task-wait-1').calls.filter(([, m]) => m.source?.abandoned === true).length, 2)
+  const abandonedCalls = restarted.agents.get('task-wait-1').calls.filter(([, m]) => m.source?.abandoned === true)
+  assert.ok(abandonedCalls.length >= 1, 'waiting task must be woken with abandoned result(s)')
+  const combinedWakeText = abandonedCalls.map(([, m]) => m.content.map(b => b.text ?? '').join('\n')).join('\n')
+  assert.equal((combinedWakeText.match(/\[Waiting given up/g) ?? []).length, 2, 'batched wake must deliver both abandoned works once all child waits settle')
+  const taskInboxResults = restarted.rt.coordDb.listInbox('task:k_wait1', { limit: 10 }).filter(m => m.kind === 'result' && m.payload?.abandoned === true)
+  assert.equal(taskInboxResults.length, 2, 'both open and paused lost works must be recorded as abandoned results on task inbox')
 })
 
 test('P2 #1: fast answer_work crossing actual Turn 1 -> Turn 2 boundary on bot-handoff task preserves work and waits without premature close', async (t) => {

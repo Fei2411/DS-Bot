@@ -175,17 +175,17 @@ const worksIn = async ({ rt }) => {
           id: call.childWorkId,
           text: call.resultSummary ?? '',
           file: call.resultRef ?? undefined,
-          length: call.resultRef ? readFileSync(join(rt.home, 'handoff-results', call.resultRef), 'utf8').length : undefined,
+          length: child?.apiMeta?.resultLength ?? (call.resultRef ? readFileSync(join(rt.home, 'handoff-results', call.resultRef), 'utf8').length : undefined),
           abandoned: call.error?.abandoned === true,
           child: child?.meta?.child,
-          name: child?.meta?.name,
+          name: child?.apiMeta?.name ?? child?.meta?.name,
         }
       })
     out[work.workId] = {
       ...work,
       to: work.botId,
       child: work.meta?.child,
-      name: work.meta?.name,
+      name: work.apiMeta?.name ?? work.meta?.name,
       open,
       results,
     }

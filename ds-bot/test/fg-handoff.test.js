@@ -729,7 +729,10 @@ test('P0 #8: spawnBotHandoffTask failure in openTaskPart or deliver leaks zero w
     }
     return origResolve(sid)
   }
-  await env.tool('delegate_work').execute({ to: 'Helper', goal: 'Work 3' }, execOf(dmA))
+  await assert.rejects(
+    () => env.tool('delegate_work').execute({ to: 'Helper', goal: 'Work 3' }, execOf(dmA)),
+    /task session missing/,
+  )
   assert.equal(activeNonFgWorks().length, 0, 'failed scheduler dispatch with session/not-found must not leak active works')
   env.rt.resolveAgent = origResolve
 })

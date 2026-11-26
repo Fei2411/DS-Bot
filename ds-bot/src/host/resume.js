@@ -175,6 +175,7 @@ export function install(rt) {
       if (!coordDb || coordDb.readonly || coordDb.isClosed()) return
 
       migrateLegacyToCoordDb()
+      rt.reconcileLostWorks?.()
 
       // Ensure every known Bot has its permanent foreground work bound to its latest session.
       for (const [id, bot] of Object.entries(rt.state?.bots ?? {})) {
@@ -338,7 +339,7 @@ export function install(rt) {
     const coordDb = rt.coordDb
     if (coordDb && !coordDb.isClosed()) {
       const work = coordDb.getWorkBySessionId(sessionId)
-      if (work) {
+      if (work && !['done', 'failed', 'stopped'].includes(work.status)) {
         for (const msg of coordDb.listInbox(work.workId, { unreadOnly: true, includeNotes: false })) {
           out.push({
             ...msg,

@@ -6,7 +6,7 @@
 // appending `inbox(kind='result')` onto the caller's work, resolving its wait, and waking
 // it once via `rt.kickScheduler()` — eliminating crash-before-delivery loss and double reports.
 import { randomUUID } from 'node:crypto'
-import { LATE_ANSWER, MESSAGE_INLINE_MAX } from './constants.js'
+import { LATE_ANSWER, MESSAGE_INLINE_MAX, SOURCE_KIND } from './constants.js'
 import { normalizeImOrigin, sameImOrigin } from './im/origin.js'
 import { threadCurrentOfPart } from './threads.js'
 import { failureLine } from './turns.js'
@@ -823,10 +823,65 @@ export function createRoomReports(rt, deps) {
     }).catch(error => rt.warn('ds-bot: group report to %s failed: %s', report.name, error))
   }
 
+  const preStepRecheckRooms = new Set()
+
+  const isInPreStepWindow = (agent) => {
+    if (!agent || agent.status !== 'running') return false
+    const events = agent.session?.snapshotEvents?.()
+    if (!Array.isArray(events) || events.length === 0) return true
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      const ev = events[i]
+      if (ev?.type === 'user/message' || ev?.type === 'turn/end') return false
+      if (ev?.type === 'turn/start') return true
+    }
+    return false
+  }
+
+  const schedulePreStepRecheck = (roomId, agent) => {
+    if (preStepRecheckRooms.has(roomId) || typeof agent?.whenIdle !== 'function') return
+    preStepRecheckRooms.add(roomId)
+    void Promise.resolve(agent.whenIdle()).then(() => {
+      preStepRecheckRooms.delete(roomId)
+      if (isDisposed()) return
+      return settleRoomReports(roomId, { startup: true })
+    }).catch(() => {
+      preStepRecheckRooms.delete(roomId)
+    })
+  }
+
+  const roomAgentQueuedReports = async (room) => {
+    const roomSid = rt.sessionOfRoom?.(room)
+    if (!roomSid) return { agent: undefined, inPreStep: false, queuedSources: [] }
+    let agent = rt.ctx?.get?.('agents')?.get?.(roomSid)
+    if (agent === undefined && typeof rt.resolveAgent === 'function') {
+      agent = await rt.resolveAgent(roomSid).catch(() => undefined)
+    }
+    if (!agent) return { agent: undefined, inPreStep: false, queuedSources: [] }
+    const inPreStep = isInPreStepWindow(agent)
+    const queuedSources = [
+      ...(agent.inbox?.nextStep ?? []),
+      ...(agent.inbox?.nextTurn ?? []),
+    ].map(m => m?.source).filter(Boolean)
+    return { agent, inPreStep, queuedSources }
+  }
+
   async function settleRoomReports(roomId, { startup = false } = {}) {
     if (writableDb() === null || isDisposed()) return
     const touchedRoomIds = new Set()
     if (roomId !== undefined) touchedRoomIds.add(roomId)
+    const roomStates = new Map()
+    if (startup) {
+      const queuedRooms = new Map()
+      for (const report of listActiveReports(roomId)) {
+        if (report.status !== 'tracking') {
+          const r = rt.roomOf(report.roomId)
+          if (r !== undefined) queuedRooms.set(r.id, r)
+        }
+      }
+      for (const [rId, r] of queuedRooms.entries()) {
+        roomStates.set(rId, await roomAgentQueuedReports(r))
+      }
+    }
     const ready = []
     for (const report of listActiveReports(roomId)) {
       touchedRoomIds.add(report.roomId)
@@ -838,6 +893,24 @@ export function createRoomReports(rt, deps) {
       if (room === undefined) {
         ready.push({ room: { id: report.roomId, name: 'a group chat' }, report, deleted: true, neverStarted: false })
         continue
+      }
+      if (startup && report.status !== 'tracking') {
+        // Re-check live inbox / preStep status after any awaits so a relay consumed while
+        // resolving another room is never falsely treated as still queued or never-started.
+        const liveState = roomStates.get(room.id)
+        const roomSid = rt.sessionOfRoom?.(room)
+        const liveAgent = (roomSid ? rt.ctx?.get?.('agents')?.get?.(roomSid) : undefined) ?? liveState?.agent
+        const currentSources = liveAgent
+          ? [...(liveAgent.inbox?.nextStep ?? []), ...(liveAgent.inbox?.nextTurn ?? [])].map(m => m?.source).filter(Boolean)
+          : (liveState?.queuedSources ?? [])
+        const inPreStep = liveAgent ? isInPreStepWindow(liveAgent) : (liveState?.inPreStep === true)
+        if (inPreStep) {
+          schedulePreStepRecheck(room.id, liveAgent)
+          continue
+        }
+        if (currentSources.some(src => matchesReportPost(src, report))) {
+          continue
+        }
       }
       if (isReportBusy(room, report, { startup })) continue
       const neverStarted = report.status !== 'tracking' || report.neverStarted === true
@@ -903,6 +976,13 @@ export function createRoomReports(rt, deps) {
     }
     void settleRoomReports(source.roomId).catch(error => rt.warn('ds-bot: settling reports after discarded relay failed: %s', error))
   }
+
+  rt.ctx?.on?.('agent/inbox/discarded', ({ agent, message }) => {
+    const src = message?.source
+    if (src?.kind === SOURCE_KIND && src.role === 'post') {
+      roomRelayDiscarded(src, agent?.id ?? agent?.session?.id)
+    }
+  })
 
   Object.assign(rt, {
     noteRoomRelayQueued,

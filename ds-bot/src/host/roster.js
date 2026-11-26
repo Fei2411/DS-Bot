@@ -113,7 +113,27 @@ export function install(rt) {
         for (const workId of candidateIds) {
           const current = db.getWork(workId)
           if (!current || TERMINAL_COORD_STATUSES.has(current.status)) continue
-          const res = db.stopWork(workId, { reason, by, cascadeChildren: true })
+          const senderName = rt.botOf?.(current.botId)?.name ?? 'The other Bot'
+          const tag = current.workRef ? ` #${current.workRef}` : ''
+          const summaryText = reason || `${senderName} was stopped.`
+          const res = db.stopWork(workId, {
+            reason: summaryText,
+            by,
+            cascadeChildren: true,
+            summary: summaryText,
+            resultMeta: {
+              role: 'reply',
+              replyTo: current.workId,
+              ...(current.workRef ? { workRef: current.workRef } : {}),
+              senderName,
+              renderedText: `[Work${tag} stopped · ${senderName}]\n${summaryText}`,
+              source: {
+                replyTo: current.workId,
+                ...(current.workRef ? { workRef: current.workRef } : {}),
+                senderName,
+              },
+            },
+          })
           if (res.settled) {
             stoppedWorkIds.add(workId)
             settledEvents.push(res)
@@ -1191,8 +1211,11 @@ export function install(rt) {
     if (room === undefined) throw new Error('Unknown group chat')
     // Before the group's Sessions leave the state, which the archive reads.
     const archived = rt.archiveGroupMemory(room)
+    // Settle pending roomReports with their rich deletion notice BEFORE sweeping remaining
+    // coordination works so `forgetRoomReports` still finds every open report.
+    await rt.forgetRoomReports?.(room).catch(error => rt.warn('ds-bot: settling reports of deleted group %s failed: %s', room.name, error))
     // Atomically stop all coordination works/calls/waits tied to this group and notify upstream.
-    await stopCoordWorks({ roomId: room.id, reason: 'Group chat was deleted', by: 'roster:deleteRoom' })
+    await stopCoordWorks({ roomId: room.id, reason: `Group "${room.name}" was deleted before it finished.`, by: 'roster:deleteRoom' })
     await rt.stopRoomTasks?.(room.id, 'group deleted')
       .catch(error => rt.warn('ds-bot: stopping tasks of deleted group %s failed: %s', room.name, error))
     const noteCleanups = []
@@ -1218,7 +1241,6 @@ export function install(rt) {
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)
-    void rt.forgetRoomReports?.(room).catch(error => rt.warn('ds-bot: settling reports of deleted group %s failed: %s', room.name, error))
     await archived
     await Promise.allSettled(noteCleanups)
     const failed = await saveForDelete()
@@ -1338,7 +1360,7 @@ export function install(rt) {
       for (const hook of botDeleteHooks) await hook(id)
       // Atomically stop all coordination works/calls/waits for this Bot and notify upstream
       // BEFORE releasing turns, dropping state, or archiving Sessions.
-      await stopCoordWorks({ botId: id, reason: 'Bot was deleted', by: 'roster:deleteBot' })
+      await stopCoordWorks({ botId: id, reason: `${bot.name} was deleted from the team before it could finish.`, by: 'roster:deleteBot' })
       rt.forgetBotTasks?.(bot)
       rt.forgetBotPermissions?.(id)
       // Before the Bot and its group Sessions leave the state, which the archive reads.

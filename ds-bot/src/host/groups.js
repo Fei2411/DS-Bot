@@ -889,12 +889,23 @@ export function install(rt) {
 
   const hasActiveRoomCalls = (roomId, { memberIds, ignoreTaskId, ignoreBotId, waitingForUser } = {}) => {
     const works = listActiveRoomWorks(roomId)
+    const room = rt.roomOf(roomId)
+    const handle = db()
+    const ignoredBotIdle = ignoreTaskId !== undefined && ignoreBotId !== undefined && !activeInRoom(room, ignoreBotId, ignoreTaskId)
     for (const work of works) {
       if (isHeldRoomStatus(work.status)) continue
       if (Array.isArray(memberIds) && !memberIds.includes(work.botId)) continue
-      if (waitingForUser?.(rt.roomOf(roomId), work.botId) === true) continue
-      if (ignoreTaskId !== undefined && work.botId === ignoreBotId && !activeInRoom(rt.roomOf(roomId), work.botId, ignoreTaskId)) continue
-      if (isCallWork(work) || openChildWaitsOf(work.workId).length > 0) return true
+      if (waitingForUser?.(room, work.botId) === true) continue
+      if (ignoredBotIdle && work.botId === ignoreBotId) continue
+      if (isCallWork(work)) return true
+      const openWaits = openChildWaitsOf(work.workId)
+      if (openWaits.length > 0) {
+        if (ignoredBotIdle && handle !== null && openWaits.every((w) => {
+          const target = w.targetWorkId ? handle.getWork(w.targetWorkId) : undefined
+          return target?.botId === ignoreBotId
+        })) continue
+        return true
+      }
     }
     return false
   }
@@ -1098,13 +1109,52 @@ export function install(rt) {
     if (owner === undefined) return undefined
     const waiter = info?.role === 'room' ? rt.roomWaiters.get(info.exchangeId) : undefined
     if (waiter?.slot?.workId !== undefined) return waiter.slot.workId
+    // An ordinary user-invited room turn (`askedBy === undefined`) has no `room_call` work;
+    // never steal an unrelated steered `room_call` queued for the next turn, but DO preserve
+    // an open top-level `rw_caller_*` this member opened via `delegate_work` during this turn.
+    if (info?.role === 'room' && info.askedBy === undefined) {
+      const works = listActiveRoomWorks(owner.roomId, { botId: owner.botId })
+      return works.find(w => isCallerWork(w) && openChildWaitsOf(w.workId).length > 0)?.workId
+    }
     const works = listActiveRoomWorks(owner.roomId, { botId: owner.botId })
     return works.find(isCallWork)?.workId ?? works[0]?.workId
   }
   rt.activeRoomBatchKey = activeWorkIdForSession
 
+  // Queued out-of-round child `delegate_work` relays whose `callIn()` has not opened a SQLite
+  // child work yet; prevents `lateRoomReply` from settling the parent work prematurely.
+  /** @type {Map<string, Set<string>>} parentWorkId -> Set<exchangeId> */
+  const pendingQueuedChildRelays = new Map()
+  const notePendingChildRelay = (parentWorkId, exchangeId) => {
+    if (!parentWorkId || !exchangeId) return
+    let set = pendingQueuedChildRelays.get(parentWorkId)
+    if (set === undefined) pendingQueuedChildRelays.set(parentWorkId, set = new Set())
+    set.add(exchangeId)
+  }
+  const clearPendingChildRelay = (parentWorkId, exchangeId) => {
+    if (!parentWorkId) return
+    const set = pendingQueuedChildRelays.get(parentWorkId)
+    if (set === undefined) return
+    if (exchangeId === undefined) pendingQueuedChildRelays.delete(parentWorkId)
+    else {
+      set.delete(exchangeId)
+      if (set.size === 0) pendingQueuedChildRelays.delete(parentWorkId)
+    }
+  }
+  // Bounded dedup set of delivered top-level `roomResult` parentWorkIds so replaying a queued
+  // result relay after the batch closed cannot wake its caller a second time.
+  const deliveredResultWakes = new Set()
+  const markResultWakeDelivered = (resultWorkId) => {
+    if (typeof resultWorkId !== 'string' || resultWorkId === '') return true
+    if (deliveredResultWakes.has(resultWorkId)) return false
+    deliveredResultWakes.add(resultWorkId)
+    if (deliveredResultWakes.size > 500) deliveredResultWakes.delete(deliveredResultWakes.values().next().value)
+    return true
+  }
+
   const hasPendingChildWork = (workId) => {
     if (!workId) return false
+    if ((pendingQueuedChildRelays.get(workId)?.size ?? 0) > 0) return true
     return openChildWaitsOf(workId).length > 0
   }
 
@@ -1369,6 +1419,14 @@ export function install(rt) {
     const stopped = disposed || rt.roomOf(room.id) !== room || signal?.aborted === true || round?.abort?.signal.aborted === true
     const parentWoken = res.wokenParents?.includes(parentWorkId) === true
     const parentSatisfiedWhileRunning = !parentWoken && res.satisfiedParents?.includes(parentWorkId) === true
+    if (stopped && parentWorkId && !disposed) {
+      const pWork = handle.getWork(parentWorkId)
+      if (pWork && isCallerWork(pWork) && !TERMINAL_STATUSES.has(pWork.status) && openChildWaitsOf(parentWorkId).length === 0) {
+        const lastSeq = handle.listInbox(parentWorkId, { unreadOnly: true }).at(-1)?.seq
+        handle.settleWork({ workId: parentWorkId, outcome: 'stopped', force: true, ...(lastSeq !== undefined ? { ackThroughSeq: lastSeq } : {}), summary: 'Group round stopped' })
+      }
+      return { wokenCount: 0, usedFirstPost: false }
+    }
     if (stopped || !parentWorkId || (!parentWoken && !parentSatisfiedWhileRunning)) {
       return { wokenCount: 0, usedFirstPost: false }
     }
@@ -1416,8 +1474,16 @@ export function install(rt) {
 
     const wakeSeq = isNestedUpstream ? maxUnreadResultSeq(parentWorkId) : 0
     if (!isNestedUpstream) {
-      // Top-level fan-out parent has collected all results; settle it so its `ready` token is cleared.
-      handle.settleWork({ workId: parentWorkId, outcome: 'done', force: true, summary: `Collected ${wake.names.join(', ')}` })
+      // Top-level fan-out parent has collected all results; settle it and ack its inbox so
+      // `unreadOf` / `activeInRoom` never see stale unread results on the terminal work.
+      const lastSeq = handle.listInbox(parentWorkId, { unreadOnly: true }).at(-1)?.seq
+      handle.settleWork({
+        workId: parentWorkId,
+        outcome: 'done',
+        force: true,
+        ...(lastSeq !== undefined ? { ackThroughSeq: lastSeq } : {}),
+        summary: `Collected ${wake.names.join(', ')}`,
+      })
     } else {
       // Consume the SQLite `ready` token for the nested `room_work` since the group round
       // drives its synthesis turn directly (prevents `dsh-adapter.js` double-dispatch).
@@ -1862,8 +1928,18 @@ export function install(rt) {
           await settleRoomCallWork(room, work.workId, 'stopped', { member, allowPaused: true })
           continue
         }
-        if (activeInRoom(room, work.botId) || adoptedRoomMonitors.has(work.workId) || wokenThisPass.has(work.workId)) continue
-        const sessionId = work.sessionId ?? room.sessions?.[work.botId]
+        const memberSession = work.sessionId ?? room.sessions?.[work.botId]
+        const liveBusy = (memberSession !== undefined && (rt.live.get(memberSession)?.turn !== undefined || rt.hasSubagents?.(memberSession) === true || rt.waitsForApproval?.(memberSession) === true))
+          || rt.hasRoomTasks?.(room.id, work.botId) === true
+        if (liveBusy || adoptedRoomMonitors.has(work.workId) || wokenThisPass.has(work.workId)) continue
+        const unreadBeforeProbe = unreadChildResultsOf(work.workId)
+        if (openChildWaitsOf(work.workId).length === 0 && unreadBeforeProbe.length > 0) {
+          wokenThisPass.add(work.workId)
+          await resumeParentWithUnreadResults(room, member, work, { unreadResults: unreadBeforeProbe })
+          continue
+        }
+        if (activeInRoom(room, work.botId)) continue
+        const sessionId = memberSession
         const query = work.activeDeliveryKey
           ? { idempotencyKey: work.activeDeliveryKey }
           : (Number.isInteger(work.activeTurn) ? { turn: work.activeTurn } : undefined)
@@ -2733,6 +2809,9 @@ export function install(rt) {
       const resultWorkId = extra.parentWorkId ?? extra.batch ?? extra.route?.callId ?? extra.route?.batch
       const resultWork = resultWorkId ? db()?.getWork(resultWorkId) : undefined
       const isNested = extra.resumeWorkId !== undefined || isCallWork(resultWork)
+      if (!isNested && resultWorkId !== undefined && !markResultWakeDelivered(resultWorkId)) {
+        return false
+      }
       const resumeWorkId = extra.resumeWorkId ?? (isNested ? resultWorkId : undefined)
       const resumeBy = extra.resumeBy ?? (isNested ? resultWork?.meta?.callerBotId : undefined)
       const wake = extra.wakeSnapshot ?? wakeSnapshotOfParent(resultWorkId)
@@ -2762,6 +2841,7 @@ export function install(rt) {
     }
     // `invite`
     callIn(round, speakers, `${sender.name} invited you to reply`, undefined, { ordered })
+    if (rt.isAdminOf(room, sender.id)) for (const peer of speakers) rt.goalTaskWorking?.(room.id, peer.id)
     expandScopedReports(room.id, sender.id, speakers)
     if (extra.reportBack) trackScopedReport(room, sender, extra, speakers.map(peer => peer.id))
     return true
@@ -2984,6 +3064,9 @@ export function install(rt) {
           const resultWorkId = post.parentWorkId ?? post.batch ?? post.route?.callId ?? post.route?.batch
           const resultWork = resultWorkId ? db()?.getWork(resultWorkId) : undefined
           const isNested = post.resumeWorkId !== undefined || isCallWork(resultWork)
+          if (!isNested && resultWorkId !== undefined && !markResultWakeDelivered(resultWorkId)) {
+            continue
+          }
           const resumeWorkId = post.resumeWorkId ?? (isNested ? resultWorkId : undefined)
           const resumeBy = post.resumeBy ?? (isNested ? resultWork?.meta?.callerBotId : undefined)
           const wake = post.wakeSnapshot ?? wakeSnapshotOfParent(resultWorkId)
@@ -2995,17 +3078,22 @@ export function install(rt) {
             if (wake !== undefined) giveResults(round, member.id, wake, resumeWorkId, post.throughSeq)
           }
         } else if (kind === 'call' && poster !== undefined) {
+          const callParentId = post.parentWorkId ?? post.parentBatchKey
           callIn(round, speakers, postNote ?? `${poster.name} delegated a task to you`, poster.id, {
             ordered,
-            parentWorkId: post.parentWorkId ?? post.parentBatchKey,
+            parentWorkId: callParentId,
             callerExchangeId: post.callerExchangeId,
             follows: post.route?.follows,
             returnAddress: post.returnAddress,
           })
+          clearPendingChildRelay(callParentId, post.exchangeId)
           if (rt.isAdminOf(room, poster.id)) for (const member of speakers) rt.goalTaskWorking?.(room.id, member.id)
           expandScopedReports(room.id, poster.id, speakers)
         } else {
           callIn(round, speakers, postNote ?? 'new message in the group', undefined, { ordered })
+          if (poster !== undefined && rt.isAdminOf(room, poster.id)) {
+            for (const member of speakers) rt.goalTaskWorking?.(room.id, member.id)
+          }
           if (poster !== undefined) expandScopedReports(room.id, poster.id, speakers)
         }
       }
@@ -3366,6 +3454,8 @@ export function install(rt) {
     if (postExtra.reportBack === true) {
       registerQueuedReport(room, sender, postExtra, { imOrigin, tainted: imOrigin !== undefined && originUpdate.tainted })
     }
+    const tracksChildParent = typeof postExtra.parentWorkId === 'string' && postExtra.parentWorkId !== '' && isCallRoute(postExtra.route)
+    if (tracksChildParent) notePendingChildRelay(postExtra.parentWorkId, exchangeId)
     if (tracksRelay) noteRoomRelayQueued(room.id, exchangeId, postExtra.reportId)
     let enqueued = false
     try {
@@ -3388,6 +3478,7 @@ export function install(rt) {
         }
       }
       if (withdrawn) {
+        if (tracksChildParent) clearPendingChildRelay(postExtra.parentWorkId, exchangeId)
         if (tracksRelay) roomRelayTaken(room.id, exchangeId)
         if (postExtra.reportId !== undefined) dropRoomReport(postExtra.reportId)
         if (snapshot !== undefined) restoreOriginState(room.id, snapshot, originUpdate.version)

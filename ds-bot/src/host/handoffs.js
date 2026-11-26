@@ -8,7 +8,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { TEXT_KEPT } from './constants.js'
+import { LATE_ANSWER, TEXT_KEPT } from './constants.js'
 import { CoordinationError } from './coordination-db.js'
 import { normalizeImOrigin, sameImOrigin } from './im/origin.js'
 import { headOf } from './text.js'
@@ -149,11 +149,14 @@ export function install(rt) {
     }
     const used = new Set()
     if (hasCoordDb()) {
-      for (const work of rt.coordDb.listWorks({ limit: 5000 })) {
+      const activeNonFg = new Set()
+      for (const work of rt.coordDb.listWorks({ activeOnly: true, limit: 5000 })) {
         const name = keptName(work.resultRef)
         if (name !== undefined) used.add(name)
+        if (work.kind !== 'foreground') activeNonFg.add(work.workId)
       }
       for (const call of rt.coordDb.listCalls({ limit: 5000 })) {
+        if (!activeNonFg.has(call.parentWorkId)) continue
         const name = keptName(call.resultRef)
         if (name !== undefined) used.add(name)
       }
@@ -256,12 +259,13 @@ export function install(rt) {
     const work = findDbWork(refOrId)
     if (work === undefined || !TERMINAL_STATUSES.has(work.status)) return undefined
     const compat = mapWorkCompat(work)
+    const isAbandoned = work.status === 'stopped' && (work.error?.abandoned === true || abandonedCache.has(work.workId))
     return {
       id: work.workId,
       ref: work.workRef ?? undefined,
       from: compat.from,
       to: work.botId,
-      status: work.status === 'stopped' ? 'cancelled' : work.status === 'done' ? 'closed' : 'failed',
+      status: isAbandoned ? 'abandoned' : work.status === 'stopped' ? 'cancelled' : work.status === 'done' ? 'closed' : 'failed',
       at: work.finishedAt ?? work.updatedAt,
       work: compat,
     }
@@ -278,7 +282,8 @@ export function install(rt) {
     if (info === undefined) return undefined
     const direct = info.workId ?? (typeof info.coordWorkId === 'string' && !info.coordWorkId.startsWith('fg:') ? info.coordWorkId : undefined)
     if (direct !== undefined) return direct
-    return info.role === 'request' && info.audience !== 'user' ? info.exchangeId : info.work
+    const raw = info.role === 'request' && info.audience !== 'user' ? info.exchangeId : info.work
+    return typeof raw === 'string' && !raw.startsWith('fg:') ? raw : undefined
   }
 
   function resolveWorkForSession(sessionId, { ensureForeground = true } = {}) {
@@ -668,10 +673,27 @@ export function install(rt) {
     const work = findDbWork(idOrRef)
     if (work === undefined || TERMINAL_STATUSES.has(work.status)) return undefined
     const incoming = rt.coordDb.listCalls({ childWorkId: work.workId, status: 'open', limit: 1 })[0]
+    const cleanReason = reason.trim() || 'Cancelled'
+    const targetName = nameOf(work.botId) ?? work.title ?? 'The other Bot'
+    const tag = work.workRef ? ` #${work.workRef}` : ''
     const res = rt.coordDb.stopWork(work.workId, {
-      reason: reason.trim() || 'Cancelled',
+      reason: cleanReason,
       by,
       cascadeChildren,
+      summary: cleanReason,
+      ...(typeof by === 'string' && by !== '' && by !== 'user' && by !== 'system' ? { suppressParentBotId: by } : {}),
+      resultMeta: {
+        role: 'reply',
+        replyTo: work.workId,
+        ...(work.workRef ? { workRef: work.workRef } : {}),
+        senderName: targetName,
+        renderedText: `[Work${tag} stopped · ${targetName}]\n${cleanReason}`,
+        source: {
+          replyTo: work.workId,
+          ...(work.workRef ? { workRef: work.workRef } : {}),
+          senderName: targetName,
+        },
+      },
     })
     whole.delete(work.workId)
     if (res.wokenParents?.length > 0 || res.wokenAskers?.length > 0) {
@@ -745,9 +767,12 @@ export function install(rt) {
   function closeWork(id, _name, text, extra = {}) {
     if (!writableCoordDb()) return undefined
     const work = findDbWork(id)
-    if (work === undefined || TERMINAL_STATUSES.has(work.status)) return undefined
+    if (work === undefined || TERMINAL_STATUSES.has(work.status) || work.kind === 'foreground') return undefined
     const body = String(text ?? '')
     const file = keepResult(work.workId, body)
+    if (body.length > TEXT_KEPT) {
+      try { rt.coordDb.updateApiMeta?.(work.workId, { resultLength: body.length }) } catch {}
+    }
     const outcome = extra?.abandoned === true ? 'stopped' : extra?.failed === true ? 'failed' : 'done'
     const res = rt.coordDb.settleWork({
       workId: work.workId,
@@ -786,7 +811,9 @@ export function install(rt) {
     const incoming = rt.coordDb.listCalls({ childWorkId: work.workId, status: 'open', limit: 1 })[0]
     const targetName = work.roomId
       ? `the group chat "${rt.roomOf(work.roomId)?.name ?? 'a group chat'}"`
-      : nameOf(work.botId) ?? work.title ?? 'the other Bot'
+      : work.meta?.child !== undefined
+        ? (work.apiMeta?.name ?? work.meta?.name ?? work.title ?? 'subagent')
+        : (nameOf(work.botId) ?? work.title ?? 'the other Bot')
     const tag = work.workRef ? ` #${work.workRef}` : ''
     const summary = reason === 'gone'
       ? `${targetName} is no longer on the team, so no reply can come back for work${tag}. The user gave up waiting for that answer: this counts as its result.`
@@ -809,11 +836,34 @@ export function install(rt) {
     })
 
     if (reason === 'gone') rt.dropRoomReport?.(work.workId)
+    const parentWork = work.parentWorkId ? rt.coordDb.getWork(work.parentWorkId) : undefined
+    const grandAsker = parentWork && parentWork.kind !== 'foreground'
+      ? nameOf(rt.coordDb.listCalls({ childWorkId: parentWork.workId, status: 'open', limit: 1 })[0]?.callerBotId)
+      : undefined
+    const goesOn = grandAsker === undefined ? '' : ` · for the work ${grandAsker} asked you for; your answer goes to ${grandAsker} once everything you handed on is back`
+    const header = reason === 'restart'
+      ? `[Work${tag} · ${targetName} did not complete before restart${goesOn}]`
+      : `[Waiting given up · ${targetName} did not hand back this work; go on with the work it was for${goesOn}]`
     const res = rt.coordDb.settleWork({
       workId: work.workId,
       outcome: 'stopped',
       force: true,
       summary,
+      resultMeta: {
+        role: 'reply',
+        abandoned: true,
+        abandonedReason: reason,
+        replyTo: work.workId,
+        ...(work.workRef ? { workRef: work.workRef } : {}),
+        senderName: targetName,
+        renderedText: `${header}\n${summary}`,
+        source: {
+          replyTo: work.workId,
+          ...(work.workRef ? { workRef: work.workRef } : {}),
+          senderName: targetName,
+          abandoned: true,
+        },
+      },
       error: { code: 'work/abandoned', message: reason, abandoned: true },
     })
     void rt.abortWorkExecution?.(work.workId, { reason: `abandoned:${reason}`, by: reason }).catch(() => {})
@@ -875,13 +925,31 @@ export function install(rt) {
     if (!hasCoordDb()) return said || `${botName} finished without a reply.`
     const work = findDbWork(workId)
     if (work === undefined) return said || `${botName} finished without a reply.`
+    const formatEntry = (label, resObj) => {
+      const { text, whole: isWhole } = resultText(resObj)
+      const body = isWhole || resObj.length === undefined
+        ? text
+        : `${text}\n[cut; ${resObj.length} characters in all, the rest was not kept]`
+      return `${label}:\n${body}`
+    }
     const settledChildren = rt.coordDb.listCalls({ parentWorkId: work.workId, limit: 50 })
-      .filter(call => call.status !== 'open')
+      .filter(call => call.status !== 'open' && !String(call.childWorkId ?? '').startsWith('room-report:'))
     const results = settledChildren.map((call) => {
-      const childName = nameOf(call.calleeBotId) ?? 'teammate'
-      const { text } = resultText({ id: call.childWorkId, resultRef: call.resultRef, resultSummary: call.resultSummary })
-      return `${childName}:\n${text}`
+      const childWork = rt.coordDb.getWork(call.childWorkId)
+      const childName = childWork?.meta?.child !== undefined
+        ? (childWork.apiMeta?.name ?? childWork.meta?.name ?? childWork.title ?? 'subagent')
+        : (nameOf(call.calleeBotId) ?? 'teammate')
+      const origLength = childWork?.apiMeta?.resultLength ?? call.meta?.resultLength
+      return formatEntry(childName, {
+        id: call.childWorkId,
+        resultRef: call.resultRef,
+        resultSummary: call.resultSummary,
+        ...(origLength !== undefined ? { length: origLength } : {}),
+      })
     })
+    for (const legacy of Array.isArray(work.meta?.legacyResults) ? work.meta.legacyResults : []) {
+      results.push(formatEntry(legacy.name ?? 'teammate', legacy))
+    }
     return results.length === 0
       ? (said || `${botName} finished without a reply.`)
       : [said || `${botName} finished and wrote nothing more.`, `[Handed back to ${botName} for this work]`, ...results].join('\n\n')
@@ -1177,16 +1245,65 @@ export function install(rt) {
       time: now,
       ...(typeof work === 'string' && work !== '' ? { work } : {}),
     })
-    void rt.ledger.written?.(book)?.catch?.(() => {})
+    const written = rt.ledger.written?.(book)
+    if (written && typeof written.then === 'function') {
+      return written.then(() => entryId)
+    }
     return entryId
   }
 
-  // Subagent sub-work shims (DSH subagents are blocked in Bot Sessions, kept minimal for compatibility).
-  const settleSubWork = (id, text, child) => closeWork(findDbWork(id) ? id : child, 'subagent', text)
-  const subWorkRun = () => undefined
-  const nameSubWork = () => {}
+  // Subagent sub-work lifecycle helpers backed by `coordDb` (`meta.child`).
+  const findSubWork = (childId, { activeOnly = false, exclude } = {}) => {
+    if (!hasCoordDb() || typeof childId !== 'string' || childId === '') return undefined
+    const candidates = rt.coordDb.listWorks({ activeOnly, limit: 500 })
+      .filter(w => w.meta?.child === childId && !(exclude?.has?.(w.workId)))
+    return candidates.at(-1)
+  }
+  const settleSubWork = (id, text, child) => {
+    const work = findDbWork(id) ?? findSubWork(child, { activeOnly: true }) ?? findSubWork(child, { activeOnly: false })
+    if (work === undefined) return undefined
+    if (TERMINAL_STATUSES.has(work.status)) {
+      const abandoned = takeAbandoned(work.workId)
+      if (abandoned !== undefined) {
+        const subName = abandoned.name ?? work.apiMeta?.name ?? work.meta?.name ?? work.title ?? 'subagent'
+        const parentWork = work.parentWorkId ? rt.coordDb?.getWork?.(work.parentWorkId) : undefined
+        const targetBot = abandoned.waiting ?? abandoned.from ?? parentWork?.botId ?? work.botId
+        const body = String(text ?? '').trim()
+        if (targetBot !== undefined && body !== '' && typeof rt.deliver === 'function') {
+          const targetSession = parentWork?.sessionId ?? rt.chatOf?.(targetBot)
+          void rt.deliver({
+            fromName: subName,
+            toId: targetBot,
+            ...(targetSession ? { sessionId: targetSession } : {}),
+            role: 'reply',
+            text: `${LATE_ANSWER}${body}`,
+            replyTo: work.workId,
+          }).catch(error => rt.warn?.('ds-bot: late subagent answer not sent: %s', error))
+        }
+      }
+      return undefined
+    }
+    return closeWork(work.workId, work.apiMeta?.name ?? work.meta?.name ?? 'subagent', text, { deliverDirect: true })
+  }
+  const subWorkRun = (childId, seen) => {
+    const work = findSubWork(childId, { activeOnly: false, exclude: seen })
+    if (work === undefined) return undefined
+    seen?.add?.(work.workId)
+    return {
+      id: work.workId,
+      parent: work.parentWorkId ?? undefined,
+      name: work.apiMeta?.name ?? work.meta?.name ?? work.title ?? 'subagent',
+    }
+  }
+  const nameSubWork = (childId, label) => {
+    if (!writableCoordDb() || typeof label !== 'string' || label.trim() === '') return
+    const work = findSubWork(childId, { activeOnly: true }) ?? findSubWork(childId, { activeOnly: false })
+    if (work === undefined) return
+    try { rt.coordDb.updateApiMeta?.(work.workId, { name: label.trim() }) } catch {}
+  }
 
   const offWorkSettled = rt.onWorkSettled?.(({ work, outcome, settledCalls, summary, error } = {}) => {
+    if (work) void pruneOrphanResultFiles().catch(() => {})
     if (!work || !Array.isArray(settledCalls) || settledCalls.length === 0) return
     const replyText = summary
       || work.resultSummary
@@ -1266,6 +1383,7 @@ export function install(rt) {
     nameSubWork,
     abandonWork,
     abandonedWork: takeAbandoned,
+    reconcileLostWorks,
     resolveWork,
     resolveWorkForSession,
     ensureForegroundWorkForBot,

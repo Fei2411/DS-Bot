@@ -269,6 +269,8 @@ export function install(rt) {
     taskId,
     imOrigin,
     failureRequestId,
+    coordWorkId,
+    coordThroughSeq,
   }) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
@@ -308,6 +310,8 @@ export function install(rt) {
       ...(resumedUpstream ? { resumedUpstream: true } : {}),
       ...(fromRoomId ? { senderRoomId: fromRoomId } : {}),
       ...(abandoned ? { abandoned: true } : {}),
+      ...(coordWorkId ? { coordWorkId } : {}),
+      ...(Number.isInteger(coordThroughSeq) ? { coordThroughSeq } : {}),
     }
     const targetSessionId = sessionId ?? (logicalAddress ? rt.resolveLogicalSession?.(logicalAddress) : undefined) ?? rt.chatOf(toId)
     const bookPeer = fromId !== undefined && from !== undefined

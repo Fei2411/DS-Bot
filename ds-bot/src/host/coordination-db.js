@@ -745,6 +745,18 @@ export function openCoordinationDb({
       const ts = now()
       const id = workId ?? `fg:${botId}`
       const address = logicalAddress ?? `foreground:${botId}`
+      const terminalExisting = stmt.getWork.get(id)
+      if (terminalExisting) {
+        db.prepare(`
+          UPDATE works
+          SET status = 'idle',
+              session_id = COALESCE(?, session_id),
+              finished_at = NULL,
+              updated_at = ?
+          WHERE work_id = ?
+        `).run(toSql(sessionId), ts, id)
+        return { work: mapWork(stmt.getWork.get(id)), created: false }
+      }
       stmt.insertWork.run(
         id,
         null,
@@ -1400,10 +1412,14 @@ export function openCoordinationDb({
     owner,
     respectWorkspaceLock = false,
     excludeWorkIds,
+    excludeSessionIds,
   } = {}) {
     const excluded = excludeWorkIds instanceof Set
       ? excludeWorkIds
       : (Array.isArray(excludeWorkIds) && excludeWorkIds.length > 0 ? new Set(excludeWorkIds) : undefined)
+    const excludedSessions = excludeSessionIds instanceof Set
+      ? excludeSessionIds
+      : (Array.isArray(excludeSessionIds) && excludeSessionIds.length > 0 ? new Set(excludeSessionIds) : undefined)
     return transaction(() => {
       const candidates = workId
         ? [stmt.getReady.get(workId)].filter(Boolean)
@@ -1418,6 +1434,7 @@ export function openCoordinationDb({
           }
           continue
         }
+        if (excludedSessions && work.session_id && excludedSessions.has(work.session_id)) continue
         // Foreground chat is never blocked by background writable tasks on the same folder.
         if (respectWorkspaceLock && work.kind !== 'foreground' && work.workspace_mode === 'write' && work.workspace_dir) {
           const conflict = stmt.hasWorkspaceWriteConflict.get(work.workspace_dir, work.work_id)
@@ -1612,16 +1629,20 @@ export function openCoordinationDb({
     return transaction(() => {
       const work = stmt.getWork.get(workId)
       if (!work) throw new CoordinationError('coordination/not_found', `Work ${workId} not found`)
-      if (work.status !== 'running') return mapWork(work)
+      if (work.status !== 'running' && work.status !== 'queued' && work.status !== 'idle') return mapWork(work)
       const ts = now()
+      stmt.deleteReady.run(workId)
       db.prepare(`
         UPDATE works
         SET status = 'waiting',
+            claim_token = NULL,
+            claim_owner = NULL,
+            claimed_at = NULL,
             active_delivery_key = NULL,
             active_turn = NULL,
             updated_at = ?
         WHERE work_id = ?
-          AND status = 'running'
+          AND status IN ('running', 'queued', 'idle')
       `).run(ts, workId)
       return mapWork(stmt.getWork.get(workId))
     })
@@ -1973,6 +1994,7 @@ export function openCoordinationDb({
     explicitPublish = false,
     archiveLate = true,
     notifyParents = true,
+    suppressParentBotId,
   }) {
     nonEmptyString(workId, 'workId')
     oneOf(outcome, ['done', 'failed', 'stopped'], 'outcome')
@@ -2171,6 +2193,7 @@ export function openCoordinationDb({
         )
 
         if (parent) {
+          const shouldNotifyParent = parentLive && notifyParents && (suppressParentBotId === undefined || parent.bot_id !== suppressParentBotId)
           const dedupKey = `call:${call.call_id}:result`
           const existingMsg = stmt.getInboxByDedup.get(parent.work_id, dedupKey)
           if (!existingMsg) {
@@ -2196,7 +2219,7 @@ export function openCoordinationDb({
                 visibleScope: effectiveScope,
                 ...(error !== undefined ? { error } : {}),
               }),
-              (parentLive && notifyParents) ? null : ts,
+              shouldNotifyParent ? null : ts,
               null,
               ts,
             )
@@ -2214,7 +2237,7 @@ export function openCoordinationDb({
             )
             const afterReq = stmt.countOpenRequiredWaits.get(parent.work_id).n
             const latestParent = stmt.getWork.get(parent.work_id)
-            if (parentLive && notifyParents && beforeReq > 0 && afterReq === 0) {
+            if (shouldNotifyParent && (latestParent.kind === 'foreground' || (beforeReq > 0 && afterReq === 0))) {
               if (latestParent.status === 'waiting' || latestParent.status === 'idle') {
                 satisfiedParents.push(parent.work_id)
                 db.prepare("UPDATE works SET status = 'queued', updated_at = ? WHERE work_id = ?").run(ts, parent.work_id)
@@ -2244,7 +2267,7 @@ export function openCoordinationDb({
     })
   }
 
-  function stopWork(workId, { reason = 'Stopped', by, cascadeChildren = false } = {}) {
+  function stopWork(workId, { reason = 'Stopped', by, cascadeChildren = false, summary, resultMeta, notifyParents = true, suppressParentBotId } = {}) {
     nonEmptyString(workId, 'workId')
     return transaction(() => {
       const work = stmt.getWork.get(workId)
@@ -2255,7 +2278,7 @@ export function openCoordinationDb({
         for (const call of outgoing) {
           const child = stmt.getWork.get(call.child_work_id)
           if (child && !TERMINAL_WORK_STATUSES.has(child.status)) {
-            const childRes = stopWork(child.work_id, { reason, by, cascadeChildren: true })
+            const childRes = stopWork(child.work_id, { reason, by, cascadeChildren: true, notifyParents: false })
             if (childRes.settled) stoppedChildren.push(child.work_id, ...childRes.stoppedChildren)
           }
         }
@@ -2264,6 +2287,10 @@ export function openCoordinationDb({
         workId,
         outcome: 'stopped',
         force: true,
+        summary: summary ?? reason,
+        ...(resultMeta !== undefined ? { resultMeta } : {}),
+        notifyParents,
+        ...(suppressParentBotId !== undefined ? { suppressParentBotId } : {}),
         error: { code: 'work/stopped', message: reason, ...(by ? { by } : {}) },
       })
       return { ...res, stoppedChildren }
@@ -2574,6 +2601,11 @@ export function openCoordinationDb({
             meta: { migratedFrom: 'bot.tasks', legacyTaskId: task.id, legacyStatus: task.status },
           })
           trackWork(tRes)
+          for (const seg of Array.isArray(task.segments) ? task.segments : []) {
+            if (typeof seg?.sessionId === 'string' && seg.sessionId !== '' && !sessionToWorkId.has(seg.sessionId)) {
+              sessionToWorkId.set(seg.sessionId, tWorkId)
+            }
+          }
           taskToWorkId.set(task.id, tWorkId)
           if (tRes.created && mappedStatus === 'queued') imported.ready += 1
           if (task.status === 'waiting_approval') {
@@ -2604,9 +2636,8 @@ export function openCoordinationDb({
         const bot = bots[ownerBot]
         const status = lw.state === 'paused'
           ? 'paused'
-          : (lw.state === 'need_input' || (Array.isArray(lw.open) && lw.open.length > 0))
-            ? 'waiting'
-            : 'queued'
+          : 'waiting'
+        const resolvedSessionId = lw.toSession ?? (lw.room ? undefined : (bot?.sessionId ?? (bot ? ownerBot : undefined)))
         const res = createWork({
           workId,
           workRef: typeof lw.ref === 'string' ? lw.ref : undefined,
@@ -2620,11 +2651,10 @@ export function openCoordinationDb({
           originKind: 'bot',
           imOrigin: lw.imOrigin,
           privacyScoped: bot?.private === true || bot?.privacy === true,
-          sessionId: lw.toSession,
-          meta: { migratedFrom: 'state.works', legacyWorkId: id, legacyState: lw.state ?? 'open' },
+          sessionId: resolvedSessionId,
+          meta: { migratedFrom: 'state.works', legacyWorkId: id, legacyState: lw.state ?? 'open', ...(Array.isArray(lw.results) && lw.results.length > 0 ? { legacyResults: lw.results } : {}) },
         })
         trackWork(res)
-        if (res.created && status === 'queued') imported.ready += 1
         if (lw.state === 'paused' && res.created) {
           pauseWork(workId, { reason: lw.paused?.reason ?? 'legacy_paused', detail: lw.paused ?? null })
         }
@@ -2633,8 +2663,10 @@ export function openCoordinationDb({
 
       for (const [id, lw] of legacyWorkEntries) {
         const childWorkId = legacyWorkToWorkId.get(id)
-        if (!childWorkId || !lw.from || !lw.to) continue
+        const calleeBotId = lw.to ?? lw.from
+        if (!childWorkId || !lw.from || !calleeBotId) continue
         const parentWorkId = (lw.parent && legacyWorkToWorkId.get(lw.parent))
+          ?? (lw.fromPart && sessionToWorkId.get(lw.fromPart))
           ?? ensureForegroundWork({ botId: lw.from }).work.workId
         const parent = stmt.getWork.get(parentWorkId)
         const child = stmt.getWork.get(childWorkId)
@@ -2652,7 +2684,7 @@ export function openCoordinationDb({
               parentWorkId,
               childWorkId,
               callerBotId: lw.from,
-              calleeBotId: lw.to,
+              calleeBotId,
               returnAddress: parent.logical_address,
               visibleScope,
               roomId: lw.room ?? lw.fromRoom,
@@ -2854,12 +2886,23 @@ export function openCoordinationDb({
         }
       }
 
+      const cancelledLegacyIds = new Set()
+      const closedLegacyWorks = legacyState?.closedWorks && typeof legacyState.closedWorks === 'object' ? legacyState.closedWorks : {}
+      for (const [id, cw] of Object.entries(closedLegacyWorks)) {
+        if (cw?.status === 'cancelled') cancelledLegacyIds.add(id)
+      }
+
       const inflightQueued = legacyInflight?.queued && typeof legacyInflight.queued === 'object' ? legacyInflight.queued : {}
       for (const [sessionId, list] of Object.entries(inflightQueued)) {
         for (let idx = 0; idx < (Array.isArray(list) ? list.length : 0); idx += 1) {
           const item = list[idx]
           const args = item?.args
           if (!args || typeof args !== 'object') continue
+          if ((typeof args.exchangeId === 'string' && cancelledLegacyIds.has(args.exchangeId))
+            || (typeof args.work === 'string' && cancelledLegacyIds.has(args.work))) {
+            skipped.inbox += 1
+            continue
+          }
           const wId = resolveWorkForSession(sessionId, args.toId)
           if (!wId) continue
           const isSilent = args.wake === false || args.role === 'note'

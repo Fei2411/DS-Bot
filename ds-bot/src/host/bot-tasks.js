@@ -904,7 +904,8 @@ export function install(rt) {
       }
 
       let handoffPlan
-      if (task.origin === 'bot-handoff' && settleWork && task.exchangeId !== undefined && rt.ownsWork?.(bot.id, task.exchangeId)) {
+      if (task.origin === 'bot-handoff' && settleWork && task.exchangeId !== undefined
+        && !rt.isPendingAttachWork?.(task.exchangeId) && rt.ownsWork?.(bot.id, task.exchangeId)) {
         const asker = rt.workAsker?.(task.exchangeId)
         if (asker !== undefined) {
           const answerText = outcome === 'completed'
@@ -932,7 +933,7 @@ export function install(rt) {
       // `answerSender` closes the work in `coordDb` atomically (`deliverDirect: true`) so
       // `closedWorkOf` is not prematurely marked cancelled before `answerSender` runs.
       const coordWorkId = taskWorkIdOf(task)
-      if (writableCoordDb() && coordWorkId !== undefined && handoffPlan === undefined) {
+      if (writableCoordDb() && coordWorkId !== undefined && handoffPlan === undefined && !rt.isPendingAttachWork?.(coordWorkId)) {
         try {
           const dbWork = rt.coordDb.getWork(coordWorkId)
           if (dbWork !== undefined && !['done', 'failed', 'stopped'].includes(dbWork.status)) {
@@ -1243,17 +1244,21 @@ export function install(rt) {
       if (!isActiveTask(task) || settling.has(task.id)) {
         throw Object.assign(new Error(`Task "${task.title}" is ${task.status} and cannot receive messages.`), { code: 'bot/invalid' })
       }
+      let reviseWorkId
+      let reviseSeq
       if (writableCoordDb()) {
         const coordWorkId = taskWorkIdOf(task)
         if (coordWorkId !== undefined && rt.coordDb.getWork(coordWorkId) !== undefined) {
           try {
             rt.coordDb.rebindSession(coordWorkId, task.sessionId)
-            rt.coordDb.receiveMessage({
+            const recv = rt.coordDb.receiveMessage({
               workId: coordWorkId,
               kind: 'revise',
               bodyPreview: oneLine(text, 200),
               payload: { text: String(text ?? ''), role, note },
             })
+            reviseWorkId = coordWorkId
+            reviseSeq = recv?.message?.seq
           } catch { /* best-effort */ }
         }
       }
@@ -1267,6 +1272,8 @@ export function install(rt) {
         taskId: task.id,
         steer,
         recordExchange: false,
+        ...(reviseWorkId ? { coordWorkId: reviseWorkId } : {}),
+        ...(Number.isInteger(reviseSeq) ? { coordThroughSeq: reviseSeq } : {}),
       })
       return { botId: bot.id, taskId: task.id, sessionId: task.sessionId }
     } finally {
@@ -3575,7 +3582,7 @@ export function install(rt) {
     const currentLive = rt.live.get(task.sessionId)
     if (currentLive?.turn !== undefined || currentLive?.retrying === true) return
     const currentAgent = ctx.get?.('agents')?.get?.(task.sessionId)
-    if (hasWakingInboxInput(currentAgent)) return
+    if (hasWakingInboxInput(currentAgent) || (currentLive?.joined?.length ?? 0) > 0 || rt.hasPendingHandback?.(task.sessionId) === true) return
     if (hasPendingTaskUnread(task.sessionId)) {
       const logged = new Set((currentAgent?.session?.snapshotEvents?.() ?? [])
         .filter(e => e.type === 'user/message' && e.data?.source?.role === 'request')
@@ -3600,6 +3607,12 @@ export function install(rt) {
     if (hasOpenOutgoingWorks(bot, task) || isAwaitingHandoffInput(task)
       || (task.origin === 'bot-handoff' && rt.waitsWork?.(task.exchangeId))
       || (task.origin === 'bot-handoff' && task.exchangeId !== undefined && currentLive?.lastAskedBackWork === task.exchangeId)) {
+      if (writableCoordDb()) {
+        const coordWorkId = taskWorkIdOf(task)
+        if (coordWorkId !== undefined) {
+          try { rt.coordDb.parkWaiting(coordWorkId) } catch { /* best-effort */ }
+        }
+      }
       if (task.status !== 'waiting_work') {
         task.status = 'waiting_work'
         task.updatedAt = Date.now()

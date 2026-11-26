@@ -484,6 +484,17 @@ export function install(rt) {
     return true
   }
 
+  const handingBack = new Map()
+  const hasPendingHandback = sessionId => (handingBack.get(sessionId) ?? 0) > 0
+  const trackHandback = (sessionId, promise) => {
+    handingBack.set(sessionId, (handingBack.get(sessionId) ?? 0) + 1)
+    return promise.finally(() => {
+      const next = (handingBack.get(sessionId) ?? 1) - 1
+      if (next <= 0) handingBack.delete(sessionId)
+      else handingBack.set(sessionId, next)
+    })
+  }
+
   const liveOf = id => {
     let entry = live.get(id)
     if (entry === undefined) live.set(id, entry = { texts: [], shown: 0 })
@@ -628,7 +639,25 @@ export function install(rt) {
     if (rt.coordDb && !rt.coordDb.readonly && !rt.coordDb.isClosed()) {
       for (const work of rt.coordDb.listWorks({ botId })) {
         if (['done', 'failed', 'stopped'].includes(work.status)) continue
-        const res = rt.coordDb.stopWork(work.workId, { reason: cancelReason, by: 'system', cascadeChildren: true })
+        const tag = work.workRef ? ` #${work.workRef}` : ''
+        const res = rt.coordDb.stopWork(work.workId, {
+          reason: cancelReason,
+          by: 'system',
+          cascadeChildren: true,
+          summary: text,
+          resultMeta: {
+            role: 'reply',
+            replyTo: work.workId,
+            ...(work.workRef ? { workRef: work.workRef } : {}),
+            senderName: deletedName,
+            renderedText: `[Work${tag} stopped · ${deletedName}]\n${text}`,
+            source: {
+              replyTo: work.workId,
+              ...(work.workRef ? { workRef: work.workRef } : {}),
+              senderName: deletedName,
+            },
+          },
+        })
         if (res.settled) rt.emitWorkSettled?.({ outcome: 'stopped', ...res })
       }
       queueMicrotask(() => void rt.kickScheduler?.())
@@ -1191,9 +1220,15 @@ export function install(rt) {
             ...(source.exchangeId ? { exchangeId: source.exchangeId } : {}),
             ...(source.goal !== undefined ? { goal: source.goal } : {}),
             ...(source.goalId !== undefined ? { goalId: source.goalId } : {}),
+            ...(source.via !== undefined ? { via: source.via } : {}),
           })
           rt.roomRelayTaken?.(roomId, source.exchangeId)
         } else if (source?.kind === SOURCE_KIND) {
+          if (Array.isArray(source.joined) && source.joined.length > 0) {
+            const existingIds = new Set((entry.joined ?? []).map(item => item?.info?.exchangeId).filter(Boolean))
+            const restored = source.joined.filter(item => item?.info?.exchangeId !== undefined && !existingIds.has(item.info.exchangeId))
+            if (restored.length > 0) entry.joined = [...(entry.joined ?? []), ...restored]
+          }
           const markTaken = () => {
             if (source.work !== undefined && source.replyTo !== undefined) rt.takenWork?.(source.work, source.replyTo)
           }
@@ -1559,8 +1594,7 @@ export function install(rt) {
 
         // Hand back deferred replies/answers/ask_backs that landed inside another work's turn.
         for (const item of later) {
-          if (item.info.coordWorkId !== undefined) continue
-          void rt.deliver({
+          void trackHandback(id, rt.deliver({
             fromId: item.info.senderSessionId,
             fromName: item.info.senderName,
             toId: rt.selfOf(id),
@@ -1577,7 +1611,7 @@ export function install(rt) {
             ...(item.info.senderRoomId ? { fromRoomId: item.info.senderRoomId } : {}),
             ...(item.info.senderPart ? { fromPart: item.info.senderPart } : {}),
             deferred: true,
-          }).catch(error => rt.warn('ds-bot: deferred later delivery failed: %s', error))
+          })).catch(error => rt.warn('ds-bot: deferred later delivery failed: %s', error))
         }
 
         // Hand back requests/room calls that joined a running turn (and settle live roomWaiters on abort/fail).
@@ -1592,13 +1626,16 @@ export function install(rt) {
           if (request.info.role !== 'room' && rt.closedWorkOf?.(request.info.exchangeId)?.status === 'cancelled') continue
           activeJoined.push(request)
         }
+        const roomScopeOf = (info) => (info.askedBy !== undefined
+          ? `${info.roomId}\0${info.askedBy}\0${info.workId ?? info.batchKey ?? ''}`
+          : undefined)
         const liveWaiterRooms = new Set()
         const liveWaiterScopes = new Set()
         const latestWaiterlessRoom = new Map()
         const latestWaiterlessScope = new Map()
         for (const request of activeJoined) {
           if (request.info.role !== 'room' || request.info.roomId === undefined) continue
-          const scope = request.info.askedBy !== undefined ? `${request.info.roomId}\0${request.info.askedBy}` : undefined
+          const scope = roomScopeOf(request.info)
           if (roomWaiters.has(request.info.exchangeId)) {
             if (failure === undefined && reason?.kind !== 'aborted') {
               liveWaiterRooms.add(request.info.roomId)
@@ -1632,13 +1669,13 @@ export function install(rt) {
           }
           if (request.info.role === 'room' && request.info.roomId !== undefined && !roomWaiters.has(request.info.exchangeId)) {
             if (request.info.askedBy !== undefined) {
-              const scope = `${request.info.roomId}\0${request.info.askedBy}`
+              const scope = roomScopeOf(request.info)
               if (liveWaiterScopes.has(scope) || latestWaiterlessScope.get(scope) !== request.info.exchangeId) continue
             } else if (liveWaiterRooms.has(request.info.roomId) || latestWaiterlessRoom.get(request.info.roomId) !== request.info.exchangeId) {
               continue
             }
           }
-          void rt.deliver({
+          void trackHandback(id, rt.deliver({
             fromId: request.info.senderSessionId,
             toId: rt.selfOf(id),
             sessionId: id,
@@ -1648,11 +1685,11 @@ export function install(rt) {
             role: request.info.role,
             exchangeId: request.info.exchangeId,
             ...(request.info.workRef ? { workRef: request.info.workRef } : {}),
-            ...(request.info.role === 'room' ? { roomId: request.info.roomId, askedBy: request.info.askedBy, resultRef: request.info.resultRef, ...(request.info.batchKey ? { batchKey: request.info.batchKey } : {}), ...(request.info.resumedUpstream ? { resumedUpstream: true } : {}), note: 'you read this call during your last task; answer it now' } : {}),
+            ...(request.info.role === 'room' ? { roomId: request.info.roomId, askedBy: request.info.askedBy, resultRef: request.info.resultRef, ...(request.info.workId ? { work: request.info.workId } : {}), ...(request.info.batchKey ? { batchKey: request.info.batchKey } : {}), ...(request.info.resumedUpstream ? { resumedUpstream: true } : {}), note: 'you read this call during your last task; answer it now' } : {}),
             ...(request.info.senderRoomId ? { fromRoomId: request.info.senderRoomId } : {}),
             ...(request.info.senderPart ? { fromPart: request.info.senderPart } : {}),
             deferred: true,
-          }).catch(error => rt.warn('ds-bot: deferred request delivery failed: %s', error))
+          })).catch(error => rt.warn('ds-bot: deferred request delivery failed: %s', error))
         }
 
         if (!echoed && !retry) rt.dropRoomStepEcho?.(id)
@@ -1741,5 +1778,5 @@ export function install(rt) {
     if (id !== undefined && !rt.isBotSession?.(id) && rt.roomOf?.(id) === undefined) forgetSessionTurn(id)
   })
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, forgetSessionTurn, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveTurnMaps, isHiddenBotWorkTurn })
+  Object.assign(rt, { live, liveOf, hasPendingHandback, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, forgetSessionTurn, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveTurnMaps, isHiddenBotWorkTurn })
 }

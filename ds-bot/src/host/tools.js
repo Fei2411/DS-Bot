@@ -485,21 +485,34 @@ export function install(rt) {
         if (spawnedTask?.sessionId) boundSessionId = spawnedTask.sessionId
       }
 
-      rt.recordPairExchange?.({
-        id: exchangeId,
-        from: sender.id,
-        to: target.id,
-        role: 'request',
-        text: long.text,
-        sessionId: boundSessionId,
-        workRef: created.workRef,
-        follows,
-        length: long.length,
-        files: long.files,
-        work: created.workId,
-      })
+      try {
+        await rt.recordPairExchange?.({
+          id: exchangeId,
+          from: sender.id,
+          to: target.id,
+          role: 'request',
+          text: long.text,
+          sessionId: boundSessionId,
+          workRef: created.workRef,
+          follows,
+          length: long.length,
+          files: long.files,
+          work: created.workId,
+        })
+      } catch (error) {
+        rt.dropWork?.(created.workId)
+        throw error
+      }
 
-      await rt.kickScheduler({ botId: target.id, workId: created.workId })
+      try {
+        await rt.kickScheduler({ botId: target.id, workId: created.workId, throwOnError: true })
+      } catch (error) {
+        const w = rt.coordDb?.getWork?.(created.workId)
+        if (error?.delivered !== true && w !== undefined && w.status !== 'running' && w.activeDeliveryKey === null) {
+          rt.dropWork?.(created.workId)
+        }
+        throw error
+      }
       const label = created.workRef ? ` work #${created.workRef}` : ''
       const parentResolved = parentWorkId ? rt.resolveWork?.(parentWorkId) : undefined
       const asker = parentResolved !== undefined && rt.ownsWork?.(sender.id, parentWorkId) ? rt.botOf(parentResolved.work.from)?.name : undefined
