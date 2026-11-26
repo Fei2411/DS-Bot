@@ -4381,9 +4381,9 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
     { agent: { id: 'a-moved-fg' }, concludeTurn() {} },
   )
   await sRestart.flush()
-  const viewMsg = [...sRestart.fake.sent].reverse().find(entry => /!card\s+(V\d+)/i.test(entry.text ?? ''))
-  const viewCode = /!card\s+(V\d+)/i.exec(viewMsg?.text ?? '')?.[1]
-  assert.ok(viewCode, 'view card with !card code must be sent to IM')
+  const viewMsg = await waitFor(() => [...sRestart.fake.sent].reverse().find(entry => /!card\s+(V\d+)/i.test(entry.text ?? '')), { label: 'view card with !card code must be sent to IM' })
+  const viewCode = /!card\s+(V\d+)/i.exec(viewMsg.text ?? '')?.[1]
+  assert.ok(viewCode)
   await dm(sRestart, 'u1', `!card ${viewCode}\n1: Alice`, { messageId: 'fresh-view-card-1' })
   assert.equal(sRestart.rt.state.views['a-moved-fg'], undefined, 'unrelated corrupt cold archive on Bot B must NOT block !card view reply on Bot A')
 

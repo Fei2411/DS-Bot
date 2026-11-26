@@ -394,10 +394,18 @@ test('secrets.js avoids rt.save in noteUsed via shellEnv.resolve, skips reload o
   assert.equal(envVars.DSH_SECRET_API_TOKEN, 'super-secret-value-12345')
   t.mock.timers.tick(5_500)
   t.mock.timers.reset()
-  await new Promise(resolve => setTimeout(resolve, 30))
+  let persistedSecrets
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    persistedSecrets = JSON.parse(readFileSync(join(home, 'secrets.json'), 'utf8'))
+    if (typeof persistedSecrets.secrets[0].lastUsedAt === 'number') break
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(typeof persistedSecrets?.secrets[0].lastUsedAt, 'number', 'noteUsed persisted lastUsedAt to secrets.json')
+  // persist() records the file stamp right after the atomic rename resolves; once the file is
+  // visible, that bookkeeping needs only microtasks, but the write completion itself does not.
+  await new Promise(resolve => setImmediate(resolve))
+  await new Promise(resolve => setImmediate(resolve))
   assert.equal(saveCalls, savesAfterSet, 'noteUsed timer firing must persist secrets.json without calling rt.save()')
-  const persistedSecrets = JSON.parse(readFileSync(join(home, 'secrets.json'), 'utf8'))
-  assert.equal(typeof persistedSecrets.secrets[0].lastUsedAt, 'number', 'noteUsed persisted lastUsedAt to secrets.json')
 
   // Unchanged objects/arrays in redactDeep return identical reference (zero allocation).
   const redact = redactor([{ name: 'API_TOKEN', value: 'super-secret-value-12345' }])
