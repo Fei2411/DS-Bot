@@ -1,6 +1,23 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
+  'Agent preset': 'Preajuste de Agent',
+  'Agent preset: {preset}': 'Preajuste de Agent: {preset}',
+  'Default (Standard)': 'Predeterminado (estándar)',
+  'Default (DSH default)': 'Predeterminado (de DSH)',
+  'The standard agent preset': 'El preajuste estándar de Agent',
+  'The default for new tasks in DeepSeek Harness.': 'El preajuste predeterminado para nuevas tareas en DeepSeek Harness.',
+  'Missing preset': 'Preajuste no encontrado',
+  'This preset cannot start.': 'Este preajuste no puede iniciarse.',
+  'This preset cannot start. Pick another one.': 'Este preajuste no puede iniciarse. Elige otro.',
+  'This preset cannot start ({reason}). Pick another one.': 'Este preajuste no puede iniciarse ({reason}). Elige otro.',
+  'This preset is not in the profile anymore. Pick another one.': 'Este preajuste ya no está en el perfil. Elige otro.',
+  'The preset list could not be loaded.': 'No se pudo cargar la lista de preajustes.',
+  'DS Bot needs the Bot\'s own prompt, which this preset replaces': 'Este preajuste sustituye el prompt propio del Bot que DS Bot necesita.',
+  'DS Bot could not verify that it keeps the Bot\'s own prompt': 'DS Bot no pudo verificar que se conserve el prompt propio del Bot.',
+  'Applies from the next conversation segment.': 'Se aplica a partir del siguiente segmento de conversación.',
+  'The Bot runs on the default agent preset.': 'El Bot usa el preajuste predeterminado de Agent.',
+  'The Bot runs on the {name} agent preset.': 'El Bot usa el preajuste de Agent {name}.',
   "Direct value": "Valor directo",
   "1Password (op://)": "1Password (op://)",
   "Secret source": "Origen del secreto",
@@ -2583,6 +2600,13 @@ export const ES = {
 }
 
 export const HOST_ERRORS_ES = [
+  [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'El preajuste de Agent "$1" no está disponible en este DeepSeek Harness. Elige otro en los ajustes del Bot.'],
+  [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'El preajuste de Agent "$1" no puede ejecutarse: $2. Elige otro en los ajustes del Bot.'],
+  [/^An agent preset must be named by its id$/, 'Un preajuste de Agent debe indicarse por su id'],
+  [/^The agent preset "(.+)" cannot be used for a Bot: (.+)\. Pick another preset in the Bot's settings\.$/, 'El preajuste de Agent "$1" no se puede usar en un Bot: $2. Elige otro en los ajustes del Bot.'],
+  [/^The default agent preset "(.+)" cannot be used for a Bot: (.+)\. Choose a preset for the Bot in its settings\.$/, 'El preajuste de Agent predeterminado "$1" no se puede usar en un Bot: $2. Elige un preajuste para el Bot en sus ajustes.'],
+  [/^The agent preset "(.+)" of (.+) cannot run a Bot in this DeepSeek Harness, so it keeps the preset its running conversations were made with\. Pick another preset in the Bot's settings\.$/, 'El preajuste de Agent "$1" de $2 no puede ejecutar un Bot en este DeepSeek Harness, así que mantiene el preajuste con el que se crearon sus conversaciones actuales. Elige otro en los ajustes del Bot.'],
+  [/^Only the user can choose the agent preset of (.+)$/, 'Solo el usuario puede elegir el preajuste de Agent de $1'],
   [/^Plugin disabled by the kill list: (.+)$/, 'Plugin desactivado por la lista de bloqueo: $1'],
   [/^Plugin disabled by the kill list\.$/, 'Plugin desactivado por la lista de bloqueo.'],
   [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, 'Este plugin cambió desde que fue aprobado (capacidades, nivel de ejecución, entrada ejecutable, contenido o ubicación). Necesita aprobación explícita antes de poder ejecutarse de nuevo.'],

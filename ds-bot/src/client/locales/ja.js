@@ -1,6 +1,23 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "Agent preset": "Agent プリセット",
+  "Agent preset: {preset}": "Agent プリセット: {preset}",
+  "Default (Standard)": "デフォルト（標準）",
+  "Default (DSH default)": "デフォルト（DSH の既定値）",
+  "The standard agent preset": "標準の Agent プリセット",
+  "The default for new tasks in DeepSeek Harness.": "DeepSeek Harness の新しいタスク用の既定プリセット。",
+  "Missing preset": "プリセットが見つかりません",
+  "This preset cannot start.": "このプリセットは起動できません。",
+  "This preset cannot start. Pick another one.": "このプリセットは起動できません。別のものを選んでください。",
+  "This preset cannot start ({reason}). Pick another one.": "このプリセットは起動できません（{reason}）。別のものを選んでください。",
+  "This preset is not in the profile anymore. Pick another one.": "このプリセットは現在のプロファイルにありません。別のものを選んでください。",
+  "The preset list could not be loaded.": "プリセット一覧を読み込めませんでした。",
+  "DS Bot needs the Bot's own prompt, which this preset replaces": "このプリセットは DS Bot に必要な Bot 固有のプロンプトを置き換えます。",
+  "DS Bot could not verify that it keeps the Bot's own prompt": "Bot 固有のプロンプトが維持されることを確認できませんでした。",
+  "Applies from the next conversation segment.": "次の会話セグメントから適用されます。",
+  "The Bot runs on the default agent preset.": "Bot はデフォルトの Agent プリセットで動作します。",
+  "The Bot runs on the {name} agent preset.": "Bot は {name} Agent プリセットで動作します。",
   "Direct value": "直接入力",
   "1Password (op://)": "1Password (op://)",
   "Secret source": "シークレットの取得元",
@@ -2548,6 +2565,13 @@ export const JA = {
 }
 
 export const HOST_ERRORS_JA = [
+  [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は現在の DeepSeek Harness で利用できません。Bot の設定で別のプリセットを選んでください。"],
+  [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は実行できません: $2。Bot の設定で別のプリセットを選んでください。"],
+  [/^An agent preset must be named by its id$/, "Agent プリセットは id で指定する必要があります"],
+  [/^The agent preset "(.+)" cannot be used for a Bot: (.+)\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は Bot に使用できません: $2。Bot の設定で別のプリセットを選んでください。"],
+  [/^The default agent preset "(.+)" cannot be used for a Bot: (.+)\. Choose a preset for the Bot in its settings\.$/, "既定の Agent プリセット「$1」は Bot に使用できません: $2。Bot の設定でプリセットを選んでください。"],
+  [/^The agent preset "(.+)" of (.+) cannot run a Bot in this DeepSeek Harness, so it keeps the preset its running conversations were made with\. Pick another preset in the Bot's settings\.$/, "$2 の Agent プリセット「$1」は現在の DeepSeek Harness で Bot を実行できないため、進行中の会話は作成時のプリセットのまま維持されます。Bot の設定で別のプリセットを選んでください。"],
+  [/^Only the user can choose the agent preset of (.+)$/, "$1 の Agent プリセットを選択できるのはユーザーだけです"],
   [/^Plugin disabled by the kill list: (.+)$/, "プラグインはセキュリティキルリストによって無効化されました：$1"],
   [/^Plugin disabled by the kill list\.$/, "プラグインはセキュリティキルリストによって無効化されました。"],
   [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "このプラグインは承認後に変更されました（機能、実行ティア、実行エントリ、コンテンツ、または配置）。明示的な承認なしには再実行できません。"],
