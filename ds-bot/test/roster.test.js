@@ -32,7 +32,7 @@ function keyed(ctx, stored, records) {
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
 // With `keys`, the models' route takes an API key and these are the ones set.
 let rt
-function start(team, { models = [], reasoning = {}, archiveError, keys, selection, lock, lost = new Set(), listed, schedules } = {}) {
+function start(team, { models = [], reasoning = {}, archiveError, keys, selection, lock, lost = new Set(), listed, schedules, flush } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   // A lock another dsh holds, written before this host loads the team.
@@ -53,6 +53,16 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
   }
   const workspaces = new Map()
   const sent = []
+  const injected = []
+  const inboxes = new Map()
+  const inboxOf = (sessionId) => {
+    let inbox = inboxes.get(sessionId)
+    if (inbox === undefined) {
+      inbox = { nextStep: [], nextTurn: [] }
+      inboxes.set(sessionId, inbox)
+    }
+    return inbox
+  }
   const selected = []
   // Every selection asked for, including the ones a lost Session refused.
   const attempts = []
@@ -86,7 +96,17 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
       // selecting its model answer the same `session/not-found` the real controller does.
       resolveAgent: async sessionId => (lost.has(sessionId)
         ? { error: { code: 'session/not-found', message: `session "${sessionId}" not found` } }
-        : { agent: { session: { id: sessionId }, followup: message => sent.push({ sessionId, message }) } }),
+        : {
+            agent: {
+              session: { id: sessionId },
+              inbox: inboxOf(sessionId),
+              followup: message => sent.push({ sessionId, message }),
+              inject: (message) => {
+                inboxOf(sessionId).nextStep.push(message)
+                injected.push({ sessionId, message })
+              },
+            },
+          }),
       selectModel: async (request) => {
         attempts.push(request)
         if (lost.has(request.sessionId)) throw Object.assign(new Error(`session "${request.sessionId}" not found`), { code: 'session/not-found' })
@@ -94,7 +114,7 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
       },
     },
     sessionTitle: { rename: async () => {} },
-    sessions: { flush: async () => {} },
+    sessions: { flush: flush ?? (async () => {}) },
   })
   let route
   const register = ctx.connection.fetch.register
@@ -111,7 +131,7 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { call, stop, home, sent, selected, attempts, ctx, archived, warnings, records }
+  return { call, stop, home, sent, injected, selected, attempts, ctx, archived, warnings, records }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -1813,4 +1833,125 @@ test('restoring a missing Session heals sessionMissing and re-applies the Bot mo
   await until(() => restored.selected.some(entry => entry.sessionId === 'restored-session' && entry.model === 'deepseek-v4-pro'))
   chief = (await restored.call('state', {})).value.bots.find(bot => bot.id === 'chief')
   assert.equal(chief.sessionMissing, undefined)
+})
+
+test('buffered silent notes survive missing-Session recovery onto the fresh Session', async (t) => {
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  let failFlush = true
+  let flushes = 0
+  const { call, stop, injected } = start(team, {
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+    flush: async () => {
+      flushes += 1
+      if (failFlush) {
+        failFlush = false
+        throw new Error('transient flush error')
+      }
+    },
+  })
+  t.after(stop)
+  await call('state', {})
+
+  // Persisted silent note restored onto the missing Session stays buffered while owned.
+  const note = {
+    id: 'silent-note-1',
+    content: [{ type: 'text', text: '[Note from Peer · FYI only, no reply needed]\nKeep this note across recovery.' }],
+    source: { kind: 'ds-bot', role: 'note', exchangeId: 'ex-silent-1' },
+  }
+  await rt.restoreSilentNotes({ 'gone-session': [{ message: note }] })
+  assert.equal(injected.length, 0)
+
+  // First flush fails during `recover-session`, leaving `state.switching['gone-session']`
+  // with `missing: true` for `handOnHeld` retry; no note is dropped.
+  const recovered = await call('recover-session', { botId: 'chief' })
+  assert.equal(recovered.ok, true)
+  const freshId = recovered.value.sessionId
+  assert.notEqual(freshId, 'gone-session')
+  assert.equal(rt.state.switching['gone-session']?.missing, true)
+  assert.equal(flushes, 1)
+
+  // Retry path (`handOnHeld`) flushes the migrated silent note onto the fresh Session
+  // without duplicating it and clears the recovery record.
+  await rt.heldBack()
+  assert.equal(flushes, 2)
+  const delivered = injected.filter(entry => entry.sessionId === freshId && entry.message?.source?.exchangeId === 'ex-silent-1')
+  assert.equal(delivered.length, 1)
+  assert.equal(rt.state.switching['gone-session'], undefined)
+
+  // Direct recovery path (when flush succeeds immediately) also moves silent notes
+  // before dropping the lost Session from `chatOwners`.
+  const direct = start(team, {
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(direct.stop)
+  await direct.call('state', {})
+  await rt.restoreSilentNotes({ 'gone-session': [{ message: note }] })
+  const directRecovered = await direct.call('recover-session', { botId: 'chief' })
+  assert.equal(directRecovered.ok, true)
+  assert.deepEqual(
+    direct.injected.filter(entry => entry.sessionId === directRecovered.value.sessionId).map(entry => entry.message?.source?.exchangeId),
+    ['ex-silent-1'],
+  )
+  assert.equal(rt.state.switching['gone-session'], undefined)
+})
+
+test('kickoff greeting is preserved while a Bot Session is missing and sent after recovery', async (t) => {
+  const greeting = { text: 'Hello from kickoff', from: null, main: true }
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        kickoff: { ...greeting },
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const { call, stop, home, sent } = start(team, {
+    models: ['deepseek-v4-pro'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(stop)
+
+  // Picking a model while the Session is gone marks `sessionMissing` and must not consume `kickoff`.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  await settle()
+  let chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, 'gone-session')
+  assert.equal(chief.waiting, true)
+  const savedWhileMissing = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  assert.deepEqual(savedWhileMissing.bots.chief.kickoff, greeting)
+  assert.equal(sent.length, 0)
+
+  // Replacing the missing Session clears `sessionMissing` and delivers the held greeting to the fresh Session.
+  const recovered = await call('recover-session', { botId: 'chief' })
+  assert.equal(recovered.ok, true)
+  const freshId = recovered.value.sessionId
+  await until(() => sent.some(entry => entry.sessionId === freshId && entry.message?.source?.role === 'kickoff'))
+  chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.waiting, undefined)
+
+  // Restoring/healing a missing Session also preserves and delivers the held greeting.
+  const healedRun = start(savedWhileMissing, {
+    models: ['deepseek-v4-pro'],
+    lost: new Set(),
+    listed: new Set(['gone-session']),
+  })
+  t.after(healedRun.stop)
+  await healedRun.call('state', {})
+  await until(() => healedRun.sent.some(entry => entry.sessionId === 'gone-session' && entry.message?.source?.role === 'kickoff'))
 })

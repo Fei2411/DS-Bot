@@ -688,6 +688,9 @@ export function install(rt) {
     const healed = await healMissingSessions().catch(() => new Set())
     for (const bot of Object.values(state.bots)) {
       await applyModel(bot, { force: healed.has(bot.id), syncGroups: false }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
+      if (healed.has(bot.id) && bot.blocked === undefined && rt.readOnly?.() === undefined) {
+        await rt.releaseKickoff?.(bot).catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', bot.name, error))
+      }
     }
     await syncRooms()
   }

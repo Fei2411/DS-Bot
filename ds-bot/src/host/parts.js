@@ -2454,6 +2454,7 @@ export function install(rt) {
           }
           if (owner.missing === true) {
             if (target !== undefined) {
+              await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
               await rt.moveSchedules?.(sessionId, target, {
                 resolveTarget: () => threadTargetOf(sessionId, owner),
               })
@@ -4266,6 +4267,9 @@ export function install(rt) {
           delete bot.sessionMissing
           if (!readOnly()) await rt.save()
           await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
+          if (bot.blocked === undefined) {
+            await rt.releaseKickoff?.(bot).catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', bot.name, error))
+          }
         }
         return { sessionId: lostId, recovered: false }
       } catch (error) {
@@ -4292,10 +4296,14 @@ export function install(rt) {
         delete bot.failures[lostId]
         if (Object.keys(bot.failures).length === 0) delete bot.failures
       }
-      rt.chatOwners.delete(lostId)
       rt.chatOwners.set(freshId, bot.id)
-      // Record a pending schedule move until it succeeds, so a failure here retries
-      // through `handOnHeld` without creating another replacement Session.
+      // Re-key buffered silent notes before dropping `lostId` from `chatOwners` so an
+      // in-flight `flushSilentNotes(lostId)` cannot orphan or discard them.
+      const silentMove = rt.moveSilentNotes?.(lostId, freshId, { awaitFlush: true, rethrow: true })
+      silentMove?.catch(() => {})
+      rt.chatOwners.delete(lostId)
+      // Record a pending silent-note/schedule move until it succeeds, so a failure here
+      // retries through `handOnHeld` without creating another replacement Session.
       state.switching[lostId] = { botId: bot.id, missing: true }
       if (state.questions?.[lostId] !== undefined) {
         rt.closeCard?.(lostId, state.questions[lostId], 'dismissed')
@@ -4313,11 +4321,12 @@ export function install(rt) {
       rt.forgetSessionChanges?.(lostId)
       await rt.save()
       try {
+        await silentMove
         await rt.moveSchedules?.(lostId, freshId, { resolveTarget: () => rt.chatOf(bot.id) })
         delete state.switching[lostId]
         await rt.save()
       } catch (error) {
-        rt.warn('ds-bot: schedules for %s not moved to %s: %s', lostId, freshId, error)
+        rt.warn('ds-bot: recovery cleanup for %s to %s failed: %s', lostId, freshId, error)
         scheduleHeldBackRetry()
       }
       // A model the user picked while this part was being made went to the parts that were
@@ -4327,6 +4336,9 @@ export function install(rt) {
       const now = await freshRoute(bot, undefined)
       if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {
         await selectRoute({ name: bot.name }, freshId, now)
+      }
+      if (bot.blocked === undefined) {
+        await rt.releaseKickoff?.(bot).catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', bot.name, error))
       }
       return { sessionId: freshId, recovered: true }
     })()
