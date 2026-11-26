@@ -42,6 +42,8 @@ export interface OpenChatLink {
   hostId?: string
 }
 
+// What the host's inbox announces (ds-bot/src/host/mobile.js): each new item there, by
+// its kind; `alert` is an item from a source the phone does not know by name.
 export const NEEDS_YOU_NOTICE_KINDS = new Set([
   'approval',
   'question',
@@ -50,6 +52,12 @@ export const NEEDS_YOU_NOTICE_KINDS = new Set([
   'connector',
   'handoff',
   'learning',
+  'mail',
+  'computer',
+  'goal',
+  'blocked',
+  'paused',
+  'alert',
 ])
 
 export const REPLY_NOTICE_KINDS = new Set(['message', 'done'])
@@ -165,6 +173,18 @@ export function formatNoticeNotification(
       return { title, body: show ? t('Browser handoff: {text}', { text: snippet }) : t('Your turn in the browser') }
     case 'learning':
       return { title, body: show ? t('Learning proposal: {text}', { text: snippet }) : t('New learning proposal') }
+    case 'mail':
+      return { title, body: show ? t('Wants to send “{subject}”', { subject: snippet }) : t('Wants to send an email') }
+    case 'computer':
+      return { title, body: show ? t('Wants to use {app}', { app: snippet }) : t('Needs your approval') }
+    case 'goal':
+      return { title, body: show ? t('Waiting for you · {title}', { title: snippet }) : t('Waiting for you') }
+    case 'blocked':
+      return { title, body: t('Needs a fix') }
+    case 'paused':
+      return { title, body: show ? snippet : t('Paused') }
+    case 'alert':
+      return { title, body: show ? snippet : t('Waiting for you') }
     case 'done':
       return { title, body: t('Finished') }
     case 'group':

@@ -248,6 +248,8 @@ export function createTeam() {
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) changed.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) changed.capabilityStatuses = value.capabilityStatuses
     if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) changed.learning = value.learning
+    // What waits for the user across the team (ds-bot/src/host/inbox.js).
+    if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(current.inbox ?? null)) changed.inbox = value.inbox
     if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) changed.learningSettled = value.learningSettled
     if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) changed.btwCards = value.btwCards
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) changed.sideChats = value.sideChats
@@ -434,6 +436,7 @@ export function createTeam() {
         panelYield: false,
         rightPanel: null,
         newChat: null,
+        inbox: false,
         exchange: null,
         menu: null,
         palette: null,
@@ -480,24 +483,25 @@ export function createTeam() {
       lastTeamSession = id
       const next = partFor(id)
       const switched = next !== shown.getSnapshot()
+      show(next)
       ui.set((state) => {
-        const dropOverlay = Boolean(state.newChat || state.exchange || state.menu || state.palette || state.shortcuts)
+        const dropOverlay = Boolean(state.newChat || state.exchange || state.menu || state.palette || state.shortcuts || state.inbox)
         const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
         const foldWorkspace = switched && state.view === 'workspace' && rp === null
         if (!dropOverlay && rp === state.rightPanel && !foldWorkspace) return state
         return {
           ...state,
-          ...(dropOverlay ? { newChat: null, exchange: null, menu: null, palette: null, shortcuts: false } : {}),
+          ...(dropOverlay ? { newChat: null, exchange: null, menu: null, palette: null, shortcuts: false, inbox: false } : {}),
           ...(foldWorkspace ? { view: 'details' } : {}),
           rightPanel: rp,
         }
       })
-      show(next)
     },
     openAgentSession: (sessionId) => {
       if (!sessionId) return
       const switched = sessionId !== shown.getSnapshot()
       lastAgentSession = sessionId
+      show(sessionId)
       ui.set((state) => {
         const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
         const keepPanel = Boolean(state.details && rp !== null && rp.tabs.length > 0)
@@ -512,10 +516,10 @@ export function createTeam() {
           palette: null,
           groupSearch: null,
           shortcuts: false,
+          inbox: false,
           rightPanel: keepPanel ? rp : null,
         }
       })
-      show(sessionId)
     },
     addAgent: async (options = {}) => {
       const agentPreset = typeof options?.agentPreset === 'string' && options.agentPreset.trim() !== '' ? options.agentPreset.trim() : undefined
@@ -812,7 +816,7 @@ export function createTeam() {
         if (!bot) return
         browsers.ensureTabs(bot.id)
         if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
       },
       toggleBrowser: (id) => {
         const snap = roster.getSnapshot()
@@ -833,7 +837,7 @@ export function createTeam() {
         if (!bot) return null
         browsers.ensureTabs(bot.id)
         const tabId = browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
         return tabId
       },
       // A drawer card: its tab active, the panel on the browser view.
@@ -841,7 +845,7 @@ export function createTeam() {
         const bot = roster.getSnapshot().byId[id]
         if (!bot) return
         browsers.activate(bot.id, tabId)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
       },
       browserEnsure: botId => browsers.ensureTabs(botId),
       browserCloseTab: async (botId, tabId) => {
@@ -933,6 +937,16 @@ export function createTeam() {
   }
   roster.subscribe(followWork)
   work.subscribe(followWork)
+  const isCovered = snap => snap.inbox === true || Boolean(snap.newChat)
+  let wasCovered = isCovered(ui.getSnapshot())
+  ui.subscribe(() => {
+    const covered = isCovered(ui.getSnapshot())
+    if (wasCovered && !covered) {
+      const active = shown.getSnapshot()
+      if (active) setStatus(active, { completionUnread: false })
+    }
+    wasCovered = covered
+  })
 
   const onFeed = (event, data) => {
     if (event === 'hello') {
@@ -950,9 +964,21 @@ export function createTeam() {
       }))
       if (item.kind === 'bot') {
         if (streamingReply.delete(sessionId)) actions.noteLive(sessionId, 'reply', null)
-        if (shown.getSnapshot() !== sessionId) setStatus(sessionId, { completionUnread: true })
+        if (shown.getSnapshot() !== sessionId || isCovered(ui.getSnapshot())) setStatus(sessionId, { completionUnread: true })
       }
       if (item.kind === 'user') sent.set(state => (state[sessionId]?.length ? { ...state, [sessionId]: state[sessionId].slice(1) } : state))
+    }
+    if (event === 'notice' && data?.kind === 'group' && data.roomId) {
+      const room = roster.getSnapshot().roomsById?.[data.roomId]
+      const roomSession = room ? currentPart(room) : data.roomId
+      if (shown.getSnapshot() !== roomSession || isCovered(ui.getSnapshot())) setStatus(roomSession, { completionUnread: true })
+      if (data.text) {
+        editRow(roomSession, row => ({
+          ...row,
+          updatedAt: Math.max(row.updatedAt ?? 0, data.time ?? 0),
+          projectionValues: { turnOutline: [{ turn: -1, response: data.text }] },
+        }))
+      }
     }
     // While a reply streams in, it stands in for the activity row; notify only on transitions.
     if (event === 'stream' && data?.sessionId) {

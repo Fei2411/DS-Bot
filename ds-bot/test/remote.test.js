@@ -294,7 +294,7 @@ test('createRemoteService serves dsBot/call and dsBot/feed through real DSH Type
   const rt = {
     async channelCall(endpoint, payload, signal) {
       received.push({ endpoint, payload, aborted: signal?.aborted ?? false })
-      if (endpoint === 'abort-probe') {
+      if (endpoint === 'update-check') {
         await new Promise((_resolve, reject) => {
           signal?.addEventListener('abort', () => {
             abortedStates.push(signal.aborted)
@@ -302,7 +302,7 @@ test('createRemoteService serves dsBot/call and dsBot/feed through real DSH Type
           }, { once: true })
         })
       }
-      if (endpoint === 'slim') return { ok: true, value: { id: 'b1', avatar: { shape: 'whale', image: undefined } } }
+      if (endpoint === 'state') return { ok: true, value: { id: 'b1', avatar: { shape: 'whale', image: undefined } } }
       if (endpoint === '') return { ok: false, error: { code: 'bot/not-found', message: 'Unknown endpoint ', details: {} } }
       return { ok: true, value: { endpoint, payload } }
     },
@@ -340,7 +340,7 @@ test('createRemoteService serves dsBot/call and dsBot/feed through real DSH Type
   // 2. Unary call omitting `payload` + `undefined` stripped by `plain` so Typert accepts JSON
   const omittedPayload = await gateway.dispatchRpc(
     `${RPC_NAMESPACE}/call`,
-    { args: { endpoint: 'slim' } },
+    { args: { endpoint: 'state' } },
     new AbortController().signal,
     ownerPeer(),
   )
@@ -372,14 +372,13 @@ test('createRemoteService serves dsBot/call and dsBot/feed through real DSH Type
   )
   assert.equal(nonStringEndpoint.ok, true)
   assert.equal(nonStringEndpoint.value.ok, false)
-  assert.equal(nonStringEndpoint.value.error.code, 'bot/not-found')
-  assert.equal(received.at(-1).endpoint, '')
+  assert.equal(nonStringEndpoint.value.error.code, 'bot/refused')
 
   // 4. Cancellation signal reaches rt.channelCall when peer/request aborts
   const abortControl = new AbortController()
   const inflight = gateway.dispatchRpc(
     `${RPC_NAMESPACE}/call`,
-    { args: { endpoint: 'abort-probe', payload: {} } },
+    { args: { endpoint: 'update-check', payload: {} } },
     abortControl.signal,
     ownerPeer(),
   )
@@ -623,7 +622,7 @@ test('full ds-bot runtime serves real hello, state and live feed through TypertG
   )
   assert.equal(unknownEndpoint.ok, true)
   assert.equal(unknownEndpoint.value.ok, false)
-  assert.equal(unknownEndpoint.value.error.code, 'bot/not-found')
+  assert.equal(unknownEndpoint.value.error.code, 'bot/refused')
 
   feedControl.abort()
   await assert.rejects(() => iterator.next(), error => error?.code === 'gateway/cancelled')

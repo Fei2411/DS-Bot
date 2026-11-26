@@ -71,7 +71,7 @@ export function useBotApprovals(botId, useWork, useComputer) {
 }
 
 export const isBrowserHandoff = hold => hold?.callId !== undefined
-export const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))
+export const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.fromBot === true || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))
 
 // Active browser/computer handoff hold waiting for the user on one Bot.
 export function useBotHandoff(botId, useBrowserHolds, useComputer) {

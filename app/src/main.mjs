@@ -32,6 +32,7 @@ import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
 import { installSocketTosGuard } from 'ds-bot/socket-tos-guard'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
+import { subframeNavigationAllowed } from './frame-navigation.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
 import { matchForwardedShortcut } from './shortcut-match.mjs'
 
@@ -1647,6 +1648,10 @@ function createWindow() {
     }
     child.webContents.on('will-navigate', away)
     child.webContents.on('will-redirect', away)
+  })
+  contents.on('will-frame-navigate', (details) => {
+    if (details.isMainFrame || subframeNavigationAllowed(details.url, origin)) return
+    details.preventDefault()
   })
   contents.on('will-navigate', (event, url) => {
     if (url.startsWith(`${origin}/`)) return

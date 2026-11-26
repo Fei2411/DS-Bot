@@ -1962,7 +1962,7 @@ export function install(rt) {
     const resolvedCause = cause ?? room.idlePaused?.cause ?? 'idle'
     const resolvedLimit = limit ?? (resolvedCause === 'zero-work' ? ROOM_ZERO_WORK_RELAY_LIMIT : resolvedCause === 'cycle' ? Math.max(count ?? 2, 2) : ROOM_IDLE_RELAY_LIMIT)
     if (room.idlePaused === undefined) {
-      room.idlePaused = { from: member.id, count: count ?? room.idleRelays ?? resolvedLimit, limit: resolvedLimit, cause: resolvedCause, noticed: false }
+      room.idlePaused = { from: member.id, count: count ?? room.idleRelays ?? resolvedLimit, limit: resolvedLimit, cause: resolvedCause, noticed: false, at: Date.now() }
     }
     const added = []
     if (callees.length > 0) {
