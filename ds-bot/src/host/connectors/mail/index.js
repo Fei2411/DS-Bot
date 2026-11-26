@@ -4,7 +4,8 @@
 // rt.config.mail.connect injects fakes in tests.
 import { randomUUID } from 'node:crypto'
 import { basename, join, resolve, sep } from 'node:path'
-import { readFileSync, realpathSync, statSync } from 'node:fs'
+import { constants as fsConstants, realpathSync, statSync } from 'node:fs'
+import { open as openFile } from 'node:fs/promises'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { PRESETS, presetOf, mailSecretName } from './presets.js'
 import { connectImap, connectGmail } from './transport.js'
@@ -248,13 +249,27 @@ export function install(rt, host) {
     return inside !== root && inside.startsWith(prefix)
   }
 
-  const resolveAttachments = (dir, names) => (names ?? []).map((name) => {
-    if (dir === undefined) throw new Error(`Attachment ${name} is outside the working folder`)
-    const root = realpathSync(dir)
-    const inside = realpathSync(resolve(root, name))
-    if (!insideRoot(root, inside)) throw new Error(`Attachment ${name} is outside the working folder`)
-    return { filename: name, content: readFileSync(inside) }
-  })
+  const resolveAttachments = async (dir, names) => {
+    const out = []
+    for (const name of names ?? []) {
+      if (dir === undefined) throw new Error(`Attachment ${name} is outside the working folder`)
+      const root = realpathSync(dir)
+      const inside = realpathSync(resolve(root, name))
+      if (!insideRoot(root, inside)) throw new Error(`Attachment ${name} is outside the working folder`)
+      if (!statSync(inside).isFile()) throw new Error(`Attachment ${name} must be a regular file`)
+      // O_NONBLOCK prevents opening a FIFO/named pipe from hanging; O_NOFOLLOW blocks a symlink swap after realpathSync.
+      const flags = fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) | (fsConstants.O_NOFOLLOW ?? 0)
+      const handle = await openFile(inside, flags)
+      try {
+        const info = await handle.stat()
+        if (!info.isFile()) throw new Error(`Attachment ${name} must be a regular file`)
+        out.push({ filename: name, content: await handle.readFile() })
+      } finally {
+        await handle.close().catch(() => {})
+      }
+    }
+    return out
+  }
 
   const toolExec = async (exec, args, run) => {
     await rt.load()
@@ -383,7 +398,7 @@ export function install(rt, host) {
           try {
             const root = realpathSync(dir)
             const inside = realpathSync(resolve(root, name))
-            return !insideRoot(root, inside)
+            return !insideRoot(root, inside) || !statSync(inside).isFile()
           } catch { return true }
         })
         if (bad.length > 0) return `Attachments must be files in your working folder: ${bad.join(', ')} is not.`
@@ -409,7 +424,7 @@ export function install(rt, host) {
         )
         if (skipDraft) {
           const session = await connect(account)
-          const attachments = resolveAttachments(dir, request.attachments)
+          const attachments = await resolveAttachments(dir, request.attachments)
           await session.send({ to: request.to, cc: request.cc || undefined, bcc: request.bcc || undefined, subject: request.subject, text: request.body, attachments, ...(request.replyTo ? { inReplyTo: request.replyTo } : {}) })
           request.status = 'sent'
           request.settledAt = Date.now()
@@ -608,7 +623,7 @@ export function install(rt, host) {
       }
       try {
         const session = await connect(account)
-        const attachments = resolveAttachments(request.dir, request.attachments)
+        const attachments = await resolveAttachments(request.dir, request.attachments)
         await session.send({ to: request.to, cc: request.cc || undefined, bcc: request.bcc || undefined, subject: request.subject, text: request.body, attachments, ...(request.replyTo ? { inReplyTo: request.replyTo } : {}) })
         request.status = 'sent'; request.settledAt = Date.now()
         await rt.save()

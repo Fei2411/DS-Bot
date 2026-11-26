@@ -1356,6 +1356,70 @@ test('mail_send auto-send re-validates attachments after connect and blocks syml
   assert.equal(sent, 0, 'escaped attachment must never be sent')
 })
 
+test('mail_send auto-send and send-card approval reject non-regular files (directories and FIFOs) without blocking', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-mail-nonreg-'))
+  t.after(() => rmSync(workDir, { recursive: true, force: true }))
+  const regularFile = join(workDir, 'swap.bin')
+  writeFileSync(regularFile, 'initial')
+  const folderEntry = join(workDir, 'subdir')
+  mkdirSync(folderEntry)
+
+  const home = teamHome({
+    connectors: {
+      mail: {
+        accounts: { m1: { id: 'm1', address: addressAt('qq.com'), provider: 'qq', auth: 'password', imap: { host: 'imap.qq.com', port: 993, secure: true }, smtp: { host: 'smtp.qq.com', port: 465, secure: true } } },
+      },
+    },
+  })
+  const ctx = fakeContext()
+  let sent = 0
+  let swapOnConnect = false
+  const rt = createRuntime(ctx, {
+    home, github: false,
+    mail: {
+      connect: async () => {
+        if (swapOnConnect) {
+          swapOnConnect = false
+          rmSync(regularFile, { force: true })
+          if (process.platform !== 'win32') await execFileP('mkfifo', [regularFile])
+          else mkdirSync(regularFile)
+        }
+        return { kind: 'imap', get usable() { return !swapOnConnect }, async close() {}, async send() { sent += 1 } }
+      },
+    },
+  })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.secretEndpoint('secret-set', { name: mailSecretName(addressAt('qq.com'), 'PASSWORD'), value: 'PASS', label: 'test' })
+  rt.sessionFolder = () => workDir
+  const send = rt.teamTools.find(d => d.name === 'mail_send')
+
+  // Initial mail_send rejects directories up front.
+  const dirReply = await send.execute({ to: 'a@b.test', subject: 'S', body: 'B', attachments: ['subdir'] }, { agent: { id: 'm1' }, callId: 'c1', concludeTurn: () => {} })
+  assert.match(String(dirReply), /working folder/)
+
+  // Send-card approval path: swap file to FIFO (POSIX) or directory (Windows) before user clicks Send.
+  await send.execute({ to: 'a@b.test', subject: 'Card', body: 'B', attachments: ['swap.bin'] }, { agent: { id: 'm1' }, callId: 'c2', concludeTurn: () => {} })
+  const pendingReq = rt.state.mailRequests.m1.find(r => r.status === 'pending')
+  assert.ok(pendingReq)
+  swapOnConnect = true
+  await rt.connectorEndpoint('mail-send-answer', { requestId: pendingReq.id, choice: 'send' })
+  assert.equal(pendingReq.status, 'failed')
+  assert.match(String(pendingReq.error), /regular file|EISDIR|directory/i)
+  assert.equal(sent, 0)
+
+  // Auto-send path: recreate regular file, then swap to FIFO/dir during connect().
+  rmSync(regularFile, { recursive: true, force: true })
+  writeFileSync(regularFile, 'initial-2')
+  await rt.connectorEndpoint('mail-rule-set', { botId: 'm1', noDraft: true })
+  swapOnConnect = true
+  await assert.rejects(
+    () => send.execute({ to: 'a@b.test', subject: 'Auto', body: 'B', attachments: ['swap.bin'] }, { agent: { id: 'm1' }, callId: 'c3', concludeTurn: () => {} }),
+    /regular file|EISDIR|directory/i,
+  )
+  assert.equal(sent, 0)
+})
+
 test('gmail transport: search, read (plain + html edge cases), draft, send with attachments, modify, trash, and one refresh on 401', async (t) => {
   const calls = []
   let refreshes = 0
