@@ -20728,9 +20728,12 @@ function chatOfSession(roster, sessionId) {
   if (room2 !== void 0) return { id: room2.id, part: room2.sessionId ?? room2.id };
   return void 0;
 }
-function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage, { deferMs = 0 } = {}) {
+function keepDraftFiles({ chatId, part, files }) {
   if (files.length === 0) keptFiles.delete(chatId);
   else keptFiles.set(chatId, { part, files: [...files] });
+}
+function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage, { deferMs = 0 } = {}) {
+  keepDraftFiles({ chatId, part, files });
   const entry = entryFor(storage);
   const texts2 = entry.texts;
   const before = texts2[chatId];
@@ -62115,7 +62118,7 @@ function DraftKeeper({
       const livePartDraft = hasLivePartDraft({ chatId, part: sessionId });
       if (draft !== watch2.text || livePartDraft) {
         if (draft === watch2.text && livePartDraft) {
-          skippedLiveDraft.current = { key, draft, idsKey: ids.join("\0") };
+          skippedLiveDraft.current = { key, draft };
         }
         dropSentDraft({ chatId, sessionId });
       } else if (isSentAdmitted(watch2, { chat, pendingSubmissions, queue: queue2, nextStep })) {
@@ -62173,8 +62176,13 @@ function DraftKeeper({
     restored.current = key;
     const wasDeferred = deferredRestore.current;
     deferredRestore.current = false;
-    if (wasDeferred && !restoredText && !restoredFiles && (draft !== "" || ids.length > 0) && !hasLivePartDraft({ chatId, part: sessionId })) {
-      keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles?.(ids) ?? [] }, void 0, { deferMs: DRAFT_DEBOUNCE_MS });
+    if (wasDeferred && !restoredText && !restoredFiles && (draft !== "" || ids.length > 0)) {
+      const files = actions.draftFiles?.(ids) ?? [];
+      if (hasLivePartDraft({ chatId, part: sessionId })) {
+        if (files.length > 0) keepDraftFiles({ chatId, part: sessionId, files });
+      } else {
+        keepDraft({ chatId, part: sessionId, text: draft, files }, void 0, { deferMs: DRAFT_DEBOUNCE_MS });
+      }
     }
     if (!ok && back.files.length > 0) actions.notice?.(t("The files attached to this draft could not be put back."));
   }, [current2, frozen, rescueBlocked, hasChips, chatId, sessionId, key, inputActions, draft, rescued, openState, chat, lastUserSeq, pendingSubmissions, queue2, nextStep]);
@@ -62243,7 +62251,10 @@ function DraftKeeper({
     if (pending.current.files && ids.length === 0) return;
     pending.current = { text: false, staleDraft: null, files: false };
     if (skippedLiveDraft.current?.key === key) {
-      if (draft === skippedLiveDraft.current.draft && ids.join("\0") === skippedLiveDraft.current.idsKey) return;
+      if (draft === skippedLiveDraft.current.draft) {
+        keepDraftFiles({ chatId, part: sessionId, files: actions.draftFiles?.(ids) ?? [] });
+        return;
+      }
       skippedLiveDraft.current = null;
     }
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) }, void 0, { deferMs: DRAFT_DEBOUNCE_MS });

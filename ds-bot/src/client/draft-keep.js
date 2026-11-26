@@ -128,14 +128,23 @@ export function chatOfSession(roster, sessionId) {
 }
 
 /**
+ * Keep only this page's in-memory attachment draft for `part` without touching shared
+ * text storage (for example when another tab owns a newer live text draft).
+ * @param {{ chatId: string, part: string, files: readonly { kind: string, file: File }[] }} draft
+ */
+export function keepDraftFiles({ chatId, part, files }) {
+  if (files.length === 0) keptFiles.delete(chatId)
+  else keptFiles.set(chatId, { part, files: [...files] })
+}
+
+/**
  * Keep the draft of a chat's current part. A send or a cleared box leaves nothing.
  * @param {{ chatId: string, part: string, text: string, files: readonly { kind: string, file: File }[] }} draft
  * @param {Storage} [storage]
  * @param {{ deferMs?: number }} [options]
  */
 export function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage, { deferMs = 0 } = {}) {
-  if (files.length === 0) keptFiles.delete(chatId)
-  else keptFiles.set(chatId, { part, files: [...files] })
+  keepDraftFiles({ chatId, part, files })
   const entry = entryFor(storage)
   const texts = entry.texts
   const before = texts[chatId]

@@ -1326,3 +1326,69 @@ test('isSentAdmitted matches inline quote replies whose body contains whitespace
     { pendingSubmissions: [{ requestId: 'r-ws-2', text: '> quote\n\nExplain\n \nMore' }] },
   ), false)
 })
+
+test('preserving another tab\'s live text draft still keeps this page\'s private attachment draft (#2003 review)', async () => {
+  for (const mode of ['direct', 'deferred']) {
+    const ls = memoryStorage()
+    const tabA = loadKeeper(ls, { setTimeout, clearTimeout })
+    const tabB = loadKeeper(ls, { setTimeout, clearTimeout })
+    const setA = []
+    const setB = []
+    const restoredNames = []
+    const localFile = image('local-image.png')
+    const extraFile = image('extra-image.png')
+    const fileMap = { 'att-1': localFile, 'att-2': extraFile }
+    const stateA = { draft: 'Run the tests', attachmentIds: [], phase: 'plain', queue: [] }
+    const stateB = { draft: 'Review the results', attachmentIds: [], phase: 'plain', queue: [] }
+    const hostA = sessionHooks({ openState: 'open' })
+    const hostB = sessionHooks({ openState: 'open' })
+    const propsA = {
+      ...draftKeeperProps(stateA, setA, hostA),
+      actions: {
+        draftFiles: ids => ids.map(id => fileMap[id]).filter(Boolean),
+        restoreDraftFiles: (_sid, files) => {
+          restoredNames.push(...files.map(file => file.name))
+          return files.map((_file, idx) => `restored-${idx}`)
+        },
+        releaseDraftFiles: () => {},
+        reopenPastes: () => {},
+      },
+    }
+    const propsB = draftKeeperProps(stateB, setB, hostB)
+
+    // Tab A starts a send, switches away, and Tab B saves a competing live text draft.
+    tabA.render(propsA)
+    stateA.phase = 'sending'
+    tabA.render(propsA)
+
+    tabB.render(propsB)
+    await new Promise(resolve => setTimeout(resolve, 350))
+    assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'Review the results' } })
+
+    // Tab A returns with a local attachment while the box still holds the sent text.
+    stateA.phase = 'plain'
+    stateA.attachmentIds = ['att-1']
+    if (mode === 'deferred') {
+      hostA.session.openState = 'loading'
+      tabA.remount(propsA)
+      hostA.session.openState = 'open'
+      tabA.render(propsA)
+    } else {
+      tabA.remount(propsA)
+    }
+    await new Promise(resolve => setTimeout(resolve, 350))
+    assert.deepEqual(setA, [], `${mode}: must not clear composer text`)
+    assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'Review the results' } }, `${mode}: Tab B text stays intact`)
+
+    // Adding a second attachment in Tab A without editing text updates private files only.
+    stateA.attachmentIds = ['att-1', 'att-2']
+    tabA.render(propsA)
+    await new Promise(resolve => setTimeout(resolve, 350))
+    assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'Review the results' } }, `${mode}: attachment change does not overwrite Tab B text`)
+
+    // Tab A switches away and remounts with empty attachments -> private attachments restore.
+    stateA.attachmentIds = []
+    tabA.remount(propsA)
+    assert.deepEqual(restoredNames, ['local-image.png', 'extra-image.png'], `${mode}: private attachments survive competing Tab B text draft`)
+  }
+})
