@@ -18,6 +18,8 @@ const LIVE_DELAY_MS = 150
 // A window that stops reading is dropped once this many events wait for it; it
 // reconnects and catches up from `hello`.
 const MAX_QUEUED = 512
+// Evict stalled stream entries whose `end` frame was lost (e.g. abrupt provider disconnect).
+const WRITING_TTL_MS = 5 * 60_000
 
 export function install(rt) {
   const { ctx, state } = rt
@@ -31,19 +33,39 @@ export function install(rt) {
     }
     try { controller.enqueue(chunk) } catch { leave(controller) }
   }
-  const publish = (event, data) => {
-    for (const tap of taps) {
-      try { tap(event, data) } catch { /* taps are isolated from the feed */ }
-    }
+  const publishLocal = (event, data) => {
     if (clients.size === 0) return
     const chunk = encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
     for (const controller of clients) send(controller, chunk)
   }
+  const publish = (event, data) => {
+    for (const tap of taps) {
+      try { tap(event, data) } catch { /* taps are isolated from the feed */ }
+    }
+    publishLocal(event, data)
+  }
+
+  // Attempts being streamed, by id. A turn that answers another Bot is hidden from the
+  // chat (turns.js marks it before the model is called), so its text is not streamed.
+  const writing = new Map()
+  const pruneWriting = (now = Date.now()) => {
+    for (const [id, entry] of writing) {
+      if (rt.live?.get(entry.sessionId)?.turn !== undefined) continue
+      if (now - entry.updatedAt > WRITING_TTL_MS) writing.delete(id)
+    }
+  }
+  const clearWritingFor = (sessionId) => {
+    if (sessionId === undefined) return
+    for (const [id, entry] of writing) {
+      if (entry.sessionId === sessionId) writing.delete(id)
+    }
+  }
 
   const feedHello = () => ({ revision: state.revision, ...(rt.noticeCursor ? { api: rt.apiVersion, ...rt.noticeCursor() } : {}) })
   const replay = (listener) => {
+    pruneWriting()
     listener('hello', feedHello())
-    for (const [attemptId, { text, ...target }] of writing) {
+    for (const [attemptId, { text, updatedAt: _updatedAt, ...target }] of writing) {
       listener('stream', { ...target, attemptId, phase: 'start' })
       if (text !== '') listener('stream', { ...target, attemptId, text })
     }
@@ -66,6 +88,10 @@ export function install(rt) {
   rt.publishFeed = (event, data) => {
     if (listening()) publish(event, data)
   }
+  // Computer-local SSE only (never fans out to paired phones, browsers, or remote RPC taps).
+  rt.publishLocalFeed = (event, data) => {
+    publishLocal(event, data)
+  }
 
   let liveTimer
   const live = () => {
@@ -75,34 +101,42 @@ export function install(rt) {
       publish('live', {})
     }, LIVE_DELAY_MS)
   }
-  ctx.on('agent/status', ({ agent }) => {
+  ctx.on('agent/status', ({ agent, status }) => {
+    if (status === 'idle') clearWritingFor(agent?.id)
     if (rt.selfOf(agent.id) !== undefined || rt.agentOf?.(agent.id) !== undefined) live()
+  })
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    clearWritingFor(agent?.id)
   })
 
   ctx.on('session/event', (session, event) => {
     if (!listening()) return
+    if (rt.taskOwners?.has(session.id)) return
     const botId = rt.chatOwners.get(session.id)
     if (botId === undefined) return
     for (const item of rt.displayItems(session.id, [event])) publish('message', { botId, sessionId: session.id, item })
     if (event.type === 'tool/call') live()
   })
 
-  // Attempts being streamed, by id. A turn that answers another Bot is hidden from the
-  // chat (turns.js marks it before the model is called), so its text is not streamed.
-  const writing = new Map()
   ctx.on('agent/assistant-stream', ({ agent, frame }) => {
     if (frame.type === 'start') {
+      if (rt.taskOwners?.has(agent.id)) return
+      const now = Date.now()
+      pruneWriting(now)
       const botId = rt.chatOwners.get(agent.id)
       if (botId === undefined || (state.exchangeTurns[agent.id] ?? []).includes(frame.turn)) return
-      writing.set(frame.attemptId, { botId, sessionId: agent.id, text: '' })
+      writing.set(frame.attemptId, { botId, sessionId: agent.id, text: '', updatedAt: now })
       publish('stream', { botId, sessionId: agent.id, attemptId: frame.attemptId, phase: 'start' })
       return
     }
     const target = writing.get(frame.attemptId)
     if (target === undefined) return
-    if (frame.type === 'chunk' && frame.chunk?.type === 'text-delta') {
-      target.text += frame.chunk.text
-      publish('stream', { botId: target.botId, sessionId: target.sessionId, attemptId: frame.attemptId, text: frame.chunk.text })
+    if (frame.type === 'chunk') {
+      target.updatedAt = Date.now()
+      if (frame.chunk?.type === 'text-delta') {
+        target.text += frame.chunk.text
+        publish('stream', { botId: target.botId, sessionId: target.sessionId, attemptId: frame.attemptId, text: frame.chunk.text })
+      }
     }
     else if (frame.type === 'end') {
       writing.delete(frame.attemptId)
@@ -153,6 +187,7 @@ export function install(rt) {
       clearTimeout(liveTimer)
       offSaved()
       for (const controller of clients) leave(controller)
+      taps.clear()
       writing.clear()
     }
   }, 'ds-bot: live feed')

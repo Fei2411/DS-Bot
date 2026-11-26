@@ -120,11 +120,11 @@ test('a request with an id is delivered once, and a repeat gives the first recei
   const { agents, tool, stop } = await boot(home, team())
   t.after(async () => { await stop(); cleanup(home) })
 
-  const first = await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
-  assert.equal(first, 'Delivered to Writer. Its reply will arrive later as a new message; do not wait for it.')
+  const first = await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
+  assert.match(first, /^Delegated work #W\d+ to Writer\./)
   assert.equal(agents.get('b').calls.length, 1)
 
-  const again = await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  const again = await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
   assert.equal(again, first)
   assert.equal(agents.get('b').calls.length, 1)
 })
@@ -136,12 +136,12 @@ test('the same request id with other content is refused, and nothing goes out', 
   const { agents, tool, stop } = await boot(home, seed)
   t.after(async () => { await stop(); cleanup(home) })
 
-  await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
-  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'do another thing', request_id: 'r-1' }, 'a'), /request_id "r-1" was already used for a different request/)
+  await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
+  await assert.rejects(tool('delegate_work', { to: 'Writer', goal: 'do another thing', request_id: 'r-1' }, 'a'), /request_id "r-1" was already used for a different request/)
   assert.equal(agents.get('b').calls.length, 1)
   // Another target under the same name is another request, and is refused as well.
-  await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-2' }, 'c')
-  await assert.rejects(tool('message_bot', { to: 'Chief', message: 'do the thing', request_id: 'r-2' }, 'c'), /request_id "r-2" was already used for a different request/)
+  await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-2' }, 'c')
+  await assert.rejects(tool('delegate_work', { to: 'Chief', goal: 'do the thing', request_id: 'r-2' }, 'c'), /request_id "r-2" was already used for a different request/)
   assert.equal(agents.get('a')?.calls.length ?? 0, 0)
 })
 
@@ -152,8 +152,8 @@ test('two callers with the same request id do not collide', async (t) => {
   const { agents, tool, stop } = await boot(home, seed)
   t.after(async () => { await stop(); cleanup(home) })
 
-  await tool('message_bot', { to: 'Writer', message: 'from Chief', request_id: 'r-1' }, 'a')
-  await tool('message_bot', { to: 'Writer', message: 'from Tester', request_id: 'r-1' }, 'c')
+  await tool('delegate_work', { to: 'Writer', goal: 'from Chief', request_id: 'r-1' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'from Tester', request_id: 'r-1' }, 'c')
   assert.equal(agents.get('b').calls.length, 2)
 })
 
@@ -163,8 +163,8 @@ test('two calls at once with the same request id admit it once', async (t) => {
   t.after(async () => { await stop(); cleanup(home) })
 
   const [first, second] = await Promise.all([
-    tool('message_bot', { to: 'Writer', message: 'same request', request_id: 'r-1' }, 'a'),
-    tool('message_bot', { to: 'Writer', message: 'same request', request_id: 'r-1' }, 'a'),
+    tool('delegate_work', { to: 'Writer', goal: 'same request', request_id: 'r-1' }, 'a'),
+    tool('delegate_work', { to: 'Writer', goal: 'same request', request_id: 'r-1' }, 'a'),
   ])
   assert.equal(first, second)
   assert.equal(agents.get('b').calls.length, 1)
@@ -173,12 +173,12 @@ test('two calls at once with the same request id admit it once', async (t) => {
 test('a repeat after a restart gives the receipt back and sends nothing', async (t) => {
   const home = tempHome()
   const first = await boot(home, team())
-  const receipt = await first.tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  const receipt = await first.tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
   await first.stop()
 
   const again = await boot(home)
   t.after(async () => { await again.stop(); cleanup(home) })
-  const out = await again.tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  const out = await again.tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
   assert.equal(out, receipt)
   assert.equal(freshSends(again.agentOf('b')).length, 0)
 })
@@ -188,10 +188,10 @@ test('a repeat after the recipient read the message does not send it again', asy
   const { agents, emit, tool, stop } = await boot(home, team())
   t.after(async () => { await stop(); cleanup(home) })
 
-  const first = await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  const first = await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
   const delivered = agents.get('b').calls[0][1]
   emit('b', 'user/message', { content: delivered.content, source: delivered.source })
-  const again = await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  const again = await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
   assert.equal(again, first)
   assert.equal(agents.get('b').calls.length, 1)
 })
@@ -204,31 +204,31 @@ test('a request whose delivery failed is not sent again', async (t) => {
   const writer = agentOf('b')
   const steer = writer.steer
   writer.steer = () => { throw new Error('dsh is down') }
-  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a'), /dsh is down/)
+  await assert.rejects(tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a'), /dsh is down/)
   writer.steer = steer
   // The outcome of that admission is not known, so it is not sent again.
-  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a'), /outcome of request_id "r-1" is not known/)
+  await assert.rejects(tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a'), /outcome of request_id "r-1" is not known/)
   assert.equal(writer.calls.length, 0)
 })
 
-test('a request with an id takes in the message before it, and a repeat merges nothing', async (t) => {
+test('separate request IDs get separate assignments; retrying one does not enqueue it again', async (t) => {
   const home = tempHome()
   const { agentOf, emit, tool, stop } = await boot(home, team())
   t.after(async () => { await stop(); cleanup(home) })
 
   const writer = agentOf('b')
-  writer.steer = (message) => { writer.calls.push(['steer', message]); writer.inbox.nextStep.push(message) }
+  writer.followup = (message) => { writer.calls.push(['followup', message]); writer.inbox.nextTurn.push(message) }
   emit('b', 'turn/start', { turn: 1 })
 
-  const first = await tool('message_bot', { to: 'Writer', message: 'task 1', request_id: 'r-1' }, 'a')
-  const second = await tool('message_bot', { to: 'Writer', message: 'task 2', request_id: 'r-2' }, 'a')
-  assert.match(second, /had not read your earlier message yet/)
-  assert.equal(writer.inbox.nextStep.length, 1)
+  const first = await tool('delegate_work', { to: 'Writer', goal: 'task 1', request_id: 'r-1', when: 'queue' }, 'a')
+  const second = await tool('delegate_work', { to: 'Writer', goal: 'task 2', request_id: 'r-2', when: 'queue' }, 'a')
+  assert.match(second, /#W2/)
+  assert.equal(writer.inbox.nextTurn.length, 2)
 
-  const again = await tool('message_bot', { to: 'Writer', message: 'task 1', request_id: 'r-1' }, 'a')
+  const again = await tool('delegate_work', { to: 'Writer', goal: 'task 1', request_id: 'r-1', when: 'queue' }, 'a')
   assert.equal(again, first)
-  assert.equal(writer.inbox.nextStep.length, 1)
-  assert.equal(writer.inbox.nextStep[0].source.exchangeId, writer.calls[0][1].source.exchangeId)
+  assert.equal(writer.inbox.nextTurn.length, 2)
+  assert.equal(writer.inbox.nextTurn[0].source.exchangeId, writer.calls[0][1].source.exchangeId)
 })
 
 test('a request with an id that queues, or that answers the user, goes out once', async (t) => {
@@ -238,14 +238,14 @@ test('a request with an id that queues, or that answers the user, goes out once'
 
   // Writer is working, so a request that waits for its current work is queued.
   emit('b', 'turn/start', { turn: 1 })
-  const queued = await tool('message_bot', { to: 'Writer', message: 'later', when: 'queue', request_id: 'r-1' }, 'a')
-  assert.match(queued, /^Queued for Writer/)
+  const queued = await tool('delegate_work', { to: 'Writer', goal: 'later', when: 'queue', request_id: 'r-1' }, 'a')
+  assert.match(queued, /^Queued work #W\d+ for Writer/)
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup'])
-  assert.equal(await tool('message_bot', { to: 'Writer', message: 'later', when: 'queue', request_id: 'r-1' }, 'a'), queued)
+  assert.equal(await tool('delegate_work', { to: 'Writer', goal: 'later', when: 'queue', request_id: 'r-1' }, 'a'), queued)
 
-  const toUser = await tool('message_bot', { to: 'Writer', message: 'tell them', reply_to: 'user', request_id: 'r-2' }, 'a')
+  const toUser = await tool('delegate_work', { to: 'Writer', goal: 'tell them', deliver_to: 'user', request_id: 'r-2' }, 'a')
   assert.match(toUser, /It will answer the user in its own chat/)
-  assert.equal(await tool('message_bot', { to: 'Writer', message: 'tell them', reply_to: 'user', request_id: 'r-2' }, 'a'), toUser)
+  assert.equal(await tool('delegate_work', { to: 'Writer', goal: 'tell them', deliver_to: 'user', request_id: 'r-2' }, 'a'), toUser)
   assert.equal(agents.get('b').calls.length, 2)
 })
 
@@ -257,11 +257,11 @@ test('a request with an id in a group calls the member once', async (t) => {
   t.after(async () => { await stop(); cleanup(home) })
 
   let posts = 0
-  rt.roomStepText = async () => { posts += 1 }
-  const first = await tool('message_bot', { to: 'Writer', message: 'do it', request_id: 'r-1' }, 'ga')
+  rt.postToRoom = async (_room, _sender, _body, post) => { assert.deepEqual(post.route.to, ['b']); posts += 1 }
+  const first = await tool('delegate_work', { to: 'Writer', goal: 'do it', request_id: 'r-1' }, 'ga')
   assert.match(first, /^Called Writer in "Ops"/)
   assert.equal(posts, 1)
-  assert.equal(await tool('message_bot', { to: 'Writer', message: 'do it', request_id: 'r-1' }, 'ga'), first)
+  assert.equal(await tool('delegate_work', { to: 'Writer', goal: 'do it', request_id: 'r-1' }, 'ga'), first)
   assert.equal(posts, 1)
 })
 
@@ -270,7 +270,7 @@ test('a request that was in the air when DS Bot stopped is not sent again', asyn
   const first = await boot(home, team())
   // The delivery hangs, as it would when DS Bot stops in the middle of it.
   first.ctx.sessions.flush = async () => new Promise(() => {})
-  const inFlight = first.tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  const inFlight = first.tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
   inFlight.catch(() => {})
   for (let count = 0; count < 200 && Object.keys(first.rt.state.requests).length === 0; count += 1) await delay(10)
   assert.equal(Object.keys(first.rt.state.requests).length, 1)
@@ -280,7 +280,7 @@ test('a request that was in the air when DS Bot stopped is not sent again', asyn
   const again = await boot(home)
   t.after(async () => { await again.stop(); cleanup(home) })
   // The outcome of that admission is not known, so it is not sent again.
-  await assert.rejects(again.tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a'), /outcome of request_id "r-1" is not known/)
+  await assert.rejects(again.tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a'), /outcome of request_id "r-1" is not known/)
   assert.equal(freshSends(again.agentOf('b')).length, 0)
 })
 
@@ -289,10 +289,10 @@ test('a name whose receipt is no longer kept is not used again', async (t) => {
   const { rt, agents, tool, stop } = await boot(home, team())
   t.after(async () => { await stop(); cleanup(home) })
 
-  await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
   // The receipt falls out of what is kept; the name itself stays taken.
   for (const record of Object.values(rt.state.requests)) record.receipt = undefined
-  const out = await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  const out = await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
   assert.match(out, /Nothing was sent again: request_id "r-1" was admitted before/)
   assert.equal(agents.get('b').calls.length, 1)
 })
@@ -304,12 +304,12 @@ test('a request whose receipt cannot be saved is not sent', async (t) => {
 
   const save = rt.save
   rt.save = async () => { throw new Error('the disk is full') }
-  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a'), /the disk is full/)
+  await assert.rejects(tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a'), /the disk is full/)
   assert.equal(agents.get('b')?.calls.length ?? 0, 0)
   // Nothing went out, so the name is free again.
   rt.save = save
-  const out = await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
-  assert.match(out, /^Delivered to Writer/)
+  const out = await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
+  assert.match(out, /^Delegated work #W\d+ to Writer/)
   assert.equal(agents.get('b').calls.length, 1)
 })
 
@@ -318,8 +318,8 @@ test('calls without a request id are sent as they were', async (t) => {
   const { agents, tool, stop } = await boot(home, team())
   t.after(async () => { await stop(); cleanup(home) })
 
-  await tool('message_bot', { to: 'Writer', message: 'one' }, 'a')
-  await tool('message_bot', { to: 'Writer', message: 'two' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'one' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'two' }, 'a')
   assert.equal(agents.get('b').calls.length, 2)
 })
 
@@ -328,12 +328,12 @@ test('the receipt of a request is kept in the team file', async (t) => {
   const { tool, stop } = await boot(home, team())
   t.after(async () => { await stop(); cleanup(home) })
 
-  await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }, 'a')
   const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   const receipts = Object.values(saved.requests)
   assert.equal(receipts.length, 1)
   assert.equal(receipts[0].outcome, 'delivered')
-  assert.match(receipts[0].receipt, /^Delivered to Writer/)
+  assert.match(receipts[0].receipt, /^Delegated work #W\d+ to Writer/)
 })
 
 for (const reason of ['stopped', 'lock lost']) {
@@ -341,16 +341,16 @@ for (const reason of ['stopped', 'lock lost']) {
     const home = tempHome()
     const host = await boot(home, team())
     t.after(async () => { await host.stop(); cleanup(home) })
-    const args = { to: 'Writer', message: 'do the thing', request_id: 'r-1' }
+    const args = { to: 'Writer', goal: 'do the thing', request_id: 'r-1' }
     let attempt
     let closing
     if (reason === 'stopped') {
-      attempt = host.tool('message_bot', args, 'a')
+      attempt = host.tool('delegate_work', args, 'a')
       // The call has started but has not reached admission when its host closes.
       closing = host.stop()
     } else {
       writeFileSync(join(home, 'state.lock'), JSON.stringify({ pid: 1, host: `${hostname()}-other`, token: 'other-writer', since: Date.now() }))
-      attempt = host.tool('message_bot', args, 'a')
+      attempt = host.tool('delegate_work', args, 'a')
     }
     await assert.rejects(attempt, /cannot save|cannot be saved/i)
     await closing
@@ -358,3 +358,34 @@ for (const reason of ['stopped', 'lock lost']) {
     assert.equal(Object.keys(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).requests ?? {}).length, 0)
   })
 }
+
+test('a group waitsOnMember refusal does not poison request_id as uncertain', async (t) => {
+  const seed = team({ group: true })
+  seed.rooms.r1.sessions.a = 'ga'
+  seed.rooms.r1.sessions.b = 'gb'
+  const home = tempHome()
+  const { rt, tool, stop } = await boot(home, seed)
+  t.after(async () => { await stop(); cleanup(home) })
+  await rt.load()
+  rt.state.roomBatches = {
+    b1: { key: 'b1', roomId: 'r1', by: 'a', pending: ['b'], done: [], doneIds: [], results: [], worked: false, direct: true, returnRequested: true, answered: false, at: Date.now() },
+  }
+
+  let posts = 0
+  rt.postToRoom = async (_room, _sender, _body, post) => { assert.deepEqual(post.route.to, ['a']); posts += 1 }
+
+  // While Chief ('a') is waiting on Writer ('b'), delegating back to Chief is refused BEFORE admitting request_id.
+  await assert.rejects(
+    tool('delegate_work', { to: 'Chief', goal: 'verify backup', request_id: 'verify-backup' }, 'gb'),
+    /already waiting for your result/,
+  )
+  assert.equal(posts, 0)
+  assert.equal(Object.keys(rt.state.requests ?? {}).length, 0, 'refused upstream wait must not persist an uncertain request_id')
+
+  // Once the upstream wait ends, reusing the exact same request_id succeeds cleanly.
+  delete rt.state.roomBatches.b1
+  await rt.save()
+  const out = await tool('delegate_work', { to: 'Chief', goal: 'verify backup', request_id: 'verify-backup' }, 'gb')
+  assert.match(out, /Called Chief in "Ops"/)
+  assert.equal(posts, 1)
+})

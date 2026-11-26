@@ -117,22 +117,59 @@ async function postUnifiedPush(endpoint, bodyText, urgency, signal, allowLoopbac
 export function remoteAccessError(device, endpoint) {
   if (device === undefined) return { code: 'bot/refused', message: 'This device is not paired', details: {} }
   if (endpoint.startsWith('phone-')) return { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} }
+  // A Session's whole log, any Session's (session-follow.js), is read by the window on the
+  // computer; a phone reads the team's chats.
+  if (endpoint.startsWith('session-')) return { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} }
+  if (endpoint.startsWith('api-')) return { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} }
   if (device.kind !== 'phone' && !BROWSER_ALLOWED.has(endpoint)) {
     return { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
   }
   if (endpoint.startsWith('mcp-')) return { code: 'bot/refused', message: 'MCP access is set up on the computer', details: {} }
+  if (endpoint.startsWith('workspace-') || endpoint.startsWith('terminal-')) {
+    return { code: 'bot/refused', message: 'Workspace files and terminals are available on the computer', details: {} }
+  }
+  if (endpoint.startsWith('engine-')) {
+    return { code: 'bot/refused', message: 'Engine settings are managed on the computer', details: {} }
+  }
+  if (endpoint.startsWith('plugins-')) {
+    return { code: 'bot/refused', message: 'Plugins are managed on the computer', details: {} }
+  }
+  if (endpoint.startsWith('speech-')) {
+    return { code: 'bot/refused', message: 'Voice input settings and transcription are available on the computer', details: {} }
+  }
+  if (endpoint.startsWith('telemetry-')) {
+    return { code: 'bot/refused', message: 'Privacy and telemetry settings are managed on the computer', details: {} }
+  }
   return undefined
 }
 
-// A browser may not open DSH Agent chats, so it may not read their media either.
+// A browser may not open DSH Agent chats, so it may not read their media or answer their approvals either.
 const AGENT_MEDIA = new Set(['image', 'file-download', 'markdown-image'])
+const BROWSER_DENIED = { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
-function remoteState(state) {
-  if (!state?.phone || !Object.hasOwn(state.phone, 'pairing')) return state
-  const phone = { ...state.phone }
-  delete phone.pairing
-  return { ...state, phone }
+function remoteState(state, { browser = false } = {}) {
+  if (!state || typeof state !== 'object') return state
+  let next = state
+  if (next.phone && Object.hasOwn(next.phone, 'pairing')) {
+    const phone = { ...next.phone }
+    delete phone.pairing
+    next = { ...next, phone }
+  }
+  if (browser && Array.isArray(next.work?.approvals)) {
+    const approvals = next.work.approvals.filter(entry => entry?.botId !== undefined)
+    if (approvals.length !== next.work.approvals.length) {
+      next = { ...next, work: { ...next.work, approvals } }
+    }
+  }
+  return next
+}
+
+function remoteFolders(value) {
+  if (!value || typeof value !== 'object' || !Object.hasOwn(value, 'data')) return value
+  const copy = { ...value }
+  delete copy.data
+  return copy
 }
 
 export function install(rt) {
@@ -258,7 +295,17 @@ export function install(rt) {
     const wantFeed = running !== null && (readyCount > 0 || hasPushDevices())
     if (wantFeed && feedUntap === null) {
       feedUntap = rt.feedTap((event, payload) => {
-        if (readyCount > 0) running.emit(event, event === 'live' ? remoteState(payload) : payload)
+        if (event === 'terminal' || event === 'terminal-exit') return
+        if (readyCount > 0) {
+          if (event === 'live') {
+            running.emit(event, remoteState(payload, { browser: true }), (targetDeviceId) => {
+              const target = registry.list().find(entry => entry.deviceId === targetDeviceId)
+              return remoteState(payload, { browser: target?.kind !== 'phone' })
+            })
+          } else {
+            running.emit(event, payload)
+          }
+        }
         if (event === 'notice') enqueueOfflinePushes(payload)
       })
     } else if (!wantFeed && feedUntap !== null) {
@@ -300,9 +347,18 @@ export function install(rt) {
   // When the call carries `state` (the payload the phone would send `state`) and
   // it moved the team, the reply carries the new state too — one round trip
   // through the relay instead of waiting for the revision event and a read.
-  const agentMediaError = (device, endpoint, payload) =>
-    device.kind !== 'phone' && AGENT_MEDIA.has(endpoint) && rt.agentOf?.(String(payload?.sessionId ?? '')) !== undefined
-      ? { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
+  const agentApprovalDenied = (endpoint, payload) => {
+    if (endpoint !== 'approval-answer') return false
+    const id = String(payload?.id ?? '')
+    if (id === '') return false
+    const entry = rt.approvalById?.(id) ?? rt.approvalsView?.()?.find(item => item.id === id)
+    return entry !== undefined && (entry.botId === undefined || rt.agentOf?.(entry.sessionId) !== undefined)
+  }
+  const agentAccessError = (device, endpoint, payload) =>
+    device.kind !== 'phone'
+    && ((AGENT_MEDIA.has(endpoint) && rt.agentOf?.(String(payload?.sessionId ?? '')) !== undefined)
+      || agentApprovalDenied(endpoint, payload))
+      ? BROWSER_DENIED
       : undefined
   const callBot = async (params, signal, deviceId) => {
     const endpoint = String(params?.endpoint ?? '')
@@ -310,8 +366,9 @@ export function install(rt) {
     const device = typeof deviceId === 'string' && deviceId !== ''
       ? registry.list().find(entry => entry.deviceId === deviceId)
       : undefined
-    const denied = remoteAccessError(device, endpoint) ?? agentMediaError(device, endpoint, params?.payload)
+    const denied = remoteAccessError(device, endpoint) ?? agentAccessError(device, endpoint, params?.payload)
     if (denied !== undefined) return { ok: false, error: denied }
+    const browser = device.kind !== 'phone'
     if (endpoint === 'push-register') {
       const payload = params?.payload ?? {}
       if (payload?.kind !== 'unifiedpush') {
@@ -333,10 +390,14 @@ export function install(rt) {
     const wanted = params?.state !== null && typeof params?.state === 'object' && !Array.isArray(params.state) ? params.state : undefined
     const before = rt.state.revision
     const answer = await serve(endpoint, params?.payload ?? null, signal)
-    const result = endpoint === 'state' && answer?.ok === true ? { ...answer, value: remoteState(answer.value) } : answer
+    const result = endpoint === 'state' && answer?.ok === true
+      ? { ...answer, value: remoteState(answer.value, { browser }) }
+      : endpoint === 'folders' && answer?.ok === true
+        ? { ...answer, value: remoteFolders(answer.value) }
+        : answer
     if (wanted === undefined || result?.ok !== true || rt.state.revision === before) return result
     const state = await serve('state', wanted, signal).then(answer => (answer?.ok === true ? answer.value : undefined), () => undefined)
-    return state === undefined ? result : { ...result, state: remoteState(state) }
+    return state === undefined ? result : { ...result, state: remoteState(state, { browser }) }
   }
 
   const stop = () => {

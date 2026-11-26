@@ -103,10 +103,10 @@ test('FTS and indexed history agree, including subsequent catch-up and empty rea
       assert.equal(db.prepare(sql).all(...args).length, 12)
     }
     const source = readFileSync(new URL('../src/host/chat-index.js', import.meta.url), 'utf8')
-    for (const name of ['before', 'from']) {
+    for (const [name, params] of [['before', ['s1', 6, 6]], ['from', ['s1', 6, 6]], ['between', ['s1', 3, 6, 6]]]) {
       const sql = new RegExp(`${name}: db.prepare\\('([^']+)'\\)`).exec(source)?.[1]
       assert.ok(sql)
-      const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all('s1', 6, 6).map(row => row.detail).join('\n')
+      const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params).map(row => row.detail).join('\n')
       assert.match(plan, /USING INDEX messages_session_seq/)
       assert.doesNotMatch(plan, /SCAN|TEMP B-TREE/)
     }

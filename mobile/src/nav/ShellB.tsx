@@ -13,6 +13,7 @@ import { clearChatNotifications, deliverSystemNotice } from '../team/notificatio
 import { ALL_NOTICE_KINDS, formatNoticeNotification, readNotifyPrefsFromRecord, type NoticeEntry, type OpenChatLink } from '../team/notifications.ts'
 import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { t } from '../ui/i18n.ts'
+import { roomTitle } from '../ui/phrases.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { FishLogo, GearIcon, PeopleIcon, PlusIcon, SearchIcon, SidebarIcon, SideIcon } from '../ui/icons.tsx'
@@ -219,7 +220,7 @@ function ChatScreenB({ route, navigation }: any) {
     void SecureStore.deleteItemAsync(LAST_KEY)
     if (fallback !== undefined) navigation.setParams({ kind: 'bot', id: fallback.id })
   }, [missing])
-  const header = <Header title={bot?.name ?? room?.name ?? agent?.name ?? ''} bot={bot} room={room} agent={agent} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={agent !== undefined ? undefined : () => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupDetails', { roomId: room.id }) }} onSide={bot !== undefined && bot.sessionId !== undefined ? () => navigation.navigate('Side', { bot, sessionId: bot.sessionId }) : undefined} />
+  const header = <Header title={bot?.name ?? (room && roomTitle(room)) ?? agent?.name ?? ''} bot={bot} room={room} agent={agent} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={agent !== undefined ? undefined : () => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupDetails', { roomId: room.id }) }} onSide={bot !== undefined && bot.sessionId !== undefined ? () => navigation.navigate('Side', { bot, sessionId: bot.sessionId }) : undefined} />
   if (team === null) return (
     <View style={{ flex: 1, backgroundColor: p.main }}>
       {header}

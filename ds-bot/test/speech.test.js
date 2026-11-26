@@ -1,6 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { hostname, tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createRuntime } from '../index.js'
 import { base64Of, closingReplyText, preparationStep, requestPreparation, speechCatalog, transcribeWave, turnDetector, waveBytes } from '../src/client/speech.js'
+import { spacedDictation } from '../src/client/composer.js'
+import { fakeContext } from './fake-ctx.js'
 
 const catalog = (phase, extra = {}) => ({
   providers: [{ id: 'sensevoice', preparation: { phase } }],
@@ -114,4 +120,56 @@ test('turnDetector ends a turn after a pause that follows speech', () => {
   assert.equal(detect(0.3, 1150), 'speech')
   assert.equal(detect(0.01, 1200), 'speech')
   assert.equal(detect(0.01, 2200), 'done')
+})
+
+test('spacedDictation separates adjacent Latin/numeric words without adding spaces around CJK or punctuation', () => {
+  assert.equal(spacedDictation('world', 'o', ''), ' world')
+  assert.equal(spacedDictation('world', ' ', ''), 'world')
+  assert.equal(spacedDictation('world', '', 's'), 'world ')
+  assert.equal(spacedDictation('world', 'o', 's'), ' world ')
+  assert.equal(spacedDictation('world', '.', ''), 'world')
+  assert.equal(spacedDictation('世界', '好', ''), '世界')
+  assert.equal(spacedDictation('世界', '', '呀'), '世界')
+  assert.equal(spacedDictation('API', '用', ''), 'API')
+})
+
+test('read-only host allows speech-catalog but refuses mutating speech-* endpoints with bot/read-only', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-speech-ro-'))
+  writeFileSync(join(home, 'state.lock'), JSON.stringify({ pid: process.ppid, host: hostname(), token: 'other' }))
+  const ctx = fakeContext()
+  const called = []
+  const speechController = {
+    catalog: async () => { called.push('catalog'); return catalog('ready') },
+    configure: async () => { called.push('configure'); return catalog('ready') },
+    prepare: async () => { called.push('prepare') },
+    cancelPreparation: async () => { called.push('cancel'); return true },
+    transcribe: async () => { called.push('transcribe'); return { text: 'hi' } },
+  }
+  ctx.get = key => (key === 'speechController' ? speechController : undefined)
+  let route
+  const register = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (options) => { route = options; return register(options) }
+  createRuntime(ctx, { home })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
+  const post = async (endpoint, payload) => {
+    const res = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
+    return res.json()
+  }
+
+  const readRes = await post('speech-catalog', {})
+  assert.equal(readRes.ok, true)
+  assert.equal(readRes.value.selection.providerId, 'sensevoice')
+
+  for (const [endpoint, payload] of [
+    ['speech-configure', { providerId: 'sensevoice' }],
+    ['speech-prepare', { providerId: 'sensevoice' }],
+    ['speech-cancel', { providerId: 'sensevoice' }],
+    ['speech-transcribe', { audioBase64: 'AQID' }],
+  ]) {
+    const res = await post(endpoint, payload)
+    assert.equal(res.ok, false, `${endpoint} must be refused in read-only mode`)
+    assert.equal(res.error.code, 'bot/read-only')
+  }
+  assert.deepEqual(called, ['catalog'], 'mutating speech controller methods must never run under read-only')
 })

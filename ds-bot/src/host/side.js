@@ -203,13 +203,17 @@ export function install(rt) {
     }
   }
 
+  // Whether the chat and entry still belong to a live Bot (ignoring plugin unload).
+  function present(botId, chat, entry) {
+    if (dropped.has(botId) || rt.botOf(botId) === undefined) return false
+    const list = chats.get(botId)
+    return list !== undefined && list.includes(chat) && (chat.entries ?? []).includes(entry)
+  }
+
   // The entry is gone when its Bot was deleted, this host is unloading, or the
   // chat itself was closed.
   function alive(botId, chat, entry) {
-    if (disposing || dropped.has(botId)) return false
-    if (rt.botOf(botId) === undefined) return false
-    const list = chats.get(botId)
-    return list !== undefined && list.includes(chat) && (chat.entries ?? []).includes(entry)
+    return !disposing && present(botId, chat, entry)
   }
 
   // Only the first writer wins. Cancel sets 'cancelled' before it aborts.
@@ -310,7 +314,7 @@ export function install(rt) {
       await persist(botId)
       // Unload keeps the saved entry for the next owner. Deletion already removed it.
       if (abandoned(botId) || !alive(botId, chat, entry)) {
-        if (disposing && !dropped.has(botId) && alive(botId, chat, entry)) return { chatId: chat.id, entryId: id }
+        if (disposing && present(botId, chat, entry)) return { chatId: chat.id, entryId: id }
         throw new Error('Unknown Bot')
       }
       const done = complete(botId, chat, entry, snapshot, controller.signal).finally(() => untrack(id))

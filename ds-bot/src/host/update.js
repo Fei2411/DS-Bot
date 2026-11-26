@@ -12,7 +12,7 @@ export const MIRROR_REGISTRY = 'https://registry.npmmirror.com/'
 export const CHECK_TTL_MS = 10 * 60_000
 export const FETCH_TIMEOUT_MS = 8000
 // The first check waits until the host has settled its own start.
-const STARTUP_DELAY_MS = 15_000
+const STARTUP_DELAY_MS = 90_000
 const VERSION = /^v?(\d+\.\d+\.\d+(?:-[\w.]+)?)(?:\+[\w.]+)?$/
 
 /** A release version without its `v` and build metadata, or null. */

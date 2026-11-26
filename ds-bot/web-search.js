@@ -542,6 +542,47 @@ const errorDetail = (text) => {
   } catch { return '' }
 }
 
+const MAX_SEARCH_RESPONSE_BYTES = 10 * 1024 * 1024
+const MEMORY_MAX_ENTRIES = 200
+
+async function readCappedText(response, maxBytes = MAX_SEARCH_RESPONSE_BYTES) {
+  const declared = Number(response.headers?.get?.('content-length'))
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel?.().catch(() => {})
+    throw Object.assign(new Error(`response exceeds ${Math.floor(maxBytes / 1024 / 1024)} MB cap`), { overLimit: true })
+  }
+  if (response.body && typeof response.body.getReader === 'function') {
+    const reader = response.body.getReader()
+    const chunks = []
+    let total = 0
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const bytes = Buffer.isBuffer(value)
+          ? value
+          : Buffer.from(value.buffer, value.byteOffset, value.byteLength)
+        total += bytes.byteLength
+        if (total > maxBytes) {
+          throw Object.assign(new Error(`response exceeds ${Math.floor(maxBytes / 1024 / 1024)} MB cap`), { overLimit: true })
+        }
+        chunks.push(bytes)
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => {})
+      throw error
+    } finally {
+      reader.releaseLock?.()
+    }
+    return Buffer.concat(chunks, total).toString('utf8')
+  }
+  const text = await response.text()
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+    throw Object.assign(new Error(`response exceeds ${Math.floor(maxBytes / 1024 / 1024)} MB cap`), { overLimit: true })
+  }
+  return text
+}
+
 /**
  * Build the `auto` search provider over injected effects, so tests run it without a host.
  * @param deps.route - the asking Session's route: `{ provider, model, api, baseURL, apiKeyEnv, account, headers }`.
@@ -555,6 +596,11 @@ export function createAutoSearchProvider(deps, config = {}) {
   const now = deps.now ?? Date.now
   // route + endpoint + model → `{ works: true }` or `{ until, reason }`, for this process.
   const memory = new Map()
+  const remember = (key, value) => {
+    memory.delete(key)
+    memory.set(key, value)
+    while (memory.size > MEMORY_MAX_ENTRIES) memory.delete(memory.keys().next().value)
+  }
 
   async function credentialFor(route, endpoint) {
     if (route.account) {
@@ -586,9 +632,10 @@ export function createAutoSearchProvider(deps, config = {}) {
         body: JSON.stringify(call.body),
         signal: signal === undefined ? timeout.signal : AbortSignal.any([signal, timeout.signal]),
       })
-      text = await response.text()
+      text = await readCappedText(response, MAX_SEARCH_RESPONSE_BYTES)
     } catch (error) {
       if (signal?.aborted) throw aborted(signal)
+      if (error?.overLimit === true) return { reason: `answered with a body over ${Math.floor(MAX_SEARCH_RESPONSE_BYTES / 1024 / 1024)} MB`, skip: 'ignored' }
       return timeout.signal.aborted ? { reason: `timed out after ${seconds(budget)}`, timedOut: true } : { reason: `request failed: ${reasonOf(error)}` }
     } finally {
       clearTimeout(timer)
@@ -635,7 +682,7 @@ export function createAutoSearchProvider(deps, config = {}) {
       if (remaining <= 0) { notes.push(`${where}: skipped, out of time`); continue }
       const outcome = await attempt(candidate, route, credential, request, signal, remaining, memo?.works === true)
       if (outcome.sources !== undefined) {
-        memory.set(keyOf(candidate), { works: true })
+        remember(keyOf(candidate), { works: true })
         return {
           result: {
             content: `Search backend: native search of this conversation's model route "${route.provider}": ${where}, billed to ${credential.via}.`,
@@ -645,7 +692,7 @@ export function createAutoSearchProvider(deps, config = {}) {
         }
       }
       notes.push(`${where}: ${outcome.reason}`)
-      if (outcome.skip !== undefined) memory.set(keyOf(candidate), { until: now() + SKIP_FOR[outcome.skip], reason: outcome.reason })
+      if (outcome.skip !== undefined) remember(keyOf(candidate), { until: now() + SKIP_FOR[outcome.skip], reason: outcome.reason })
       if (outcome.final) break
       // A timed-out attempt had all the time that was left, but the timer and now() use
       // different clocks, so now() can still read a millisecond before the deadline.

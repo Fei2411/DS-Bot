@@ -188,6 +188,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Not enough free storage space for the update': '手机剩余存储空间不足，无法下载更新',
   'Release does not provide a verified SHA-256 checksum for the Android APK.': '该版本未提供有效的 Android APK SHA-256 校验值。',
   'Release checksum mismatch between SHA256SUMS.txt and release metadata.': '版本校验文件 SHA256SUMS.txt 与发布元数据不一致。',
+  'Enter sends message': '回车发送消息', 'Follow computer': '跟随电脑', 'Always send': '总是发送', 'Always newline': '总是换行',
   'Model providers': '模型服务商', 'Secrets': '密钥', 'Connectors': '连接器',
   'Capabilities': '能力', 'Location': '位置', 'Updates & diagnostics': '更新和诊断',
   'About': '关于',

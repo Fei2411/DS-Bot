@@ -160,7 +160,7 @@ async function createLoopRig(t, seed = baseSeed()) {
   return { home, rt, agents, tool, stepGate, modes, deliveries }
 }
 
-async function createRestartHost(t, home, logs, services) {
+async function createRestartHost(t, home, logs, services, inspectOverride) {
   const ctx = fakeContext({ services })
   const agents = new Map()
   const agentOf = (sessionId) => {
@@ -183,10 +183,13 @@ async function createRestartHost(t, home, logs, services) {
     llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
     sessionController: {
+      // DSH's controller is a cordis service: its inspect reads this.ctx, so a
+      // detached call throws. The ctx stub lets an inspectOverride assert that.
+      ctx: { fixture: true },
       create: async () => ({ sessionId: 's1' }),
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
       selectModel: async () => {},
-      inspect: async sessionId => ({ events: logs.get(sessionId) ?? [] }),
+      inspect: inspectOverride ?? (async sessionId => ({ events: logs.get(sessionId) ?? [] })),
     },
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
@@ -208,11 +211,14 @@ test('a failed turn with steered follow-ups pushes only one failure notice per r
   const { home, rt, agents, tool, stepGate, modes, deliveries } = await createLoopRig(t)
 
   // Chief sends an initial task to Writer; Writer starts working and pauses in wait_step.
-  await tool('message_bot', { to: 'Writer', message: 'Run task 1' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'Run task 1' }, 'a')
   await settle(() => modes.callCount >= 1 && rt.live.get('b')?.tool === 'wait_step')
 
-  // While Writer is mid-turn, Chief steers a follow-up update (default when: 'now').
-  await tool('message_bot', { to: 'Writer', message: 'Also include check 2' }, 'a')
+  // A pre-upgrade inbox may still contain a second request steered into this turn.
+  const previous = agents.get('b').session.snapshotEvents().find(event => event.type === 'user/message' && event.data.source?.role === 'request').data
+  const id = 'earlier-steered-work'
+  const work = rt.openWork(id, { from: 'a', to: 'b', goal: 'Also include check 2' })
+  agents.get('b').steer({ ...previous, id, source: { ...previous.source, exchangeId: id, workRef: work.ref } })
   await settle(() => agents.get('b').inbox.nextStep.length === 1)
 
   // Let wait_step finish so Writer claims the steered follow-up and hits INVALID_REQUEST.
@@ -233,7 +239,7 @@ test('a failed turn with steered follow-ups pushes only one failure notice per r
   // A subsequent turn that fails with a new request_id still notifies Chief.
   modes.b = 'fail-once'
   modes.requestId = 'req-new-456'
-  await tool('message_bot', { to: 'Writer', message: 'Retry with clean args' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'Retry with clean args' }, 'a')
   await agents.get('b').whenIdle()
   await settle(() => deliveries.some(entry => entry.sessionId === 'a' && entry.source.role === 'reply' && entry.text.includes('req-new-456')))
   await agents.get('a').whenIdle()
@@ -459,6 +465,39 @@ test('restart settles a completed peer handoff task from disk and replies to the
   await host.stop()
 })
 
+test('restart settles a handoff task even when DSH inspect reads this.ctx', async (t) => {
+  // DSH's sessionController.inspect reads this.ctx on its first line: calling
+  // it detached from the controller throws synchronously, and resumeAll used
+  // to die there, leaving background tasks stuck on "running" forever (#2036).
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-task-ctx-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const seed = baseSeed()
+  seed.bots.b.tasks = [{ id: 'task-1', sessionId: 'b-task', title: 'Peer request', origin: 'bot-handoff', status: 'running', exchangeId: 'child' }]
+  seed.works = { child: { from: 'a', to: 'b', open: [], results: [], at: 1 } }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const request = { kind: 'bot', role: 'request', exchangeId: 'child', senderSessionId: 'a' }
+  const logs = new Map([['b-task', [
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'user/message', data: { source: request } },
+    { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Peer task finished.' }] } } },
+    { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ]]])
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: { 'b-task': { botId: 'b', since: 1, trigger: request } },
+    queued: {},
+  }))
+  const host = await createRestartHost(t, home, logs, undefined, async function inspect(sessionId) {
+    if (this === undefined || this.ctx === undefined) throw new TypeError("Cannot read properties of undefined (reading 'ctx')")
+    return { events: logs.get(sessionId) ?? [] }
+  })
+  t.mock.timers.tick(3000)
+  await settle(() => host.rt.state.bots.b.tasks[0].status === 'completed' && host.agentOf('a').calls.length > 0)
+  assert.equal(host.rt.state.bots.b.tasks[0].status, 'completed')
+  assert.match(textOf(host.agentOf('a').calls[0]), /Peer task finished./)
+  await host.stop()
+})
+
 async function checkUnreadTaskReply(t, inInbox) {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-task-queued-'))
@@ -501,6 +540,50 @@ async function checkUnreadTaskReply(t, inInbox) {
 test('restart replays an unread child reply in its background task without rerunning the earlier turn', t => checkUnreadTaskReply(t, false))
 
 test('restart keeps a task active when a child reply is still in the agent inbox', t => checkUnreadTaskReply(t, true))
+
+test('restart finds an unread task follow-up in the task’s successor inbox', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-moved-task-'))
+  const seed = baseSeed()
+  seed.bots.b.tasks = [{ id: 'task-1', sessionId: 'b-task-new', segments: [{ sessionId: 'b-task-old' }], title: 'Background task', status: 'running' }]
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const args = { toId: 'b', sessionId: 'b-task-old', role: 'task-followup', taskId: 'task-1', exchangeId: 'followup', text: 'Only for the task' }
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({ turns: {}, queued: { 'b-task-old': [{ at: 1, args }] } }))
+  const host = await createRestartHost(t, home, new Map())
+  t.after(async () => {
+    await host.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
+  host.agentOf('b-task-new').inbox.nextTurn.push({ source: { kind: 'bot', exchangeId: args.exchangeId } })
+  const reconciliation = t.mock.method(host.rt, 'reconcileTasksAfterRestart')
+  t.mock.timers.tick(3000)
+  await settle(() => reconciliation.mock.callCount() > 0)
+  await reconciliation.mock.calls[0].result
+  assert.deepEqual(host.agentOf('b').calls, [], 'the foreground must not receive the task follow-up')
+  assert.deepEqual(host.agentOf('b-task-new').calls, [], 'the successor inbox already has the follow-up')
+  assert.equal(host.rt.state.bots.b.tasks[0].status, 'running')
+})
+
+test('restart replays an unread Bot reply to the foreground when its task failed', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-failed-task-'))
+  const seed = baseSeed()
+  seed.bots.b.tasks = [{ id: 'task-1', sessionId: 'b-task', title: 'Background task', status: 'failed' }]
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const args = { fromId: 'a', toId: 'b', sessionId: 'b-task', role: 'reply', exchangeId: 'reply', text: 'Result for the failed task' }
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({ turns: {}, queued: { 'b-task': [{ at: 1, args }] } }))
+  const host = await createRestartHost(t, home, new Map())
+  t.after(async () => {
+    await host.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
+  const reconciliation = t.mock.method(host.rt, 'reconcileTasksAfterRestart')
+  t.mock.timers.tick(3000)
+  await settle(() => reconciliation.mock.callCount() > 0)
+  await reconciliation.mock.calls[0].result
+  assert.deepEqual(host.agentOf('b').calls.map(({ source }) => source.exchangeId), ['reply'])
+  assert.deepEqual(host.agentOf('b-task').calls, [])
+})
 
 test('answerSender keeps separate continuations for distinct parent works sharing a failed turn', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-parents-'))
@@ -708,10 +791,12 @@ test('a completed turn hands a steered request back after a restart', async (t) 
   assert.equal(handed[0].source.role, 'request')
   assert.equal(handed[0].source.deferred, true, 'it reads as one the Bot already read')
   assert.match(textOf(handed[0]), /second/, 'the request keeps its text')
-  assert.match(textOf(handed[0]), /answer it now/, 'it asks for the turn it still owes')
+  assert.match(textOf(handed[0]), /complete it now/, 'it asks for the turn it still owes')
   assert.deepEqual(handed[0].content.filter(block => block.type === 'image').map(block => block.attachment), [image], 'the attachments are kept')
 
-  const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  const readState = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  await settle(() => readState().works['req-1'] === undefined)
+  const state = readState()
   assert.equal(state.works['req-1'], undefined, 'the answered request is closed')
   assert.deepEqual(state.works['req-2'], seed.works['req-2'], 'the handed-back request keeps its work and parent')
   assert.deepEqual(state.works['p2'].open, ['req-2'], 'its parent work still waits for it')
@@ -847,10 +932,13 @@ test('recovery does not hand a request back again when the normal path delivered
 test('a deferred delivery that failed is sent again on retry in the same run', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-retry-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  let host
+  t.after(async () => {
+    await host?.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
   writeFileSync(join(home, 'state.json'), JSON.stringify(baseSeed()))
-  const host = await createRestartHost(t, home, new Map())
-  t.after(() => host.stop())
+  host = await createRestartHost(t, home, new Map())
   const agent = host.agentOf('b')
   const followup = agent.followup
   let follows = 0
@@ -869,10 +957,13 @@ test('a deferred delivery that failed is sent again on retry in the same run', a
 test('a concurrent duplicate waits for the delivery already going and shares its failure', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-concurrent-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  let host
+  t.after(async () => {
+    await host?.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
   writeFileSync(join(home, 'state.json'), JSON.stringify(baseSeed()))
-  const host = await createRestartHost(t, home, new Map())
-  t.after(() => host.stop())
+  host = await createRestartHost(t, home, new Map())
   const agent = host.agentOf('b')
   const followup = agent.followup
   let follows = 0

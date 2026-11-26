@@ -3,10 +3,9 @@
 import { isIP } from 'node:net'
 import { lookup } from 'node:dns/promises'
 import { request as httpsRequest } from 'node:https'
-import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { accessSync, constants, statSync } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
-import { dirname, isAbsolute } from 'node:path'
+import { dirname, posix, win32 } from 'node:path'
 import { replaceFile } from '../files.js'
 import { BUNDLED_PLUGIN_CATALOG, defaultRegistryUrl } from './registry-url.js'
 import { PLUGIN_CATEGORIES } from './sdk.js'
@@ -332,19 +331,82 @@ export function expandSecretValue(text, secretValueOf) {
   })
 }
 
+const EXECUTABLE_NEGATIVE_TTL_MS = 30_000
+const EXECUTABLE_NEGATIVE_CACHE_MAX = 200
+const negativeExecutableCache = new Map()
 let cachedRunnerKey = null
 let cachedRunner = null
-function hasExecutable(bin) {
-  if (!bin) return false
-  // Windows `where` fails on absolute paths; check filesystem directly for explicit paths.
-  if (isAbsolute(bin)) return existsSync(bin)
+
+function envLookup(env, name) {
+  if (!env || typeof env !== 'object') return undefined
+  if (Object.hasOwn(env, name)) return env[name]
+  const target = name.toLowerCase()
+  for (const key of Object.keys(env)) {
+    if (key.toLowerCase() === target) return env[key]
+  }
+  return undefined
+}
+
+function isExecutableFile(filePath, platform) {
   try {
-    const cmd = process.platform === 'win32' ? 'where' : 'which'
-    execFileSync(cmd, [bin], { stdio: 'ignore', timeout: 3000 })
+    const stat = statSync(filePath)
+    if (!stat.isFile()) return false
+    if (platform === 'win32') return true
+    accessSync(filePath, constants.X_OK)
     return true
   } catch {
     return false
   }
+}
+
+export function hasExecutable(bin, { env = process.env, platform = process.platform, now = Date.now, isFile } = {}) {
+  if (!bin || typeof bin !== 'string') return false
+  const isWin = platform === 'win32'
+  const pathApi = isWin ? win32 : posix
+  const pathEnv = String(isWin ? (envLookup(env, 'PATH') ?? '') : (env?.PATH ?? ''))
+  const pathExtRaw = isWin ? String(envLookup(env, 'PATHEXT') || '.COM;.EXE;.BAT;.CMD') : ''
+  const useCache = isFile === undefined
+  const cacheKey = `${platform}\0${pathEnv}\0${pathExtRaw}\0${bin}`
+  if (useCache) {
+    const negativeUntil = negativeExecutableCache.get(cacheKey)
+    if (negativeUntil !== undefined) {
+      if (now() < negativeUntil) return false
+      negativeExecutableCache.delete(cacheKey)
+    }
+  }
+
+  const checkFile = isFile ?? (filePath => isExecutableFile(filePath, platform))
+  const pathExts = isWin
+    ? pathExtRaw.split(';').map(e => e.trim()).filter(Boolean)
+    : []
+  const effectiveExts = isWin && pathExts.length === 0 ? ['.COM', '.EXE', '.BAT', '.CMD'] : pathExts
+  const binExt = isWin ? win32.extname(bin).toLowerCase() : ''
+  const hasKnownWinExt = isWin && binExt !== '' && effectiveExts.some(ext => ext.toLowerCase() === binExt)
+  const exts = isWin ? (hasKnownWinExt ? [''] : effectiveExts) : ['']
+
+  if (pathApi.isAbsolute(bin) || bin.includes('/') || (isWin && bin.includes('\\'))) {
+    for (const ext of exts) {
+      if (checkFile(`${bin}${ext}`)) return true
+    }
+  } else {
+    const sep = isWin ? ';' : ':'
+    for (const rawDir of pathEnv.split(sep)) {
+      const dir = isWin ? rawDir.trim().replace(/^"|"$/g, '') : rawDir
+      if (!dir) continue
+      for (const ext of exts) {
+        if (checkFile(pathApi.join(dir, `${bin}${ext}`))) return true
+      }
+    }
+  }
+
+  if (useCache) {
+    negativeExecutableCache.delete(cacheKey)
+    negativeExecutableCache.set(cacheKey, now() + EXECUTABLE_NEGATIVE_TTL_MS)
+    while (negativeExecutableCache.size > EXECUTABLE_NEGATIVE_CACHE_MAX) {
+      negativeExecutableCache.delete(negativeExecutableCache.keys().next().value)
+    }
+  }
+  return false
 }
 
 export function parsePackageManagerEnv(raw) {
@@ -664,6 +726,21 @@ async function fetchJsonWithGuard(rawUrl, { fetchImpl = globalThis.fetch, dnsLoo
 
 export function createCatalogManager({ cachePath, fetchImpl = globalThis.fetch, dnsLookup = lookup, env = process.env, allowHttp = false, now = Date.now } = {}) {
   let memoryCache = null
+  const inFlightLoads = new Map()
+  const inFlightForcedLoads = new Map()
+
+  const waitWithSignal = (promise, signal) => {
+    if (signal === undefined) return promise
+    if (signal.aborted) return Promise.reject(signal.reason ?? new Error('aborted'))
+    return new Promise((resolve, reject) => {
+      const onAbort = () => reject(signal.reason ?? new Error('aborted'))
+      signal.addEventListener('abort', onAbort, { once: true })
+      promise.then(
+        value => { signal.removeEventListener('abort', onAbort); resolve(value) },
+        error => { signal.removeEventListener('abort', onAbort); reject(error) },
+      )
+    })
+  }
 
   async function readDiskCache() {
     if (!cachePath) return null
@@ -713,41 +790,59 @@ export function createCatalogManager({ cachePath, fetchImpl = globalThis.fetch, 
     if (!force && memoryCache && memoryCache.signature === sourceSignature && now() - memoryCache.fetchedAt < CATALOG_CACHE_TTL_MS) {
       return memoryCache
     }
-    if (!force && !memoryCache) {
-      const disk = await readDiskCache()
-      if (disk && disk.signature === sourceSignature && now() - (disk.fetchedAt ?? 0) < CATALOG_CACHE_TTL_MS) {
-        memoryCache = disk
-        return disk
-      }
+    const existing = force
+      ? inFlightForcedLoads.get(sourceSignature)
+      : (inFlightForcedLoads.get(sourceSignature) ?? inFlightLoads.get(sourceSignature))
+    if (existing !== undefined) {
+      return await waitWithSignal(existing, signal)
+    }
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException('Aborted', 'AbortError')
     }
 
-    const errors = []
-    let officialList = []
-    const customLists = []
-    for (const src of activeSources) {
-      try {
-        const json = await fetchJsonWithGuard(src.url, { fetchImpl, dnsLookup, signal, allowHttp })
-        const parsed = parsePluginRegistry(json, { sourceId: src.id, sourceName: src.name || src.id, sourceUrl: src.url })
-        if (src.official) officialList = parsed.plugins
-        else customLists.push(parsed.plugins)
-      } catch (error) {
-        errors.push({ sourceId: src.id, url: src.url, message: error?.message ?? String(error) })
+    const bucket = force ? inFlightForcedLoads : inFlightLoads
+    const task = (async () => {
+      if (!force && !memoryCache) {
+        const disk = await readDiskCache()
+        if (disk && disk.signature === sourceSignature && now() - (disk.fetchedAt ?? 0) < CATALOG_CACHE_TTL_MS) {
+          if (!memoryCache) memoryCache = disk
+          return disk
+        }
       }
-    }
 
-    // Precedence: live official registry > bundled curated snapshot > third-party custom sources,
-    // so a third-party source cannot hijack official/curated plugin IDs when the official registry is offline.
-    const entries = mergeEntries([officialList, bundledEntries(), ...customLists])
-    const snapshot = {
-      fetchedAt: now(),
-      signature: sourceSignature,
-      entries,
-      errors,
-      offline: officialList.length === 0 && customLists.length === 0,
-    }
-    memoryCache = snapshot
-    await writeDiskCache(snapshot)
-    return snapshot
+      const errors = []
+      let officialList = []
+      const customLists = []
+      for (const src of activeSources) {
+        try {
+          const json = await fetchJsonWithGuard(src.url, { fetchImpl, dnsLookup, allowHttp })
+          const parsed = parsePluginRegistry(json, { sourceId: src.id, sourceName: src.name || src.id, sourceUrl: src.url })
+          if (src.official) officialList = parsed.plugins
+          else customLists.push(parsed.plugins)
+        } catch (error) {
+          errors.push({ sourceId: src.id, url: src.url, message: error?.message ?? String(error) })
+        }
+      }
+
+      // Precedence: live official registry > bundled curated snapshot > third-party custom sources,
+      // so a third-party source cannot hijack official/curated plugin IDs when the official registry is offline.
+      const entries = mergeEntries([officialList, bundledEntries(), ...customLists])
+      const snapshot = {
+        fetchedAt: now(),
+        signature: sourceSignature,
+        entries,
+        errors,
+        offline: officialList.length === 0 && customLists.length === 0,
+      }
+      memoryCache = snapshot
+      await writeDiskCache(snapshot)
+      return snapshot
+    })().finally(() => {
+      if (bucket.get(sourceSignature) === task) bucket.delete(sourceSignature)
+    })
+
+    bucket.set(sourceSignature, task)
+    return await waitWithSignal(task, signal)
   }
 
   async function hydrate() {

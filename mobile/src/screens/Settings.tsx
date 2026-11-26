@@ -6,6 +6,7 @@ import { androidNotificationStatus, readNotifyPrefsFromRecord } from '../team/no
 import { areSystemNotificationsEnabled } from '../team/notifications-native'
 import { t, getLang, setLang } from '../ui/i18n.ts'
 import { onPrefsChange, readPrefs, writePrefs } from '../store.ts'
+import { enterMode } from './chat/enter-key.ts'
 import { useTheme } from '../ui/tokens.ts'
 import { SettingsChoice as Choice, SettingsRow as Row, SettingsSection as Section } from './settings-primitives.tsx'
 
@@ -90,6 +91,8 @@ export function Settings({ navigation }: { navigation?: any }) {
             end={<Switch value={notifyPrefs.banners} onValueChange={on => set('banners', on ? 'on' : 'off')} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
           />
         )}
+        <Choice label={t('Enter sends message')} value={enterMode(prefs, Platform.OS)} onPick={next => set('enterToSend', next)}
+          options={[{ id: 'follow', label: t('Follow computer') }, { id: 'send', label: t('Always send') }, { id: 'newline', label: t('Always newline') }]} />
       </Section>
       {/* The desktop settings pages, in the desktop's order. */}
       <Section label={t('Team')}>

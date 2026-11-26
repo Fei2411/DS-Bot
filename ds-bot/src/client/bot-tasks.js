@@ -406,6 +406,8 @@ export function TaskReaderView({ bot, task, actions }) {
   const actionsRef = useRef(actions)
   actionsRef.current = actions
   const reqGenRef = useRef(0)
+  const inFlightRef = useRef(false)
+  const pendingReloadRef = useRef(false)
   const mountedRef = useRef(true)
   const botId = bot?.id
   const taskId = task?.id
@@ -416,25 +418,50 @@ export function TaskReaderView({ bot, task, actions }) {
     return () => { mountedRef.current = false }
   }, [])
 
-  const loadLatest = useCallback(async (quiet = false, gen = reqGenRef.current) => {
+  const loadLatest = useCallback(async (quiet = false, gen = reqGenRef.current, { force = false } = {}) => {
     const readTask = actionsRef.current?.readTask
     if (!botId || !taskId || typeof readTask !== 'function') return
+    if (quiet && inFlightRef.current) {
+      if (force) pendingReloadRef.current = true
+      return
+    }
+    inFlightRef.current = true
     if (!quiet) setLoading(true)
     try {
-      const next = await readTask(botId, taskId, undefined, showSteps)
-      if (!mountedRef.current || gen !== reqGenRef.current) return
-      setPage(next)
-      setError('')
-    } catch (err) {
-      if (!mountedRef.current || gen !== reqGenRef.current) return
-      setError(hostText(err?.message ?? String(err)))
+      let keepGoing = true
+      let isQuiet = quiet
+      while (keepGoing) {
+        keepGoing = false
+        try {
+          const next = await readTask(botId, taskId, undefined, showSteps)
+          if (!mountedRef.current || gen !== reqGenRef.current) return
+          setPage(next)
+          setError('')
+        } catch (err) {
+          if (!mountedRef.current || gen !== reqGenRef.current) return
+          setError(hostText(err?.message ?? String(err)))
+        }
+        if (mountedRef.current && !isQuiet && gen === reqGenRef.current) {
+          setLoading(false)
+          isQuiet = true
+        }
+        if (mountedRef.current && gen === reqGenRef.current && pendingReloadRef.current) {
+          pendingReloadRef.current = false
+          keepGoing = true
+        }
+      }
     } finally {
-      if (mountedRef.current && !quiet && gen === reqGenRef.current) setLoading(false)
+      if (gen === reqGenRef.current) {
+        inFlightRef.current = false
+        if (mountedRef.current && !quiet) setLoading(false)
+      }
     }
   }, [botId, taskId, showSteps])
 
   useEffect(() => {
     reqGenRef.current += 1
+    inFlightRef.current = false
+    pendingReloadRef.current = false
     const gen = reqGenRef.current
     setOlder([])
     setOlderCursor({ active: false, cursor: null })
@@ -446,12 +473,26 @@ export function TaskReaderView({ bot, task, actions }) {
   useEffect(() => {
     if (active) {
       wasActiveRef.current = true
-      const timer = setInterval(() => { void loadLatest(true, reqGenRef.current) }, 2500)
-      return () => clearInterval(timer)
+      let timer = 0
+      const start = () => {
+        clearInterval(timer)
+        if (typeof document !== 'undefined' && document.hidden) return
+        timer = setInterval(() => { void loadLatest(true, reqGenRef.current) }, 2500)
+      }
+      const onVisibility = () => {
+        if (document.hidden) { clearInterval(timer); timer = 0 }
+        else { void loadLatest(true, reqGenRef.current, { force: true }); start() }
+      }
+      start()
+      if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
+      return () => {
+        clearInterval(timer)
+        if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility)
+      }
     }
     if (wasActiveRef.current) {
       wasActiveRef.current = false
-      void loadLatest(true, reqGenRef.current)
+      void loadLatest(true, reqGenRef.current, { force: true })
     }
     return undefined
   }, [active, loadLatest])
@@ -480,7 +521,7 @@ export function TaskReaderView({ bot, task, actions }) {
     if (stopping || !botId || !taskId) return
     setStopping(true)
     void Promise.resolve(actionsRef.current?.stopTask?.(botId, taskId))
-      .then(() => loadLatest(true, reqGenRef.current))
+      .then(() => loadLatest(true, reqGenRef.current, { force: true }))
       .catch((err) => { if (mountedRef.current) setError(hostText(err?.message ?? String(err))) })
       .finally(() => { if (mountedRef.current) setStopping(false) })
   }

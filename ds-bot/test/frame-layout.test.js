@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  RAIL_WIDTH, RAIL_SNAP, SIDEBAR_MIN, SIDEBAR_MAX, MIN_CHAT, FALLBACK_SIDEBAR_WIDTH,
+  RAIL_WIDTH, RAIL_SNAP, SIDEBAR_MIN, SIDEBAR_MAX, MIN_CHAT, FALLBACK_SIDEBAR_WIDTH, PANEL_MIN,
   frameLayout, dragColumn, toggledPref, trackRoom, nextCollapsedWidth, userSidebarToggle, readSidebar, writeSidebar,
 } from '../src/client/frame-layout.js'
 import { createSource } from '../src/client/sources.js'
@@ -246,4 +246,121 @@ test('an open shell column keeps the last collapsed track', () => {
 
 test('a sliding shell sidebar keeps its last settled width', () => {
   assert.equal(nextCollapsedWidth({ measured: null, collapsed: true, animating: true, last: 56 }), 56)
+})
+
+test('workspace panel minimum width and layout folding match browser wide views', () => {
+  assert.equal(PANEL_MIN.workspace, 360)
+  // 280 + 360 + 420 = 1060 -> fits at 1060, folds at 1040.
+  assert.equal(at(1060, 280, { panel: { view: 'workspace', yielded: false } }).panel, 'shown')
+  assert.equal(at(1040, 280, { panel: { view: 'workspace', yielded: false } }).panel, 'folded')
+  // Yielded beside rail: 88 + 360 + 420 = 868 -> shown at 900, overlay at 800.
+  assert.equal(at(900, 280, { panel: { view: 'workspace', yielded: true } }).panel, 'shown')
+  assert.equal(at(800, 280, { panel: { view: 'workspace', yielded: true } }).panel, 'overlay')
+})
+
+test('teamActions supports workspace view, preserves workspace across followPanel, handles Classic Agent fallback, and clears rightPanel on close', () => {
+  const ui = createSource({
+    details: 'chief', view: 'details', renaming: false, tab: null, side: null, task: null,
+    rightPanel: { tabs: ['files', 'terminal'], tab: 'files' }, panelYield: false, leftDrawer: false,
+  })
+  const roster = createSource({
+    byId: { chief: { id: 'chief' }, writer: { id: 'writer' } },
+    roomsById: { room1: { id: 'room1' } },
+    sideChats: {},
+  })
+  const actions = teamActions({
+    call: () => Promise.resolve(null), after: promise => promise, partFor: id => id,
+    roster, ui, panelFolded: () => false,
+  })
+
+  actions.setPanelView('workspace')
+  assert.equal(ui.getSnapshot().view, 'workspace')
+
+  // Switching between Bots preserves workspace view and rightPanel tabs.
+  actions.followPanel('writer')
+  assert.equal(ui.getSnapshot().details, 'writer')
+  assert.equal(ui.getSnapshot().view, 'workspace')
+  assert.deepEqual(ui.getSnapshot().rightPanel.tabs, ['files', 'terminal'])
+
+  // Toggling Details from workspace switches view to details while keeping rightPanel open.
+  actions.toggleDetails('writer')
+  assert.equal(ui.getSnapshot().details, 'writer')
+  assert.equal(ui.getSnapshot().view, 'details')
+  assert.deepEqual(ui.getSnapshot().rightPanel.tabs, ['files', 'terminal'])
+
+  // Switching from details to a non-Bot/non-Room session (Classic Agent) with workspace tabs switches to workspace.
+  actions.followPanel('agent-1')
+  assert.equal(ui.getSnapshot().details, 'agent-1')
+  assert.equal(ui.getSnapshot().view, 'workspace')
+
+  // Switching to a Classic Agent session with no workspace tabs closes the panel.
+  ui.set(state => ({ ...state, details: 'chief', view: 'details', rightPanel: null }))
+  actions.followPanel('agent-2')
+  assert.equal(ui.getSnapshot().details, null)
+
+  // closePanel and closeOverlay both clear rightPanel when closing the panel.
+  ui.set(state => ({ ...state, details: 'chief', view: 'workspace', rightPanel: { tabs: ['files'], tab: 'files' } }))
+  actions.closePanel()
+  assert.equal(ui.getSnapshot().details, null)
+  assert.equal(ui.getSnapshot().rightPanel, null)
+
+  ui.set(state => ({ ...state, details: 'chief', view: 'workspace', rightPanel: { tabs: ['terminal'], tab: 'terminal' } }))
+  actions.closeOverlay()
+  assert.equal(ui.getSnapshot().details, null)
+  assert.equal(ui.getSnapshot().rightPanel, null)
+
+  // Toggling Details closed while already on details also clears rightPanel.
+  ui.set(state => ({ ...state, details: 'chief', view: 'details', rightPanel: { tabs: ['files'], tab: 'files' } }))
+  actions.toggleDetails('chief')
+  assert.equal(ui.getSnapshot().details, null)
+  assert.equal(ui.getSnapshot().rightPanel, null)
+})
+
+test('followPanel keeps view, tab, task, and rename state when the same Bot moves to a fresh part', () => {
+  const chief = { id: 'chief', sessionId: 'chief-p2', parts: ['chief-p1'] }
+  const writer = { id: 'writer', sessionId: 'writer' }
+  const ui = createSource({ details: 'chief-p1', view: 'details', renaming: true, tab: 'settings', task: { botId: 'chief', taskId: 't1' }, side: null, panelYield: false, leftDrawer: false })
+  const roster = createSource({ byId: { chief, 'chief-p1': chief, 'chief-p2': chief, writer }, roomsById: {}, sideChats: {} })
+  const actions = teamActions({
+    call: () => Promise.resolve(null), after: promise => promise, partFor: id => id,
+    roster, ui, panelFolded: () => false,
+  })
+  actions.followPanel('chief-p2')
+  assert.equal(ui.getSnapshot().details, 'chief-p2')
+  assert.equal(ui.getSnapshot().renaming, true)
+  assert.equal(ui.getSnapshot().tab, 'settings')
+  assert.deepEqual(ui.getSnapshot().task, { botId: 'chief', taskId: 't1' })
+  // Moving to a different Bot still resets per-chat transient panel state.
+  actions.followPanel('writer')
+  assert.equal(ui.getSnapshot().details, 'writer')
+  assert.equal(ui.getSnapshot().renaming, false)
+  assert.equal(ui.getSnapshot().tab, null)
+  assert.equal(ui.getSnapshot().task, null)
+})
+
+test('toggleDetails closes the details panel when toggled with another part of the same Bot or group', () => {
+  const chief = { id: 'chief', sessionId: 'chief-p2', parts: ['chief-p1'] }
+  const room = { id: 'room-1', sessionId: 'room-p2', ownParts: ['room-p1'] }
+  const ui = createSource({ details: 'chief', view: 'details', renaming: false, tab: null, side: null, panelYield: false, leftDrawer: false })
+  const roster = createSource({
+    byId: { chief, 'chief-p1': chief, 'chief-p2': chief },
+    roomsById: { 'room-1': room, 'room-p1': room, 'room-p2': room },
+    sideChats: {},
+  })
+  const actions = teamActions({
+    call: () => Promise.resolve(null), after: promise => promise, partFor: id => id,
+    roster, ui, panelFolded: () => false,
+  })
+  // Opened with bot.id ('chief'), header pill toggles with active part ('chief-p2') -> closes on first click.
+  actions.toggleDetails('chief-p2')
+  assert.equal(ui.getSnapshot().details, null)
+  // Same for a group chat opened with room.id and toggled with room.sessionId.
+  actions.showDetails('room-1')
+  assert.equal(ui.getSnapshot().details, 'room-1')
+  actions.toggleDetails('room-p2')
+  assert.equal(ui.getSnapshot().details, null)
+  // force=true keeps it open on the requested part.
+  actions.showDetails('chief')
+  actions.toggleDetails('chief-p2', true)
+  assert.equal(ui.getSnapshot().details, 'chief-p2')
 })

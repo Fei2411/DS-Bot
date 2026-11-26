@@ -15,12 +15,15 @@
 // word, and where the rest is. Input that arrives meanwhile waits and moves along.
 // read_own_chat searches every part, the condensed messages included.
 import { randomUUID } from 'node:crypto'
-import { LlmError, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
+import { LlmError, createAssistantMessage, createSystemMessage, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
-import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, isSilentTurnText, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { isContextOnlyMessage, isContextOnlySource, isSilentBotSource } from './context-messages.js'
+import { buildCheckpointPack, buildHandoffPack, extractToolTrail, toolArgSummary as summarizeToolArg } from './context-pack.js'
+import { install as ensureContextRuntime } from './context-runtime.js'
 import { assembleLlmStream } from './models.js'
 import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
-import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
+import { CHECKPOINT_PROMPT, DEFAULT_CHECK_RATIO, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
@@ -189,9 +192,7 @@ export function install(rt) {
   const TOOL_TRAIL_MAX = 18
   const TOOL_TRAIL_TOKENS = 1_500
   const HANDOFF_READ_MS = 60_000
-  const NOTE_MAX_TOKENS = 8_192
-  // A note cut off at the output limit is asked again with more room, up to what
-  // the route allows.
+  // Fallback output cap when neither the route nor resolveModelInfo declares one.
   const NOTE_RETRY_MAX_TOKENS = 16_384
   const NOTE_TIMEOUT_MS = 600_000
   const NOTE_ATTEMPTS = 2
@@ -233,13 +234,14 @@ export function install(rt) {
       return undefined
     }
   }
+  const contextRuntime = rt.contextRuntime ?? ensureContextRuntime(rt)
   const tokensOf = session => measureOf(session)?.totalTokens
   // A part answered by a local agent CLI. The CLI holds the working context: its size
   // and window are what the CLI reports, and the CLI condenses it and writes the note.
   // The DSH Session keeps the whole record for read_own_chat and is never condensed.
-  const localPart = session => rt.isLocalAgentRoute?.(session.requestHeader?.()?.config?.provider ?? '') === true
+  const localPart = session => contextRuntime.isLocal(session)
   // Undefined while the CLI has not said how full it is: such a part is not checked.
-  const sizeOf = session => (localPart(session) ? rt.localAgentContext?.(session.id)?.used : tokensOf(session))
+  const sizeOf = session => contextRuntime.measure(session, { logTokens: tokensOf(session) }).workingTokens
   const clock = createClock(config.timeZone)
   // Replacing a handoff must shrink the request, not just create another Session.
   async function canMakeRoom(agent, carry = []) {
@@ -251,12 +253,13 @@ export function install(rt) {
     const room = rt.roomOf(place.roomId ?? taskEntry?.roomId)
     // A background part makes room within its own thread, like the foreground chat.
     const parts = place.roomId === undefined ? partsOfThread(place.botId, agent.id) : partsOf(place.botId, place.roomId)
-    const previous = parts.at(-2)
+    const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined && !Number.isInteger(part.throughSeq)) ?? parts.at(-2)
+    const previousNote = segmentNoteOf(previous)
     const lines = await contextLines(session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
     const text = handoffPackage({
       room,
-      segment: { fallback: 'overflow', ...(previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}) },
+      segment: { fallback: 'overflow', ...(previousNote ? { note: previousNote, noteFrom: previous.noteFrom ?? previous.number } : {}) },
       lines: await handoffLines(agent.id, { budget, group: room !== undefined, number: parts.length }),
       number: parts.length + 1,
       resume: true,
@@ -271,10 +274,37 @@ export function install(rt) {
       : measured.nodes.filter(node => session.eventAt(node.seq).type !== 'system/message').reduce((total, node) => total + node.tokens, 0)
     const pending = carry.reduce((total, message) => total + size(message), 0)
     const replacement = size({ role: 'user', content: [{ type: 'text', text }] }) + pending
-    const tokens = measured?.totalTokens
     // A fresh CLI session holds only its own instructions besides the handoff.
-    const used = localPart(session) ? rt.localAgentContext?.(session.id)?.used : undefined
-    if (used !== undefined) return replacement < used
+    // Never fall back to DSH's cumulative tokenMeter on a local part: DSH holds
+    // the full persistent log, not the CLI's working context.
+    if (localPart(session)) {
+      const lastHandoffIdx = messages.findLastIndex(message => message.source?.handoff === true)
+      const afterHandoff = lastHandoffIdx === -1 ? messages : messages.slice(lastHandoffIdx + 1)
+      const work = afterHandoff.filter(message => message.role !== 'system'
+        && !isContextOnlyMessage(message)
+        && !(message.role === 'assistant' && textOf(message.content).trim() === HANDOFF_ACK))
+      const hasShrinkableWork = work.some(message => message.role === 'assistant' || message.role === 'tool')
+        || work.filter(message => message.role === 'user').length > 1
+      // Allow a one-shot shrink only when a separate short text-only first request is
+      // preserved verbatim inside the smaller replacement package (never dropping a
+      // pending resume handoff with no separate request, never dropping images, and
+      // never clipping an oversized first user message).
+      const oldHandoffSize = lastHandoffIdx === -1 ? 0 : size(messages[lastHandoffIdx])
+      const onlyWork = work.length === 1 && work[0].role === 'user' ? work[0] : undefined
+      const onlyText = onlyWork === undefined ? '' : textOf(onlyWork.content).trim()
+      const hasNonTextBlock = Array.isArray(onlyWork?.content) && onlyWork.content.some(block => block?.type !== 'text')
+      const handoffShrinks = lastHandoffIdx !== -1
+        && onlyWork !== undefined
+        && !hasNonTextBlock
+        && onlyText !== ''
+        && text.includes(onlyText)
+        && replacement < oldHandoffSize
+      if (!hasShrinkableWork && !handoffShrinks) return false
+      const used = rt.localAgentContext?.(session.id)?.used
+      if (used !== undefined) return replacement < used && (lines === undefined || replacement <= lines.usable)
+      return lines === undefined || replacement < lines.usable
+    }
+    const tokens = measured?.totalTokens
     // The system prompt and tool definitions stay; pending input is forwarded whole.
     return replacement < history + pending
       && (lines === undefined || tokens === undefined || tokens - history + replacement <= lines.usable)
@@ -283,13 +313,13 @@ export function install(rt) {
   // Lines for the model the Session last routed to; undefined while it has not
   // routed yet.
   async function contextLines(session) {
-    const route = session.requestHeader()?.config
+    const route = session?.requestHeader?.()?.config
     if (!route?.provider || !route?.model) return undefined
-    // A CLI's window is the one it reports; it keeps its own room for replies.
-    const reported = localPart(session) ? rt.localAgentContext?.(session.id)?.size : undefined
-    if (reported !== undefined) return linesFor({ window: reported, checkRatio: config.checkRatio, checkTokens: config.checkTokens })
-    const info = await ctx.llm.resolveModelInfo(route.provider, route.model)
-    return linesFor({ window: info.context?.contextWindow, reserve: route.maxTokens ?? info.defaultMaxTokens, checkRatio: config.checkRatio, checkTokens: config.checkTokens })
+    return contextRuntime.linesForSession(session, {
+      route,
+      checkRatio: config.checkRatio,
+      checkTokens: config.checkTokens,
+    })
   }
 
   // The backend's own entry points leave Bot Sessions alone, earlier parts and group
@@ -322,7 +352,12 @@ export function install(rt) {
     condensing.add(sessionId)
     if (forSwitch) switchRanges.set(sessionId, range)
     try {
-      return await run()
+      const result = await run()
+      if (result !== null && result !== undefined) {
+        contextRuntime.bumpEpoch(sessionId, forSwitch ? 'model-switch-compact' : 'compact-range')
+        rt.renewMemory?.(sessionId)
+      }
+      return result
     } finally {
       condensing.delete(sessionId)
       if (forSwitch) switchRanges.delete(sessionId)
@@ -343,6 +378,7 @@ export function install(rt) {
       compactIfNeeded: engine.compactIfNeeded,
       compactNow: engine.compactNow,
       compactRegion: engine.compactRegion,
+      ...(typeof engine.compactPressure === 'function' ? { compactPressure: engine.compactPressure } : {}),
       // compaction-basic's one customization hook; it runs for every summary.
       ...(typeof engine.summarize === 'function' ? { summarize: engine.summarize } : {}),
     }
@@ -354,8 +390,19 @@ export function install(rt) {
       if (ownedByBot(target)) return refuseCompaction()
       return original.compactNow.call(this, target, signal, commandId)
     }
+    if (original.compactPressure !== undefined) {
+      engine.compactPressure = function compactPressureOutsideLocal(target, header, signal, requireBelowThreshold) {
+        if (ownedByBot(target) && (localPart(target.session) || rt.isLocalAgentRoute?.(header?.config?.provider ?? '') === true)) {
+          return Promise.resolve(null)
+        }
+        return original.compactPressure.call(this, target, header, signal, requireBelowThreshold)
+      }
+    }
     engine.compactRegion = function compactRegionOutsideBots(start, end, target, signal) {
       if (!ownedByBot(target)) return original.compactRegion.call(this, start, end, target, signal)
+      // A local-agent part's DSH Session is only the persistent archive for read_own_chat;
+      // never mutate it for a model switch.
+      if (localPart(target.session)) return Promise.resolve(null)
       // Without the summary hook the backend would summarize a Bot conversation itself,
       // so that case keeps the refusal.
       if (original.summarize === undefined) return refuseCompaction()
@@ -416,20 +463,59 @@ export function install(rt) {
       const task = bot.tasks[thread.index]
       // A foreground turn moved into a background task keeps read_own_chat access to the
       // Bot's earlier parts frozen at handoff time, without shifting on later foreground rollovers.
-      const inherited = Array.isArray(task.inheritedSegments) ? task.inheritedSegments : []
+      // Hydrate slim inherited refs against `bot.segments` so `note`/`fallback`/`noteFrom`
+      // stay available to `read_own_chat({ part: N })` and overflow `earlierNote`.
+      const bySession = new Map((bot.segments ?? []).filter(seg => seg?.sessionId).map(seg => [seg.sessionId, seg]))
+      const inherited = (Array.isArray(task.inheritedSegments) ? task.inheritedSegments : [])
+        .map((seg) => {
+          if (!seg?.sessionId || !bySession.has(seg.sessionId)) return seg
+          const base = bySession.get(seg.sessionId)
+          if (Number.isInteger(seg.throughSeq)) {
+            // Bounded inherited refs (non-forked task_start) stay strictly capped at branch time
+            // and never hydrate a closing handoff note written for post-branch foreground turns.
+            return {
+              ...seg,
+              ...(seg.endedAt === undefined && base.endedAt !== undefined ? { endedAt: base.endedAt } : {}),
+              throughSeq: seg.throughSeq,
+            }
+          }
+          return { ...base, ...seg }
+        })
       const seen = new Set(inherited.map(seg => seg?.sessionId).filter(Boolean))
-      const segments = [...inherited, ...(thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))]
-      return partsOf(bot.id, undefined, segments, task.sessionId)
+      const ownSegments = (thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))
+      const segments = [...inherited, ...ownSegments]
+      const result = partsOf(bot.id, undefined, segments, task.sessionId)
+      const tailSeg = segments.at(-1)
+      if (task.startedAt !== undefined
+        && tailSeg !== undefined
+        && (tailSeg.endedAt === undefined || (ownSegments.length === 0 && Number.isInteger(tailSeg.throughSeq)))
+        && result.at(-1)?.sessionId === task.sessionId) {
+        result.at(-1).startedAt = task.startedAt
+      }
+      return result
     }
     return partsOf(bot.id, undefined, thread.segments, rt.chatOf(bot.id))
   }
 
+  const hasImageBlock = (content) => Array.isArray(content) && content.some(block => block?.type === 'image' || block?.type === 'image_url')
+
   // What was said in one part, newest first: the user, other Bots, and the Bot itself.
-  async function* partLines(sessionId, signal, { group = false, pages, read } = {}) {
+  async function* partLines(sessionId, signal, { group = false, pages, read, throughSeq } = {}) {
     // Read backwards, a Bot's answers come before the message they answer.
     const scan = read ?? {}
+    const bound = Number.isInteger(throughSeq) ? throughSeq : undefined
+    if (bound !== undefined && bound < 0) {
+      scan.complete = true
+      scan.capped = false
+      return
+    }
     let answers = []
-    for await (const event of rt.eventsBackwards(sessionId, signal, pages, scan)) {
+    for await (const event of rt.eventsBackwards(sessionId, signal, pages, scan, bound)) {
+      if (bound !== undefined && Number.isInteger(event?.seq) && event.seq > bound) continue
+      if ((event.type === 'user/message' && hasImageBlock(event.data?.message?.content ?? event.data?.content))
+        || ((event.type === 'assistant/message' || event.type === 'tool/result') && hasImageBlock(event.data?.message?.content))) {
+        scan.hasImages = true
+      }
       const entry = historyEntry(event, group)
       if (entry === undefined) continue
       if (entry.answer) {
@@ -454,60 +540,21 @@ export function install(rt) {
   const TOOL_TRAIL_SKIP = new Set(['ask_user', 'show_view', 'request_secret', 'group_relay'])
   const TOOL_ARG_KEYS = ['path', 'file_path', 'file', 'target', 'command', 'cmd', 'query', 'pattern', 'url', 'to', 'task', 'topic', 'dir', 'cwd', 'title']
   const redactText = text => (typeof rt.redactSecrets === 'function' ? rt.redactSecrets(String(text ?? '')) : String(text ?? ''))
-
-  function toolArgSummary(rawArgs) {
-    let args = rawArgs
-    if (typeof args === 'string') {
-      try { args = JSON.parse(args) } catch { return redactText(args).replace(/\s+/g, ' ').trim().slice(0, 120) }
-    }
-    if (args === null || typeof args !== 'object') return ''
-    for (const key of TOOL_ARG_KEYS) {
-      const val = args[key]
-      if (typeof val === 'string' && val.trim() !== '') {
-        const clean = redactText(val).replace(/\s+/g, ' ').trim()
-        return clean.length > 120 ? `${clean.slice(0, 120)}…` : clean
-      }
-    }
-    return ''
-  }
+  const toolArgSummary = rawArgs => summarizeToolArg(rawArgs, { redact: redactText, argKeys: TOOL_ARG_KEYS })
 
   // Concise, redacted trail of the most recent tool calls and outcomes in a part,
   // oldest first within budget, so checkpoints and handoffs retain file paths, commands,
-  // and errors even when tool-call messages themselves are condensed or left behind.
-  async function recentToolActivity(sessionId, { maxCalls = TOOL_TRAIL_MAX, maxTokens = TOOL_TRAIL_TOKENS, pages = 4 } = {}) {
-    if (maxCalls <= 0 || maxTokens <= 0) return []
-    const results = new Map()
-    const entries = []
-    let used = 0
-    try {
-      for await (const event of rt.eventsBackwards(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), pages)) {
-        if (event.type === 'tool/result') {
-          const message = event.data?.message
-          const callId = message?.toolCallId
-          if (typeof callId === 'string' && !results.has(callId)) {
-            const failed = message.ok === false || message.isError === true
-            const detail = failed ? redactText(textOf(message.content)).replace(/\s+/g, ' ').trim().slice(0, 120) : ''
-            results.set(callId, failed ? (detail ? `error: ${detail}` : 'error') : 'ok')
-          }
-          continue
-        }
-        if (event.type !== 'tool/call') continue
-        const name = event.data?.name
-        if (typeof name !== 'string' || TOOL_TRAIL_SKIP.has(name)) continue
-        const arg = toolArgSummary(event.data?.arguments)
-        const outcome = typeof event.data?.callId === 'string' ? results.get(event.data.callId) : undefined
-        const head = arg === '' ? name : `${name}(${arg})`
-        const line = `- [${clock(event.time)}] ${head}${outcome === undefined ? '' : ` -> ${outcome}`}`
-        const cost = estimateTokens(line)
-        if (entries.length > 0 && used + cost > maxTokens) break
-        entries.push(line)
-        used += cost
-        if (entries.length >= maxCalls) break
-      }
-    } catch {
-      return entries.reverse()
-    }
-    return entries.reverse()
+  // call_ids, and errors even when tool-call messages themselves are condensed or left behind.
+  function recentToolActivity(sessionId, { maxCalls = TOOL_TRAIL_MAX, maxTokens = TOOL_TRAIL_TOKENS, pages = 4 } = {}) {
+    return extractToolTrail(rt.eventsBackwards(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), pages), {
+      maxCalls,
+      maxTokens,
+      skipNames: TOOL_TRAIL_SKIP,
+      argKeys: TOOL_ARG_KEYS,
+      redact: redactText,
+      clock,
+      estimateTokens,
+    })
   }
 
   // What a fresh part carries of the part that ends, read newest first: the latest
@@ -515,48 +562,44 @@ export function install(rt) {
   // the Bot (from the user or another Bot) as an anchored list. A group turn message
   // holds the whole round, so a group part carries only its latest messages.
   async function handoffLines(sessionId, { budget, group, number }) {
-    const recent = []
-    const earlier = []
-    let used = 0
-    let full = false
-    let listed = 0
-    let unlisted = 0
+    let packed
     let complete = true
     const read = {}
-    const stamp = line => (group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`)
+    const collected = []
     try {
       for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
-        if (!full) {
-          const text = clip(line.text, RECENT_LINE_MAX, group ? 'the full text is in the saved record' : `read_own_chat around "part ${number} #${line.seq}" shows all of it`)
-          const cost = estimateTokens(text)
-          if (recent.length === 0 || used + cost <= budget) {
-            recent.push(`${stamp(line)} ${text}`)
-            used += cost
-            continue
-          }
-          full = true
-        }
-        if (group) break
-        if (line.who === 'you') continue
-        const text = clip(line.text, LIST_LINE_MAX, `read_own_chat around "part ${number} #${line.seq}" shows all of it`)
-        const cost = estimateTokens(text)
-        if (unlisted > 0 || listed + cost > LIST_TOKENS) {
-          unlisted += 1
-          continue
-        }
-        earlier.push(`${stamp(line)} ${text}`)
-        listed += cost
+        collected.push(line)
       }
     } catch (error) {
       // The latest messages matter most; what could not be read is only noted.
-      if (recent.length === 0) throw error
+      if (collected.length === 0) throw error
       complete = false
       rt.warn('ds-bot: reading %s for its handoff stopped early: %s', sessionId, error)
     }
+    packed = await buildHandoffPack({
+      lines: collected,
+      budget,
+      listBudget: LIST_TOKENS,
+      recentLineMax: RECENT_LINE_MAX,
+      listLineMax: LIST_LINE_MAX,
+      group,
+      number,
+      clock,
+      clip,
+      estimateTokens,
+    })
     const tools = await recentToolActivity(sessionId, { maxTokens: Math.min(TOOL_TRAIL_TOKENS, Math.max(0, Math.floor(budget / 4))) })
     // `whole`: every message of the part is in `recent`.
     complete &&= read.complete === true
-    return { recent: recent.reverse(), earlier: earlier.reverse(), tools, unlisted, complete, whole: complete && !full }
+    return {
+      recent: packed.recent,
+      earlier: packed.earlier,
+      tools,
+      unlisted: packed.unlisted,
+      complete,
+      whole: complete && !packed.full,
+      hasImages: read.hasImages === true,
+    }
   }
 
   // The note's sections, in order. A note without all of them is not used.
@@ -587,7 +630,9 @@ export function install(rt) {
   ].join('\n')
   const HANDOFF_PROMPT = handoffPrompt('Your conversation is long')
   const FOLDER_PROMPT = handoffPrompt('Your working folder changed')
-  const NOTE_RETRY_SHORTER = 'Your last note was cut off at the output limit, so it was not used. Write the whole note again, shorter: at most about 1,000 words. Keep every heading; drop detail before you drop facts.'
+  const NOTE_RETRY_SHORTER = 'Your last note was cut off at the output limit, so it was not used. Write the whole note again, shorter: at most about 800 words, with minimal internal thinking/reasoning and terse bullets only. Keep every heading; drop detail before you drop facts.'
+  const CHECKPOINT_RETRY_SHORTER = 'Your last checkpoint summary was cut off at the output limit. Write it again, much shorter (at most about 500 words): keep thinking minimal, skip prose, use terse bullets only, and keep exact identifiers, decisions, and remaining work.'
+  const CHECKPOINT_PARTIAL_MIN = 200
   const noteRetryMissing = missing => `Your last note lacked these headings, so it was not used: ${missing.map(name => `"## ${name}"`).join(', ')}. Write the whole note again with every heading exactly as given, in English.`
   const missingSections = note => NOTE_SECTIONS.map(([name]) => name)
     .filter(name => !new RegExp(`^#{1,4}\\s*${escapeRegExp(name)}\\s*:?\\s*$`, 'mi').test(note))
@@ -602,22 +647,150 @@ export function install(rt) {
     const effort = efforts.length === 0 ? undefined
       : efforts.some(entry => entry.id === 'off') ? 'off' : efforts.at(0)?.id
     const limit = route.maxTokens ?? info?.defaultMaxTokens ?? NOTE_RETRY_MAX_TOKENS
-    return { effort, limit }
+    const window = Number.isInteger(info?.context?.contextWindow) && info.context.contextWindow > 0
+      ? info.context.contextWindow : undefined
+    return { effort, limit, window }
+  }
+
+  const PI_CHARS_PER_TOKEN = 3.5
+  const PI_SAFETY_TOKENS = 4_608
+  const isSizeError = (error) => {
+    const seen = new Set()
+    let current = error
+    for (let depth = 0; current !== undefined && current !== null && depth < 8; depth += 1) {
+      if (typeof current === 'object') {
+        if (seen.has(current)) break
+        seen.add(current)
+      }
+      const code = current?.code ?? current?.failure?.code
+      const status = current?.status ?? current?.failure?.status
+      const message = String(current?.message ?? current?.failure?.message ?? current ?? '')
+      if (code === OVERFLOW || status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)) return true
+      current = typeof current === 'object' ? (current.cause ?? current.failure?.cause) : undefined
+    }
+    return false
+  }
+
+  function clipHeadTail(text, maxChars) {
+    if (text.length <= maxChars) return text
+    if (maxChars <= 80) return text.slice(0, maxChars)
+    const marker = '\n[… middle omitted to fit summary budget …]\n'
+    const keep = Math.max(20, maxChars - marker.length)
+    const head = Math.ceil(keep * 0.6)
+    const tail = keep - head
+    return `${text.slice(0, head)}${marker}${text.slice(text.length - tail)}`
+  }
+
+  // Builds a valid DSH text message whose assistant source carries provider/model without
+  // stale replayState (required by real dsh-llm-pi-ai and dsh-llm-deepseek adapters).
+  function makeTextMessage(role, text, route, source) {
+    if (role === 'assistant') {
+      return createAssistantMessage({
+        content: [{ type: 'text', text }],
+        source: {
+          provider: source?.provider ?? route?.provider ?? 'unknown',
+          model: source?.model ?? route?.model ?? 'unknown',
+        },
+      })
+    }
+    return createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  }
+
+  // Ensures a retry after max-tokens or context overflow leaves real output room under
+  // adapters (such as pi-ai) that clamp max_tokens to `contextWindow - estimatedInput - 4096`.
+  function fitHistoryForOutput(stripped, { route, window, targetOutput, prompt, minimalSystem }) {
+    if (!Number.isInteger(window) || window <= 0) return stripped
+    const msgTokens = (message) => {
+      const content = Array.isArray(message?.content) ? message.content : []
+      let chars = 0
+      for (const block of content) {
+        chars += block?.type === 'text' || block?.type === 'reasoning' ? String(block.text ?? '').length : 4_800
+      }
+      return Math.ceil(chars / PI_CHARS_PER_TOKEN) + 8
+    }
+    const systemMsgs = stripped.filter(message => message?.role === 'system')
+    const bodyMsgs = stripped.filter(message => message?.role !== 'system')
+    const promptTokens = Math.ceil(String(prompt ?? '').length / PI_CHARS_PER_TOKEN) + 16
+    const desiredOutput = Math.min(targetOutput ?? NOTE_RETRY_MAX_TOKENS, Math.max(512, Math.floor(window * 0.25)))
+    const systemTokens = systemMsgs.reduce((sum, message) => sum + msgTokens(message), 0)
+    const bodyTokens = bodyMsgs.reduce((sum, message) => sum + msgTokens(message), 0)
+    if (systemTokens + bodyTokens + promptTokens + desiredOutput + PI_SAFETY_TOKENS <= window) return stripped
+
+    let keptSystem = systemMsgs
+    let usedSystem = systemTokens
+    if (window - usedSystem - promptTokens - desiredOutput - PI_SAFETY_TOKENS < 3_000) {
+      keptSystem = [createSystemMessage(minimalSystem)]
+      usedSystem = msgTokens(keptSystem[0])
+    }
+    const bodyBudget = Math.max(256, window - usedSystem - promptTokens - desiredOutput - PI_SAFETY_TOKENS)
+    const asText = (message, maxTokens) => {
+      const role = message.role === 'assistant' ? 'assistant' : 'user'
+      const raw = (Array.isArray(message.content) ? message.content : [])
+        .filter(block => block?.type !== 'reasoning')
+        .map(block => (block?.type === 'text' ? String(block.text ?? '') : '[non-text attachment omitted]'))
+        .join('\n').trim()
+      if (raw === '') return undefined
+      const maxChars = Math.max(200, Math.floor((maxTokens - 8) * PI_CHARS_PER_TOKEN))
+      const text = clipHeadTail(raw, maxChars)
+      return { role, source: message.source, text, tokens: Math.ceil(text.length / PI_CHARS_PER_TOKEN) + 8 }
+    }
+    const keptHead = []
+    let remaining = bodyBudget
+    let tailStop = 0
+    if (bodyMsgs.length >= 2) {
+      const first = asText(bodyMsgs[0], Math.max(400, Math.floor(bodyBudget * 0.3)))
+      if (first !== undefined && first.tokens <= remaining) {
+        keptHead.push(first)
+        remaining -= first.tokens
+        tailStop = 1
+      }
+    }
+    const keptTail = []
+    let omitted = false
+    const perMessageCap = Math.max(400, Math.floor(bodyBudget * 0.5))
+    for (let index = bodyMsgs.length - 1; index >= tailStop; index -= 1) {
+      if (keptTail.length > 0 && remaining < 200) {
+        omitted = true
+        break
+      }
+      const cap = keptTail.length === 0 ? Math.max(400, remaining) : Math.min(perMessageCap, remaining)
+      const entry = asText(bodyMsgs[index], cap)
+      if (entry === undefined) continue
+      if (keptTail.length > 0 && entry.tokens > remaining) {
+        omitted = true
+        break
+      }
+      keptTail.push(entry)
+      remaining -= entry.tokens
+    }
+    const merged = []
+    const pushMerged = (role, text, source) => {
+      const prev = merged.at(-1)
+      if (prev !== undefined && prev.role === role) {
+        merged[merged.length - 1] = makeTextMessage(role, `${prev.content[0].text}\n\n${text}`, route, source ?? prev.source)
+      } else {
+        merged.push(makeTextMessage(role, text, route, source))
+      }
+    }
+    for (const item of keptHead) pushMerged(item.role, item.text, item.source)
+    if (omitted) pushMerged('user', '[… earlier middle messages omitted to preserve summary output room …]')
+    for (const item of keptTail.reverse()) pushMerged(item.role, item.text, item.source)
+    return [...keptSystem, ...merged]
   }
 
   // Converts tool-call blocks and role:'tool' messages into plain text blocks so a
   // no-tools retry never sends raw tool_use/tool_result blocks without tool schemas
   // (which Anthropic Messages API and Bedrock reject with HTTP 400).
-  function stripToolBlocks(messages) {
+  function stripToolBlocks(messages, route) {
     const out = []
-    const pushText = (role, text) => {
+    const pushText = (role, text, source) => {
       const clean = text.trim()
       if (clean === '') return
       const prev = out.at(-1)
       if (prev !== undefined && prev.role === role && Array.isArray(prev.content) && prev.content.every(block => block?.type === 'text')) {
-        out[out.length - 1] = { role, content: [{ type: 'text', text: `${prev.content.map(block => block.text).join('\n')}\n\n${clean}` }] }
+        out[out.length - 1] = makeTextMessage(role, `${prev.content.map(block => block.text).join('\n')}\n\n${clean}`, route, source ?? prev.source)
       } else {
-        out.push({ role, content: [{ type: 'text', text: clean }] })
+        out.push(makeTextMessage(role, clean, route, source))
       }
     }
     for (const message of messages ?? []) {
@@ -632,13 +805,15 @@ export function install(rt) {
         continue
       }
       const raw = Array.isArray(message?.content) ? message.content : []
-      const hasToolBlock = raw.some(block => block?.type === 'tool-call' || block?.type === 'tool-result')
-      if (!hasToolBlock) {
+      const hasStrippableBlock = raw.some(block => block?.type === 'tool-call' || block?.type === 'tool-result' || block?.type === 'reasoning')
+      if (!hasStrippableBlock) {
         const text = textOf(raw)
         if (text !== '' || raw.some(block => block?.type === 'image')) {
           const prev = out.at(-1)
           if (raw.every(block => block?.type === 'text') && prev !== undefined && prev.role === message.role && Array.isArray(prev.content) && prev.content.every(block => block?.type === 'text')) {
-            pushText(message.role, text)
+            pushText(message.role, text, message.source)
+          } else if (message.role === 'assistant' && raw.every(block => block?.type === 'text') && message.source === undefined) {
+            out.push(makeTextMessage('assistant', text, route))
           } else {
             out.push(message)
           }
@@ -659,36 +834,65 @@ export function install(rt) {
           pieces.push(body === '' ? label : `${label}: ${clip(body, 2_000, 'truncated')}`)
         }
       }
-      pushText(message.role === 'assistant' ? 'assistant' : 'user', pieces.join('\n'))
+      pushText(message.role === 'assistant' ? 'assistant' : 'user', pieces.join('\n'), message.source)
     }
     return out
   }
 
   // One route's attempts at the note: the same system prompt, tools, and messages as
   // the conversation's own requests, plus the note prompt; nothing is written into the
-  // Session. A cut-off note, or one without every section, is asked for again once with
-  // more output room; a request error or an abort ends the attempts there.
+  // Session. Attempt 1 matches the conversation's own route config verbatim (including
+  // reasoningEffort and full route output room) so the provider serves the peak-context
+  // prefix from KV cache without hitting an artificial output cap. Only on a max-tokens
+  // retry or tool-stripped retry does it step down reasoning via notePlan.
   async function noteThrough(session, header, messages, route, base, signal) {
-    const { effort, limit } = await notePlan(route)
-    return noteAttempts(session, route, base, async (prompt, attempt, { withoutTools = false } = {}) => {
-      const maxTokens = Math.min(attempt === 1 ? NOTE_MAX_TOKENS : NOTE_RETRY_MAX_TOKENS, limit)
-      const history = withoutTools ? stripToolBlocks(messages) : messages
-      const callOptions = {
-        provider: route.provider,
-        model: route.model,
-        ...(effort === undefined ? {} : { reasoningEffort: effort }),
-        messages: [...history, { role: 'user', content: [{ type: 'text', text: prompt }] }],
-        ...(withoutTools ? {} : { toolHistory: session.toolHistory(), ...(header.tools ? { tools: [...header.tools] } : {}) }),
-        maxTokens,
-        sessionId: session.id,
-        purpose: 'compaction',
-        signal,
-      }
+    let plan
+    const planned = async () => (plan ??= await notePlan(route))
+    return noteAttempts(session, route, base, async (prompt, _attempt, { withoutTools = false, lowerEffort = false, compactInput = false } = {}) => {
+      const { effort, limit, window } = await planned()
+      const windowCap = Number.isInteger(window) && window > 0 ? Math.max(512, Math.floor(window * 0.25)) : NOTE_RETRY_MAX_TOKENS
+      const retryBudget = Math.min(NOTE_RETRY_MAX_TOKENS, limit, windowCap)
+      const dropTools = withoutTools || compactInput
+      const keepPrefix = !dropTools && !lowerEffort
+      const maxTokens = keepPrefix ? (route.maxTokens ?? limit) : (compactInput ? retryBudget : limit)
+      const stripped = dropTools ? stripToolBlocks(messages, route) : messages
+      const history = compactInput
+        ? fitHistoryForOutput(stripped, { route, window, targetOutput: maxTokens, prompt, minimalSystem: 'You are writing a concise internal handoff note for this conversation.' })
+        : stripped
+      const callOptions = keepPrefix
+        ? {
+            ...route,
+            provider: route.provider,
+            model: route.model,
+            messages: [...history, { role: 'user', content: [{ type: 'text', text: prompt }] }],
+            toolHistory: session.toolHistory(),
+            ...(header.tools ? { tools: [...header.tools] } : {}),
+            ...(maxTokens !== undefined ? { maxTokens } : {}),
+            sessionId: session.id,
+            purpose: 'compaction',
+            signal,
+          }
+        : {
+            provider: route.provider,
+            model: route.model,
+            ...(effort === undefined ? {} : { reasoningEffort: effort }),
+            messages: [...history, { role: 'user', content: [{ type: 'text', text: prompt }] }],
+            ...(dropTools ? {} : { toolHistory: session.toolHistory(), ...(header.tools ? { tools: [...header.tools] } : {}) }),
+            maxTokens,
+            sessionId: session.id,
+            purpose: 'compaction',
+            signal,
+          }
       const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
-      if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
+      if (finish.kind === 'error' || finish.kind === 'aborted') {
+        const err = new Error(finish.failure?.message ?? finish.kind)
+        if (finish.failure?.code !== undefined) err.code = finish.failure.code
+        if (finish.failure?.status !== undefined) err.status = finish.failure.status
+        throw err
+      }
       return { text: assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim(), finish: finish.kind, usage: assembler.usage }
-    })
+    }, { signal, canCompact: true })
   }
 
   // Requires at least half the canonical handoff sections AND non-trivial body text
@@ -705,20 +909,50 @@ export function install(rt) {
 
   // The attempts at a note, each asked through `request`: a cut-off note, or one
   // without every section, is asked for again once. If the final attempt still omits
-  // some headings but wrote a substantial, non-truncated note, keep the best partial
-  // note instead of discarding it back to an older part's stale note.
-  async function noteAttempts(session, route, base, request) {
+  // some headings — or even hit the output limit after writing a substantial set of
+  // canonical sections — keep the best usable partial note (preferring a non-truncated
+  // one) instead of discarding it back to an older part's stale note.
+  async function noteAttempts(session, route, base, request, { signal, canCompact = true } = {}) {
     let retry
     let problem
     let withoutTools = false
+    let lowerEffort = false
+    let compactInput = false
     let bestPartial
+    let bestTruncated
+    const recordBest = (current, candidate) => (
+      current === undefined || candidate.score > current.score || (candidate.score === current.score && candidate.note.length > current.note.length)
+        ? candidate : current
+    )
     for (let attempt = 1; attempt <= NOTE_ATTEMPTS; attempt += 1) {
       const prompt = retry === undefined ? base : `${base}\n\n${retry}`
-      const { text, finish, usage } = await request(prompt, attempt, { withoutTools })
+      let text
+      let finish
+      let usage
+      try {
+        ;({ text, finish, usage } = await request(prompt, attempt, { withoutTools, lowerEffort, compactInput }))
+      } catch (error) {
+        if (attempt < NOTE_ATTEMPTS && canCompact && !compactInput && !signal?.aborted && isSizeError(error)) {
+          compactInput = true
+          withoutTools = true
+          lowerEffort = true
+          problem = 'the conversation was too large for a full-prefix note'
+          retry = NOTE_RETRY_SHORTER
+          rt.warn('ds-bot: handoff note attempt %d of %d for %s on %s/%s overflowed input window; retrying with compacted history: %s', attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, error?.message ?? error)
+          continue
+        }
+        throw error
+      }
       const note = missingSections(text).length > 0 ? canonicalHeadings(text, NOTE_SECTIONS.map(([name]) => name)) : text
       const missing = missingSections(note)
       if (finish === 'max-tokens') {
+        if (isUsablePartialNote(note, missing)) {
+          bestTruncated = recordBest(bestTruncated, { note, attempts: attempt, finish, usage, missing, score: NOTE_SECTIONS.length - missing.length })
+        }
+        compactInput = true
+        withoutTools = true
         problem = 'it was cut off at the output limit'
+        lowerEffort = true
         retry = NOTE_RETRY_SHORTER
       } else if (finish === 'tool-calls') {
         problem = 'it tried to call a tool instead of writing text'
@@ -729,10 +963,7 @@ export function install(rt) {
         retry = undefined
       } else if (missing.length > 0) {
         if (isUsablePartialNote(note, missing)) {
-          const score = NOTE_SECTIONS.length - missing.length
-          if (bestPartial === undefined || score > bestPartial.score || (score === bestPartial.score && note.length > bestPartial.note.length)) {
-            bestPartial = { note, attempts: attempt, finish, usage, missing, score }
-          }
+          bestPartial = recordBest(bestPartial, { note, attempts: attempt, finish, usage, missing, score: NOTE_SECTIONS.length - missing.length })
         }
         problem = `it lacked ${missing.join(', ')}`
         retry = noteRetryMissing(missing)
@@ -741,21 +972,48 @@ export function install(rt) {
       }
       rt.warn('ds-bot: handoff note attempt %d of %d for %s on %s/%s not used: %s (finish %s, output %s tokens)', attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, problem, finish, usage?.outputTokens ?? 'unknown')
     }
-    if (bestPartial !== undefined) {
-      rt.warn('ds-bot: using partial handoff note for %s on %s/%s (missing %s) rather than discarding it', session.id, route.provider, route.model, bestPartial.missing.join(', '))
-      return { note: bestPartial.note, attempts: NOTE_ATTEMPTS, finish: bestPartial.finish, usage: bestPartial.usage }
+    const fallback = bestPartial ?? bestTruncated
+    if (fallback !== undefined) {
+      const why = bestPartial !== undefined
+        ? `missing ${fallback.missing.join(', ')}`
+        : `cut off at output limit${fallback.missing.length > 0 ? `, missing ${fallback.missing.join(', ')}` : ''}`
+      rt.warn('ds-bot: using partial handoff note for %s on %s/%s (%s) rather than discarding it', session.id, route.provider, route.model, why)
+      return { note: fallback.note, attempts: NOTE_ATTEMPTS, finish: fallback.finish, usage: fallback.usage }
     }
     return { problem }
   }
+
+  const PRE_DISPATCH_LOCAL_NOTE_CODES = new Set([
+    'LOCAL_AGENT_BUSY',
+    'LOCAL_AGENT_SESSION_LOST',
+    'LOCAL_AGENT_MISSING',
+    'LOCAL_AGENT_SIGNIN',
+    'LOCAL_AGENT_EXIT',
+    'NO_ADAPTER',
+  ])
 
   // A part on a local agent CLI: the CLI writes the note in its own session, which
   // holds the whole working context, as one more prompt the conversation never sees.
   async function writeLocalNote(agent, signal, { folder = false } = {}) {
     const route = agent.session.requestHeader()?.config ?? {}
+    let reachedCli = false
     const written = await noteAttempts(agent.session, route, folder ? FOLDER_PROMPT : HANDOFF_PROMPT,
-      async prompt => ({ text: String(await rt.localAgentNote(agent.id, prompt, signal) ?? '').trim(), finish: 'stop' }))
+      async (prompt) => {
+        const text = String(await rt.localAgentNote(agent.id, prompt, signal) ?? '').trim()
+        reachedCli = true
+        return { text, finish: 'stop' }
+      },
+      { signal, canCompact: false })
+      .catch((error) => {
+        if (error && typeof error === 'object' && error.reachedCli === undefined) {
+          error.reachedCli = reachedCli || !PRE_DISPATCH_LOCAL_NOTE_CODES.has(error.code)
+        }
+        throw error
+      })
     if (written.note !== undefined) return { note: written.note, attempts: written.attempts }
-    throw new Error(`no usable note in ${NOTE_ATTEMPTS} attempts from ${route.provider}/${route.model}; the last one: ${written.problem}`)
+    const error = new Error(`no usable note in ${NOTE_ATTEMPTS} attempts from ${route.provider}/${route.model}; the last one: ${written.problem}`)
+    error.reachedCli = true
+    throw error
   }
 
   // A note is written on the Session's own route — the provider the user chose for this
@@ -768,8 +1026,7 @@ export function install(rt) {
     if (!route?.provider || !route?.model) throw new Error('the Session has not called a model yet')
     const messages = session.deriveMessages()
     const base = folder ? FOLDER_PROMPT : HANDOFF_PROMPT
-    const own = { provider: route.provider, model: route.model, ...(route.maxTokens === undefined ? {} : { maxTokens: route.maxTokens }) }
-    const written = await noteThrough(session, header, messages, own, base, signal)
+    const written = await noteThrough(session, header, messages, route, base, signal)
     if (written.note !== undefined) return { note: written.note, attempts: written.attempts }
     throw new Error(`no usable note in ${NOTE_ATTEMPTS} attempts on ${route.provider}/${route.model}; the last one: ${written.problem}`)
   }
@@ -781,56 +1038,25 @@ export function install(rt) {
   // the latest user+Bot exchanges verbatim plus a compact recent tool trail so active
   // work does not lose immediate context.
   async function checkpointContext(sessionId, { budget, group, number, includeRecent = false, tailText = '' }) {
-    const recent = []
-    const kept = []
-    const recentBudget = includeRecent ? Math.floor(budget * 0.5) : 0
-    const toolBudget = includeRecent ? Math.min(TOOL_TRAIL_TOKENS, Math.floor(budget * 0.15)) : 0
-    const keptBudget = Math.max(0, budget - recentBudget - toolBudget)
-    let recentUsed = 0
-    let recentFull = !includeRecent
-    let keptUsed = 0
-    let more = false
-    let skippedTail = false
-    const stamp = line => (group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`)
-    const read = { continue: () => recent.length === 0 && kept.length === 0 }
-    for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
-      // Skip duplicating the single assistant reply DSH already kept verbatim right
-      // after the checkpoint on the surface.
-      if (includeRecent && !skippedTail && tailText !== '' && line.who === 'you' && line.text === `You: ${tailText}`) {
-        skippedTail = true
-        continue
-      }
-      if (!recentFull) {
-        const text = `${stamp(line)} ${clip(line.text, RECENT_LINE_MAX, 'read_own_chat shows all of it')}`
-        const cost = estimateTokens(text)
-        if (recent.length === 0 || recentUsed + cost <= recentBudget) {
-          recent.push(text)
-          recentUsed += cost
-          if (read.capped) {
-            more = true
-            break
-          }
-          continue
-        }
-        recentFull = true
-      }
-      if (line.who === 'you') continue
-      const text = `${stamp(line)} ${clip(line.text, RECENT_LINE_MAX, 'read_own_chat shows all of it')}`
-      const cost = estimateTokens(text)
-      if ((kept.length > 0 || recent.length > 0) && keptUsed + cost > keptBudget) {
-        more = true
-        break
-      }
-      kept.push(text)
-      keptUsed += cost
-      if (read.capped) {
-        more = true
-        break
-      }
-    }
-    more ||= read.complete !== true
-    const tools = includeRecent ? await recentToolActivity(sessionId, { maxTokens: toolBudget }) : []
-    return { recent: recent.reverse(), tools, kept: kept.reverse(), more }
+    let keptAny = false
+    const read = { continue: () => !keptAny }
+    const packed = await buildCheckpointPack({
+      lines: partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read }),
+      budget,
+      recentLineMax: RECENT_LINE_MAX,
+      toolMaxTokens: TOOL_TRAIL_TOKENS,
+      group,
+      number,
+      includeRecent,
+      tailText,
+      clock,
+      clip,
+      estimateTokens,
+      read,
+      onKept: () => { keptAny = true },
+    })
+    const tools = includeRecent ? await recentToolActivity(sessionId, { maxTokens: packed.toolBudget }) : []
+    return { recent: packed.recent, tools, kept: packed.kept, more: packed.more }
   }
 
   // DS Bot's summary for a Bot Session, in place of the backend's. Like the backend's
@@ -838,7 +1064,7 @@ export function install(rt) {
   // that from cache.
   async function writeCheckpoint(input, agent, signal) {
     const session = agent.session
-    const route = session.requestHeader()?.config
+    const route = session?.requestHeader?.()?.config
     if (!route?.provider || !route?.model) throw new Error('the Session has not called a model yet')
     // The results list grows with the work, so the checkpoint may write as much as one
     // of the Bot's own replies.
@@ -943,12 +1169,6 @@ export function install(rt) {
     ]
   }
 
-  const isSizeError = (error) => {
-    const code = error?.code ?? error?.failure?.code
-    const message = String(error?.message ?? error ?? '')
-    return code === OVERFLOW || error?.status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)
-  }
-
   // The summary request itself. The Session's own route answers it, as it always has. A
   // range DSH condenses for a model switch is different: the route the Session used last
   // is the one being switched away from, and the switch can be because of that route (a
@@ -958,27 +1178,55 @@ export function install(rt) {
   // leave the Bot on the model the user is trying to leave.
   async function summaryThrough(session, route, { input, head, tail, prompt, maxTokens, signal }) {
     const forSwitch = switchRanges.has(session.id)
-    const routes = [{ provider: route.provider, model: route.model }]
+    const routes = [{ ...route, sameRoute: true }]
     if (forSwitch) {
       const bot = rt.selfOf(session.id) === undefined ? undefined : rt.botOf(rt.selfOf(session.id))
       const ref = bot === undefined ? undefined : await Promise.resolve(rt.desiredModel?.(bot)).catch(() => undefined)
       const wanted = splitRef(ref)
-      if (wanted !== undefined && routes.every(one => one.provider !== wanted.provider || one.model !== wanted.model)) routes.push(wanted)
+      if (wanted !== undefined && routes.every(one => one.provider !== wanted.provider || one.model !== wanted.model)) routes.push({ ...wanted, sameRoute: false })
     }
-    const callOnce = async (one, { withoutTools = false, trimmed = false } = {}) => {
-      const { effort } = await notePlan(one)
-      const baseHistory = withoutTools && !trimmed ? stripToolBlocks([...head, ...tail]) : [...head, ...tail]
-      const fullMessages = [...baseHistory, { role: 'user', content: [{ type: 'text', text: withoutTools ? `${prompt}\n\nOutput only the summary as plain text, without calling any tools.` : prompt }] }]
-      const callOptions = {
-        provider: one.provider,
-        model: one.model,
-        ...(effort === undefined ? {} : { reasoningEffort: effort }),
-        messages: trimmed ? compactSwitchTranscript([...head, ...tail], prompt) : fullMessages,
-        ...(withoutTools || trimmed ? {} : { toolHistory: session.toolHistory(), ...(input.tools ? { tools: [...input.tools] } : {}) }),
-        ...(maxTokens !== undefined ? { maxTokens } : {}),
-        sessionId: session.id,
-        purpose: 'compaction',
-        signal,
+    const callOnce = async (one, { routeMaxTokens, withoutTools = false, compactInput = false, trimmed = false, shorter = false, lowerEffort = false, plannedEffort } = {}) => {
+      const dropTools = withoutTools || compactInput
+      const keepPrefix = one.sameRoute === true && !dropTools && !trimmed && !shorter && !lowerEffort
+      const retryPrompt = shorter ? `${prompt}\n\n${CHECKPOINT_RETRY_SHORTER}` : prompt
+      const effectivePrompt = dropTools ? `${retryPrompt}\n\nOutput only the summary as plain text, without calling any tools.` : retryPrompt
+      let callOptions
+      if (keepPrefix) {
+        const { sameRoute: _sameRoute, ...preserved } = one
+        callOptions = {
+          ...preserved,
+          provider: one.provider,
+          model: one.model,
+          messages: [...head, ...tail, { role: 'user', content: [{ type: 'text', text: effectivePrompt }] }],
+          toolHistory: session.toolHistory(),
+          ...(input.tools ? { tools: [...input.tools] } : {}),
+          ...(routeMaxTokens !== undefined ? { maxTokens: routeMaxTokens } : {}),
+          sessionId: session.id,
+          purpose: 'compaction',
+          signal,
+        }
+      } else {
+        const plan = await notePlan({ ...one, ...(routeMaxTokens === undefined ? {} : { maxTokens: routeMaxTokens }) })
+        const effort = plannedEffort !== undefined ? plannedEffort : plan.effort
+        const windowCap = Number.isInteger(plan.window) && plan.window > 0 ? Math.max(512, Math.floor(plan.window * 0.25)) : NOTE_RETRY_MAX_TOKENS
+        const retryBudget = Math.min(NOTE_RETRY_MAX_TOKENS, plan.limit, windowCap)
+        const callMaxTokens = shorter ? retryBudget : routeMaxTokens
+        const stripped = dropTools && !trimmed ? stripToolBlocks([...head, ...tail], one) : [...head, ...tail]
+        const baseHistory = compactInput && !trimmed
+          ? fitHistoryForOutput(stripped, { route: one, window: plan.window, targetOutput: callMaxTokens ?? retryBudget, prompt: effectivePrompt, minimalSystem: 'You are writing a concise internal checkpoint summary for this conversation.' })
+          : stripped
+        const fullMessages = [...baseHistory, { role: 'user', content: [{ type: 'text', text: effectivePrompt }] }]
+        callOptions = {
+          provider: one.provider,
+          model: one.model,
+          ...(effort === undefined ? {} : { reasoningEffort: effort }),
+          messages: trimmed ? compactSwitchTranscript([...head, ...tail], retryPrompt) : fullMessages,
+          ...(dropTools || trimmed ? {} : { toolHistory: session.toolHistory(), ...(input.tools ? { tools: [...input.tools] } : {}) }),
+          ...(callMaxTokens !== undefined ? { maxTokens: callMaxTokens } : {}),
+          sessionId: session.id,
+          purpose: 'compaction',
+          signal,
+        }
       }
       const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
@@ -988,7 +1236,6 @@ export function install(rt) {
         if (finish.failure?.status !== undefined) err.status = finish.failure.status
         throw err
       }
-      if (finish.kind === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
       const rawOutput = assembler.blocks()
       const summary = rawOutput.filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
       return { summary, rawOutput, finish: finish.kind, usage: assembler.usage }
@@ -996,24 +1243,55 @@ export function install(rt) {
     let last
     for (let index = 0; index < routes.length; index += 1) {
       const one = routes[index]
+      const routeMaxTokens = index === 0 ? maxTokens : undefined
+      let bestTruncated
+      let compacted = false
+      const rememberTruncated = (candidate) => {
+        if (candidate?.finish !== 'max-tokens' || candidate.summary.length < CHECKPOINT_PARTIAL_MIN) return
+        if (bestTruncated === undefined || candidate.summary.length > bestTruncated.summary.length) bestTruncated = candidate
+      }
       try {
-        let res = await callOnce(one)
-        if ((res.summary === '' || res.finish === 'tool-calls') && input.tools?.length > 0) {
-          res = await callOnce(one, { withoutTools: true })
+        let withoutTools = false
+        let res = await callOnce(one, { routeMaxTokens })
+        if (res.finish !== 'max-tokens' && (res.summary === '' || res.finish === 'tool-calls') && input.tools?.length > 0) {
+          withoutTools = true
+          res = await callOnce(one, { routeMaxTokens, withoutTools })
         }
-        if (res.summary === '') throw new Error('the checkpoint was empty')
-        return { summary: res.summary, rawOutput: res.rawOutput, provider: one.provider, model: one.model, usage: res.usage }
+        if (res.finish === 'max-tokens') {
+          rememberTruncated(res)
+          rt.warn('ds-bot: checkpoint summary for %s on %s/%s was cut off at output limit (output %s tokens, %d chars); retrying shorter without tools', session.id, one.provider, one.model, res.usage?.outputTokens ?? 'unknown', res.summary.length)
+          withoutTools = true
+          compacted = true
+          res = await callOnce(one, { routeMaxTokens, withoutTools, compactInput: true, shorter: true, lowerEffort: true })
+          rememberTruncated(res)
+        }
+        if (res.finish !== 'max-tokens' && res.summary !== '') {
+          return { summary: res.summary, rawOutput: res.rawOutput, provider: one.provider, model: one.model, usage: res.usage }
+        }
+        if (bestTruncated !== undefined) {
+          rt.warn('ds-bot: using truncated checkpoint summary for %s on %s/%s (%d chars) after shorter retry still hit output limit', session.id, one.provider, one.model, bestTruncated.summary.length)
+          return { summary: bestTruncated.summary, rawOutput: bestTruncated.rawOutput, provider: one.provider, model: one.model, usage: bestTruncated.usage }
+        }
+        if (res.finish === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
+        throw new Error('the checkpoint was empty')
       } catch (error) {
         let failure = error
-        if (forSwitch && index > 0 && !signal?.aborted && isSizeError(failure)) {
+        if (!signal?.aborted && isSizeError(failure) && (!compacted || (forSwitch && index > 0))) {
           try {
-            const res = await callOnce(one, { withoutTools: true, trimmed: true })
-            if (res.summary !== '') {
+            const res = forSwitch && index > 0
+              ? await callOnce(one, { routeMaxTokens, withoutTools: true, trimmed: true })
+              : await callOnce(one, { routeMaxTokens, withoutTools: true, compactInput: true, shorter: true })
+            rememberTruncated(res)
+            if (res.finish !== 'max-tokens' && res.summary !== '') {
               return { summary: res.summary, rawOutput: res.rawOutput, provider: one.provider, model: one.model, usage: res.usage }
             }
           } catch (trimmedError) {
             failure = trimmedError
           }
+        }
+        if (!signal?.aborted && bestTruncated !== undefined) {
+          rt.warn('ds-bot: using truncated checkpoint summary for %s on %s/%s (%d chars) after retry failed: %s', session.id, one.provider, one.model, bestTruncated.summary.length, failure?.message ?? failure)
+          return { summary: bestTruncated.summary, rawOutput: bestTruncated.rawOutput, provider: one.provider, model: one.model, usage: bestTruncated.usage }
         }
         // A cancelled request is the caller's own decision, not a route that cannot answer.
         if (!forSwitch || signal?.aborted) throw failure
@@ -1046,16 +1324,15 @@ export function install(rt) {
     // A part on a local agent CLI asks its own CLI and model, in a one-off session.
     if (local) return parseDecision(await rt.localAgentAsk(agent.id, { system: STEWARD_SYSTEM, prompt: request, signal: AbortSignal.timeout(STEWARD_TIMEOUT_MS) }))
     const route = own
-    const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
+    const { effort, limit } = await notePlan(route)
     // The decision needs no long thinking.
-    const off = info?.reasoning?.efforts?.some(effort => effort.id === 'off')
     const callOptions = {
       provider: route.provider,
       model: route.model,
-      ...(off ? { reasoningEffort: 'off' } : {}),
+      ...(effort === undefined ? {} : { reasoningEffort: effort }),
       system: STEWARD_SYSTEM,
       messages: rt.tagUsage([{ role: 'user', content: [{ type: 'text', text: request }] }], { sessionId: agent.id, kind: 'compaction' }),
-      maxTokens: STEWARD_MAX_TOKENS,
+      maxTokens: Math.min(STEWARD_MAX_TOKENS, limit),
       sessionId: session.id,
       purpose: 'compaction',
       signal: AbortSignal.timeout(STEWARD_TIMEOUT_MS),
@@ -1066,31 +1343,228 @@ export function install(rt) {
     return parseDecision(assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n'))
   }
 
-  // What the steward decides; a part that cannot be condensed, or a steward that
-  // gives no answer, moves on as it always could.
+  // Structured live signals proving work is still under way on this part. Checking
+  // them before asking the steward avoids an LLM call when the answer is already
+  // known, and `hasLiveActivity` prevents an idle switch from stopping running
+  // shell jobs or subagents via archiveSession({ stopActivity: true }).
+  function activeWorkSignals(agent) {
+    const id = agent.id
+    const reasons = []
+    let hasLiveActivity = false
+    if ((rt.runningJobs?.(id)?.length ?? 0) > 0) {
+      reasons.push('running-jobs')
+      hasLiveActivity = true
+    }
+    if (rt.hasSubagents?.(id) === true) {
+      reasons.push('running-subagents')
+      hasLiveActivity = true
+    }
+    if ((typeof rt.own === 'function' ? rt.own(state.questions, id) : state.questions?.[id]) !== undefined) reasons.push('pending-question')
+    if ((typeof rt.own === 'function' ? rt.own(state.views, id) : state.views?.[id]) !== undefined) reasons.push('pending-view')
+    const place = placeOf(id)
+    const room = place?.roomId === undefined ? undefined : rt.roomOf(place.roomId)
+    if (room?.goal?.status === 'active' || room?.goal?.status === 'drafting') reasons.push('active-goal')
+    return { reasons, hasLiveActivity }
+  }
+
+  // What the steward decides. Active structured work short-circuits to compact;
+  // mid-turn steward failures default to tail-preserving compact rather than
+  // tearing down an active turn with a switch.
   async function decide(agent, { midTurn }) {
-    if (!localPart(agent.session) && engineOf(agent) === undefined) return 'switch'
+    const canCondense = localPart(agent.session) || engineOf(agent) !== undefined
+    if (!canCondense) return 'switch'
+    const signals = activeWorkSignals(agent)
+    if (signals.reasons.length > 0) {
+      ctx.logger.info('ds-bot: steward short-circuited to compact for %s (%s)', agent.id, signals.reasons.join(', '))
+      return 'compact'
+    }
+    const fallback = midTurn ? 'compact' : 'switch'
     try {
       const action = await askSteward(agent, { midTurn })
       if (action !== undefined) return action
-      rt.warn('ds-bot: the context steward gave no usable answer for %s; moving on to a fresh part', agent.id)
+      rt.warn('ds-bot: the context steward gave no usable answer for %s; defaulting to %s', agent.id, fallback)
     } catch (error) {
-      rt.warn('ds-bot: the context steward failed for %s; moving on to a fresh part: %s', agent.id, error)
+      rt.warn('ds-bot: the context steward failed for %s; defaulting to %s: %s', agent.id, fallback, error)
     }
-    return 'switch'
+    return fallback
+  }
+
+  const prunerOf = agent => ctx.get?.('agentPresets')?.serviceFor?.(agent, 'toolResultPruner') ?? ctx.get?.('toolResultPruner')
+
+  // Sequence boundary of the active turn's start so mid-turn pruning protects every
+  // tool output produced in this turn — including ones before a mid-turn steer or
+  // runtime-context user/message. Falls back to the last waking user/message only
+  // on minimal sessions without turn/start events.
+  function protectedPruneCutoff(session) {
+    if (typeof session?.eventAt === 'function' && Number.isInteger(session.seq) && session.seq > 0) {
+      for (let seq = session.seq - 1; seq >= 0; seq -= 1) {
+        const event = session.eventAt(seq)
+        if (event?.type === 'turn/start') return seq
+      }
+    }
+    const nodes = session?.surface?.nodes
+    if (!Array.isArray(nodes) || typeof session?.eventAt !== 'function') return undefined
+    for (let index = nodes.length - 1; index >= 0; index -= 1) {
+      const seq = nodes[index]
+      const event = session.eventAt(seq)
+      if (event?.type === 'user/message' && isWakingSource(event.data?.source)) return seq
+    }
+    return undefined
+  }
+
+  // Read-only dry-run of how many tokens tool-result pruning would reclaim without
+  // mutating the Session or breaking the provider's KV prefix cache.
+  function estimatePrunableSavings(session, pruner, { beforeSeq } = {}) {
+    if (typeof pruner?.pruneContent !== 'function' || typeof session?.eventAt !== 'function') return undefined
+    const nodes = session?.surface?.nodes
+    if (!Array.isArray(nodes)) return undefined
+    const meter = ctx.get?.('tokenMeter')
+    let count = 0
+    let saved = 0
+    for (const seq of nodes) {
+      if (beforeSeq !== undefined && seq >= beforeSeq) continue
+      const event = session.eventAt(seq)
+      if (event?.type !== 'tool/result') continue
+      const original = typeof session.deriveEventMessage === 'function' ? session.deriveEventMessage(event) : event.data?.message
+      if (!Array.isArray(original?.content)) continue
+      const pruned = pruner.pruneContent(original.content)
+      if (pruned === null) continue
+      count += 1
+      const before = meter?.estimateMessage?.(original) ?? estimateTokens(textOf(original.content))
+      const after = meter?.estimateMessage?.({ ...original, content: pruned }) ?? estimateTokens(textOf(pruned))
+      saved += Math.max(0, before - after)
+    }
+    return { count, saved }
+  }
+
+  // Prunes only tool results older than `beforeSeq`, matching ToolResultPruner's
+  // exact compaction/prune + tool/result surface replacement events.
+  function pruneOlderToolResults(session, pruner, beforeSeq) {
+    const nodes = [...(session?.surface?.nodes ?? [])]
+    const meter = ctx.get?.('tokenMeter')
+    const pruned = []
+    let charsRemoved = 0
+    for (const seq of nodes) {
+      if (seq >= beforeSeq) continue
+      const event = session.eventAt(seq)
+      if (event?.type !== 'tool/result') continue
+      const original = typeof session.deriveEventMessage === 'function' ? session.deriveEventMessage(event) : event.data?.message
+      if (!Array.isArray(original?.content)) continue
+      const content = pruner.pruneContent(original.content)
+      if (content === null) continue
+      const charsBefore = typeof pruner.measureContent === 'function' ? pruner.measureContent(original.content) : textOf(original.content).length
+      const charsAfter = typeof pruner.measureContent === 'function' ? pruner.measureContent(content) : textOf(content).length
+      const message = Object.freeze({ ...original, content: Object.freeze(content.map(block => Object.freeze({ ...block }))) })
+      session.append('compaction/prune', {
+        shadowedRange: { start: seq, end: seq },
+        shadowedSeqs: [seq],
+        shadowedTokenCount: meter?.estimateMessage?.(original) ?? estimateTokens(textOf(original.content)),
+      })
+      const replacement = session.append('tool/result', { ...event.data, message }, {
+        surfaceOp: { op: 'replace', startSeq: seq, endSeq: seq },
+        sourceEventSeqs: [seq],
+      })
+      pruned.push({ originalSeq: seq, replacementSeq: replacement.seq, charsBefore, charsAfter })
+      charsRemoved += Math.max(0, charsBefore - charsAfter)
+    }
+    return { pruned, charsRemoved }
+  }
+
+  // Non-mutating check that no maintenance pass is currently holding the agent lock.
+  async function tryMaintenanceIdle(agent) {
+    if (!isAgentIdle(agent)) return false
+    if (typeof agent.runMaintenance !== 'function') return true
+    let entered = false
+    let maintenanceSignal
+    try {
+      return await agent.runMaintenance((signal) => {
+        entered = true
+        maintenanceSignal = signal
+        return !signal?.aborted
+      })
+    } catch (error) {
+      if (!entered || maintenanceSignal?.aborted || error?.code === 'busy' || error?.code === 'cancelled') return false
+      return true
+    }
+  }
+
+  // Model-free tool-result pruning through DSH's documented toolResultPruner service.
+  // Called only once a part crosses a pressure line so prefix cache stays intact below
+  // the line. Mid-turn pruning protects the current turn's tool outputs first and only
+  // falls back to pruning them when older results alone cannot drop below `target`.
+  async function pruneToolResults(agent, { inTurn = false, target } = {}) {
+    if (localPart(agent.session)) return { pruned: 0 }
+    if (!inTurn && !isAgentIdle(agent)) return { busy: true, pruned: 0 }
+    const pruner = prunerOf(agent)
+    if (typeof pruner?.pruneSession !== 'function') return { pruned: 0 }
+    const run = async () => {
+      const before = tokensOf(agent.session)
+      let count = 0
+      let charsRemoved = 0
+      if (inTurn && typeof pruner.pruneContent === 'function' && typeof agent.session?.append === 'function') {
+        const cutoff = protectedPruneCutoff(agent.session)
+        if (cutoff !== undefined) {
+          const allDry = estimatePrunableSavings(agent.session, pruner)
+          const olderDry = estimatePrunableSavings(agent.session, pruner, { beforeSeq: cutoff })
+          const hasProtected = allDry !== undefined && olderDry !== undefined && allDry.count > olderDry.count
+          if (hasProtected && olderDry.count > 0) {
+            const olderOutcome = pruneOlderToolResults(agent.session, pruner, cutoff)
+            count += olderOutcome.pruned.length
+            charsRemoved += olderOutcome.charsRemoved
+            if (count > 0) {
+              await ctx.sessions.flush(agent.session)
+              const afterOlder = tokensOf(agent.session)
+              if (target === undefined || (afterOlder !== undefined && afterOlder < target)) {
+                ctx.logger.info('ds-bot: pruned %d older tool result(s) in %s (%d -> %d tokens, %d chars removed; current turn protected)', count, agent.id, before ?? -1, afterOlder ?? -1, charsRemoved)
+                return { pruned: count, before, after: afterOlder }
+              }
+            }
+          }
+        }
+      }
+      const outcome = pruner.pruneSession(agent.session)
+      const extra = outcome?.pruned?.length ?? 0
+      count += extra
+      charsRemoved += outcome?.charsRemoved ?? 0
+      if (count === 0) return { pruned: 0, before, after: before }
+      await ctx.sessions.flush(agent.session)
+      const after = tokensOf(agent.session)
+      ctx.logger.info('ds-bot: pruned %d oversized tool result(s) in %s (%d -> %d tokens, %d chars removed)', count, agent.id, before ?? -1, after ?? -1, charsRemoved)
+      return { pruned: count, before, after }
+    }
+    let entered = false
+    let maintenanceSignal
+    try {
+      if (inTurn) return await run()
+      return await agent.runMaintenance(async (signal) => {
+        entered = true
+        maintenanceSignal = signal
+        if (signal?.aborted) return { busy: true, pruned: 0 }
+        return run()
+      })
+    } catch (error) {
+      if (!inTurn && (!entered || maintenanceSignal?.aborted || error?.code === 'busy' || error?.code === 'cancelled')) {
+        return { busy: true, pruned: 0 }
+      }
+      rt.warn('ds-bot: pruning tool results for %s failed: %s', agent.id, error)
+      return { pruned: 0 }
+    }
   }
 
   // Condenses the part through its own backend. `inTurn`: before a step of a running
-  // turn, retains a balanced recent verbatim tail (~16% of the usable window, capped
-  // below the check line) via compactRegion before falling back to context-overflow;
-  // otherwise runs as an idle maintenance pass whose checkpoint carries recent
-  // verbatim exchanges and tool activity. True when the part ended up below the check
+  // turn past the hard line, retains a balanced recent verbatim tail (~16% of the usable
+  // window, capped below the check line) via compactRegion and only falls back to
+  // context-overflow when still at or above the hard line; otherwise runs as an idle
+  // maintenance pass targeting below the check line, whose checkpoint carries recent
+  // verbatim exchanges and tool activity. True when the part ended up below its target
   // line, false when it did not (it then moves on), undefined when a turn got in first.
-  async function condense(agent, lines, { inTurn, signal }) {
+  async function condense(agent, lines, { inTurn, signal, outcome }) {
     if (localPart(agent.session)) return condenseLocal(agent, lines, signal)
     const engine = engineOf(agent)
     const before = tokensOf(agent.session)
     const sessionId = agent.session.id
+    const target = inTurn ? lines.hard : lines.check
+    const formatError = error => (error?.cause ? `${error} (cause: ${error.cause?.message ?? error.cause})` : error)
     condensing.add(sessionId)
     try {
       // Through the service itself, past DS Bot's own wrapper: only a call on the
@@ -1108,16 +1582,20 @@ export function install(rt) {
           } catch (regionError) {
             if (signal?.aborted) throw regionError
             fellBack = true
-            rt.warn('ds-bot: retained-tail condense for %s fell back to overflow compaction: %s', agent.id, regionError)
+            rt.warn('ds-bot: retained-tail condense for %s fell back to overflow compaction: %s', agent.id, formatError(regionError))
             result = await engine.compactIfNeeded(agent, 'context-overflow', signal)
           }
           const afterRetained = tokensOf(agent.session)
-          if (!fellBack && result !== null && afterRetained !== undefined && afterRetained >= lines.check) {
-            try {
-              result = await engine.compactIfNeeded(agent, 'context-overflow', signal) ?? result
-            } catch (followUpError) {
-              if (signal?.aborted) throw followUpError
-              rt.warn('ds-bot: follow-up overflow compaction for %s failed after retained-tail commit: %s', agent.id, followUpError)
+          if (!fellBack && result !== null && afterRetained !== undefined && afterRetained >= target) {
+            await pruneToolResults(agent, { inTurn: true })
+            const afterTailPrune = tokensOf(agent.session)
+            if (afterTailPrune === undefined || afterTailPrune >= target) {
+              try {
+                result = await engine.compactIfNeeded(agent, 'context-overflow', signal) ?? result
+              } catch (followUpError) {
+                if (signal?.aborted) throw followUpError
+                rt.warn('ds-bot: follow-up overflow compaction for %s failed after retained-tail commit: %s', agent.id, formatError(followUpError))
+              }
             }
           }
         } else {
@@ -1129,17 +1607,21 @@ export function install(rt) {
       if (result === null) return false
     } catch (error) {
       if (!inTurn && (error?.code === 'busy' || error?.code === 'cancelled')) return undefined
-      rt.warn('ds-bot: condensing %s failed: %s', agent.id, error)
+      if (outcome !== undefined && isSizeError(error)) outcome.overflow = true
+      rt.warn('ds-bot: condensing %s failed: %s', agent.id, formatError(error))
       return false
     } finally {
       condensing.delete(sessionId)
     }
-    // The prefix cache starts over anyway, so the memory section catches up.
+    // The prefix cache starts over anyway, so advance the context epoch and renew memory.
+    contextRuntime.bumpEpoch(sessionId, 'dsh-checkpoint')
     rt.renewMemory(sessionId)
     const after = tokensOf(agent.session) ?? before
     partBase.set(agent.id, after)
+    if (inTurn && after < target && after >= lines.check) midTurnCondensed.add(agent.id)
+    else midTurnCondensed.delete(agent.id)
     ctx.logger.info('ds-bot: %s condensed from %d to %d tokens (check line %d, hard line %d)', agent.id, before ?? -1, after ?? -1, lines.check, lines.hard)
-    return after < lines.check
+    return after < target
   }
 
   // A part on a local agent CLI condenses through the CLI's own compaction. Undefined
@@ -1149,6 +1631,7 @@ export function install(rt) {
   // past the line.
   async function condenseLocal(agent, lines, signal) {
     const before = sizeOf(agent.session)
+    const epochBefore = contextRuntime.epochOf(agent.id)
     let result
     let requested
     try {
@@ -1168,6 +1651,9 @@ export function install(rt) {
       partBase.set(agent.id, before ?? 0)
       return undefined
     }
+    if (contextRuntime.epochOf(agent.id) === epochBefore) {
+      contextRuntime.bumpEpoch(agent.id, 'cli-compact')
+    }
     rt.renewMemory(agent.id)
     const after = sizeOf(agent.session)
     partBase.set(agent.id, after ?? 0)
@@ -1176,39 +1662,49 @@ export function install(rt) {
     return after === undefined || after < lines.check
   }
 
+  const segmentNoteOf = (segment) => {
+    if (segment === undefined || segment === null) return undefined
+    if (Number.isInteger(segment.throughSeq)) return undefined
+    if (typeof segment.note === 'string') return segment.note
+    return rt.readSegmentNote?.(segment)
+  }
+
   // The note a part opened with, as the fresh part shows it. A note DS Bot put
   // together without the model carries the last note the model wrote.
   function noteText(segment) {
-    if (segment?.fallback === undefined) return segment?.note
+    const note = segmentNoteOf(segment)
+    if (segment?.fallback === undefined) return note
     if (segment.fallback === 'whole') {
       const head = '(No new note: every message of the part was carried over word for word.'
-      return segment.note === undefined ? `${head})` : `${head} Below is the note written at the end of part ${segment.noteFrom}, carried over unchanged.)\n\n${segment.note}`
+      return note === undefined ? `${head})` : `${head} Below is the note written at the end of part ${segment.noteFrom}, carried over unchanged.)\n\n${note}`
     }
     const why = segment.fallback === 'overflow' ? 'the part overflowed the model\'s window'
       : segment.fallback === 'cutoff' ? 'the part kept being cut off at the output limit'
-        : segment.fallback === 'failure' ? 'a request in the previous part kept failing'
-          : segment.fallback === 'engine' ? 'what you run on changed'
-            : segment.fallback === 'manual' ? 'a fresh conversation was started'
-            : 'the model did not write a usable note'
+        : segment.fallback === 'runtime-lost' ? 'the local agent session could no longer be resumed'
+          : segment.fallback === 'failure' ? 'a request in the previous part kept failing'
+            : segment.fallback === 'engine' ? 'what you run on changed'
+              : segment.fallback === 'manual' ? 'a fresh conversation was started'
+                : 'the model did not write a usable note'
     const head = `(DS Bot put this note together without the model, because ${why}.`
-    return segment.note === undefined
+    return note === undefined
       ? `${head} There was no earlier note to carry over. Go by the messages below, and look up anything else.)`
-      : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${segment.note}`
+      : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${note}`
   }
 
-  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, cutoff, failed, bare, folder, engine }) {
+  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, cutoff, runtimeLost = false, failed, bare, folder, engine }) {
     const where = room === undefined ? 'your own chat with the user'
       : self ? `the group chat "${room.name}"` : `your conversation in the group chat "${room.name}"`
     const lookup = room === undefined
-      ? 'read_own_chat searches every part, reads around an anchor such as [part 2 #1234 · …], and shows the note that closed any earlier part.'
+      ? 'read_own_chat searches every part, reads around an anchor such as [part 2 #1234 · …], recalls tool outputs by call_id, and shows the note that closed any earlier part.'
       : self ? 'the earlier part stays in the group\'s saved record.'
-        : 'read_group_chat shows the group\'s latest messages, and read_own_chat your own chat.'
+        : 'read_group_chat shows the group\'s latest messages, and read_own_chat your own chat (or pass group to search your earlier parts here, or call_id to recall a tool output).'
     const reason = failed !== undefined ? `a request in the previous part kept failing (${failed})`
-      : overflow ? 'the previous part overflowed the model\'s window'
-        : engine !== undefined ? `the user changed what you run on, to ${engine}`
-          : cutoff ? 'the previous part kept being cut off at the output limit'
-            : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}`
-              : 'the previous part grew long'
+      : runtimeLost ? 'the local agent session could no longer be resumed'
+        : overflow ? 'the previous part overflowed the model\'s window'
+          : engine !== undefined ? `the user changed what you run on, to ${engine}`
+            : cutoff ? 'the previous part kept being cut off at the output limit'
+              : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}`
+                : 'the previous part grew long'
     const { recent, earlier, tools = [], unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
@@ -1221,7 +1717,7 @@ export function install(rt) {
       `Everything earlier stays saved: ${lookup}`,
       ...(engine !== undefined ? [`You now run on ${engine}. Your memory, instructions, team and folder stay yours, but your own tools and how they work may differ from the ones in the messages below: look at what you have before you repeat a step.`] : []),
       ...(folder !== undefined ? [`You now work in ${folder}: commands and file tools start there. Relative paths in the messages below meant the previous folder.`] : []),
-      ...(failed !== undefined ? ['Images from the previous part are not in this conversation; if one matters, ask the user to send it again.'] : []),
+      ...(failed !== undefined || lines.hasImages === true ? ['Images from the previous part are not in this conversation; if one matters, ask the user to send it again.'] : []),
       '',
       '## Handoff note',
       noteText(segment) ?? '(none)',
@@ -1241,7 +1737,8 @@ export function install(rt) {
       recent.length > 0 ? recent.join('\n') : '(none)',
       ...(room ? omitted : []),
       '',
-      !resume ? 'Every message above has had its answer. Nothing needs an answer now; wait for the next message.'
+      !resume && bare ? 'This fresh conversation starts without the latest messages from the previous part because it no longer fit in the context window. Wait for the next message.'
+        : !resume ? 'Every message above has had its answer. Nothing needs an answer now; wait for the next message.'
         : bare ? `Your last turn could not finish because the model request kept failing, also in a fresh conversation with the latest messages carried over, so they are left out this time. First tell ${room ? 'the group' : 'the user'} in one short sentence that the last message could not be sent, and ask for it again.`
         : failed !== undefined ? room
           ? 'Your last turn could not finish because the model request kept failing. Go on with it now from the messages above, and first tell the group in one short sentence that the last message could not be sent as it was and you moved on to a fresh conversation, and write your reply to the group.'
@@ -1252,24 +1749,73 @@ export function install(rt) {
   }
 
   // Carries any active IM turn origin onto a synthetic switch/resume source without
-  // replaying a stale request rpcId that the earlier part already consumed.
+  // replaying a stale request rpcId or transferId that the earlier part already consumed.
   function carryOriginSource(job, base) {
     const source = { ...base }
     delete source.rpcId
+    delete source.transferId
     if (job.resumeOrigin === undefined) return source
     job.originSent = true
     return { ...source, imOrigin: job.resumeOrigin }
   }
 
+  // Extracts unread user/request messages from a local part whose CLI session was lost
+  // before seeing them, preserving full text, image attachments, and reply routing with
+  // deterministic transferIds so both normal switching and crash recovery deliver once.
+  function unreadRequestsForRuntimeLost(session, oldSessionId, job = {}, { markOriginSent = false } = {}) {
+    const messages = session?.deriveMessages?.() ?? []
+    if (messages.length === 0) return []
+    const handedId = state.localAgents?.sessions?.[oldSessionId]?.handedId
+    let startIdx = handedId === undefined ? -1 : messages.findIndex(message => message?.id === handedId)
+    if (startIdx === -1) {
+      startIdx = messages.findLastIndex(message => message?.role === 'tool'
+        || (message?.role === 'assistant' && textOf(message.content).trim() !== HANDOFF_ACK))
+    }
+    const raw = messages.slice(startIdx + 1).filter(message => message?.role === 'user'
+      && message.source?.handoff !== true
+      && !isContextOnlyMessage(message)
+      && textOf(message.content) !== PAUSE_NOTE)
+    return raw.map((message, idx) => {
+      const isLast = idx === raw.length - 1
+      const transferId = message.source?.transferId ?? `runtime-lost:${oldSessionId}:${message.id ?? idx}`
+      const baseSource = message.source ?? { kind: 'user' }
+      const merged = {
+        ...baseSource,
+        ...(isLast && job.info?.exchangeId !== undefined && baseSource.exchangeId === undefined ? { exchangeId: job.info.exchangeId } : {}),
+        ...(isLast && Array.isArray(job.joined) && job.joined.length > 0 && !Array.isArray(baseSource.joined) ? { joined: job.joined } : {}),
+      }
+      const originCarrier = markOriginSent ? job : { resumeOrigin: job.resumeOrigin }
+      const cleaned = { ...merged }
+      delete cleaned.imOrigin
+      const source = {
+        ...(isLast ? carryOriginSource(originCarrier, cleaned) : (() => { delete cleaned.rpcId; delete cleaned.transferId; return cleaned })()),
+        transferId,
+      }
+      return { ...message, source }
+    })
+  }
+
   // A turn stopped for a switch goes on with its own source, so its reply still
-  // reaches whoever asked.
-  const handoffSource = (job, resume) => carryOriginSource(job, {
-    ...(resume && job.info ? job.info : { kind: SOURCE_KIND, form: 'relay', role: 'handoff', senderName: 'DS Bot' }),
-    exchangeId: job.info?.exchangeId ?? randomUUID(),
-    handoff: true,
-    ...(resume ? { resume: true } : {}),
-    ...(resume && job.joined?.length ? { joined: job.joined } : {}),
-  })
+  // reaches whoever asked. When unread runtime-lost input will drive the new turn,
+  // omit the one-use IM origin token from the silent handoff so only the forwarded
+  // request claims it.
+  const handoffSource = (job, resume, { omitOrigin = false } = {}) => {
+    const base = {
+      ...(resume && job.info ? job.info : { kind: SOURCE_KIND, form: 'relay', role: 'handoff', senderName: 'DS Bot' }),
+      exchangeId: job.info?.exchangeId ?? randomUUID(),
+      handoff: true,
+      ...(resume ? { resume: true } : {}),
+      ...(resume && job.joined?.length ? { joined: job.joined } : {}),
+    }
+    if (omitOrigin) {
+      const cleaned = { ...base }
+      delete cleaned.rpcId
+      delete cleaned.transferId
+      delete cleaned.imOrigin
+      return cleaned
+    }
+    return carryOriginSource(job, base)
+  }
 
   /** @type {Map<string, {botId:string, roomId?:string, carry:any[], info?:any, joined?:any[], resume:boolean, overflow:boolean, cutoff?:boolean, failed?:string, bare?:boolean, folder?:boolean, engine?:boolean, hard:boolean, started?:boolean, moved?:boolean, noteFailed?:boolean}>} */
   const switches = new Map()
@@ -1283,17 +1829,29 @@ export function install(rt) {
   // Parts that have not started a turn yet, with their handoff package's size.
   const freshParts = new Map()
   // Context size where a part started, or where a checkpoint or a failed switch left
-  // it. A part makes room again only once it grew by a quarter of the check line past
-  // it, so a large system prompt or a broken switch cannot make it act every turn.
-  const partBase = new Map()
+  // it (persisted in state.contextParts via ContextRuntime so restarts keep the baseline).
+  const partBase = {
+    get: sessionId => contextRuntime.partBaseOf(sessionId),
+    set: (sessionId, value) => contextRuntime.setPartBase(sessionId, value),
+  }
   // Parts whose note failed below the hard line: failures in a row, and the time
   // before which the check line does not try again.
   const noteFailures = new Map()
+  // Parts where canMakeRoom returned false below the hard line: failures in a row,
+  // and the time before which checkContext does not re-ask the steward.
+  const roomRetry = new Map()
+  // Parts whose mid-turn condensation succeeded below hard but stayed at or above check;
+  // checkContext ignores the C/4 growth gate once when the turn finishes.
+  const midTurnCondensed = new Set()
   // Parts the steward is deciding about at the end of a turn.
   const checking = new Set()
-  // Per part on a local agent CLI: the compactions already looked at, and the parts
-  // the CLI condensed without saying yet how full they are now.
-  const cliCompactions = new Map()
+  // Per part on a local agent CLI: the compactions already looked at (persisted in
+  // state.contextParts via ContextRuntime), and the parts the CLI condensed without
+  // saying yet how full they are now.
+  const cliCompactions = {
+    get: sessionId => contextRuntime.cliCompactionsOf(sessionId),
+    set: (sessionId, count) => contextRuntime.setCliCompactions(sessionId, count),
+  }
   const condensedUnmeasured = new Set()
   // Turns a route stopped at its window, in a row, per part: nothing written, or a
   // short answer far below the model's output limit (#1104, #1461).
@@ -1343,11 +1901,7 @@ export function install(rt) {
   // Compaction sets partBase from an immediate estimate before the next provider
   // response reports real usage; lower it when measured context shrinks so stale
   // estimates cannot keep checkContext suppressed above the line.
-  const lowerPartBase = (sessionId, tokens) => {
-    if (tokens === undefined) return
-    const base = partBase.get(sessionId)
-    if (base !== undefined && tokens < base) partBase.set(sessionId, tokens)
-  }
+  const lowerPartBase = (sessionId, tokens) => contextRuntime.lowerPartBase(sessionId, tokens)
   const grown = (sessionId, tokens, lines) => {
     const base = partBase.get(sessionId) ?? 0
     // Crossing the hard line from below must still act even when base + check / 4 overshoots it.
@@ -1357,27 +1911,129 @@ export function install(rt) {
   // A read-only process (another dsh holds the team) neither condenses nor switches.
   const readOnly = () => rt.readOnly() !== undefined
 
+  const WAKING_KINDS = new Set(['user', REPLY_KIND, 'schedule', 'tool-jobs', 'subagent-settled', 'agent-message'])
+  const isSilentSource = isSilentBotSource
+  const isWakingSource = source => source != null
+    && !isContextOnlySource(source)
+    && (WAKING_KINDS.has(source.kind) || source.kind === SOURCE_KIND)
+  const isSilentRelay = message => isSilentSource(message?.source)
+  const isAgentIdle = agent => agent.status === 'idle' && rt.live?.get(agent.id)?.turn === undefined
+
+  // Collects per-message transfer identities already pending in the target inbox,
+  // claimed into an in-flight turn, or admitted into the target session log so
+  // retrying a failed forward flush never duplicates an already-claimed prompt.
+  // Keeps per-message transfer identity separate from reply-routing exchangeId so
+  // a synthetic resume message (PAUSE_NOTE) sharing an active turn's exchangeId is
+  // never mistaken for the original request already logged in the old part's history.
+  const transferKeyOf = message => message?.source?.transferId ?? message?.source?.rpcId ?? message?.id ?? message?.source?.exchangeId
+  function collectTargetSeen(agent) {
+    const seenTransferIds = new Set()
+    const seenExchangeIds = new Set()
+    const addTransfer = (msg) => {
+      if (!msg) return
+      if (msg.id !== undefined) seenTransferIds.add(msg.id)
+      const src = msg.source
+      if (src?.transferId !== undefined) seenTransferIds.add(src.transferId)
+      if (src?.rpcId !== undefined) seenTransferIds.add(src.rpcId)
+      if (src?.exchangeId !== undefined) seenExchangeIds.add(src.exchangeId)
+    }
+    for (const msg of [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]) {
+      addTransfer(msg)
+    }
+    const events = agent.session?.snapshotEvents?.()
+    if (Array.isArray(events)) {
+      const pending = { 'next-turn': [], 'next-step': [] }
+      const claimedTransfer = new Set()
+      const claimedExchange = new Set()
+      for (const ev of events) {
+        if (ev?.type === 'turn/end') {
+          claimedTransfer.clear()
+          claimedExchange.clear()
+        }
+        if (ev?.type === 'user/message') {
+          if (ev.data?.id !== undefined) seenTransferIds.add(ev.data.id)
+          if (ev.data?.message?.id !== undefined) seenTransferIds.add(ev.data.message.id)
+          const src = ev.data?.source ?? ev.data?.message?.source
+          if (src?.transferId !== undefined) seenTransferIds.add(src.transferId)
+          if (src?.rpcId !== undefined) seenTransferIds.add(src.rpcId)
+          if (src?.exchangeId !== undefined) seenExchangeIds.add(src.exchangeId)
+        } else if (ev?.type === 'agent/inbox/spliced' && ev.data) {
+          const inbox = pending[ev.data.target]
+          if (inbox !== undefined) {
+            const start = ev.data.start
+            const removedCount = ev.data.removedCount ?? 0
+            const inserted = Array.isArray(ev.data.inserted) ? ev.data.inserted : []
+            if (Number.isSafeInteger(start) && start >= 0 && start <= inbox.length
+              && Number.isSafeInteger(removedCount) && removedCount >= 0 && start + removedCount <= inbox.length) {
+              const removed = inbox.splice(start, removedCount, ...inserted)
+              if (inserted.length === 0 && ev.data.outcome !== 'canceled') {
+                for (const msg of removed) {
+                  if (msg?.id !== undefined) claimedTransfer.add(msg.id)
+                  if (msg?.source?.transferId !== undefined) claimedTransfer.add(msg.source.transferId)
+                  if (msg?.source?.rpcId !== undefined) claimedTransfer.add(msg.source.rpcId)
+                  if (msg?.source?.exchangeId !== undefined) claimedExchange.add(msg.source.exchangeId)
+                }
+              }
+            }
+          }
+        }
+      }
+      for (const list of [pending['next-turn'], pending['next-step']]) {
+        for (const msg of list) addTransfer(msg)
+      }
+      for (const key of claimedTransfer) seenTransferIds.add(key)
+      for (const key of claimedExchange) seenExchangeIds.add(key)
+    } else {
+      for (const msg of agent.session?.deriveMessages?.() ?? []) {
+        if (msg?.role === 'user') addTransfer(msg)
+      }
+    }
+    return { seenTransferIds, seenExchangeIds }
+  }
+
   // Input for an earlier part goes on in the current one: a browser may still show the
   // old part, and a turn stopped for a switch hands on what it claimed.
   async function forward(owner, messages, target = currentOf(owner)) {
     if (target === undefined || messages.length === 0) return
     await rt.ensureCapabilities(target)
     const agent = await rt.resolveAgent(target)
-    // A retry after a forward that stopped halfway must not deliver the same input twice.
-    const pending = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
+    // A retry after a forward that stopped halfway must not deliver the same input twice,
+    // including prompts the target already claimed out of its inbox before flush failed.
+    const { seenTransferIds, seenExchangeIds } = collectTargetSeen(agent)
+    let flushNeeded = false
     for (const message of messages) {
       const kind = message.source?.kind
       // DSH's notice of a folder change is about the Session it was queued in; the part
       // that goes on has its own folder, which its handoff names.
       if (kind === 'working-directory') continue
+      const explicitTransfer = message.source?.transferId
+      const key = transferKeyOf(message)
       const exchangeId = message.source?.exchangeId
-      if (exchangeId !== undefined && pending.some(queued => queued.source?.exchangeId === exchangeId)) continue
-      const copy = createUserMessage({ content: message.content, ...(message.source ? { source: message.source } : {}) })
-      if (kind === 'user' || kind === SOURCE_KIND || kind === REPLY_KIND) agent.followup(copy)
-      else agent.inject(copy)
-      pending.push(copy)
+      const alreadySeen = (key !== undefined && seenTransferIds.has(key))
+        || (explicitTransfer === undefined && exchangeId !== undefined && seenExchangeIds.has(exchangeId))
+      if (alreadySeen) {
+        // Ensure a previously claimed/pending admission on the target is flushed to disk
+        // before the caller removes the original message from the old inbox.
+        flushNeeded = true
+        continue
+      }
+      const source = message.source
+        ? { ...message.source, ...(key !== undefined && message.source.transferId === undefined ? { transferId: key } : {}) }
+        : (key !== undefined ? { transferId: key } : undefined)
+      const copy = createUserMessage({ content: message.content, ...(source ? { source } : {}) })
+      if (isSilentRelay(message)) {
+        if (rt.injectSilent ? rt.injectSilent(target, copy, agent) : (agent.inject(copy), true)) flushNeeded = true
+      } else if (isWakingSource(message.source)) {
+        agent.followup(copy)
+        flushNeeded = true
+      } else {
+        agent.inject(copy)
+        flushNeeded = true
+      }
+      if (key !== undefined) seenTransferIds.add(key)
+      if (explicitTransfer === undefined && exchangeId !== undefined) seenExchangeIds.add(exchangeId)
     }
-    await ctx.sessions.flush(agent.session)
+    if (flushNeeded) await ctx.sessions.flush(agent.session)
   }
 
   // The plugin's own fiber is disposed (a reload, or DSH closing): every service
@@ -1387,7 +2043,7 @@ export function install(rt) {
   const noteInfo = (template, ...args) => { try { ctx.logger.info(template, ...args) } catch {} }
 
   // A message's inbox boundary, the same one forward() delivers it to.
-  const inboxTargetOf = message => (message.source?.kind === 'user' || message.source?.kind === SOURCE_KIND || message.source?.kind === REPLY_KIND ? 'next-turn' : 'next-step')
+  const inboxTargetOf = message => (isWakingSource(message?.source) ? 'next-turn' : 'next-step')
 
   // Input a switch could not hand on goes back into the part's own durable inbox, in
   // order: input followup would deliver waits for the next turn, the rest waits for
@@ -1403,26 +2059,36 @@ export function install(rt) {
   }
 
   // Input in the inbox is durable but does not wake the driver; send() is what wakes
-  // it. Re-send what waits, in order, the first message with the wake, so a stopped
-  // turn goes on without waiting for the next input. Only while the plugin is live —
-  // a turn that starts during unload would run without DS Bot's hooks.
+  // it. Re-send what waits, inserting silent notices first with wake=false so they sit
+  // in nextStep alongside (never behind) any waking turn, and waking on the first
+  // non-silent message so a stopped turn goes on without waking on silent notes.
+  // Only while the plugin is live — a turn that starts during unload would run without DS Bot's hooks.
   // Track message ids DS Bot itself removes from an inbox in order to wake or forward
   // them during a part switch so `agent/inbox/discarded` never mistakes a move for a cancel.
   const movingInboxMessages = new Set()
-  const removeForMove = (agent, messages) => {
-    for (const message of messages) {
-      if (message?.id !== undefined) movingInboxMessages.add(message.id)
-      try {
-        agent.inbox.remove(message.id)
-      } finally {
-        if (message?.id !== undefined) movingInboxMessages.delete(message.id)
-      }
+  const removeMessageForMove = (agent, message) => {
+    if (message.id !== undefined) movingInboxMessages.add(message.id)
+    try {
+      return agent.inbox.remove(message.id)
+    } finally {
+      if (message.id !== undefined) movingInboxMessages.delete(message.id)
     }
   }
-  const wake = (agent) => {
+  const removeForMove = (agent, messages) => {
+    for (const message of messages) removeMessageForMove(agent, message)
+  }
+  const wake = (agent, priorityIds) => {
     const pending = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
     removeForMove(agent, pending)
-    pending.forEach((message, index) => agent.send(message, inboxTargetOf(message), index === 0))
+    const silent = pending.filter(isSilentRelay)
+    const active = pending.filter(message => !isSilentRelay(message))
+    // Keep PAUSE_NOTE and rolled-back turn input ahead of newer steered follow-ups in next-step.
+    const rank = message => (textOf(message?.content) === PAUSE_NOTE ? 2 : (priorityIds?.has(message?.id) ? 1 : 0))
+    active.sort((a, b) => rank(b) - rank(a))
+    for (const message of silent) agent.send(message, 'next-step', false)
+    for (let i = 0; i < active.length; i += 1) {
+      agent.send(active[i], inboxTargetOf(active[i]), i === 0)
+    }
   }
 
   // A switch that lost its move or its input to a failure leaves its part marked in
@@ -1431,36 +2097,382 @@ export function install(rt) {
   // to; a part that stayed just wakes so its kept input goes on.
   // The start timer and a direct call can overlap on a slow start; both share one pass,
   // so kept input is handed on once.
+  const HELD_RETRY_MS = [5_000, 15_000, 60_000, 300_000]
+  let heldRetryTimer
+  let heldRetryCount = 0
+  function scheduleHeldBackRetry() {
+    if (heldRetryTimer !== undefined || readOnly() || ctx.fiber?.uid === null) return
+    if (Object.keys(state.switching ?? {}).length === 0) {
+      heldRetryCount = 0
+      return
+    }
+    const delay = HELD_RETRY_MS[Math.min(heldRetryCount, HELD_RETRY_MS.length - 1)]
+    heldRetryCount += 1
+    heldRetryTimer = setTimeout(() => {
+      heldRetryTimer = undefined
+      if (ctx.fiber?.uid === null || readOnly()) return
+      void heldBack().catch(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
+    }, delay)
+    heldRetryTimer.unref?.()
+  }
+
+  // Recovers a handoff package that was not yet flushed to `target` when the process
+  // crashed or errored between flipping the current-part pointer and flushing flush #1.
+  async function ensureHandoffDelivered(oldSessionId, owner, targetId, { metaOverride, fallbackSessionId } = {}) {
+    await rt.ensureCapabilities(targetId)
+    const fresh = await rt.resolveAgent(targetId)
+    const meta = metaOverride ?? owner.handoffMeta ?? {}
+    const expectedExchangeId = meta.info?.exchangeId
+    const matchesExistingHandoff = (m) => {
+      if (m?.source?.handoff !== true) return false
+      if (expectedExchangeId === undefined) return true
+      return m.source?.exchangeId === expectedExchangeId
+    }
+    const alreadyHasHandoff = (fresh.session?.deriveMessages?.() ?? []).some(matchesExistingHandoff)
+      || [...(fresh.inbox?.nextStep ?? []), ...(fresh.inbox?.nextTurn ?? [])].some(matchesExistingHandoff)
+    if (alreadyHasHandoff) return
+    const bot = owner.botId === undefined ? undefined : rt.botOf(owner.botId)
+    const room = rt.roomOf(owner.roomId)
+    const taskEntry = rt.taskBySession?.(targetId)?.task ?? rt.taskBySession?.(oldSessionId)?.task
+    const taskRoom = taskEntry?.roomId !== undefined ? rt.roomOf(taskEntry.roomId) : undefined
+    const effectiveRoom = room ?? taskRoom
+    const parts = bot === undefined ? partsOf(undefined, room?.id)
+      : room !== undefined ? partsOf(bot.id, room.id) : partsOfThread(bot.id, targetId)
+    const targetPart = parts.find(part => part?.sessionId === targetId)
+    const number = targetPart?.number ?? Math.max(2, parts.length)
+    let segment = parts.find(part => part?.sessionId === oldSessionId) ?? { sessionId: oldSessionId, fallback: 'failed' }
+    const oldPartNumber = segment.number ?? Math.max(1, number - 1)
+    const lines = await contextLines(fresh.session).catch(() => undefined)
+    const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
+    let carried = meta.bare
+      ? { recent: [], earlier: [], tools: [], unlisted: 0, complete: true }
+      : await handoffLines(oldSessionId, { budget, group: effectiveRoom !== undefined, number: oldPartNumber })
+    if (!meta.bare && carried.recent.length === 0 && carried.earlier.length === 0 && fallbackSessionId !== undefined && fallbackSessionId !== oldSessionId) {
+      const fallbackSegment = parts.find(part => part?.sessionId === fallbackSessionId)
+      const fallbackPartNumber = fallbackSegment?.number ?? Math.max(1, oldPartNumber - 1)
+      const fallbackCarried = await handoffLines(fallbackSessionId, { budget, group: effectiveRoom !== undefined, number: fallbackPartNumber })
+      if (fallbackCarried.recent.length > 0 || fallbackCarried.earlier.length > 0 || fallbackCarried.tools.length > 0) {
+        carried = fallbackCarried
+        segment = fallbackSegment ?? segment
+      }
+    }
+    const folder = meta.folder ? fresh.session?.header?.cwd : undefined
+    const engine = meta.engine && bot !== undefined ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
+    const hasRuntimeLostUnread = meta.runtimeLost === true && meta.runtimeLostHasUnread === true
+    const resume = !hasRuntimeLostUnread && (meta.resume === true || meta.overflow === true || meta.runtimeLost === true)
+    const text = handoffPackage({
+      room: effectiveRoom,
+      self: bot === undefined,
+      segment,
+      lines: carried,
+      number,
+      resume,
+      overflow: meta.overflow === true,
+      cutoff: meta.cutoff === true,
+      runtimeLost: meta.runtimeLost === true,
+      failed: meta.failed,
+      bare: meta.bare === true,
+      folder,
+      engine,
+    })
+    freshParts.set(targetId, estimateTokens(text))
+    const recoveredJob = {
+      ...(meta.info !== undefined ? { info: meta.info } : {}),
+      ...(Array.isArray(meta.joined) && meta.joined.length > 0 ? { joined: meta.joined } : {}),
+      ...(meta.resumeOrigin !== undefined ? { resumeOrigin: meta.resumeOrigin } : {}),
+    }
+    fresh.followup(createUserMessage({
+      content: [{ type: 'text', text }],
+      source: handoffSource(recoveredJob, resume, { omitOrigin: hasRuntimeLostUnread }),
+    }))
+    await ctx.sessions.flush(fresh.session)
+  }
+
+  // Splits stacked pending handoffs into batches with at most one distinct primary
+  // request per handoff (never demoting a primary request to a payload-less joined entry),
+  // while consolidating trailing non-resuming folder/engine hops into the same handoff.
+  function planPendingHandoffs(pendingHandoffs) {
+    const batches = []
+    let current = []
+    let currentPrimaryEx
+    for (const entry of pendingHandoffs) {
+      const ex = entry.owner.handoffMeta?.info?.exchangeId
+      if (ex !== undefined && currentPrimaryEx !== undefined && ex !== currentPrimaryEx) {
+        batches.push(current)
+        current = [entry]
+        currentPrimaryEx = ex
+      } else {
+        current.push(entry)
+        if (ex !== undefined) currentPrimaryEx = ex
+      }
+    }
+    if (current.length > 0) batches.push(current)
+
+    return batches.map((entries) => {
+      const newest = entries[entries.length - 1]
+      const newestMeta = newest.owner.handoffMeta ?? {}
+      let resumedEntry
+      let resume = false
+      let overflow = false
+      let cutoff = false
+      let runtimeLost = false
+      let runtimeLostHasUnread = false
+      let folder = newestMeta.folder === true
+      let engine = newestMeta.engine === true
+      let bare = newestMeta.bare === true
+      let failed = newestMeta.failed
+      let primaryInfo
+      let resumeOrigin
+      const joined = []
+      const seenJoined = new Set()
+      for (const entry of entries) {
+        const meta = entry.owner.handoffMeta ?? {}
+        const hasResume = meta.resume === true || meta.overflow === true || meta.runtimeLost === true || meta.info !== undefined || (Array.isArray(meta.joined) && meta.joined.length > 0)
+        if (hasResume) resumedEntry = entry
+        if (meta.resume === true) resume = true
+        if (meta.overflow === true) overflow = true
+        if (meta.cutoff === true) cutoff = true
+        if (meta.runtimeLost === true) runtimeLost = true
+        if (meta.runtimeLostHasUnread === true) runtimeLostHasUnread = true
+        if (meta.folder === true) folder = true
+        if (meta.engine === true) engine = true
+        if (meta.failed !== undefined) failed = meta.failed
+        if (meta.info !== undefined) primaryInfo = meta.info
+        if (meta.resumeOrigin !== undefined) resumeOrigin = meta.resumeOrigin
+        if (Array.isArray(meta.joined)) {
+          for (const item of meta.joined) {
+            const ex = item?.info?.exchangeId
+            if (ex !== undefined && seenJoined.has(ex)) continue
+            if (ex !== undefined) seenJoined.add(ex)
+            joined.push(item)
+          }
+        }
+      }
+      if (resumedEntry !== undefined && resumedEntry !== newest && resumedEntry.owner.handoffMeta?.bare === true) {
+        bare = true
+      }
+      const mergedMeta = {
+        resume,
+        overflow,
+        cutoff,
+        runtimeLost,
+        ...(runtimeLostHasUnread ? { runtimeLostHasUnread: true } : {}),
+        folder,
+        engine,
+        bare,
+        ...(failed !== undefined ? { failed } : {}),
+        ...(primaryInfo !== undefined ? { info: primaryInfo } : {}),
+        ...(joined.length > 0 ? { joined } : {}),
+        ...(resumeOrigin !== undefined ? { resumeOrigin } : {}),
+      }
+      return { entries, newest, resumedEntry, mergedMeta }
+    })
+  }
+
   let heldBackRun
+  let heldBackAgain = false
   function heldBack() {
-    heldBackRun ??= handOnHeld().finally(() => { heldBackRun = undefined })
+    if (heldBackRun !== undefined) {
+      heldBackAgain = true
+      return heldBackRun
+    }
+    heldBackRun = (async () => {
+      do {
+        heldBackAgain = false
+        await handOnHeld()
+      } while (heldBackAgain)
+    })().finally(() => { heldBackRun = undefined })
     return heldBackRun
   }
+  // Orders multiple unfinished switching parts targeting the same successor from
+  // oldest to newest using the thread's recorded parts list (falling back to
+  // state.switching insertion order, with pruned ancient parts sorted earliest).
+  function partOrderIndex(sessionId, owner, target, insertionIndex) {
+    const bot = owner.botId === undefined ? undefined : rt.botOf(owner.botId)
+    const parts = bot === undefined ? partsOf(undefined, owner.roomId)
+      : owner.roomId !== undefined ? partsOf(bot.id, owner.roomId)
+        : partsOfThread(bot.id, target)
+    const idx = parts.findIndex(part => part?.sessionId === sessionId)
+    return idx !== -1 ? idx : -1e9 + insertionIndex
+  }
+
   async function handOnHeld() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
+    let retryNeeded = false
+    const samePart = []
+    const byTarget = new Map()
+    let insertionIndex = 0
     for (const [sessionId, owner] of Object.entries(state.switching ?? {})) {
+      const target = threadTargetOf(sessionId, owner)
+      if (target === sessionId) {
+        samePart.push({ sessionId, owner })
+      } else {
+        let group = byTarget.get(target)
+        if (group === undefined) {
+          group = []
+          byTarget.set(target, group)
+        }
+        group.push({ sessionId, owner, order: partOrderIndex(sessionId, owner, target, insertionIndex) })
+      }
+      insertionIndex += 1
+    }
+
+    for (const { sessionId } of samePart) {
+      if (switches.has(sessionId)) continue
       try {
         const agent = await rt.resolveAgent(sessionId)
-        const held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
-        const target = threadTargetOf(sessionId, owner)
-        if (target !== sessionId) {
-          await forward(owner, held, target)
-          removeForMove(agent, held)
-          // An interrupted switch may not have finished moving the tasks over; stop
-          // the earlier part only after they sit on the part that replaced it.
-          await rt.moveSchedules?.(sessionId, target)
-          await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
-            .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error))
-        } else {
-          try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', sessionId, error) }
-        }
+        if (switches.has(sessionId)) continue
+        try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', sessionId, error) }
         delete state.switching[sessionId]
         await rt.save()
       } catch (error) {
+        retryNeeded = true
         rt.warn('ds-bot: input kept in part %s was not handed on: %s', sessionId, error)
       }
     }
+
+    for (const [target, group] of byTarget) {
+      group.sort((a, b) => a.order - b.order)
+      let blockedIdx = -1
+      for (let i = 0; i < group.length; i += 1) {
+        const entry = group[i]
+        if (switches.has(entry.sessionId)) {
+          entry.active = true
+          blockedIdx = i
+          continue
+        }
+        try {
+          const agent = await rt.resolveAgent(entry.sessionId)
+          if (switches.has(entry.sessionId)) {
+            entry.active = true
+            blockedIdx = i
+            continue
+          }
+          entry.agent = agent
+          entry.held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
+        } catch (error) {
+          entry.error = error
+          blockedIdx = i
+          retryNeeded = true
+          rt.warn('ds-bot: input kept in part %s was not handed on: %s', entry.sessionId, error)
+        }
+      }
+      // If a newer source part targeting the same successor is actively switching or
+      // failed to resolve, keep earlier parts untouched so stale originals are never
+      // forwarded ahead of a newer merged replacement.
+      if (blockedIdx !== -1 && group.slice(0, blockedIdx).some(entry => !entry.active && entry.error === undefined)) {
+        retryNeeded = true
+      }
+      const ready = group.slice(blockedIdx + 1)
+      if (ready.length === 0) continue
+
+      // Re-verify destination after async source resolution: if the destination started
+      // switching or already moved on to a newer part, defer so we never deliver handoffs,
+      // input, or reminders onto a retiring part.
+      if (switches.has(target) || ready.some(entry => threadTargetOf(entry.sessionId, entry.owner) !== target)) {
+        retryNeeded = true
+        continue
+      }
+
+      try {
+        // Deliver pending handoffs for this target before forwarding held input.
+        // Distinct interrupted primary requests stay separate handoffs (preserving full
+        // source transcripts and reply routing); trailing non-resuming hops consolidate.
+        const pendingHandoffs = ready.filter(entry => entry.owner.handoffPending === true)
+        if (pendingHandoffs.length > 0) {
+          for (const { entries, newest, resumedEntry, mergedMeta } of planPendingHandoffs(pendingHandoffs)) {
+            await ensureHandoffDelivered(newest.sessionId, newest.owner, target, {
+              metaOverride: mergedMeta,
+              fallbackSessionId: resumedEntry?.sessionId,
+            })
+            for (const entry of entries) {
+              delete entry.owner.handoffPending
+              delete entry.owner.handoffMeta
+            }
+            await rt.save()
+          }
+        }
+
+        // Resolve competing copies across successive source parts so a newer merged
+        // payload always supersedes an older retained original for the same transfer.
+        const latestTransferPart = new Map()
+        const latestExchangePart = new Map()
+        for (let i = 0; i < ready.length; i += 1) {
+          for (const msg of ready[i].held) {
+            const key = transferKeyOf(msg)
+            if (key !== undefined) latestTransferPart.set(key, i)
+            const ex = msg.source?.exchangeId
+            if (ex !== undefined && msg.source?.handoff !== true && textOf(msg.content) !== PAUSE_NOTE) {
+              latestExchangePart.set(ex, i)
+            }
+          }
+        }
+        const toForward = []
+        for (let i = 0; i < ready.length; i += 1) {
+          const entry = ready[i]
+          if (entry.owner.runtimeLost === true && entry.agent?.session !== undefined) {
+            for (const unread of unreadRequestsForRuntimeLost(entry.agent.session, entry.sessionId, entry.owner.runtimeLostContext ?? {})) {
+              toForward.push(unread)
+            }
+          }
+          for (const msg of entry.held) {
+            const explicitTransfer = msg.source?.transferId
+            const key = transferKeyOf(msg)
+            const ex = msg.source?.exchangeId
+            const superseded = (key !== undefined && latestTransferPart.get(key) > i)
+              || (explicitTransfer === undefined && ex !== undefined && latestExchangePart.get(ex) > i)
+            if (!superseded) toForward.push(msg)
+          }
+        }
+        await forward(ready[ready.length - 1].owner, toForward, target)
+        // Target admission is now durable on disk: remove acknowledged originals at once
+        // so a later switch of `target` before reminder/archive cleanup cannot replay
+        // prompts `target` already answered.
+        for (const { agent, held } of ready) removeForMove(agent, held)
+      } catch (error) {
+        retryNeeded = true
+        rt.warn('ds-bot: input kept in parts targeting %s was not handed on: %s', target, error)
+        continue
+      }
+
+      for (const { sessionId, owner } of ready) {
+        try {
+          // If the destination switched or started switching while handoff/forward ran,
+          // defer silent-note/schedule migration and archive rather than moving reminders
+          // onto a retiring part.
+          const liveTarget = threadTargetOf(sessionId, owner)
+          if (liveTarget !== target || switches.has(target)) {
+            retryNeeded = true
+            continue
+          }
+          await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
+          // An interrupted switch may not have finished moving the tasks over; stop
+          // the earlier part only after they sit on the part that replaced it.
+          // Resolve the live destination again inside the serialized scheduleMoves chain.
+          const finishMove = await rt.moveSchedules?.(sessionId, target, {
+            stopActivity: true,
+            resolveTarget: () => threadTargetOf(sessionId, owner),
+          })
+          await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+            .then(() => finishMove?.())
+            .catch(error => {
+              if (finishMove !== undefined) throw error
+              rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error)
+            })
+          delete state.switching[sessionId]
+          await rt.save()
+        } catch (error) {
+          if (error?.code === 'schedule/pending') noteInfo('ds-bot: keeping earlier part %s until schedules attach', sessionId)
+          else {
+            retryNeeded = true
+            rt.warn('ds-bot: input kept in part %s was not handed on: %s', sessionId, error)
+          }
+        }
+      }
+    }
+    if (!retryNeeded) heldRetryCount = 0
+    else scheduleHeldBackRetry()
   }
 
   // `hard`: past the hard line or the window, the part moves on even without a note
@@ -1468,30 +2480,44 @@ export function install(rt) {
   // `cutoff`: the part kept being cut off at the output limit, so it moves on without
   // asking the model for a note at the same size.
   // `engine`: because the Bot now runs on something else (see engineMoved).
-  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, cutoff = false, engine = false, hard = overflow || folder || engine || cutoff } = {}) {
+  // `idle`: initiated after a turn ended (after async checks like decide/canMakeRoom);
+  // bail out atomically if a new turn started meanwhile so running work is never killed.
+  function startSwitch(agent, { idle = false, resume = false, carry = [], carriedIds, info, joined, overflow = false, runtimeLost = false, failed, bare = false, folder = false, cutoff = false, engine = false, hard = overflow || runtimeLost || folder || engine || cutoff } = {}) {
     const place = placeOf(agent.id)
-    if (place === undefined || switches.has(agent.id) || readOnly()) return
+    if (place === undefined || switches.has(agent.id) || readOnly()) return false
+    if (idle && !isAgentIdle(agent)) return false
     const resumeOrigin = resume || place.botId === undefined ? rt.holdImOrigin?.(agent.id) : undefined
-    const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, cutoff, since: Date.now() }
+    const job = { ...place, carry: [...carry], carriedIds: new Set(carriedIds ?? []), info, joined, resume, resumeOrigin, overflow, runtimeLost, failed, bare, folder, engine, hard, cutoff, since: Date.now() }
     switches.set(agent.id, job)
     const done = runSwitch(agent, job)
       .catch(error => {
         const name = rt.botOf(job.botId)?.name ?? rt.roomOf(job.roomId)?.name ?? agent.id
-        if (unloaded(error)) return noteInfo('ds-bot: plugin unloaded while %s switched parts; input kept in part %s', name, agent.id)
+        if (unloaded(error)) {
+          job.unloaded = true
+          return noteInfo('ds-bot: plugin unloaded while %s switched parts; input kept in part %s', name, agent.id)
+        }
+        if (error?.code === 'schedule/pending') return noteInfo('ds-bot: %s moved on to a fresh part; retiring part %s once schedules attach', name, agent.id)
         rt.warn('ds-bot: %s did not move on to a fresh part: %s', name, error)
       })
       .finally(async () => {
         switches.delete(agent.id)
         if (job.moved) {
           if (!job.originSent) rt.dropImOrigin?.(job.resumeOrigin)
-          // A move that had to put input back keeps the part marked for the restart pass.
+          // A move that had to put input back keeps the part marked for the restart/retry pass.
           if (job.kept !== true) {
             delete state.switching[agent.id]
             await rt.save()
+          } else {
+            if (job.handoffCleared === true) await rt.save().catch(() => {})
+            if (job.schedulePending !== true && job.unloaded !== true) {
+              scheduleHeldBackRetry()
+            }
           }
-          noteFailures.delete(agent.id)
-          folderRetry.delete(agent.id)
-          engineRetry.delete(agent.id)
+          forgetSessionParts(agent.id)
+          rt.forgetSessionTurn?.(agent.id)
+          if (job.schedulePending === true && rt.schedulesPending?.() !== true) {
+            void heldBack().catch(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
+          }
           // The folder may have changed again while the switch ran.
           void followFolder(job)
           if (job.roomId !== undefined) void rt.settleRoomReports?.(job.roomId).catch(error => rt.warn('ds-bot: settling reports after part switch failed: %s', error))
@@ -1500,29 +2526,96 @@ export function install(rt) {
         if (folder) folderRetry.set(agent.id, Date.now() + FOLDER_RETRY_MS)
         if (job.engine) engineRetry.set(agent.id, Date.now() + FOLDER_RETRY_MS)
         if (!job.noteFailed) partBase.set(agent.id, sizeOf(agent.session) ?? 0)
-        // The stopped turn goes on where it was. A retry finds the note among the
-        // input this part kept, so it is added once.
-        const back = job.carry.splice(0)
+        const rollbackTarget = threadTargetOf(agent.id, job)
         const noted = [...agent.inbox.nextStep, ...agent.inbox.nextTurn].some(message => textOf(message.content) === PAUSE_NOTE)
-        if (resume && !back.some(message => textOf(message.content) === PAUSE_NOTE) && !noted) {
-          const carried = job.joined?.length ? { joined: job.joined } : {}
-          back.unshift(createUserMessage({
-            content: [{ type: 'text', text: PAUSE_NOTE }],
-            source: carryOriginSource(job, job.info
-              ? { ...job.info, ...carried }
-              : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', ...carried }),
-          }))
+        const pauseMessage = job.resume && !noted
+          ? createUserMessage({
+              content: [{ type: 'text', text: PAUSE_NOTE }],
+              source: {
+                ...carryOriginSource(job, job.info
+                  ? { ...job.info, ...(job.joined?.length ? { joined: job.joined } : {}) }
+                  : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', ...(job.joined?.length ? { joined: job.joined } : {}) }),
+                transferId: randomUUID(),
+              },
+            })
+          : undefined
+        if (rollbackTarget === agent.id) {
+          // Handle same-part rollback in place: parked messages stay at the head of
+          // agent.inbox and later queued prompts stay behind them without ever being
+          // removed across async awaits.
+          const toPrepend = job.carry.splice(0)
+          if (pauseMessage !== undefined && !toPrepend.some(message => textOf(message.content) === PAUSE_NOTE)) {
+            toPrepend.unshift(pauseMessage)
+          }
+          const priorityIds = new Set([...job.carriedIds, ...toPrepend.map(m => m?.id).filter(Boolean)])
+          job.carriedIds.clear()
+          restore(agent, toPrepend)
+          const inboxAccepted = toPrepend.length === 0
+            || [...agent.inbox.nextStep, ...agent.inbox.nextTurn].some(m => toPrepend.some(p => p.id === m.id))
+          if (!inboxAccepted) {
+            await forward(job, toPrepend, rollbackTarget).then(() => {
+              delete state.switching[agent.id]
+            }).catch((error) => {
+              job.kept = true
+              if (unloaded(error)) {
+                job.unloaded = true
+                return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
+              }
+              rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
+              scheduleHeldBackRetry()
+            })
+          } else {
+            await (async () => {
+              await rt.ensureCapabilities(agent.id)
+              await ctx.sessions.flush(agent.session)
+              if (agent.inbox.nextStep.length > 0 || agent.inbox.nextTurn.length > 0) {
+                wake(agent, priorityIds)
+                await ctx.sessions.flush(agent.session)
+              }
+            })().then(() => {
+              delete state.switching[agent.id]
+            }).catch((error) => {
+              job.kept = true
+              if (unloaded(error)) {
+                job.unloaded = true
+                return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
+              }
+              rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
+              // The input is already in exact order in agent.inbox; wake it at once.
+              try { wake(agent, priorityIds) } catch {}
+              scheduleHeldBackRetry()
+            })
+          }
+        } else {
+          // Collect any claimed messages that were durably parked in agent.inbox along
+          // with any remaining in-memory carry so failed-switch recovery preserves exact order.
+          const parked = []
+          if (job.carriedIds.size > 0) {
+            for (const message of [...agent.inbox.nextStep, ...agent.inbox.nextTurn]) {
+              if (message?.id !== undefined && job.carriedIds.has(message.id)) parked.push(message)
+            }
+            removeForMove(agent, parked)
+            job.carriedIds.clear()
+          }
+          const back = [...parked, ...job.carry.splice(0)]
+          if (pauseMessage !== undefined && !back.some(message => textOf(message.content) === PAUSE_NOTE)) {
+            back.unshift(pauseMessage)
+          }
+          await forward(job, back, rollbackTarget).then(() => {
+            delete state.switching[agent.id]
+          }).catch((error) => {
+            job.kept = true
+            try { restore(agent, back) } catch {}
+            if (unloaded(error)) {
+              job.unloaded = true
+              return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
+            }
+            rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
+            // The input is back where it was; the turn that owns it goes on at once.
+            try { wake(agent) } catch {}
+            scheduleHeldBackRetry()
+          })
         }
-        await forward(job, back, threadTargetOf(agent.id, job)).then(() => {
-          delete state.switching[agent.id]
-        }).catch((error) => {
-          job.kept = true
-          try { restore(agent, back) } catch {}
-          if (unloaded(error)) return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
-          rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
-          // The input is back where it was; the turn that owns it goes on at once.
-          try { wake(agent) } catch {}
-        })
         if (!job.originSent) rt.dropImOrigin?.(job.resumeOrigin)
         await rt.save()
         if (job.roomId !== undefined) void rt.settleRoomReports?.(job.roomId).catch(error => rt.warn('ds-bot: settling reports after part switch failed: %s', error))
@@ -1553,15 +2646,28 @@ export function install(rt) {
     if (job.moved) {
       rt.renewMemory(agent.id)
       await rt.closeLocalAgentSession?.(agent.id)?.catch(error => rt.warn('ds-bot: the local agent of earlier part %s did not stop: %s', agent.id, error))
+      let finishMove
       try {
-        await rt.moveSchedules(agent.id, job.next ?? currentOf(job))
+        finishMove = await rt.moveSchedules(agent.id, job.next ?? currentOf(job), { stopActivity: true })
       } catch (error) {
         // Keep the restart marker: stopping this part would delete unmoved tasks.
         job.kept = true
+        if (error?.code === 'schedule/pending') job.schedulePending = true
+        if (job.handoffCleared === true) {
+          job.handoffCleared = false
+          await rt.save().catch(() => {})
+        }
         throw error
       }
       await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
-        .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error))
+        .then(() => {
+          finishMove?.()
+          rt.forgetLocalAgentSession?.(agent.id)
+        })
+        .catch(error => {
+          if (finishMove !== undefined) job.kept = true
+          rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error)
+        })
     }
   }
 
@@ -1571,7 +2677,7 @@ export function install(rt) {
   async function freshRoute(bot, session) {
     const ref = await rt.desiredModel(bot)
     if (ref !== undefined) return { ref, effort: await rt.desiredEffort(bot, ref) }
-    const route = session.requestHeader()?.config
+    const route = session?.requestHeader?.()?.config
     return route?.provider && route?.model ? { ref: `${route.provider}/${route.model}`, effort: route.reasoningEffort } : undefined
   }
   const selectRoute = (named, sessionId, { ref, effort }) => rt.selectSessionModel(sessionId, { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) })
@@ -1646,7 +2752,7 @@ export function install(rt) {
     let failure
     const local = localPart(session)
     // The group's own Session only relays; it has no route a note could be written with.
-    if (!job.engine && !job.overflow && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
+    if (!job.engine && !job.overflow && job.cutoff !== true && job.runtimeLost !== true && job.failed === undefined && !whole && bot !== undefined) {
       try {
         const noteSignal = AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)])
         written = local ? await writeLocalNote(agent, noteSignal, { folder: job.folder }) : await writeNote(agent, noteSignal, { folder: job.folder })
@@ -1656,9 +2762,12 @@ export function install(rt) {
       }
     }
     // Below the hard line a part without a good note stays as it is: it still works,
-    // and a later try may write one. A CLI session that was asked for a note already
-    // reads as moving on, so a part on one moves on with the package instead.
-    if (written === undefined && !job.hard && !job.engine && !local) {
+    // and a later try may write one. On a local CLI, a failure before the note prompt
+    // ever reached the CLI (busy/pending call/process exit/resume failed) also stays
+    // with the same backoff instead of tearing down an active or suspended turn; only
+    // a prompt that actually reached the CLI moves on with the deterministic package.
+    const stayOnNoteFailure = !job.hard && !job.engine && !job.runtimeLost && (!local || failure?.reachedCli === false)
+    if (written === undefined && stayOnNoteFailure) {
       const count = (noteFailures.get(agent.id)?.count ?? 0) + 1
       const wait = NOTE_COOLDOWN_MS[Math.min(count, NOTE_COOLDOWN_MS.length) - 1]
       noteFailures.set(agent.id, { count, until: Date.now() + wait })
@@ -1667,11 +2776,15 @@ export function install(rt) {
       return
     }
     if (failure !== undefined) rt.warn('ds-bot: handoff note for %s failed past the hard line; moving on with the earlier note: %s', name, failure)
-    const previous = parts.at(-2)
-    const earlierNote = previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}
-    const noted = written !== undefined ? { note: written.note }
-      : job.engine ? { fallback: 'engine', ...earlierNote }
-      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : 'failed', ...earlierNote }
+    const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined && !Number.isInteger(part.throughSeq)) ?? parts.at(-2)
+    const previousNote = segmentNoteOf(previous)
+    const earlierNote = previousNote ? { note: previousNote, noteFrom: previous.noteFrom ?? previous.number } : {}
+    const fallback = written !== undefined ? undefined
+      : job.engine ? 'engine'
+      : job.runtimeLost === true ? 'runtime-lost'
+      : whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : 'failed'
+    const noteBody = written !== undefined ? written.note : earlierNote.note
+    const noteFrom = written !== undefined ? undefined : earlierNote.noteFrom
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
     const dir = taskEntry?.workDir !== undefined
@@ -1688,15 +2801,35 @@ export function install(rt) {
       .catch(error => rt.warn('ds-bot: permission for the fresh part of %s not applied: %s', name, error))
     // The fresh part took several awaits: a Bot or group deleted meanwhile, a member that
     // left, or a part that is no longer the current one gets no fresh part.
-    const current = bot === undefined ? rt.sessionOfRoom(room)
-      : room !== undefined ? room.sessions?.[bot.id]
-        : thread === undefined ? rt.chatOf(bot.id) : threadCurrent(bot, agent.id)
-    const gone = bot === undefined ? rt.roomOf(room.id) !== room
-      : rt.botOf(bot.id) === undefined || (effectiveRoom !== undefined && (rt.roomOf(effectiveRoom.id) !== effectiveRoom || !effectiveRoom.members.includes(bot.id)))
-    if (gone || current !== agent.id) {
+    const isGoneOrStale = () => {
+      const current = bot === undefined ? rt.sessionOfRoom(room)
+        : room !== undefined ? room.sessions?.[bot.id]
+          : thread === undefined ? rt.chatOf(bot.id) : threadCurrent(bot, agent.id)
+      const gone = bot === undefined ? rt.roomOf(room.id) !== room
+        : rt.botOf(bot.id) === undefined || (effectiveRoom !== undefined && (rt.roomOf(effectiveRoom.id) !== effectiveRoom || !effectiveRoom.members.includes(bot.id)))
+      return gone || current !== agent.id
+    }
+    if (isGoneOrStale()) {
       await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', name, error))
       return
+    }
+    // Externalize handover note into `<home>/segment-notes/<safe>.md`; fail closed to inline
+    // `segment.note` if the disk write fails so no handover note is ever lost.
+    let persistedNote = false
+    if (noteBody !== undefined && typeof rt.writeSegmentNote === 'function') {
+      persistedNote = await rt.writeSegmentNote(agent.id, noteBody)
+      if (isGoneOrStale()) {
+        if (persistedNote) void rt.deleteSegmentNotes?.([agent.id])
+        await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
+          .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', name, error))
+        return
+      }
+    }
+    const noted = {
+      ...(fallback !== undefined ? { fallback } : {}),
+      ...(noteFrom !== undefined ? { noteFrom } : {}),
+      ...(persistedNote ? { hasNote: true } : noteBody !== undefined ? { note: noteBody } : {}),
     }
     const segment = { sessionId: agent.id, endedAt: Date.now(), ...(tokens !== undefined ? { tokens } : {}), ...noted }
     if (bot === undefined) {
@@ -1717,8 +2850,11 @@ export function install(rt) {
         // A restart pass must find this thread's new part, not the foreground chat.
         if (state.switching[agent.id] !== undefined) state.switching[agent.id].next = successor
       }
+    }
+    if (bot !== undefined) {
       // The card's call stays in the old part: the fresh part raises it in the
-      // composer dock while pending, and closing it records at the part that asked it.
+      // composer dock (and IM routing for group members) while pending, and closing it
+      // records at the part that asked it.
       if (state.questions[agent.id] !== undefined) {
         const pending = state.questions[agent.id]
         state.questions[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: agent.id } : pending
@@ -1730,6 +2866,38 @@ export function install(rt) {
         delete state.views[agent.id]
       }
     }
+    const hasRuntimeLostUnread = job.runtimeLost === true && !job.bare && unreadRequestsForRuntimeLost(session, agent.id, job).length > 0
+    const resume = job.resume || (job.overflow && !job.bare) || job.runtimeLost
+    const handoffResume = resume && !hasRuntimeLostUnread
+    // Mark handoffPending before flipping the current-part pointer so a crash between
+    // rt.save() and flush #1 lets handOnHeld() reconstruct and deliver the same routable
+    // handoff package (including reply routing & joined requests, without stale rpcId).
+    if (state.switching[agent.id] !== undefined) {
+      const sanitizedInfo = resume && job.info ? carryOriginSource({}, job.info) : undefined
+      if (hasRuntimeLostUnread) {
+        state.switching[agent.id].runtimeLost = true
+        state.switching[agent.id].runtimeLostContext = {
+          ...(sanitizedInfo !== undefined ? { info: sanitizedInfo } : {}),
+          ...(Array.isArray(job.joined) && job.joined.length > 0 ? { joined: job.joined } : {}),
+          ...(job.resumeOrigin !== undefined ? { resumeOrigin: job.resumeOrigin } : {}),
+        }
+      }
+      state.switching[agent.id].handoffPending = true
+      state.switching[agent.id].handoffMeta = {
+        resume,
+        overflow: job.overflow === true,
+        cutoff: job.cutoff === true,
+        runtimeLost: job.runtimeLost === true,
+        ...(hasRuntimeLostUnread ? { runtimeLostHasUnread: true } : {}),
+        ...(job.failed !== undefined ? { failed: job.failed } : {}),
+        bare: job.bare === true,
+        folder: job.folder === true,
+        engine: job.engine === true,
+        ...(sanitizedInfo !== undefined ? { info: sanitizedInfo } : {}),
+        ...(resume && job.joined?.length ? { joined: job.joined } : {}),
+        ...(job.resumeOrigin !== undefined ? { resumeOrigin: job.resumeOrigin } : {}),
+      }
+    }
     await rt.save()
     // A model the user picked until now went to the earlier part, which was still the
     // Bot's; from here on a change goes to the fresh one.
@@ -1737,9 +2905,9 @@ export function install(rt) {
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name }, freshId, now)
     if (job.failed !== undefined) rescued.set(freshId, job.bare ? 'bare' : 'carried')
     job.moved = true
-    const resume = job.resume || job.overflow
-    // Then what the old part held: the stopped turn's input, then whatever waited. It
-    // moves first; only after that does the old inbox give it up, so a failure keeps it.
+    // Then what the old part held: the stopped turn's input (already persisted in the
+    // old inbox), then whatever waited. It moves first; only after that does the old
+    // inbox give it up, so a failure keeps it.
     const held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
     const carry = []
     let folder
@@ -1754,18 +2922,41 @@ export function install(rt) {
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, engine })
+      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume: handoffResume, overflow: job.overflow, cutoff: job.cutoff === true, runtimeLost: job.runtimeLost === true, failed: job.failed, bare: job.bare, folder, engine })
       freshParts.set(freshId, estimateTokens(text))
-      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
+      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, handoffResume, { omitOrigin: hasRuntimeLostUnread }) }))
       await ctx.sessions.flush(fresh.session)
-      carry.push(...job.carry.splice(0))
-      await forward(job, [...carry, ...held], freshId)
+      // Handoff package is now durably flushed to the fresh part: clear the pending flag
+      // in memory (persisted on the switch's final save; even on a hard crash before that
+      // save, ensureHandoffDelivered sees the flushed handoff on fresh and skips cleanly).
+      if (state.switching[agent.id] !== undefined) {
+        delete state.switching[agent.id].handoffPending
+        delete state.switching[agent.id].handoffMeta
+        job.handoffCleared = true
+      }
+      const heldIds = new Set(held.map(m => m?.id).filter(Boolean))
+      for (const message of job.carry.splice(0)) {
+        if (message?.id === undefined || !heldIds.has(message.id)) carry.push(message)
+      }
+      const runtimeLostUnread = hasRuntimeLostUnread
+        ? unreadRequestsForRuntimeLost(session, agent.id, job, { markOriginSent: true })
+        : []
+      await forward(job, [...runtimeLostUnread, ...carry, ...held], freshId)
+      // Migrate buffered silent entries after forward succeeds so entry.ledger stays
+      // intact until freshId actually flushes (or takes them on pre-step), and a failed
+      // forward never leaves duplicate silent notes on both old and new parts.
+      void rt.moveSilentNotes?.(agent.id, freshId)
     } catch (error) {
       job.kept = true
       try { restore(agent, [...carry, ...job.carry.splice(0)]) } catch {}
+      if (job.handoffCleared === true) {
+        job.handoffCleared = false
+        await rt.save().catch(() => {})
+      }
       throw error
     }
     removeForMove(agent, held)
+    job.carriedIds.clear()
     // Input the old part claimed while the rest moved goes on after it.
     for (let late = job.carry.splice(0); late.length > 0; late = job.carry.splice(0)) {
       await forward(job, late, threadTargetOf(agent.id, job)).catch((error) => {
@@ -1775,21 +2966,68 @@ export function install(rt) {
       })
     }
     ctx.logger.info('ds-bot: %s%s moved on to part %d at %d tokens (check line %d, hard line %d); %s; %d latest and %d earlier messages carried%s', name, bot !== undefined && room !== undefined ? ` in ${room.name}` : '', number + 1, tokens ?? -1, lines?.check ?? -1, lines?.hard ?? -1,
-      written !== undefined ? `note written in ${written.attempts} attempt(s)` : `note put together by DS Bot (${noted.fallback}${noted.note ? `, carries part ${noted.noteFrom}'s` : ', nothing to carry'})`,
+      written !== undefined ? `note written in ${written.attempts} attempt(s)` : `note put together by DS Bot (${noted.fallback}${noteBody !== undefined ? `, carries part ${noted.noteFrom}'s` : ', nothing to carry'})`,
       carried.recent.length, carried.earlier.length, folder === undefined ? '' : `; now works in ${folder}`)
   }
 
-  // Ends a step DS Bot takes over. Before a turn's first step an empty batch ends the
-  // turn as completed, where a reject ends it as blocked, which other listeners read as
-  // a failure. Later in a turn an empty batch would run another model step, and a turn
-  // carried through a steer cut keeps its reject, since a completed turn reads as answered.
-  const takeOverStep = (agent, payload) => (payload.step === 1 && rt.live.get(agent.id)?.carried !== true
-    ? { kind: 'enter', messages: [] }
-    : { kind: 'reject' })
+  // Ends a step DS Bot takes over. Marks the live turn as switched so turns.js never
+  // settles a hijacked turn as a real user/group/Bot completion. Before a turn's first
+  // step an empty batch ends the turn as completed, where a reject ends it as blocked,
+  // which other listeners read as a failure. Later in a turn an empty batch would run
+  // another model step, and a turn carried through a steer cut keeps its reject, since
+  // a completed turn reads as answered.
+  const takeOverStep = (agent, payload) => {
+    const entry = rt.live?.get(agent.id)
+    if (entry !== undefined) entry.switched = true
+    return payload.step === 1 && entry?.carried !== true
+      ? { kind: 'enter', messages: [] }
+      : { kind: 'reject' }
+  }
+
+  // Durably parks claimed step messages back into the old part's inbox and flushes
+  // the old session so a crash during note writing or session creation never loses
+  // user input even when DSH buffers JSONL session writes.
+  async function parkClaimedMessages(agent, messages, carriedIds, fallbackCarry) {
+    if (!Array.isArray(messages) || messages.length === 0) return
+    if (typeof agent.inbox?.prepend === 'function' && !messages.some(m => m?.id === undefined)) {
+      let restored = false
+      try {
+        restore(agent, messages)
+        restored = true
+        for (const message of messages) carriedIds.add(message.id)
+      } catch {}
+      if (restored) {
+        try {
+          if (typeof ctx.sessions?.flush === 'function') await ctx.sessions.flush(agent.session)
+        } catch (error) {
+          if (!unloaded(error)) rt.warn('ds-bot: flushing parked input on part %s failed: %s', agent.id, error)
+        }
+        return
+      }
+    }
+    fallbackCarry.push(...messages)
+  }
+
+  // Hands a step's claimed messages to an already-running switch job. If a turn was
+  // already past step 1 (or carried through a steer cut), promote the switch to resume
+  // with the turn's routing state so in-flight work is never dropped behind HANDOFF_ACK.
+  const joinSwitch = async (agent, job, payload) => {
+    if (job.moved) job.carry.push(...payload.messages)
+    else await parkClaimedMessages(agent, payload.messages, job.carriedIds, job.carry)
+    const entry = rt.live?.get(agent.id)
+    if (payload.step > 1 || entry?.carried === true) {
+      job.resume = true
+      if (job.info === undefined && entry?.info !== undefined) job.info = entry.info
+      if ((job.joined === undefined || job.joined.length === 0) && entry?.joined?.length) job.joined = [...entry.joined]
+      if (job.resumeOrigin === undefined) job.resumeOrigin = rt.holdImOrigin?.(agent.id)
+    }
+    return takeOverStep(agent, payload)
+  }
 
   // Runs first: an earlier part hands its input on, a part past the hard line makes
-  // room before the step (condensed in place, or it stops and goes on in a fresh
-  // part), and the backend's own pre-step listener sees the wrapper.
+  // room before the step (pruning oversized tool outputs first, then condensing in
+  // place or moving on to a fresh part), and the backend's own pre-step listener sees
+  // the wrapper.
   ctx.on('agent/pre-step', async (payload, next) => {
     await rt.load()
     const { agent } = payload
@@ -1813,10 +3051,7 @@ export function install(rt) {
     if (place === undefined) return next()
     adoptCompaction(agent)
     const job = switches.get(agent.id)
-    if (job !== undefined) {
-      job.carry.push(...payload.messages)
-      return takeOverStep(agent, payload)
-    }
+    if (job !== undefined) return joinSwitch(agent, job, payload)
     const fresh = freshParts.get(agent.id)
     if (fresh !== undefined) {
       freshParts.delete(agent.id)
@@ -1834,26 +3069,75 @@ export function install(rt) {
     const lines = await contextLines(agent.session).catch(() => undefined)
     const tokens = tokensOf(agent.session)
     if (fresh === undefined && tokens !== undefined && tokens > 0) lowerPartBase(agent.id, tokens)
-    if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
-    if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return next()
+    const effectiveRatio = typeof config.checkRatio === 'number' && config.checkRatio > 0 && config.checkRatio < 1 ? config.checkRatio : DEFAULT_CHECK_RATIO
+    const capIsBinding = Number.isInteger(config.checkTokens) && config.checkTokens > 0 && lines !== undefined
+      && lines.check === config.checkTokens
+      && config.checkTokens < Math.min(Math.floor(lines.usable * effectiveRatio), lines.hard)
+    const midTurnSoft = capIsBinding ? Math.min(Math.floor(lines.check * 1.5), lines.hard) : lines?.hard
+    if (lines === undefined || tokens === undefined || tokens < midTurnSoft || !grown(agent.id, tokens, lines) || readOnly()) return next()
+    // When an explicit binding checkTokens cap lowers check well below hard, condense
+    // in place past the mid-turn soft line without tearing down the active turn.
+    if (tokens < lines.hard) {
+      const pruned = await pruneToolResults(agent, { inTurn: true, target: midTurnSoft })
+      const afterPrune = pruned.pruned > 0 ? tokensOf(agent.session) : tokens
+      if (afterPrune !== undefined && afterPrune < midTurnSoft) {
+        if (afterPrune < lines.check) partBase.set(agent.id, afterPrune)
+        else lowerPartBase(agent.id, afterPrune)
+        return next()
+      }
+      const condensed = engineOf(agent) !== undefined
+        && await condense(agent, lines, { inTurn: true, signal: payload.signal, outcome: { overflow: false } })
+      if (!condensed) {
+        partBase.set(agent.id, afterPrune ?? tokens)
+        // Throttle further mid-turn retries below hard without suppressing the idle
+        // checkContext pass when the turn ends (idle check can switch parts).
+        midTurnCondensed.add(agent.id)
+      }
+      return next()
+    }
+    const pruned = await pruneToolResults(agent, { inTurn: true, target: lines.hard })
+    if (pruned.pruned > 0) {
+      const afterPrune = tokensOf(agent.session)
+      if (afterPrune !== undefined && afterPrune < lines.hard) {
+        if (afterPrune < lines.check) partBase.set(agent.id, afterPrune)
+        else lowerPartBase(agent.id, afterPrune)
+        return next()
+      }
+    }
+    const outcome = { overflow: false }
+    if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal, outcome })) return next()
     if (!await canMakeRoom(agent, payload.messages)) return next()
-    return switchBeforeStep(agent, payload, { hard: true })
+    return switchBeforeStep(agent, payload, { hard: true, ...(outcome.overflow ? { overflow: true } : {}) })
   }, { prepend: true })
 
-  // `messages` left the inbox for this step, so the switch carries them along.
-  function switchBeforeStep(agent, payload, options) {
+  // `messages` left the inbox for this step, so persist and flush them back into the
+  // old inbox immediately before starting the switch so a crash never drops them.
+  async function switchBeforeStep(agent, payload, options) {
     // A switch may have started while the checks above awaited.
     const running = switches.get(agent.id)
-    if (running !== undefined) {
-      running.carry.push(...payload.messages)
-      return takeOverStep(agent, payload)
-    }
+    if (running !== undefined) return joinSwitch(agent, running, payload)
     const entry = rt.liveOf(agent.id)
     // A turn carried through a steer cut keeps its trigger and joined work, so
     // its first step is already the middle of a turn for the folder check.
     const midTurn = payload.step > 1 || entry.carried === true
     entry.switched = true
-    startSwitch(agent, { resume: midTurn, carry: payload.messages, info: midTurn ? entry.info : undefined, joined: midTurn ? [...(entry.joined ?? [])] : undefined, ...options })
+    const carriedIds = new Set()
+    const carry = []
+    await parkClaimedMessages(agent, payload.messages, carriedIds, carry)
+    // Re-check after awaiting the park flush in case another switch started meanwhile.
+    const raced = switches.get(agent.id)
+    if (raced !== undefined) {
+      for (const id of carriedIds) raced.carriedIds.add(id)
+      raced.carry.push(...carry)
+      if (midTurn) {
+        raced.resume = true
+        if (raced.info === undefined && entry.info !== undefined) raced.info = entry.info
+        if ((raced.joined === undefined || raced.joined.length === 0) && entry.joined?.length) raced.joined = [...entry.joined]
+        if (raced.resumeOrigin === undefined) raced.resumeOrigin = rt.holdImOrigin?.(agent.id)
+      }
+      return takeOverStep(agent, payload)
+    }
+    startSwitch(agent, { resume: midTurn, carry, carriedIds, info: midTurn ? entry.info : undefined, joined: midTurn ? [...(entry.joined ?? [])] : undefined, ...options })
     return takeOverStep(agent, payload)
   }
 
@@ -1897,10 +3181,21 @@ export function install(rt) {
     const current = folders.get(agent.session)
     if (current === undefined) return next()
     await rt.load()
-    // A group's own Session only relays, so it stays in the team workspace. It has no
-    // fresh part to move to, so a stale or gone folder is corrected in place; without
-    // this every round failed with 'directory does not exist' (#710).
-    if (rt.roomOf(agent.id) !== undefined) {
+    // A group's own Session keeps its configured group folder (`room.workDir`) when
+    // present and falls back to the team workspace only when no group folder is set
+    // or the group folder is missing on disk (#710).
+    const room = rt.roomOf(agent.id)
+    if (room !== undefined) {
+      const wanted = rt.workDirOf({ roomId: room.id })
+      if (wanted !== undefined) {
+        if (await rt.isFolder(wanted)) {
+          if (current === wanted || await rt.isFolder(current)) return next()
+          await folders.set(agent, wanted, context.signal)
+            .catch(error => rt.warn('ds-bot: the group chat works in %s and could not change to %s: %s', current, wanted, error))
+          return next()
+        }
+        await rt.roomFolderNotice?.(room.id, wanted)
+      }
       if (current === rt.teamFolder() && await rt.isFolder(current)) return next()
       const team = await rt.keepTeamFolder()
       if (team === undefined) return next()
@@ -1946,7 +3241,7 @@ export function install(rt) {
       if (sessionId === undefined || switches.has(sessionId) || readOnly()) continue
       try {
         const agent = await rt.resolveAgent(sessionId)
-        if (agent.status === 'idle' && await folderMove(agent) !== undefined) startSwitch(agent, { folder: true })
+        if (isAgentIdle(agent) && await folderMove(agent) !== undefined) startSwitch(agent, { folder: true, idle: true })
       } catch (error) {
         rt.warn('ds-bot: %s did not move to its working folder: %s', name, error)
       }
@@ -1961,7 +3256,7 @@ export function install(rt) {
       engineRetry.delete(sessionId)
       try {
         const agent = await rt.resolveAgent(sessionId)
-        if (agent.status === 'idle' && engineMoved(agent, placeOf(sessionId))) startSwitch(agent, { engine: true })
+        if (isAgentIdle(agent) && engineMoved(agent, placeOf(sessionId))) startSwitch(agent, { engine: true, idle: true })
       } catch (error) {
         rt.warn('ds-bot: %s did not follow its run mode in %s: %s', rt.botOf(botId)?.name ?? botId, sessionId, error)
       }
@@ -1999,15 +3294,40 @@ export function install(rt) {
   }
 
   ctx.on('agent/request-error', async (payload, next) => {
-    if (payload.signal?.aborted || (payload.failure?.code !== OVERFLOW && payload.failure?.code !== 'INVALID_REQUEST')) return next()
+    if (payload.signal?.aborted) return next()
+    const code = payload.failure?.code
+    if (code === 'LOCAL_AGENT_SESSION_LOST') {
+      await rt.load()
+      const { agent } = payload
+      if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly()) return next()
+      const entry = rt.liveOf(agent.id)
+      entry.switched = true
+      startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], runtimeLost: true, hard: true })
+      return undefined
+    }
+    if (code !== OVERFLOW && code !== 'INVALID_REQUEST') return next()
     await rt.load()
     const { agent } = payload
-    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await overflowed(agent, payload.failure) || !await canMakeRoom(agent)) return next()
+    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await overflowed(agent, payload.failure)) return next()
+    if (!await canMakeRoom(agent)) {
+      const entry = rt.liveOf(agent.id)
+      entry.overflowFailure = true
+      return next()
+    }
     const entry = rt.liveOf(agent.id)
     entry.switched = true
     startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], overflow: true })
     return undefined
   }, { prepend: true })
+
+  function recordNoRoom(agent, fallbackTokens) {
+    const current = sizeOf(agent.session) ?? fallbackTokens ?? 0
+    partBase.set(agent.id, current)
+    const count = (roomRetry.get(agent.id)?.count ?? 0) + 1
+    const wait = NOTE_COOLDOWN_MS[Math.min(count, NOTE_COOLDOWN_MS.length) - 1]
+    roomRetry.set(agent.id, { count, until: Date.now() + wait })
+    ctx.logger.info('ds-bot: %s cannot make room by switching at %d tokens (next check in %ds)', agent.id, current, wait / 1000)
+  }
 
   // At the end of a turn past the check line, the steward decides once. Either way
   // the part ends up below the line, and nothing is decided again until it grows
@@ -2021,27 +3341,77 @@ export function install(rt) {
     // has, so the same size is not sent again. The part moves on the way an overflow
     // moves it, without a note at that size.
     if ((cutOffs.get(agent.id) ?? 0) >= 2) {
-      if (await canMakeRoom(agent)) {
+      if (await canMakeRoom(agent) && startSwitch(agent, { cutoff: true, idle: true }) !== false) {
         cutOffs.delete(agent.id)
-        startSwitch(agent, { cutoff: true })
       }
       return
     }
     const lines = await contextLines(agent.session)
-    const tokens = tokensOf(agent.session)
+    const measured = measureOf(agent.session)
+    const tokens = measured?.totalTokens
+    if (lines !== undefined && Number.isFinite(measured?.nodes?.[0]?.tokens)) {
+      contextRuntime.checkPrefixShare(agent.id, { prefixTokens: measured.nodes[0].tokens, usable: lines.usable })
+    }
     lowerPartBase(agent.id, tokens)
-    if (lines === undefined || tokens === undefined || tokens < lines.check || !grown(agent.id, tokens, lines)) return
+    if (lines === undefined || tokens === undefined || tokens < lines.check) {
+      if (tokens !== undefined && lines !== undefined && tokens < lines.check) midTurnCondensed.delete(agent.id)
+      return
+    }
+    const forceRecheck = midTurnCondensed.has(agent.id)
+    if (!forceRecheck && !grown(agent.id, tokens, lines)) return
     const hard = tokens >= lines.hard
     if (!hard && Date.now() < (noteFailures.get(agent.id)?.until ?? 0)) return
+    if (!hard && Date.now() < (roomRetry.get(agent.id)?.until ?? 0)) return
     checking.add(agent.id)
     try {
-      if (await decide(agent, { midTurn: false }) === 'compact') {
-        const condensed = await condense(agent, lines, { inTurn: false })
-        if (condensed !== false) return
+      // Only mutate the history with tool-result pruning before the steward when a
+      // dry-run predicts pruning alone will drop below lines.check; otherwise keep the
+      // prefix cache intact so writeNote / writeCheckpoint run on the hot KV prefix.
+      const pruner = prunerOf(agent)
+      const dry = pruner === undefined ? { count: 0, saved: 0 } : estimatePrunableSavings(agent.session, pruner)
+      const shouldPruneFirst = pruner !== undefined && (dry === undefined || (dry.count > 0 && tokens - dry.saved < lines.check))
+      if (shouldPruneFirst) {
+        const pruned = await pruneToolResults(agent, { inTurn: false })
+        if (pruned.busy === true) return
+        if (pruned.pruned > 0) {
+          const afterPrune = tokensOf(agent.session)
+          if (afterPrune !== undefined && afterPrune < lines.check) {
+            midTurnCondensed.delete(agent.id)
+            partBase.set(agent.id, afterPrune)
+            return
+          }
+        }
+      } else if (!await tryMaintenanceIdle(agent)) {
+        return
       }
-      if (switches.has(agent.id)) return
-      if (!await canMakeRoom(agent)) return
-      startSwitch(agent, { hard: (tokensOf(agent.session) ?? tokens) >= lines.hard })
+      if (!isAgentIdle(agent)) return
+      midTurnCondensed.delete(agent.id)
+      if (engineOf(agent) === undefined && !await canMakeRoom(agent)) {
+        recordNoRoom(agent, tokens)
+        return
+      }
+      const outcome = { overflow: false }
+      if (await decide(agent, { midTurn: false }) === 'compact') {
+        const condensed = await condense(agent, lines, { inTurn: false, outcome })
+        if (condensed !== false) {
+          roomRetry.delete(agent.id)
+          return
+        }
+      }
+      if (switches.has(agent.id) || !isAgentIdle(agent)) return
+      const effectiveHard = (tokensOf(agent.session) ?? tokens) >= lines.hard || outcome.overflow
+      // Do not archive a part with running shell jobs or subagents below the hard line;
+      // archiveSession({ stopActivity: true }) would kill them.
+      if (!effectiveHard && activeWorkSignals(agent).hasLiveActivity) {
+        ctx.logger.info('ds-bot: deferring part switch for %s while background jobs or subagents are active', agent.id)
+        return
+      }
+      if (!await canMakeRoom(agent)) {
+        recordNoRoom(agent, tokens)
+        return
+      }
+      roomRetry.delete(agent.id)
+      startSwitch(agent, { hard: effectiveHard, ...(outcome.overflow ? { overflow: true } : {}), idle: true })
     } finally {
       checking.delete(agent.id)
     }
@@ -2062,14 +3432,19 @@ export function install(rt) {
     // Condensed past the check line and still there: a checkpoint that did not make
     // room, so the part moves on.
     if (condensedUnmeasured.has(agent.id) && tokens !== undefined) {
-      condensedUnmeasured.delete(agent.id)
       if (tokens >= lines.check) {
-        if (await canMakeRoom(agent)) startSwitch(agent, { hard: tokens >= lines.hard })
+        if (await canMakeRoom(agent) && startSwitch(agent, { hard: tokens >= lines.hard, idle: true }) !== false) {
+          condensedUnmeasured.delete(agent.id)
+        }
         return
       }
+      condensedUnmeasured.delete(agent.id)
     }
     const past = tokens !== undefined && tokens >= lines.check && grown(agent.id, tokens, lines)
     if (!past && !condensed) return
+    const hard = tokens !== undefined && tokens >= lines.hard
+    if (!hard && Date.now() < (noteFailures.get(agent.id)?.until ?? 0)) return
+    if (!hard && Date.now() < (roomRetry.get(agent.id)?.until ?? 0)) return
     checking.add(agent.id)
     try {
       if (await decide(agent, { midTurn: false }) === 'compact') {
@@ -2078,10 +3453,23 @@ export function install(rt) {
           partBase.set(agent.id, tokens ?? 0)
           return
         }
-        if (await condense(agent, lines, { inTurn: false }) !== false) return
+        if (await condense(agent, lines, { inTurn: false }) !== false) {
+          roomRetry.delete(agent.id)
+          return
+        }
       }
-      if (switches.has(agent.id) || !await canMakeRoom(agent)) return
-      startSwitch(agent, { hard: (sizeOf(agent.session) ?? tokens ?? 0) >= lines.hard })
+      if (switches.has(agent.id) || !isAgentIdle(agent)) return
+      const effectiveHard = (sizeOf(agent.session) ?? tokens ?? 0) >= lines.hard
+      if (!effectiveHard && activeWorkSignals(agent).hasLiveActivity) {
+        ctx.logger.info('ds-bot: deferring local part switch for %s while background jobs or subagents are active', agent.id)
+        return
+      }
+      if (!await canMakeRoom(agent)) {
+        recordNoRoom(agent, tokens)
+        return
+      }
+      roomRetry.delete(agent.id)
+      startSwitch(agent, { hard: effectiveHard, idle: true })
     } finally {
       checking.delete(agent.id)
     }
@@ -2089,7 +3477,7 @@ export function install(rt) {
 
   // The newest turn/end among the Session's last events in memory.
   function lastTurnEnd(agent) {
-    const latest = agent.session.seq - 1
+    const latest = (agent.session?.seq ?? 0) - 1
     for (let seq = latest; seq >= Math.max(0, latest - 199); seq -= 1) {
       const event = agent.session.eventAt?.(seq)
       if (event?.type === 'turn/end') return event
@@ -2103,10 +3491,28 @@ export function install(rt) {
     if (end !== undefined && end.data?.reason?.kind !== 'error') rescued.delete(agent.id)
   }
 
+  function wakeFailedTurnInbox(agent, end) {
+    if (agent.status !== 'idle' || lastTurnEnd(agent) !== end || readOnly() || ctx.fiber?.uid === null) return
+    const id = agent.id
+    if (!rt.isBotSession(id) || switches.has(id) || rt.live.get(id)?.lastSwitched || rt.isHandingOff?.(id)) return
+    const nextTurn = agent.inbox?.nextTurn ?? []
+    const nextStep = agent.inbox?.nextStep ?? []
+    const target = nextTurn.length > 0 ? 'next-turn' : 'next-step'
+    const tail = target === 'next-turn' ? nextTurn.at(-1)
+      : nextStep.some(message => inboxTargetOf(message) === 'next-turn' || message.source?.kind === 'subagent-settled') ? nextStep.at(-1) : undefined
+    // DSH preserves pending input on error but stops its driver. Reinsert one message
+    // at the same position with wake enabled rather than duplicating or reordering it.
+    if (tail !== undefined && removeMessageForMove(agent, tail)) agent.send(tail, target, true)
+  }
+
   ctx.effect(() => {
     const timer = setTimeout(() => void heldBack().catch(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error)), RESUME_DELAY_MS)
     timer.unref?.()
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      clearTimeout(heldRetryTimer)
+      heldRetryTimer = undefined
+    }
   }, 'ds-bot: hand on input kept in earlier parts')
 
   // An archive from DSH's own Session list while the team runs: DSH asks for the
@@ -2125,9 +3531,17 @@ export function install(rt) {
   })
 
   ctx.on('agent/status', ({ agent, status }) => {
+    if (status === 'idle') rt.retireSettledTasksAfterIdle?.(agent.id)
     if (status === 'idle' && rt.isBotSession(agent.id)) {
       releaseRescued(agent)
-      void checkContext(agent).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
+      const end = lastTurnEnd(agent)
+      if (end?.data?.reason?.kind === 'error') {
+        // Let the old driver finish and replay any wake already latched on it.
+        void Promise.resolve().then(() => wakeFailedTurnInbox(agent, end))
+          .catch(error => rt.warn('ds-bot: waking queued input in %s after a failed turn failed: %s', agent.id, error))
+      } else {
+        void checkContext(agent).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
+      }
     }
   })
 
@@ -2138,7 +3552,7 @@ export function install(rt) {
     if (options.sessionId === undefined || options.purpose !== undefined || rt.ownRequest(options)) return next()
     const messages = options.messages ?? []
     const since = messages.findLastIndex(message => message.role === 'assistant' || message.role === 'tool') + 1
-    const opened = messages.slice(since).filter(message => message.role === 'user' && (message.source?.kind === 'user' || message.source?.kind === SOURCE_KIND))
+    const opened = messages.slice(since).filter(message => message.role === 'user' && isWakingSource(message.source))
     const bare = opened.length > 0 && opened.every(message => message.source.kind === SOURCE_KIND && message.source.handoff === true && message.source.resume !== true)
     if (!bare) return next()
     return (async function* acknowledge() {
@@ -2173,6 +3587,12 @@ export function install(rt) {
     // turn/start from the page before, so seed that turn when the projection has
     // it — or when the caller walked the log back to it (no live session).
     let turn = seedTurn ?? openTurnAt(ctx.get?.('sessionProjections'), session, events[0]?.seq)
+    const isBotRelayTrigger = (src) => src?.kind === SOURCE_KIND && src.audience !== 'user' && src.silent !== true && src.handoff !== true
+      && ['reply', 'report', 'task-report', 'ask_back', 'request', 'answer'].includes(src.role)
+    const live = options.taskView === true ? undefined : rt.live?.get(partId)
+    const liveBotTriggered = live !== undefined && isBotRelayTrigger(live.info)
+    let sawTurnBoundary = false
+    let turnKind
     const stamp = (event, item) => {
       if (typeof event.seq === 'number' && Number.isInteger(event.seq)) item.seq = event.seq
       if (turn !== undefined) item.turn = turn
@@ -2181,6 +3601,8 @@ export function install(rt) {
     for (const event of events) {
       if (event.type === 'turn/start') {
         if (typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn)) turn = event.data.turn
+        sawTurnBoundary = true
+        turnKind = undefined
         continue
       }
       if (event.type === 'deliverables/presented') {
@@ -2189,9 +3611,15 @@ export function install(rt) {
         continue
       }
       if (event.type === 'assistant/message') {
-        if (hidden.has(event.data?.turn)) continue
+        if (hidden.has(event.data?.turn ?? turn)) continue
         // One entry per text block: the chat shows each block in a bubble of its own.
+        // Suppress silent [PASS]/stub replies on Bot-triggered own-chat turns immediately
+        // (before turn/end records exchangeTurns) so live feed and sidebar preview never flash [PASS].
         const content = Array.isArray(event.data?.message?.content) ? event.data.message.content : []
+        const eventTurn = event.data?.turn ?? turn
+        const isLiveBotTurn = !sawTurnBoundary && liveBotTriggered
+          && (live.turn === undefined || eventTurn === undefined || eventTurn === live.turn)
+        if (options.taskView !== true && (turnKind === 'bot' || isLiveBotTurn) && isSilentTurnText(textOf(content))) continue
         for (const block of content) {
           if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '') stamp(event, { kind: 'bot', text: block.text, time: event.time })
         }
@@ -2249,6 +3677,15 @@ export function install(rt) {
       }
       if (event.type !== 'user/message') continue
       const source = event.data?.source
+      if (options.taskView !== true) {
+        if (source?.kind === 'user' || source?.kind === REPLY_KIND) {
+          sawTurnBoundary = true
+          turnKind = 'user'
+        } else if (turnKind === undefined && isBotRelayTrigger(source)) {
+          sawTurnBoundary = true
+          turnKind = 'bot'
+        }
+      }
       if (source?.kind === 'user') {
         const content = Array.isArray(event.data.content) ? event.data.content : []
         const imageRefs = content.filter(block => block?.type === 'image' && block.attachment !== undefined)
@@ -2263,6 +3700,7 @@ export function install(rt) {
         else if (reply?.handoff !== undefined) stamp(event, { kind: 'answer', text: replyText(text), handoff: reply.handoff, time: event.time })
         else if (reply?.views !== undefined) stamp(event, { kind: 'answer', text: replyText(text), views: reply.views, answers: reply.answers, time: event.time })
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
+        if (source.resumedPause === true || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true) continue
         // A group's own Session reads as one conversation: member posts are its
         // messages. A post past what a message holds came as a file, with its start.
         const content = Array.isArray(event.data.content) ? event.data.content : []
@@ -2286,7 +3724,7 @@ export function install(rt) {
       } else if (options.taskView === true && source?.kind === SOURCE_KIND && source.role === 'request') {
         const body = stripRelayHeader(textOf(event.data.content))
         if (body !== '') stamp(event, { kind: 'task-brief', name: source.senderName ?? null, text: body, time: event.time })
-      } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
+      } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && source.silent !== true && ['request', 'reply', 'report', 'stopped', 'ask_back', 'answer'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
       } else if (source?.kind === 'schedule') {
         const prompts = reminderPrompts(textOf(event.data.content))
@@ -2310,13 +3748,25 @@ export function install(rt) {
     // An archived earlier part may have no live agent left; its stored events
     // still page fine, so resolve failure only drops the live-session cap.
     const agent = await rt.resolveAgent(part.sessionId).catch(() => undefined)
+    const liveSeq = agent?.session?.seq
+    const liveThroughSeq = typeof liveSeq === 'number' && Number.isInteger(liveSeq) && liveSeq >= 0
+      ? liveSeq - 1
+      : undefined
+    const boundThroughSeq = Number.isInteger(part.throughSeq) ? part.throughSeq : undefined
+    const throughSeq = liveThroughSeq !== undefined && boundThroughSeq !== undefined
+      ? Math.min(liveThroughSeq, boundThroughSeq)
+      : (boundThroughSeq ?? liveThroughSeq)
+    if (boundThroughSeq !== undefined && boundThroughSeq < 0) {
+      return { items: [], cursor: index > 0 ? { part: index - 1 } : null }
+    }
     const page = await ctx.sessionController.page({
       address: { kind: 'session', sessionId: part.sessionId },
-      ...(agent ? { throughSeq: Number(agent.session.seq) - 1 } : {}),
+      ...(throughSeq !== undefined ? { throughSeq } : {}),
       ...(Number.isInteger(cursor?.beforeSeq) ? { beforeSeq: cursor.beforeSeq } : {}),
       maxMessages: EARLIER_PAGE,
     }, signal)
     const rawEvents = page.records.map(record => record.event)
+      .filter(event => boundThroughSeq === undefined || !Number.isInteger(event?.seq) || event.seq <= boundThroughSeq)
     const minSeq = Number.isInteger(options.minSeq) && options.minSeq > 0 ? options.minSeq : undefined
     const events = minSeq === undefined
       ? rawEvents
@@ -2354,9 +3804,11 @@ export function install(rt) {
       }
     }
     const more = !hitFloor && page.hasMore && events.length > 0
-    // The line above a part's first message marks where it began.
-    if (!more && index > 0) items.unshift({ kind: 'divider', time: part.startedAt })
     if (steps === true) await applySteps(items, events, part.sessionId, options)
+    // The line above a part's first message marks where it began. Skip a bare divider
+    // for a single-page part that has no visible items or aside cards of its own.
+    const hasPartRows = items.length > 0 || options.hasBtw === true || Number.isInteger(cursor?.beforeSeq)
+    if (!more && index > 0 && hasPartRows) items.unshift({ kind: 'divider', time: part.startedAt })
     return { items, cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null }
   }
 
@@ -2368,12 +3820,21 @@ export function install(rt) {
     const botId = roomId === undefined ? rt.chatOwners.get(sessionId) ?? (past?.roomId === undefined ? past?.botId : undefined) : undefined
     const parts = roomId === undefined ? (botId === undefined ? [] : partsOfThread(botId, sessionId)) : partsOf(undefined, roomId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
-    const index = Number.isInteger(cursor?.part) ? cursor.part : at - 1
+    let index = Number.isInteger(cursor?.part) ? cursor.part : at - 1
     if (at <= 0 || index < 0 || index >= at) return { items: [], cursor: null, startedAt: parts[at]?.startedAt ?? null }
-    // Aside cards belong to the part that was current when they were asked, so
-    // they ride along with that part's history instead of the team view.
-    const btw = botId === undefined ? [] : (await rt.btwPartCards?.(botId, parts[index].sessionId)) ?? []
-    return { ...(await partPage(parts, index, cursor)), btw, startedAt: parts[at].startedAt }
+    let nextCursor = cursor
+    while (index >= 0) {
+      // Aside cards belong to the part that was current when they were asked, so
+      // they ride along with that part's history instead of the team view.
+      const btw = botId === undefined ? [] : (await rt.btwPartCards?.(botId, parts[index].sessionId)) ?? []
+      const page = await partPage(parts, index, nextCursor, false, { hasBtw: btw.length > 0 })
+      const hasContent = page.items.some(item => item.kind !== 'divider') || btw.length > 0
+      const emptyWholePart = !hasContent && !Number.isInteger(nextCursor?.beforeSeq) && (page.cursor === null || page.cursor.part !== index)
+      if (!emptyWholePart || page.cursor === null) return { ...page, btw, partIndex: index, startedAt: parts[at].startedAt }
+      index = page.cursor.part
+      nextCursor = page.cursor
+    }
+    return { items: [], cursor: null, btw: [], startedAt: parts[at].startedAt }
   }
 
   // A Bot's whole own chat, newest page first: the current part, then the earlier
@@ -2391,7 +3852,10 @@ export function install(rt) {
   ]
   const STEP_LABELS = {
     list_secrets: 'Checking the keys', ask_user_question: 'Waiting for your answer',
-    message_bot: 'Asking another Bot', stop_bot: 'Stopping another Bot',
+    message_bot: 'Asking another Bot', delegate_work: 'Delegating to another Bot',
+    ask_back: 'Asking a teammate', answer_work: 'Answering a teammate',
+    cancel_work: 'Cancelling delegated work', note_bot: 'Leaving a note',
+    stop_bot: 'Stopping another Bot',
     create_bot: 'Creating a Bot', update_bot: 'Updating a Bot',
     create_group: 'Creating a group', update_group: 'Updating the group',
     delete_group: 'Deleting the group', post_to_group: 'Posting in the group',
@@ -2501,22 +3965,44 @@ export function install(rt) {
   }
 
   // Opens a dedicated Session for a Bot's background task (`bot.tasks`).
-  // Forks the foreground Session at the latest completed turn boundary when
-  // running on a DSH model in the same folder, falling back to a fresh Session
-  // when there is no completed turn yet (first turn), a different workDir is
-  // requested, or the Bot runs on a local CLI agent.
-  async function openTaskPart(bot, fromSessionId, task, { workDir } = {}) {
+  // When `fork` is true (default), forks the foreground Session at the latest
+  // completed turn boundary on a DSH model in the same folder, falling back to
+  // a fresh Session when there is no completed turn yet (first turn), a
+  // different workDir is requested, or the Bot runs on a local CLI agent.
+  // Pass `fork: false` for lightweight independent tasks (peer-Bot handoffs or
+  // `task_start` from a large parent Session).
+  async function openTaskPart(bot, fromSessionId, task, { workDir, fork = true, throughSeq, fallbackContext } = {}) {
     const room = task.roomId !== undefined ? rt.roomOf(task.roomId) : undefined
     const defaultDir = rt.workDirOf({ botId: bot.id, ...(room ? { roomId: room.id } : {}) })
     const dir = workDir !== undefined ? (workDir ?? undefined) : defaultDir
-    const isLocal = rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined
+    const capabilities = contextRuntime.capabilitiesFor({ bot, session: ctx.get('agents')?.get(fromSessionId)?.session })
+    const isLocal = capabilities.isLocal
+    // Capture the parent session's last event seq before async creation/routing so a
+    // non-forked inherited ref stays pinned strictly to branch time.
+    const sourceSessionAtBranch = ctx.get?.('agents')?.get(fromSessionId)?.session
+      ?? ctx.get?.('sessions')?.get(fromSessionId)
+      ?? ctx.sessions?.get?.(fromSessionId)
+    const branchThroughSeq = Number.isInteger(throughSeq) ? throughSeq : (() => {
+      if (sourceSessionAtBranch === undefined || sourceSessionAtBranch === null) return undefined
+      const seq = sourceSessionAtBranch.seq
+      if (typeof seq === 'number' && Number.isInteger(seq) && seq >= 0) return seq - 1
+      const events = sourceSessionAtBranch.snapshotEvents?.()
+      if (Array.isArray(events)) {
+        if (events.length === 0) return -1
+        const last = events.at(-1)?.seq
+        return Number.isInteger(last) ? last : events.length - 1
+      }
+      return undefined
+    })()
     let sessionId
+    let dshForked = false
     let forked = false
-    if (!isLocal && dir === defaultDir && typeof ctx.sessionController?.fork === 'function') {
+    if (fork !== false && !isLocal && dir === defaultDir && typeof ctx.sessionController?.fork === 'function') {
       try {
         const res = await ctx.sessionController.fork({ sessionId: fromSessionId })
         if (typeof res?.sessionId === 'string' && res.sessionId !== '') {
           sessionId = res.sessionId
+          dshForked = true
           forked = true
         }
       } catch {
@@ -2536,18 +4022,65 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
       throw Object.assign(new Error(room !== undefined ? 'Bot is no longer in this group' : 'Bot no longer exists'), { code: 'bot/not-found' })
     }
+    // Register session ownership BEFORE any native CLI fork writes `state.localAgents.sessions[sessionId]`
+    // so a concurrent `pruneLocalAgentSessions(liveRaw)` pass can never delete the new record.
+    rt.chatOwners.set(sessionId, bot.id)
+    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
+    if (fork !== false && isLocal && dir === defaultDir && typeof rt.forkLocalAgentSession === 'function') {
+      const parsed = splitRef(picked?.ref ?? bot.model ?? bot.appliedModel)
+      const canForkCli = capabilities.canFork === true
+        || (parsed?.provider !== undefined && await rt.ensureLocalAgentForkCapability?.(parsed.provider) === true)
+      if (canForkCli) {
+        try {
+          const cliFork = await rt.forkLocalAgentSession(fromSessionId, sessionId, {
+            cwd: dir,
+            model: parsed?.model,
+            fallbackContext,
+          })
+          if (cliFork?.cliSessionId) forked = true
+        } catch {
+          // Unsupported or un-forkable CLI session: stay on the fresh Session with fallback summary.
+        }
+      }
+      if (rt.botOf(bot.id) !== bot || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))) {
+        rt.chatOwners.delete(sessionId)
+        rt.taskOwners.delete(sessionId)
+        rt.forgetLocalAgentSession?.(sessionId)
+        await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+          .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
+        throw Object.assign(new Error(room !== undefined ? 'Bot is no longer in this group' : 'Bot no longer exists'), { code: 'bot/not-found' })
+      }
+    }
     let startSeq = 0
-    if (forked) {
+    if (dshForked) {
       const forkedAgent = await rt.resolveAgent(sessionId).catch(() => undefined)
       const inherited = forkedAgent?.session?.inheritedEventCount
       const seq = forkedAgent?.session?.seq
       if (Number.isInteger(inherited) && inherited > 0) startSeq = inherited
       else if (Number.isInteger(seq) && seq > 0) startSeq = seq
     }
-    const stored = { ...task, sessionId, segments: [], startSeq, ...(workDir !== undefined ? { workDir } : {}) }
+    // Whenever DSH events were not cloned into `sessionId` (non-forked tasks AND
+    // native local CLI forks whose DSH log stays on the parent), append a slim ref
+    // to the parent foreground part bounded to branch time so read_own_chat (including
+    // call_id recall) can reach pre-branch history without leaking post-branch turns.
+    let inheritedSegments = Array.isArray(task.inheritedSegments) ? [...task.inheritedSegments] : []
+    if (!dshForked && room === undefined && task.origin !== 'bot-handoff' && typeof fromSessionId === 'string' && fromSessionId !== '' && fromSessionId !== sessionId) {
+      if (!inheritedSegments.some(seg => seg?.sessionId === fromSessionId)) {
+        inheritedSegments.push({
+          sessionId: fromSessionId,
+          ...(Number.isInteger(branchThroughSeq) ? { throughSeq: branchThroughSeq } : {}),
+        })
+      }
+    }
+    const stored = {
+      ...task,
+      ...(inheritedSegments.length > 0 ? { inheritedSegments } : {}),
+      sessionId,
+      segments: [],
+      startSeq,
+      ...(workDir !== undefined ? { workDir } : {}),
+    }
     ;(bot.tasks ??= []).push(stored)
-    rt.chatOwners.set(sessionId, bot.id)
-    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
     await rt.save()
     const now = await freshRoute(bot, sourceAgent?.session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {
@@ -2562,9 +4095,13 @@ export function install(rt) {
   // history and KV cache, falling back to a fresh Session on first turn.
   async function forkForegroundPart(bot, fromSessionId) {
     const dir = rt.workDirOf({ botId: bot.id })
+    const sourceAgent = ctx.get('agents')?.get(fromSessionId)
+    const isLocal = contextRuntime.isLocal({ bot, session: sourceAgent?.session })
     let sessionId
     let forked = false
-    if (typeof ctx.sessionController?.fork === 'function') {
+    // A local CLI session stays attached to the moving background Session (`fromSessionId`);
+    // the new foreground opens a fresh Session + fresh CLI session seeded with handoff context.
+    if (!isLocal && typeof ctx.sessionController?.fork === 'function') {
       try {
         const res = await ctx.sessionController.fork({ sessionId: fromSessionId })
         if (typeof res?.sessionId === 'string' && res.sessionId !== '') {
@@ -2578,7 +4115,6 @@ export function install(rt) {
     if (sessionId === undefined) {
       sessionId = await rt.createSession(bot.name, { dir })
     }
-    const sourceAgent = ctx.get('agents')?.get(fromSessionId)
     const picked = await freshRoute(bot, sourceAgent?.session)
     if (picked !== undefined) await selectRoute({ name: bot.name }, sessionId, picked)
     await rt.applyPermission(bot, sessionId, undefined)
@@ -2636,5 +4172,59 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  const forgetSessionParts = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    contextRuntime.forget(sessionId)
+    rt.forgetLocalAgentSession?.(sessionId)
+    rt.forgetChatIndexSession?.(sessionId)
+    condensedUnmeasured.delete(sessionId)
+    cutOffs.delete(sessionId)
+    rescued.delete(sessionId)
+    freshParts.delete(sessionId)
+    tails.delete(sessionId)
+    noteFailures.delete(sessionId)
+    roomRetry.delete(sessionId)
+    midTurnCondensed.delete(sessionId)
+    folderRetry.delete(sessionId)
+    engineRetry.delete(sessionId)
+    clearTimeout(engineWakes.get(sessionId))
+    engineWakes.delete(sessionId)
+  }
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    const id = agent?.id
+    if (id !== undefined && !rt.isBotSession?.(id) && rt.roomOf?.(id) === undefined) forgetSessionParts(id)
+  })
+
+  // User-initiated recovery escape hatch for continuous unrecoverable context overflow
+  // when automatic part switching cannot make room (L6): starts a clean bare part
+  // without carrying the overflowing tail so the user is never stuck.
+  async function recoverOverflowPart(botId, sessionId) {
+    await rt.load()
+    if (readOnly()) throw new Error('DS Bot is read-only in this window')
+    const bot = rt.botOf(botId)
+    if (bot === undefined) throw new Error('Unknown Bot')
+    const targetId = sessionId ?? rt.chatOf(bot.id)
+    const place = placeOf(targetId)
+    if (place === undefined || place.botId !== bot.id) throw new Error('Unknown conversation part')
+    if (switches.has(targetId)) throw new Error('This conversation is already moving to a new part')
+    const agent = await rt.resolveAgent(targetId)
+    if (!isAgentIdle(agent)) throw new Error('Wait for the current turn to finish before starting a new part')
+    const lastFailure = lastTurnEnd(agent)?.data?.reason?.kind === 'error' ? lastTurnEnd(agent).data.reason.error : undefined
+    const recordedOverflow = bot.failures?.[targetId]?.code === OVERFLOW
+    const liveOverflow = lastFailure !== undefined && await overflowed(agent, lastFailure)
+    if (!recordedOverflow && !liveOverflow) {
+      throw new Error('This conversation does not need an overflow recovery switch')
+    }
+    const moved = await startSwitch(agent, { hard: true, idle: true, overflow: true, bare: true, resume: false })
+    if (moved !== true) throw new Error('Could not start a new part right now')
+    if (bot.failures?.[targetId] !== undefined) {
+      delete bot.failures[targetId]
+      if (Object.keys(bot.failures).length === 0) delete bot.failures
+      await rt.save()
+    }
+    const nextId = place.roomId === undefined ? (threadCurrentOfPart(bot, targetId) ?? rt.chatOf(bot.id)) : rt.roomOf(place.roomId)?.sessions?.[bot.id]
+    return { sessionId: nextId }
+  }
+
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

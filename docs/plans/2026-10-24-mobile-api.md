@@ -14,7 +14,7 @@
 
 取舍：
 
-- **传输与 Remote 方法。** 本地 / LAN / SSH 仍走 `POST api/bot` 和 `GET api/bot/feed`，使用 DSH 会话 cookie 鉴权，和桌面应用的窗口一样。当客户端只能经由转发 DSH Typert Gateway Remote 方法的链路到达主机时，插件额外以源码模式注册两个 Gateway Remote 方法复用同一通道与事件流（纯 JS 插件不带 Typert 生成器）：`dsBot/call { endpoint, payload }` 返回与 `POST api/bot` 相同的 `{ ok, value | error }`（和手机配对链路一样，拒绝仅限电脑本机执行的 `phone-*` 配对管理与 `folder-pick` 原生弹窗，`bot/refused`），`dsBot/feed {}` 以流的形式推送 `{ event, data }`（首条为 `hello`）。代价：若中继自身带有接口允许列表（如 `ds-harness-remote`），需同时放行 `dsBot/call` 与 `dsBot/feed`，见「已知限制」。
+- **传输与 Remote 方法。** 本地 / LAN / SSH 仍走 `POST api/bot` 和 `GET api/bot/feed`，使用 DSH 会话 cookie 鉴权，和桌面应用的窗口一样。当客户端只能经由转发 DSH Typert Gateway Remote 方法的链路到达主机时，插件额外以源码模式注册两个 Gateway Remote 方法复用同一通道与事件流（纯 JS 插件不带 Typert 生成器）：`dsBot/call { endpoint, payload }` 返回与 `POST api/bot` 相同的 `{ ok, value | error }`（和手机配对链路一样，拒绝仅限电脑本机执行的 `phone-*` 配对管理、`folder-pick` 原生弹窗与 `session-*` 会话日志，`bot/refused`），`dsBot/feed {}` 以流的形式推送 `{ event, data }`（首条为 `hello`）。代价：若中继自身带有接口允许列表（如 `ds-harness-remote`），需同时放行 `dsBot/call` 与 `dsBot/feed`，见「已知限制」。
 - **显示用的条目，不是原始事件。** 群聊和 Bot 私聊都给「谁、说了什么、什么时候」的条目，客户端不需要懂 DSH 的会话事件和 DS Bot 的内部来源标记。
 - **提醒放内存。** 提醒只是「回来时补上」的索引，不是记录本身；真正的内容还在会话和 `state.json` 里。所以不落盘，重启后从头计数（`boot` 变了），客户端重新读一遍团队即可。
 

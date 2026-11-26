@@ -44,7 +44,7 @@ const load = (primitives) => {
   })
   return module.exports
 }
-// The DSH the tests pin (0.2.2-rc.1) and every release since 0.2.1-alpha.3: no projection.
+// The DSH the tests pin (0.2.2-rc.5) and every release since 0.2.1-alpha.3: no projection.
 const current = load({ MarkdownText: () => null, UserTextRun: ({ text }) => text })
 // A release before 0.2.1-alpha.3, which projected user text itself.
 const older = load({ MarkdownText: () => null, projectUserText: text => [`projected:${text}`] })
@@ -223,4 +223,49 @@ test('an older DSH still draws the text through its projection, folded', () => {
   assert.match(words(tree), /projected:第 1 行/)
   assert.doesNotMatch(words(tree), /第 11 行/)
   assert.equal(find(tree, node => node.props?.['data-folded'] === true).length, 1)
+})
+
+test('API messages display via API · TokenName from apiVia and post-restart roster.api.tokens in both DSH modes', () => {
+  const expandVia = (mod, props) => {
+    at = 0
+    return expand(mod.UserMessageCell(props), ['UserText', 'ProjectedContent', 'HostContent', 'ViaTag'])
+  }
+  for (const [label, mod] of [['current', current], ['older', older]]) {
+    // 1. Live in-memory apiVia takes precedence over generic source.rpcId
+    fresh()
+    const liveRoster = {
+      ...roster,
+      apiVia: { room: { 7: 'Claude Code' } },
+      api: { tokens: [{ keyId: 'k1', name: 'Renamed Later' }] },
+    }
+    const live = hostProps([{ type: 'text', text: 'hi' }], {
+      data: { seq: 7, source: { kind: 'user', rpcId: 'api:k1:run_1' } },
+    })
+    let pickedValue
+    live.props.useRoster = (select) => {
+      pickedValue = select(liveRoster)
+      return pickedValue
+    }
+    const liveTree = expandVia(mod, live.props)
+    const liveVia = find(liveTree, node => node.props?.className === 'bt-uvia')
+    assert.equal(liveVia.length, 1, `${label}: live apiVia should render a via badge`)
+    assert.match(words(liveVia[0]), /Claude Code/, `${label}: live apiVia must not be shadowed by bare "api"`)
+    if (label === 'current') assert.equal(pickedValue, 'api:Claude Code', 'current mode selector must return primitive string for Object.is memoization')
+
+    // 2. Post-restart fallback: apiVia is empty, resolves token name via roster.api.tokens
+    fresh()
+    const restartRoster = {
+      ...roster,
+      apiVia: {},
+      api: { tokens: [{ keyId: 'k2', name: 'CI Pipeline' }] },
+    }
+    const restarted = hostProps([{ type: 'text', text: 'hi' }], {
+      data: { seq: 9, source: { kind: 'user', rpcId: 'api:k2:run_2' } },
+    })
+    restarted.props.useRoster = select => select(restartRoster)
+    const restartedTree = expandVia(mod, restarted.props)
+    const restartedVia = find(restartedTree, node => node.props?.className === 'bt-uvia')
+    assert.equal(restartedVia.length, 1, `${label}: post-restart fallback should render a via badge`)
+    assert.match(words(restartedVia[0]), /CI Pipeline/, `${label}: post-restart fallback should resolve token name from roster.api.tokens`)
+  }
 })

@@ -262,7 +262,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
     ...(bot && roster.computer?.enabled === true ? ['computer'] : []),
   ]
   const activeTab = tabs.includes(tab) ? tab : 'details'
-  const glide = useGlide(`${activeTab}:${tabs.join(',')}`)
+  const glide = useGlide(`${activeTab}:${tabs.join(',')}`, { axis: 'both', syncKey: `${tabs.map(key => t(TAB_LABELS[key])).join(',')}:${activeTaskCount}` })
   // The settings view comes in from the right and the overview back from the left; a
   // new tab clears from a blur. The first view arrives with the panel.
   const last = useRef({ view, tab: activeTab, move: undefined })
@@ -273,12 +273,16 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   const close = () => actions.closeOverlay()
   const running = useSessionStatus(map => map.get(part)?.running === true)
   const doing = useActivity(map => map[bot?.id ?? sessionId])
-  const transcript = useSessions(list => transcriptOf(list, part, bot?.name ?? room?.name ?? t('Bot'), roster.exchangeTurns[part]))
+  const sessionsRef = useRef(null)
+  useSessions((list) => { sessionsRef.current = list; return null })
   const usage = useSessions(list => usageOf(list, [part, ...(bot?.parts ?? room?.parts ?? [])]))
   const run = promise => Promise.resolve(promise)
     .then(() => { setError(''); return true })
     .catch(failure => { setError(failure?.message ?? String(failure)); return false })
   const share = () => {
+    const transcript = sessionsRef.current
+      ? transcriptOf(sessionsRef.current, part, bot?.name ?? room?.name ?? t('Bot'), roster.exchangeTurns[part])
+      : ''
     void navigator.clipboard?.writeText(transcript).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1600)
@@ -295,8 +299,8 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
         bot ? h(BotSettingsForm, { bot, roster, actions, run }) : h(GroupSettingsForm, { room, roster, actions, run, onDeleted: close })),
     ]
   }
-  // The `···` button holds Browser, a new side chat, and DSH's right-column
-  // tabs; it hides when none of them applies.
+  // The `+` button opens Browser, a new side chat, and workspace tabs; it hides
+  // when none of them applies.
   const more = drawerMenuKeys({
     bot: bot !== undefined,
     room: room !== undefined,
@@ -306,7 +310,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   }).map(key => menuItemFor(key, actions, sessionId))
   const top = h('div', { className: 'bt-drawer-top', 'data-move': side, 'data-window-drag': !hasStrip || undefined },
     bot || room ? h('button', { type: 'button', className: 'bt-round', 'aria-label': bot ? t('Edit Bot') : t('Group settings'), title: bot ? t('Edit Bot') : t('Group settings'), 'data-info-row': 'settings', onClick: () => setView('settings') }, h(GearIcon)) : null,
-    more.length > 0 ? h('span', { 'data-info-row': 'more' }, h(PanelMenu, { items: more, className: 'bt-round', 'aria-label': t('More') })) : null,
+    more.length > 0 ? h('span', { 'data-info-row': 'more' }, h(PanelMenu, { items: more, className: 'bt-round', 'aria-label': t('New tab') })) : null,
     bot || room ? h('button', { type: 'button', className: 'bt-round', 'aria-label': copied ? t('Copied conversation') : t('Share conversation'), title: copied ? t('Copied') : t('Copy conversation as Markdown'), onClick: share }, copied ? h('span', { key: 'copied', className: 'bt-pop-in' }, '✓') : h(ShareIcon)) : null,
     hasStrip ? null : h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Close details'), onClick: close }, h(CloseIcon)))
   if (!bot && !room) {

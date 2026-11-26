@@ -4,12 +4,16 @@
 // INTERACTION_CREATE and are answered with a deferred update (type 6).
 // Wire details ported from dsh-im (MIT, see NOTICE).
 import { chunkMarkdown } from '../format.js'
+import { discardBody, FILE_LIMIT, IMAGE_LIMIT, mediaSignal, readCappedBytes } from './media.js'
+import { retryDelay } from './retry.js'
 
 const API = 'https://discord.com/api/v10'
 const GATEWAY = 'wss://gateway.discord.gg/?v=10&encoding=json'
 // guilds | guild messages | direct messages | message content
 const INTENTS = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15)
 const TEXT_LIMIT = 2000
+const CHANNEL_TITLES_MAX = 500
+const FATAL_CLOSE_CODES = new Set([4004, 4010, 4011, 4012, 4013, 4014])
 
 const apiBase = env => String(env.config?.api ?? API).replace(/\/+$/, '')
 const wsBase = env => String(env.config?.gateway ?? GATEWAY)
@@ -36,6 +40,7 @@ export default {
   connect(fields, env, handlers) {
     const token = String(fields.token ?? '').trim()
     let stopped = false
+    const stopping = new AbortController()
     let socket
     let heartbeatTimer
     let heartbeatAcked = true
@@ -44,6 +49,7 @@ export default {
     let resumeUrl
     let generation = 0
     let reconnectTimer
+    let reconnectAttempt = 0
     const self = { id: undefined, name: '' }
     // MESSAGE_CREATE carries a `channel_id`, not a channel object, so a guild
     // message has no name in the payload. Read it once per channel through REST
@@ -55,16 +61,23 @@ export default {
     const channelTitle = async (id) => {
       if (!id) return ''
       const known = channelTitles.get(id)
-      if (known) return known
+      if (known) {
+        channelTitles.delete(id)
+        channelTitles.set(id, known)
+        return known
+      }
       const pending = rest(`/channels/${id}`, { method: 'GET' }).then((channel) => {
         const name = typeof channel?.name === 'string' ? channel.name : ''
-        if (!name) channelTitles.delete(id)
+        if (!name && channelTitles.get(id) === pending) channelTitles.delete(id)
         return name
       }, () => {
-        channelTitles.delete(id)
+        if (channelTitles.get(id) === pending) channelTitles.delete(id)
         return ''
       })
       channelTitles.set(id, pending)
+      if (channelTitles.size > CHANNEL_TITLES_MAX) {
+        channelTitles.delete(channelTitles.keys().next().value)
+      }
       return pending
     }
 
@@ -91,6 +104,7 @@ export default {
         heartbeatAcked = false
         heartbeat()
         heartbeatTimer = setTimeout(beat, interval)
+        heartbeatTimer.unref?.()
       }
       heartbeatTimer = setTimeout(beat, interval * Math.random())
       heartbeatTimer.unref?.()
@@ -113,14 +127,23 @@ export default {
       const images = []
       const files = []
       for (const item of data.attachments ?? []) {
+        if (stopped) return
         try {
-          const response = await env.fetch(item.url)
-          const bytes = new Uint8Array(await response.arrayBuffer())
           const mediaType = String(item.content_type ?? '')
-          if (mediaType.startsWith('image/')) images.push({ mediaType, data: Buffer.from(bytes).toString('base64') })
-          else files.push({ name: String(item.filename ?? 'file'), data: bytes })
+          const asImage = mediaType.startsWith('image/')
+          const limit = asImage ? IMAGE_LIMIT : FILE_LIMIT
+          const response = await env.fetch(item.url, { signal: mediaSignal(stopping.signal) })
+          if (!response.ok) {
+            await discardBody(response)
+            continue
+          }
+          const got = await readCappedBytes(response, limit)
+          if (got.overLimit || got.bytes === undefined || got.bytes.length === 0) continue
+          if (asImage) images.push({ mediaType, data: got.bytes.toString('base64') })
+          else files.push({ name: String(item.filename ?? 'file'), data: got.bytes })
         } catch { /* an attachment that cannot be fetched just does not arrive */ }
       }
+      if (stopped) return
       const text = String(data.content ?? '')
       await handlers.onMessage({
         chat,
@@ -147,15 +170,22 @@ export default {
 
     let gatewayUrl
     const open = (resume) => {
-      const gen = generation
+      if (stopped) return
+      const gen = ++generation
+      clearTimeout(heartbeatTimer)
+      const previous = socket
+      socket = undefined
+      try { previous?.close(1000, 'replaced') } catch { /* already gone */ }
       const url = resume && resumeUrl ? resumeUrl : gatewayUrl
+      let next
       try {
-        socket = new env.WebSocket(url)
+        next = new env.WebSocket(url)
+        socket = next
       } catch (error) {
         handlers.onStatus({ state: 'error', error: `Discord could not open a socket: ${error?.message ?? error}` })
         return
       }
-      socket.addEventListener('message', (event) => {
+      next.addEventListener('message', (event) => {
         if (stopped || generation !== gen) return
         let packet
         try { packet = JSON.parse(String(event.data)) } catch { return }
@@ -169,20 +199,22 @@ export default {
         }
         if (packet.op === 11) { heartbeatAcked = true; return }
         if (packet.op === 1) { heartbeat(); return }
-        if (packet.op === 7) { socket.close(4000, 'Reconnect requested'); return }
+        if (packet.op === 7) { next.close(4000, 'Reconnect requested'); return }
         if (packet.op === 9) {
           if (packet.d !== true) { sessionId = undefined; resumeUrl = undefined; sequence = undefined }
-          socket.close(4000, 'Invalid session')
+          next.close(4000, 'Invalid session')
           return
         }
         if (packet.op !== 0) return
         if (packet.t === 'READY') {
+          reconnectAttempt = 0
           sessionId = packet.d?.session_id
           resumeUrl = packet.d?.resume_gateway_url
           self.id = String(packet.d?.user?.id ?? '')
           self.name = String(packet.d?.user?.username ?? '')
           handlers.onStatus({ state: 'ready', account: { id: self.id, name: self.name ? `@${self.name}` : self.id } })
         } else if (packet.t === 'RESUMED') {
+          reconnectAttempt = 0
           handlers.onStatus({ state: 'ready' })
         } else if (packet.t === 'MESSAGE_CREATE') {
           void onMessageEvent(packet.d).catch(error => env.log?.warn?.('ds-bot im: discord message failed: %s', error?.message ?? error))
@@ -190,16 +222,23 @@ export default {
           void onInteraction(packet.d).catch(error => env.log?.warn?.('ds-bot im: discord action failed: %s', error?.message ?? error))
         }
       })
-      socket.addEventListener('close', () => {
+      next.addEventListener('close', (event) => {
         clearTimeout(heartbeatTimer)
         if (stopped || generation !== gen) return
+        const code = event?.code
+        if (FATAL_CLOSE_CODES.has(code)) {
+          sessionId = undefined
+          resumeUrl = undefined
+          sequence = undefined
+          handlers.onStatus({ state: 'error', error: `Discord closed the gateway (${code}${event?.reason ? `: ${event.reason}` : ''})` })
+          return
+        }
         handlers.onStatus({ state: 'connecting' })
-        // Resume keeps session_id when the close code allows it; a 4004 or an
-        // invalid session forces a fresh identify.
-        reconnectTimer = setTimeout(() => { if (!stopped) open(sessionId !== undefined) }, 2000)
+        clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(() => { if (!stopped && generation === gen) open(sessionId !== undefined) }, retryDelay(reconnectAttempt++))
         reconnectTimer.unref?.()
       })
-      socket.addEventListener('error', () => {})
+      next.addEventListener('error', () => {})
     }
 
     handlers.onStatus({ state: 'connecting' })
@@ -218,13 +257,14 @@ export default {
       } catch {
         gatewayUrl = gatewaySocket(wsBase(env))
       }
+      if (stopped) return
       if (gatewayUrl === undefined) handlers.onStatus({ state: 'error', error: 'Discord gave no usable gateway URL' })
-      else if (!stopped) open(false)
+      else open(false)
     })()
 
     return {
       send: async (chat, { text, buttons }) => {
-        const chunks = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)
+        const chunks = chunkMarkdown(String(text ?? ''), TEXT_LIMIT, { unit: 'utf16' })
         let messageId
         for (const [index, chunk] of chunks.entries()) {
           const components = index === chunks.length - 1 && buttons?.length > 0
@@ -266,16 +306,20 @@ export default {
         // Discord renders Markdown in `content`, so an edit that goes through `toPlain`
         // silently drops every emphasis, code fence and link the message had: a streamed
         // reply looked formatted while it was being sent and plain once it was edited.
-        const body = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)[0] ?? ''
+        const body = chunkMarkdown(String(text ?? ''), TEXT_LIMIT, { unit: 'utf16' })[0] ?? ''
         await rest(`/channels/${chat.key}/messages/${messageId}`, { method: 'PATCH', body: { content: body, components } })
       },
       typing: async (chat) => rest(`/channels/${chat.key}/typing`).then(() => {}, () => {}),
       stop: () => {
         stopped = true
+        stopping.abort()
         generation += 1
         clearTimeout(heartbeatTimer)
         clearTimeout(reconnectTimer)
-        try { socket?.close(1000, 'stop') } catch { /* socket may not be open */ }
+        channelTitles.clear()
+        const previous = socket
+        socket = undefined
+        try { previous?.close(1000, 'stop') } catch { /* socket may not be open */ }
       },
     }
   },

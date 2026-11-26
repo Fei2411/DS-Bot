@@ -8,7 +8,7 @@ ARG NODE_IMAGE=node:24-bookworm-slim
 FROM ${NODE_IMAGE} AS build
 
 ARG NPM_REGISTRY=https://registry.npmjs.org/
-ARG DSH_VERSION=0.2.2-rc.1
+ARG DSH_VERSION=0.2.2-rc.5
 
 RUN corepack enable \
     && npm config set registry "$NPM_REGISTRY" --global \
@@ -53,5 +53,5 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 LABEL org.opencontainers.image.title="DS Bot" \
       org.opencontainers.image.description="A team of long-lived Bots on DeepSeek Harness, served by dsh web" \
-      org.opencontainers.image.source="https://github.com/Fei2411/DS-Bot" \
+      org.opencontainers.image.source="https://github.com/Fei-Craft/DS-Bot" \
       org.opencontainers.image.licenses="Apache-2.0"

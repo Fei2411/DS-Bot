@@ -1,19 +1,21 @@
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { paintCss } from './inks.js'
-import { CHARACTERS, PICKER_SHAPES, PICKER_COLUMNS, CHARACTER_COLORS, SHAPES, hasShape, shapeOf, bodyOf, maskBox, holes, nextMarkSerial } from './characters.js'
+import { CHARACTERS, PICKER_SHAPES, CHARACTER_COLORS, SHAPES, hasShape, shapeOf, bodyOf, maskBox, holes, nextMarkSerial } from './characters.js'
 import { isMainOf } from './sources.js'
 import { PencilIcon, ChevronRightIcon } from './icons.js'
 import { lookOf, BotMark } from './mark.js'
 import { ModelMenu, modelOf } from './model-menu.js'
 import { RunModeCard } from './agent-cards.js'
-import { FolderMenu } from './folder-menu.js'
+import { ExtraFolders, FolderMenu } from './folder-menu.js'
 import { BotSchedules } from './schedules.js'
 import { BotCapabilitiesCard } from './capability-settings.js'
 import { BotComputerCard } from './computer.js'
 import { AvatarLibraryPanel, avatarImage } from './avatar-library.js'
 import { useMemoryCount } from './memory-panel.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useGlide, useLinger } from './motion.js'
+import { ChatBackgroundSection } from './appearance-page.js'
 import { t } from './i18n.js'
+import { ApprovalSettings } from './approval-settings.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
@@ -95,7 +97,7 @@ function modelHint(bot, roster) {
   const shown = modelOf(bot, roster)
   if (shown === undefined) return t('Pick the model this Bot runs on.')
   if (!shown.served && (roster.models ?? []).length > 0) return t('This model is not available now. Pick another one.')
-  if (bot.appliedModel && bot.appliedModel === bot.model) return t('Every message of this Bot runs on it.')
+  if (bot.appliedModel && bot.appliedModel === bot.model) return ''
   return t('Applies from the next message.')
 }
 
@@ -109,17 +111,15 @@ function ShapeRing({ shape, size }) {
   return h('svg', { className: 'bt-ring', viewBox: `0 0 ${def.size} ${def.size}`, 'aria-hidden': true, dangerouslySetInnerHTML: { __html: markup } })
 }
 
-// Every character shape, six to a row, then the color swatches.
+// Every character shape, five to a row (four on narrow screens), then the color swatches.
 export function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
-  const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter(id => !Object.hasOwn(CHARACTERS, id))]
-  if (!shapes.includes(look.shape)) shapes.push(look.shape)
-  const rows = []
-  for (let index = 0; index < shapes.length; index += PICKER_COLUMNS) rows.push(shapes.slice(index, index + PICKER_COLUMNS))
+  const builtIn = new Set(PICKER_SHAPES)
+  const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter(id => !builtIn.has(id) && (!Object.hasOwn(CHARACTERS, id) || typeof SHAPES[id]?.body === 'function'))]
   return h(Fragment, null,
-    h('div', { className: 'bt-shapes', role: 'group', 'aria-label': t('Character shape') }, rows.map((row, index) => h('div', { key: index, className: 'bt-shape-row' }, row.map(id => h('button', {
+    h('div', { className: 'bt-shapes', role: 'group', 'aria-label': t('Character shape') }, shapes.map(id => h('button', {
       key: id, type: 'button', className: 'bt-shape', 'aria-label': t(shapeOf(id).label), title: t(shapeOf(id).label), 'aria-pressed': !hasPhoto && look.shape === id,
       onClick: () => onShape(id),
-    }, h(ShapeRing, { shape: id, size: 36 }), h(BotMark, { look: { shape: id, color: look.color }, size: 36 })))))),
+    }, h(ShapeRing, { shape: id, size: 36 }), h(BotMark, { look: { shape: id, color: look.color }, size: 36 })))),
     h('div', { className: 'bt-colors', role: 'group', 'aria-label': t('Character color') }, CHARACTER_COLORS.map(color => h('button', {
       key: color, type: 'button', className: 'bt-color', 'aria-label': t(capitalize(color)), title: t(capitalize(color)), 'aria-pressed': look.color === color,
       onClick: () => onColor(color),
@@ -164,7 +164,7 @@ export function AvatarEditor({ bot, room, actions, run, onClose, leaving = false
     return () => window.removeEventListener('paste', onPaste)
   }, [tab, bot, room])
   const hasPhoto = Boolean(look.image)
-  const glide = useGlide(tab)
+  const glide = useGlide(tab, { syncKey: `${t('Bot')}:${t('Upload')}:${t('Library')}` })
   return h('div', { ref, className: 'bt-avedit', role: 'dialog', 'aria-label': t('Avatar editor'), 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-avedit-top' },
       h('div', { ref: glide.box, role: 'tablist', 'aria-label': t('Avatar source'), className: 'bt-avedit-tabs' },
@@ -201,10 +201,11 @@ export function AvatarEditor({ bot, room, actions, run, onClose, leaving = false
 
 function MemoryCard({ bot, actions }) {
   const count = useMemoryCount(bot.id, actions)
+  const empty = count === null || count === 0
   const label = count === null ? t('Loading…') : count === 0 ? t('Nothing saved yet') : count === 1 ? t('1 entry') : t('{count} entries', { count })
   return h(Card, { title: t('Memory') },
     h('button', { type: 'button', className: 'bt-set-row bt-bs-row', 'aria-label': t("Manage {name}'s memory", { name: bot.name }), onClick: () => actions.openMemory(bot.id) },
-      h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, label)),
+      h('span', { className: 'bt-set-copy' }, h('span', { className: empty ? 'bt-set-hint' : 'bt-bs-label' }, label)),
       h('span', { className: 'bt-mem-row-go' }, t('Manage'), h(ChevronRightIcon))))
 }
 
@@ -226,10 +227,11 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const isTile = roster.mainBotId === bot.id
   const inGroup = (roster.rooms ?? []).some(room => room.members?.includes(bot.id))
   const privateHint = t('Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.')
-  const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : privateHint
+  const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : bot.extraDirs?.length ? t('Remove its extra folders first.') : privateHint
   const save = patch => run(actions.updateBot(bot.id, patch))
   const duplicate = () => run(actions.duplicateBot(bot.id).then(copy => actions.openSession(copy.id)))
   const remove = () => { if (confirming) void run(actions.deleteBot(bot.id)); else setConfirming(true) }
+  const modelNote = modelHint(bot, roster)
   // DSH settings can change the model list at any time; the hint should match it.
   useEffect(() => { void actions.refreshModels?.() }, [bot.id])
   return h('div', { className: 'bt-bs' },
@@ -245,21 +247,23 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
     h(Card, { title: t('Profile') },
       h(Row, { label: t('Name') }, h(InlineText, { label: t('Name'), value: bot.name, placeholder: 'Bob', required: true, maxLength: 40, onSave: name => save({ name }) })),
       h(Row, { label: t('Label'), hint: t('Optional. Shown under the name.') }, h(InlineText, { label: t('Label'), value: bot.role, placeholder: t('Research, admin…'), maxLength: 24, onSave: role => save({ role }) }))),
-    h(RunModeCard, { bot, roster, actions, run, Card }),
-    h(Card, { title: t('Model') },
+    h(RunModeCard, { bot, roster, actions, run, Card },
       h('div', { className: 'bt-set-row bt-bs-row' },
-        h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Model')), h('span', { className: 'bt-set-hint' }, modelHint(bot, roster))),
+        h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Model')), modelNote ? h('span', { className: 'bt-set-hint' }, modelNote) : null),
         h(ModelMenu, { bot, roster, actions, run }))),
     h(Card, { title: t('Working folder') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
-        h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) }))),
+        h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) })),
+      // A private Bot works in its own folder only; a local agent keeps its own file permissions.
+      bot.private === true || bot.engine !== undefined ? null : h(ExtraFolders, { value: bot.extraDirs, actions, run, onSave: extraDirs => save({ extraDirs }) })),
+    h(ApprovalSettings, { target: bot, roster, Card }),
     h(Card, { title: t('Privacy') },
       h(SwitchRow, {
         label: t('Private'),
         hint: privacyHint,
         on: bot.private === true,
-        disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir),
+        disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir || bot.extraDirs?.length > 0),
         onChange: value => save({ private: value }),
       })),
     h(Card, { title: t('Instructions') },
@@ -269,7 +273,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
     h(BotComputerCard, { bot, roster, actions, run, Card, Row }),
     roster.memory === false ? null : h(MemoryCard, { bot, actions }),
     h(BotSchedules, { bot, roster, actions }),
-    h(Card, { title: t('Main Bot') },
+    h(Card, null,
       onlyMain
         ? h('div', { className: 'bt-set-row bt-bs-row' },
             h('span', { className: 'bt-set-copy' },
@@ -284,6 +288,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
           onChange: on => run(actions.setMain(bot.id, on)),
         })),
     // The Main Bot tile is always first and always shown, like in the context menu.
+    h(ChatBackgroundSection, { owner: bot, ownerKind: 'bot', actions, run, Section: Card }),
     isTile ? null : h(Card, { title: t('Sidebar') },
       h(SwitchRow, { label: t('Pin'), hint: t('Kept above the other chats.'), on: bot.pinned === true, onChange: pinned => run(actions.setFlags(bot.id, { pinned })) }),
       isMainBot ? null : h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: bot.hidden === true, onChange: hidden => run(actions.setFlags(bot.id, { hidden })) })),
@@ -299,24 +304,25 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
 }
 
 export const BOT_SETTINGS_CSS = `
-.bt-bs{display:flex;flex-direction:column;gap:22px}
+.bt-bs{display:flex;flex-direction:column;gap:22px;container-type:inline-size}
 .bt-bs-hero{display:flex;align-items:center;gap:14px;padding:2px 4px}
 .bt-bs-who{display:flex;flex-direction:column;min-width:0;gap:2px}
 .bt-bs-name{font-size:17px;line-height:24px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-bs-sub{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
-.bt-bs .bt-avedit{left:0;transform:none;width:min(284px,calc(100vw - 32px))}
+.bt-bs .bt-avedit{left:-4px;transform:none;width:min(304px,100cqi,calc(100vw - 32px))}
 .bt-bs-row{min-height:48px}
 label.bt-bs-row{cursor:text}
 .bt-bs-row>.bt-set-copy{flex:1 1 auto}
 .bt-bs-label{font-size:13px;line-height:18px;font-weight:500}
 .bt-bs-row .bt-model-trigger{flex:none;max-width:58%}
+.bt-bs-row .bt-sel{flex:0 1 auto;min-width:0;max-width:58%}
 .bt-bs-input{flex:0 1 220px;width:0;min-width:96px;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:.5px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-bs-input:hover{background:var(--bt-hover)}
 .bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent);text-align:left}
 .bt-bs-input::placeholder{color:var(--bt-ink-3)}
 .bt-bs-stack{flex-direction:column;align-items:stretch;gap:8px}
-.bt-bs-area{flex:none;width:auto;min-height:112px;height:auto;margin:0 -6px -4px;padding:8px;line-height:19px;text-align:left;resize:vertical;background:var(--bt-hover)}
-.bt-bs-area:hover{background:var(--bt-active)}
+.bt-bs-area{flex:none;width:100%;min-height:112px;height:auto;margin:0;padding:8px 11px;border:.5px solid var(--bt-line-2);background:var(--bt-card);line-height:19px;text-align:left;resize:vertical}
+.bt-bs-area:hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
 .bt-bs-danger .bt-bs-label{color:var(--bt-danger)}
 .bt-bs-danger[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 8%,transparent)}
 .bt-bs-danger[data-confirm]:hover{background:color-mix(in srgb,var(--bt-danger) 12%,transparent)}
