@@ -151,11 +151,11 @@ export function colIndexToLetters(index) {
 }
 
 function SpreadsheetPreview({ file }) {
-  const sheets = Array.isArray(file.sheets) ? file.sheets : []
+  const sheets = useMemo(() => (Array.isArray(file.sheets) ? file.sheets : []), [file.sheets])
   const initialIndex = useMemo(() => {
     const visible = sheets.findIndex(sheet => sheet.state !== 'hidden' && sheet.state !== 'veryHidden')
     return visible >= 0 ? visible : 0
-  }, [file.path, sheets.length])
+  }, [file.path, sheets])
   const [sheetIdx, setSheetIdx] = useState(initialIndex)
   const [selected, setSelected] = useState(null)
   const [copiedCell, setCopiedCell] = useState(false)
@@ -169,17 +169,16 @@ function SpreadsheetPreview({ file }) {
   }, [file.path, initialIndex])
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
 
-  if (sheets.length === 0) return h('div', { className: 'dsb-rp-empty' }, t('Empty file'))
   const safeIdx = sheetIdx >= 0 && sheetIdx < sheets.length ? sheetIdx : 0
-  const sheet = sheets[safeIdx]
-  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
-  const colCount = Math.max(0, sheet.colCount ?? (rows[0]?.length ?? 0))
+  const sheet = sheets[safeIdx] ?? null
+  const rows = Array.isArray(sheet?.rows) ? sheet.rows : []
+  const colCount = Math.max(0, sheet?.colCount ?? (rows[0]?.length ?? 0))
   const colHeaders = useMemo(() => Array.from({ length: colCount }, (_, idx) => colIndexToLetters(idx)), [colCount])
 
   const mergeLayout = useMemo(() => {
     const spans = new Map()
     const covered = new Set()
-    for (const m of sheet.merges ?? []) {
+    for (const m of sheet?.merges ?? []) {
       const rowSpan = Math.max(1, (m.r2 - m.r1) + 1)
       const colSpan = Math.max(1, (m.c2 - m.c1) + 1)
       if (rowSpan === 1 && colSpan === 1) continue
@@ -192,6 +191,21 @@ function SpreadsheetPreview({ file }) {
     }
     return { spans, covered }
   }, [sheet])
+
+  if (!sheet) return h('div', { className: 'dsb-rp-empty' }, t('Empty file'))
+
+  const rowCount = sheet.rowCount ?? rows.length
+  const totalRowsLabel = Number.isFinite(sheet.totalRows) ? sheet.totalRows : `${rowCount}+`
+  const truncationParts = [
+    sheet.truncatedRows
+      ? (Number.isFinite(sheet.totalRows)
+        ? t('Showing first {shown} of {total} rows', { shown: rowCount, total: sheet.totalRows })
+        : t('Showing first {count} rows', { count: rowCount }))
+      : null,
+    sheet.truncatedCols ? t('Showing first {shown} of {total} columns', { shown: colCount, total: sheet.totalCols }) : null,
+    file.truncatedSheets ? t('Showing first {shown} of {total} sheets', { shown: sheets.length, total: file.totalSheets }) : null,
+    (sheet.truncatedText || sheet.truncatedBySize || file.truncatedText) ? t('Preview truncated for size') : null,
+  ].filter(Boolean)
 
   const activeCell = selected && rows[selected.r] ? rows[selected.r][selected.c] ?? null : null
   const activeRef = selected ? `${colIndexToLetters(selected.c)}${selected.r + 1}` : ''
@@ -224,7 +238,7 @@ function SpreadsheetPreview({ file }) {
 
   return h('div', { className: 'dsb-pv-xlsx' },
     h('div', { className: 'dsb-pv-formula-bar' },
-      h('span', { className: 'dsb-pv-cell-ref' }, activeRef || `${sheet.totalRows ?? rows.length} × ${sheet.totalCols ?? colCount}`),
+      h('span', { className: 'dsb-pv-cell-ref' }, activeRef || `${totalRowsLabel} × ${sheet.totalCols ?? colCount}`),
       h('span', { className: 'dsb-pv-cell-val', title: activeText },
         selected
           ? (activeCell?.f
@@ -238,13 +252,8 @@ function SpreadsheetPreview({ file }) {
         title: copiedCell ? t('Copied') : t('Copy'),
         onClick: copySelected,
       }, copiedCell ? h(CheckIcon) : h(CopyIcon)) : null),
-    (sheet.truncatedRows || sheet.truncatedCols || file.truncatedSheets)
-      ? h('div', { className: 'dsb-pv-banner' },
-        [
-          sheet.truncatedRows ? t('Showing first {shown} of {total} rows', { shown: sheet.rowCount, total: sheet.totalRows }) : null,
-          sheet.truncatedCols ? t('Showing first {shown} of {total} columns', { shown: sheet.colCount, total: sheet.totalCols }) : null,
-          file.truncatedSheets ? t('Showing first {shown} of {total} sheets', { shown: sheets.length, total: file.totalSheets }) : null,
-        ].filter(Boolean).join(' · '))
+    truncationParts.length > 0
+      ? h('div', { className: 'dsb-pv-banner' }, truncationParts.join(' · '))
       : null,
     rows.length === 0 || colCount === 0
       ? h('div', { className: 'dsb-rp-empty' }, t('Empty sheet'))

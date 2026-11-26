@@ -2262,6 +2262,7 @@ const ZH = {
   "Mention a Bot": "提及 Bot",
   "Empty file": "空文件",
   "Showing first {count} rows": "仅显示前 {count} 行",
+  "Preview truncated for size": "因体积过大，预览已截断",
   "Converted from {ext}": "已从 {ext} 转换",
   "Preview unavailable in this environment": "当前环境暂不支持预览",
   "Select a file to preview": "选择一个文件进行预览",

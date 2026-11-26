@@ -285,6 +285,39 @@ test('Cordis-style plugin runtime handles provide/inject lifecycle, themes, slot
   await new Promise(resolve => setTimeout(resolve, 10))
   assert.equal(runtime.getSnapshot().find(p => p.id === 'ext.async-bad').status, 'error')
   assert.equal(slots.list(mod.SHELL_OVERLAY_SLOT).some(e => e.id === 'async-bad'), false)
+
+  // Forced retry on an active service-providing plugin must NOT re-enter reconcile during deactivate(),
+  // must run apply() exactly once per retry, and must leak zero slots or services on unload.
+  let providerActivations = 0
+  let providerCleanups = 0
+  let depActivations = 0
+  const ProviderSlotView = () => ({ type: 'span', props: { children: ['provider'] } })
+  const disposeProvider = runtime.use({ id: 'ext.provider' }, (ctx) => {
+    providerActivations += 1
+    ctx.provide('shared.svc', `gen-${providerActivations}`)
+    ctx.slot({ name: mod.SHELL_OVERLAY_SLOT, id: `provider-slot-${providerActivations}` }, ProviderSlotView)
+    return () => {
+      providerCleanups += 1
+      // Re-entrant retry during disposal must be ignored (single-flight).
+      runtime.retry('ext.provider', { force: true })
+    }
+  })
+  const disposeDep = runtime.use({ id: 'ext.dep', inject: ['shared.svc'] }, () => {
+    depActivations += 1
+  })
+  assert.equal(providerActivations, 1)
+  assert.equal(depActivations, 1)
+
+  assert.equal(runtime.retry('ext.provider', { force: true }), true)
+  assert.equal(providerActivations, 2, 'forced retry on service-providing plugin must activate exactly once')
+  assert.equal(providerCleanups, 1, 'prior generation disposed cleanly once')
+  assert.equal(depActivations, 2, 'dependent re-activated cleanly with new service')
+  assert.equal(slots.list(mod.SHELL_OVERLAY_SLOT).filter(e => e.pluginId === 'ext.provider').length, 1, 'zero leaked slots from prior generation')
+
+  disposeDep()
+  disposeProvider()
+  assert.equal(slots.list(mod.SHELL_OVERLAY_SLOT).filter(e => e.pluginId === 'ext.provider').length, 0, 'all slots cleaned up on unload')
+  assert.equal(runtime.has('shared.svc'), false, 'provided service cleaned up on unload')
 })
 
 test('extractSchemaFields decodes Schemastery toJSON graphs including enums, nested objects, and redacted secrets', () => {
@@ -802,6 +835,23 @@ test('Classic mode browser pane opens, toggles, creates, and closes tabs under C
   team.actions.toggleBrowser('classic')
   renderTree(Probe, {})
   assert.equal(snap.view, 'browser')
+
+  // Switching Classic sessions keeps an open Classic browser pane alive and rebinds its details id.
+  team.actions.openAgentSession('cs-2')
+  renderTree(Probe, {})
+  assert.equal(snap.details, 'cs-2', 'Classic browser survives switching agent sessions')
+  assert.equal(snap.view, 'browser')
+
+  // Opening a workspace tab alongside Classic browser and closing the last workspace tab falls back to browser view.
+  team.actions.openFiles()
+  renderTree(Probe, {})
+  assert.equal(snap.view, 'workspace')
+  team.actions.closeWorkspaceTab('files')
+  renderTree(Probe, {})
+  assert.equal(snap.details, 'cs-2', 'closing last workspace tab keeps Classic browser open')
+  assert.equal(snap.view, 'browser')
+  assert.equal(snap.rightPanel, null)
+
   team.actions.toggleBrowser('classic')
   renderTree(Probe, {})
   assert.equal(snap.details, null)

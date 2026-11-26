@@ -14,7 +14,7 @@ import {
   shortcutsStore,
 } from './shortcuts-model.js'
 import { isImeComposing, sendsOnEnter } from './enter-key.js'
-import { useEscape } from './overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 
 /**
  * Subscribes a React component to a shortcut store using standard state/effect hooks.
@@ -145,7 +145,7 @@ export function ShortcutsPage({ roster, actions, surfaceMode = 'bot', Section, R
     }
   }, [recordingId, mac, store])
 
-  useEscape(() => setNotice(null), Boolean(notice && !recordingId), { priority: 100 })
+  useEscape(() => setNotice(null), Boolean(notice && !recordingId), { priority: ESCAPE_PRIORITY.RECORDING })
 
   const wanted = query.trim().toLowerCase()
   const visibleDefs = useMemo(() => {

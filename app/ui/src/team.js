@@ -499,13 +499,28 @@ export function createTeam() {
       if (!sessionId) return
       const switched = sessionId !== shown.getSnapshot()
       lastAgentSession = sessionId
+      const hasClassicBrowser = Boolean(
+        roster.getSnapshot().browser === true
+        && browsers
+        && (browsers.tabs.getSnapshot()[CLASSIC_BROWSER_OWNER]?.ids?.length ?? 0) > 0,
+      )
       ui.set((state) => {
         const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
-        const keepPanel = Boolean(state.details && rp !== null && rp.tabs.length > 0)
+        const hasWorkspace = rp !== null && rp.tabs.length > 0
+        const keepBrowser = Boolean(state.details && state.view === 'browser' && hasClassicBrowser)
+        const keepWorkspace = Boolean(state.details && hasWorkspace)
+        const keepPanel = keepBrowser || keepWorkspace
         return {
           ...state,
           ...(keepPanel
-            ? { details: sessionId, view: 'workspace', renaming: false, tab: null, side: null, task: null }
+            ? {
+                details: sessionId,
+                view: keepBrowser ? 'browser' : 'workspace',
+                renaming: false,
+                tab: null,
+                side: null,
+                task: null,
+              }
             : { details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false }),
           newChat: null,
           exchange: null,
@@ -513,7 +528,7 @@ export function createTeam() {
           palette: null,
           groupSearch: null,
           shortcuts: false,
-          rightPanel: keepPanel ? rp : null,
+          rightPanel: keepWorkspace ? rp : null,
         }
       })
       show(sessionId)
@@ -730,6 +745,20 @@ export function createTeam() {
             ...(hasSide ? {} : { side: null }),
             renaming: false,
             tab: null,
+          }
+        }
+        if (surface.getSnapshot().mode === 'agent'
+          && snap.browser === true
+          && browsers
+          && (browsers.tabs.getSnapshot()[CLASSIC_BROWSER_OWNER]?.ids?.length ?? 0) > 0) {
+          return {
+            ...state,
+            rightPanel: null,
+            view: 'browser',
+            renaming: false,
+            tab: null,
+            side: null,
+            task: null,
           }
         }
         return {

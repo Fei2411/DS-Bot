@@ -2403,6 +2403,7 @@ export const JA = {
   "Mention a Bot": "Bot をメンション",
   "Empty file": "空のファイル",
   "Showing first {count} rows": "先頭 {count} 行を表示",
+  "Preview truncated for size": "サイズ制限のためプレビューを省略しました",
   "Converted from {ext}": "{ext} から変換済み",
   "Preview unavailable in this environment": "この環境ではプレビューできません",
   "Select a file to preview": "プレビューするファイルを選択",

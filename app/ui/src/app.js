@@ -98,6 +98,8 @@ function ShellOverlayHost({ registry = slots, views }) {
     key: entry.id ?? entry.key ?? idx,
     slotName: `${SHELL_OVERLAY_SLOT}:${entry.id ?? idx}`,
     resetKey: entry.id ?? entry.key ?? idx,
+    pluginId: entry.meta?.pluginId ?? null,
+    runtime: entry.meta?.runtime ?? null,
   }, h(entry.component, views))))
 }
 

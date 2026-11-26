@@ -306,9 +306,24 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
       for (const [element, previous] of inert) element.inert = previous
       inert.clear()
     }
+    const externalModalOpen = () => {
+      if (typeof doc.querySelectorAll !== 'function') return false
+      for (const modal of doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')) {
+        if (modal === dialog || dialog.contains(modal)) continue
+        if (typeof modal.closest === 'function' && modal.closest('[data-leaving]')) continue
+        return true
+      }
+      return false
+    }
     const allowed = element => interactive.some(root => root.contains(element))
     const sync = () => {
       restore()
+      // Yield inertness and focus-trapping while a higher-layer modal (such as
+      // ShortcutsDialog, PresetConfigModal, or a DSH modal) is mounted above Settings.
+      if (externalModalOpen()) {
+        interactive = [card]
+        return
+      }
       const target = !step.page || step.page === currentPage ? resolveStep(dialog, step).targetEl : null
       interactive = [target, card].filter(Boolean)
       interactive.push(...ownedPopups(interactive))
@@ -331,6 +346,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     }
     const onTab = event => {
       if (event.key !== 'Tab') return
+      if (externalModalOpen()) return
       sync()
       const selector = 'button,input,select,textarea,a[href],[tabindex],[contenteditable],summary,audio[controls],video[controls]'
       const controls = interactive.flatMap(root => [root, ...root.querySelectorAll(selector)])

@@ -2437,6 +2437,7 @@ export const KO = {
   "Mention a Bot": "Bot 멘션",
   "Empty file": "빈 파일",
   "Showing first {count} rows": "처음 {count}행 표시",
+  "Preview truncated for size": "크기 제한으로 미리 보기가 일부 생략되었습니다",
   "Converted from {ext}": "{ext}에서 변환됨",
   "Preview unavailable in this environment": "이 환경에서는 미리 보기를 사용할 수 없습니다",
   "Select a file to preview": "미리 볼 파일을 선택하세요",

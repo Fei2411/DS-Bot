@@ -26,7 +26,6 @@ const entryCode = `
     PluginsSettingsPage,
     AgentPresetsSettingsPage,
     ArchivedSessionsPage,
-    EngineConfigPage,
     SessionLogGeneralItem,
   } from './ui/src/engine-settings.js'
   export {
@@ -1062,4 +1061,146 @@ test('PluginsSettingsPage surfaces failed UI plugins with Retry button and Sessi
   await new Promise(resolve => setTimeout(resolve, 20))
   logTree = logHarness.render({ readOnly: false })
   assert.ok(findAll(logTree, n => n.props?.role === 'alert' && textOf(n).includes('Disk full')).length === 1)
+})
+
+test('Engine settings staged forms preserve unsaved drafts across revalidation, secret saves, partial multi-namespace failures, and hidden provider switches', async () => {
+  let failWebNs = true
+  let apiRev = 2
+  let legacyRev = 3
+  let webRev = 1
+  const mutated = []
+  const { mod } = loadMod(async (endpoint, payload) => {
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-web-providers') {
+      return {
+        available: true,
+        search: [
+          { id: 'deepseek-search-api', title: 'DeepSeek Search API', kind: 'search', available: true },
+          { id: 'deepseek-official', title: 'DeepSeek Messages', kind: 'search', available: true },
+        ],
+        fetch: [{ id: 'http', title: 'Direct HTTP', kind: 'fetch', available: true }],
+      }
+    }
+    if (endpoint === 'engine-settings-list') {
+      return {
+        available: true,
+        writable: true,
+        namespaces: [
+          { ns: 'web', autoGenerate: true, revision: webRev, value: { searchProvider: '', fetchProvider: '' }, base: {}, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+          { ns: 'web-deepseek-api', autoGenerate: true, revision: apiRev, value: { count: 10, searchBilling: 'auto', fetchBilling: 'auto' }, base: { count: 10 }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+          {
+            ns: 'web-search-deepseek',
+            autoGenerate: true,
+            revision: legacyRev,
+            value: { maxUses: 5, baseURL: '' },
+            base: { maxUses: 5 },
+            user: {},
+            secrets: [{ path: ['apiKey'], set: false }],
+            schema: { type: 'object', dict: { apiKey: { type: 'string', meta: { role: 'secret' } } } },
+          },
+        ],
+      }
+    }
+    if (endpoint === 'engine-settings-mutate') {
+      mutated.push(payload)
+      if (payload.ns === 'web-search-deepseek') {
+        legacyRev += 1
+        return {
+          ns: 'web-search-deepseek',
+          autoGenerate: true,
+          revision: legacyRev,
+          value: { maxUses: 5, baseURL: '' },
+          base: { maxUses: 5 },
+          user: {},
+          secrets: [{ path: ['apiKey'], set: true }],
+          schema: { type: 'object', dict: { apiKey: { type: 'string', meta: { role: 'secret' } } } },
+        }
+      }
+      if (payload.ns === 'web-deepseek-api') {
+        apiRev += 1
+        return {
+          ns: 'web-deepseek-api',
+          autoGenerate: true,
+          revision: apiRev,
+          value: { count: 25, searchBilling: 'auto', fetchBilling: 'auto' },
+          base: { count: 10 },
+          user: { count: 25 },
+          secrets: [],
+          schema: { type: 'object', dict: {} },
+        }
+      }
+      if (payload.ns === 'web' && failWebNs) {
+        throw new Error('web write failed')
+      }
+      webRev += 1
+      return { ns: 'web', autoGenerate: true, revision: webRev, value: { searchProvider: 'deepseek-search-api', fetchProvider: '' }, base: {}, user: { searchProvider: 'deepseek-search-api' }, secrets: [], schema: { type: 'object', dict: {} } }
+    }
+    return {}
+  })
+
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, subTarget: 'web-search' })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  harness.render({ readOnly: false, subTarget: 'web-search' })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  let tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+
+  // 1. Edit Base URL, then save secret API key -> revision bumps, unsaved Base URL draft MUST survive!
+  const baseUrlInput = () => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Base URL')[0]
+  baseUrlInput().props.onChange({ target: { value: 'https://custom.example' } })
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  const secretInput = findAll(tree, n => n.type === 'input' && n.props?.type === 'password')[0]
+  secretInput.props.onChange({ target: { value: 'sk-secret-123' } })
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  // First Save button belongs to SchemaSecretField inline control.
+  const secretSaveBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Save')[0]
+  secretSaveBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  assert.equal(baseUrlInput().props.value, 'https://custom.example', 'secret save must NOT wipe unsaved Base URL draft')
+
+  // 2. Enter invalid Results per search ('999'), then switch Search provider to DeepSeek Messages -> hidden invalid count must NOT block Save!
+  const countInput = () => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Results per search')[0]
+  countInput().props.onChange({ target: { value: '999' } })
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  const formSaveBtn = () => findAll(tree, n => n.type === 'button' && textOf(n) === 'Save').at(-1)
+  assert.equal(formSaveBtn().props.disabled, true, 'visible invalid count disables Save')
+
+  const pickSearchProvider = (label) => {
+    const trigger = findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Search provider')[0]
+    if (trigger.props.ref) {
+      trigger.props.ref.current = { getBoundingClientRect: () => ({ left: 400, right: 620, top: 180, bottom: 212, width: 220, height: 32 }), focus() {} }
+    }
+    trigger.props.onClick({ detail: 1 })
+    tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+    tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+    const opt = findAll(tree, n => n.props?.role === 'option' && textOf(n) === label)[0]
+    assert.ok(opt, `option ${label} exists`)
+    opt.props.onClick()
+    tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  }
+  pickSearchProvider('DeepSeek Messages search')
+  assert.equal(formSaveBtn().props.disabled, false, 'switching away from provider hides its error and unblocks Save')
+
+  // 3. Switch to DeepSeek Search API with valid count=25; save -> web-deepseek-api succeeds, web fails -> web draft MUST stay unsaved!
+  pickSearchProvider('DeepSeek Search API')
+  countInput().props.onChange({ target: { value: '25' } })
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  formSaveBtn().props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  assert.ok(textOf(tree).includes('web write failed'))
+  // Search provider selection (in failed 'web' ns) MUST still be preserved and Save still enabled to retry!
+  const searchTriggerAfterFail = findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Search provider')[0]
+  assert.ok(textOf(searchTriggerAfterFail).includes('DeepSeek Search API'), 'failed namespace draft must survive partial multi-namespace save')
+  assert.equal(formSaveBtn().props.disabled, false, 'Save stays enabled to retry failed namespace')
+
+  // Retry Save now succeeds for 'web' only (web-deepseek-api already saved and cleared!).
+  failWebNs = false
+  mutated.length = 0
+  formSaveBtn().props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  assert.deepEqual(Array.from(mutated, m => m.ns), ['web'], 'retry commits only the previously failed namespace')
+  assert.equal(formSaveBtn().props.disabled, true)
 })

@@ -152,6 +152,7 @@ const revokedUrls = []
 const windowEvents = []
 const resizeObservers = []
 const winListeners = new Map()
+const docCaptureListeners = new Map()
 const mod = { exports: {} }
 const sandbox = {
   module: mod,
@@ -192,7 +193,19 @@ const sandbox = {
     removeEventListener(type, fn) { winListeners.get(type)?.delete(fn) },
     dispatchEvent(event) { windowEvents.push(event?.type); return true },
   },
-  document: { body: {}, addEventListener() {}, removeEventListener() {}, documentElement: { addEventListener() {}, removeEventListener() {} } },
+  document: {
+    body: {},
+    addEventListener(type, fn, capture) {
+      if (capture) {
+        if (!docCaptureListeners.has(type)) docCaptureListeners.set(type, new Set())
+        docCaptureListeners.get(type).add(fn)
+      }
+    },
+    removeEventListener(type, fn, capture) {
+      if (capture) docCaptureListeners.get(type)?.delete(fn)
+    },
+    documentElement: { addEventListener() {}, removeEventListener() {} },
+  },
   navigator: { language: 'en', platform: 'MacIntel' },
   console: { error() {}, warn() {}, log() {} },
   setTimeout: () => 0,
@@ -1030,24 +1043,28 @@ test('FileTree watches workspace changes, refreshes without losing expansion/sel
   const calls = []
   sandbox.__copied.length = 0
   winListeners.clear()
+  docCaptureListeners.clear()
   let extraFileAdded = false
+  let subDirTruncated = false
+  let rootChanged = false
   sandbox.__testCall = async (endpoint, body) => {
     calls.push([endpoint, body])
-    if (endpoint === 'workspace-watch') return { watchId: 'w-1', root: '/repo', recursive: true }
+    const curRoot = rootChanged ? '/repo-2' : '/repo'
+    if (endpoint === 'workspace-watch') return { watchId: rootChanged ? 'w-2' : 'w-1', root: curRoot, recursive: true }
     if (endpoint === 'workspace-unwatch') return { ok: true }
     if (endpoint === 'workspace-open') return { ok: true }
     if (endpoint === 'workspace-list') {
       if (body.path === 'src') {
         const entries = [{ name: 'app.js', path: 'src/app.js', kind: 'file', size: 128, ext: '.js' }]
         if (extraFileAdded) entries.push({ name: 'added.js', path: 'src/added.js', kind: 'file', size: 64, ext: '.js' })
-        return { root: '/repo', rootName: 'repo', path: 'src', truncated: false, entries }
+        return { root: curRoot, rootName: 'repo', path: 'src', truncated: subDirTruncated, entries }
       }
       const entries = [
         { name: 'src', path: 'src', kind: 'dir', size: 0, ext: '' },
         { name: 'README.md', path: 'README.md', kind: 'file', size: 42, ext: '.md' },
       ]
       if (extraFileAdded) entries.push({ name: 'notes.md', path: 'notes.md', kind: 'file', size: 12, ext: '.md' })
-      return { root: '/repo', rootName: 'repo', path: '', truncated: false, entries }
+      return { root: curRoot, rootName: 'repo', path: '', truncated: false, entries }
     }
     return {}
   }
@@ -1092,12 +1109,12 @@ test('FileTree watches workspace changes, refreshes without losing expansion/sel
     const menuItems = all(tree, n => n.type === 'button' && n.props?.role === 'menuitem')
     assert.deepEqual(menuItems.map(item => textOf(item).trim()), ['Open', 'Show in folder', 'Open in default app', 'Copy path', 'Copy relative path'])
 
-    // Show in folder invokes workspace-open reveal.
+    // Show in folder invokes workspace-open reveal WITH expectedRoot.
     menuItems[1].props.onClick()
     await tick()
     tree = panel.render()
-    assert.equal(calls.some(([ep, b]) => ep === 'workspace-open' && b.path === 'README.md' && b.action === 'reveal'), true)
-    assert.equal(all(tree, n => n.props?.role === 'menu').length, 0, 'menu closes after action')
+    assert.equal(calls.some(([ep, b]) => ep === 'workspace-open' && b.path === 'README.md' && b.action === 'reveal' && b.expectedRoot === '/repo'), true)
+    assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 0, 'menu closes after action')
 
     // Reopen context menu, Copy path & Copy relative path.
     readmeBtn.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 120, clientY: 160 })
@@ -1112,18 +1129,44 @@ test('FileTree watches workspace changes, refreshes without losing expansion/sel
     await tick()
     assert.equal(sandbox.__copied.at(-1), 'README.md')
 
-    // Folder context menu offers Collapse/Expand and Escape dismisses menu via useEscape.
+    // Folder context menu offers Collapse/Expand and Escape dismisses menu via useEscape (document capture).
     const srcRow = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-row') && /src/.test(textOf(n)))[0]
     srcRow.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 100, clientY: 100 })
     tree = panel.render()
     const dirItems = all(tree, n => n.type === 'button' && n.props?.role === 'menuitem')
     assert.equal(textOf(dirItems[0]).trim(), 'Collapse')
 
-    for (const fn of [...(winListeners.get('keydown') ?? [])]) {
-      fn({ key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() {}, stopPropagation() {} })
-    }
+    const escEvt = { key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() {} }
+    for (const fn of [...(docCaptureListeners.get('keydown') ?? [])]) fn(escEvt)
+    for (const fn of [...(winListeners.get('keydown') ?? [])]) fn(escEvt)
     tree = panel.render()
-    assert.equal(all(tree, n => n.props?.role === 'menu').length, 0, 'Escape dismisses file tree context menu')
+    assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 0, 'Escape dismisses file tree context menu')
+
+    // SSE 'hello' reconnect triggers silent refresh so changes across the 6s SSE recycle gap are never missed.
+    const listsBeforeHello = calls.filter(([ep]) => ep === 'workspace-list').length
+    subDirTruncated = true
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    tree = panel.render()
+    assert.ok(calls.filter(([ep]) => ep === 'workspace-list').length > listsBeforeHello, 'SSE hello triggers tree catch-up refresh')
+    assert.match(textOf(tree), /Showing first 500 entries/, 'truncated subfolder renders visible truncation notice')
+
+    // Toggling "Show hidden" must NOT tear down or restart the OS watcher!
+    const watchesBeforeHidden = calls.filter(([ep]) => ep === 'workspace-watch').length
+    const unwatchesBeforeHidden = calls.filter(([ep]) => ep === 'workspace-unwatch').length
+    const hiddenBtn = all(tree, n => n.type === 'button' && /Show hidden|Hide dotfiles/.test(textOf(n)))[0]
+    assert.ok(hiddenBtn)
+    hiddenBtn.props.onClick()
+    await tick()
+    tree = panel.render()
+    assert.equal(calls.filter(([ep]) => ep === 'workspace-watch').length, watchesBeforeHidden, 'Show hidden toggle must not recreate OS watch')
+    assert.equal(calls.filter(([ep]) => ep === 'workspace-unwatch').length, unwatchesBeforeHidden)
+
+    // Hiding the panel stops watching (workspace-unwatch), and showing it again restarts watching.
+    panel.render({ sessionId: 'b1', panel: { tabs: ['files'], tab: 'files' }, team, visible: false })
+    await tick()
+    assert.ok(calls.filter(([ep]) => ep === 'workspace-unwatch').length > unwatchesBeforeHidden, 'hidden panel unsubscribes OS watch')
   } finally {
     panel.unmount()
   }
@@ -1199,6 +1242,33 @@ test('FilePreview renders SpreadsheetPreview with sheet tabs, merges, formula ba
     tree = view.render()
     assert.match(textOf(tree), /Item/)
     assert.match(textOf(tree), /Notes/)
+
+    // Switching from populated workbook -> empty workbook (0 sheets) -> populated workbook with size truncation must NOT violate Rules of Hooks!
+    tree = view.render({ file: { kind: 'spreadsheet', name: 'empty.xlsx', path: 'empty.xlsx', size: 128, sheets: [] } })
+    assert.match(textOf(tree), /Empty file/)
+    tree = view.render({
+      file: {
+        kind: 'spreadsheet',
+        name: 'big.xlsx',
+        path: 'big.xlsx',
+        size: 999999,
+        truncatedText: true,
+        sheets: [{
+          name: 'Stream',
+          rowCount: 2,
+          colCount: 1,
+          totalRows: null,
+          totalCols: 1,
+          truncatedRows: true,
+          truncatedCols: false,
+          truncatedBySize: true,
+          merges: [],
+          rows: [[{ v: 'R1' }], [{ v: 'R2' }]],
+        }],
+      },
+    })
+    assert.match(textOf(tree), /Showing first 2 rows/)
+    assert.match(textOf(tree), /Preview truncated for size/)
   } finally {
     view.unmount()
   }

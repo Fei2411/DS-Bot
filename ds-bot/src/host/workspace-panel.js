@@ -23,10 +23,14 @@ const MAX_OFFICE_INPUT_BYTES = 32 * 1024 * 1024
 const MAX_OFFICE_OUTPUT_BYTES = 24 * 1024 * 1024
 const MAX_OFFICE_CONVERSIONS = 2
 const MAX_TERMINALS = 8
-const MAX_WATCHES = 8
+const MAX_WATCHES = 16
+const MAX_WATCH_ROOTS = 8
 const MAX_WATCH_DIRS = 32
 const MAX_WATCH_PATHS_PER_EVENT = 64
 const WATCH_DEBOUNCE_MS = 180
+const WATCH_MAX_WAIT_MS = 900
+const WATCH_POLL_MS = 1_500
+const ORPHAN_WATCH_GRACE_MS = 30_000
 const TERMINAL_SCROLLBACK_CHARS = 64 * 1024
 const TERMINAL_BATCH_MS = 16
 const TERMINAL_GRACE_MS = 3000
@@ -186,27 +190,50 @@ async function convertOfficeToPdf(inputRealPath, ext, signal) {
   }
 }
 
-function openOsPath(target, action, isDirectory) {
-  let command
-  let args
-  if (process.platform === 'darwin') {
-    command = 'open'
-    args = action === 'reveal' ? ['-R', target] : [target]
-  } else if (process.platform === 'win32') {
-    if (action === 'reveal') {
-      command = 'explorer.exe'
-      args = isDirectory ? [target] : [`/select,${target}`]
-    } else {
-      command = 'rundll32.exe'
-      args = ['url.dll,FileProtocolHandler', target]
+export function buildOpenOsCommand(target, action, isDirectory, platform = process.platform) {
+  if (platform === 'darwin') {
+    return {
+      command: 'open',
+      args: action === 'reveal' ? ['-R', target] : [target],
+      options: { detached: true, stdio: 'ignore', shell: false },
     }
-  } else {
-    command = 'xdg-open'
-    args = [action === 'reveal' && !isDirectory ? dirname(target) : target]
   }
+  if (platform === 'win32') {
+    if (action === 'reveal') {
+      if (isDirectory) {
+        return {
+          command: 'explorer.exe',
+          args: [target],
+          options: { detached: true, stdio: 'ignore', shell: false },
+        }
+      }
+      // Explorer expects `/select,"C:\path\with spaces,commas"` verbatim on its command line.
+      const safe = target.replace(/"/g, '')
+      return {
+        command: 'explorer.exe',
+        args: [`/select,"${safe}"`],
+        options: { detached: true, stdio: 'ignore', shell: false, windowsVerbatimArguments: true },
+      }
+    }
+    // Pass path through an env var + `-LiteralPath` so `%`, `#`, `[`, `]`, commas, and spaces stay literal.
+    return {
+      command: 'powershell.exe',
+      args: ['-NoProfile', '-NonInteractive', '-Command', 'Start-Process -LiteralPath $env:DSB_OPEN_TARGET'],
+      options: { detached: true, stdio: 'ignore', shell: false, windowsHide: true, env: { ...process.env, DSB_OPEN_TARGET: target } },
+    }
+  }
+  return {
+    command: 'xdg-open',
+    args: [action === 'reveal' && !isDirectory ? dirname(target) : target],
+    options: { detached: true, stdio: 'ignore', shell: false },
+  }
+}
+
+function openOsPath(target, action, isDirectory) {
+  const { command, args, options } = buildOpenOsCommand(target, action, isDirectory)
   return new Promise((resolveOpen, rejectOpen) => {
     let settled = false
-    const child = spawn(command, args, { detached: true, stdio: 'ignore', shell: false })
+    const child = spawn(command, args, options)
     child.once('error', (error) => {
       if (!settled) { settled = true; rejectOpen(error) }
     })
@@ -230,35 +257,95 @@ export function install(rt) {
   const { ctx } = rt
   /** @type {Map<string, { id: string, cwd: string, title: string, pty: boolean, exited: boolean, closed: boolean, exitCode: number | null, buffer: string, write: (data: string) => Promise<void>, resize: (cols: number, rows: number) => Promise<void>, terminate: () => Promise<void> }>} */
   const terminals = new Map()
-  /** @type {Map<string, { id: string, root: string, recursive: boolean, watchers: Map<string, { close: () => void }>, dirtyPaths: Set<string>, timer: ReturnType<typeof setTimeout> | null, closed: boolean, close: () => void }>} */
-  const watches = new Map()
+  const rootWatches = new Map()
+  const watchSessions = new Map()
+  const inFlightWatchOps = new Set()
   /** @type {Set<Promise<void>>} */
   const inFlightSpawns = new Set()
   let reservedSlots = 0
   let disposed = false
+  let orphanWatchTimer = null
 
-  const closeWatchRecord = (record) => {
-    if (!record || record.closed) return
-    record.closed = true
-    if (record.timer !== null) {
-      clearTimeout(record.timer)
-      record.timer = null
+  const rootKeyOf = (root) => {
+    const plat = typeof rt.watchPlatform === 'string' ? rt.watchPlatform : process.platform
+    return plat === 'win32' ? root.toLowerCase() : root
+  }
+
+  const closeRootWatch = (rootWatch) => {
+    if (!rootWatch || rootWatch.closed) return
+    rootWatch.closed = true
+    if (rootWatch.debounceTimer !== null) {
+      clearTimeout(rootWatch.debounceTimer)
+      rootWatch.debounceTimer = null
     }
-    record.dirtyPaths.clear()
-    for (const watcher of record.watchers.values()) {
+    if (rootWatch.maxWaitTimer !== null) {
+      clearTimeout(rootWatch.maxWaitTimer)
+      rootWatch.maxWaitTimer = null
+    }
+    if (rootWatch.pollTimer !== null) {
+      clearInterval(rootWatch.pollTimer)
+      rootWatch.pollTimer = null
+    }
+    rootWatch.dirtyPaths.clear()
+    rootWatch.pollSnapshot.clear()
+    for (const watcher of rootWatch.watchers.values()) {
       try { watcher.close() } catch { /* ignore close errors */ }
     }
-    record.watchers.clear()
-    watches.delete(record.id)
+    rootWatch.watchers.clear()
+    for (const session of [...rootWatch.sessions]) {
+      session.closed = true
+      watchSessions.delete(session.id)
+    }
+    rootWatch.sessions.clear()
+    if (rootWatches.get(rootWatch.key) === rootWatch) rootWatches.delete(rootWatch.key)
   }
 
-  const closeAllWatches = () => {
-    for (const record of [...watches.values()]) closeWatchRecord(record)
+  const trackWatchOp = (promise) => {
+    const tracked = Promise.resolve(promise).catch(() => {}).finally(() => {
+      inFlightWatchOps.delete(tracked)
+    })
+    inFlightWatchOps.add(tracked)
+    return tracked
   }
+
+  const closeAllWatches = async () => {
+    if (orphanWatchTimer !== null) {
+      clearTimeout(orphanWatchTimer)
+      orphanWatchTimer = null
+    }
+    for (const rootWatch of [...rootWatches.values()]) closeRootWatch(rootWatch)
+    watchSessions.clear()
+    if (inFlightWatchOps.size > 0) {
+      await Promise.allSettled([...inFlightWatchOps])
+    }
+    for (const rootWatch of [...rootWatches.values()]) closeRootWatch(rootWatch)
+    watchSessions.clear()
+  }
+
+  const offLocalClients = typeof rt.onLocalFeedClients === 'function'
+    ? rt.onLocalFeedClients((count) => {
+      if (count > 0) {
+        if (orphanWatchTimer !== null) {
+          clearTimeout(orphanWatchTimer)
+          orphanWatchTimer = null
+        }
+        return
+      }
+      if (rootWatches.size === 0 || orphanWatchTimer !== null) return
+      const graceMs = Number.isFinite(rt.workspaceWatchOrphanGraceMs) && rt.workspaceWatchOrphanGraceMs >= 0
+        ? rt.workspaceWatchOrphanGraceMs
+        : ORPHAN_WATCH_GRACE_MS
+      orphanWatchTimer = setTimeout(() => {
+        orphanWatchTimer = null
+        if (typeof rt.localFeedClientCount === 'function' && rt.localFeedClientCount() > 0) return
+        void closeAllWatches()
+      }, graceMs)
+      orphanWatchTimer.unref?.()
+    })
+    : null
 
   const emitLocal = (event, data) => {
     if (typeof rt.publishLocalFeed === 'function') rt.publishLocalFeed(event, data)
-    else rt.publishFeed?.(event, data)
   }
 
   // Mirror folders.js's team-workspace exception strictly when `defaultTeamFolder()` is used
@@ -366,120 +453,330 @@ export function install(rt) {
     if (disposed) throw refused('Host is shutting down')
     const requestedId = typeof body.watchId === 'string' && body.watchId.trim() !== '' ? body.watchId.trim() : null
     const extraDirs = Array.isArray(body.dirs)
-      ? body.dirs.filter(d => typeof d === 'string' && d !== '').slice(0, MAX_WATCH_DIRS)
+      ? body.dirs.filter(d => typeof d === 'string' && d !== '' && !isIgnoredWatchRel(d)).slice(0, MAX_WATCH_DIRS)
       : []
     const watchFn = typeof rt.watchWorkspaceDir === 'function' ? rt.watchWorkspaceDir : fsWatch
+    const platform = typeof rt.watchPlatform === 'string' ? rt.watchPlatform : process.platform
+    const allowRecursive = platform === 'darwin' || platform === 'win32'
     const debounceMs = Number.isFinite(rt.workspaceWatchDebounceMs) && rt.workspaceWatchDebounceMs >= 0
       ? rt.workspaceWatchDebounceMs
       : WATCH_DEBOUNCE_MS
+    const maxWaitMs = Number.isFinite(rt.workspaceWatchMaxWaitMs) && rt.workspaceWatchMaxWaitMs >= debounceMs
+      ? rt.workspaceWatchMaxWaitMs
+      : Math.max(debounceMs * 4, WATCH_MAX_WAIT_MS)
+    const pollMs = Number.isFinite(rt.workspaceWatchPollMs) && rt.workspaceWatchPollMs >= 20
+      ? rt.workspaceWatchPollMs
+      : WATCH_POLL_MS
 
-    const attachDirWatcher = (record, dirAbs, relPrefix, recursive) => {
-      if (record.watchers.has(dirAbs)) return true
+    const flushRoot = (rootWatch) => {
+      if (rootWatch.debounceTimer !== null) {
+        clearTimeout(rootWatch.debounceTimer)
+        rootWatch.debounceTimer = null
+      }
+      if (rootWatch.maxWaitTimer !== null) {
+        clearTimeout(rootWatch.maxWaitTimer)
+        rootWatch.maxWaitTimer = null
+      }
+      if (rootWatch.closed || disposed || rootWatch.sessions.size === 0) {
+        rootWatch.dirtyPaths.clear()
+        rootWatch.overflow = false
+        return
+      }
+      const paths = [...rootWatch.dirtyPaths]
+      const overflow = rootWatch.overflow
+      rootWatch.dirtyPaths.clear()
+      rootWatch.overflow = false
+      const watchIds = [...rootWatch.sessions].map(s => s.id)
+      emitLocal('workspace-changed', {
+        watchId: watchIds[0] ?? null,
+        watchIds,
+        root: rootWatch.root,
+        paths,
+        overflow,
+      })
+    }
+
+    const queueChange = (rootWatch, rel) => {
+      if (rootWatch.closed || disposed) return
+      if (rel && isIgnoredWatchRel(rel)) return
+      if (rel) {
+        if (rootWatch.dirtyPaths.size < MAX_WATCH_PATHS_PER_EVENT) rootWatch.dirtyPaths.add(rel)
+        else rootWatch.overflow = true
+      }
+      if (rootWatch.debounceTimer !== null) clearTimeout(rootWatch.debounceTimer)
+      rootWatch.debounceTimer = setTimeout(() => { flushRoot(rootWatch) }, debounceMs)
+      rootWatch.debounceTimer.unref?.()
+      if (rootWatch.maxWaitTimer === null) {
+        rootWatch.maxWaitTimer = setTimeout(() => { flushRoot(rootWatch) }, maxWaitMs)
+        rootWatch.maxWaitTimer.unref?.()
+      }
+    }
+
+    const unionDirsOf = (rootWatch) => {
+      const merged = new Set()
+      for (const session of rootWatch.sessions) {
+        for (const d of session.dirs) {
+          if (merged.size >= MAX_WATCH_DIRS) break
+          merged.add(d)
+        }
+      }
+      return [...merged]
+    }
+
+    const dirFingerprint = async (dirAbs) => {
+      const entries = await readdir(dirAbs, { withFileTypes: true })
+      const parts = []
+      for (const entry of entries) {
+        if (DEFAULT_IGNORED_NAMES.has(entry.name)) continue
+        try {
+          const info = await stat(join(dirAbs, entry.name))
+          parts.push(`${entry.name}:${info.isDirectory() ? 'd' : 'f'}:${info.size}:${Math.round(info.mtimeMs)}`)
+        } catch { /* entry vanished mid-poll */ }
+      }
+      parts.sort()
+      return parts.join('|')
+    }
+
+    const switchToPoll = (rootWatch) => {
+      if (rootWatch.closed || disposed) return
+      for (const watcher of rootWatch.watchers.values()) {
+        try { watcher.close() } catch { /* ignore */ }
+      }
+      rootWatch.watchers.clear()
+      rootWatch.mode = 'poll'
+      if (rootWatch.pollTimer !== null) return
+      let polling = false
+      const pollOnce = async () => {
+        if (polling || rootWatch.closed || disposed) return
+        polling = true
+        try {
+          const targets = [rootWatch.root]
+          for (const relDir of unionDirsOf(rootWatch)) {
+            if (rootWatch.closed || disposed) return
+            try {
+              const resolved = await resolveSafeTarget(rootWatch.root, relDir)
+              if (rootWatch.closed || disposed) return
+              const info = await stat(resolved)
+              if (info.isDirectory()) targets.push(resolved)
+            } catch { /* skip missing dir */ }
+          }
+          const keep = new Set(targets)
+          for (const key of [...rootWatch.pollSnapshot.keys()]) {
+            if (!keep.has(key)) rootWatch.pollSnapshot.delete(key)
+          }
+          for (const dirAbs of targets) {
+            if (rootWatch.closed || disposed) return
+            try {
+              const fp = await dirFingerprint(dirAbs)
+              if (rootWatch.closed || disposed) return
+              const prev = rootWatch.pollSnapshot.get(dirAbs)
+              rootWatch.pollSnapshot.set(dirAbs, fp)
+              if (prev !== undefined && prev !== fp) {
+                queueChange(rootWatch, toPosixRel(rootWatch.root, dirAbs))
+              }
+            } catch { /* dir removed */ }
+          }
+        } finally {
+          polling = false
+        }
+      }
+      const initialPoll = trackWatchOp(pollOnce())
+      rootWatch.pollTimer = setInterval(() => {
+        void trackWatchOp(pollOnce())
+      }, pollMs)
+      rootWatch.pollTimer.unref?.()
+      return initialPoll
+    }
+
+    const attachDirWatcher = (rootWatch, dirAbs, relPrefix, recursive) => {
+      if (rootWatch.closed || disposed) return false
+      if (rootWatch.watchers.has(dirAbs)) return true
       const onChange = (_eventType, filename) => {
-        if (record.closed) return
+        if (rootWatch.closed || disposed) return
         const name = typeof filename === 'string' ? filename : (filename ? String(filename) : '')
         const normalized = name.replace(/\\/g, '/').replace(/^\/+/, '')
         const rel = relPrefix ? (normalized ? `${relPrefix}/${normalized}` : relPrefix) : normalized
-        if (rel && isIgnoredWatchRel(rel)) return
-        if (rel && record.dirtyPaths.size < MAX_WATCH_PATHS_PER_EVENT) {
-          record.dirtyPaths.add(rel)
-        }
-        if (record.timer === null) {
-          record.timer = setTimeout(() => {
-            record.timer = null
-            if (record.closed) return
-            const paths = [...record.dirtyPaths]
-            record.dirtyPaths.clear()
-            emitLocal('workspace-changed', { watchId: record.id, root: record.root, paths })
-          }, debounceMs)
-          record.timer.unref?.()
-        }
+        queueChange(rootWatch, rel)
       }
       const watcher = watchFn(dirAbs, { recursive, persistent: false }, onChange)
-      watcher.on?.('error', () => {
+      if (rootWatch.closed || disposed) {
         try { watcher.close() } catch { /* ignore */ }
-        record.watchers.delete(dirAbs)
+        return false
+      }
+      watcher.on?.('error', (error) => {
+        try { watcher.close() } catch { /* ignore */ }
+        rootWatch.watchers.delete(dirAbs)
+        if (!rootWatch.closed && !disposed && (error?.code === 'ENOSPC' || error?.code === 'EMFILE' || error?.code === 'ENOSYS')) {
+          switchToPoll(rootWatch)
+        }
       })
-      record.watchers.set(dirAbs, watcher)
+      rootWatch.watchers.set(dirAbs, watcher)
       return true
     }
 
-    const existing = requestedId ? watches.get(requestedId) : undefined
-    if (existing && existing.root === realRoot && !existing.closed) {
-      if (!existing.recursive) {
-        const wanted = new Set([realRoot])
-        for (const relDir of extraDirs) {
+    const syncDirsForRoot = async (rootWatch) => {
+      if (rootWatch.closed || disposed || rootWatch.mode !== 'dirs') return
+      const wanted = new Set([rootWatch.root])
+      for (const relDir of unionDirsOf(rootWatch)) {
+        if (rootWatch.closed || disposed || rootWatch.mode !== 'dirs') return
+        if (wanted.size >= MAX_WATCH_DIRS + 1) break
+        try {
+          const resolved = await resolveSafeTarget(rootWatch.root, relDir)
+          if (rootWatch.closed || disposed || rootWatch.mode !== 'dirs') return
+          const info = await stat(resolved)
+          if (rootWatch.closed || disposed || rootWatch.mode !== 'dirs') return
+          if (!info.isDirectory()) continue
+          wanted.add(resolved)
           try {
-            const resolved = await resolveSafeTarget(realRoot, relDir)
-            const info = await stat(resolved)
-            if (info.isDirectory()) {
-              wanted.add(resolved)
-              attachDirWatcher(existing, resolved, toPosixRel(realRoot, resolved), false)
-            }
-          } catch { /* skip missing/invalid dir */ }
-        }
-        for (const [watchedAbs, watcher] of existing.watchers) {
-          if (!wanted.has(watchedAbs)) {
-            try { watcher.close() } catch { /* ignore */ }
-            existing.watchers.delete(watchedAbs)
+            attachDirWatcher(rootWatch, resolved, toPosixRel(rootWatch.root, resolved), false)
+          } catch {
+            switchToPoll(rootWatch)
+            return
           }
+        } catch { /* skip missing/invalid dir */ }
+      }
+      if (rootWatch.closed || disposed || rootWatch.mode !== 'dirs') return
+      for (const [watchedAbs, watcher] of [...rootWatch.watchers.entries()]) {
+        if (!wanted.has(watchedAbs)) {
+          try { watcher.close() } catch { /* ignore */ }
+          rootWatch.watchers.delete(watchedAbs)
         }
       }
-      return { watchId: existing.id, root: existing.root, recursive: existing.recursive }
     }
-    if (existing) closeWatchRecord(existing)
 
-    // Evict oldest watch when over the bound so watchers never leak.
-    while (watches.size >= MAX_WATCHES) {
-      const oldest = watches.values().next().value
+    const rootKey = rootKeyOf(realRoot)
+
+    // Reuse or replace an existing watch session id.
+    const existingSession = requestedId ? watchSessions.get(requestedId) : undefined
+    if (existingSession && existingSession.rootKey === rootKey && !existingSession.closed) {
+      const rootWatch = rootWatches.get(rootKey)
+      if (rootWatch && !rootWatch.closed) {
+        existingSession.dirs = new Set(extraDirs)
+        existingSession.lastActiveAt = Date.now()
+        if (rootWatch.mode === 'dirs') {
+          await trackWatchOp(syncDirsForRoot(rootWatch))
+        }
+        return {
+          watchId: existingSession.id,
+          root: rootWatch.root,
+          recursive: rootWatch.mode === 'recursive',
+          mode: rootWatch.mode,
+        }
+      }
+    }
+    if (existingSession) unwatchWorkspace({ watchId: existingSession.id })
+
+    // Bound total watch sessions by evicting the oldest session.
+    while (watchSessions.size >= MAX_WATCHES) {
+      const oldest = watchSessions.values().next().value
       if (!oldest) break
-      closeWatchRecord(oldest)
+      unwatchWorkspace({ watchId: oldest.id })
+    }
+
+    let rootWatch = rootWatches.get(rootKey)
+    const createdRoot = !rootWatch || rootWatch.closed
+    if (createdRoot) {
+      while (rootWatches.size >= MAX_WATCH_ROOTS) {
+        const oldestRoot = rootWatches.values().next().value
+        if (!oldestRoot) break
+        closeRootWatch(oldestRoot)
+      }
+      rootWatch = {
+        key: rootKey,
+        root: realRoot,
+        mode: 'dirs',
+        watchers: new Map(),
+        pollTimer: null,
+        pollSnapshot: new Map(),
+        sessions: new Set(),
+        dirtyPaths: new Set(),
+        overflow: false,
+        debounceTimer: null,
+        maxWaitTimer: null,
+        closed: false,
+      }
+      rootWatches.set(rootKey, rootWatch)
     }
 
     const id = requestedId ?? `watch-${randomUUID().slice(0, 8)}`
-    const record = {
+    const session = {
       id,
+      rootKey,
       root: realRoot,
-      recursive: false,
-      watchers: new Map(),
-      dirtyPaths: new Set(),
-      timer: null,
+      dirs: new Set(extraDirs),
       closed: false,
-      close: () => closeWatchRecord(record),
+      lastActiveAt: Date.now(),
+    }
+    watchSessions.set(id, session)
+    rootWatch.sessions.add(session)
+
+    let initialPoll = null
+    if (createdRoot) {
+      let attached = false
+      if (allowRecursive) {
+        try {
+          attached = attachDirWatcher(rootWatch, realRoot, '', true)
+          if (attached) rootWatch.mode = 'recursive'
+        } catch {
+          attached = false
+        }
+      }
+      if (!attached && !rootWatch.closed && !disposed) {
+        try {
+          attached = attachDirWatcher(rootWatch, realRoot, '', false)
+          if (attached) rootWatch.mode = 'dirs'
+        } catch {
+          initialPoll = switchToPoll(rootWatch)
+        }
+      }
     }
 
-    let recursive = false
-    try {
-      attachDirWatcher(record, realRoot, '', true)
-      recursive = true
-    } catch {
-      try {
-        attachDirWatcher(record, realRoot, '', false)
-      } catch (error) {
-        closeWatchRecord(record)
-        return { watchId: null, root: realRoot, recursive: false, error: error?.message ?? String(error) }
-      }
+    if (initialPoll) await initialPoll
+    if (!rootWatch.closed && !session.closed && !disposed && rootWatch.mode === 'dirs') {
+      await trackWatchOp(syncDirsForRoot(rootWatch))
     }
-    record.recursive = recursive
-    if (!recursive) {
-      for (const relDir of extraDirs) {
-        try {
-          const resolved = await resolveSafeTarget(realRoot, relDir)
-          const info = await stat(resolved)
-          if (info.isDirectory()) attachDirWatcher(record, resolved, toPosixRel(realRoot, resolved), false)
-        } catch { /* skip missing/invalid dir */ }
-      }
+
+    if (disposed || rootWatch.closed || session.closed) {
+      if (rootWatch.sessions.size === 0) closeRootWatch(rootWatch)
+      return { watchId: null, root: realRoot, recursive: false, mode: 'closed' }
     }
-    watches.set(id, record)
-    return { watchId: id, root: realRoot, recursive }
+
+    return {
+      watchId: id,
+      root: rootWatch.root,
+      recursive: rootWatch.mode === 'recursive',
+      mode: rootWatch.mode,
+    }
   }
 
   function unwatchWorkspace(body = {}) {
     const watchId = typeof body.watchId === 'string' ? body.watchId.trim() : ''
     if (watchId === '') return { ok: true, removed: false }
-    const existing = watches.get(watchId)
-    if (!existing) return { ok: true, removed: false }
-    closeWatchRecord(existing)
+    const session = watchSessions.get(watchId)
+    if (!session) return { ok: true, removed: false }
+    session.closed = true
+    watchSessions.delete(watchId)
+    const rootWatch = rootWatches.get(session.rootKey)
+    if (rootWatch) {
+      rootWatch.sessions.delete(session)
+      if (rootWatch.sessions.size === 0) {
+        closeRootWatch(rootWatch)
+      } else if (rootWatch.mode === 'dirs' && !rootWatch.closed && !disposed) {
+        // Drop OS dir watches that were only held by the departing session.
+        const wanted = new Set([rootWatch.root])
+        for (const other of rootWatch.sessions) {
+          for (const relDir of other.dirs) {
+            wanted.add(resolve(rootWatch.root, relDir))
+          }
+        }
+        for (const [watchedAbs, watcher] of [...rootWatch.watchers.entries()]) {
+          if (!wanted.has(watchedAbs)) {
+            try { watcher.close() } catch { /* ignore */ }
+            rootWatch.watchers.delete(watchedAbs)
+          }
+        }
+      }
+    }
     return { ok: true, removed: true }
   }
 
@@ -500,7 +797,10 @@ export function install(rt) {
 
     if (typeof body.expectedRoot === 'string' && body.expectedRoot !== '') {
       const expected = await rt.real(body.expectedRoot)
-      if (expected !== realRoot) {
+      const sameRoot = process.platform === 'win32'
+        ? expected.toLowerCase() === realRoot.toLowerCase()
+        : expected === realRoot
+      if (!sameRoot) {
         throw Object.assign(new Error('Workspace folder changed'), { code: 'bot/stale' })
       }
     }
@@ -599,7 +899,7 @@ export function install(rt) {
           try {
             const { bytes, truncated } = await readBoundedBytes(target, MAX_OFFICE_INPUT_BYTES)
             if (!truncated) {
-              const parsed = parseXlsxBuffer(bytes)
+              const parsed = await parseXlsxBuffer(bytes)
               return {
                 kind: 'spreadsheet',
                 ext,
@@ -939,7 +1239,8 @@ export function install(rt) {
 
   async function terminalDispose() {
     disposed = true
-    closeAllWatches()
+    offLocalClients?.()
+    await closeAllWatches()
     const pending = [...inFlightSpawns]
     const active = [...terminals.values()]
     terminals.clear()

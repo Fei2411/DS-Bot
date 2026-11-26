@@ -196,7 +196,7 @@ export function createRemoteService(rt) {
 
     feed(signal) {
       return feedEvents((listener) => rt.subscribeFeed((event, data) => {
-        if (event === 'terminal' || event === 'terminal-exit') return
+        if (event === 'terminal' || event === 'terminal-exit' || event === 'workspace-changed') return
         listener(event, data)
       }), signal, this[STOP])
     }

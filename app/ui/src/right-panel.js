@@ -7,7 +7,7 @@ import { call } from '../../../ds-bot/src/client/api.js'
 import { fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 import { ChevronRightIcon, CopyIcon, DiffIcon, FileIcon, FolderIcon, SearchIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
-import { stepMenuFocus, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
+import { stepMenuFocus, useLinger, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
 import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { ChangesReview } from './changes-review.js'
 import { FilePreview } from './file-preview.js'
@@ -42,6 +42,8 @@ function resolvePluginTabs(pluginEntries) {
     .map(entry => ({
       id: `plugin:${entry.id}`,
       slotId: entry.id,
+      pluginId: entry.meta?.pluginId ?? null,
+      runtime: entry.meta?.runtime ?? null,
       label: typeof entry.meta?.label === 'function' ? entry.meta.label() : (entry.meta?.label ?? entry.id),
       icon: entry.meta?.icon ?? FileIcon,
       component: entry.component,
@@ -100,6 +102,7 @@ function TreeBranch({
   expanded,
   childrenByPath,
   loadingDirs,
+  truncatedDirs,
   selectedPath,
   menuPath,
   filter,
@@ -114,7 +117,7 @@ function TreeBranch({
     if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
       event.preventDefault()
       const rect = event.currentTarget?.getBoundingClientRect?.()
-      onContextMenu(entry, rect ? Math.round(rect.left + 24) : 16, rect ? Math.round(rect.bottom + 4) : 16)
+      onContextMenu(entry, rect ? Math.round(rect.left + 24) : 16, rect ? Math.round(rect.bottom + 4) : 16, event.currentTarget)
     }
   }
   for (const entry of entries) {
@@ -135,6 +138,7 @@ function TreeBranch({
           expanded,
           childrenByPath,
           loadingDirs,
+          truncatedDirs,
           selectedPath,
           menuPath,
           filter,
@@ -157,7 +161,7 @@ function TreeBranch({
         onContextMenu: (event) => {
           event.preventDefault()
           event.stopPropagation()
-          onContextMenu(entry, event.clientX, event.clientY)
+          onContextMenu(entry, event.clientX, event.clientY, event.currentTarget)
         },
         onKeyDown: event => openKeyboardMenu(event, entry),
       },
@@ -166,6 +170,13 @@ function TreeBranch({
       h('span', { className: 'dsb-ft-name', title: path }, entry.name),
       loadingDirs.has(path) ? h('span', { className: 'dsb-ft-meta' }, '…') : null))
       if (isOpen && childRows.length > 0) rows.push(...childRows)
+      if (isOpen && truncatedDirs?.has(path)) {
+        rows.push(h('div', {
+          key: `trunc:${depth}:${path}`,
+          className: 'dsb-pv-note',
+          style: { paddingLeft: `${26 + depth * 14}px` },
+        }, t('Showing first {count} entries', { count: 500 })))
+      }
     } else {
       if (needle !== '' && !entry.name.toLowerCase().includes(needle) && !entry.path.toLowerCase().includes(needle)) continue
       rows.push(h('button', {
@@ -181,7 +192,7 @@ function TreeBranch({
         onContextMenu: (event) => {
           event.preventDefault()
           event.stopPropagation()
-          onContextMenu(entry, event.clientX, event.clientY)
+          onContextMenu(entry, event.clientX, event.clientY, event.currentTarget)
         },
         onKeyDown: event => openKeyboardMenu(event, entry),
       },
@@ -194,19 +205,40 @@ function TreeBranch({
 }
 
 function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, onOpenDefault, onCopyPath, onCopyRelativePath, onClose }) {
-  const ref = useRef(null)
-  const trigger = useRef(typeof document === 'undefined' ? null : document.activeElement)
-  const [place, setPlace] = useState({ left: menu.x, top: menu.y })
-  const tick = useViewport(true)
+  const open = Boolean(menu)
+  const [shown, leaving] = useLinger(open, 120)
+  const lastMenuRef = useRef(menu)
+  if (menu) lastMenuRef.current = menu
+  const activeMenu = menu ?? lastMenuRef.current
 
-  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.MENU })
+  const ref = useRef(null)
+  const triggerRef = useRef(null)
+  const [place, setPlace] = useState(() => ({ left: activeMenu?.x ?? 16, top: activeMenu?.y ?? 16 }))
+  const tick = useViewport(shown)
 
   useEffect(() => {
+    if (!open) return
+    triggerRef.current = menu?.trigger ?? (typeof document === 'undefined' ? null : document.activeElement)
+  }, [open, menu])
+
+  const closeWithFocus = useCallback(() => {
+    const prev = triggerRef.current
+    onClose()
+    if (prev && prev.isConnected !== false && typeof prev.focus === 'function') {
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => prev.focus())
+      else prev.focus()
+    }
+  }, [onClose])
+
+  useEscape(closeWithFocus, open, { priority: ESCAPE_PRIORITY.MENU })
+
+  useEffect(() => {
+    if (!open) return undefined
     const onDown = (event) => {
       if (!(event.target instanceof Element) || !event.target.closest('.dsb-ft-menu')) onClose()
     }
     const onKey = (event) => {
-      stepMenuFocus(ref.current, event, trigger.current)
+      stepMenuFocus(ref.current, event, triggerRef.current)
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
@@ -214,18 +246,23 @@ function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, on
       window.removeEventListener('mousedown', onDown)
       window.removeEventListener('keydown', onKey, true)
     }
-  }, [onClose])
+  }, [open, onClose])
 
   useLayoutEffect(() => {
+    if (!shown || !activeMenu) return
     const box = ref.current?.getBoundingClientRect?.()
-    if (!box) return
+    if (!box) {
+      setPlace({ left: activeMenu.x, top: activeMenu.y })
+      return
+    }
     setPlace({
-      left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)),
-      top: Math.max(8, Math.min(menu.y, viewBottom() - box.height - 8)),
+      left: Math.max(8, Math.min(activeMenu.x, window.innerWidth - box.width - 8)),
+      top: Math.max(8, Math.min(activeMenu.y, viewBottom() - box.height - 8)),
     })
-  }, [menu.x, menu.y, tick])
+  }, [shown, activeMenu?.x, activeMenu?.y, tick])
 
-  const entry = menu.entry
+  if (!shown || !activeMenu) return null
+  const entry = activeMenu.entry
   const isDir = entry.kind === 'dir'
   const isOpen = isDir && expanded.has(entry.path)
   const run = fn => () => { onClose(); fn() }
@@ -233,17 +270,17 @@ function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, on
   const items = isDir
     ? [
         { key: 'toggle', icon: ChevronRightIcon, label: isOpen ? t('Collapse') : t('Expand'), onClick: run(() => onToggleDir(entry.path)) },
-        { key: 'reveal', icon: FolderIcon, label: t('Show in folder'), onClick: run(() => onReveal(entry.path)) },
+        { key: 'reveal', icon: FolderIcon, label: t('Show in folder'), onClick: run(() => onReveal(entry.path, activeMenu.root)) },
         { sep: true },
-        { key: 'copy-path', icon: CopyIcon, label: t('Copy path'), onClick: run(() => onCopyPath(entry.path)) },
+        { key: 'copy-path', icon: CopyIcon, label: t('Copy path'), onClick: run(() => onCopyPath(entry.path, activeMenu.root)) },
         { key: 'copy-rel', icon: CopyIcon, label: t('Copy relative path'), onClick: run(() => onCopyRelativePath(entry.path)) },
       ]
     : [
         { key: 'open', icon: FileIcon, label: t('Open'), onClick: run(() => onOpen(entry.path)) },
-        { key: 'reveal', icon: FolderIcon, label: t('Show in folder'), onClick: run(() => onReveal(entry.path)) },
-        { key: 'open-app', icon: OpenExternalIcon, label: t('Open in default app'), onClick: run(() => onOpenDefault(entry.path)) },
+        { key: 'reveal', icon: FolderIcon, label: t('Show in folder'), onClick: run(() => onReveal(entry.path, activeMenu.root)) },
+        { key: 'open-app', icon: OpenExternalIcon, label: t('Open in default app'), onClick: run(() => onOpenDefault(entry.path, activeMenu.root)) },
         { sep: true },
-        { key: 'copy-path', icon: CopyIcon, label: t('Copy path'), onClick: run(() => onCopyPath(entry.path)) },
+        { key: 'copy-path', icon: CopyIcon, label: t('Copy path'), onClick: run(() => onCopyPath(entry.path, activeMenu.root)) },
         { key: 'copy-rel', icon: CopyIcon, label: t('Copy relative path'), onClick: run(() => onCopyRelativePath(entry.path)) },
       ]
 
@@ -252,6 +289,7 @@ function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, on
     className: 'bt-menu dsb-ft-menu',
     role: 'menu',
     'aria-label': entry.name,
+    'data-leaving': leaving ? '' : undefined,
     style: place,
   },
   items.map((item, idx) => (item.sep
@@ -269,9 +307,10 @@ function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, on
   return target ? createPortal(node, target) : node
 }
 
-function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
+function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active = true }) {
   const [rootInfo, setRootInfo] = useState({ root: '', rootName: '', missing: false, truncated: false })
   const [childrenByPath, setChildrenByPath] = useState({})
+  const [truncatedDirs, setTruncatedDirs] = useState(() => new Set())
   const [expanded, setExpanded] = useState(() => new Set())
   const [loadingDirs, setLoadingDirs] = useState(() => new Set())
   const [includeHidden, setIncludeHidden] = useState(false)
@@ -283,6 +322,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
   const watchIdRef = useRef(null)
   const watchRecursiveRef = useRef(true)
   const prevSessionRef = useRef(sessionId)
+  const prevActiveRef = useRef(active)
 
   const rootPathRef = useRef('')
   rootPathRef.current = rootInfo.root
@@ -301,6 +341,15 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
           rootName: res.rootName ?? '',
           missing: res.missing === true,
           truncated: res.truncated === true,
+        })
+      } else {
+        setTruncatedDirs((current) => {
+          const isTrunc = res.truncated === true
+          if (current.has(dirPath) === isTrunc) return current
+          const next = new Set(current)
+          if (isTrunc) next.add(dirPath)
+          else next.delete(dirPath)
+          return next
         })
       }
       setChildrenByPath(current => ({ ...current, [dirPath]: res.entries ?? [] }))
@@ -325,6 +374,12 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
           delete next[dirPath]
           return next
         })
+        setTruncatedDirs((current) => {
+          if (!current.has(dirPath)) return current
+          const next = new Set(current)
+          next.delete(dirPath)
+          return next
+        })
         return { ok: false, removed: true }
       }
       if (dirPath === '') setError(hostText(failure?.message ?? String(failure)))
@@ -347,6 +402,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
     const prevRoot = rootPathRef.current
     if (reset) {
       setChildrenByPath({})
+      setTruncatedDirs(new Set())
       setExpanded(new Set())
       setLoadingDirs(new Set())
       setError('')
@@ -358,10 +414,20 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
     if (prevRoot && rootRes.root && rootRes.root !== prevRoot) {
       // Workspace root changed (e.g. working_directory moved); reset stale expanded paths.
       setExpanded(new Set())
+      setTruncatedDirs(new Set())
       setChildrenByPath(current => (Object.hasOwn(current, '') ? { '': current[''] } : {}))
       return
     }
+    // Drop cached listings of collapsed folders so reopening them never serves stale entries.
     const openDirs = [...expandedRef.current].sort((a, b) => a.split('/').length - b.split('/').length)
+    setChildrenByPath((current) => {
+      const next = {}
+      if (Object.hasOwn(current, '')) next[''] = current['']
+      for (const dir of openDirs) {
+        if (Object.hasOwn(current, dir)) next[dir] = current[dir]
+      }
+      return next
+    })
     if (openDirs.length > 0) {
       await Promise.all(openDirs.map(dir => loadDir(dir, gen, { silent: true })))
     }
@@ -375,6 +441,9 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
     }
   }, [loadDir])
 
+  const refreshTreeRef = useRef(refreshTree)
+  refreshTreeRef.current = refreshTree
+
   useEffect(() => {
     const sessionChanged = prevSessionRef.current !== sessionId
     prevSessionRef.current = sessionId
@@ -382,13 +451,32 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
     void refreshTree({ silent: false, reset: sessionChanged })
   }, [sessionId, includeHidden, refreshTree])
 
-  // Watch the active workspace folder for live file changes and clean up on close/switch.
+  // When returning from a hidden tab (e.g. Preview/Terminal), refresh once cleanly.
   useEffect(() => {
+    const wasActive = prevActiveRef.current
+    prevActiveRef.current = active
+    if (!active) {
+      setMenu(null)
+      return
+    }
+    if (!wasActive) {
+      void refreshTreeRef.current({ silent: true, reset: false })
+    }
+  }, [active])
+
+  // Watch the active workspace folder while Files tab is visible; rebind on root changes,
+  // refresh on SSE `hello` reconnect so 6 s feed recycles never drop changes, and release on unload.
+  useEffect(() => {
+    if (!active) return undefined
     let alive = true
     let activeWatchId = null
     watchIdRef.current = null
     watchRecursiveRef.current = true
-    void call('workspace-watch', { sessionId, dirs: [...expandedRef.current] })
+    void call('workspace-watch', {
+      sessionId,
+      dirs: [...expandedRef.current],
+      ...(rootInfo.root ? { expectedRoot: rootInfo.root } : {}),
+    })
       .then((res) => {
         if (!alive) {
           if (res?.watchId) void call('workspace-unwatch', { watchId: res.watchId }).catch(() => {})
@@ -396,37 +484,64 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
         }
         activeWatchId = res?.watchId ?? null
         watchIdRef.current = activeWatchId
-        watchRecursiveRef.current = res?.recursive !== false
+        watchRecursiveRef.current = res?.recursive === true
       })
       .catch(() => {})
 
     const off = typeof feed?.on === 'function'
       ? feed.on((event, data) => {
-        if (!alive || event !== 'workspace-changed') return
-        if (activeWatchId && data?.watchId && data.watchId !== activeWatchId) return
+        if (!alive) return
+        if (event === 'hello') {
+          if (rootPathRef.current) void refreshTreeRef.current({ silent: true, reset: false })
+          return
+        }
+        if (event !== 'workspace-changed') return
+        const ids = Array.isArray(data?.watchIds) ? data.watchIds : (data?.watchId ? [data.watchId] : [])
+        if (activeWatchId && ids.length > 0 && !ids.includes(activeWatchId)) return
         if (!activeWatchId && data?.root && rootPathRef.current && data.root !== rootPathRef.current) return
-        void refreshTree({ silent: true, reset: false })
+        void refreshTreeRef.current({ silent: true, reset: false })
       })
       : () => {}
+
+    const onUnload = () => {
+      const toClose = activeWatchId ?? watchIdRef.current
+      if (!toClose || typeof fetch !== 'function') return
+      try {
+        void fetch('/api/bot', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ endpoint: 'workspace-unwatch', payload: { watchId: toClose } }),
+          keepalive: true,
+        })
+      } catch { /* unload best-effort */ }
+    }
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('pagehide', onUnload)
+      window.addEventListener('beforeunload', onUnload)
+    }
 
     return () => {
       alive = false
       off()
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('pagehide', onUnload)
+        window.removeEventListener('beforeunload', onUnload)
+      }
       const toClose = activeWatchId ?? watchIdRef.current
       watchIdRef.current = null
       if (toClose) void call('workspace-unwatch', { watchId: toClose }).catch(() => {})
     }
-  }, [sessionId, feed, refreshTree])
+  }, [sessionId, active, rootInfo.root, feed])
 
-  // On platforms without recursive fs.watch, keep expanded directories registered with the watch.
+  // On platforms without recursive fs.watch (e.g. Linux), keep expanded directories registered with the watch.
   useEffect(() => {
-    if (watchRecursiveRef.current || !watchIdRef.current) return
+    if (!active || watchRecursiveRef.current || !watchIdRef.current) return
     void call('workspace-watch', {
       sessionId,
       watchId: watchIdRef.current,
       dirs: [...expanded],
     }).catch(() => {})
-  }, [sessionId, expanded])
+  }, [sessionId, active, expanded])
 
   const toggleDir = useCallback((dirPath) => {
     const isOpen = expandedRef.current.has(dirPath)
@@ -436,8 +551,9 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
       else next.add(dirPath)
       return next
     })
-    if (!isOpen && !Object.hasOwn(childrenByPath, dirPath)) {
-      void loadDir(dirPath, genRef.current).then((res) => {
+    if (!isOpen) {
+      const hasCached = Object.hasOwn(childrenByPath, dirPath)
+      void loadDir(dirPath, genRef.current, { silent: hasCached }).then((res) => {
         if (res?.stale) void refreshTree({ silent: false, reset: false })
       })
     }
@@ -447,16 +563,25 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
     onOpenFile(rootPathRef.current ? { path, root: rootPathRef.current } : path)
   }, [onOpenFile])
 
-  const runOpenAction = useCallback((path, action) => {
-    void call('workspace-open', { sessionId, path, action }).catch((failure) => {
+  const runOpenAction = useCallback((path, action, capturedRoot) => {
+    const expectedRoot = capturedRoot || rootPathRef.current || undefined
+    void call('workspace-open', {
+      sessionId,
+      path,
+      action,
+      ...(expectedRoot ? { expectedRoot } : {}),
+    }).catch((failure) => {
+      if (failure?.code === 'bot/stale') {
+        void refreshTreeRef.current({ silent: false, reset: false })
+      }
       const msg = hostText(failure?.message ?? String(failure))
       if (actions?.reportError) actions.reportError(failure, 'workspace-open')
       else setError(msg)
     })
   }, [sessionId, actions])
 
-  const copyPath = useCallback((path, relativeOnly) => {
-    const text = relativeOnly ? path : joinDisplayPath(rootPathRef.current, path)
+  const copyPath = useCallback((path, relativeOnly, capturedRoot) => {
+    const text = relativeOnly ? path : joinDisplayPath(capturedRoot || rootPathRef.current, path)
     void writeClipboard(text).then((ok) => {
       if (ok) actions?.notice?.(relativeOnly ? t('Relative path copied') : t('Path copied'))
     })
@@ -470,12 +595,13 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
     expanded,
     childrenByPath,
     loadingDirs,
+    truncatedDirs,
     selectedPath,
     menuPath: menu?.entry?.path ?? null,
     filter,
     onToggleDir: toggleDir,
     onSelectFile: openFileTarget,
-    onContextMenu: (entry, x, y) => setMenu({ entry, x, y }),
+    onContextMenu: (entry, x, y, trigger) => setMenu({ entry, x, y, trigger, root: rootPathRef.current }),
   })
 
   return h('div', { className: 'dsb-ft' },
@@ -512,17 +638,17 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile }) {
             : h('div', { ref: listRef, className: 'dsb-ft-list', role: 'tree', 'aria-label': t('Files') },
               rows,
               rootInfo.truncated ? h('p', { className: 'dsb-pv-note' }, t('Showing first {count} entries', { count: 500 })) : null),
-    menu ? h(FileTreeContextMenu, {
+    h(FileTreeContextMenu, {
       menu,
       expanded,
       onOpen: openFileTarget,
       onToggleDir: toggleDir,
-      onReveal: path => runOpenAction(path, 'reveal'),
-      onOpenDefault: path => runOpenAction(path, 'open'),
-      onCopyPath: path => copyPath(path, false),
+      onReveal: (path, root) => runOpenAction(path, 'reveal', root),
+      onOpenDefault: (path, root) => runOpenAction(path, 'open', root),
+      onCopyPath: (path, root) => copyPath(path, false, root),
       onCopyRelativePath: path => copyPath(path, true),
       onClose: () => setMenu(null),
-    }) : null)
+    }))
 }
 
 /**
@@ -610,7 +736,7 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
   return h('div', { className: 'dsb-ws-body' },
     hasFiles
       ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'files' },
-        h(FileTree, { sessionId, feed, actions, selectedPath: filePath, onOpenFile: openWorkspaceFile }))
+        h(FileTree, { sessionId, feed, actions, selectedPath: filePath, onOpenFile: openWorkspaceFile, active: visible && activeTab === 'files' }))
       : null,
     hasPreview
       ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'preview' },
@@ -631,8 +757,14 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
       : null,
     activePlugin
       ? h('div', { className: 'dsb-ws-pane', hidden: !visible },
-        h(SlotErrorBoundary, { key: activePlugin.id, slotName: `${RIGHT_PANE_TAB_SLOT}:${activePlugin.slotId}`, resetKey: `${activePlugin.id}:${sessionId ?? ''}` },
-          h(activePlugin.component, { sessionId, team, actions })))
+        h(SlotErrorBoundary, {
+          key: activePlugin.id,
+          slotName: `${RIGHT_PANE_TAB_SLOT}:${activePlugin.slotId}`,
+          resetKey: `${activePlugin.id}:${sessionId ?? ''}`,
+          pluginId: activePlugin.pluginId,
+          runtime: activePlugin.runtime,
+        },
+        h(activePlugin.component, { sessionId, team, actions })))
       : null)
 }
 

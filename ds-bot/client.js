@@ -2532,6 +2532,7 @@ var JA = {
   "Mention a Bot": "Bot をメンション",
   "Empty file": "空のファイル",
   "Showing first {count} rows": "先頭 {count} 行を表示",
+  "Preview truncated for size": "サイズ制限のためプレビューを省略しました",
   "Converted from {ext}": "{ext} から変換済み",
   "Preview unavailable in this environment": "この環境ではプレビューできません",
   "Select a file to preview": "プレビューするファイルを選択",
@@ -5918,6 +5919,7 @@ var KO = {
   "Mention a Bot": "Bot 멘션",
   "Empty file": "빈 파일",
   "Showing first {count} rows": "처음 {count}행 표시",
+  "Preview truncated for size": "크기 제한으로 미리 보기가 일부 생략되었습니다",
   "Converted from {ext}": "{ext}에서 변환됨",
   "Preview unavailable in this environment": "이 환경에서는 미리 보기를 사용할 수 없습니다",
   "Select a file to preview": "미리 볼 파일을 선택하세요",
@@ -9305,6 +9307,7 @@ var ES = {
   "Mention a Bot": "Mencionar un Bot",
   "Empty file": "Archivo vacío",
   "Showing first {count} rows": "Mostrando las primeras {count} filas",
+  "Preview truncated for size": "Vista previa truncada por tamaño",
   "Converted from {ext}": "Convertido de {ext}",
   "Preview unavailable in this environment": "Vista previa no disponible en este entorno",
   "Select a file to preview": "Selecciona un archivo para previsualizar",
@@ -12648,6 +12651,7 @@ var FR = {
   "Mention a Bot": "Mentionner un Bot",
   "Empty file": "Fichier vide",
   "Showing first {count} rows": "Affichage des {count} premières lignes",
+  "Preview truncated for size": "Aperçu tronqué en raison de la taille",
   "Converted from {ext}": "Converti depuis {ext}",
   "Preview unavailable in this environment": "Aperçu indisponible dans cet environnement",
   "Select a file to preview": "Sélectionnez un fichier à prévisualiser",
@@ -16034,6 +16038,7 @@ var DE = {
   "Mention a Bot": "Bot erwähnen",
   "Empty file": "Leere Datei",
   "Showing first {count} rows": "Erste {count} Zeilen werden angezeigt",
+  "Preview truncated for size": "Vorschau aus Größengründen gekürzt",
   "Converted from {ext}": "Aus {ext} konvertiert",
   "Preview unavailable in this environment": "Vorschau in dieser Umgebung nicht verfügbar",
   "Select a file to preview": "Datei für Vorschau auswählen",
@@ -19235,6 +19240,7 @@ var ZH = {
   "Mention a Bot": "提及 Bot",
   "Empty file": "空文件",
   "Showing first {count} rows": "仅显示前 {count} 行",
+  "Preview truncated for size": "因体积过大，预览已截断",
   "Converted from {ext}": "已从 {ext} 转换",
   "Preview unavailable in this environment": "当前环境暂不支持预览",
   "Select a file to preview": "选择一个文件进行预览",
@@ -29218,6 +29224,7 @@ var ESCAPE_PRIORITY = {
   LIGHTBOX: 40,
   RECORDING: 100
 };
+var CAPTURE_ESCAPE_MIN_PRIORITY = ESCAPE_PRIORITY.INLINE_ACTION;
 var escapeLayers = [];
 function hasEscapeLayer() {
   return escapeLayers.length > 0;
@@ -29243,13 +29250,42 @@ function topEscapePriority() {
   const top = topEscapeLayer();
   return top === null ? -Infinity : top.priority;
 }
-var onEscapeKey = (event) => {
-  if (event.defaultPrevented || event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+var isEscapeEvent = (event) => !event.defaultPrevented && event.key === "Escape" && !event.isComposing && event.keyCode !== 229;
+var onCaptureEscapeKey = (event) => {
+  if (!isEscapeEvent(event)) return;
+  const top = topEscapeLayer();
+  if (!top || top.priority < CAPTURE_ESCAPE_MIN_PRIORITY) return;
+  event.preventDefault?.();
+  event.stopPropagation?.();
+  top.ref.current();
+};
+var onBubbleEscapeKey = (event) => {
+  if (!isEscapeEvent(event)) return;
   const top = topEscapeLayer();
   if (!top) return;
   event.preventDefault?.();
   event.stopPropagation?.();
   top.ref.current();
+};
+var listening = false;
+var captureTarget = null;
+var attachEscapeListeners = () => {
+  if (listening) return;
+  listening = true;
+  captureTarget = typeof document !== "undefined" && typeof document.addEventListener === "function" ? document : null;
+  if (captureTarget) captureTarget.addEventListener("keydown", onCaptureEscapeKey, true);
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("keydown", onBubbleEscapeKey, false);
+  }
+};
+var detachEscapeListeners = () => {
+  if (!listening) return;
+  listening = false;
+  if (captureTarget) captureTarget.removeEventListener("keydown", onCaptureEscapeKey, true);
+  captureTarget = null;
+  if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+    window.removeEventListener("keydown", onBubbleEscapeKey, false);
+  }
 };
 function useEscape(onClose, active = true, { priority = 0 } = {}) {
   const ref = (0, import_react6.useRef)(onClose);
@@ -29257,12 +29293,12 @@ function useEscape(onClose, active = true, { priority = 0 } = {}) {
   (0, import_react6.useEffect)(() => {
     if (!active) return void 0;
     const layer = { ref, priority };
-    if (escapeLayers.length === 0 && typeof window !== "undefined") window.addEventListener("keydown", onEscapeKey);
+    if (escapeLayers.length === 0) attachEscapeListeners();
     escapeLayers.push(layer);
     return () => {
       const index = escapeLayers.indexOf(layer);
       if (index !== -1) escapeLayers.splice(index, 1);
-      if (escapeLayers.length === 0 && typeof window !== "undefined") window.removeEventListener("keydown", onEscapeKey);
+      if (escapeLayers.length === 0) detachEscapeListeners();
     };
   }, [active, priority]);
 }
@@ -30123,7 +30159,7 @@ var optionKeyCards = createSource(0);
 function useOptionKeys(count, onPick, ownRef) {
   const pick2 = (0, import_react10.useRef)(onPick);
   pick2.current = onPick;
-  const listening = (0, import_react10.useSyncExternalStore)(optionKeyCards.subscribe, optionKeyCards.getSnapshot);
+  const listening2 = (0, import_react10.useSyncExternalStore)(optionKeyCards.subscribe, optionKeyCards.getSnapshot);
   (0, import_react10.useEffect)(() => {
     if (count === 0) return void 0;
     optionKeyCards.set((value) => value + 1);
@@ -30147,7 +30183,7 @@ function useOptionKeys(count, onPick, ownRef) {
       optionKeyCards.set((value) => value - 1);
     };
   }, [count, ownRef]);
-  return count > 0 && listening <= 1;
+  return count > 0 && listening2 <= 1;
 }
 function QuestionView({ question, onAnswer, onDismiss, onInteract, onOwnChange, initialOwn = "", busy = false, ownAnswer = false, raised = false, enterToSend = true }) {
   const [own, setOwn] = (0, import_react10.useState)(initialOwn);
@@ -31723,7 +31759,7 @@ var keyCards = /* @__PURE__ */ (() => {
 function useOptionKeys2(count, onPick, ownRef) {
   const pick2 = (0, import_react14.useRef)(onPick);
   pick2.current = onPick;
-  const listening = (0, import_react14.useSyncExternalStore)(keyCards.subscribe, keyCards.getSnapshot);
+  const listening2 = (0, import_react14.useSyncExternalStore)(keyCards.subscribe, keyCards.getSnapshot);
   (0, import_react14.useEffect)(() => {
     if (count === 0) return void 0;
     keyCards.set((value) => value + 1);
@@ -31747,7 +31783,7 @@ function useOptionKeys2(count, onPick, ownRef) {
       keyCards.set((value) => value - 1);
     };
   }, [count, ownRef]);
-  return count > 0 && listening <= 1;
+  return count > 0 && listening2 <= 1;
 }
 
 // node_modules/deep-view/src/core/formula.js
@@ -57030,9 +57066,22 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
       for (const [element, previous] of inert) element.inert = previous;
       inert.clear();
     };
+    const externalModalOpen = () => {
+      if (typeof doc.querySelectorAll !== "function") return false;
+      for (const modal of doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')) {
+        if (modal === dialog || dialog.contains(modal)) continue;
+        if (typeof modal.closest === "function" && modal.closest("[data-leaving]")) continue;
+        return true;
+      }
+      return false;
+    };
     const allowed2 = (element) => interactive.some((root) => root.contains(element));
     const sync = () => {
       restore();
+      if (externalModalOpen()) {
+        interactive = [card];
+        return;
+      }
       const target = !step.page || step.page === currentPage ? resolveStep(dialog, step).targetEl : null;
       interactive = [target, card].filter(Boolean);
       interactive.push(...ownedPopups(interactive));
@@ -57056,6 +57105,7 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     };
     const onTab = (event) => {
       if (event.key !== "Tab") return;
+      if (externalModalOpen()) return;
       sync();
       const selector = "button,input,select,textarea,a[href],[tabindex],[contenteditable],summary,audio[controls],video[controls]";
       const controls = interactive.flatMap((root) => [root, ...root.querySelectorAll(selector)]).filter((element) => element.tabIndex >= 0 && !element.matches(":disabled") && !element.closest("[inert]") && element.getClientRects().length > 0 && doc.defaultView.getComputedStyle(element).visibility === "visible");
@@ -58192,7 +58242,7 @@ function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2
       window.removeEventListener("mousedown", onMouseDown, true);
     };
   }, [recordingId, mac, store]);
-  useEscape(() => setNotice(null), Boolean(notice && !recordingId), { priority: 100 });
+  useEscape(() => setNotice(null), Boolean(notice && !recordingId), { priority: ESCAPE_PRIORITY.RECORDING });
   const wanted = query.trim().toLowerCase();
   const visibleDefs = (0, import_react67.useMemo)(() => {
     const capabilities = { hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch };
@@ -61733,7 +61783,7 @@ function dictationLimitMs(catalog) {
   return Math.max(1e3, Math.floor((Math.min(byDuration, byBytes) - 0.5) * 1e3));
 }
 function useDictation(onText) {
-  const [listening, setListening] = (0, import_react76.useState)(false);
+  const [listening2, setListening] = (0, import_react76.useState)(false);
   const [note, setNote] = (0, import_react76.useState)("");
   const recognition = (0, import_react76.useRef)(null);
   const latest = (0, import_react76.useRef)(onText);
@@ -61786,7 +61836,7 @@ function useDictation(onText) {
     }
   };
   const stop = () => recognition.current?.stop();
-  return { listening, note, start, stop };
+  return { listening: listening2, note, start, stop };
 }
 function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
   const enterToSend = useRoster((state) => sendsOnEnter(state.prefs));
@@ -61955,7 +62005,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
   }, [quote?.token]);
   if (sessionId === void 0) return null;
   const pluginMic = typeof actions.hasPluginMic === "function" ? actions.hasPluginMic() : actions.speech() !== void 0;
-  const listening = dictation.listening || hostListening;
+  const listening2 = dictation.listening || hostListening;
   const note = hostNote || dictation.note;
   return (0, import_react76.createElement)(
     import_react76.Fragment,
@@ -61963,9 +62013,9 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
     pluginMic ? null : (0, import_react76.createElement)("button", {
       type: "button",
       className: "bt-mic",
-      "aria-label": listening ? t("Stop dictation") : t("Dictate"),
-      "aria-pressed": listening,
-      title: listening ? t("Stop dictation") : t("Dictate"),
+      "aria-label": listening2 ? t("Stop dictation") : t("Dictate"),
+      "aria-pressed": listening2,
+      title: listening2 ? t("Stop dictation") : t("Dictate"),
       disabled: hostBusy,
       onMouseDown: keepComposerFocus,
       onClick: toggleMic
@@ -66083,7 +66133,9 @@ var savedWidth = () => {
 var widthRange = (view, room2) => view === "browser" || view === "workspace" ? [MIN_WIDTH, room2 - MIN_CHAT] : [DETAILS_WIDTH, Math.min(DETAILS_MAX, room2 - MIN_CHAT)];
 var fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, high)));
 var attrValue = (value) => String(value ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-var shortAddress = (url) => String(url ?? "").replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
+var isBlankUrl = (url) => !url || url === "about:blank" || String(url).startsWith("about:blank#");
+var visibleUrl = (url) => isBlankUrl(url) ? "" : String(url);
+var shortAddress = (url) => visibleUrl(url).replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
 var tabLabel = (page) => page.title || shortAddress(page.url) || t("New tab");
 function PanelMenu({ items, className, "aria-label": label, icon: TriggerIcon = PlusTabIcon }) {
   const [open, setOpen] = (0, import_react90.useState)(false);
@@ -66353,7 +66405,7 @@ function PanelStrip({ bot, roomSubject, subject, browserOwner, view, ids, active
               role: "tab",
               "aria-selected": on,
               className: "bt-ptab bt-ptab-btn",
-              title: page.url || t("New tab"),
+              title: visibleUrl(page.url) || t("New tab"),
               onClick: () => {
                 actions.browserActivate(browserId, tabId);
                 onView("browser");
@@ -66536,6 +66588,7 @@ function shouldCheckBrowserCover(records) {
 function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold }) {
   const browserId = ownerId ?? bot?.id ?? "";
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
+  const pageUrl = visibleUrl(page.url);
   const frame3 = (0, import_react90.useRef)(null);
   const input = (0, import_react90.useRef)(null);
   const importBoxRef = (0, import_react90.useRef)(null);
@@ -66564,14 +66617,14 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
   } = useCookieImportFlow({
     imports,
     botId: bot?.id ?? "",
-    pageUrl: page.url,
+    pageUrl,
     resetKey: tabId,
     idleFlow: null,
     onReload: () => actions.browserCommand(tabId, "reload")
   });
   const importStageKey = flow === null ? null : flow === "menu" ? "menu" : flow.stage;
   useMorph(importBoxRef, importStageKey);
-  const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null;
+  const showGuest = landed && !leaving && !covered && Boolean(pageUrl) && !page.error && flow === null;
   (0, import_react90.useEffect)(() => {
     let raf = 0;
     const update = () => {
@@ -66623,7 +66676,7 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
   }, [tabId, showGuest, leaving]);
   (0, import_react90.useEffect)(() => {
     setDraft(null);
-    if (landed && !page.url) input.current?.focus();
+    if (landed && !pageUrl) input.current?.focus();
   }, [tabId, landed]);
   const go = (event) => {
     event.preventDefault();
@@ -66640,7 +66693,7 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
     setDraft(null);
     input.current?.blur();
   }, editing, { priority: ESCAPE_PRIORITY.INLINE_ACTION });
-  const secure = /^https:/i.test(page.url);
+  const secure = /^https:/i.test(pageUrl);
   const viewLabel = bot ? t("{name}'s browser", { name: bot.name }) : t("Browser");
   return (0, import_react90.createElement)(
     "div",
@@ -66664,7 +66717,7 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
       (0, import_react90.createElement)("button", {
         type: "button",
         className: "bt-icon-btn",
-        disabled: !page.url,
+        disabled: !pageUrl,
         "aria-label": page.loading ? t("Stop") : t("Reload"),
         title: page.loading ? t("Stop") : t("Reload"),
         onClick: () => actions.browserCommand(tabId, page.loading ? "stop" : "reload")
@@ -66680,9 +66733,9 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
           autoComplete: "off",
           "aria-label": t("Address"),
           placeholder: t("Search or enter address"),
-          value: editing ? draft : shortAddress(page.url),
+          value: editing ? draft : shortAddress(pageUrl),
           onFocus: (event) => {
-            setDraft(page.url);
+            setDraft(pageUrl);
             const target = event.target;
             requestAnimationFrame(() => target.select());
           },
@@ -66690,6 +66743,7 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
           onChange: (event) => setDraft(event.target.value),
           onKeyDown: (event) => {
             if (event.key === "Escape" && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+              if (event.defaultPrevented || topEscapePriority() > ESCAPE_PRIORITY.INLINE_ACTION) return;
               event.preventDefault?.();
               event.stopPropagation?.();
               event.nativeEvent?.stopPropagation?.();
@@ -66771,10 +66825,10 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
         { className: "bt-browser-empty" },
         (0, import_react90.createElement)("div", { className: "bt-browser-empty-title" }, t("This page didn’t load")),
         (0, import_react90.createElement)("div", { className: "bt-browser-empty-text" }, t(page.error)),
-        page.url ? (0, import_react90.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => {
-          void actions.browserNavigate(tabId, page.url);
+        pageUrl ? (0, import_react90.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => {
+          void actions.browserNavigate(tabId, pageUrl);
         } }, t("Try again")) : null
-      ) : flow === null && !page.url ? (0, import_react90.createElement)(
+      ) : flow === null && !pageUrl ? (0, import_react90.createElement)(
         "div",
         { className: "bt-browser-empty" },
         bot ? (0, import_react90.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }) : (0, import_react90.createElement)("span", { className: "bt-browser-empty-icon", "aria-hidden": true }, (0, import_react90.createElement)(GlobeIcon2)),
@@ -67978,6 +68032,8 @@ var PREVIEW_SCRIPT = `(() => {
   return text.replace(/\\s+/g, ' ').trim().slice(0, 200)
 })()`;
 var EMPTY3 = { url: "", title: "", favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, live: false, excerpt: "" };
+var CLASSIC_BROWSER_OWNER = "classic";
+var normalizeGuestUrl = (url) => !url || url === "about:blank" || String(url).startsWith("about:blank#") ? "" : String(url);
 function createAppViewProxy(bridge2, botId, tabId) {
   const listeners3 = /* @__PURE__ */ new Map();
   const state = { url: "", title: "", loading: false, canGoBack: false, canGoForward: false };
@@ -68126,29 +68182,30 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
         if (own.ids.includes(tabId)) return snapshot;
         return { ...snapshot, [botId]: { ids: [...own.ids, tabId], active: tabId } };
       });
-      publish2(tabId, { url: change.url ?? "", title: change.title ?? "", live: true });
+      publish2(tabId, { url: normalizeGuestUrl(change.url), title: change.title ?? "", live: true });
       persist(botId);
       void open(tabId);
     }
+    const cleanChange = "url" in change ? { ...change, url: normalizeGuestUrl(change.url) } : change;
     const entry = views.get(tabId);
     if (entry?.appView) {
       const wasLoading = entry.element.isLoading();
       const prevUrl = entry.element.getURL();
-      entry.botAttached = change.botAttached === true;
-      entry.ready = change.live !== false && change.loading !== true;
-      entry.element.update(change, { silent: true });
+      entry.botAttached = cleanChange.botAttached === true;
+      entry.ready = cleanChange.live !== false && cleanChange.loading !== true;
+      entry.element.update(cleanChange, { silent: true });
       if (entry.ready) {
-        observe(entry, change);
+        observe(entry, cleanChange);
         const nextUrl = entry.element.getURL();
         if (wasLoading || nextUrl !== prevUrl || entry.previewedUrl !== nextUrl) {
           void preview(tabId);
         }
       } else {
-        publish2(tabId, change);
+        publish2(tabId, cleanChange);
       }
       return;
     }
-    publish2(tabId, change);
+    publish2(tabId, cleanChange);
   });
   const savedTab = (botId, tabId) => saved[botId]?.tabs?.find((entry) => entry.id === tabId);
   const publish2 = (tabId, patch) => pages.set((state) => {
@@ -68235,14 +68292,16 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
   const observe = (entry, extra) => {
     const { element } = entry;
     if (!entry.ready) return;
-    const url = element.getURL();
-    if (url.startsWith("about:blank#")) return;
+    const rawUrl = element.getURL();
+    if (rawUrl === "about:blank" || rawUrl.startsWith("about:blank#")) return;
+    const url = normalizeGuestUrl(rawUrl);
     if (entry.fresh) {
       element.clearHistory();
       entry.fresh = false;
     }
     const title = element.getTitle();
-    publish2(entry.tabId, { ...extra, url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: extra?.live ?? true });
+    const safeExtra = extra && "url" in extra ? { ...extra, url: normalizeGuestUrl(extra.url) } : extra;
+    publish2(entry.tabId, { ...safeExtra, url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: extra?.live ?? true });
     persist(entry.botId);
   };
   async function create(tabId) {
@@ -68320,13 +68379,14 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
     if (guest.appView) {
       const state = (await bridge2.views.sync(botId)).find((view) => view.tabId === tabId);
       if (state) {
-        entry.botAttached = state.botAttached === true;
-        if (state.live === false) {
+        const cleanState = "url" in state ? { ...state, url: normalizeGuestUrl(state.url) } : state;
+        entry.botAttached = cleanState.botAttached === true;
+        if (cleanState.live === false) {
           entry.ready = false;
-          element.update(state, { silent: true });
-          publish2(tabId, state);
+          element.update(cleanState, { silent: true });
+          publish2(tabId, cleanState);
         } else {
-          element.update(state);
+          element.update(cleanState);
         }
       }
     }
@@ -68432,6 +68492,10 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
     visible = tabId !== null && box !== null;
     for (const entry2 of views.values()) place(entry2);
     if (tabId === null) return;
+    if (box === null && !views.has(tabId)) {
+      const knownUrl = normalizeGuestUrl(pages.getSnapshot()[tabId]?.url || savedTab(owner.get(tabId), tabId)?.url);
+      if (!knownUrl) return;
+    }
     const entry = await open(tabId);
     if (entry === void 0 || shown !== tabId) return;
     entry.usedAt = Date.now();
@@ -68510,10 +68574,12 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
       const open2 = {};
       const snapshot = pages.getSnapshot();
       for (const [botId, state] of Object.entries(tabs.getSnapshot())) {
+        if (botId === CLASSIC_BROWSER_OWNER) continue;
         const tabId = state.active;
         const entry = tabId ? views.get(tabId) : void 0;
         const page = tabId ? snapshot[tabId] : void 0;
-        if (entry?.ready && page?.live !== false && page?.url) open2[botId] = { url: page.url, title: page.title };
+        const url = normalizeGuestUrl(page?.url);
+        if (entry?.ready && page?.live !== false && url) open2[botId] = { url, title: page.title };
       }
       return open2;
     },

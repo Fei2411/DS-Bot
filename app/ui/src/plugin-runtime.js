@@ -236,6 +236,34 @@ export function createPluginRuntime({
     })
   }
 
+  const runReconcileLoop = () => {
+    do {
+      needsReconcile = false
+      let progressed = true
+      let passes = 0
+      while (progressed && passes < 32) {
+        progressed = false
+        passes += 1
+        for (const entry of Array.from(plugins.values())) {
+          if (entry.disposed) continue
+          if (entry.status === 'active' && !readyFor(entry)) {
+            deactivate(entry, pageReadyFor(entry) ? 'waiting' : 'idle', null)
+            progressed = true
+          } else if ((entry.status === 'waiting' || entry.status === 'idle') && readyFor(entry)) {
+            activate(entry)
+            progressed = true
+          } else if (entry.status === 'waiting' && !pageReadyFor(entry)) {
+            entry.status = 'idle'
+            progressed = true
+          } else if (entry.status === 'idle' && pageReadyFor(entry) && !depsReadyFor(entry)) {
+            entry.status = 'waiting'
+            progressed = true
+          }
+        }
+      }
+    } while (needsReconcile)
+  }
+
   const scheduleReconcile = () => {
     if (reconciling) {
       needsReconcile = true
@@ -243,31 +271,7 @@ export function createPluginRuntime({
     }
     reconciling = true
     try {
-      do {
-        needsReconcile = false
-        let progressed = true
-        let passes = 0
-        while (progressed && passes < 32) {
-          progressed = false
-          passes += 1
-          for (const entry of Array.from(plugins.values())) {
-            if (entry.disposed) continue
-            if (entry.status === 'active' && !readyFor(entry)) {
-              deactivate(entry, pageReadyFor(entry) ? 'waiting' : 'idle', null)
-              progressed = true
-            } else if ((entry.status === 'waiting' || entry.status === 'idle') && readyFor(entry)) {
-              activate(entry)
-              progressed = true
-            } else if (entry.status === 'waiting' && !pageReadyFor(entry)) {
-              entry.status = 'idle'
-              progressed = true
-            } else if (entry.status === 'idle' && pageReadyFor(entry) && !depsReadyFor(entry)) {
-              entry.status = 'waiting'
-              progressed = true
-            }
-          }
-        }
-      } while (needsReconcile)
+      runReconcileLoop()
     } finally {
       reconciling = false
     }
@@ -391,28 +395,51 @@ export function createPluginRuntime({
   function retry(id, { force = false } = {}) {
     const entry = plugins.get(id)
     if (entry === undefined || entry.disposed) return false
+    if (entry.retrying) return false
     if (entry.status !== 'error' && !force) return false
-    if (entry.status === 'active' || entry.status === 'loading') {
-      deactivate(entry, 'waiting', null)
+    entry.retrying = true
+    const wasReconciling = reconciling
+    reconciling = true
+    try {
+      if (entry.status === 'active' || entry.status === 'loading') {
+        deactivate(entry, 'retrying', null)
+      } else {
+        entry.generation += 1
+        entry.status = 'retrying'
+        entry.error = null
+      }
+      // Let dependents observe withdrawn services and deactivate cleanly before re-activation.
+      runReconcileLoop()
+      entry.loadedApply = null
+      entry.retryCount += 1
+      entry.status = pageReadyFor(entry) ? 'waiting' : 'idle'
+      entry.error = null
+      needsReconcile = true
+    } finally {
+      entry.retrying = false
+      if (!wasReconciling) reconciling = false
     }
-    entry.loadedApply = null
-    entry.retryCount += 1
-    entry.status = pageReadyFor(entry) ? 'waiting' : 'idle'
-    entry.error = null
-    scheduleReconcile()
+    if (!wasReconciling) scheduleReconcile()
     return entry.status === 'active' || entry.status === 'loading'
   }
 
   function disposeAll() {
-    for (const entry of Array.from(plugins.values()).reverse()) {
-      entry.disposed = true
-      deactivate(entry, 'waiting', null)
+    const wasReconciling = reconciling
+    reconciling = true
+    try {
+      for (const entry of Array.from(plugins.values()).reverse()) {
+        entry.disposed = true
+        deactivate(entry, 'waiting', null)
+      }
+      plugins.clear()
+      services.clear()
+      serviceStacks.clear()
+      pageCounts.clear()
+      activePagesSet.clear()
+      needsReconcile = false
+    } finally {
+      if (!wasReconciling) reconciling = false
     }
-    plugins.clear()
-    services.clear()
-    serviceStacks.clear()
-    pageCounts.clear()
-    activePagesSet.clear()
     emit()
   }
 

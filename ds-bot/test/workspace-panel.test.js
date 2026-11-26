@@ -9,10 +9,10 @@ import { test } from 'node:test'
 import { deflateRawSync } from 'node:zlib'
 import { install as installFeed } from '../src/host/feed.js'
 import { install as installFolders } from '../src/host/folders.js'
-import { install as installWorkspacePanel } from '../src/host/workspace-panel.js'
+import { buildOpenOsCommand, install as installWorkspacePanel } from '../src/host/workspace-panel.js'
 import { parseXlsxBuffer } from '../src/host/xlsx-preview.js'
 
-function createRuntime(rootDir, { dshHome, workspaceChanges, subprocess, bots, liveSessions, chatOwners } = {}) {
+function createRuntime(rootDir, { dshHome, workspaceChanges, subprocess, bots, liveSessions, chatOwners, extraRt } = {}) {
   const localFeedEvents = []
   const sharedFeedEvents = []
   const services = new Map()
@@ -48,6 +48,7 @@ function createRuntime(rootDir, { dshHome, workspaceChanges, subprocess, bots, l
     pastOwners: new Map(),
     publishFeed: (event, data) => sharedFeedEvents.push({ event, data }),
     publishLocalFeed: (event, data) => localFeedEvents.push({ event, data }),
+    ...(extraRt ?? {}),
   }
   installFolders(rt)
   installWorkspacePanel(rt)
@@ -564,14 +565,138 @@ test('workspace-watch debounces events, ignores .git/node_modules, bounds watche
   assert.equal(removed.removed, true)
   assert.equal(watchers[0].closed, true)
 
-  // Opening more than 8 watches evicts the oldest, and terminalDispose closes all remaining watchers.
+  // Opening multiple watch sessions on the same canonical folder shares ONE underlying OS watcher (ref-counted).
+  const sharedA = await rt.workspaceEndpoint('watch', { sessionId: 'b1' })
+  const sharedB = await rt.workspaceEndpoint('watch', { sessionId: 'b1' })
+  const openShared = watchers.filter(w => !w.closed)
+  assert.equal(openShared.length, 1, 'same canonical folder must share one ref-counted OS watcher')
+  await rt.workspaceEndpoint('unwatch', { watchId: sharedA.watchId })
+  assert.equal(openShared[0].closed, false, 'unwatching one session keeps shared OS watcher alive')
+  await rt.workspaceEndpoint('unwatch', { watchId: sharedB.watchId })
+  assert.equal(openShared[0].closed, true, 'unwatching last session closes shared OS watcher')
+
+  // Opening more than 8 watch sessions evicts the oldest, and terminalDispose closes all remaining watchers.
   for (let i = 0; i < 10; i += 1) {
     await rt.workspaceEndpoint('watch', { sessionId: 'b1' })
   }
-  const openCount = watchers.filter(w => !w.closed).length
-  assert.equal(openCount, 8)
   await rt.terminalDispose()
   assert.equal(watchers.every(w => w.closed), true)
+})
+
+test('workspace-watch never passes recursive:true on Linux, falls back to polling on ENOSPC, supports overflow/orphan cleanup, and awaits mid-flight dispose', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-linux-'))
+  const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-linux-dsh-'))
+  mkdirSync(join(workDir, 'src'), { recursive: true })
+  writeFileSync(join(workDir, 'a.txt'), 'v1')
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+
+  // 1. Linux watches root + expanded dirs without recursive:true.
+  const linuxWatches = []
+  const { rt: rtLinux, localFeedEvents: linuxEvents } = createRuntime(workDir, { dshHome })
+  rtLinux.watchPlatform = 'linux'
+  rtLinux.workspaceWatchDebounceMs = 20
+  rtLinux.watchWorkspaceDir = (dir, opts, onEvent) => {
+    assert.equal(Boolean(opts?.recursive), false, 'Linux must never pass recursive:true to fs.watch')
+    const w = { dir, opts, onEvent, closed: false, close() { this.closed = true } }
+    linuxWatches.push(w)
+    return w
+  }
+  const wLinux = await rtLinux.workspaceEndpoint('watch', { sessionId: 'b1', dirs: ['src', '.git'] })
+  assert.equal(wLinux.mode, 'dirs')
+  assert.equal(wLinux.recursive, false)
+  assert.equal(linuxWatches.length, 2, 'watches root and expanded src only (skips ignored .git)')
+  // Overflow (> 64 distinct paths) sets overflow: true in the debounced payload.
+  for (let i = 0; i < 70; i += 1) linuxWatches[0].onEvent('change', `f-${i}.txt`)
+  await new Promise(resolve => setTimeout(resolve, 45))
+  assert.equal(linuxEvents.length, 1)
+  assert.equal(linuxEvents[0].data.overflow, true)
+  assert.equal(linuxEvents[0].data.paths.length, 64)
+  await rtLinux.terminalDispose()
+  assert.equal(linuxWatches.every(w => w.closed), true)
+
+  // 2. ENOSPC falls back to bounded polling and detects file creation.
+  const { rt: rtPoll, localFeedEvents: pollEvents } = createRuntime(workDir, { dshHome })
+  rtPoll.watchPlatform = 'linux'
+  rtPoll.workspaceWatchDebounceMs = 20
+  rtPoll.workspaceWatchPollMs = 30
+  rtPoll.watchWorkspaceDir = () => {
+    const err = new Error('System limit for number of file watchers reached')
+    err.code = 'ENOSPC'
+    throw err
+  }
+  const wPoll = await rtPoll.workspaceEndpoint('watch', { sessionId: 'b1' })
+  assert.equal(wPoll.mode, 'poll')
+  writeFileSync(join(workDir, 'created-by-poll.txt'), 'hello')
+  await new Promise(resolve => setTimeout(resolve, 110))
+  assert.equal(pollEvents.some(e => e.event === 'workspace-changed'), true, 'polling fallback emits workspace-changed')
+  await rtPoll.terminalDispose()
+
+  // 3. Orphan grace cleanup closes watches once local SSE client count drops to 0.
+  const orphanWatchers = []
+  let localClients = 1
+  const clientListeners = new Set()
+  const { rt: rtOrphan } = createRuntime(workDir, {
+    dshHome,
+    extraRt: {
+      workspaceWatchOrphanGraceMs: 30,
+      localFeedClientCount: () => localClients,
+      onLocalFeedClients: (fn) => { clientListeners.add(fn); return () => clientListeners.delete(fn) },
+    },
+  })
+  rtOrphan.watchWorkspaceDir = (dir, opts, onEvent) => {
+    const w = { dir, opts, onEvent, closed: false, close() { this.closed = true } }
+    orphanWatchers.push(w)
+    return w
+  }
+  await rtOrphan.workspaceEndpoint('watch', { sessionId: 'b1' })
+  assert.equal(orphanWatchers.length, 1)
+  assert.equal(orphanWatchers[0].closed, false)
+  localClients = 0
+  for (const fn of clientListeners) fn(0)
+  await new Promise(resolve => setTimeout(resolve, 70))
+  assert.equal(orphanWatchers[0].closed, true, 'orphaned watches close after grace period when no local SSE clients remain')
+  await rtOrphan.terminalDispose()
+
+  // 4. Mid-await terminalDispose leaks zero watchers even if resolveWorkspaceRoot is slow.
+  const raceWatchers = []
+  const { rt: rtRace } = createRuntime(workDir, { dshHome })
+  const origReal = rtRace.real
+  let releaseReal
+  rtRace.real = async (p) => {
+    await new Promise((resolve) => { releaseReal = resolve })
+    return origReal(p)
+  }
+  rtRace.watchWorkspaceDir = (dir, opts, onEvent) => {
+    const w = { dir, opts, onEvent, closed: false, close() { this.closed = true } }
+    raceWatchers.push(w)
+    return w
+  }
+  const watchPending = rtRace.workspaceEndpoint('watch', { sessionId: 'b1' })
+  await new Promise(resolve => setTimeout(resolve, 10))
+  const disposePending = rtRace.terminalDispose()
+  releaseReal()
+  await assert.rejects(() => watchPending, { code: 'bot/refused' })
+  await disposePending
+  assert.equal(raceWatchers.length, 0, 'disposed runtime must never create late OS watchers')
+})
+
+test('buildOpenOsCommand safely formats Windows reveal/open commands with spaces, commas, %, and #', () => {
+  const reveal = buildOpenOsCommand('C:\\Users\\Alice, Bob\\100% #1\\doc.txt', 'reveal', false, 'win32')
+  assert.equal(reveal.command, 'explorer.exe')
+  assert.equal(reveal.options.windowsVerbatimArguments, true)
+  assert.deepEqual(reveal.args, ['/select,"C:\\Users\\Alice, Bob\\100% #1\\doc.txt"'])
+
+  const openWin = buildOpenOsCommand('C:\\Users\\Alice\\100% #1\\doc.txt', 'open', false, 'win32')
+  assert.equal(openWin.command, 'powershell.exe')
+  assert.equal(openWin.options.env.DSB_OPEN_TARGET, 'C:\\Users\\Alice\\100% #1\\doc.txt')
+  assert.ok(openWin.args.some(a => a.includes('Start-Process -LiteralPath $env:DSB_OPEN_TARGET')))
+
+  const revealMac = buildOpenOsCommand('/tmp/a b.txt', 'reveal', false, 'darwin')
+  assert.equal(revealMac.command, 'open')
+  assert.deepEqual(revealMac.args, ['-R', '/tmp/a b.txt'])
 })
 
 test('workspace-open enforces containment and dispatches reveal/open actions', async (t) => {
@@ -662,7 +787,7 @@ test('parseXlsxBuffer and workspace-read decode multi-sheet .xlsx workbooks with
       </worksheet>`,
   })
 
-  const parsed = parseXlsxBuffer(xlsxBuf)
+  const parsed = await parseXlsxBuffer(xlsxBuf)
   assert.equal(parsed.sheets.length, 2)
   assert.equal(parsed.sheets[0].name, 'Summary')
   assert.equal(parsed.sheets[0].rows[0][0].v, 'Budget & Plan')
@@ -681,4 +806,103 @@ test('parseXlsxBuffer and workspace-read decode multi-sheet .xlsx workbooks with
   assert.equal(read.kind, 'spreadsheet')
   assert.equal(read.sheets.length, 2)
   assert.equal(read.sheets[0].name, 'Summary')
+})
+
+test('parseXlsxBuffer handles hostile and edge-case OOXML workbooks safely via streaming saxes parser', async () => {
+  // 1. Self-closing <row/>, phonetic <rPh> stripping, empty styled cell <c r="Z1000" s="1"/>, relative ./ target, duplicate merges.
+  const edgeXlsx = buildZip({
+    'xl/workbook.xml': `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="JP" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="./worksheets/sheet1.xml"/></Relationships>`,
+    'xl/sharedStrings.xml': `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>Tokyo</t><rPh sb="0" eb="2"><t>トウキョウ</t></rPh></si></sst>`,
+    'xl/worksheets/sheet1.xml': `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
+      <row r="1"><c r="A1" t="s"><v>0</v></c></row>
+      <row r="2" ht="20"/>
+      <row r="3"><c r="A3" t="inlineStr"><is><t>After self-closing row</t><rPh sb="0" eb="1"><t>PHONETIC</t></rPh></is></c><c r="Z1000" s="1"/></row>
+    </sheetData><mergeCells count="2"><mergeCell ref="A1:B1"/><mergeCell ref="A1:B1"/></mergeCells></worksheet>`,
+  })
+  const edge = await parseXlsxBuffer(edgeXlsx)
+  assert.equal(edge.sheets[0].rows[0][0].v, 'Tokyo', 'phonetic <rPh> text must be stripped')
+  assert.equal(edge.sheets[0].rows[2][0].v, 'After self-closing row', 'self-closing <row/> must not eat subsequent rows')
+  assert.equal(edge.sheets[0].colCount, 2, 'empty styled cell Z1000 must not inflate visible columns past A1:B1 merge')
+  assert.equal(edge.sheets[0].totalCols, 2, 'empty styled cell Z1000 must not inflate totalCols or trigger false truncation')
+  assert.equal(edge.sheets[0].truncatedCols, false)
+  assert.equal(edge.sheets[0].merges.length, 1, 'duplicate mergeCells are deduplicated')
+
+  // 2. Many sheets (> 20) sets truncatedSheets + totalSheets.
+  const manyFiles = {
+    'xl/workbook.xml': `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${Array.from({ length: 24 }, (_, i) => `<sheet name="S${i + 1}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${Array.from({ length: 24 }, (_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}</Relationships>`,
+  }
+  for (let i = 1; i <= 24; i += 1) {
+    manyFiles[`xl/worksheets/sheet${i}.xml`] = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Sheet ${i}</t></is></c></row></sheetData></worksheet>`
+  }
+  const many = await parseXlsxBuffer(buildZip(manyFiles))
+  assert.equal(many.sheets.length, 20)
+  assert.equal(many.totalSheets, 24)
+  assert.equal(many.truncatedSheets, true)
+
+  // 3. Repeated shared strings hitting workbook text budget sets truncatedText: true instead of unbounded JSON.
+  const bigStr = 'X'.repeat(4000)
+  const bombCells = []
+  for (let r = 1; r <= 50; r += 1) {
+    let rowXml = `<row r="${r}">`
+    for (let c = 0; c < 20; c += 1) {
+      const col = String.fromCharCode(65 + c)
+      rowXml += `<c r="${col}${r}" t="s"><v>0</v></c>`
+    }
+    rowXml += '</row>'
+    bombCells.push(rowXml)
+  }
+  const repeatXlsx = buildZip({
+    'xl/workbook.xml': `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Big" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    'xl/sharedStrings.xml': `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>${bigStr}</t></si></sst>`,
+    'xl/worksheets/sheet1.xml': `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${bombCells.join('')}</sheetData></worksheet>`,
+  })
+  const repeatParsed = await parseXlsxBuffer(repeatXlsx)
+  assert.equal(repeatParsed.truncatedText, true, 'repeated shared strings must hit workbook text cap')
+  assert.equal(repeatParsed.sheets[0].truncatedText, true)
+
+  // 4. Deeply nested unclosed XML (50k tags) fails fast (< 100ms) instead of hanging.
+  const deepXml = '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' + '<row>'.repeat(50_000)
+  const deepZip = buildZip({
+    'xl/workbook.xml': `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Bad" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    'xl/worksheets/sheet1.xml': deepXml,
+  })
+  const t0 = performance.now()
+  await assert.rejects(() => parseXlsxBuffer(deepZip), /nesting depth|XML/i)
+  assert.ok(performance.now() - t0 < 200, 'deep XML nesting must abort fast')
+
+  // 5. Malformed XML rejects explicitly via saxes strict mode.
+  const malformedZip = buildZip({
+    'xl/workbook.xml': `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Bad" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    'xl/worksheets/sheet1.xml': `<worksheet><sheetData><row r="1"></c></row></sheetData></worksheet>`,
+  })
+  await assert.rejects(() => parseXlsxBuffer(malformedZip), /malformed|XML|tag/i)
+
+  // 6. Oversized sharedStrings.xml (> 24 MiB) throws explicitly rather than silently blanking every cell.
+  const hugeSst = Buffer.alloc(25 * 1024 * 1024, 0x20)
+  hugeSst.write('<sst><si><t>A</t></si>', 0)
+  hugeSst.write('</sst>', hugeSst.length - 6)
+  const hugeSstZip = buildZip({
+    'xl/workbook.xml': `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    'xl/sharedStrings.xml': hugeSst,
+    'xl/worksheets/sheet1.xml': `<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>`,
+  })
+  await assert.rejects(() => parseXlsxBuffer(hugeSstZip), /size limit/i)
+
+  // 7. Zip bomb whose DEFLATE payload inflates past declared uncompressed size rejects explicitly.
+  const bombPayload = Buffer.alloc(64 * 1024, 0x41)
+  const tampered = buildZip({
+    'xl/workbook.xml': bombPayload,
+    'xl/_rels/workbook.xml.rels': '<Relationships/>',
+  })
+  // Tamper the central directory & local header declared uncompressed size to 100 bytes.
+  const cdSig = tampered.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]))
+  tampered.writeUInt32LE(100, 22)
+  tampered.writeUInt32LE(100, cdSig + 24)
+  await assert.rejects(() => parseXlsxBuffer(tampered), /zip entry|size|XML/i)
 })

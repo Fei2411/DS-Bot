@@ -89,8 +89,19 @@ export function install(rt) {
     if (listening()) publish(event, data)
   }
   // Computer-local SSE only (never fans out to paired phones, browsers, or remote RPC taps).
+  const localListeners = new Set()
+  const notifyLocalClients = () => {
+    for (const fn of localListeners) {
+      try { fn(clients.size) } catch { /* isolated */ }
+    }
+  }
   rt.publishLocalFeed = (event, data) => {
     publishLocal(event, data)
+  }
+  rt.localFeedClientCount = () => clients.size
+  rt.onLocalFeedClients = (listener) => {
+    localListeners.add(listener)
+    return () => localListeners.delete(listener)
   }
 
   let liveTimer
@@ -150,13 +161,14 @@ export function install(rt) {
   const requests = new Map()
   const lifetimes = new Map()
   const leave = (controller) => {
-    clients.delete(controller)
+    const removed = clients.delete(controller)
     clearTimeout(lifetimes.get(controller))
     lifetimes.delete(controller)
     const connection = requests.get(controller)
     connection?.request.signal.removeEventListener('abort', connection.abort)
     requests.delete(controller)
     try { controller.close() } catch { /* already closed or errored */ }
+    if (removed) notifyLocalClients()
   }
 
   ctx.effect(() => ctx.connection.fetch.register({
@@ -169,6 +181,7 @@ export function install(rt) {
         start(own) {
           controller = own
           clients.add(own)
+          notifyLocalClients()
           replay((event, data) => send(own, encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)))
         },
         cancel() { leave(controller) },
@@ -187,6 +200,7 @@ export function install(rt) {
       clearTimeout(liveTimer)
       offSaved()
       for (const controller of clients) leave(controller)
+      localListeners.clear()
       taps.clear()
       writing.clear()
     }

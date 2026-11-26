@@ -2437,6 +2437,7 @@ export const DE = {
   "Mention a Bot": "Bot erwähnen",
   "Empty file": "Leere Datei",
   "Showing first {count} rows": "Erste {count} Zeilen werden angezeigt",
+  "Preview truncated for size": "Vorschau aus Größengründen gekürzt",
   "Converted from {ext}": "Aus {ext} konvertiert",
   "Preview unavailable in this environment": "Vorschau in dieser Umgebung nicht verfügbar",
   "Select a file to preview": "Datei für Vorschau auswählen",

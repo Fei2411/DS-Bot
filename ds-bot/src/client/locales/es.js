@@ -2437,6 +2437,7 @@ export const ES = {
   "Mention a Bot": "Mencionar un Bot",
   "Empty file": "Archivo vacío",
   "Showing first {count} rows": "Mostrando las primeras {count} filas",
+  "Preview truncated for size": "Vista previa truncada por tamaño",
   "Converted from {ext}": "Convertido de {ext}",
   "Preview unavailable in this environment": "Vista previa no disponible en este entorno",
   "Select a file to preview": "Selecciona un archivo para previsualizar",

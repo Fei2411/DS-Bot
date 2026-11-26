@@ -65,6 +65,8 @@ const { outputFiles } = await build({
 
 function loadUi() {
   const winListeners = new Map()
+  const docCaptureListeners = new Map()
+  const docBubbleListeners = new Map()
   const portalTargets = []
   let active = null
   const createElement = (type, props, ...children) => ({ type, props: { ...(props ?? {}), children: children.flat(Infinity) } })
@@ -121,6 +123,15 @@ function loadUi() {
     body: { tagName: 'BODY' },
     documentElement: { tagName: 'HTML' },
     activeElement: null,
+    addEventListener(type, fn, capture) {
+      const bucket = capture ? docCaptureListeners : docBubbleListeners
+      if (!bucket.has(type)) bucket.set(type, new Set())
+      bucket.get(type).add(fn)
+    },
+    removeEventListener(type, fn, capture) {
+      const bucket = capture ? docCaptureListeners : docBubbleListeners
+      bucket.get(type)?.delete(fn)
+    },
   }
   const sandbox = {
     console,
@@ -187,7 +198,7 @@ function loadUi() {
     if (Array.isArray(node)) return node.map(textOf).join(' ')
     return textOf(node.props?.children)
   }
-  return { exports: sandbox.module.exports, mount, all, textOf, winListeners }
+  return { exports: sandbox.module.exports, mount, all, textOf, winListeners, docCaptureListeners, docBubbleListeners }
 }
 
 test('matchForwardedShortcut and BotViews forward matching whitelist shortcuts and return focus safely', async () => {
@@ -372,7 +383,7 @@ test('ShortcutsDialog and ShortcutsPage filter by capability, honor IME/conflict
 })
 
 test('Shared Escape stack closes ShortcutsDialog before SettingsTour and SettingsDialog in strict priority order', () => {
-  const { exports, mount, winListeners } = loadUi()
+  const { exports, mount, winListeners, docCaptureListeners, docBubbleListeners } = loadUi()
   const storageMap = new Map()
   const store = exports.createShortcutStore({
     mac: true,
@@ -413,6 +424,8 @@ test('Shared Escape stack closes ShortcutsDialog before SettingsTour and Setting
   })
   const fireEsc = () => {
     const evt = { key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() {} }
+    for (const fn of [...(docCaptureListeners.get('keydown') ?? [])]) fn(evt)
+    for (const fn of [...(docBubbleListeners.get('keydown') ?? [])]) fn(evt)
     for (const fn of [...(winListeners.get('keydown') ?? [])]) fn(evt)
     hostInst.render()
     scInst.render({

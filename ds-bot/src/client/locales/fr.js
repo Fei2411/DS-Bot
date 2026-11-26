@@ -2403,6 +2403,7 @@ export const FR = {
   "Mention a Bot": "Mentionner un Bot",
   "Empty file": "Fichier vide",
   "Showing first {count} rows": "Affichage des {count} premières lignes",
+  "Preview truncated for size": "Aperçu tronqué en raison de la taille",
   "Converted from {ext}": "Converti depuis {ext}",
   "Preview unavailable in this environment": "Aperçu indisponible dans cet environnement",
   "Select a file to preview": "Sélectionnez un fichier à prévisualiser",

@@ -20,7 +20,7 @@ import { FolderIcon, SideIcon, TerminalIcon } from './icons.js'
 import { ImportCard, ImportMenu, PreviewCard, RemoteDebugCard, SafariPermissionCard, orderImportSources, siteMatchesHost, useCookieImportFlow } from './cookie-import-ui.js'
 import { t } from './i18n.js'
 import { rectsOverlap } from './browser-overlap.js'
-import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
+import { ESCAPE_PRIORITY, topEscapePriority, useEscape } from './overlay-hooks.js'
 
 export { ImportCard, ImportMenu, PreviewCard, RemoteDebugCard, SafariPermissionCard, orderImportSources, siteMatchesHost }
 
@@ -77,7 +77,9 @@ const widthRange = (view, room) => (view === 'browser' || view === 'workspace'
 const fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, high)))
 const attrValue = value => String(value ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 // The address as the bar shows it while not editing: no scheme, no trailing slash.
-const shortAddress = url => String(url ?? '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '')
+const isBlankUrl = url => !url || url === 'about:blank' || String(url).startsWith('about:blank#')
+const visibleUrl = url => (isBlankUrl(url) ? '' : String(url))
+const shortAddress = url => visibleUrl(url).replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '')
 
 const tabLabel = page => page.title || shortAddress(page.url) || t('New tab')
 
@@ -322,7 +324,7 @@ export function PanelStrip({ bot, roomSubject, subject, browserOwner, view, ids,
         },
           h('button', {
             type: 'button', role: 'tab', 'aria-selected': on, className: 'bt-ptab bt-ptab-btn',
-            title: page.url || t('New tab'),
+            title: visibleUrl(page.url) || t('New tab'),
             onClick: () => { actions.browserActivate(browserId, tabId); onView('browser') },
             onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); void actions.browserCloseTab(browserId, tabId) } },
           },
@@ -430,6 +432,7 @@ export function shouldCheckBrowserCover(records) {
 export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold }) {
   const browserId = ownerId ?? bot?.id ?? ''
   const page = useBrowserPages(pages => pages[tabId ?? '']) ?? EMPTY_PAGE
+  const pageUrl = visibleUrl(page.url)
   const frame = useRef(null)
   const input = useRef(null)
   const importBoxRef = useRef(null)
@@ -447,7 +450,7 @@ export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, use
   } = useCookieImportFlow({
     imports,
     botId: bot?.id ?? '',
-    pageUrl: page.url,
+    pageUrl,
     resetKey: tabId,
     idleFlow: null,
     onReload: () => actions.browserCommand(tabId, 'reload'),
@@ -457,7 +460,7 @@ export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, use
 
   // The guest goes on screen once the panel has landed and settled on its width,
   // and only over a page: the empty, error and import states are the panel's own.
-  const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null
+  const showGuest = landed && !leaving && !covered && Boolean(pageUrl) && !page.error && flow === null
 
   useEffect(() => {
     let raf = 0
@@ -505,7 +508,7 @@ export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, use
   // A fresh tab starts on its address bar.
   useEffect(() => {
     setDraft(null)
-    if (landed && !page.url) input.current?.focus()
+    if (landed && !pageUrl) input.current?.focus()
   }, [tabId, landed])
 
   const go = (event) => {
@@ -519,7 +522,7 @@ export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, use
 
   const editing = draft !== null
   useEscape(() => { setDraft(null); input.current?.blur() }, editing, { priority: ESCAPE_PRIORITY.INLINE_ACTION })
-  const secure = /^https:/i.test(page.url)
+  const secure = /^https:/i.test(pageUrl)
   const viewLabel = bot ? t("{name}'s browser", { name: bot.name }) : t('Browser')
   return h('div', { className: 'bt-panel-view bt-panel-browser', 'aria-label': viewLabel },
     bot && actions.browserTakeover ? h('div', { className: 'bt-browser-takeover', 'data-held': hold?.by === 'user' || undefined },
@@ -533,7 +536,7 @@ export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, use
       h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Back'), title: t('Back'), disabled: !page.canGoBack, onClick: () => actions.browserCommand(tabId, 'back') }, h(BackIcon)),
       h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Forward'), title: t('Forward'), disabled: !page.canGoForward, onClick: () => actions.browserCommand(tabId, 'forward') }, h(ForwardIcon)),
       h('button', {
-        type: 'button', className: 'bt-icon-btn', disabled: !page.url,
+        type: 'button', className: 'bt-icon-btn', disabled: !pageUrl,
         'aria-label': page.loading ? t('Stop') : t('Reload'), title: page.loading ? t('Stop') : t('Reload'),
         onClick: () => actions.browserCommand(tabId, page.loading ? 'stop' : 'reload'),
       }, h(page.loading ? StopIcon : ReloadIcon)),
@@ -542,12 +545,13 @@ export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, use
         h('input', {
           ref: input, type: 'text', spellCheck: false, autoComplete: 'off', 'aria-label': t('Address'),
           placeholder: t('Search or enter address'),
-          value: editing ? draft : shortAddress(page.url),
-          onFocus: (event) => { setDraft(page.url); const target = event.target; requestAnimationFrame(() => target.select()) },
+          value: editing ? draft : shortAddress(pageUrl),
+          onFocus: (event) => { setDraft(pageUrl); const target = event.target; requestAnimationFrame(() => target.select()) },
           onBlur: () => setDraft(null),
           onChange: event => setDraft(event.target.value),
           onKeyDown: (event) => {
             if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+              if (event.defaultPrevented || topEscapePriority() > ESCAPE_PRIORITY.INLINE_ACTION) return
               event.preventDefault?.()
               event.stopPropagation?.()
               event.nativeEvent?.stopPropagation?.()
@@ -609,8 +613,8 @@ export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, use
         ? h('div', { className: 'bt-browser-empty' },
             h('div', { className: 'bt-browser-empty-title' }, t('This page didn’t load')),
             h('div', { className: 'bt-browser-empty-text' }, t(page.error)),
-            page.url ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: () => { void actions.browserNavigate(tabId, page.url) } }, t('Try again')) : null)
-        : flow === null && !page.url
+            pageUrl ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: () => { void actions.browserNavigate(tabId, pageUrl) } }, t('Try again')) : null)
+        : flow === null && !pageUrl
           ? h('div', { className: 'bt-browser-empty' },
               bot
                 ? h(BotMark, { bot, size: 48, state: 'idle', live: true })

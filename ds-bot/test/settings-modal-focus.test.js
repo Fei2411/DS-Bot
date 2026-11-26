@@ -16,6 +16,8 @@ const { outputFiles } = await build({
   stdin: {
     contents: `
       export { SettingsDialog, settingsOwnsKeyboard } from './src/client/settings.js'
+      export { ESCAPE_PRIORITY, useEscape } from './src/client/overlay-hooks.js'
+      export { TOUR_SEEN_KEY } from './src/client/settings-tour.js'
     `,
     resolveDir: join(repoRoot, 'ds-bot'),
   },
@@ -91,7 +93,7 @@ test('SettingsDialog ⌘K ignores repeat holds and never steals focus from a for
   globalThis.cancelAnimationFrame = id => clearTimeout(id)
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   // Prevent SettingsTour from auto-starting during the test.
-  dom.window.localStorage.setItem('ds-bot.settings-tour.v1', 'done')
+  dom.window.localStorage.setItem('ds-bot:settings-tour-v1', '1')
 
   const { createRoot } = await import('react-dom/client')
   const { SettingsDialog, settingsOwnsKeyboard } = loadSettingsModule()
@@ -208,6 +210,170 @@ test('SettingsDialog ⌘K ignores repeat holds and never steals focus from a for
     dom.window.document.body.appendChild(alertDialog)
     assert.equal(settingsOwnsKeyboard(settingsEl, dom.window.document), false)
     alertDialog.remove()
+  } finally {
+    act(() => { root.unmount() })
+    dom.window.close()
+    globalThis.window = prev.window
+    globalThis.document = prev.document
+    if (prev.navigator) Object.defineProperty(globalThis, 'navigator', prev.navigator)
+    else delete globalThis.navigator
+    globalThis.HTMLElement = prev.HTMLElement
+    globalThis.Element = prev.Element
+    globalThis.Node = prev.Node
+    globalThis.MutationObserver = prev.MutationObserver
+    globalThis.ResizeObserver = prev.ResizeObserver
+    globalThis.KeyboardEvent = prev.KeyboardEvent
+    globalThis.Event = prev.Event
+    globalThis.localStorage = prev.localStorage
+    globalThis.getComputedStyle = prev.getComputedStyle
+    globalThis.requestAnimationFrame = prev.requestAnimationFrame
+    globalThis.cancelAnimationFrame = prev.cancelAnimationFrame
+    globalThis.IS_REACT_ACT_ENVIRONMENT = prev.IS_REACT_ACT_ENVIRONMENT
+  }
+})
+
+test('Two-phase Escape preserves plugin-mode DSH Modal layering and SettingsTour yields inertness to foreground modals', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' })
+  const prev = {
+    window: globalThis.window,
+    document: globalThis.document,
+    navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'),
+    HTMLElement: globalThis.HTMLElement,
+    Element: globalThis.Element,
+    Node: globalThis.Node,
+    MutationObserver: globalThis.MutationObserver,
+    ResizeObserver: globalThis.ResizeObserver,
+    KeyboardEvent: globalThis.KeyboardEvent,
+    Event: globalThis.Event,
+    localStorage: globalThis.localStorage,
+    getComputedStyle: globalThis.getComputedStyle,
+    requestAnimationFrame: globalThis.requestAnimationFrame,
+    cancelAnimationFrame: globalThis.cancelAnimationFrame,
+    IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT,
+  }
+
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { platform: 'MacIntel', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
+  })
+  globalThis.HTMLElement = dom.window.HTMLElement
+  globalThis.Element = dom.window.Element
+  globalThis.Node = dom.window.Node
+  globalThis.MutationObserver = dom.window.MutationObserver
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
+  globalThis.KeyboardEvent = dom.window.KeyboardEvent
+  globalThis.Event = dom.window.Event
+  globalThis.localStorage = dom.window.localStorage
+  globalThis.getComputedStyle = dom.window.getComputedStyle
+  globalThis.requestAnimationFrame = cb => setTimeout(cb, 0)
+  globalThis.cancelAnimationFrame = id => clearTimeout(id)
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+  const { createRoot } = await import('react-dom/client')
+  const { SettingsDialog, ESCAPE_PRIORITY, useEscape } = loadSettingsModule()
+  const container = dom.window.document.getElementById('root')
+  const root = createRoot(container)
+
+  try {
+    // 1. Plugin-mode Escape layering against DSH's real `useModalLayer` (bubble listener on `document`).
+    const closed = []
+    let layers = { settings: true, dshModal: true, selectMenu: true }
+    const dshModalListener = (event) => {
+      if (!layers.dshModal) return
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault()
+        layers = { ...layers, dshModal: false }
+        closed.push('dsh-modal')
+      }
+    }
+    dom.window.document.addEventListener('keydown', dshModalListener, false)
+    function LayerHarness({ state }) {
+      useEscape(() => { layers = { ...layers, settings: false }; closed.push('settings') }, state.settings, { priority: ESCAPE_PRIORITY.DIALOG })
+      useEscape(() => { layers = { ...layers, selectMenu: false }; closed.push('select-menu') }, state.selectMenu, { priority: ESCAPE_PRIORITY.SELECT_MENU })
+      return React.createElement('div', null, 'layers')
+    }
+    const renderLayers = () => act(() => { root.render(React.createElement(LayerHarness, { state: layers })) })
+    const pressEsc = () => act(() => {
+      dom.window.document.body.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    })
+    renderLayers()
+    // 1st Esc: SelectMenu (document capture) closes BEFORE DSH Modal (document bubble).
+    pressEsc()
+    renderLayers()
+    assert.deepEqual(closed, ['select-menu'])
+    assert.equal(layers.dshModal, true, 'DSH Modal must stay open when DS Bot SelectMenu handles Escape')
+    assert.equal(layers.settings, true)
+    // 2nd Esc: DSH Modal (document bubble) closes BEFORE SettingsDialog (window bubble).
+    pressEsc()
+    renderLayers()
+    assert.deepEqual(closed, ['select-menu', 'dsh-modal'])
+    assert.equal(layers.settings, true, 'SettingsDialog must stay open when DSH Modal handles Escape')
+    // 3rd Esc: SettingsDialog (window bubble) closes cleanly.
+    pressEsc()
+    renderLayers()
+    assert.deepEqual(closed, ['select-menu', 'dsh-modal', 'settings'])
+    dom.window.document.removeEventListener('keydown', dshModalListener, false)
+
+    // 2. SettingsTour auto-starts on first open, inerts background siblings, and YIELDS inertness
+    //    when an external foreground modal (e.g. ShortcutsDialog) mounts on document.body!
+    const sibling = dom.window.document.createElement('div')
+    sibling.id = 'app-shell-bg'
+    dom.window.document.body.appendChild(sibling)
+
+    let closeClicks = 0
+    const actions = {
+      openSettings() {},
+      closeSettings() {},
+      providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
+      folders: () => Promise.resolve({ team: '/work' }),
+      setPrefs: () => Promise.resolve(),
+    }
+    function ForegroundShortcuts({ open }) {
+      if (!open) return null
+      return ReactDOM.createPortal(
+        React.createElement('div', { className: 'dsb-shortcuts-layer' },
+          React.createElement('div', { className: 'dsb-shortcuts', role: 'dialog', 'aria-modal': true, 'aria-label': 'Keyboard shortcuts' },
+            React.createElement('button', { type: 'button', className: 'dsb-shortcuts-close', onClick: () => { closeClicks += 1 } }, 'Close'))),
+        dom.window.document.body,
+      )
+    }
+    const renderTour = (shortcutsOpen) => act(() => {
+      root.render(React.createElement(React.Fragment, null,
+        React.createElement(SettingsDialog, {
+          page: 'overview',
+          id: null,
+          roster: baseRoster,
+          actions,
+          useUpdate: sel => sel({}),
+        }),
+        React.createElement(ForegroundShortcuts, { open: shortcutsOpen }),
+      ))
+    })
+
+    // First open without TOUR_SEEN_KEY starts SettingsTour automatically.
+    renderTour(false)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+    assert.ok(dom.window.document.querySelector('.bt-tour-card'), 'SettingsTour auto-starts on first open')
+    assert.equal(Boolean(sibling.inert), true, 'SettingsTour marks non-settings body siblings inert')
+
+    // Mount ShortcutsDialog over Settings + SettingsTour -> tour yields inertness!
+    renderTour(true)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+    const shortcutsLayer = dom.window.document.querySelector('.dsb-shortcuts-layer')
+    assert.ok(shortcutsLayer, 'ShortcutsDialog mounted on document.body')
+    assert.equal(Boolean(shortcutsLayer.inert), false, 'ShortcutsDialog must NEVER be marked inert by SettingsTour')
+    assert.equal(Boolean(sibling.inert), false, 'SettingsTour yields inertness while foreground modal is open')
+    const closeBtn = dom.window.document.querySelector('.dsb-shortcuts-close')
+    act(() => { closeBtn.click() })
+    assert.equal(closeClicks, 1, 'ShortcutsDialog close button remains clickable over SettingsTour')
+
+    // Closing ShortcutsDialog lets SettingsTour resume cleanly.
+    renderTour(false)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+    assert.equal(Boolean(sibling.inert), true, 'SettingsTour restores isolation after foreground modal closes')
+    sibling.remove()
   } finally {
     act(() => { root.unmount() })
     dom.window.close()

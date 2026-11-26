@@ -737,77 +737,94 @@ function EngineFormBar({ dirty, invalid, saving, saved, disabled, onSave, onDisc
     }, saving ? t('Saving…') : t('Save')))
 }
 
-function StagedSchemaGroupForm({ entries, detailTitle, disabled, onSaveNamespaces, onSecretMutate }) {
-  const buildInitial = useCallback(() => {
-    const out = {}
-    for (const { descriptor, fields } of entries) {
-      const nsDraft = {}
-      for (const field of fields) {
-        if (field.kind === 'secret') continue
-        const cur = readPath(descriptor.value, field.path)
-        if (field.kind === 'boolean') nsDraft[field.key] = typeof cur === 'boolean' ? cur : Boolean(field.value)
-        else if (field.kind === 'number') nsDraft[field.key] = fieldInputString(cur ?? field.value)
-        else nsDraft[field.key] = fieldInputString(cur ?? field.value)
-      }
-      out[descriptor.ns] = nsDraft
+function dropNamespacesFromMap(map, nsSet) {
+  if (!nsSet || nsSet.size === 0) return map
+  let changed = false
+  const next = {}
+  for (const [compound, val] of Object.entries(map)) {
+    const colon = compound.indexOf(':')
+    const ns = colon >= 0 ? compound.slice(0, colon) : compound
+    if (nsSet.has(ns)) {
+      changed = true
+    } else {
+      next[compound] = val
     }
-    return out
-  }, [entries])
+  }
+  return changed ? next : map
+}
 
-  const signature = entries.map(e => `${e.descriptor.ns}:${e.descriptor.revision}`).join('|')
-  const [drafts, setDrafts] = useState(buildInitial)
+function StagedSchemaGroupForm({ groupKey = '', entries, detailTitle, disabled, onSaveNamespaces, onSecretMutate }) {
+  const [overrides, setOverrides] = useState({})
   const [resets, setResets] = useState({})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const savedTimer = useRef(0)
+  const prevGroupRef = useRef(groupKey)
 
   useEffect(() => {
-    setDrafts(buildInitial())
-    setResets({})
-  }, [signature, buildInitial])
+    if (prevGroupRef.current !== groupKey) {
+      prevGroupRef.current = groupKey
+      setOverrides({})
+      setResets({})
+      setSaved(false)
+    }
+  }, [groupKey])
   useEffect(() => () => clearTimeout(savedTimer.current), [])
 
   const setFieldDraft = (ns, key, val) => {
+    const compound = `${ns}:${key}`
     setSaved(false)
-    setDrafts(prev => ({ ...prev, [ns]: { ...(prev[ns] ?? {}), [key]: val } }))
+    setOverrides(prev => ({ ...prev, [compound]: val }))
     setResets((prev) => {
-      if (!prev[`${ns}:${key}`]) return prev
+      if (!prev[compound]) return prev
       const next = { ...prev }
-      delete next[`${ns}:${key}`]
+      delete next[compound]
       return next
     })
   }
 
   const stageReset = (descriptor, field) => {
+    const compound = `${descriptor.ns}:${field.key}`
     setSaved(false)
-    const def = defaultForField(descriptor, field)
-    const display = field.kind === 'boolean' ? Boolean(def) : fieldInputString(def)
-    setDrafts(prev => ({ ...prev, [descriptor.ns]: { ...(prev[descriptor.ns] ?? {}), [field.key]: display } }))
-    setResets(prev => ({ ...prev, [`${descriptor.ns}:${field.key}`]: true }))
+    setOverrides((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, compound)) return prev
+      const next = { ...prev }
+      delete next[compound]
+      return next
+    })
+    setResets(prev => ({ ...prev, [compound]: true }))
   }
 
   const errorsByKey = {}
+  const displayValues = {}
   const pendingByNs = []
   let invalid = false
   let dirty = false
 
   for (const { descriptor, fields } of entries) {
-    const nsDraft = drafts[descriptor.ns] ?? {}
     const ops = []
     for (const field of fields) {
       if (field.kind === 'secret') continue
       const compound = `${descriptor.ns}:${field.key}`
       const curRaw = readPath(descriptor.value, field.path)
+      const defVal = defaultForField(descriptor, field)
       const userSet = hasPath(descriptor.user, field.path)
+      const serverDisplay = field.kind === 'boolean'
+        ? (typeof curRaw === 'boolean' ? curRaw : Boolean(field.value))
+        : fieldInputString(curRaw ?? field.value)
+      const hasOverride = Object.prototype.hasOwnProperty.call(overrides, compound)
+      const draftVal = resets[compound]
+        ? (field.kind === 'boolean' ? Boolean(defVal) : fieldInputString(defVal))
+        : (hasOverride ? overrides[compound] : serverDisplay)
+      displayValues[compound] = draftVal
+
       if (resets[compound]) {
-        const defVal = defaultForField(descriptor, field)
         if (userSet || curRaw !== defVal) {
           dirty = true
           ops.push({ op: 'unset', path: field.path })
         }
         continue
       }
-      const draftVal = nsDraft[field.key]
       if (field.kind === 'number') {
         const check = validateNumberText(draftVal, { min: field.min, max: field.max, integer: field.step === 1 })
         if (!check.ok) {
@@ -851,7 +868,7 @@ function StagedSchemaGroupForm({ entries, detailTitle, disabled, onSaveNamespace
   }
 
   const handleDiscard = () => {
-    setDrafts(buildInitial())
+    setOverrides({})
     setResets({})
     setSaved(false)
   }
@@ -861,12 +878,19 @@ function StagedSchemaGroupForm({ entries, detailTitle, disabled, onSaveNamespace
     setSaving(true)
     setSaved(false)
     try {
-      const ok = await onSaveNamespaces(pendingByNs)
+      const res = await onSaveNamespaces(pendingByNs)
+      const ok = res === true || res?.ok === true
+      const savedList = Array.isArray(res?.saved) ? res.saved : (ok ? pendingByNs.map(item => item.descriptor.ns) : [])
       if (ok) {
+        setOverrides({})
         setResets({})
         setSaved(true)
         clearTimeout(savedTimer.current)
         savedTimer.current = setTimeout(() => setSaved(false), 2200)
+      } else if (savedList.length > 0) {
+        const savedNs = new Set(savedList)
+        setOverrides(prev => dropNamespacesFromMap(prev, savedNs))
+        setResets(prev => dropNamespacesFromMap(prev, savedNs))
       }
     } finally {
       setSaving(false)
@@ -876,7 +900,6 @@ function StagedSchemaGroupForm({ entries, detailTitle, disabled, onSaveNamespace
   return h(Fragment, null,
     entries.map(({ descriptor, fields }) => {
       const nsTitle = entries.length > 1 ? namespaceTitle(descriptor.ns) : undefined
-      const nsDraft = drafts[descriptor.ns] ?? {}
       return h(EngineSection, {
         key: descriptor.ns,
         title: nsTitle && nsTitle !== detailTitle ? nsTitle : undefined,
@@ -890,7 +913,7 @@ function StagedSchemaGroupForm({ entries, detailTitle, disabled, onSaveNamespace
         }
         const err = errorsByKey[compound]
         const defVal = defaultForField(descriptor, field)
-        const curVal = nsDraft[field.key]
+        const curVal = displayValues[compound]
         const isOverridden = hasPath(descriptor.user, field.path)
         const differsFromDefault = field.kind === 'boolean'
           ? Boolean(curVal) !== Boolean(defVal)
@@ -1044,10 +1067,15 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
     ? webEntry.descriptor.value.fetchProvider
     : ''
   const storedCount = apiEntry?.descriptor?.value?.count
+  const baseCount = readPath(apiEntry?.descriptor?.base, ['count']) ?? 10
   const storedSearchBilling = apiEntry?.descriptor?.value?.searchBilling ?? 'auto'
+  const baseSearchBilling = readPath(apiEntry?.descriptor?.base, ['searchBilling']) ?? 'auto'
   const storedFetchBilling = apiEntry?.descriptor?.value?.fetchBilling ?? 'auto'
+  const baseFetchBilling = readPath(apiEntry?.descriptor?.base, ['fetchBilling']) ?? 'auto'
   const storedMaxUses = legacyEntry?.descriptor?.value?.maxUses
+  const baseMaxUses = readPath(legacyEntry?.descriptor?.base, ['maxUses']) ?? 5
   const storedBaseUrl = legacyEntry?.descriptor?.value?.baseURL ?? ''
+  const baseBaseUrl = readPath(legacyEntry?.descriptor?.base, ['baseURL']) ?? ''
 
   const hasCustomSearchEndpoint = Boolean(
     (typeof apiEntry?.descriptor?.value?.searchBaseURL === 'string' && apiEntry.descriptor.value.searchBaseURL.trim() !== '')
@@ -1058,32 +1086,58 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
     || (typeof apiEntry?.descriptor?.value?.fetchApiKeyEnv === 'string' && apiEntry.descriptor.value.fetchApiKeyEnv.trim() !== ''),
   )
 
-  const signature = [webEntry, apiEntry, legacyEntry].filter(Boolean).map(e => `${e.descriptor.ns}:${e.descriptor.revision}`).join('|')
-  const [searchProvider, setSearchProvider] = useState(storedSearchProvider)
-  const [fetchProvider, setFetchProvider] = useState(storedFetchProvider)
-  const [countText, setCountText] = useState(fieldInputString(storedCount ?? 10))
-  const [searchBilling, setSearchBilling] = useState(storedSearchBilling)
-  const [fetchBilling, setFetchBilling] = useState(storedFetchBilling)
-  const [maxUsesText, setMaxUsesText] = useState(fieldInputString(storedMaxUses ?? 5))
-  const [baseUrlText, setBaseUrlText] = useState(storedBaseUrl)
+  const [overrides, setOverrides] = useState({})
   const [resetFlags, setResetFlags] = useState({})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const savedTimer = useRef(0)
 
-  const resetDraft = useCallback(() => {
-    setSearchProvider(storedSearchProvider)
-    setFetchProvider(storedFetchProvider)
-    setCountText(fieldInputString(storedCount ?? 10))
-    setSearchBilling(storedSearchBilling)
-    setFetchBilling(storedFetchBilling)
-    setMaxUsesText(fieldInputString(storedMaxUses ?? 5))
-    setBaseUrlText(storedBaseUrl)
-    setResetFlags({})
-  }, [storedSearchProvider, storedFetchProvider, storedCount, storedSearchBilling, storedFetchBilling, storedMaxUses, storedBaseUrl])
-
-  useEffect(() => { resetDraft() }, [signature, resetDraft])
   useEffect(() => () => clearTimeout(savedTimer.current), [])
+
+  const hasOv = key => Object.prototype.hasOwnProperty.call(overrides, key)
+  const setField = (key, value) => {
+    setSaved(false)
+    setOverrides(prev => ({ ...prev, [key]: value }))
+    setResetFlags((prev) => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+  const stageFieldReset = (key) => {
+    setSaved(false)
+    setOverrides((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, key)) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+    setResetFlags(prev => ({ ...prev, [key]: true }))
+  }
+
+  const searchProvider = hasOv('web:searchProvider') ? overrides['web:searchProvider'] : storedSearchProvider
+  const fetchProvider = hasOv('web:fetchProvider') ? overrides['web:fetchProvider'] : storedFetchProvider
+  const countText = resetFlags['web-deepseek-api:count']
+    ? String(baseCount)
+    : hasOv('web-deepseek-api:count') ? overrides['web-deepseek-api:count'] : fieldInputString(storedCount ?? 10)
+  const searchBilling = resetFlags['web-deepseek-api:searchBilling']
+    ? baseSearchBilling
+    : hasOv('web-deepseek-api:searchBilling') ? overrides['web-deepseek-api:searchBilling'] : storedSearchBilling
+  const fetchBilling = resetFlags['web-deepseek-api:fetchBilling']
+    ? baseFetchBilling
+    : hasOv('web-deepseek-api:fetchBilling') ? overrides['web-deepseek-api:fetchBilling'] : storedFetchBilling
+  const maxUsesText = resetFlags['web-search-deepseek:maxUses']
+    ? String(baseMaxUses)
+    : hasOv('web-search-deepseek:maxUses') ? overrides['web-search-deepseek:maxUses'] : fieldInputString(storedMaxUses ?? 5)
+  const baseUrlText = resetFlags['web-search-deepseek:baseURL']
+    ? String(baseBaseUrl)
+    : hasOv('web-search-deepseek:baseURL') ? overrides['web-search-deepseek:baseURL'] : storedBaseUrl
+
+  const resetDraft = useCallback(() => {
+    setOverrides({})
+    setResetFlags({})
+  }, [])
 
   const baseSearchProvider = typeof webEntry?.descriptor?.base?.searchProvider === 'string'
     ? webEntry.descriptor.base.searchProvider
@@ -1100,34 +1154,42 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
     [providers.fetch, fetchProvider, baseFetchProvider],
   )
 
-  const countCheck = apiEntry ? validateNumberText(countText, { min: 1, max: 50, integer: true }) : { ok: true, empty: true }
-  const maxUsesCheck = legacyEntry ? validateNumberText(maxUsesText, { min: 1, integer: true }) : { ok: true, empty: true }
+  const showSearchApiFields = Boolean(apiEntry) && (searchProvider === 'deepseek-search-api' || searchProvider === '' || !providers.available)
+  const showLegacyFields = Boolean(legacyEntry) && (searchProvider === 'deepseek-official' || searchProvider === '' || !providers.available)
+  const showFetchApiFields = Boolean(apiEntry) && (fetchProvider === 'deepseek-fetch-api' || fetchProvider === '' || !providers.available)
+
+  // Only validate and commit fields belonging to currently visible provider sections,
+  // so switching away from a provider cannot leave Save blocked by a hidden error.
+  const countCheck = showSearchApiFields ? validateNumberText(countText, { min: 1, max: 50, integer: true }) : { ok: true, empty: true }
+  const maxUsesCheck = showLegacyFields ? validateNumberText(maxUsesText, { min: 1, integer: true }) : { ok: true, empty: true }
   const invalid = !countCheck.ok || !maxUsesCheck.ok
 
   // Build ordered mutations: provider config namespaces first, then `web` selection last.
   const pendingByNs = []
   if (apiEntry) {
     const ops = []
-    if (resetFlags['api:count']) {
-      if (hasPath(apiEntry.descriptor.user, ['count']) || storedCount !== (readPath(apiEntry.descriptor.base, ['count']) ?? 10)) {
-        ops.push({ op: 'unset', path: ['count'] })
-      }
-    } else if (countCheck.ok) {
-      if (countCheck.empty && storedCount !== undefined) ops.push({ op: 'unset', path: ['count'] })
-      else if (!countCheck.empty && countCheck.value !== storedCount) ops.push({ op: 'set', path: ['count'], value: countCheck.value })
-    }
-    if (!hasCustomSearchEndpoint) {
-      if (resetFlags['api:searchBilling']) {
-        if (hasPath(apiEntry.descriptor.user, ['searchBilling']) || storedSearchBilling !== (readPath(apiEntry.descriptor.base, ['searchBilling']) ?? 'auto')) {
-          ops.push({ op: 'unset', path: ['searchBilling'] })
+    if (showSearchApiFields) {
+      if (resetFlags['web-deepseek-api:count']) {
+        if (hasPath(apiEntry.descriptor.user, ['count']) || storedCount !== baseCount) {
+          ops.push({ op: 'unset', path: ['count'] })
         }
-      } else if (searchBilling !== storedSearchBilling) {
-        ops.push({ op: 'set', path: ['searchBilling'], value: searchBilling })
+      } else if (countCheck.ok) {
+        if (countCheck.empty && storedCount !== undefined) ops.push({ op: 'unset', path: ['count'] })
+        else if (!countCheck.empty && countCheck.value !== storedCount) ops.push({ op: 'set', path: ['count'], value: countCheck.value })
+      }
+      if (!hasCustomSearchEndpoint) {
+        if (resetFlags['web-deepseek-api:searchBilling']) {
+          if (hasPath(apiEntry.descriptor.user, ['searchBilling']) || storedSearchBilling !== baseSearchBilling) {
+            ops.push({ op: 'unset', path: ['searchBilling'] })
+          }
+        } else if (searchBilling !== storedSearchBilling) {
+          ops.push({ op: 'set', path: ['searchBilling'], value: searchBilling })
+        }
       }
     }
-    if (!hasCustomFetchEndpoint) {
-      if (resetFlags['api:fetchBilling']) {
-        if (hasPath(apiEntry.descriptor.user, ['fetchBilling']) || storedFetchBilling !== (readPath(apiEntry.descriptor.base, ['fetchBilling']) ?? 'auto')) {
+    if (showFetchApiFields && !hasCustomFetchEndpoint) {
+      if (resetFlags['web-deepseek-api:fetchBilling']) {
+        if (hasPath(apiEntry.descriptor.user, ['fetchBilling']) || storedFetchBilling !== baseFetchBilling) {
           ops.push({ op: 'unset', path: ['fetchBilling'] })
         }
       } else if (fetchBilling !== storedFetchBilling) {
@@ -1137,18 +1199,18 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
     if (ops.length > 0) pendingByNs.push({ descriptor: apiEntry.descriptor, ops })
   }
 
-  if (legacyEntry) {
+  if (legacyEntry && showLegacyFields) {
     const ops = []
-    if (resetFlags['legacy:maxUses']) {
-      if (hasPath(legacyEntry.descriptor.user, ['maxUses']) || storedMaxUses !== (readPath(legacyEntry.descriptor.base, ['maxUses']) ?? 5)) {
+    if (resetFlags['web-search-deepseek:maxUses']) {
+      if (hasPath(legacyEntry.descriptor.user, ['maxUses']) || storedMaxUses !== baseMaxUses) {
         ops.push({ op: 'unset', path: ['maxUses'] })
       }
     } else if (maxUsesCheck.ok) {
       if (maxUsesCheck.empty && storedMaxUses !== undefined) ops.push({ op: 'unset', path: ['maxUses'] })
       else if (!maxUsesCheck.empty && maxUsesCheck.value !== storedMaxUses) ops.push({ op: 'set', path: ['maxUses'], value: maxUsesCheck.value })
     }
-    if (resetFlags['legacy:baseURL']) {
-      if (hasPath(legacyEntry.descriptor.user, ['baseURL']) || storedBaseUrl !== (readPath(legacyEntry.descriptor.base, ['baseURL']) ?? '')) {
+    if (resetFlags['web-search-deepseek:baseURL']) {
+      if (hasPath(legacyEntry.descriptor.user, ['baseURL']) || storedBaseUrl !== baseBaseUrl) {
         ops.push({ op: 'unset', path: ['baseURL'] })
       }
     } else if (baseUrlText !== storedBaseUrl) {
@@ -1179,29 +1241,27 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
     setSaving(true)
     setSaved(false)
     try {
-      const ok = await onSaveNamespaces(pendingByNs)
+      const res = await onSaveNamespaces(pendingByNs)
+      const ok = res === true || res?.ok === true
+      const savedList = Array.isArray(res?.saved) ? res.saved : (ok ? pendingByNs.map(item => item.descriptor.ns) : [])
       if (ok) {
+        setOverrides({})
         setResetFlags({})
         setSaved(true)
         clearTimeout(savedTimer.current)
         savedTimer.current = setTimeout(() => setSaved(false), 2200)
+      } else if (savedList.length > 0) {
+        const savedNs = new Set(savedList)
+        setOverrides(prev => dropNamespacesFromMap(prev, savedNs))
+        setResetFlags(prev => dropNamespacesFromMap(prev, savedNs))
       }
     } finally {
       setSaving(false)
     }
   }
 
-  const showSearchApiFields = Boolean(apiEntry) && (searchProvider === 'deepseek-search-api' || searchProvider === '' || !providers.available)
-  const showLegacyFields = Boolean(legacyEntry) && (searchProvider === 'deepseek-official' || searchProvider === '' || !providers.available)
-  const showFetchApiFields = Boolean(apiEntry) && (fetchProvider === 'deepseek-fetch-api' || fetchProvider === '' || !providers.available)
   const legacySecretField = legacyEntry?.fields?.find(f => f.kind === 'secret') ?? null
   const billingChoices = billingOptions()
-  const clearFlag = key => setResetFlags((prev) => {
-    if (!prev[key]) return prev
-    const next = { ...prev }
-    delete next[key]
-    return next
-  })
 
   return h(Fragment, null,
     providers.error ? h('div', { className: 'dsb-slot-error', role: 'alert' },
@@ -1215,18 +1275,18 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
             value: searchProvider,
             disabled: disabled || saving,
             options: searchOptions,
-            onChange: next => { setSaved(false); setSearchProvider(next) },
+            onChange: next => setField('web:searchProvider', next),
           }))) : null,
       showSearchApiFields ? h(Fragment, null,
         h('div', { className: 'dsb-engine-field-wrap' },
           h(EngineRow, { label: t('Results per search') },
             h('div', { className: 'dsb-engine-inline' },
-              (!resetFlags['api:count'] && (hasPath(apiEntry.descriptor.user, ['count']) || countText !== String(readPath(apiEntry.descriptor.base, ['count']) ?? 10)))
+              (!resetFlags['web-deepseek-api:count'] && (hasPath(apiEntry.descriptor.user, ['count']) || countText !== String(baseCount)))
                 ? h('button', {
                   type: 'button',
                   className: 'bt-mini',
                   disabled: disabled || saving,
-                  onClick: () => { setSaved(false); setCountText(String(readPath(apiEntry.descriptor.base, ['count']) ?? 10)); setResetFlags(prev => ({ ...prev, 'api:count': true })) },
+                  onClick: () => stageFieldReset('web-deepseek-api:count'),
                 }, t('Reset'))
                 : null,
               h('input', {
@@ -1239,7 +1299,7 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
                 'aria-label': t('Results per search'),
                 'aria-invalid': !countCheck.ok ? true : undefined,
                 value: countText,
-                onChange: event => { setSaved(false); clearFlag('api:count'); setCountText(event.target.value) },
+                onChange: event => setField('web-deepseek-api:count', event.target.value),
               }))),
           !countCheck.ok ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, countCheck.error) : null),
         h('div', { className: 'dsb-engine-field-wrap' },
@@ -1249,18 +1309,18 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
               value: searchBilling,
               disabled: disabled || saving || hasCustomSearchEndpoint,
               options: billingChoices,
-              onChange: next => { setSaved(false); clearFlag('api:searchBilling'); setSearchBilling(next) },
+              onChange: next => setField('web-deepseek-api:searchBilling', next),
             })))) : null,
       showLegacyFields ? h(Fragment, null,
         h('div', { className: 'dsb-engine-field-wrap' },
           h(EngineRow, { label: t('Max searches per request') },
             h('div', { className: 'dsb-engine-inline' },
-              (!resetFlags['legacy:maxUses'] && (hasPath(legacyEntry.descriptor.user, ['maxUses']) || maxUsesText !== String(readPath(legacyEntry.descriptor.base, ['maxUses']) ?? 5)))
+              (!resetFlags['web-search-deepseek:maxUses'] && (hasPath(legacyEntry.descriptor.user, ['maxUses']) || maxUsesText !== String(baseMaxUses)))
                 ? h('button', {
                   type: 'button',
                   className: 'bt-mini',
                   disabled: disabled || saving,
-                  onClick: () => { setSaved(false); setMaxUsesText(String(readPath(legacyEntry.descriptor.base, ['maxUses']) ?? 5)); setResetFlags(prev => ({ ...prev, 'legacy:maxUses': true })) },
+                  onClick: () => stageFieldReset('web-search-deepseek:maxUses'),
                 }, t('Reset'))
                 : null,
               h('input', {
@@ -1272,18 +1332,18 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
                 'aria-label': t('Max searches per request'),
                 'aria-invalid': !maxUsesCheck.ok ? true : undefined,
                 value: maxUsesText,
-                onChange: event => { setSaved(false); clearFlag('legacy:maxUses'); setMaxUsesText(event.target.value) },
+                onChange: event => setField('web-search-deepseek:maxUses', event.target.value),
               }))),
           !maxUsesCheck.ok ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, maxUsesCheck.error) : null),
         h('div', { className: 'dsb-engine-field-wrap' },
           h(EngineRow, { label: t('Base URL') },
             h('div', { className: 'dsb-engine-inline' },
-              (!resetFlags['legacy:baseURL'] && (hasPath(legacyEntry.descriptor.user, ['baseURL']) || baseUrlText !== String(readPath(legacyEntry.descriptor.base, ['baseURL']) ?? '')))
+              (!resetFlags['web-search-deepseek:baseURL'] && (hasPath(legacyEntry.descriptor.user, ['baseURL']) || baseUrlText !== String(baseBaseUrl)))
                 ? h('button', {
                   type: 'button',
                   className: 'bt-mini',
                   disabled: disabled || saving,
-                  onClick: () => { setSaved(false); setBaseUrlText(String(readPath(legacyEntry.descriptor.base, ['baseURL']) ?? '')); setResetFlags(prev => ({ ...prev, 'legacy:baseURL': true })) },
+                  onClick: () => stageFieldReset('web-search-deepseek:baseURL'),
                 }, t('Reset'))
                 : null,
               h('input', {
@@ -1292,7 +1352,7 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
                 disabled: disabled || saving,
                 'aria-label': t('Base URL'),
                 value: baseUrlText,
-                onChange: event => { setSaved(false); clearFlag('legacy:baseURL'); setBaseUrlText(event.target.value) },
+                onChange: event => setField('web-search-deepseek:baseURL', event.target.value),
               })))),
         legacySecretField ? h('div', { className: 'dsb-engine-field-wrap' },
           h(EngineRow, { label: legacySecretField.label },
@@ -1305,7 +1365,7 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
             value: fetchProvider,
             disabled: disabled || saving,
             options: fetchOptions,
-            onChange: next => { setSaved(false); setFetchProvider(next) },
+            onChange: next => setField('web:fetchProvider', next),
           }))) : null,
       showFetchApiFields ? h('div', { className: 'dsb-engine-field-wrap' },
         h(EngineRow, { label: t('Fetch billing') },
@@ -1314,7 +1374,7 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
             value: fetchBilling,
             disabled: disabled || saving || hasCustomFetchEndpoint,
             options: billingChoices,
-            onChange: next => { setSaved(false); clearFlag('api:fetchBilling'); setFetchBilling(next) },
+            onChange: next => setField('web-deepseek-api:fetchBilling', next),
           }))) : null) : null,
     h(EngineFormBar, {
       dirty,
@@ -1365,28 +1425,56 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
     () => normalizeStoredRoutes(modelEntry?.descriptor?.value?.allowedModels),
     [modelEntry],
   )
+  const storedRouteKeys = useMemo(() => new Set(storedRoutes.map(routeKeyOf)), [storedRoutes])
 
-  const signature = [limitsEntry, modelEntry].filter(Boolean).map(e => `${e.descriptor.ns}:${e.descriptor.revision}`).join('|')
-  const [maxDepthText, setMaxDepthText] = useState(fieldInputString(storedMaxDepth ?? baseMaxDepth))
-  const [maxActiveText, setMaxActiveText] = useState(fieldInputString(storedMaxActive ?? baseMaxActive))
+  const [overrides, setOverrides] = useState({})
   const [resetFlags, setResetFlags] = useState({})
-  const [selectionEnabled, setSelectionEnabled] = useState(storedEnabled)
-  const [selectedKeys, setSelectedKeys] = useState(() => new Set(storedRoutes.map(routeKeyOf)))
   const [catalog, setCatalog] = useState({ status: 'idle', partial: false, groups: [], error: '' })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const savedTimer = useRef(0)
 
-  const resetDraft = useCallback(() => {
-    setMaxDepthText(fieldInputString(storedMaxDepth ?? baseMaxDepth))
-    setMaxActiveText(fieldInputString(storedMaxActive ?? baseMaxActive))
-    setResetFlags({})
-    setSelectionEnabled(storedEnabled)
-    setSelectedKeys(new Set(storedRoutes.map(routeKeyOf)))
-  }, [storedMaxDepth, baseMaxDepth, storedMaxActive, baseMaxActive, storedEnabled, storedRoutes])
-
-  useEffect(() => { resetDraft() }, [signature, resetDraft])
   useEffect(() => () => clearTimeout(savedTimer.current), [])
+
+  const hasOv = key => Object.prototype.hasOwnProperty.call(overrides, key)
+  const setField = (key, value) => {
+    setSaved(false)
+    setOverrides(prev => ({ ...prev, [key]: value }))
+    setResetFlags((prev) => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+  const stageFieldReset = (key) => {
+    setSaved(false)
+    setOverrides((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, key)) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+    setResetFlags(prev => ({ ...prev, [key]: true }))
+  }
+
+  const maxDepthText = resetFlags['subagent:maxDepth']
+    ? String(baseMaxDepth)
+    : hasOv('subagent:maxDepth') ? overrides['subagent:maxDepth'] : fieldInputString(storedMaxDepth ?? baseMaxDepth)
+  const maxActiveText = resetFlags['subagent:maxActive']
+    ? String(baseMaxActive)
+    : hasOv('subagent:maxActive') ? overrides['subagent:maxActive'] : fieldInputString(storedMaxActive ?? baseMaxActive)
+  const selectionEnabled = hasOv('subagent-model-selection-settings:enabled')
+    ? overrides['subagent-model-selection-settings:enabled']
+    : storedEnabled
+  const selectedKeys = hasOv('subagent-model-selection-settings:selectedKeys')
+    ? overrides['subagent-model-selection-settings:selectedKeys']
+    : storedRouteKeys
+
+  const resetDraft = useCallback(() => {
+    setOverrides({})
+    setResetFlags({})
+  }, [])
 
   const loadCatalog = useCallback(async () => {
     setCatalog(prev => ({ ...prev, status: 'loading', error: '' }))
@@ -1457,7 +1545,7 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
   const pendingByNs = []
   if (limitsEntry) {
     const ops = []
-    if (resetFlags.maxDepth) {
+    if (resetFlags['subagent:maxDepth']) {
       if (hasPath(limitsEntry.descriptor.user, ['maxDepth']) || storedMaxDepth !== baseMaxDepth) {
         ops.push({ op: 'unset', path: ['maxDepth'] })
       }
@@ -1465,7 +1553,7 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
       if (depthCheck.empty && storedMaxDepth !== undefined) ops.push({ op: 'unset', path: ['maxDepth'] })
       else if (!depthCheck.empty && depthCheck.value !== storedMaxDepth) ops.push({ op: 'set', path: ['maxDepth'], value: depthCheck.value })
     }
-    if (resetFlags.maxActive) {
+    if (resetFlags['subagent:maxActive']) {
       if (hasPath(limitsEntry.descriptor.user, ['maxActiveSubagents']) || storedMaxActive !== baseMaxActive) {
         ops.push({ op: 'unset', path: ['maxActiveSubagents'] })
       }
@@ -1490,12 +1578,19 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
     setSaving(true)
     setSaved(false)
     try {
-      const ok = await onSaveNamespaces(pendingByNs)
+      const res = await onSaveNamespaces(pendingByNs)
+      const ok = res === true || res?.ok === true
+      const savedList = Array.isArray(res?.saved) ? res.saved : (ok ? pendingByNs.map(item => item.descriptor.ns) : [])
       if (ok) {
+        setOverrides({})
         setResetFlags({})
         setSaved(true)
         clearTimeout(savedTimer.current)
         savedTimer.current = setTimeout(() => setSaved(false), 2200)
+      } else if (savedList.length > 0) {
+        const savedNs = new Set(savedList)
+        setOverrides(prev => dropNamespacesFromMap(prev, savedNs))
+        setResetFlags(prev => dropNamespacesFromMap(prev, savedNs))
       }
     } finally {
       setSaving(false)
@@ -1504,11 +1599,14 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
 
   const toggleRoute = (key) => {
     setSaved(false)
-    setSelectedKeys((prev) => {
-      const next = new Set(prev)
+    setOverrides((prev) => {
+      const current = Object.prototype.hasOwnProperty.call(prev, 'subagent-model-selection-settings:selectedKeys')
+        ? prev['subagent-model-selection-settings:selectedKeys']
+        : storedRouteKeys
+      const next = new Set(current)
       if (next.has(key)) next.delete(key)
       else next.add(key)
-      return next
+      return { ...prev, 'subagent-model-selection-settings:selectedKeys': next }
     })
   }
 
@@ -1517,12 +1615,12 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
       h('div', { className: 'dsb-engine-field-wrap' },
         h(EngineRow, { label: t('Max depth') },
           h('div', { className: 'dsb-engine-inline' },
-            (!resetFlags.maxDepth && (hasPath(limitsEntry.descriptor.user, ['maxDepth']) || maxDepthText !== String(baseMaxDepth)))
+            (!resetFlags['subagent:maxDepth'] && (hasPath(limitsEntry.descriptor.user, ['maxDepth']) || maxDepthText !== String(baseMaxDepth)))
               ? h('button', {
                 type: 'button',
                 className: 'bt-mini',
                 disabled: disabled || saving,
-                onClick: () => { setSaved(false); setMaxDepthText(String(baseMaxDepth)); setResetFlags(prev => ({ ...prev, maxDepth: true })) },
+                onClick: () => stageFieldReset('subagent:maxDepth'),
               }, t('Reset'))
               : null,
             h('input', {
@@ -1534,18 +1632,18 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
               'aria-label': t('Max depth'),
               'aria-invalid': !depthCheck.ok ? true : undefined,
               value: maxDepthText,
-              onChange: event => { setSaved(false); setResetFlags(prev => ({ ...prev, maxDepth: false })); setMaxDepthText(event.target.value) },
+              onChange: event => setField('subagent:maxDepth', event.target.value),
             }))),
         !depthCheck.ok ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, depthCheck.error) : null),
       h('div', { className: 'dsb-engine-field-wrap' },
         h(EngineRow, { label: t('Max active subagents') },
           h('div', { className: 'dsb-engine-inline' },
-            (!resetFlags.maxActive && (hasPath(limitsEntry.descriptor.user, ['maxActiveSubagents']) || maxActiveText !== String(baseMaxActive)))
+            (!resetFlags['subagent:maxActive'] && (hasPath(limitsEntry.descriptor.user, ['maxActiveSubagents']) || maxActiveText !== String(baseMaxActive)))
               ? h('button', {
                 type: 'button',
                 className: 'bt-mini',
                 disabled: disabled || saving,
-                onClick: () => { setSaved(false); setMaxActiveText(String(baseMaxActive)); setResetFlags(prev => ({ ...prev, maxActive: true })) },
+                onClick: () => stageFieldReset('subagent:maxActive'),
               }, t('Reset'))
               : null,
             h('input', {
@@ -1557,7 +1655,7 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
               'aria-label': t('Max active subagents'),
               'aria-invalid': !activeCheck.ok ? true : undefined,
               value: maxActiveText,
-              onChange: event => { setSaved(false); setResetFlags(prev => ({ ...prev, maxActive: false })); setMaxActiveText(event.target.value) },
+              onChange: event => setField('subagent:maxActive', event.target.value),
             }))),
         !activeCheck.ok ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, activeCheck.error) : null)) : null,
     modelEntry ? h(EngineSection, { title: t('Subagent models') },
@@ -1567,7 +1665,7 @@ function SubagentDetailForm({ entries, disabled, onSaveNamespaces }) {
             label: t('Allow agents to choose models for subagents'),
             on: selectionEnabled,
             disabled: disabled || saving,
-            onChange: next => { setSaved(false); setSelectionEnabled(next) },
+            onChange: next => setField('subagent-model-selection-settings:enabled', next),
           }))),
       selectionEnabled ? h('div', { className: 'dsb-subagent-models' },
         catalog.status === 'loading'
@@ -1782,9 +1880,10 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
   }
 
   const saveNamespaces = async (batch) => {
-    if (busyKey || readOnly || !settingsData?.writable || !Array.isArray(batch) || batch.length === 0) return false
+    if (busyKey || readOnly || !settingsData?.writable || !Array.isArray(batch) || batch.length === 0) return { ok: false, saved: [] }
     setBusyKey('cfg:batch')
     setError('')
+    const saved = []
     try {
       for (const { descriptor, ops } of batch) {
         if (!Array.isArray(ops) || ops.length === 0) continue
@@ -1793,6 +1892,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
           ops,
           expectedRevision: descriptor.revision,
         })
+        saved.push(descriptor.ns)
         if (settingsCache) {
           settingsCache = {
             ...settingsCache,
@@ -1806,11 +1906,11 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
           } : prev))
         }
       }
-      return true
+      return { ok: true, saved }
     } catch (failure) {
       if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
       if (failure?.code === 'bot/stale') await load()
-      return false
+      return { ok: false, saved }
     } finally {
       if (mounted.current) setBusyKey('')
     }
@@ -1942,6 +2042,8 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
                 onSaveNamespaces: saveNamespaces,
               })
               : h(StagedSchemaGroupForm, {
+                key: detailId,
+                groupKey: detailId,
                 entries: activeItem.entries,
                 detailTitle,
                 disabled: cfgDisabled,
@@ -2408,56 +2510,6 @@ export function ArchivedSessionsPage({ readOnly = false, onRestoredSession }) {
         }, t('Restore'))))))
 }
 
-function SchemaNumberField({ field, disabled, onSave }) {
-  const [text, setText] = useState(field.value === '' ? '' : String(field.value))
-  useEffect(() => { setText(field.value === '' ? '' : String(field.value)) }, [field.value])
-  const commit = () => {
-    const trimmed = text.trim()
-    if (trimmed === '') {
-      if (field.value !== '') onSave({ op: 'unset', path: field.path })
-      return
-    }
-    const parsed = Number(trimmed)
-    if (!Number.isFinite(parsed)) { setText(field.value === '' ? '' : String(field.value)); return }
-    if (field.min !== undefined && parsed < field.min) { setText(field.value === '' ? '' : String(field.value)); return }
-    if (field.max !== undefined && parsed > field.max) { setText(field.value === '' ? '' : String(field.value)); return }
-    if (parsed !== field.value) onSave({ op: 'set', path: field.path, value: parsed })
-  }
-  return h('input', {
-    className: 'bt-input bt-set-number',
-    type: 'number',
-    min: field.min,
-    max: field.max,
-    step: field.step,
-    disabled,
-    'aria-label': field.label,
-    value: text,
-    onChange: event => setText(event.target.value),
-    onBlur: commit,
-    onKeyDown: event => { if (event.key === 'Enter') event.currentTarget.blur() },
-  })
-}
-
-function SchemaStringField({ field, disabled, onSave }) {
-  const [text, setText] = useState(field.value ?? '')
-  useEffect(() => { setText(field.value ?? '') }, [field.value])
-  const commit = () => {
-    if (text !== (field.value ?? '')) {
-      onSave(text === '' ? { op: 'unset', path: field.path } : { op: 'set', path: field.path, value: text })
-    }
-  }
-  return h('input', {
-    className: 'bt-input dsb-engine-text',
-    type: 'text',
-    disabled,
-    'aria-label': field.label,
-    value: text,
-    onChange: event => setText(event.target.value),
-    onBlur: commit,
-    onKeyDown: event => { if (event.key === 'Enter') event.currentTarget.blur() },
-  })
-}
-
 function SchemaSecretField({ field, disabled, onSave }) {
   const [text, setText] = useState('')
   const save = () => {
@@ -2482,128 +2534,10 @@ function SchemaSecretField({ field, disabled, onSave }) {
     field.isSet ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled, onClick: () => onSave({ op: 'unset', path: field.path }) }, t('Clear')) : null)
 }
 
-function SchemaFieldRow({ field, disabled, onSave }) {
-  return h(EngineRow, {
-    label: field.label,
-    hint: field.description || undefined,
-  },
-  field.kind === 'boolean'
-    ? h(Switch, {
-      label: field.label,
-      on: field.value,
-      disabled,
-      onChange: next => onSave({ op: 'set', path: field.path, value: next }),
-    })
-    : field.kind === 'select'
-      ? h(SelectMenu, {
-        'aria-label': field.label,
-        value: String(field.value ?? ''),
-        disabled,
-        options: field.options.map(opt => ({ value: String(opt.value), label: opt.label })),
-        onChange: (next) => {
-          const chosen = field.options.find(opt => String(opt.value) === next)
-          onSave({ op: 'set', path: field.path, value: chosen ? chosen.value : next })
-        },
-      })
-      : field.kind === 'number'
-        ? h(SchemaNumberField, { field, disabled, onSave })
-        : field.kind === 'secret'
-          ? h(SchemaSecretField, { field, disabled, onSave })
-          : h(SchemaStringField, { field, disabled, onSave }))
-}
-
 function namespaceTitle(ns) {
   const known = ENGINE_NAMESPACE_META[ns]
   if (known) return t(known.titleKey)
   return formatSegment(ns)
-}
-
-export function EngineConfigPage({ readOnly = false }) {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [busyKey, setBusyKey] = useState('')
-  const [error, setError] = useState('')
-  const activeLang = language()
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => { mounted.current = false }
-  }, [])
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const next = await call('engine-settings-list')
-      if (mounted.current) setData(next)
-    } catch (failure) {
-      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
-    } finally {
-      if (mounted.current) setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { void load() }, [load])
-
-  const mutateField = async (descriptor, op) => {
-    if (busyKey || readOnly || !data?.writable) return
-    const key = `${descriptor.ns}:${op.path.join('.')}`
-    setBusyKey(key)
-    setError('')
-    try {
-      const updated = await call('engine-settings-mutate', {
-        ns: descriptor.ns,
-        ops: [op],
-        expectedRevision: descriptor.revision,
-      })
-      if (mounted.current) {
-        setData(prev => (prev ? {
-          ...prev,
-          namespaces: prev.namespaces.map(entry => (entry.ns === updated.ns ? updated : entry)),
-        } : prev))
-      }
-    } catch (failure) {
-      if (mounted.current) setError(hostText(failure?.message ?? String(failure)))
-      if (failure?.code === 'bot/stale') await load()
-    } finally {
-      if (mounted.current) setBusyKey('')
-    }
-  }
-
-  const sections = useMemo(() => {
-    void activeLang
-    const namespaces = data?.namespaces ?? []
-    return namespaces
-      .filter(entry => !DEDICATED_NAMESPACES.has(entry.ns) && !isBannedNamespace(entry.ns) && (ENGINE_NAMESPACE_META[entry.ns] !== undefined || entry.autoGenerate !== false))
-      .map(entry => ({
-        descriptor: entry,
-        fields: extractSchemaFields(entry.schema, entry.value, entry.secrets, entry.ns),
-        order: ENGINE_NAMESPACE_META[entry.ns]?.order ?? 900,
-      }))
-      .filter(entry => entry.fields.length > 0)
-      .sort((a, b) => (a.order - b.order) || a.descriptor.ns.localeCompare(b.descriptor.ns))
-  }, [data, activeLang])
-
-  if (loading && !data) {
-    return h('div', { className: 'dsb-engine-loading', role: 'status' }, t('Loading…'))
-  }
-  if (data && data.available === false) {
-    return h('div', { className: 'dsb-engine-empty' }, t('Engine configuration is not available on this host.'))
-  }
-
-  const disabled = Boolean(busyKey) || readOnly || !data?.writable
-
-  return h('div', { className: 'dsb-engine-page', 'data-engine-section': 'engine-config' },
-    h(StatusAlert, { error }),
-    sections.length === 0
-      ? h('div', { className: 'dsb-engine-empty' }, t('No engine configuration options available.'))
-      : sections.map(({ descriptor, fields }) => h(EngineSection, { key: descriptor.ns, title: namespaceTitle(descriptor.ns) },
-        fields.map(field => h(SchemaFieldRow, {
-          key: field.key,
-          field,
-          disabled,
-          onSave: op => { void mutateField(descriptor, op) },
-        })))))
 }
 
 export function SessionLogGeneralItem({ readOnly = false }) {
