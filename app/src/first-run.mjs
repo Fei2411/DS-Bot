@@ -2,7 +2,7 @@
 // one folder picked from the start page), and whether it copies the Bot team of the user's own
 // DSH. The answers are kept in the app's own data.
 import { app } from 'electron'
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { constants, copyFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { findTeam, userDshHome } from './import.mjs'
@@ -90,6 +90,19 @@ function offerOf(dataDir) {
   }
 }
 
+function backUpCorruptLocations(file) {
+  const base = `${file}.corrupt-${String(Date.now())}`
+  for (let attempt = 0; ; attempt += 1) {
+    const backup = attempt === 0 ? base : `${base}-${String(attempt)}`
+    try {
+      copyFileSync(file, backup, constants.COPYFILE_EXCL)
+      return backup
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error
+    }
+  }
+}
+
 /**
  * Write the chosen places once the first run is finished; quitting before that asks again. The
  * free space of the data's drive when the data goes to a folder is kept as long as it stays
@@ -99,6 +112,7 @@ export function saveLocations({ dataDir, workspace }) {
   const file = locationsFile(app.getPath('userData'))
   mkdirSync(dirname(file), { recursive: true })
   const saved = readSavedLocations(file)
+  if (saved === null) console.warn(`DS Bot: ignoring invalid locations.json; backed up to ${backUpCorruptLocations(file)}`)
   const kept = saved && resolve(saved.dataDir) === resolve(dataDir) && roomOf(saved.freeAtStart) !== undefined
   // A full drive gives no room to measure a fifth of: the next save measures again.
   const freeAtStart = kept ? saved.freeAtStart : roomOf(freeSpace(dataDir))
@@ -123,10 +137,12 @@ export function chooseLocations() {
   if (process.env.DS_BOT_HOME) return { dataDir: process.env.DS_BOT_HOME, workspace: process.env.DS_BOT_WORKSPACE || undefined }
   const saved = readSavedLocations(locationsFile(app.getPath('userData')))
   if (saved) return { dataDir: saved.dataDir, workspace: saved.workspace, freeAtStart: roomOf(saved.freeAtStart) }
-  if (saved === null) console.warn('DS Bot: ignoring invalid locations.json; using default locations')
   const { dataDir, workspace } = defaultPlaces()
   const offer = offerOf(dataDir)
-  if (offer !== undefined) return { dataDir, workspace, offer }
+  if (offer !== undefined) {
+    if (saved === null) console.warn('DS Bot: ignoring invalid locations.json; using default locations')
+    return { dataDir, workspace, offer }
+  }
   // There is nothing to copy, so the first run ends with the chosen places.
   saveLocations({ dataDir, workspace })
   return { dataDir, workspace }
