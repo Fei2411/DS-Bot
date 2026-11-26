@@ -131,6 +131,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.nextModelEpoch = 0
     this.globalModelEpoch = 0
     this.modelEpochs = new Map() // route -> monotonic epoch for modelCache writes
+    this.closingRoutes = new Map() // route -> in-flight closeRoute promise
     this.windows = new Map()   // route\0model -> the window the CLI reported for it
     this.probes = new Map()    // route -> { epoch, promise }
     this.activeProbes = new Set() // active askModels runs, so superseding probes stay protected
@@ -268,23 +269,33 @@ export class LocalAgentAdapter extends LlmAdapter {
   // Any session with an in-flight turn or waiting reader fails explicitly so an
   // interrupted reply is never reported as completed and unread markers roll back.
   async closeRoute(route, reason = 'the local agent configuration changed', { code = 'LOCAL_AGENT_EXIT' } = {}) {
-    this.dropModelCache(route)
-    for (const key of this.windows.keys()) {
-      if (key.startsWith(`${route}\u0000`)) this.windows.delete(key)
-    }
-    const matching = [...this.live.values()].filter(live => live.route === route)
-    for (const live of matching) {
-      const active = !live.started || live.state !== 'idle' || live.waiters.length > 0 || live.pending.size > 0 || live.queue.length > 0
-      const error = active
-        ? new LlmError(`${live.spec.name} stopped: ${reason}.`, code)
-        : undefined
-      if (error === undefined) this.stopTurn(live, reason)
-      await this.closeLive(live, { idle: true, error }).catch(() => {})
-    }
-    const engine = this.engines.get(route)
-    if (engine !== undefined) {
-      this.engines.delete(route)
-      await engine.close?.().catch(() => {})
+    const prev = this.closingRoutes.get(route)
+    const run = (async () => {
+      if (prev !== undefined) await prev.catch(() => {})
+      this.dropModelCache(route)
+      for (const key of this.windows.keys()) {
+        if (key.startsWith(`${route}\u0000`)) this.windows.delete(key)
+      }
+      const matching = [...this.live.values()].filter(live => live.route === route)
+      for (const live of matching) {
+        const active = !live.started || live.state !== 'idle' || live.waiters.length > 0 || live.pending.size > 0 || live.queue.length > 0
+        const error = active
+          ? new LlmError(`${live.spec.name} stopped: ${reason}.`, code)
+          : undefined
+        if (error === undefined) this.stopTurn(live, reason)
+        await this.closeLive(live, { idle: true, error }).catch(() => {})
+      }
+      const engine = this.engines.get(route)
+      if (engine !== undefined) {
+        this.engines.delete(route)
+        await engine.close?.().catch(() => {})
+      }
+    })()
+    this.closingRoutes.set(route, run)
+    try {
+      await run
+    } finally {
+      if (this.closingRoutes.get(route) === run) this.closingRoutes.delete(route)
     }
   }
 
@@ -293,7 +304,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   async liveFor(options, preset) {
     const sessionId = String(options.sessionId)
     const route = options.provider
-    const spec = this.specOf(route)
+    let spec = this.specOf(route)
     if (spec === undefined) {
       const existing = this.live.get(sessionId)
       if (existing !== undefined) await this.closeLive(existing)
@@ -302,6 +313,17 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (spec.kind === 'codex' && this.deps.prepareSecretEnvForSession !== undefined) {
       await this.deps.prepareSecretEnvForSession(sessionId, options.signal)
       options.signal?.throwIfAborted()
+    }
+    const closing = this.closingRoutes.get(route)
+    if (closing !== undefined) {
+      await closing.catch(() => {})
+      options.signal?.throwIfAborted()
+    }
+    spec = this.specOf(route)
+    if (spec === undefined) {
+      const existing = this.live.get(sessionId)
+      if (existing !== undefined) await this.closeLive(existing)
+      throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
     }
     const resolveSecrets = () => spec.kind === 'codex' ? this.deps.secretEnvForSession?.(sessionId) ?? {} : {}
     let live = this.live.get(sessionId)
@@ -321,7 +343,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
       // A CLI takes its model and permission mode when its session opens. A
       // changed secret set also requires replacing the Codex process, even mid-turn.
-      if (isDeepStrictEqual(live.secrets, resolveSecrets())) {
+      if (isDeepStrictEqual(live.secrets, resolveSecrets()) && isDeepStrictEqual(live.spec?.env ?? {}, spec.env ?? {})) {
         if ((live.model === options.model && live.preset === preset) || live.state !== 'idle') return live
       } else {
         if (live.pending.size > 0 || live.orphanedPending?.size > 0) {
@@ -339,6 +361,13 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
       await this.closeLive(live, { idle: true })
     } else if (live !== undefined) await this.closeLive(live)
+    const closingBeforeSpawn = this.closingRoutes.get(route)
+    if (closingBeforeSpawn !== undefined) {
+      await closingBeforeSpawn.catch(() => {})
+      options.signal?.throwIfAborted()
+    }
+    spec = this.specOf(route)
+    if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
     if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
     const record = this.deps.record(sessionId)
     const secrets = resolveSecrets()

@@ -1145,3 +1145,50 @@ test('removing and recreating a profile with the same name allocates a fresh rou
     err => errorCode(err) === 'bot/invalid' && /previously removed|referenced by a Bot/i.test(err.message),
   )
 })
+
+test('liveFor re-resolves Codex profile after async secret preparation so retired CODEX_HOME is never spawned', async () => {
+  const dirA = '/tmp/codex-profile-a'
+  const dirB = '/tmp/codex-profile-b'
+  let profiles = [{ id: 'work', baseRoute: 'local-codex-cli', name: 'Work', configDir: dirA }]
+  const spawnedSpecs = []
+  let releaseSecrets
+  const adapter = new LocalAgentAdapter({
+    customAgents: () => [],
+    profiles: () => profiles,
+    home: '/tmp/dsbot-home',
+    record: () => undefined,
+    saveRecord: () => {},
+    dropRecord: () => {},
+    presetFor: () => 'default',
+    toolsFor: () => [],
+    signInHint: () => '',
+    usedModels: () => [],
+    prepareSecretEnvForSession: async () => new Promise(resolve => { releaseSecrets = resolve }),
+    secretEnvForSession: () => ({ API_KEY: 'secret-1' }),
+    spawnEngine: (_kind, _route, spec) => {
+      spawnedSpecs.push(spec)
+      return { close: async () => {} }
+    },
+  })
+
+  // 1. Update profile configDir while secret loading is held open -> must spawn with dirB, never dirA
+  const updatePending = adapter.liveFor({ sessionId: 's1', provider: 'local-codex-cli@work', model: 'default' }, 'default')
+  await new Promise(resolve => setTimeout(resolve, 10))
+  profiles = [{ id: 'work', baseRoute: 'local-codex-cli', name: 'Work', configDir: dirB }]
+  await adapter.closeRoute('local-codex-cli@work', 'profile updated')
+  releaseSecrets()
+  const live = await updatePending
+  assert.equal(spawnedSpecs.length, 1)
+  assert.equal(spawnedSpecs[0].env.CODEX_HOME, dirB, 'Codex must spawn with updated CODEX_HOME, never stale dirA')
+  assert.equal(spawnedSpecs[0].env.API_KEY, 'secret-1')
+  assert.equal(live.spec.env.CODEX_HOME, dirB)
+
+  // 2. Remove profile while secret loading is held open -> must NOT spawn and must reject with LOCAL_AGENT_MISSING
+  const removePending = adapter.liveFor({ sessionId: 's2', provider: 'local-codex-cli@work', model: 'default' }, 'default')
+  await new Promise(resolve => setTimeout(resolve, 10))
+  profiles = []
+  await adapter.closeRoute('local-codex-cli@work', 'profile removed', { code: 'LOCAL_AGENT_MISSING' })
+  releaseSecrets()
+  await assert.rejects(removePending, err => err?.code === 'LOCAL_AGENT_MISSING')
+  assert.equal(spawnedSpecs.length, 1, 'removed profile must never spawn a Codex process')
+})
