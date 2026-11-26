@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import fsp from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
@@ -776,11 +776,27 @@ test('buildOpenOsCommand safely formats Windows reveal/open commands, scrubs sen
   const openWin = buildOpenOsCommand('C:\\Users\\Alice\\100% #1 [draft]\\doc.txt', 'open', false, 'win32')
   assert.equal(openWin.command, 'powershell.exe')
   assert.equal(openWin.waitForExit, true)
+  assert.equal(openWin.options.windowsHide, true)
+  assert.notEqual(openWin.options.detached, true, 'powershell launcher should not set detached:true alongside windowsHide:true')
   assert.equal(openWin.options.env.DSB_OPEN_TARGET, 'C:\\Users\\Alice\\100% #1 [draft]\\doc.txt')
   assert.equal(openWin.options.env.DEEPSEEK_API_KEY, undefined)
   assert.equal(openWin.options.env.DS_BOT_TEST_TOKEN, undefined)
-  assert.ok(openWin.args.some(a => a.includes('Invoke-Item -LiteralPath $env:DSB_OPEN_TARGET -ErrorAction Stop')))
-  assert.equal(openWin.args.some(a => a.includes('Start-Process -LiteralPath')), false, 'must never use invalid Start-Process -LiteralPath')
+  assert.ok(openWin.args.includes('-NoProfile') && openWin.args.includes('-NonInteractive'))
+  const openWinCmd = openWin.args[openWin.args.indexOf('-Command') + 1]
+  assert.ok(openWinCmd.includes('Test-Path -LiteralPath $p'))
+  assert.ok(openWinCmd.includes('Invoke-Item -LiteralPath $p -ErrorAction Stop'))
+  assert.ok(openWinCmd.includes('[Console]::Error.WriteLine'))
+  assert.ok(openWinCmd.includes('exit 1'))
+  assert.equal(openWinCmd.includes('"'), false, '-Command script avoids double quotes that powershell.exe strips')
+  assert.equal(openWinCmd.includes('Start-Process -LiteralPath'), false, 'must never use invalid Start-Process -LiteralPath')
+  assert.notEqual(
+    openWinCmd.replace('Invoke-Item -LiteralPath $p -ErrorAction Stop', 'Invoke-Item -LiteralPath $p -WhatIf -ErrorAction Stop'),
+    openWinCmd,
+  )
+  assert.notEqual(
+    openWinCmd.replace(/if \(\[string\]::IsNullOrEmpty\(\$p\)[^}]+\};\s*/, ''),
+    openWinCmd,
+  )
 
   const revealMac = buildOpenOsCommand('/tmp/a b.txt', 'reveal', false, 'darwin')
   assert.equal(revealMac.command, 'open')
@@ -839,23 +855,104 @@ test('Windows PowerShell open command validates real cmdlet parameter binding an
   const cmd = spec.args[spec.args.indexOf('-Command') + 1]
   assert.ok(cmd && cmd.includes('Invoke-Item'))
 
-  // 1. Validate PowerShell AST syntax & real Get-Command parameter binding + -WhatIf resolution on literal special chars.
+  // 1. Validate PowerShell AST syntax & real Get-Command parameter binding for Test-Path and Invoke-Item.
   const verifyScript = [
     '$errors = $null',
     '[void][System.Management.Automation.Language.Parser]::ParseInput($env:DSB_CMD, [ref]$null, [ref]$errors)',
     'if ($errors.Count -gt 0) { throw ($errors | Out-String) }',
-    '$meta = Get-Command Invoke-Item -ErrorAction Stop',
-    'if (-not $meta.Parameters.ContainsKey("LiteralPath")) { throw "Invoke-Item missing -LiteralPath" }',
-    'Invoke-Item -LiteralPath $env:DSB_OPEN_TARGET -WhatIf -ErrorAction Stop',
+    '$invokeMeta = Get-Command Invoke-Item -ErrorAction Stop',
+    "if (-not $invokeMeta.Parameters.ContainsKey('LiteralPath')) { throw 'Invoke-Item missing -LiteralPath' }",
+    '$testMeta = Get-Command Test-Path -ErrorAction Stop',
+    "if (-not $testMeta.Parameters.ContainsKey('LiteralPath')) { throw 'Test-Path missing -LiteralPath' }",
   ].join('; ')
   execFileSync(spec.command, ['-NoProfile', '-NonInteractive', '-Command', verifyScript], {
     env: { ...spec.options.env, DSB_CMD: cmd },
     stdio: 'pipe',
+    windowsHide: true,
   })
 
-  // 2. Real openOsPath against a missing file must reject with PowerShell error rather than returning true.
+  // 2. Run the production command structure with -WhatIf against an existing weird-char file: must exit 0.
+  const whatIfCmd = cmd.replace(
+    'Invoke-Item -LiteralPath $p -ErrorAction Stop',
+    'Invoke-Item -LiteralPath $p -WhatIf -ErrorAction Stop',
+  )
+  assert.notEqual(whatIfCmd, cmd)
+  const whatIfRes = spawnSync(spec.command, ['-NoProfile', '-NonInteractive', '-Command', whatIfCmd], {
+    env: spec.options.env,
+    windowsHide: true,
+    encoding: 'utf8',
+  })
+  assert.equal(
+    whatIfRes.status,
+    0,
+    `Expected -WhatIf success on existing file, got status=${whatIfRes.status} signal=${whatIfRes.signal} stderrLen=${(whatIfRes.stderr ?? '').length} stderr=${JSON.stringify(whatIfRes.stderr)} stdout=${JSON.stringify(whatIfRes.stdout)}`,
+  )
+
+  // 3. Real openOsPath against a missing file must reject with readable PowerShell stderr and non-zero exit.
   const missingPath = join(workDir, 'missing [100%] #1.txt')
-  await assert.rejects(() => openOsPath(missingPath, 'open', false), /Cannot find path|ItemNotFound|exited with code/i)
+  const diag = { exitCode: undefined, signal: undefined, stderrBytes: 0, stderr: '', elapsedMs: 0 }
+  const startedAt = Date.now()
+  let missingErr = null
+  try {
+    await openOsPath(missingPath, 'open', false, {
+      spawnFn: (command, args, options) => {
+        const child = spawn(command, args, options)
+        child.stderr?.on('data', (chunk) => {
+          const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+          diag.stderrBytes += Buffer.byteLength(text)
+          diag.stderr += text
+        })
+        child.once('close', (code, signal) => {
+          diag.exitCode = code
+          diag.signal = signal
+          diag.elapsedMs = Date.now() - startedAt
+        })
+        return child
+      },
+    })
+  } catch (error) {
+    missingErr = error
+  }
+  assert.ok(
+    missingErr instanceof Error,
+    `Expected openOsPath to reject on missing file; diagnostics: ${JSON.stringify(diag)}`,
+  )
+  assert.equal(
+    diag.exitCode,
+    1,
+    `Expected exitCode=1 on missing file; diagnostics: ${JSON.stringify(diag)} error=${missingErr.message}`,
+  )
+  assert.match(
+    missingErr.message,
+    /Cannot find path|ItemNotFound|Failed to open path/i,
+    `Unexpected openOsPath error; diagnostics: ${JSON.stringify(diag)} error=${missingErr.message}`,
+  )
+  assert.equal(
+    /CLIXML|<Objs\b/i.test(missingErr.message),
+    false,
+    `Expected readable UI error without CLIXML; got: ${missingErr.message}`,
+  )
+
+  // 4. Bypass the Test-Path guard to prove the try/catch Invoke-Item error handler also exits 1 with readable stderr.
+  const tryCatchCmd = cmd.replace(/if \(\[string\]::IsNullOrEmpty\(\$p\)[^}]+\};\s*/, '')
+  assert.notEqual(tryCatchCmd, cmd)
+  assert.equal(tryCatchCmd.includes('Test-Path'), false)
+  const missingSpec = buildOpenOsCommand(missingPath, 'open', false, 'win32')
+  const catchRes = spawnSync(missingSpec.command, ['-NoProfile', '-NonInteractive', '-Command', tryCatchCmd], {
+    env: missingSpec.options.env,
+    windowsHide: true,
+    encoding: 'utf8',
+  })
+  assert.equal(
+    catchRes.status,
+    1,
+    `Expected try/catch Invoke-Item failure to exit 1, got status=${catchRes.status} signal=${catchRes.signal} stderrLen=${(catchRes.stderr ?? '').length} stderr=${JSON.stringify(catchRes.stderr)} stdout=${JSON.stringify(catchRes.stdout)}`,
+  )
+  assert.match(
+    catchRes.stderr ?? '',
+    /Cannot find path|does not exist|Failed to open path/i,
+    `Expected readable stderr from try/catch handler, got stderrLen=${(catchRes.stderr ?? '').length} stderr=${JSON.stringify(catchRes.stderr)}`,
+  )
 })
 
 test('workspace-open enforces containment and dispatches reveal/open actions', async (t) => {

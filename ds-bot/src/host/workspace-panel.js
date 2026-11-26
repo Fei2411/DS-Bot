@@ -202,10 +202,24 @@ function scrubbedOpenEnv(extra = {}) {
     out[key] = value
   }
   for (const [key, value] of Object.entries(extra)) {
-    if (typeof value === 'string') out[key] = value
+    if (typeof value !== 'string') continue
+    const lower = key.toLowerCase()
+    for (const existing of Object.keys(out)) {
+      if (existing !== key && existing.toLowerCase() === lower) delete out[existing]
+    }
+    out[key] = value
   }
   return out
 }
+
+// Keep double quotes out of `-Command` so `powershell.exe` command-line parsing never strips them.
+// Explicitly check existence, trap `Invoke-Item` errors, write a single readable line to Win32 stderr,
+// and `exit 1` so Windows PowerShell 5.1 never silently exits 0 on open failures.
+const WIN_OPEN_COMMAND = [
+  "$ErrorActionPreference = 'Stop'",
+  '$p = $env:DSB_OPEN_TARGET',
+  "try { if ([string]::IsNullOrEmpty($p) -or -not (Test-Path -LiteralPath $p)) { [Console]::Error.WriteLine('Cannot find path: ' + $p); exit 1 }; Invoke-Item -LiteralPath $p -ErrorAction Stop; if (-not $?) { [Console]::Error.WriteLine('Failed to open path: ' + $p); exit 1 } } catch { $m = $null; if ($_.Exception -and $_.Exception.ErrorRecord -and $_.Exception.ErrorRecord.Exception) { $m = $_.Exception.ErrorRecord.Exception.Message } elseif ($_.Exception) { $m = $_.Exception.Message }; if ([string]::IsNullOrWhiteSpace($m)) { $m = $_.ToString() }; if ([string]::IsNullOrWhiteSpace($m)) { $m = 'Failed to open path: ' + $p }; [Console]::Error.WriteLine($m); exit 1 }",
+].join('; ')
 
 export function buildOpenOsCommand(target, action, isDirectory, platform = process.platform) {
   if (platform === 'darwin') {
@@ -237,11 +251,12 @@ export function buildOpenOsCommand(target, action, isDirectory, platform = proce
     }
     // Pass path through an env var + `Invoke-Item -LiteralPath` so `%`, `#`, `[`, `]`,
     // commas, and spaces stay literal (`Start-Process` has no `-LiteralPath` parameter).
+    // Omit `detached: true` here so libuv applies `CREATE_NO_WINDOW` with `windowsHide: true`
+    // and reliably delivers stderr + exit status (`Invoke-Item` already hands off to the shell).
     return {
       command: 'powershell.exe',
-      args: ['-NoProfile', '-NonInteractive', '-Command', 'Invoke-Item -LiteralPath $env:DSB_OPEN_TARGET -ErrorAction Stop'],
+      args: ['-NoProfile', '-NonInteractive', '-Command', WIN_OPEN_COMMAND],
       options: {
-        detached: true,
         stdio: ['ignore', 'ignore', 'pipe'],
         shell: false,
         windowsHide: true,
@@ -306,14 +321,17 @@ export function openOsPath(target, action, isDirectory, opts = {}) {
       finishErr(error)
     })
 
-    child.once('close', (code) => {
+    child.once('close', (code, signal) => {
       if (settled) return
       const trimmedErr = stderrText.trim()
       if (code === 0 || (spec.allowExit1 && code === 1 && trimmedErr === '')) {
         finishOk()
         return
       }
-      finishErr(new Error(trimmedErr || `Failed to open path (${spec.command} exited with code ${code ?? 'unknown'})`))
+      const reason = code !== null && code !== undefined
+        ? `exited with code ${code}`
+        : (signal ? `terminated by ${signal}` : 'exited with code unknown')
+      finishErr(new Error(trimmedErr || `Failed to open path (${spec.command} ${reason})`))
     })
 
     child.once('spawn', () => {
