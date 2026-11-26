@@ -9,6 +9,7 @@ import { ExchangeDialog } from './exchange.js'
 import { VoiceMode } from './voice.js'
 import { SettingsDialog } from './settings.js'
 import { TelemetryNotice } from './privacy-page.js'
+import { ReleaseNotesDialog } from './release-notes-dialog.js'
 import { ContextMenu } from './context-menu.js'
 import { PANEL_LINGER_MS, BotPanel } from './browser-pane.js'
 import { frameLayout, FALLBACK_SIDEBAR_WIDTH } from './frame-layout.js'
@@ -24,6 +25,7 @@ const MENU_EXIT_MS = 120
 const useDefaultFrame = () => ({ viewport: typeof window === 'undefined' ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 })
 const useDefaultSidebarPref = () => 'open'
 const useDefaultFalse = () => false
+const useDefaultNull = () => null
 
 export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useComputer, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useBotCompletions, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, dsh, actions, workspace }) {
   const roster = useRoster(value => value)
@@ -32,8 +34,10 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   const useReadFrame = useFrame ?? useDefaultFrame
   const useReadSidebarPref = useSidebarPref ?? useDefaultSidebarPref
   const useReadSettingsShellHeld = useSettingsShellHeld ?? useDefaultFalse
+  const useReadUpdate = useUpdate ?? useDefaultNull
   const frameSnap = useReadFrame(value => value)
   const pref = useReadSidebarPref(value => value)
+  const updateNotesUrl = useReadUpdate(value => value?.notesUrl ?? null)
   const current = useSessions(list => Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null)
   // An open panel follows the conversation in the main view. Only a change of the
   // main view moves it, so opening details for another id (Rename) is not undone.
@@ -73,8 +77,105 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   const [memory, memoryLeaving] = useLinger(ui.memory && memoryOwner(ui.memory) ? ui.memory : null, DIALOG_EXIT_MS)
   const owner = memory ? memoryOwner(memory) : null
   const [menu, menuLeaving] = useLinger(ui.menu, MENU_EXIT_MS)
+  const [pageVisible, setPageVisible] = useState(() => (typeof document === 'undefined' ? true : !document.hidden))
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined
+    const sync = () => setPageVisible(!document.hidden)
+    document.addEventListener('visibilitychange', sync)
+    return () => document.removeEventListener('visibilitychange', sync)
+  }, [])
+  const [autoReleaseNotes, setAutoReleaseNotes] = useState(null)
+  const claimedVersionRef = useRef(null)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+  const rnState = roster.releaseNotes
+  const rnCurrent = typeof rnState?.current === 'string' ? rnState.current : null
+  const rnPending = Array.isArray(rnState?.pending) ? rnState.pending : []
+  const rnPendingKey = rnPending.join(',')
+  const canAutoRelease = roster.ready === true
+    && !roster.readOnly
+    && pageVisible
+    && rnCurrent !== null
+    && rnPending.length > 0
+    && !settings
+    && !shellHeld
+    && !owner
+    && !ui.newChat
+    && !ui.palette
+    && !ui.groupSearch
+    && !ui.exchange
+    && !ui.voice
+    && !ui.releaseNotes
+    && autoReleaseNotes === null
+    && claimedVersionRef.current !== rnCurrent
+    && typeof actions.claimReleaseNotes === 'function'
+  useEffect(() => {
+    if (!canAutoRelease) return undefined
+    const version = rnCurrent
+    const versions = rnPendingKey === '' ? [] : rnPendingKey.split(',')
+    // Let the desktop start-window whale handoff glide finish before rising the card.
+    const delayMs = globalThis.dsBotApp ? 650 : 0
+    const run = () => {
+      if (!mountedRef.current || claimedVersionRef.current === version) return
+      claimedVersionRef.current = version
+      // Note: claimReleaseNotes triggers a state pull that clears rnPending before resolving,
+      // which re-runs this effect's cleanup. Guard with mountedRef (component unmount only)
+      // so the winning claim still opens the dialog after the pull updates roster.releaseNotes.
+      void Promise.resolve(actions.claimReleaseNotes(version))
+        .then((result) => {
+          if (!mountedRef.current) return
+          if (result?.claimed === true) {
+            setAutoReleaseNotes({ mode: 'auto', current: version, versions })
+          }
+        })
+        .catch(() => {
+          if (claimedVersionRef.current === version) claimedVersionRef.current = null
+        })
+    }
+    if (delayMs === 0) {
+      run()
+      return undefined
+    }
+    const timer = setTimeout(run, delayMs)
+    return () => clearTimeout(timer)
+  }, [canAutoRelease, rnCurrent, rnPendingKey, actions])
+
+  const activeReleaseNotes = ui.releaseNotes
+    ? {
+        mode: 'manual',
+        current: ui.releaseNotes.current ?? rnCurrent,
+        versions: ui.releaseNotes.versions ?? null,
+        notesUrl: ui.releaseNotes.notesUrl ?? updateNotesUrl,
+      }
+    : autoReleaseNotes
+      ? {
+          mode: 'auto',
+          current: autoReleaseNotes.current,
+          versions: autoReleaseNotes.versions,
+          notesUrl: updateNotesUrl,
+        }
+      : null
+  const [releaseNotesOpen, releaseNotesLeaving] = useLinger(activeReleaseNotes, DIALOG_EXIT_MS)
+  const closeReleaseNotes = () => {
+    if (ui.releaseNotes) actions.closeReleaseNotes?.()
+    else setAutoReleaseNotes(null)
+  }
+
   const [noticeDismissed, setNoticeDismissed] = useState(false)
-  const showNotice = roster.ready === true && roster.telemetryPrompt === true && !noticeDismissed && !settings && !owner && !ui.newChat && !ui.palette
+  const releaseNotesPendingHere = roster.ready === true && !roster.readOnly && rnCurrent !== null && rnPending.length > 0 && claimedVersionRef.current !== rnCurrent
+  const showNotice = roster.ready === true
+    && roster.telemetryPrompt === true
+    && !noticeDismissed
+    && !settings
+    && !owner
+    && !ui.newChat
+    && !ui.palette
+    && !releaseNotesOpen
+    && !activeReleaseNotes
+    && !releaseNotesPendingHere
   const [noticeOpen, noticeLeaving] = useLinger(showNotice ? 'notice' : null, DIALOG_EXIT_MS)
   // A Session the Host made a moment ago is not in the shell's list yet: the asked-for
   // Bot fills the conversation area instead of the chat that was there before.
@@ -135,5 +236,17 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     noticeOpen ? h(OverlayBoundary, {
       name: 'telemetry-notice', active: !noticeLeaving, notify: false,
       onDismiss: () => setNoticeDismissed(true), actions,
-    }, createPortal(h(TelemetryNotice, { actions, leaving: noticeLeaving, onDone: () => setNoticeDismissed(true) }), document.body)) : null)
+    }, createPortal(h(TelemetryNotice, { actions, leaving: noticeLeaving, onDone: () => setNoticeDismissed(true) }), document.body)) : null,
+    releaseNotesOpen ? h(OverlayBoundary, {
+      name: 'release-notes', active: !releaseNotesLeaving, notify: !releaseNotesLeaving,
+      reset: `${releaseNotesOpen.mode}:${releaseNotesOpen.current ?? ''}`,
+      onDismiss: closeReleaseNotes, actions,
+    }, createPortal(h(ReleaseNotesDialog, {
+      mode: releaseNotesOpen.mode,
+      current: releaseNotesOpen.current,
+      versions: releaseNotesOpen.versions,
+      notesUrl: releaseNotesOpen.notesUrl,
+      leaving: releaseNotesLeaving,
+      onClose: closeReleaseNotes,
+    }), document.body)) : null)
 }

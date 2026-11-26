@@ -103,12 +103,12 @@ jobs:
             mobile_ios=false
             link=false
             docker=false
-            if has '^(ds-bot/|link/|start\.ps1$)'; then ds_bot=true; fi
+            if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$)'; then ds_bot=true; fi
             if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$)'; then app_unit=true; fi
             if has '^(app/|ds-bot/package\.json$|ds-bot/package-lock\.json$|ds-bot/cordis\.patch\.yml$|ds-bot/office\.js$|ds-bot/src/office/|ds-bot/src/host/computer/)'; then app_package_full=true; fi
             if [ "$app_package_full" = "true" ]; then app_package_linux=true; fi
             if has '^app/'; then app_update=true; fi
-            if has '^(mobile/|link/|ds-bot/package\.json$|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest)\.js$|ds-bot/src/client/avatar/)'; then mobile=true; fi
+            if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/package\.json$|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest)\.js$|ds-bot/src/client/avatar/)'; then mobile=true; fi
             if has '^(mobile/|ds-bot/package\.json$)'; then mobile_ios=true; fi
             if has '^link/'; then link=true; fi
             if has '^(docker/|docker-compose.*\.yml$|\.dockerignore$|ds-bot/package\.json$|ds-bot/package-lock\.json$|ds-bot/\.npmrc$|ds-bot/cordis\.patch\.yml$|ds-bot/plugin\.js$)'; then docker=true; fi

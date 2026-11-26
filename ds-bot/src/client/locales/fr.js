@@ -1,6 +1,13 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  "What's new in v{version}": "Nouveautés de la v{version}",
+  "Updated to v{version}": "Mis à jour vers la v{version}",
+  "Got it": "Compris",
+  "Full changelog": "Journal complet",
+  "Earlier versions": "Versions précédentes",
+  "Hide earlier versions": "Masquer les versions précédentes",
+  "No release notes for this version yet.": "Aucune note de version pour l’instant.",
   "Agent preset": "Préréglage Agent",
   "Agent preset: {preset}": "Préréglage Agent : {preset}",
   "Default (Standard)": "Par défaut (standard)",

@@ -1343,6 +1343,12 @@ export function install(rt) {
     await rt.load()
     void rt.syncModels()
     if (state.mainBotIds.some(id => rt.botOf(id))) return
+    // Brand-new installs with no persisted team record the current version silently
+    // so first-run onboarding is not interrupted by an upgrade release-notes dialog.
+    if (!rt.hasExistingTeamData?.() && state.lastSeenVersion === undefined) {
+      const current = rt.currentReleaseVersion?.()
+      if (current) state.lastSeenVersion = current
+    }
     // Only the team's first Main Bot is stored as the DeepSeek whale; other Bots get a
     // look from their id, and a Bot made Main Bot later keeps its own.
     bootstrapping ??= createBot({ name: defaults.mainName, role: defaults.mainRole, main: true, color: 'deepseek', avatar: { shape: 'whale' }, pickModel: true })

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AppState, Platform } from 'react-native'
-import Constants from 'expo-constants'
 import { readPrefs, writePrefs } from '../store.ts'
+import { currentAppVersion } from './app-version.ts'
 import {
   AUTO_CHECK_INTERVAL_MS,
   checkAndroidUpdate,
@@ -55,9 +55,6 @@ interface PersistedUpdateSnapshot {
   release: AndroidReleaseInfo | null
   etag?: string
 }
-
-const currentAppVersion = (): string =>
-  String(Constants.expoConfig?.version ?? (Constants as { manifest?: { version?: string } }).manifest?.version ?? '0.0.0')
 
 let state: AppUpdateState = {
   supported: Platform.OS === 'android' && isAndroidUpdaterAvailable(),

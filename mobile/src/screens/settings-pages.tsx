@@ -8,6 +8,8 @@ import { connectorActionOf, connectorRows, type ConnectorPending, type Connector
 import { capabilityStatusFor, capabilityStatusText, unapprovedCapabilitiesFor } from '../team/capabilities.ts'
 import { useTeam } from '../team/context.tsx'
 import { useAppUpdate } from '../team/app-update-store.ts'
+import { currentAppVersion } from '../team/app-version.ts'
+import { openMobileReleaseNotes } from '../team/release-notes.ts'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
 import { radius, shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
@@ -766,7 +768,7 @@ export function About({ navigation }: any) {
   }, [])
   const version = versions?.update?.current ?? versions?.current ?? '—'
   const dsh = versions?.dsh?.current
-  const appVersion = require('expo-constants').default.expoConfig?.version ?? require('expo-constants').default.manifest?.version ?? '—'
+  const appVersion = currentAppVersion()
   const appLabel = Platform.OS === 'android' && appUpdate.hasUpdate && appUpdate.release
     ? `${appVersion} → ${appUpdate.release.version}`
     : appVersion
@@ -781,6 +783,7 @@ export function About({ navigation }: any) {
             value={appLabel}
             onPress={Platform.OS === 'android' ? () => navigation.navigate('AppUpdate') : undefined}
           />
+          <Row label={t('Release notes')} onPress={() => openMobileReleaseNotes({ current: appVersion })} />
           <Row label={t('Computer')} value={computer?.name ?? '—'} />
         </Section>
         <Section label={t('Licenses')}>

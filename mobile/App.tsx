@@ -7,9 +7,12 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { DefaultTheme, NavigationContainer, type NavigationState } from '@react-navigation/native'
 import { setLang } from './src/ui/i18n.ts'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { listComputers, loadComputer, loadIdentity, onPrefsChange, readPrefs, setActiveComputer, type PhoneIdentity, type SavedComputer } from './src/store.ts'
+import { listComputers, loadComputer, loadIdentityWithMeta, onPrefsChange, readPrefs, setActiveComputer, type PhoneIdentity, type SavedComputer } from './src/store.ts'
 import { ComputersCtx, type ComputerActions } from './src/nav/computers.ts'
 import { startAppUpdateMonitor } from './src/team/app-update-store.ts'
+import { currentAppVersion } from './src/team/app-version.ts'
+import { checkMobileReleaseNotes, openMobileReleaseNotes } from './src/team/release-notes.ts'
+import { ReleaseNotesModal } from './src/ui/ReleaseNotesModal.tsx'
 import { stopHeadlessKeepalive } from './src/team/background-task.ts'
 import { errorText } from './src/team/link.ts'
 import { applyBackgroundDeliveryPrefs } from './src/team/notification-bridge.ts'
@@ -89,6 +92,7 @@ function ThemedShell({ lang, openLink, onOpenLinkHandled }: { lang?: string; ope
       <NavigationContainer key={lang} theme={navTheme} initialState={navState.current} onStateChange={state => { navState.current = state }}>
         <ErrorBoundary>
           <ShellB openLink={openLink} onOpenLinkHandled={onOpenLinkHandled} />
+          <ReleaseNotesModal />
         </ErrorBoundary>
       </NavigationContainer>
     </ThemeContext.Provider>
@@ -159,12 +163,20 @@ function Boot({ lang }: { lang?: string }) {
 
     if (!DEMO) {
       Promise.all([
-        loadIdentity(),
+        loadIdentityWithMeta(),
         Platform.OS === 'web' ? Promise.resolve(null) : Linking.getInitialURL().catch(() => null),
       ])
-        .then(async ([nextIdentity, initialUrl]) => {
+        .then(async ([identityMeta, initialUrl]) => {
           if (!active) return
-          setIdentity(nextIdentity)
+          setIdentity(identityMeta.identity)
+          void checkMobileReleaseNotes({
+            currentVersion: currentAppVersion(),
+            hadExistingIdentity: identityMeta.existed,
+          }).then((result) => {
+            if (active && result.show) {
+              openMobileReleaseNotes({ mode: 'auto', current: result.current, versions: result.versions })
+            }
+          }).catch(() => {})
           const handledHost = initialUrl ? await applyDeepLink(initialUrl) : false
           if (!active) return
           if (!handledHost || !parseOpenChatUrl(initialUrl)?.hostId) {

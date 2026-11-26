@@ -503,6 +503,7 @@ export function App() {
   useTheme(prefs, chat, actions, registryVersion)
   const closeOverlays = (error) => {
     actions.closeSettings()
+    actions.closeReleaseNotes?.()
     actions.closeMemory()
     actions.closeMenu()
     actions.closePanel()
