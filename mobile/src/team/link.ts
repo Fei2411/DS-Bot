@@ -6,12 +6,17 @@ import { ensureUnlock } from './gate'
 import { createNoticeCursor, type NoticeCursorAnswer } from './notices.ts'
 import { OPTIMISTIC, optimistic, withWrites, type Write } from './optimistic.ts'
 import { fillTeamPhotos } from './photos.ts'
+import { acquireTransferHold, hasActiveTransferHolds, onTransferHoldsIdle } from './transfer-hold.ts'
 import { t } from '../ui/i18n.ts'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
 
 // Feed events keep the app live; the poll only stays as a foreground fallback.
 const POLL_MS = 15_000
 const RETRY_MS = 2_000
+// Grace window before closing the foreground socket when backgrounded in non-keepalive mode,
+// long enough to survive transient permission dialogs while releasing the relay session before
+// Android freezes the process (preventing 75s offline-push blackholes and blocked periodic sync).
+export const BACKGROUND_DISCONNECT_MS = 4_000
 // Writes that settle pending items without always bumping state.revision.
 const PENDING_MUTATING = new Set([
   'approval-answer',
@@ -123,10 +128,11 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
   const call = useCallback(async (endpoint: string, payload: unknown = {}) => {
     const client = clientRef.current
     if (client === undefined) throw offline()
-    await ensureUnlock(endpoint)
-    if (clientRef.current !== client) throw offline()
+    const releaseTransfer = endpoint === 'file-download' ? acquireTransferHold() : undefined
     try {
-      if (endpoint === 'state' || endpoint === 'hello' || endpoint === 'notices') {
+      await ensureUnlock(endpoint)
+      if (clientRef.current !== client) throw offline()
+      if (endpoint === 'state' || endpoint === 'hello' || endpoint === 'notices' || endpoint === 'push-register' || endpoint === 'push-unregister') {
         return await callBot(client, endpoint, payload)
       }
       // Show the write's effect at once; the reply's state (or a full reload
@@ -150,6 +156,8 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
         pollRef.current()
       }
       throw localized(failure)
+    } finally {
+      releaseTransfer?.()
     }
   }, [apply])
 
@@ -158,8 +166,12 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
     let connecting = false
     let hadLink = false
     let failStreak = 0
+    let bgDisconnectPending = false
+    let bgDisconnected = false
+    let appStatus: string = AppState.currentState ?? 'active'
     let activeClient: RpcClient | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
+    let bgTimer: ReturnType<typeof setTimeout> | undefined
     revision.current = -1
     writes.current = []
     liveKey.current = undefined
@@ -176,6 +188,31 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
       failStreak += 1
       later(() => void connect(), delay)
     }
+    const disconnectForBackground = () => {
+      bgTimer = undefined
+      if (stopped || appStatus === 'active' || hooksRef.current?.keepAliveInBackground?.() === true) {
+        bgDisconnectPending = false
+        return
+      }
+      if (hasActiveTransferHolds()) {
+        bgDisconnectPending = true
+        return
+      }
+      bgDisconnectPending = false
+      clearTimeout(timer)
+      const client = activeClient
+      if (client === undefined) return
+      bgDisconnected = true
+      activeClient = undefined
+      if (clientRef.current === client) clientRef.current = undefined
+      setOnline(false)
+      setLinked(false)
+      hooksRef.current?.onDisconnected?.()
+      void client.close()
+    }
+    const offTransfersIdle = onTransferHoldsIdle(() => {
+      if (bgDisconnectPending) disconnectForBackground()
+    })
     // One read at a time: a burst of feed events while a Bot works becomes one
     // read now and at most one more after it, not a pile of reads over a slow link.
     let reading = false
@@ -196,7 +233,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
         reading = false
         if (!stopped && clientRef.current === client) {
           if (again) { again = false; void poll() }
-          else if (AppState.currentState !== 'background') later(() => void poll(), POLL_MS)
+          else if (appStatus !== 'background') later(() => void poll(), POLL_MS)
         } else {
           again = false
         }
@@ -205,23 +242,85 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
     pollRef.current = () => void poll()
     const connect = async () => {
       if (stopped || connecting || clientRef.current !== undefined) return
+      if (appStatus === 'background' && hooksRef.current?.keepAliveInBackground?.() !== true) return
+      bgDisconnected = false
       connecting = true
+      let client: RpcClient | undefined
       try {
-        const client = await openLink(computer, identity)
-        if (stopped) { void client.close(); return }
+        client = await openLink(computer, identity)
+        if (stopped || (appStatus === 'background' && hooksRef.current?.keepAliveInBackground?.() !== true)) {
+          void client.close()
+          return
+        }
         activeClient = client
         clientRef.current = client
         setLinked(true)
+
+        // Register close and feed handlers immediately after openLink() so a drop
+        // or event during the hello/notices handshake is never missed.
+        let handshakeReady = false
+        let activeBoot = ''
+        let catchingUp = true
+        const bufferedEvents: { event: string; data: any }[] = []
+        const bufferedLiveNotices: unknown[] = []
+
+        const emitNotice = (boot: string, entry: any) => {
+          const enriched = entry && typeof entry === 'object' && !('boot' in entry)
+            ? { ...entry, boot }
+            : entry
+          for (const handler of feedHandlers.current) handler('notice', enriched)
+        }
+
+        const dispatchEvent = (event: string, data: any) => {
+          if (stopped || clientRef.current !== client) return
+          if (event === 'notice') {
+            if (catchingUp) {
+              bufferedLiveNotices.push(data)
+              return
+            }
+            if (!noticeCursor.acceptLive(activeBoot, data)) return
+            if (appStatus === 'active' && typeof data?.seq === 'number') {
+              hooksRef.current?.onCursor?.(activeBoot, data.seq)
+            }
+            emitNotice(activeBoot, data)
+            return
+          }
+          if (event === 'revision' || event === 'live') void poll()
+          for (const handler of feedHandlers.current) handler(event, data)
+        }
+
+        client.onClose(() => {
+          if (stopped || clientRef.current !== client) return
+          activeClient = undefined
+          clientRef.current = undefined
+          setOnline(false)
+          setLinked(false)
+          hooksRef.current?.onDisconnected?.()
+          clearTimeout(timer)
+          if (appStatus !== 'background' || hooksRef.current?.keepAliveInBackground?.() === true) {
+            scheduleReconnect()
+          }
+        })
+
+        client.onEvent(({ event, data }: { event: string; data: any }) => {
+          if (stopped || clientRef.current !== client) return
+          if (!handshakeReady) {
+            bufferedEvents.push({ event, data })
+            return
+          }
+          dispatchEvent(event, data)
+        })
+
         // The handshake: its api is null when the computer's DS Bot is too old for
         // this app. The team read goes out with it, not after it: each is a round
         // trip through the relay.
         void poll()
         const [helloResult, persisted] = await Promise.all([
-          callBot<Hello>(client, 'hello', {}).catch(() => null),
+          callBot<Hello>(client, 'hello', {}),
           hooksRef.current?.loadCursor?.().catch(() => null) ?? Promise.resolve(null),
         ])
-        if (stopped) { void client.close(); return }
-        if (helloResult === null || helloResult.api === null) {
+        if (stopped || clientRef.current !== client) { void client.close(); return }
+        if (helloResult.api === null) {
           if (activeClient === client) activeClient = undefined
           if (clientRef.current === client) clientRef.current = undefined
           setError(t('Update DS Bot on the computer to use this phone.'))
@@ -233,33 +332,27 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
         }
         hadLink = true
         failStreak = 0
+        activeBoot = helloResult.boot
         setHello(helloResult)
         setOnline(true)
         setError(null)
-        hooksRef.current?.onConnected?.(helloResult, (endpoint, payload) => callBot(client, endpoint, payload))
+        hooksRef.current?.onConnected?.(helloResult, (endpoint, payload) => callBot(client!, endpoint, payload))
         // Seed memory cursor from persisted cursor so notices already delivered via offline
         // push or periodic sync are not replayed as duplicates.
         if (persisted !== null && persisted !== undefined) {
           noticeCursor.connect(persisted)
+        } else {
+          // Seed initial watermark before emitting any live notices so historical notices do not flood
+          // and subsequent background deliveries are not masked by a late synchronous cursor jump.
+          hooksRef.current?.onCursor?.(helloResult.boot, helloResult.seq)
         }
         const { sameBoot, since } = noticeCursor.connect(helloResult)
-        let catchingUp = true
-        const bufferedLiveNotices: unknown[] = []
-        client.onEvent(({ event, data }: { event: string; data: any }) => {
-          if (stopped || clientRef.current !== client) return
-          if (event === 'notice') {
-            if (catchingUp) {
-              bufferedLiveNotices.push(data)
-              return
-            }
-            if (!noticeCursor.acceptLive(helloResult.boot, data)) return
-            if (AppState.currentState === 'active' && typeof data?.seq === 'number') {
-              hooksRef.current?.onCursor?.(helloResult.boot, data.seq)
-            }
-          }
-          if (event === 'revision' || event === 'live') void poll()
-          for (const handler of feedHandlers.current) handler(event, data)
-        })
+        handshakeReady = true
+        while (bufferedEvents.length > 0) {
+          const queued = bufferedEvents.shift()!
+          dispatchEvent(queued.event, queued.data)
+        }
+
         const queryBoot = persisted !== null && persisted !== undefined ? persisted.boot : helloResult.boot
         const querySince = persisted !== null && persisted !== undefined ? persisted.seq : since
         void callBot(client, 'notices', { boot: queryBoot, since: querySince }).then(answer => {
@@ -267,56 +360,79 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
           const typed = answer as NoticeCursorAnswer
           const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, typed)
           const nextBoot = typeof typed.boot === 'string' && typed.boot.length > 0 ? typed.boot : helloResult.boot
+          activeBoot = nextBoot
           let maxSeq = typeof typed.seq === 'number' ? typed.seq : helloResult.seq
           const toEmit = reset && persisted !== null && persisted !== undefined && Array.isArray(typed.notices)
             ? typed.notices
             : replay
           if (reset || toEmit.length > 0) void poll()
           for (const entry of toEmit) {
-            for (const handler of feedHandlers.current) handler('notice', entry)
+            emitNotice(nextBoot, entry)
           }
+          let emittedBuffered = 0
           while (bufferedLiveNotices.length > 0) {
             const entry = bufferedLiveNotices.shift() as { seq?: unknown }
             if (!noticeCursor.acceptLive(nextBoot, entry)) continue
             if (typeof entry?.seq === 'number' && entry.seq > maxSeq) maxSeq = entry.seq
-            for (const handler of feedHandlers.current) handler('notice', entry)
+            emittedBuffered += 1
+            emitNotice(nextBoot, entry)
           }
           catchingUp = false
-          if (AppState.currentState === 'active' || persisted === null || persisted === undefined) {
+          // When backgrounded and notices were emitted, deliverSystemNotice advances the persisted cursor
+          // asynchronously per notice; avoid racing ahead of it and dropping those alerts.
+          if (appStatus === 'active' || (toEmit.length === 0 && emittedBuffered === 0)) {
             hooksRef.current?.onCursor?.(nextBoot, maxSeq)
           }
         }).catch(() => {
+          if (stopped || clientRef.current !== client) return
           while (bufferedLiveNotices.length > 0) {
             const entry = bufferedLiveNotices.shift()
-            if (!noticeCursor.acceptLive(helloResult.boot, entry)) continue
-            for (const handler of feedHandlers.current) handler('notice', entry)
+            if (!noticeCursor.acceptLive(activeBoot, entry)) continue
+            emitNotice(activeBoot, entry)
           }
           catchingUp = false
         })
-        client.onClose(() => {
-          if (stopped || clientRef.current !== client) return
-          activeClient = undefined
+      } catch (failure) {
+        if (stopped) return
+        const closedAlready = client !== undefined && clientRef.current !== client
+        if (client !== undefined && clientRef.current === client) {
+          if (activeClient === client) activeClient = undefined
           clientRef.current = undefined
           setOnline(false)
           setLinked(false)
-          hooksRef.current?.onDisconnected?.()
-          clearTimeout(timer)
-          scheduleReconnect()
-        })
-      } catch (failure) {
-        if (stopped) return
-        setError(errorText(failure))
+          void client.close()
+        }
+        const intentionalBgClose = bgDisconnected && closedAlready && !rejected(failure)
+        if (!intentionalBgClose) {
+          const code = (failure as { code?: unknown })?.code
+          setError(code === 'bot/not-found' ? t('Update DS Bot on the computer to use this phone.') : errorText(failure))
+        }
         if (rejected(failure)) setTeam(null)
-        else { connecting = false; scheduleReconnect() }
+        else if (!closedAlready && (appStatus !== 'background' || hooksRef.current?.keepAliveInBackground?.() === true)) {
+          connecting = false
+          scheduleReconnect()
+        }
       } finally {
         connecting = false
       }
     }
     void connect()
     const foreground = AppState.addEventListener('change', status => {
+      appStatus = status
       if (status !== 'active') {
-        if (hooksRef.current?.keepAliveInBackground?.() !== true) clearTimeout(timer)
+        if (hooksRef.current?.keepAliveInBackground?.() !== true) {
+          clearTimeout(timer)
+          if (status === 'background' && bgTimer === undefined) {
+            bgTimer = setTimeout(disconnectForBackground, BACKGROUND_DISCONNECT_MS)
+          }
+        }
         return
+      }
+      bgDisconnectPending = false
+      bgDisconnected = false
+      if (bgTimer !== undefined) {
+        clearTimeout(bgTimer)
+        bgTimer = undefined
       }
       failStreak = 0
       const client = clientRef.current
@@ -329,9 +445,14 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
     return () => {
       stopped = true
       clearTimeout(timer)
+      clearTimeout(bgTimer)
+      offTransfersIdle()
       foreground.remove()
-      void activeClient?.close()
-      if (clientRef.current === activeClient) clientRef.current = undefined
+      if (activeClient !== undefined) {
+        hooksRef.current?.onDisconnected?.()
+        void activeClient.close()
+        if (clientRef.current === activeClient) clientRef.current = undefined
+      }
     }
   }, [computer, identity, apply])
 

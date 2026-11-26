@@ -39,10 +39,8 @@ export const isAndroidNotificationsAvailable = () => false
 export const ensureNotificationChannels = async () => {}
 export const areSystemNotificationsEnabled = async () => false
 export const setNativeUiState = async (_mounted: boolean, _foreground: boolean) => {}
-export const setNativeUiActive = async (_active: boolean) => {}
 export const postNativeNotification = async (_payload: NativeNoticePayload) => false
 export const cancelNotificationTag = async (_tag: string) => {}
-export const cancelAllNativeNotifications = async () => {}
 export const openNotificationChannelSettings = async () => {}
 export const requestIgnoreBatteryOptimizations = async () => {}
 export const setBackgroundDeliveryConfig = async () => ({ serviceStarted: false, jobScheduled: false })

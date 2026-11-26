@@ -418,8 +418,35 @@ test('CONTEXT_WINDOW_EXCEEDED offers Start a new part as primary recovery action
   }
 })
 
+test('NO_ADAPTER explains the missing model service, offers Pick another model, and localizes in Chinese', () => {
+  const side = cell({ code: 'NO_ADAPTER', message: 'no adapter registered for provider "gone"' })
+  const tree = side.render()
+  assert.equal(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), 'The model service this Bot is set to no longer exists')
+  const list = side.buttons(tree)
+  assert.deepEqual(labels(list), ['Pick another model', 'Retry'])
+  assert.equal(list[0].primary, true)
+
+  const dicts = new Map()
+  const off = installLocale({
+    register: (ns, locale, dict) => { dicts.set(`${ns}:${locale}`, dict); return () => dicts.delete(`${ns}:${locale}`) },
+    bind: ns => (key, params) => {
+      const text = dicts.get(`${ns}:zh`)?.[key] ?? key
+      return params ? text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match)) : text
+    },
+    getLocale: () => ({ active: 'zh' }),
+  })
+  try {
+    const zhSide = cell({ code: 'NO_ADAPTER' })
+    const zhTree = zhSide.render()
+    assert.equal(textOf(walk(zhTree, node => node.props?.className === 'bt-fail-text')[0]), '这个 Bot 使用的模型服务已不存在')
+    assert.equal(labels(zhSide.buttons(zhTree))[0], '换个模型')
+  } finally {
+    off()
+  }
+})
+
 test('every failure code a Bot chat can show offers at least one button', () => {
-  for (const code of ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'LOCAL_AGENT_SESSION_LOST', 'INVALID_REQUEST', 'OTHER']) {
+  for (const code of ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'NO_ADAPTER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'LOCAL_AGENT_SESSION_LOST', 'INVALID_REQUEST', 'OTHER']) {
     for (const blocked of [undefined, { code, at: 1 }]) {
       const side = cell({ code, blocked })
       assert.ok(labels(side.buttons(side.render())).length > 0, `${code} ${blocked ? 'blocked' : 'free'}`)
@@ -541,7 +568,7 @@ test('in a Chinese interface every repair card state reads in Chinese, outside T
     return shown(node.props?.children)
   }
   try {
-    const codes = ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'MODEL_SWITCH_COMPACTION_FAILED', 'CONTENT_POLICY', 'CONTENT_REFUSED', 'OTHER']
+    const codes = ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'NO_ADAPTER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'MODEL_SWITCH_COMPACTION_FAILED', 'CONTENT_POLICY', 'CONTENT_REFUSED', 'OTHER']
     const account = { status: 'credential-stored', links: { topUpUrl: 'https://platform.example/top_up' }, attempt: null }
     for (const code of codes) {
       for (const blocked of [undefined, { code, status: 401, requestId: 'req-1', provider: 'deepseek-official', at: 1 }]) {

@@ -173,19 +173,6 @@ object DsBotNotifyHelper {
     nm.cancel(tag, 2)
   }
 
-  fun cancelAllNotices(context: Context) {
-    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-      for (active in manager.activeNotifications) {
-        if (active.id != BG_NOTIFICATION_ID) {
-          manager.cancel(active.tag, active.id)
-        }
-      }
-    } else {
-      manager.cancelAll()
-    }
-  }
-
   fun schedulePeriodicSync(context: Context, enabled: Boolean): Boolean {
     val scheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as? JobScheduler ?: return false
     if (!enabled) {
