@@ -2131,7 +2131,14 @@ export function install(rt) {
     }
     const alreadyHasHandoff = (fresh.session?.deriveMessages?.() ?? []).some(matchesExistingHandoff)
       || [...(fresh.inbox?.nextStep ?? []), ...(fresh.inbox?.nextTurn ?? [])].some(matchesExistingHandoff)
-    if (alreadyHasHandoff) return
+    if (alreadyHasHandoff) {
+      // A prior flush failure can leave the handoff buffered in memory (fresh.inbox or
+      // unflushed session log) while handoffPending is still set. Confirm durability on
+      // disk before returning so the caller never clears handoffPending or archives the
+      // old part while the handoff is still unflushed.
+      await ctx.sessions.flush(fresh.session)
+      return
+    }
     const bot = owner.botId === undefined ? undefined : rt.botOf(owner.botId)
     const room = rt.roomOf(owner.roomId)
     const taskEntry = rt.taskBySession?.(targetId)?.task ?? rt.taskBySession?.(oldSessionId)?.task

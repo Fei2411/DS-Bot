@@ -8,6 +8,7 @@ import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deep
 import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'
 import { ToolResultPruner } from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { TokenMeter } from '@deepseek-ai/dsh-token-meter'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createRuntime } from '../index.js'
@@ -795,9 +796,9 @@ test('startup resend logged on successor before handOnHeld does not duplicate th
   const stableTransferId = heldOriginal.source?.transferId
   assert.ok(typeof stableTransferId === 'string' && stableTransferId.length > 0, 'rt.deliver stamps a stable transferId')
 
-  const inflight = JSON.parse(readFileSync(join(host.home, 'inflight.json'), 'utf8'))
-  const journalEntry = inflight.queued?.b?.find(item => item.args?.exchangeId === 'ex-dup-restart')
-  assert.equal(journalEntry?.args?.transferId, stableTransferId, 'inflight journal persists the exact same transferId')
+  const persisted = host.rt.coordination.loadInitialState()
+  const journalEntry = persisted.queued?.b?.find(item => item.args?.exchangeId === 'ex-dup-restart')
+  assert.equal(journalEntry?.args?.transferId, stableTransferId, 'coordination store persists the exact same transferId')
 
   // 2) Simulate crash after saving pointer flip (b -> b-next) before moving b's inbox,
   // and startup resend delivering the journal entry to b-next (new message id, same transferId)
@@ -1286,5 +1287,287 @@ test('recovery clears acknowledged originals after forward flush even when targe
     assert.equal(p3Handoffs[1].source?.exchangeId, 'ex-primary-2')
     assert.equal(p3Handoffs[1].source?.joined, undefined)
     assert.deepEqual(host.rt.state.switching, {}, 'both switching markers cleared')
+  }
+})
+
+test('ensureHandoffDelivered still flushes fresh.session when handoff already exists in memory (inbox or deriveMessages) with no held input', async (t) => {
+  // 1) Handoff sits in fresh.inbox after an initial flush failure, with ZERO held user input.
+  {
+    let s1Flushes = 0
+    let failS1Flushes = 1
+    const host = makeSwitchFixture({
+      fail: {
+        onFlush: (session) => {
+          if (session.id !== 's1') return
+          s1Flushes += 1
+          if (failS1Flushes > 0) {
+            failS1Flushes -= 1
+            throw new Error('transient s1 handoff flush failure')
+          }
+        },
+      },
+    })
+    t.after(host.stop)
+    await host.rt.load()
+
+    const bot = host.rt.state.bots.b
+    bot.sessionId = 's1'
+    bot.segments = [{ sessionId: 'b', endedAt: Date.now() - 1_000 }]
+    host.rt.chatOwners.set('s1', 'b')
+    host.rt.state.switching = {
+      b: {
+        botId: 'b',
+        handoffPending: true,
+        handoffMeta: {
+          resume: false,
+          overflow: false,
+          cutoff: false,
+          folder: true,
+          engine: false,
+          bare: false,
+        },
+      },
+    }
+    await host.rt.save()
+
+    // Seed the unflushed handoff copy in s1.inbox (simulating a failed initial flush #1) with no held input in b.inbox.
+    const s1 = host.agentOf('s1')
+    s1.followup(createUserMessage({
+      content: [{ type: 'text', text: '[Handoff · part 2]\nCarried context' }],
+      source: { kind: SOURCE_KIND, form: 'handoff', handoff: true },
+    }))
+    const followupsBefore = s1.calls.filter(([kind]) => kind === 'followup').length
+
+    // First retry fails flush on s1: must NOT clear handoffPending or archive old part b!
+    await host.rt.heldBack()
+    assert.equal(s1Flushes, 1, 'retry must attempt ctx.sessions.flush(fresh.session) even when handoff is in fresh.inbox')
+    assert.equal(host.state().switching.b?.handoffPending, true, 'handoffPending stays persisted while flush fails')
+    assert.deepEqual(host.archived, [], 'old part must not be archived before handoff flush succeeds')
+    assert.equal(s1.calls.filter(([kind]) => kind === 'followup').length, followupsBefore, 'retry must not duplicate the handoff message')
+
+    // Second retry succeeds flush on s1: clears handoffPending, archives old part b, still no duplicate handoff.
+    await host.rt.heldBack()
+    assert.equal(s1Flushes, 2, 'second retry flushes fresh.session to confirm durability')
+    assert.equal(s1.calls.filter(([kind]) => kind === 'followup').length, followupsBefore, 'still no duplicate handoff message')
+    assert.deepEqual(host.archived, [['b', { stopActivity: true }]], 'old part archived only after flush succeeds')
+    assert.deepEqual(host.state().switching, {}, 'switching marker cleared only after flush succeeds')
+  }
+
+  // 2) Handoff already claimed into fresh.session.deriveMessages() while handoffPending is still true.
+  {
+    let s1Flushes = 0
+    let failOnce = true
+    const host = makeSwitchFixture({
+      fail: {
+        onFlush: (session) => {
+          if (session.id !== 's1') return
+          s1Flushes += 1
+          if (failOnce) {
+            failOnce = false
+            throw new Error('transient s1 log flush failure')
+          }
+        },
+      },
+    })
+    t.after(host.stop)
+    await host.rt.load()
+
+    const bot = host.rt.state.bots.b
+    bot.sessionId = 's1'
+    bot.segments = [{ sessionId: 'b', endedAt: Date.now() - 1_000 }]
+    host.rt.chatOwners.set('s1', 'b')
+    host.rt.state.switching = {
+      b: {
+        botId: 'b',
+        handoffPending: true,
+        handoffMeta: {
+          resume: true,
+          info: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-claimed-handoff', senderName: 'Chief' },
+        },
+      },
+    }
+    await host.rt.save()
+
+    const s1 = host.agentOf('s1')
+    s1.session.deriveMessages = () => [{
+      role: 'user',
+      content: [{ type: 'text', text: '[Handoff · part 2]\nClaimed but unflushed' }],
+      source: { kind: SOURCE_KIND, form: 'handoff', handoff: true, exchangeId: 'ex-claimed-handoff' },
+    }]
+
+    await host.rt.heldBack()
+    assert.equal(s1Flushes, 1, 'retry must flush fresh.session when handoff is in deriveMessages()')
+    assert.equal(host.state().switching.b?.handoffPending, true, 'handoffPending stays set when flush fails')
+    assert.deepEqual(host.archived, [])
+
+    await host.rt.heldBack()
+    assert.equal(s1Flushes, 2)
+    assert.equal(s1.calls.filter(([kind]) => kind === 'followup').length, 0, 'must not inject duplicate handoff')
+    assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
+    assert.deepEqual(host.state().switching, {})
+  }
+})
+
+test('real DSH JSONL persistence flushes buffered handoff on retry before clearing handoffPending and archiving old part', async (t) => {
+  const rootDir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsb-pr1-jsonl-')))
+  const home = join(rootDir, 'home')
+  const sessionsDir = join(rootDir, 'sessions')
+  mkdirSync(home, { recursive: true })
+  mkdirSync(sessionsDir, { recursive: true })
+
+  const root = new Context()
+  await root.plugin(JsonlPersistence, { root: sessionsDir, compression: 'none' })
+  await mountAgentLoopTestDependencies(root)
+  await root.plugin(TokenMeter)
+  await root.plugin(BasicCompactionEngine)
+
+  class MinimalAdapter extends LlmAdapter {
+    providerInfo() { return { id: 'mock', name: 'mock' } }
+    async listModels() { return [{ id: 'm', name: 'm', inputModalities: ['text'] }] }
+    async resolveModel(provider, id) {
+      return {
+        provider,
+        id,
+        name: id,
+        inputModalities: ['text'],
+        context: { contextWindow: 50_000 },
+        defaultMaxTokens: 4_000,
+      }
+    }
+    async *stream(req) {
+      const text = req.purpose === 'compaction'
+        ? (req.system?.includes('context steward')
+          ? JSON.stringify({ action: 'switch', reason: 'move on' })
+          : validNote('jsonl-handoff-marker'))
+        : 'reply ok'
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+      yield { type: 'usage', usage: { inputTokens: 35_000, outputTokens: 100 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+
+  root.llm.registerAdapter(['mock'], new MinimalAdapter())
+  await mountAgentLoopTestHarness(root)
+  const { agents, sessions, sessionPersistence } = await new Promise(resolve => root.inject(['agents', 'sessions', 'sessionPersistence'], resolve))
+
+  const archived = []
+  let partCounter = 0
+  root.provide('sessionTitle', { setTitle: async () => {}, rename: async () => {} })
+  root.provide('workspaceRegistry', {
+    archiveSession: async id => { archived.push(String(id)) },
+    unarchiveSession: async () => {},
+    resolveByPath: async () => ({ id: 'ws-1', path: home }),
+    create: async () => ({ id: 'ws-1', path: home }),
+    get: () => ({ id: 'ws-1', path: home }),
+    list: () => [{ id: 'ws-1', path: home }],
+    listAll: async () => [{ id: 'ws-1', path: home }],
+  })
+  root.provide('connection', { fetch: { register: () => () => {} } })
+  root.provide('sessionController', {
+    resolveAgent: async id => ({ agent: agents.get(id) }),
+    selectModel: async () => {},
+    page: async ({ address, beforeSeq, throughSeq, maxMessages = 200 }) => {
+      const events = agents.get(address.sessionId)?.session?.snapshotEvents?.() ?? []
+      const filtered = events.filter(ev =>
+        (throughSeq === undefined || ev.seq <= throughSeq)
+        && (beforeSeq === undefined || ev.seq < beforeSeq))
+      const slice = filtered.slice(-maxMessages)
+      return { records: slice.map(event => ({ event })), hasMore: filtered.length > slice.length }
+    },
+    create: async ({ cwd }) => {
+      const id = `part-${++partCounter}`
+      const created = await agents.create({
+        sessionId: id,
+        agentOptions: { provider: 'mock', model: 'm', maxTokens: 4_000 },
+        meta: { cwd: cwd ?? home },
+      })
+      return { sessionId: id, agent: created.agent }
+    },
+  })
+  await new Promise(resolve => root.inject(['sessionTitle', 'workspaceRegistry', 'connection', 'sessionController'], resolve))
+
+  t.after(async () => {
+    await root.fiber.dispose()
+    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    workspaceId: 'ws-1',
+    mainBotIds: ['m1'],
+    revision: 1,
+    bots: { m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Chief', instructions: '', createdAt: 1, model: 'mock/m' } },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+  }))
+
+  // Wrap real sessions.flush so the first two flush attempts on part-1 fail transiently,
+  // while the third runs the real JsonlSessionPersistence drain + flush to disk.
+  const origFlush = sessions.flush.bind(sessions)
+  let part1FlushAttempts = 0
+  let failRemaining = 2
+  sessions.flush = async (session) => {
+    if (session?.id === 'part-1') {
+      part1FlushAttempts += 1
+      if (failRemaining > 0) {
+        failRemaining -= 1
+        throw new Error('simulated transient JSONL flush failure')
+      }
+    }
+    return origFlush(session)
+  }
+
+  const rt = createRuntime(root, { home, checkRatio: 0.4, scheduleAttachWaitMs: 0 })
+  await rt.load()
+  const { agent: oldAgent } = await agents.create({
+    sessionId: 'm1',
+    agentOptions: { provider: 'mock', model: 'm', maxTokens: 4_000 },
+    meta: { cwd: home },
+  })
+
+  // Run one idle turn above check line so DS Bot switches m1 -> part-1 with zero held input.
+  const turnDone = new Promise((resolve) => {
+    const off = root.on('agent/status', ({ agent: a, status }) => {
+      if (a.id === 'm1' && status === 'idle') { off(); resolve() }
+    })
+  })
+  oldAgent.followup(createUserMessage({ content: [{ type: 'text', text: 'Prepare release notes' }], source: { kind: 'user' } }))
+  await turnDone
+
+  // Wait for pointer flip m1 -> part-1 and initial handoff flush failure #1.
+  assert.equal(await waitFor(() => rt.chatOf('m1') === 'part-1' && part1FlushAttempts === 1, 5_000), true, 'switch must create part-1 and fail initial handoff flush')
+  // Wait for runSwitch catch/finally to settle (leaving switches empty and handoffPending true).
+  assert.equal(await waitFor(() => !rt.isSwitchingPart('m1'), 5_000), true)
+  assert.equal(rt.state.switching.m1?.handoffPending, true, 'handoffPending must remain set after initial JSONL flush failure')
+  assert.deepEqual(archived, [], 'old part must not be archived after failed handoff flush')
+
+  // Retry #1 (flush attempt #2 also fails): ensureHandoffDelivered MUST invoke sessions.flush(part-1)
+  // rather than returning early because the handoff is already in part-1's memory.
+  await rt.heldBack()
+  assert.equal(part1FlushAttempts, 2, 'heldBack retry #1 must call sessions.flush on part-1')
+  assert.equal(rt.state.switching.m1?.handoffPending, true, 'handoffPending must remain set while retry flush fails')
+  assert.deepEqual(archived, [], 'old part must remain unarchived while retry flush fails')
+
+  // Retry #2 (flush attempt #3 delegates to real JsonlSessionPersistence): drains to disk,
+  // clears handoffPending, archives old part, and leaves exactly one handoff in the JSONL file.
+  await rt.heldBack()
+  assert.equal(part1FlushAttempts, 3, 'heldBack retry #2 must call real sessions.flush on part-1')
+  assert.deepEqual(rt.state.switching, {}, 'switching marker cleared after durable JSONL flush')
+  assert.deepEqual(archived, ['m1'], 'old part archived after durable JSONL flush')
+
+  const readHandle = await sessionPersistence.open('part-1', 'read')
+  try {
+    const { events } = await readHandle.read()
+    const handoffInserts = events.filter(ev =>
+      ev.type === 'agent/inbox/spliced'
+      && Array.isArray(ev.data?.inserted)
+      && ev.data.inserted.some(m => m?.source?.handoff === true))
+    assert.equal(handoffInserts.length, 1, 'real JSONL file on disk must durably persist exactly one handoff message')
+  } finally {
+    await readHandle.close()
   }
 })
