@@ -1408,7 +1408,8 @@ test('ensureHandoffDelivered still flushes fresh.session when handoff already ex
   }
 
   // 3) Handoff already claimed out of fresh.inbox during preStep (logged as agent/inbox/spliced
-  // removal before user/message is written) while handoffPending is still true.
+  // removal before user/message is written) while handoffPending is still true:
+  // recovery MUST defer (neither duplicate nor clear handoffPending) until user/message lands.
   {
     let s1Flushes = 0
     let failOnce = true
@@ -1448,21 +1449,31 @@ test('ensureHandoffDelivered still flushes fresh.session when handoff already ex
       content: [{ type: 'text', text: '[Handoff · part 2]\nIn-flight claim window' }],
       source: { kind: SOURCE_KIND, form: 'handoff', handoff: true, exchangeId: 'ex-inflight-claim' },
     })
-    // Empty inbox and empty deriveMessages (user/message not appended yet), only spliced insert + claim in snapshotEvents.
-    s1.session.snapshotEvents = () => [
+    const events = [
       { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 0, inserted: [claimedHandoff] } },
       { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } },
     ]
+    s1.session.snapshotEvents = () => events
 
+    // While only the claim exists (no user/message yet), heldBack MUST defer:
+    // keep handoffPending=true, do not archive old part, do not inject a duplicate.
     await host.rt.heldBack()
-    assert.equal(s1Flushes, 1, 'retry must detect in-flight claimed handoff and flush without duplicating')
+    assert.equal(s1Flushes, 0, 'in-flight claim defers without treating removal flush as durable delivery')
+    assert.equal(host.state().switching.b?.handoffPending, true, 'handoffPending must stay set while handoff is only claimed')
+    assert.equal(s1.calls.filter(([kind]) => kind === 'followup').length, 0, 'must not inject duplicate handoff during preStep claim window')
+    assert.deepEqual(host.archived, [], 'old part must stay unarchived while handoff is only claimed')
+
+    // Once user/message lands, retry #1 (flush fails) still keeps handoffPending=true.
+    events.push({ type: 'user/message', data: { message: claimedHandoff } })
+    await host.rt.heldBack()
+    assert.equal(s1Flushes, 1, 'retry after user/message lands must flush fresh.session')
     assert.equal(host.state().switching.b?.handoffPending, true)
-    assert.equal(s1.calls.filter(([kind]) => kind === 'followup').length, 0)
     assert.deepEqual(host.archived, [])
 
+    // Retry #2 (flush succeeds): clears handoffPending and archives old part with zero duplicates.
     await host.rt.heldBack()
     assert.equal(s1Flushes, 2)
-    assert.equal(s1.calls.filter(([kind]) => kind === 'followup').length, 0, 'must not inject duplicate handoff during preStep claim window')
+    assert.equal(s1.calls.filter(([kind]) => kind === 'followup').length, 0, 'must not inject duplicate handoff')
     assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
     assert.deepEqual(host.state().switching, {})
   }
@@ -1625,8 +1636,9 @@ test('real DSH JSONL persistence flushes buffered handoff out of drainPaused on 
   oldAgent.followup(createUserMessage({ content: [{ type: 'text', text: 'Prepare release notes' }], source: { kind: 'user' } }))
   await turnDone
 
-  // Wait for pointer flip m1 -> part-1, real persistContiguous failure #1, and runSwitch cleanup.
-  assert.equal(await waitFor(() => rt.chatOf('m1') === 'part-1' && handoffPersistAttempts === 1 && !rt.isSwitchingPart('m1'), 5_000), true, 'switch must create part-1 and fail initial JSONL persist')
+  // Wait for pointer flip m1 -> part-1, real persistContiguous failure #1, runSwitch cleanup,
+  // and part-1 finishing its quick idle turn (so user/message is logged in memory, unflushed).
+  assert.equal(await waitFor(() => rt.chatOf('m1') === 'part-1' && handoffPersistAttempts === 1 && !rt.isSwitchingPart('m1') && agents.get('part-1')?.status === 'idle', 5_000), true, 'switch must create part-1 and fail initial JSONL persist')
   assert.equal(part1Handle?.drainPaused, true, 'real JsonlSessionHandle must enter drainPaused=true after persistContiguous fails')
   assert.equal(rt.state.switching.m1?.handoffPending, true, 'handoffPending must remain set after initial JSONL flush failure')
   assert.deepEqual(archived, [], 'old part must not be archived after failed handoff flush')
@@ -1649,4 +1661,199 @@ test('real DSH JSONL persistence flushes buffered handoff out of drainPaused on 
   assert.deepEqual(rt.state.switching, {}, 'switching marker cleared after durable JSONL flush')
   assert.deepEqual(archived, ['m1'], 'old part archived after durable JSONL flush')
   assert.equal((await readDiskHandoffInserts()).length, 1, 'real JSONL file on disk must durably persist exactly one handoff message')
+})
+
+test('real DSH agent-loop paused after inbox.claim() keeps handoffPending set until user/message is durably flushed', async (t) => {
+  const rootDir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsb-pr1-claim-')))
+  const home = join(rootDir, 'home')
+  const sessionsDir = join(rootDir, 'sessions')
+  mkdirSync(home, { recursive: true })
+  mkdirSync(sessionsDir, { recursive: true })
+
+  const root = new Context()
+  await root.plugin(JsonlPersistence, { root: sessionsDir, compression: 'none' })
+  await mountAgentLoopTestDependencies(root)
+  await root.plugin(TokenMeter)
+  await root.plugin(BasicCompactionEngine)
+
+  class MinimalAdapter extends LlmAdapter {
+    providerInfo() { return { id: 'mock', name: 'mock' } }
+    async listModels() { return [{ id: 'm', name: 'm', inputModalities: ['text'] }] }
+    async resolveModel(provider, id) {
+      return {
+        provider,
+        id,
+        name: id,
+        inputModalities: ['text'],
+        context: { contextWindow: 50_000 },
+        defaultMaxTokens: 4_000,
+      }
+    }
+    async *stream(req) {
+      const text = req.purpose === 'compaction'
+        ? (req.system?.includes('context steward')
+          ? JSON.stringify({ action: 'switch', reason: 'move on' })
+          : validNote('claim-window-marker'))
+        : 'reply ok'
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+      yield { type: 'usage', usage: { inputTokens: 35_000, outputTokens: 100 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+
+  root.llm.registerAdapter(['mock'], new MinimalAdapter())
+  await mountAgentLoopTestHarness(root)
+  const { agents, sessionPersistence } = await new Promise(resolve => root.inject(['agents', 'sessionPersistence'], resolve))
+
+  // Pause part-1 right inside real ReactLoopAgent preStep (AFTER inbox.claim() removes the
+  // handoff from part-1.inbox and BEFORE step() appends user/message).
+  let pausedAtPreStepResolve
+  const pausedAtPreStep = new Promise(resolve => { pausedAtPreStepResolve = resolve })
+  let releasePreStep
+  const preStepGate = new Promise(resolve => { releasePreStep = resolve })
+  let preStepPausedOnce = false
+  root.on('agent/pre-step', async (payload, next) => {
+    if (payload.agent?.id === 'part-1' && !preStepPausedOnce) {
+      preStepPausedOnce = true
+      pausedAtPreStepResolve()
+      await preStepGate
+    }
+    return next()
+  })
+
+  // Block initial handoff persist while part-1 is still paused in preStep so handoffPending
+  // stays set regardless of whether runSwitch's flush races ahead of or behind inbox.claim().
+  let allowHandoffPersist = false
+  const origCreate = sessionPersistence.create.bind(sessionPersistence)
+  sessionPersistence.create = async (header, options) => {
+    const handle = await origCreate(header, options)
+    if (header?.id === 'part-1') {
+      const origPersist = handle.persistContiguous.bind(handle)
+      handle.persistContiguous = async (batch) => {
+        const hasHandoff = Array.isArray(batch) && batch.some(ev =>
+          ev.type === 'agent/inbox/spliced'
+          && Array.isArray(ev.data?.inserted)
+          && ev.data.inserted.some(m => m?.source?.handoff === true))
+        if (hasHandoff && !allowHandoffPersist) {
+          throw new Error('simulated initial handoff flush failure')
+        }
+        return origPersist(batch)
+      }
+    }
+    return handle
+  }
+
+  const archived = []
+  let partCounter = 0
+  root.provide('sessionTitle', { setTitle: async () => {}, rename: async () => {} })
+  root.provide('workspaceRegistry', {
+    archiveSession: async id => { archived.push(String(id)) },
+    unarchiveSession: async () => {},
+    resolveByPath: async () => ({ id: 'ws-1', path: home }),
+    create: async () => ({ id: 'ws-1', path: home }),
+    get: () => ({ id: 'ws-1', path: home }),
+    list: () => [{ id: 'ws-1', path: home }],
+    listAll: async () => [{ id: 'ws-1', path: home }],
+  })
+  root.provide('connection', { fetch: { register: () => () => {} } })
+  root.provide('sessionController', {
+    resolveAgent: async id => ({ agent: agents.get(id) }),
+    selectModel: async () => {},
+    page: async ({ address, beforeSeq, throughSeq, maxMessages = 200 }) => {
+      const events = agents.get(address.sessionId)?.session?.snapshotEvents?.() ?? []
+      const filtered = events.filter(ev =>
+        (throughSeq === undefined || ev.seq <= throughSeq)
+        && (beforeSeq === undefined || ev.seq < beforeSeq))
+      const slice = filtered.slice(-maxMessages)
+      return { records: slice.map(event => ({ event })), hasMore: filtered.length > slice.length }
+    },
+    create: async ({ cwd }) => {
+      const id = `part-${++partCounter}`
+      const created = await agents.create({
+        sessionId: id,
+        agentOptions: { provider: 'mock', model: 'm', maxTokens: 4_000 },
+        meta: { cwd: cwd ?? home },
+      })
+      return { sessionId: id, agent: created.agent }
+    },
+  })
+  await new Promise(resolve => root.inject(['sessionTitle', 'workspaceRegistry', 'connection', 'sessionController'], resolve))
+
+  t.after(async () => {
+    releasePreStep()
+    await root.fiber.dispose()
+    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    workspaceId: 'ws-1',
+    mainBotIds: ['m1'],
+    revision: 1,
+    bots: { m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Chief', instructions: '', createdAt: 1, model: 'mock/m' } },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+  }))
+
+  const rt = createRuntime(root, { home, checkRatio: 0.4, scheduleAttachWaitMs: 0 })
+  await rt.load()
+  const { agent: oldAgent } = await agents.create({
+    sessionId: 'm1',
+    agentOptions: { provider: 'mock', model: 'm', maxTokens: 4_000 },
+    meta: { cwd: home },
+  })
+
+  const turnDone = new Promise((resolve) => {
+    const off = root.on('agent/status', ({ agent: a, status }) => {
+      if (a.id === 'm1' && status === 'idle') { off(); resolve() }
+    })
+  })
+  oldAgent.followup(createUserMessage({ content: [{ type: 'text', text: 'Trigger switch into paused preStep' }], source: { kind: 'user' } }))
+  await turnDone
+
+  // Wait until part-1 has claimed the handoff and paused in preStep (before user/message) and runSwitch settled.
+  await pausedAtPreStep
+  assert.equal(await waitFor(() => !rt.isSwitchingPart('m1'), 5_000), true)
+
+  const part1 = agents.get('part-1')
+  assert.equal(part1.inbox.nextTurn.length, 0, 'real DSH preStep already claimed handoff out of part-1.inbox')
+  assert.equal(part1.session.snapshotEvents().some(ev => ev.type === 'user/message' && (ev.data?.source ?? ev.data?.message?.source)?.handoff === true), false, 'user/message is not logged yet while paused in preStep')
+  assert.equal(rt.state.switching.m1?.handoffPending, true, 'handoffPending must remain set after initial flush failure')
+
+  // Recovery runs while part-1 is paused after claim and before user/message:
+  // MUST defer — keep handoffPending=true, keep m1 unarchived, and never duplicate handoff!
+  await rt.heldBack()
+  assert.equal(rt.state.switching.m1?.handoffPending, true, 'handoffPending must stay set while handoff is claimed but not logged as user/message')
+  assert.deepEqual(archived, [], 'old part must not be archived before handoff user/message is durable')
+  assert.equal(part1.inbox.nextTurn.length, 0, 'recovery must not inject a duplicate handoff during preStep claim window')
+
+  // Release preStep and allow disk persistence so the real agent-loop appends user/message and finishes the turn.
+  allowHandoffPersist = true
+  const part1Idle = new Promise((resolve) => {
+    const off = root.on('agent/status', ({ agent: a, status }) => {
+      if (a.id === 'part-1' && status === 'idle') { off(); resolve() }
+    })
+  })
+  releasePreStep()
+  await part1Idle
+
+  // Now retry heldBack(): flushes durable user/message to disk, clears handoffPending, archives m1.
+  await rt.heldBack()
+  assert.deepEqual(rt.state.switching, {}, 'switching marker cleared once user/message is durably flushed')
+  assert.deepEqual(archived, ['m1'], 'old part archived once user/message is durably flushed')
+
+  const readHandle = await sessionPersistence.open('part-1', 'read')
+  try {
+    const { events } = await readHandle.read()
+    const handoffUserMsgs = events.filter(ev => ev.type === 'user/message' && (ev.data?.source ?? ev.data?.message?.source)?.handoff === true)
+    const handoffInserts = events.filter(ev => ev.type === 'agent/inbox/spliced' && Array.isArray(ev.data?.inserted) && ev.data.inserted.some(m => m?.source?.handoff === true))
+    assert.equal(handoffUserMsgs.length, 1, 'real JSONL file on disk durably stores exactly one handoff user/message')
+    assert.equal(handoffInserts.length, 1, 'real JSONL file on disk records exactly one handoff insert (no duplicate)')
+  } finally {
+    await readHandle.close()
+  }
 })

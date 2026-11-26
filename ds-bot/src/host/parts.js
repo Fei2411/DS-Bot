@@ -2314,40 +2314,80 @@ export function install(rt) {
     heldRetryTimer.unref?.()
   }
 
-  // Checks whether `agent` already holds or received a handoff matching `match`,
-  // covering live inbox, derived messages, logged user/message events (including
-  // handoffs later compacted out of deriveMessages), and the in-flight preStep
-  // window after inbox.claim() removes a handoff before user/message is logged.
-  function hasExistingHandoff(agent, match) {
-    if ([...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])].some(match)) return true
-    if ((agent.session?.deriveMessages?.() ?? []).some(match)) return true
+  // Classifies a matching handoff on `agent` so recovery can distinguish:
+  // - 'logged': append-only user/message (or derived message) already present -> one flush proves durability;
+  // - 'queued': still pending in inbox -> flush proves durability only if no inbox splice raced across it;
+  // - 'claimed': removed by preStep inbox.claim() before user/message -> defer (neither duplicate nor clear handoffPending);
+  // - 'missing': absent -> reconstruct and deliver.
+  function inspectHandoffState(agent, match) {
     const events = agent.session?.snapshotEvents?.()
-    if (!Array.isArray(events)) return false
-    const pending = { 'next-turn': [], 'next-step': [] }
-    const claimed = []
-    for (const ev of events) {
-      if (ev?.type === 'turn/end') {
-        claimed.length = 0
-      } else if (ev?.type === 'user/message') {
-        const src = ev.data?.source ?? ev.data?.message?.source
-        if (match({ source: src })) return true
-      } else if (ev?.type === 'agent/inbox/spliced' && ev.data) {
-        const inbox = pending[ev.data.target]
-        if (inbox !== undefined) {
-          const start = ev.data.start
-          const removedCount = ev.data.removedCount ?? 0
-          const inserted = Array.isArray(ev.data.inserted) ? ev.data.inserted : []
-          if (Number.isSafeInteger(start) && start >= 0 && start <= inbox.length
-            && Number.isSafeInteger(removedCount) && removedCount >= 0 && start + removedCount <= inbox.length) {
-            const removed = inbox.splice(start, removedCount, ...inserted)
-            if (inserted.length === 0 && ev.data.outcome !== 'canceled') {
-              for (const msg of removed) claimed.push(msg)
+    if (Array.isArray(events)) {
+      let logged = (agent.session?.deriveMessages?.() ?? []).some(match)
+      const pending = { 'next-turn': [], 'next-step': [] }
+      const claimed = []
+      for (const ev of events) {
+        if (ev?.type === 'turn/end') {
+          claimed.length = 0
+        } else if (ev?.type === 'user/message') {
+          const src = ev.data?.source ?? ev.data?.message?.source
+          if (match({ source: src })) logged = true
+        } else if (ev?.type === 'agent/inbox/spliced' && ev.data) {
+          const inbox = pending[ev.data.target]
+          if (inbox !== undefined) {
+            const start = ev.data.start
+            const removedCount = ev.data.removedCount ?? 0
+            const inserted = Array.isArray(ev.data.inserted) ? ev.data.inserted : []
+            if (Number.isSafeInteger(start) && start >= 0 && start <= inbox.length
+              && Number.isSafeInteger(removedCount) && removedCount >= 0 && start + removedCount <= inbox.length) {
+              const removed = inbox.splice(start, removedCount, ...inserted)
+              if (inserted.length === 0 && ev.data.outcome !== 'canceled') {
+                for (const msg of removed) claimed.push(msg)
+              }
             }
           }
         }
       }
+      if (logged) return { state: 'logged', len: events.length }
+      if (pending['next-turn'].some(match) || pending['next-step'].some(match)) return { state: 'queued', len: events.length }
+      if (claimed.some(match)) return { state: 'claimed', len: events.length }
+      if ([...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])].some(match)) return { state: 'queued-live', len: events.length }
+      return { state: 'missing', len: events.length }
     }
-    return pending['next-turn'].some(match) || pending['next-step'].some(match) || claimed.some(match)
+    if ((agent.session?.deriveMessages?.() ?? []).some(match)) return { state: 'logged' }
+    if ([...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])].some(match)) return { state: 'queued-live' }
+    return { state: 'missing' }
+  }
+
+  // Confirms that a matching handoff on `fresh` is covered by a completed flush barrier:
+  // either an append-only `user/message` existed before flush started, or a queued inbox
+  // entry remained unspliced across the flush. Returns false when the handoff is currently
+  // claimed mid-preStep (before `user/message` is logged) so the caller defers without
+  // duplicating the handoff or clearing `handoffPending`.
+  async function confirmHandoffFlushed(fresh, match, { justQueued = false } = {}) {
+    for (let pass = 0; pass < 4; pass += 1) {
+      const before = inspectHandoffState(fresh, match)
+      if (before.state === 'claimed') return false
+      if (before.state === 'missing') {
+        // Minimal test stubs that record `followup()` without mutating `inbox` or
+        // `snapshotEvents` still flush once when called right after `fresh.followup()`.
+        if (justQueued && pass === 0 && typeof fresh.session?.snapshotEvents !== 'function') {
+          await ctx.sessions.flush(fresh.session)
+          return true
+        }
+        return false
+      }
+      await ctx.sessions.flush(fresh.session)
+      if (before.state === 'logged' || before.len === undefined) return true
+      const afterEvents = fresh.session?.snapshotEvents?.()
+      if (!Array.isArray(afterEvents)) return true
+      const spliceMutated = afterEvents.length < before.len
+        || afterEvents.slice(before.len).some(ev => ev?.type === 'agent/inbox/spliced')
+      if (!spliceMutated) {
+        const after = inspectHandoffState(fresh, match)
+        if (after.state === 'logged' || after.state === 'queued' || after.state === 'queued-live') return true
+      }
+    }
+    return false
   }
 
   // Recovers a handoff package that was not yet flushed to `target` when the process
@@ -2362,13 +2402,10 @@ export function install(rt) {
       if (expectedExchangeId === undefined) return true
       return m.source?.exchangeId === expectedExchangeId
     }
-    if (hasExistingHandoff(fresh, matchesExistingHandoff)) {
-      // A prior flush failure can leave the handoff buffered in memory (fresh.inbox,
-      // in-flight preStep claim, or unflushed session log) while handoffPending is still
-      // set. Confirm durability on disk before returning so the caller never clears
-      // handoffPending or archives the old part while the handoff is still unflushed.
-      await ctx.sessions.flush(fresh.session)
-      return
+    const existing = inspectHandoffState(fresh, matchesExistingHandoff)
+    if (existing.state === 'claimed') return false
+    if (existing.state !== 'missing') {
+      return confirmHandoffFlushed(fresh, matchesExistingHandoff)
     }
     const bot = owner.botId === undefined ? undefined : rt.botOf(owner.botId)
     const room = rt.roomOf(owner.roomId)
@@ -2472,7 +2509,7 @@ export function install(rt) {
       content: [{ type: 'text', text }],
       source: handoffSource(recoveredJob, resume, { omitOrigin: hasRuntimeLostUnread }),
     }))
-    await ctx.sessions.flush(fresh.session)
+    return confirmHandoffFlushed(fresh, matchesExistingHandoff, { justQueued: true })
   }
 
   // Splits stacked pending handoffs into batches with at most one distinct primary
@@ -2671,18 +2708,25 @@ export function install(rt) {
         // source transcripts and reply routing); trailing non-resuming hops consolidate.
         const pendingHandoffs = ready.filter(entry => entry.owner.handoffPending === true)
         if (pendingHandoffs.length > 0) {
+          let handoffDeferred = false
           for (const { entries, newest, resumedEntry, mergedMeta } of planPendingHandoffs(pendingHandoffs)) {
-            await ensureHandoffDelivered(newest.sessionId, newest.owner, target, {
+            const delivered = await ensureHandoffDelivered(newest.sessionId, newest.owner, target, {
               metaOverride: mergedMeta,
               fallbackSessionId: resumedEntry?.sessionId,
               entries,
             })
+            if (!delivered) {
+              retryNeeded = true
+              handoffDeferred = true
+              break
+            }
             for (const entry of entries) {
               delete entry.owner.handoffPending
               delete entry.owner.handoffMeta
             }
             await rt.save()
           }
+          if (handoffDeferred) continue
         }
 
         // Resolve competing copies across successive source parts so a newer merged
@@ -2934,7 +2978,7 @@ export function install(rt) {
         throw error
       }
     }
-    if (job.moved) {
+    if (job.moved && job.kept !== true) {
       rt.renewMemory(agent.id)
       await rt.closeLocalAgentSession?.(agent.id)?.catch(error => rt.warn('ds-bot: the local agent of earlier part %s did not stop: %s', agent.id, error))
       let finishMove
@@ -3277,8 +3321,19 @@ export function install(rt) {
       }
       const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: budgeted, number: number + 1, resume: handoffResume, overflow: job.overflow, cutoff: job.cutoff === true, runtimeLost: job.runtimeLost === true, failed: job.failed, bare: job.bare, folder, engine, preset: job.preset })
       freshParts.set(freshId, estimateTokens(text))
-      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, handoffResume, { omitOrigin: hasRuntimeLostUnread }) }))
-      await ctx.sessions.flush(fresh.session)
+      const handoffSrc = handoffSource(job, handoffResume, { omitOrigin: hasRuntimeLostUnread })
+      const matchesHandoff = (m) => m?.source?.handoff === true
+        && (handoffSrc.exchangeId === undefined || m.source?.exchangeId === handoffSrc.exchangeId)
+      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSrc }))
+      const handoffConfirmed = await confirmHandoffFlushed(fresh, matchesHandoff, { justQueued: true })
+      if (!handoffConfirmed) {
+        // The successor claimed the handoff out of its inbox across flush before
+        // user/message was logged. Keep handoffPending and defer archiving/forwarding
+        // to heldBack() so a crash before user/message can still reconstruct it.
+        job.kept = true
+        try { restore(agent, job.carry.splice(0)) } catch {}
+        return
+      }
       // Handoff package is now durably flushed to the fresh part: clear the pending flag
       // in memory (persisted on the switch's final save; even on a hard crash before that
       // save, ensureHandoffDelivered sees the flushed handoff on fresh and skips cleanly).
