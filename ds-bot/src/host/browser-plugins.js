@@ -1,7 +1,10 @@
-// The whole team uses one browser plugin. Each Bot still gets its own profile
-// directory, including the group Sessions where that Bot speaks.
+// The whole team uses one active browser plugin in the `browser` slot.
+// Built-in backends (`readonly`, `refs`, `script`, `task`) and third-party providers
+// all mount through DS Bot's unified plugin runtime, with per-Bot isolated profiles,
+// desktop CDP pane integration, write-action pre-grants, and handoff cards.
 import { isAbsolute, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { rm } from 'node:fs/promises'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { mountBrowserPlugin } from './browser/mount.js'
 import { sessionComplete } from './browser/session-model.js'
@@ -10,6 +13,7 @@ import * as script from './browser/script.js'
 import * as task from './browser/task.js'
 
 export const browserPlugins = { refs, script, task }
+
 export function appBrowserEndpoint(botId, downloadRoots) {
   if (typeof process.send !== 'function') throw new Error('The app browser relay is unavailable.')
   const id = randomUUID()
@@ -100,14 +104,14 @@ async function authorizeBrowserAction(rt, exec, botId, action) {
   }
   let outcome
   try {
-    outcome = await approval.request({
+    outcome = await (rt.requestActionApproval ?? (request => approval.request(request)))({
       agent,
       toolName: exec.name,
       ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
       reason,
       displayReason,
       ...(exec.signal ? { signal: exec.signal } : {}),
-    })
+    }, { kind: 'browser', action })
   } catch {
     throw new Error('The approval service was unavailable. Nothing was done.')
   }
@@ -119,19 +123,55 @@ async function authorizeBrowserAction(rt, exec, botId, action) {
   throw new Error('The approval could not be obtained. Nothing was done.')
 }
 
+const BUILTIN_BROWSER_META = {
+  refs: {
+    name: 'Playwright (Refs)',
+    description: 'Built-in Playwright browser with numbered snapshots, click/type by ref, screenshots, per-Bot profiles, and safety grants.',
+    locales: {
+      zh: {
+        name: 'Playwright（编号操作）',
+        description: '内置 Playwright 浏览器：快照编号点击与填写、截图、每 Bot 独立登录态与安全预授权。',
+      },
+    },
+  },
+  script: {
+    name: 'Playwright (Script)',
+    description: 'Built-in Playwright browser that runs a single JavaScript snippet per turn with helper utilities, per-Bot profiles, and safety grants.',
+    locales: {
+      zh: {
+        name: 'Playwright（脚本执行）',
+        description: '内置 Playwright 浏览器：单步提交 JS 脚本操作页面，支持每 Bot 独立登录态与安全预授权。',
+      },
+    },
+  },
+  task: {
+    name: 'Playwright (Task)',
+    description: 'Built-in Playwright browser that delegates multi-step browsing goals to an internal browser runner using the Bot model.',
+    locales: {
+      zh: {
+        name: 'Playwright（子任务）',
+        description: '内置 Playwright 浏览器：接收目标由内部自动执行多步浏览并交回结果，支持每 Bot 独立登录态。',
+      },
+    },
+  },
+}
+
 export function install(rt) {
-  const name = rt.config.browserPlugin
+  const rawName = rt.config.browserPlugin
+  const hasConfigName = rawName !== undefined && rawName !== null && rawName !== false && rawName !== ''
   const injected = rt.config.browserPluginApi
-  if (!name && !injected) return
-  const plugin = injected ?? browserPlugins[name]
-  if (!plugin) throw new Error(`Unknown browser plugin "${name}". Choose ${NAMES.join(', ')}.`)
+  if (hasConfigName && !injected && !browserPlugins[rawName]) {
+    throw new Error(`Unknown browser plugin "${rawName}". Choose ${NAMES.join(', ')}.`)
+  }
   const playwrightUrl = optionalString(rt.config, 'playwrightUrl')
   const executablePath = optionalString(rt.config, 'browserExecutablePath')
   const downloadGraceMs = optionalNumber(rt.config, 'browserDownloadGraceMs')
   const headless = typeof rt.config.browserHeadless === 'boolean'
     ? rt.config.browserHeadless
     : defaultBrowserHeadless(process.platform)
+  const profileRoot = join(rt.home, 'browser-profiles')
   const downloadRoot = join(rt.home, 'browser-downloads')
+
   async function downloadRoots(botId) {
     await rt.load()
     const team = rt.teamFolder()
@@ -139,25 +179,75 @@ export function install(rt) {
     const working = requested !== undefined && await rt.isFolder(requested) ? requested : team
     return [...new Set([working, team].filter(root => typeof root === 'string' && isAbsolute(root)))]
   }
-  const mounted = {}
-  rt.browserFrame = botId => mounted.frame?.(botId)
-  mountBrowserPlugin(rt.ctx, {
-    api: mounted,
-    toolDefs: plugin.tools ?? plugin.toolDefs,
-    register: tool => rt.teamTools.push(tool),
-    defineTool,
-    profileRoot: join(rt.home, 'browser-profiles'),
+  async function uploadRoots(botId) {
+    const roots = await downloadRoots(botId)
+    return [...new Set([...roots, join(downloadRoot, botId)])]
+  }
+  async function keyOf(exec) {
+    await rt.load()
+    const id = rt.selfOf(exec.agent?.session?.header?.id ?? exec.agent?.id)
+    if (id === undefined || rt.botOf(id) === undefined) return undefined
+    return id
+  }
+
+  let activeMounted = null
+  rt.browserFrame = undefined
+
+  function mountToolsWithHost(host, { toolDefs, openSession }) {
+    const mounted = {}
+    mountBrowserPlugin(rt.ctx, {
+      api: mounted,
+      toolDefs,
+      register: tool => host.registerTool(tool),
+      defineTool,
+      profileRoot,
+      downloadRoot,
+      downloadRoots,
+      uploadRoots,
+      headless,
+      playwrightUrl,
+      executablePath,
+      downloadGraceMs,
+      connect: process.env.DS_BOT_APP === '1' && typeof process.send === 'function' ? appBrowserEndpoint : undefined,
+      getHold: botId => rt.browserChannel?.holdOf(botId) ?? null,
+      onHold: (botId, hold) => rt.browserChannel?.setHold(botId, hold && handoffHold(rt, botId, hold)),
+      subscribeHolds: listener => rt.browserChannel?.subscribeHolds?.(listener),
+      authorize: (exec, botId, action) => authorizeBrowserAction(rt, exec, botId, action),
+      completeFor: rt.config.browserComplete
+        ? () => rt.config.browserComplete
+        : exec => sessionComplete(rt.ctx, exec, rt),
+      keyOf,
+      ...(openSession ? { openSession } : {}),
+    })
+    activeMounted = mounted
+    rt.browserFrame = botId => mounted.frame?.(botId)
+    return {
+      drop: botId => mounted.drop?.(botId),
+      frame: botId => mounted.frame?.(botId),
+      dispose: async () => {
+        if (activeMounted === mounted) {
+          activeMounted = null
+          rt.browserFrame = undefined
+        }
+        await mounted.dispose?.()
+      },
+    }
+  }
+
+  // Provide the browser slot host context so third-party `defineBrowserProvider` plugins
+  // can reuse DS Bot's per-Bot profiles, desktop CDP pane, grants, and handoff cards.
+  rt.plugins?.registerSlotContext?.('browser', (_rt, _desc, host) => ({
+    profileRoot,
+    profileDir: botId => join(profileRoot, String(botId)),
     downloadRoot,
     downloadRoots,
-    async uploadRoots(botId) {
-      const roots = await downloadRoots(botId)
-      return [...new Set([...roots, join(downloadRoot, botId)])]
-    },
+    uploadRoots,
     headless,
     playwrightUrl,
     executablePath,
     downloadGraceMs,
-    connect: process.env.DS_BOT_APP === '1' && typeof process.send === 'function' ? appBrowserEndpoint : undefined,
+    resolveBotId: keyOf,
+    connectCdp: process.env.DS_BOT_APP === '1' && typeof process.send === 'function' ? appBrowserEndpoint : undefined,
     getHold: botId => rt.browserChannel?.holdOf(botId) ?? null,
     onHold: (botId, hold) => rt.browserChannel?.setHold(botId, hold && handoffHold(rt, botId, hold)),
     subscribeHolds: listener => rt.browserChannel?.subscribeHolds?.(listener),
@@ -165,19 +255,91 @@ export function install(rt) {
     completeFor: rt.config.browserComplete
       ? () => rt.config.browserComplete
       : exec => sessionComplete(rt.ctx, exec, rt),
-    async keyOf(exec) {
-      await rt.load()
-      const id = rt.selfOf(exec.agent?.session?.header?.id ?? exec.agent?.id)
-      if (id === undefined || rt.botOf(id) === undefined) return undefined
-      return id
+    mountBrowserTools: ({ toolDefs, openSession }) => mountToolsWithHost(host, { toolDefs, openSession }),
+  }))
+
+  // Register built-in browser plugins into the unified `browser` slot.
+  rt.plugins?.registerBuiltin?.({
+    id: 'builtin:readonly',
+    name: 'Read-only Browser',
+    description: 'Bots can read the page you have open (title, URL, visible text) via read_browser, without clicking or typing.',
+    category: 'browser',
+    slot: 'browser',
+    supportsGrants: false,
+    toolPrefixes: ['read_browser'],
+    locales: {
+      zh: {
+        name: '只读浏览器',
+        description: '默认模式：Bot 只能通过 read_browser 读取你打开的页面内容，不会点击或输入。',
+      },
+    },
+    mount() {
+      activeMounted = null
+      return { dispose: () => {} }
     },
   })
+
+  for (const name of NAMES) {
+    const mod = browserPlugins[name]
+    const meta = BUILTIN_BROWSER_META[name]
+    const defs = mod.tools ?? mod.toolDefs ?? []
+    rt.plugins?.registerBuiltin?.({
+      id: `builtin:${name}`,
+      name: meta.name,
+      description: meta.description,
+      category: 'browser',
+      slot: 'browser',
+      supportsGrants: true,
+      toolPrefixes: defs.map(t => t.name),
+      locales: meta.locales,
+      mount(host) {
+        return mountToolsWithHost(host, { toolDefs: defs })
+      },
+    })
+  }
+
+  // Test/config injected browserPluginApi: mount synchronously so existing tests that
+  // read `rt.teamTools` immediately after `createRuntime()` continue to pass.
+  if (injected) {
+    const defs = injected.tools ?? injected.toolDefs ?? []
+    rt.plugins?.registerBuiltin?.({
+      id: 'builtin:injected',
+      name: 'Injected Browser',
+      description: 'Browser plugin provided via runtime configuration.',
+      category: 'browser',
+      slot: 'browser',
+      supportsGrants: true,
+      toolPrefixes: defs.map(t => t.name),
+      mount(host) {
+        return mountToolsWithHost(host, { toolDefs: defs })
+      },
+    })
+  }
+
+  // Synchronously pre-mount legacy `config.browserPlugin` / `config.browserPluginApi`
+  // when specified at startup so callers expecting immediate tool registration work identically.
+  if (injected || hasConfigName) {
+    const initialTarget = injected ? 'builtin:injected' : `builtin:${rawName}`
+    if (rt.plugins?.desiredSlotTarget?.('browser') === initialTarget) {
+      rt.plugins.mountBuiltinSlotSync?.('browser', initialTarget)
+    }
+  } else if (rt.plugins?.desiredSlotTarget?.('browser') === 'builtin:readonly') {
+    rt.plugins.mountBuiltinSlotSync?.('browser', 'builtin:readonly')
+  }
+
   // A deleted Bot leaves no browser state behind: close its session and drop the profile dir.
   if (typeof rt.deleteBot === 'function') {
     const originalDelete = rt.deleteBot.bind(rt)
     rt.deleteBot = async (id) => {
       const result = await originalDelete(id)
-      await mounted.drop(id).catch(() => {})
+      const activeHandle = rt.plugins?.getActiveMount?.('slot:browser')?.handle
+      if (typeof activeHandle?.drop === 'function') {
+        await activeHandle.drop(id).catch(() => {})
+      } else if (typeof activeMounted?.drop === 'function') {
+        await activeMounted.drop(id).catch(() => {})
+      } else {
+        await rm(join(profileRoot, String(id)), { recursive: true, force: true }).catch(() => {})
+      }
       return result
     }
   }

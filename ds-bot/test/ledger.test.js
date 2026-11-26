@@ -200,3 +200,30 @@ test('prepend puts recovered records before existing ones and keeps concurrent a
   ])
   assert.deepEqual(reader.rt.ledger.records('group-r1').map(record => record.seq), [1, 2, 3, 4, 5])
 })
+
+test('ledger.after uses indexed range and ledger.search applies filter before limit in reverse order', async (t) => {
+  const { rt } = host(t)
+  rt.ledger.append('group-r1', { seq: 1, text: 'alpha real match one' })
+  rt.ledger.append('group-r1', { seq: 2, text: 'alpha real match two' })
+  // Interleave 25 non-member (working) records with matching text AFTER real hits so an
+  // unfiltered search capped at limit=20 would previously miss seq 1 and seq 2.
+  for (let i = 3; i <= 27; i += 1) {
+    rt.ledger.append('group-r1', { seq: i, kind: 'working', text: 'alpha working noise' })
+  }
+  rt.ledger.append('group-r1', { seq: 28, text: 'unrelated line' })
+  await rt.ledger.flush('group-r1')
+
+  // after() returns strictly records with seq > since (flooring float values).
+  assert.deepEqual(rt.ledger.after('group-r1', 26).map(r => r.seq), [27, 28])
+  assert.deepEqual(rt.ledger.after('group-r1', 26.9).map(r => r.seq), [27, 28])
+  assert.deepEqual(rt.ledger.after('group-r1', 0).length, 28)
+
+  // Filtered search skips all 25 working rows BEFORE applying the limit, returning newest first.
+  const memberOnly = record => record.kind !== 'working'
+  const hits = rt.ledger.search('group-r1', 'alpha', { filter: memberOnly, limit: 20 })
+  assert.deepEqual(hits.map(r => r.seq), [2, 1])
+
+  // Limit caps filtered matches early.
+  const topOne = rt.ledger.search('group-r1', 'alpha', { filter: memberOnly, limit: 1 })
+  assert.deepEqual(topOne.map(r => r.seq), [2])
+})

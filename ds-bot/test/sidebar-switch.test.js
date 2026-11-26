@@ -56,7 +56,7 @@ const module = { exports: {} }
 const viewport = { innerWidth: 1280 }
 const sandbox = {
   module, exports: module.exports,
-  require: name => (name === 'react' ? react : {}),
+  require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: tree => tree } : {}),
   window: viewport,
 }
 runInNewContext(outputFiles[0].text, sandbox)
@@ -515,7 +515,51 @@ test('the column\'s top row hides it, on the rail too, and its edge is a drag gr
   const toggle = find(hidden, node => node.type?.name === 'TitleToggle')
   assert.equal(toggle.props.hidden, true)
   // Reduced motion disables both the column slide and the conversation margin transition.
-  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\{animation:none\}\.bt-leftcol\[data-leaving\],\[class\*="_centerCol"\]\{transition:none\}\}/)
+  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\[data-entering\]\{animation:none\}\.bt-leftcol\[data-leaving\],\[class\*="_centerCol"\]\{transition:none\}\}/)
+})
+
+test('the column draws its first mount in place and slides in only after being hidden', () => {
+  viewport.innerWidth = 1280
+  const find = node => {
+    if (Array.isArray(node)) return node.map(find).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'LeftColumn' ? node : find(node.props?.children)
+  }
+  for (const initial of ['open', 'rail', 'hidden']) {
+    const refs = []
+    const render = pref => {
+      renderRefs = refs
+      refIndex = 0
+      layoutEffects = []
+      try {
+        const tree = TeamSidebar({
+          wide: false,
+          useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
+          useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+          useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+          useSidebarPref: pick => pick(pref), actions: { toggleSidebar() {} },
+        })
+        const effects = layoutEffects
+        layoutEffects = undefined
+        effects.forEach(effect => effect())
+        return find(tree)
+      } finally {
+        renderRefs = undefined
+        layoutEffects = undefined
+      }
+    }
+    if (initial === 'hidden') assert.equal(render(initial), undefined)
+    else {
+      assert.equal(render(initial).props.entering, false)
+      assert.equal(render(initial).props.entering, false, 'ordinary rerenders do not start an entrance')
+      assert.equal(render('hidden'), undefined)
+    }
+    assert.equal(render('open').props.entering, true)
+    assert.equal(render('rail').props.entering, true)
+  }
+  assert.match(SHELL_CSS, /\.bt-leftcol\[data-entering\]\{animation:bt-leftcol-in /)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-leftcol\{animation:bt-leftcol-in /)
+  assert.match(SHELL_CSS, /\.bt-leftcol\[data-leaving\]\{transform:translateX\(-100%\);transition:transform /)
 })
 
 test('the logo row takes no room in an open sidebar under a Windows title bar', () => {
@@ -988,4 +1032,284 @@ test('TeamSidebar leaves an already-collapsed DSH Desktop sidebar alone', async 
       document.documentElement.removeAttribute('data-bt-collapsing')
     }
   })
+})
+
+test('TitleToggle exposes data-left for each sidebar mode', () => {
+  viewport.innerWidth = 1280
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const findToggle = (node) => {
+    if (Array.isArray(node)) return node.map(findToggle).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'TitleToggle' ? node : findToggle(node.props?.children)
+  }
+  const dom = new JSDOM('<!doctype html><html data-windows-titlebar><body></body></html>')
+  const prevDoc = sandbox.document
+  sandbox.document = dom.window.document
+  try {
+    for (const pref of ['open', 'rail', 'hidden']) {
+      const tree = TeamSidebar({
+        wide: pref === 'open',
+        useRoster: pick => pick(roster),
+        useUi: pick => pick({ unread: {} }),
+        useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }),
+        useUpdate: () => ({}),
+        useSidebarPref: pick => pick(pref),
+        actions: { toggleLeftHidden() {} },
+      })
+      const toggle = findToggle(tree)
+      assert.equal(toggle.props.mode, pref)
+      assert.equal(toggle.props.hidden, pref === 'hidden')
+      const rendered = toggle.type(toggle.props)
+      assert.equal(rendered.props['data-left'], pref)
+    }
+  } finally {
+    sandbox.document = prevDoc
+  }
+})
+
+test('continuing to drag width right after unfolding from rail clears spring lag immediately', async () => {
+  await edgeDrag({ start: { pref: 'rail', width: 280 } }, async ({ column, center, leftColumn, press, move, release, settle }) => {
+    press()
+    move(200)
+    assert.equal(column.dataset.folding, '')
+    // Keep dragging width right away without waiting for SPRING_SHAPE to expire.
+    move(310)
+    assert.equal(column.hasAttribute('data-folding'), false)
+    assert.equal(center.style.getPropertyValue('transition'), 'none')
+    assert.equal(column.style.width, '310px')
+    assert.equal(center.style.getPropertyValue('margin-left'), '310px')
+    release(310)
+    await settle(60)
+    assert.equal(leftColumn().mode, 'open')
+    assert.equal(leftColumn().width, 310)
+  })
+})
+
+test('hiding the sidebar during post-drag settle clears inline drag styles and does not restore rail margin', async () => {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const { document } = dom.window
+  const column = document.querySelector('.bt-leftcol')
+  const grip = column.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('.x_centerCol')
+  const frame = { viewport: 1280, sidebarWidth: 320, collapsedWidth: 0, collapsed: false }
+  const stored = { pref: 'open' }
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const refs = []
+  const actions = {
+    setPanelYield() {}, setLeftDrawer() {}, toggleSidebar() {}, toggleLeftHidden() {},
+    setSidebarWidth: (width) => { frame.sidebarWidth = width },
+    setSidebarPref: (pref) => { stored.pref = pref },
+  }
+  const render = () => {
+    renderRefs = refs
+    refIndex = 0
+    layoutEffects = []
+    try {
+      const tree = TeamSidebar({
+        wide: stored.pref === 'open', actions,
+        useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+        useFrame: pick => pick(frame), useSidebarPref: pick => pick(stored.pref),
+      })
+      const effects = layoutEffects
+      layoutEffects = undefined
+      effects.forEach(effect => effect())
+      return tree
+    } finally {
+      renderRefs = undefined
+      layoutEffects = undefined
+    }
+  }
+  const findLeft = (node) => {
+    if (Array.isArray(node)) return node.map(findLeft).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'LeftColumn' ? node : findLeft(node.props?.children)
+  }
+  const globals = { document, performance, setTimeout, clearTimeout, requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout, CSS: { escape: value => value } }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1280
+  try {
+    const first = findLeft(render())
+    first.props.onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 120 }))
+    grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 120 }))
+    assert.equal(stored.pref, 'rail')
+    // Hide the sidebar before the post-drag spring settle timer fires.
+    stored.pref = 'hidden'
+    render()
+    assert.equal(center.style.getPropertyValue('margin-left'), '', 'inline drag margin-left must be cleared immediately on hide')
+    await new Promise(resolve => setTimeout(resolve, 600))
+    const chatRoomSheet = [...document.head.querySelectorAll('style')].map(el => el.sheet?.cssRules?.[0]?.style?.marginLeft ?? '').find(Boolean)
+    assert.equal(chatRoomSheet, '0px', 'stale settle timer must not overwrite hidden margin-left with rail width')
+  } finally {
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
+  }
+})
+
+test('unmounting TeamSidebar during post-drag settle strips inline drag styles and releases chatRoom.hold', async () => {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const { document } = dom.window
+  const column = document.querySelector('.bt-leftcol')
+  const grip = column.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('.x_centerCol')
+  const frame = { viewport: 1280, sidebarWidth: 320, collapsedWidth: 0, collapsed: false }
+  const stored = { pref: 'open' }
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const refs = []
+  const cleanups = []
+  const prevUseEffect = react.useEffect
+  react.useEffect = (effect) => {
+    const off = effect()
+    if (typeof off === 'function') cleanups.push(off)
+  }
+  const actions = {
+    setPanelYield() {}, setLeftDrawer() {}, toggleSidebar() {}, toggleLeftHidden() {},
+    setSidebarWidth: (width) => { frame.sidebarWidth = width },
+    setSidebarPref: (pref) => { stored.pref = pref },
+  }
+  const render = () => {
+    renderRefs = refs
+    refIndex = 0
+    layoutEffects = []
+    try {
+      const tree = TeamSidebar({
+        wide: stored.pref === 'open', actions,
+        useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+        useFrame: pick => pick(frame), useSidebarPref: pick => pick(stored.pref),
+      })
+      const effects = layoutEffects
+      layoutEffects = undefined
+      effects.forEach(effect => effect())
+      return tree
+    } finally {
+      renderRefs = undefined
+      layoutEffects = undefined
+    }
+  }
+  const findLeft = (node) => {
+    if (Array.isArray(node)) return node.map(findLeft).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'LeftColumn' ? node : findLeft(node.props?.children)
+  }
+  const globals = { document, performance, setTimeout, clearTimeout, requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout, CSS: { escape: value => value } }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1280
+  viewport.addEventListener = () => {}
+  viewport.removeEventListener = () => {}
+  try {
+    const first = findLeft(render())
+    first.props.onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 120 }))
+    grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 120 }))
+    assert.equal(center.style.getPropertyValue('margin-left'), '88px')
+    // Simulate unmounting TeamSidebar (e.g. switching Bot -> Classic) mid-settle.
+    for (const off of cleanups.splice(0)) off()
+    assert.equal(center.style.getPropertyValue('margin-left'), '', 'unmount must strip inline drag margin-left')
+    assert.equal(center.style.getPropertyValue('transition'), '', 'unmount must strip inline drag transition')
+    await new Promise(resolve => setTimeout(resolve, 600))
+    const chatRoomRule = [...document.head.querySelectorAll('style')].map(el => el.sheet?.cssRules?.[0]?.style).find(Boolean)
+    assert.equal(chatRoomRule?.marginLeft ?? '', '', 'settle timer must not restore left margin after unmount')
+    assert.equal(chatRoomRule?.transition ?? '', '', 'chatRoom.hold(false) must release transition override')
+  } finally {
+    react.useEffect = prevUseEffect
+    delete viewport.addEventListener
+    delete viewport.removeEventListener
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
+  }
+})
+
+test('aborting an active drag on hide ignores pointerup, and panelYield during settle keeps rail margin', async () => {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const { document } = dom.window
+  const column = document.querySelector('.bt-leftcol')
+  const grip = column.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('.x_centerCol')
+  const frame = { viewport: 1000, sidebarWidth: 280, collapsedWidth: 0, collapsed: false }
+  const stored = { pref: 'rail', details: null, view: 'details', panelYield: false }
+  const prefCalls = []
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const refs = []
+  const states = []
+  const actions = {
+    setPanelYield: (on) => { stored.panelYield = on },
+    setLeftDrawer() {}, toggleSidebar() {}, toggleLeftHidden() {},
+    setSidebarWidth: (width) => { frame.sidebarWidth = width },
+    setSidebarPref: (pref) => { prefCalls.push(pref); stored.pref = pref },
+  }
+  const render = () => {
+    renderRefs = refs
+    refIndex = 0
+    renderStates = states
+    stateIndex = 0
+    layoutEffects = []
+    try {
+      const tree = TeamSidebar({
+        wide: stored.pref === 'open', actions,
+        useRoster: pick => pick(roster),
+        useUi: pick => pick({ unread: {}, details: stored.details, view: stored.view, panelYield: stored.panelYield }),
+        useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+        useFrame: pick => pick(frame), useSidebarPref: pick => pick(stored.pref),
+      })
+      const effects = layoutEffects
+      layoutEffects = undefined
+      effects.forEach(effect => effect())
+      return tree
+    } finally {
+      renderRefs = undefined
+      renderStates = undefined
+      layoutEffects = undefined
+    }
+  }
+  const findLeft = (node) => {
+    if (Array.isArray(node)) return node.map(findLeft).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'LeftColumn' ? node : findLeft(node.props?.children)
+  }
+  const globals = { document, performance, setTimeout, clearTimeout, requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout, CSS: { escape: value => value } }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1000
+  try {
+    // 1. Mid-drag hide aborts the active drag even after crossing the snap threshold (`drag !== null`)
+    // and suppresses subsequent pointerup setSidebarPref.
+    const start1 = findLeft(render())
+    start1.props.onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 220 }))
+    // Commit React state so `drag` is non-null ({ left: 'open', width: 264 }).
+    assert.equal(findLeft(render()).props.mode, 'open')
+    stored.pref = 'hidden'
+    render()
+    assert.equal(center.style.getPropertyValue('margin-left'), '')
+    prefCalls.length = 0
+    grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 220 }))
+    assert.deepEqual(prefCalls, [], 'pointerup after hide abort must not call setSidebarPref')
+    // Reopening does not resurrect stale `drag` state.
+    stored.pref = 'rail'
+    assert.equal(findLeft(render()).props.mode, 'rail')
+
+    // 2. Drag rail -> open (264px), then panelYield folds back to rail during settle: margin stays 88px.
+    stored.pref = 'rail'
+    const start2 = findLeft(render())
+    start2.props.onGrip({ button: 0, pointerId: 2, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 200 }))
+    grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 200 }))
+    assert.equal(stored.pref, 'open')
+    assert.equal(frame.sidebarWidth, 264)
+    // Right panel opens and yields sidebar back to rail (88px) before settleTimer fires.
+    stored.details = 'bot-1'
+    stored.view = 'workspace'
+    stored.panelYield = true
+    render()
+    assert.equal(center.style.getPropertyValue('margin-left'), '')
+    await new Promise(resolve => setTimeout(resolve, 600))
+    const chatRoomSheet = [...document.head.querySelectorAll('style')].map(el => el.sheet?.cssRules?.[0]?.style?.marginLeft ?? '').find(Boolean)
+    assert.equal(chatRoomSheet, '88px', 'stale settle timer must not overwrite yielded rail margin with 264px')
+  } finally {
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
+  }
 })

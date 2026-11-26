@@ -26,13 +26,10 @@ export const isMainOf = (roster, id) => id !== undefined && (roster.mainBotIds ?
 export function indexRoster(value) {
   const byId = {}
   for (const bot of value.bots) {
-    // A part opened while the Bot was busy is still its own chat: the panel opened on
-    // it keeps working after another part becomes current. Background tasks also map
-    // back to their Bot so when a busy foreground moves to background, the main view
-    // automatically follows the Bot's new foreground sessionId.
-    const open = (bot.openParts ?? []).flatMap(part => [part.sessionId, ...(part.parts ?? [])])
+    // Background tasks map back to their Bot so when a busy foreground moves to
+    // background, the main view automatically follows the Bot's new foreground sessionId.
     const tasks = (bot.tasks ?? []).flatMap(task => [task.sessionId, ...(task.parts ?? [])])
-    for (const id of [...(bot.parts ?? []), ...open, ...tasks, bot.sessionId ?? bot.id, bot.id]) byId[id] = bot
+    for (const id of [...(bot.parts ?? []), ...tasks, bot.sessionId ?? bot.id, bot.id]) byId[id] = bot
   }
   const roomsById = {}
   // A group's own Session is a chain of parts like a Bot's chat: `room.id` is its

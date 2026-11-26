@@ -241,20 +241,33 @@ test('deleting a group cancels its members\' waiting approvals and stops their S
   assert.deepEqual(host.archived.find(([id]) => id === 'gb'), ['gb', { stopActivity: true }])
 })
 
-test('a report back names the members still waiting for an approval', async (t) => {
+test('a report back waits through a member approval and delivers the final reply once allowed', async (t) => {
   const host = await start()
   t.after(host.stop)
-  const posted = await host.tool('post_to_group', { group: 'Ops', message: 'Copy the doc', report_back: true }, 'a')
+  const posted = await host.tool('post_to_group', { group: 'Ops', intent: 'request', message: 'Copy the doc' }, 'a')
   assert.match(posted, /^Posted in "Ops"/)
-  const post = host.agentOf('r1').calls[0]
+  const post = host.agentOf('r1').calls.shift()
   host.emit('r1', 'user/message', { content: post.content, source: post.source })
   const result = await openTurn(t, host)
-  void host.askApproval('gb')
+  const outcome = host.askApproval('gb')
   await settle(() => result() !== undefined)
+  for (let i = 0; i < 10; i += 1) await new Promise(resolve => setImmediate(resolve))
+  // Still waiting for approval: no premature report yet.
+  assert.equal(host.agentOf('a').calls.length, 0)
+  const [approval] = (await host.call('state', {})).value.work.approvals
+  await host.call('approval-answer', { id: approval.id, choice: 'allow' })
+  await outcome
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: 'Copied the doc.' }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const late = host.agentOf('r1').calls.shift()
+  host.emit('r1', 'user/message', { content: late.content, source: late.source })
+  await afterRound(rt, 'r1', await host.tool('group_relay', {}, 'r1', { callId: 'c2', signal: new AbortController().signal }))
   await settle(() => host.agentOf('a').calls.length === 1)
   const report = text(host.agentOf('a').calls[0])
-  assert.match(report, /Nobody replied to your post\./)
-  assert.match(report, /Waiting for the user's approval: Writer\./)
+  assert.match(report, /Replies to your post \(oldest first\):/)
+  assert.match(report, /Writer: Copied the doc\./)
+  assert.deepEqual(rt.state.roomReports ?? {}, {})
 })
 
 test('a member that fails after the round moved on shows the failure in the group, and nobody answers it', async (t) => {
@@ -339,6 +352,16 @@ test('activityView ignores unanswerable approvals so foreground DM activity stay
   host.emit('a', 'tool/call', { callId: 'c1', name: 'bash', arguments: '{}' })
   assert.equal(host.rt.activityView().a, 'working')
   assert.equal(host.rt.activityView().b, undefined)
+})
+
+test('Bots cannot change permission modes and an invalid approval model leaves preferences unchanged', async t => {
+  const host = await start()
+  t.after(host.stop)
+  await assert.rejects(host.rt.updateBot('a', { permission: 'review' }, 'a'), /Only the user/)
+  await assert.rejects(host.rt.updateRoom('r1', { permission: 'review' }, 'a'), /Only the user/)
+  const result = await host.call('set-prefs', { approvalModel: 'local-codex-cli/default' })
+  assert.equal(result.ok, false)
+  assert.equal(host.rt.state.prefs.approvalModel, undefined)
 })
 
 test('a local CLI member streams live work, keeps the round alive, frees it after the grace and counts its tools', async (t) => {

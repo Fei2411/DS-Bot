@@ -70,15 +70,29 @@ export function LocalAgentsPage({ run, Row }) {
   const [view, setView] = useState(null)
   const [editing, setEditing] = useState(null) // 'new' | agent.id
   const [armedRemove, setArmedRemove] = useState(null)
+  const [failed, setFailed] = useState(false)
   // run() reports a failure and resolves to whether it worked, so the page's
   // data is taken from the call itself.
-  const load = endpoint => run(call(endpoint).then(setView))
+  const load = (endpoint) => {
+    setFailed(false)
+    return run(call(endpoint).then((next) => { setView(next); setFailed(false) }, (err) => { setFailed(true); throw err }))
+  }
   const refresh = () => load('local-agent-refresh')
   useEffect(() => { void load('local-agents') }, [])
-  if (view === null) return null
+  if (view === null) {
+    return h('section', { className: 'bt-set-section', 'data-tour': 'la-detected' },
+      h('div', { className: 'bt-la-sec-head' }, h('h3', null, t('Detected agents'))),
+      h('div', { className: 'bt-set-card' },
+        failed
+          ? h('div', { className: 'bt-set-row' },
+              h('span', { className: 'bt-set-hint bt-danger', role: 'alert' }, t('Could not load local agents.')),
+              h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void load('local-agents') }, t('Try again')))
+          : h('div', { className: 'bt-set-row' },
+              h('span', { className: 'bt-set-hint', role: 'status' }, t('Checking local agents…')))))
+  }
   if (view.available === false) return h('p', { className: 'bt-set-hint' }, t('This DSH cannot register local agent routes.'))
   return [
-    h('section', { key: 'found', className: 'bt-set-section' },
+    h('section', { key: 'found', className: 'bt-set-section', 'data-tour': 'la-detected' },
       h('div', { className: 'bt-la-sec-head' },
         h('h3', null, t('Detected agents')),
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: refresh }, t('Refresh'))),
@@ -88,10 +102,10 @@ export function LocalAgentsPage({ run, Row }) {
     h('section', { key: 'custom', className: 'bt-set-section' },
       h('div', { className: 'bt-la-sec-head' },
         h('h3', null, t('Custom agents')),
-        editing === 'new' ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'aria-label': t('Add agent'), onClick: () => { setArmedRemove(null); setEditing('new') } }, h(PlusIcon), t('Add agent'))),
+        editing === 'new' ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'aria-label': t('Add agent'), 'data-tour': 'la-add', onClick: () => { setArmedRemove(null); setEditing('new') } }, h(PlusIcon), t('Add agent'))),
       h('div', { className: 'bt-set-card' },
         view.custom.length === 0 && editing !== 'new'
-          ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('ACP-compatible agents, added by command.')))
+          ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No custom agents yet.')))
           : null,
         view.custom.map(agent => (editing === agent.id
           ? h(AgentForm, { key: agent.id, initial: agent, close: () => setEditing(null), submit: payload => call('local-agent-update', { id: agent.id, ...payload }).then(() => load('local-agents')) })

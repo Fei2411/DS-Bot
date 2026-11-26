@@ -1,8 +1,6 @@
-// A Bot's own chat is one or more threads:
-//  - the current thread is `bot.sessionId` with its earlier parts in `bot.segments`;
-//  - user-opened parallel threads while busy live in `bot.openParts` (#1548);
-//  - Bot-owned background tasks live separately in `bot.tasks`, each with a stable
-//    taskId across part switches and never swapped into `bot.sessionId` (#783).
+// A Bot's own chat has one foreground thread (`bot.sessionId` with its earlier parts in
+// `bot.segments`), plus Bot-owned background tasks in `bot.tasks`, each with a stable
+// taskId across part switches and never swapped into `bot.sessionId` (#783).
 // Parts never share a chain: a handoff reads only the thread it belongs to, so
 // background work and the foreground chat cannot leak into each other.
 // A Bot that never ran yet has no stored session id: its first Session is the Bot id
@@ -24,22 +22,17 @@ export const isTaskSession = (bot, sessionId) => taskOfSession(bot, sessionId) !
 export function threadOf(bot, sessionId) {
   if (bot === undefined || sessionId === undefined) return undefined
   if (currentSession(bot) === sessionId) return { thread: 'current', segments: bot.segments ?? [] }
-  const openAt = (bot.openParts ?? []).findIndex(part => part?.sessionId === sessionId)
-  if (openAt !== -1) return { thread: 'open', index: openAt, segments: bot.openParts[openAt].segments ?? [] }
   const taskAt = (bot.tasks ?? []).findIndex(task => task?.sessionId === sessionId)
   return taskAt === -1 ? undefined : { thread: 'task', index: taskAt, taskId: bot.tasks[taskAt].id, segments: bot.tasks[taskAt].segments ?? [] }
 }
 
 export const threadSegments = (bot, sessionId) => threadOf(bot, sessionId)?.segments ?? []
 
-export const isOpenPart = (bot, sessionId) => threadOf(bot, sessionId)?.thread === 'open'
-
 // A thread's current session: the part that a handoff or a kept input belongs to.
 export function threadCurrent(bot, sessionId) {
   const thread = threadOf(bot, sessionId)
   if (thread === undefined) return undefined
   if (thread.thread === 'current') return currentSession(bot)
-  if (thread.thread === 'open') return bot.openParts[thread.index].sessionId
   return bot.tasks[thread.index].sessionId
 }
 
@@ -51,8 +44,6 @@ export function threadOfPart(bot, sessionId) {
   const found = threadOf(bot, sessionId)
   if (found !== undefined || bot === undefined || sessionId === undefined) return found
   if ((bot.segments ?? []).some(segment => segment.sessionId === sessionId)) return { thread: 'current', segments: bot.segments }
-  const openAt = (bot.openParts ?? []).findIndex(part => (part.segments ?? []).some(segment => segment.sessionId === sessionId))
-  if (openAt !== -1) return { thread: 'open', index: openAt, segments: bot.openParts[openAt].segments ?? [] }
   const taskAt = (bot.tasks ?? []).findIndex(task => (task.segments ?? []).some(segment => segment.sessionId === sessionId))
   return taskAt === -1 ? undefined : { thread: 'task', index: taskAt, taskId: bot.tasks[taskAt].id, segments: bot.tasks[taskAt].segments ?? [] }
 }
@@ -65,9 +56,48 @@ export function threadCurrentOfPart(bot, sessionId) {
   const thread = threadOfPart(bot, sessionId)
   if (thread === undefined) return undefined
   if (thread.thread === 'current') return currentSession(bot)
-  if (thread.thread === 'open') return bot.openParts[thread.index].sessionId
   const task = bot.tasks[thread.index]
   return isActiveTask(task) ? task.sessionId : undefined
+}
+
+// Logical return/delivery address decoupled from any single DSH Session id.
+// A closed task or deleted group resolves to undefined — never to the Bot's private chat.
+export function returnAddress(bot, part, roomId) {
+  if (roomId) return { roomId }
+  const thread = threadOfPart(bot, part)
+  if (thread?.thread === 'task') return { taskId: thread.taskId }
+  if (part && retiredTaskSessionIds(bot).includes(part)) return { retired: true }
+  return { foreground: true }
+}
+
+export function addressedSession(rt, toId, address) {
+  const bot = rt.botOf(toId)
+  if (!bot || !address || typeof address !== 'object') return undefined
+  if (address.retired === true) return undefined
+  if (address.roomId) {
+    const room = rt.roomOf(address.roomId)
+    return room?.members.includes(toId) ? room.sessions?.[toId] : undefined
+  }
+  if (address.taskId) {
+    return bot.tasks?.find(task => task.id === address.taskId && isActiveTask(task))?.sessionId
+  }
+  return address.foreground ? (rt.chatOf?.(toId) ?? currentSession(bot)) : undefined
+}
+
+export function sessionRoomId(state, botId, sessionId) {
+  if (typeof sessionId !== 'string' || sessionId === '' || typeof botId !== 'string' || botId === '') return undefined
+  for (const room of Object.values(state?.rooms ?? {})) {
+    if (room?.sessions?.[botId] === sessionId) return room.id
+    if ((room?.segments?.[botId] ?? []).some(segment => segment?.sessionId === sessionId)) return room.id
+  }
+  return undefined
+}
+
+export function isMissingSessionError(error) {
+  const code = error?.code
+  return code === 'session/not-found'
+    || code === 'SESSION_QUERY_SESSION_NOT_FOUND'
+    || /\bsession\b.*\bnot found\b|\bnot found\b.*\bsession\b/i.test(String(error?.message ?? ''))
 }
 
 // A fresh part replaces a thread's current one; the part it replaces joins that thread's
@@ -78,10 +108,6 @@ export function pushThreadPart(bot, sessionId, freshId, segment) {
   if (thread.thread === 'current') {
     ;(bot.segments ??= []).push(segment)
     bot.sessionId = freshId
-  } else if (thread.thread === 'open') {
-    const part = bot.openParts[thread.index]
-    ;(part.segments ??= []).push(segment)
-    part.sessionId = freshId
   } else {
     const task = bot.tasks[thread.index]
     ;(task.segments ??= []).push(segment)
@@ -91,44 +117,21 @@ export function pushThreadPart(bot, sessionId, freshId, segment) {
   return true
 }
 
-// A fresh part starts in the foreground while the part it replaces stays live in the
-// background with its own chain, so its running turn is not interrupted. It starts with
-// no earlier parts and no handoff note: the user asked for a new conversation.
-export function startOpenPart(bot, freshId, startedAt = Date.now()) {
-  bot.openParts ??= []
-  bot.openParts.push({ sessionId: currentSession(bot), segments: bot.segments ?? [], startedAt })
-  bot.sessionId = freshId
-  bot.segments = []
-}
-
-// Makes a live user-opened background part current. Tasks in `bot.tasks` are never
-// swapped into `bot.sessionId`; the user reads them in read-only views.
-export function focusOpenPart(bot, sessionId) {
-  const at = (bot.openParts ?? []).findIndex(part => part?.sessionId === sessionId)
-  if (at === -1) return false
-  const [target] = bot.openParts.splice(at, 1)
-  bot.openParts.push({ sessionId: currentSession(bot), segments: bot.segments ?? [] })
-  bot.sessionId = target.sessionId
-  bot.segments = target.segments ?? []
-  return true
-}
-
 // Every session this Bot keeps outside its current thread, for cleanup, memory and usage.
-export const openSessions = bot => [
-  ...(bot?.openParts ?? []).flatMap(part => [part.sessionId, ...(part.segments ?? []).map(segment => segment.sessionId)]),
-  ...(bot?.tasks ?? []).flatMap(task => [task.sessionId, ...(task.segments ?? []).map(segment => segment.sessionId)]),
-].filter(Boolean)
+export const taskSessionIds = task => [...new Set([task?.sessionId, ...(task?.segments ?? []).map(segment => segment?.sessionId)]
+  .filter(id => typeof id === 'string' && id !== ''))]
 
-// A part that just moved on records a successor only when it belongs to an open or task
-// thread: the foreground chat keeps its current part in `bot.sessionId`.
-export const successorOfMovedPart = (bot, freshId) => {
-  const kind = threadOf(bot, freshId)?.thread
-  return kind === 'open' || kind === 'task' ? freshId : undefined
-}
+export const openSessions = bot => (bot?.tasks ?? []).flatMap(taskSessionIds)
+
+export const retiredTaskSessionIds = bot => Array.isArray(bot.retiredTaskSessions) ? bot.retiredTaskSessions : []
+
+// A part that just moved on records a successor only when it belongs to a task thread:
+// the foreground chat keeps its current part in `bot.sessionId`.
+export const successorOfMovedPart = (bot, freshId) => (threadOf(bot, freshId)?.thread === 'task' ? freshId : undefined)
 
 // Whether two Session ids belong to the same Bot conversation thread or group membership.
-// Stays stable across part switches and open-part focus swaps, while isolating distinct
-// parallel chats, background tasks and groups.
+// Stays stable across part switches while isolating the foreground chat, background tasks
+// and groups.
 export function sameConversation(state, botId, sessionA, sessionB) {
   if (sessionA === sessionB) return true
   if (sessionA === undefined || sessionB === undefined || botId === undefined) return false
@@ -147,10 +150,9 @@ export function sameConversation(state, botId, sessionA, sessionB) {
   return threadA.thread === threadB.thread && threadA.index === threadB.index
 }
 
-// Every live thread's current session (foreground, user-opened parallel parts, and active
-// tasks only). Settled tasks are excluded so folder/engine/model sweeps do not wake them.
+// Every live thread's current session (foreground and active tasks only). Settled tasks
+// are excluded so folder/engine/model sweeps do not wake them.
 export const ownChatSessions = bot => [
   currentSession(bot),
-  ...(bot?.openParts ?? []).map(part => part.sessionId),
   ...activeTasksOf(bot).map(task => task.sessionId),
 ].filter((id, index, list) => id !== undefined && list.indexOf(id) === index)

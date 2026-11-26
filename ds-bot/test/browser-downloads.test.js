@@ -282,7 +282,11 @@ test('a click captures a download started asynchronously after 120 ms', async (t
   assert.match(result, /Downloaded "report.csv" to /)
   assert.deepEqual(await files(), ['report.csv'])
   assert.equal(await readFile(join(directory, 'report.csv'), 'utf8'), 'id,name\n1,fixture\n')
-  assert.deepEqual(actions, [{ kind: 'download', label: 'report.csv', origin: 'https://reports.example.test', host: 'reports.example.test' }])
+  assert.deepEqual(actions, [{
+    kind: 'download', label: 'report.csv', origin: 'https://reports.example.test', host: 'reports.example.test',
+    sourceUrl: 'https://reports.example.test/report.csv', sourceOrigin: 'https://reports.example.test',
+    sourceHost: 'reports.example.test', sourceProtocol: 'https:', directory, evidenceComplete: true,
+  }])
   assert.equal(incoming.canceled, 0)
 })
 
@@ -368,11 +372,33 @@ test('a click with no download returns after the download grace, not the action 
 // named in the next snapshot, never silently dropped.
 test('a download that starts after the grace window is canceled and reported', async (t) => {
   const incoming = download()
+  const clicked = deferred()
   const { session, files } = await fixture(t, {
     downloadGraceMs: 100,
-    click: (page, later) => later(() => page.emit('download', incoming), 400),
+    click: (page, later) => {
+      t.mock.timers.enable({ apis: ['Date', 'setTimeout'] })
+      later(() => page.emit('download', incoming), 400)
+      clicked.resolve()
+    },
   })
-  await session.click('e1')
+  const running = session.click('e1')
+  running.catch(() => {})
+  try {
+    await clicked.promise
+    await new Promise(resolve => setImmediate(resolve))
+    t.mock.timers.tick(150)
+    await new Promise(resolve => setImmediate(resolve))
+    // The settle has used up the 100 ms grace; let the zero-delay wait finish
+    // before delivering the browser's download event.
+    t.mock.timers.tick(1)
+    assert.equal(await Promise.race([
+      running.then(() => true),
+      new Promise(resolve => setImmediate(resolve, false)),
+    ]), true, 'the action finished before the late download')
+    t.mock.timers.tick(249)
+  } finally {
+    t.mock.timers.reset()
+  }
   await incoming.whenCanceled
   const snapshot = await session.snapshotText()
   assert.match(snapshot, /Download "report.csv".*after.*action.*canceled/i)

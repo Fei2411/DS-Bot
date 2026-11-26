@@ -122,6 +122,10 @@ test('Telegram removes only standalone addressing mentions and preserves emails 
   const cases = [
     ['1 3 @fakebot', '1 3 '],
     ['V3 1 3 @fakebot', 'V3 1 3 '],
+    ['/card@fakebot V3 1 3', '/card@fakebot V3 1 3'],
+    ['/CaRd@FAKEBOT V3 1 3', '/CaRd@FAKEBOT V3 1 3'],
+    ['@fakebot !card V3 1 3', '!card V3 1 3'],
+    ['!card V3 1 3 @fakebot', '!card V3 1 3 '],
     ['/stop @fakebot', '/stop '],
     ['@fakebot look', 'look'],
     ['@fakebot email alice@fakebot.example', 'email alice@fakebot.example'],
@@ -200,7 +204,7 @@ test('a multiline Telegram group mention answers a token form without losing fie
   const viewId = rt.state.views.a.id
   const card = await until(() => api.calls.find(call => call.method === 'sendMessage' && /Card V\d+/.test(call.params.text)))
   const code = /Card (V\d+)/.exec(card.params.text)[1]
-  api.updates.push(message(101, `${code} @fakebot\n1: Alice  Smith\tJr\n2: first  line\n  second\tline @fakebot\nlast\t `))
+  api.updates.push(message(101, `@fakebot !CaRd ${code}\n1: Alice  Smith\tJr\n2: first  line\n  second\tline @fakebot\nlast\t `))
   await until(() => followups.length === 1)
   assert.equal(rt.state.views.a, undefined)
   assert.equal(prompts.length, 1, 'the answer is consumed rather than relayed as ordinary chat')

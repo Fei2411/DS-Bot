@@ -42,7 +42,46 @@ test('v3 marks and content are rebuilt from logs on the first read', async t => 
   assert.equal(latest.length, 12)
   assert.equal(latest[0], '[#0 · 0] User: message 会议 0')
   const db = new DatabaseSync(path)
-  try { assert.equal(db.prepare('PRAGMA user_version').get().user_version, 4) } finally { db.close() }
+  try { assert.equal(db.prepare('PRAGMA user_version').get().user_version, 5) } finally { db.close() }
+})
+
+test('v4 index rebuilds to v5 so previously indexed scheduled reminders become searchable', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-chat-index-v4-'))
+  const events = [
+    { seq: 0, time: 1, type: 'user/message', data: { source: { kind: 'schedule' }, content: [{ type: 'text', text: 'reminder_prompt_json: "Check nightly build status"' }] } },
+    { seq: 1, time: 2, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Nightly build is green.' }] } } },
+  ]
+  const dispose = []
+  const { historyEntry } = await import('../src/host/parts.js')
+  const rt = {
+    home,
+    ctx: {
+      effect: fn => dispose.push(fn()),
+      sessionController: { page: async () => ({ records: events.map(event => ({ event })), hasMore: false }) },
+    },
+    partsOf: () => [{ sessionId: 's1', number: 1, startedAt: 0 }],
+    resolveAgent: async () => ({ session: { seq: events.length } }),
+    historyEntry: (event, group) => historyEntry(event, group),
+    clock: time => String(time),
+    warn: (...args) => assert.fail(args.join(' ')),
+  }
+  t.after(() => { for (const close of dispose) close(); rmSync(home, { recursive: true, force: true }) })
+  install(rt)
+  const path = join(home, 'chat-index.sqlite')
+  const old = new DatabaseSync(path)
+  old.exec(`
+    CREATE TABLE messages (id INTEGER PRIMARY KEY, session TEXT NOT NULL, seq INTEGER NOT NULL, time INTEGER NOT NULL, who TEXT NOT NULL, text TEXT NOT NULL, UNIQUE (session, seq));
+    CREATE VIRTUAL TABLE lines USING fts5(text, content='messages', content_rowid='id', tokenize = 'trigram');
+    CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, keep INTEGER NOT NULL, sealed INTEGER NOT NULL, turn INTEGER NOT NULL);
+    INSERT INTO marks VALUES ('s1', 1, 0, 1, -1);
+    PRAGMA user_version = 4;
+  `)
+  old.close()
+  const found = await rt.searchOwnChat('b', 'Check nightly build status', { limit: 10 })
+  assert.equal(found.lines.length, 1)
+  assert.match(found.lines[0], /Check nightly build status/)
+  const db = new DatabaseSync(path)
+  try { assert.equal(db.prepare('PRAGMA user_version').get().user_version, 5) } finally { db.close() }
 })
 
 test('FTS and indexed history agree, including subsequent catch-up and empty reads', async t => {
@@ -64,10 +103,10 @@ test('FTS and indexed history agree, including subsequent catch-up and empty rea
       assert.equal(db.prepare(sql).all(...args).length, 12)
     }
     const source = readFileSync(new URL('../src/host/chat-index.js', import.meta.url), 'utf8')
-    for (const name of ['before', 'from']) {
+    for (const [name, params] of [['before', ['s1', 6, 6]], ['from', ['s1', 6, 6]], ['between', ['s1', 3, 6, 6]]]) {
       const sql = new RegExp(`${name}: db.prepare\\('([^']+)'\\)`).exec(source)?.[1]
       assert.ok(sql)
-      const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all('s1', 6, 6).map(row => row.detail).join('\n')
+      const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params).map(row => row.detail).join('\n')
       assert.match(plan, /USING INDEX messages_session_seq/)
       assert.doesNotMatch(plan, /SCAN|TEMP B-TREE/)
     }

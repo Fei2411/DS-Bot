@@ -946,6 +946,7 @@ test('Google loopback catches a rejected sign-in callback instead of an unhandle
 })
 
 test('Google sign-in retries get a fresh URL and a success clears the pending row', async (t) => {
+  const address = 'retry@example.com'
   const oldId = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
   const oldSecret = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
   process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = 'google-test'
@@ -962,7 +963,7 @@ test('Google sign-in retries get a fresh URL and a success clears the pending ro
     const u = String(url)
     if (u.includes('oauth-authorization-server')) return json(AS)
     if (u === 'https://as.test/token') return json({ access_token: 'tok-aaaa', refresh_token: 'ref-bbbb', expires_in: 3600, token_type: 'Bearer' })
-    if (u.includes('userinfo')) return json({ email: `${'retry'}@gmail.com` })
+    if (u.includes('userinfo')) return json({ email: address })
     return notFound()
   } } })
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
@@ -977,53 +978,461 @@ test('Google sign-in retries get a fresh URL and a success clears the pending ro
   assert.equal(bad.status, 200)
   await new Promise(resolve => setImmediate(resolve))
   assert.ok((await rt.diagnostics.entries()).some(row => /not for this attempt/.test(row.text)))
+  const storedRefresh = Promise.withResolvers()
+  const secretEndpoint = rt.secretEndpoint
+  t.mock.method(rt, 'secretEndpoint', (endpoint, body) => {
+    const saved = secretEndpoint(endpoint, body)
+    if (endpoint === 'secret-set' && body.name === mailSecretName(address, 'REFRESH')) storedRefresh.resolve(saved)
+    return saved
+  })
   callback.search = `?code=C&state=${url.searchParams.get('state')}`
-  const ok = await fetch(callback)
+  const [ok] = await Promise.all([fetch(callback), storedRefresh.promise])
   assert.match(await ok.text(), /Signed in/)
-  for (let i = 0; i < 20; i++) {
-    await new Promise(resolve => setImmediate(resolve))
-    const view = await rt.connectorEndpoint('mail-rule-set', {})
-    if (view.accounts.some(a => a.address === `${'retry'}@gmail.com`)) {
-      assert.ok(!view.pending?.length, 'pending row must be gone after a successful sign-in: ' + JSON.stringify({ second: second.pending[0].url, leftover: view.pending }))
-      return
-    }
-  }
-  assert.fail('account never landed')
+  const view = await rt.connectorEndpoint('mail-rule-set', {})
+  assert.ok(view.accounts.some(a => a.address === address), 'account never landed')
+  assert.ok(!view.pending?.length, 'pending row must be gone after a successful sign-in: ' + JSON.stringify({ second: second.pending[0].url, leftover: view.pending }))
 })
 
-test('Google mailbox refresh reports success and failure without credentials or addresses', async () => {
+test('Google mailbox refresh uses discovered/Google token endpoint, deduplicates, handles races, and persists error state', async (t) => {
+  const oldId = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+  const oldSecret = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = 'google-refresh-client'
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = 'google-refresh-secret'
+  t.after(() => {
+    if (oldId === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = oldId
+    if (oldSecret === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = oldSecret
+  })
+
   const { install } = await import('../src/host/connectors/mail/index.js')
   const logs = []
+  const tokenCalls = []
   const secrets = new Map()
   const address = addressAt('gmail.com')
-  secrets.set(mailSecretName(address, 'REFRESH'), 'google-refresh-private')
+  const tokenKey = mailSecretName(address, 'TOKEN')
+  const refreshKey = mailSecretName(address, 'REFRESH')
+  secrets.set(tokenKey, 'google-access-old')
+  secrets.set(refreshKey, 'google-refresh-private')
   let fail = false
+  let nextRefreshReply = 'google-refresh-rotated'
+  let saves = 0
+  let readOnlyReason
+  let releaseToken
+  const googleOidc = {
+    issuer: 'https://accounts.google.com',
+    authorization_endpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+    token_endpoint: 'https://oauth2.googleapis.com/token',
+    token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+  }
+  const liveAccount = { id: 'g1', address, provider: 'gmail', auth: 'google', error: 'Sign in again' }
   const rt = {
-    state: {}, readOnly: () => undefined, secretValue: key => secrets.get(key),
+    state: { connectors: { mail: { accounts: { g1: liveAccount } } } },
+    readOnly: () => readOnlyReason,
+    loadSecrets: async () => {},
+    secretValue: key => secrets.get(key),
+    save: async () => { saves += 1 },
     warn: (...args) => logs.push(args),
-    config: { mail: { fetch: async url => {
-      if (String(url).includes('well-known')) return json(AS)
-      if (String(url).includes('/token')) return fail
-        ? json({ error: 'invalid_grant' }, 400)
-        : json({ access_token: 'google-access-private', token_type: 'Bearer' })
+    config: { mail: { fetch: async (url, init) => {
+      const href = String(url)
+      if (href.includes('.well-known/openid-configuration')) return json(googleOidc)
+      if (href === 'https://accounts.google.com/token') return new Response('<html>400</html>', { status: 400, headers: { 'content-type': 'text/html' } })
+      if (href === 'https://oauth2.googleapis.com/token') {
+        const bodyText = typeof init?.body === 'string' ? init.body : String(init?.body ?? '')
+        const headers = new Headers(init?.headers ?? {})
+        tokenCalls.push({ href, body: bodyText, auth: headers.get('authorization') })
+        if (releaseToken) {
+          const gate = releaseToken
+          releaseToken = undefined
+          await gate
+        }
+        return fail
+          ? json({ error: 'invalid_grant' }, 400)
+          : json({ access_token: 'google-access-private', ...(nextRefreshReply !== undefined ? { refresh_token: nextRefreshReply } : {}), token_type: 'Bearer' })
+      }
       return notFound()
     } } },
   }
   const mail = install(rt, { secrets: { writeSecret: async (key, value) => secrets.set(key, value) } })
-  assert.equal(await mail._internals.refreshGoogle({ address }), true)
+
+  // Pass a stale detached copy of the account; refresh must update the live state object.
+  const staleCopy = { id: 'g1', address, error: 'Sign in again' }
+  let unlock
+  releaseToken = new Promise(resolve => { unlock = resolve })
+  const first = mail._internals.refreshGoogle(staleCopy)
+  const second = mail._internals.refreshGoogle(staleCopy)
+  unlock()
+  assert.deepEqual(await Promise.all([first, second]), [true, true])
+  assert.equal(tokenCalls.length, 1, 'concurrent refreshes for the same account must deduplicate')
+  assert.equal(tokenCalls[0].href, 'https://oauth2.googleapis.com/token')
+  const params = new URLSearchParams(tokenCalls[0].body)
+  assert.equal(params.get('grant_type'), 'refresh_token')
+  assert.equal(params.get('refresh_token'), 'google-refresh-private')
+  const hasClientCreds = (params.get('client_id') === 'google-refresh-client' && params.get('client_secret') === 'google-refresh-secret')
+    || tokenCalls[0].auth === `Basic ${Buffer.from('google-refresh-client:google-refresh-secret').toString('base64')}`
+  assert.equal(hasClientCreds, true, 'refresh request must send client credentials')
+  assert.equal(secrets.get(tokenKey), 'google-access-private')
+  assert.equal(secrets.get(refreshKey), 'google-refresh-rotated')
+  assert.equal(liveAccount.error, undefined, 'successful refresh must clear error on the live account object')
+  assert.equal(saves, 1)
+
+  // Empty refresh_token in reply must not clobber the stored refresh token.
+  nextRefreshReply = ''
+  assert.equal(await mail._internals.refreshGoogle(staleCopy), true)
+  assert.equal(secrets.get(refreshKey), 'google-refresh-rotated')
+
+  // invalid_grant must stamp error on the live account and persist.
   fail = true
-  assert.equal(await mail._internals.refreshGoogle({ address }), false)
+  assert.equal(await mail._internals.refreshGoogle(staleCopy), false)
+  assert.equal(liveAccount.error, 'Sign in again')
+  assert.equal(saves, 2)
   assert.match(JSON.stringify(logs), /succeeded.*manual\/Google/)
   assert.match(JSON.stringify(logs), /failed.*manual\/Google/)
   assert.equal(JSON.stringify(logs).includes('private'), false)
   assert.equal(JSON.stringify(logs).includes(address), false)
+
+  // Missing or empty REFRESH secret must mark the account as needing sign-in rather than staying stuck ready.
+  delete liveAccount.error
+  secrets.delete(refreshKey)
+  assert.equal(await mail._internals.refreshGoogle(staleCopy), false)
+  assert.equal(liveAccount.error, 'Sign in again')
+  assert.equal(saves, 3)
+
+  delete liveAccount.error
+  secrets.set(refreshKey, '')
+  assert.equal(await mail._internals.refreshGoogle(staleCopy), false)
+  assert.equal(liveAccount.error, 'Sign in again')
+  assert.equal(saves, 4)
+
+  // Read-only windows must not refresh.
+  secrets.set(refreshKey, 'google-refresh-rotated')
+  readOnlyReason = 'Read-only window'
+  assert.equal(await mail._internals.refreshGoogle(staleCopy), false)
+  readOnlyReason = undefined
+
+  // In-flight refresh must not resurrect secrets or save if the account is removed mid-flight.
+  fail = false
+  let unlockRemoved
+  releaseToken = new Promise(resolve => { unlockRemoved = resolve })
+  const inFlight = mail._internals.refreshGoogle(liveAccount)
+  delete rt.state.connectors.mail.accounts.g1
+  secrets.delete(tokenKey)
+  secrets.delete(refreshKey)
+  unlockRemoved()
+  assert.equal(await inFlight, false)
+  assert.equal(secrets.has(tokenKey), false, 'removed account must not have its token recreated by an in-flight refresh')
+
+  // Even if discovery fails, refresh must still fall back to oauth2.googleapis.com/token with client credentials.
+  secrets.set(refreshKey, 'google-refresh-fallback')
+  const fallbackCalls = []
+  const fallbackMail = install({
+    state: {}, readOnly: () => undefined, secretValue: key => secrets.get(key), warn: () => {},
+    config: { mail: { fetch: async (url, init) => {
+      const href = String(url)
+      if (href.includes('well-known')) return notFound()
+      const headers = new Headers(init?.headers ?? {})
+      fallbackCalls.push({ href, body: String(init?.body ?? ''), auth: headers.get('authorization') })
+      if (href === 'https://oauth2.googleapis.com/token') return json({ access_token: 'google-access-fallback', token_type: 'Bearer' })
+      return new Response('bad endpoint', { status: 400 })
+    } } },
+  }, { secrets: { writeSecret: async (key, value) => secrets.set(key, value) } })
+  assert.equal(await fallbackMail._internals.refreshGoogle({ id: 'g2', address }), true)
+  assert.equal(fallbackCalls.length, 1)
+  assert.equal(fallbackCalls[0].href, 'https://oauth2.googleapis.com/token')
+  const fbParams = new URLSearchParams(fallbackCalls[0].body)
+  assert.equal(fbParams.get('grant_type'), 'refresh_token')
+  const fbHasCreds = (fbParams.get('client_id') === 'google-refresh-client' && fbParams.get('client_secret') === 'google-refresh-secret')
+    || fallbackCalls[0].auth === `Basic ${Buffer.from('google-refresh-client:google-refresh-secret').toString('base64')}`
+  assert.equal(fbHasCreds, true)
+  assert.equal(secrets.get(tokenKey), 'google-access-fallback')
 })
 
-test('gmail transport: search, read, draft, send, modify, trash, and one refresh on 401', async () => {
+test('Google sign-in requests offline consent, trusts userinfo email, merges re-sign-in, and honors readOnly', async (t) => {
+  const oldId = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+  const oldSecret = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = 'google-test'
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = 'google-test-secret'
+  t.after(() => {
+    if (oldId === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = oldId
+    if (oldSecret === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = oldSecret
+  })
+  const realEmail = 'actual@example.com'
+  const typedEmail = 'typed@example.com'
+  const home = teamHome({
+    connectors: {
+      mail: {
+        accounts: {
+          gexisting: { id: 'gexisting', address: realEmail, provider: 'gmail', auth: 'google', error: 'Sign in again', createdAt: 42 },
+        },
+      },
+    },
+  })
+  const ctx = fakeContext()
+  let tokenReply = { access_token: 'tok-new', refresh_token: 'ref-new', expires_in: 3600, token_type: 'Bearer' }
+  const rt = createRuntime(ctx, { home, github: false, mail: { fetch: async url => {
+    const u = String(url)
+    if (u.includes('oauth-authorization-server')) return json(AS)
+    if (u === 'https://as.test/token') return json(tokenReply)
+    if (u.includes('userinfo')) return json({ email: realEmail.toUpperCase() })
+    return notFound()
+  } } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+
+  const view = await rt.connectorEndpoint('mail-account-add', { address: typedEmail, google: true })
+  const authUrl = new URL(view.pending[0].url)
+  assert.equal(authUrl.searchParams.get('access_type'), 'offline')
+  assert.equal(authUrl.searchParams.get('prompt'), 'consent')
+  assert.equal(authUrl.searchParams.get('login_hint'), typedEmail)
+
+  const state = authUrl.searchParams.get('state')
+  const after = await rt.connectorEndpoint('mail-sign-in-code', { address: typedEmail, input: `${authUrl.searchParams.get('redirect_uri')}?code=C1&state=${state}` })
+  assert.equal(after.accounts.length, 1, 're-sign-in must merge into existing account rather than duplicate')
+  assert.equal(after.accounts[0].id, 'gexisting')
+  assert.equal(after.accounts[0].address, realEmail, 'userinfo email must override mismatched form input')
+  assert.equal(after.accounts[0].state, 'ready')
+  assert.equal(after.accounts[0].error, undefined)
+
+  // A subsequent sign-in returning an empty refresh_token must keep the stored refresh token intact.
+  tokenReply = { access_token: 'tok-second', refresh_token: '', expires_in: 3600, token_type: 'Bearer' }
+  const view2 = await rt.connectorEndpoint('mail-account-add', { google: true })
+  const authUrl2 = new URL(view2.pending[0].url)
+  await rt.connectorEndpoint('mail-sign-in-code', { input: `${authUrl2.searchParams.get('redirect_uri')}?code=C2&state=${authUrl2.searchParams.get('state')}` })
+  assert.equal(rt.secretValue(mailSecretName(realEmail, 'TOKEN')), 'tok-second')
+  assert.equal(rt.secretValue(mailSecretName(realEmail, 'REFRESH')), 'ref-new')
+
+  // Read-only windows must reject starting or completing Google sign-in.
+  const { install } = await import('../src/host/connectors/mail/index.js')
+  const roMail = install({
+    state: {}, readOnly: () => 'Read-only window', loadSecrets: async () => {},
+    secretValue: () => undefined, warn: () => {}, config: { mail: {} },
+  }, { secrets: { writeSecret: async () => {} }, reason: e => String(e) })
+  await assert.rejects(() => roMail.endpoint('mail-account-add', { google: true }), /Read-only window/)
+  await assert.rejects(() => roMail.endpoint('mail-sign-in-code', { input: 'C' }), /Read-only window/)
+})
+
+test('Google upgrade invalidates concurrent IMAP sessions and keeps PASSWORD secret shared by colliding key', async (t) => {
+  const oldId = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+  const oldSecret = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = 'google-test'
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = 'google-test-secret'
+  t.after(() => {
+    if (oldId === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = oldId
+    if (oldSecret === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = oldSecret
+  })
+  const { install } = await import('../src/host/connectors/mail/index.js')
+  const secrets = new Map()
+  const deletedSecrets = []
+  const collidingA = 'jane.doe@example.com'
+  const collidingB = 'jane-doe@example.com'
+  const sharedPassKey = mailSecretName(collidingA, 'PASSWORD')
+  assert.equal(sharedPassKey, mailSecretName(collidingB, 'PASSWORD'))
+  secrets.set(sharedPassKey, 'app-pass-shared')
+
+  let closedImap = 0
+  let releaseWriteSecret
+  const writeStarted = Promise.withResolvers()
+  const rt = {
+    state: {
+      connectors: {
+        mail: {
+          accounts: {
+            m1: { id: 'm1', address: collidingA, provider: 'gmail', auth: 'password', imap: { host: 'imap.example.com', port: 993, secure: true }, smtp: { host: 'smtp.example.com', port: 465, secure: true } },
+            m2: { id: 'm2', address: collidingB, provider: 'gmail', auth: 'password', imap: { host: 'imap.example.com', port: 993, secure: true }, smtp: { host: 'smtp.example.com', port: 465, secure: true } },
+          },
+        },
+      },
+    },
+    readOnly: () => undefined,
+    loadSecrets: async () => {},
+    save: async () => {},
+    warn: () => {},
+    secretValue: key => secrets.get(key),
+    secretEndpoint: async (ep, body) => { if (ep === 'secret-delete') { deletedSecrets.push(body.name); secrets.delete(body.name) } },
+    addTeamTool: () => {},
+    removeTeamTool: () => {},
+    config: {
+      mail: {
+        connect: async () => ({
+          kind: 'imap',
+          usable: true,
+          async close() { closedImap += 1 },
+        }),
+        fetch: async (url) => {
+          const u = String(url)
+          if (u.includes('oauth-authorization-server')) return json(AS)
+          if (u === 'https://as.test/token') return json({ access_token: 'tok-g', refresh_token: 'ref-g', token_type: 'Bearer' })
+          if (u.includes('userinfo')) return json({ email: collidingA })
+          return notFound()
+        },
+      },
+    },
+  }
+  const mail = install(rt, {
+    secrets: {
+      writeSecret: async (name, value) => {
+        if (name === mailSecretName(collidingA, 'TOKEN')) {
+          writeStarted.resolve()
+          await releaseWriteSecret
+        }
+        secrets.set(name, value)
+      },
+    },
+    reason: e => String(e),
+  })
+  t.after(() => mail.dispose())
+
+  const begin = await mail.endpoint('mail-account-add', { address: collidingA, google: true })
+  const authUrl = new URL(begin.pending[0].url)
+  let unlockWrite
+  releaseWriteSecret = new Promise(resolve => { unlockWrite = resolve })
+  const upgradeP = mail.endpoint('mail-sign-in-code', {
+    address: collidingA,
+    input: `${authUrl.searchParams.get('redirect_uri')}?code=C1&state=${authUrl.searchParams.get('state')}`,
+  })
+  await writeStarted.promise
+  // Simulate a Bot opening an IMAP connection while googleCode is writing credentials.
+  const midSession = await mail.connect(rt.state.connectors.mail.accounts.m1)
+  assert.equal(midSession.kind, 'imap')
+  unlockWrite()
+  await upgradeP
+
+  assert.equal(closedImap, 1, 'IMAP session cached during upgrade must be evicted and closed')
+  const afterSession = await mail.connect(rt.state.connectors.mail.accounts.m1)
+  assert.equal(afterSession.kind, 'gmail', 'subsequent connect must use Gmail transport, not stale IMAP')
+  assert.deepEqual(deletedSecrets, [], 'shared PASSWORD vault key used by another colliding mailbox must not be deleted')
+  assert.equal(secrets.get(sharedPassKey), 'app-pass-shared')
+})
+
+test('mail_send auto-send re-validates attachments after connect and blocks symlink escape', async (t) => {
+  const { symlinkSync } = await import('node:fs')
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-mail-work-'))
+  const outsideDir = mkdtempSync(join(tmpdir(), 'dsb-mail-out-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+  })
+  const subDir = join(workDir, 'sub')
+  mkdirSync(subDir)
+  writeFileSync(join(subDir, 'ok.txt'), 'safe content')
+  writeFileSync(join(outsideDir, 'ok.txt'), 'outside secret')
+
+  const home = teamHome({
+    connectors: {
+      mail: {
+        accounts: { m1: { id: 'm1', address: addressAt('qq.com'), provider: 'qq', auth: 'password', imap: { host: 'imap.qq.com', port: 993, secure: true }, smtp: { host: 'smtp.qq.com', port: 465, secure: true } } },
+        noDraftFor: ['m1'],
+      },
+    },
+  })
+  const ctx = fakeContext()
+  let sent = 0
+  const rt = createRuntime(ctx, {
+    home, github: false,
+    mail: {
+      connect: async () => {
+        // Swap sub/ to a directory junction/symlink pointing outside workDir during connect().
+        rmSync(subDir, { recursive: true, force: true })
+        symlinkSync(outsideDir, subDir, 'junction')
+        return { kind: 'imap', usable: true, async close() {}, async send() { sent += 1 } }
+      },
+    },
+  })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.secretEndpoint('secret-set', { name: mailSecretName(addressAt('qq.com'), 'PASSWORD'), value: 'PASS', label: 'test' })
+  rt.sessionFolder = () => workDir
+  const send = rt.teamTools.find(d => d.name === 'mail_send')
+  await assert.rejects(
+    () => send.execute({ to: 'a@b.test', subject: 'S', body: 'B', attachments: ['sub/ok.txt'] }, { agent: { id: 'm1' }, callId: 'c1', concludeTurn: () => {} }),
+    /outside the working folder/,
+  )
+  assert.equal(sent, 0, 'escaped attachment must never be sent')
+})
+
+test('mail_send auto-send and send-card approval reject non-regular files (directories and FIFOs) without blocking', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-mail-nonreg-'))
+  t.after(() => rmSync(workDir, { recursive: true, force: true }))
+  const regularFile = join(workDir, 'swap.bin')
+  writeFileSync(regularFile, 'initial')
+  const folderEntry = join(workDir, 'subdir')
+  mkdirSync(folderEntry)
+
+  const home = teamHome({
+    connectors: {
+      mail: {
+        accounts: { m1: { id: 'm1', address: addressAt('qq.com'), provider: 'qq', auth: 'password', imap: { host: 'imap.qq.com', port: 993, secure: true }, smtp: { host: 'smtp.qq.com', port: 465, secure: true } } },
+      },
+    },
+  })
+  const ctx = fakeContext()
+  let sent = 0
+  let swapOnConnect = false
+  const rt = createRuntime(ctx, {
+    home, github: false,
+    mail: {
+      connect: async () => {
+        if (swapOnConnect) {
+          swapOnConnect = false
+          rmSync(regularFile, { force: true })
+          if (process.platform !== 'win32') await execFileP('mkfifo', [regularFile])
+          else mkdirSync(regularFile)
+        }
+        return { kind: 'imap', get usable() { return !swapOnConnect }, async close() {}, async send() { sent += 1 } }
+      },
+    },
+  })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.secretEndpoint('secret-set', { name: mailSecretName(addressAt('qq.com'), 'PASSWORD'), value: 'PASS', label: 'test' })
+  rt.sessionFolder = () => workDir
+  const send = rt.teamTools.find(d => d.name === 'mail_send')
+
+  // Initial mail_send rejects directories up front.
+  const dirReply = await send.execute({ to: 'a@b.test', subject: 'S', body: 'B', attachments: ['subdir'] }, { agent: { id: 'm1' }, callId: 'c1', concludeTurn: () => {} })
+  assert.match(String(dirReply), /working folder/)
+
+  // Send-card approval path: swap file to FIFO (POSIX) or directory (Windows) before user clicks Send.
+  await send.execute({ to: 'a@b.test', subject: 'Card', body: 'B', attachments: ['swap.bin'] }, { agent: { id: 'm1' }, callId: 'c2', concludeTurn: () => {} })
+  const pendingReq = rt.state.mailRequests.m1.find(r => r.status === 'pending')
+  assert.ok(pendingReq)
+  swapOnConnect = true
+  await rt.connectorEndpoint('mail-send-answer', { requestId: pendingReq.id, choice: 'send' })
+  assert.equal(pendingReq.status, 'failed')
+  assert.match(String(pendingReq.error), /regular file|EISDIR|directory/i)
+  assert.equal(sent, 0)
+
+  // Auto-send path: recreate regular file, then swap to FIFO/dir during connect().
+  rmSync(regularFile, { recursive: true, force: true })
+  writeFileSync(regularFile, 'initial-2')
+  await rt.connectorEndpoint('mail-rule-set', { botId: 'm1', noDraft: true })
+  swapOnConnect = true
+  await assert.rejects(
+    () => send.execute({ to: 'a@b.test', subject: 'Auto', body: 'B', attachments: ['swap.bin'] }, { agent: { id: 'm1' }, callId: 'c3', concludeTurn: () => {} }),
+    /regular file|EISDIR|directory/i,
+  )
+  assert.equal(sent, 0)
+})
+
+test('gmail transport: search, read (plain + html edge cases), draft, send with attachments, modify, trash, and one refresh on 401', async (t) => {
   const calls = []
   let refreshes = 0
   let authed = false
-  const fakeFetch = async (url) => {
+  let sentRaw
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-gmail-att-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const attPath1 = join(dir, 'report.txt')
+  const attPath2 = join(dir, '会议纪要.txt')
+  writeFileSync(attPath1, 'hello attachment payload')
+  writeFileSync(attPath2, 'second attachment content')
+  const htmlOnly = '<html><head><style/> <style>.a{color:red}</style><script src="x.js"/><script>alert(1)</script></head><body><p>İstanbul &amp;#65; &#x27;ok&#x27;</p><table><tr><td>7</td><td>12</td></tr></table><div>Line 2<br/>Line 3</div></body></html>'
+  const fakeFetch = async (url, init) => {
     const u = String(url?.url ?? url)
     calls.push(u)
     if (!authed && u.includes('/messages/1?format=full')) {
@@ -1032,20 +1441,50 @@ test('gmail transport: search, read, draft, send, modify, trash, and one refresh
     }
     if (u.includes('/messages?') || u.includes('maxResults')) return json({ messages: [{ id: '1' }] })
     if (u.includes('metadataHeaders')) return json({ id: '1', labelIds: ['UNREAD'], payload: { headers: [{ name: 'Subject', value: 'S' }, { name: 'From', value: 'a@b' }] } })
+    if (u.includes('/messages/2?format=full')) return json({
+      id: '2', threadId: 't2',
+      payload: {
+        headers: [{ name: 'Subject', value: 'HTML' }],
+        mimeType: 'multipart/mixed',
+        parts: [
+          {
+            mimeType: 'multipart/alternative',
+            parts: [
+              { mimeType: 'text/plain', body: { data: Buffer.from('  \r\n ').toString('base64url') } },
+              { mimeType: 'text/html', body: { data: Buffer.from(htmlOnly).toString('base64url') } },
+            ],
+          },
+          { mimeType: 'text/plain', filename: 'note.txt', body: { size: 12, attachmentId: 'att-1', data: Buffer.from('ATTACHMENT TEXT').toString('base64url') } },
+        ],
+      },
+    })
     if (u.includes('?format=full')) return json({ id: '1', threadId: 't1', payload: { headers: [{ name: 'Subject', value: 'S' }], parts: [{ mimeType: 'text/plain', body: { data: Buffer.from('hi').toString('base64') } }] } })
     if (u.includes('/drafts')) return json({ id: 'd1' })
-    if (u.includes('/messages/send')) return json({ id: 's1' })
+    if (u.includes('/messages/send')) {
+      sentRaw = JSON.parse(init.body).raw
+      return json({ id: 's1' })
+    }
     if (u.includes('/modify')) return json({})
     if (u.includes('/trash')) return json({})
     return json({})
   }
   const { connectGmail } = await import('../src/host/connectors/mail/transport.js')
+  const { simpleParser } = await import('mailparser')
   const gmail = connectGmail({ address: addressAt('gmail.com') }, { token: () => 'G1', fetch: fakeFetch, refresh: async () => { refreshes += 1; return true } })
   const rows = await gmail.search({ subject: 'x' })
   assert.equal(rows.length, 1)
   assert.equal((await gmail.read({ uid: '1' })).messages[0].text, 'hi')
+  const msg2 = (await gmail.read({ uid: '2' })).messages[0]
+  assert.equal(msg2.text, "İstanbul &#65; 'ok'\n7\t12\nLine 2\nLine 3")
+  assert.deepEqual(msg2.attachments.map(a => a.filename), ['note.txt'])
   assert.ok((await gmail.draft({ to: 'a@b', subject: 'd', text: 'x' })).folder)
-  await gmail.send({ to: 'a@b', subject: 's', text: 'x' })
+  await gmail.send({ to: 'a@b', subject: 's', text: 'body text', attachments: null })
+  await gmail.send({ to: 'a@b', subject: 's', text: 'body text', attachments: [{ filename: 'report.txt', path: attPath1 }, { filename: '会议纪要.txt', path: attPath2 }] })
+  const parsed = await simpleParser(Buffer.from(sentRaw, 'base64url'))
+  assert.equal(parsed.attachments.length, 2)
+  assert.deepEqual(parsed.attachments.map(a => a.filename), ['report.txt', '会议纪要.txt'])
+  assert.equal(parsed.attachments[0].content.toString('utf8'), 'hello attachment payload')
+  assert.equal(parsed.attachments[1].content.toString('utf8'), 'second attachment content')
   await gmail.update({ uid: '1', seen: true })
   await gmail.update({ uid: '1', move: 'trash' })
   // The 401 on the first read was refreshed exactly once, then retried.

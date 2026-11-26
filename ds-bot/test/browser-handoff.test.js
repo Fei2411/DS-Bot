@@ -269,23 +269,6 @@ test('browser-give-back tells the Bot how the handoff went and clears the hold',
   assert.match(skipped.message, /Do not retry it/)
 })
 
-// #1501: a Bot's own chat may keep a part live in the background. A handoff raised
-// there is answered there, not in the foreground chat the user is reading.
-test('browser-give-back answers the part that raised the handoff', async (t) => {
-  const seed = { ...TEAM, bots: { ...TEAM.bots, b2: { ...TEAM.bots.b2, openParts: [{ sessionId: 'b2-bg', segments: [] }] } } }
-  const { rt, call, sent, ensured, stop } = start(seed)
-  t.after(stop)
-  await rt.load()
-  rt.browserChannel.setHold('b2', { ...BOT_HOLD, sessionId: 'b2-bg' })
-  assert.equal((await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })).value, true)
-  assert.deepEqual(ensured, ['b2-bg'])
-  assert.equal(sent.length, 1)
-  assert.equal(sent[0].sessionId, 'b2-bg')
-  assert.deepEqual(sent[0].message.source, { kind: REPLY_KIND, callId: 'call-1', outcome: 'answered' })
-  // The foreground chat, where the user is, gets none of it.
-  assert.equal(sent.some(entry => entry.sessionId === 'b2'), false)
-})
-
 test('browser-give-back answers an open handoff once, and a plain hold without a word', async (t) => {
   const { rt, call, sent, stop } = start()
   t.after(stop)

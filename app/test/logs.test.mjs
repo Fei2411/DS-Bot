@@ -3,6 +3,7 @@ import fs, { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFi
 import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Writable } from 'node:stream'
 import { test } from 'node:test'
 import { captureStdio, LogFile, logNames, redactor, rotate, shouldRotate, splitLines, tailLines } from '../src/logs.mjs'
 
@@ -15,6 +16,24 @@ const at = () => new Date('2026-10-28T08:00:00.000Z')
 
 // The CI user of the onboarding acceptance has a space and Chinese in its name.
 const windows = redactor({ home: 'C:\\Users\\测试 用户', platform: 'win32' })
+
+// The whole-file tail from 888302fa, independent of the bounded reader and tailLines.
+function wholeFileTail(dir, count) {
+  if (count <= 0) return []
+  const chunks = []
+  let total = 0
+  for (const name of ['main.log', 'main.1.log', 'main.2.log']) {
+    let text
+    try { text = readFileSync(join(dir, name), 'utf8') } catch { break }
+    const lines = text.split(/\r?\n/u)
+    if (lines.at(-1) === '') lines.pop()
+    const tail = lines.slice(-(count - total))
+    chunks.push(tail)
+    total += tail.length
+    if (total >= count) break
+  }
+  return chunks.reverse().flat().slice(-count).map(windows)
+}
 
 test('the launch token, API keys and the sign-in callback do not reach the log', () => {
   assert.equal(windows('GET http://127.0.0.1:52817/?token=Zm9v.YmFy&x=1'), 'GET http://127.0.0.1:52817/?token=<hidden>&x=1')
@@ -85,6 +104,120 @@ test('the log rotates by size and its tail reads across the files', (t) => {
   assert.ok(tail.every(line => !line.includes('测试')))
 })
 
+test('the backward tail matches whole-file reads across UTF-8, CRLF and rotations', (t) => {
+  const dir = folder(t)
+  const log = new LogFile({ dir, redact: windows })
+  const names = ['main.log', 'main.1.log', 'main.2.log']
+  const block = 16 * 1024
+  // The final read starts inside the emoji in the first line, and at LF in the second.
+  const cases = [
+    [`before\n文🙂${'a'.repeat(block - 6)}\nend`, 'old\r\n', 'oldest'],
+    [`before\r\n${'文'.repeat(block - 1)}\r\n${'b'.repeat(block - 1)}`, '', 'old\n'],
+    ['\n\r\n', 'older without LF', 'oldest\n'],
+    ['', 'older without LF', 'oldest\n'],
+    ['new without LF', undefined, 'unreachable\n'],
+    [undefined, 'unreachable\n'],
+    ['', Buffer.from([0xf0, 0x9f, 0x0a, 0x80]), 'old\n'],
+  ]
+  let seed = 91
+  const next = max => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return (seed >>> 8) % max
+  }
+  const bodies = ['', '中🙂', 'x\ry', 'token=mock', 'é', 'C:\\Users\\测试 用户\\file']
+  const endings = ['\n', '\r\n', '']
+  for (let index = 0; index < 40; index += 1) {
+    cases.push(names.map(() => Array.from({ length: next(35) }, () =>
+      bodies[next(bodies.length)].repeat(next(80)) + endings[next(endings.length)]).join('')))
+  }
+  for (const [index, files] of cases.entries()) {
+    for (const [file, name] of names.entries()) {
+      const path = join(dir, name)
+      if (files[file] === undefined) rmSync(path, { force: true })
+      else writeFileSync(path, files[file])
+    }
+    for (const count of [0, 1, 2, 5, 20, 200]) {
+      assert.deepEqual(log.tail(count), wholeFileTail(dir, count), `fixture ${index}, count ${count}`)
+    }
+  }
+})
+
+test('the tail reads only a suffix of a large rotation, even on short reads', (t) => {
+  const dir = folder(t)
+  const newest = join(dir, 'main.log')
+  const rotation = join(dir, 'main.1.log')
+  writeFileSync(newest, 'newest\n')
+  writeFileSync(rotation, 'old padding\n'.repeat(160000) + '文🙂\r\nolder\n')
+  writeFileSync(join(dir, 'main.2.log'), 'unneeded\n')
+
+  const open = t.mock.method(fs, 'openSync')
+  const readFile = t.mock.method(fs, 'readFileSync')
+  const read = fs.readSync
+  const reads = t.mock.method(fs, 'readSync', (fd, buffer, offset, length, position) =>
+    read(fd, buffer, offset, Math.min(length, 1024), position))
+  syncBuiltinESMExports()
+  t.after(() => {
+    for (const spy of [open, readFile, reads]) spy.mock.restore()
+    syncBuiltinESMExports()
+  })
+
+  assert.deepEqual(new LogFile({ dir }).tail(3), ['文🙂', 'older', 'newest'])
+  assert.equal(readFile.mock.callCount(), 0)
+  assert.deepEqual(open.mock.calls.map(call => call.arguments[0]), [newest, rotation])
+  const bytes = reads.mock.calls.map(call => call.result).reduce((sum, size) => sum + size, 0)
+  assert.ok(bytes > 0 && bytes <= 32 * 1024, `read ${bytes} bytes`)
+  const offsets = reads.mock.calls.map(call => call.arguments[4])
+  assert.ok(offsets.slice(1).every(position => position >= 1800000))
+})
+
+test('a concurrent truncate retries the newest log once and still reads the rotations', async (t) => {
+  const retained = 'retained\n'
+  const cases = [
+    ['reads the new tail after one truncate', [retained.length], ['oldest', 'older', 'retained']],
+    ['uses the rotations after a second truncate', [32 * 1024, 0], ['oldest', 'older']],
+  ]
+  for (const [name, sizes, expected] of cases) {
+    await t.test(name, (t) => {
+      const dir = folder(t)
+      const newest = join(dir, 'main.log')
+      writeFileSync(newest, retained + 'x'.repeat(64 * 1024))
+      writeFileSync(join(dir, 'main.1.log'), 'older\n')
+      writeFileSync(join(dir, 'main.2.log'), 'oldest\n')
+
+      let newestFd
+      let readingNewest = false
+      let attempts = 0
+      const open = fs.openSync
+      const opens = t.mock.method(fs, 'openSync', (path, flags, ...args) => {
+        const fd = open(path, flags, ...args)
+        if (flags === 'r') {
+          readingNewest = path === newest
+          if (readingNewest) newestFd = fd
+        }
+        return fd
+      })
+      const stat = fs.fstatSync
+      const stats = t.mock.method(fs, 'fstatSync', (fd) => {
+        const snapshot = stat(fd)
+        if (readingNewest) {
+          const size = sizes[attempts++]
+          if (size !== undefined) fs.truncateSync(newest, size)
+        }
+        return snapshot
+      })
+      syncBuiltinESMExports()
+      t.after(() => {
+        for (const spy of [opens, stats]) spy.mock.restore()
+        syncBuiltinESMExports()
+      })
+
+      assert.deepEqual(new LogFile({ dir }).tail(3), expected)
+      assert.equal(attempts, 2)
+      assert.throws(() => stat(newestFd), { code: 'EBADF' })
+    })
+  }
+})
+
 test('the lines of a chunk go to disk in one write, cut where the file rotates', (t) => {
   const dir = folder(t)
   const writes = t.mock.method(fs, 'writeSync')
@@ -142,4 +275,35 @@ test('the console goes on as before and into the log', (t) => {
   log.close()
   assert.deepEqual(seen, ['hello sk-test-ok\n', 'bytes\n', 'only the console\n'])
   assert.equal(readFileSync(join(dir, 'main.log'), 'utf8'), '2026-10-28T08:00:00.000Z [main] hello sk-<hidden>\n2026-10-28T08:00:00.000Z [main] bytes\n')
+})
+
+test('a console whose reader went away fails its writes quietly (#2171)', async (t) => {
+  const dir = folder(t)
+  const log = new LogFile({ dir, now: at })
+  t.after(() => { log.close() })
+  // Like stdout on a pipe nobody reads any more: the write fails later, as an 'error' event.
+  const stream = new Writable({ write: (chunk, encoding, done) => { done(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' })) } })
+  const uncaught = []
+  const record = (error) => { uncaught.push(error) }
+  process.on('uncaughtException', record)
+  t.after(() => { process.off('uncaughtException', record) })
+  captureStdio(log, { stdout: stream })
+  stream.write('Checking for update\n')
+  stream.write('Checking for update\n')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(stream.destroyed, true)
+  assert.deepEqual(uncaught, [])
+  assert.match(readFileSync(join(dir, 'main.log'), 'utf8'), /\[main\] Checking for update\n/)
+})
+
+test('write(..., { redacted: true }) skips redundant redaction and tail(0) returns empty', (t) => {
+  const dir = folder(t)
+  let redactCalls = 0
+  const spy = (text) => { redactCalls += 1; return windows(text) }
+  const log = new LogFile({ dir, redact: spy, now: at })
+  log.write('engine', 'plain line 1\nplain line 2\n', { redacted: true })
+  assert.equal(redactCalls, 0, 'pre-redacted lines skip redactor during write')
+  assert.equal(log.redact('GET /?token=secret'), 'GET /?token=<hidden>')
+  assert.deepEqual(log.tail(0), [])
+  log.close()
 })

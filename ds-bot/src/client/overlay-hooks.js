@@ -6,6 +6,9 @@ import { useEffect, useRef } from 'react'
 // Escape closes only the newest open layer at the highest priority, so a dialog,
 // menu, or inline editor over the details pane does not take the pane down with it.
 const escapeLayers = []
+export function hasEscapeLayer() {
+  return escapeLayers.length > 0
+}
 const topEscapeLayer = () => {
   let top = null
   for (const layer of escapeLayers) {

@@ -161,6 +161,7 @@ export function install(rt) {
     const key = await resolveKey()
     const deadline = new AbortController()
     const timer = timeoutMs === undefined ? undefined : setTimeout(() => deadline.abort(new Error('DeepSeek did not answer in time')), timeoutMs)
+    timer?.unref?.()
     const combined = AbortSignal.any([lifetime.signal, deadline.signal, ...(signal === undefined ? [] : [signal])])
     let response
     try {
@@ -181,18 +182,30 @@ export function install(rt) {
     // their own failure text.
     const read = async (maxBytes) => {
       const reader = response.body?.getReader?.()
-      if (reader === undefined) return new Uint8Array(await response.arrayBuffer())
-      const chunks = []
-      let size = 0
-      for (;;) {
-        const { done: ended, value } = await reader.read()
-        if (ended) break
-        size += value.byteLength
-        if (size > maxBytes) {
-          await reader.cancel().catch(() => {})
+      if (reader === undefined) {
+        const whole = new Uint8Array(await response.arrayBuffer())
+        if (whole.byteLength > maxBytes) {
           throw refused(`DeepSeek returned more data than expected (over ${Math.floor(maxBytes / 1024 / 1024)} MiB)`)
         }
-        chunks.push(value)
+        return whole
+      }
+      const chunks = []
+      let size = 0
+      try {
+        for (;;) {
+          const { done: ended, value } = await reader.read()
+          if (ended) break
+          size += value.byteLength
+          if (size > maxBytes) {
+            throw refused(`DeepSeek returned more data than expected (over ${Math.floor(maxBytes / 1024 / 1024)} MiB)`)
+          }
+          chunks.push(value)
+        }
+      } catch (error) {
+        await reader.cancel().catch(() => {})
+        throw error
+      } finally {
+        reader.releaseLock?.()
       }
       return concat(chunks)
     }
@@ -253,6 +266,20 @@ export function install(rt) {
       return { ref: DEFAULT_REF, configured: false }
     })
   }
+  let asrRefreshTimer
+  const cancelAsrRefresh = () => {
+    clearTimeout(asrRefreshTimer)
+    asrRefreshTimer = undefined
+  }
+  const scheduleAsrRefresh = () => {
+    if (lifetime.signal.aborted || asrRefreshTimer !== undefined) return
+    asrRefreshTimer = setTimeout(() => {
+      asrRefreshTimer = undefined
+      void refreshAsrKey()
+    }, 100)
+    asrRefreshTimer.unref?.()
+  }
+  lifetime.signal.addEventListener('abort', cancelAsrRefresh, { once: true })
 
   async function transcribe(input, signal) {
     const audio = input?.audio
@@ -318,15 +345,16 @@ export function install(rt) {
       async cancel() {},
     },
     async transcribe(input, signal) {
-      if (asrReady !== true) await refreshAsrKey()
       if (asrReady !== true) {
-        const key = await describeKey()
-        throw new Error(key.reason ?? `DeepSeek speech recognition needs the DeepSeek API key (${key.ref}); set it under Settings → Models.`)
+        const key = await refreshAsrKey()
+        if (asrReady !== true && key.configured !== true) {
+          throw new Error(key.reason ?? `DeepSeek speech recognition needs the DeepSeek API key (${key.ref}); set it under Settings → Models.`)
+        }
       }
       return transcribe(input, signal)
     },
   }
-  void refreshAsrKey()
+  scheduleAsrRefresh()
 
   const mountAsr = (sub) => {
     sub.effect(() => {
@@ -335,7 +363,7 @@ export function install(rt) {
         const service = ctx.get?.('speechToText') ?? ctx.speechToText
         unregister = service.register(asrProvider)
         asrRegistration = 'registered'
-        void refreshAsrKey()
+        scheduleAsrRefresh()
       } catch (error) {
         asrRegistration = `another provider already answers as ${ASR_PROVIDER_ID}: ${error?.message ?? error}`
       }
@@ -343,12 +371,13 @@ export function install(rt) {
       // (baseURL/apiKeyEnv may move the effective endpoint), and on the provider
       // directory changing — each can change what the key means.
       const offs = [
-        ctx.on?.('credentials/reference-updated', () => void refreshAsrKey()),
-        ctx.on?.('settings/document-updated', () => void refreshAsrKey()),
-        ctx.on?.('llm/adapters-updated', () => void refreshAsrKey()),
+        ctx.on?.('credentials/reference-updated', scheduleAsrRefresh),
+        ctx.on?.('settings/document-updated', scheduleAsrRefresh),
+        ctx.on?.('llm/adapters-updated', scheduleAsrRefresh),
       ]
       return async () => {
         asrRegistration = 'pending'
+        cancelAsrRefresh()
         for (const off of offs) off?.()
         if (unregister !== undefined) await unregister()
       }

@@ -1,6 +1,8 @@
-import { createElement as h, Fragment, useEffect, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { PlusIcon } from './icons.js'
 import { t } from './i18n.js'
+import { Segmented } from './motion.js'
+import { SelectMenu } from './select-menu.js'
 
 const blank = () => ({ name: '', kind: 'mcp', description: '', transport: 'stdio', command: '', argsText: '', envText: '{}', url: '', headersText: '{}', content: '', items: [] })
 const parseMap = (text, label) => {
@@ -62,16 +64,29 @@ function CapabilityForm({ draft, setDraft, items, actions, onClose }) {
   const available = items.filter(item => item.name !== draft.name && ['mcp', 'skill'].includes(item.kind))
   return h('form', { className: 'bt-set-card bt-task-form', onSubmit: submit },
     h(Field, { label: 'Name', value: draft.name, disabled: draft.originalName !== undefined, onChange: value => set('name', value), placeholder: 'my-tool' }),
-    h('label', { className: 'bt-set-row bt-bs-row' },
+    h('div', { className: 'bt-set-row bt-bs-row' },
       h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Type'))),
-      h('select', { className: 'bt-select bt-task-bot', value: draft.kind, disabled: draft.originalName !== undefined, onChange: event => set('kind', event.target.value) },
-        ['mcp', 'skill', 'pack'].map(kind => h('option', { key: kind, value: kind }, t(kind === 'mcp' ? 'MCP server' : kind === 'skill' ? 'Skill' : 'Pack'))))),
+      h(SelectMenu, {
+        className: 'bt-task-bot',
+        'aria-label': t('Type'),
+        value: draft.kind,
+        disabled: draft.originalName !== undefined,
+        options: ['mcp', 'skill', 'pack'].map(kind => ({ value: kind, label: t(kind === 'mcp' ? 'MCP server' : kind === 'skill' ? 'Skill' : 'Pack') })),
+        onChange: value => set('kind', value),
+      })),
     h(Field, { label: 'Description', value: draft.description, onChange: value => set('description', value) }),
-    draft.kind === 'mcp' ? h('label', { className: 'bt-set-row bt-bs-row' },
+    draft.kind === 'mcp' ? h('div', { className: 'bt-set-row bt-bs-row' },
       h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Connection'))),
-      h('select', { className: 'bt-select bt-task-bot', value: draft.transport, onChange: event => set('transport', event.target.value) },
-        h('option', { value: 'stdio' }, t('Local command')),
-        h('option', { value: 'streamable-http' }, t('HTTP server')))) : null,
+      h(SelectMenu, {
+        className: 'bt-task-bot',
+        'aria-label': t('Connection'),
+        value: draft.transport,
+        options: [
+          { value: 'stdio', label: t('Local command') },
+          { value: 'streamable-http', label: t('HTTP server') },
+        ],
+        onChange: value => set('transport', value),
+      })) : null,
     draft.kind === 'mcp' && draft.transport === 'stdio' ? h(Fragment, null,
       h(Field, { label: 'Command', value: draft.command, onChange: value => set('command', value) }),
       h(Field, { label: 'Arguments (one per line)', value: draft.argsText, onChange: value => set('argsText', value), multiline: true }),
@@ -140,7 +155,7 @@ export function CapabilitiesPage({ roster, actions, run }) {
   return h('section', { className: 'bt-set-section' },
     h('div', { className: 'bt-la-sec-head' },
       h('h3', null, t('Shared capabilities')),
-      draft ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: startNew }, h(PlusIcon), t('Add capability'))),
+      draft ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'cap-add', onClick: startNew }, h(PlusIcon), t('Add capability'))),
     draft ? h(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : null,
     h('div', { className: 'bt-set-card bt-connectors-card' },
       items.length === 0 ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No capabilities saved')))
@@ -154,17 +169,61 @@ export function CapabilitiesPage({ roster, actions, run }) {
         }))))
 }
 
-export function BotCapabilitiesCard({ bot, roster, actions, run, Card, SwitchRow }) {
+export function BotCapabilitiesCard({ bot, roster, actions, run, Card }) {
+  const pending = useRef(new Map())
+  const [, redraw] = useState(0)
+  const refresh = () => redraw(value => value + 1)
+  const choose = (name, mode, value) => {
+    let entry = pending.current.get(name)
+    if ((entry?.desired ?? mode) === value) return
+    if (entry) {
+      entry.desired = value
+      refresh()
+      return
+    }
+    entry = { desired: value, saved: mode }
+    pending.current.set(name, entry)
+    refresh()
+    const save = async () => {
+      try {
+        while (entry.desired !== entry.saved) {
+          const next = entry.desired
+          await actions.setBotCapability(bot.id, name, next !== 'off', next === 'catalog' ? 'catalog' : 'always')
+          entry.saved = next
+        }
+      } finally {
+        pending.current.delete(name)
+        refresh()
+      }
+    }
+    void run(save())
+  }
   const items = [...(roster.capabilities ?? [])].sort((a, b) => Number(b.kind === 'pack') - Number(a.kind === 'pack') || a.name.localeCompare(b.name))
   const attached = new Set(bot.capabilities ?? [])
+  const catalog = new Set(bot.packs ?? [])
+  const savedMode = name => attached.has(name) ? 'always' : catalog.has(name) ? 'catalog' : 'off'
+  const modeOf = name => pending.current.get(name)?.desired ?? savedMode(name)
   const statuses = roster.capabilityStatuses?.[bot.id] ?? {}
   if (items.length === 0) return null
   return h(Card, { title: t('Capabilities') },
-    items.map(item => h(SwitchRow, {
-      key: item.name,
-      label: item.name,
-      hint: attached.has(item.name) ? statusText(statuses[item.name]) : undefined,
-      on: attached.has(item.name),
-      onChange: enabled => void run(actions.setBotCapability(bot.id, item.name, enabled)),
-    })))
+    h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint bt-capability-hint' }, t('In catalog: the Bot loads this only when it needs it.'))),
+    items.map(item => {
+      const saved = savedMode(item.name)
+      const mode = modeOf(item.name)
+      const sources = mode !== 'always' ? items.filter(pack => pack.kind === 'pack' && pack.items?.includes(item.name)
+        && (modeOf(pack.name) === 'always' || (mode === 'off' && modeOf(pack.name) === 'catalog'))) : []
+      const needsApproval = (mode !== 'off' || sources.length > 0) && item.kind === 'mcp' && item.transport === 'stdio' && !item.approved
+      const hint = mode === 'always' && !needsApproval ? statusText(statuses[item.name]) : undefined
+      return h('div', { key: item.name, className: 'bt-set-row bt-bs-row bt-bs-stack' },
+        h('span', { className: 'bt-set-copy' },
+          h('span', { className: 'bt-bs-label' }, item.name),
+          sources.map(pack => h('span', { key: pack.name, className: 'bt-set-hint bt-capability-hint' }, mode === 'off' ? `${t('Off')} · ` : null,
+            modeOf(pack.name) === 'always' ? t('Always on via {name}', { name: pack.name }) : t('In catalog via {name}', { name: pack.name }))),
+          needsApproval ? h('span', { className: 'bt-set-hint bt-capability-hint' }, t('Needs approval'), ' · ', t('Allow it in Shared capabilities.')) : null,
+          hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
+        h(Segmented, { label: item.name, value: mode }, [['always', 'Always on'], ['catalog', 'In catalog'], ['off', 'Off']].map(([value, label]) => h('button', {
+          key: value, type: 'button', 'aria-pressed': mode === value,
+          onClick: () => choose(item.name, saved, value),
+        }, t(label)))))
+    }))
 }

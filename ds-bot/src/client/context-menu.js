@@ -29,6 +29,8 @@ function sectionMoveItems(entry, roster, actions) {
   ].filter(Boolean)
 }
 
+const useNullWork = () => 'null'
+
 export function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
   useEscape(() => actions.closeMenu(), !leaving)
   const ref = useRef(null)
@@ -52,7 +54,8 @@ export function ContextMenu({ menu, roster, actions, useWork, leaving = false })
   const bot = isSpecial ? undefined : roster.byId[menu.id]
   const room = isSpecial ? undefined : roster.roomsById[menu.id]
   // Only a Bot that is waiting on a hand-off offers to give one up. Keep hook order unconditional.
-  const waitsRaw = useWork ? useWork(work => JSON.stringify(bot ? (work.waiting?.[bot.id] ?? null) : null)) : 'null'
+  const useReadWork = useWork ?? useNullWork
+  const waitsRaw = useReadWork(work => JSON.stringify(bot ? (work.waiting?.[bot.id] ?? null) : null))
   const waits = useMemo(() => JSON.parse(waitsRaw), [waitsRaw])
   if (menu.kind === 'agent' || menu.kind === 'agent-session') return h(AgentMenu, { menu, roster, actions, leaving })
   if (menu.kind === 'section' || menu.kind === 'section-add') return h(SectionMenu, { menu, roster, actions, leaving })

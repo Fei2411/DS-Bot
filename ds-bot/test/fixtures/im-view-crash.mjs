@@ -81,7 +81,7 @@ if (mode.startsWith('complete')) {
   report()
 }
 if (mode === 'settled') {
-  await message(`${delivery.code}\n1: First`)
+  await message(`!card ${delivery.code}\n1: First`)
   report()
 }
 setInterval(() => {}, 1000)

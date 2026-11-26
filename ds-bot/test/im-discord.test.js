@@ -99,6 +99,26 @@ test('a DM is direct, a guild message is a mention when the bot is in mentions',
   assert.equal(messages[2].mentioned, false)
 })
 
+test('stop and card commands pass through direct messages and mentioned group messages alike', async (t) => {
+  const fake = await fakeDiscord()
+  const messages = []
+  const handle = discord.connect({ token: 'tok' }, env(fake), { onMessage: msg => messages.push(msg), onAction() {}, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  const commands = ['/stop', '!card V3\n1: first  line\nsecond\tline', '/card V3 1,3']
+  let sequence = 1
+  for (const text of commands) {
+    fake.push(ws, { op: 0, t: 'MESSAGE_CREATE', s: ++sequence, d: { id: String(sequence), channel_id: 'dm1', content: text, author: { id: 'u1' } } })
+    fake.push(ws, { op: 0, t: 'MESSAGE_CREATE', s: ++sequence, d: { id: String(sequence), channel_id: 'g1', guild_id: 'w1', content: `<@81> ${text}`, author: { id: 'u1' }, mentions: [{ id: '81' }] } })
+  }
+  await until(() => messages.length === commands.length * 2)
+  for (const text of commands) {
+    assert.ok(messages.some(msg => msg.chat.kind === 'direct' && msg.text === text && !msg.mentioned))
+    assert.ok(messages.some(msg => msg.chat.kind === 'group' && msg.text === text && msg.mentioned))
+  }
+})
+
 test('a conversation is titled by its channel, a DM by the person', async (t) => {
   const fake = await fakeDiscord()
   fake.replies['/api/v10/channels/g1'] = { result: { id: 'g1', name: 'general', type: 0 } }
@@ -151,6 +171,28 @@ test('send chunks long text, buttons go on the last chunk, edit patches', async 
   assert.equal(messageId, '900')
   await handle.edit({ key: 'dm1', kind: 'direct' }, '55', { text: 'done', buttons: [] })
   assert.ok(fake.calls.some(call => call.method === 'PATCH' && /messages\/55$/.test(call.path)))
+})
+
+test('a chunk of emoji fits Discord\'s 2000-unit limit', async (t) => {
+  // The cut is measured in code points, but Discord counts UTF-16 units and a 400 there is
+  // permanent: a chunk of 2000 code points holding astral characters is longer than 2000
+  // units, so the message is rejected and the rest of the reply never goes out.
+  const fake = await fakeDiscord()
+  const handle = discord.connect({ token: 'tok' }, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const text = `a${'\u{1F600}'.repeat(1200)}`
+  assert.ok(text.length > 2000, `fixture is ${text.length} units`)
+  await handle.send({ key: 'dm1', kind: 'direct' }, { text })
+  const posts = fake.calls.filter(call => /messages$/.test(call.path) && call.method === 'POST')
+  assert.ok(posts.length > 1, 'the reply spans several messages')
+  for (const post of posts) {
+    const content = post.params.content
+    assert.ok(content.length <= 2000, `chunk is ${content.length} units`)
+    assert.ok(!/[\uD800-\uDBFF]$/.test(content), 'a chunk must not end on a lone high surrogate')
+    assert.ok(!/^[\uDC00-\uDFFF]/.test(content), 'a chunk must not start on a lone low surrogate')
+  }
+  assert.equal(posts.map(post => post.params.content).join(''), text, 'every code point arrives')
 })
 
 test('a dropped socket reconnects and resumes the session', async (t) => {

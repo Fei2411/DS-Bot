@@ -14,6 +14,7 @@ import telegram from '../src/host/im/platforms/telegram.js'
 import discord from '../src/host/im/platforms/discord.js'
 import slack from '../src/host/im/platforms/slack.js'
 import dingtalk from '../src/host/im/platforms/dingtalk.js'
+import qq from '../src/host/im/platforms/qq.js'
 import { fakeContext } from './fake-ctx.js'
 import { fakeWsServer } from './fake-ws.js'
 
@@ -740,4 +741,92 @@ test('Discord and Slack final image-delivery timeouts mark errors unknown so ret
   const img = { data: PNG, mediaType: 'image/png', name: 'shot.png' }
   await assert.rejects(() => dc.sendImage({ key: 'ch1', kind: 'group' }, img), err => err.unknown === true)
   await assert.rejects(() => sl.sendImage({ key: 'C1', kind: 'group' }, img), err => err.unknown === true)
+})
+
+test('an image-only reply over the QQ upload cap leaves an unavailable notice instead of nothing (#2119)', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsb-im-qqcap-'))
+  const home = join(root, 'data')
+  const workspace = join(root, 'workspace')
+  mkdirSync(home, { recursive: true })
+  mkdirSync(workspace, { recursive: true })
+  writeFileSync(join(workspace, 'plot.png'), Buffer.concat([PNG, Buffer.alloc(6 * 1024 * 1024)]))
+  writeFileSync(join(workspace, 'small.png'), PNG)
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['a'],
+    bots: { a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'a', workDir: workspace, createdAt: 1 } },
+    rooms: {},
+    agents: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: { workspace },
+    revision: 0,
+  }))
+
+  const events = []
+  const fake = {
+    id: 'qq',
+    imageMaxBytes: qq.imageMaxBytes,
+    handlers: null,
+    async check() { return { account: { id: 'qq1', name: 'QQBot' } } },
+    connect(_fields, _env, handlers) {
+      fake.handlers = handlers
+      handlers.onStatus({ state: 'ready', account: { id: 'qq1', name: 'QQBot' } })
+      return {
+        send: async (chat, body) => { events.push(['text', body.text]); return { messageId: `t-${events.length}` } },
+        sendImage: async (chat, image) => { events.push(['image', image.name]); return { messageId: `i-${events.length}` } },
+        stop: () => {},
+      }
+    },
+  }
+  const realQq = adapters.qq
+  adapters.qq = fake
+  const ctx = fakeContext()
+  const prompts = []
+  const agent = {
+    id: 'a',
+    session: { id: 'a', workspace: { path: workspace }, requestHeader: () => undefined },
+    followup() {},
+    cancel() {},
+    inbox: { nextStep: [], nextTurn: [], remove: () => false },
+    async whenIdle() {},
+  }
+  Object.assign(ctx, {
+    llm: { listProviders: () => [] },
+    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async () => ({ id: 'w1' }), archiveSession: async () => {} },
+    sessionController: {
+      prompt: async (request) => { prompts.push(request); return { ok: true } },
+      resolveAgent: async () => ({ agent }),
+      selectModel: async () => {},
+    },
+    sessions: { flush: async () => {} },
+  })
+  const rt = createRuntime(ctx, { home })
+  t.after(async () => {
+    adapters.qq = realQq
+    await ctx.dispose()
+    rmSync(root, { recursive: true, force: true, maxRetries: 5 })
+  })
+
+  await rt.load()
+  const conn = await rt.imEndpoint('im-add', { platform: 'qq', botId: 'a', fields: { appId: '1001', appSecret: 'secret-1234' } })
+  await fake.handlers.onMessage({ chat: { key: 'u-dm', kind: 'direct', title: 'Fei' }, sender: { id: 'u1', name: 'Fei' }, text: 'hi', images: [], files: [], mentioned: false, messageId: 'm0' })
+  await rt.imEndpoint('im-pair', { id: conn.id, senderId: 'u1', allow: true })
+  events.length = 0
+
+  const emitEvent = (type, data) => {
+    for (const listener of ctx.listeners.get('session/event') ?? []) {
+      if (listener.length >= 2) listener({ id: 'a' }, { type, data, time: Date.now() })
+    }
+  }
+  await fake.handlers.onMessage({ chat: { key: 'u-dm', kind: 'direct', title: 'Fei' }, sender: { id: 'u1', name: 'Fei' }, text: 'plot it', images: [], files: [], mentioned: false, messageId: 'm1' })
+  emitEvent('turn/start', { turn: 1 })
+  emitEvent('user/message', { content: [{ type: 'text', text: 'plot it' }], source: { rpcId: prompts.at(-1).requestId } })
+  emitEvent('assistant/message', { message: { content: [{ type: 'text', text: '![plot](./plot.png)\n![small](./small.png)' }] } })
+  await until(() => events.length === 2)
+  assert.deepEqual(events, [
+    ['text', '[Image unavailable: plot]'],
+    ['image', 'small.png'],
+  ])
 })

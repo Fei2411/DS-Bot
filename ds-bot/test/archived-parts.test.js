@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -80,16 +80,27 @@ const settled = async (check) => {
   for (let i = 0; i < 50 && !check(); i += 1) await new Promise(resolve => setTimeout(resolve, 10))
 }
 
-test('opening an earlier part takes it out of the archive and archives the part it replaces', async (t) => {
-  const { home, registry, call } = await team(t, ['w1'])
-  await call('state')
-  const result = await call('bot-open-part', { botId: 'w1', sessionId: 'w1' })
-  assert.equal(result.ok, true, JSON.stringify(result))
-  await settled(() => registry.archivedSessionIds.includes('w2'))
-  assert.deepEqual([...registry.archivedSessionIds].sort(), ['w2'])
-  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).bots.w1
-  assert.equal(saved.sessionId, 'w1')
-  assert.deepEqual(saved.segments.map(segment => segment.sessionId), ['w2'])
+test('a pruned task Session stays archived when the DSH Workspace registry reopens', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-retired-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const team = structuredClone(TEAM)
+  team.bots.w1.tasks = Array.from({ length: 51 }, (_, n) => ({
+    id: `old-task-${n}`, sessionId: `task-session-${n}`, origin: 'user', status: 'completed',
+  }))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const dsh = join(home, 'dsh')
+  await t.test('archive during startup reconciliation', async (phase) => {
+    const ctx = fakeContext({})
+    ctx.workspaceRegistry = await dshRegistry(phase, dsh, ['task-session-0'], ctx)
+    const rt = createRuntime(ctx, { home })
+    phase.after(() => ctx.dispose())
+    await rt.load()
+    await rt.reconcileTasksAfterRestart()
+    assert.deepEqual([...ctx.workspaceRegistry.archivedSessionIds], ['task-session-0'])
+    assert.equal(rt.botOf('w1').tasks.length, 50)
+  })
+  const registry = await dshRegistry(t, dsh, [], fakeContext({}))
+  assert.deepEqual([...registry.archivedSessionIds], ['task-session-0'])
 })
 
 test('current team Sessions held archived in DSH are taken back out; earlier parts stay', async (t) => {
@@ -107,16 +118,4 @@ test('a current Session archived in DSH while the team runs is taken back out', 
   await registry.archiveSession(SessionId('outside'))
   await settled(() => registry.archivedSessionIds.length === 1)
   assert.deepEqual([...registry.archivedSessionIds], ['outside'])
-})
-
-test('a failed task move keeps the replaced part marked for the restart pass', async (t) => {
-  const { home, registry, call, rt } = await team(t, ['w1'])
-  await call('state')
-  rt.moveSchedules = async () => { throw new Error('schedule store unavailable') }
-  const result = await call('bot-open-part', { botId: 'w1', sessionId: 'w1' })
-  assert.equal(result.ok, true, JSON.stringify(result))
-  assert.deepEqual([...registry.archivedSessionIds], [])
-  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
-  assert.equal(saved.bots.w1.sessionId, 'w1')
-  assert.deepEqual(saved.switching, { w2: { botId: 'w1' } })
 })

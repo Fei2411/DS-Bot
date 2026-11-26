@@ -25,6 +25,7 @@ after(() => server.close())
 
 function open(home) {
   const ctx = fakeContext()
+  ctx.workspaceRegistry = { get: () => undefined, list: () => [] }
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
   apply(ctx, { home, github: false })
@@ -137,6 +138,7 @@ test('remote state and live polls never disclose pairing offers, including attac
     const before = (await link.client.rpc('bot', { endpoint: 'state', payload: {} })).value
     const opened = (await desk.call('phone-pair', {})).value.pairing
     const desktop = (await desk.call('state', {})).value
+    assert.ok(Object.hasOwn(desktop, 'api'))
     assert.deepEqual(desktop.phone.pairing, opened)
     for (const uri of [opened.uri, opened.browserUri]) assert.ok(parsePairingUri(uri).code)
     const answers = [
@@ -151,6 +153,7 @@ test('remote state and live polls never disclose pairing offers, including attac
     for (const answer of answers) {
       assert.equal(answer.ok, true)
       const view = answer.state ?? answer.value
+      assert.equal(Object.hasOwn(view, 'api'), false)
       assert.ok(view.phone)
       assert.equal(Object.hasOwn(view.phone, 'pairing'), false)
       for (const uri of [opened.uri, opened.browserUri]) {
@@ -197,7 +200,16 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   assert.deepEqual(remoteAccessError(undefined, 'connector-add'), { code: 'bot/refused', message: 'This device is not paired', details: {} })
   assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'unknown' }, 'connector-add'), { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} })
   assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'phone-pair'), { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} })
+  assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'api-set'), { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} })
+  assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'api-token-create'), { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} })
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-add'), undefined)
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'session-page').code, 'bot/refused')
+  assert.equal(BROWSER_ALLOWED.has('session-page'), false)
+  for (const localOnly of ['workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open', 'engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe', 'telemetry-status', 'telemetry-update', 'telemetry-reset-id', 'telemetry-clear-log', 'telemetry-client-error']) {
+    assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, localOnly).code, 'bot/refused')
+    assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, localOnly).code, 'bot/refused')
+    assert.equal(BROWSER_ALLOWED.has(localOnly), false)
+  }
 
   const home = mkdtempSync(join(tmpdir(), 'dsb-gated-'))
   const ctx = fakeContext()
@@ -209,7 +221,7 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   await rt.phoneEndpoint('phone-set', { server: server.url, on: true })
   await until(async () => rt.phoneView(), view => view.status === 'online')
 
-  const deniedEndpoints = [...allHostRoutes].filter(endpoint => !endpoint.startsWith('phone-') && !BROWSER_ALLOWED.has(endpoint))
+  const deniedEndpoints = [...allHostRoutes].filter(endpoint => !endpoint.startsWith('phone-') && !endpoint.startsWith('api-') && !endpoint.startsWith('speech-') && !endpoint.startsWith('telemetry-') && !BROWSER_ALLOWED.has(endpoint))
   deniedEndpoints.push('future-unlisted-endpoint')
   for (const kind of ['browser', 'phone']) {
     const view = await rt.phoneEndpoint('phone-pair', {})
@@ -220,7 +232,6 @@ test('the host enforces a default-deny browser allowlist across every channel ro
       const payload = endpoint === 'connector-add' ? { name: 'pwn', command: 'id', args: [] } : {}
       const answer = await link.client.rpc('bot', { endpoint, payload })
       if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
-      else if (endpoint.startsWith('mcp-')) assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'MCP access is set up on the computer', details: {} } }, endpoint)
       else assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
     }
     // DSH Agent chats are phone-only, and so is their media.
@@ -273,9 +284,13 @@ test('the link strips pairing offers from feed events without changing the deskt
     assert.ok(data.phone.pairing.uri)
     assert.ok(data.phone.pairing.browserUri)
     for (const uri of [pairing.uri, pairing.browserUri]) assert.equal(JSON.stringify(event).includes(parsePairingUri(uri).code), false)
+    // Terminal output and exit events are computer-local only and must never cross the link.
+    tap('terminal', { id: 't1', chunk: 'secret-shell-output\n' })
+    tap('terminal-exit', { id: 't1', code: 0 })
     tap('message', application)
     const message = await until(async () => events[1], Boolean)
     assert.deepEqual(message, { event: 'message', data: application })
+    assert.equal(events.some(e => e.event === 'terminal' || e.event === 'terminal-exit'), false)
     off()
     assert.deepEqual(await link.client.rpc('bot', { endpoint: 'chat' }), { ok: true, value: application })
     await link.client.close()
@@ -313,6 +328,21 @@ test('a phone write that moved the team carries the new state in its reply', asy
   assert.equal(failed.ok, false)
   assert.equal(failed.state, undefined)
 
+  // Phone link refuses plugins-* and speech-* endpoints and strips `data` from `folders`.
+  const pluginDenied = await link.client.rpc('bot', { endpoint: 'plugins-install', payload: { id: 'x' } })
+  assert.equal(pluginDenied.ok, false)
+  assert.equal(pluginDenied.error.code, 'bot/refused')
+  for (const speechEndpoint of ['speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe']) {
+    const speechDenied = await link.client.rpc('bot', { endpoint: speechEndpoint, payload: {} })
+    assert.equal(speechDenied.ok, false, `${speechEndpoint} must be refused over phone link`)
+    assert.equal(speechDenied.error.code, 'bot/refused')
+  }
+  const localFolders = await desk.call('folders', {})
+  assert.equal(typeof localFolders.value.data, 'string')
+  const remoteFolders = await link.client.rpc('bot', { endpoint: 'folders', payload: {} })
+  assert.equal(remoteFolders.ok, true)
+  assert.equal('data' in remoteFolders.value, false, 'paired phone must not see protected data path')
+
   await link.client.close()
 })
 
@@ -339,4 +369,81 @@ test('a bare Server host means the link path; a dead Server shows why', async (t
   await desk.call('phone-set', { on: false })
   await desk.call('phone-set', { server: '' })
   assert.equal((await desk.call('state', {})).value.phone.server, DEFAULT_SERVER)
+})
+
+test('paired browsers cannot see or answer Classic Agent approvals in state, live events, or approval-answer, while paired phones can', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-browser-approvals-'))
+  const ctx = fakeContext()
+  let tap
+  const botApproval = { id: 'appr-bot', sessionId: 'm1', botId: 'm1', tool: 'bash', reason: 'Bot command', answerable: true }
+  const agentApproval = { id: 'appr-agent', sessionId: 'agent-s1', tool: 'bash', reason: 'Classic command', answerable: true }
+  const approvals = [botApproval, agentApproval]
+  const answered = []
+  const rt = {
+    home,
+    ctx,
+    state: { revision: 1 },
+    load: async () => {},
+    readOnly: () => undefined,
+    feedTap: (listener) => { tap = listener; return () => { tap = undefined } },
+    agentOf: id => (id === 'agent-s1' ? { id: 'a1' } : undefined),
+    approvalsView: () => approvals,
+    approvalById: id => approvals.find(entry => entry.id === id),
+  }
+  installPhone(rt)
+  rt.phoneServe(async (endpoint, payload) => {
+    if (endpoint === 'state') return { ok: true, value: { revision: 1, work: { approvals } } }
+    if (endpoint === 'approval-answer') {
+      answered.push(payload)
+      return { ok: true, value: true }
+    }
+    return { ok: true, value: null }
+  })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.phoneEndpoint('phone-set', { server: server.url, on: true })
+  await until(async () => rt.phoneView(), view => view.status === 'online')
+
+  const pair1 = await rt.phoneEndpoint('phone-pair', {})
+  const browserLink = phone(parsePairingUri(pair1.pairing.browserUri), { pairingCode: parsePairingUri(pair1.pairing.browserUri).code, name: 'Chrome' })
+  await browserLink.client.connect()
+
+  const pair2 = await rt.phoneEndpoint('phone-pair', {})
+  const phoneLink = phone(parsePairingUri(pair2.pairing.uri), { pairingCode: parsePairingUri(pair2.pairing.uri).code, name: 'Pixel' })
+  await phoneLink.client.connect()
+
+  await until(async () => tap, callback => typeof callback === 'function')
+
+  // `state` strips Classic Agent approvals for browser but keeps them for phone.
+  const browserState = await browserLink.client.rpc('bot', { endpoint: 'state', payload: {} })
+  assert.deepEqual(browserState.value.work.approvals.map(a => a.id), ['appr-bot'])
+  const phoneState = await phoneLink.client.rpc('bot', { endpoint: 'state', payload: {} })
+  assert.deepEqual(phoneState.value.work.approvals.map(a => a.id), ['appr-bot', 'appr-agent'])
+
+  // `live` feed events also filter per device: browser gets only Bot approvals, phone gets both.
+  const browserEvents = []
+  const phoneEvents = []
+  const offBrowser = browserLink.client.onEvent(e => browserEvents.push(e))
+  const offPhone = phoneLink.client.onEvent(e => phoneEvents.push(e))
+  tap('live', { work: { approvals } })
+  const bEvt = await until(async () => browserEvents.find(e => e.event === 'live'), Boolean)
+  const pEvt = await until(async () => phoneEvents.find(e => e.event === 'live'), Boolean)
+  offBrowser()
+  offPhone()
+  assert.deepEqual(bEvt.data.work.approvals.map(a => a.id), ['appr-bot'])
+  assert.deepEqual(pEvt.data.work.approvals.map(a => a.id), ['appr-bot', 'appr-agent'])
+
+  // Browser is refused when trying to answer a Classic Agent approval, but may still answer a Bot approval.
+  const denied = await browserLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-agent', choice: 'allow' } })
+  assert.equal(denied.ok, false)
+  assert.equal(denied.error.code, 'bot/refused')
+  assert.equal(answered.length, 0)
+
+  const allowedBot = await browserLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-bot', choice: 'allow' } })
+  assert.equal(allowedBot.ok, true)
+  const allowedAgentOnPhone = await phoneLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-agent', choice: 'allow' } })
+  assert.equal(allowedAgentOnPhone.ok, true)
+  assert.deepEqual(answered.map(entry => entry.id), ['appr-bot', 'appr-agent'])
+
+  await browserLink.client.close()
+  await phoneLink.client.close()
 })
