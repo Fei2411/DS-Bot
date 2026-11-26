@@ -95,9 +95,13 @@ export function sessionRoomId(state, botId, sessionId) {
 
 export function isMissingSessionError(error) {
   const code = error?.code
-  return code === 'session/not-found'
-    || code === 'SESSION_QUERY_SESSION_NOT_FOUND'
-    || /\bsession\b.*\bnot found\b|\bnot found\b.*\bsession\b/i.test(String(error?.message ?? ''))
+  if (typeof code === 'string' && code !== '') {
+    return code === 'session/not-found'
+      || code === 'SESSION_QUERY_SESSION_NOT_FOUND'
+  }
+  if (error?.name === 'SessionPersistenceNotFoundError') return true
+  if (error?.name === 'SessionPersistenceCorruptionError') return false
+  return /\bsession\b.*\bnot found\b|\bnot found\b.*\bsession\b/i.test(String(error?.message ?? ''))
 }
 
 // A fresh part replaces a thread's current one; the part it replaces joins that thread's

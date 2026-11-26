@@ -38,18 +38,18 @@ export function PrivacyPage({ actions, run, Section, Row }) {
         hint: t('Daily active count, versions, OS, and built-in feature overview. Sent at most once per day.'),
       }, h(Switch, {
         label: t('Anonymous usage statistics'),
-        on: !disabled && state?.usage === true && state?.noticeAccepted !== false,
+        on: !disabled && state?.usage === true && state?.noticeAccepted === true,
         disabled: state === null || disabled,
-        onChange: usage => save({ usage, noticeAccepted: true }),
+        onChange: usage => save(state?.noticeAccepted === true ? { usage } : { usage, errors: false, noticeAccepted: true }),
       })),
       h(Row, {
         label: t('Anonymous error reports'),
         hint: t('Error codes and DS Bot source frames only. No messages, file paths, or chats.'),
       }, h(Switch, {
         label: t('Anonymous error reports'),
-        on: !disabled && state?.errors === true && state?.noticeAccepted !== false,
+        on: !disabled && state?.errors === true && state?.noticeAccepted === true,
         disabled: state === null || disabled,
-        onChange: errors => save({ errors, noticeAccepted: true }),
+        onChange: errors => save(state?.noticeAccepted === true ? { errors } : { usage: false, errors, noticeAccepted: true }),
       })),
       h(Row, {
         label: t('Anonymous ID'),

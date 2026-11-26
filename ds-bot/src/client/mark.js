@@ -79,10 +79,10 @@ export function useBotApprovals(botId, useWork, useComputer) {
 }
 
 // Unified direct-chat mark state shared by the sidebar row, header pill and details drawer.
-// Blocking DM approvals/questions override a running foreground turn; non-blocking items
+// Blocking DM approvals/questions/handoffs override a running foreground turn; non-blocking items
 // (background-task approvals, learning proposals) alert once idle without hiding foreground work.
-export function dmMarkState({ running = false, doing, failed = false, background = false, waitingApproval = false, replied = false, fgApproval = false, bgApproval = false, pending = {} }) {
-  const blockingAlert = Boolean(fgApproval || pending.cardApproval || pending.question)
+export function dmMarkState({ running = false, doing, failed = false, background = false, waitingApproval = false, replied = false, fgApproval = false, bgApproval = false, handoff = false, pending = {} }) {
+  const blockingAlert = Boolean(fgApproval || pending.cardApproval || pending.question || handoff)
   const alert = blockingAlert || Boolean(bgApproval || pending.learning || waitingApproval)
   const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
   return botState(running, dmDoing, alert, { failed, background, replied })

@@ -104,8 +104,9 @@ test('dmMarkState alerts on background task approvals when idle without overridi
   assert.equal(dmMarkState({ running: false, background: true }), 'background')
   // Non-blocking background approval does not override an active foreground turn.
   assert.equal(dmMarkState({ running: true, doing: 'working', background: true, waitingApproval: true, bgApproval: true }), 'working')
-  // Foreground approval / pending card / question overrides even a running foreground turn.
+  // Foreground approval / pending card / question / handoff overrides even a running foreground turn.
   assert.equal(dmMarkState({ running: true, doing: 'working', fgApproval: true }), 'alert')
+  assert.equal(dmMarkState({ running: true, doing: 'working', handoff: true }), 'alert')
   assert.equal(dmMarkState({ running: true, doing: 'working', pending: botPendingOf({ questions: { b: { id: 'q1' } } }, { id: 'b' }) }), 'alert')
   // Group approval activity ('alert' without DM blocker) is stripped during foreground work (#1623).
   assert.equal(dmMarkState({ running: true, doing: 'alert' }), 'working')

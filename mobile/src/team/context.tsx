@@ -40,7 +40,7 @@ export function TeamProvider({ computer, identity, children }: { computer: Saved
     return onPrefsChange(sync)
   }, [])
   const hooks = useMemo<TeamLinkHooks>(() => ({
-    keepAliveInBackground: () => keepAliveBg.current,
+    keepAliveInBackground: () => Platform.OS === 'web' || keepAliveBg.current,
     onConnected: (hello, rawCall) => {
       setForegroundLinkOnline(computer.hostDeviceId, true)
       void syncBackgroundConnectionSubtitle(true, computer.name)

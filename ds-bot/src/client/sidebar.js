@@ -80,6 +80,9 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
+const isBrowserHandoff = hold => hold?.callId !== undefined
+const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))
+
 const sameBotRow = (a, b) => a.bot === b.bot
   && a.wide === b.wide
   && a.marked === b.marked
@@ -92,6 +95,7 @@ const sameBotRow = (a, b) => a.bot === b.bot
   && a.useActivity === b.useActivity
   && a.useWork === b.useWork
   && a.useComputer === b.useComputer
+  && a.useBrowserHolds === b.useBrowserHolds
   && a.roster.mainBotId === b.roster.mainBotId
   && a.roster.mainBotIds === b.roster.mainBotIds
   && a.roster.byId === b.roster.byId
@@ -104,7 +108,7 @@ const sameBotRow = (a, b) => a.bot === b.bot
   && a.roster.questions === b.roster.questions
   && a.roster.views === b.roster.views
 
-const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotCompletions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, onDragStart }) {
+const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotCompletions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, useBrowserHolds, wide, marked, onDragStart }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
@@ -125,22 +129,29 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   )
   const useReadBgWork = useWork ?? useFalse
   const bgApproval = useReadBgWork(work => (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === id && entry.taskId !== undefined && entry.answerable !== false))
+  const useReadBrowserHolds = useBrowserHolds ?? useFalse
+  const useReadComputer = useComputer ?? useFalse
+  const browserHandoff = useReadBrowserHolds(map => isBrowserHandoff(map?.[id]))
+  const computerHandoff = useReadComputer(comp => isComputerHandoff(comp?.holds?.[id]))
+  const handoff = browserHandoff || computerHandoff
   const pending = botPendingOf(roster, bot)
   const blockingApproval = fgApproval || pending.cardApproval
   const nonBlockingApproval = bgApproval || pending.learning
   const approval = blockingApproval || nonBlockingApproval
-  const alert = approval || pending.question
+  const alert = approval || pending.question || handoff
   const doing = useActivity(map => map[id])
   // Work in a group runs in a Session of its own, so the Bot's chat stays idle meanwhile.
   const groups = useGroupWork(useWork, rooms => Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) }))))
   const away = !running && groups.length > 0
   // Group approvals live on the group's row and header island, not on the Bot's
-  // own DM avatar (#1623). Blocking DM approvals/questions override 'working' so
+  // own DM avatar (#1623). Blocking DM approvals/questions/handoffs override 'working' so
   // a running turn paused on a card still wears the alert mark; any remaining
   // 'alert' activity comes from a group, background-task, or unanswerable approval
   // and is stripped while the foreground turn runs.
   const taskCounts = taskCountsOf({ bot })
   const failed = lastTurnFailed(bot, useSessions(list => latestTurnOf(list, part)))
+  const blockingAlert = blockingApproval || pending.question || handoff
+  const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
   const state = dmMarkState({
     running: running || away,
     doing,
@@ -150,12 +161,15 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
     replied: finished,
     fgApproval,
     bgApproval,
+    handoff,
     pending,
   })
-  const waitLine = blockingApproval ? t('Waiting for your approval') : pending.question ? t('Waiting for your answer') : null
+  const waitLine = blockingApproval ? t('Waiting for your approval')
+    : pending.question ? t('Waiting for your answer')
+      : handoff ? t('Waiting for you') : null
   const deferredWaitLine = nonBlockingApproval ? t('Waiting for your approval') : null
   // A Bot running in its own chat previews what it is doing, like a group's row.
-  const runningLine = running && doing && doing !== 'alert' ? doingLine(doing) : null
+  const runningLine = running && !blockingAlert ? doingLine(dmDoing ?? 'working') : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
   const useReadWaits = useWork ?? useNullJson
   const waitsRaw = useReadWaits(work => JSON.stringify(work.waiting?.[id] ?? null))
@@ -175,6 +189,7 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
       'data-bot-id': id, title: waitLine || deferredWaitLine || preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
     },
     h(BotAvatar, { bot, size: 60, state, main: true }),
+    alert && !active && state !== 'alert' ? h('span', { className: 'bt-dot bt-dot-wait', 'aria-hidden': true }) : null,
     h('span', { className: 'bt-tile-name' }, bot.name),
     bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null,
     h(SidebarTaskPill, { active: taskCounts.active, waitingApproval: taskCounts.waitingApproval, onClick: openTasks })))
@@ -368,8 +383,14 @@ function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
       : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart })
 }
 
+const entrySessionIds = entry => (
+  entry.kind === 'bot' ? [currentPart(entry.item)]
+    : entry.kind === 'room' ? [entry.item.sessionId ?? entry.item.id]
+      : entry.item.sessions ?? []
+)
+
 function SectionBlock({ section, entries, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
-  const { roster, actions, useSessions, useBotCompletions, useSessionStatus, useWork, useComputer, wide } = rowProps
+  const { roster, actions, useSessions, useBotCompletions, useSessionStatus, useWork, useComputer, useBrowserHolds, wide } = rowProps
   const input = useRef(null)
   useLayoutEffect(() => {
     if (!renaming) return
@@ -392,12 +413,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     }
     return list
   }, [visibleEntries, roster.byId])
-  const sessionIds = useMemo(() => entries.flatMap(entry => (
-    entry.kind === 'bot' ? [currentPart(entry.item)]
-      : entry.kind === 'room' ? [entry.item.sessionId ?? entry.item.id]
-        : entry.item.sessions ?? []
-  )), [entries])
-  const botParts = useMemo(() => new Set(entries.filter(entry => entry.kind === 'bot').map(entry => currentPart(entry.item))), [entries])
+  const sessionIds = useMemo(() => entries.flatMap(entrySessionIds), [entries])
   const activeSession = useSessions(list => sessionIds.find(id => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? '')
   const activeEntry = useMemo(() => {
     if (activeSession === '') return undefined
@@ -407,14 +423,19 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
           : (entry.item.sessions ?? []).includes(activeSession)
     ))
   }, [entries, activeSession])
-  const statusBits = useSessionStatus(map => JSON.stringify(sessionIds.map(id => [
-    id,
-    map.get(id)?.running === true ? 1 : 0,
-    (!botParts.has(id) && map.get(id)?.completionUnread === true) || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
-  ])))
   const shownEntries = useMemo(() => entries.filter(entry => (
     !entry.item.hidden || entry === activeEntry || (entry.kind === 'bot' && isMainOf(roster, entry.item.id))
   )), [entries, activeEntry, roster])
+  const shownSessionIds = useMemo(() => shownEntries.flatMap(entrySessionIds), [shownEntries])
+  const shownBotParts = useMemo(
+    () => new Set(shownEntries.filter(entry => entry.kind === 'bot').map(entry => currentPart(entry.item))),
+    [shownEntries],
+  )
+  const statusBits = useSessionStatus(map => JSON.stringify(shownSessionIds.map(id => [
+    id,
+    map.get(id)?.running === true ? 1 : 0,
+    (!shownBotParts.has(id) && map.get(id)?.completionUnread === true) || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
+  ])))
   const useReadSectionWork = useWork ?? useEmptySectionWork
   const workBits = useReadSectionWork(work => {
     const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
@@ -426,10 +447,22 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     return `${approval ? 1 : 0}|${roomWorking ? 1 : 0}`
   })
   const useReadSectionComputer = useComputer ?? useFalse
-  const hasComputerAsk = useReadSectionComputer(comp => {
+  const hasComputerAlert = useReadSectionComputer((comp) => {
     const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
     const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
-    return Object.values(comp?.asks ?? {}).some(ask => (ask.roomId === undefined && botIds.has(ask.botId)) || roomIds.has(ask.roomId))
+    if (Object.values(comp?.asks ?? {}).some(ask => (ask.roomId === undefined && botIds.has(ask.botId)) || roomIds.has(ask.roomId))) return true
+    for (const botId of botIds) {
+      if (isComputerHandoff(comp?.holds?.[botId])) return true
+    }
+    return false
+  })
+  const useReadSectionBrowserHolds = useBrowserHolds ?? useFalse
+  const hasBrowserHandoff = useReadSectionBrowserHolds((map) => {
+    const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
+    for (const botId of botIds) {
+      if (isBrowserHandoff(map?.[botId])) return true
+    }
+    return false
   })
   const parsedStatuses = JSON.parse(statusBits)
   const [hasApproval, hasRoomWork] = workBits.split('|').map(v => v === '1')
@@ -438,11 +471,12 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     const pending = botPendingOf(roster, entry.item)
     return pending.learning || pending.cardApproval || pending.question
   })
-  const hasAlert = hasPendingCard || hasApproval || hasComputerAsk
+  const hasAlert = hasPendingCard || hasApproval || hasComputerAlert || hasBrowserHandoff
   const hasWorking = hasRoomWork || parsedStatuses.some(([, run]) => run === 1)
-  const hasBotUnread = useBotCompletions(unread => [...botParts].some(id => id !== activeSession && unread[id] === true))
+  const useReadSectionBotCompletions = useBotCompletions ?? useFalse
+  const hasBotUnread = useReadSectionBotCompletions(unread => [...shownBotParts].some(id => id !== activeSession && unread[id] === true))
   const hasUnread = hasBotUnread || parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession)
-    || entries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
+    || shownEntries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
   const statusKind = hasAlert ? 'alert' : hasWorking ? 'working' : hasUnread ? 'unread' : null
   const toggle = () => {
     void Promise.resolve(actions.saveSection({ id: section.id, collapsed: !section.collapsed })).catch(error => actions.reportError(error, 'section'))
@@ -926,7 +960,7 @@ export function TeamSidebar(props) {
       newAgentSession: id => navigate(actions.newAgentSession, id),
     }
   }, [actions])
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent }
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, useBrowserHolds: props.useBrowserHolds ?? useFalse, wide: wideContent }
   // Typing while the sidebar has focus starts a search.
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return

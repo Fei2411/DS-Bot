@@ -218,14 +218,15 @@ export function install(rt) {
         clearTimeout(timer)
         if (automatic) entry.review = { ...entry.review, status: 'manual', reason: clean(reason) }
         changed(entry)
-        // Group sessions have DS Bot's member card; a background task's card sits
-        // on the member's group Session. Own-chat children still need the host
-        // path, since their Bot may have no group approval controls.
+        // Group sessions and background tasks run in hidden Sessions owned by DS Bot's
+        // cards (group member card or task deck), so they never race DSH's own card.
+        // Own-chat children still need the host path, since their Bot may have no group
+        // approval controls.
         const yieldSession = owner.taskId === undefined || owner.roomId === undefined
           ? owner.ownerSessionId
           : rt.roomOf(owner.roomId)?.sessions?.[owner.botId] ?? owner.ownerSessionId
         rt.yieldRoomTurn?.(yieldSession)
-        if (owner.roomId !== undefined) return
+        if (owner.roomId !== undefined || owner.taskId !== undefined) return
         request.signal = linked.signal
         Promise.resolve().then(next).then(outcome => {
           if (outcome !== 'unavailable' || owner.ownerSessionId !== owner.sessionId) complete(outcome)
