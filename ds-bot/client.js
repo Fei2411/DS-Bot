@@ -2440,6 +2440,10 @@ var JA = {
   "Click again to restore": "もう一度押すと戻します",
   "Restore": "戻す",
   "Your stylesheet": "自分のスタイルシート",
+  "Derive from 2 colors": "2色から生成",
+  "Derive": "生成",
+  "Canvas": "下地の色",
+  "VS Code theme": "VS Code テーマ",
   "The stylesheet holds at most {kb} KB": "スタイルシートは最大 {kb} KB です",
   "This window opened in safe appearance: the background and your stylesheet are off here.": "このウインドウはセーフ表示で開きました：背景と自分のスタイルシートはここではオフです。",
   "Turn them back on": "もう一度オンにする",
@@ -5777,6 +5781,10 @@ var KO = {
   "Click again to restore": "한 번 더 누르면 되돌립니다",
   "Restore": "되돌리기",
   "Your stylesheet": "내 스타일시트",
+  "Derive from 2 colors": "두 가지 색으로 만들기",
+  "Derive": "만들기",
+  "Canvas": "바탕색",
+  "VS Code theme": "VS Code 테마",
   "The stylesheet holds at most {kb} KB": "스타일시트는 최대 {kb} KB입니다",
   "This window opened in safe appearance: the background and your stylesheet are off here.": "이 창은 안전 모양으로 열렸습니다: 여기서는 배경과 내 스타일시트가 꺼져 있습니다.",
   "Turn them back on": "다시 켜기",
@@ -9115,6 +9123,10 @@ var ES = {
   "Click again to restore": "Pulsa otra vez para restaurar",
   "Restore": "Restaurar",
   "Your stylesheet": "Tu hoja de estilos",
+  "Derive from 2 colors": "Derivar de 2 colores",
+  "Derive": "Derivar",
+  "Canvas": "Fondo base",
+  "VS Code theme": "Tema de VS Code",
   "The stylesheet holds at most {kb} KB": "La hoja de estilos admite como máximo {kb} KB",
   "This window opened in safe appearance: the background and your stylesheet are off here.": "Esta ventana se abrió con la apariencia segura: aquí el fondo y tu hoja de estilos están desactivados.",
   "Turn them back on": "Volver a activarlos",
@@ -12409,6 +12421,10 @@ var FR = {
   "Click again to restore": "Cliquez encore pour rétablir",
   "Restore": "Rétablir",
   "Your stylesheet": "Votre feuille de style",
+  "Derive from 2 colors": "Dériver de 2 couleurs",
+  "Derive": "Dériver",
+  "Canvas": "Fond de base",
+  "VS Code theme": "Thème VS Code",
   "The stylesheet holds at most {kb} KB": "La feuille de style fait au plus {kb} Ko",
   "This window opened in safe appearance: the background and your stylesheet are off here.": "Cette fenêtre s'est ouverte en apparence sûre : le fond et votre feuille de style sont désactivés ici.",
   "Turn them back on": "Les réactiver",
@@ -15746,6 +15762,10 @@ var DE = {
   "Click again to restore": "Zum Zurücksetzen noch einmal klicken",
   "Restore": "Zurücksetzen",
   "Your stylesheet": "Eigenes Stylesheet",
+  "Derive from 2 colors": "Aus 2 Farben ableiten",
+  "Derive": "Ableiten",
+  "Canvas": "Grundfarbe",
+  "VS Code theme": "VS-Code-Design",
   "The stylesheet holds at most {kb} KB": "Das Stylesheet darf höchstens {kb} KB groß sein",
   "This window opened in safe appearance: the background and your stylesheet are off here.": "Dieses Fenster wurde im sicheren Erscheinungsbild geöffnet: Hintergrund und eigenes Stylesheet sind hier aus.",
   "Turn them back on": "Wieder einschalten",
@@ -18898,6 +18918,10 @@ var ZH = {
   "Click again to restore": "再点一次恢复",
   "Restore": "恢复",
   "Your stylesheet": "自定义样式表",
+  "Derive from 2 colors": "从两个颜色生成",
+  "Derive": "生成",
+  "Canvas": "底色",
+  "VS Code theme": "VS Code 主题",
   "The stylesheet holds at most {kb} KB": "样式表最大 {kb} KB",
   "This window opened in safe appearance: the background and your stylesheet are off here.": "这个窗口以安全外观打开：背景和自定义样式表在这里关掉了。",
   "Turn them back on": "重新打开",
@@ -21456,6 +21480,7 @@ var surfaceVars = (mode, alpha) => `--bt-pane:transparent;--bt-wash:${washColor(
 var surfaceColors = (theme) => ({ light: { bg: "transparent", sidebar: rgba(theme.light.sidebar, SIDEBAR_TINT) }, dark: { bg: "transparent", sidebar: rgba(theme.dark.sidebar, SIDEBAR_TINT) } });
 var veilColors = (alpha) => ({ light: rgba("#ffffff", alpha), dark: rgba("#000000", alpha) });
 var BACKGROUND_STARTS = { color: { light: "#dfe6f5", dark: "#1d2433" }, from: "#9ab6ff", to: "#f7c6d9" };
+var VSCODE_DEFAULTS = { dark: "#1e1e1e", light: "#ffffff", accent: "#4d6bfe" };
 var channels = (hex) => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
 var toHex = (rgb) => `#${rgb.map((value) => Math.round(Math.min(255, Math.max(0, value))).toString(16).padStart(2, "0")).join("")}`;
 var distance = (a, b2) => Math.max(...channels(a).map((value, index) => Math.abs(value - channels(b2)[index])));
@@ -21491,6 +21516,60 @@ function moveBasics(colors, change) {
   const base = colors.base ?? Object.fromEntries(BASE_KEYS.map((key) => [key, colors[key]]));
   const moved = followBasics({ ...colors, ...base }, { bg: colors.bg, text: colors.text, ...change });
   return { ...colors, ...Object.fromEntries(BASE_KEYS.map((key) => [key, moved[key]])), base };
+}
+var hslOf = (hex) => {
+  const [r, g, b2] = channels(hex).map((value) => value / 255);
+  const [hi, lo] = [Math.max(r, g, b2), Math.min(r, g, b2)];
+  const l = (hi + lo) / 2;
+  if (hi === lo) return [0, 0, l];
+  const d = hi - lo;
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h92 = hi === r ? 60 * ((g - b2) / d % 6) : hi === g ? 60 * ((b2 - r) / d + 2) : 60 * ((r - g) / d + 4);
+  return [h92 < 0 ? h92 + 360 : h92, s, l];
+};
+var hexOfHsl = (h92, s, l) => {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(h92 / 60 % 2 - 1));
+  const m = l - c / 2;
+  const rgb = h92 < 60 ? [c, x, 0] : h92 < 120 ? [x, c, 0] : h92 < 180 ? [0, c, x] : h92 < 240 ? [0, x, c] : h92 < 300 ? [x, 0, c] : [c, 0, x];
+  return toHex(rgb.map((value) => (value + m) * 255));
+};
+var toward = (from, to, ratio) => toHex(channels(from).map((value, index) => value + (channels(to)[index] - value) * ratio));
+var TEXT_TARGET = 7;
+var readableOn = (ink, canvas) => {
+  const pure = contrast("#000000", canvas) >= contrast("#ffffff", canvas) ? "#000000" : "#ffffff";
+  if (contrast(ink, canvas) >= TEXT_TARGET) return ink;
+  for (let step = 1; step <= 6; step += 1) {
+    const moved = toward(ink, pure, step / 6);
+    if (contrast(moved, canvas) >= TEXT_TARGET) return moved;
+  }
+  return pure;
+};
+function deriveThemeMode(canvasHex, accentHex, appearance) {
+  if (!isHex(canvasHex) || !isHex(accentHex)) throw new TypeError("A canvas and an accent as #rrggbb colors");
+  const canvas = canvasHex.toLowerCase();
+  const accent = accentHex.toLowerCase();
+  const [hue, saturation, lightness] = hslOf(canvas);
+  const dark = appearance === void 0 ? lightness < 0.5 : appearance === "dark";
+  const step = (delta) => hexOfHsl(hue, saturation, Math.min(1, Math.max(0, lightness + delta)));
+  const text = readableOn(dark ? "#f2f2f2" : "#141414", canvas);
+  const awaySign = contrast(text, "#000000") > contrast(text, "#ffffff") ? -1 : 1;
+  const surface = (delta) => {
+    const preferred = step(delta);
+    if (contrast(text, preferred) >= READABLE) return preferred;
+    return step(awaySign * Math.abs(delta));
+  };
+  return {
+    accent,
+    bg: canvas,
+    text,
+    sidebar: surface(dark ? 0.03 : -0.03),
+    bubble: surface(dark ? 0.075 : -0.075),
+    // Cards float a little lighter than the canvas in both modes.
+    card: surface(0.045),
+    user: accent,
+    userText: accentInk(accent)
+  };
 }
 function themeVars(mode, dark, accent = mode.accent) {
   return {
@@ -21597,6 +21676,383 @@ var thinkingShown = (prefs) => prefs?.thinking === true;
 var widthOf = (prefs) => percent(prefs?.width, 80);
 var flatWidthOf = (prefs) => percent(prefs?.flatWidth, 100);
 
+// src/shared/theme-css.js
+var isCssSpace = (ch) => ch === " " || ch === "	" || ch === "\n" || ch === "\f" || ch === "\r";
+var isNameCode = (code) => code === 45 || code === 95 || code >= 48 && code <= 57 || code >= 65 && code <= 90 || code >= 97 && code <= 122 || code >= 128;
+var REMOTE_FUNCTIONS = /* @__PURE__ */ new Set(["image-set", "-webkit-image-set", "image", "src"]);
+function scanThemeCss(text) {
+  const source = String(text ?? "");
+  const n = source.length;
+  let fetches = false;
+  const imports = [];
+  let i = 0;
+  const skipComment = () => {
+    const end = source.indexOf("*/", i + 2);
+    i = end === -1 ? n : end + 2;
+  };
+  const skipString = () => {
+    const quote = source[i];
+    i += 1;
+    while (i < n) {
+      const ch = source[i];
+      if (ch === "\\") {
+        i = Math.min(i + (source[i + 1] === "\r" && source[i + 2] === "\n" ? 3 : 2), n);
+        continue;
+      }
+      if (ch === "\n" || ch === "\r" || ch === "\f") {
+        fetches = true;
+        return;
+      }
+      i += 1;
+      if (ch === quote) return;
+    }
+  };
+  const endOfImport = (start) => {
+    let at = start;
+    let depth = 0;
+    while (at < n) {
+      const ch = source[at];
+      if (ch === '"' || ch === "'") {
+        const quote = ch;
+        at += 1;
+        while (at < n) {
+          const c = source[at];
+          if (c === "\\") {
+            at = Math.min(at + (source[at + 1] === "\r" && source[at + 2] === "\n" ? 3 : 2), n);
+            continue;
+          }
+          if (c === "\n" || c === "\r" || c === "\f") break;
+          at += 1;
+          if (c === quote) break;
+        }
+        continue;
+      }
+      if (ch === "/" && source[at + 1] === "*") {
+        const close = source.indexOf("*/", at + 2);
+        at = close === -1 ? n : close + 2;
+        continue;
+      }
+      if (ch === "(") depth += 1;
+      else if (ch === ")") depth = Math.max(0, depth - 1);
+      else if (ch === ";" && depth === 0) return at + 1;
+      else if (ch === "{" && depth === 0) return at;
+      at += 1;
+    }
+    return n;
+  };
+  const urlArgument = () => {
+    while (i < n && isCssSpace(source[i])) i += 1;
+    let content = "";
+    let malformed = false;
+    const ch = source[i];
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      i += 1;
+      let closed = false;
+      while (i < n) {
+        const c = source[i];
+        if (c === "\\") {
+          malformed = true;
+          i = Math.min(i + (source[i + 1] === "\r" && source[i + 2] === "\n" ? 3 : 2), n);
+          continue;
+        }
+        if (c === "\n" || c === "\r" || c === "\f") {
+          malformed = true;
+          break;
+        }
+        if (c === quote) {
+          closed = true;
+          i += 1;
+          break;
+        }
+        content += c;
+        i += 1;
+      }
+      if (!closed) malformed = true;
+      while (i < n && isCssSpace(source[i])) i += 1;
+      if (source[i] === ")") i += 1;
+      else malformed = true;
+    } else {
+      let raw = "";
+      while (i < n && source[i] !== ")") {
+        const c = source[i];
+        if (c === "\\") {
+          malformed = true;
+          i = Math.min(i + 2, n);
+          continue;
+        }
+        if (c === '"' || c === "'" || c === "(") malformed = true;
+        raw += c;
+        i += 1;
+      }
+      if (source[i] === ")") i += 1;
+      else malformed = true;
+      content = raw.replace(/[ \t\n\f\r]+$/, "");
+      if (/[ \t\n\f\r]/.test(content)) malformed = true;
+    }
+    if (malformed || content === "") {
+      fetches = true;
+      return;
+    }
+    if (content.startsWith("#")) return;
+    if (content.length >= 5 && content.slice(0, 5).toLowerCase() === "data:") return;
+    fetches = true;
+  };
+  while (i < n) {
+    const ch = source[i];
+    if (isCssSpace(ch)) {
+      i += 1;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      skipComment();
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      skipString();
+      continue;
+    }
+    if (ch === "\\") {
+      fetches = true;
+      i = Math.min(i + 2, n);
+      continue;
+    }
+    if (ch === "@") {
+      const at = i;
+      let j = i + 1;
+      let name = "";
+      while (j < n) {
+        const code = source.charCodeAt(j);
+        if (isNameCode(code)) {
+          name += source[j];
+          j += 1;
+          continue;
+        }
+        if (source[j] === "\\" && j + 1 < n && source[j + 1] !== "\n" && source[j + 1] !== "\r" && source[j + 1] !== "\f") {
+          const rest = source.slice(j + 1);
+          const hex = /^[0-9a-fA-F]{1,6}/.exec(rest);
+          if (hex !== null) {
+            const cp = parseInt(hex[0], 16);
+            name += String.fromCodePoint(cp === 0 || cp > 1114111 ? 65533 : cp);
+            j += 1 + hex[0].length;
+            if (source[j] === "\r" && source[j + 1] === "\n") j += 2;
+            else if (isCssSpace(source[j])) j += 1;
+          } else {
+            name += source[j + 1];
+            j += 2;
+          }
+          continue;
+        }
+        break;
+      }
+      if (name.toLowerCase() === "import") {
+        fetches = true;
+        const end = endOfImport(j);
+        imports.push([at, end]);
+        i = end;
+        continue;
+      }
+      i = j > i + 1 ? j : i + 1;
+      continue;
+    }
+    if (isNameCode(source.charCodeAt(i))) {
+      let j = i;
+      while (j < n && isNameCode(source.charCodeAt(j))) j += 1;
+      const name = source.slice(i, j).toLowerCase();
+      if (source[j] === "(") {
+        i = j + 1;
+        if (name === "url") urlArgument();
+        else if (REMOTE_FUNCTIONS.has(name)) fetches = true;
+        continue;
+      }
+      i = j;
+      continue;
+    }
+    i += 1;
+  }
+  return { fetches, imports };
+}
+var themeCssValueFetches = (value) => scanThemeCss(value).fetches;
+var themeCssLoadsRemoteFiles = (css) => scanThemeCss(css).fetches;
+function themeCssWithoutImports(css) {
+  const source = String(css ?? "");
+  const { imports } = scanThemeCss(source);
+  if (imports.length === 0) return source;
+  let out = "";
+  let at = 0;
+  for (const [start, end] of imports) {
+    out += source.slice(at, start) + " ".repeat(end - start);
+    at = end;
+  }
+  return out + source.slice(at);
+}
+
+// src/client/theme-css.js
+var CONTAINERS = /* @__PURE__ */ new Set(["CSSMediaRule", "CSSSupportsRule", "CSSLayerBlockRule", "CSSContainerRule", "CSSKeyframesRule"]);
+var STATEMENTS = /* @__PURE__ */ new Set(["CSSLayerStatementRule", "CSSNamespaceRule"]);
+var RULE_TYPES = ["CSSMediaRule", "CSSSupportsRule", "CSSLayerBlockRule", "CSSContainerRule", "CSSKeyframesRule", "CSSKeyframeRule", "CSSFontFaceRule", "CSSStyleRule", "CSSPropertyRule", "CSSLayerStatementRule", "CSSNamespaceRule"];
+function ruleType(rule, view) {
+  const name = rule?.constructor?.name;
+  if (typeof name === "string" && RULE_TYPES.includes(name)) return name;
+  for (const type of RULE_TYPES) {
+    const ctor = view?.[type] ?? globalThis[type];
+    if (typeof ctor === "function" && rule instanceof ctor) return type;
+  }
+  return void 0;
+}
+function declarationItems(style) {
+  const names = [];
+  const length = Number.isInteger(style.length) ? style.length : 0;
+  for (let index = 0; index < length; index += 1) {
+    const name = typeof style.item === "function" ? style.item(index) : style[index];
+    if (typeof name === "string" && name !== "") names.push(name);
+  }
+  return names;
+}
+var URL_SHORTHANDS = ["background", "border-image", "-webkit-border-image", "list-style", "mask", "-webkit-mask", "-webkit-mask-box-image", "marker", "offset"];
+function cleanStyle(style) {
+  if (!style || typeof style.getPropertyValue !== "function" || typeof style.removeProperty !== "function") return;
+  for (const name of declarationItems(style)) {
+    if (themeCssValueFetches(style.getPropertyValue(name))) style.removeProperty(name);
+  }
+  for (const name of URL_SHORTHANDS) {
+    const value = style.getPropertyValue(name);
+    if (value !== "" && themeCssValueFetches(value)) style.removeProperty(name);
+  }
+  if (typeof style.cssText === "string" && themeCssLoadsRemoteFiles(style.cssText)) {
+    try {
+      style.cssText = "";
+    } catch {
+    }
+    if (style.cssText !== "") {
+      for (const name of declarationItems(style)) style.removeProperty(name);
+      for (const name of URL_SHORTHANDS) style.removeProperty(name);
+    }
+  }
+}
+function sanitizeUserSheet(sheet, view) {
+  const cleanList = (owner) => {
+    const list = owner?.cssRules;
+    if (!list || typeof list.length !== "number") return;
+    const canDelete = typeof owner.deleteRule === "function";
+    const drop = (index) => {
+      if (canDelete) owner.deleteRule(index);
+    };
+    for (let index = list.length - 1; index >= 0; index -= 1) {
+      const rule = list[index];
+      if (!rule) {
+        drop(index);
+        continue;
+      }
+      const type = ruleType(rule, view);
+      const style = rule.style && typeof rule.style === "object" ? rule.style : void 0;
+      if (type === "CSSPropertyRule") {
+        const initial = typeof rule.initialValue === "string" ? rule.initialValue : "";
+        const styleInitial = style && typeof style.getPropertyValue === "function" ? style.getPropertyValue("initial-value") : "";
+        if (themeCssValueFetches(initial) || themeCssValueFetches(styleInitial)) drop(index);
+        else if (style) cleanStyle(style);
+        continue;
+      }
+      if (style) cleanStyle(style);
+      if (type !== void 0 && CONTAINERS.has(type)) {
+        cleanList(rule);
+        if (type !== "CSSKeyframesRule" && type !== "CSSLayerBlockRule" && (rule.cssRules?.length ?? 0) === 0) drop(index);
+        continue;
+      }
+      if (rule.cssRules) cleanList(rule);
+      if (type !== void 0 && STATEMENTS.has(type)) continue;
+      if (type === "CSSKeyframeRule") continue;
+      if (type !== void 0 && (type === "CSSStyleRule" || type === "CSSFontFaceRule") || style) {
+        const children = rule.cssRules?.length ?? 0;
+        if ((style?.length ?? 0) === 0 && children === 0) drop(index);
+        continue;
+      }
+      drop(index);
+    }
+  };
+  cleanList(sheet);
+}
+function userStylesheetSupported(doc) {
+  const view = doc?.defaultView ?? globalThis;
+  return typeof view?.CSSStyleSheet === "function" && doc !== void 0 && doc !== null && "adoptedStyleSheets" in doc;
+}
+var mounted = /* @__PURE__ */ new WeakMap();
+function mountUserStylesheet(doc, css) {
+  if (!userStylesheetSupported(doc)) return false;
+  const view = doc.defaultView ?? globalThis;
+  let entry = mounted.get(doc);
+  try {
+    const text = themeCssWithoutImports(css);
+    if (!entry || text !== entry.text) {
+      const sheet = new view.CSSStyleSheet();
+      try {
+        sheet.replaceSync(text);
+      } catch {
+        sheet.replaceSync("");
+      }
+      sanitizeUserSheet(sheet, view);
+      const prev = entry?.sheet;
+      doc.adoptedStyleSheets = [...doc.adoptedStyleSheets.filter((item) => item !== prev), sheet];
+      if (!doc.adoptedStyleSheets.includes(sheet)) {
+        if (entry) entry.text = void 0;
+        try {
+          prev?.replaceSync("");
+        } catch {
+        }
+        return false;
+      }
+      if (prev && prev !== sheet) {
+        try {
+          prev.replaceSync("");
+        } catch {
+        }
+      }
+      if (entry) {
+        entry.sheet = sheet;
+        entry.text = text;
+      } else {
+        entry = { sheet, text };
+        mounted.set(doc, entry);
+      }
+    } else if (!doc.adoptedStyleSheets.includes(entry.sheet)) {
+      doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, entry.sheet];
+      if (!doc.adoptedStyleSheets.includes(entry.sheet)) return false;
+    }
+    if (!entry.observer && typeof view.MutationObserver === "function" && typeof doc.head?.querySelectorAll === "function") {
+      const marker = () => {
+        for (const style of doc.head.querySelectorAll("style")) {
+          if (style.dataset?.dshBot === "user-stylesheet") return style;
+        }
+        return null;
+      };
+      let seen = marker() !== null;
+      entry.observer = new view.MutationObserver(() => {
+        const present = marker() !== null;
+        seen = seen || present;
+        if (seen && !present) {
+          try {
+            entry.observer.disconnect();
+            entry.observer = void 0;
+            entry.sheet.replaceSync("");
+            doc.adoptedStyleSheets = doc.adoptedStyleSheets.filter((sheet) => sheet !== entry.sheet);
+            mounted.delete(doc);
+          } catch {
+          }
+        }
+      });
+      entry.observer.observe(doc.head, { childList: true });
+    }
+    return true;
+  } catch {
+    if (entry) entry.text = void 0;
+    try {
+      entry?.sheet.replaceSync("");
+    } catch {
+    }
+    return false;
+  }
+}
+
 // src/client/appearance.js
 var DENSITY = {
   compact: `.bt-row{min-height:44px;padding:5px 8px}
@@ -21661,11 +22117,10 @@ function appearanceCss({ appearance, theme, background, pictureUrl: pictureUrl2 
   const own = [head, ...rules].filter(Boolean).join("\n");
   return user ? own + userCss(appearance, safe2) : own;
 }
-function userCss(appearance, safe2 = false) {
+function userCss(appearance, safe2 = false, doc = globalThis.document) {
   const css = readAppearance(appearance).css;
-  return safe2 || !css ? "" : `
-/* user stylesheet */
-${css}`;
+  mountUserStylesheet(doc, safe2 ? "" : css ?? "");
+  return "";
 }
 function painted({ appearance, background, pictureUrl: pictureUrl2 = () => void 0, safe: safe2 = false }) {
   const shown = safe2 ? void 0 : readAppearance({ background }).background ?? readAppearance(appearance).background;
@@ -34455,6 +34910,178 @@ function MemoryDialog({ owner, actions, leaving = false }) {
   );
 }
 
+// src/client/vscode-theme-import.js
+function walkJsonc(source, visit) {
+  const n = source.length;
+  let i = 0;
+  while (i < n) {
+    const ch = source[i];
+    if (ch === '"') {
+      let end = i + 1;
+      while (end < n) {
+        if (source[end] === "\\") {
+          end = Math.min(end + 2, n);
+          continue;
+        }
+        if (source[end] === '"') {
+          end += 1;
+          break;
+        }
+        end += 1;
+      }
+      visit("string", i, end);
+      i = end;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "/") {
+      let end = i;
+      while (end < n && source[end] !== "\n") end += 1;
+      visit("comment", i, end);
+      i = end;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      const close = source.indexOf("*/", i + 2);
+      const end = close === -1 ? n : close + 2;
+      visit("comment", i, end);
+      i = end;
+      continue;
+    }
+    visit("char", i, i + 1);
+    i += 1;
+  }
+}
+function stripJsonc(text) {
+  const source = String(text ?? "").replace(/^\uFEFF/, "");
+  let uncommented = source.slice();
+  walkJsonc(source, (kind, start, end) => {
+    if (kind !== "comment") return;
+    uncommented = uncommented.slice(0, start) + source.slice(start, end).replace(/[^\n]/g, " ") + uncommented.slice(end);
+  });
+  let out = uncommented;
+  walkJsonc(uncommented, (kind, start, end) => {
+    if (kind !== "char" || uncommented[start] !== ",") return;
+    let j = end;
+    while (j < uncommented.length && /\s/.test(uncommented[j])) j += 1;
+    if (uncommented[j] === "}" || uncommented[j] === "]") out = out.slice(0, start) + " " + out.slice(end);
+  });
+  return out;
+}
+var HEX3 = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+var channelsOf = (hex) => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
+var toHex2 = (rgb) => `#${rgb.map((value) => Math.round(Math.min(255, Math.max(0, value))).toString(16).padStart(2, "0")).join("")}`;
+function flattenColor(value, canvas) {
+  if (typeof value !== "string" || !HEX3.test(value)) return void 0;
+  let hex = value.toLowerCase();
+  if (hex.length === 4 || hex.length === 5) hex = `#${hex.slice(1).split("").map((ch) => ch + ch).join("")}`;
+  if (hex.length === 7) return hex;
+  const alpha = parseInt(hex.slice(7, 9), 16) / 255;
+  if (alpha < 32 / 255) return void 0;
+  return toHex2(channelsOf(hex).map((channel3, index) => channel3 * alpha + channelsOf(canvas)[index] * (1 - alpha)));
+}
+var hslOf2 = (hex) => {
+  const [r, g, b2] = channelsOf(hex).map((value) => value / 255);
+  const [hi, lo] = [Math.max(r, g, b2), Math.min(r, g, b2)];
+  const l = (hi + lo) / 2;
+  if (hi === lo) return [0, 0, l];
+  const d = hi - lo;
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h92 = hi === r ? 60 * ((g - b2) / d % 6) : hi === g ? 60 * ((b2 - r) / d + 2) : 60 * ((r - g) / d + 4);
+  return [h92 < 0 ? h92 + 360 : h92, s, l];
+};
+var hexOfHsl2 = (h92, s, l) => {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(h92 / 60 % 2 - 1));
+  const m = l - c / 2;
+  const rgb = h92 < 60 ? [c, x, 0] : h92 < 120 ? [x, c, 0] : h92 < 180 ? [0, c, x] : h92 < 240 ? [0, x, c] : h92 < 300 ? [x, 0, c] : [c, 0, x];
+  return toHex2(rgb.map((value) => (value + m) * 255));
+};
+var MAP = {
+  bg: ["editor.background"],
+  text: ["editor.foreground", "foreground"],
+  sidebar: ["sideBar.background", "activityBar.background"],
+  bubble: ["panel.background", "editorGroupHeader.tabsBackground"],
+  card: ["editorWidget.background", "dropdown.background"],
+  accent: ["button.background", "focusBorder", "textLink.foreground"]
+};
+function parseVscodeTheme(text, fallbackLabel = "VS Code theme") {
+  let parsed;
+  try {
+    parsed = JSON.parse(stripJsonc(text));
+  } catch {
+    throw new Error("This file is not JSON");
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("This file is not a VS Code theme");
+  const colors = parsed.colors;
+  if (colors === null || typeof colors !== "object" || Array.isArray(colors)) throw new Error("This file is not a VS Code theme");
+  const rawType = typeof parsed.type === "string" ? parsed.type.toLowerCase() : "";
+  const typeDark = rawType === "dark" || rawType === "hcblack" || rawType === "hc" ? true : rawType === "light" || rawType === "hclight" ? false : void 0;
+  const opaque = (value) => {
+    if (typeof value !== "string" || !HEX3.test(value)) return void 0;
+    let hex = value.toLowerCase();
+    if (hex.length === 4 || hex.length === 5) hex = `#${hex.slice(1).split("").map((ch) => ch + ch).join("")}`;
+    if (hex.length === 9 && parseInt(hex.slice(7, 9), 16) < 32) return void 0;
+    return hex.slice(0, 7);
+  };
+  const explicitCanvas = opaque(colors["editor.background"]);
+  const inferredDark = () => {
+    let fallbackFgDark;
+    for (const name of MAP.text) {
+      const rawFg = colors[name];
+      if (opaque(rawFg) === void 0) continue;
+      const onDark = flattenColor(rawFg, VSCODE_DEFAULTS.dark);
+      const onLight = flattenColor(rawFg, VSCODE_DEFAULTS.light);
+      const darkScore = onDark ? contrast(onDark, VSCODE_DEFAULTS.dark) : 0;
+      const lightScore = onLight ? contrast(onLight, VSCODE_DEFAULTS.light) : 0;
+      if (Math.max(darkScore, lightScore) >= READABLE) return darkScore >= lightScore;
+      if (fallbackFgDark === void 0) fallbackFgDark = darkScore >= lightScore;
+    }
+    const darkInk = deriveThemeMode(VSCODE_DEFAULTS.dark, VSCODE_DEFAULTS.accent, "dark").text;
+    const lightInk = deriveThemeMode(VSCODE_DEFAULTS.light, VSCODE_DEFAULTS.accent, "light").text;
+    let fallbackSurfaceDark;
+    for (const name of [...MAP.sidebar, ...MAP.bubble, ...MAP.card]) {
+      const rawSurface = colors[name];
+      if (opaque(rawSurface) === void 0) continue;
+      const onDark = flattenColor(rawSurface, VSCODE_DEFAULTS.dark);
+      const onLight = flattenColor(rawSurface, VSCODE_DEFAULTS.light);
+      const darkScore = onDark ? contrast(onDark, darkInk) : 0;
+      const lightScore = onLight ? contrast(onLight, lightInk) : 0;
+      if (Math.max(darkScore, lightScore) >= READABLE) return darkScore >= lightScore;
+      if (fallbackSurfaceDark === void 0) fallbackSurfaceDark = darkScore >= lightScore;
+    }
+    if (fallbackSurfaceDark !== void 0) return fallbackSurfaceDark;
+    if (fallbackFgDark !== void 0) return fallbackFgDark;
+    return true;
+  };
+  const isPerceptuallyDark = (hex) => {
+    const l = luminanceOf(hex) + 0.05;
+    return 1.05 / l >= l / 0.05;
+  };
+  const dark = typeDark ?? (explicitCanvas !== void 0 ? isPerceptuallyDark(explicitCanvas) : inferredDark());
+  const canvas = explicitCanvas ?? (dark ? VSCODE_DEFAULTS.dark : VSCODE_DEFAULTS.light);
+  if (!Object.values(colors).some((value) => opaque(value) !== void 0)) {
+    throw new Error("This file is not a VS Code theme");
+  }
+  const accent = MAP.accent.map((key) => flattenColor(colors[key], canvas)).find(Boolean) ?? VSCODE_DEFAULTS.accent;
+  const mode = deriveThemeMode(canvas, accent, dark ? "dark" : "light");
+  const firstSuppliedText = MAP.text.map((name) => flattenColor(colors[name], canvas)).find(Boolean);
+  const readableText = MAP.text.map((name) => flattenColor(colors[name], canvas)).find((color) => color !== void 0 && contrast(color, canvas) >= READABLE);
+  if (readableText !== void 0) mode.text = readableText;
+  const textReplaced = firstSuppliedText !== void 0 && firstSuppliedText !== mode.text;
+  for (const key of ["sidebar", "bubble", "card"]) {
+    const found = MAP[key].map((name) => flattenColor(colors[name], canvas)).find((color) => color !== void 0 && (!textReplaced || contrast(mode.text, color) >= READABLE));
+    if (found !== void 0) mode[key] = found;
+    else if (textReplaced && contrast(mode.text, mode[key]) < READABLE) mode[key] = canvas;
+  }
+  const flipped = hexOfHsl2(...(() => {
+    const [h92, s, l] = hslOf2(canvas);
+    return [h92, s, 1 - l];
+  })());
+  const other = deriveThemeMode(flipped, mode.accent, dark ? "light" : "dark");
+  const label = typeof parsed.name === "string" && parsed.name.trim() !== "" ? parsed.name.trim() : fallbackLabel;
+  return cleanTheme({ label, light: dark ? other : mode, dark: dark ? mode : other });
+}
+
 // src/client/appearance-page.js
 var import_react29 = require("react");
 var import_react_dom5 = require("react-dom");
@@ -34539,13 +35166,13 @@ function ColorField({ label, value, save, hint }) {
     hint ? (0, import_react29.createElement)("span", { className: "bt-look-warn" }, hint) : null
   );
 }
-var HEX3 = /^#?([0-9a-f]{6})$/i;
+var HEX4 = /^#?([0-9a-f]{6})$/i;
 function ColorInput({ label, value, save, hint, scope }) {
   const [shown, pick2] = useResting(value, save, 350, scope);
   const [text, setText] = (0, import_react29.useState)(value.toUpperCase());
   (0, import_react29.useEffect)(() => setText(shown.toUpperCase()), [shown]);
   const commit = () => {
-    const match = HEX3.exec(text.trim());
+    const match = HEX4.exec(text.trim());
     if (match === null) {
       setText(shown.toUpperCase());
       return;
@@ -34704,17 +35331,27 @@ function ThemeSection({ prefs, actions, run: run2, Section: Section2, Row: Row4,
     return run2(actions.setPrefs({ themes: { [newThemeId()]: { label: t("My theme {n}", { n: ownCount + 1 }), light: base.light, dark: base.dark } } }));
   };
   const importFile = async (file) => {
-    let read;
+    const text = await readFile(file, "text");
+    let theme;
+    let appearance2;
+    let image;
     try {
-      read = readThemeFile(await readFile(file, "text"));
+      const read = readThemeFile(text);
+      theme = read.theme;
+      appearance2 = read.appearance;
+      image = read.image;
     } catch (error) {
-      throw new Error(hostText(error?.message ?? String(error)));
+      try {
+        theme = parseVscodeTheme(text, t("VS Code theme"));
+      } catch {
+        throw new Error(hostText(error?.message ?? String(error)));
+      }
     }
     const id = newThemeId();
-    const change = { themes: { [id]: read.theme }, theme: id, accent: null, appearance: read.appearance };
-    if (read.image !== void 0 && read.appearance.background?.kind === "image") {
-      const saved = await actions.addBackground(read.image);
-      change.appearance = { ...read.appearance, background: { ...read.appearance.background, image: saved.id } };
+    const change = { themes: { [id]: theme }, theme: id, accent: null, ...appearance2 ? { appearance: appearance2 } : {} };
+    if (image !== void 0 && appearance2?.background?.kind === "image") {
+      const saved = await actions.addBackground(image);
+      change.appearance = { ...appearance2, background: { ...appearance2.background, image: saved.id } };
     }
     triggerColorMorph();
     await actions.setPrefs(change);
@@ -34748,7 +35385,7 @@ function ThemeSection({ prefs, actions, run: run2, Section: Section2, Row: Row4,
           "label",
           { className: "bt-look-tact" },
           t("Import…"),
-          (0, import_react29.createElement)("input", { type: "file", accept: "application/json,.json", hidden: true, onChange: (event) => {
+          (0, import_react29.createElement)("input", { type: "file", accept: "application/json,.json,.jsonc", hidden: true, onChange: (event) => {
             const file = event.target.files?.[0];
             event.target.value = "";
             if (file) void run2(importFile(file));
@@ -34854,6 +35491,16 @@ function ColorsSection({ prefs, actions, run: run2, Section: Section2, Row: Row4
         more || folded === void 0 ? null : (0, import_react29.createElement)("span", { className: "bt-look-warn" }, t("Hard to read · {ratio}:1", { ratio: folded.toFixed(1) }))
       ),
       (0, import_react29.createElement)("span", { className: "bt-chevron bt-collapse-chevron", "data-open": more || void 0 }, (0, import_react29.createElement)(ChevronDownIcon))
+    ),
+    (0, import_react29.createElement)(
+      Row4,
+      { key: `${mode}-derive`, label: t("Derive from 2 colors") },
+      (0, import_react29.createElement)(DeriveColors, {
+        colors,
+        teamAccent: accentIn(theme, mode, prefs.accent),
+        mode,
+        save: (derived) => save(() => derived, { accent: null })
+      })
     )
   );
 }
@@ -35335,6 +35982,28 @@ function ChatBackgroundSection({ owner, ownerKind, actions, run: run2, Section: 
     (0, import_react29.createElement)(BackgroundEditor, { value: readAppearance({ background: owner.background }).background, save, actions, run: run2, Row: Row4, Choice: Choice3 })
   );
 }
+function DeriveColors({ colors, teamAccent, mode, save }) {
+  const [pair, setPair] = (0, import_react29.useState)(() => ({ canvas: colors.bg, accent: teamAccent }));
+  (0, import_react29.useEffect)(() => {
+    setPair({ canvas: colors.bg, accent: teamAccent });
+  }, [colors.bg, teamAccent]);
+  const well = (label, key) => (0, import_react29.createElement)("input", {
+    type: "color",
+    className: "bt-look-well",
+    value: pair[key],
+    "aria-label": label,
+    title: label,
+    "data-derive": key,
+    onChange: (event) => setPair((current2) => ({ ...current2, [key]: event.target.value }))
+  });
+  return (0, import_react29.createElement)(
+    "span",
+    { className: "bt-look-derive" },
+    well(t("Canvas"), "canvas"),
+    well(t("Accent"), "accent"),
+    (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => save(deriveThemeMode(pair.canvas, pair.accent, mode)) }, t("Derive"))
+  );
+}
 var APPEARANCE_PAGE_CSS = `
 .bt-look[data-bg] .bt-look-chat{background:var(--bt-pane,var(--bt-main))}
 .bt-look[data-bg] .bt-look-side{background:var(--bt-sidebar)}
@@ -35376,6 +36045,7 @@ body[data-bt-effects=off] :is(.bt-swatch,.bt-look-theme){animation:none;transiti
 .bt-look-warn{flex-basis:100%;padding-left:32px;color:var(--bt-warn);font-size:11px}
 .bt-look-pair{display:flex;gap:16px}
 .bt-look-cin{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.bt-look-derive{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
 .bt-look-cin .bt-look-warn{flex-basis:auto;padding:0}
 .bt-look-hex{width:92px;height:28px;padding:0 8px;font-family:var(--bt-mono,ui-monospace,Menlo,Consolas,monospace);font-size:12px;text-transform:uppercase}
 .bt-look-well{width:28px;height:28px;padding:0;border:.5px solid var(--bt-line-2);border-radius:8px;background:none;cursor:pointer}
@@ -36034,10 +36704,10 @@ var ExaMark = () => svg(
   (0, import_react32.createElement)("rect", { x: 4.2, y: 4.2, width: 15.6, height: 15.6, rx: 1.5, stroke: "#254BF6", strokeWidth: 2.1 }),
   (0, import_react32.createElement)("path", { d: "M5.6 5.6L11 12 5.6 18.4M18.4 5.6L11 12 18.4 18.4", stroke: "#254BF6", strokeWidth: 2.1 })
 );
-var HEX4 = (cx, cy, r) => `M${cx} ${cy - r}l${r * 0.87} ${r * 0.5}v${r}l-${r * 0.87} ${r * 0.5}l-${r * 0.87}-${r * 0.5}v-${r}l${r * 0.87}-${r * 0.5}z`;
+var HEX5 = (cx, cy, r) => `M${cx} ${cy - r}l${r * 0.87} ${r * 0.5}v${r}l-${r * 0.87} ${r * 0.5}l-${r * 0.87}-${r * 0.5}v-${r}l${r * 0.87}-${r * 0.5}z`;
 var DeepwikiMark = mark(
-  path(HEX4(7.2, 6.9, 4.4) + HEX4(7.2, 17.1, 4.4), "#2B7FFF"),
-  path(HEX4(15.6, 12, 4.4), "#0D9488")
+  path(HEX5(7.2, 6.9, 4.4) + HEX5(7.2, 17.1, 4.4), "#2B7FFF"),
+  path(HEX5(15.6, 12, 4.4), "#0D9488")
 );
 var Context7Mark = () => (0, import_react32.createElement)(
   "svg",
@@ -57493,7 +58163,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
   const hostAbort = (0, import_react76.useRef)(void 0);
   const hostTimer = (0, import_react76.useRef)(void 0);
   const hostGen = (0, import_react76.useRef)(0);
-  const mounted = (0, import_react76.useRef)(true);
+  const mounted2 = (0, import_react76.useRef)(true);
   const clearHostTimer = () => {
     if (hostTimer.current !== void 0) {
       clearTimeout(hostTimer.current);
@@ -57508,15 +58178,15 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
     hostCapture.current?.cancel?.();
     hostCapture.current = void 0;
     hostCatalog.current = void 0;
-    if (mounted.current) {
+    if (mounted2.current) {
       setHostListening(false);
       setHostBusy(false);
     }
   };
   (0, import_react76.useEffect)(() => {
-    mounted.current = true;
+    mounted2.current = true;
     return () => {
-      mounted.current = false;
+      mounted2.current = false;
       hostGen.current += 1;
       clearHostTimer();
       hostAbort.current?.abort?.();
@@ -57548,9 +58218,9 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
       Number.isFinite(cat?.maxAudioBytes) ? Math.max(1, (cat.maxAudioBytes - 44) / 32e3) : 120
     );
     void cap.finish(maxSec).then(async (wave) => {
-      if (!wave || ctl.signal.aborted || !mounted.current) return;
+      if (!wave || ctl.signal.aborted || !mounted2.current) return;
       const text = await transcribeWave(speech, cat, wave, ctl.signal);
-      if (text && inputActions && !ctl.signal.aborted && mounted.current) {
+      if (text && inputActions && !ctl.signal.aborted && mounted2.current) {
         const at = inputActions.captureInsertion();
         const area = composerRoot.current?.closest?.("[data-composer-card]")?.querySelector?.("textarea");
         const value = typeof area?.value === "string" ? area.value : "";
@@ -57558,14 +58228,14 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
         const afterChar = at && at.end < value.length ? value[at.end] ?? "" : "";
         inputActions.insertText(spacedDictation(text, beforeChar, afterChar), at);
       }
-      if (limitReached && mounted.current) setHostNote(t("That was too long to recognize"));
+      if (limitReached && mounted2.current) setHostNote(t("That was too long to recognize"));
     }).catch((error) => {
-      if (ctl.signal.aborted || !mounted.current) return;
+      if (ctl.signal.aborted || !mounted2.current) return;
       const kind = error?.kind;
       setHostNote(kind === "too-long" ? t("That was too long to recognize") : t("Couldn't reach the speech service"));
     }).finally(() => {
       if (hostAbort.current === ctl) hostAbort.current = void 0;
-      if (mounted.current) setHostBusy(false);
+      if (mounted2.current) setHostBusy(false);
     });
   };
   const toggleMic = () => {
@@ -57586,7 +58256,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
     const gen = ++hostGen.current;
     setHostBusy(true);
     void speechCatalog(speech).then(async ({ catalog, usable }) => {
-      if (!mounted.current || hostGen.current !== gen) return;
+      if (!mounted2.current || hostGen.current !== gen) return;
       if (!usable) {
         if (speechApi()) {
           dictation.start();
@@ -57596,7 +58266,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
         return;
       }
       const cap = await openCapture();
-      if (!mounted.current || hostGen.current !== gen) {
+      if (!mounted2.current || hostGen.current !== gen) {
         cap.cancel();
         return;
       }
@@ -57608,11 +58278,11 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
         finishHostDictation(true);
       }, dictationLimitMs(catalog));
     }).catch((error) => {
-      if (!mounted.current || hostGen.current !== gen) return;
+      if (!mounted2.current || hostGen.current !== gen) return;
       const kind = error?.kind;
       setHostNote(kind === "blocked" ? t("Microphone access is blocked") : t("Couldn't start dictation"));
     }).finally(() => {
-      if (mounted.current && hostGen.current === gen) setHostBusy(false);
+      if (mounted2.current && hostGen.current === gen) setHostBusy(false);
     });
   };
   const openVoiceChat = () => {
@@ -58476,17 +59146,17 @@ function disposeAll(disposers, label) {
   }
 }
 function surfaceGroups(install, { onError } = {}) {
-  const mounted = { shell: [], conversation: [] };
+  const mounted2 = { shell: [], conversation: [] };
   const withdraw = (group) => {
-    const disposers = mounted[group];
-    mounted[group] = [];
+    const disposers = mounted2[group];
+    mounted2[group] = [];
     disposeAll(disposers, `withdraw ${group}`);
   };
   const mount = (group) => {
     const disposers = [];
     try {
       for (const step of install[group]()) if (step) disposers.push(step());
-      mounted[group] = disposers;
+      mounted2[group] = disposers;
       return true;
     } catch (error) {
       disposeAll(disposers, `roll back ${group}`);
@@ -58501,7 +59171,7 @@ function surfaceGroups(install, { onError } = {}) {
       lastWanted = wanted;
       for (const group of [...GROUPS].reverse()) if (!wanted[group]) withdraw(group);
       for (const group of GROUPS) {
-        if (!wanted[group] || mounted[group].length > 0) continue;
+        if (!wanted[group] || mounted2[group].length > 0) continue;
         if (!mount(group)) break;
       }
     },
@@ -62507,10 +63177,10 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     chatRoom.setRight(null);
     chatRoom.hold(false);
   }, []);
-  const mounted = (0, import_react90.useRef)(false);
+  const mounted2 = (0, import_react90.useRef)(false);
   (0, import_react90.useEffect)(() => {
-    if (!mounted.current) {
-      mounted.current = true;
+    if (!mounted2.current) {
+      mounted2.current = true;
       return void 0;
     }
     setResizing(true);
