@@ -243,16 +243,16 @@ export function installReview(rt, memory) {
     }
     if (wantsGroup) {
       const wanted = change.group.trim()
-      const rooms = writableRoomsOf(keeper)
-      const exact = rooms.filter(item => item.name === wanted)
-      // The review prompt lists group names after inlineUntrusted(..., 60), so a
-      // name containing brackets or control chars comes back in its shown form.
-      // Refuse when multiple groups collapse to the same shown name.
-      const shown = rooms.filter(item => inlineUntrusted(item.name, 60) === wanted)
-      const matches = shown.length > 1 ? shown : exact.length > 0 ? exact : shown
-      if (matches.length === 0) return { scope: home, error: `the keeper cannot route notes to a group named "${clip(change.group, 60)}"` }
-      if (matches.length > 1) return { scope: home, error: `more than one group is named "${clip(change.group, 60)}"` }
-      return { scope: groupScope(matches[0].id) }
+      const allRooms = Object.values(rt.state.rooms)
+      const writable = new Set(writableRoomsOf(keeper).map(room => room.id))
+      // Match against all groups first so a sanitized name can never silently fall back
+      // to a different writable group when the owner named an unwritable group.
+      const exactAll = allRooms.filter(item => item.name === wanted)
+      const shownAll = allRooms.filter(item => inlineUntrusted(item.name, 60) === wanted)
+      const candidates = shownAll.length > 1 ? shownAll : exactAll.length > 0 ? exactAll : shownAll
+      if (candidates.length > 1) return { scope: home, error: `more than one group is named "${clip(change.group, 60)}"` }
+      if (candidates.length === 0 || !writable.has(candidates[0].id)) return { scope: home, error: `the keeper cannot route notes to a group named "${clip(change.group, 60)}"` }
+      return { scope: groupScope(candidates[0].id) }
     }
     return { scope: home }
   }

@@ -662,7 +662,7 @@ export function install(rt) {
     const sig = signatureOf(path)
     if (sig === undefined) return []
     const cached = droppedCache.get(`${path}::${key ?? ''}`)
-    if (cached?.sig === sig && cached.window === cutoff) return cached.texts
+    if (cached?.sig === sig && cached.window === cutoff) return cached.entries
     let scanned = []
     try {
       scanned = rowsToCutoff(path, cutoff)
@@ -672,26 +672,30 @@ export function install(rt) {
     // Only rows inside the window are evidence; the scan itself reads a little
     // past the cutoff to know it reached far enough.
     const fresh = row => typeof row.time !== 'string' || row.time === '' || row.time >= cutoff
-    const texts = []
-    const note = (raw) => {
+    const entries = []
+    const note = (raw, mergedInto) => {
       if (typeof raw !== 'string') return
       const { text } = splitMeta(String(raw).replace(/^\s*[-*]\s+/, ''))
-      if (text !== '') texts.push(text)
+      if (text !== '') entries.push({ text, mergedInto })
     }
     if (kind === 'retired') {
-      for (const row of scanned) if (fresh(row) && row.why !== 'ended') note(row.line)
+      for (const row of scanned) {
+        if (fresh(row) && row.why !== 'ended') {
+          note(row.line, row.why === 'merged' && typeof row.into === 'string' ? row.into : undefined)
+        }
+      }
     } else {
       for (const row of scanned) {
         if (row.op !== 'remove' || !fresh(row) || restored.has(row.id)) continue
         // A row that names another scope is no evidence here; one that names none
         // predates scoped rows and stays evidence for the scope the file serves.
         if (key !== undefined && row.scope !== undefined && row.scope !== key) continue
-        note(row.before)
+        note(row.before, undefined)
       }
     }
     if (droppedCache.size > 64) droppedCache.clear()
-    droppedCache.set(`${path}::${key ?? ''}`, { sig, window: cutoff, texts })
-    return texts
+    droppedCache.set(`${path}::${key ?? ''}`, { sig, window: cutoff, entries })
+    return entries
   }
 
   // The logs a scope's leavers land in: its own journal path, the scope's journal
@@ -699,7 +703,7 @@ export function install(rt) {
   // folder. Nothing outside the scope is scanned: evidence stays where the entry
   // would go back, and a private Bot's removed entries never leak into another
   // scope's guard.
-  function droppedTexts(scope) {
+  function droppedEntries(scope) {
     if (config.memoryReaddGuard === false) return []
     const cutoff = readdCutoff()
     const key = scopeKey(scope)
@@ -720,13 +724,17 @@ export function install(rt) {
   }
 
   // The removed or retired entry `text` would silently bring back, or undefined
-  // when nothing this close left within the window. `excluding` names live entry
-  // text(s) already present before an edit or merge: matching a dropped or merged
-  // constituent that is already carried by the live entry is not reintroducing it.
-  function readdGuarded(scope, text, { excluding } = {}) {
-    const live = excluding === undefined ? [] : Array.isArray(excluding) ? excluding : [excluding]
-    for (const dropped of droppedTexts(scope)) {
-      if (readdMatch(text, dropped) && !live.some(prior => readdMatch(prior, dropped))) return dropped
+  // when nothing this close left within the window. Journal removals and explicit
+  // retirements are always guarded; only a tidy merge constituent linked by its
+  // recorded `into` id to a live input entry that still carries it is exempted so
+  // routine corrections on a merged memory are not self-blocked.
+  function readdGuarded(scope, text, { mergedIds, priorTexts } = {}) {
+    const ids = mergedIds === undefined ? undefined : new Set(mergedIds)
+    const live = priorTexts === undefined ? [] : Array.isArray(priorTexts) ? priorTexts : [priorTexts]
+    for (const dropped of droppedEntries(scope)) {
+      if (!readdMatch(text, dropped.text)) continue
+      if (ids !== undefined && dropped.mergedInto !== undefined && ids.has(dropped.mergedInto) && live.some(prior => readdMatch(prior, dropped.text))) continue
+      return dropped.text
     }
     return undefined
   }
@@ -1086,7 +1094,7 @@ export function install(rt) {
       // that merely goes back and forth between two live versions never matches,
       // because the guard only reads removals, never a replace's before-line.
       if (actor?.id !== 'user') {
-        const dropped = readdGuarded(scope, text, { excluding: old.text })
+        const dropped = readdGuarded(scope, text, { mergedIds: [entryId(old)], priorTexts: [old.text] })
         if (dropped !== undefined) throw readdRefusal(dropped)
       }
       const hasUntil = Object.hasOwn(meta, 'until')

@@ -558,6 +558,26 @@ test('group routing matches sanitized names shown in the prompt and refuses coll
   await run2.call('state', {})
   await idleReview(run2.ctx, run2.call, 'm1')
   assert.ok(run2.warnings.some(line => line.includes('more than one group is named')), run2.warnings.join('\n'))
+
+  // When an unwritable group has the exact name and a different writable group only
+  // collapses to it after sanitization, routing must refuse rather than leak to the wrong audience.
+  const rooms3 = {
+    r1: { ...room, id: 'r1', name: 'Launch [West]', members: ['b2'], admin: 'b2' },
+    r2: { ...room, id: 'r2', name: 'Launch West', members: ['b3'], admin: 'b3' },
+  }
+  const run3 = start({
+    replies: [JSON.stringify({ changes: [{ op: 'add', group: 'Launch West', text: 'Must never leak to Launch [West]' }] })],
+    history: {
+      b2: [{ event: { seq: 10, type: 'user/message', data: { source: { kind: 'user', rpcId: 'web-owner' }, content: [{ type: 'text', text: 'For Launch West, remember secret' }] } } }],
+    },
+    rooms: rooms3,
+    config: { memoryReviewDelayMs: 0 },
+  })
+  t.after(() => run3.stop())
+  await run3.call('state', {})
+  await idleReview(run3.ctx, run3.call, 'b2')
+  assert.ok(run3.warnings.some(line => line.includes('more than one group is named')), run3.warnings.join('\n'))
+  assert.equal(existsSync(join(run3.home, 'memory', 'groups', 'r1', 'MEMORY.md')), false, 'note must not leak into Launch [West]')
 })
 
 test('editing a merged memory allows routine corrections without tripping on its own archived constituent, while still blocking removed facts', async (t) => {
@@ -580,6 +600,14 @@ test('editing a merged memory allows routine corrections without tripping on its
   // Editing the same live entry to reintroduce the removed unrelated fact is still blocked.
   await assert.rejects(
     tool('bot_remember', { replace: 'm001', text: 'The user prefers tea served cold and works at Acme Corp' }, 'b2'),
+    { code: 'memory/recent-removal' },
+  )
+  // A journal-deleted near-neighbor is NEVER exempted even when a live entry shares 5/6 tokens with it.
+  await tool('bot_remember', { text: 'Project Atlas production deploys from the staging branch' }, 'b2')
+  await tool('bot_remember', { text: 'Project Atlas production deploys from the main branch' }, 'b2')
+  await tool('bot_forget', { entry: 'staging branch' }, 'b2')
+  await assert.rejects(
+    tool('bot_remember', { replace: 'main branch', text: 'Project Atlas production deploys from the staging branch' }, 'b2'),
     { code: 'memory/recent-removal' },
   )
 })
