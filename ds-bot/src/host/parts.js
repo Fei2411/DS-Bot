@@ -23,7 +23,7 @@ import { isContextOnlyMessage, isContextOnlySource, isSilentBotSource } from './
 import { buildCheckpointPack, extractToolTrail, toolArgSummary as summarizeToolArg } from './context-pack.js'
 import { install as ensureContextRuntime } from './context-runtime.js'
 import { assembleLlmStream } from './models.js'
-import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
+import { compressedRelayPreview, parseReplies, presentedFileName, presentedFiles, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, DEFAULT_CHECK_RATIO, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
@@ -4097,13 +4097,13 @@ export function install(rt) {
         const replies = range === undefined
           ? (preview === undefined ? null : rt.groupRelayReplies(partId, preview)) ?? parseReplies(text).replies
           : room === undefined ? [] : rt.groupRows(room.id, range.from, range.to, range.anchor)
-        for (const { reply, texts, time, duration, claims, changes } of stackReplies(replies)) {
+        for (const { reply, texts, files, time, duration, claims, changes } of stackReplies(replies)) {
           // Reply rows take the reply's own time, and no seq: several rows share
           // the result event's seq, which the chat keys a post's anchor by.
           const item = { time: time ?? reply.time ?? event.time }
           if (turn !== undefined) item.turn = turn
           if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...(reply.via ? { via: reply.via } : {}), ...item })
-          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...(claims === undefined ? {} : { claims }), ...(changes === undefined ? {} : { changes }), ...item, ...(duration === undefined ? {} : { duration }) })
+          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...(files.length > 0 ? { presented: files } : {}), ...(claims === undefined ? {} : { claims }), ...(changes === undefined ? {} : { changes }), ...item, ...(duration === undefined ? {} : { duration }) })
           else items.push({ kind: 'relay', reply, ...item })
         }
         continue
@@ -4138,6 +4138,7 @@ export function install(rt) {
         // messages. A post past what a message holds came as a file, with its start.
         const content = Array.isArray(event.data.content) ? event.data.content : []
         const file = source.length === undefined ? undefined : content.find(block => block?.type === 'file')?.attachment
+        const presented = presentedFiles(source.presented)
         stamp(event, {
           kind: 'post',
           botId: source.senderSessionId ?? null,
@@ -4146,6 +4147,7 @@ export function install(rt) {
           ...(source.changes === undefined ? {} : { changes: source.changes }),
           text: textOf(content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
           ...(file ? { file, length: source.length } : {}),
+          ...(presented.length > 0 ? { presented } : {}),
           time: event.time,
         })
       } else if (options.taskView === true && source?.kind === SOURCE_KIND && source.role === 'task') {
@@ -4347,7 +4349,7 @@ export function install(rt) {
   // preview. Read once per part, then kept by session/event.
   const PREVIEWABLE = new Set(['bot', 'user', 'answer', 'post', 'view'])
   const tails = new Map()
-  const previewText = item => String(item.text ?? item.title ?? item.texts?.join(' ') ?? '').replace(/\s+/g, ' ').trim()
+  const previewText = item => String(item.text || item.title || item.texts?.join(' ') || (Array.isArray(item.presented) ? item.presented.map(file => presentedFileName(file.path)).join(', ') : '')).replace(/\s+/g, ' ').trim()
   const applyTail = (sessionId, item) => tails.set(sessionId, { lastAt: item.time ?? 0, preview: previewText(item) })
   const fillTail = async sessionId => {
     // Newest page back until a row shows; chats almost always have it on page one.
