@@ -76,6 +76,13 @@ export async function bundleOffice() {
   return result.outputFiles[0].text
 }
 
+function writeIfChanged(path, content) {
+  try {
+    if (readFileSync(path, 'utf8') === content) return
+  } catch { /* missing file will be created */ }
+  writeFileSync(path, content)
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const releaseNotes = bundleReleaseNotes()
   if (process.argv.includes('--check')) {
@@ -90,10 +97,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       process.exit(1)
     }
   } else {
-    writeFileSync(RELEASE_NOTES_OUTPUT, releaseNotes)
+    writeIfChanged(RELEASE_NOTES_OUTPUT, releaseNotes)
     const next = await bundleClient()
     const office = await bundleOffice()
-    writeFileSync(OUTPUT, next)
-    writeFileSync(OFFICE_OUTPUT, office)
+    writeIfChanged(OUTPUT, next)
+    writeIfChanged(OFFICE_OUTPUT, office)
   }
 }
