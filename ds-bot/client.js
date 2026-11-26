@@ -34569,8 +34569,16 @@ function parseVscodeTheme(text, fallbackLabel = "VS Code theme") {
     if (hex.length === 9 && parseInt(hex.slice(7, 9), 16) < 32) return void 0;
     return hex.slice(0, 7);
   };
-  const canvas = opaque(colors["editor.background"]) ?? (typeDark ?? true ? VSCODE_DEFAULTS.dark : VSCODE_DEFAULTS.light);
-  const dark = typeDark ?? hslOf2(canvas)[2] < 0.5;
+  const explicitCanvas = opaque(colors["editor.background"]);
+  const inferredDark = () => {
+    const fg = MAP.text.map((name) => opaque(colors[name])).find(Boolean);
+    if (fg !== void 0) return contrast(fg, VSCODE_DEFAULTS.dark) >= contrast(fg, VSCODE_DEFAULTS.light);
+    const surface = [...MAP.sidebar, ...MAP.bubble, ...MAP.card].map((name) => opaque(colors[name])).find(Boolean);
+    if (surface !== void 0) return hslOf2(surface)[2] < 0.5;
+    return true;
+  };
+  const dark = typeDark ?? (explicitCanvas !== void 0 ? hslOf2(explicitCanvas)[2] < 0.5 : inferredDark());
+  const canvas = explicitCanvas ?? (dark ? VSCODE_DEFAULTS.dark : VSCODE_DEFAULTS.light);
   if (!Object.values(colors).some((value) => opaque(value) !== void 0)) {
     throw new Error("This file is not a VS Code theme");
   }

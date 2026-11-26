@@ -4,7 +4,7 @@
 // eight are derived from the canvas and the accent (themes.js deriveThemeMode). The mode
 // the file is not written for is derived from a lightness-flipped canvas, so a dark VS
 // Code theme still has a matching light side.
-import { cleanTheme } from '../shared/appearance.js'
+import { cleanTheme, contrast } from '../shared/appearance.js'
 import { deriveThemeMode, VSCODE_DEFAULTS } from './themes.js'
 
 // One pass over JSONC text with a callback for what sits at each position. Strings are
@@ -142,9 +142,20 @@ export function parseVscodeTheme(text, fallbackLabel = 'VS Code theme') {
     if (hex.length === 9 && parseInt(hex.slice(7, 9), 16) < 0x20) return undefined
     return hex.slice(0, 7)
   }
-  const canvas = opaque(colors['editor.background']) ?? (typeDark ?? true ? VSCODE_DEFAULTS.dark : VSCODE_DEFAULTS.light)
-  // The file's type decides the mode; the canvas's lightness decides when it does not say.
-  const dark = typeDark ?? hslOf(canvas)[2] < 0.5
+  const explicitCanvas = opaque(colors['editor.background'])
+  // When neither type nor a visible canvas is supplied, pick the mode whose default canvas
+  // keeps the imported foreground readable (or matches a supplied surface) before falling
+  // back to dark, so untyped transparent light themes never pair dark text with a dark bg.
+  const inferredDark = () => {
+    const fg = MAP.text.map(name => opaque(colors[name])).find(Boolean)
+    if (fg !== undefined) return contrast(fg, VSCODE_DEFAULTS.dark) >= contrast(fg, VSCODE_DEFAULTS.light)
+    const surface = [...MAP.sidebar, ...MAP.bubble, ...MAP.card].map(name => opaque(colors[name])).find(Boolean)
+    if (surface !== undefined) return hslOf(surface)[2] < 0.5
+    return true
+  }
+  // The file's type decides the mode; a visible canvas's lightness decides next; otherwise infer.
+  const dark = typeDark ?? (explicitCanvas !== undefined ? hslOf(explicitCanvas)[2] < 0.5 : inferredDark())
+  const canvas = explicitCanvas ?? (dark ? VSCODE_DEFAULTS.dark : VSCODE_DEFAULTS.light)
 
   // A colors dictionary without a single visible color is not a theme: every slot would
   // come out of thin air.

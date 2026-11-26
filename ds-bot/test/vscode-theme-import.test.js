@@ -176,6 +176,29 @@ test('transparent editor.background falls back to the mode default canvas instea
   assert.ok(contrast(lightGlass.light.text, lightGlass.light.bg) >= 7, `light glass text must remain readable on light canvas (${lightGlass.light.bg})`)
   assert.equal(lightGlass.light.text, '#1f2328')
 
+  // Without a type field and with a transparent/missing background, infer light vs dark from
+  // foreground contrast so dark text never lands on the dark fallback canvas.
+  const untypedLightGlass = parseVscodeTheme(JSON.stringify({
+    name: 'Untyped Light Glass',
+    colors: {
+      'editor.background': '#ffffff00',
+      'editor.foreground': '#1f2328',
+    },
+  }))
+  assert.notEqual(untypedLightGlass.light.bg, '#1e1e1e')
+  assert.equal(untypedLightGlass.light.text, '#1f2328')
+  assert.ok(contrast(untypedLightGlass.light.text, untypedLightGlass.light.bg) >= 7, 'untyped transparent light theme stays readable in light mode')
+  assert.ok(contrast(untypedLightGlass.dark.text, untypedLightGlass.dark.bg) >= 7, 'derived opposite mode also stays readable')
+
+  const untypedDarkGlass = parseVscodeTheme(JSON.stringify({
+    colors: {
+      'editor.background': '#00000000',
+      'editor.foreground': '#d4d4d4',
+    },
+  }))
+  assert.equal(untypedDarkGlass.dark.text, '#d4d4d4')
+  assert.ok(contrast(untypedDarkGlass.dark.text, untypedDarkGlass.dark.bg) >= 7, 'untyped transparent dark theme picks dark fallback canvas')
+
   // Shorthand 4-digit transparent #0000 also falls back to mode default.
   const shortGlass = parseVscodeTheme(JSON.stringify({
     type: 'light',
