@@ -39,7 +39,7 @@ export const TEAM_ENDPOINTS = new Set([
   'notices', 'presets', 'private-release', 'provider-add',
   'provider-key', 'provider-models', 'provider-models-save', 'provider-remove',
   'providers', 'push-register', 'push-unregister', 'remove-agent',
-  'repo-stars', 'resume', 'resume-room-pause', 'resume-work',
+  'repo-stars', 'recover-session', 'resume', 'resume-room-pause', 'resume-work',
   'room-chat', 'room-progress', 'room-todo', 'run-stats',
   'schedule-create', 'schedule-delete', 'schedule-pause', 'schedules',
   'secret-allow', 'secret-cancel', 'secret-decrypt', 'secret-delete',
