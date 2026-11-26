@@ -811,6 +811,33 @@ export function install(rt, host) {
     ...(googlePendings.size > 0 ? { pending: [...googlePendings.values()].map(p => ({ kind: 'browser', url: p.url, address: p.address })) } : {}),
   })
 
+  // Exposes a read-only mail snapshot for event watchers using the real transport search()
+  // interface shared by both IMAP and Gmail transports.
+  rt.listMailForWatcher = async ({ account: ref, folder = 'INBOX', fromFilter = '' } = {}) => {
+    await rt.loadSecrets?.()
+    if (rt.secretStoreStatus?.().locked === true) return { locked: true, accountAddress: '', messages: [] }
+    const account = accountOf(ref)
+    if (!account) throw Object.assign(new Error('No matching mail account connected'), { authFailed: true })
+    const session = await connect(account)
+    let rows
+    try {
+      rows = await session.search({ folder, ...(fromFilter ? { from: fromFilter } : {}), limit: 20 })
+    } catch (error) {
+      sessions.delete(account.id)
+      throw error
+    }
+    const messages = (Array.isArray(rows) ? rows : []).map(row => ({
+      uid: String(row.uid ?? ''),
+      folder: row.folder ?? folder,
+      from: String(row.from ?? ''),
+      to: String(row.to ?? ''),
+      subject: String(row.subject ?? ''),
+      date: String(row.date ?? ''),
+      snippet: [row.date ? `Date: ${row.date}` : '', row.to ? `To: ${row.to}` : '', `Folder: ${row.folder ?? folder} · UID: ${row.uid ?? ''} (call mail_read to read full message body)`].filter(Boolean).join('\n'),
+    }))
+    return { accountAddress: account.address, messages }
+  }
+
   syncTools()
 
   return {

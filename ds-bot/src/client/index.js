@@ -49,6 +49,8 @@ import { GROUP_SETTINGS_CSS } from './group-settings.js'
 import { FOLDER_CSS } from './folder-menu.js'
 import { USAGE_CSS } from './usage-page.js'
 import { SCHEDULE_CSS } from './schedules.js'
+import { EVENTS_CSS } from './events-page.js'
+import { INBOX_CSS } from './inbox.js'
 import { APPEARANCE_PAGE_CSS } from './appearance-page.js'
 import { SHORTCUTS_PAGE_CSS } from './shortcuts-page.js'
 import { visibleSidebarTargets } from './shortcuts-model.js'
@@ -250,6 +252,8 @@ export function apply(ctx) {
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live.sideChats = value.sideChats
     if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live.imStatus = value.imStatus
     if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
+    if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(current.inbox ?? null)) live.inbox = value.inbox
+    if (value.eventsSummary !== undefined && JSON.stringify(value.eventsSummary) !== JSON.stringify(current.eventsSummary ?? null)) live.eventsSummary = value.eventsSummary
     if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) live.apiVia = value.apiVia
     if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) live.plugins = value.plugins
     // The read-only notice goes once this host takes the team over from a dsh that
@@ -1553,7 +1557,7 @@ export function apply(ctx) {
     [LEARNING_CSS, 'learning'],
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],
     [USAGE_CSS, 'usage'],
-    [SCHEDULE_CSS, 'schedules'],
+    [SCHEDULE_CSS + EVENTS_CSS + INBOX_CSS, 'schedules'],
     [APPEARANCE_PAGE_CSS, 'appearance-page'],
     [SHORTCUTS_PAGE_CSS, 'shortcuts-page'],
     [FEEDBACK_CSS, 'feedback'],

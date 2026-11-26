@@ -61,7 +61,7 @@ const NAV_GROUPS = [
     id: 'team',
     label: 'Team',
     icon: 'bots',
-    pages: [['bots', 'Bots'], ['groups', 'Group chats'], ['schedules', 'Scheduled tasks']],
+    pages: [['bots', 'Bots'], ['groups', 'Group chats'], ['schedules', 'Schedules & Triggers']],
     section: 'main',
   },
   {
@@ -91,7 +91,6 @@ const NAV_GROUPS = [
 
 // `guide` was the landing page before Overview.
 const GROUP_ALIASES = { team: 'bots', connect: 'connectors', tools: 'computer', guide: 'overview' }
-
 // DSH sections DS Bot's own pages already hold.
 const MERGED_SECTIONS = new Set(['general', 'models', 'plugins'])
 // DSH General rows placed in Appearance, Basics, or Privacy; the rest go under Advanced.

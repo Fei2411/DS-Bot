@@ -12,6 +12,7 @@ import { ContextMenu } from './context-menu.js'
 import { PANEL_LINGER_MS, BotPanel } from './browser-pane.js'
 import { frameLayout, FALLBACK_SIDEBAR_WIDTH } from './frame-layout.js'
 import { MemoryDialog } from './memory-panel.js'
+import { InboxDialog } from './inbox.js'
 import { reducedMotion, useLinger } from './motion.js'
 import { OpeningCover, openingModel } from './opening.js'
 import { OverlayBoundary } from './overlay-boundary.js'
@@ -70,6 +71,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     return room ? { id: room.id, name: room.name, group: true } : null
   }
   const [memory, memoryLeaving] = useLinger(ui.memory && memoryOwner(ui.memory) ? ui.memory : null, DIALOG_EXIT_MS)
+  const [inboxOpen, inboxLeaving] = useLinger(ui.inbox === true ? true : null, DIALOG_EXIT_MS)
   const owner = memory ? memoryOwner(memory) : null
   const [menu, menuLeaving] = useLinger(ui.menu, MENU_EXIT_MS)
   const [noticeDismissed, setNoticeDismissed] = useState(false)
@@ -122,6 +124,10 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
       reset: `${settings.page}:${settings.id ?? ''}`,
       onDismiss: () => actions.closeSettings?.(), actions,
     }, createPortal(h(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, dsh, leaving: settingsLeaving }), document.body)) : null,
+    inboxOpen ? h(OverlayBoundary, {
+      name: 'inbox', active: !inboxLeaving, notify: !inboxLeaving,
+      onDismiss: () => actions.closeInbox?.(), actions,
+    }, createPortal(h(InboxDialog, { roster, actions, leaving: inboxLeaving }), document.body)) : null,
     owner ? h(OverlayBoundary, {
       name: 'memory', active: !memoryLeaving, notify: !memoryLeaving,
       reset: owner.id,

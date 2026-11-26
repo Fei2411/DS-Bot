@@ -2435,6 +2435,16 @@ export function install(rt) {
         if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
         continue
       }
+      if (post.eventMeta !== undefined) {
+        // An external/team event arriving inside a running round is logged under its
+        // event source (never as 'User') and never lifts idle pauses or honors untrusted @mentions.
+        const text = [post.text, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
+        const who = `Event · ${post.eventMeta.sourceName || post.eventMeta.sourceKind || 'external'}`
+        say(room, { who, eventMeta: post.eventMeta, text, ...(post.files === undefined ? {} : { files: post.files }), session: true })
+        const { speakers, ordered } = openingCall(room, post)
+        callIn(round, speakers, post.eventMeta.trust === 'team' ? 'a team event arrived' : 'an external event arrived', undefined, { ordered })
+        continue
+      }
       // The user's message, as one the round takes in from the Session's inbox.
       noteRoomUserOrigin(room, viaIsIm(post.via) ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : undefined)
       const text = [post.text, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
@@ -2509,19 +2519,24 @@ export function install(rt) {
     // late failure, its work picked up after a restart, its work the user stopped, or
     // the end of work whose result it already posted is an event of the round.
     const event = item => item.failed || item.resumed || item.stopped || item.done || item.resumedPause || item.goal === 'nudge' || item.goal === 'resume'
-    // A user post has no botId and is no round event or kickoff; a goal draft counts
-    // as the user's own line too.
-    const userPost = post => post.botId === undefined && post.kickoff !== true && !event(post)
+    // A user post has no botId, is not an external/team event, and is no round event or kickoff;
+    // a goal draft counts as the user's own line too.
+    const userPost = post => post.botId === undefined && post.eventMeta === undefined && post.kickoff !== true && !event(post)
     const stoppedOnly = posts.length > 0 && posts.every(item => event(item) && item.stopped === true && item.askedBy === undefined)
     for (const post of posts.filter(item => !item.kickoff && !event(item) && item.logged === undefined)) {
       // Image readings go into the log only; `@` names are picked from what the user typed.
       // Images and files stay with their line and reach each member the line is shown to.
       const readings = post.images === undefined ? [] : await rt.imagesForGroup(post.images, rt.sessionOfRoom(room))
       const text = [post.text, ...readings, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
-      const who = post.botId ? rt.botOf(post.botId)?.name ?? post.name ?? 'Bot' : 'User'
+      const who = post.botId
+        ? rt.botOf(post.botId)?.name ?? post.name ?? 'Bot'
+        : post.eventMeta !== undefined
+          ? `Event · ${post.eventMeta.sourceName || post.eventMeta.sourceKind || 'external'}`
+          : 'User'
       say(room, {
         who,
         ...(post.botId ? { botId: post.botId } : {}),
+        ...(post.eventMeta === undefined ? {} : { eventMeta: post.eventMeta }),
         ...(post.route ? { route: post.route } : {}),
         text,
         ...(post.images === undefined ? {} : { images: post.images }),
@@ -2668,7 +2683,8 @@ export function install(rt) {
       if (post.botId !== undefined && speakers.length > 0) expandScopedReports(room.id, post.botId, speakers)
       if (speakers.length > 0) {
         round.batches += 1
-        const postNote = post.kickoff ? 'the group was just created'
+        const postNote = post.eventMeta !== undefined ? (post.eventMeta.trust === 'team' ? 'a team event arrived' : 'an external event arrived')
+          : post.kickoff ? 'the group was just created'
           : post.goal === 'draft' ? 'the user wants to set a goal for this group'
           : post.goal === 'nudge' ? 'goal check'
           : post.goal === 'resume' ? 'the user resumed the goal'
@@ -3045,6 +3061,12 @@ export function install(rt) {
     if (opener.done || opener.stopped || opener.failed) return at(members.filter(bot => bot.id === opener.askedBy))
     // A goal post — the user's draft ask, an idle goal check, a resume — is the admin's alone.
     if (opener.goal !== undefined) return at(admin ? [admin] : [])
+    // External/team events never honor @mentions inside untrusted event text.
+    if (opener.eventMeta !== undefined) {
+      if (room.mode === 'admin' && admin) return at([admin])
+      const speakers = admin ? [admin, ...members.filter(bot => bot !== admin)] : members
+      return { speakers, ordered: speakers.length > 1 }
+    }
     const { all, found: named } = mentionsOf(opener, everyone) ?? mentionsIn(opener.text, everyone, opener.references)
     const found = named.filter(bot => bot.id !== opener.botId)
     if (opener.progress) return at(found)
@@ -3730,7 +3752,7 @@ export function install(rt) {
       // message from the user, a scheduled task, or a Bot's post after the last model or
       // tool step starts a relay.
       const opens = message => message.role === 'user'
-        && (message.source?.kind === 'user' || message.source?.kind === 'schedule' || (message.source?.kind === SOURCE_KIND && (message.source.role === 'post' || message.source.role === 'kickoff' || message.source.role === 'goal')))
+        && (message.source?.kind === 'user' || message.source?.kind === 'schedule' || (message.source?.kind === SOURCE_KIND && (message.source.role === 'post' || message.source.role === 'kickoff' || message.source.role === 'goal' || message.source.role === 'event')))
       const latest = [...options.messages].reverse()
         .find(message => message.role === 'assistant' || message.role === 'tool' || opens(message))
       if (latest?.role !== 'user') {

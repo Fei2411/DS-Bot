@@ -149,6 +149,15 @@ export function install(rt) {
       const task = result.task
       const done = task.status === 'done' ? ` Finished: "${task.result}"` : task.status === 'cancelled' ? ' Cancelled.' : ''
       await rt.save()
+      // Emit a Blackboard team event so members watching this group's task board can react.
+      void rt.emitInternalEvent?.(`group_task.${action}`, {
+        threadKey: `internal:group_task:${room.id}`,
+        entityKey: `internal:group_task:${room.id}:${task.id}`,
+        actor: member.name,
+        summary: `[${room.name}] ${member.name} ${action} task ${task.id} (${task.status}): ${task.goal}`,
+        body: [task.progress ? `Progress: ${task.progress}` : '', task.result ? `Result: ${task.result}` : '', task.reason ? `Reason: ${task.reason}` : ''].filter(Boolean).join('\n'),
+        meta: { roomId: room.id, taskId: task.id, botId: self, status: task.status, action },
+      }).catch(() => {})
       return `${action === 'open' ? `Opened ${task.id}: ${task.goal}` : `Updated ${task.id} (${task.status}).`}${done}\n\n${ledger(room, self)}`
     },
   }))

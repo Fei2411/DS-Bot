@@ -6,6 +6,7 @@ import { BotAvatar, RoomAvatar } from './mark.js'
 import { ClockIcon, PauseIcon, PlusIcon, ResumeIcon, TrashIcon } from './icons.js'
 import { Segmented, reducedMotion } from './motion.js'
 import { SelectMenu } from './select-menu.js'
+import { WatchersTab, SubscriptionsTab } from './events-page.js'
 import { dateLocale, hostText, t } from './i18n.js'
 
 const POLL_MS = 30_000
@@ -265,7 +266,15 @@ function AutomationOff({ actions }) {
 // A plain `start` opens the create form for that Bot or group chat; the
 // `bot:<id>`/`room:<id>` form asks for just that owner's tasks, which is how a
 // Bot's own view gets here.
+const SCHEDULE_TABS = [['scheduled', 'Scheduled'], ['watchers', 'Watchers & Push'], ['subscriptions', 'Subscriptions & Feed']]
+
 export function SchedulesPage({ roster, actions, start }) {
+  const initialTab = start === 'watchers' || start === 'subscriptions' ? start : 'scheduled'
+  const [tab, setTab] = useState(initialTab)
+  useEffect(() => {
+    if (start === 'watchers' || start === 'subscriptions') setTab(start)
+    else if (start) setTab('scheduled')
+  }, [start])
   const view = useSchedules(actions)
   // "Show all" lifts the owner filter here: Settings keeps one Scheduled tasks page per
   // visit, so a route back to the same page would not reach it.
@@ -273,9 +282,18 @@ export function SchedulesPage({ roster, actions, start }) {
   // `start` is either a Bot or group chat id (open the form for it) or a `bot:` / `room:`
   // filter; the form only ever gets a plain id, so a lifted filter leaves it unset.
   const filter = start?.startsWith('bot:') || start?.startsWith('room:')
-  const [adding, setAdding] = useState(Boolean(start) && !filter)
-  if (view === null) return h('div', { className: 'bt-set-hint' }, t('Loading…'))
-  if (!view.available) return h(AutomationOff, { actions })
+  const isEventTab = start === 'watchers' || start === 'subscriptions'
+  const [adding, setAdding] = useState(Boolean(start) && !filter && !isEventTab)
+
+  const tabBar = h('div', { key: 'ev-tabs', className: 'bt-ev-tabs' },
+    h(Segmented, { label: t('Schedules & Triggers'), value: tab }, SCHEDULE_TABS.map(([id, label]) => h('button', {
+      key: id, type: 'button', 'aria-pressed': tab === id, onClick: () => setTab(id),
+    }, t(label)))))
+
+  if (tab === 'watchers') return h(Fragment, null, tabBar, h(WatchersTab, { roster, actions }))
+  if (tab === 'subscriptions') return h(Fragment, null, tabBar, h(SubscriptionsTab, { roster, actions }))
+  if (view === null) return h(Fragment, null, tabBar, h('div', { className: 'bt-set-hint' }, t('Loading…')))
+  if (!view.available) return h(Fragment, null, tabBar, h(AutomationOff, { actions }))
   const shown = next => { publish(next); setAdding(false) }
   const byChat = [
     ...roster.bots.map(bot => [bot.id, h(BotAvatar, { bot, size: 18, badge: false, live: false }), bot.name, view.tasks.filter(task => task.botId === bot.id)]),
@@ -285,7 +303,8 @@ export function SchedulesPage({ roster, actions, start }) {
     h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-task', onClick: () => setAdding(true) }, h(PlusIcon), t('New task')),
     owner !== null ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setOwner(null) }, t('Show all')) : null)
   return [
-    adding ? h(TaskForm, { key: 'form', roster, actions, start: owner ?? (filter ? undefined : start), onDone: shown, onCancel: () => setAdding(false) }) : null,
+    tabBar,
+    adding ? h(TaskForm, { key: 'form', roster, actions, start: owner ?? (filter || isEventTab ? undefined : start), onDone: shown, onCancel: () => setAdding(false) }) : null,
     byChat.length === 0
       ? (!adding ? h('section', { key: 'none', className: 'bt-set-section' },
           h('div', { className: 'bt-la-sec-head' }, h('h3', null, t('Scheduled tasks · {count}', { count: 0 })), addBar),

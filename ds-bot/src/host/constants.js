@@ -80,6 +80,7 @@ export const TEAM_TOOLS = [
   'list_capabilities', 'save_capability', 'delete_capability',
   'attach_capability', 'detach_capability', 'use_pack', 'drop_pack', 'group_goal', 'group_task', 'list_connectors', 'request_connector',
   'task_start', 'task_send', 'task_stop', 'task_list', 'task_read',
+  'watch', 'unwatch', 'list_watches', 'read_event', 'manage_watcher',
 ]
 // Team-meta, memory, and status-inspection tools do not count as external work progress
 // when checking Bot-to-Bot or group ping-pong loops.

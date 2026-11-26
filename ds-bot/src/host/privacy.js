@@ -404,6 +404,8 @@ export function install(rt) {
     join(rt.home, 'memory', 'pending.json'),
     join(rt.home, 'logs', 'diagnostics.jsonl'),
     join(rt.home, 'telemetry.json'),
+    join(rt.home, 'events'),
+    join(rt.home, 'ledger', 'events-'),
   ].filter(Boolean).map(file => spellings(file, memo))).then(list => list.flat())
 
   const spelledDataRoots = (memo) => {
@@ -566,6 +568,14 @@ export function install(rt) {
         if (isPrivate(self) && to !== undefined && to.id !== self) {
           const detail = reason !== '' ? `\n\n${reason}` : ''
           await approve(exec, { en: `Let ${rt.botOf(self).name} cancel work on ${to.name}?${detail}`, zh: `允许 ${rt.botOf(self).name} 取消发给 ${to.name} 的工单吗？${detail}` })
+        }
+        return
+      }
+      case 'manage_watcher': {
+        if (args.bot_id && target(args.bot_id)) throw new Error('Only the user can manage watchers for a private Bot.')
+        if (typeof args.path === 'string' && args.path.trim() !== '') {
+          const hit = await ownerOfPath(args.path, { self, search: true })
+          if (hit) throw closed(hit, 'folder')
         }
         return
       }
@@ -1080,5 +1090,18 @@ export function install(rt) {
   // What the settings list shows. Session ids stay on the host.
   const archivesView = () => (state.privateArchives ?? []).map(({ id, name, workDir }) => ({ id, name, ...(workDir === undefined ? {} : { workDir }) }))
 
-  Object.assign(rt, { isPrivate, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, releaseArchive, archivesView })
+  const pathClosedForBot = async (path, self, { search = true } = {}) => {
+    const memo = new Map()
+    const owned = await ownerOfPath(path, { self, search, memo })
+    if (owned) return owned
+    // Also block Bots from mounting watchers on host data roots (rt.home / rt.dshHome).
+    const keys = await spellings(resolve(path), memo)
+    const roots = await spelledDataRoots(memo)
+    if (keys.some(key => roots.some(root => within(key, root) || (search && within(root, key))))) {
+      return { id: 'host', name: 'DS Bot data' }
+    }
+    return undefined
+  }
+
+  Object.assign(rt, { isPrivate, privateClash, pathClosedForBot, checkPrivacyChange: checkChange, checkNoPrivate, releaseArchive, archivesView })
 }

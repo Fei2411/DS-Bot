@@ -1397,6 +1397,22 @@ export function install(rt) {
             ...(source.via !== undefined ? { via: source.via } : {}),
           })
           rt.roomRelayTaken?.(roomId, source.exchangeId)
+        } else if (source?.kind === SOURCE_KIND && source.role === 'event' && rt.roomOf(id)) {
+          // External or team event delivered to a group chat opens a round without
+          // masquerading as the user, preserving long-payload file attachments and trust metadata.
+          const files = (Array.isArray(event.data.content) ? event.data.content : [])
+            .filter(block => block?.type === 'file' && block.attachment !== undefined)
+            .map(block => block.attachment)
+          queueRoomMessage(rt.roomOf(id).id, {
+            text: textOf(event.data.content),
+            ...(files.length > 0 ? { files } : {}),
+            eventMeta: {
+              eventId: source.eventId,
+              sourceKind: source.sourceKind,
+              sourceName: source.sourceName,
+              trust: source.trust,
+            },
+          })
         } else if (source?.kind === SOURCE_KIND) {
           const markTaken = () => {
             if (source.work !== undefined && source.replyTo !== undefined) rt.takenWork?.(source.work, source.replyTo)

@@ -773,6 +773,13 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     }
     case 'event': {
       if (row.role === 'report') return h(GroupEvent, { key, prefix: t('Replies from'), room: roster.roomsById[row.roomId], name: t('a group chat'), roster, actions })
+      if (row.role === 'event') {
+        const label = row.name || row.sourceKind || t('Event')
+        return h('div', { key, className: 'bt-event' }, row.text ? `${label}: ${row.text}` : label)
+      }
+      if (row.role === 'schedule') {
+        return h('div', { key, className: 'bt-event' }, row.text ? t('Scheduled task: {text}', { text: row.text }) : t('Routine started'))
+      }
       const other = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: 'gray' }
       const prefix = {
         stopped: t('Stopped by'),
@@ -860,6 +867,11 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
       }
       if (source.role === 'report') {
         return h(GroupEvent, { prefix: t('Replies from'), room: roster.roomsById[source.roomId], name: t('a group chat'), roster, actions })
+      }
+      if (source.role === 'event') {
+        const label = source.sourceName || source.sourceKind || t('Event')
+        const summary = source.summary || contentText(data.content).split('\n')[0]?.slice(0, 120) || ''
+        return h('div', { className: 'bt-event' }, summary ? `${label}: ${summary}` : label)
       }
       // A request carried on keeps its role, but its message line was shown already.
       if (source.role === 'resume' || source.resumed === true) return h('div', { className: 'bt-event' }, t('Picked up its work after a restart'))

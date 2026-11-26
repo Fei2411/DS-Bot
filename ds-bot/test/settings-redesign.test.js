@@ -279,7 +279,7 @@ test('SettingsDialog opens on Overview, lists 10 nav groups, and switches discre
       ['deepseek-services', 'Models', 'DeepSeek services'],
       ['bots', 'Team', 'Bots'],
       ['groups', 'Team', 'Group chats'],
-      ['schedules', 'Team', 'Scheduled tasks'],
+      ['schedules', 'Team', 'Schedules & Triggers'],
       ['connectors', 'Connect', 'Connectors'],
       ['im', 'Connect', 'IM'],
       ['phone', 'Connect', 'Phone'],
@@ -1150,7 +1150,7 @@ test('a part keeps the request it opened with while the user moves between ancho
     anchorBtn(tree, 'Bots').props.onClick()
     tree = draw()
     assert.ok(panel(tree, 'schedules'), 'all parts of Team stay mounted in the scrolling page')
-    anchorBtn(tree, 'Scheduled tasks').props.onClick()
+    anchorBtn(tree, 'Schedules & Triggers').props.onClick()
     tree = draw()
     await new Promise(resolve => setTimeout(resolve, 0))
     tree = draw()
@@ -1195,7 +1195,7 @@ test('Scheduled tasks "Show all" clears a Bot filter, while an anchor round trip
     // Move anchor to Bots and back: still filtered.
     findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-anchor' && textOf(n) === 'Bots')[0].props.onClick()
     tree = draw()
-    findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-anchor' && textOf(n) === 'Scheduled tasks')[0].props.onClick()
+    findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-anchor' && textOf(n) === 'Schedules & Triggers')[0].props.onClick()
     tree = draw()
     await new Promise(resolve => setTimeout(resolve, 0))
     tree = draw()

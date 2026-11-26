@@ -119,6 +119,7 @@ export function install(rt) {
   })
 
   ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+    if (agent?.id) rt.noteTurnProgress?.(agent.id)
     if (frame.type === 'start') {
       if (rt.taskOwners?.has(agent.id)) return
       const now = Date.now()

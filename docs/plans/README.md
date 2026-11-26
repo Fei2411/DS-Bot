@@ -87,6 +87,7 @@
 | [IM](2026-11-04-im.md) | 微信、飞书、钉钉、企业微信、QQ、Telegram、Discord、Slack 双向桥接与配对边界 |
 | [MCP 访问](2026-11-20-mcp-access.md) | （已收口至 [对外统一 API](2026-11-21-external-api.md)）初版独立 MCP 访问设计记录；现统一由设置 → API 同端口 `/mcp` 与自动迁移承接 |
 | [对外统一 API](2026-11-21-external-api.md) | 持锁宿主自建本机网关（默认关闭、`127.0.0.1:17830`）：独立可撤销 Bearer Token、Scope × 目标白名单与隐私隔离、统一 `Run` 状态机、`/v1/*` REST+SSE、`/mcp` Streamable HTTP、薄层 `ds-bot` CLI 与可选 OpenAI 兼容层 |
+| [事件驱动与统一待处理](2026-11-19-event-driven.md) | 按月与隐私分本的事件账本、五类零 Token 机械探针、本机 `127.0.0.1` Push 入口、快慢路径与订阅直通、Watchdog 看门狗、定时与触发三栏及统一待处理 Inbox |
 
 ### 7. 界面与交互
 

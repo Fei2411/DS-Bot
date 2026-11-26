@@ -687,8 +687,28 @@ export function install(rt) {
     return (state.exchanges ?? []).find(item => item?.id === id)
   }
 
+  // Delivers an event (external or internal) into a Bot or group Session with its
+  // pre-formatted trust boundary envelope and `role: 'event'` source metadata.
+  async function deliverEvent({ sessionId, toId, roomId, text, files = [], length, source, steer = false }) {
+    const targetSessionId = sessionId ?? (roomId ? rt.sessionOfRoom(rt.roomOf(roomId)) : rt.chatOf(toId))
+    if (!targetSessionId) throw new Error('Event target session is unavailable')
+    await rt.ensureCapabilities(targetSessionId)
+    const agent = await resolveAgent(targetSessionId)
+    const message = createUserMessage({
+      content: [
+        { type: 'text', text },
+        ...files.map(attachment => ({ type: 'file', attachment })),
+      ],
+      source: { ...source, ...(length === undefined ? {} : { length }) },
+    })
+    if (steer && agent.status !== 'idle') agent.steer(message)
+    else agent.followup(message)
+    await ctx.sessions.flush(agent.session)
+    return source?.eventId ?? targetSessionId
+  }
+
   Object.assign(rt, {
-    resolveAgent, deliver, flushSilentNotes, takeSilentNotes, takeSilentEntries, putBackSilentNotes,
+    resolveAgent, deliver, deliverEvent, flushSilentNotes, takeSilentNotes, takeSilentEntries, putBackSilentNotes,
     markSilentDelivered, moveSilentNotes, restoreSilentNotes, injectSilent, dropBotLedgers,
     migrateLegacyExchanges, exchangeText, attachLong, fileText, exchangesOf, exchangeOf, exchangeById,
     deliveredReplyOf, wasReplyDelivered, deliveredFailuresOf, wasFailureRequestDelivered,
