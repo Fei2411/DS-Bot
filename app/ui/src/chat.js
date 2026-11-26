@@ -16,6 +16,7 @@ import { LearningDock } from '../../../ds-bot/src/client/learning-card.js'
 import { MemberDock } from '../../../ds-bot/src/client/member-status.js'
 import { ModelChoiceDock } from '../../../ds-bot/src/client/model-menu.js'
 import { stepMenuFocus, useLinger, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
+import { hasEscapeLayer } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { PasteCard, foldPastedText, pastedName } from '../../../ds-bot/src/client/paste-card.js'
 import { mergeRescuedDraft, readRescuedForChat } from '../../../ds-bot/src/client/question-draft.js'
 import { QuestionDock } from '../../../ds-bot/src/client/questions.js'
@@ -457,6 +458,8 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   const [caret, setCaret] = useState(0)
   const [attachments, setAttachments] = useState([])
   const [stopping, setStopping] = useState(false)
+  const lastEscAt = useRef(0)
+  useEffect(() => { lastEscAt.current = 0 }, [sessionId, running])
   const [error, setError] = useState(null)
   const [menuIndex, setMenuIndex] = useState(0)
   const [dismissedKey, setDismissedKey] = useState(null)
@@ -858,7 +861,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
         onClick: syncCaret,
         onKeyUp: syncCaret,
         onSelect: syncCaret,
-        onBlur: closeMenu,
+        onBlur: () => { lastEscAt.current = 0; closeMenu() },
         onPaste,
         onKeyDown: (event) => {
           if (menuItems.length > 0 && !isImeComposing(event)) {
@@ -878,12 +881,32 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
               return
             }
             if (event.key === 'Escape') {
+              lastEscAt.current = 0
               event.preventDefault()
               event.stopPropagation()
               closeMenu()
               return
             }
           }
+          // Double-Escape within 500 ms stops the running turn while keeping queued messages.
+          if (event.key === 'Escape' && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !isImeComposing(event)) {
+            const overlayOpen = hasEscapeLayer() || (typeof document !== 'undefined' && Boolean(document.querySelector('[aria-modal="true"], [role="menu"], [role="dialog"]')))
+            if (running && !stopping && typeof onStop === 'function' && !overlayOpen) {
+              const now = Date.now()
+              if (now - lastEscAt.current <= 500) {
+                lastEscAt.current = 0
+                event.preventDefault()
+                event.stopPropagation()
+                void stop()
+                return
+              }
+              lastEscAt.current = now
+              return
+            }
+            lastEscAt.current = 0
+            return
+          }
+          if (event.key !== 'Escape') lastEscAt.current = 0
           const plainEnter = event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey
           const modEnter = event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey
           if ((enterToSend ? (plainEnter || modEnter) : modEnter) && !isImeComposing(event)) {

@@ -3,6 +3,7 @@ import { SectionList, StyleSheet, Text, View, Pressable } from 'react-native'
 import { useTeam } from '../team/context.tsx'
 import { pendingItemsOf } from '../nav/pending.ts'
 import { t } from '../ui/i18n.ts'
+import { roomTitle } from '../ui/phrases.ts'
 import { type as typeScale, useTheme, radius } from '../ui/tokens.ts'
 import { Avatar } from '../ui/marks.tsx'
 import type { ChatTarget } from './TeamList.tsx'
@@ -58,7 +59,7 @@ export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
   const look = (row: PendingRow) => {
     const room = row.roomId ? rooms.find(r => r.id === row.roomId) : undefined
     const bot = bots.find(b => b.id === row.botId)
-    return { name: room?.name ?? bot?.name ?? '', bot }
+    return { name: (room && roomTitle(room)) ?? bot?.name ?? '', bot }
   }
 
   return (

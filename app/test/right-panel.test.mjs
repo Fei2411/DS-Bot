@@ -981,8 +981,26 @@ test('WorkspaceTerminal closes sub-tabs reliably on rapid/concurrent clicks, pre
     assert.equal(handler({ type: 'keydown', metaKey: true, key: 'v', code: 'KeyV' }), false)
     assert.equal(handler({ type: 'keydown', metaKey: true, key: 'k', code: 'KeyK' }), false)
     assert.equal(handler({ type: 'keydown', metaKey: true, key: ',', code: 'Comma' }), false)
+    assert.equal(handler({ type: 'keydown', metaKey: true, shiftKey: true, key: 'M', code: 'KeyM' }), false)
+    assert.equal(handler({ type: 'keydown', ctrlKey: true, key: '`', code: 'Backquote' }), false)
     assert.equal(handler({ type: 'keydown', ctrlKey: true, key: 'c', code: 'KeyC' }), true)
     assert.equal(handler({ type: 'keydown', ctrlKey: true, key: 'd', code: 'KeyD' }), true)
+    // Non-Mac terminal handler bubbles custom F12 / Ctrl+` / Ctrl+Shift+M while preserving Ctrl+C/D/L for PTY,
+    // and mirrors live capabilities so Bot-only bindings pass through to PTY in Classic Agent mode.
+    const winHandler = createTerminalKeyHandler(t1, {
+      mac: false,
+      copy: text => sandbox.__copied.push(text),
+      overrides: {
+        terminal: { code: 'F12', mod: false, ctrl: false, alt: false, shift: false },
+        browser: { code: 'F11', mod: false, ctrl: false, alt: false, shift: false },
+      },
+      getContext: () => ({ capabilities: { hasSurface: true, hasBrowser: false, hasInbox: false } }),
+    })
+    assert.equal(winHandler({ type: 'keydown', key: 'F12', code: 'F12' }), false)
+    assert.equal(winHandler({ type: 'keydown', key: 'F11', code: 'F11' }), true, 'Bot-only F11 binding must pass through to PTY in Classic Agent mode')
+    assert.equal(winHandler({ type: 'keydown', ctrlKey: true, shiftKey: true, key: 'M', code: 'KeyM' }), false)
+    assert.equal(winHandler({ type: 'keydown', ctrlKey: true, key: 'c', code: 'KeyC' }), true)
+    assert.equal(winHandler({ type: 'keydown', ctrlKey: true, key: 'l', code: 'KeyL' }), true)
 
     // Direct unit check on local line editor Ctrl+C/Ctrl+D/Ctrl+L and theme reader fallback.
     const sent = []

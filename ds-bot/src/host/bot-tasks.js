@@ -10,11 +10,12 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { join, resolve } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND, STEER_CUT, TASK_FORK_MAX_EVENTS } from './constants.js'
+import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER_CUT, TASK_FORK_MAX_EVENTS } from './constants.js'
+import { buildFallbackContext } from './context-pack.js'
 import { within } from './folders.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
-import { activeTasksOf, isActiveTask, retiredTaskSessionIds, taskSessionIds, threadCurrentOfPart, threadOfPart } from './threads.js'
+import { activeTasksOf, addressedSession, isActiveTask, retiredTaskSessionIds, returnAddress, taskSessionIds, threadCurrentOfPart, threadOfPart } from './threads.js'
 import { output } from './tools.js'
 import { answerSender, cutOffText, turnFailure } from './turns.js'
 
@@ -29,6 +30,7 @@ const CONTEXT_FALLBACK_ITEMS = 16
 const MAX_SETTLED_TASKS = 50
 const MAX_REPLACED_IDS = 1000
 const PEER_BUSY_WAIT_MS = 5000
+const TASK_FORK_MAX_RATIO = 0.6
 
 const oneLine = (text, max) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 // Keep only session anchors for read_own_chat history lookups; omit multi-KB segment.note
@@ -593,95 +595,70 @@ export function install(rt) {
     }
     return undefined
   }
-  const resolveTaskForkMaxEvents = (options) => {
+  const resolveExplicitTaskForkMaxEvents = (options) => {
     for (const candidate of [options?.taskForkMaxEvents, rt.config?.taskForkMaxEvents]) {
       if (candidate !== undefined && candidate !== null) {
         const limit = Number(candidate)
         if (Number.isInteger(limit) && limit >= 0) return limit
       }
     }
-    return TASK_FORK_MAX_EVENTS
+    return undefined
+  }
+  const resolveTaskForkMaxRatio = (options) => {
+    for (const candidate of [options?.taskForkMaxRatio, rt.config?.taskForkMaxRatio]) {
+      if (candidate !== undefined && candidate !== null) {
+        const ratio = Number(candidate)
+        if (Number.isFinite(ratio) && ratio > 0 && ratio <= 1) return ratio
+      }
+    }
+    return TASK_FORK_MAX_RATIO
+  }
+
+  // Decides whether a new background task should fork the parent Session.
+  // Uses context window occupancy ratio (`workingTokens / usable <= 0.6`) via
+  // ContextRuntime when measurements are available; honors explicit event-count
+  // overrides and falls back to `TASK_FORK_MAX_EVENTS` when unmeasured.
+  async function shouldForkTask(fromSessionId, options) {
+    const explicitMaxEvents = resolveExplicitTaskForkMaxEvents(options)
+    if (explicitMaxEvents !== undefined) {
+      return sourceEventCountOf(fromSessionId) <= explicitMaxEvents
+    }
+    const sourceSession = sourceSessionOf(fromSessionId)
+    if (sourceSession !== undefined && rt.contextRuntime !== undefined) {
+      const logTokens = rt.sessionTokens?.(sourceSession)
+      const measured = rt.contextRuntime.measure?.(sourceSession, { logTokens })
+      const lines = await rt.contextRuntime.linesForSession?.(sourceSession).catch(() => undefined)
+      if (typeof measured?.workingTokens === 'number' && Number.isFinite(measured.workingTokens) && lines?.usable > 0) {
+        return (measured.workingTokens / lines.usable) <= resolveTaskForkMaxRatio(options)
+      }
+    }
+    return sourceEventCountOf(fromSessionId) <= TASK_FORK_MAX_EVENTS
   }
 
   // Builds a bounded recent-context note when the task could not fork directly
-  // (e.g. first turn with no turn/end, different workdir, local CLI agent, or
-  // parent session above TASK_FORK_MAX_EVENTS).
+  // (e.g. first turn with no turn/end, different workdir, un-forkable local CLI, or
+  // parent session past the fork occupancy threshold).
   // Preserves the latest [Handoff] or [Checkpoint] structured note with headings
   // intact instead of flattening and clipping it to 1,000 characters.
-  const fallbackContextSummary = (fromSessionId) => {
+  const fallbackContextSummary = (fromSessionId, { maxSeq, excludeTurns } = {}) => {
     const sourceSession = sourceSessionOf(fromSessionId)
     const events = sourceSession?.snapshotEvents?.() ?? []
-    if (events.length === 0) return ''
-    let latestNote = ''
-    let shadowedEnd = -1
-    for (const event of events) {
-      if (event.type === 'compaction/summary') {
-        const cleaned = cleanStructuredNote(event.data?.summary)
-        if (cleaned !== '') latestNote = cleaned
-        if (Number.isInteger(event.data?.shadowedRange?.end) && event.data.shadowedRange.end > shadowedEnd) {
-          shadowedEnd = event.data.shadowedRange.end
-        }
-      } else if (event.type === 'user/message' && event.data?.source?.kind === SOURCE_KIND && event.data.source.handoff === true) {
-        const raw = textOf(event.data?.message?.content ?? event.data?.content ?? '').trim()
-        const cleaned = cleanStructuredNote(raw, { handoff: true })
-        if (cleaned !== '') latestNote = cleaned
-      }
-    }
-    const lines = []
-    for (const event of events) {
-      if (shadowedEnd >= 0 && Number.isInteger(event.seq) && event.seq <= shadowedEnd) continue
-      if (event.type === 'user/message') {
-        const source = event.data?.source
-        if (source?.kind === 'runtime-context' || source?.kind === 'compact-checkpoint') continue
-        if (source?.kind === SOURCE_KIND && (source.handoff === true || source.role === 'task-handoff' || (source.role === 'request' && source.audience !== 'user'))) continue
-        const text = textOf(event.data?.message?.content ?? event.data?.content ?? '').trim()
-        if (text !== '') lines.push(`User: ${oneLine(text, 1000)}`)
-      } else if (event.type === 'assistant/message') {
-        const text = textOf(event.data?.message?.content ?? []).trim()
-        if (text !== '' && text !== HANDOFF_ACK) lines.push(`Assistant: ${oneLine(text, 1000)}`)
-      }
-    }
-    if (latestNote === '' && lines.length === 0) return ''
-    const tailBudget = latestNote === ''
-      ? CONTEXT_FALLBACK_MAX
-      : Math.max(0, CONTEXT_FALLBACK_MAX - Math.min(latestNote.length, CONTEXT_FALLBACK_NOTE_MIN) - 2)
-    const selected = []
-    let chars = 0
-    let truncated = false
-    const tail = lines.slice(-CONTEXT_FALLBACK_ITEMS)
-    for (let i = tail.length - 1; i >= 0; i -= 1) {
-      const line = tail[i]
-      const extra = selected.length === 0 ? line.length : line.length + 1
-      if (tailBudget === 0) {
-        truncated = true
-        break
-      }
-      if (selected.length > 0 && chars + extra > tailBudget) {
-        truncated = true
-        break
-      }
-      const kept = selected.length === 0 && line.length > tailBudget
-        ? `${line.slice(0, tailBudget)}…`
-        : line
-      selected.push(kept)
-      chars += selected.length === 1 ? kept.length : kept.length + 1
-    }
-    truncated ||= lines.length > CONTEXT_FALLBACK_ITEMS
-    const tailBody = selected.reverse().join('\n')
-    const clippedTail = tailBody === '' ? '' : (truncated ? `…\n${tailBody}` : tailBody)
-    let body
-    if (latestNote !== '') {
-      const noteBudget = clippedTail === ''
-        ? CONTEXT_FALLBACK_MAX
-        : Math.max(CONTEXT_FALLBACK_NOTE_MIN, CONTEXT_FALLBACK_MAX - clippedTail.length - 2)
-      const keptNote = clipStructuredNote(latestNote, noteBudget)
-      body = clippedTail === '' ? keptNote : `${keptNote}\n\n${clippedTail}`
-    } else {
-      body = clippedTail
-    }
     const room = rt.roomOf(rt.groupOwners.get(fromSessionId)?.roomId)
     const label = room !== undefined ? `group "${room.name}"` : 'your own chat'
-    return `\n\n[Recent context from ${label}]\n${body}`
+    return buildFallbackContext({
+      events,
+      label,
+      maxChars: CONTEXT_FALLBACK_MAX,
+      noteMinChars: CONTEXT_FALLBACK_NOTE_MIN,
+      maxItems: CONTEXT_FALLBACK_ITEMS,
+      lineMax: 1000,
+      maxSeq,
+      excludeTurns,
+      sourceKind: SOURCE_KIND,
+      handoffAck: HANDOFF_ACK,
+      cleanStructuredNote,
+      clipStructuredNote,
+    })
   }
 
   const lastReplyOf = (session, workDir) => {
@@ -726,6 +703,8 @@ export function install(rt) {
     running: isActiveTask(task) && (rt.live.get(task.sessionId)?.turn !== undefined || (rt.runningJobs?.(task.sessionId)?.length ?? 0) > 0),
   }))
 
+  rt.isTaskSettling = taskId => settling.has(taskId)
+
   // Settles a task into a terminal state (`completed`, `failed`, `stopped`, `interrupted`),
   // closes any parent handoff sub-work, notifies the foreground chat via `rt.deliver`
   // (restoring IM origin if captured), and fires `onTaskEvent`.
@@ -752,15 +731,16 @@ export function install(rt) {
       // Close child work on the handoff tree before waking the foreground so
       // `turns.js` knows this branch is settled when the foreground runs next.
       let parentWork
+      let workResultSummary
       if (task.workId !== undefined) {
-        const resultSummary = outcome === 'completed'
+        workResultSummary = outcome === 'completed'
           ? (fullText || '(completed with no reply text)')
           : outcome === 'failed'
             ? `Background task "${task.title}" failed: ${task.error ?? 'model call failed'}`
             : outcome === 'interrupted'
               ? `Background task "${task.title}" was interrupted by a restart.`
               : `Background task "${task.title}" was stopped.`
-        parentWork = rt.closeWork?.(task.workId, `task "${task.title}"`, resultSummary)
+        parentWork = rt.closeWork?.(task.workId, `task "${task.title}"`, workResultSummary)
       }
 
       if (task.roomId !== undefined && outcome !== 'completed') {
@@ -770,7 +750,158 @@ export function install(rt) {
         rt.blockTasks?.(task.roomId, bot.id, cause)
       }
 
+      const wantsReport = task.origin !== 'bot-handoff' && task.origin !== 'api' && (notifyForeground || parentWork !== undefined)
+      let reportAddress
+      let reportPayload
+      let reportObligationId
+      if (wantsReport) {
+        let canDeliverReport = true
+        if (task.roomId !== undefined) {
+          const room = rt.roomOf(task.roomId)
+          if (room === undefined || !room.members.includes(bot.id)) canDeliverReport = false
+          else reportAddress = { roomId: task.roomId }
+        } else {
+          reportAddress = { foreground: true }
+        }
+        if (canDeliverReport) {
+          let body
+          let note
+          if (outcome === 'completed') {
+            note = `"${task.title}" (${task.id}) finished`
+            body = fullText.length > REPORT_MAX
+              ? `${fullText.slice(0, REPORT_MAX)}…\n[Truncated at ${REPORT_MAX} characters. Call task_read(task: "${task.id}") for the full report.]`
+              : (fullText || '(no reply text)')
+          } else if (outcome === 'failed') {
+            note = `"${task.title}" (${task.id}) failed`
+            body = `This background task failed: ${task.error ?? 'unknown error'}.${fullText ? `\n\nLast output:\n${fullText.slice(0, REPORT_MAX)}` : ''}`
+          } else if (outcome === 'interrupted') {
+            note = `"${task.title}" (${task.id}) interrupted by restart`
+            body = 'DeepSeek Harness restarted while this background task was waiting on an in-memory background command or pending step, so it did not finish. Tell the user or start a new task if needed.'
+          } else {
+            note = `"${task.title}" (${task.id}) stopped`
+            body = task.error ? `Stopped: ${task.error}` : 'This background task was stopped.'
+          }
+          const exchangeId = `task-report:${task.id}`
+          reportObligationId = exchangeId
+          reportPayload = {
+            toId: bot.id,
+            address: reportAddress,
+            exchangeId,
+            text: body,
+            role: 'task-report',
+            note,
+            taskId: task.id,
+            ...(task.roomId !== undefined ? { roomId: task.roomId } : {}),
+            recordExchange: false,
+            ...(parentWork !== undefined ? { work: parentWork, replyTo: task.workId } : {}),
+          }
+        }
+      }
+
+      let handoffPlan
+      if (task.origin === 'bot-handoff' && settleWork && task.exchangeId !== undefined && rt.ownsWork?.(bot.id, task.exchangeId)) {
+        const asker = rt.workAsker?.(task.exchangeId)
+        if (asker !== undefined) {
+          const answerText = outcome === 'completed'
+            ? (rt.answerText?.(task.exchangeId, fullText, bot.name) ?? fullText)
+            : outcome === 'interrupted'
+              ? `${bot.name} was interrupted by a restart before it could answer your message.`
+              : outcome === 'failed'
+                ? `${bot.name} could not answer your message: ${task.error ?? 'model call failed'}.`
+                : `${bot.name} was stopped before it could answer your message.`
+          const long = outcome === 'completed' && answerText.length > MESSAGE_INLINE_MAX
+            ? await rt.attachLong?.(answerText, `Answer from ${bot.name}.txt`).catch(() => undefined)
+            : undefined
+          const toId = asker.senderSessionId
+          const rawAddress = returnAddress(rt.botOf(toId), asker.senderPart, asker.senderRoomId)
+          const resolvedTarget = addressedSession(rt, toId, rawAddress)
+          const address = resolvedTarget !== undefined ? rawAddress : { foreground: true }
+          const workBeforeClose = Object.hasOwn(rt.state?.works ?? {}, task.exchangeId) ? rt.state.works[task.exchangeId] : undefined
+          const workRef = asker.workRef ?? workBeforeClose?.ref ?? rt.workRefOf?.(task.exchangeId)
+          const workWorked = workBeforeClose?.worked === true
+          const replyImOrigin = rt.workImOrigin?.(task.exchangeId)
+          const eligibleImOrigin = replyImOrigin !== undefined && !(asker.senderRoomId !== undefined && resolvedTarget === undefined)
+            ? replyImOrigin
+            : undefined
+          const replyExchangeId = `reply:${task.exchangeId}`
+          const obligationId = `peer-result:${task.exchangeId}`
+          const payload = {
+            fromId: bot.id,
+            fromName: bot.name,
+            toId,
+            ...(resolvedTarget ? { sessionId: resolvedTarget } : {}),
+            text: long?.text ?? answerText,
+            ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
+            role: 'reply',
+            replyTo: task.exchangeId,
+            exchangeId: replyExchangeId,
+            address,
+            ...(workBeforeClose?.parent !== undefined ? { work: workBeforeClose.parent } : {}),
+            ...(workRef ? { workRef } : {}),
+          }
+          handoffPlan = {
+            asker,
+            answerText,
+            long,
+            aborted: outcome !== 'completed',
+            obligation: {
+              id: obligationId,
+              kind: 'peer_result',
+              ownerId: task.id,
+              botId: toId,
+              address,
+              payload,
+              deliveryId: replyExchangeId,
+            },
+            snapshot: {
+              handoffExchangeId: task.exchangeId,
+              handoffBotName: bot.name,
+              handoffResult: answerText,
+              handoffWorked: workWorked,
+              ...(eligibleImOrigin !== undefined ? { handoffImOrigin: eligibleImOrigin } : {}),
+            },
+          }
+        }
+      }
+
+      const terminalObligation = handoffPlan?.obligation ?? (reportPayload !== undefined ? {
+        id: reportObligationId,
+        kind: 'task_report',
+        ownerId: task.id,
+        botId: bot.id,
+        address: reportAddress,
+        payload: reportPayload,
+        deliveryId: reportPayload.exchangeId,
+      } : undefined)
+
+      // Single SQLite transaction: cancel any unsent `role: 'task'` start delivery,
+      // record the terminal task snapshot until `state.json` persists it, AND
+      // durably record any owed foreground/group/peer report before saving `state.json`.
+      rt.coordination?.commitTaskTerminal?.({
+        taskId: task.id,
+        terminalSnapshot: {
+          botId: bot.id,
+          status: task.status,
+          updatedAt: task.updatedAt,
+          endedAt: task.endedAt,
+          ...(task.error !== undefined ? { error: task.error } : {}),
+          ...(task.summary !== undefined ? { summary: task.summary } : {}),
+          ...(task.reportFile !== undefined ? { reportFile: task.reportFile } : {}),
+          ...(task.workId !== undefined ? { workId: task.workId, workTitle: task.title, workResult: workResultSummary } : {}),
+          ...(handoffPlan?.snapshot ?? {}),
+        },
+        ...(terminalObligation !== undefined ? { obligation: terminalObligation } : {}),
+      })
+      rt.forgetTaskStartDeliveries?.(task.id)
+
       await rt.save()
+      if (handoffPlan === undefined) {
+        try {
+          rt.coordination?.clearTerminalMarker?.('task', task.id)
+        } catch (error) {
+          rt.warn?.('ds-bot: clearing task terminal marker %s failed: %s', task.id, error)
+        }
+      }
       settled = true
       emitTaskEvent(`task.${outcome}`, bot, task, {
         ...(task.summary ? { summary: task.summary } : {}),
@@ -779,38 +910,45 @@ export function install(rt) {
 
       // A `bot-handoff` task answers the asking Bot through turns.js/handoffs.js and
       // never posts a task-report into the user's foreground chat. If the work is still
-      // open (stopped via stopTask or interrupted by restart before turns.js closed it),
+      // open (held while shell jobs ran, or stopped/interrupted before turns.js closed it),
       // answer the asking Bot once here and clear `liveEntry.info` so any ensuing
       // `turn/end (aborted)` from `agent.cancel()` can never emit a duplicate reply.
       if (task.origin === 'bot-handoff') {
-        // On `completed`, `turns.js` owns the reply delivery (including async `attachLong`
-        // for >20k replies); only send the fallback notice on non-completed outcomes so we
-        // never race `attachLong` with a false "stopped" reply.
-        if (settleWork && outcome !== 'completed' && task.exchangeId !== undefined && rt.ownsWork?.(bot.id, task.exchangeId)) {
-          const asker = rt.workAsker?.(task.exchangeId)
-          if (asker !== undefined) {
-            const liveEntry = rt.live.get(task.sessionId)
-            if (liveEntry?.info !== undefined && rt.workOf?.(liveEntry.info) === task.exchangeId) {
-              liveEntry.info = undefined
-            }
-            const notice = outcome === 'interrupted'
-              ? `${bot.name} was interrupted by a restart before it could answer your message.`
-              : outcome === 'failed'
-                ? `${bot.name} could not answer your message: ${task.error ?? 'model call failed'}.`
-                : `${bot.name} was stopped before it could answer your message.`
-            answerSender(rt, task.sessionId, asker, notice, undefined, { aborted: true })
+        if (handoffPlan !== undefined) {
+          const liveEntry = rt.live.get(task.sessionId)
+          if (liveEntry?.info !== undefined && rt.workOf?.(liveEntry.info) === task.exchangeId) {
+            liveEntry.info = undefined
           }
+          answerSender(
+            rt,
+            task.sessionId,
+            handoffPlan.asker,
+            handoffPlan.answerText,
+            handoffPlan.long,
+            { ...(handoffPlan.aborted ? { aborted: true } : {}), obligationId: handoffPlan.obligation.id },
+          )
+          void rt.save().then(() => {
+            try {
+              rt.coordination?.clearTerminalMarker?.('task', task.id)
+            } catch (error) {
+              rt.warn?.('ds-bot: clearing task terminal marker %s failed: %s', task.id, error)
+            }
+          }, () => {})
         }
         return
       }
 
-      if (task.origin === 'api' || (!notifyForeground && parentWork === undefined)) return
+      if (reportPayload === undefined) return
       let targetSession
       if (task.roomId !== undefined) {
         const room = rt.roomOf(task.roomId)
-        if (room === undefined || !room.members.includes(bot.id)) return
+        if (room === undefined || !room.members.includes(bot.id)) {
+          rt.coordination?.markObligation?.(reportObligationId, 'cancelled')
+          return
+        }
         targetSession = room.sessions?.[bot.id]
         if (targetSession === undefined) {
+          rt.coordination?.markObligation?.(reportObligationId, 'cancelled')
           await rt.reconcileStoppedRoomTask?.(task.roomId, bot.id).catch(() => {})
           return
         }
@@ -821,37 +959,17 @@ export function install(rt) {
           ? rt.chatOf(bot.id)
           : (threadCurrentOfPart(bot, task.from) ?? rt.chatOf(bot.id))
       }
-      let body
-      let note
-      if (outcome === 'completed') {
-        note = `"${task.title}" (${task.id}) finished`
-        body = fullText.length > REPORT_MAX
-          ? `${fullText.slice(0, REPORT_MAX)}…\n[Truncated at ${REPORT_MAX} characters. Call task_read(task: "${task.id}") for the full report.]`
-          : (fullText || '(no reply text)')
-      } else if (outcome === 'failed') {
-        note = `"${task.title}" (${task.id}) failed`
-        body = `This background task failed: ${task.error ?? 'unknown error'}.${fullText ? `\n\nLast output:\n${fullText.slice(0, REPORT_MAX)}` : ''}`
-      } else if (outcome === 'interrupted') {
-        note = `"${task.title}" (${task.id}) interrupted by restart`
-        body = 'DeepSeek Harness restarted while this background task was waiting on an in-memory background command or pending step, so it did not finish. Tell the user or start a new task if needed.'
-      } else {
-        note = `"${task.title}" (${task.id}) stopped`
-        body = task.error ? `Stopped: ${task.error}` : 'This background task was stopped.'
-      }
 
       try {
         await rt.deliver({
-          toId: bot.id,
+          ...reportPayload,
           sessionId: targetSession,
-          text: body,
-          role: 'task-report',
-          note,
-          taskId: task.id,
-          ...(task.roomId !== undefined ? { roomId: task.roomId } : {}),
-          recordExchange: false,
-          ...(parentWork !== undefined ? { work: parentWork, replyTo: task.workId } : {}),
         })
+        rt.coordination?.markObligation?.(reportObligationId, 'settled')
       } catch (error) {
+        if (error?.code === 'bot/unresolved-return') {
+          rt.coordination?.markObligation?.(reportObligationId, 'cancelled')
+        }
         if (task.roomId !== undefined) {
           await rt.reconcileStoppedRoomTask?.(task.roomId, bot.id).catch(() => {})
         }
@@ -965,16 +1083,17 @@ export function install(rt) {
       ...(dispatchApprovalOrigin !== undefined ? { dispatchApprovalOrigin } : {}),
     }
 
-    const shouldFork = sourceEventCountOf(fromSessionId) <= resolveTaskForkMaxEvents(options)
+    const shouldFork = await shouldForkTask(fromSessionId, options)
     const fromThroughSeq = room === undefined ? lastSeqOf(sourceSessionOf(fromSessionId)) : undefined
-    const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir, fork: shouldFork, throughSeq: fromThroughSeq })
+    const isLocal = isLocalCliBot(bot, ctx.get('agents')?.get(fromSessionId)?.session)
+    const fallbackContext = isLocal && shouldFork ? fallbackContextSummary(fromSessionId) : undefined
+    const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir, fork: shouldFork, throughSeq: fromThroughSeq, fallbackContext })
     if (taskWorkId !== undefined) {
       rt.openWork?.(taskWorkId, { from: bot.id, parent: parentWork, toSession: sessionId, toTaskId: id, name: `task "${name}"`, child: id })
     }
     if (room !== undefined) rt.workRoomTurn?.(fromSessionId, 'task')
 
-    const isLocal = isLocalCliBot(bot, ctx.get('agents')?.get(fromSessionId)?.session)
-    const contextNote = forked ? '' : fallbackContextSummary(fromSessionId)
+    const contextNote = forked ? '' : (fallbackContext ?? fallbackContextSummary(fromSessionId))
     const localNote = isLocal ? '\nNote: You are running in a separate local CLI session that does not share in-memory state with the foreground chat.' : ''
     const dirNote = resolvedDir ? `\nWorking directory: ${resolvedDir}` : ''
     const reportDest = room !== undefined ? `your session in group "${room.name}"` : 'your own chat'
@@ -984,6 +1103,7 @@ export function install(rt) {
       await rt.deliver({
         toId: bot.id,
         sessionId,
+        address: { taskId: id },
         text: prompt,
         role: 'task',
         note: `"${name}" (${id})`,
@@ -1108,13 +1228,8 @@ export function install(rt) {
     const reason = ended?.reason
     if (reason?.kind === 'aborted' && reason.reason?.kind === 'disposed') return false
     if (reason?.kind === 'blocked') return false
-    const controller = ctx.sessionController
-    const seen = typeof controller?.inspect === 'function'
-      ? await Promise.resolve()
-          .then(() => controller.inspect(sessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS)))
-          .catch(() => undefined)
-      : undefined
-    const events = Array.isArray(seen?.events) ? seen.events : []
+    const history = await rt.readSessionEvidence(sessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+    const events = history.status === 'ok' ? history.events : []
     const lastStart = events.findLastIndex(event => event?.type === 'turn/start')
     const slice = lastStart === -1 ? events : events.slice(lastStart)
     const folder = task.workDir !== undefined ? (task.workDir ?? rt.teamFolder?.()) : rt.workDirOf?.({ botId: bot.id, ...(task.roomId ? { roomId: task.roomId } : {}) })
@@ -1350,6 +1465,13 @@ export function install(rt) {
     inFlightTransferIds.clear()
   }, 'ds-bot: bot-tasks approval bridge')
 
+  const canMoveRuntimeToBackground = (bot, session) => {
+    if (rt.contextRuntime?.capabilitiesFor !== undefined) {
+      return rt.contextRuntime.capabilitiesFor({ bot, session }).canMoveToBackground !== false
+    }
+    return true
+  }
+
   // Audience isolation: a hidden peer-Bot work turn running on a Bot's foreground
   // chat must move to background immediately when human input arrives, so the user's
   // message never injects into or leaks out of the hidden peer-Bot turn (#2139).
@@ -1360,7 +1482,7 @@ export function install(rt) {
     if (rt.groupOwners.has(sessionId) || rt.taskOwners?.has(sessionId)) return false
     if (rt.isSwitchingPart?.(sessionId)) return false
     const session = ctx.get('agents')?.get(sessionId)?.session
-    if (isLocalCliBot(bot, session)) return false
+    if (!canMoveRuntimeToBackground(bot, session)) return false
     const activeHandoff = handoffing.get(bot.id)
     if (activeHandoff !== undefined && !activeHandoff.aborted && activeHandoff.oldSid === sessionId) return true
     const entry = rt.live.get(sessionId)
@@ -1376,7 +1498,7 @@ export function install(rt) {
     if (rt.groupOwners.has(sessionId) || rt.taskOwners?.has(sessionId)) return false
     if (rt.isSwitchingPart?.(sessionId)) return false
     const session = ctx.get('agents')?.get(sessionId)?.session
-    if (isLocalCliBot(bot, session)) return false
+    if (!canMoveRuntimeToBackground(bot, session)) return false
     const activeHandoff = handoffing.get(bot.id)
     if (activeHandoff !== undefined && !activeHandoff.aborted && activeHandoff.oldSid === sessionId) return true
     const entry = rt.live.get(sessionId)
@@ -1396,7 +1518,7 @@ export function install(rt) {
     }
     if (rt.isSwitchingPart?.(sessionId)) return { code: 'bot/busy', message: 'Switching conversation part' }
     const agent = ctx.get('agents')?.get(sessionId)
-    if (isLocalCliBot(bot, agent?.session)) {
+    if (!canMoveRuntimeToBackground(bot, agent?.session)) {
       return { code: 'bot/unsupported', message: 'Local agent Bots cannot move running turns to the background' }
     }
     if (handoffing.get(bot.id)?.oldSid === sessionId) return { code: 'bot/busy', message: 'Already moving to the background' }
@@ -1742,45 +1864,8 @@ export function install(rt) {
     }
   }
 
-  // Reads events of a cold (unloaded) Session using the real DSH `sessionQuery` service
-  // (`inspectSession` / `readSession`), distinguishing missing sessions from I/O errors
-  // so admission checks fail closed when a stored session cannot be read.
-  const isMissingSessionError = (error) => error?.code === 'SESSION_QUERY_SESSION_NOT_FOUND'
-    || error?.code === 'ENOENT'
-    || /not found/i.test(String(error?.message ?? ''))
-
-  const readColdSessionEvents = async (sid, signal) => {
-    const query = ctx.get?.('sessionQuery') ?? ctx.sessionQuery
-    if (typeof query?.inspectSession === 'function') {
-      try {
-        const events = await query.inspectSession(sid, session => session?.snapshotEvents?.() ?? [], signal)
-        return { status: 'ok', events: Array.isArray(events) ? events : [] }
-      } catch (error) {
-        if (isMissingSessionError(error)) return { status: 'not_found', events: [] }
-        return { status: 'error', error }
-      }
-    }
-    if (typeof query?.readSession === 'function') {
-      try {
-        const seen = await query.readSession(sid)
-        return { status: 'ok', events: Array.isArray(seen?.events) ? seen.events : [] }
-      } catch (error) {
-        if (isMissingSessionError(error)) return { status: 'not_found', events: [] }
-        return { status: 'error', error }
-      }
-    }
-    const inspect = ctx.sessionController?.inspect
-    if (typeof inspect === 'function') {
-      try {
-        const seen = await inspect(sid, signal)
-        return { status: 'ok', events: Array.isArray(seen?.events) ? seen.events : [] }
-      } catch (error) {
-        if (isMissingSessionError(error)) return { status: 'not_found', events: [] }
-        return { status: 'error', error }
-      }
-    }
-    return { status: 'unavailable' }
-  }
+  // Shared cold-session reader provided by `coordination.js` (`sessionQuery` / `sessionController`).
+  const readColdSessionEvents = (sid, signal) => rt.readSessionEvidence(sid, signal)
 
   // Checks whether `requestId` was already admitted on the target logical chat —
   // including across a foreground-to-background move where `ref` moved into `bot.tasks[]`,
@@ -2560,7 +2645,7 @@ export function install(rt) {
                 const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) finished in the background. ${result}${contextNote}`
                 freshAgent.inject?.(createUserMessage({
                   content: [{ type: 'text', text: notice }],
-                  source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', taskId: task.id },
+                  source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', carriedContext: true, taskId: task.id },
                 }))
               } catch (error) {
                 rt.warn('ds-bot: injecting fallback context on %s failed: %s', newSid, error)
@@ -2589,10 +2674,32 @@ export function install(rt) {
             const freshAgent = await rt.resolveAgent(newSid)
             freshAgent.inject?.(createUserMessage({
               content: [{ type: 'text', text: notice }],
-              source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', taskId: task.id },
+              source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', ...(contextNote !== '' ? { carriedContext: true } : {}), taskId: task.id },
             }))
           } catch (error) {
             rt.warn('ds-bot: injecting task-handoff notice on %s failed: %s', newSid, error)
+          }
+        }
+        // When a hidden peer-Bot turn moved to background without a DSH fork (e.g. local CLI),
+        // carry forward ONLY the user's own prior conversation before the hidden turn, excluding
+        // all hidden exchange turns, so the fresh foreground never wakes up amnesic or leaks peer work.
+        if (!forked && origin === 'bot-handoff') {
+          const hiddenTurns = new Set([
+            ...(Array.isArray(rt.own(state.exchangeTurns, oldSid)) ? rt.own(state.exchangeTurns, oldSid) : []),
+            ...(Number.isInteger(runningTurn) ? [runningTurn] : []),
+          ])
+          const sanitized = fallbackContextSummary(oldSid, { maxSeq: effectiveCutSeq, excludeTurns: hiddenTurns })
+          if (sanitized !== '') {
+            try {
+              await rt.ensureCapabilities(newSid)
+              const freshAgent = await rt.resolveAgent(newSid)
+              freshAgent.inject?.(createUserMessage({
+                content: [{ type: 'text', text: sanitized.trim() }],
+                source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', carriedContext: true, taskId: task.id },
+              }))
+            } catch (error) {
+              rt.warn('ds-bot: injecting sanitized fallback context on %s failed: %s', newSid, error)
+            }
           }
         }
       })()
@@ -3147,7 +3254,16 @@ export function install(rt) {
     const currentLive = rt.live.get(task.sessionId)
     if (currentLive?.turn !== undefined || currentLive?.retrying === true) return
     const currentAgent = ctx.get('agents')?.get(task.sessionId)
-    if (hasWakingInboxInput(currentAgent) || hasPendingTaskUnread(task.sessionId)) return
+    if (hasWakingInboxInput(currentAgent)) return
+    if (hasPendingTaskUnread(task.sessionId)) {
+      const logged = new Set((currentAgent?.session?.snapshotEvents?.() ?? [])
+        .filter(e => e.type === 'user/message' && e.data?.source?.role === 'request')
+        .map(e => e.data.source.exchangeId))
+      if ((rt.unreadOf?.(task.sessionId) ?? []).some(args => args.role !== 'task'
+        && !(args.role === 'request' && !args.deferred && !args.resumed && args.exchangeId === task.exchangeId && logged.has(args.exchangeId)))) {
+        return
+      }
+    }
     // 6. Still waiting on background shell jobs inside this task.
     if ((rt.runningJobs?.(task.sessionId)?.length ?? 0) > 0) return
     // 7. Still waiting on an approval card.
@@ -3161,6 +3277,7 @@ export function install(rt) {
     }
     // 8. Still waiting on outgoing Bot-to-Bot / group report-back works or ask_back input.
     if (hasOpenOutgoingWorks(bot, task) || isAwaitingHandoffInput(task)
+      || (task.origin === 'bot-handoff' && rt.waitsWork?.(task.exchangeId))
       || (task.origin === 'bot-handoff' && task.exchangeId !== undefined && currentLive?.lastAskedBackWork === task.exchangeId)) {
       if (task.status !== 'waiting_work') {
         task.status = 'waiting_work'

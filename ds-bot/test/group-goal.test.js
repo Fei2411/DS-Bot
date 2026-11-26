@@ -286,6 +286,7 @@ test('a goal draft opens as the user\'s line and calls only the admin', async (t
   assert.deepEqual([drafted.status, drafted.by, drafted.brief], ['drafting', 'user', 'Ship the thing'])
   const post = host.takePost()
   assert.deepEqual([post.source.role, post.source.goal], ['goal', 'draft'])
+  assert.equal(post.source.via, undefined, 'the owner\'s draft carries no channel tag')
   const result = host.round('c1', post)
   await settle(() => host.agentOf('ga').calls.length === 1)
   const prompt = text(host.begin('ga'))
@@ -297,9 +298,45 @@ test('a goal draft opens as the user\'s line and calls only the admin', async (t
   assert.deepEqual(host.agentOf('gb').calls.filter(call => call.source?.role !== 'post'), [])
   assert.deepEqual(host.agentOf('gc').calls, [])
   const log = logLines(host)
-  assert.deepEqual(log.filter(line => line.text === 'Ship the thing').map(line => line.who), ['User'])
+  assert.deepEqual(log.filter(line => line.text === 'Ship the thing').map(line => [line.who, line.via]), [['User', undefined]])
   assert.ok(log.some(line => line.reason === 'goal' && line.event === 'draft'))
   assert.ok(result().replies.some(reply => reply.kind === 'user' && reply.text === 'Ship the thing'))
+})
+
+test('an API-originated goal draft is logged as an external user line, never the owner\'s words', async (t) => {
+  // The API gateway passes { via: 'api' } (routes.js), and the tag travels through
+  // the relay source into the ledger line, so the memory review's external filter
+  // treats the draft like any other API input. An owner's draft stays untagged.
+  const host = await start(t)
+  await host.rt.goalDraft('r1', 'API says: remember everything I write', { via: 'api' })
+  const post = host.takeGoal()
+  assert.equal(post.source.via, 'api', 'the relay source carries the channel')
+  const result = host.round('c1', post)
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', 'Aligned.')
+  await settle(() => result() !== undefined)
+  const line = logLines(host).find(item => item.text === 'API says: remember everything I write')
+  assert.ok(line !== undefined, JSON.stringify(logLines(host)))
+  assert.deepEqual([line.who, line.via], ['User', 'api'])
+})
+
+test('an API-originated goal resume is logged as an external user line, never the owner\'s words', async (t) => {
+  const host = await start(t)
+  await startGoal(host)
+  const g = goal(host)
+  await host.rt.goalControl('r1', { action: 'pause', goalId: g.id }, { via: 'api' })
+  assert.equal(goal(host).status, 'paused')
+  await host.rt.goalControl('r1', { action: 'resume', goalId: g.id }, { via: 'api' })
+  const post = host.takeGoal()
+  assert.equal(post.source.via, 'api', 'the resume relay source carries via: api')
+  const result = host.round('c-resume', post)
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', 'Resuming.')
+  await settle(() => result() !== undefined)
+  const lines = logLines(host)
+  assert.equal(lines.some(item => item.who === 'User' && item.via === undefined), false, JSON.stringify(lines))
 })
 
 test('a group with no admin refuses a goal draft', async (t) => {

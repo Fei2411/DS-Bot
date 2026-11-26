@@ -661,10 +661,10 @@ test('capability tool descriptions and attach results explain approval', async t
     {
       transport: 'How to reach an MCP server: a local command or an HTTP URL',
       command: 'Program that starts a local MCP server',
-      args: 'Arguments for command',
-      env: 'Environment variables for command; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value',
-      url: 'MCP server URL; write $DSH_SECRET_<NAME> in the path or query to insert a saved secret, URL-encoded. Prefer headers for keys',
-      headers: 'HTTP headers; write $DSH_SECRET_<NAME> to insert a saved secret instead of the value',
+      args: 'Arguments for command; write $DSH_SECRET_<NAME> or a one-time secret-ref:<32hex> handle instead of a raw key',
+      env: 'Environment variables for command; write $DSH_SECRET_<NAME> or a one-time secret-ref:<32hex> handle to insert a secret instead of the value',
+      url: 'MCP server URL; write $DSH_SECRET_<NAME> or a one-time secret-ref:<32hex> handle in the path or query to insert a secret, URL-encoded. Prefer headers for keys',
+      headers: 'HTTP headers; write $DSH_SECRET_<NAME> or a one-time secret-ref:<32hex> handle to insert a secret instead of the value',
       content: 'Skill instructions',
     },
   )
