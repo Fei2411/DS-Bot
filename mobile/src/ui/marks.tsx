@@ -43,13 +43,15 @@ export function BotMark({ bot, dark, size = 36 }: { bot: unknown; dark: boolean;
   return <Mark look={lookOf(bot)} dark={dark} size={size} />
 }
 
-// Status badges per ui-standard 8.2, scaled to the row's 44px avatar: a working
+// Status badges per ui-standard section 8, scaled to the row's 44px avatar: a working
 // green dot (12px), a waiting accent "?" (12px), the Main Bot star at 36% of the
-// avatar, each ringed in the list's background color. One at a time (badge.ts).
+// avatar within 14-22px like the desktop. One at a time (badge.ts). `ring` is the
+// opaque color the badges are ringed in: the sidebar color in the team list, as on
+// the desktop, or the page's background elsewhere.
 export function Avatar({ bot, dark, size = 44, ring, working = false, waiting = false, main = false }: {
   bot: Bot; dark: boolean; size?: number; ring: string; working?: boolean; waiting?: boolean; main?: boolean
 }) {
-  const star = Math.round(size * 0.36)
+  const star = Math.round(Math.min(22, Math.max(14, size * 0.36)))
   const dot = Math.round(size * 0.27)
   const badge = badgeOf({ waiting, working, main })
   return (

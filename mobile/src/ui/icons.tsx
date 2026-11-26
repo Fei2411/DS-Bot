@@ -73,8 +73,8 @@ export function PinMarkIcon({ size = 12, color }: IconProps) {
     h(Path, { d: 'M9.35 13.3h1.3v3.6L10 18l-.65-1.1z', transform: 'rotate(45 10 10)' }))
 }
 const MAIN_STAR = 'M10 2.4l2.29 5.04 5.51.63-4.09 3.74 1.11 5.42L10 14.5l-4.82 2.73 1.11-5.42L2.2 8.07l5.51-.63z'
-// `outline`: the background behind it, drawn as a rim that sets the star off from the
-// avatar under it (ui-standard 8.2; the desktop's stroke with paint-order stroke).
+// `outline`: an opaque color drawn as a rim that sets the star off from the avatar
+// under it (ui-standard section 8; the desktop's stroke with paint-order stroke).
 export function MainStarIcon({ size = 16, color, outline }: IconProps & { outline?: string }) {
   const { p } = useTheme()
   return h(Svg, { width: size, height: size, viewBox: '0 0 20 20' },
