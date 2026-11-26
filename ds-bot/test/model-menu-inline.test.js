@@ -1,0 +1,434 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { runInNewContext } from 'node:vm'
+import { build } from 'esbuild'
+
+// A small hook runtime: a component renders again whenever its state changes, so a test
+// can press a key, resolve a save, or hand it new props, and read the tree that results.
+let instance = null
+const slot = () => instance.slots[instance.cursor++] ??= {}
+const react = {
+  Fragment: 'fragment',
+  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+  useState(initial) {
+    const own = instance
+    const entry = slot()
+    if (!('value' in entry)) entry.value = typeof initial === 'function' ? initial() : initial
+    return [entry.value, (next) => {
+      const value = typeof next === 'function' ? next(entry.value) : next
+      if (Object.is(value, entry.value)) return
+      entry.value = value
+      own.update()
+    }]
+  },
+  useRef(initial) {
+    const entry = slot()
+    entry.ref ??= { current: initial }
+    return entry.ref
+  },
+  useEffect(run, deps) {
+    const entry = slot()
+    if (entry.deps && deps && deps.every((dep, index) => Object.is(dep, entry.deps[index]))) return
+    entry.deps = deps
+    instance.effects.push(() => { entry.cleanup?.(); entry.cleanup = run() })
+  },
+  useMemo: make => make(),
+  useCallback: fn => fn,
+}
+react.useLayoutEffect = react.useEffect
+
+function mount(Component, firstProps) {
+  const self = {
+    props: firstProps, slots: [], cursor: 0, effects: [], tree: null, busy: false, again: false,
+    update() {
+      if (self.busy) { self.again = true; return }
+      self.busy = true
+      do {
+        self.again = false
+        instance = self
+        self.cursor = 0
+        self.effects = []
+        try { self.tree = Component(self.props) } finally { instance = null }
+        assert.equal(self.cursor, self.hookCount ??= self.cursor, 'hook count changed between renders')
+        for (const effect of self.effects) effect()
+      } while (self.again)
+      self.busy = false
+    },
+  }
+  self.update()
+  return {
+    get tree() { return self.tree },
+    rerender(props) { self.props = props; self.update() },
+  }
+}
+
+const listeners = []
+const resizeObservers = []
+const sandbox = {
+  ResizeObserver: class {
+    constructor(update) { this.update = update; resizeObservers.push(this) }
+    observe(element) { this.element = element }
+    disconnect() { this.disconnected = true }
+  },
+  window: {
+    innerWidth: 1024, innerHeight: 768,
+    addEventListener: (name, fn, capture) => listeners.push({ name, fn, capture }),
+    removeEventListener: (name, fn) => { const at = listeners.findIndex(entry => entry.name === name && entry.fn === fn); if (at >= 0) listeners.splice(at, 1) },
+    matchMedia: () => ({ matches: false }),
+  },
+  document: { activeElement: null },
+  setTimeout, clearTimeout,
+}
+const bundle = await build({
+  stdin: {
+    contents: "export * from './src/client/model-menu.js'",
+    resolveDir: fileURLToPath(new URL('..', import.meta.url)),
+  },
+  bundle: true, format: 'cjs', platform: 'node', write: false,
+  external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+})
+const module = { exports: {} }
+runInNewContext(bundle.outputFiles[0].text, {
+  ...sandbox,
+  module, exports: module.exports,
+  require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: tree => tree } : {}),
+})
+const { ModelMenu, EffortBar, MODEL_CSS } = module.exports
+
+const nodes = (tree, match) => (!tree || typeof tree !== 'object' ? [] : [...(match(tree) ? [tree] : []), ...(tree.children ?? []).flatMap(child => nodes(child, match))])
+const settle = () => new Promise(done => setImmediate(done))
+const keydown = key => ({ key, preventDefault() {}, stopPropagation() {} })
+const listener = name => listeners.findLast(entry => entry.name === name)?.fn
+
+const efforts = [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }]
+const thinking = { efforts, defaultEffort: 'high' }
+
+test('the Settings default picker labels the inherited usable model without changing other empty pickers', () => {
+  const model = { ref: 'official/flash', provider: 'official', providerName: 'DeepSeek', name: 'Flash' }
+  const render = (models, extra = {}) => {
+    const element = ModelMenu({ bot: { id: 'new-bots', name: 'New Bots' }, roster: { models, defaultModel: model.ref }, actions: {}, run: () => {}, wide: true, withEfforts: false, fallbackModel: model.ref, ...extra })
+    return mount(element.type, element.props).tree
+  }
+  const text = (tree, className) => nodes(tree, node => node.props.className === className).map(node => node.children.join(''))
+  const tree = render([model])
+  assert.deepEqual(text(tree, 'bt-model-name'), ['Flash'])
+  assert.deepEqual(text(tree, 'bt-model-provider'), ['DeepSeek'])
+  assert.deepEqual(text(tree, 'bt-model-default'), ['Default'])
+  for (const entries of [[], [{ ...model, needsKey: true }]]) {
+    const empty = render(entries)
+    assert.deepEqual(text(empty, 'bt-model-name'), ['Choose a model'])
+    assert.deepEqual(text(empty, 'bt-model-default'), [])
+  }
+  assert.deepEqual(text(render([model], { fallbackModel: undefined }), 'bt-model-name'), ['Choose a model'])
+  const explicit = render([model], { bot: { id: 'new-bots', model: 'gone/model' } })
+  assert.deepEqual(text(explicit, 'bt-model-name'), ['model'])
+  assert.deepEqual(text(explicit, 'bt-model-default'), [])
+})
+
+test('a wide picker hides a squeezed provider rather than showing a stub', () => {
+  const model = { ref: 'official/flash', name: 'Flash', provider: 'official', reasoning: thinking }
+  const props = { bot: { id: 'new-bots', model: 'official/flash', effort: 'low' }, roster: { models: [model] }, actions: {}, run: () => {}, wide: true, withEfforts: true }
+  const element = ModelMenu(props)
+  const view = mount(element.type, element.props)
+  const provider = { clientWidth: 60, scrollWidth: 70, toggleAttribute(name, hidden) { this.hidden = hidden } }
+  nodes(view.tree, node => node.props.className === 'bt-model-trigger')[0].props.ref.current = { querySelector: () => provider }
+  view.rerender({ ...props, wide: false })
+  view.rerender(props)
+  const observer = resizeObservers.at(-1)
+  assert.equal(observer.element, provider)
+  assert.equal(provider.hidden, false)
+  provider.clientWidth = 30
+  observer.update()
+  assert.equal(provider.hidden, true)
+  provider.clientWidth = 20
+  provider.scrollWidth = 20
+  observer.update()
+  assert.equal(provider.hidden, false)
+  // Changing effortLabel or served state re-runs squeeze detection even when provider stays identical.
+  provider.clientWidth = 30
+  provider.scrollWidth = 90
+  view.rerender({ ...props, bot: { ...props.bot, effort: 'high' } })
+  assert.equal(provider.hidden, true)
+  view.rerender({ ...props, roster: { models: [{ ref: 'other/chat', name: 'Other', provider: 'other' }] } })
+  assert.equal(provider.hidden, true)
+  view.rerender({ ...props, wide: false })
+  assert.equal(resizeObservers.at(-1).disconnected, true)
+
+  // Missing ResizeObserver must not throw.
+  const prevRO = sandbox.ResizeObserver
+  try {
+    const noRoMod = { exports: {} }
+    runInNewContext(bundle.outputFiles[0].text, {
+      ...sandbox,
+      ResizeObserver: undefined,
+      module: noRoMod, exports: noRoMod.exports,
+      require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: tree => tree } : {}),
+    })
+    const noRoEl = noRoMod.exports.ModelMenu(props)
+    assert.doesNotThrow(() => mount(noRoEl.type, noRoEl.props))
+  } finally {
+    sandbox.ResizeObserver = prevRO
+  }
+})
+
+test('a save still under way keeps the slider on the newest pick', async () => {
+  const saves = []
+  const picked = []
+  const onPick = (effort) => { picked.push(effort); return new Promise(resolve => saves.push(resolve)) }
+  const bar = mount(EffortBar, { reasoning: thinking, current: 'high', onPick })
+  const slider = () => nodes(bar.tree, node => node.props.role === 'slider')[0]
+  const shown = () => slider().props['aria-valuetext']
+
+  slider().props.onKeyDown(keydown('ArrowLeft'))
+  assert.equal(shown(), 'Low')
+  // The Bot still holds High. Low is already on its way, so High has to follow it —
+  // once Low settles, not beside it — or the older write would land last and win.
+  slider().props.onKeyDown(keydown('ArrowRight'))
+  assert.equal(shown(), 'High')
+  assert.deepEqual(picked, ['low'])
+
+  // The Bot reports the first save while High is still the pick: the knob stays.
+  bar.rerender({ reasoning: thinking, current: 'low', onPick })
+  assert.equal(shown(), 'High')
+  saves[0](true)
+  await settle()
+  assert.deepEqual(picked, ['low', 'high'])
+  assert.equal(shown(), 'High')
+  bar.rerender({ reasoning: thinking, current: 'high', onPick })
+  saves[1](true)
+  await settle()
+  assert.equal(shown(), 'High')
+})
+
+test('the slider returns to the Bot\'s level when its save fails, and a pick that changes nothing sends nothing', async () => {
+  const saves = []
+  const picked = []
+  const onPick = (effort) => { picked.push(effort); return new Promise(resolve => saves.push(resolve)) }
+  const bar = mount(EffortBar, { reasoning: thinking, current: 'high', onPick })
+  const slider = () => nodes(bar.tree, node => node.props.role === 'slider')[0]
+
+  slider().props.onKeyDown(keydown('ArrowRight'))
+  assert.deepEqual(picked, [])
+  slider().props.onKeyDown(keydown('ArrowLeft'))
+  assert.equal(slider().props['aria-valuetext'], 'Low')
+  saves[0](false)
+  await settle()
+  assert.equal(slider().props['aria-valuetext'], 'High')
+})
+
+test('rapid effort picks collapse onto the latest level and save in order', async () => {
+  const reasoning = {
+    efforts: [{ id: 'low', name: 'Low' }, { id: 'medium', name: 'Medium' }, { id: 'high', name: 'High' }],
+    defaultEffort: 'low',
+  }
+  const saves = []
+  const picked = []
+  let active = 0
+  let maxActive = 0
+  const onPick = (effort) => {
+    picked.push(effort)
+    active += 1
+    maxActive = Math.max(maxActive, active)
+    return new Promise((resolve) => { saves.push((ok) => { active -= 1; resolve(ok) }) })
+  }
+  const bar = mount(EffortBar, { reasoning, current: 'low', onPick })
+  const slider = () => nodes(bar.tree, node => node.props.role === 'slider')[0]
+  const shown = () => slider().props['aria-valuetext']
+
+  // Low -> Medium -> High -> Medium -> High before the first save returns.
+  // Medium is the write in flight; the rest collapse into one pending High.
+  slider().props.onKeyDown(keydown('ArrowRight'))
+  slider().props.onKeyDown(keydown('ArrowRight'))
+  slider().props.onKeyDown(keydown('ArrowLeft'))
+  slider().props.onKeyDown(keydown('ArrowRight'))
+  assert.equal(shown(), 'High')
+  assert.deepEqual(picked, ['medium'])
+  assert.equal(active, 1)
+
+  // The in-flight save's own roster update is not the level the user landed on.
+  bar.rerender({ reasoning, current: 'medium', onPick })
+  assert.equal(shown(), 'High')
+  saves[0](true)
+  await settle()
+  assert.deepEqual(picked, ['medium', 'high'])
+  assert.equal(maxActive, 1)
+  assert.equal(shown(), 'High')
+
+  // An older roster value, arriving while the coalesced save is out, stays off the knob.
+  bar.rerender({ reasoning, current: 'low', onPick })
+  assert.equal(shown(), 'High')
+  saves[1](true)
+  await settle()
+  assert.equal(shown(), 'High')
+  assert.equal(active, 0)
+
+  // Once the queue is idle, a late intermediate update still loses to the last pick.
+  bar.rerender({ reasoning, current: 'medium', onPick })
+  assert.equal(shown(), 'High')
+  bar.rerender({ reasoning, current: 'high', onPick })
+  assert.equal(shown(), 'High')
+})
+
+// The details panel's form: refs get stand-ins, since no DOM backs them.
+function inline({ model = 'official/flash', effort, actions = {}, withEfforts } = {}) {
+  listeners.length = 0
+  const calls = { updates: [], refreshed: 0, focused: 0 }
+  const roster = {
+    ready: true,
+    defaultModel: 'official/flash',
+    models: [
+      { ref: 'official/flash', provider: 'official', providerName: 'DeepSeek', name: 'DeepSeek Flash', reasoning: thinking },
+      { ref: 'official/pro', provider: 'official', providerName: 'DeepSeek', name: 'DeepSeek Pro', reasoning: thinking },
+      { ref: 'plain/chat', provider: 'plain', providerName: 'Plain', name: 'Chat', reasoning: { efforts: [] } },
+    ],
+  }
+  const bot = { id: 'writer', name: 'Writer', model, effort }
+  const element = ModelMenu({
+    bot, roster, wide: true, inline: true, withEfforts,
+    run: promise => Promise.resolve(promise).then(() => true),
+    actions: {
+      updateBot: (id, patch) => { calls.updates.push([id, patch]); return Promise.resolve() },
+      refreshModels: () => { calls.refreshed += 1 },
+      openSettings: () => {},
+      ...actions,
+    },
+  })
+  const menu = mount(element.type, element.props)
+  const attach = () => {
+    for (const node of nodes(menu.tree, entry => entry.props.ref)) {
+      if (node.props.className === 'bt-model-inline') node.props.ref.current = { contains: target => target === 'inside' }
+      if (node.props.className === 'bt-model-trigger') node.props.ref.current = { focus: () => { calls.focused += 1 } }
+    }
+  }
+  attach()
+  const view = () => {
+    const [trigger, list, slider] = menu.tree.children
+    return { trigger, list, slider, root: menu.tree }
+  }
+  return { menu, calls, view, attach }
+}
+
+test('the slider sits under the model trigger and under the list once it opens', () => {
+  const { view, calls, attach } = inline()
+  let { root, trigger, list, slider } = view()
+  assert.equal(root.props.className, 'bt-model-inline')
+  assert.equal(trigger.props.className, 'bt-model-trigger')
+  assert.equal(trigger.props['aria-expanded'], false)
+  assert.equal(list.props.open, false)
+  assert.equal(slider.props.open, true)
+  assert.equal(nodes(slider, node => node.type === EffortBar).length, 1)
+  // Trigger first, list next, slider last: the order they stack in.
+  assert.deepEqual(root.children.map(child => child.type === 'button' ? 'trigger' : child === list ? 'list' : 'slider'), ['trigger', 'list', 'slider'])
+
+  trigger.props.onClick()
+  attach()
+  ;({ root, trigger, list, slider } = view())
+  assert.equal(trigger.props['aria-expanded'], true)
+  assert.equal(list.props.open, true)
+  assert.equal(nodes(list, node => node.props.role === 'menu').length, 1)
+  assert.equal(slider.props.open, true)
+  assert.equal(nodes(slider, node => node.type === EffortBar).length, 1)
+  assert.deepEqual(root.children.map(child => child.type === 'button' ? 'trigger' : child === list ? 'list' : 'slider'), ['trigger', 'list', 'slider'])
+  assert.equal(calls.refreshed, 1)
+})
+
+test('a model without thinking levels shows no slider, and neither does a pick that takes none', () => {
+  const plain = inline({ model: 'plain/chat' }).view()
+  assert.equal(plain.slider.props.open, false)
+  assert.equal(nodes(plain.slider, node => node.type === EffortBar).length, 0)
+  const without = inline({ withEfforts: false }).view()
+  assert.equal(without.slider.props.open, false)
+  assert.equal(nodes(without.slider, node => node.type === EffortBar).length, 0)
+})
+
+test('dragging or keying the slider saves the level at once, and Default clears it', async () => {
+  const { view, calls } = inline({ effort: 'low' })
+  const bar = () => nodes(view().slider, node => node.type === EffortBar)[0]
+  assert.equal(bar().props.current, 'low')
+  const saved = bar().props.onPick('high')
+  assert.equal(await saved, true)
+  await bar().props.onPick(undefined)
+  assert.equal(JSON.stringify(calls.updates), JSON.stringify([['writer', { effort: 'high' }], ['writer', { effort: null }]]))
+})
+
+test('picking a model closes the list, saves it, and returns focus to the trigger', () => {
+  const { view, calls, attach } = inline()
+  view().trigger.props.onClick()
+  attach()
+  const rows = nodes(view().list, node => node.props.onPick)[0]
+  rows.props.onPick('official/pro')
+  attach()
+  assert.equal(view().list.props.open, false)
+  assert.equal(view().trigger.props['aria-expanded'], false)
+  assert.equal(calls.focused, 1)
+  assert.equal(JSON.stringify(calls.updates), JSON.stringify([['writer', { model: 'official/pro' }]]))
+  // The slider stays where it was.
+  assert.equal(view().slider.props.open, true)
+})
+
+test('Escape and a click outside close the list; a click inside leaves it open', () => {
+  const { view, calls, attach } = inline()
+  view().trigger.props.onClick()
+  attach()
+  listener('mousedown')({ target: 'inside' })
+  assert.equal(view().list.props.open, true)
+  listener('mousedown')({ target: 'outside' })
+  assert.equal(view().list.props.open, false)
+  assert.equal(listener('keydown'), undefined)
+
+  view().trigger.props.onClick()
+  attach()
+  let stopped = false
+  listener('keydown')({ key: 'Escape', stopPropagation: () => { stopped = true }, preventDefault() {} })
+  assert.equal(view().list.props.open, false)
+  assert.equal(stopped, true)
+  assert.equal(calls.focused, 1)
+  // Closing took its listeners with it.
+  assert.equal(listener('mousedown'), undefined)
+})
+
+test('a menu that is not inline stays a popup with no slider under its trigger', () => {
+  const element = ModelMenu({
+    bot: { id: 'writer', name: 'Writer', model: 'official/flash' },
+    roster: { models: [{ ref: 'official/flash', provider: 'official', name: 'DeepSeek Flash', reasoning: thinking }] },
+    actions: {}, run: () => {},
+  })
+  const popup = mount(element.type, element.props)
+  assert.equal(nodes(popup.tree, node => node.props.className === 'bt-model-inline').length, 0)
+  assert.equal(nodes(popup.tree, node => node.type === EffortBar).length, 0)
+  assert.equal(nodes(popup.tree, node => node.props.className === 'bt-model-trigger').length, 1)
+})
+
+test('the popup can open before models load, then focus a model row from search', () => {
+  listeners.length = 0
+  let refreshed = 0
+  const { type, props } = ModelMenu({
+    bot: { id: 'new-bots', name: 'New Bots' }, roster: { models: [] }, withEfforts: false,
+    actions: { refreshModels: () => { refreshed += 1 } },
+  })
+  const popup = mount(type, props)
+  const trigger = popup.tree.children[0]
+  trigger.props.ref.current = { getBoundingClientRect: () => ({ top: 60, bottom: 92, right: 300, width: 160 }) }
+  trigger.props.onClick()
+  assert.equal(refreshed, 1)
+  const menu = () => nodes(popup.tree, node => node.props.role === 'menu')[0]
+  const search = () => nodes(menu(), node => node.props.type === 'search')[0]
+  assert.ok(menu())
+  assert.equal(search(), undefined)
+
+  popup.rerender({ ...props, roster: { models: [{ ref: 'official/flash', provider: 'official', name: 'DeepSeek Flash' }] } })
+  assert.equal(search().props.autoFocus, true)
+  const field = {}
+  const row = { focus: () => { sandbox.document.activeElement = row } }
+  menu().props.ref.current = { querySelectorAll: () => [row] }
+  sandbox.document.activeElement = field
+  search().props.onKeyDown({ ...keydown('ArrowDown'), currentTarget: field })
+  assert.equal(sandbox.document.activeElement, row)
+  sandbox.document.activeElement = null
+})
+
+test('wide select triggers fill stacked drawer and form fields while keeping settings controls capped', () => {
+  assert.match(MODEL_CSS, /\.bt-model-trigger\[data-wide\]\{[^}]*max-width:min\(340px,100%\)/)
+  assert.match(MODEL_CSS, /:is\(\.bt-drawer-model,\.bt-field\)\s+\.bt-model-trigger\[data-wide\]\{width:100%;max-width:100%\}/)
+})

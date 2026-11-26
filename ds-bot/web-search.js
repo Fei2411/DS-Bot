@@ -25,6 +25,8 @@ export const DEFAULTS = Object.freeze({
 
 const USER_AGENT = 'deepseek-harness/0.0.1'
 const SNIPPET_CHARS = 500
+// A provider's long model-readable extract (WebSearchSource.summary) beside the display snippet.
+const SUMMARY_CHARS = 1000
 const PROMPT = query => `Perform a web search for the query: ${query}`
 
 const MINUTE = 60_000
@@ -126,16 +128,18 @@ const attrOf = (attrs, attr) => {
 const plain = value => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '')
 
 /** One portable source from plain-text fields; empty optional fields are omitted rather than invented. */
-const sourceOf = (url, title, snippet, publishedAt) => {
+const sourceOf = (url, title, snippet, publishedAt, summary) => {
   const href = httpUrl(url)
   if (href === undefined) return undefined
   const cleanTitle = plain(title)
   const cleanSnippet = plain(snippet)
+  const cleanSummary = plain(summary)
   const date = str(publishedAt)
   return {
     url: href,
     ...cleanTitle ? { title: clip(cleanTitle, 300) } : {},
     ...cleanSnippet ? { snippet: clip(cleanSnippet, SNIPPET_CHARS) } : {},
+    ...cleanSummary ? { summary: clip(cleanSummary, SUMMARY_CHARS) } : {},
     ...date ? { publishedAt: date } : {},
   }
 }
@@ -215,7 +219,10 @@ export function readGemini(body) {
 
 const URL_KEYS = ['url', 'uri', 'link']
 const TITLE_KEYS = ['title', 'name', 'site_name']
+// Keep `summary` ahead of `content` so existing providers that return both still show the
+// summary as the display snippet. The same `summary` field is also kept via SUMMARY_KEYS.
 const SNIPPET_KEYS = ['snippet', 'summary', 'content', 'description', 'cited_text', 'text']
+const SUMMARY_KEYS = ['summary']
 const DATE_KEYS = ['published_date', 'publish_date', 'publish_time', 'page_age', 'date', 'last_updated']
 // Media links are not results, and a response that echoes the request's tools is not a search.
 const NOT_SOURCES = new Set(['image_url', 'images', 'image', 'icon', 'favicon', 'logo', 'logo_url', 'thumbnail', 'tools'])
@@ -229,7 +236,7 @@ export function findSources(body) {
     if (depth > 16 || value === null || typeof value !== 'object') return
     if (Array.isArray(value)) { for (const item of value) visit(item, depth + 1); return }
     const url = URL_KEYS.map(key => httpUrl(value[key])).find(Boolean)
-    if (url !== undefined) found.push(sourceOf(url, firstText(value, TITLE_KEYS), firstText(value, SNIPPET_KEYS), firstText(value, DATE_KEYS)))
+    if (url !== undefined) found.push(sourceOf(url, firstText(value, TITLE_KEYS), firstText(value, SNIPPET_KEYS), firstText(value, DATE_KEYS), firstText(value, SUMMARY_KEYS)))
     for (const [key, child] of Object.entries(value)) if (!NOT_SOURCES.has(key)) visit(child, depth + 1)
   }
   visit(body, 0)
@@ -318,6 +325,10 @@ const UNKNOWN_PROTOCOL = ['responses', 'messages']
  * `$maxResults` in a body are replaced per call. Each path is joined to the route's own origin.
  */
 export const SEARCH_APIS = Object.freeze([
+  // api-docs.deepseek.com/guides/search; a search with no matches answers results: [], a
+  // successful unbilled search — so it ends native probing instead of paying for another
+  // native endpoint (the keyless fallback still runs).
+  { id: 'deepseek', name: 'DeepSeek Search API', hosts: ['api.deepseek.com'], path: '/v1/tools/search', maxResults: 50, maxQueryChars: 128, body: { query: '$query', count: '$maxResults', need_content: false } },
   // docs.ollama.com/capabilities/web-search
   { id: 'ollama', name: 'Ollama web search API', hosts: ['ollama.com'], path: '/api/web_search', maxResults: 10, body: { query: '$query', max_results: '$maxResults' } },
   // platform.kimi.ai; an empty result is not billed.
@@ -389,6 +400,9 @@ export function planNative(route, searchApis = SEARCH_APIS) {
   const candidates = []
   for (const api of searchApis) {
     if (!hostMatches(api.hosts, url.hostname)) continue
+    // The route's own key authenticates a declared API, so it is planned only on https:
+    // a plain-http base would put the bearer token on the wire in the clear.
+    if (url.protocol !== 'https:') continue
     if (model === undefined && usesModel(api)) continue
     const candidate = declaredCandidate(api, url.origin, model)
     if (candidate !== undefined) candidates.push(candidate)
@@ -528,6 +542,47 @@ const errorDetail = (text) => {
   } catch { return '' }
 }
 
+const MAX_SEARCH_RESPONSE_BYTES = 10 * 1024 * 1024
+const MEMORY_MAX_ENTRIES = 200
+
+async function readCappedText(response, maxBytes = MAX_SEARCH_RESPONSE_BYTES) {
+  const declared = Number(response.headers?.get?.('content-length'))
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel?.().catch(() => {})
+    throw Object.assign(new Error(`response exceeds ${Math.floor(maxBytes / 1024 / 1024)} MB cap`), { overLimit: true })
+  }
+  if (response.body && typeof response.body.getReader === 'function') {
+    const reader = response.body.getReader()
+    const chunks = []
+    let total = 0
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const bytes = Buffer.isBuffer(value)
+          ? value
+          : Buffer.from(value.buffer, value.byteOffset, value.byteLength)
+        total += bytes.byteLength
+        if (total > maxBytes) {
+          throw Object.assign(new Error(`response exceeds ${Math.floor(maxBytes / 1024 / 1024)} MB cap`), { overLimit: true })
+        }
+        chunks.push(bytes)
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => {})
+      throw error
+    } finally {
+      reader.releaseLock?.()
+    }
+    return Buffer.concat(chunks, total).toString('utf8')
+  }
+  const text = await response.text()
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+    throw Object.assign(new Error(`response exceeds ${Math.floor(maxBytes / 1024 / 1024)} MB cap`), { overLimit: true })
+  }
+  return text
+}
+
 /**
  * Build the `auto` search provider over injected effects, so tests run it without a host.
  * @param deps.route - the asking Session's route: `{ provider, model, api, baseURL, apiKeyEnv, account, headers }`.
@@ -541,6 +596,11 @@ export function createAutoSearchProvider(deps, config = {}) {
   const now = deps.now ?? Date.now
   // route + endpoint + model → `{ works: true }` or `{ until, reason }`, for this process.
   const memory = new Map()
+  const remember = (key, value) => {
+    memory.delete(key)
+    memory.set(key, value)
+    while (memory.size > MEMORY_MAX_ENTRIES) memory.delete(memory.keys().next().value)
+  }
 
   async function credentialFor(route, endpoint) {
     if (route.account) {
@@ -572,9 +632,10 @@ export function createAutoSearchProvider(deps, config = {}) {
         body: JSON.stringify(call.body),
         signal: signal === undefined ? timeout.signal : AbortSignal.any([signal, timeout.signal]),
       })
-      text = await response.text()
+      text = await readCappedText(response, MAX_SEARCH_RESPONSE_BYTES)
     } catch (error) {
       if (signal?.aborted) throw aborted(signal)
+      if (error?.overLimit === true) return { reason: `answered with a body over ${Math.floor(MAX_SEARCH_RESPONSE_BYTES / 1024 / 1024)} MB`, skip: 'ignored' }
       return timeout.signal.aborted ? { reason: `timed out after ${seconds(budget)}`, timedOut: true } : { reason: `request failed: ${reasonOf(error)}` }
     } finally {
       clearTimeout(timer)
@@ -621,7 +682,7 @@ export function createAutoSearchProvider(deps, config = {}) {
       if (remaining <= 0) { notes.push(`${where}: skipped, out of time`); continue }
       const outcome = await attempt(candidate, route, credential, request, signal, remaining, memo?.works === true)
       if (outcome.sources !== undefined) {
-        memory.set(keyOf(candidate), { works: true })
+        remember(keyOf(candidate), { works: true })
         return {
           result: {
             content: `Search backend: native search of this conversation's model route "${route.provider}": ${where}, billed to ${credential.via}.`,
@@ -631,7 +692,7 @@ export function createAutoSearchProvider(deps, config = {}) {
         }
       }
       notes.push(`${where}: ${outcome.reason}`)
-      if (outcome.skip !== undefined) memory.set(keyOf(candidate), { until: now() + SKIP_FOR[outcome.skip], reason: outcome.reason })
+      if (outcome.skip !== undefined) remember(keyOf(candidate), { until: now() + SKIP_FOR[outcome.skip], reason: outcome.reason })
       if (outcome.final) break
       // A timed-out attempt had all the time that was left, but the timer and now() use
       // different clocks, so now() can still read a millisecond before the deadline.

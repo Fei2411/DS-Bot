@@ -1,0 +1,490 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { AppState } from 'react-native'
+import type { RpcClient } from '../../../link/src/index.ts'
+import { callBot, callBotState, openLink, type TeamState } from '../connection.ts'
+import { ensureUnlock } from './gate'
+import { createNoticeCursor, type NoticeCursorAnswer } from './notices.ts'
+import { OPTIMISTIC, optimistic, withWrites, type Write } from './optimistic.ts'
+import { fillTeamPhotos } from './photos.ts'
+import { acquireTransferHold, hasActiveTransferHolds, onTransferHoldsIdle } from './transfer-hold.ts'
+import { t } from '../ui/i18n.ts'
+import type { PhoneIdentity, SavedComputer } from '../store.ts'
+
+// Feed events keep the app live; the poll only stays as a foreground fallback.
+const POLL_MS = 15_000
+const RETRY_MS = 2_000
+// Grace window before closing the foreground socket when backgrounded in non-keepalive mode,
+// long enough to survive transient permission dialogs while releasing the relay session before
+// Android freezes the process (preventing 75s offline-push blackholes and blocked periodic sync).
+export const BACKGROUND_DISCONNECT_MS = 4_000
+// Writes that settle pending items without always bumping state.revision.
+const PENDING_MUTATING = new Set([
+  'approval-answer',
+  'learning-answer',
+  'browser-give-back',
+  'browser-takeover',
+  'browser-stop',
+  'answer-question',
+  'view-reply',
+  'dismiss-question',
+  'dismiss-view',
+  'secret-set',
+  'secret-allow',
+  'secret-cancel',
+])
+
+// Profile photos travel by reference and are fetched once per content hash
+// (`avatars: 'ref'` on `state`, then the `avatar` endpoint per new ref).
+const photoCache = new Map<string, string>()
+const photoFetching = new Set<string>()
+
+export interface Hello { api: number | null; capabilities: string[]; boot: string; seq: number }
+export type FeedHandler = (event: string, data: any) => void
+export interface TeamLinkHooks {
+  keepAliveInBackground?: () => boolean
+  onConnected?: (hello: Hello, call: (endpoint: string, payload?: unknown) => Promise<unknown>) => void
+  onDisconnected?: () => void
+  loadCursor?: () => Promise<{ boot: string; seq: number } | null>
+  onCursor?: (boot: string, seq: number) => void
+}
+
+export function rejected(error: unknown): boolean {
+  const code = (error as { code?: unknown })?.code
+  return code === 'NOT_PAIRED' || code === 'PAIRING_REJECTED'
+}
+
+export function reconnectDelayMs(hadLink: boolean, failStreak: number): number {
+  return hadLink && failStreak === 0 ? 0 : RETRY_MS
+}
+
+// Keeps the link up and the team state fresh. `call` runs one /api/bot endpoint.
+export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, hooks?: TeamLinkHooks) {
+  const hooksRef = useRef(hooks)
+  hooksRef.current = hooks
+  const [team, setTeam] = useState<TeamState | null>(null)
+  const [online, setOnline] = useState(false)
+  // The encrypted link is up (calls can go), before the handshake says the computer is current.
+  const [linked, setLinked] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [hello, setHello] = useState<Hello | null>(null)
+  const clientRef = useRef<RpcClient | undefined>(undefined)
+  const revision = useRef<number>(-1)
+  const writes = useRef<Write[]>([])
+  const liveKey = useRef<string | undefined>(undefined)
+  const pollRef = useRef<() => void>(() => {})
+  const feedHandlers = useRef(new Set<FeedHandler>())
+  const hostRef = useRef(computer.hostDeviceId)
+  const switched = hostRef.current !== computer.hostDeviceId
+  if (switched) {
+    hostRef.current = computer.hostDeviceId
+    void clientRef.current?.close()
+    clientRef.current = undefined
+    revision.current = -1
+    writes.current = []
+    liveKey.current = undefined
+    setTeam(null)
+    setOnline(false)
+    setLinked(false)
+    setError(null)
+    setHello(null)
+  }
+  const onFeed = useCallback((handler: FeedHandler) => {
+    feedHandlers.current.add(handler)
+    return () => { feedHandlers.current.delete(handler) }
+  }, [])
+
+  function fetchPhoto(id: string, ref: string, group: boolean) {
+    if (photoFetching.has(ref)) return
+    const client = clientRef.current
+    if (client === undefined) return
+    photoFetching.add(ref)
+    void callBot<{ ref?: string | null; image?: string | null }>(client, 'avatar', group ? { roomId: id } : { botId: id })
+      .then(answer => {
+        if (typeof answer.image === 'string') photoCache.set(typeof answer.ref === 'string' ? answer.ref : ref, answer.image)
+        // Re-fill the current team now that this photo is cached.
+        setTeam(prev => (prev === null ? prev : fillPhotos(prev, prev)))
+      })
+      .catch(() => {})
+      .finally(() => photoFetching.delete(ref))
+  }
+
+  function fillPhotos(team: TeamState, prev: TeamState | null): TeamState {
+    if (!Array.isArray(team.bots)) return team
+    return fillTeamPhotos(team, prev, photoCache, fetchPhoto)
+  }
+
+  // One place every state answer goes through. An older in-flight poll must
+  // not overwrite a newer write reply.
+  const apply = useCallback((next: TeamState) => {
+    if (next.revision < revision.current) return
+    revision.current = next.revision
+    if (typeof next.liveKey === 'string') liveKey.current = next.liveKey
+    setTeam(prev => {
+      const merged = next.unchanged === true && prev !== null ? { ...prev, ...next } : next
+      return fillPhotos(withWrites(merged, writes.current), prev)
+    })
+  }, [])
+
+  const call = useCallback(async (endpoint: string, payload: unknown = {}) => {
+    const client = clientRef.current
+    if (client === undefined) throw offline()
+    const releaseTransfer = endpoint === 'file-download' ? acquireTransferHold() : undefined
+    try {
+      await ensureUnlock(endpoint)
+      if (clientRef.current !== client) throw offline()
+      if (endpoint === 'state' || endpoint === 'hello' || endpoint === 'notices' || endpoint === 'push-register' || endpoint === 'push-unregister') {
+        return await callBot(client, endpoint, payload)
+      }
+      // Show the write's effect at once; the reply's state (or a full reload
+      // on failure) puts the computer's truth back over it.
+      const write: Write = { endpoint, payload: payload as Record<string, unknown> }
+      if (OPTIMISTIC.has(endpoint)) writes.current.push(write)
+      setTeam(prev => optimistic(prev, endpoint, write.payload))
+      try {
+        const answer = await callBotState<unknown>(client, endpoint, payload, { since: revision.current, avatars: 'ref', live: liveKey.current })
+        writes.current = writes.current.filter(entry => entry !== write)
+        if (answer.state !== undefined && clientRef.current === client) apply(answer.state)
+        else if (PENDING_MUTATING.has(endpoint) && clientRef.current === client) pollRef.current()
+        return answer.value
+      } finally {
+        writes.current = writes.current.filter(entry => entry !== write)
+      }
+    } catch (failure) {
+      // Snap back to the computer's truth: forget the revision and re-read all.
+      if (OPTIMISTIC.has(endpoint) && clientRef.current === client) {
+        revision.current = -1
+        pollRef.current()
+      }
+      throw localized(failure)
+    } finally {
+      releaseTransfer?.()
+    }
+  }, [apply])
+
+  useEffect(() => {
+    let stopped = false
+    let connecting = false
+    let hadLink = false
+    let failStreak = 0
+    let bgDisconnectPending = false
+    let bgDisconnected = false
+    let appStatus: string = AppState.currentState ?? 'active'
+    let activeClient: RpcClient | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let bgTimer: ReturnType<typeof setTimeout> | undefined
+    revision.current = -1
+    writes.current = []
+    liveKey.current = undefined
+    const noticeCursor = createNoticeCursor()
+    setTeam(null)
+    setOnline(false)
+    setLinked(false)
+    setError(null)
+    setHello(null)
+    // One pending timer: every feed event polls, and each poll would otherwise start another loop.
+    const later = (run: () => void, ms: number) => { clearTimeout(timer); if (!stopped) timer = setTimeout(run, ms) }
+    const scheduleReconnect = () => {
+      const delay = reconnectDelayMs(hadLink, failStreak)
+      failStreak += 1
+      later(() => void connect(), delay)
+    }
+    const disconnectForBackground = () => {
+      bgTimer = undefined
+      if (stopped || appStatus === 'active' || hooksRef.current?.keepAliveInBackground?.() === true) {
+        bgDisconnectPending = false
+        return
+      }
+      if (hasActiveTransferHolds()) {
+        bgDisconnectPending = true
+        return
+      }
+      bgDisconnectPending = false
+      clearTimeout(timer)
+      const client = activeClient
+      if (client === undefined) return
+      bgDisconnected = true
+      activeClient = undefined
+      if (clientRef.current === client) clientRef.current = undefined
+      setOnline(false)
+      setLinked(false)
+      hooksRef.current?.onDisconnected?.()
+      void client.close()
+    }
+    const offTransfersIdle = onTransferHoldsIdle(() => {
+      if (bgDisconnectPending) disconnectForBackground()
+    })
+    // One read at a time: a burst of feed events while a Bot works becomes one
+    // read now and at most one more after it, not a pile of reads over a slow link.
+    let reading = false
+    let again = false
+    const poll = async () => {
+      const client = clientRef.current
+      if (stopped || client === undefined) return
+      if (reading) { again = true; return }
+      reading = true
+      try {
+        const next = await callBot<TeamState>(client, 'state', { since: revision.current, avatars: 'ref', live: liveKey.current })
+        if (stopped || clientRef.current !== client) return
+        apply(next)
+        setError(null)
+      } catch (failure) {
+        if (!stopped && clientRef.current === client) setError(errorText(failure))
+      } finally {
+        reading = false
+        if (!stopped && clientRef.current === client) {
+          if (again) { again = false; void poll() }
+          else if (appStatus !== 'background') later(() => void poll(), POLL_MS)
+        } else {
+          again = false
+        }
+      }
+    }
+    pollRef.current = () => void poll()
+    const connect = async () => {
+      if (stopped || connecting || clientRef.current !== undefined) return
+      if (appStatus === 'background' && hooksRef.current?.keepAliveInBackground?.() !== true) return
+      bgDisconnected = false
+      connecting = true
+      let client: RpcClient | undefined
+      try {
+        client = await openLink(computer, identity)
+        if (stopped || (appStatus === 'background' && hooksRef.current?.keepAliveInBackground?.() !== true)) {
+          void client.close()
+          return
+        }
+        activeClient = client
+        clientRef.current = client
+        setLinked(true)
+
+        // Register close and feed handlers immediately after openLink() so a drop
+        // or event during the hello/notices handshake is never missed.
+        let handshakeReady = false
+        let activeBoot = ''
+        let catchingUp = true
+        const bufferedEvents: { event: string; data: any }[] = []
+        const bufferedLiveNotices: unknown[] = []
+
+        const emitNotice = (boot: string, entry: any) => {
+          const enriched = entry && typeof entry === 'object' && !('boot' in entry)
+            ? { ...entry, boot }
+            : entry
+          for (const handler of feedHandlers.current) handler('notice', enriched)
+        }
+
+        const dispatchEvent = (event: string, data: any) => {
+          if (stopped || clientRef.current !== client) return
+          if (event === 'notice') {
+            if (catchingUp) {
+              bufferedLiveNotices.push(data)
+              return
+            }
+            if (!noticeCursor.acceptLive(activeBoot, data)) return
+            if (appStatus === 'active' && typeof data?.seq === 'number') {
+              hooksRef.current?.onCursor?.(activeBoot, data.seq)
+            }
+            emitNotice(activeBoot, data)
+            return
+          }
+          if (event === 'revision' || event === 'live') void poll()
+          for (const handler of feedHandlers.current) handler(event, data)
+        }
+
+        client.onClose(() => {
+          if (stopped || clientRef.current !== client) return
+          activeClient = undefined
+          clientRef.current = undefined
+          setOnline(false)
+          setLinked(false)
+          hooksRef.current?.onDisconnected?.()
+          clearTimeout(timer)
+          if (appStatus !== 'background' || hooksRef.current?.keepAliveInBackground?.() === true) {
+            scheduleReconnect()
+          }
+        })
+
+        client.onEvent(({ event, data }: { event: string; data: any }) => {
+          if (stopped || clientRef.current !== client) return
+          if (!handshakeReady) {
+            bufferedEvents.push({ event, data })
+            return
+          }
+          dispatchEvent(event, data)
+        })
+
+        // The handshake: its api is null when the computer's DS Bot is too old for
+        // this app. The team read goes out with it, not after it: each is a round
+        // trip through the relay.
+        void poll()
+        const [helloResult, persisted] = await Promise.all([
+          callBot<Hello>(client, 'hello', {}),
+          hooksRef.current?.loadCursor?.().catch(() => null) ?? Promise.resolve(null),
+        ])
+        if (stopped || clientRef.current !== client) { void client.close(); return }
+        if (helloResult.api === null) {
+          if (activeClient === client) activeClient = undefined
+          if (clientRef.current === client) clientRef.current = undefined
+          setError(t('Update DS Bot on the computer to use this phone.'))
+          setLinked(false)
+          void client.close()
+          connecting = false
+          scheduleReconnect()
+          return
+        }
+        hadLink = true
+        failStreak = 0
+        activeBoot = helloResult.boot
+        setHello(helloResult)
+        setOnline(true)
+        setError(null)
+        hooksRef.current?.onConnected?.(helloResult, (endpoint, payload) => callBot(client!, endpoint, payload))
+        // Seed memory cursor from persisted cursor so notices already delivered via offline
+        // push or periodic sync are not replayed as duplicates.
+        if (persisted !== null && persisted !== undefined) {
+          noticeCursor.connect(persisted)
+        } else {
+          // Seed initial watermark before emitting any live notices so historical notices do not flood
+          // and subsequent background deliveries are not masked by a late synchronous cursor jump.
+          hooksRef.current?.onCursor?.(helloResult.boot, helloResult.seq)
+        }
+        const { sameBoot, since } = noticeCursor.connect(helloResult)
+        handshakeReady = true
+        while (bufferedEvents.length > 0) {
+          const queued = bufferedEvents.shift()!
+          dispatchEvent(queued.event, queued.data)
+        }
+
+        const queryBoot = persisted !== null && persisted !== undefined ? persisted.boot : helloResult.boot
+        const querySince = persisted !== null && persisted !== undefined ? persisted.seq : since
+        void callBot(client, 'notices', { boot: queryBoot, since: querySince }).then(answer => {
+          if (stopped || clientRef.current !== client) return
+          const typed = answer as NoticeCursorAnswer
+          const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, typed)
+          const nextBoot = typeof typed.boot === 'string' && typed.boot.length > 0 ? typed.boot : helloResult.boot
+          activeBoot = nextBoot
+          let maxSeq = typeof typed.seq === 'number' ? typed.seq : helloResult.seq
+          const toEmit = reset && persisted !== null && persisted !== undefined && Array.isArray(typed.notices)
+            ? typed.notices
+            : replay
+          if (reset || toEmit.length > 0) void poll()
+          for (const entry of toEmit) {
+            emitNotice(nextBoot, entry)
+          }
+          let emittedBuffered = 0
+          while (bufferedLiveNotices.length > 0) {
+            const entry = bufferedLiveNotices.shift() as { seq?: unknown }
+            if (!noticeCursor.acceptLive(nextBoot, entry)) continue
+            if (typeof entry?.seq === 'number' && entry.seq > maxSeq) maxSeq = entry.seq
+            emittedBuffered += 1
+            emitNotice(nextBoot, entry)
+          }
+          catchingUp = false
+          // When backgrounded and notices were emitted, deliverSystemNotice advances the persisted cursor
+          // asynchronously per notice; avoid racing ahead of it and dropping those alerts.
+          if (appStatus === 'active' || (toEmit.length === 0 && emittedBuffered === 0)) {
+            hooksRef.current?.onCursor?.(nextBoot, maxSeq)
+          }
+        }).catch(() => {
+          if (stopped || clientRef.current !== client) return
+          while (bufferedLiveNotices.length > 0) {
+            const entry = bufferedLiveNotices.shift()
+            if (!noticeCursor.acceptLive(activeBoot, entry)) continue
+            emitNotice(activeBoot, entry)
+          }
+          catchingUp = false
+        })
+      } catch (failure) {
+        if (stopped) return
+        const closedAlready = client !== undefined && clientRef.current !== client
+        if (client !== undefined && clientRef.current === client) {
+          if (activeClient === client) activeClient = undefined
+          clientRef.current = undefined
+          setOnline(false)
+          setLinked(false)
+          void client.close()
+        }
+        const intentionalBgClose = bgDisconnected && closedAlready && !rejected(failure)
+        if (!intentionalBgClose) {
+          const code = (failure as { code?: unknown })?.code
+          setError(code === 'bot/not-found' ? t('Update DS Bot on the computer to use this phone.') : errorText(failure))
+        }
+        if (rejected(failure)) setTeam(null)
+        else if (!closedAlready && (appStatus !== 'background' || hooksRef.current?.keepAliveInBackground?.() === true)) {
+          connecting = false
+          scheduleReconnect()
+        }
+      } finally {
+        connecting = false
+      }
+    }
+    void connect()
+    const foreground = AppState.addEventListener('change', status => {
+      appStatus = status
+      if (status !== 'active') {
+        if (hooksRef.current?.keepAliveInBackground?.() !== true) {
+          clearTimeout(timer)
+          if (status === 'background' && bgTimer === undefined) {
+            bgTimer = setTimeout(disconnectForBackground, BACKGROUND_DISCONNECT_MS)
+          }
+        }
+        return
+      }
+      bgDisconnectPending = false
+      bgDisconnected = false
+      if (bgTimer !== undefined) {
+        clearTimeout(bgTimer)
+        bgTimer = undefined
+      }
+      failStreak = 0
+      const client = clientRef.current
+      if (client === undefined) { clearTimeout(timer); void connect(); return }
+      // Waking is the common half-open case: probe quickly so a dead socket
+      // declares itself instead of letting the poll hang.
+      client.probe(2_500)
+      void poll()
+    })
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+      clearTimeout(bgTimer)
+      offTransfersIdle()
+      foreground.remove()
+      if (activeClient !== undefined) {
+        hooksRef.current?.onDisconnected?.()
+        void activeClient.close()
+        if (clientRef.current === activeClient) clientRef.current = undefined
+      }
+    }
+  }, [computer, identity, apply])
+
+  const refresh = useCallback(() => pollRef.current(), [])
+
+  return {
+    team: switched ? null : team,
+    online: switched ? false : online,
+    linked: switched ? false : linked,
+    error: switched ? null : error,
+    call,
+    refresh,
+    clientRef,
+    hello: switched ? null : hello,
+    onFeed,
+  }
+}
+
+export function errorText(error: unknown): string {
+  const code = (error as { code?: unknown })?.code
+  if (rejected(error)) return t('The computer did not accept this phone. Show a new QR code on the computer and scan it again.')
+  if (code === 'HOST_OFFLINE') return t('The computer is not connected to the Server. Check that DS Bot is open and phone access is on.')
+  if (code === 'SERVER_UNREACHABLE') return t('Could not reach the Server. Check the network. If the computer\'s Server address changed, pair again under Computers.')
+  return t(error instanceof Error ? error.message : String(error))
+}
+
+export const offline = () => Object.assign(new Error(t('Not connected to the computer yet.')), { code: 'link/offline' })
+
+// Host errors arrive in the plugin's English; screens show error.message as is.
+function localized(failure: unknown): unknown {
+  // The link dropping mid-call is the same state as being offline.
+  if ((failure as { code?: unknown })?.code === 'TRANSPORT_CLOSED') return offline()
+  if (failure instanceof Error) failure.message = t(failure.message)
+  return failure
+}

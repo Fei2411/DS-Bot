@@ -6,7 +6,7 @@
 /* tokens */
 /* Generated from the DeepSeek theme in ds-bot/src/client/themes.js, inks.js and styles.js by scripts/start-assets.mjs; do not edit. */
 .dsb-card-layer{color-scheme:light dark;--bt-main:#fcfcfc;--bt-card:#ffffff;--bt-ink:#141414;--bt-ink-2:rgba(20,20,20,0.6);--bt-line:rgba(20,20,20,0.08);--bt-line-2:rgba(20,20,20,0.15);--bt-hover:rgba(119,119,119,.09);--bt-accent:#4d6bfe;--bt-accent-ink:#ffffff;--bt-ink-deepseek:#4D6BFE;--bt-green:#00c972;--bt-danger:#e02135}
-@media (prefers-color-scheme:dark){.dsb-card-layer{--bt-main:#141414;--bt-card:#1f1f1f;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,0.6);--bt-line:rgba(242,242,242,0.08);--bt-line-2:rgba(242,242,242,0.15);--bt-hover:rgba(160,160,160,.12);--bt-accent:#5b7bff;--bt-accent-ink:#141414;--bt-ink-deepseek:#6A84FF}}
+@media (prefers-color-scheme:dark){.dsb-card-layer{--bt-main:#141414;--bt-card:#1f1f1f;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,0.6);--bt-line:rgba(242,242,242,0.08);--bt-line-2:rgba(242,242,242,0.15);--bt-hover:rgba(160,160,160,.12);--bt-accent:#4d6bfe;--bt-accent-ink:#ffffff;--bt-ink-deepseek:#6A84FF}}
 /* /tokens */
 /* springs */
 /* Generated from ds-bot/src/client/motion.js by scripts/start-assets.mjs; do not edit. */
@@ -24,7 +24,7 @@
 }
 /* /springs */
 
-.dsb-card-layer{position:fixed;inset:0;z-index:2147483646;display:grid;place-items:center;padding:16px;box-sizing:border-box;background:rgba(0,0,0,.28);font:14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;color:var(--bt-ink);-webkit-app-region:no-drag;app-region:no-drag;opacity:0;transition:opacity .16s ease-in}
+.dsb-card-layer{position:fixed;inset:0;z-index:2147483646;display:grid;place-items:center;padding:16px;box-sizing:border-box;background:rgba(0,0,0,.28);font:14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:var(--bt-ink);-webkit-app-region:no-drag;app-region:no-drag;opacity:0;transition:opacity .16s ease-in}
 @media (prefers-color-scheme:dark){.dsb-card-layer{background:rgba(0,0,0,.5)}}
 .dsb-card-layer[data-open]{opacity:1;transition:opacity .22s ease-out}
 .dsb-card-layer *{box-sizing:border-box}
@@ -38,7 +38,7 @@
 .dsb-card-btn{all:unset;display:inline-flex;align-items:center;justify-content:center;flex:none;height:36px;padding:0 16px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:14px;line-height:20px;white-space:nowrap;cursor:pointer;transition:background-color .12s,color .12s,scale var(--spring-tap-ms) var(--spring-tap)}
 .dsb-card-btn:hover{background:color-mix(in srgb,var(--bt-hover),var(--bt-ink) 6%)}
 .dsb-card-btn:active{scale:.96}
-.dsb-card-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.dsb-card-btn:focus-visible,.dsb-picker-up:focus-visible,.dsb-picker-crumb:focus-visible,.dsb-picker-root:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .dsb-card-btn[data-look=primary]{background:var(--bt-accent);color:var(--bt-accent-ink)}
 .dsb-card-btn[data-look=primary]:hover{background:color-mix(in srgb,var(--bt-accent),var(--bt-ink) 10%)}
 /* The app's own folder and file picker (preload.cjs showPicker): the card made wide and tall,
@@ -103,10 +103,17 @@
   .dsb-card-btn,.dsb-card-btn:active{transition:background-color .12s,color .12s;scale:none}
   .dsb-picker-up,.dsb-picker-up:active{transition:background-color .12s;scale:none}
 }
+:is(html[data-effects=reduced],html[data-effects=off],body[data-bt-effects=reduced],body[data-bt-effects=off]) .dsb-card-layer[data-leaving] .dsb-card{filter:none}
+:is(html[data-effects=off],body[data-bt-effects=off]) .dsb-card-layer,:is(html[data-effects=off],body[data-bt-effects=off]) .dsb-card-layer *{animation:none!important;transition:none!important}
+:is(html[data-effects=off],body[data-bt-effects=off]) .dsb-card,:is(html[data-effects=off],body[data-bt-effects=off]) .dsb-card-btn:active,:is(html[data-effects=off],body[data-bt-effects=off]) .dsb-picker-up:active{scale:none}
 /* The corners DSH gives every element (dsh-client-ui-theme corner-shape.css), which all:unset
    above takes off the card's controls, and which the start window does not have; last, so it
    wins over all:unset. The up button stays a circle, as the plugin's icon buttons do. */
 @supports (corner-shape:superellipse(1.5)){
   .dsb-card-layer,.dsb-card-layer *,.dsb-card-layer ::before,.dsb-card-layer ::after{corner-shape:superellipse(1.5)}
   .dsb-card-layer .dsb-picker-up{corner-shape:round}
+}
+@media (forced-colors:active){
+  .dsb-card-btn,.dsb-picker-up{border:1px solid ButtonText}
+  .dsb-picker-root[aria-current],.dsb-picker-row[aria-selected=true]{outline:1px solid Highlight}
 }

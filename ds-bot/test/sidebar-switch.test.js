@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
+import { createSource } from '../src/client/sources.js'
 
 // jsdom comes from the harness that test/harness-resolve.mjs found, like the dsh packages.
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -16,7 +17,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // fixtures retain refs across commits and run their layout effects after each render.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { SHELL_CSS } from './src/client/styles.js'\nexport { SIDEBAR_CSS, TeamSidebar } from './src/client/sidebar.js'",
+    contents: "export { SHELL_CSS } from './src/client/styles.js'\nexport { SIDEBAR_CSS, TeamSidebar, PluginsButton } from './src/client/sidebar.js'\nexport { dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } from './src/client/frame-watch.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -24,6 +25,9 @@ const { outputFiles } = await build({
 })
 let renderRefs
 let refIndex = 0
+let renderStates
+let stateIndex = 0
+let scheduleStateRender
 let layoutEffects
 const react = {
   createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
@@ -31,18 +35,32 @@ const react = {
   useCallback: fn => fn,
   useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), Fragment: Symbol('Fragment'),
-  useEffect() {}, useLayoutEffect: effect => layoutEffects?.push(effect), useState: initial => [initial, () => {}],
+  useEffect() {}, useLayoutEffect: effect => layoutEffects?.push(effect),
+  useState: (initial) => {
+    if (!renderStates) return [initial, () => {}]
+    const states = renderStates
+    const schedule = scheduleStateRender
+    const index = stateIndex++
+    if (!(index in states)) states[index] = typeof initial === 'function' ? initial() : initial
+    return [states[index], (next) => {
+      const value = typeof next === 'function' ? next(states[index]) : next
+      if (!Object.is(states[index], value)) {
+        states[index] = value
+        schedule?.()
+      }
+    }]
+  },
   useMemo: make => make(), useRef: current => renderRefs ? renderRefs[refIndex++] ??= { current } : { current }, useId: () => 'id',
 }
 const module = { exports: {} }
 const viewport = { innerWidth: 1280 }
 const sandbox = {
   module, exports: module.exports,
-  require: name => (name === 'react' ? react : {}),
+  require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: tree => tree } : {}),
   window: viewport,
 }
 runInNewContext(outputFiles[0].text, sandbox)
-const { SHELL_CSS, SIDEBAR_CSS, TeamSidebar } = module.exports
+const { SHELL_CSS, SIDEBAR_CSS, TeamSidebar, PluginsButton, dshCollapsed, installFrameWatch, sidebarTrackWidth, chatRoom } = module.exports
 
 function navigationSidebar(wide, { leftDrawer = false } = {}) {
   const calls = []
@@ -278,11 +296,14 @@ const showing = rules.filter(rule => /display:inline-flex/.test(rule.body))
 
 // The shell sidebar's own markup (dsh-client-ui-sidebar SidebarRoot), reduced to what the
 // team view reshapes: the switch is in the logo row, except in a macOS desktop window,
-// where it sits in the strip by the window buttons.
+// where it sits in the strip by the window buttons. `mac` is DSH Desktop with the system
+// title bar; `mac-frameless` is the packaged app, whose window has no system title bar and
+// so carries the title-bar attribute as well.
 function shell({ platform, collapsed }) {
-  const darwin = platform === 'mac'
+  const darwin = platform === 'mac' || platform === 'mac-frameless'
+  const titlebar = platform === 'windows' || platform === 'mac-frameless'
   const toggle = '<button class="x_iconButton x_toggle" aria-label="Toggle sidebar"></button>'
-  const html = `<!doctype html><html${platform === 'windows' ? ' data-windows-titlebar' : ''}${darwin ? ' data-platform="darwin"' : ''}><body>
+  const html = `<!doctype html><html${titlebar ? ' data-windows-titlebar' : ''}${darwin ? ' data-platform="darwin"' : ''}><body>
     <div${collapsed ? ' data-sidebar-collapsed="true"' : ''}>
       <div class="x_root${collapsed ? ' x_collapsed' : ''}">
         ${darwin ? `<div class="x_topStrip">${toggle}</div>` : ''}
@@ -315,6 +336,47 @@ for (const collapsed of [false, true]) {
   })
 }
 
+// #1430: the shell's own switch drew a tooltip shadow across the rail's edge. It lives in the
+// logo row, or in the top strip in a macOS desktop window, and none of the team view's
+// switches may share the screen with it.
+const PLATFORMS = ['web', 'windows', 'mac', 'mac-frameless']
+for (const platform of PLATFORMS) {
+  for (const collapsed of [false, true]) {
+    test(`the shell's own sidebar switch is hidden: ${platform}, ${collapsed ? 'collapsed' : 'open'}`, () => {
+      const { document, hidden } = shell({ platform, collapsed })
+      const own = [...document.querySelectorAll('.x_toggle')]
+      assert.equal(own.length, 1)
+      assert.equal(hidden(own[0]), true)
+    })
+  }
+}
+
+test('the top strip stays as the window\'s drag area while its switch is hidden', () => {
+  for (const platform of ['mac', 'mac-frameless']) {
+    for (const collapsed of [false, true]) {
+      const { document, hidden } = shell({ platform, collapsed })
+      const strip = document.querySelector('.x_topStrip')
+      assert.ok(strip !== null, platform)
+      assert.equal(hidden(strip), false, `${platform} ${collapsed ? 'collapsed' : 'open'}`)
+      assert.equal(hidden(strip.querySelector('.x_toggle')), true)
+    }
+  }
+})
+
+test('the team view\'s own switches keep the places they had on every platform', () => {
+  for (const platform of PLATFORMS) {
+    const titlebar = platform === 'windows' || platform === 'mac-frameless'
+    for (const collapsed of [false, true]) {
+      const { document, hidden } = shell({ platform, collapsed })
+      const title = document.querySelector('.bt-title-toggle')
+      assert.equal(hidden(title), false, `${platform} title-band switch`)
+      const side = document.querySelector('.bt-side-collapse')
+      // The column's top row exists while it is open; under a title bar the band's switch replaces it.
+      if (side !== null) assert.equal(hidden(side), titlebar, `${platform} column switch`)
+    }
+  }
+})
+
 test('off a Windows title bar the column\'s top row and the floating switch are never hidden by style', () => {
   for (const platform of ['web', 'mac']) {
     const { document, hidden } = shell({ platform, collapsed: false })
@@ -340,8 +402,8 @@ function collapsedGridRules() {
   const frames = []
   const visit = (rules, media = []) => {
     for (const rule of rules) {
-      if (rule.selectorText?.includes('[data-sidebar-collapsed][data-rightbar-collapsed]'))
-        frames.push({ grid: rule.style.getPropertyValue('grid-template-columns'), media })
+      if (rule.selectorText?.includes('[data-sidebar-collapsed][data-rightbar-collapsed]') && rule.style.getPropertyValue('grid-template-columns'))
+        frames.push({ selector: rule.selectorText, grid: rule.style.getPropertyValue('grid-template-columns'), media, rule })
       if (rule.cssRules?.length)
         visit(rule.cssRules, rule.media ? [...media, rule.media.mediaText] : media)
     }
@@ -351,17 +413,73 @@ function collapsedGridRules() {
 }
 
 test('the wide shell\'s collapsed sidebar keeps no track while its right column is closed', () => {
-  const frames = collapsedGridRules()
+  const frames = collapsedGridRules().filter(rule => !rule.selector.includes('.bt-head'))
   assert.equal(frames.length, 1)
   assert.match(frames[0].grid, /^0px\s+minmax\(0,\s*1fr\)\s+0px$/)
 })
 
 // A narrow host may place the conversation in its first track instead of its second.
 test('the collapsed shell grid override leaves layouts below 1024px to the host', () => {
-  const frames = collapsedGridRules()
+  const frames = collapsedGridRules().filter(rule => !rule.selector.includes('.bt-head'))
   assert.equal(frames.length, 1)
   assert.ok(frames[0].media.some(query => /^\(min-width:\s*1024px\)$/.test(query)),
     'the zero-width first track must not override a narrow host layout')
+})
+
+test('a narrow Bot conversation keeps an explicit track and leaves expanded host panels alone', () => {
+  const frames = collapsedGridRules().filter(frame => frame.media.includes('(max-width:1023px)'))
+  assert.equal(frames.length, 1)
+  const { rule } = frames[0]
+  assert.match(frames[0].grid, /^0px\s+minmax\(0,\s*1fr\)\s+0px$/)
+  assert.equal(rule.style.getPropertyPriority('grid-template-columns'), 'important')
+  const { document } = new JSDOM('<div class="x_frame" data-sidebar-collapsed data-rightbar-collapsed><div class="x_centerCol"><div class="bt-head"></div></div></div>').window
+  const frame = document.querySelector('.x_frame')
+  assert.ok(frame.matches(rule.selectorText))
+  for (const attribute of ['data-sidebar-collapsed', 'data-rightbar-collapsed']) {
+    frame.removeAttribute(attribute)
+    assert.equal(frame.matches(rule.selectorText), false)
+    frame.setAttribute(attribute, '')
+  }
+  const columnRule = [...rule.parentRule.cssRules].find(candidate => candidate.selectorText?.endsWith(`>[class*="_centerCol"]`))
+  assert.ok(columnRule, 'the narrow center column rule must exist')
+  assert.ok(document.querySelector('.x_centerCol').matches(columnRule.selectorText))
+  assert.equal(columnRule.style.getPropertyValue('grid-column'), '2')
+  assert.equal(columnRule.style.getPropertyValue('width'), 'auto')
+  for (const property of ['grid-column', 'width'])
+    assert.equal(columnRule.style.getPropertyPriority(property), 'important')
+  document.querySelector('.bt-head').remove()
+  assert.equal(frame.matches(rule.selectorText), false)
+})
+
+test('the narrow Bot grid yields when either shell track opens', () => {
+  const frames = collapsedGridRules().filter(rule => rule.selector.includes('.bt-head'))
+  assert.equal(frames.length, 1)
+  assert.ok(frames[0].media.some(query => /max-width:\s*1023px/.test(query)))
+  const { document } = new JSDOM('<div class="x_frame" data-sidebar-collapsed data-rightbar-collapsed><div class="x_centerCol"><div class="bt-head"></div></div></div>').window
+  const frame = document.querySelector('.x_frame')
+  assert.equal(frame.matches(frames[0].selector), true)
+  for (const attr of ['data-sidebar-collapsed', 'data-rightbar-collapsed']) {
+    frame.removeAttribute(attr)
+    assert.equal(frame.matches(frames[0].selector), false)
+    frame.setAttribute(attr, '')
+  }
+  document.querySelector('.bt-head').remove()
+  assert.equal(frame.matches(frames[0].selector), false)
+})
+
+test('rail control enlargement leaves short screens compact', () => {
+  const { document } = new JSDOM('<style></style>').window
+  document.querySelector('style').textContent = SHELL_CSS
+  const queries = []
+  const visit = (rules, media = []) => {
+    for (const rule of rules) {
+      if (rule.selectorText?.includes('.bt-rail-top .bt-round') && rule.style?.width === '56px') queries.push(media)
+      if (rule.cssRules) visit(rule.cssRules, rule.media ? [...media, rule.media.mediaText] : media)
+    }
+  }
+  visit(document.querySelector('style').sheet.cssRules)
+  assert.equal(queries.length, 1)
+  assert.ok(queries[0].some(query => /max-width:\s*600px/.test(query) && /min-height:\s*501px/.test(query)))
 })
 
 test('the column\'s top row hides it, on the rail too, and its edge is a drag grip', () => {
@@ -397,7 +515,51 @@ test('the column\'s top row hides it, on the rail too, and its edge is a drag gr
   const toggle = find(hidden, node => node.type?.name === 'TitleToggle')
   assert.equal(toggle.props.hidden, true)
   // Reduced motion disables both the column slide and the conversation margin transition.
-  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\{animation:none\}\.bt-leftcol\[data-leaving\],\[class\*="_centerCol"\]\{transition:none\}\}/)
+  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\[data-entering\]\{animation:none\}\.bt-leftcol\[data-leaving\],\[class\*="_centerCol"\]\{transition:none\}\}/)
+})
+
+test('the column draws its first mount in place and slides in only after being hidden', () => {
+  viewport.innerWidth = 1280
+  const find = node => {
+    if (Array.isArray(node)) return node.map(find).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'LeftColumn' ? node : find(node.props?.children)
+  }
+  for (const initial of ['open', 'rail', 'hidden']) {
+    const refs = []
+    const render = pref => {
+      renderRefs = refs
+      refIndex = 0
+      layoutEffects = []
+      try {
+        const tree = TeamSidebar({
+          wide: false,
+          useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
+          useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+          useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+          useSidebarPref: pick => pick(pref), actions: { toggleSidebar() {} },
+        })
+        const effects = layoutEffects
+        layoutEffects = undefined
+        effects.forEach(effect => effect())
+        return find(tree)
+      } finally {
+        renderRefs = undefined
+        layoutEffects = undefined
+      }
+    }
+    if (initial === 'hidden') assert.equal(render(initial), undefined)
+    else {
+      assert.equal(render(initial).props.entering, false)
+      assert.equal(render(initial).props.entering, false, 'ordinary rerenders do not start an entrance')
+      assert.equal(render('hidden'), undefined)
+    }
+    assert.equal(render('open').props.entering, true)
+    assert.equal(render('rail').props.entering, true)
+  }
+  assert.match(SHELL_CSS, /\.bt-leftcol\[data-entering\]\{animation:bt-leftcol-in /)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-leftcol\{animation:bt-leftcol-in /)
+  assert.match(SHELL_CSS, /\.bt-leftcol\[data-leaving\]\{transform:translateX\(-100%\);transition:transform /)
 })
 
 test('the logo row takes no room in an open sidebar under a Windows title bar', () => {
@@ -466,9 +628,27 @@ test('the rail spaces its icons on the open column\'s rhythm', () => {
   assert.match(bodyOf('.bt-rail'), /(^|;)gap:6px/)
 })
 
-// #452: the Connect plugins button left the footer; what DS Bot puts there is
-// the account menu and the way back from Agent mode.
-test('the Bot footer holds the account and the return button only', () => {
+// The Plugins shortcut calls DSH's plugin page; a host without that navigation
+// face has no page to open, so the button stays out of the foot entirely.
+test('the Plugins shortcut stays out where the host has no plugin navigation', () => {
+  assert.equal(PluginsButton({ actions: {} }), null)
+  assert.equal(PluginsButton({ actions: { hasPlugins: () => false, openPlugins: () => { throw new Error('must not open') } } }), null)
+})
+
+test('the Plugins shortcut opens the plugin manager and names itself', () => {
+  const calls = []
+  const button = PluginsButton({ actions: { hasPlugins: () => true, openPlugins: () => calls.push('open') } })
+  assert.equal(button.type, 'button')
+  assert.equal(button.props['aria-label'], 'Plugins')
+  assert.equal(button.props.title, 'Plugins')
+  button.props.onClick()
+  assert.deepEqual(calls, ['open'])
+})
+
+// The foot of the team column is the sidebar's own `.bt-leftcol-foot`, not the
+// shell's footArea: only the account menu and the Agent-mode return button go
+// through the shell's action slot.
+test('the shell footer action slot holds the account and the return button only', () => {
   const source = readFileSync(new URL('../src/client/index.js', import.meta.url), 'utf8')
   const ids = [...source.matchAll(/shadow\('sidebar\.footer\.action',\s*\{[^}]*?id:\s*['"]([^'"]+)['"]/g)].map(match => match[1])
   assert.deepEqual(ids.sort(), ['bot-account', 'bot-return'])
@@ -519,6 +699,7 @@ async function edgeDrag({ start, reduced = false }, run) {
       settle: ms => new Promise(resolve => setTimeout(resolve, ms)),
     })
   } finally {
+    document.head.replaceChildren() // Detach cached style owners with this fixture.
     for (const name of Object.keys(globals)) delete sandbox[name]
     delete viewport.matchMedia
   }
@@ -592,3 +773,543 @@ test('TeamSidebar subscribes to specific ui slices rather than the whole ui obje
   }
 })
 
+
+// A Bot team that never started leaves nothing to use on the Bot surface; the hint
+// that says so carries the way back to the classic view, wide or on the rail (#1314).
+for (const wide of [true, false]) {
+  test(`a Bot team that could not start offers the classic view (${wide ? 'open column' : 'rail'})`, () => {
+    viewport.innerWidth = 1280
+    const calls = []
+    const tree = TeamSidebar({
+      wide,
+      useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: false }),
+      useUi: pick => pick({ unread: {}, leftDrawer: false, bootFailed: true }),
+      useRegistry: pick => pick({}),
+      useSessions: pick => pick({ ids: [], byId: {} }),
+      useUpdate: () => ({}),
+      actions: { toggleSidebar() {}, setSurface: mode => calls.push(mode) },
+    })
+    const find = (node, match) => {
+      if (Array.isArray(node)) { for (const child of node) { const hit = find(child, match); if (hit) return hit } return undefined }
+      if (!node || typeof node !== 'object') return undefined
+      if (match(node)) return node
+      return find(node.props?.children, match)
+    }
+    const hint = find(tree, node => node.type?.name === 'BootFailed')
+    assert.ok(hint, 'the could-not-start hint renders')
+    const button = find(hint.type(hint.props), node => node.type === 'button')
+    assert.equal(button.props.children.join(''), 'Switch to classic Agent mode')
+    button.props.onClick()
+    assert.deepEqual(calls, ['agent'])
+  })
+}
+
+async function withDom(html, run) {
+  const dom = new JSDOM(html)
+  const { document, MutationObserver } = dom.window
+  const globals = {
+    document, MutationObserver, performance, setTimeout, clearTimeout,
+    requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout,
+    CSS: { escape: value => value },
+  }
+  Object.assign(sandbox, globals)
+  Object.assign(viewport, { addEventListener: dom.window.addEventListener.bind(dom.window), removeEventListener: dom.window.removeEventListener.bind(dom.window) })
+  try { return await run(dom.window) }
+  finally {
+    document.head.replaceChildren() // Detach cached style owners with this fixture.
+    for (const name of Object.keys(globals)) delete sandbox[name]
+    delete viewport.addEventListener
+    delete viewport.removeEventListener
+  }
+}
+
+test('chat margins own auto width until both overrides are released', async () => {
+  await withDom('<!doctype html><body><div class="x_centerCol"></div></body>', ({ document }) => {
+    chatRoom.setLeft(88)
+    const style = document.querySelector('style[data-dsh-bot="chat-room"]').sheet.cssRules[0].style // Legacy style-owner attribute.
+    assert.equal(style.getPropertyValue('width'), 'auto')
+    chatRoom.setRight(320)
+    chatRoom.setLeft(null)
+    assert.equal(style.getPropertyValue('width'), 'auto')
+    chatRoom.setRight(null)
+    assert.equal(style.getPropertyValue('width'), '')
+    chatRoom.setLeft(0)
+    assert.equal(style.getPropertyValue('width'), 'auto')
+    chatRoom.setLeft(null)
+    assert.equal(style.getPropertyValue('width'), '')
+  })
+})
+
+test('an overlay sidebar strip does not reserve a grid track', async () => {
+  await withDom('<!doctype html><body><div class="x_sidebarCol"></div></body>', async ({ document, getComputedStyle }) => {
+    const column = document.querySelector('.x_sidebarCol')
+    column.getBoundingClientRect = () => ({ width: 52, right: 52 })
+    sandbox.getComputedStyle = getComputedStyle
+    try {
+      for (const position of ['absolute', 'fixed']) {
+        column.style.position = position
+        assert.equal(sidebarTrackWidth(), 0)
+      }
+      column.style.position = 'relative'
+      assert.equal(sidebarTrackWidth(), 52)
+    } finally { delete sandbox.getComputedStyle }
+  })
+})
+
+// 公开#1618: DSH Desktop wraps _sidebarCol in <aside class="dshDesktopSidebarSurface">
+// inside <div class="dshDesktopFrame" data-sidebar-collapsed>, whereas DSH Web puts
+// _sidebarCol directly under the frame. Both structures must report collapsed accurately.
+test('dshCollapsed detects collapsed ancestors in both DSH Web and DSH Desktop layouts', async () => {
+  await withDom('<!doctype html><body><div class="unrelated" data-sidebar-collapsed></div></body>', () => {
+    assert.equal(dshCollapsed(), null)
+  })
+  for (const [name, makeHtml] of [
+    ['web direct parent', collapsed => `<!doctype html><body><div class="x_frame"${collapsed ? ' data-sidebar-collapsed="true"' : ''}><div class="x_sidebarCol"></div></div></body>`],
+    ['desktop nested aside', collapsed => `<!doctype html><body><div class="dshDesktopFrame"${collapsed ? ' data-sidebar-collapsed' : ''}><aside class="dshDesktopSidebarSurface"><div class="dshDesktopUpstreamSidebar dshDesktop_sidebarCol"></div></aside></div></body>`],
+  ]) {
+    await withDom(makeHtml(true), () => {
+      assert.equal(dshCollapsed(), true, `${name} collapsed`)
+    })
+    await withDom(`${makeHtml(false).replace('</body>', '<div class="other" data-sidebar-collapsed></div></body>')}`, () => {
+      assert.equal(dshCollapsed(), false, `${name} expanded`)
+    })
+  }
+})
+
+test('installFrameWatch tracks data-sidebar-collapsed on DSH Desktop ancestor frame', async () => {
+  await withDom('<!doctype html><body><div class="dshDesktopFrame"><aside class="dshDesktopSidebarSurface"><div class="dshDesktopUpstreamSidebar dshDesktop_sidebarCol"></div></aside></div></body>', async ({ document }) => {
+    viewport.innerWidth = 1280
+    const frame = createSource({ viewport: 1280, sidebarWidth: 280, collapsedWidth: 0, collapsed: false })
+    const stop = installFrameWatch(frame)
+    try {
+      assert.equal(frame.getSnapshot().collapsed, false)
+      document.querySelector('.dshDesktopFrame').setAttribute('data-sidebar-collapsed', '')
+      await new Promise(resolve => setTimeout(resolve, 30))
+      assert.equal(frame.getSnapshot().collapsed, true)
+      document.querySelector('.dshDesktopFrame').removeAttribute('data-sidebar-collapsed')
+      await new Promise(resolve => setTimeout(resolve, 30))
+      assert.equal(frame.getSnapshot().collapsed, false)
+    } finally { stop() }
+  })
+})
+
+test('installFrameWatch rescans the columns only when one it watches was replaced', async () => {
+  await withDom('<!doctype html><body><div class="frame"><div class="x_sidebarCol"></div><div class="x_centerCol"><div class="other"></div></div></div></body>', async ({ document }) => {
+    sandbox.Element = document.defaultView.Element
+    const observed = new Set()
+    sandbox.ResizeObserver = class { observe(node) { observed.add(node) } unobserve(node) { observed.delete(node) } disconnect() { observed.clear() } }
+    const scans = []
+    const all = document.querySelectorAll.bind(document)
+    document.querySelectorAll = (selector) => { if (selector.includes('_sidebarCol')) scans.push(selector); return all(selector) }
+    const frame = createSource({ viewport: 1280, sidebarWidth: 280, collapsedWidth: 0, collapsed: false })
+    const stop = installFrameWatch(frame)
+    const settle = () => new Promise(resolve => setTimeout(resolve, 30))
+    try {
+      assert.deepEqual([...observed], [document.querySelector('.x_sidebarCol'), document.querySelector('.x_centerCol')])
+      assert.equal(scans.length, 1)
+      document.querySelector('.other').append(document.createElement('span'))
+      await settle()
+      assert.equal(scans.length, 1, 'a mutation that leaves the columns in place does not rescan')
+      const old = document.querySelector('.x_sidebarCol')
+      const next = document.createElement('div')
+      next.className = 'x_sidebarCol'
+      old.replaceWith(next)
+      await settle()
+      assert.equal(scans.length, 2)
+      assert.equal(observed.has(old), false)
+      assert.equal(observed.has(next), true)
+      assert.equal(observed.size, 2)
+      const pane = document.createElement('div')
+      pane.className = 'x_centerCol'
+      document.querySelector('.frame').append(pane)
+      await settle()
+      assert.equal(scans.length, 3, 'a column added next to the watched ones is picked up')
+      assert.equal(observed.has(pane), true)
+      assert.equal(observed.size, 3)
+    } finally {
+      stop()
+      delete sandbox.ResizeObserver
+      delete sandbox.Element
+    }
+  })
+})
+
+test('TeamSidebar collapses DSH Desktop sidebar once without entering a 300ms toggle loop', async () => {
+  await withDom('<!doctype html><body><div class="dshDesktopFrame"><aside class="dshDesktopSidebarSurface"><div class="dshDesktopUpstreamSidebar dshDesktop_sidebarCol"></div></aside><div class="dshDesktop_centerCol"></div></div></body>', async ({ document }) => {
+    viewport.innerWidth = 1280
+    const frameEl = document.querySelector('.dshDesktopFrame')
+    const refs = []
+    const states = []
+    const cleanups = []
+    let toggles = 0
+    let scheduled = false
+    const frame = createSource({ viewport: 1280, sidebarWidth: 280, collapsedWidth: 0, collapsed: false })
+    const stopWatch = installFrameWatch(frame)
+    const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+    const actions = {
+      toggleSidebar() {
+        toggles += 1
+        if (frameEl.hasAttribute('data-sidebar-collapsed')) frameEl.removeAttribute('data-sidebar-collapsed')
+        else frameEl.setAttribute('data-sidebar-collapsed', '')
+      },
+    }
+    let disposed = false
+    const render = () => {
+      if (disposed) return
+      renderRefs = refs
+      refIndex = 0
+      renderStates = states
+      stateIndex = 0
+      layoutEffects = []
+      scheduleStateRender = () => {
+        if (scheduled || disposed) return
+        scheduled = true
+        queueMicrotask(() => { scheduled = false; render() })
+      }
+      const snap = frame.getSnapshot()
+      TeamSidebar({
+        wide: !snap.collapsed, actions,
+        useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+        useFrame: pick => pick(snap),
+      })
+      renderRefs = undefined
+      renderStates = undefined
+      scheduleStateRender = undefined
+      const effects = layoutEffects
+      layoutEffects = undefined
+      for (const effect of effects) {
+        const off = effect()
+        if (typeof off === 'function') cleanups.push(off)
+      }
+    }
+    const offFrame = frame.subscribe(() => queueMicrotask(render))
+    try {
+      render()
+      await new Promise(resolve => setTimeout(resolve, 750))
+      assert.equal(toggles, 1)
+      assert.equal(frameEl.hasAttribute('data-sidebar-collapsed'), true)
+      assert.equal(document.documentElement.hasAttribute('data-bt-collapsing'), false)
+    } finally {
+      disposed = true
+      offFrame()
+      stopWatch()
+      for (const off of cleanups) off()
+      document.documentElement.removeAttribute('data-bt-collapsing')
+    }
+  })
+})
+
+test('TeamSidebar leaves an already-collapsed DSH Desktop sidebar alone', async () => {
+  await withDom('<!doctype html><body><div class="dshDesktopFrame" data-sidebar-collapsed><aside class="dshDesktopSidebarSurface"><div class="dshDesktopUpstreamSidebar dshDesktop_sidebarCol"></div></aside></div></body>', async ({ document }) => {
+    viewport.innerWidth = 1280
+    const refs = []
+    const states = []
+    let toggles = 0
+    renderRefs = refs
+    refIndex = 0
+    renderStates = states
+    stateIndex = 0
+    layoutEffects = []
+    try {
+      TeamSidebar({
+        wide: false,
+        actions: { toggleSidebar() { toggles += 1 } },
+        useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
+        useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+      })
+      const effects = layoutEffects
+      layoutEffects = undefined
+      for (const effect of effects) effect()
+      await new Promise(resolve => setTimeout(resolve, 350))
+      assert.equal(toggles, 0)
+      assert.equal(document.documentElement.hasAttribute('data-bt-collapsing'), false)
+    } finally {
+      renderRefs = undefined
+      renderStates = undefined
+      layoutEffects = undefined
+      document.documentElement.removeAttribute('data-bt-collapsing')
+    }
+  })
+})
+
+test('TitleToggle exposes data-left for each sidebar mode', () => {
+  viewport.innerWidth = 1280
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const findToggle = (node) => {
+    if (Array.isArray(node)) return node.map(findToggle).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'TitleToggle' ? node : findToggle(node.props?.children)
+  }
+  const dom = new JSDOM('<!doctype html><html data-windows-titlebar><body></body></html>')
+  const prevDoc = sandbox.document
+  sandbox.document = dom.window.document
+  try {
+    for (const pref of ['open', 'rail', 'hidden']) {
+      const tree = TeamSidebar({
+        wide: pref === 'open',
+        useRoster: pick => pick(roster),
+        useUi: pick => pick({ unread: {} }),
+        useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }),
+        useUpdate: () => ({}),
+        useSidebarPref: pick => pick(pref),
+        actions: { toggleLeftHidden() {} },
+      })
+      const toggle = findToggle(tree)
+      assert.equal(toggle.props.mode, pref)
+      assert.equal(toggle.props.hidden, pref === 'hidden')
+      const rendered = toggle.type(toggle.props)
+      assert.equal(rendered.props['data-left'], pref)
+    }
+  } finally {
+    sandbox.document = prevDoc
+  }
+})
+
+test('continuing to drag width right after unfolding from rail clears spring lag immediately', async () => {
+  await edgeDrag({ start: { pref: 'rail', width: 280 } }, async ({ column, center, leftColumn, press, move, release, settle }) => {
+    press()
+    move(200)
+    assert.equal(column.dataset.folding, '')
+    // Keep dragging width right away without waiting for SPRING_SHAPE to expire.
+    move(310)
+    assert.equal(column.hasAttribute('data-folding'), false)
+    assert.equal(center.style.getPropertyValue('transition'), 'none')
+    assert.equal(column.style.width, '310px')
+    assert.equal(center.style.getPropertyValue('margin-left'), '310px')
+    release(310)
+    await settle(60)
+    assert.equal(leftColumn().mode, 'open')
+    assert.equal(leftColumn().width, 310)
+  })
+})
+
+test('hiding the sidebar during post-drag settle clears inline drag styles and does not restore rail margin', async () => {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const { document } = dom.window
+  const column = document.querySelector('.bt-leftcol')
+  const grip = column.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('.x_centerCol')
+  const frame = { viewport: 1280, sidebarWidth: 320, collapsedWidth: 0, collapsed: false }
+  const stored = { pref: 'open' }
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const refs = []
+  const actions = {
+    setPanelYield() {}, setLeftDrawer() {}, toggleSidebar() {}, toggleLeftHidden() {},
+    setSidebarWidth: (width) => { frame.sidebarWidth = width },
+    setSidebarPref: (pref) => { stored.pref = pref },
+  }
+  const render = () => {
+    renderRefs = refs
+    refIndex = 0
+    layoutEffects = []
+    try {
+      const tree = TeamSidebar({
+        wide: stored.pref === 'open', actions,
+        useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+        useFrame: pick => pick(frame), useSidebarPref: pick => pick(stored.pref),
+      })
+      const effects = layoutEffects
+      layoutEffects = undefined
+      effects.forEach(effect => effect())
+      return tree
+    } finally {
+      renderRefs = undefined
+      layoutEffects = undefined
+    }
+  }
+  const findLeft = (node) => {
+    if (Array.isArray(node)) return node.map(findLeft).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'LeftColumn' ? node : findLeft(node.props?.children)
+  }
+  const globals = { document, performance, setTimeout, clearTimeout, requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout, CSS: { escape: value => value } }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1280
+  try {
+    const first = findLeft(render())
+    first.props.onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 120 }))
+    grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 120 }))
+    assert.equal(stored.pref, 'rail')
+    // Hide the sidebar before the post-drag spring settle timer fires.
+    stored.pref = 'hidden'
+    render()
+    assert.equal(center.style.getPropertyValue('margin-left'), '', 'inline drag margin-left must be cleared immediately on hide')
+    await new Promise(resolve => setTimeout(resolve, 600))
+    const chatRoomSheet = [...document.head.querySelectorAll('style')].map(el => el.sheet?.cssRules?.[0]?.style?.marginLeft ?? '').find(Boolean)
+    assert.equal(chatRoomSheet, '0px', 'stale settle timer must not overwrite hidden margin-left with rail width')
+  } finally {
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
+  }
+})
+
+test('unmounting TeamSidebar during post-drag settle strips inline drag styles and releases chatRoom.hold', async () => {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const { document } = dom.window
+  const column = document.querySelector('.bt-leftcol')
+  const grip = column.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('.x_centerCol')
+  const frame = { viewport: 1280, sidebarWidth: 320, collapsedWidth: 0, collapsed: false }
+  const stored = { pref: 'open' }
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const refs = []
+  const cleanups = []
+  const prevUseEffect = react.useEffect
+  react.useEffect = (effect) => {
+    const off = effect()
+    if (typeof off === 'function') cleanups.push(off)
+  }
+  const actions = {
+    setPanelYield() {}, setLeftDrawer() {}, toggleSidebar() {}, toggleLeftHidden() {},
+    setSidebarWidth: (width) => { frame.sidebarWidth = width },
+    setSidebarPref: (pref) => { stored.pref = pref },
+  }
+  const render = () => {
+    renderRefs = refs
+    refIndex = 0
+    layoutEffects = []
+    try {
+      const tree = TeamSidebar({
+        wide: stored.pref === 'open', actions,
+        useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+        useFrame: pick => pick(frame), useSidebarPref: pick => pick(stored.pref),
+      })
+      const effects = layoutEffects
+      layoutEffects = undefined
+      effects.forEach(effect => effect())
+      return tree
+    } finally {
+      renderRefs = undefined
+      layoutEffects = undefined
+    }
+  }
+  const findLeft = (node) => {
+    if (Array.isArray(node)) return node.map(findLeft).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'LeftColumn' ? node : findLeft(node.props?.children)
+  }
+  const globals = { document, performance, setTimeout, clearTimeout, requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout, CSS: { escape: value => value } }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1280
+  viewport.addEventListener = () => {}
+  viewport.removeEventListener = () => {}
+  try {
+    const first = findLeft(render())
+    first.props.onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 120 }))
+    grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 120 }))
+    assert.equal(center.style.getPropertyValue('margin-left'), '88px')
+    // Simulate unmounting TeamSidebar (e.g. switching Bot -> Classic) mid-settle.
+    for (const off of cleanups.splice(0)) off()
+    assert.equal(center.style.getPropertyValue('margin-left'), '', 'unmount must strip inline drag margin-left')
+    assert.equal(center.style.getPropertyValue('transition'), '', 'unmount must strip inline drag transition')
+    await new Promise(resolve => setTimeout(resolve, 600))
+    const chatRoomRule = [...document.head.querySelectorAll('style')].map(el => el.sheet?.cssRules?.[0]?.style).find(Boolean)
+    assert.equal(chatRoomRule?.marginLeft ?? '', '', 'settle timer must not restore left margin after unmount')
+    assert.equal(chatRoomRule?.transition ?? '', '', 'chatRoom.hold(false) must release transition override')
+  } finally {
+    react.useEffect = prevUseEffect
+    delete viewport.addEventListener
+    delete viewport.removeEventListener
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
+  }
+})
+
+test('aborting an active drag on hide ignores pointerup, and panelYield during settle keeps rail margin', async () => {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const { document } = dom.window
+  const column = document.querySelector('.bt-leftcol')
+  const grip = column.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('.x_centerCol')
+  const frame = { viewport: 1000, sidebarWidth: 280, collapsedWidth: 0, collapsed: false }
+  const stored = { pref: 'rail', details: null, view: 'details', panelYield: false }
+  const prefCalls = []
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const refs = []
+  const states = []
+  const actions = {
+    setPanelYield: (on) => { stored.panelYield = on },
+    setLeftDrawer() {}, toggleSidebar() {}, toggleLeftHidden() {},
+    setSidebarWidth: (width) => { frame.sidebarWidth = width },
+    setSidebarPref: (pref) => { prefCalls.push(pref); stored.pref = pref },
+  }
+  const render = () => {
+    renderRefs = refs
+    refIndex = 0
+    renderStates = states
+    stateIndex = 0
+    layoutEffects = []
+    try {
+      const tree = TeamSidebar({
+        wide: stored.pref === 'open', actions,
+        useRoster: pick => pick(roster),
+        useUi: pick => pick({ unread: {}, details: stored.details, view: stored.view, panelYield: stored.panelYield }),
+        useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+        useFrame: pick => pick(frame), useSidebarPref: pick => pick(stored.pref),
+      })
+      const effects = layoutEffects
+      layoutEffects = undefined
+      effects.forEach(effect => effect())
+      return tree
+    } finally {
+      renderRefs = undefined
+      renderStates = undefined
+      layoutEffects = undefined
+    }
+  }
+  const findLeft = (node) => {
+    if (Array.isArray(node)) return node.map(findLeft).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'LeftColumn' ? node : findLeft(node.props?.children)
+  }
+  const globals = { document, performance, setTimeout, clearTimeout, requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout, CSS: { escape: value => value } }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1000
+  try {
+    // 1. Mid-drag hide aborts the active drag even after crossing the snap threshold (`drag !== null`)
+    // and suppresses subsequent pointerup setSidebarPref.
+    const start1 = findLeft(render())
+    start1.props.onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 220 }))
+    // Commit React state so `drag` is non-null ({ left: 'open', width: 264 }).
+    assert.equal(findLeft(render()).props.mode, 'open')
+    stored.pref = 'hidden'
+    render()
+    assert.equal(center.style.getPropertyValue('margin-left'), '')
+    prefCalls.length = 0
+    grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 220 }))
+    assert.deepEqual(prefCalls, [], 'pointerup after hide abort must not call setSidebarPref')
+    // Reopening does not resurrect stale `drag` state.
+    stored.pref = 'rail'
+    assert.equal(findLeft(render()).props.mode, 'rail')
+
+    // 2. Drag rail -> open (264px), then panelYield folds back to rail during settle: margin stays 88px.
+    stored.pref = 'rail'
+    const start2 = findLeft(render())
+    start2.props.onGrip({ button: 0, pointerId: 2, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 200 }))
+    grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 200 }))
+    assert.equal(stored.pref, 'open')
+    assert.equal(frame.sidebarWidth, 264)
+    // Right panel opens and yields sidebar back to rail (88px) before settleTimer fires.
+    stored.details = 'bot-1'
+    stored.view = 'workspace'
+    stored.panelYield = true
+    render()
+    assert.equal(center.style.getPropertyValue('margin-left'), '')
+    await new Promise(resolve => setTimeout(resolve, 600))
+    const chatRoomSheet = [...document.head.querySelectorAll('style')].map(el => el.sheet?.cssRules?.[0]?.style?.marginLeft ?? '').find(Boolean)
+    assert.equal(chatRoomSheet, '88px', 'stale settle timer must not overwrite yielded rail margin with 264px')
+  } finally {
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
+  }
+})

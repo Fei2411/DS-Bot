@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { reviewContext } from '../src/host/approval-review.js'
 
 let rt
 function start(state, { config = {}, services } = {}) {
@@ -29,6 +30,20 @@ function start(state, { config = {}, services } = {}) {
   return { ctx, call, stop, rt }
 }
 
+test('approval context reads full group messages through the ledger interface', async t => {
+  const { rt, stop } = start()
+  t.after(async () => { await rt.ledger.flush(); await stop() })
+  await rt.load()
+  const room = { id: 'r', name: 'Ops', members: [], sessions: {}, log: [], seq: 0 }
+  rt.state.rooms.r = room
+  const text = 'Report context. '.repeat(200) + 'Send only to Alice.'
+  rt.logRoom(room, { who: 'User', text })
+  rt.resolveAgent = async id => ({ session: { id }, inbox: { nextStep: [], nextTurn: [] } })
+  rt.eventsBackwards = async function* () { yield { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } } }
+  const context = await reviewContext(rt, { roomId: 'r' })
+  assert.deepEqual(context, [{ source: 'user', text }])
+})
+
 // Listeners run in registration order; the team tools are not in this list
 // because they are registered per Bot session scope, not globally.
 test('apply registers listeners and effects in a fixed order', (t) => {
@@ -37,44 +52,81 @@ test('apply registers listeners and effects in a fixed order', (t) => {
   assert.deepEqual(ctx.calls, [
     'effect ds-bot: diagnostics log',
     'effect ds-bot: state lock',
+    'effect ds-bot: ledger',
+    'effect ds-bot: coordination store',
+    'on agent/request-error (prepend)',
     'on llm/adapters-updated',
     'on credentials/reference-updated',
     'on credentials/record-updated',
     'on settings/document-updated',
+    'on agent/disposed',
+    'effect ds-bot: auxiliary llm retry',
+    'on tools/pre-execute (prepend)',
     'on subagent/start',
     'on subagent/end',
+    'on agent/inbox/claimed',
     'on session/event',
     'on subagent/start',
     'on subagent/end',
     'on tools/result',
+    'on agent/disposed',
+    'on agent/inbox/inserted',
+    'on agent/assistant-stream',
     'on session/event',
+    'effect ds-bot: lost hand-offs',
+    'on agent/pre-step',
+    'effect ds-bot: privacy cache',
     'on tools/execute',
+    'on session-manager/session-deleted',
     'effect ds-bot: identity section',
-    'prompt bot-identity 640',
+    'prompt bot-team-rules 640',
+    'prompt bot-identity 10300',
     'on agent/pre-step (prepend)',
+    'on session/event',
+    'on agent/created',
+    'on llm/stream',
+    'effect ds-bot: built-in pack roles',
     'on tools/execute',
     'effect ds-bot: scoped team tools',
     'on tools/change',
     'tools guard',
     'on agent/created',
     'on system-prompt/assemble',
+    'on llm/stream',
     'on session/event',
+    'on agent/disposed',
+    'effect ds-bot: deepseek services',
     'effect ds-bot: chat index',
-    'on session/event',
+    'effect ds-bot: group rounds',
     'effect ds-bot: group step lines',
     'on llm/stream',
+    'on agent/created',
+    'on agent/disposed',
+    'on commands/change',
+    'effect ds-bot: command shield cleanup',
+    'on session/event',
+    'on tools/pre-execute (prepend)',
+    'on tools/result',
     'on approval/request (prepend)',
+    'effect ds-bot: approval review',
+    'on tools/execute',
+    'on approval/request (prepend)',
+    'effect ds-bot: extra folders section',
+    'prompt bot-extra-folders 642',
     'on agent/inbox/discarded',
     'on session/event',
     'effect ds-bot: resume interrupted turns',
     'effect ds-bot: memory recovery',
     'effect ds-bot: memory section',
-    'prompt bot-memory 645',
+    'prompt bot-memory 10320',
     'on agent/pre-step',
     'on agent/status',
+    'on agent/disposed',
     'effect ds-bot: memory review',
+    'effect ds-bot: memory tidy',
     'effect ds-bot: Bot compaction',
     'on agent/created',
+    'effect ds-bot: wake parts that wait for their run mode',
     'on agent/pre-step (prepend)',
     'on system-prompt/assemble (prepend)',
     'on agent/request-error (prepend)',
@@ -84,21 +136,40 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on workspace/session-activity',
     'on agent/status',
     'on llm/stream',
+    'on session/event',
+    'on agent/disposed',
+    // bot-tasks.js: approval status bridge, foreground inbox handoff, and turn/end task settlement.
+    'effect ds-bot: bot-tasks approval bridge',
+    'on agent/inbox/inserted',
+    'on agent/inbox/discarded',
+    'on session/event',
+    'on agent/disposed',
+    // changes.js: the announced workspace/changes turn, remembered for the group row.
+    'on session/event',
     'on llm/stream',
+    'on session/event',
+    'on agent/disposed',
     'on agent/status',
+    'effect ds-bot: images cleanup',
+    'effect ds-bot: unused background pictures',
     'on tools/execute',
     'on llm/stream',
     'effect ds-bot: load secrets',
-    'on tools/change',
     'effect ds-bot: connectors',
+    'prompt feature-packs 10310',
+    'on session/event',
     'on agent/created',
     'effect ds-bot: capabilities',
+    'effect ds-bot: plugins',
     'on agent/status',
     'effect ds-bot: learning',
+    'on agent/disposed',
     'on tools/pre-execute',
     'on tools/execute',
+    'on agent/status',
     'on agent/created',
     'on agent/disposed',
+    'on tools/change',
     'on user-questions/request (prepend)',
     'on tools/pre-execute',
     'on tools/execute',
@@ -110,14 +181,33 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on llm/stream',
     'effect ds-bot: update check',
     'effect ds-bot: dsh update install',
+    'on session-telemetry/record',
+    'on session/event',
+    'effect ds-bot: telemetry',
+    'on session/event',
+    'effect ds-bot: mobile room signals',
     'on agent/status',
+    'on agent/disposed',
     'on session/event',
     'on agent/assistant-stream',
     'effect ds-bot: live feed route',
     'route GET /api/bot/feed',
     'effect ds-bot: live feed',
+    'effect ds-bot: font route ds-bot-serif-latin.woff2',
+    'route GET /api/bot/fonts/ds-bot-serif-latin.woff2',
+    'effect ds-bot: font route ds-bot-serif-latin-italic.woff2',
+    'route GET /api/bot/fonts/ds-bot-serif-latin-italic.woff2',
+    'effect ds-bot: font route ds-bot-serif-sc-medium.woff2',
+    'route GET /api/bot/fonts/ds-bot-serif-sc-medium.woff2',
+    'effect ds-bot: font route ds-bot-serif-sc-bold.woff2',
+    'route GET /api/bot/fonts/ds-bot-serif-sc-bold.woff2',
+    'effect ds-bot: session follow route',
+    'route GET /api/bot/session',
+    'effect ds-bot: session follows',
     'on session/event',
     'effect ds-bot: im',
+    'effect ds-bot: external API gateway',
+    'effect ds-bot: phone link',
     'effect ds-bot: api route',
     'route POST /api/bot',
     'effect ds-bot: load state',
@@ -265,7 +355,49 @@ test('a custom agent keeps the local agents adapter live after install', async (
   const { ctx, stop, rt } = start({ version: 1, localAgents: { custom: [{ id: 'a1', name: 'A', command: 'node', args: [] }], sessions: {} } })
   t.after(stop)
   await rt.load()
-  const entry = (ctx.adapters ?? []).find(candidate => candidate.routes.includes('acp-a1'))
+  const entry = (ctx.adapters ?? []).find(candidate => candidate.routes.includes('local-acp-a1'))
   assert.ok(entry, 'the custom route is registered')
   assert.equal(entry.adapter.disposed, false, 'the adapter survives install')
+})
+
+// Local-agent routes have their own prefix (#1059): a Bot on DSH's own OpenCode
+// provider stays there, and DS Bot never registers a name another provider has.
+test('a Bot on DSH\'s opencode provider is not taken for a local agent', async (t) => {
+  const bot = { id: 'b1', name: 'Zen', model: 'opencode/glm-5', appliedModel: 'opencode/glm-5' }
+  const { ctx, stop, rt } = start({ version: 1, bots: { b1: bot }, localAgents: { custom: [], sessions: {} } })
+  t.after(stop)
+  await rt.load()
+  assert.equal(rt.state.bots.b1.model, 'opencode/glm-5')
+  assert.equal(rt.isLocalAgentRef('opencode/glm-5'), false)
+  const routes = (ctx.adapters ?? []).flatMap(entry => entry.routes)
+  assert.ok(!routes.includes('opencode'), 'DS Bot does not register the name DSH\'s provider uses')
+})
+
+test('a Bot saved on an old local-agent route moves to the prefixed one', async (t) => {
+  const state = {
+    version: 1,
+    bots: {
+      b1: { id: 'b1', name: 'Codex', model: 'codex-cli/gpt-6.1-sol', appliedModel: 'codex-cli/gpt-6.1-sol' },
+      b2: { id: 'b2', name: 'OC', sessionId: 's-oc', model: 'opencode/grok-code' },
+      b3: { id: 'b3', name: 'Mine', model: 'acp-a1/default' },
+    },
+    localAgents: {
+      custom: [{ id: 'a1', name: 'A', command: 'node', args: [] }],
+      sessions: { b1: { route: 'codex-cli', cliSessionId: 't1' }, 's-oc': { route: 'opencode', cliSessionId: 'oc1' } },
+    },
+  }
+  const { ctx, stop, rt } = start(state)
+  t.after(stop)
+  await rt.load()
+  const bots = rt.state.bots
+  assert.equal(bots.b1.model, 'local-codex-cli/gpt-6.1-sol')
+  assert.equal(bots.b1.appliedModel, undefined, 'the Sessions are selected again on the new route')
+  // The opencode CLI served this Bot's Session, so its old ref meant the CLI.
+  assert.equal(bots.b2.model, 'local-opencode/grok-code')
+  assert.equal(bots.b3.model, 'local-acp-a1/default')
+  assert.equal(rt.state.localAgents.sessions.b1.route, 'local-codex-cli')
+  assert.equal(rt.state.localAgents.sessions['s-oc'].route, 'local-opencode')
+  const routes = (ctx.adapters ?? []).flatMap(entry => entry.routes)
+  for (const route of ['local-codex-cli', 'local-opencode', 'local-acp-a1']) assert.ok(routes.includes(route), route)
+  assert.ok(!routes.some(route => ['codex-cli', 'opencode', 'acp-a1'].includes(route)))
 })

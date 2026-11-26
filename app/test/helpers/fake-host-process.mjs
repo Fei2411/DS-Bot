@@ -15,6 +15,7 @@ const port = () => {
 
 let gate
 let open
+let lastOptions
 
 export const state = {
   starts: 0,
@@ -25,6 +26,7 @@ export const state = {
   // The Host waits for the test to let it answer.
   held: false,
   release: () => { if (open !== undefined) { open(); open = undefined } },
+  crash: (error) => { lastOptions?.onFailure?.(error) },
 }
 
 /** Keep the Host waiting until the test lets it answer. */
@@ -37,7 +39,7 @@ export class HostProcess {
   #options
   #messageListeners = new Set()
 
-  constructor(options) { this.#options = options }
+  constructor(options) { this.#options = options; lastOptions = options }
 
   async start() {
     state.starts += 1

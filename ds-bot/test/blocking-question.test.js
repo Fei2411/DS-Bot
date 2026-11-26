@@ -3,13 +3,14 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import * as time from '@deepseek-ai/dsh-util-time'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
 const QUESTION = 'ask_user_question'
 const AGENT_TEAMS = ['spawn_teammate', 'wait_agent', 'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update']
 const DELEGATION = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents', 'workflow', 'ralph', ...AGENT_TEAMS]
-const DELEGATION_REFUSAL = 'Bots do not start subagents, teammates or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
+const DELEGATION_REFUSAL = 'Bots do not start subagents, teammates or workflows. Do the work yourself, or delegate it to another Bot with delegate_work.'
 
 const team = () => ({
   version: 1,
@@ -280,20 +281,27 @@ test('a delegation name restrict() cannot mask keeps the other masks and stays r
 })
 
 // The standard preset registers subagent (model selection) in the Agent's own scope,
-// which restrict() and a same-name section cannot reach, so Bot Sessions filter the
-// hidden tools and their guidance sections out of the assembled prompt instead.
+// which restrict() and a same-name section cannot reach, so the host assembly hook
+// filters the hidden tools and their guidance sections out of Bot Sessions instead.
 test('Bot Sessions filter the hidden tools and their guidance out of the prompt assembly', async (t) => {
-  const { rt, agentFor, scopedListeners, stop } = await setup({ served: ['read'] })
+  const { ctx, rt, agentFor, scopedListeners, stop } = await setup({ served: ['read'] })
   t.after(stop)
-  for (const id of ['chief', 'room-writer', 'plain']) await agentFor(id)
+  const chief = await agentFor('chief')
+  await agentFor('room-writer')
+  const plain = await agentFor('plain')
   const filters = scopedListeners.filter(record => record.event === 'system-prompt/assemble')
-  // Bot Sessions get the hidden-tools filter and the computer-use filter; the room's
-  // own Session and a plain Agent get only the computer-use one.
-  assert.deepEqual(filters.map(record => record.sessionId), ['room', 'chief', 'chief', 'room-writer', 'room-writer', 'plain'])
+  // Only the computer-use filter attaches per Bot Session; hidden-tool assembly
+  // filtering runs once at host level, and a plain Agent gets neither.
+  assert.deepEqual(filters.map(record => record.sessionId), ['chief', 'room-writer'])
+  assert.deepEqual(scopedListeners.filter(record => record.event === 'llm/stream'), [])
   // Resolving the same Agent again adds no listener.
+  const before = scopedListeners.length
   await rt.resolveAgent('chief')
-  assert.equal(scopedListeners.length, 6)
-  const filtered = await filters[1].listener({}, {}, async () => ({
+  assert.equal(scopedListeners.length, before)
+  assert.equal(scopedListeners.filter(record => record.event === 'system-prompt/assemble').length, 2)
+  const hostAssemble = ctx.listeners.get('system-prompt/assemble').find(listener => listener.name === 'scopeTeamTools')
+  assert.ok(hostAssemble)
+  const filtered = await hostAssemble({}, { agent: chief }, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'tool:goal' }, { name: 'tool:workflow' }, { name: 'tool:subagent' }, { name: 'tool:bash' }],
     contexts: [{ name: 'x' }],
     tools: [{ name: 'read' }, { name: 'subagent' }, { name: 'workflow' }, { name: 'send_message' }, { name: 'message_bot' }, { name: 'ask_user_question' }],
@@ -303,16 +311,22 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   assert.deepEqual(filtered.tools.map(tool => tool.name), ['read', 'message_bot'])
   assert.deepEqual(filtered.contexts, [{ name: 'x' }])
   assert.deepEqual(filtered.variables, { a: 1 })
+  // Plain Sessions pass through the host assembly filter untouched.
+  const plainAssembly = {
+    sections: [{ name: 'tool:subagent' }, { name: 'team:policy' }],
+    tools: [{ name: 'subagent' }, { name: 'ask_user_question' }],
+  }
+  assert.equal(await hostAssemble({}, { agent: plain }, async () => plainAssembly), plainAssembly)
   // Fei2411/DS-Bot#814: DSH 0.2.2 adds the tool list after this waterfall, so the
   // assembly it passes has none; the guidance is still filtered and no tools appear.
-  const current = await filters[1].listener({}, {}, async () => ({
+  const current = await hostAssemble({}, { agent: chief }, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'tool:subagent' }],
     contexts: [],
     variables: {},
   }))
   assert.deepEqual(current, { sections: [{ name: 'bot-identity' }], contexts: [], variables: {} })
   // Fei2411/DS-Bot#973: Agent Teams' Team Lead guidance goes too.
-  const team = await filters[1].listener({}, {}, async () => ({
+  const team = await hostAssemble({}, { agent: chief }, async () => ({
     sections: [{ name: 'bot-identity' }, { name: 'team:policy' }, { name: 'tool:spawn_teammate' }],
     contexts: [],
     variables: {},
@@ -327,6 +341,39 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   assert.deepEqual(computer, { sections: [{ name: 'bot-identity' }], contexts: [], variables: {} })
   await stop()
   for (const record of scopedListeners) assert.equal(record.disposed, true)
+})
+
+test('a Bot refuses schedule update fields DSH would silently ignore', async (t) => {
+  const { ctx, stop } = await setup()
+  t.after(stop)
+  const guard = (args, sessionId = 'writer', name = 'schedule_edit') => ctx.guards.map(check => check({ name, arguments: args, agent: { id: sessionId } })).find(reason => reason !== undefined)
+  for (const sessionId of ['writer', 'room-writer', 'chief']) {
+    for (const field of ['everySeconds', 'every_seconds', 'scheduledAt', 'timing', 'unknown']) {
+      const args = { id: 's1', action: 'update', prompt: 'Unchanged prompt', [field]: 10800 }
+      const reason = guard(args, sessionId)
+      assert.equal(typeof reason, 'string')
+      assert.ok(reason.includes(field))
+      assert.match(reason, /not editable/)
+      assert.match(reason, /rrule/)
+      assert.match(reason, /RRULE:FREQ=HOURLY;INTERVAL=3/)
+      assert.match(reason, /kind rrule/)
+    }
+  }
+  const valid = { id: 's1', action: 'update', title: 'Task', prompt: 'Do it', rrule: 'DTSTART;TZID=Asia/Taipei:20261118T090000\nRRULE:FREQ=HOURLY;INTERVAL=3', target: 'this_session', active: false, expectedUpdatedAt: '2026-11-01T00:00:00.000Z' }
+  for (const args of [valid, { id: 's1', action: 'update' }, { id: 's1', action: 'delete' }, undefined]) assert.equal(guard(args), undefined)
+  const unsupported = { id: 's1', action: 'update', prompt: 'Unchanged prompt', everySeconds: 10800 }
+  assert.equal(guard(unsupported, 'plain'), undefined)
+  assert.equal(guard(unsupported, 'writer', 'schedule_create'), undefined)
+})
+
+test('schedule edit recovery gives a recurrence accepted by DSH', { skip: time.RRule === undefined && 'DSH does not support rrule yet' }, async (t) => {
+  const { ctx, stop } = await setup()
+  t.after(stop)
+  const exec = { name: 'schedule_edit', agent: { id: 'writer' }, arguments: { id: 's1', action: 'update', prompt: 'Unchanged prompt', everySeconds: 10800 } }
+  const reason = ctx.guards.map(check => check(exec)).find(reason => reason !== undefined)
+  const example = /"(DTSTART[^"]+)"/.exec(reason)?.[1]
+  assert.ok(example)
+  assert.equal(time.RRule.parse(example, { rejectIneffectiveSetPositions: true }).kind, 'accepted')
 })
 
 // DSH 0.2.2's schedule tools can deliver to a new Session, outside the team.

@@ -6,6 +6,7 @@
 import { pathToFileURL } from 'node:url'
 import { writeFile } from 'node:fs/promises'
 import { within } from './copy-tree.mjs'
+import { frameOptions, framelessOn, keepVibrancy } from './window-frame.mjs'
 
 export const START_STATE = 'ds-bot:start-state'
 export const START_ACT = 'ds-bot:start-act'
@@ -39,9 +40,8 @@ export const FAILURE_LINES = 200
 // 〔保存日志…〕 saves this many of the latest log lines, after the same header as the copied details.
 export const SAVED_LINES = 5000
 // The DeepSeek theme's --bt-main and --bt-ink (ui-standard 2.1), as in start.css: the window's
-// own background and caption symbols, which show before the page paints and where Mica is not.
+// own background and caption symbols, which show before the page paints and where no material is.
 const COLORS = { light: { main: '#fcfcfc', ink: '#141414' }, dark: { main: '#141414', ink: '#f2f2f2' } }
-const CAPTION_HEIGHT = 40
 export const PAINT_WAIT_MS = 3000
 // A window that Windows has just shown is drawn a few frames before its page is (and its own
 // opening transition runs over them): the start window shows see-through and turns opaque
@@ -124,30 +124,6 @@ export function mainRect(start, area, size = MAIN_SIZE) {
   return clampInto({ x, y, width: size.width, height: size.height }, area)
 }
 
-/** CSS's cubic-bezier() as a function of the time fraction. */
-export function cubicBezier(x1, y1, x2, y2) {
-  const curve = (p1, p2) => {
-    const c = 3 * p1
-    const b = 3 * (p2 - p1) - c
-    const a = 1 - c - b
-    return s => ((a * s + b) * s + c) * s
-  }
-  const x = curve(x1, x2)
-  const y = curve(y1, y2)
-  return (t) => {
-    if (t <= 0) return 0
-    if (t >= 1) return 1
-    // x is monotonic for control points inside [0, 1], so halving finds its parameter.
-    let low = 0
-    let high = 1
-    for (let step = 0; step < 40; step += 1) {
-      const mid = (low + high) / 2
-      if (x(mid) < t) low = mid
-      else high = mid
-    }
-    return y((low + high) / 2)
-  }
-}
 /**
  * Where the start page's whale lands at the hand-off (start-window §8): the Main Bot's avatar as
  * the team view reported it, in CSS px of that page, turned into DIP and then into the start
@@ -230,16 +206,15 @@ export function mainBotName(state) {
 }
 
 // What the start knows about the team it opens. The ring page no longer shows it (no greeting or
-// hint lines since 2026-10-30); the snapshot keeps it for now. previewNotice: DSH shows its
-// preview notice when the Session is ready and the main view has no non-empty Session, which a
-// data folder without a team always has.
+// hint lines since 2026-10-30); the snapshot keeps it for now. With DS Bot's own frontend no
+// DSH preview notice is ever shown.
 export function explainOf({ offered = false, team } = {}) {
   if (offered) return { mode: 'import', nextStep: false, previewNotice: false }
   if (team !== undefined) {
     const name = mainBotName(team.team)
     return { mode: 'reinstall', bots: team.bots, groups: team.rooms, ...(name === undefined ? {} : { name }), nextStep: false, previewNotice: false }
   }
-  return { mode: 'new', nextStep: true, previewNotice: true }
+  return { mode: 'new', nextStep: true, previewNotice: false }
 }
 
 export const clockMs = (clock, now) => clock.base + (clock.running ? Math.max(0, now - clock.from) : 0)
@@ -251,7 +226,8 @@ export function startSnapshot(state, now) {
     lang: state.lang,
     start: state.start,
     motion: state.motion,
-    // Windows draws the caption buttons over the page's band; macOS and Linux a system title bar.
+    effects: state.effects ?? 'full',
+    // Windows and macOS draw their window controls over the page's band; Linux a system title bar.
     frame: state.frame,
     view: state.view,
     phases: [...phasesOf(state)],
@@ -312,7 +288,7 @@ export class StartWindow {
   /**
    * @param {{
    *   electron: { BrowserWindow: any, ipcMain: any, screen: any, shell: any, clipboard: any, nativeTheme: any, systemPreferences: any },
-   *   page: string, preload: string, icon: string, mica: boolean, devTools: boolean, css?: string,
+   *   page: string, preload: string, icon: string, material?: 'mica' | 'vibrancy', devTools: boolean, css?: string,
    *   lang: () => 'zh' | 'en', motion: string, version: string, program: string[],
    *   log: { dir: string, tail: (count: number) => string[] },
    *   mainWindow: () => any,
@@ -354,20 +330,16 @@ export class StartWindow {
     this.#reset(start)
     const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
     const win32 = process.platform === 'win32'
-    const { mica } = this.#o
+    const { material } = this.#o
     const colors = this.#colors()
     const rect = centred(startSize(area), area)
     const win = new BrowserWindow({
       ...rect,
       useContentSize: true, resizable: false, maximizable: false, fullscreenable: false, minimizable: true,
       show: false, title: 'DS Bot', icon: this.#o.icon,
-      backgroundColor: mica ? '#00000000' : colors.main,
-      // Frameless with the system minimize and close buttons over the page's empty 40 px band.
-      ...(win32 ? {
-        titleBarStyle: 'hidden',
-        titleBarOverlay: { height: CAPTION_HEIGHT, color: mica ? '#00000000' : colors.main, symbolColor: colors.ink },
-        ...(mica ? { backgroundMaterial: 'mica' } : {}),
-      } : {}),
+      backgroundColor: material ? '#00000000' : colors.main,
+      // Frameless with the system window controls over the page's empty 40 px band.
+      ...frameOptions(process.platform, material, { color: material ? '#00000000' : colors.main, symbolColor: colors.ink }),
       webPreferences: {
         preload: this.#o.preload, contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false, spellcheck: false,
         // The page paces the whale and the hand-off on timers, which a covered or minimized
@@ -379,6 +351,7 @@ export class StartWindow {
     // At a fractional display scale, Electron 44 on Windows makes a frameless window a few pixels
     // larger than asked; setting the size again once it exists gives the size asked for.
     win.setContentBounds(rect)
+    if (material === 'vibrancy') keepVibrancy(win, () => this.#colors().main)
     this.#window = win
     this.#url = startUrl(this.#o.page, start)
     const contents = win.webContents
@@ -387,9 +360,30 @@ export class StartWindow {
     win.once('ready-to-show', () => { note(`the start page painted ${sinceLaunch()} ms after launch`) })
     this.#later('show', PAINT_WAIT_MS, () => { this.#showStart('the page did not say it painted', { now: true }) })
     this.#painted = new Promise((resolve) => {
-      win.once('ready-to-show', resolve)
-      contents.once('did-finish-load', resolve)
-      setTimeout(resolve, PAINT_WAIT_MS)
+      let settled = false
+      let timer
+      const cleanup = () => {
+        clearTimeout(timer)
+        win.off?.('ready-to-show', done)
+        win.off?.('closed', onClosed)
+        contents.off?.('did-finish-load', done)
+      }
+      const done = () => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve()
+      }
+      const onClosed = () => {
+        if (settled) return
+        settled = true
+        cleanup()
+      }
+      win.once('ready-to-show', done)
+      win.once('closed', onClosed)
+      contents.once('did-finish-load', done)
+      timer = setTimeout(done, PAINT_WAIT_MS)
+      timer.unref?.()
     })
     win.on('page-title-updated', (event) => { event.preventDefault() })
     contents.on('will-navigate', (event) => { event.preventDefault() })
@@ -409,8 +403,8 @@ export class StartWindow {
     const recolor = () => {
       if (win.isDestroyed()) return
       const next = this.#colors()
-      if (win32) win.setTitleBarOverlay({ color: mica ? '#00000000' : next.main, symbolColor: next.ink })
-      if (!mica) win.setBackgroundColor(next.main)
+      if (win32) win.setTitleBarOverlay({ color: material ? '#00000000' : next.main, symbolColor: next.ink })
+      if (!material) win.setBackgroundColor(next.main)
     }
     nativeTheme.on('updated', recolor)
     win.once('closed', () => {
@@ -726,7 +720,7 @@ export class StartWindow {
     const now = Date.now()
     this.#phaseAt = now
     this.#state = {
-      lang: this.#o.lang(), start, motion: this.#o.motion, frame: process.platform === 'win32' ? 'band' : 'system',
+      lang: this.#o.lang(), start, motion: this.#o.motion, effects: this.#o.effects ?? 'full', frame: framelessOn(process.platform) ? 'band' : 'system',
       view: start === 'moving' ? 'moving' : 'boot',
       done: [], explain: this.#explain, celebrate: start === 'first', shown: false,
       clock: { base: 0, from: now, running: true },
@@ -943,18 +937,20 @@ export class StartWindow {
     const began = Date.now()
     const step = () => {
       if (!this.#open() || main.isDestroyed()) return
-      const time = Math.min(1, (Date.now() - began) / CROSSFADE.duration)
+      const time = this.#o.effects === 'off' ? 1 : Math.min(1, (Date.now() - began) / CROSSFADE.duration)
       const eased = time * time * (3 - 2 * time)
       main.setOpacity(eased)
       win.setOpacity(1 - eased)
       if (time < 1) { this.#later('fade', CROSSFADE.step, step); return }
-      if (how === 'focused') main.focus()
-      else {
+      this.#destroy()
+      if (how === 'focused') {
+        main.focus()
+        main.webContents?.focus?.()
+      } else {
         main.flashFrame(true)
         main.once('focus', () => { main.flashFrame(false) })
       }
       note(`team window shown (${how}) at ready + ${String(Date.now() - this.#readyAt)} ms`)
-      this.#destroy()
     }
     step()
   }

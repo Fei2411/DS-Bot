@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import { execFile } from 'node:child_process'
 import { createServer } from 'node:net'
 import { test } from 'node:test'
+import { promisify } from 'node:util'
 import { connectImap } from '../src/host/connectors/mail/transport.js'
 
+const execFileP = promisify(execFile)
 const account = {
   address: 'test@invalid.test',
   imap: { host: '127.0.0.1', port: 1 },
@@ -132,4 +135,27 @@ test('a verified SMTP transport opens a fresh socket when sending', async (t) =>
   await session.send({ to: 'other@invalid.test', subject: 'Test', text: 'body' })
   assert.equal(connections, 2)
   assert.equal(session.usable, true)
+})
+
+test('loading the plugin does not load mailparser', async () => {
+  const script = `
+    import { registerHooks } from 'node:module'
+    registerHooks({ resolve(specifier, context, next) {
+      if (specifier === 'mailparser') throw new Error('mailparser loaded at import time')
+      return next(specifier, context)
+    } })
+    await import(${JSON.stringify(new URL('../src/host/connectors/mail/transport.js', import.meta.url).href)})
+  `
+  await execFileP(process.execPath, ['--input-type=module', '-e', script])
+})
+
+test('a mail is parsed by mailparser, loaded on the first read', async () => {
+  const fake = transport()
+  const source = Buffer.from('From: a@b.test\r\nTo: c@d.test\r\nSubject: =?GBK?B?1tDOxA==?=\r\nMessage-ID: <1@b.test>\r\n\r\nhello')
+  fake.modules.ImapFlow.prototype.getMailboxLock = async () => ({ release() {} })
+  fake.modules.ImapFlow.prototype.fetchOne = async () => ({ source, envelope: {} })
+  const session = await connectImap(account, { ...fake, password: 'x' })
+  const { messages } = await session.read({ uid: 1 })
+  assert.equal(messages[0].subject, '中文')
+  await session.close()
 })

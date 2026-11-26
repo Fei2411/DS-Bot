@@ -13,6 +13,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { crc32 } from 'node:zlib'
 import { hostExecutable } from '../src/host-process.mjs'
+import { mockKeychainArgs } from '../src/legacy.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const [given, shotFile] = process.argv.slice(2)
@@ -239,6 +240,16 @@ function checkOffice(app) {
   `, 180_000)
 }
 
+// The browser plugins drive the app's own browser through Playwright; without it in the package
+// every browser tool failed before it did anything.
+function checkPlaywright(app) {
+  runInHost(app, 'Playwright', `
+    const { chromium } = createRequire(appRequire.resolve('ds-bot/package.json'))('playwright-core')
+    assert.equal(typeof chromium.connectOverCDP, 'function')
+    console.log('check-packed: the browser plugins find Playwright')
+  `, 30_000)
+}
+
 // Computer use on Windows loads the Cua Driver SDK's DLL by a path that the SDK derives from its
 // own module; a module inside the asar gives a path that Windows' loader cannot open (#1025).
 // The SDK is found the way the provider's import finds it, then asked for its tools.
@@ -361,12 +372,14 @@ function devtools(url, problems) {
   return { opened, call, close: () => { socket.close() } }
 }
 
-// mica.css styles DSH's own page, which can change with a DSH upgrade; every rule must still
-// find an element, on every platform, so the change shows here and not as a broken window.
-function micaRules() {
-  const css = readFileSync(join(root, 'src', 'mica.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
+// material.css and macos.css style the app's own frame; every rule must still match an element
+// on every platform so selector drift shows here rather than as a broken window. The page is
+// not in fullscreen here, so html:not([data-fullscreen]) is stripped before checking.
+const frameSheets = ['material.css', 'macos.css']
+function frameRules(file) {
+  const css = readFileSync(join(root, 'src', file), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
   return [...css.matchAll(/([^{}]+)\{/gu)].map(([, selectors]) => selectors.split(',')
-    .map(selector => selector.trim().replace(/::(?:before|after)$/u, ''))
+    .map(selector => selector.trim().replace(/::(?:before|after)$/u, '').replace(/^html(?::not\(\[data-fullscreen\]\))?\s*/u, ''))
     .filter(selector => selector !== '' && selector !== 'body'))
     .filter(rule => rule.length > 0)
 }
@@ -376,31 +389,30 @@ async function chat(cdp) {
   const until = async (expression, label, ms = 120_000) => {
     const end = Date.now() + ms
     while (Date.now() < end) {
-      if (await evaluate(`Boolean(${expression})`)) return
+      if (await evaluate(`(async () => Boolean(await (${expression})))()`)) return
       await sleep(250)
     }
     throw new Error(`timed out waiting for ${label}`)
   }
-  // DSH shows a preview notice once per profile; it would keep the focus away from the composer.
-  const dismissNotice = () => evaluate("[...document.querySelectorAll('[role=dialog] button')].find(node => /^(Continue|继续)$/u.test(node.textContent.trim()))?.click()")
   const text = needle => `document.body.innerText.includes(${JSON.stringify(needle)})`
   await cdp.call('Runtime.enable')
   await cdp.call('Log.enable')
   await until("document.querySelector('.bt-tile, .bt-row')", 'the team')
-  const stale = await evaluate(`${JSON.stringify(micaRules())}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
-  if (stale.length > 0) throw new Error(`src/mica.css no longer matches DSH's page: ${stale.join(' | ')}`)
-  await dismissNotice()
+  for (const file of frameSheets) {
+    const stale = await evaluate(`${JSON.stringify(frameRules(file))}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
+    if (stale.length > 0) throw new Error(`src/${file} no longer matches the page: ${stale.join(' | ')}`)
+  }
   const main = await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'state', payload: {} }) }).then(r => r.json()).then(r => r.value.mainBotId)")
   await evaluate(`document.querySelector(${JSON.stringify(`[data-bot-id="${main}"]`)}).click()`)
   await until("document.querySelector('.bt-model-chip:not(.bt-model-chip-quiet)')", 'the model choice')
   await evaluate("document.querySelector('.bt-model-chip:not(.bt-model-chip-quiet)').click()")
   // The mock model's greeting for a new team.
   await until(text('先让团队帮你做哪块'), 'the greeting')
-  await dismissNotice()
   // Click the composer through the input pipeline. A bare focus() is not enough where no window
   // manager gives the window focus (xvfb in CI): the text and the Enter would go nowhere.
   const box = "[...document.querySelectorAll('[role=textbox][contenteditable=true], textarea')].at(-1)"
-  const focusCheck = "(document.activeElement?.isContentEditable ?? false) || document.activeElement?.tagName === 'TEXTAREA'"
+  const readDraft = `String((() => { const el = ${box}; return el?.tagName === 'TEXTAREA' ? el.value : (el?.innerText ?? '') })())`
+  const focusCheck = "document.hasFocus() && ((document.activeElement?.isContentEditable ?? false) || document.activeElement?.tagName === 'TEXTAREA')"
   // A greeting that just arrived leaves the composer rebinding: for a moment the field is
   // not editable, so a click lands on it but does not focus it. The probe and the click are
   // separate round trips, so keep probing and click only where the field itself is on top
@@ -417,13 +429,17 @@ async function chat(cdp) {
     return null
   })()`
   let shot = null
+  let clicked = false
   const deadline = Date.now() + 30_000
-  while (Date.now() < deadline && !(await evaluate(`Boolean(${focusCheck})`))) {
+  // Even if the page's own JS focus() already flipped activeElement and document.hasFocus(), click
+  // at least once through CDP's input pipeline so Xvfb / Aura routes keyboard focus to the widget.
+  while (Date.now() < deadline && (!clicked || !(await evaluate(`Boolean(${focusCheck})`)))) {
     const point = await evaluate(probe)
     if (point !== null && point !== undefined) {
       shot = point
       await cdp.call('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
       await cdp.call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+      clicked = true
       await sleep(300)
     } else await sleep(250)
   }
@@ -447,17 +463,129 @@ async function chat(cdp) {
     throw new Error(`timed out waiting for the focused composer; page state: ${state}`)
   }
   await cdp.call('Input.insertText', { text: 'packaged app check' })
-  await until(text('packaged app check'), 'the typed message', 10_000)
-  for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  await until(`${readDraft}.includes('packaged app check')`, 'the typed message', 10_000)
+  // Wait until the composer's send button is enabled before pressing Enter.
+  const send = `(() => {
+    let node = ${box}
+    while (node && !node.querySelector?.('button.dsb-send, button[aria-busy]')) node = node.parentElement
+    return node?.querySelector('button.dsb-send, button[aria-busy]') ?? null
+  })()`
+  const snapshot = `(() => {
+    const el = ${box}
+    const button = ${send}
+    return {
+      at: performance.now(), focused: document.hasFocus(), visibility: document.visibilityState,
+      active: document.activeElement?.tagName ?? null,
+      editable: (document.activeElement?.isContentEditable ?? false) || document.activeElement?.tagName === 'TEXTAREA',
+      editorComposing: el?.hasAttribute('data-composer-composing') ?? false, popup: document.querySelector('[role=listbox]') !== null,
+      draft: el === undefined ? null : (el.tagName === 'TEXTAREA' ? el.value : (el.innerText ?? null)),
+      send: button === null ? null : { label: button.getAttribute('aria-label'), disabled: button.disabled },
+    }
+  })()`
+  const composerState = () => evaluate(`JSON.stringify({ ...${snapshot}, enter: window.__packedEnter ?? null, tail: document.body.innerText.slice(-300) })`)
+  try {
+    // Capture readiness in the existing probe: an extra CDP round trip before Enter can hide a race.
+    await until(`(() => {
+      const button = ${send}
+      if (button === null || button.disabled) return false
+      if (window.__packedEnter === undefined) {
+        const trace = window.__packedEnter = { events: [] }
+        // Every press is recorded, not just the first: a run that needed the second one has to
+        // say so.
+        for (const type of ['keydown', 'keyup']) window.addEventListener(type, event => {
+          const entry = { ...${snapshot}, type, key: event.key, code: event.code, keyCode: event.keyCode,
+            target: event.target?.tagName ?? null, composing: event.isComposing, repeat: event.repeat,
+            shift: event.shiftKey, ctrl: event.ctrlKey, alt: event.altKey, meta: event.metaKey }
+          trace.events.push(entry)
+          // A later task sees preventDefault from every capture and bubble handler.
+          setTimeout(() => { entry.prevented = event.defaultPrevented }, 0)
+        }, { capture: true })
+      }
+      return true
+    })()`, 'the send button', 30_000)
+  } catch (error) {
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
+  }
+  const message = 'packaged app check'
+  const draft = readDraft
+  let previousDraft = null
+  let sent = false
+  for (let press = 1; press <= 3 && !sent; press += 1) {
+    if (press > 1) {
+      await sleep(1000)
+      const state = JSON.parse(await evaluate(`JSON.stringify({ ...${snapshot}, enterCount: window.__packedEnter?.events?.length ?? 0 })`))
+      const shown = String(state.draft ?? '')
+      if (!shown.includes(message)) break
+      if (shown !== previousDraft) break
+      if (state.send === null || state.send.disabled) break
+      if (!state.editable) break
+      // When the previous press never reached the page at all under Xvfb, re-prime focus through
+      // Page.bringToFront and a real click on the composer before pressing Enter again.
+      if (state.enterCount === 0) {
+        await cdp.call('Page.bringToFront').catch(() => {})
+        const point = await evaluate(probe)
+        if (point !== null && point !== undefined) {
+          await cdp.call('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+          await cdp.call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+          await sleep(200)
+        }
+      }
+    }
+    previousDraft = await evaluate(draft)
+    for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+    try {
+      await until(`!${draft}.includes(${JSON.stringify(message)})`, 'Enter to send the message', 10_000)
+      sent = true
+    } catch {
+      // The field still holds the text; the next pass reads the state before deciding to press again.
+    }
+  }
+  if (!sent) throw new Error(`timed out waiting for Enter to send the message; composer: ${await composerState()}`)
   // The mock model starts its reply with 收到： and the message.
   try {
     await until(text('收到：packaged app check'), 'the reply')
   } catch (error) {
-    const state = await evaluate("JSON.stringify({ active: document.activeElement?.tagName ?? null, editable: document.activeElement?.isContentEditable ?? null, tail: document.body.innerText.slice(-300) })")
-    throw new Error(`${error.message}; page state: ${state}`)
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
   }
   await sleep(1000)
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)
+  if (process.platform === 'darwin') await checkComputerHelper(evaluate, until)
+}
+
+async function checkComputerHelper(evaluate, until) {
+  const helperHome = join(work, 'shell', 'computer-use')
+  const call = (endpoint, payload = {}) => `fetch('api/bot', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: ${JSON.stringify(JSON.stringify({ endpoint, payload }))},
+  }).then(r => r.json()).then(r => r.value)`
+  const provider = `${call('state')}.then(state => state.computer.provider)`
+
+  // A file at the copy location forces a real filesystem error without touching the bundle.
+  writeFileSync(helperHome, '')
+  await evaluate(call('computer-set-enabled', { enabled: true }))
+  await until(`${provider}.then(provider => provider.state !== 'loading')`, 'the computer-use provider error')
+  const failure = await evaluate(provider)
+  if (failure.state !== 'error' || !failure.message.startsWith('Could not prepare the macOS computer-use helper:')) {
+    throw new Error(`expected the helper preparation error: ${JSON.stringify(failure)}`)
+  }
+  rmSync(helperHome)
+  const retry = await evaluate(call('computer-provider-retry'))
+  if (retry?.provider?.state !== 'ready') {
+    throw new Error(`the computer-use provider could not retry: ${JSON.stringify(retry?.provider)}`)
+  }
+  console.log('check-packed: retry prepared the computer-use helper outside the app')
+
+  // The hosted macOS 26 Intel runner hangs in IconServices when the DSH helper starts.
+  if (process.arch === 'x64' && process.env.GITHUB_ACTIONS === 'true') {
+    console.log('check-packed: skipping the native permission query on the hosted Intel runner')
+  } else {
+    const status = await evaluate(call('computer-system-status'))
+    if (typeof status?.accessibility !== 'boolean' || !status?.helper?.path?.startsWith(helperHome + '/')) {
+      throw new Error(`the computer-use helper did not answer from outside the app: ${JSON.stringify(status)}`)
+    }
+    console.log(`check-packed: the computer-use helper answers from ${status.helper.path}`)
+  }
+  await evaluate(call('computer-set-enabled', { enabled: false }))
 }
 
 let failed = false
@@ -467,6 +595,7 @@ try {
   checkAsarCopy(packedApp)
   checkSharp(packedApp)
   checkOffice(packedApp)
+  checkPlaywright(packedApp)
   if (process.platform === 'win32') checkComputerUse(packedApp)
   const modelUrl = await startMock()
   const port = await freePort()
@@ -477,7 +606,9 @@ try {
     DS_BOT_HOME: join(work, 'home'), DS_BOT_SHELL_DATA: join(work, 'shell'),
     DEEPSEEK_BASE_URL: modelUrl, DEEPSEEK_API_KEY: 'mock-key',
   })
-  const app = spawn(packedApp, [`--remote-debugging-port=${String(port)}`, `--inspect=127.0.0.1:${String(mainPort)}`], { stdio: 'inherit', env })
+  // Never touch the host macOS login keychain with an ad-hoc temporary copy of DS Bot.app.
+  const macArgs = mockKeychainArgs()
+  const app = spawn(packedApp, [...macArgs, `--remote-debugging-port=${String(port)}`, `--inspect=127.0.0.1:${String(mainPort)}`], { stdio: 'inherit', env })
   children.push(app)
   const exited = new Promise((done) => { app.once('exit', (code, signal) => { done({ code, signal }) }) })
   const cdp = devtools((await appPage(port, Date.now() + 120_000)).webSocketDebuggerUrl, problems)
@@ -486,12 +617,28 @@ try {
   await main.opened
   const windowState = async expression => {
     const answer = await main.call('Runtime.evaluate', {
-      expression: `(() => { const { BrowserWindow } = process.getBuiltinModule('module').createRequire(process.execPath)('electron'); const win = BrowserWindow.getAllWindows()[0]; return ${expression} })()`,
+      expression: `(() => { const { app, BrowserWindow } = process.getBuiltinModule('module').createRequire(process.execPath)('electron'); const win = BrowserWindow.getAllWindows()[0]; return ${expression} })()`,
       returnByValue: true, awaitPromise: true,
     })
     if (answer.exceptionDetails) throw new Error(answer.exceptionDetails.exception?.description ?? answer.exceptionDetails.text)
     return answer.result?.value
   }
+  const mockKeychain = await windowState("app.commandLine.hasSwitch('use-mock-keychain')")
+  if (mockKeychain !== (process.platform === 'darwin')) {
+    throw new Error(`expected mock keychain=${String(process.platform === 'darwin')}, got ${String(mockKeychain)}`)
+  }
+  // Wait until the start window finishes its cross-fade and closes before driving the team window;
+  // otherwise the splash teardown on Xvfb drops window focus after the composer was clicked.
+  const revealEnd = Date.now() + 120_000
+  while (Date.now() < revealEnd) {
+    if (await windowState('BrowserWindow.getAllWindows().length === 1 && win !== undefined && !win.isDestroyed() && win.isVisible()') === true) break
+    await sleep(200)
+  }
+  if (await windowState('BrowserWindow.getAllWindows().length === 1 && win !== undefined && !win.isDestroyed() && win.isVisible()') !== true) {
+    throw new Error('timed out waiting for the start window to hand off to the team window')
+  }
+  await windowState('win.focus(), win.webContents.focus(), true')
+  await cdp.call('Page.bringToFront').catch(() => {})
   const chatError = await chat(cdp).then(() => undefined, error => error)
   if (shotFile) {
     const { data } = await cdp.call('Page.captureScreenshot', { format: 'png' })
@@ -509,7 +656,7 @@ try {
   console.log('check-packed: the window is hidden and the Host goes on')
   // Starting the app again brings the window back; the second copy ends at once, because the
   // first one holds the lock.
-  const second = spawn(packedApp, [`--remote-debugging-port=${String(await freePort())}`], { stdio: 'ignore', env })
+  const second = spawn(packedApp, [...macArgs, `--remote-debugging-port=${String(await freePort())}`], { stdio: 'ignore', env })
   children.push(second)
   const secondExit = await Promise.race([new Promise((done) => { second.once('exit', (code) => { done(code) }) }), sleep(30_000).then(() => undefined)])
   if (secondExit === undefined) throw new Error('the second copy of the app did not end')

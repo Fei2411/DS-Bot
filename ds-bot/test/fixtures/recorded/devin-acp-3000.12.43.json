@@ -1,0 +1,309 @@
+{
+ "source": "devin acp 3000.12.43: two prompts, then /compact, then one more prompt (server to client only; hooks and paths left out)",
+ "messages": [
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "available_commands_update",
+     "availableCommands": [
+      {
+       "name": "status",
+       "description": "Check authentication status",
+       "_meta": {
+        "cognition.ai/icon": "user-check",
+        "cognition.ai/category": "Account"
+       }
+      },
+      {
+       "name": "compact",
+       "description": "Force conversation compaction",
+       "_meta": {
+        "cognition.ai/icon": "archive",
+        "cognition.ai/category": "Session"
+       }
+      },
+      {
+       "name": "context",
+       "description": "Show context window usage",
+       "_meta": {
+        "cognition.ai/icon": "pie-chart",
+        "cognition.ai/category": "Session"
+       }
+      },
+      {
+       "name": "help",
+       "description": "Show available commands",
+       "_meta": {
+        "cognition.ai/icon": "help-circle",
+        "cognition.ai/category": "Session"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "ok"
+     },
+     "_meta": {
+      "cognition.ai/timestamp": "2026-11-14T10:40:17.536948+00:00"
+     }
+    }
+   }
+  },
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 14493,
+     "size": 262000,
+     "_meta": {
+      "cognition.ai/inputTokens": 14465,
+      "cognition.ai/outputTokens": 28,
+      "cognition.ai/cachedReadTokens": 9856
+     }
+    }
+   }
+  },
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 14493,
+     "size": 262000,
+     "_meta": {
+      "cognition.ai/inputTokens": 14465,
+      "cognition.ai/outputTokens": 28,
+      "cognition.ai/cachedReadTokens": 9856,
+      "cognition.ai/subagent_context": {
+       "parentAgentId": "root"
+      }
+     }
+    }
+   }
+  },
+  {
+   "result": {
+    "stopReason": "end_turn",
+    "usage": {
+     "totalTokens": 14493,
+     "inputTokens": 14465,
+     "outputTokens": 28,
+     "cachedReadTokens": 9856
+    },
+    "_meta": {
+     "cognition.ai/userMessageId": "af7d0b51-06af-44bc-99a1-0d9cc0ed3ef1"
+    }
+   }
+  },
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "ok"
+     },
+     "_meta": {
+      "cognition.ai/timestamp": "2026-11-14T10:41:18.031179+00:00"
+     }
+    }
+   }
+  },
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": " again"
+     },
+     "_meta": {
+      "cognition.ai/timestamp": "2026-11-14T10:41:18.031214+00:00"
+     }
+    }
+   }
+  },
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 14542,
+     "size": 262000,
+     "_meta": {
+      "cognition.ai/inputTokens": 14520,
+      "cognition.ai/outputTokens": 22,
+      "cognition.ai/cachedReadTokens": 1856
+     }
+    }
+   }
+  },
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 14542,
+     "size": 262000,
+     "_meta": {
+      "cognition.ai/inputTokens": 14520,
+      "cognition.ai/outputTokens": 22,
+      "cognition.ai/cachedReadTokens": 1856,
+      "cognition.ai/subagent_context": {
+       "parentAgentId": "root"
+      }
+     }
+    }
+   }
+  },
+  {
+   "result": {
+    "stopReason": "end_turn",
+    "usage": {
+     "totalTokens": 14542,
+     "inputTokens": 14520,
+     "outputTokens": 22,
+     "cachedReadTokens": 1856
+    },
+    "_meta": {
+     "cognition.ai/userMessageId": "3e3c2c4b-227b-4026-9294-22a60eebaf22"
+    }
+   }
+  },
+  {
+   "result": {
+    "stopReason": "end_turn"
+   }
+  },
+  {
+   "method": "_cognition.ai/compaction",
+   "params": {
+    "status": "started",
+    "sessionId": "linen-board"
+   }
+  },
+  {
+   "method": "_cognition.ai/compaction",
+   "params": {
+    "status": "completed",
+    "summary": "<summary>(trimmed)</summary>",
+    "sessionId": "linen-board"
+   }
+  },
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "Context compacted"
+     },
+     "_meta": {
+      "cognition.ai/displayMessage": true,
+      "cognition.ai/timestamp": "2026-11-14T10:41:38.905852+00:00"
+     }
+    }
+   }
+  },
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "ok after"
+     },
+     "_meta": {
+      "cognition.ai/timestamp": "2026-11-14T10:41:47.407817+00:00"
+     }
+    }
+   }
+  },
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": " compact"
+     },
+     "_meta": {
+      "cognition.ai/timestamp": "2026-11-14T10:41:47.407900+00:00"
+     }
+    }
+   }
+  },
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 14833,
+     "size": 262000,
+     "_meta": {
+      "cognition.ai/inputTokens": 14801,
+      "cognition.ai/outputTokens": 32
+     }
+    }
+   }
+  },
+  {
+   "method": "session/update",
+   "params": {
+    "sessionId": "linen-board",
+    "update": {
+     "sessionUpdate": "usage_update",
+     "used": 14833,
+     "size": 262000,
+     "_meta": {
+      "cognition.ai/inputTokens": 14801,
+      "cognition.ai/outputTokens": 32,
+      "cognition.ai/subagent_context": {
+       "parentAgentId": "root"
+      }
+     }
+    }
+   }
+  },
+  {
+   "result": {
+    "stopReason": "end_turn",
+    "usage": {
+     "totalTokens": 14833,
+     "inputTokens": 14801,
+     "outputTokens": 32
+    },
+    "_meta": {
+     "cognition.ai/userMessageId": "1c34bfb6-f046-40a9-8163-4465810eb972"
+    }
+   }
+  }
+ ]
+}

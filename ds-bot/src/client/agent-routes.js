@@ -4,27 +4,82 @@
 import { INKS } from './inks.js'
 import { AGENT_LOGOS } from './agent-logos.js'
 
-// route -> [glyph, ink name]. Custom agents (acp-*) share the 'AC' mark.
+// Local-agent routes carry this prefix ('local-codex-cli'); the maps below are
+// keyed by the CLI's own name. Custom agents ('local-acp-*') share the 'AC' mark.
+// Profile routes ('local-claude-code@work') inherit their base CLI's logo & badge.
+const PREFIX = 'local-'
+const CUSTOM_PREFIX = `${PREFIX}acp-`
+const PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
+
+export function splitProfileRoute(route) {
+  if (typeof route !== 'string') return null
+  const at = route.indexOf('@')
+  if (at <= 0 || route.indexOf('@', at + 1) !== -1) return null
+  const baseRoute = route.slice(0, at)
+  const profileId = route.slice(at + 1)
+  if (!baseRoute.startsWith(PREFIX) || baseRoute.startsWith(CUSTOM_PREFIX)) return null
+  const cli = baseRoute.slice(PREFIX.length)
+  if (!Object.hasOwn(AGENT_BADGES, cli) || !PROFILE_ID_RE.test(profileId)) return null
+  return { baseRoute, profileId }
+}
+
+const cliOf = (route) => {
+  if (typeof route !== 'string' || !route.startsWith(PREFIX)) return undefined
+  const split = splitProfileRoute(route)
+  const base = split ? split.baseRoute : route
+  return base.slice(PREFIX.length)
+}
+
+// CLI name -> [glyph, ink name].
 export const AGENT_BADGES = {
   'devin-cli': ['DV', 'violet'],
   'claude-code': ['CC', 'tangerine'],
   'codex-cli': ['CX', 'green'],
-  'opencode': ['OC', 'blue'],
   'cursor-cli': ['CU', 'magenta'],
+  'copilot-cli': ['GH', 'graphite'],
   'gemini-cli': ['GM', 'yellow'],
-  'grok-cli': ['GX', 'graphite'],
+  'antigravity': ['AG', 'sky'],
+  'opencode': ['OC', 'blue'],
   'cline': ['CL', 'cyan'],
-  'qwen-code': ['QW', 'cobalt'],
+  'kilo': ['KL', 'yellow'],
   'goose': ['GS', 'brown'],
+  'grok-cli': ['GX', 'graphite'],
+  'kimi-cli': ['KM', 'charcoal'],
+  'qwen-code': ['QW', 'cobalt'],
+  'codebuddy': ['CB', 'blue'],
+  'qoder': ['QD', 'green'],
+  'minimax-code': ['MM', 'rose'],
+  'glm-cli': ['GL', 'cobalt'],
+  'kiro-cli': ['KR', 'violet'],
+  'factory-droid': ['DR', 'orange'],
+  'auggie': ['AU', 'violet'],
+  'mistral-vibe': ['MV', 'orange'],
+  'junie': ['JN', 'green'],
+  'iflow': ['IF', 'cyan'],
 }
 const CUSTOM = ['AC', 'rose']
 
-export const logoOf = engine => AGENT_LOGOS[engine]
+export const logoOf = engine => (cliOf(engine) === undefined ? undefined : AGENT_LOGOS[cliOf(engine)])
 
-export const badgeOf = engine => AGENT_BADGES[engine] ?? (engine?.startsWith('acp-') ? CUSTOM : undefined)
+export const badgeOf = (engine) => {
+  if (typeof engine !== 'string') return undefined
+  if (engine.startsWith(CUSTOM_PREFIX)) return CUSTOM
+  return cliOf(engine) === undefined ? undefined : AGENT_BADGES[cliOf(engine)]
+}
 
 // A model ref's provider part is a local-agent route when the CLIs serve it.
 export const isLocalRoute = ref => badgeOf(String(ref ?? '').split('/')[0]) !== undefined
+
+export const routeOf = ref => String(ref ?? '').split('/')[0]
+
+// The models a pick can go to from `ref`: a local agent lists only its own, and
+// everything else lists DS Bot's models. What a Bot runs on changes in its settings.
+export function modelsFor(models, ref) {
+  const list = models ?? []
+  return isLocalRoute(ref)
+    ? list.filter(model => routeOf(model.ref) === routeOf(ref))
+    : list.filter(model => !isLocalRoute(model.ref))
+}
 
 // A badge-style avatar image for a new abot: the monogram large on its ink.
 export function agentAvatar(engine) {

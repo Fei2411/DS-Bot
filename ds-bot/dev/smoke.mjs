@@ -12,6 +12,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSyn
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { modelsFor } from '../src/client/agent-routes.js'
 
 const [name, port, ...rest] = process.argv.slice(2)
 if (!name || !port) {
@@ -145,8 +146,8 @@ async function step(title, run, check) {
     return undefined
   }
   const calls = mockLog().slice(before)
-  const problem = (() => {
-    try { return check?.(value, calls) } catch (error) { return error.message }
+  const problem = await (async () => {
+    try { return await check?.(value, calls) } catch (error) { return error.message }
   })()
   transcript.push({ step: title, said: said(calls), state: normalized() })
   if (problem) {
@@ -167,7 +168,8 @@ let models = []
 await step('bootstrap: Chief waits for a model', () => api('state'), (value, calls) => {
   const current = state()
   const bots = Object.values(current.bots)
-  models = value.models ?? []
+  // The model card offers DS Bot models only; a CLI found on this machine is no pick there.
+  models = modelsFor(value.models)
   return expect(bots.length === 1 && bots[0].name === 'Chief' && current.mainBotIds[0] === bots[0].id, 'expected one Main Bot named Chief')
     ?? expect(bots[0].model === undefined && bots[0].kickoff !== undefined, 'Chief should hold its greeting until a model is picked')
     ?? expect(value.bots[0].waiting === true, 'the view should show Chief as waiting')
@@ -183,10 +185,11 @@ await step('user picks a model; Chief greets and asks in its reply', () => api('
     ?? expect(saidText(calls, /先让团队帮你做哪块/), 'expected Chief to ask in its reply')
 })
 
-await step('Chief creates Writer, who replies', () => send(chief().id, '创建一个叫Writer的bot'), () => {
+await step('Chief creates Writer, who replies', () => send(chief().id, '创建一个叫Writer的bot'), async () => {
   const writer = botNamed('Writer')
   if (!writer) return 'no Writer'
-  const kinds = state().exchanges.filter(entry => [entry.from, entry.to].includes(writer.id)).map(entry => entry.role)
+  const entries = await api('exchange', { a: chief().id, b: writer.id })
+  const kinds = entries.map(entry => entry.role)
   return expect(writer.createdBy === chief().id, 'Writer should be created by Chief')
     ?? expect(kinds.includes('request') && kinds.includes('reply'), `expected a request and a reply, got ${kinds}`)
 })
@@ -258,6 +261,25 @@ await step('admin calls everyone', () => send(roomNamed('研发群').id, '讨论
   const answers = log.slice(at + 1).filter(line => line.who !== 'User' && line.kind === undefined)
   return expect(answers.length >= 2, `expected at least two answers, got ${answers.length}`)
 })
+
+await step('group request returns once; mentions in the goal, result and receipt do not wake peers',
+  () => send(roomNamed('研发群').id, '@Chief route-contract: start'), () => {
+    const room = roomNamed('研发群')
+    const lines = room.log.slice(room.log.findLastIndex(line => line.who === 'User') + 1).filter(line => line.botId)
+    const routed = lines.filter(line => line.text.includes('route-contract:'))
+    return expect(JSON.stringify(routed.map(line => [line.who, line.route?.kind])) === JSON.stringify([
+      ['Chief', 'request'], ['Writer', 'result'], ['Chief', 'note'],
+    ]), `unexpected routing: ${routed.map(line => `${line.who}:${line.route?.kind}`)}`)
+      ?? expect(!lines.some(line => line.who === 'Coder') && !room.paused?.length, 'an FYI opened or parked another turn')
+  })
+
+await step('a private completion rejects a fresh acknowledgement delegation without waking the worker',
+  () => send(chief().id, '转告 Writer: route-contract: check backup'), async (_value, calls) => {
+    const messages = await api('exchange', { a: chief().id, b: botNamed('Writer').id })
+    const marked = messages.filter(entry => entry.text?.includes('route-contract:'))
+    return expect(calls.some(call => call.out?.some(block => block.name === 'delegate_work' && block.input?.goal === 'route-contract: acknowledgement')), 'the model never attempted the bounce')
+      ?? expect(marked.map(entry => entry.role).join(',') === 'request,reply', `unexpected private deliveries: ${marked.map(entry => entry.role)}`)
+  })
 
 await step('Chief posts to the group', () => send(chief().id, '群发 研发群: 今天下午开会'), () => {
   const log = roomNamed('研发群').log ?? []
@@ -354,9 +376,12 @@ await step('Writer waits for the work it handed on, then answers with it', async
     if (activity[writer] === 'waiting') return work.waiting?.[writer]
   }
   return undefined
-}, (waiting, calls) => expect(waiting?.bots?.includes(botNamed('Coder').id) && waiting.for.includes(chief().id), `Writer did not show that it waits for Coder (${JSON.stringify(waiting)})`)
-  ?? expect(saidText(calls, /^Coder 交回了，我把结果交给 Chief/), 'Writer did not go on when Coder answered')
-  ?? expect(state().exchanges.some(entry => entry.role === 'reply' && entry.from === botNamed('Writer').id && entry.text.includes('[Handed back to Writer for this work]')), 'Chief did not get Coder\'s result with Writer\'s answer'))
+}, async (waiting, calls) => {
+  const entries = await api('exchange', { a: chief().id, b: botNamed('Writer').id })
+  return expect(waiting?.bots?.includes(botNamed('Coder').id) && waiting.for.includes(chief().id), `Writer did not show that it waits for Coder (${JSON.stringify(waiting)})`)
+    ?? expect(saidText(calls, /^Coder 交回了，我把结果交给 Chief/), 'Writer did not go on when Coder answered')
+    ?? expect(entries.some(entry => entry.role === 'reply' && entry.from === botNamed('Writer').id && String(entry.text).includes('[Handed back to Writer for this work]')), 'Chief did not get Coder\'s result with Writer\'s answer')
+})
 
 await step('update Writer', () => api('update-bot', { id: botNamed('Writer').id, role: 'Copywriter', instructions: 'Write the copy.' }), () => {
   const writer = botNamed('Writer')
@@ -444,6 +469,144 @@ await attach(chief(), skillName, false)
 await step('detached capabilities disappear from Chief', () => send(chief().id, '查能力 smoke'), (_value, calls) => {
   const report = reportOf(calls, 'Chief')
   return expect(report?.endsWith(seesNothing), `Chief reported ${report}`)
+})
+
+await step('Chief runs a background task forked from its own chat and receives the report', async () => {
+  await send(chief().id, '调用 task_start {"title":"后台冒烟","brief":"检查上下文并回报"}')
+  const deadline = Date.now() + 25_000
+  let task
+  while (Date.now() < deadline) {
+    const view = await api('state')
+    const chiefView = view.bots?.find(item => item.id === chief().id)
+    task = (chiefView?.tasks ?? []).find(item => item.title === '后台冒烟')
+    if (task?.status === 'completed') break
+    await sleep(300)
+  }
+  await settle()
+  const page = task === undefined ? null : await api('bot-task-read', { botId: chief().id, taskId: task.id })
+  const swapBlocked = task === undefined ? false : await api('bot-open-part', { botId: chief().id, sessionId: task.sessionId }).then(() => false, () => true)
+  return { task, page, swapBlocked }
+}, ({ task, page, swapBlocked }, calls) => {
+  const outputs = calls.flatMap(call => call.out ?? []).filter(block => block.type === 'text').map(block => block.text)
+  const taskLine = outputs.find(line => line.includes('后台任务已完成，共继承'))
+  const inherited = Number(/共继承 (\d+) 条消息/.exec(taskLine ?? '')?.[1] ?? 0)
+  const fgReport = outputs.find(line => line.includes('已收到后台任务汇报'))
+  return expect(
+    task?.status === 'completed'
+      && inherited > 5
+      && fgReport !== undefined
+      && page?.sessionId === task.sessionId
+      && swapBlocked === true,
+    `task=${JSON.stringify(task)} inherited=${inherited} fgReport=${fgReport} page=${page?.sessionId} swapBlocked=${swapBlocked}`,
+  )
+})
+
+await step('explicit move-to-background moves busy foreground into a task and reports back', async () => {
+  const oldSid = chief().sessionId ?? chief().id
+  const callsBefore = mockLog().length
+  await send(chief().id, '慢活 4')
+  // Wait until list_bots tool call has been issued (toolCount >= 1) and second model call is in flight.
+  const busyDeadline = Date.now() + 10_000
+  while (Date.now() < busyDeadline) {
+    if (mockLog().length > callsBefore) break
+    await sleep(100)
+  }
+  await sleep(300)
+  // User explicitly moves Chief's busy turn to background, then chats freely on the new foreground.
+  const moved = await api('bot-move-to-background', { botId: chief().id, sessionId: oldSid })
+  await send(chief().id, '前台新问题')
+  const newSid = moved?.sessionId ?? (chief().sessionId ?? chief().id)
+  const deadline = Date.now() + 25_000
+  let movedTask
+  while (Date.now() < deadline) {
+    const view = await api('state')
+    const chiefView = view.bots?.find(item => item.id === chief().id)
+    movedTask = (chiefView?.tasks ?? []).find(item => item.sessionId === oldSid)
+    if (movedTask?.status === 'completed') break
+    await sleep(300)
+  }
+  await settle()
+  return { oldSid, newSid, moved, movedTask }
+}, ({ oldSid, newSid, moved, movedTask }, calls) => {
+  const outputs = calls.flatMap(call => call.out ?? []).filter(block => block.type === 'text').map(block => block.text)
+  const slowDone = outputs.find(line => line.includes('慢活已完成'))
+  const fgReport = outputs.find(line => line.includes('已收到后台任务汇报') && line.includes('慢活已完成'))
+  return expect(
+    moved?.moved === true
+      && newSid !== oldSid
+      && movedTask?.origin === 'fg-handoff'
+      && movedTask?.status === 'completed'
+      && slowDone !== undefined
+      && fgReport !== undefined,
+    `oldSid=${oldSid} newSid=${newSid} moved=${JSON.stringify(moved)} movedTask=${JSON.stringify(movedTask)} slowDone=${slowDone} fgReport=${fgReport}`,
+  )
+})
+
+await step('peer Bot messaging a busy Bot spawns a bot-handoff task without switching foreground', async () => {
+  const fgBefore = chief().sessionId ?? chief().id
+  const beforeCount = (chief().tasks ?? []).length
+  const callsBefore = mockLog().length
+  await send(chief().id, '慢活 6')
+  const busyDeadline = Date.now() + 10_000
+  while (Date.now() < busyDeadline) {
+    if (mockLog().length > callsBefore) break
+    await sleep(100)
+  }
+  await sleep(300)
+  await send(botNamed('Coder').id, '转告 Chief：并行核对接口')
+  const deadline = Date.now() + 25_000
+  let peerTask
+  while (Date.now() < deadline) {
+    const view = await api('state')
+    const chiefView = view.bots?.find(item => item.id === chief().id)
+    peerTask = (chiefView?.tasks ?? []).slice(beforeCount).find(item => item.origin === 'bot-handoff')
+    if (peerTask?.status === 'completed') break
+    await sleep(300)
+  }
+  await settle()
+  const fgAfter = chief().sessionId ?? chief().id
+  return { fgBefore, fgAfter, peerTask }
+}, ({ fgBefore, fgAfter, peerTask }, calls) => {
+  const outputs = calls.flatMap(call => call.out ?? []).filter(block => block.type === 'text').map(block => block.text)
+  const peerReplied = outputs.some(line => line.includes('给 Coder 的回复'))
+  return expect(
+    fgBefore === fgAfter
+      && peerTask?.origin === 'bot-handoff'
+      && peerTask?.status === 'completed'
+      && peerReplied,
+    `fgBefore=${fgBefore} fgAfter=${fgAfter} peerTask=${JSON.stringify(peerTask)} peerReplied=${peerReplied}`,
+  )
+})
+
+await step('group member runs a background task in a group chat and reports back to the group', async () => {
+  await send(capabilityRoom.id, '@Coder 调用 task_start {"title":"群后台冒烟","brief":"检查群上下文并回报"}')
+  const deadline = Date.now() + 25_000
+  let task
+  while (Date.now() < deadline) {
+    const view = await api('state')
+    const coderView = view.bots?.find(item => item.id === botNamed('Coder').id)
+    task = (coderView?.tasks ?? []).find(item => item.title === '群后台冒烟')
+    if (task?.status === 'completed') break
+    await sleep(300)
+  }
+  await settle()
+  const finalState = await api('state')
+  const roomView = finalState.rooms?.find(item => item.id === capabilityRoom.id)
+  const page = task === undefined ? null : await api('bot-task-read', { botId: botNamed('Coder').id, taskId: task.id })
+  return { task, preview: roomView?.preview ?? '', page }
+}, ({ task, preview, page }, calls) => {
+  const outputs = calls.flatMap(call => call.out ?? []).filter(block => block.type === 'text').map(block => block.text)
+  const taskLine = outputs.find(line => line.includes('后台任务已完成，共继承'))
+  const groupReport = outputs.find(line => line.includes('已收到后台任务汇报'))
+  return expect(
+    task?.status === 'completed'
+      && task?.roomId === capabilityRoom.id
+      && taskLine !== undefined
+      && groupReport !== undefined
+      && preview.includes('已收到后台任务汇报')
+      && page?.sessionId === task.sessionId,
+    `task=${JSON.stringify(task)} taskLine=${taskLine} groupReport=${groupReport} preview=${preview} page=${page?.sessionId}`,
+  )
 })
 
 if (outFile) writeFileSync(outFile, `${JSON.stringify(transcript, null, 2)}\n`)

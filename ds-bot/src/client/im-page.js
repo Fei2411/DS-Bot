@@ -64,7 +64,7 @@ const GUIDES = {
   },
 }
 
-const platformOf = id => IM_PLATFORMS.find(entry => entry.id === id) ?? { id, name: id, fields: [] }
+export const platformOf = id => IM_PLATFORMS.find(entry => entry.id === id) ?? { id, name: id, fields: [] }
 
 export function ImMark({ id, size = 36 }) {
   const Brand = MARKS[BRAND[id]]
@@ -74,13 +74,14 @@ export function ImMark({ id, size = 36 }) {
 
 function stateOf(conn, status) {
   if (!conn.enabled) return 'off'
-  return status?.state === 'ready' || status?.state === 'error' || status?.state === 'connecting' ? status.state : 'connecting'
+  return status?.state === 'ready' || status?.state === 'error' || status?.state === 'retrying' || status?.state === 'connecting' ? status.state : 'connecting'
 }
 
 function stateText(conn, status) {
   const state = stateOf(conn, status)
   if (state === 'off') return t('Disabled')
   if (state === 'ready') return t('Connected')
+  if (state === 'retrying') return t('Retrying…')
   if (state === 'error') return t('Could not connect: {error}', { error: hostText(status.error ?? '') })
   return t('Connecting…')
 }
@@ -355,7 +356,7 @@ export function ImPage({ roster, actions }) {
     list.length > 0 ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Your IM bots')),
       h('div', { className: 'bt-set-card' }, list.map(conn => h(BotRow, { key: conn.id, conn, status: statuses[conn.id], roster, onOpen: () => setView({ conn: conn.id }) })))) : null,
-    h('section', { className: 'bt-app-section' },
+    h('section', { className: 'bt-app-section', 'data-tour': 'im-platforms' },
       h('div', { className: 'bt-app-section-head' }, h('h3', null, list.length > 0 ? t('Add an IM bot') : t('Choose a platform'))),
       h('div', { className: 'bt-app-grid' }, platforms.map(platform => h(PlatformTile, {
         key: platform.id, platform, count: list.filter(conn => conn.platform === platform.id).length, onOpen: () => setView({ add: platform.id }),
@@ -380,6 +381,7 @@ export const IM_CSS = `
 .bt-im-dot{flex:none;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3)}
 .bt-im-dot[data-state=ready]{background:var(--bt-green)}
 .bt-im-dot[data-state=error]{background:var(--bt-danger)}
+.bt-im-dot[data-state=retrying]{background:var(--bt-star)}
 .bt-im-dot[data-state=off]{background:none;box-shadow:inset 0 0 0 1.5px var(--bt-ink-3)}
 .bt-im-dot[data-state=connecting]{animation:bt-im-breathe 1.4s ease-in-out infinite}
 @keyframes bt-im-breathe{50%{opacity:.35}}
@@ -415,9 +417,10 @@ export const IM_CSS = `
 .bt-im-qr-paper{fill:var(--bt-qr-paper)}
 .bt-im-qr-ink{fill:var(--bt-qr-ink)}
 .bt-im-qr{display:block;width:100%;height:100%;animation:bt-veil-in .22s ease-out}
-.bt-im-qr-blank{display:block;width:100%;height:100%;border-radius:6px;background:linear-gradient(100deg,var(--bt-hover) 30%,var(--bt-active) 50%,var(--bt-hover) 70%);background-size:300% 100%;animation:bt-im-sheen 1.4s linear infinite}
-.bt-im-qr-box[data-state=expired] .bt-im-qr-blank,.bt-im-qr-box[data-state=error] .bt-im-qr-blank{animation:none;background:var(--bt-hover)}
-@keyframes bt-im-sheen{0%{background-position:100% 0}100%{background-position:0 0}}
+.bt-im-qr-blank{position:relative;overflow:hidden;display:block;width:100%;height:100%;border-radius:6px;background:var(--bt-hover)}
+.bt-im-qr-blank::after{content:'';position:absolute;inset:0;background:linear-gradient(100deg,transparent 20%,var(--bt-active) 50%,transparent 80%);transform:translateX(-100%);animation:bt-im-sheen 1.4s linear infinite}
+.bt-im-qr-box[data-state=expired] .bt-im-qr-blank::after,.bt-im-qr-box[data-state=error] .bt-im-qr-blank::after{animation:none;display:none}
+@keyframes bt-im-sheen{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
 .bt-im-qr-done{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border-radius:12px;background:color-mix(in srgb,var(--bt-qr-paper) 82%,transparent);color:var(--bt-green)}
 .bt-im-qr-done svg{width:40px;height:40px}
 .bt-im-qr-caption{margin:0;font-size:13px;line-height:18px;color:var(--bt-ink-2);text-align:center}
@@ -428,5 +431,5 @@ export const IM_CSS = `
 .bt-im-danger[data-confirm]{color:var(--bt-danger);background:var(--bt-danger-soft)}
 .bt-im-remove{justify-content:center;color:var(--bt-danger)}
 .bt-im-remove[data-confirm]{background:var(--bt-danger-soft)}
-@media (prefers-reduced-motion:reduce){.bt-im-dot,.bt-im-qr-blank,.bt-im-qr{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-im-dot,.bt-im-qr-blank::after,.bt-im-qr{animation:none}}
 `

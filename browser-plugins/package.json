@@ -3,7 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/*.test.js",
     "bench": "node bench/run.mjs",
     "report": "node bench/render-report.mjs"
   },

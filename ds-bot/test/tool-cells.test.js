@@ -14,7 +14,7 @@ const { outputFiles } = await build({
       "export { QuestionDock, SettledQuestion } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
       "export { countCards } from './src/client/sources.js'",
-      "export { ViewMenuList, WidgetView } from './src/client/widget-cell.js'",
+      "export { ViewMenuList, WidgetView, WidgetDock, SettledView, AnsweredView, ClosedView } from './src/client/widget-cell.js'",
     ].join('\n'),
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
   },
@@ -47,10 +47,15 @@ class FakeObserver {
 // The markdown the host's renderer is given, and what DS Bot's copy controls write.
 const markdownTexts = []
 const copiedTexts = []
+const clipboard = {}
+class ClipboardItem {
+  constructor(items) { this.getType = type => Promise.resolve(items[type]) }
+}
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   document: { hidden: false }, TextEncoder, MutationObserver: FakeObserver,
+  navigator: { clipboard }, ClipboardItem, Blob,
   setTimeout: (fn) => { const timer = { fn }; timers.add(timer); return timer },
   clearTimeout: timer => timers.delete(timer),
   require: (name) => {
@@ -65,7 +70,7 @@ runInNewContext(outputFiles[0].text, {
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
-const { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, Bubbles, QuestionDock, SettledQuestion, SecretDock, countCards, ViewMenuList, WidgetView } = module.exports
+const { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, Bubbles, QuestionDock, SettledQuestion, SecretDock, countCards, ViewMenuList, WidgetView, WidgetDock, SettledView, AnsweredView, ClosedView } = module.exports
 
 // Runs the effects collected since the last render; returns the cleanups.
 const mount = () => {
@@ -123,14 +128,6 @@ test('a member\'s messages in a row stack under its name, and an event line star
   assert.deepEqual([stacked.time, stacked.duration], [20, 2000])
   assert.deepEqual([event.time, event.duration], [30, undefined])
   assert.deepEqual([single.time, single.duration], [40, 4000])
-})
-
-test('a stacked block shows a path its member presented twice as one card, with the last description', () => {
-  const [block] = stackReplies([
-    { botId: 'writer', text: 'a', presented: [{ path: '/work/a.md', description: 'Draft' }, { path: '/work/b.md' }] },
-    { botId: 'writer', text: 'b', presented: [{ path: '/work/a.md', description: 'Final' }] },
-  ])
-  assert.deepEqual(JSON.parse(JSON.stringify(block.files)), [{ path: '/work/b.md' }, { path: '/work/a.md', description: 'Final' }])
 })
 
 // A time in the machine's own zone, some days back, so the test does not depend on the zone.
@@ -226,8 +223,8 @@ test('a group post drawn from its trigger shows the time it came in', () => {
   effects = []
 })
 
-const props = (root, { sessionId = chief.id, roster = team(), actions = {}, turn = 1, held = {}, openFile } = {}) => ({
-  node: { key: 'node', data: { root }, location: { turn: { turn } } }, sessionId, openFile,
+const props = (root, { sessionId = chief.id, roster = team(), actions = {}, turn = 1, held = {} } = {}) => ({
+  node: { key: 'node', data: { root }, location: { turn: { turn } } }, sessionId,
   useRoster: select => select(roster), useUi: select => select({ reactions: {}, visits: {} }), actions,
   useHeldCards: select => select(held),
 })
@@ -237,44 +234,6 @@ const show = (root, options) => {
   return out
 }
 const shown = (root, options) => text(show(root, options))
-
-// #975: the files a member presented in its group turn show as cards under its
-// message, and a card opens its file the way the chat opens files.
-test('a group reply shows the files its member presented, and a card opens its file', () => {
-  const opened = []
-  const windowsPath = 'C:\\work\\notes.md'
-  const replies = [
-    { botId: 'writer', text: 'The report is ready.', presented: [{ path: '/work/report.docx', description: 'Final report' }] },
-    { botId: 'writer', text: '', presented: [{ path: windowsPath }, { path: '' }] },
-  ]
-  const out = show(call('group_relay', 'direct', { content: { replies } }), { sessionId: 'room', openFile: path => { opened.push(path); return Promise.resolve() } })
-  const cards = findAll(out, node => node.type === 'button' && String(node.props?.className).includes('bt-pfile'))
-  assert.deepEqual(cards.map(text), ['report.docxFinal report', 'notes.md'])
-  assert.deepEqual(cards.map(node => node.props.title), ['/work/report.docx', windowsPath])
-  // One block under the member's name, with one bubble: the files-only message adds none.
-  assert.equal(findAll(out, node => node.props?.className === 'bt-group-msg').length, 1)
-  assert.equal(count(text(out), 'The report is ready.'), 1)
-  for (const card of cards) card.props.onClick()
-  assert.deepEqual(opened, ['/work/report.docx', windowsPath])
-})
-
-test('a group post that came after its round shows the files its member presented', () => {
-  const opened = []
-  const node = {
-    key: 'trigger', kind: 'turn-trigger', location: { turn: { turn: 1 } },
-    data: { seq: 8, time: at(0, 16, 42), content: text$('[Group post from Writer]\nHere is the plan.'), source: { kind: 'bot', role: 'post', senderSessionId: 'writer', senderName: 'Writer', late: true, presented: [{ path: '/work/plan.pdf' }] } },
-  }
-  const out = expand(TriggerCell({
-    node, sessionId: 'room', actions: {}, openFile: path => { opened.push(path) },
-    useRoster: select => select(team()), useSessions: select => select({ byId: {} }),
-    useTurnClock: select => select({}), useUi: select => select({ visits: {}, reactions: {} }),
-  }))
-  effects = []
-  const cards = findAll(out, entry => entry.type === 'button' && String(entry.props?.className).includes('bt-pfile'))
-  assert.deepEqual(cards.map(text), ['plan.pdf'])
-  cards[0].props.onClick()
-  assert.deepEqual(opened, ['/work/plan.pdf'])
-})
 
 // One finished call of every kind ToolCell draws, and what it shows.
 const BRANCHES = [
@@ -293,11 +252,13 @@ const BRANCHES = [
   ['read_group_chat', { args: { group: 'Ops' } }, /Read.*Ops/],
   ['remember', { args: { scope: 'Chief' }, content: 'Saved to Chief memory.' }, /Memory updated/],
   ['forget', { args: { scope: 'Chief' }, content: 'Removed from Chief memory.' }, /Memory updated/],
+  ['bot_remember', { args: { scope: 'Chief' }, content: 'Saved to Chief memory.' }, /Memory updated/],
+  ['bot_forget', { args: { scope: 'Chief' }, content: 'Removed from Chief memory.' }, /Memory updated/],
 ]
 const rosterFor = callId => team({ questions: { chief: question(callId) }, secretRequests: { chief: [request(callId)] } })
 
 test('every call ToolCell draws shows the same nested in a PTC program as on its own', () => {
-  assert.equal(BRANCHES.length, 15)
+  assert.equal(BRANCHES.length, 17)
   for (const [name, options, expected] of BRANCHES) {
     const native = shown(call(name, 'direct', options), { roster: rosterFor('direct') })
     assert.match(native, expected, `${name} on its own`)
@@ -498,11 +459,13 @@ test('a memory write that failed says so, and opens the memory it meant to chang
 })
 
 test('a removal that failed says it could not remove the entry, and why', () => {
-  const line = memoryLine(failedWrite('forget', {}, 'memory/no-match', 'No entry in your memory matches "tea".'), {})
-  assert.match(text(line), /Couldn't remove from memory/)
-  assert.match(text(line), /No saved entry matched/)
-  // The entry the call named is not repeated in the notice.
-  assert.doesNotMatch(text(line), /tea/)
+  for (const name of ['bot_forget', 'forget']) {
+    const line = memoryLine(failedWrite(name, {}, 'memory/no-match', 'No entry in your memory matches "tea".'), {})
+    assert.match(text(line), /Couldn't remove from memory/)
+    assert.match(text(line), /No saved entry matched/)
+    // The entry the call named is not repeated in the notice.
+    assert.doesNotMatch(text(line), /tea/)
+  }
 })
 
 test('the reason follows the kind of failure, not the words of the host', () => {
@@ -591,7 +554,7 @@ const notes = (root, options = {}) => {
 test('the live note follows the running sub-call of a program', () => {
   const asking = notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' }, running: true })], { running: true }))
   assert.deepEqual(asking, [
-    { sessionId: 'chief', id: 'tool:program', entry: { label: 'Asking Writer', state: 'sending' } },
+    { sessionId: 'chief', id: 'tool:program', entry: { label: 'Delegating to Writer', state: 'sending' } },
     { sessionId: 'chief', id: 'tool:program', entry: null },
   ])
   const relaying = notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' } }), call('group_relay', 'program:ptc:2', { running: true })], { running: true }))
@@ -603,7 +566,7 @@ test('the live note follows the running sub-call of a program', () => {
   assert.deepEqual(notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' }, running: true })])), [])
   const roster = team({ exchangeTurns: { chief: [1] } })
   assert.deepEqual(notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' }, running: true })], { running: true }), { roster }), [])
-  assert.equal(notes(call('message_bot', 'direct', { args: { to: 'Writer' }, running: true }))[0].entry.label, 'Asking Writer')
+  assert.equal(notes(call('message_bot', 'direct', { args: { to: 'Writer' }, running: true }))[0].entry.label, 'Delegating to Writer')
 })
 
 // A minimal cards store, as index.js keeps it.
@@ -810,13 +773,16 @@ test('a pruned group relay still draws the replies that survived', () => {
 
 // The prune marker's "]" must not end the scan, and a cut inside a string must
 // not hide the replies after it either.
-test('a group relay recovers replies after the prune marker', () => {
+test('a group relay recovers replies after the prune marker with and without a roundId', () => {
   const between = '{"replies":[{"botId":"writer","text":"First."}[... tool result middle pruned ...],{"botId":"chief","text":"Last."}]}'
-  const out = show(call('group_relay', 'direct', { content: between }), { sessionId: 'room' })
-  assert.match(text(out), /Writer.*First\..*Chief.*Last\./)
   const inside = '{"replies":[{"botId":"writer","text":"First."},{"botId":"chief","text":"cut[... tool result middle pruned ...]{"botId":"writer","text":"Last."}]}'
-  const out2 = show(call('group_relay', 'direct', { content: inside }), { sessionId: 'room' })
-  assert.match(text(out2), /Writer.*First\..*Last\./)
+  for (const args of [{}, { roundId: 'round-2' }]) {
+    const out = show(call('group_relay', 'direct', { args, content: between }), { sessionId: 'room' })
+    assert.match(text(out), /Writer.*First\..*Chief.*Last\./)
+    const out2 = show(call('group_relay', 'direct', { args, content: inside }), { sessionId: 'room' })
+    assert.match(text(out2), /Writer.*First\..*Last\./)
+    assert.doesNotMatch(text(out2), /round-2/)
+  }
 })
 
 // Only the compactor's own marker splits the text: a reply that quotes a
@@ -892,6 +858,19 @@ test('a goal round draws nothing, while another unknown trigger keeps its event 
   assert.match(text(trigger({ kind: 'webhook' })), /<goal_round>Keep going/)
 })
 
+test('a computer handback trigger draws nothing instead of a Bot relay event', () => {
+  const out = expand(TriggerCell({
+    node: { key: 'node', data: { source: { kind: 'bot', role: 'handback' }, turn: 3, content: text$('The user handed the computer back. Look at the app again before you go on.') }, location: { turn: { turn: 3 } } },
+    sessionId: chief.id,
+    useRoster: select => select(team()),
+    useSessions: select => select({ byId: {} }),
+    useTurnClock: select => select({}),
+    useUi: select => select({ visits: {} }),
+    actions: { openExchange: () => { throw new Error('must not open an exchange') } },
+  }))
+  assert.ok(emptied(out))
+})
+
 // #212: the chat hands a trigger its event (seq, content, source) but no turn, so every post
 // in a group chat shared one reaction entry: a reaction on one showed on all of them.
 test('a reaction on a group post stays on that post, also after it draws again', () => {
@@ -937,16 +916,23 @@ test('a reaction on a group post stays on that post, also after it draws again',
   assert.deepEqual([chips(draw(first)), chips(draw(sameTurn)), chips(draw(later))], [0, 0, 1])
 })
 
-test('a question or view card closed without an answer on it stays at its call, read-only, with how it closed', () => {
+test('a question or view card closed without an answer on it stays at its call, read-only, with how it closed and a fold toggle when detailed', () => {
   const asked = { question: 'Which draft?', detail: 'Pick one', options: [{ label: 'Short', description: 'One page' }, 'Long'] }
+  const bareAsked = { question: 'Ready?', options: [] }
   const pick = { title: 'Pick a lane', view: { type: 'options', id: 'lane', options: [{ label: 'Ship now' }, { label: 'One more pass' }] } }
-  const roster = team({ questions: {}, views: {}, closedCards: { [chief.id]: { 'q-dismissed': 'dismissed', 'q-replied': 'replied', 'v-dismissed': 'dismissed' } } })
+  const roster = team({ questions: {}, views: {}, closedCards: { [chief.id]: { 'q-dismissed': 'dismissed', 'q-bare': 'dismissed', 'q-replied': 'replied', 'v-dismissed': 'dismissed' } } })
   const dismissed = show(call('ask_user', 'q-dismissed', { args: asked }), { roster })
   assert.equal(find(dismissed, node => node.props?.className === 'bt-q-gone'), undefined)
   assert.equal(text(find(dismissed, node => node.props?.className === 'bt-q-badge')), 'Dismissed')
-  // Compact: the question and the badge, no options and nothing to press.
+  // Compact while folded: the question and badge only, plus the fold button (no dismiss/option buttons).
   assert.equal(text(dismissed), 'Which draft?Dismissed')
-  assert.equal(find(dismissed, node => node.type === 'button'), undefined)
+  const qButtons = findAll(dismissed, node => node.type === 'button')
+  assert.equal(qButtons.length, 1)
+  assert.equal(qButtons[0].props?.className, 'bt-q-head bt-q-fold')
+  assert.equal(qButtons[0].props?.['aria-expanded'], false)
+  // Without detail or options, no fold toggle is rendered.
+  const bare = show(call('ask_user', 'q-bare', { args: bareAsked }), { roster })
+  assert.equal(find(bare, node => node.type === 'button'), undefined)
   const replied = show(call('ask_user', 'q-replied', { args: asked }), { roster })
   assert.equal(text(find(replied, node => node.props?.className === 'bt-q-badge')), 'Answered by message')
   // Answered on the card: the reply message carries the card, the call leaves no gap.
@@ -954,8 +940,59 @@ test('a question or view card closed without an answer on it stays at its call, 
   assert.ok(find(answered, node => node.props?.className === 'bt-q-gone') !== undefined)
   const view = show(call('show_view', 'v-dismissed', { args: pick }), { roster })
   assert.equal(text(view), 'Pick a laneDismissed')
-  assert.equal(find(view, node => node.type === 'button'), undefined)
+  const vButtons = findAll(view, node => node.type === 'button')
+  assert.equal(vButtons.length, 1)
+  assert.equal(vButtons[0].props?.className, 'bt-q-head bt-q-fold')
+  assert.equal(vButtons[0].props?.['aria-expanded'], false)
   assert.ok(find(show(call('show_view', 'v-answered', { args: pick }), { roster }), node => node.props?.className === 'bt-q-gone') !== undefined)
+})
+
+test('a hidden-turn card floats in the dock while pending, then leaves the dock and settles at its turn when closed', () => {
+  const store = cardStore()
+  const asked = { question: 'Which draft?', options: [{ label: 'Short' }] }
+  const pick = { title: 'Pick a lane', view: { type: 'options', id: 'lane', options: [{ label: 'Ship now' }] } }
+  const meter = { title: 'Hidden meter', view: { type: 'metric', label: 'Done', value: '3' } }
+  const root = program([
+    call('message_bot', 'm-hidden', { args: { to: 'Writer' } }),
+    call('show_view', 'm-view', { args: meter }),
+    call('ask_user', 'q-hidden', { args: asked }),
+    call('show_view', 'v-hidden', { args: pick }),
+  ])
+  const pendingRoster = team({
+    exchangeTurns: { [chief.id]: [1] },
+    questions: { [chief.id]: { id: 'q-1', callId: 'q-hidden', ...asked } },
+    views: { [chief.id]: { id: 'v-1', callId: 'v-hidden', ...pick } },
+  })
+  // While pending, the hidden turn draws nothing and marks no cards, so the docks show both.
+  const pendingCell = draw(root, store, { roster: pendingRoster })
+  assert.equal(text(pendingCell.out), '')
+  assert.deepEqual(store.state, {})
+  const pendingViewDock = expand(WidgetDock(dockProps(store, pendingRoster)))
+  const pendingQuestionDock = expand(QuestionDock(dockProps(store, pendingRoster)))
+  assert.match(text(pendingViewDock), /Pick a lane/)
+  assert.match(text(pendingQuestionDock), /Which draft\?/)
+  pendingCell.unmount()
+
+  // Once closed by message or dismiss, both docks empty and the hidden turn draws only the settled cards.
+  const closedRoster = team({
+    exchangeTurns: { [chief.id]: [1] },
+    questions: {},
+    views: {},
+    closedCards: { [chief.id]: { 'q-hidden': 'dismissed', 'v-hidden': 'replied' } },
+  })
+  assert.equal(expand(WidgetDock(dockProps(store, closedRoster))), null)
+  assert.equal(expand(QuestionDock(dockProps(store, closedRoster))), null)
+  const settledCell = show(root, { roster: closedRoster })
+  assert.equal(text(settledCell), 'Which draft?DismissedPick a laneAnswered by message')
+  assert.deepEqual(findAll(settledCell, each => each.type === 'button').map(each => each.props?.className), ['bt-q-head bt-q-fold', 'bt-q-head bt-q-fold'])
+
+  // A card carried from an earlier part stays in the dock even if the current part drew the same call id.
+  store.noteCards(chief.id, ['same-call'], 1)
+  const carriedRoster = team({
+    views: { [chief.id]: { id: 'v-2', callId: 'same-call', callSessionId: 'chief-old', ...pick } },
+  })
+  assert.match(text(expand(WidgetDock(dockProps(store, carriedRoster)))), /Pick a lane/)
+  assert.ok(find(show(call('show_view', 'same-call', { args: pick }), { roster: carriedRoster }), each => each.props?.className === 'bt-q-gone') !== undefined)
 })
 
 test('an answered question card keeps only the chosen rows, each under its card letter, and the own answer after them', () => {
@@ -1122,4 +1159,154 @@ test('a folded code block leaves no copy of only its shown part', async () => {
   assert.ok(markdownTexts.some(given => given.includes('```js')))
   assert.equal(copyOf(short).length, 0)
   effects = []
+})
+
+
+test('an attachment preview copies its full code and never writes a partial read', async () => {
+  const inner = Array.from({ length: 4000 }, (_, i) => `line ${i + 1}`).join('\n')
+  const full = '```js\n' + inner + '\n```'
+  let whole = true
+  const errors = []
+  const bubble = () => expand(Bubbles({
+    texts: [full.slice(0, 1000)], roster: team(), selfId: chief.id, sessionId: chief.id,
+    actions: { reportError: error => errors.push(error.message) },
+    whole: { length: full.length, load: async () => ({ text: full, whole }) },
+    useUi: select => select({ reactions: {} }),
+  }))
+  const copyOf = out => find(out, node => node.type === 'button' && node.props?.className?.includes('bt-fold-copy'))
+  markdownTexts.length = 0
+  copiedTexts.length = 0
+  await copyOf(bubble()).props.onClick()
+  assert.deepEqual(copiedTexts, [inner])
+  assert.ok(markdownTexts.every(text => !text.includes('```')))
+  copiedTexts.length = 0
+  whole = false
+  await copyOf(bubble()).props.onClick()
+  assert.deepEqual(copiedTexts, [])
+  assert.deepEqual(errors, ['Could not read the whole code block'])
+  effects = []
+})
+
+
+test('an attachment starts the clipboard write inside its click before loading the text', async t => {
+  const inner = Array.from({ length: 4000 }, (_, i) => `line ${i + 1}`).join('\n')
+  const full = '```js\n' + inner + '\n```'
+  let release
+  const loaded = new Promise(resolve => { release = resolve })
+  let writing = false
+  clipboard.write = async items => {
+    writing = true
+    const blob = await items[0].getType('text/plain')
+    copiedTexts.push(await blob.text())
+  }
+  t.after(() => { delete clipboard.write; effects = [] })
+  const out = expand(Bubbles({
+    texts: [full.slice(0, 1000)], roster: team(), selfId: chief.id,
+    whole: { length: full.length, load: () => loaded },
+    useUi: select => select({ reactions: {} }),
+  }))
+  copiedTexts.length = 0
+  const button = find(out, node => node.type === 'button' && node.props?.className?.includes('bt-fold-copy'))
+  const copying = button.props.onClick()
+  assert.equal(writing, true, 'write is called synchronously in the gesture')
+  assert.deepEqual(copiedTexts, [], 'nothing is written before the full read')
+  release({ text: full, whole: true })
+  await copying
+  assert.deepEqual(copiedTexts, [inner])
+})
+
+test('settled and answered views summarize every outcome cleanly and derive fallback prompts when untitled', () => {
+  const expandCard = (Component, props) => expand(h(Component, props))
+
+  // Options (multi-select with letter keys).
+  const optsView = {
+    type: 'options', id: 'pick', multi: true,
+    options: [{ label: 'Alpha', description: 'First' }, { label: 'Beta' }, { label: 'Gamma' }],
+  }
+  const optsCard = expandCard(AnsweredView, {
+    node: { data: { views: [{ id: 'v1', title: 'Choose items', view: optsView }], answers: [{ id: 'v1', action: 'pick', values: { selected: ['Beta', 'Alpha'] } }] } },
+  })
+  assert.equal(text(find(optsCard, node => node.props?.className === 'bt-q-title')), 'Choose items')
+  const pickedSummary = find(optsCard, node => node.props?.className?.includes('bt-q-summary'))
+  assert.ok(pickedSummary)
+  assert.deepEqual(findAll(pickedSummary, node => node.props?.className === 'bt-key').map(text), ['B', 'A'])
+  assert.deepEqual(findAll(pickedSummary, node => node.props?.className === 'bt-q-label').map(text), ['Beta', 'Alpha'])
+
+  // Confirm (confirmed -> accented badge; canceled -> neutral badge).
+  const confirmView = { type: 'confirm', id: 'c1', confirmLabel: 'Deploy', cancelLabel: 'Hold' }
+  const confirmed = expandCard(SettledView, { title: 'Ship build?', view: confirmView, answer: { action: 'c1', values: { confirmed: true } } })
+  const confirmBadge = find(confirmed, node => node.props?.className === 'bt-q-badge')
+  assert.equal(text(confirmBadge), 'Deploy')
+  assert.equal(confirmBadge.props['data-accent'], '')
+  const canceledConfirm = expandCard(SettledView, { title: 'Ship build?', view: confirmView, answer: { action: 'c1', values: { confirmed: false } } })
+  const cancelBadge = find(canceledConfirm, node => node.props?.className === 'bt-q-badge')
+  assert.equal(text(cancelBadge), 'Hold')
+  assert.equal(cancelBadge.props['data-accent'], undefined)
+
+  // Form (non-empty fields -> kv rows; empty submit -> accented badge; canceled -> neutral badge).
+  const formView = {
+    type: 'form', id: 'f1', submitLabel: 'Save', cancelLabel: 'Abort',
+    fields: [{ id: 'host', label: 'Host' }, { id: 'note', placeholder: 'Notes', multiline: true }],
+  }
+  const formDone = expandCard(SettledView, { title: 'Server', view: formView, answer: { action: 'f1', values: { fields: { host: 'api.local', note: 'line 1\nline 2' } } } })
+  const kvRows = findAll(formDone, node => node.props?.className === 'bt-q-kv-row')
+  assert.deepEqual(kvRows.map(row => [text(row.props.children[0]), text(row.props.children[1])]), [['Host', 'api.local'], ['Notes', 'line 1 line 2']])
+  assert.equal(find(formDone, node => node.props?.className === 'bt-q-badge'), undefined)
+  const formEmpty = expandCard(SettledView, { title: 'Server', view: formView, answer: { action: 'f1', values: { fields: {} } } })
+  assert.equal(text(find(formEmpty, node => node.props?.className === 'bt-q-badge')), 'Save')
+  assert.equal(find(formEmpty, node => node.props?.className === 'bt-q-badge').props['data-accent'], '')
+  const formCanceled = expandCard(SettledView, { title: 'Server', view: formView, answer: { action: 'f1', values: { canceled: true } } })
+  assert.equal(text(find(formCanceled, node => node.props?.className === 'bt-q-badge')), 'Abort')
+  assert.equal(find(formCanceled, node => node.props?.className === 'bt-q-badge').props['data-accent'], undefined)
+
+  // Submit + slider / choice / toggle inputs.
+  const inputsView = {
+    type: 'stack',
+    children: [
+      { type: 'slider', id: 'pct', label: 'Budget', min: 0, max: 100, unit: '%', value: 25 },
+      { type: 'choice', id: 'tier', label: 'Tier', options: [{ label: 'Fast', value: 'fast' }, { label: 'Safe', value: 'safe' }], value: 'fast' },
+      { type: 'toggle', id: 'dry', label: 'Dry run', value: true },
+      { type: 'submit', id: 'go', label: 'Run check' },
+    ],
+  }
+  const inputsCard = expandCard(SettledView, {
+    title: 'Run pipeline', view: inputsView,
+    answer: { action: 'go', values: { inputs: { pct: 80, tier: 'safe', dry: false } } },
+  })
+  const inputKv = findAll(inputsCard, node => node.props?.className === 'bt-q-kv-row')
+  assert.deepEqual(inputKv.map(row => [text(row.props.children[0]), text(row.props.children[1])]), [
+    ['Budget', '80 %'],
+    ['Tier', 'Safe'],
+    ['Dry run', '—'],
+  ])
+  const submitOnlyCard = expandCard(SettledView, {
+    title: 'Ping', view: { type: 'submit', id: 'go', label: 'Notify' }, answer: { action: 'go', values: {} },
+  })
+  assert.equal(text(find(submitOnlyCard, node => node.props?.className === 'bt-q-badge')), 'Notify')
+  assert.equal(find(submitOnlyCard, node => node.props?.className === 'bt-q-badge').props['data-accent'], '')
+
+  // Untitled fallback prompt & closed outcomes.
+  const mdPrompt = expandCard(ClosedView, { title: '', view: { type: 'stack', children: [{ type: 'text', text: '# **Review plan**\nMore lines' }, confirmView] }, closed: 'replied' })
+  assert.equal(text(find(mdPrompt, node => node.props?.className === 'bt-q-title')), 'Review plan')
+  assert.equal(text(find(mdPrompt, node => node.props?.className === 'bt-q-badge')), 'Answered by message')
+  const calloutPrompt = expandCard(SettledView, { title: '', view: { type: 'callout', text: '`heads up` details' }, closed: 'dismissed' })
+  assert.equal(text(find(calloutPrompt, node => node.props?.className === 'bt-q-title')), 'heads up details')
+  const formPrompt = expandCard(SettledView, { title: '', view: formView, closed: 'dismissed' })
+  assert.equal(text(find(formPrompt, node => node.props?.className === 'bt-q-title')), 'Host')
+  const metricPrompt = expandCard(SettledView, { title: '', view: { type: 'metric', label: 'Queue depth', value: 4 }, closed: 'dismissed' })
+  assert.equal(text(find(metricPrompt, node => node.props?.className === 'bt-q-title')), 'Queue depth')
+  const formulaView = {
+    type: 'stack',
+    children: [
+      { type: 'text', text: { '=': '"Budget: " + pct + "%"' } },
+      { type: 'slider', id: 'pct', label: 'Budget', min: 0, max: 100, unit: '%', value: 25 },
+      { type: 'submit', id: 'go', label: 'Run check' },
+    ],
+  }
+  const formulaAnswered = expandCard(SettledView, { title: '', view: formulaView, answer: { action: 'go', values: { inputs: { pct: 80 } } } })
+  assert.equal(text(find(formulaAnswered, node => node.props?.className === 'bt-q-title')), 'Budget: 80%')
+  const formulaDismissed = expandCard(SettledView, { title: '', view: formulaView, closed: 'dismissed' })
+  assert.equal(text(find(formulaDismissed, node => node.props?.className === 'bt-q-title')), 'Budget: 25%')
+  const fallbackPrompt = expandCard(SettledView, { title: '', view: { type: 'stack', children: [] }, closed: 'dismissed' })
+  assert.equal(text(find(fallbackPrompt, node => node.props?.className === 'bt-q-title')), 'View')
 })

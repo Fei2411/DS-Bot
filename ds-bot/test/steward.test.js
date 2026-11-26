@@ -22,6 +22,18 @@ test('a model without a window counts as the default, and odd settings fall back
   assert.equal(linesFor({ window: 100_000, reserve: 0, checkRatio: 0.99 }).check, 95_000)
 })
 
+test('large windows have no default ceiling, and an explicit checkTokens caps the check line', () => {
+  // Without an explicit checkTokens, a 1M window follows checkRatio directly.
+  assert.equal(linesFor({ window: 1_000_000, reserve: 8_000, checkRatio: 0.8 }).check, 793_600)
+  assert.equal(linesFor({ window: 1_000_000, reserve: 8_000, checkRatio: 0.8, checkTokens: 120_000 }).check, 120_000)
+  // A smaller window is not raised to an explicit ceiling.
+  assert.equal(linesFor({ window: 200_000, reserve: 8_000, checkRatio: 0.8, checkTokens: 380_000 }).check, 153_600)
+  // Invalid checkTokens values leave the check line uncapped.
+  for (const checkTokens of [0, -1, 1.5, 'x', undefined]) {
+    assert.equal(linesFor({ window: 1_000_000, reserve: 8_000, checkRatio: 0.8, checkTokens }).check, 793_600, String(checkTokens))
+  }
+})
+
 test('the steward\'s answer is read from its JSON, and nothing else counts', () => {
   assert.equal(parseDecision('{"action":"switch","reason":"done"}'), 'switch')
   assert.equal(parseDecision('Sure.\n```json\n{"action": "compact", "reason": "still coding"}\n```'), 'compact')

@@ -1,7 +1,9 @@
 #Requires -Version 5.1
 [CmdletBinding()]
+# Assigned in the body, not here: an advanced script ([CmdletBinding()]) evaluates
+# parameter defaults in the caller's scope, where $PSScriptRoot is empty.
 param(
-    [string]$DataRoot = (Join-Path $PSScriptRoot '.ds-bot-local'),
+    [string]$DataRoot = '',
     [switch]$PrepareOnly
 )
 
@@ -9,6 +11,7 @@ $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath($PSScriptRoot)
 $plugin = Join-Path $repo 'ds-bot'
 $appDir = Join-Path $repo 'app'
+if (-not $DataRoot) { $DataRoot = '.ds-bot-local' }
 if (-not [IO.Path]::IsPathRooted($DataRoot)) { $DataRoot = Join-Path $repo $DataRoot }
 $DataRoot = [IO.Path]::GetFullPath($DataRoot)
 $node = (Get-Command node -ErrorAction Stop).Source

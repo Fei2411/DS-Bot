@@ -1,7 +1,7 @@
 // Settings → Connectors: connected rows, a catalog with search and categories,
 // an Add menu, and the mailbox. One row component draws the mark, name, status
 // and the expanding panels (browser sign-in, device code, key/token, client).
-import { createElement as h, useEffect, useRef, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { MaskedInput } from './secret-card.js'
 import { Switch, SwitchRow } from './bot-settings.js'
 import { Segmented, useMorph } from './motion.js'
@@ -12,7 +12,9 @@ import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
 import { hostText, t } from './i18n.js'
 import { CheckIcon, ChevronDownIcon } from './icons.js'
+import { useEscape } from './overlay-hooks.js'
 import { ViewCard } from './widget-cell.js'
+import { lruSet } from './memo.js'
 
 export { GitHubMark } from './connector-marks.js'
 import { MARKS } from './connector-marks.js'
@@ -57,14 +59,27 @@ function BrowserPanel({ connector, actions, run }) {
       : h('button', { type: 'button', className: 'bt-connector-link bt-connector-aside', onClick: () => setPasting(true) }, t('Did not come back here?')))
 }
 
+// The copy has to start before the sign-in page takes the focus, and the host's
+// update can mount the panel before or after it ends. The panel watches this
+// count, so it says "copied" only for a write that worked, in either order.
+const MAX_CODE_COPIES = 50
+export const codeCopies = new Map()
+const copyWatchers = new Set()
+const copyCode = code => navigator.clipboard?.writeText(code).then(() => {
+  lruSet(codeCopies, code, (codeCopies.get(code) ?? 0) + 1, MAX_CODE_COPIES)
+  for (const watcher of copyWatchers) watcher()
+}, () => {})
+const watchCopies = (watcher) => { copyWatchers.add(watcher); return () => copyWatchers.delete(watcher) }
+
 function DevicePanel({ connector, actions, run, onUseToken }) {
   const { userCode, verificationUri } = connector.pending
-  const [copied, setCopied] = useState(false)
-  const copy = () => { void navigator.clipboard?.writeText(userCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600) }) }
+  const copies = useSyncExternalStore(watchCopies, () => codeCopies.get(userCode) ?? 0)
   return h('div', { className: 'bt-connector-form' },
     h('div', { className: 'bt-connector-device' },
       h('code', { className: 'bt-connector-code' }, userCode),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: copy }, copied ? t('Copied') : t('Copy'))),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void copyCode(userCode) }, t('Copy')),
+      h('span', { className: 'bt-connector-copied', role: 'status' },
+        copies > 0 ? h('span', { key: copies, className: 'bt-connector-copied-text' }, h(CheckIcon), t('Copied to clipboard')) : null)),
     h('div', { className: 'bt-connector-form-row' },
       h('span', { className: 'bt-connector-wait' }, t('Paste the code on {host} and authorize.', { host: verificationUri.replace(/^https?:\/\//, '') })),
       h('button', { type: 'button', className: 'bt-connector-link', onClick: () => openPage(verificationUri) }, t('Open again')),
@@ -72,13 +87,43 @@ function DevicePanel({ connector, actions, run, onUseToken }) {
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.connectorCancel(connector.id)) }, t('Cancel'))))
 }
 
+// What a sign-in in progress shows, on a catalog tile and in the app's own view.
+export function SignInPanel({ connector, actions, run, onUseToken }) {
+  const kind = connector.pending?.kind
+  if (kind === 'browser') return h(BrowserPanel, { connector, actions, run })
+  if (kind === 'device') return h(DevicePanel, { connector, actions, run, onUseToken })
+  return null
+}
+
 function ClientPanel({ connector, actions, run }) {
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
+  const setup = connector.auth?.clientSetup
+  const app = setup?.appUrl?.replace(/^https?:\/\//, '')
+  const uri = connector.redirectUri
+  const copies = useSyncExternalStore(watchCopies, () => codeCopies.get(uri) ?? 0)
   return h('div', { className: 'bt-connector-form' },
+    // The app on the service side has to know the address the browser comes back
+    // to, and its own MCP features, before the pasted client can sign in.
+    h('div', { className: 'bt-connector-setup' },
+      h('ol', { className: 'bt-connector-steps' },
+        h('li', null,
+          h('span', null, setup?.kind === 'slack'
+            ? t('In OAuth & Permissions at {app}, add this redirect URL:', { app })
+            : t('In the app settings, add this redirect URL:')),
+          uri ? h('div', { className: 'bt-connector-setup-uri' },
+            h('code', { className: 'bt-connector-uri' }, uri),
+            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void copyCode(uri) }, t('Copy')),
+            copies > 0 ? h('span', { className: 'bt-connector-copied', role: 'status' },
+              h('span', { key: copies, className: 'bt-connector-copied-text' }, h(CheckIcon), t('Copied to clipboard'))) : null) : null),
+        setup?.kind === 'slack' ? h('li', null, t('Turn on the MCP features and scopes the app needs.')) : null,
+        h('li', null, t('Copy the Client ID and Client Secret here.')))),
     h('input', { className: 'bt-input', 'aria-label': t('Client ID'), placeholder: t('Client ID'), value: clientId, spellCheck: false, autoComplete: 'off', onChange: e => setClientId(e.target.value) }),
     h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value: clientSecret, onChange: setClientSecret, label: t('Client secret (optional)') })),
     h('div', { className: 'bt-connector-form-row' },
+      setup?.appUrl
+        ? h('button', { type: 'button', className: 'bt-connector-link', onClick: () => openPage(setup.appUrl) }, t('Open app settings'))
+        : h('span', { className: 'bt-connector-wait' }),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.connectorCancel(connector.id)) }, t('Cancel')),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: clientId.trim() === '', onClick: () => void run(actions.connectorClient(connector.id, clientId.trim(), clientSecret.trim() || undefined)) }, t('Continue'))))
 }
@@ -100,13 +145,13 @@ function TokenPanel({ connector, actions, run, onDone }) {
 }
 
 // Opens the sign-in page the host answers with: the browser page for OAuth, or the
-// device page with the code already on the clipboard.
+// device page with the code already on the clipboard. The write has to finish
+// first: the page takes the focus as it opens, and an unfocused page is refused.
 export const openSignIn = (win, id, view) => {
   const pending = view?.connectors?.find(entry => entry.id === id)?.pending
   if (pending?.kind === 'browser') return void win.go(pending.url)
   if (pending?.kind === 'device') {
-    void navigator.clipboard?.writeText(pending.userCode).catch(() => {})
-    return void win.go(pending.verificationUri)
+    return void Promise.resolve(copyCode(pending.userCode)).then(() => win.go(pending.verificationUri))
   }
   win.close()
 }
@@ -135,7 +180,7 @@ export function ConnectorRow({ connector, actions }) {
   }
   const button = (label, onClick) => h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick }, label)
   let actionsNode = null
-  if (pending || form) actionsNode = null
+  if (pending || form || connector.state === 'needs-client') actionsNode = null
   else if (connector.state === 'needs-sign-in') actionsNode = [button(t('Sign in again'), signIn), button(t('Disconnect'), () => void run(actions.connectorDisconnect(connector.id)))]
   else if (connector.state === 'error') actionsNode = [button(t('Try again'), () => void run(actions.connectorRetry(connector.id))), button(connector.custom ? t('Remove') : t('Disconnect'), () => void run(actions.connectorDisconnect(connector.id)))]
   else if (on) actionsNode = button(connector.custom ? t('Remove') : t('Disconnect'), () => void run(actions.connectorDisconnect(connector.id)))
@@ -145,6 +190,8 @@ export function ConnectorRow({ connector, actions }) {
         ? h('button', { key: 'token', type: 'button', className: 'bt-connector-link', disabled: busy, onClick: () => setForm('token') }, t('Use a token instead'))
         : null,
       h('button', { key: 'connect', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: connect }, busy ? t('Connecting…') : t('Connect')),
+      // An added server that has no sign-in token yet still needs a way to be removed.
+      connector.custom ? h('button', { key: 'remove', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.connectorDisconnect(connector.id)) }, t('Remove')) : null,
     ]
   }
   return h('div', { ref: row, className: 'bt-connector', 'data-state': connector.state },
@@ -156,8 +203,7 @@ export function ConnectorRow({ connector, actions }) {
       actionsNode ? h('span', { className: 'bt-connector-actions' }, actionsNode) : null),
     connector.readOnly !== undefined && on && connector.state === 'ready' ? h('div', { className: 'bt-connector-ro' },
       h(SwitchRow, { label: t('Read-only'), on: connector.readOnly === true, onChange: checked => void run(actions.connectorSet(connector.id, { readOnly: checked })) })) : null,
-    pending?.kind === 'browser' ? h(BrowserPanel, { connector, actions, run }) : null,
-    pending?.kind === 'device' ? h(DevicePanel, { connector, actions, run, onUseToken: () => setForm('token') }) : null,
+    h(SignInPanel, { connector, actions, run, onUseToken: () => setForm('token') }),
     connector.state === 'needs-client' && !pending?.kind ? h(ClientPanel, { connector, actions, run }) : null,
     form === 'token' ? h(TokenPanel, { connector, actions, run, onDone: () => { setForm(null); setError(null) } }) : null,
     error ? h('div', { className: 'bt-connector-error', role: 'alert' }, hostText(error)) : null)
@@ -330,18 +376,30 @@ export function MailCatalogRow({ mail, actions }) {
 }
 
 // Your own MCP servers: an address, a command, or ones found in other apps.
-export function AddMenu({ actions, run }) {
-  const [kind, setKind] = useState(null)
+export function AddMenu({ actions, run, initialKind = null, onCancel = null }) {
+  const [kind, setKind] = useState(initialKind)
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
+  const [oauth, setOauth] = useState(false)
   const [command, setCommand] = useState('')
   const [found, setFound] = useState(null)
   const [picked, setPicked] = useState([])
   const row = useRef(null)
   useMorph(row, `${kind}:${found === null}`)
-  const reset = () => { setKind(null); setName(''); setUrl(''); setCommand(''); setFound(null); setPicked([]) }
+  const reset = () => {
+    setKind(initialKind)
+    setName('')
+    setUrl('')
+    setOauth(false)
+    setCommand('')
+    setFound(null)
+    setPicked([])
+    if (initialKind !== null) onCancel?.()
+  }
   const choose = (next) => {
     setKind(next)
+    // Only an address can sign in, so leaving that kind drops the choice with it.
+    if (next !== 'url') setOauth(false)
     if (next === 'import' && found === null) void Promise.resolve(actions.connectorImportScan()).then(list => setFound(Array.isArray(list) ? list : list?.items ?? []), () => setFound([]))
   }
   const key = (item) => `${item.source}:${item.name}`
@@ -369,12 +427,14 @@ export function AddMenu({ actions, run }) {
           kind === 'url'
             ? h('input', { key: 'url', className: 'bt-input', 'aria-label': t('Server address'), placeholder: 'https://…', value: url, spellCheck: false, onChange: e => setUrl(e.target.value) })
             : h('input', { key: 'cmd', className: 'bt-input', 'aria-label': t('Command'), placeholder: t('Command, e.g. npx -y some-mcp'), value: command, spellCheck: false, onChange: e => setCommand(e.target.value) }),
+          // A command has nowhere to send a browser sign-in; only an address offers it.
+          kind === 'url' ? h(SwitchRow, { key: 'oauth', label: t('Sign in'), on: oauth, onChange: setOauth }) : null,
         ],
       h('div', { className: 'bt-secret-row-actions' },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
         kind === 'import'
           ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: picked.length === 0, onClick: () => void run(actions.connectorImport(picked), reset) }, t('Import {count}', { count: picked.length }))
-          : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !ready, onClick: () => void run(kind === 'url' ? actions.connectorAdd({ name: name.trim(), url: url.trim() }) : actions.connectorAdd({ name: name.trim(), command: command.trim() }), reset) }, t('Add')))))
+          : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !ready, onClick: () => void run(kind === 'url' ? actions.connectorAdd({ name: name.trim(), url: url.trim(), ...(oauth ? { oauth: true } : {}) }) : actions.connectorAdd({ name: name.trim(), command: command.trim() }), reset) }, t('Add')))))
 }
 
 // Bot details → Connectors: one switch per connected connector (default on).
@@ -484,13 +544,12 @@ const RULE_LABELS = {
 function MailApprovalMenu({ bot, request, rule, onPick, actions, disabled = false }) {
   const [open, setOpen] = useState(false)
   const root = useRef(null)
+  useEscape(() => setOpen(false), open)
   useEffect(() => {
     if (!open) return undefined
     const away = (event) => { if (!root.current?.contains(event.target)) setOpen(false) }
-    const key = (event) => { if (event.key === 'Escape') setOpen(false) }
     document.addEventListener('pointerdown', away, true)
-    document.addEventListener('keydown', key)
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', key) }
+    return () => { document.removeEventListener('pointerdown', away, true) }
   }, [open])
   const choose = (mode) => {
     setOpen(false)
@@ -507,12 +566,12 @@ function MailApprovalMenu({ bot, request, rule, onPick, actions, disabled = fals
       'aria-haspopup': 'menu', 'aria-expanded': open,
       onClick: () => setOpen(v => !v),
     }, t(RULE_LABELS[rule] ?? 'Needs approval'), h(ChevronDownIcon)),
-    open ? h('div', { className: 'dv-menu bt-mail-rule-menu', role: 'menu' },
+    open ? h('div', { className: 'bt-menu bt-menu-up bt-mail-rule-menu', role: 'menu' },
       ['allow-recipient', 'require-approval', 'no-draft'].map(mode => h('button', {
         key: mode, type: 'button', role: 'menuitemradio', 'aria-checked': rule === mode,
         onClick: () => choose(mode),
       }, h('span', { className: 'bt-mail-rule-item-text' }, t(RULE_LABELS[mode])), rule === mode ? h(CheckIcon) : null)),
-      h('div', { className: 'dv-menu-sep', role: 'separator' }),
+      h('div', { className: 'bt-menu-sep', role: 'separator' }),
       h('button', {
         type: 'button', role: 'menuitem',
         onClick: () => { setOpen(false); actions.openConnectors?.() },
@@ -619,6 +678,7 @@ export function MailDock({ sessionId, useRoster, useCards, useHeldCards, actions
 }
 
 export const CONNECTOR_CSS = `
+.bt-connector-form .bt-set-row{padding:0}
 .bt-connector-mono{display:inline-flex;width:20px;height:20px;border-radius:6px;align-items:center;justify-content:center;background:var(--bt-accent);color:var(--bt-card);font-size:12px;font-weight:600;filter:hue-rotate(calc(var(--bt-hue,0)*1deg))}
 .bt-connector-name{display:inline-flex;align-items:center;gap:6px}
 .bt-connector-search{display:flex;flex-direction:column;gap:8px;padding:12px}
@@ -626,7 +686,10 @@ export const CONNECTOR_CSS = `
 .bt-connector-chips .bt-secret-seg{height:26px;padding:0 10px;border:.5px solid var(--bt-line)}
 .bt-connector-chips .bt-secret-seg[aria-pressed=true]{background:var(--bt-active)}
 .bt-connector-ro{padding-left:48px}
-.bt-connector-device{display:flex;align-items:center;gap:10px}
+.bt-connector-device{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.bt-connector-copied:empty{display:none}
+.bt-connector-copied-text{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:16px;color:var(--bt-ink-2);animation:bt-veil-in .2s ease-out}
+.bt-connector-copied-text svg{flex:none;width:13px;height:13px;color:var(--bt-green)}
 .bt-connector-code{font-family:ui-monospace,Menlo,monospace;font-size:16px;letter-spacing:.12em;padding:4px 10px;border-radius:8px;background:var(--bt-hover)}
 .bt-connector-bot .bt-set-copy{min-width:0}
 .bt-mail-rule-wrap{position:relative;display:inline-flex;align-items:center}
@@ -634,8 +697,8 @@ export const CONNECTOR_CSS = `
 .bt-mail-rule-btn:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
 .bt-mail-rule-btn:disabled{opacity:.4;cursor:default}
 .bt-mail-rule-btn svg{width:13px;height:13px;color:var(--bt-ink-2)}
-.dv-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--dv-origin:bottom left}
-.dv-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
+.bt-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--bt-origin:bottom left}
+.bt-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
 .bt-mail-rule-item-text{flex:1 1 auto;min-width:0}
 .dv-widget-stack:has(>.dv-widget-form){gap:8px}
 .dv-widget-stack>.dv-widget-form{display:contents}

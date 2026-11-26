@@ -4,9 +4,9 @@
 // prompt cache still hits.
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import { OCR_CACHE_MAX, OCR_PROMPT, OCR_RETRY_MS, OCR_TIMEOUT_MS } from './constants.js'
 import { replaceFile } from './files.js'
+import { assembleLlmStream } from './models.js'
 import { splitRef } from './text.js'
 
 export function offloadTargets(session, beforeSeq) {
@@ -36,11 +36,41 @@ export function install(rt) {
   const ocrPath = join(home, 'ocr.json')
   let ocrCache = null
   let ocrWriting = Promise.resolve()
+  const OCR_FAILED_MAX = 500
   const ocrPending = new Map()
   const ocrFailed = new Map()
+  const checkedSessions = new WeakSet()
+  const sessionsWithImages = new Set()
+  let closed = false
+
+  const noteOcrFailed = (id) => {
+    const now = Date.now()
+    if (ocrFailed.size >= OCR_FAILED_MAX) {
+      for (const [key, entry] of ocrFailed) {
+        if (now - entry.at >= OCR_RETRY_MS) ocrFailed.delete(key)
+      }
+      while (ocrFailed.size >= OCR_FAILED_MAX) ocrFailed.delete(ocrFailed.keys().next().value)
+    }
+    if (ocrFailed.has(id)) ocrFailed.delete(id)
+    ocrFailed.set(id, { at: now })
+  }
 
   const liveImages = message => Array.isArray(message?.content)
     && message.content.some(block => block?.type === 'image' && !block.offloaded)
+
+  const liveFiles = message => Array.isArray(message?.content)
+    && message.content.some(block => block?.type === 'file')
+
+  const eventHasLiveImage = (session, event) => {
+    if (event?.type !== 'user/message' && event?.type !== 'tool/result') return false
+    const direct = event.type === 'user/message' ? event.data?.content : event.data?.message?.content
+    if (Array.isArray(direct)) return direct.some(block => block?.type === 'image' && block.offloaded !== true)
+    try {
+      return liveImages(session?.deriveEventMessage?.(event))
+    } catch {
+      return true
+    }
+  }
 
   async function readsImages(provider, model) {
     if (textOnlyModels.has(`${provider}/${model}`)) return false
@@ -55,7 +85,7 @@ export function install(rt) {
   // The configured `ocrModel` first, then served models that declare image input, the
   // DSH default among them first. A provider with no key set is skipped.
   async function ocrRoute() {
-    const models = (await rt.catalog()).filter(entry => entry.needsKey !== true)
+    const models = (await rt.catalog()).filter(entry => entry.needsKey !== true && rt.isLocalAgentRef?.(entry.ref) !== true)
     const served = new Set(models.map(entry => entry.ref))
     const declared = models.filter(entry => entry.input?.includes('image')).map(entry => entry.ref)
     const fallback = rt.defaultRef()
@@ -91,15 +121,15 @@ export function install(rt) {
   async function readImage(attachment, sessionId) {
     const route = await ocrRoute()
     if (route === undefined) throw new Error('no vision model is available')
-    const assembler = new BlockAssembler()
-    for await (const chunk of ctx.llm.stream({
+    const callOptions = {
       provider: route.provider,
       model: route.model,
       sessionId,
       messages: rt.tagUsage([{ role: 'user', content: [{ type: 'image', attachment }, { type: 'text', text: OCR_PROMPT }] }], { sessionId, kind: 'image' }),
       maxTokens: 8192,
       signal: AbortSignal.timeout(OCR_TIMEOUT_MS),
-    })) assembler.push(chunk)
+    }
+    const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
     const finish = assembler.finish
     if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
     const text = assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
@@ -113,7 +143,10 @@ export function install(rt) {
     const id = String(attachment.attachmentId)
     if (ocrCache.has(id)) return ocrCache.get(id)
     const failed = ocrFailed.get(id)
-    if (failed && Date.now() - failed.at < OCR_RETRY_MS) return null
+    if (failed) {
+      if (Date.now() - failed.at < OCR_RETRY_MS) return null
+      ocrFailed.delete(id)
+    }
     if (!ocrPending.has(id)) {
       ocrPending.set(id, readImage(attachment, sessionId).then((reading) => {
         ocrCache.set(id, reading)
@@ -122,7 +155,7 @@ export function install(rt) {
         return reading
       }, (error) => {
         rt.warn('ds-bot: could not read image %s: %s', id, error)
-        ocrFailed.set(id, { at: Date.now() })
+        noteOcrFailed(id)
         return null
       }).finally(() => ocrPending.delete(id)))
     }
@@ -143,15 +176,63 @@ export function install(rt) {
     }
   }
 
-  function imageAsText(attachment, reading) {
+  // When DeepSeek OCR is on, a model in a team session can call read_document
+  // on the upload itself; the note names it with the full attachment id, which
+  // the model otherwise never sees (the file handle only carries the digest's
+  // head). `team` false on plain DSH sessions, whose agent has no read_document.
+  const ocrHint = (attachment, team = true) => rt.servicePrefs?.().ocr === true && team
+    ? ` To read it with DeepSeek's document recognition, call read_document with attachment_id "${attachment.attachmentId}".`
+    : ''
+
+  // An uploaded file reaches every model only as handle text whose saved path is
+  // a private DSH address read_document must refuse. With OCR on, a note after
+  // each file block names the attachment_id that reads the upload itself; the
+  // file block stays for the route's own projection, and with OCR off nothing
+  // changes. The note is deterministic, so a request this listener already
+  // rewrote is recognised by its text and passed through instead of hinted
+  // again. Only team sessions get the note: read_document is a team tool, so a
+  // plain DSH session's model could never answer it.
+  const fileHintText = attachment => `[For document recognition of this upload, call read_document with attachment_id "${attachment.attachmentId}"; do not pass its storage path.]`
+
+  function fileHint(attachment) {
+    if (rt.servicePrefs?.().ocr !== true || attachment?.attachmentId === undefined) return undefined
+    return { type: 'text', text: fileHintText(attachment) }
+  }
+
+  function withFileHints(messages, team) {
+    if (team !== true || !messages.some(liveFiles)) return messages
+    let hinted = false
+    const rewritten = messages.map(message => (liveFiles(message)
+      ? {
+          ...message,
+          content: message.content.flatMap((block, index, blocks) => {
+            if (block?.type !== 'file') return [block]
+            const next = blocks[index + 1]
+            if (block.attachment?.attachmentId !== undefined && next?.type === 'text' && next.text === fileHintText(block.attachment)) return [block]
+            const hint = fileHint(block.attachment)
+            if (hint === undefined) return [block]
+            hinted = true
+            return [block, hint]
+          }),
+        }
+      : message))
+    return hinted ? rewritten : messages
+  }
+
+  // read_document is a team tool: a plain DSH session's model could never answer it,
+  // so only team sessions get the hints (an rt without isBotSession treats none as team).
+  const isTeamSession = sessionId => rt.isBotSession?.(sessionId) === true
+
+  function imageAsText(attachment, reading, team) {
     const label = imageLabel(attachment)
     const path = imagePath(attachment)
     const saved = path === undefined ? '' : ` Read-only copy saved at ${JSON.stringify(path)}.`
+    const ocr = ocrHint(attachment, team)
     return {
       type: 'text',
       text: reading === null
-        ? `[Image ${label}: you cannot see images and it could not be read right now.${saved} Ask the user what it shows if it matters.]`
-        : `[Image ${label}.${saved} You cannot see images, so ${reading.model} read it for you:]\n${reading.text}\n[End of image ${label}]`,
+        ? `[Image ${label}: you cannot see images and it could not be read right now.${saved}${ocr} Ask the user what it shows if it matters.]`
+        : `[Image ${label}.${saved} You cannot see images, so ${reading.model} read it for you:${ocr}]\n${reading.text}\n[End of image ${label}]`,
     }
   }
 
@@ -165,9 +246,13 @@ export function install(rt) {
       const label = imageLabel(attachment)
       const path = imagePath(attachment)
       const saved = path === undefined ? '' : ` (read-only copy saved at ${JSON.stringify(path)})`
+      // Keep the log line neutral when OCR is unavailable: vision-capable members still
+      // receive the raw image block alongside this line, and text-only members get their
+      // own "you cannot see images" fallback from withImagesAsText().
+      const ocr = ocrHint(attachment)
       return reading === null
-        ? `[Image ${label}${saved}: it could not be read right now. Ask the user what it shows if it matters.]`
-        : `[Image ${label}${saved}, read by ${reading.model}:]\n${reading.text}\n[End of image ${label}]`
+        ? `[Image ${label}${saved} attached${ocr}]`
+        : `[Image ${label}${saved}, read by ${reading.model}:${ocr}]\n${reading.text}\n[End of image ${label}]`
     }))
   }
 
@@ -181,47 +266,78 @@ export function install(rt) {
       }
     }
     const readings = new Map(await Promise.all([...images].map(async ([id, attachment]) => [id, await imageReading(attachment, sessionId)])))
+    const team = isTeamSession(sessionId)
     return messages.map(message => (liveImages(message)
       ? {
           ...message,
           content: message.content.map(block => (block?.type === 'image' && !block.offloaded
-            ? imageAsText(block.attachment, readings.get(String(block.attachment.attachmentId)))
+            ? imageAsText(block.attachment, readings.get(String(block.attachment.attachmentId)), team)
             : block)),
         }
       : message))
   }
 
   ctx.on('llm/stream', (options, next) => {
-    if (options.sessionId === undefined || rt.ownRequest(options) || !(options.messages ?? []).some(liveImages)) return next()
+    const incoming = options.messages ?? []
+    if (options.sessionId === undefined || rt.ownRequest(options) || !(incoming.some(liveImages) || incoming.some(liveFiles))) return next()
     return (async function* imagesAsTextOrPass() {
       await rt.load()
-      if (rt.roomOf(options.sessionId) !== undefined || await readsImages(options.provider, options.model)) {
-        yield* next()
+      const hinted = withFileHints(incoming, isTeamSession(options.sessionId))
+      // `next` cannot take new messages, so a rewritten request starts over. Its
+      // file blocks are already followed by their hints and its converted
+      // images are text, so this listener lets that request through untouched.
+      if (rt.roomOf(options.sessionId) !== undefined || await readsImages(options.provider, options.model) || !hinted.some(liveImages)) {
+        yield* hinted === incoming ? next() : ctx.llm.stream({ ...options, messages: hinted })
         return
       }
-      // `next` cannot take new messages, so the rewritten request starts over; it
-      // carries no image, so this listener lets it through.
-      yield* ctx.llm.stream({ ...options, messages: await withImagesAsText(options.messages, options.sessionId) })
+      yield* ctx.llm.stream({ ...options, messages: await withImagesAsText(hinted, options.sessionId) })
     })()
+  })
+
+  ctx.on('session/event', (session, event) => {
+    const id = session?.id
+    if (typeof id === 'string' && eventHasLiveImage(session, event)) sessionsWithImages.add(id)
+  })
+
+  ctx.on('agent/disposed', ({ agent }) => {
+    if (agent?.session) checkedSessions.delete(agent.session)
+    const id = agent?.session?.id ?? agent?.id
+    if (typeof id === 'string') sessionsWithImages.delete(id)
   })
 
   ctx.on('agent/status', ({ agent, status }) => {
     if (status !== 'idle' || !agent?.session || !rt.isBotSession(agent.id) || rt.readOnly() !== undefined) return
-    const beforeSeq = agent.session.seq
+    const session = agent.session
+    const sessionId = session.id ?? agent.id
+    if (checkedSessions.has(session) && !sessionsWithImages.has(sessionId)) return
+    const beforeSeq = session.seq
+    sessionsWithImages.delete(sessionId)
     setImmediate(() => {
       void (async () => {
         try {
+          if (closed) return
           if (!ctx.sessions.messageProjections.some(projection => projection.type === 'image/offload')) return
-          const targets = offloadTargets(agent.session, beforeSeq)
-          if (targets.length === 0) return
-          agent.session.append('image/offload', { targets })
-          await ctx.sessions.flush(agent.session)
+          const targets = offloadTargets(session, beforeSeq)
+          if (targets.length === 0) {
+            checkedSessions.add(session)
+            return
+          }
+          session.append('image/offload', { targets })
+          await ctx.sessions.flush(session)
+          checkedSessions.add(session)
         } catch (error) {
+          if (!closed) sessionsWithImages.add(sessionId)
           rt.warn('ds-bot: old images for %s not offloaded: %s', agent.id, error)
         }
       })()
     })
   })
+
+  ctx.effect?.(() => () => {
+    closed = true
+    sessionsWithImages.clear()
+    ocrFailed.clear()
+  }, 'ds-bot: images cleanup')
 
   Object.assign(rt, { imagesForGroup })
 }

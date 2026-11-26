@@ -70,6 +70,7 @@ test('warnings are kept, cleaned, written to the log, and read back after a rest
   assert.equal(second.code, 'RATE_LIMIT')
 
   const report = await rt.diagnostics.report({ client: { surface: 'Web', language: 'zh-CN', userAgent: 'Test/1' }, clientErrors: [{ time: 1, text: 'state: HTTP 502' }] })
+  assert.equal(report.issuesUrl, 'https://github.com/Fei-Craft/DS-Bot/issues/new')
   assert.match(report.markdown, /\| DS Bot \| \d+\.\d+\.\d+ \|/)
   assert.match(report.markdown, /\| Surface \| Web \|/)
   assert.match(report.markdown, /\| Models \| deepseek\/deepseek-chat \|/)
@@ -205,6 +206,22 @@ test('turnFailure drops AUTH messages and keeps the facts', () => {
   assert.equal(failureLine({ code: 'SERVER', status: 503, message: 'busy' }), 'SERVER 503: busy')
 })
 
+test('a 403 content audit is not an AUTH failure, and keeps its body and request id', () => {
+  const body = 'upstream 403 request-id=00000000-0000-4000-8000-000000000000: {"error":{"message":"内容审计命中风险规则，请调整输入后重试","type":"content_policy_violation"}}'
+  assert.deepEqual(turnFailure({ code: 'AUTH', status: 403, message: body }), {
+    code: 'CONTENT_POLICY',
+    message: body,
+    status: 403,
+    requestId: '00000000-0000-4000-8000-000000000000',
+  })
+  // A real auth failure keeps AUTH and still loses the provider text.
+  assert.deepEqual(turnFailure({ code: 'AUTH', status: 401, message: 'invalid api key' }), { code: 'AUTH', message: '', status: 401 })
+  // A 403 without an audit body stays as DSH classified it.
+  assert.deepEqual(turnFailure({ code: 'AUTH', status: 403, message: 'forbidden' }), { code: 'AUTH', message: '', status: 403 })
+  // A structured request id wins over one found in the text.
+  assert.equal(turnFailure({ code: 'AUTH', status: 403, message: body, requestId: 'r1' }).requestId, 'r1')
+})
+
 function turnsHost() {
   let listener
   const delivered = []
@@ -265,7 +282,18 @@ test('a failed group turn fails its waiter; a stopped one counts as no answer', 
 
 // The failures the repair card is for, as the client reads them from `bot.blocked`.
 test('the failures that block a Bot are the ones only the user can fix', () => {
-  assert.deepEqual([...BLOCKING_CODES], ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'LOCAL_AGENT_MISSING', 'LOCAL_AGENT_SIGNIN', 'LOCAL_AGENT_QUOTA', 'LOCAL_AGENT_EXIT'])
+  assert.deepEqual([...BLOCKING_CODES], ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'LOCAL_AGENT_MISSING', 'LOCAL_AGENT_SIGNIN', 'LOCAL_AGENT_QUOTA', 'LOCAL_AGENT_EXIT', 'LOCAL_AGENT_ERROR'])
+})
+
+test('a local-agent error is reported and blocks the Bot', () => {
+  const { rt, emit, noted } = turnsHost()
+  const session = { id: 'b', requestHeader: () => ({ config: { provider: 'local-acp-fake', model: 'default' } }) }
+  const error = { code: 'LOCAL_AGENT_ERROR', message: 'the local agent failed' }
+  emit('b', 'turn/start', { turn: 1 }, session)
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error } }, session)
+  assert.deepEqual(noted.map(entry => [entry.code, entry.text]), [[error.code, error.message]])
+  assert.equal(rt.bots.b.blocked?.code, error.code)
+  assert.equal(rt.bots.b.blocked?.provider, 'local-acp-fake')
 })
 
 test('a failure only the user can fix blocks its Bot with the facts, never the message, until a turn completes', () => {
@@ -408,9 +436,47 @@ test('a turn refused for not being a model endpoint refuses that route', () => {
   assert.equal(calls.length, 1)
 })
 
+// #1937: the first sign that a Session's selection names a provider with no adapter is
+// a turn that fails before its request leaves. The Bot's model is applied again there,
+// which rewrites the selection, so the next turn can run.
+test('a turn refused for a Session with no adapter applies the Bot model again', () => {
+  const { rt, emit } = turnsHost()
+  const calls = []
+  rt.reapplyModel = async (bot, sessionId) => { calls.push([bot?.id, sessionId]) }
+  const session = { id: 'b', requestHeader: () => ({ config: { provider: 'gone', model: 'x' } }) }
+  emit('b', 'turn/start', { turn: 1 }, session)
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'NO_ADAPTER', message: 'no adapter registered for provider "gone"' } } }, session)
+  assert.deepEqual(calls, [['b', 'b']])
+  // A model DSH no longer serves is the same kind of failure.
+  emit('b', 'turn/start', { turn: 2 }, session)
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'error', error: { code: 'UNKNOWN_MODEL', message: 'unknown model' } } }, session)
+  assert.deepEqual(calls, [['b', 'b'], ['b', 'b']])
+  // An ordinary failure takes no such path.
+  emit('b', 'turn/start', { turn: 3 }, session)
+  emit('b', 'turn/end', { turn: 3, reason: failed }, session)
+  assert.equal(calls.length, 2)
+  // A group's own Session heals its selection with force too.
+  const room = { id: 'r1', members: ['b'] }
+  const roomCalls = []
+  rt.roomOf = id => (id === 'r1' ? room : undefined)
+  rt.selectRoomSession = async (sessionId, target, options) => { roomCalls.push([sessionId, target?.id, options?.force]) }
+  const roomSession = { id: 'r1', requestHeader: () => ({ config: { provider: 'gone', model: 'x' } }) }
+  emit('r1', 'turn/start', { turn: 1 }, roomSession)
+  emit('r1', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'NO_ADAPTER', message: 'no adapter registered for provider "gone"' } } }, roomSession)
+  assert.deepEqual(roomCalls, [['r1', 'r1', true]])
+})
+
+test('a turn start retries a model that failed to apply before it', () => {
+  const { rt, emit } = turnsHost()
+  const calls = []
+  rt.retryModel = async botId => { calls.push(botId) }
+  emit('b', 'turn/start', { turn: 1 })
+  assert.deepEqual(calls, ['b'])
+})
+
 test('issueUrl fills the issue form, keeps the versions when the errors are too long, and falls back to the clipboard', async () => {
   const { issueUrl } = await import('../src/client/diagnostics.js')
-  const base = 'https://github.com/Fei2411/DS-Bot/issues/new'
+  const base = 'https://github.com/Fei-Craft/DS-Bot/issues/new'
   const short = issueUrl(base, { what: 'Writer failed\nin the group', diagnostics: '| DS Bot | 0.1.0 |' })
   assert.equal(short.inline, true)
   const params = new URL(short.url).searchParams

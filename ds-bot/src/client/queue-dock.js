@@ -83,8 +83,8 @@ function EditField({ text, onChange, onSave, onCancel }) {
     'aria-label': t('Edit queued message'),
     onChange: event => onChange(event.target.value),
     onKeyDown: (event) => {
-      if (event.key === 'Escape') { event.stopPropagation(); onCancel() }
-      else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); onSave() }
+      if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.stopPropagation(); onCancel() }
+      else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); onSave() }
     },
   })
 }

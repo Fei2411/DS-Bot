@@ -70,41 +70,46 @@ test('a change that cannot be published stays pending, and is finished before th
   t.after(() => stop())
   // The change log cannot be written: the entry is published, but its row is not.
   mkdirSync(join(home, 'memory', 'journal.jsonl'), { recursive: true })
-  const said = await failureText(tool('remember', { text: 'Trip to Kyoto', topic: 'travel' }, 'b2'))
+  const said = await failureText(tool('bot_remember', { text: 'Trip to Kyoto', topic: 'travel' }, 'b2'))
   assert.doesNotMatch(said, /^Saved to your memory/)
   assert.match(read('bots', 'b2', 'travel.md'), /Trip to Kyoto/)
   assert.ok(existsSync(pendingFile(home)), 'the change is pending')
   await warned(home, 'is pending')
-  const prompt = () => ctx.sections.get('bot-memory').text({ agent: { id: 'b2' } })
-  assert.match(prompt(), /memory.*unavailable/i)
-  assert.doesNotMatch(prompt(), /\[\[travel\]\]/)
+  const ownSnapText = async () => {
+    const step = ctx.listeners.get('agent/pre-step').find(listener => /memoryUpdate/.test(String(listener)))
+    const decision = await step({ agent: { id: 'b2', session: { deriveMessages: () => [] } }, messages: [], step: 1, signal: AbortSignal.timeout(10_000) }, async () => ({ kind: 'enter', messages: [] }))
+    const msg = decision.messages.find(m => m.source?.kind === 'ds-bot-own-memory')
+    return (msg?.content ?? []).map(b => b.text).join('')
+  }
+  assert.match(await ownSnapText(), /memory.*unavailable/i)
+  assert.doesNotMatch(await ownSnapText(), /\[\[travel\]\]/)
   // The change log is there again: the next read finishes the change.
   rmSync(join(home, 'memory', 'journal.jsonl'), { recursive: true, force: true })
-  assert.match(await tool('recall', { query: 'Kyoto' }, 'b2'), /Trip to Kyoto/)
+  assert.match(await tool('bot_recall', { query: 'Kyoto' }, 'b2'), /Trip to Kyoto/)
   assert.ok(!existsSync(pendingFile(home)), 'the change is finished')
   assert.deepEqual(journal().map(row => [row.op, row.scope, row.file]), [['add', 'bot:b2', 'travel.md']])
   assert.match(read('bots', 'b2', 'MEMORY.md'), /- \[\[travel\]\]/)
-  assert.match(prompt(), /\[\[travel\]\]/)
+  assert.match(await ownSnapText(), /\[\[travel\]\]/)
   // Reading again does not write a second row.
-  await tool('recall', {}, 'b2')
+  await tool('bot_recall', {}, 'b2')
   assert.equal(journal().length, 1)
 })
 
 test('a change that cannot be accepted leaves the memory as it was', async (t) => {
   const { home, tool, read, stop } = start()
   t.after(() => stop())
-  await tool('remember', { text: 'First fact' }, 'b2')
+  await tool('bot_remember', { text: 'First fact' }, 'b2')
   const before = read('bots', 'b2', 'MEMORY.md')
   // The record of the change cannot be written: the change is not accepted, so
   // nothing changed.
   mkdirSync(pendingFile(home), { recursive: true })
-  const said = await failureText(tool('remember', { text: 'Second fact' }, 'b2'))
+  const said = await failureText(tool('bot_remember', { text: 'Second fact' }, 'b2'))
   assert.doesNotMatch(said, /Second fact/)
   assert.equal(read('bots', 'b2', 'MEMORY.md'), before)
   assert.doesNotMatch(read('journal.jsonl'), /Second fact/)
   // With the record writable again, the change goes through.
   rmSync(pendingFile(home), { recursive: true, force: true })
-  assert.match(await tool('remember', { text: 'Second fact' }, 'b2'), /^Saved to your memory/)
+  assert.match(await tool('bot_remember', { text: 'Second fact' }, 'b2'), /^Saved to your memory/)
   assert.match(read('bots', 'b2', 'MEMORY.md'), /Second fact/)
 })
 
@@ -176,18 +181,24 @@ test('a change that was already finished does not get a second row', async (t) =
 test('a record of a change that cannot be read stops the memory', async (t) => {
   const { ctx, home, tool, read, stop } = start()
   t.after(() => stop())
-  await tool('remember', { text: 'First fact' }, 'b2')
+  await tool('bot_remember', { text: 'First fact' }, 'b2')
   const before = read('bots', 'b2', 'MEMORY.md')
   writeFileSync(pendingFile(home), '{ this is not a record')
-  assert.match(await tool('recall', {}, 'b2'), /pending\.json is not readable/)
-  assert.doesNotMatch(await failureText(tool('remember', { text: 'Second fact' }, 'b2')), /Second fact/)
+  assert.match(await tool('bot_recall', {}, 'b2'), /pending\.json is not readable/)
+  assert.doesNotMatch(await failureText(tool('bot_remember', { text: 'Second fact' }, 'b2')), /Second fact/)
   assert.equal(read('bots', 'b2', 'MEMORY.md'), before)
-  const prompt = () => ctx.sections.get('bot-memory').text({ agent: { id: 'b2' } })
-  assert.doesNotMatch(prompt(), /First fact/)
-  assert.match(prompt(), /memory.*unavailable/i)
+  const ownSnapText = async () => {
+    const step = ctx.listeners.get('agent/pre-step').find(listener => /memoryUpdate/.test(String(listener)))
+    const decision = await step({ agent: { id: 'b2', session: { deriveMessages: () => [] } }, messages: [], step: 1, signal: AbortSignal.timeout(10_000) }, async () => ({ kind: 'enter', messages: [] }))
+    const msg = decision.messages.find(m => m.source?.kind === 'ds-bot-own-memory')
+    return (msg?.content ?? []).map(b => b.text).join('')
+  }
+  const unavailable = await ownSnapText()
+  assert.doesNotMatch(unavailable, /First fact/)
+  assert.match(unavailable, /memory.*unavailable/i)
   assert.equal(existsSync(join(home, 'memory', 'snapshots', 'b2.md')), false)
   rmSync(pendingFile(home))
-  assert.match(prompt(), /First fact/)
+  assert.match(await ownSnapText(), /First fact/)
 })
 
 test('a prompt keeps its committed snapshot while an unfinished change is recovered', async (t) => {
@@ -195,12 +206,12 @@ test('a prompt keeps its committed snapshot while an unfinished change is recove
   const { ctx, home, tool, stop } = first
   let active = first
   t.after(() => active.stop())
-  await tool('remember', { text: 'Committed fact' }, 'b2')
+  await tool('bot_remember', { text: 'Committed fact' }, 'b2')
   const prompt = id => ctx.sections.get('bot-memory').text({ agent: { id } })
   const committed = prompt('b2')
   rmSync(join(home, 'memory', 'journal.jsonl'))
   mkdirSync(join(home, 'memory', 'journal.jsonl'))
-  await failureText(tool('remember', { text: 'Pending fact' }, 'b2'))
+  await failureText(tool('bot_remember', { text: 'Pending fact' }, 'b2'))
   assert.ok(existsSync(pendingFile(home)))
   assert.equal(prompt('b2'), committed)
   // A snapshot read from disk after a restart is equally safe.
@@ -235,7 +246,7 @@ test('a change log from before the operation ids keeps its rows', async (t) => {
   writeFileSync(join(home, 'memory', 'journal.jsonl'), `${JSON.stringify({ time: '2026-10-01T10:00:00.000Z', op: 'add', scope: 'bot:b2', file: 'MEMORY.md', actor: 'b2', actorName: 'Writer', after: '- Older fact' })}\n`)
   const { tool, journal, stop } = start({ home })
   t.after(() => stop())
-  await tool('remember', { text: 'Newer fact' }, 'b2')
+  await tool('bot_remember', { text: 'Newer fact' }, 'b2')
   const rows = journal()
   assert.equal(rows.length, 2)
   assert.equal(rows[0].id, undefined)
@@ -274,12 +285,48 @@ test('a half-written row of another change does not swallow the row after it', a
   writeFileSync(join(home, 'memory', 'journal.jsonl'), `${older}${half}`)
   const { tool, read, stop } = start({ home })
   t.after(() => stop())
-  await tool('remember', { text: 'Second fact' }, 'b2')
+  await tool('bot_remember', { text: 'Second fact' }, 'b2')
   const rows = read('journal.jsonl').trim().split('\n').map(line => JSON.parse(line))
   assert.deepEqual(rows.map(row => row.id).slice(0, 1), ['op-old'])
   assert.match(rows[0].after, /旧的记录/)
   assert.match(rows.at(-1).after, /^- Second fact/)
   assert.ok(read('journal.torn').includes(half))
+})
+
+// The log is read from its end, so these logs are longer than one read of it, in
+// characters of more than one byte, and end in a row longer than that read.
+const longLog = count => Array.from({ length: count }, (_, i) => `${JSON.stringify({ id: `old-${i}`, time: '2026-10-01T10:00:00.000Z', op: 'add', scope: 'bot:b2', file: 'MEMORY.md', actor: 'b2', actorName: 'Writer', after: `- 旧的记录 ${i} ${'长'.repeat(400)}` })}\n`).join('')
+
+test('a long change log still finds the row of a change that was already finished', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const row = { op: 'add', scope: 'bot:b2', file: 'MEMORY.md', actor: 'b2', actorName: 'Writer', after: '- One [added: 2026-10-23]' }
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  const finished = `${JSON.stringify({ id: 'change-1', time: '2026-10-23T10:00:00.000Z', ...row, note: '长'.repeat(50_000) })}\n`
+  writeFileSync(join(home, 'memory', 'journal.jsonl'), `${longLog(300)}${finished}`)
+  interrupted(home, { steps: [{ action: 'write', path: 'bots/b2/MEMORY.md', text: '# Memory\n\n- One [added: 2026-10-23]\n\n## Index\n' }], row })
+  const { journal, stop } = start({ home })
+  t.after(() => stop())
+  await until(() => !existsSync(pendingFile(home)))
+  assert.deepEqual(journal().map(row => row.id).slice(-2), ['old-299', 'change-1'])
+  assert.equal(journal().length, 301)
+})
+
+test('a half-written row at the end of a long change log is cut at the right byte', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  const half = `{"id":"op-0","time":"2026-10-23T10:00:00.000Z","after":"- ${'半'.repeat(30_000)}`
+  writeFileSync(join(home, 'memory', 'journal.jsonl'), `${longLog(300)}${half}`)
+  const { tool, read, journal, stop } = start({ home })
+  t.after(() => stop())
+  await tool('bot_remember', { text: 'Second fact' }, 'b2')
+  const rows = journal()
+  assert.equal(rows.length, 301)
+  assert.equal(rows[299].id, 'old-299')
+  assert.match(rows[299].after, /^- 旧的记录 299 长/)
+  assert.match(rows.at(-1).after, /^- Second fact/)
+  assert.equal(read('journal.torn'), `${half}\n`)
 })
 
 test('a change that would not fit in the record is refused, and the memory still reads', async (t) => {
@@ -293,20 +340,20 @@ test('a change that would not fit in the record is refused, and the memory still
   t.after(() => stop())
   // The change would leave a record that cannot be read back, so it is refused
   // before it is accepted: the memory is as it was, and still reads.
-  const said = await failureText(tool('remember', { text: 'Coffee', replace: 'Teas and a long story about the tea' }, 'b2'))
+  const said = await failureText(tool('bot_remember', { text: 'Coffee', replace: 'Teas and a long story about the tea' }, 'b2'))
   assert.match(said, /too large to record/)
   assert.equal(read('bots', 'b2', 'MEMORY.md'), huge)
   assert.ok(!existsSync(pendingFile(home)), 'the change was not accepted')
-  assert.match(await tool('recall', { query: 'Teas and a long story' }, 'b2'), /Teas and a long story/)
+  assert.match(await tool('bot_recall', { query: 'Teas and a long story' }, 'b2'), /Teas and a long story/)
 })
 
 test('the change log keeps what each change replaced, and the id that tells it apart', async (t) => {
   const { tool, journal, stop } = start()
   t.after(() => stop())
-  await tool('remember', { text: 'Likes tea' }, 'b2')
-  await tool('remember', { text: 'Likes green tea', replace: 'Likes tea' }, 'b2')
+  await tool('bot_remember', { text: 'Likes tea' }, 'b2')
+  await tool('bot_remember', { text: 'Likes green tea', replace: 'Likes tea' }, 'b2')
   const [added, replaced] = journal()
-  assert.deepEqual(Object.keys(added).sort(), ['actor', 'actorName', 'after', 'file', 'id', 'op', 'scope', 'time'])
+  assert.deepEqual(Object.keys(added).sort(), ['actor', 'actorName', 'after', 'file', 'id', 'op', 'scope', 'session', 'time'])
   assert.equal(replaced.before, added.after)
   assert.notEqual(replaced.id, added.id)
 })

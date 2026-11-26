@@ -1,40 +1,73 @@
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { paintCss } from './inks.js'
-import { CHARACTERS, PICKER_SHAPES, PICKER_COLUMNS, CHARACTER_COLORS, SHAPES, hasShape, shapeOf, bodyOf, maskBox, holes, nextMarkSerial } from './characters.js'
+import { CHARACTERS, PICKER_SHAPES, CHARACTER_COLORS, SHAPES, hasShape, shapeOf, bodyOf, maskBox, holes, nextMarkSerial } from './characters.js'
 import { isMainOf } from './sources.js'
 import { PencilIcon, ChevronRightIcon } from './icons.js'
 import { lookOf, BotMark } from './mark.js'
 import { ModelMenu, modelOf } from './model-menu.js'
-import { FolderMenu } from './folder-menu.js'
+import { AgentPresetMenu, useAgentPresets } from './agent-preset-menu.js'
+import { presetHint, presetUpdate } from './agent-preset.js'
+import { RunModeCard } from './agent-cards.js'
+import { ExtraFolders, FolderMenu } from './folder-menu.js'
 import { BotSchedules } from './schedules.js'
 import { BotCapabilitiesCard } from './capability-settings.js'
 import { BotComputerCard } from './computer.js'
 import { AvatarLibraryPanel, avatarImage } from './avatar-library.js'
 import { useMemoryCount } from './memory-panel.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useGlide, useLinger } from './motion.js'
+import { ChatBackgroundSection } from './appearance-page.js'
 import { t } from './i18n.js'
+import { ApprovalSettings } from './approval-settings.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
 // Settings save on blur or Enter, with no Save button; Escape puts the
-// saved value back. A required field never saves empty.
-export function InlineText({ label, value, placeholder, required = false, maxLength, multiline = false, onSave }) {
+// saved value back. A required field never saves empty. Where the field sits in a page
+// other than Settings, `className` styles it, `autoFocus` puts the caret at the end of
+// the text on mount, and `onDone` runs when the edit ends, saved or not.
+export function InlineText({ label, value, placeholder, required = false, maxLength, multiline = false, className, autoFocus = false, onSave, onDone }) {
   const [draft, setDraft] = useState(null)
   const reverting = useRef(false)
+  const field = useRef(null)
+  useEffect(() => {
+    const node = field.current
+    if (!autoFocus || !node) return
+    node.focus()
+    node.setSelectionRange(node.value.length, node.value.length)
+  }, [])
   const commit = () => {
     const next = draft?.trim()
-    setDraft(null)
-    if (reverting.current) { reverting.current = false; return }
-    if (next === undefined || next === (value ?? '') || (required && next === '')) return
-    void onSave(next)
+    if (reverting.current) { reverting.current = false; setDraft(null); onDone?.(); return }
+    if (next === undefined || next === (value ?? '') || (required && next === '')) {
+      setDraft(null)
+      onDone?.()
+      return
+    }
+    const finish = (ok) => {
+      if (ok === false) return
+      setDraft(null)
+      onDone?.()
+    }
+    const outcome = onSave(next)
+    if (outcome && typeof outcome.then === 'function') {
+      void outcome.then(finish, () => {})
+    } else {
+      finish(outcome)
+    }
   }
   return h(multiline ? 'textarea' : 'input', {
-    className: multiline ? 'bt-bs-input bt-bs-area' : 'bt-bs-input', value: draft ?? value ?? '', placeholder, maxLength, required, 'aria-label': label, spellCheck: false,
+    ref: field, className: className ?? (multiline ? 'bt-bs-input bt-bs-area' : 'bt-bs-input'), value: draft ?? value ?? '', placeholder, maxLength, required, 'aria-label': label, spellCheck: false,
     onChange: event => setDraft(event.target.value),
     onBlur: commit,
     onKeyDown: (event) => {
-      if (event.key === 'Escape') { event.stopPropagation(); reverting.current = true; event.currentTarget.blur() }
-      if (event.key === 'Enter' && !multiline && !event.nativeEvent.isComposing) event.currentTarget.blur()
+      if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+        event.preventDefault?.()
+        event.stopPropagation?.()
+        event.nativeEvent?.stopPropagation?.()
+        reverting.current = true
+        event.currentTarget.blur()
+      }
+      if (event.key === 'Enter' && !multiline && !event.nativeEvent?.isComposing && event.keyCode !== 229) event.currentTarget.blur()
     },
   })
 }
@@ -66,7 +99,7 @@ function modelHint(bot, roster) {
   const shown = modelOf(bot, roster)
   if (shown === undefined) return t('Pick the model this Bot runs on.')
   if (!shown.served && (roster.models ?? []).length > 0) return t('This model is not available now. Pick another one.')
-  if (bot.appliedModel && bot.appliedModel === bot.model) return t('Every message of this Bot runs on it.')
+  if (bot.appliedModel && bot.appliedModel === bot.model) return ''
   return t('Applies from the next message.')
 }
 
@@ -80,17 +113,15 @@ function ShapeRing({ shape, size }) {
   return h('svg', { className: 'bt-ring', viewBox: `0 0 ${def.size} ${def.size}`, 'aria-hidden': true, dangerouslySetInnerHTML: { __html: markup } })
 }
 
-// Every character shape, six to a row, then the color swatches.
+// Every character shape, five to a row (four on narrow screens), then the color swatches.
 export function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
-  const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter(id => !Object.hasOwn(CHARACTERS, id))]
-  if (!shapes.includes(look.shape)) shapes.push(look.shape)
-  const rows = []
-  for (let index = 0; index < shapes.length; index += PICKER_COLUMNS) rows.push(shapes.slice(index, index + PICKER_COLUMNS))
+  const builtIn = new Set(PICKER_SHAPES)
+  const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter(id => !builtIn.has(id) && (!Object.hasOwn(CHARACTERS, id) || typeof SHAPES[id]?.body === 'function'))]
   return h(Fragment, null,
-    h('div', { className: 'bt-shapes', role: 'group', 'aria-label': t('Character shape') }, rows.map((row, index) => h('div', { key: index, className: 'bt-shape-row' }, row.map(id => h('button', {
+    h('div', { className: 'bt-shapes', role: 'group', 'aria-label': t('Character shape') }, shapes.map(id => h('button', {
       key: id, type: 'button', className: 'bt-shape', 'aria-label': t(shapeOf(id).label), title: t(shapeOf(id).label), 'aria-pressed': !hasPhoto && look.shape === id,
       onClick: () => onShape(id),
-    }, h(ShapeRing, { shape: id, size: 36 }), h(BotMark, { look: { shape: id, color: look.color }, size: 36 })))))),
+    }, h(ShapeRing, { shape: id, size: 36 }), h(BotMark, { look: { shape: id, color: look.color }, size: 36 })))),
     h('div', { className: 'bt-colors', role: 'group', 'aria-label': t('Character color') }, CHARACTER_COLORS.map(color => h('button', {
       key: color, type: 'button', className: 'bt-color', 'aria-label': t(capitalize(color)), title: t(capitalize(color)), 'aria-pressed': look.color === color,
       onClick: () => onColor(color),
@@ -100,14 +131,20 @@ export function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
 // The avatar editor: the Bot tab picks a character (every click saves), the
 // Upload tab takes a photo, the Library tab picks one the user imported before, and
 // Reset returns to the look the Bot id gives.
-function AvatarEditor({ bot, actions, run, onClose, leaving = false }) {
-  const look = lookOf(bot)
-  const [tab, setTab] = useState(look.image ? 'upload' : 'bot')
+export function AvatarEditor({ bot, room, actions, run, onClose, leaving = false }) {
+  const look = room ? { image: room.avatar?.image } : lookOf(bot)
+  const [tab, setTab] = useState(room || look.image ? 'upload' : 'bot')
   const [over, setOver] = useState(false)
   const ref = useRef(null)
   const fileRef = useRef(null)
+  const savePhoto = image => room
+    ? actions.updateRoom(room.id, { avatar: { image } })
+    : actions.updateBot(bot.id, { avatar: { ...(bot.avatar ?? {}), image } })
+  const reset = () => room
+    ? actions.updateRoom(room.id, { avatar: null })
+    : actions.updateBot(bot.id, { avatar: null, color: null })
   const upload = (file) => {
-    if (file) void run(avatarImage(file).then(image => actions.updateBot(bot.id, { avatar: { ...(bot.avatar ?? {}), image } })))
+    if (file) void run(avatarImage(file).then(savePhoto))
   }
   useEffect(() => {
     const onDown = (event) => {
@@ -127,17 +164,17 @@ function AvatarEditor({ bot, actions, run, onClose, leaving = false }) {
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [tab, bot])
+  }, [tab, bot, room])
   const hasPhoto = Boolean(look.image)
-  const glide = useGlide(tab)
+  const glide = useGlide(tab, { syncKey: `${t('Bot')}:${t('Upload')}:${t('Library')}` })
   return h('div', { ref, className: 'bt-avedit', role: 'dialog', 'aria-label': t('Avatar editor'), 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-avedit-top' },
       h('div', { ref: glide.box, role: 'tablist', 'aria-label': t('Avatar source'), className: 'bt-avedit-tabs' },
         h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),
-        [['bot', 'Bot'], ['upload', 'Upload'], ['library', 'Library']].map(([id, label]) => h('button', { key: id, type: 'button', role: 'tab', className: 'bt-avedit-tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, t(label)))),
+        [...(room ? [] : [['bot', 'Bot']]), ['upload', 'Upload'], ['library', 'Library']].map(([id, label]) => h('button', { key: id, type: 'button', role: 'tab', className: 'bt-avedit-tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, t(label)))),
       h('button', {
-        type: 'button', className: 'bt-avedit-tab bt-avedit-reset', title: t('Reset character to default'),
-        onClick: () => run(actions.updateBot(bot.id, { avatar: null, color: null })),
+        type: 'button', className: 'bt-avedit-tab bt-avedit-reset', title: room ? t('Remove photo') : t('Reset character to default'),
+        onClick: () => run(reset()),
       }, t('Reset'))),
     tab === 'bot' ? h(CharacterGrid, {
       look, hasPhoto,
@@ -154,22 +191,23 @@ function AvatarEditor({ bot, actions, run, onClose, leaving = false }) {
     h('div', null, t('Drag, drop, or paste an image')),
     h('div', { className: 'bt-actions', style: { justifyContent: 'center' } },
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => fileRef.current?.click() }, hasPhoto ? t('Replace') : t('Browse files')),
-      hasPhoto ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.updateBot(bot.id, { avatar: hasShape(bot.avatar?.shape) ? { shape: bot.avatar.shape } : null })) }, t('Remove photo')) : null),
+      hasPhoto ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(room ? reset() : actions.updateBot(bot.id, { avatar: hasShape(bot.avatar?.shape) ? { shape: bot.avatar.shape } : null })) }, t('Remove photo')) : null),
     h('input', { ref: fileRef, type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: true, onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; upload(file) } })) : null,
     // A photo from the library is the same photo the user uploaded before: the Bot
     // keeps its own copy, and the library keeps its entry.
     tab === 'library' ? h(AvatarLibraryPanel, {
       actions,
-      onPick: entry => run(actions.updateBot(bot.id, { avatar: { ...bot.avatar, image: entry.image } })),
+      onPick: entry => run(savePhoto(entry.image)),
     }) : null)
 }
 
 function MemoryCard({ bot, actions }) {
   const count = useMemoryCount(bot.id, actions)
+  const empty = count === null || count === 0
   const label = count === null ? t('Loading…') : count === 0 ? t('Nothing saved yet') : count === 1 ? t('1 entry') : t('{count} entries', { count })
   return h(Card, { title: t('Memory') },
     h('button', { type: 'button', className: 'bt-set-row bt-bs-row', 'aria-label': t("Manage {name}'s memory", { name: bot.name }), onClick: () => actions.openMemory(bot.id) },
-      h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, label)),
+      h('span', { className: 'bt-set-copy' }, h('span', { className: empty ? 'bt-set-hint' : 'bt-bs-label' }, label)),
       h('span', { className: 'bt-mem-row-go' }, t('Manage'), h(ChevronRightIcon))))
 }
 
@@ -180,6 +218,8 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const [editing, setEditing] = useState(false)
   const [editorShown, editorLeaving] = useLinger(editing, 120)
   const [confirming, setConfirming] = useState(false)
+  const { presets, error: presetError, refresh: refreshPresets } = useAgentPresets(actions)
+  const [savingPreset, setSavingPreset] = useState(false)
   const closeEditor = useCallback(() => setEditing(false), [])
   useEffect(() => {
     if (!confirming) return undefined
@@ -191,10 +231,19 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const isTile = roster.mainBotId === bot.id
   const inGroup = (roster.rooms ?? []).some(room => room.members?.includes(bot.id))
   const privateHint = t('Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.')
-  const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : privateHint
+  const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : bot.extraDirs?.length ? t('Remove its extra folders first.') : privateHint
   const save = patch => run(actions.updateBot(bot.id, patch))
+  // The Agent preset saves on its own, and the picker waits for it: two preset
+  // saves in a row could land out of order.
+  const savePreset = (id) => {
+    const next = presetUpdate(id, bot.agentPreset)
+    if (next === undefined || savingPreset) return
+    setSavingPreset(true)
+    void Promise.resolve(run(actions.updateBot(bot.id, { agentPreset: next }))).finally(() => setSavingPreset(false))
+  }
   const duplicate = () => run(actions.duplicateBot(bot.id).then(copy => actions.openSession(copy.id)))
   const remove = () => { if (confirming) void run(actions.deleteBot(bot.id)); else setConfirming(true) }
+  const modelNote = modelHint(bot, roster)
   // DSH settings can change the model list at any time; the hint should match it.
   useEffect(() => { void actions.refreshModels?.() }, [bot.id])
   return h('div', { className: 'bt-bs' },
@@ -210,30 +259,40 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
     h(Card, { title: t('Profile') },
       h(Row, { label: t('Name') }, h(InlineText, { label: t('Name'), value: bot.name, placeholder: 'Bob', required: true, maxLength: 40, onSave: name => save({ name }) })),
       h(Row, { label: t('Label'), hint: t('Optional. Shown under the name.') }, h(InlineText, { label: t('Label'), value: bot.role, placeholder: t('Research, admin…'), maxLength: 24, onSave: role => save({ role }) }))),
-    h(Card, { title: t('Model') },
+    h(RunModeCard, { bot, roster, actions, run, Card },
       h('div', { className: 'bt-set-row bt-bs-row' },
-        h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Model')), h('span', { className: 'bt-set-hint' }, modelHint(bot, roster))),
+        h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Model')), modelNote ? h('span', { className: 'bt-set-hint' }, modelNote) : null),
         h(ModelMenu, { bot, roster, actions, run }))),
+    !bot.engine ? h(Card, { title: t('Agent preset') },
+      h('div', { className: 'bt-set-row bt-bs-row' },
+        h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Agent preset')), h('span', { className: 'bt-set-hint' }, presetHint(bot, presets, presetError))),
+        h(AgentPresetMenu, {
+          value: bot.agentPreset, presets, error: presetError, onRefresh: refreshPresets,
+          disabled: savingPreset, onPick: savePreset,
+        }))) : null,
     h(Card, { title: t('Working folder') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
-        h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) }))),
+        h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) })),
+      // A private Bot works in its own folder only; a local agent keeps its own file permissions.
+      bot.private === true || bot.engine !== undefined ? null : h(ExtraFolders, { value: bot.extraDirs, actions, run, onSave: extraDirs => save({ extraDirs }) })),
+    h(ApprovalSettings, { target: bot, roster, Card }),
     h(Card, { title: t('Privacy') },
       h(SwitchRow, {
         label: t('Private'),
         hint: privacyHint,
         on: bot.private === true,
-        disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir),
+        disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir || bot.extraDirs?.length > 0),
         onChange: value => save({ private: value }),
       })),
     h(Card, { title: t('Instructions') },
       h(Row, { label: t('What this Bot does'), hint: t('Its job on the team. Part of the Bot\'s system prompt.'), stack: true },
         h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
-    h(BotCapabilitiesCard, { bot, roster, actions, run, Card, SwitchRow }),
+    h(BotCapabilitiesCard, { bot, roster, actions, run, Card }),
     h(BotComputerCard, { bot, roster, actions, run, Card, Row }),
     roster.memory === false ? null : h(MemoryCard, { bot, actions }),
     h(BotSchedules, { bot, roster, actions }),
-    h(Card, { title: t('Main Bot') },
+    h(Card, null,
       onlyMain
         ? h('div', { className: 'bt-set-row bt-bs-row' },
             h('span', { className: 'bt-set-copy' },
@@ -248,6 +307,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
           onChange: on => run(actions.setMain(bot.id, on)),
         })),
     // The Main Bot tile is always first and always shown, like in the context menu.
+    h(ChatBackgroundSection, { owner: bot, ownerKind: 'bot', actions, run, Section: Card }),
     isTile ? null : h(Card, { title: t('Sidebar') },
       h(SwitchRow, { label: t('Pin'), hint: t('Kept above the other chats.'), on: bot.pinned === true, onChange: pinned => run(actions.setFlags(bot.id, { pinned })) }),
       isMainBot ? null : h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: bot.hidden === true, onChange: hidden => run(actions.setFlags(bot.id, { hidden })) })),
@@ -263,24 +323,25 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
 }
 
 export const BOT_SETTINGS_CSS = `
-.bt-bs{display:flex;flex-direction:column;gap:18px}
+.bt-bs{display:flex;flex-direction:column;gap:22px;container-type:inline-size}
 .bt-bs-hero{display:flex;align-items:center;gap:14px;padding:2px 4px}
 .bt-bs-who{display:flex;flex-direction:column;min-width:0;gap:2px}
 .bt-bs-name{font-size:17px;line-height:24px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-bs-sub{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
-.bt-bs .bt-avedit{left:0;transform:none;width:min(284px,calc(100vw - 32px))}
+.bt-bs .bt-avedit{left:-4px;transform:none;width:min(304px,100cqi,calc(100vw - 32px))}
 .bt-bs-row{min-height:48px}
 label.bt-bs-row{cursor:text}
 .bt-bs-row>.bt-set-copy{flex:1 1 auto}
 .bt-bs-label{font-size:13px;line-height:18px;font-weight:500}
 .bt-bs-row .bt-model-trigger{flex:none;max-width:58%}
-.bt-bs-input{flex:0 1 220px;width:0;min-width:96px;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:1px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .12s ease,border-color .12s ease}
+.bt-bs-row .bt-sel{flex:0 1 auto;min-width:0;max-width:58%}
+.bt-bs-input{flex:0 1 220px;width:0;min-width:96px;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:.5px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-bs-input:hover{background:var(--bt-hover)}
-.bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-line-2);text-align:left}
+.bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent);text-align:left}
 .bt-bs-input::placeholder{color:var(--bt-ink-3)}
 .bt-bs-stack{flex-direction:column;align-items:stretch;gap:8px}
-.bt-bs-area{flex:none;width:auto;min-height:112px;height:auto;margin:0 -6px -4px;padding:8px;line-height:19px;text-align:left;resize:vertical;background:var(--bt-hover)}
-.bt-bs-area:hover{background:var(--bt-active)}
+.bt-bs-area{flex:none;width:100%;min-height:112px;height:auto;margin:0;padding:8px 11px;border:.5px solid var(--bt-line-2);background:var(--bt-card);line-height:19px;text-align:left;resize:vertical}
+.bt-bs-area:hover:not(:focus){background:var(--bt-card);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
 .bt-bs-danger .bt-bs-label{color:var(--bt-danger)}
 .bt-bs-danger[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 8%,transparent)}
 .bt-bs-danger[data-confirm]:hover{background:color-mix(in srgb,var(--bt-danger) 12%,transparent)}
@@ -288,7 +349,7 @@ label.bt-bs-row{cursor:text}
 .bt-switch[aria-checked=true]{background:var(--bt-accent)}
 .bt-switch:disabled{opacity:.45;cursor:default}
 .bt-switch:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-switch-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:${spring(SPRING_SHAPE, 'transform')},${spring(SPRING_TAP, 'width')}}
+.bt-switch-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:var(--bt-knob);box-shadow:0 1px 2px rgba(0,0,0,.2);transition:${spring(SPRING_SHAPE, 'transform')},${spring(SPRING_TAP, 'width')}}
 .bt-switch[aria-checked=true] .bt-switch-knob{transform:translateX(16px)}
 .bt-switch:active:not(:disabled) .bt-switch-knob{width:21px}
 .bt-switch[aria-checked=true]:active:not(:disabled) .bt-switch-knob{transform:translateX(11px)}

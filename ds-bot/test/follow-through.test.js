@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { afterRound } from './relay-rows.js'
 import { setTimeout as realDelay } from 'node:timers/promises'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
@@ -62,8 +63,11 @@ async function start(home, logs, inspect) {
   rt = createRuntime(ctx, { home })
   let seq = 0
   const emit = (id, type, data) => {
+    // A Session already resolved by the test stands in for the one DSH emits, so a
+    // test can give it a route or a size; otherwise only the id is known.
+    const session = agents.get(id)?.session ?? { id }
     for (const listener of ctx.listeners.get('session/event') ?? []) {
-      if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
+      if (listener.length >= 2) listener(session, { type, seq: ++seq, data })
     }
   }
   const tool = (name, args, sessionId, exec = {}) => rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId }, ...exec })
@@ -105,6 +109,20 @@ const text = message => message.content.map(block => block.text ?? '').join('\n'
 const notes = (home) => {
   try { return JSON.parse(readFileSync(join(home, 'inflight.json'), 'utf8')) } catch { return { turns: {}, queued: {} } }
 }
+// The diagnostics log, once the plugin's background write of it landed.
+const readDiagnostics = async (home, wanted = () => true) => {
+  const deadline = performance.now() + 3000
+  while (performance.now() < deadline) {
+    try {
+      const text = readFileSync(join(home, 'logs', 'diagnostics.jsonl'), 'utf8')
+      const entries = text.trim() === '' ? [] : text.trim().split('\n').map(line => JSON.parse(line))
+      // The log is written in the background: wait for the entry a test is after.
+      if (wanted(entries)) return entries
+    } catch {}
+    await realDelay(10)
+  }
+  return []
+}
 const inflight = home => notes(home).turns ?? {}
 // A message as DSH would replay it: the turn starts and takes it up.
 const run = (host, sessionId, turn, message) => {
@@ -117,7 +135,7 @@ async function openRoomTurn(t, host) {
   let result
   const stop = new AbortController()
   t.after(() => stop.abort())
-  void host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then((value) => { result = JSON.parse(value) })
+  void host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then(async (value) => { result = await afterRound(rt, 'r1', value) })
   await settle(() => host.agentOf('gb').calls.length === 1)
   run(host, 'gb', 1, host.agentOf('gb').calls[0])
   return () => result
@@ -146,7 +164,7 @@ test('a group turn cut off by a restart is picked up once, and the group is told
 
   // The group shows the event, and the admin reads it on its next turn.
   second.emit('r1', 'user/message', { content: post.content, source: post.source })
-  const relay = JSON.parse(await second.tool('group_relay', {}, 'r1', { callId: 'c2', signal: new AbortController().signal }))
+  const relay = await afterRound(rt, 'r1', await second.tool('group_relay', {}, 'r1', { callId: 'c2', signal: new AbortController().signal }))
   assert.deepEqual(relay.replies.map(reply => [reply.kind, reply.name]), [['resumed', 'Writer']])
   const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   assert.equal(state.rooms.r1.log.at(-1).kind, 'resumed')
@@ -176,7 +194,7 @@ test('a request cut off by a restart goes on under the same exchange; own-chat w
   await settle(() => second.agentOf('b').calls.length === 1 && second.agentOf('a').calls.length === 1)
   const request = second.agentOf('b').calls[0]
   assert.deepEqual([request.source.role, request.source.exchangeId, request.source.senderSessionId, request.source.resumed], ['request', 'x1', 'a', true])
-  assert.match(text(request), /^\[Message from Chief · DeepSeek Harness restarted while you were working on it\]/)
+  assert.match(text(request), /^\[Work(?:\s+#W\d+)? from Chief · DeepSeek Harness restarted while you were working on it\]/)
   const own = second.agentOf('a').calls[0]
   assert.deepEqual([own.source.role, own.source.resumed], ['resume', true])
   assert.match(text(own), /^\[DeepSeek Harness restarted while you were working\]/)
@@ -217,7 +235,7 @@ test('when only DS Bot restarts, a turn still running or finished meanwhile is n
 
 // Chief asks Writer for the plan; Writer's turn takes it up and the work waits.
 const askWriter = async (host, home) => {
-  await host.tool('message_bot', { to: 'Writer', message: 'Draft the plan' }, 'a')
+  await host.tool('delegate_work', { to: 'Writer', goal: 'Draft the plan' }, 'a')
   const request = host.agentOf('b').calls[0]
   run(host, 'b', 1, request)
   await settle(() => inflight(home).b?.trigger?.exchangeId === request.source.exchangeId)
@@ -225,7 +243,8 @@ const askWriter = async (host, home) => {
 }
 
 // The durable log of Writer's Session: the turn that took the request up, and what it said.
-const writerLog = (request, said, reason = { kind: 'completed' }) => [
+const writerLog = (request, said, reason = { kind: 'completed' }, route) => [
+  ...(route === undefined ? [] : [{ type: 'request/context', seq: 0, data: route }]),
   { type: 'turn/start', seq: 1, data: { turn: 1 } },
   { type: 'user/message', seq: 2, data: { source: request.source, content: request.content } },
   ...(said === undefined ? [] : [{ type: 'assistant/message', seq: 3, data: { turn: 1, message: { content: [{ type: 'text', text: said }] } } }]),
@@ -347,14 +366,14 @@ test('a turn that ended without saying anything says it finished', async (t) => 
   assert.equal(second.agentOf('b').calls.length, 0)
 })
 
-test('a turn that ended on the token limit gives what it said', async (t) => {
+test('a turn that ended on the token limit gives what it said, marked as not complete', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const home = freshHome(t)
   const logs = new Map()
   const first = await start(home, logs)
   const request = await askWriter(first, home)
   const exchangeId = request.source.exchangeId
-  logs.set('b', writerLog(request, 'The plan is ready, up to the limit.', { kind: 'max-tokens' }))
+  logs.set('b', writerLog(request, 'The plan is ready, up to the limit.', { kind: 'max-tokens' }, { provider: 'gateway', model: 'step-5' }))
   await first.stop()
 
   const second = await start(home, logs)
@@ -364,9 +383,73 @@ test('a turn that ended on the token limit gives what it said', async (t) => {
   const reply = second.agentOf('a').calls[0]
   assert.deepEqual([reply.source.role, reply.source.replyTo], ['reply', exchangeId])
   assert.match(text(reply), /The plan is ready, up to the limit\./)
+  // Half an answer is not passed on as a whole one.
+  assert.match(text(reply), /\[cut off at the model's output limit; the answer is not complete\]$/)
   // The work is settled, and the request is not run again.
   await settleState(t, home, () => stateOf(home).works?.[exchangeId] === undefined)
   assert.equal(second.agentOf('b').calls.length, 0)
+  // The diagnostics name the route, so a wrong contextWindow can be found from them.
+  const entries = await readDiagnostics(home, list => list.some(entry => entry.code === 'MAX_TOKENS'))
+  const cutOff = entries.filter(entry => entry.code === 'MAX_TOKENS')
+  assert.equal(cutOff.length, 1)
+  assert.match(cutOff[0].text, /answer is not complete \(gateway\/step-5\)/)
+  assert.deepEqual([cutOff[0].level, cutOff[0].bot, cutOff[0].where], ['warn', 'Writer', 'own chat'])
+})
+
+test('a turn cut off on the token limit without any text is not reported as finished', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = freshHome(t)
+  const logs = new Map()
+  const first = await start(home, logs)
+  const request = await askWriter(first, home)
+  const exchangeId = request.source.exchangeId
+  logs.set('b', writerLog(request, undefined, { kind: 'max-tokens' }, { provider: 'gateway', model: 'step-5' }))
+  await first.stop()
+
+  const second = await start(home, logs)
+  second.emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('a').calls.length === 1)
+  const reply = second.agentOf('a').calls[0]
+  assert.deepEqual([reply.source.role, reply.source.replyTo], ['reply', exchangeId])
+  assert.match(text(reply), /\[cut off at the model's output limit before it wrote anything\]/)
+  // Silence is not passed on as a deliberate finish.
+  assert.doesNotMatch(text(reply), /finished without a reply/)
+  await settleState(t, home, () => stateOf(home).works?.[exchangeId] === undefined)
+  assert.equal(second.agentOf('b').calls.length, 0)
+  const entries = await readDiagnostics(home, list => list.some(entry => entry.code === 'MAX_TOKENS'))
+  const cutOff = entries.filter(entry => entry.code === 'MAX_TOKENS')
+  assert.equal(cutOff.length, 1)
+  assert.match(cutOff[0].text, /cut off at the output limit before it wrote anything/)
+})
+
+test('a watched turn cut off without text tells the asker instead of finishing silently', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  await askWriter(host, home)
+  host.agentOf('b').session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5' } })
+  host.emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const reply = text(host.agentOf('a').calls[0])
+  assert.match(reply, /\[cut off at the model's output limit before it wrote anything\]/)
+  assert.doesNotMatch(reply, /finished without a reply/)
+  // It is on record with the route that was over its window.
+  const entries = await readDiagnostics(home, list => list.some(entry => entry.code === 'MAX_TOKENS'))
+  const cutOff = entries.filter(entry => entry.code === 'MAX_TOKENS')
+  assert.equal(cutOff.length, 1)
+  assert.match(cutOff[0].text, /before it wrote anything \(gateway\/step-5\)/)
+})
+
+test('a watched turn cut off after writing text is passed on marked unfinished', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  await askWriter(host, home)
+  host.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'The first half.' }] } })
+  host.emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const reply = text(host.agentOf('a').calls[0])
+  assert.match(reply, /The first half\./)
+  assert.match(reply, /\[cut off at the model's output limit; the answer is not complete\]$/)
 })
 
 test('the answer that goes up keeps what came back for the work', async (t) => {
@@ -466,7 +549,7 @@ test('a turn DSH stops as it shuts down stays noted; one the user stops does not
 test('a message a shutdown cancelled is sent again once; one still waiting, taken up or withdrawn is not', async (t) => {
   const home = freshHome(t)
   const first = await start(home)
-  const send = message => first.tool('message_bot', { to: 'Writer', message, when: 'queue' }, 'a')
+  const send = message => first.tool('delegate_work', { to: 'Writer', goal: message, when: 'queue' }, 'a')
   await send('Draft the plan')
   await send('Check the numbers')
   await send('Read the notes')
@@ -487,7 +570,7 @@ test('a message a shutdown cancelled is sent again once; one still waiting, take
   await settle(() => second.agentOf('b').calls.length === 1)
   const [again] = second.agentOf('b').calls
   assert.deepEqual([again.source.exchangeId, again.source.role], [plan.source.exchangeId, 'request'])
-  assert.match(text(again), /^\[Message from Chief · DeepSeek Harness restarted before it could reach you\]\nDraft the plan$/)
+  assert.match(text(again), /^\[Work(?:\s+#W\d+)? from Chief · DeepSeek Harness restarted before it could reach you\]\nDraft the plan$/)
   // The resend is the same exchange, not a new one.
   const exchanges = (await second.call('exchange', { a: 'a', b: 'b' })).value
   assert.equal(exchanges.length, 4)
@@ -504,7 +587,7 @@ test('a message a shutdown cancelled is sent again once; one still waiting, take
 test('a queued request kept over a restart is sent again however old, and the asker is told it was late', async (t) => {
   const home = freshHome(t)
   const first = await start(home)
-  await first.tool('message_bot', { to: 'Writer', message: 'Draft the plan', when: 'queue' }, 'a')
+  await first.tool('delegate_work', { to: 'Writer', goal: 'Draft the plan', when: 'queue' }, 'a')
   await settle(() => (notes(home).queued.b ?? []).length === 1)
   const [plan] = first.agentOf('b').calls
   await first.stop()
@@ -521,7 +604,7 @@ test('a queued request kept over a restart is sent again however old, and the as
   await settle(() => second.agentOf('b').calls.length === 1)
   const [again] = second.agentOf('b').calls
   assert.deepEqual([again.source.exchangeId, again.source.role], [plan.source.exchangeId, 'request'])
-  assert.match(text(again), /^\[Message from Chief · DeepSeek Harness restarted before it could reach you\]/)
+  assert.match(text(again), /^\[Work(?:\s+#W\d+)? from Chief · DeepSeek Harness restarted before it could reach you\]/)
 
   // The work is marked, so the answer that goes up says the request arrived late.
   await settleState(t, home, () => stateOf(home).works?.[plan.source.exchangeId]?.late === true)
@@ -530,14 +613,14 @@ test('a queued request kept over a restart is sent again however old, and the as
   second.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   await settle(() => second.agentOf('a').calls.length === 1)
   const reply = text(second.agentOf('a').calls[0])
-  assert.match(reply, /^\[Reply from Writer\]\n\[This request reached Writer only after DeepSeek Harness restarted\.\]/)
+  assert.match(reply, /^\[Work(?:\s+#W\d+)? completed by Writer[^\n]*\]\n\[This request reached Writer only after DeepSeek Harness restarted\.\]/)
   assert.match(reply, /The plan is ready\./)
 })
 
 test('queued deliveries are kept whole, not cut at fifty', async (t) => {
   const home = freshHome(t)
   const first = await start(home)
-  for (let at = 1; at <= 55; at += 1) await first.tool('message_bot', { to: 'Writer', message: `Task ${at}`, when: 'queue' }, 'a')
+  for (let at = 1; at <= 55; at += 1) await first.tool('delegate_work', { to: 'Writer', goal: `Task ${at}`, when: 'queue' }, 'a')
   await settle(() => (notes(home).queued.b ?? []).length === 55)
   await first.stop()
 
@@ -556,7 +639,7 @@ test('a delivery that fails is not recorded as delivered, and stays queued for t
     if (session?.id === 'b') throw Object.assign(new Error('Session sess-b is gone'), { code: 'session/not-found' })
     return flushing(session)
   }
-  await assert.rejects(first.tool('message_bot', { to: 'Writer', message: 'Draft the plan' }, 'a'), /sess-b is gone/)
+  await assert.rejects(first.tool('delegate_work', { to: 'Writer', goal: 'Draft the plan' }, 'a'), /sess-b is gone/)
   // Nothing is shown as delivered; the delivery stays queued, and the work it
   // opened stays with it.
   await settleState(t, home, () => (stateOf(home).exchanges ?? []).length === 0 && Object.keys(stateOf(home).works ?? {}).length === 1)
@@ -597,7 +680,7 @@ test('a reply that fails to reach the asker reaches it as a failure notice carry
   await settle(() => host.agentOf('b').calls.length === 1)
   const notice = host.agentOf('b').calls[0]
   assert.deepEqual([notice.source.role, notice.source.replyTo, notice.source.work], ['reply', 'y1', 'x1'])
-  assert.match(text(notice), /^\[Reply from Reviewer · for the work Chief asked you for; your answer goes to Chief once everything you handed on is back\]\nReviewer could not send its reply to you \(session\/not-found: Session sess-b is gone\); what it had answered:\nThe numbers check out\.$/)
+  assert.match(text(notice), /^\[Work(?:\s+#W\d+)? completed by Reviewer · closed · for the work Chief asked you for; your answer goes to Chief once everything you handed on is back[^\n]*\]\nReviewer could not send its reply to you \(session\/not-found: Session sess-b is gone\); what it had answered:\nThe numbers check out\.$/)
   // The wait stays until the notice is read; the kept result is marked.
   await settleState(t, home, () => stateOf(home).works?.x1?.results[0]?.failed === true)
   assert.deepEqual(stateOf(home).works.x1.open, ['y1'])
@@ -654,11 +737,11 @@ test('new deliveries before recovery do not overwrite the saved queue', async (t
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const home = freshHome(t)
   const first = await start(home)
-  await first.tool('message_bot', { to: 'Writer', message: 'Task before shutdown', when: 'queue' }, 'a')
+  await first.tool('delegate_work', { to: 'Writer', goal: 'Task before shutdown', when: 'queue' }, 'a')
   await first.stop()
 
   const second = await start(home)
-  await second.tool('message_bot', { to: 'Writer', message: 'Task before recovery', when: 'queue' }, 'a')
+  await second.tool('delegate_work', { to: 'Writer', goal: 'Task before recovery', when: 'queue' }, 'a')
   await second.stop()
   assert.equal(notes(home).queued.b.length, 2)
 
@@ -673,7 +756,7 @@ test('a resend that cannot open the Session keeps the whole queue for the next s
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const home = freshHome(t)
   const first = await start(home)
-  for (const message of ['Task 1', 'Task 2', 'Task 3']) await first.tool('message_bot', { to: 'Writer', message, when: 'queue' }, 'a')
+  for (const message of ['Task 1', 'Task 2', 'Task 3']) await first.tool('delegate_work', { to: 'Writer', goal: message, when: 'queue' }, 'a')
   await settle(() => (notes(home).queued.b ?? []).length === 3)
   await first.stop()
 
@@ -712,7 +795,7 @@ test('a request kept for retry keeps its work, and the result flows up after the
     if (session?.id === 'c') throw Object.assign(new Error('Session sess-c is gone'), { code: 'session/not-found' })
     return flushing(session)
   }
-  await assert.rejects(first.tool('message_bot', { to: 'Reviewer', message: 'Check the numbers' }, 'b'), /sess-c is gone/)
+  await assert.rejects(first.tool('delegate_work', { to: 'Reviewer', goal: 'Check the numbers' }, 'b'), /sess-c is gone/)
   // Writer ends its turn waiting for what it handed on.
   first.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Reviewer is on the numbers.' }] } })
   first.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -748,21 +831,26 @@ test('a resend whose first send never landed records the exchange once it arrive
     if (session?.id === 'b') throw Object.assign(new Error('Session sess-b is gone'), { code: 'session/not-found' })
     return flushing(session)
   }
-  await assert.rejects(first.tool('message_bot', { to: 'Writer', message: 'Draft the plan' }, 'a'), /sess-b is gone/)
+  await assert.rejects(first.tool('delegate_work', { to: 'Writer', goal: 'Draft the plan' }, 'a'), /sess-b is gone/)
   await settle(() => (notes(home).queued.b ?? []).length === 1)
   await first.stop()
 
   const second = await start(home)
   t.mock.timers.tick(3000)
   await settle(() => second.agentOf('b').calls.length === 1)
-  // The first send never reached the Session, so the resend records the exchange.
+  // The first send never reached the Session: the exchange shows once the resend lands.
   const [again] = second.agentOf('b').calls
-  await settleState(t, home, () => (stateOf(home).exchanges ?? []).length === 1)
-  const [entry] = stateOf(home).exchanges
+  const listed = async () => (await second.call('exchange', { a: 'a', b: 'b' })).value
+  for (let at = 0; at < 50 && (await listed()).length === 0; at += 1) await new Promise(resolve => setImmediate(resolve))
+  const [entry] = await listed()
   assert.deepEqual([entry.id, entry.role, entry.from, entry.to], [again.source.exchangeId, 'request', 'a', 'b'])
 })
 
 const WRITTEN = 'Checking now.\n<tool_call>\n<function=pwsh>\n<parameter=command>\nGet-ChildItem E:\\\n</parameter>\n</function>\n</tool_call>'
+// A reply cut off inside the model's own call template keeps only its closing tags,
+// as the group report shows (it pasted the CJK brackets the model wrote).
+const ORPHAN_TAGS = '＜/parameter＞\n＜/function＞\n＜/tool_call＞'
+const MIXED_TAGS = '＜/parameter＞ ＜parameter=name＞length"＞15 Hi, everyone.'
 
 test('a tool call written as text gets one more turn on the same round slot', async (t) => {
   const home = freshHome(t)
@@ -785,6 +873,70 @@ test('a tool call written as text gets one more turn on the same round slot', as
   assert.equal(host.agentOf('gb').calls.length, 2)
 })
 
+test('a group member that leaves only the call tags gets the same retry, and never posts the tags', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  const result = await openRoomTurn(t, host)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: ORPHAN_TAGS }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  const retry = host.agentOf('gb').calls[1]
+  assert.deepEqual([retry.source.role, retry.source.retried, retry.source.exchangeId], ['room', true, host.agentOf('gb').calls[0].source.exchangeId])
+  assert.match(text(retry), /^\[Group chat "Ops" · your tool call did not run\]/)
+  assert.equal(result(), undefined)
+
+  // Leftover tags again: the round gets one readable line, no markup.
+  run(host, 'gb', 2, retry)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: ORPHAN_TAGS }] } })
+  host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => reply.text), ['Tried to run a tool but wrote the call as text, so it did not run.'])
+  assert.equal(host.agentOf('gb').calls.length, 2)
+})
+
+test('call tags mixed into the text are stripped, and the readable part still goes out', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  const result = await openRoomTurn(t, host)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: MIXED_TAGS }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  const retry = host.agentOf('gb').calls[1]
+  assert.equal(retry.source.retried, true)
+  assert.equal(result(), undefined)
+
+  // Written again: what was said around the tags goes on, without them.
+  run(host, 'gb', 2, retry)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: MIXED_TAGS }] } })
+  host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => result() !== undefined)
+  const [reply] = result().replies.map(entry => entry.text)
+  assert.match(reply, /Hi, everyone\./)
+  assert.doesNotMatch(reply, /parameter|function|tool_call/)
+})
+
+test('a group member cut off on the token limit is not counted as a silent pass', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  const result = await openRoomTurn(t, host)
+  // The turn wrote nothing: the round must not read it as the member having passed.
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => reply.text), ['[cut off at the model\'s output limit before it wrote anything]'])
+  assert.equal(host.agentOf('gb').calls.length, 1)
+})
+
+test('a group member cut off on the token limit keeps what it said and marks it unfinished', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  const result = await openRoomTurn(t, host)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: 'Half of the answer.' }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => reply.text), ['Half of the answer.\n\n[cut off at the model\'s output limit; the answer is not complete]'])
+  assert.equal(host.agentOf('gb').calls.length, 1)
+})
+
 test('in its own chat, a Bot that wrote a tool call as text is asked to make it', async (t) => {
   const home = freshHome(t)
   const host = await start(home)
@@ -805,4 +957,18 @@ test('a written tool call is told apart from text about one', () => {
   assert.equal(writesToolCall('Models such as Step write `<tool_call>` tags in their template.'), false)
   assert.equal(writesToolCall(undefined), false)
   assert.equal(stripWrittenCalls(WRITTEN), 'Checking now.')
+
+  // A call cut off before its opening tags is still one.
+  assert.equal(writesToolCall('</parameter>\n</function>\n</tool_call>'), true)
+  assert.equal(writesToolCall(ORPHAN_TAGS), true)
+  assert.equal(writesToolCall(MIXED_TAGS), true)
+  assert.equal(stripWrittenCalls('</parameter>\n</function>\n</tool_call>'), '')
+  assert.equal(stripWrittenCalls(ORPHAN_TAGS), '')
+  assert.equal(stripWrittenCalls(MIXED_TAGS), 'length"＞15 Hi, everyone.')
+  assert.equal(stripWrittenCalls('Checking </parameter> now.'), 'Checking now.')
+
+  // Ordinary text keeps its marks, also when it talks about the tags.
+  assert.equal(stripWrittenCalls('plain <text> with an angle or two'), 'plain <text> with an angle or two')
+  assert.equal(writesToolCall('plain <text> with an angle or two'), false)
+  assert.equal(stripWrittenCalls('a < b or c > d'), 'a < b or c > d')
 })

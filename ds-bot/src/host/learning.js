@@ -5,7 +5,7 @@
 // propose nothing. A proposal waits as a card in the Bot's chat until approved, and
 // declined changes are remembered so the same idea does not come back.
 import { createHash, randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, readFileSync } from 'node:fs'
 import { access, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { replaceFile } from './files.js'
@@ -16,6 +16,7 @@ export const LEARNING = {
   minTurnMs: 3 * 60_000,
   idleMs: 10 * 60_000,
   intervalMs: 12 * 60 * 60_000,
+  retryMs: 15 * 60_000,
   tickMs: 60_000,
   readMs: 15_000,
   textMax: 24_000,
@@ -26,6 +27,7 @@ export const LEARNING = {
   descriptionMax: 300,
   contentMax: 8_000,
   declinedMax: 20,
+  settledArchiveMax: 50,
   agentsFileMax: 16_000,
   agentsEditMax: 400,
 }
@@ -311,12 +313,28 @@ export function install(rt) {
   // the outcome; their cards stay in the chat part they were answered in.
   // `learned`: skill names learned by Bot.
   let saved
+  let stuck
+  let warnedStuck = false
   const data = () => {
     if (saved !== undefined) return saved
     try {
-      saved = JSON.parse(readFileSync(path, 'utf8'))
+      const parsed = JSON.parse(readFileSync(path, 'utf8'))
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('learning state is not a JSON object')
+      }
+      saved = parsed
     } catch (error) {
-      if (error?.code !== 'ENOENT') rt.warn('ds-bot: unreadable learning state %s: %s', path, error?.message ?? error)
+      if (error?.code !== 'ENOENT') {
+        stuck = error?.message ?? String(error)
+        rt.warn('ds-bot: unreadable learning state %s: %s', path, stuck)
+        if (rt.readOnly() === undefined && existsSync(path)) {
+          const backup = `${path}.broken-${Date.now()}`
+          try {
+            copyFileSync(path, backup)
+            rt.warn('ds-bot: backed up unreadable learning state to %s', backup)
+          } catch { /* best-effort backup */ }
+        }
+      }
       saved = {}
     }
     saved.pending ??= {}
@@ -328,14 +346,52 @@ export function install(rt) {
     saved.agentsPending ??= {}
     return saved
   }
+  // Trims bulky full-text content from settled proposals that are no longer shown in a
+  // Bot's current chat part (and removes full AGENTS.md copies immediately since the card
+  // renders from `edits`), keeping state.json bounded over long lifetimes.
+  const trimSettledEntry = (entry, keepSkillContent) => {
+    if (entry === null || typeof entry !== 'object') return entry
+    if (entry.kind === 'agents') {
+      const { content: _content, ...rest } = entry
+      return rest
+    }
+    if (keepSkillContent) return entry
+    const { content: _content, previous: _previous, ...rest } = entry
+    return rest
+  }
+  function pruneSettled(store) {
+    const archived = []
+    for (const [id, entry] of Object.entries(store.settled)) {
+      if (entry === null || typeof entry !== 'object' || rt.botOf(entry.botId) === undefined) {
+        delete store.settled[id]
+        continue
+      }
+      const inCurrent = entry.sessionId === rt.chatOf(entry.botId)
+      store.settled[id] = trimSettledEntry(entry, inCurrent)
+      if (!inCurrent) archived.push([id, entry.settledAt ?? entry.at ?? 0])
+    }
+    if (archived.length > settings.settledArchiveMax) {
+      archived.sort((a, b) => a[1] - b[1])
+      for (const [id] of archived.slice(0, archived.length - settings.settledArchiveMax)) {
+        delete store.settled[id]
+      }
+    }
+  }
   let stopped = false
   let writing = Promise.resolve()
   const persist = () => {
     if (stopped) return writing
+    if (stuck !== undefined) {
+      if (!warnedStuck) {
+        warnedStuck = true
+        rt.warn('ds-bot: refusing to overwrite unreadable learning state %s (%s)', path, stuck)
+      }
+      return writing
+    }
     const text = JSON.stringify(data(), null, 1)
     writing = writing.then(async () => {
       await mkdir(dirname(path), { recursive: true })
-      const temp = `${path}.${process.pid}.tmp`
+      const temp = `${path}.${process.pid}.${randomUUID()}.tmp`
       await writeFile(temp, text, 'utf8')
       await replaceFile(temp, path)
     }).catch(error => rt.warn('ds-bot: saving the learning state failed: %s', error?.message ?? error))
@@ -343,14 +399,16 @@ export function install(rt) {
   }
 
   // A turn in a Bot's own chat that ran long marks the chat for the next pass.
+  // Group background tasks belong to their group, not the Bot's own chat.
   const started = new Map()
   const noted = new Map()
   let lastActivity = Date.now()
   ctx.on('agent/status', ({ agent, status }) => {
-    if (stopped) return
+    if (stopped || stuck !== undefined) return
     const id = agent?.id
     if (id === undefined || !rt.isBotSession(id)) return
     lastActivity = Date.now()
+    if (rt.taskOwners?.get(id)?.roomId !== undefined) return
     if (status !== 'idle') {
       if (!started.has(id)) started.set(id, Date.now())
       return
@@ -522,13 +580,16 @@ export function install(rt) {
   // One pass over every Bot with a long turn since the last one. A Bot with a
   // proposal still waiting is skipped: its chat is read again in the next pass.
   let running
+  let failedRunUntil = 0
   async function run() {
-    if (stopped) return 0
+    if (stopped || stuck !== undefined) return 0
     if (running) return running
     running = (async () => {
       const store = data()
-      store.lastRun = Date.now()
+      if (stuck !== undefined) return 0
       let made = 0
+      let succeeded = 0
+      let failed = 0
       for (const [botId, pendingSessions] of Object.entries(store.pending)) {
         if (stopped) break
         const bot = rt.botOf(botId)
@@ -546,8 +607,10 @@ export function install(rt) {
           const lines = read.flatMap(entry => entry.lines)
           const proposal = lines.length === 0 ? undefined : await reviewSkill(bot, lines)
           if (stopped) return made
+          if (lines.length > 0) succeeded += 1
           if (proposal !== undefined) {
             store.proposals[proposal.id] = proposal
+            rt.learningProposed?.(proposal)
             made += 1
           }
           if (config.agentsMd !== false) {
@@ -571,6 +634,7 @@ export function install(rt) {
           if (remaining.length === 0) delete store.pending[botId]
           else store.pending[botId] = remaining
         } catch (error) {
+          failed += 1
           rt.warn('ds-bot: the learning review of %s failed: %s', bot.name, error?.message ?? error)
           continue
         }
@@ -614,8 +678,10 @@ export function install(rt) {
             if (lines.length === 0) continue
             const proposal = await reviewAgents(bot, folder, current, lines)
             if (stopped) return made
+            succeeded += 1
             if (proposal !== undefined) {
               store.proposals[proposal.id] = proposal
+              rt.learningProposed?.(proposal)
               made += 1
             }
             const queue = store.agentsPending[folder]
@@ -624,19 +690,29 @@ export function install(rt) {
               if (queue.records.length === 0) delete store.agentsPending[folder]
             }
           } catch (error) {
+            failed += 1
             rt.warn('ds-bot: the AGENTS.md review of %s failed: %s', folder, error?.message ?? error)
           }
         }
       }
+      const allFailed = !stopped && succeeded === 0 && failed > 0
+      if (!stopped && !allFailed) {
+        store.lastRun = Date.now()
+        failedRunUntil = 0
+      }
+      pruneSettled(store)
       await persist()
+      if (allFailed && !stopped) failedRunUntil = Date.now() + settings.retryMs
       return made
     })().finally(() => { running = undefined })
     return running
   }
 
   const due = () => {
-    if (stopped) return false
+    if (stopped || stuck !== undefined) return false
+    if (Date.now() < failedRunUntil) return false
     const store = data()
+    if (stuck !== undefined) return false
     const hasPending = Object.values(store.pending).some(sessions => sessions.length > 0)
       || (config.agentsMd !== false && Object.values(store.agentsPending).some(queue => queue.records?.length > 0))
     if (!hasPending || rt.readOnly() !== undefined) return false
@@ -651,38 +727,57 @@ export function install(rt) {
     return () => {
       stopped = true
       clearInterval(timer)
+      started.clear()
+      noted.clear()
       // A new host may take over after disposal; finish only writes already queued.
       return writing
     }
   }, 'ds-bot: learning')
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    const id = agent?.id
+    if (id === undefined) return
+    started.delete(id)
+    noted.delete(id)
+  })
 
-  // The user's answer to a card.
+  // The user's answer to a card. Serialized per proposal id so double-clicks or
+  // concurrent windows cannot run applySkill / applyAgents twice for the same proposal.
+  const answering = new Set()
   async function answer({ id, approve }) {
     const store = data()
+    if (stuck !== undefined) throw new Error('Learning state is unreadable; fix or move state.json before changing proposals.')
+    if (answering.has(id)) throw Object.assign(new Error('This proposal is already being handled'), { code: 'bot/busy' })
     const proposal = Object.hasOwn(store.proposals, id) ? store.proposals[id] : undefined
     if (proposal === undefined) throw Object.assign(new Error('This proposal is no longer open'), { code: 'bot/stale' })
-    // The answered card stays where it was, read-only, with how it ended. A waiting
-    // card shows in the Bot's current chat part, so that is where it stays.
-    const settle = (outcome) => {
-      delete store.proposals[id]
-      const { saved: _saved, ...kept } = proposal
-      store.settled[id] = { ...kept, sessionId: rt.chatOf(proposal.botId), outcome, settledAt: Date.now() }
-    }
-    if (approve !== true) {
-      settle('declined')
-      const decline = proposal.kind === 'agents'
-        ? { kind: 'agents', folder: proposal.folder, edits: proposal.edits.map(({ op, text, old }) => ({ op, text, old })), at: Date.now() }
-        : { name: proposal.name, description: proposal.description, at: Date.now() }
-      store.declined = [...store.declined, decline].slice(-settings.declinedMax)
+    answering.add(id)
+    try {
+      // The answered card stays where it was, read-only, with how it ended. A waiting
+      // card shows in the Bot's current chat part, so that is where it stays.
+      const settle = (outcome) => {
+        delete store.proposals[id]
+        const { saved: _saved, ...kept } = proposal
+        const settled = { ...kept, sessionId: rt.chatOf(proposal.botId), outcome, settledAt: Date.now() }
+        store.settled[id] = trimSettledEntry(settled, true)
+        pruneSettled(store)
+      }
+      if (approve !== true) {
+        settle('declined')
+        const decline = proposal.kind === 'agents'
+          ? { kind: 'agents', folder: proposal.folder, edits: proposal.edits.map(({ op, text, old }) => ({ op, text, old })), at: Date.now() }
+          : { name: proposal.name, description: proposal.description, at: Date.now() }
+        store.declined = [...store.declined, decline].slice(-settings.declinedMax)
+        await persist()
+        return { applied: false }
+      }
+      // A failed approval keeps the card, so the user can still decline it.
+      if (proposal.kind === 'agents') await applyAgents(proposal)
+      else await applySkill(proposal)
+      settle('approved')
       await persist()
-      return { applied: false }
+      return { applied: true }
+    } finally {
+      answering.delete(id)
     }
-    // A failed approval keeps the card, so the user can still decline it.
-    if (proposal.kind === 'agents') await applyAgents(proposal)
-    else await applySkill(proposal)
-    settle('approved')
-    await persist()
-    return { applied: true }
   }
 
   const agentsApplying = new Map()
@@ -767,10 +862,59 @@ export function install(rt) {
     await persist()
   }
 
+  async function dropBot(botId) {
+    const bot = rt.botOf(botId)
+    const sessions = new Set([
+      botId,
+      rt.chatOf?.(botId),
+      ...(bot?.segments ?? []).map(segment => segment?.sessionId),
+      ...(bot?.tasks ?? []).flatMap(task => [task?.sessionId, ...(task?.segments ?? []).map(segment => segment?.sessionId)]),
+    ].filter(Boolean))
+    for (const sessionId of sessions) {
+      started.delete(sessionId)
+      noted.delete(sessionId)
+    }
+    if (stuck !== undefined) return
+    const store = data()
+    if (stuck !== undefined) return
+    let changed = false
+    if (Object.hasOwn(store.pending, botId)) {
+      for (const sessionId of store.pending[botId] ?? []) sessions.add(sessionId)
+      delete store.pending[botId]
+      changed = true
+    }
+    if (Object.hasOwn(store.learned, botId)) {
+      delete store.learned[botId]
+      changed = true
+    }
+    for (const sessionId of sessions) {
+      if (Object.hasOwn(store.cursors, sessionId)) {
+        delete store.cursors[sessionId]
+        changed = true
+      }
+    }
+    for (const [id, entry] of Object.entries(store.proposals)) {
+      if (entry?.botId === botId) {
+        delete store.proposals[id]
+        changed = true
+      }
+    }
+    for (const [id, entry] of Object.entries(store.settled)) {
+      if (entry?.botId === botId) {
+        delete store.settled[id]
+        changed = true
+      }
+    }
+    if (changed) await persist()
+  }
+  rt.onBotDelete?.(dropBot)
+
   // Per Bot, its proposals waiting for the user.
   const learningView = () => {
     const byBot = {}
-    for (const entry of Object.values(data().proposals)) (byBot[entry.botId] ??= []).push(entry)
+    for (const entry of Object.values(data().proposals)) {
+      if (rt.botOf(entry.botId) !== undefined) (byBot[entry.botId] ??= []).push(entry)
+    }
     return byBot
   }
   // Per Bot, the answered proposals of its current chat part.
@@ -795,5 +939,5 @@ export function install(rt) {
     return result
   }
 
-  Object.assign(rt, { learningView, learningSettledView, learningEndpoint, learningRun: run })
+  Object.assign(rt, { learningView, learningSettledView, learningEndpoint, learningRun: run, learningDue: due })
 }

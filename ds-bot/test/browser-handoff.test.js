@@ -28,9 +28,9 @@ const TEAM = {
   questions: {},
 }
 
-function start() {
+function start(seed = TEAM) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-handoff-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
   const ctx = fakeContext()
   const sent = []
   const ensured = []
@@ -148,7 +148,8 @@ test('only a handoff raised in the Bot\'s own chat keeps its call and drops the 
   await rt.load()
 
   const raised = { by: 'bot', reason: 'login', note: 'Sign in', callId: 'call-1' }
-  assert.deepEqual(handoffHold(rt, 'b2', { ...raised, sessionId: 'b2' }), raised)
+  // The part that raised it rides along, so its answer can come back to that part.
+  assert.deepEqual(handoffHold(rt, 'b2', { ...raised, sessionId: 'b2' }), { ...raised, sessionId: 'b2' })
   // A group turn runs in another Session: no card there, so no call to answer.
   assert.deepEqual(handoffHold(rt, 'b2', { ...raised, sessionId: 'room-session' }), { by: 'bot', reason: 'login', note: 'Sign in' })
   // Another Bot's chat is no more its own.
@@ -205,11 +206,12 @@ test('a handoff outside the Bot\'s own chat gives resume-first guidance, and bro
   assert.ok(task.text.includes(`Handoffs:\n${group}`))
 })
 
-test('the channel keeps a handoff\'s call on its hold', async (t) => {
+test('the channel keeps a handoff\'s call and Session on its hold', async (t) => {
   const { rt, stop } = start()
   t.after(stop)
-  rt.browserChannel.setHold('b2', { ...BOT_HOLD, callId: 'c'.repeat(300) })
+  rt.browserChannel.setHold('b2', { ...BOT_HOLD, callId: 'c'.repeat(300), sessionId: 's'.repeat(300) })
   assert.equal(rt.browserChannel.holdOf('b2').callId, 'c'.repeat(200))
+  assert.equal(rt.browserChannel.holdOf('b2').sessionId, 's'.repeat(200))
   rt.browserChannel.setHold('b2', { by: 'bot', reason: 'other', note: '' })
   assert.deepEqual(rt.browserChannel.holdOf('b2'), { by: 'bot', reason: 'other', note: '' })
 })
@@ -219,9 +221,9 @@ test('browser-takeover keeps the handoff it takes over, and starts a plain takeo
   t.after(stop)
   await rt.load()
 
-  rt.browserChannel.setHold('b2', BOT_HOLD)
+  rt.browserChannel.setHold('b2', { ...BOT_HOLD, sessionId: 'b2' })
   assert.equal((await call('browser-takeover', { botId: 'b2' })).value, true)
-  assert.deepEqual(rt.browserChannel.holdOf('b2'), { by: 'user', reason: 'login', note: 'Sign in to the shop.', callId: 'call-1' })
+  assert.deepEqual(rt.browserChannel.holdOf('b2'), { by: 'user', reason: 'login', note: 'Sign in to the shop.', callId: 'call-1', sessionId: 'b2' })
 
   rt.browserChannel.setHold('b2', { by: 'bot', reason: 'other', note: '' })
   await call('browser-takeover', { botId: 'b2' })

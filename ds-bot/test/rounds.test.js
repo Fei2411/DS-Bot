@@ -4,8 +4,10 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileS
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { afterRound } from './relay-rows.js'
 import { createRuntime } from '../index.js'
-import { lineText } from '../src/host/groups.js'
+import { ROOM_IDLE_RELAY_LIMIT } from '../src/host/constants.js'
+import { isIdleRelayText, lineText } from '../src/host/groups.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 
 // A fake team of two Bots in one group; member answers are played back through the
@@ -92,10 +94,14 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
   })
   const relay = (roomId, callId, signal = new AbortController().signal) => rt.teamTools.find(d => d.name === 'group_relay')
     .execute({}, { agent: { id: roomId, inbox: inboxOf(roomId) }, callId, signal })
+    .then(async value => JSON.stringify(await afterRound(rt, roomId, value)))
   // The Bot's answer to its group turn: a delivery source plus the reply text.
-  const answer = async (sessionId, exchangeId, text, turn) => {
+  const answer = async (sessionId, exchangeId, text, turn, { workTool, during } = {}) => {
     await emit(sessionId, { type: 'turn/start', data: { turn } })
-    await emit(sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+    const message = sent.find(entry => entry.message.source?.exchangeId === exchangeId)?.message
+    await emit(sessionId, { type: 'user/message', data: message ?? { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+    if (workTool !== undefined) await emit(sessionId, { type: 'tool/call', data: { callId: `tc-${turn}`, name: workTool, arguments: '{}' } })
+    await during?.()
     await emit(sessionId, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } })
     await emit(sessionId, { type: 'turn/end', data: { reason: { kind: 'stop' } } })
   }
@@ -116,6 +122,35 @@ const waitFor = async (check) => {
   return undefined
 }
 const turnFor = (sent, ...earlier) => waitFor(() => sent.find(entry => !earlier.includes(entry) && entry.message.source.role === 'room'))
+
+for (const card of ['question', 'view']) test(`an IM group ${card} leaves its member waiting for the user while the round continues`, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  rt.roomHasImOrigin = () => true
+  await emit(room.id, userMessage('Choose a route'))
+  const running = relay(room.id, 'question-round')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  await emit(first.sessionId, { type: 'turn/start', data: { turn: 1 } })
+  await emit(first.sessionId, { type: 'user/message', data: first.message })
+  await emit(first.sessionId, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'I checked both routes before asking.' }] } } })
+  let concluded = false
+  const ask = rt.teamTools.find(tool => tool.name === (card === 'question' ? 'ask_user' : 'show_view'))
+  await ask.execute(card === 'question' ? { question: 'Choose?', options: [{ label: 'A' }, { label: 'B' }] } : { title: 'Choose?', view: { type: 'confirm', id: 'go' } }, { agent: { id: first.sessionId }, concludeTurn() { concluded = true } })
+  assert.equal(concluded, true)
+  await emit(first.sessionId, { type: 'turn/end', data: { reason: { kind: 'completed' } } })
+  const second = await turnFor(sent, first)
+  assert.ok(second, 'the other member is not blocked on the question')
+  assert.match(second.message.content[0].text, /waiting for the user's answer/)
+  await answer(second.sessionId, second.message.source.exchangeId, 'I will wait for the choice.', 2)
+  await running
+  assert.ok((card === 'question' ? rt.state.questions : rt.state.views)[first.sessionId])
+  assert.ok(rt.roomOf(room.id).log.some(line => line.text?.includes('Choose?')))
+  assert.equal(rt.roomOf(room.id).log.filter(line => line.text?.includes('I checked both routes before asking.')).length, 1)
+  assert.ok(!rt.roomOf(room.id).log.some(line => line.kind === 'failed'))
+  assert.equal(sent.filter(entry => entry.message.source.role === 'post').length, 0, 'asking does not post a second empty late reply')
+})
 
 test('a new group Session waits for capabilities before its first member prompt', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
@@ -301,7 +336,7 @@ test('a stopped round leaves a waiting message for the next round', async (t) =>
   const running = relay(room.id, 'relay', controller.signal)
   await turnFor(sent)
   await compose(room.id, 'still there?')
-  controller.abort()
+  rt.stopRoomRound(room.id)
   const result = JSON.parse(await running)
   assert.equal(result.replies.some(reply => reply.kind === 'user'), false)
   assert.equal(inboxOf(room.id).nextTurn.length, 1)
@@ -427,7 +462,7 @@ test('a relative file link a member writes reaches the group, and another Bot, a
   const chief = rt.state.mainBotIds[0]
   const writer = rt.state.rooms[room.id].members.find(id => id !== chief)
   sent.length = 0
-  await rt.teamTools.find(d => d.name === 'message_bot').execute({ to: rt.botOf(writer).name, message: 'Read [notes](notes.md#L3)', when: 'queue' }, {
+  await rt.teamTools.find(d => d.name === 'delegate_work').execute({ to: rt.botOf(writer).name, goal: 'Read [notes](notes.md#L3)', when: 'queue' }, {
     agent: { id: first.sessionId, session: { id: first.sessionId, header: { cwd: folder } }, inbox: { nextStep: [], nextTurn: [] } }, callId: 'c1',
   })
   const delivered = await waitFor(() => sent.find(entry => entry.sessionId === room.id && entry.message.source?.role === 'post'))
@@ -511,7 +546,7 @@ test('a member deleted while its group Session is made is left out, and the Sess
 })
 
 // #206: state.json is written whole on every save, so a long group line keeps its start
-// there and its whole text in a file of its own. Members still read it whole.
+// there; the group's book has it whole. Members still read it whole.
 test('a long group line keeps its start in state.json, and members and read_group_chat read it whole', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, home, rt } = start()
   t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
@@ -530,7 +565,7 @@ test('a long group line keeps its start in state.json, and members and read_grou
   const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).rooms[room.id].log.find(line => line.length !== undefined)
   assert.equal(saved.text.length, 2000)
   assert.equal(saved.length, long.length)
-  assert.equal(readFileSync(join(home, 'group-lines', room.id, `${saved.seq}.txt`), 'utf8'), long)
+  assert.equal(rt.ledger.record(`group-${room.id}`, saved.seq).text, long)
   const read = rt.teamTools.find(d => d.name === 'read_group_chat')
   const exec = { agent: { id: first.sessionId } }
   assert.match(await read.execute({ group: 'R1' }, exec), new RegExp(`cut; ${long.length} characters in all; read_group_chat with seq ${saved.seq} reads it whole`))
@@ -546,14 +581,14 @@ test('a long group line keeps its start in state.json, and members and read_grou
   kept.seq += fillers.length
   writeFileSync(file, JSON.stringify(onDisk))
 
-  // After a restart the whole line is read back from its file.
+  // After a restart the whole line is read back from the group's book.
   const again = start({ home })
   t.after(() => again.stop({ keep: true }))
   await again.call('state', {})
   const whole = await again.rt.teamTools.find(d => d.name === 'read_group_chat').execute({ group: 'R1', seq: saved.seq }, exec)
   assert.ok(whole.endsWith(long))
 
-  // The file goes with the line once the log moves past it, and with the group.
+  // The book keeps the line once the log moves past it, and goes with the group.
   await again.emit(room.id, again.userMessage('Next'))
   const next = again.relay(room.id, 'relay-2')
   const one = await turnFor(again.sent)
@@ -561,14 +596,16 @@ test('a long group line keeps its start in state.json, and members and read_grou
   const two = await turnFor(again.sent, one)
   await again.answer(two.sessionId, two.message.source.exchangeId, 'Two.', 4)
   await next
-  await waitFor(() => (existsSync(join(home, 'group-lines', room.id, `${saved.seq}.txt`)) ? undefined : true))
-  assert.equal(existsSync(join(home, 'group-lines', room.id, `${saved.seq}.txt`)), false)
+  assert.equal(again.rt.state.rooms[room.id].log.some(entry => entry.seq === saved.seq), false)
+  assert.ok((await again.rt.teamTools.find(d => d.name === 'read_group_chat').execute({ group: 'R1', seq: saved.seq }, exec)).endsWith(long))
+  const book = join(home, 'ledger', `group-${room.id}.jsonl`)
+  assert.equal(existsSync(book), true)
   await again.call('delete-room', { id: room.id })
-  await waitFor(() => (existsSync(join(home, 'group-lines', room.id)) ? undefined : true))
-  assert.equal(existsSync(join(home, 'group-lines', room.id)), false)
+  await waitFor(() => (existsSync(book) ? undefined : true))
+  assert.equal(existsSync(book), false)
 })
 
-test('a group line longer than a member reads is cut in its prompt, with its length, and its file keeps only that', async (t) => {
+test('a group line longer than a member reads is cut in its prompt, with its length, and its book keeps it whole', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, home, rt } = start()
   t.after(stop)
   const room = await team(call, sent)
@@ -583,7 +620,8 @@ test('a group line longer than a member reads is cut in its prompt, with its len
   await answer(second.sessionId, second.message.source.exchangeId, 'Ok.', 2)
   await running
   const line = rt.state.rooms[room.id].log.find(entry => entry.length === 25_000)
-  assert.equal(readFileSync(join(home, 'group-lines', room.id, `${line.seq}.txt`), 'utf8').length, 20_000)
+  assert.equal(rt.ledger.record(`group-${room.id}`, line.seq).text.length, 25_000)
+  assert.equal(existsSync(join(home, 'group-lines')), false)
 })
 
 // 公开#176: a PDF the user sent in a group reached neither the log nor any member, so
@@ -661,7 +699,7 @@ test('a long post goes to the group as a file, and reaches the member with its p
   const room = await team(call, sent)
   const chief = rt.state.mainBotIds[0]
   const long = `${Array.from({ length: 400 }, (_, at) => `第 ${at + 1} 行：${'报告内容。'.repeat(10)}`).join('\n')}\n结尾`
-  const posted = await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message: long }, { agent: { id: rt.chatOf(chief) } })
+  const posted = await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', intent: 'request', message: long }, { agent: { id: rt.chatOf(chief) } })
   assert.match(posted, /^Posted in "R1"/)
   const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
   const file = post.message.content.find(block => block.type === 'file')?.attachment
@@ -699,12 +737,16 @@ test('members call each other for as long as they call, and a user @ mid-round s
   await emit(room.id, userMessage('Start'))
   const running = relay(room.id, 'relay')
 
-  // Twenty calls back and forth, far past the old default of three per member.
+  // Twenty working calls back and forth, far past the old default of three per member.
   const spoken = []
   let turn = await turnFor(sent)
   for (let step = 0; step < 20; step += 1) {
     spoken.push(turn)
-    await answer(turn.sessionId, turn.message.source.exchangeId, `${step % 2 === 0 ? '@Writer' : '@Chief'} volley ${step + 1}`, step + 1)
+    const followUp = turn.message.source.resultRef
+    const during = followUp ? () => rt.teamTools.find(d => d.name === 'delegate_work').execute({
+      to: 'Writer', goal: `check item ${step + 1}`, follow_up_to: followUp,
+    }, { agent: { id: turn.sessionId } }) : undefined
+    await answer(turn.sessionId, turn.message.source.exchangeId, `${step % 2 === 0 ? '@Writer' : '@Chief'} volley ${step + 1}`, step + 1, { workTool: 'read', during })
     turn = await turnFor(sent, ...spoken)
   }
   const writerSession = rt.state.rooms[room.id].sessions[writer.id]
@@ -1021,71 +1063,732 @@ test('a plain message in a group where everyone answers still goes one member at
   assert.deepEqual(result.replies.map(reply => reply.text), ['one', 'two', 'three'])
 })
 
-// #975: DSH's present tool records a member's files in its own group Session, which the
-// group chat does not show. They go with the member's message in the round, and a
-// member that only presents files still shows them.
-test('files a member presents in its group turn go with its message to the group', async (t) => {
-  const { call, emit, userMessage, relay, stop, sent, rt } = start()
-  t.after(stop)
-  const room = await team(call, sent)
-  const present = (sessionId, turn, files) => emit(sessionId, { type: 'deliverables/presented', data: { turn, callId: `present-${turn}`, files } })
-  const turnWith = async (sessionId, exchangeId, text, turn, files) => {
-    await emit(sessionId, { type: 'turn/start', data: { turn } })
-    await emit(sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
-    await emit(sessionId, { type: 'tool/call', data: { callId: `present-${turn}`, name: 'present', arguments: '{}' } })
-    await present(sessionId, turn, files)
-    await emit(sessionId, { type: 'tool/result', data: { callId: `present-${turn}` } })
-    await emit(sessionId, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } })
-    await emit(sessionId, { type: 'turn/end', data: { reason: { kind: 'stop' } } })
-  }
-  await emit(room.id, userMessage('Write the report'))
-  const running = relay(room.id, 'relay')
-  const first = await turnFor(sent)
-  await turnWith(first.sessionId, first.message.source.exchangeId, 'The report is ready.', 1, [
-    { path: '/work/report.docx', description: 'First draft' },
-    { path: '/work/report.docx', description: 'Final report' },
-    { path: '' },
-  ])
-  const second = await turnFor(sent, first)
-  // The next member reads which file the first one presented.
-  assert.match(second.message.content[0].text, /The report is ready\.\n\[Presented file \/work\/report\.docx: Final report\]/)
-  await turnWith(second.sessionId, second.message.source.exchangeId, '[PASS]', 2, [{ path: '/work/notes.md' }])
-  const result = JSON.parse(await running)
-  assert.deepEqual(result.replies.map(reply => [reply.text, reply.presented]), [
-    ['The report is ready.', [{ path: '/work/report.docx', description: 'Final report' }]],
-    ['', [{ path: '/work/notes.md' }]],
-  ])
-  const lines = rt.roomOf(room.id).log.filter(line => line.botId !== undefined)
-  assert.deepEqual(lines.map(line => line.presented), [[{ path: '/work/report.docx', description: 'Final report' }], [{ path: '/work/notes.md' }]])
-  assert.equal(lines[1].text, '[Presented file /work/notes.md]')
-
-  // Taken once: the member's next message carries none.
-  sent.length = 0
-  await emit(room.id, userMessage('Thanks'))
-  const again = relay(room.id, 'relay-2')
-  const next = await turnFor(sent)
-  await turnWith(next.sessionId, next.message.source.exchangeId, 'You are welcome.', 3, [])
-  const last = await turnFor(sent, next)
-  await turnWith(last.sessionId, last.message.source.exchangeId, 'Sure.', 4, [])
-  const later = JSON.parse(await again)
-  assert.deepEqual(later.replies.map(reply => reply.presented), [undefined, undefined])
-})
-
-// A member the round moved on from posts its files with the result it ends with.
-test('files a member presents after the round moved on go with its late post', async (t) => {
+test('a notice has no audience to wake, including for a Main Bot in everyone mode', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
   t.after(stop)
   const room = await team(call, sent)
-  await emit(room.id, userMessage('Start'))
-  const running = relay(room.id, 'relay')
+  const chief = rt.state.mainBotIds[0]
+  const state = () => rt.state.rooms[room.id]
+  const posted = async (message, callId, intent) => {
+    sent.length = 0
+    await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message, ...(intent ? { intent } : {}) }, { agent: { id: rt.chatOf(chief) } })
+    const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+    await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+    return { round: relay(room.id, callId) }
+  }
+
+  await call('update-room', { id: room.id, mode: 'everyone' })
+  for (const [body, intent] of [['Unrecognized prose', undefined], ['@all @Writer keep this for tomorrow', 'notice']]) {
+    const { round } = await posted(body, body, intent)
+    await round
+    assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0)
+    assert.equal(state().log.find(line => line.text === body)?.route.kind, 'note')
+  }
+  await emit(room.id, userMessage('@Chief 我们接着做'))
+  const resumed = relay(room.id, 'relay-8')
+  const answered = []
+  for (let n = 0; n < 3; n += 1) {
+    const turn = await turnFor(sent, ...answered)
+    if (turn === undefined) break
+    answered.push(turn)
+    await answer(turn.sessionId, turn.message.source.exchangeId, `好，先从第 ${n + 1} 段日志看起`, 9 + n)
+    await settle()
+  }
+  const sessions = answered.map(turn => turn.sessionId)
+  assert.ok(sessions.includes(state().sessions[chief]), 'the user reaches the admin')
+  assert.equal(sessions.length, 1, 'no notice left a parked call')
+  assert.equal(state().idlePaused, undefined)
+  assert.equal(state().idleRelays, undefined)
+  await resumed
+})
+
+// #853: the pause holds idle calls back and lets new work through. A pause that is in
+// place is the user's to lift: not a tool call, not new content, not a late reply.
+test('a paused group holds idle calls, lets new work through, and only the user lifts it', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  const state = () => rt.state.rooms[room.id]
+  const writer = Object.values(rt.state.bots).find(bot => bot.name === 'Writer')
+  const pause = () => {
+    state().idleRelays = ROOM_IDLE_RELAY_LIMIT
+    state().idlePaused = { from: chief, count: ROOM_IDLE_RELAY_LIMIT, noticed: true }
+  }
+  const posted = async (message, callId) => {
+    sent.length = 0
+    await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message }, { agent: { id: rt.chatOf(chief) } })
+    const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+    await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+    return { round: relay(room.id, callId) }
+  }
+
+  // Work in a post goes ahead while paused, and neither the work nor a tool call it
+  // leads to lifts the pause.
+  pause()
+  const { round: calling } = await posted('@Writer 把这批报错贴出来', 'relay-1')
+  const turn = await turnFor(sent)
+  assert.ok(turn, 'a post with work in it is not held back')
+  rt.workRoomTurn(turn.sessionId, 'bash')
+  await answer(turn.sessionId, turn.message.source.exchangeId, '贴在这里了：两个 502，一个超时', 1)
+  // The member that asked is woken with the result; answering it ends the round.
+  const result = await turnFor(sent, turn)
+  assert.ok(result, 'the member that asked is woken with its result')
+  await answer(result.sessionId, result.message.source.exchangeId, '收到，我安排下一步', 1)
+  await calling
+  assert.ok(state().idlePaused, 'a tool call does not lift a pause already in place')
+
+  // A member's idle @ call while paused is held, not dropped: it waits for the user.
+  const { round: asking } = await posted('@Writer 再核对一遍', 'relay-2')
+  const again = await turnFor(sent)
+  await rt.postToRoom(state(), writer, '@Chief 待命', { mentions: { ids: [chief], all: false } })
+  await answer(again.sessionId, again.message.source.exchangeId, '[PASS]', 2)
+  await asking
+  const held = (state().paused ?? []).map(entry => [entry.name, entry.idle])
+  assert.deepEqual(held, [['Chief', true]], 'the idle call waits in the park list')
+  assert.equal(sent.filter(entry => entry.sessionId === state().sessions[chief] && entry.message.source.role === 'room').length, 0, 'the held member is not called')
+
+  // A late result posts into the group and reaches the member that asked, without
+  // lifting the pause.
+  sent.length = 0
+  await rt.postToRoom(room, rt.botOf(writer.id), '迟到的结果：两个 502 都修好了', { late: true, askedBy: chief })
+  const latePost = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: latePost.message.source, content: latePost.message.content } })
+  const lateRound = relay(room.id, 'relay-late')
+  const late = await turnFor(sent)
+  assert.ok(late, 'a late reply still reaches the member that asked')
+  assert.equal(late.sessionId, state().sessions[chief])
+  assert.ok(state().idlePaused, 'a late reply does not lift a pause')
+  await answer(late.sessionId, late.message.source.exchangeId, '收到，我看一下', 3)
+  await lateRound
+
+  // The user's message lifts it, and the call held back runs.
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer 继续'))
+  const resumed = relay(room.id, 'relay-3')
+  const answered = []
+  for (let n = 0; n < 4; n += 1) {
+    const turn = await turnFor(sent, ...answered)
+    if (turn === undefined) break
+    answered.push(turn)
+    await answer(turn.sessionId, turn.message.source.exchangeId, `继续核对第 ${n + 1} 段日志`, 4 + n)
+    await settle()
+  }
+  assert.ok(answered.length >= 1, "the user's message reaches a member")
+  assert.deepEqual(answered.map(turn => turn.sessionId).includes(state().sessions[chief]), true, 'the call held back runs after the user writes')
+  assert.equal(state().idlePaused, undefined)
+  await resumed
+})
+
+// #853: an admin's "@all" is a call to every member. A paused room holds all of them,
+// not none: each waits in the park list and runs when the user writes.
+test('a paused group parks every member an @all called, in a new round', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await trio(call, sent)
+  await call('update-room', { id: room.id, mode: 'everyone' })
+  const chief = rt.state.mainBotIds[0]
+  const state = () => rt.state.rooms[room.id]
+  state().idleRelays = ROOM_IDLE_RELAY_LIMIT
+  state().idlePaused = { from: chief, count: ROOM_IDLE_RELAY_LIMIT, noticed: true }
+
+  await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R3', message: '@all 待命' }, { agent: { id: rt.chatOf(chief) } })
+  const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  const held = relay(room.id, 'relay-1')
+  await held
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0, 'a paused room opens no round')
+  assert.deepEqual((state().paused ?? []).map(entry => [entry.name, entry.note, entry.idle]), [
+    ['Writer', 'Chief called everyone', true],
+    ['Tester', 'Chief called everyone', true],
+  ], 'every member @all called waits for the user')
+
+  // The user's message brings them back.
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer 继续'))
+  const resumed = relay(room.id, 'relay-2')
+  const answered = []
+  for (let n = 0; n < 4; n += 1) {
+    const turn = await turnFor(sent, ...answered)
+    if (turn === undefined) break
+    answered.push(turn)
+    await answer(turn.sessionId, turn.message.source.exchangeId, `继续第 ${n + 1} 步`, n + 1)
+    await settle()
+  }
+  assert.equal(state().paused, undefined)
+  assert.ok(answered.length >= 1)
+  await resumed
+})
+
+// #853: the same for a running round: an "@all" that lands while a member works is held
+// whole, so no member of it is dropped.
+test('a paused group parks every member an @all called, in a running round', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await trio(call, sent)
+  await call('update-room', { id: room.id, mode: 'everyone' })
+  const chief = rt.state.mainBotIds[0]
+  const state = () => rt.state.rooms[room.id]
+
+  await emit(room.id, userMessage('@Writer 开始吧'))
+  const running = relay(room.id, 'relay-1')
+  const first = await turnFor(sent)
+  assert.ok(first, 'the member the user called starts')
+  // The room reaches its limit while this round runs: what lands now is held, not lost.
+  state().idleRelays = ROOM_IDLE_RELAY_LIMIT
+  state().idlePaused = { from: chief, count: ROOM_IDLE_RELAY_LIMIT, noticed: true }
+  const posted = await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R3', message: '@all 待命' }, { agent: { id: rt.chatOf(chief) } })
+  assert.match(posted, /^Posted in "R3"/)
+  const parked = (state().paused ?? []).map(entry => entry.name).sort()
+  assert.deepEqual(parked, ['Tester', 'Writer'], 'the running round parks every member @all called')
+  await answer(first.sessionId, first.message.source.exchangeId, '第一部分看完了', 1)
+  await running
+})
+
+// #853: a post that lands in a running round is answered in that round, whether or not
+// the room is paused: new work is never dropped on the floor.
+test('a post with new work that lands in a running round is answered in that round', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  const state = () => rt.state.rooms[room.id]
+  state().idleRelays = ROOM_IDLE_RELAY_LIMIT
+  state().idlePaused = { from: chief, count: ROOM_IDLE_RELAY_LIMIT, noticed: true }
+
+  await emit(room.id, userMessage('@Writer 开始吧'))
+  const running = relay(room.id, 'relay-1')
+  const first = await turnFor(sent)
+  assert.ok(first, 'the member the user called starts')
+  // While it works, the admin posts more work into the running round.
+  sent.length = 0
+  const posted = await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message: '@Writer 这段日志也看一下' }, { agent: { id: rt.chatOf(chief) } })
+  assert.match(posted, /^Posted in "R1"/)
+  await answer(first.sessionId, first.message.source.exchangeId, '先看第一部分', 1)
+  const second = await turnFor(sent, first)
+  assert.ok(second, 'the new work is queued into the running round')
+  assert.match(second.message.content[0].text, /这段日志也看一下/)
+  await answer(second.sessionId, second.message.source.exchangeId, '第二部分也看完了', 2)
+  await running
+})
+
+// #853: the guard reads status posts, not ordinary talk about work.
+test('the idle guard reads status posts and not ordinary work', () => {
+  const everyone = [{ id: 'a', name: 'Chief' }, { id: 'b', name: 'Writer' }]
+  const idle = [
+    '待命', '暂无待办', '静候下一步', '收到，待命', '收口无待办', '保持待命', '暂无待办，静候下一步',
+    '目前没有新进展', '今日无任务', '当前无任务',
+  ]
+  for (const text of idle) assert.equal(isIdleRelayText(text, everyone, []), true, `should count: ${text}`)
+  // A time word on its own does not make a status post: "当前任务 / 目前任务 / 今天任务" are
+  // talk about the work in hand.
+  const work = [
+    '当前任务：修 502', '目前任务已完成', '今天任务很多', '任务', '变化', '安排', '进展', '动作', '待', '静',
+    '待我确认', '静态资源缺失', '安排在周三上线', '进展：接口改完', '动作序列有误',
+    '正在核对 09:31 之后的日志', '已完成登录接口改造', '@Chief 这段日志也看一下',
+  ]
+  for (const text of work) assert.equal(isIdleRelayText(text, everyone, []), false, `should not count: ${text}`)
+})
+
+// #853: the pause is kept with the group, so a restart does not start the status rounds
+// again before the user writes.
+test('the idle pause survives a restart and the user lifts it', async (t) => {
+  const first = start()
+  const room = await team(first.call, first.sent)
+  const chief = first.rt.state.mainBotIds[0]
+  first.rt.state.rooms[room.id].idleRelays = ROOM_IDLE_RELAY_LIMIT
+  first.rt.state.rooms[room.id].idlePaused = { from: chief, count: ROOM_IDLE_RELAY_LIMIT, noticed: true }
+  await first.rt.save()
+  const saved = JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8')).rooms[room.id]
+  assert.deepEqual({ count: saved.idleRelays, paused: saved.idlePaused?.count }, { count: ROOM_IDLE_RELAY_LIMIT, paused: ROOM_IDLE_RELAY_LIMIT })
+  await first.stop({ keep: true })
+
+  const second = start({ home: first.home })
+  t.after(() => second.stop())
+  const { rt, sent, emit, relay, answer } = second
+  const state = () => rt.state.rooms[room.id]
+  assert.equal(state().idlePaused?.count, ROOM_IDLE_RELAY_LIMIT, 'the pause is still there after the restart')
+  sent.length = 0
+  await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message: '暂无待办' }, { agent: { id: rt.chatOf(chief) } })
+  const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  await relay(room.id, 'relay-1')
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0, 'no round starts on its own after a restart')
+
+  await emit(room.id, { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '@Writer 继续' }] } })
+  const resumed = relay(room.id, 'relay-2')
+  const turn = await turnFor(sent)
+  assert.ok(turn, "the user's message opens a round again")
+  await answer(turn.sessionId, turn.message.source.exchangeId, '继续核对', 1)
+  await resumed
+  assert.equal(state().idlePaused, undefined)
+})
+
+//让步 C12: DSH cuts a long tool result, so a round that held its replies lost them on a
+// refresh. The result names where its rows are in the group's book; they read back
+// whole, also after a restart.
+test("a long round's result stays small, and its rows read back whole after a restart", async (t) => {
+  const { call, emit, userMessage, inboxOf, answer, stop, sent, home, rt } = start()
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const room = await team(call, sent)
+  const long = `${'回'.repeat(60_000)}完`
+  await emit(room.id, userMessage('Write a long report'))
+  const raw = rt.teamTools.find(d => d.name === 'group_relay').execute({}, { agent: { id: room.id, inbox: inboxOf(room.id) }, callId: 'long', signal: new AbortController().signal })
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, long, 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 2)
+  const result = await raw
+  assert.ok(result.length < 200, result)
+  const { from } = JSON.parse(result)
+  await afterRound(rt, room.id, result)
+  const to = undefined
+  assert.equal((await call('group-rows', { roomId: room.id, from, to })).value.rows.find(row => row.botId !== undefined).text, long)
+  await rt.save()
+  await stop({ keep: true })
+
+  const again = start({ home })
+  t.after(() => again.stop({ keep: true }))
+  await again.call('state', {})
+  const rows = (await again.call('group-rows', { roomId: room.id, from, to })).value.rows
+  assert.deepEqual(rows.map(row => [row.kind ?? 'message', row.text?.length]), [['message', long.length]])
+})
+
+// A member's turn that changed files carries the review coordinates on the row the group
+// shows, so the chat can open DSH's review for that turn; a turn that changed nothing adds
+// no row (changes.test.js), and a summary that is gone reports itself gone.
+test("a member's group row carries the change line of its turn", async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const changes = {
+    sessionId: 'member-session', seq: 12, turn: 4, total: 2, added: 9, deleted: 3,
+    files: [{ path: 'src/a.js', added: 6, deleted: 3 }, { path: 'docs/b.md', added: 3, deleted: 0 }],
+  }
+  rt.turnChanges = async () => changes
+  await emit(room.id, userMessage('First'))
+  const running = relay(room.id, 'one')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'Done.', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 2)
+  const from = JSON.parse(await running).from
+  const rows = rt.groupRows(room.id, from)
+  const done = rows.find(row => row.text === 'Done.')
+  assert.deepEqual(done.changes, changes)
+  // The review coordinates reach the window with the row, and the check names the summary.
+  const check = await call('changes-check', { sessionId: changes.sessionId, seq: changes.seq })
+  assert.equal(check.value, false)
+})
+
+// A member's turn that finishes after its round closed posts a textless completion
+// notice. That notice must keep the turn's change line: the queued post carries
+// source.changes and the round's log line keeps it.
+test('a late completion notice keeps the change line of its turn', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('First'))
+  const running = relay(room.id, 'one')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'Done.', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 2)
+  const { from } = JSON.parse(await running)
+
+  const changes = {
+    sessionId: 'member-session', seq: 31, turn: 8, total: 1, added: 3, deleted: 1,
+    files: [{ path: 'late.js', added: 3, deleted: 1 }],
+  }
+  const member = rt.botOf(room.members.find(id => id !== rt.state.mainBotIds[0]))
+  await rt.postToRoom(room, member, '', { late: true, done: true, changes })
+  const post = sent.findLast(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  assert.deepEqual(post.message.source.changes, changes, 'the queued post carries the change line')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  await relay(room.id, 'late')
+
+  // Past the next round's anchor: the notice is the last line of the round it ends.
+  const rows = rt.groupRows(room.id, from, Number.MAX_SAFE_INTEGER)
+  const notice = rows.find(row => row.kind === 'done')
+  assert.deepEqual(notice?.changes, changes)
+})
+
+// Codex on the change line: a member that changed files and ended its turn with
+// [PASS] still has a review to open. The turn's last row carries it — the completion
+// line when the turn wrote no text.
+test('a member that changed files and ended with [PASS] still gets its change line', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const changes = {
+    sessionId: 'pass-session', seq: 44, turn: 6, total: 1, added: 5, deleted: 2,
+    files: [{ path: 'work.js', added: 5, deleted: 2 }],
+  }
+  let writerSession
+  rt.turnChanges = async sessionId => (sessionId === writerSession ? changes : undefined)
+  await emit(room.id, userMessage('Do the work'))
+  const running = relay(room.id, 'pass')
   const first = await turnFor(sent)
   await answer(first.sessionId, first.message.source.exchangeId, 'On it.', 1)
   const second = await turnFor(sent, first)
-  await answer(second.sessionId, second.message.source.exchangeId, 'Me too.', 2)
+  writerSession = second.sessionId
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 2)
+  const { from } = JSON.parse(await running)
+  const rows = rt.groupRows(room.id, from)
+  const done = rows.find(row => row.kind === 'done')
+  assert.deepEqual(done?.changes, changes)
+  assert.equal(done?.botId, room.members.find(id => id !== rt.state.mainBotIds[0]))
+})
+
+// The other side of it: a [PASS] turn that changed nothing adds no empty completion line.
+test('a [PASS] turn that changed nothing adds no completion line', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  rt.turnChanges = async () => undefined
+  await emit(room.id, userMessage('Do the work'))
+  const running = relay(room.id, 'pass-none')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'On it.', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 2)
+  const { from } = JSON.parse(await running)
+  const rows = rt.groupRows(room.id, from)
+  assert.equal(rows.some(row => row.kind === 'done'), false)
+})
+
+// The opening message is the one the group's own Session shows; what is said between
+// rounds shows once, above the message that opens the next round.
+test('the rows of a round leave out its opening message and show once what came between rounds', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('First'))
+  const first = relay(room.id, 'one')
+  const a = await turnFor(sent)
+  await answer(a.sessionId, a.message.source.exchangeId, 'Done one.', 1)
+  const b = await turnFor(sent, a)
+  await answer(b.sessionId, b.message.source.exchangeId, '[PASS]', 2)
+  assert.deepEqual(JSON.parse(await first).replies.map(row => row.text), ['Done one.'])
+  // A member looks up its own chat while no round runs.
+  await rt.teamTools.find(d => d.name === 'read_own_chat').execute({ query: 'plan' }, { agent: { id: a.sessionId } })
+  await emit(room.id, userMessage('Second'))
+  const second = relay(room.id, 'two')
+  const c = await turnFor(sent, a, b)
+  await answer(c.sessionId, c.message.source.exchangeId, 'Done two.', 3)
+  const d = await turnFor(sent, a, b, c)
+  await answer(d.sessionId, d.message.source.exchangeId, '[PASS]', 4)
+  const secondRows = JSON.parse(await second)
+  assert.deepEqual(secondRows.replies.map(row => [row.kind ?? 'message', row.text]), [['message', 'Done two.']])
+  // The first call's rows run up to the second call: its reply, then the look-up.
+  const firstFrom = rt.ledger.records(`group-${room.id}`).find(record => record.event === 'anchor').from
+  assert.deepEqual(rt.groupRows(room.id, firstFrom).map(row => [row.kind ?? 'message', row.text]), [['message', 'Done one.'], ['lookup', 'plan']])
+})
+
+// The book is written before the state that counts its lines. A record the state was not
+// saved after keeps its number: the next line takes the one after it.
+test('a group whose state was not saved after its last line goes on numbering after the book', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, home, rt } = start()
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('One'))
+  const running = relay(room.id, 'one')
+  const a = await turnFor(sent)
+  await answer(a.sessionId, a.message.source.exchangeId, 'Reply one.', 1)
+  const b = await turnFor(sent, a)
+  await answer(b.sessionId, b.message.source.exchangeId, '[PASS]', 2)
   await running
+  await rt.save()
+  const seq = rt.state.rooms[room.id].seq
+  await rt.ledger.flush()
+  await stop({ keep: true })
+  const book = join(home, 'ledger', `group-${room.id}.jsonl`)
+  writeFileSync(book, `${readFileSync(book, 'utf8')}${JSON.stringify({ who: 'User', text: 'said, not saved', seq: seq + 1, time: Date.now() })}\n`)
+
+  const again = start({ home })
+  t.after(() => again.stop({ keep: true }))
+  await again.call('state', {})
+  await again.emit(room.id, again.userMessage('Two'))
+  const next = again.relay(room.id, 'two')
+  const c = await turnFor(again.sent)
+  assert.match(c.message.content[0].text, /said, not saved/)
+  await again.answer(c.sessionId, c.message.source.exchangeId, 'Reply two.', 3)
+  const d = await turnFor(again.sent, c)
+  await again.answer(d.sessionId, d.message.source.exchangeId, '[PASS]', 4)
+  await next
+  await again.rt.ledger.flush()
+  const seqs = readFileSync(book, 'utf8').trim().split('\n').map(row => JSON.parse(row).seq).filter(seq => seq !== undefined)
+  assert.equal(new Set(seqs).size, seqs.length)
+  assert.ok(again.rt.ledger.records(`group-${room.id}`).some(record => record.text === 'Two' && record.seq === seq + 2))
+})
+
+// #1549: a message that arrives while an empty round is starting or closing is queued for
+// the next round instead of joining the exiting round and being dropped.
+async function startPausedStatusRound(t) {
+  const ctx = start()
+  t.after(ctx.stop)
+  const { call, emit, relay, sent, rt } = ctx
+  const room = await team(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  const state = () => rt.state.rooms[room.id]
+  state().idleRelays = ROOM_IDLE_RELAY_LIMIT
+  state().idlePaused = { from: chief, count: ROOM_IDLE_RELAY_LIMIT, noticed: true }
+
+  let releaseSave
+  let markSaving
+  const saveGate = new Promise((resolve) => { releaseSave = resolve })
+  const saving = new Promise((resolve) => { markSaving = resolve })
+  const origSave = rt.save
+  rt.save = async (...args) => {
+    if ([...rt.roomProgress.values()].some(round => round.roomId === room.id && round.starting)) {
+      rt.save = origSave
+      markSaving()
+      await saveGate
+    }
+    return origSave(...args)
+  }
+
+  await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message: '暂无待办' }, { agent: { id: rt.chatOf(chief) } })
+  const idlePost = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: idlePost.message.source, content: idlePost.message.content } })
+  const quiet = relay(room.id, 'relay-1')
+  await saving
+  return { ...ctx, room, chief, state, quiet, releaseSave }
+}
+
+test('a user message arriving while a paused status round starts still opens a round of its own', async (t) => {
+  const { emit, userMessage, relay, answer, sent, room, state, quiet, releaseSave } = await startPausedStatusRound(t)
   sent.length = 0
-  await emit(first.sessionId, { type: 'deliverables/presented', data: { turn: 3, callId: 'c1', files: [{ path: '/work/plan.pdf' }] } })
-  await rt.lateRoomReply(first.sessionId, { role: 'room', roomId: room.id }, 'Here is the plan.')
-  const post = await waitFor(() => sent.find(entry => entry.sessionId === room.id && entry.message.source?.role === 'post'))
-  assert.deepEqual(post.message.source.presented, [{ path: '/work/plan.pdf' }])
+  await emit(room.id, userMessage('@Writer 继续'))
+  const resumed = relay(room.id, 'relay-2')
+  releaseSave()
+
+  const turn = await turnFor(sent)
+  assert.ok(turn, "the user's message opens a round again")
+  await answer(turn.sessionId, turn.message.source.exchangeId, '继续核对', 1)
+  await resumed
+  await quiet
+  assert.equal(state().idlePaused, undefined)
+})
+
+test('a Bot message arriving while a paused status round starts still opens a round of its own', async (t) => {
+  const { emit, relay, answer, sent, rt, room, chief, quiet, releaseSave } = await startPausedStatusRound(t)
+  sent.length = 0
+  await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message: '@Writer 看一下新报错' }, { agent: { id: rt.chatOf(chief) } })
+  const workPost = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: workPost.message.source, content: workPost.message.content } })
+  const work = relay(room.id, 'relay-2')
+  releaseSave()
+
+  const turn = await turnFor(sent)
+  assert.ok(turn, "the Bot's message opens a round again")
+  await answer(turn.sessionId, turn.message.source.exchangeId, '我看过了', 1)
+  await work
+  await quiet
+})
+
+test('a Bot post during an empty round closing drain takes the group Session path to the next round', async (t) => {
+  const { emit, relay, answer, sent, rt, room, chief, quiet, releaseSave } = await startPausedStatusRound(t)
+  const holder = [...rt.roomProgress.values()].find(round => round.roomId === room.id && round.starting)
+  assert.ok(holder)
+  sent.length = 0
+  // Runs in the microtask right after holder.settle(round), while runRound has exited its loop
+  // and sits at Promise.allSettled([...turns]) before delete round.nudge.
+  const postedDuringClose = holder.ready.then(() => rt.postToRoom(rt.roomOf(room.id), rt.botOf(chief), '@Writer 收尾时发的帖'))
+  releaseSave()
+  await postedDuringClose
+
+  const queuedPost = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  assert.ok(queuedPost, 'the closing round leaves the Bot post in the group Session')
+  await emit(room.id, { type: 'user/message', data: { source: queuedPost.message.source, content: queuedPost.message.content } })
+  const next = relay(room.id, 'relay-2')
+
+  const turn = await turnFor(sent)
+  assert.ok(turn, 'the next round calls the member named in the Bot post')
+  await answer(turn.sessionId, turn.message.source.exchangeId, '收到了', 1)
+  await next
+  await quiet
+})
+
+test('a message arriving while a closing round saves an admin-passed notice still opens the next round', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await call('update-room', { id: room.id, mode: 'admin' })
+
+  let releaseSave
+  let markSaving
+  const saveGate = new Promise((resolve) => { releaseSave = resolve })
+  const saving = new Promise((resolve) => { markSaving = resolve })
+  const origSave = rt.save
+  rt.save = async (...args) => {
+    if (rt.roomOf(room.id).log.some(line => line.kind === 'notice' && line.reason === 'admin-passed')) {
+      rt.save = origSave
+      markSaving()
+      await saveGate
+    }
+    return origSave(...args)
+  }
+
+  await emit(room.id, userMessage('Anyone?'))
+  const first = relay(room.id, 'relay-1')
+  const chiefTurn = await turnFor(sent)
+  await answer(chiefTurn.sessionId, chiefTurn.message.source.exchangeId, '[PASS]', 1)
+  await saving
+
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer 看一下'))
+  const second = relay(room.id, 'relay-2')
+  releaseSave()
+
+  const writerTurn = await turnFor(sent)
+  assert.ok(writerTurn, 'the message sent while admin-passed saves still opens the next round')
+  await answer(writerTurn.sessionId, writerTurn.message.source.exchangeId, '好的', 2)
+  await second
+  await first
+})
+
+test('a stopped notice during a round closing drain still logs into the draining round', async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const writer = Object.values(rt.state.bots).find(bot => bot.name === 'Writer')
+
+  await emit(room.id, userMessage('@Writer 看看日志'))
+  const running = relay(room.id, 'relay-1')
+  const turn = await turnFor(sent)
+  assert.ok(turn)
+
+  // Abort the round so runRound exits its loop and enters Promise.allSettled before deleting round.nudge.
+  rt.stopRoomRound(room.id)
+  await rt.postToRoom(rt.roomOf(room.id), rt.botOf(writer.id), '', { quiet: true, stopped: true })
+  await running
+
+  const stoppedRows = rt.roomOf(room.id).log.filter(line => line.kind === 'stopped' && line.botId === writer.id)
+  assert.equal(stoppedRows.length, 1, 'stopped notice logs into the draining round without waiting for another message')
+  assert.equal(sent.filter(entry => entry.sessionId === room.id && entry.message.source.role === 'post').length, 0)
+})
+
+test('roomPrompt explicitly tells a member how many earlier unread group messages were omitted', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const live = rt.roomOf(room.id)
+  const writer = Object.values(rt.state.bots).find(bot => bot.name === 'Writer')
+
+  // Seed 30 unseen earlier messages for Writer before the current round.
+  ;(live.seen ??= {})[writer.id] = 0
+  live.log = Array.from({ length: 30 }, (_, index) => ({
+    seq: index + 1,
+    who: 'User',
+    text: `Earlier group note ${index + 1}`,
+    time: 1000 + index,
+  }))
+  live.seq = 30
+
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer summarize everything we missed'))
+  const running = relay(room.id, 'relay-omitted')
+  const turn = await turnFor(sent)
+  assert.ok(turn)
+  const promptText = turn.message.content[0].text
+  // 30 earlier unread + 1 current = 31 total unseen; ROOM_DELTA_MAX=24 drops 7, then ROOM_EARLIER_MAX=8 drops 15 more -> 22 omitted!
+  assert.match(promptText, /\(22 earlier unread group messages not shown here; use read_group_chat to read them\.\)/)
+  await answer(turn.sessionId, turn.message.source.exchangeId, 'Got it, checking read_group_chat.', 1)
+  await running
+
+  // First-look member (`seen[id] === undefined`) uses ROOM_FIRST_LOOK (12) consistently with unseenLines/unreadCount.
+  delete live.seen[writer.id]
+  live.log = Array.from({ length: 20 }, (_, index) => ({
+    seq: index + 1,
+    who: 'User',
+    text: `First look msg ${index + 1}`,
+    time: 2000 + index,
+  }))
+  live.seq = 20
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer check first look'))
+  const running2 = relay(room.id, 'relay-first-look')
+  const turn2 = await turnFor(sent)
+  assert.ok(turn2)
+  // 20 earlier + 1 current = 21 total; ROOM_FIRST_LOOK=12 drops 9, then ROOM_EARLIER_MAX=8 drops 3 of the 11 earlier -> 12 omitted!
+  assert.match(turn2.message.content[0].text, /\(12 earlier unread group messages not shown here; use read_group_chat to read them\.\)/)
+  await answer(turn2.sessionId, turn2.message.source.exchangeId, 'Checked.', 2)
+  await running2
+})
+
+test('waitingLines preserves strict FIFO across nextStep, nextTurn, images, and non-user posts', async (t) => {
+  const { call, emit, userMessage, compose, relay, inboxOf, answer, stop, sent } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay-fifo')
+  const first = await turnFor(sent)
+  assert.ok(first)
+
+  // 1) A steered image in nextStep must block draining a plain-text message queued in nextTurn.
+  await compose(room.id, [{ type: 'text', text: 'image in steer' }, { type: 'image', data: 'AAAA', mediaType: 'image/png' }], 'steer')
+  await compose(room.id, 'plain text in nextTurn', 'queue')
+  await answer(first.sessionId, first.message.source.exchangeId, 'chief done', 1)
+
+  const second = await turnFor(sent, first)
+  assert.ok(second)
+  assert.doesNotMatch(second.message.content[0].text, /plain text in nextTurn/, 'nextTurn text must not jump ahead of nextStep image')
+  assert.equal(inboxOf(room.id).nextStep.length, 1)
+  assert.equal(inboxOf(room.id).nextTurn.length, 1)
+
+  // 2) Clear nextStep image, place a non-user post ahead of a plain-text user message in nextTurn -> user message must not jump ahead.
+  inboxOf(room.id).nextStep.length = 0
+  inboxOf(room.id).nextTurn.unshift({ id: randomUUID(), role: 'user', source: { kind: 'bot', role: 'post', senderName: 'Chief' }, content: [{ type: 'text', text: '[Group post from Chief]\nqueued bot post' }] })
+  await answer(second.sessionId, second.message.source.exchangeId, 'writer done', 2)
+  const result = JSON.parse(await running)
+  assert.equal(result.replies.some(reply => reply.text?.includes('plain text in nextTurn')), false, 'user message behind a non-user post must wait in FIFO order')
+  assert.equal(inboxOf(room.id).nextTurn.length, 2)
+})
+
+test('removing or deleting a speaking member immediately resolves its round waiter, cleans cards, and lets the round continue', async (t) => {
+  for (const action of ['remove', 'delete']) {
+    const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+    t.after(stop)
+    const chief = (await call('state', {})).value.mainBotId
+    const writer = (await call('create-bot', { name: 'Writer' })).value
+    const tester = (await call('create-bot', { name: 'Tester' })).value
+    const room = (await call('create-room', { name: `R-${action}`, members: [chief, writer.id, tester.id] })).value
+    await call('update-room', { id: room.id, mode: 'everyone' })
+    sent.length = 0
+
+    await emit(room.id, userMessage('Count off'))
+    const running = relay(room.id, `relay-${action}`)
+    const chiefTurn = await turnFor(sent)
+    assert.ok(chiefTurn)
+    await answer(chiefTurn.sessionId, chiefTurn.message.source.exchangeId, 'Chief 1', 1)
+
+    // Writer is now speaking in ordered everyone mode (Tester is blocked behind Writer).
+    const writerTurn = await turnFor(sent, chiefTurn)
+    assert.ok(writerTurn)
+    const writerSid = writerTurn.sessionId
+    rt.state.questions[writerSid] = { id: 'q-stale', question: 'Stale?' }
+    ;(rt.state.views ??= {})[writerSid] = { id: 'v-stale', title: 'Stale' }
+    ;(rt.state.closedCards ??= {})[writerSid] = [{ id: 'c-stale' }]
+
+    // Remove or delete Writer mid-turn: waiter must settle immediately without 4-minute timeout!
+    if (action === 'remove') await rt.updateRoom(room.id, { members: [chief, tester.id] })
+    else await rt.deleteBot(writer.id)
+
+    assert.equal(rt.state.questions[writerSid], undefined, 'stale question card must be cleaned on dropGroupSession')
+    assert.equal(rt.state.views[writerSid], undefined, 'stale view card must be cleaned on dropGroupSession')
+    assert.equal(rt.state.closedCards[writerSid], undefined, 'stale closedCards must be cleaned on dropGroupSession')
+
+    // Tester must immediately get its turn right after Writer leaves, with no bogus 'missed' notice!
+    const testerTurn = await turnFor(sent, chiefTurn, writerTurn)
+    assert.ok(testerTurn, `Tester must immediately proceed after Writer is ${action}d`)
+    assert.match(testerTurn.message.content[0].text, /Writer \(left the group\)/)
+    await answer(testerTurn.sessionId, testerTurn.message.source.exchangeId, 'Tester 3', 2)
+
+    const result = JSON.parse(await running)
+    assert.equal(result.replies.some(reply => reply.kind === 'missed'), false, 'left member must never emit a missed timeout notice')
+    assert.deepEqual(rt.state.roomBatches ?? {}, {})
+    assert.equal(rt.roomWaiters.size, 0)
+  }
 })

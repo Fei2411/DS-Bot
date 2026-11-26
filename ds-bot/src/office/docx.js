@@ -3,6 +3,8 @@
 import { childrenOf, elementsOf, firstOf, textOf, parseXml } from './xml.js'
 
 
+const RUN_MARKS = { 'w:tab': '\t', 'w:br': '\n', 'w:cr': '\n' }
+
 const parts = (pkg) => [...pkg.parts.keys()].filter(name =>
   name === 'word/document.xml' || /^word\/(header|footer)\d+\.xml$/.test(name)
   || /^word\/(footnotes|endnotes|comments)\.xml$/.test(name))
@@ -14,6 +16,7 @@ function blockText(el, changes = false) {
     if (node.nodeType === 3 || node.nodeType === 4) { if (!inside.del) out += node.data; return }
     if (node.nodeType !== 1) return
     const tag = node.tagName
+    if (tag in RUN_MARKS) { if (node.parentNode?.tagName === 'w:r') out += RUN_MARKS[tag]; return }
     if (!changes) {
       for (const child of [...node.childNodes]) {
         if (tag === 'w:del' || tag === 'w:moveFrom') continue
@@ -332,59 +335,60 @@ const cloneRun = (doc, src, text) => {
   return clone
 }
 
-// Replace text across runs inside one document; deletions skipped; formatting
-// of the match-start run kept. Each affected run is rebuilt once from its
-// original text and every match that touches it, so several matches in one
-// run, adjacent matches and spanning matches all compose. Returns the count.
+// Edit content nodes in place: a run can contain tabs, breaks and drawings as
+// well as text. Rebuilding it from its joined text moves those other nodes.
 function replaceInDoc(doc, re, withText) {
   let total = 0
   const global = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
   for (const p of elementsOf(doc.documentElement, 'w:p')) {
-    const runs = elementsOf(p, 'w:r').filter(r => !isDeleted(p, r) && nearestPara(r) === p)
-    const texts = runs.map(r => elementsOf(r, 'w:t').map(t => t.textContent).join(''))
-    const joined = texts.join('')
+    let joined = ''
+    const spans = []
+    for (const node of elementsOf(p)) {
+      if (node.parentNode?.tagName !== 'w:r' || nearestPara(node) !== p || isDeleted(p, node)) continue
+      const value = node.tagName === 'w:t' ? node.textContent : RUN_MARKS[node.tagName]
+      if (value === undefined) continue
+      const start = joined.length
+      joined += value
+      spans.push({ node, start, end: joined.length })
+    }
     const matches = [...joined.matchAll(global)]
     if (matches.length === 0) continue
-    if (runs.length === 0) {
+    if (spans.length === 0) {
       const run = doc.createElement('w:r')
-      run.appendChild(doc.createElement('w:t'))
-      p.appendChild(run)
-      runs.push(run)
-      texts.push('')
+      const node = doc.createElement('w:t')
+      run.appendChild(node); p.appendChild(run)
+      spans.push({ node, start: 0, end: 0 })
     }
-    const bounds = []
-    let cursor = 0
-    for (const t of texts) { bounds.push([cursor, cursor + t.length]); cursor += t.length }
-    for (let i = 0; i < runs.length; i++) {
-      const [rs, rend] = bounds[i]
-      // The final run also owns the paragraph's end, including a zero-width match.
-      const startsHere = m => m.index >= rs && (m.index < rend || (i === runs.length - 1 && m.index === rend))
-      const covers = matches.filter(m => startsHere(m) || (m.index < rend && m.index + m[0].length > rs))
-      if (covers.length === 0) continue
-      // Pieces in order: kept text fragments alternating with replacement runs
-      // (a run emits a replacement only for matches starting inside it).
-      const pieces = []
-      let pos = 0
-      for (const m of covers) {
-        const cs = Math.max(0, m.index - rs)
-        const ce = Math.min(texts[i].length, m.index + m[0].length - rs)
-        if (cs > pos) pieces.push({ text: texts[i].slice(pos, cs) })
-        if (startsHere(m)) pieces.push({ repl: expand(m, withText) })
-        pos = ce
-      }
-      if (pos < texts[i].length || pieces.length === 0) pieces.push({ text: texts[i].slice(pos) })
-      const run = runs[i]
-      let anchor = run
-      for (const [k, piece] of pieces.entries()) {
-        if (k === 0) {
-          setRunText(run, piece.text ?? '')
-          if (piece.text !== undefined) continue
+    // An end insertion belongs after a final control, in the same styled run.
+    if (spans.at(-1).node.tagName !== 'w:t') {
+      const last = spans.at(-1).node
+      const node = doc.createElement('w:t')
+      last.parentNode.insertBefore(node, last.nextSibling)
+      spans.push({ node, start: joined.length, end: joined.length })
+    }
+    // Right to left keeps offsets before each edit valid, including multiple
+    // matches in one text node and replacements spanning differently styled runs.
+    for (const match of matches.reverse()) {
+      const start = match.index, end = start + match[0].length
+      const first = spans.find(span => span.end > start) ?? spans.at(-1)
+      for (const span of spans) {
+        if (span !== first && (span.end <= start || span.start >= end)) continue
+        const { node } = span
+        const replacement = span === first ? expand(match, withText) : ''
+        if (node.tagName === 'w:t') {
+          const before = node.textContent.slice(0, Math.max(0, start - span.start))
+          const after = node.textContent.slice(Math.max(0, end - span.start))
+          node.textContent = before + replacement + after
+          if (node.textContent !== node.textContent.trim()) node.setAttribute('xml:space', 'preserve')
+        } else {
+          const text = doc.createElement('w:t')
+          text.setAttribute('xml:space', 'preserve')
+          text.textContent = replacement
+          node.parentNode.insertBefore(text, node)
+          if (end > span.start) node.parentNode.removeChild(node)
         }
-        const clone = cloneRun(doc, run, piece.repl ?? piece.text)
-        anchor.parentNode.insertBefore(clone, anchor.nextSibling)
-        anchor = clone
       }
-      total += covers.filter(startsHere).length
+      total++
     }
   }
   return total

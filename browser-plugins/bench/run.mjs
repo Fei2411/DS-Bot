@@ -7,7 +7,7 @@ import * as refs from '../../ds-bot/src/host/browser/refs.js'
 import * as script from '../../ds-bot/src/host/browser/script.js'
 import { openBotBrowser } from '../../ds-bot/src/host/browser/session.js'
 import { runTask } from '../../ds-bot/src/host/browser/task.js'
-import { startFixture } from './fixture.mjs'
+import { startFixture } from '../../ds-bot/test/browser/shop-pages.mjs'
 import { tasks } from './tasks.mjs'
 
 const outDir = new URL('./out/', import.meta.url)

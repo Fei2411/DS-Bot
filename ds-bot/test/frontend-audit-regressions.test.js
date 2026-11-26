@@ -1,0 +1,1363 @@
+import assert from 'node:assert/strict'
+import { readdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { loadClientBundle, makeStatefulReact } from './stateful-react.js'
+
+const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
+const clientDir = join(repoRoot, 'ds-bot', 'src', 'client')
+
+function makeFakeReact() {
+  const hooks = []
+  let idx = 0
+  const effects = []
+  const React = {
+    Fragment: Symbol('Fragment'),
+    createElement(type, props, ...children) {
+      return { type, props: props ?? {}, children: children.flat(Infinity).filter(c => c !== null && c !== undefined && c !== false && c !== true) }
+    },
+    useState(init) {
+      const i = idx++
+      if (!(i in hooks)) hooks[i] = typeof init === 'function' ? init() : init
+      const set = (next) => { hooks[i] = typeof next === 'function' ? next(hooks[i]) : next }
+      return [hooks[i], set]
+    },
+    useRef(init) {
+      const i = idx++
+      if (!(i in hooks)) hooks[i] = { current: init }
+      return hooks[i]
+    },
+    useMemo(fn) {
+      const i = idx++
+      hooks[i] = fn()
+      return hooks[i]
+    },
+    useCallback(fn) { return fn },
+    useId() { return 'bt-test-id' },
+    createContext(v) { return { Provider: ({ children }) => children, _v: v } },
+    useContext(c) { return c?._v },
+    useEffect(fn) { effects.push(fn) },
+    useLayoutEffect(fn) { effects.push(fn) },
+  }
+  return {
+    React,
+    reset() { idx = 0; effects.length = 0 },
+    clear() { hooks.length = 0; idx = 0; effects.length = 0 },
+    flushEffects() {
+      const cleanups = []
+      for (const fn of effects.splice(0)) {
+        const res = fn()
+        if (typeof res === 'function') cleanups.push(res)
+      }
+      return () => { for (const c of cleanups) c() }
+    },
+  }
+}
+
+function findAll(node, pred, out = []) {
+  if (Array.isArray(node)) { for (const child of node) findAll(child, pred, out); return out }
+  if (!node || typeof node !== 'object') return out
+  if (pred(node)) out.push(node)
+  for (const child of node.children ?? []) findAll(child, pred, out)
+  return out
+}
+
+function textOf(node) {
+  if (Array.isArray(node)) return node.map(textOf).join('')
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (!node || typeof node !== 'object') return ''
+  return (node.children ?? []).map(textOf).join('')
+}
+
+test('zh-tw dictionary translates Revoke as 撤銷, Undo as 復原, and 划 as 劃', async () => {
+  const { convertDict, toTraditional } = await import('../src/client/locales/zh-tw.js')
+  const dict = convertDict({ Revoke: '撤销', Undo: '撤销', Plan: '计划' })
+  assert.equal(dict.Revoke, '撤銷')
+  assert.equal(dict.Undo, '復原')
+  assert.equal(dict.Plan, '計劃')
+  assert.equal(toTraditional('规划路线'), '規劃路線')
+})
+
+test('every --bt-* CSS variable referenced in client styles is defined or an allowed runtime variable', () => {
+  const files = readdirSync(clientDir).filter(name => name.endsWith('.js'))
+  const defined = new Set([
+    // Runtime-injected CSS variables set via JS inline styles or themes.js/inks.js/skin.js
+    '--bt-accent-ink', '--bt-size', '--bt-stack-size', '--bt-lc-w', '--bt-mem-w',
+    '--bt-panel-w', '--bt-fold-top', '--bt-fill', '--bt-origin', '--bt-first-sep',
+    '--bt-placeholder', '--bt-steer-unread', '--bt-level', '--bt-caption-start',
+    '--bt-leftcol-fill', '--bt-fx-blur-2', '--bt-fx-blur-3', '--bt-fx-blur-4',
+    '--bt-fx-blur-5', '--bt-fx-blur-6', '--bt-browser-bar', '--bt-col-w',
+    '--bt-tint', '--bt-bg', '--bt-fg', '--bt-ink-mix', '--bt-ring',
+    '--bt-hue', '--bt-im-', '--bt-effort-p', '--bt-dot-p',
+    '--bt-skin-sidebar', '--bt-skin-main', '--bt-skin-card',
+  ])
+  const used = new Map()
+  for (const file of files) {
+    const src = readFileSync(join(clientDir, file), 'utf8')
+    for (const m of src.matchAll(/(--bt-[a-z0-9-]+)\s*:/gi)) defined.add(m[1])
+    for (const m of src.matchAll(/var\(\s*(--bt-[a-z0-9-]+)/gi)) {
+      if (!used.has(m[1])) used.set(m[1], file)
+    }
+  }
+  const missing = []
+  for (const [token, file] of used) {
+    if (!defined.has(token) && !token.startsWith('--bt-ink-')) missing.push(`${token} (${file})`)
+  }
+  assert.deepEqual(missing, [], `Undefined --bt-* variables referenced: ${missing.join(', ')}`)
+})
+
+test('styles.js keeps bt-dialog-sink transform-free and side-chat.js isolates .bt-sidechat', async () => {
+  const code = await loadClientBundle(`
+    export { SHELL_CSS } from './src/client/styles.js'
+    export { SIDE_CSS } from './src/client/side-chat.js'
+  `)
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => ({}))
+  const { SHELL_CSS, SIDE_CSS } = mod.exports
+  assert.match(SHELL_CSS, /@keyframes bt-dialog-sink\{to\{opacity:0;translate:0 6px;scale:\.975/)
+  assert.doesNotMatch(SHELL_CSS, /@keyframes bt-dialog-sink\{[^}]*transform:/)
+  assert.match(SIDE_CSS, /\.bt-sidechat\{/)
+  assert.doesNotMatch(SIDE_CSS, /\.bt-side\{/)
+})
+
+test('installCompiledStyles uses a single shared MutationObserver and skips scanning for static sheets', async () => {
+  const code = await loadClientBundle("export { installCompiledStyles } from './src/client/styles.js'")
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => ({}))
+  const { installCompiledStyles } = mod.exports
+
+  let observersCreated = 0
+  let observersDisconnected = 0
+  let styleSheetsReads = 0
+  const appended = []
+  const origDoc = globalThis.document
+  const origMO = globalThis.MutationObserver
+  globalThis.MutationObserver = class {
+    constructor() { observersCreated += 1 }
+    observe() {}
+    disconnect() { observersDisconnected += 1 }
+  }
+  globalThis.document = {
+    head: { appendChild(el) { el.isConnected = true; appended.push(el) } },
+    createElement() {
+      return {
+        dataset: {},
+        textContent: '',
+        isConnected: false,
+        remove() { this.isConnected = false },
+      }
+    },
+    get styleSheets() {
+      styleSheetsReads += 1
+      return []
+    },
+    addEventListener() {},
+    removeEventListener() {},
+  }
+  try {
+    const off1 = installCompiledStyles('.bt-a{color:red}', 'a')
+    const off2 = installCompiledStyles('.bt-b{color:blue}', 'b')
+    assert.equal(observersCreated, 1, 'should share a single MutationObserver')
+    assert.equal(styleSheetsReads, 0, 'static sheets without [class*="_ should not scan styleSheets')
+    const off3 = installCompiledStyles('[class*="_foo"]{color:green}', 'c')
+    assert.equal(observersCreated, 1, 'still only one MutationObserver')
+    assert.equal(styleSheetsReads, 1, 'dynamic fragment sheet scans styleSheets once')
+    off1(); off2(); off3()
+    assert.equal(observersDisconnected, 1, 'disconnects shared observer when all sheets dispose')
+  } finally {
+    globalThis.document = origDoc
+    globalThis.MutationObserver = origMO
+  }
+})
+
+test('isImeComposing detects both isComposing and legacy WebKit keyCode 229', async () => {
+  const { isImeComposing } = await import('../src/client/enter-key.js')
+  assert.equal(isImeComposing({ isComposing: true, keyCode: 13 }), true)
+  assert.equal(isImeComposing({ isComposing: false, keyCode: 229 }), true)
+  assert.equal(isImeComposing({ nativeEvent: { isComposing: true }, keyCode: 13 }), true)
+  assert.equal(isImeComposing({ isComposing: false, keyCode: 13 }), false)
+})
+
+test('useEscape ignores IME composition Escape and respects active flag', async () => {
+  const code = await loadClientBundle("export { useEscape } from './src/client/overlay-hooks.js'")
+  const fake = makeFakeReact()
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => fake.React)
+  const { useEscape } = mod.exports
+
+  const listeners = new Set()
+  const origWin = globalThis.window
+  globalThis.window = {
+    addEventListener(type, fn) { if (type === 'keydown') listeners.add(fn) },
+    removeEventListener(type, fn) { if (type === 'keydown') listeners.delete(fn) },
+  }
+  try {
+    let calls = 0
+    fake.reset()
+    useEscape(() => { calls += 1 }, true)
+    const cleanup = fake.flushEffects()
+    assert.equal(listeners.size, 1)
+    const [handler] = [...listeners]
+    handler({ key: 'Escape', isComposing: true, keyCode: 27, preventDefault() {}, stopPropagation() {} })
+    handler({ key: 'Escape', isComposing: false, keyCode: 229, preventDefault() {}, stopPropagation() {} })
+    assert.equal(calls, 0, 'IME Escape must not dismiss overlay')
+    handler({ key: 'Escape', isComposing: false, keyCode: 27, preventDefault() {}, stopPropagation() {} })
+    assert.equal(calls, 1, 'normal Escape dismisses overlay')
+    cleanup()
+
+    fake.clear()
+    useEscape(() => { calls += 1 }, false)
+    const cleanup2 = fake.flushEffects()
+    assert.equal(listeners.size, 0, 'inactive useEscape should not register listener')
+    cleanup2()
+  } finally {
+    globalThis.window = origWin
+  }
+})
+
+test('PendingComputerHandoff keeps footer inside section and opens details computer tab', async () => {
+  const code = await loadClientBundle("export { PendingComputerHandoff } from './src/client/computer.js'")
+  const fake = makeFakeReact()
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => fake.React)
+  const { PendingComputerHandoff } = mod.exports
+
+  const shown = []
+  const taken = []
+  const actions = {
+    showDetails: (id, tab) => shown.push([id, tab]),
+    computerTakeover: async id => { taken.push(id) },
+    computerHoldAnswer: async () => {},
+    reportError: () => {},
+  }
+  fake.reset()
+  const tree = PendingComputerHandoff({
+    sessionId: 'bot-1',
+    bot: { id: 'bot-1', name: 'Helper', avatar: { shape: 'blob', color: 'blue' } },
+    hold: { id: 'h-1', callId: 'c-1', reason: 'Sign in', by: 'bot' },
+    actions,
+  })
+  const section = findAll(tree, n => n.type === 'section')[0]
+  assert.ok(section, 'section.bt-q.bt-handoff should render')
+  const foots = findAll(section, n => n.props?.className === 'bt-q-foot')
+  assert.equal(foots.length, 1, 'footer must be nested inside section.bt-q.bt-handoff')
+  const takeOverBtn = findAll(section, n => n.type === 'button' && textOf(n).includes('Take over'))[0]
+  assert.ok(takeOverBtn, 'Take over button should render')
+  takeOverBtn.props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(taken, ['bot-1'])
+  assert.deepEqual(shown, [['bot-1', 'computer']])
+})
+
+test('GroupReplies renders reply.kind === "goal" events instead of dropping them', async () => {
+  const code = await loadClientBundle("export { ToolCell } from './src/client/cells.js'")
+  const fake = makeFakeReact()
+  const mod = { exports: {} }
+  const primitives = { MarkdownText: () => null, FishLogo: () => null, writeClipboard: async () => true, UserMessageContent: () => null }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (id === '@deepseek-ai/dsh-client-ui-primitives' ? primitives : fake.React))
+  const { ToolCell } = mod.exports
+
+  const roster = { byId: { b1: { id: 'b1', name: 'Lead' } }, roomsById: { r1: { id: 'r1', name: 'Team' } }, bots: [], rooms: [], exchangeTurns: {} }
+  const payload = JSON.stringify({ replies: [{ kind: 'goal', action: 'started', title: 'Ship v2', botId: 'b1' }] })
+  fake.clear()
+  const wrapper = ToolCell({
+    sessionId: 'r1',
+    node: { data: { root: { turn: 1, kind: 'tool-result', name: 'group_relay', callId: 'c1', content: [{ type: 'text', text: payload }] } } },
+    useRoster: sel => sel(roster),
+    useUi: sel => sel({ reactions: {} }),
+    useWork: sel => sel({ bots: {}, rooms: {} }),
+    actions: {},
+  })
+  const relayNode = findAll(wrapper, n => typeof n.type === 'function' && n.props?.callId === 'c1')[0] ?? wrapper
+  assert.equal(typeof relayNode.type, 'function', 'ToolCell should delegate group_relay to GroupReplies')
+  fake.clear()
+  const tree = relayNode.type(relayNode.props)
+  const events = findAll(tree, n => n.props?.className === 'bt-event')
+  assert.equal(events.length, 1, 'goal event must render as a .bt-event row')
+  assert.match(textOf(events[0]), /Ship v2/)
+})
+
+test('ContextMenu requires two clicks to delete a Bot without crashing hooks', async () => {
+  const code = await loadClientBundle("export { ContextMenu } from './src/client/context-menu.js'")
+  const fake = makeFakeReact()
+  const mod = { exports: {} }
+  const fakeDom = { createPortal: el => el }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (id === 'react-dom' ? fakeDom : fake.React))
+  const { ContextMenu } = mod.exports
+
+  const deleted = []
+  const menu = { x: 100, y: 100, id: 'b2' }
+  const roster = { mainBotId: 'b1', mainBotIds: ['b1'], byId: { b2: { id: 'b2', name: 'Scout' } }, roomsById: {}, bots: [{ id: 'b2', name: 'Scout' }], rooms: [], sections: [] }
+  const useWork = sel => sel({ bots: {}, rooms: {}, approvals: [], waiting: {} })
+  const actions = {
+    closeMenu: () => {},
+    deleteBot: id => { deleted.push(id); return Promise.resolve() },
+    reportError: () => {},
+  }
+
+  fake.clear()
+  let tree = ContextMenu({ menu, roster, actions, useWork })
+  const delBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-danger')[0]
+  assert.ok(delBtn, 'Delete button should render for non-main bot')
+  assert.equal(textOf(delBtn), 'Delete')
+  delBtn.props.onClick()
+  assert.deepEqual(deleted, [], 'first click must arm confirmation without deleting')
+
+  fake.reset()
+  tree = ContextMenu({ menu, roster, actions, useWork })
+  const confirmBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-danger')[0]
+  assert.equal(textOf(confirmBtn), 'Click again to delete')
+  confirmBtn.props.onClick()
+  assert.deepEqual(deleted, ['b2'], 'second click confirms and calls deleteBot')
+})
+
+test('app/ui locale maps all 8 supported languages accurately', async () => {
+  const { createLocale } = await import('../../app/ui/src/locale.js')
+  assert.equal(createLocale('zh-CN').getLocale().active, 'zh')
+  assert.equal(createLocale('zh-TW').getLocale().active, 'zh-TW')
+  assert.equal(createLocale('zh-HK').getLocale().active, 'zh-TW')
+  assert.equal(createLocale('zh-Hant-SG').getLocale().active, 'zh-TW')
+  assert.equal(createLocale('ja-JP').getLocale().active, 'ja')
+  assert.equal(createLocale('ko-KR').getLocale().active, 'ko')
+  assert.equal(createLocale('es-MX').getLocale().active, 'es')
+  assert.equal(createLocale('fr-FR').getLocale().active, 'fr')
+  assert.equal(createLocale('de-AT').getLocale().active, 'de')
+  assert.equal(createLocale('en-US').getLocale().active, 'en')
+  assert.equal(createLocale('pt-BR').getLocale().active, 'en')
+})
+
+
+test('BrowserView detects inline [role="menu"] added/removed inside [data-chat-flow] while skipping plain chat streaming', async () => {
+  const code = await loadClientBundle("export { BrowserView, shouldCheckBrowserCover } from './src/client/browser-pane.js'")
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  const fakeDom = { createPortal: el => el }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (id === 'react-dom' ? fakeDom : harness.React))
+  const { BrowserView, shouldCheckBrowserCover } = mod.exports
+
+  let observerCb = null
+  let rafId = 0
+  const rafQueue = new Map()
+  const openOverlays = []
+  const origDoc = globalThis.document
+  const origWin = globalThis.window
+  const origMO = globalThis.MutationObserver
+  const origRO = globalThis.ResizeObserver
+  const origRaf = globalThis.requestAnimationFrame
+  const origCancelRaf = globalThis.cancelAnimationFrame
+  const frameRect = { left: 400, top: 0, right: 900, bottom: 700, width: 500, height: 700 }
+  const chatFlowTarget = {
+    nodeType: 1,
+    closest: sel => (sel === '[data-chat-flow]' ? {} : null),
+  }
+  const makeEl = ({ matchesMenu = false, containsMenu = false, rect = null } = {}) => ({
+    nodeType: 1,
+    matches: sel => matchesMenu && sel.includes('[role="menu"]'),
+    querySelector: sel => (containsMenu && sel.includes('[role="menu"]') ? {} : null),
+    getBoundingClientRect: () => rect ?? { left: 420, top: 100, right: 620, bottom: 260, width: 200, height: 160 },
+  })
+
+  globalThis.MutationObserver = class {
+    constructor(cb) { observerCb = cb }
+    observe() {}
+    disconnect() {}
+  }
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  globalThis.requestAnimationFrame = (fn) => { const id = ++rafId; rafQueue.set(id, fn); return id }
+  globalThis.cancelAnimationFrame = (id) => { rafQueue.delete(id) }
+  globalThis.window = { addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: false }) }
+  globalThis.document = {
+    body: {},
+    querySelectorAll: (sel) => (sel.includes('[role="menu"]') ? openOverlays : []),
+  }
+
+  try {
+    // Plain chat text inside [data-chat-flow] must stay skipped.
+    assert.equal(shouldCheckBrowserCover([{
+      type: 'childList', target: chatFlowTarget, addedNodes: [makeEl()], removedNodes: [],
+    }]), false)
+    // Inline menu element or wrapper containing [role="menu"] inside [data-chat-flow] must trigger a check.
+    assert.equal(shouldCheckBrowserCover([{
+      type: 'childList', target: chatFlowTarget, addedNodes: [makeEl({ matchesMenu: true })], removedNodes: [],
+    }]), true)
+    assert.equal(shouldCheckBrowserCover([{
+      type: 'childList', target: chatFlowTarget, addedNodes: [makeEl({ containsMenu: true })], removedNodes: [],
+    }]), true)
+
+    const shownCalls = []
+    const actions = {
+      browserShow: (tabId, rect) => { shownCalls.push([tabId, rect]) },
+      browserCommand() {},
+      browserNewTab() {},
+      browserNavigate: async () => true,
+      browserFocus() {},
+    }
+    const props = {
+      bot: { id: 'b1', name: 'Scout' },
+      tabId: 't1',
+      leaving: false,
+      landed: true,
+      actions,
+      useBrowserPages: sel => sel({ t1: { url: 'https://example.com', title: 'Example' } }),
+      hold: null,
+    }
+    const renderView = () => harness.render(harness.React.createElement(BrowserView, props), (tree) => {
+      const frameNode = findAll(tree, n => n.props?.className === 'bt-browser-frame')[0]
+      if (frameNode?.props?.ref && !frameNode.props.ref.current) {
+        frameNode.props.ref.current = { getBoundingClientRect: () => frameRect }
+      }
+    })
+    renderView()
+    assert.deepEqual(shownCalls.at(-1), ['t1', { left: 400, top: 0, width: 500, height: 700 }], 'guest starts visible')
+
+    // Plain streaming mutation inside [data-chat-flow] must not schedule an overlap check.
+    rafQueue.clear()
+    observerCb([{ type: 'childList', target: chatFlowTarget, addedNodes: [makeEl()], removedNodes: [] }])
+    assert.equal(rafQueue.size, 0, 'plain chat streaming mutation must not schedule rAF')
+
+    // MailApprovalMenu opens inline inside [data-chat-flow], overlapping the browser pane.
+    const menuEl = makeEl({ matchesMenu: true })
+    openOverlays.push(menuEl)
+    observerCb([{ type: 'childList', target: chatFlowTarget, addedNodes: [menuEl], removedNodes: [] }])
+    assert.equal(rafQueue.size, 1, 'inline [role="menu"] inside [data-chat-flow] must schedule rAF')
+    for (const fn of [...rafQueue.values()]) fn()
+    rafQueue.clear()
+    renderView()
+    assert.deepEqual(shownCalls.at(-1), ['t1', null], 'overlapping inline menu must hide native guest view')
+
+    // MailApprovalMenu closes inside [data-chat-flow] -> guest view becomes visible again.
+    openOverlays.length = 0
+    observerCb([{ type: 'childList', target: chatFlowTarget, addedNodes: [], removedNodes: [menuEl] }])
+    assert.equal(rafQueue.size, 1, 'removing inline [role="menu"] inside [data-chat-flow] must schedule rAF')
+    for (const fn of [...rafQueue.values()]) fn()
+    rafQueue.clear()
+    renderView()
+    assert.deepEqual(shownCalls.at(-1), ['t1', { left: 400, top: 0, width: 500, height: 700 }], 'closing inline menu restores guest view')
+    harness.unmount()
+  } finally {
+    globalThis.document = origDoc
+    globalThis.window = origWin
+    globalThis.MutationObserver = origMO
+    globalThis.ResizeObserver = origRO
+    globalThis.requestAnimationFrame = origRaf
+    globalThis.cancelAnimationFrame = origCancelRaf
+  }
+})
+
+test('AppearancePage preset and default accent swatches cancel pending debounced custom accent', async () => {
+  const code = await loadClientBundle("export { SettingsDialog } from './src/client/settings.js'")
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  const icon = () => null
+  const primitives = {
+    IconAgentPresetOutlineMedium: icon,
+    IconArchiveOutlineMedium: icon,
+    IconPersonalizationOutlineMedium: icon,
+    IconSettingsOutlineMedium: icon,
+    IconUserOutlineMedium: icon,
+    MarkdownText: () => null,
+    FishLogo: () => null,
+    writeClipboard: async () => true,
+    UserMessageContent: () => null,
+  }
+  const origWin = globalThis.window
+  const origDoc = globalThis.document
+  const origSetTimeout = globalThis.setTimeout
+  const origClearTimeout = globalThis.clearTimeout
+  const origRaf = globalThis.requestAnimationFrame
+  const origCancelRaf = globalThis.cancelAnimationFrame
+  let nextTimerId = 1
+  const timers = new Map()
+  globalThis.setTimeout = (fn) => { const id = nextTimerId++; timers.set(id, fn); return id }
+  globalThis.clearTimeout = (id) => { timers.delete(id) }
+  globalThis.requestAnimationFrame = () => 0
+  globalThis.cancelAnimationFrame = () => {}
+  globalThis.window = { addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: false }) }
+  globalThis.document = { body: {}, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {} }
+
+  try {
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitives : id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { SettingsDialog } = mod.exports
+
+    const runScenario = (pickTarget) => {
+      const saved = []
+      const roster = { bots: [], rooms: [], byId: {}, roomsById: {}, prefs: { theme: 'deepseek' }, models: [], mainBotIds: [] }
+      const actions = {
+        closeSettings() {},
+        setPrefs: patch => { saved.push(patch); return Promise.resolve() },
+        folders: () => Promise.resolve({ team: '/tmp/work' }),
+      }
+      const tree = harness.render(harness.React.createElement(SettingsDialog, {
+        page: 'appearance', id: null, roster, actions, useUpdate: sel => sel({}),
+      }))
+      const colorInput = findAll(tree, n => n.type === 'input' && n.props?.type === 'color')[0]
+      assert.ok(colorInput, 'custom accent color input should render')
+      const timersBefore = timers.size
+      colorInput.props.onChange({ target: { value: '#ff00aa' } })
+      assert.equal(saved.length, 0, 'custom accent should be debounced')
+      assert.equal(timers.size, timersBefore + 1, 'debounce timer should be scheduled')
+
+      const btn = pickTarget(tree)
+      assert.ok(btn, 'target accent swatch should render')
+      btn.props.onClick()
+      assert.equal(timers.size, timersBefore, 'clicking swatch must clear pending debounce timer')
+
+      for (const fn of [...timers.values()]) fn()
+      timers.clear()
+      harness.unmount()
+      return saved
+    }
+
+    const defaultSaved = runScenario(tree => findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-swatch bt-swatch-default')[0])
+    assert.deepEqual(defaultSaved, [{ accent: null }], 'default theme accent must not be overwritten by cancelled custom accent')
+
+    const presetSaved = runScenario(tree => findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-swatch')[0])
+    assert.equal(presetSaved.length, 1, 'preset accent must not be overwritten by cancelled custom accent')
+    assert.notEqual(presetSaved[0].accent, '#ff00aa')
+    assert.ok(typeof presetSaved[0].accent === 'string' && presetSaved[0].accent.startsWith('#'))
+  } finally {
+    harness.unmount()
+    globalThis.window = origWin
+    globalThis.document = origDoc
+    globalThis.setTimeout = origSetTimeout
+    globalThis.clearTimeout = origClearTimeout
+    globalThis.requestAnimationFrame = origRaf
+    globalThis.cancelAnimationFrame = origCancelRaf
+  }
+})
+
+test('PanelStrip repositions active capsule when sibling tab titles grow, tabs swap with equal length, or ResizeObserver fires', async () => {
+  const code = await loadClientBundle("export { PanelStrip } from './src/client/browser-pane.js'")
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+    id === 'react-dom' ? { createPortal: el => el } : harness.React
+  ))
+  const { PanelStrip } = mod.exports
+
+  let roCallback = null
+  const observed = new Set()
+  const origRO = globalThis.ResizeObserver
+  const origWin = globalThis.window
+  const origDoc = globalThis.document
+  globalThis.ResizeObserver = class {
+    constructor(cb) { roCallback = cb }
+    observe(el) { observed.add(el) }
+    unobserve(el) { observed.delete(el) }
+    disconnect() { observed.clear() }
+  }
+  globalThis.window = { addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: true }) }
+  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {} }
+
+  try {
+    const botTab = { isConnected: true, offsetLeft: 0, offsetWidth: 40 }
+    const tab1 = { isConnected: true, offsetLeft: 44, offsetWidth: 60 }
+    const tab2 = { isConnected: true, offsetLeft: 108, offsetWidth: 80 }
+    const tab3 = { isConnected: true, offsetLeft: 44, offsetWidth: 96 }
+    let currentTabs = { t1: tab1, t2: tab2 }
+    const box = {
+      offsetWidth: 400,
+      scrollLeft: 0,
+      querySelector(sel) {
+        if (sel === '.bt-ptab-bot') return botTab
+        const m = /^\[data-tab="([^"]+)"\]$/.exec(sel)
+        return m ? currentTabs[m[1]] ?? null : null
+      },
+      querySelectorAll(sel) {
+        if (sel === '.bt-ptab-bot, .bt-ptab-wrap') return [botTab, ...Object.values(currentTabs)]
+        return []
+      },
+    }
+    const capsule = { style: {}, animate: () => ({ cancel() {} }) }
+    const renderStrip = ({ ids, pages }) => {
+      const el = harness.React.createElement(PanelStrip, {
+        bot: { id: 'b1', name: 'Scout' },
+        subject: 'b1',
+        view: 'browser',
+        ids,
+        active: 't2',
+        sides: [],
+        side: null,
+        canBrowse: true,
+        reading: false,
+        onView() {},
+        actions: { closePanel() {}, browserActivate() {}, browserCloseTab() {} },
+        useBrowserPages: sel => sel(pages),
+      })
+      harness.render(el, (tree) => {
+        const wrapNode = findAll(tree, n => n.props?.className === 'bt-ptabs-in')[0]
+        const indNode = findAll(tree, n => n.props?.className === 'bt-ptab-ind')[0]
+        if (!wrapNode.props.ref.current) {
+          wrapNode.props.ref.current = box
+          indNode.props.ref.current = capsule
+        }
+      })
+    }
+
+    renderStrip({ ids: ['t1', 't2'], pages: { t1: { title: 'Short' }, t2: { title: 'Active' } } })
+    assert.equal(capsule.style.left, '108px')
+    assert.equal(capsule.style.right, '212px')
+    assert.ok(observed.has(box) && observed.has(botTab) && observed.has(tab1) && observed.has(tab2), 'ResizeObserver must observe box and every tab')
+
+    // Left sibling title grows without changing ids.length -> active tab shifts right.
+    tab2.offsetLeft = 188
+    renderStrip({ ids: ['t1', 't2'], pages: { t1: { title: 'A Much Longer Loaded Title' }, t2: { title: 'Active' } } })
+    assert.equal(capsule.style.left, '188px', 'capsule must follow active tab when sibling title grows')
+    assert.equal(capsule.style.right, '132px')
+
+    // Equal-length replacement of left tab id -> active tab shifts again.
+    currentTabs = { t3: tab3, t2: tab2 }
+    tab2.offsetLeft = 144
+    renderStrip({ ids: ['t3', 't2'], pages: { t3: { title: 'Short' }, t2: { title: 'Active' } } })
+    assert.equal(capsule.style.left, '144px', 'capsule must follow active tab on equal-length tab swap')
+    assert.ok(observed.has(tab3) && !observed.has(tab1), 'ResizeObserver must swap observed tab nodes')
+
+    // Non-React layout resize (e.g. font/favicon load) shifts active tab -> ResizeObserver updates capsule.
+    tab2.offsetLeft = 160
+    roCallback()
+    assert.equal(capsule.style.left, '160px', 'ResizeObserver must reposition capsule on sibling resize')
+    harness.unmount()
+  } finally {
+    globalThis.ResizeObserver = origRO
+    globalThis.window = origWin
+    globalThis.document = origDoc
+  }
+})
+
+test('useEscape priority stack lets DetailsDrawer rename and ImportMenu consume Escape without closing BotPanel', async () => {
+  const code = await loadClientBundle(`
+    export { BotPanel, ImportMenu } from './src/client/browser-pane.js'
+    export { useEscape } from './src/client/overlay-hooks.js'
+  `)
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  const listeners = new Set()
+  const origWin = globalThis.window
+  const origDoc = globalThis.document
+  const origRO = globalThis.ResizeObserver
+  const origLS = globalThis.localStorage
+  const origRaf = globalThis.requestAnimationFrame
+  const origCancelRaf = globalThis.cancelAnimationFrame
+  globalThis.requestAnimationFrame = () => 0
+  globalThis.cancelAnimationFrame = () => {}
+  globalThis.window = {
+    addEventListener(type, fn) { if (type === 'keydown') listeners.add(fn) },
+    removeEventListener(type, fn) { if (type === 'keydown') listeners.delete(fn) },
+    matchMedia: () => ({ matches: true }),
+  }
+  globalThis.document = {
+    body: { dataset: {} },
+    head: { appendChild() {} },
+    createElement: () => ({
+      dataset: {},
+      style: {},
+      textContent: '',
+      sheet: { cssRules: [{ style: { setProperty() {}, removeProperty() {} } }], insertRule() { return 0 } },
+      remove() {},
+    }),
+    documentElement: { style: { setProperty() {}, removeProperty() {} } },
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener() {},
+    removeEventListener() {},
+  }
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
+  globalThis.localStorage = { getItem: () => null, setItem() {} }
+
+  const fireWindowEscape = (extra = {}) => {
+    const event = { key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() {}, ...extra }
+    for (const fn of [...listeners]) fn(event)
+    return event
+  }
+
+  try {
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { BotPanel, ImportMenu, useEscape } = mod.exports
+
+    let closedOverlay = 0
+    let updatedBot = 0
+    const roster = {
+      bots: [{ id: 'b1', name: 'Scout' }],
+      rooms: [],
+      byId: { b1: { id: 'b1', name: 'Scout', parts: [] } },
+      roomsById: {},
+      mainBotIds: ['b1'],
+      exchangeTurns: {},
+      models: [],
+      sideChats: {},
+      browser: false,
+    }
+    const actions = {
+      closeOverlay: () => { closedOverlay += 1 },
+      closePanel() {},
+      updateBot: () => { updatedBot += 1; return Promise.resolve() },
+      setPanelView() {},
+      browserShow: () => Promise.resolve(),
+    }
+    const panelProps = {
+      pane: { id: 'b1', view: 'details', renaming: true, tab: null, side: null },
+      leaving: false,
+      room: 1000,
+      overlay: false,
+      roster,
+      actions,
+      useSessions: sel => sel({ byId: {}, projectionsBySession: {} }),
+      useSessionStatus: sel => sel(new Map()),
+      useActivity: sel => sel({}),
+      useWork: sel => sel({ bots: {}, rooms: {}, approvals: [], waiting: {} }),
+      useBrowserTabs: sel => sel({}),
+      useBrowserPages: sel => sel({}),
+      useBrowserHolds: sel => sel({}),
+      useComputer: sel => sel({}),
+    }
+
+    // 1. BotPanel + DetailsDrawer mounted in the same commit with startRenaming=true:
+    // child effects run before parent effects, yet Escape must cancel rename FIRST.
+    let tree = harness.render(harness.React.createElement(BotPanel, panelProps))
+    let renameInput = findAll(tree, n => n.type === 'input' && n.props?.className === 'bt-drawer-name-input')[0]
+    assert.ok(renameInput, 'rename input should mount active')
+    // Escape via React input onKeyDown + native bubble to window:
+    let nativeStopped = false
+    const inputEvt = {
+      key: 'Escape',
+      keyCode: 27,
+      defaultPrevented: false,
+      nativeEvent: { isComposing: false, stopPropagation() { nativeStopped = true } },
+      preventDefault() { this.defaultPrevented = true },
+      stopPropagation() {},
+    }
+    renameInput.props.onKeyDown(inputEvt)
+    assert.equal(nativeStopped, true, 'input onKeyDown must stop native propagation')
+    assert.equal(inputEvt.defaultPrevented, true, 'input onKeyDown must preventDefault')
+    fireWindowEscape({ defaultPrevented: inputEvt.defaultPrevented })
+    assert.equal(closedOverlay, 0, 'cancelling rename via input Escape must not close BotPanel')
+    assert.equal(updatedBot, 0, 'cancelling rename must not save draft')
+
+    // Re-open rename and test direct window Escape (priority stack when focus is elsewhere).
+    tree = harness.render(harness.React.createElement(BotPanel, panelProps))
+    const renameBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-drawer-name')[0]
+    assert.ok(renameBtn, 'rename button should return after cancel')
+    renameBtn.props.onClick()
+    tree = harness.render(harness.React.createElement(BotPanel, panelProps))
+    assert.ok(findAll(tree, n => n.type === 'input' && n.props?.className === 'bt-drawer-name-input')[0], 'rename input re-opened')
+    fireWindowEscape()
+    assert.equal(closedOverlay, 0, 'window Escape during rename must cancel rename, not close BotPanel')
+    tree = harness.render(harness.React.createElement(BotPanel, panelProps))
+    assert.equal(findAll(tree, n => n.type === 'input' && n.props?.className === 'bt-drawer-name-input').length, 0)
+    // Second Escape (no longer renaming) closes BotPanel.
+    fireWindowEscape()
+    assert.equal(closedOverlay, 1, 'second Escape closes BotPanel')
+
+    // 2. ImportMenu over BotPanel + a newer modal dialog over both:
+    closedOverlay = 0
+    let importClosed = 0
+    let dialogClosed = 0
+    function TestDialog() { useEscape(() => { dialogClosed += 1 }); return null }
+    function Host({ showImport, showDialog }) {
+      return harness.React.createElement(harness.React.Fragment, null,
+        harness.React.createElement(BotPanel, { ...panelProps, pane: { ...panelProps.pane, renaming: false } }),
+        showImport ? harness.React.createElement(ImportMenu, { sources: [], busy: false, onFile() {}, onSource() {}, onClose: () => { importClosed += 1 } }) : null,
+        showDialog ? harness.React.createElement(TestDialog) : null)
+    }
+    harness.unmount()
+    harness.render(harness.React.createElement(Host, { showImport: true, showDialog: true }))
+    // IME Escape must close nothing.
+    fireWindowEscape({ isComposing: true })
+    fireWindowEscape({ keyCode: 229 })
+    assert.deepEqual([dialogClosed, importClosed, closedOverlay], [0, 0, 0])
+    // Escape #1 closes newest priority-0 layer (TestDialog).
+    fireWindowEscape()
+    assert.deepEqual([dialogClosed, importClosed, closedOverlay], [1, 0, 0])
+    harness.render(harness.React.createElement(Host, { showImport: true, showDialog: false }))
+    // Escape #2 closes ImportMenu without closing BotPanel.
+    fireWindowEscape()
+    assert.deepEqual([dialogClosed, importClosed, closedOverlay], [1, 1, 0])
+    harness.render(harness.React.createElement(Host, { showImport: false, showDialog: false }))
+    // Escape #3 closes BotPanel.
+    fireWindowEscape()
+    assert.deepEqual([dialogClosed, importClosed, closedOverlay], [1, 1, 1])
+    harness.unmount()
+  } finally {
+    harness.unmount()
+    globalThis.window = origWin
+    globalThis.document = origDoc
+    globalThis.ResizeObserver = origRO
+    globalThis.localStorage = origLS
+    globalThis.requestAnimationFrame = origRaf
+    globalThis.cancelAnimationFrame = origCancelRaf
+  }
+})
+
+test('room-chat adapter renders distinct group members and round events in ChatRows without merging or "Message from" misrenders', async () => {
+  const code = await loadClientBundle(`
+    export { ChatRows } from './src/client/cells.js'
+    export { adaptRoomItems } from '../app/ui/src/chat.js'
+  `)
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  const primitives = {
+    MarkdownText: ({ text }) => harness.React.createElement('span', { className: 'md' }, text),
+    FishLogo: () => null,
+    writeClipboard: async () => true,
+    UserMessageContent: () => null,
+  }
+  const emptyArgs = { keys: () => [], has: () => false, complete: () => true, closed: () => true, text: () => undefined, textPrefix: () => undefined, value: () => undefined }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+    id === '@deepseek-ai/dsh-client-ui-primitives' ? primitives
+      : id === '@deepseek-ai/dsh-llm/assistant-stream' ? { assembleAssistantStream: () => ({ push() {}, blocks: () => [] }) }
+        : id === '@deepseek-ai/dsh-util-values' ? { PartialArguments: class { static EMPTY = emptyArgs; static fromText() { return emptyArgs } static fromObject() { return emptyArgs } append() {} } }
+          : id === 'react-dom' ? { createPortal: el => el } : harness.React
+  ))
+  const { ChatRows, adaptRoomItems } = mod.exports
+
+  const roster = {
+    byId: {
+      b1: { id: 'b1', name: 'Alpha', color: 'blue' },
+      b2: { id: 'b2', name: 'Beta', color: 'green' },
+    },
+    roomsById: { r1: { id: 'r1', name: 'Design', admin: 'b1', members: ['b1', 'b2'] } },
+    bots: [],
+    rooms: [],
+    prefs: {},
+    exchangeTurns: {},
+  }
+  const roomChatItems = [
+    { id: '1', kind: 'user', text: 'Kick off', time: 1000 },
+    { id: 'c1:0', kind: 'bot', botId: 'b1', name: 'Alpha', color: 'blue', text: 'Alpha reply', time: 1100 },
+    { id: 'c1:1', kind: 'bot', botId: 'b2', name: 'Beta', color: 'green', text: 'Beta reply', time: 1200 },
+    { id: 'c1:2', kind: 'event', event: 'done', botId: 'b1', name: 'Alpha', color: 'blue', time: 1300 },
+    { id: 'c1:3', kind: 'event', event: 'failed', botId: 'b2', name: 'Beta', color: 'green', text: 'timeout', time: 1400 },
+    { id: '2', kind: 'event', event: 'schedule', text: 'Daily digest', time: 1500 },
+  ]
+  const origWin = globalThis.window
+  const origDoc = globalThis.document
+  globalThis.window = { addEventListener() {}, removeEventListener() {}, innerWidth: 1200, innerHeight: 800 }
+  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {} }
+  try {
+    const adapted = adaptRoomItems(roomChatItems)
+    const tree = harness.render(harness.React.createElement(ChatRows, {
+      items: adapted,
+      sessionId: 'r1',
+      roster,
+      actions: { openSession() {}, showDetails() {}, quote() {} },
+      clock: false,
+    }))
+    const fullText = textOf(tree)
+    const groupMsgs = findAll(tree, n => n.props?.className === 'bt-group-msg')
+    assert.equal(groupMsgs.length, 2, 'consecutive messages from different group members must not merge into one block')
+    assert.equal(groupMsgs[0].props['data-bot-id'], 'b1')
+    assert.equal(groupMsgs[1].props['data-bot-id'], 'b2')
+    assert.match(textOf(groupMsgs[0]), /Alpha/)
+    assert.match(textOf(groupMsgs[0]), /Alpha reply/)
+    assert.match(textOf(groupMsgs[1]), /Beta/)
+    assert.match(textOf(groupMsgs[1]), /Beta reply/)
+
+    const events = findAll(tree, n => typeof n.props?.className === 'string' && n.props.className.includes('bt-event'))
+    assert.equal(events.length, 3, 'all 3 group events (done, failed, schedule) must render via RelayEvent')
+    assert.match(textOf(events[0]), /Alpha finished its work/)
+    assert.match(textOf(events[1]), /Beta stopped:/)
+    assert.match(textOf(events[2]), /Scheduled task: Daily digest/)
+    assert.doesNotMatch(fullText, /Message from/, 'group events must never misrender as 1:1 "Message from"')
+    harness.unmount()
+  } finally {
+    globalThis.window = origWin
+    globalThis.document = origDoc
+  }
+})
+
+test('Settings nav icons are unique and KeyIcon uses valid circle geometry', async () => {
+  const settingsSrc = readFileSync(join(clientDir, 'settings.js'), 'utf8')
+  const pageIconsMatch = settingsSrc.match(/const PAGE_ICONS = \{([^}]+)\}/)
+  assert.ok(pageIconsMatch, 'PAGE_ICONS map should exist in settings.js')
+  assert.doesNotMatch(pageIconsMatch[1], /\bim:\s*ChatsIcon\b/, 'IM must not reuse ChatsIcon (Group chats)')
+  assert.doesNotMatch(pageIconsMatch[1], /\bcapabilities:\s*PlugIcon\b/, 'Capabilities must not reuse PlugIcon (MCP)')
+  assert.doesNotMatch(pageIconsMatch[1], /'bot-models':\s*IconPersonalizationOutlineMedium\b/, 'Bot models must not reuse DSH plugins icon')
+  const pairs = [...pageIconsMatch[1].matchAll(/(?:'([^']+)'|([A-Za-z_]\w*))\s*:\s*([A-Za-z_]\w*)/g)]
+  const seenIcons = new Map()
+  for (const [, quoted, bare, icon] of pairs) {
+    const page = quoted ?? bare
+    assert.ok(!seenIcons.has(icon), `Settings page "${page}" shares icon "${icon}" with "${seenIcons.get(icon)}"`)
+    seenIcons.set(icon, page)
+  }
+
+  const code = await loadClientBundle("export { KeyIcon, SecretsPage } from './src/client/secret-card.js'")
+  const fake = makeFakeReact()
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => fake.React)
+  const { KeyIcon, SecretsPage } = mod.exports
+
+  const keyTree = KeyIcon()
+  const circles = findAll(keyTree, n => n.type === 'circle')
+  assert.equal(circles.length, 1, 'KeyIcon should render a real circle for the key bow')
+  assert.doesNotMatch(JSON.stringify(keyTree), /\.01z/, 'KeyIcon must not use degenerate .01z arc')
+
+  const Section = ({ title, children }) => fake.React.createElement('section', { className: 'bt-set-section' },
+    fake.React.createElement('h3', null, title),
+    fake.React.createElement('div', { className: 'bt-set-card' }, children))
+  for (const mode of ['plaintext', 'encrypted']) {
+    fake.clear()
+    const tree = fake.React.createElement('div', null, SecretsPage({
+      roster: { bots: [], byId: {}, secrets: [], secretStore: { mode } },
+      actions: {},
+      run: p => p,
+      Section,
+    }))
+    const cards = findAll(tree, n => n.props?.className === 'bt-set-card')
+    for (const card of cards) {
+      for (const child of card.children) {
+        assert.notEqual(child.props?.className, 'bt-actions', `SecretStoreCard (${mode}) must not put unpadded .bt-actions directly inside .bt-set-card`)
+      }
+    }
+  }
+})
+
+test('styles.js places .bt-set-card divider rule after .bt-set-row and preserves .bt-phone-server override', async () => {
+  const code = await loadClientBundle("export { SHELL_CSS } from './src/client/styles.js'")
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => ({}))
+  const { SHELL_CSS } = mod.exports
+  const rowPos = SHELL_CSS.indexOf('.bt-set-row{')
+  const dividerPos = SHELL_CSS.indexOf('.bt-set-card>*+*{border-top:')
+  const phonePos = SHELL_CSS.indexOf('.bt-set-card>.bt-set-row.bt-phone-server{border-top:0;padding-top:0}')
+  assert.ok(rowPos > 0 && dividerPos > rowPos, '.bt-set-card>*+* must follow .bt-set-row so border:0 does not strip card dividers')
+  assert.ok(phonePos > dividerPos, '.bt-phone-server must override .bt-set-card>*+* without clipping input padding')
+})
+
+test('BotPanel and PanelStrip unify workspace tabs with Details/Side chat, keep workspace mounted while hidden, and stay unchanged when workspace is omitted', async () => {
+  const code = await loadClientBundle(`
+    export { BotPanel, PanelStrip, BROWSER_CSS } from './src/client/browser-pane.js'
+  `)
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  const origWin = globalThis.window
+  const origDoc = globalThis.document
+  const origRO = globalThis.ResizeObserver
+  const origLS = globalThis.localStorage
+  const origRaf = globalThis.requestAnimationFrame
+  const origCancelRaf = globalThis.cancelAnimationFrame
+  globalThis.requestAnimationFrame = () => 0
+  globalThis.cancelAnimationFrame = () => {}
+  globalThis.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    matchMedia: () => ({ matches: true }),
+  }
+  globalThis.document = {
+    body: { dataset: {} },
+    head: { appendChild() {} },
+    createElement: () => ({
+      dataset: {},
+      style: {},
+      textContent: '',
+      sheet: { cssRules: [{ style: { setProperty() {}, removeProperty() {} } }], insertRule() { return 0 } },
+      remove() {},
+    }),
+    documentElement: { style: { setProperty() {}, removeProperty() {} } },
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener() {},
+    removeEventListener() {},
+  }
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
+  globalThis.localStorage = { getItem: () => null, setItem() {} }
+
+  try {
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { BotPanel, PanelStrip, BROWSER_CSS } = mod.exports
+
+    assert.match(BROWSER_CSS, /\.bt-panel-view\[hidden\]\{display:none\}/, 'hidden panel views must collapse display:flex')
+    assert.match(BROWSER_CSS, /\.bt-ptabs-in\{[^}]*flex:0 1 auto;[^}]*padding:4px 2px 4px 0/, 'panel strip must size to tabs with browser-style flex and omit left padding')
+    assert.match(BROWSER_CSS, /\.bt-ptabs-in\[data-overflow-right\]\{mask-image:linear-gradient/, 'right-edge fade mask must apply only when strip overflows right')
+    assert.match(BROWSER_CSS, /\.bt-ptabs-in>\.bt-ptab-bot\{[^}]*box-shadow:[^}]*var\(--bt-main\)/, 'sticky Bot tab must mask scrolled-under tabs behind its edges and rounded corners')
+    assert.match(BROWSER_CSS, /\.bt-ptabs-in>\.bt-ptab-bot\[aria-selected=true\]\{background:color-mix\(in srgb,var\(--bt-ink\) 6%,var\(--bt-main\)\);box-shadow:[^}]*var\(--bt-main\)/, 'selected sticky Bot tab must keep opaque surface and mask shadow so scrolling never bleeds behind it')
+    assert.match(BROWSER_CSS, /\.bt-ptab-close\{flex:none;margin-left:auto\}/, 'close button must stay pinned right while + follows the tab strip')
+
+    const roster = {
+      bots: [{ id: 'b1', name: 'Scout' }],
+      rooms: [],
+      byId: { b1: { id: 'b1', name: 'Scout', parts: [] } },
+      roomsById: {},
+      mainBotIds: ['b1'],
+      exchangeTurns: {},
+      models: [],
+      sideChats: { b1: [{ id: 's1', entries: [{ id: 'e1', question: 'Check API', answer: 'Done', status: 'done' }] }] },
+      browser: false,
+    }
+    const viewsSet = []
+    const selectedTabs = []
+    const closedTabs = []
+    let panelClosed = 0
+    const actions = {
+      closeOverlay() {},
+      closePanel() { panelClosed += 1 },
+      setPanelView(next) { viewsSet.push(next) },
+      openSideChat() {},
+      closeSideChat() {},
+      browserShow: () => Promise.resolve(),
+    }
+    const DummyIcon = () => harness.React.createElement('svg', { width: 14, height: 14 })
+    const renderCalls = []
+    const wsTabs = [
+      { id: 'files', label: 'Files', icon: DummyIcon, closable: true },
+      { id: 'terminal', label: 'Terminal', icon: DummyIcon, closable: true },
+      { id: 'plugin:ext', label: 'Inspector', icon: DummyIcon, closable: false },
+    ]
+    const makeWorkspace = (active, tabs = wsTabs) => ({
+      tabs,
+      active,
+      onSelect: id => selectedTabs.push(id),
+      onCloseTab: id => closedTabs.push(id),
+      render: (activeTabId, visible) => {
+        renderCalls.push({ activeTabId, visible })
+        return harness.React.createElement('div', { className: 'test-ws-body', 'data-active': activeTabId, 'data-visible': String(visible) })
+      },
+    })
+    const baseProps = {
+      leaving: false,
+      room: 1200,
+      overlay: false,
+      roster,
+      actions,
+      useSessions: sel => sel({ byId: {}, projectionsBySession: {} }),
+      useSessionStatus: sel => sel(new Map()),
+      useActivity: sel => sel({}),
+      useWork: sel => sel({ bots: {}, rooms: {}, approvals: [], waiting: {} }),
+      useBrowserTabs: sel => sel({}),
+      useBrowserPages: sel => sel({}),
+      useBrowserHolds: sel => sel({}),
+      useComputer: sel => sel({}),
+    }
+
+    // 1. DSH plugin mode (workspace omitted): zero workspace DOM, no strip when no tabs/sides/task.
+    let tree = harness.render(harness.React.createElement(BotPanel, {
+      ...baseProps,
+      roster: { ...roster, sideChats: {} },
+      pane: { id: 'b1', view: 'details', renaming: false, tab: null, side: null },
+    }))
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-ptabs').length, 0)
+    assert.equal(findAll(tree, n => String(n.props?.className ?? '').includes('bt-panel-workspace')).length, 0)
+    assert.equal(tree.props['data-view'], 'details')
+    assert.equal(tree.props.style['--bt-panel-w'], '320px')
+
+    // 2. Unified BotPanel with workspace tabs: renders strip + Bot tab + workspace tabs, wide default 440px.
+    harness.unmount()
+    tree = harness.render(harness.React.createElement(BotPanel, {
+      ...baseProps,
+      pane: { id: 'b1', view: 'workspace', renaming: false, tab: null, side: null },
+      workspace: makeWorkspace('terminal'),
+    }))
+    assert.equal(tree.props['data-view'], 'workspace')
+    assert.equal(tree.props['aria-label'], 'Terminal')
+    assert.equal(tree.props.style['--bt-panel-w'], '440px')
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-ptab bt-ptab-bot').length, 1)
+    assert.equal(findAll(tree, n => n.props?.['data-ws-tab'] !== undefined).length, 3)
+    const wsWrap = findAll(tree, n => String(n.props?.className ?? '').includes('bt-panel-workspace'))[0]
+    assert.equal(wsWrap.props.hidden, false)
+    assert.deepEqual(renderCalls.at(-1), { activeTabId: 'terminal', visible: true })
+
+    // Non-closable plugin tab omits close button and carries bt-ptab-fixed.
+    const pluginWrap = findAll(tree, n => n.props?.['data-ws-tab'] === 'plugin:ext')[0]
+    assert.match(pluginWrap.props.className, /bt-ptab-fixed/)
+    assert.equal(findAll(pluginWrap, n => n.props?.className === 'bt-ptab-x').length, 0)
+
+    // Clicking Close on Files tab calls onCloseTab('files'); middle-clicking Terminal calls onCloseTab('terminal').
+    const filesWrap = findAll(tree, n => n.props?.['data-ws-tab'] === 'files')[0]
+    findAll(filesWrap, n => n.props?.className === 'bt-ptab-x')[0].props.onClick()
+    const termWrap = findAll(tree, n => n.props?.['data-ws-tab'] === 'terminal')[0]
+    findAll(termWrap, n => n.props?.role === 'tab')[0].props.onAuxClick({ button: 1, preventDefault() {} })
+    assert.deepEqual(closedTabs, ['files', 'terminal'])
+
+    // 3. Switching to Details keeps workspace mounted with hidden=true and visible=false!
+    tree = harness.render(harness.React.createElement(BotPanel, {
+      ...baseProps,
+      pane: { id: 'b1', view: 'details', renaming: false, tab: null, side: null },
+      workspace: makeWorkspace('terminal'),
+    }))
+    assert.equal(tree.props['data-view'], 'details')
+    const hiddenWsWrap = findAll(tree, n => String(n.props?.className ?? '').includes('bt-panel-workspace'))[0]
+    assert.ok(hiddenWsWrap, 'workspace container must stay mounted while hidden')
+    assert.equal(hiddenWsWrap.props.hidden, true)
+    assert.deepEqual(renderCalls.at(-1), { activeTabId: 'terminal', visible: false })
+
+    // Clicking a workspace tab while on Details switches view to workspace AND selects the tab.
+    const pluginBtn = findAll(findAll(tree, n => n.props?.['data-ws-tab'] === 'plugin:ext')[0], n => n.props?.role === 'tab')[0]
+    pluginBtn.props.onClick()
+    assert.deepEqual(viewsSet, ['workspace'])
+    assert.deepEqual(selectedTabs, ['plugin:ext'])
+
+    // 4. Classic Agent mode (!bot && !roomSubject): omits .bt-ptab-bot, resolves workspace view, hides DetailsDrawer.
+    harness.unmount()
+    tree = harness.render(harness.React.createElement(BotPanel, {
+      ...baseProps,
+      pane: { id: 'agent-1', view: 'workspace', renaming: false, tab: null, side: null },
+      workspace: makeWorkspace('files'),
+    }))
+    assert.equal(tree.props['data-view'], 'workspace')
+    assert.equal(tree.props['aria-label'], 'Files')
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-ptabs').length, 1)
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-ptab bt-ptab-bot').length, 0)
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-drawer-body').length, 0)
+
+    // Leaving after closePanel clears workspace.tabs: stays on workspace without flashing DetailsDrawer.
+    tree = harness.render(harness.React.createElement(BotPanel, {
+      ...baseProps,
+      leaving: true,
+      pane: { id: 'agent-1', view: 'workspace', renaming: false, tab: null, side: null },
+      workspace: makeWorkspace(null, []),
+    }))
+    assert.equal(tree.props['data-view'], 'workspace')
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-drawer-body').length, 0)
+
+    // 5. PanelStrip active capsule tracks [data-ws-tab="..."] including plugin IDs with colons.
+    harness.unmount()
+    const wsNodeA = { isConnected: true, offsetLeft: 50, offsetWidth: 70 }
+    const wsNodeB = { isConnected: true, offsetLeft: 124, offsetWidth: 90 }
+    const box = {
+      offsetWidth: 400,
+      scrollLeft: 0,
+      querySelector(sel) {
+        if (sel === '[data-ws-tab="files"]') return wsNodeA
+        if (sel === '[data-ws-tab="plugin:ext"]') return wsNodeB
+        return null
+      },
+      querySelectorAll: () => [wsNodeA, wsNodeB],
+    }
+    const capsule = { style: {}, animate: () => ({ cancel() {} }) }
+    const renderStrip = (active) => {
+      harness.render(harness.React.createElement(PanelStrip, {
+        bot: undefined,
+        roomSubject: undefined,
+        subject: 'agent-1',
+        view: 'workspace',
+        ids: [],
+        active: null,
+        sides: [],
+        side: null,
+        hasSubjectDetails: false,
+        workspace: makeWorkspace(active),
+        canBrowse: false,
+        reading: false,
+        onView() {},
+        actions,
+        useBrowserPages: sel => sel({}),
+      }), (stripTree) => {
+        const wrapNode = findAll(stripTree, n => n.props?.className === 'bt-ptabs-in')[0]
+        const indNode = findAll(stripTree, n => n.props?.className === 'bt-ptab-ind')[0]
+        if (!wrapNode.props.ref.current) {
+          wrapNode.props.ref.current = box
+          indNode.props.ref.current = capsule
+        }
+      })
+    }
+    renderStrip('files')
+    assert.equal(capsule.style.left, '50px')
+    assert.equal(capsule.style.right, '280px')
+    renderStrip('plugin:ext')
+    assert.equal(capsule.style.left, '124px')
+    assert.equal(capsule.style.right, '186px')
+    assert.equal(panelClosed, 0)
+    harness.unmount()
+  } finally {
+    harness.unmount()
+    globalThis.window = origWin
+    globalThis.document = origDoc
+    globalThis.ResizeObserver = origRO
+    globalThis.localStorage = origLS
+    globalThis.requestAnimationFrame = origRaf
+    globalThis.cancelAnimationFrame = origCancelRaf
+  }
+})
+
+test('PanelStrip translates vertical wheel to horizontal scroll, tracks overflow flags, keeps sticky Chief aligned, and macOS/sidebar styles stay clean', async () => {
+  const code = await loadClientBundle(`
+    export { PanelMenu, PanelStrip, PlusTabIcon } from './src/client/browser-pane.js'
+    export { DetailsDrawer } from './src/client/details-drawer.js'
+    export { SHELL_CSS } from './src/client/styles.js'
+    export { SIDEBAR_CSS } from './src/client/sidebar.js'
+  `)
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  let roCallback = null
+  const origWin = globalThis.window
+  const origDoc = globalThis.document
+  const origRO = globalThis.ResizeObserver
+  const origRaf = globalThis.requestAnimationFrame
+  const origCancelRaf = globalThis.cancelAnimationFrame
+  globalThis.requestAnimationFrame = () => 0
+  globalThis.cancelAnimationFrame = () => {}
+  globalThis.window = { addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: true }), innerWidth: 1280 }
+  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {} }
+  globalThis.ResizeObserver = class {
+    constructor(cb) { roCallback = cb }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+
+  try {
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { PanelMenu, PanelStrip, DetailsDrawer, SHELL_CSS, SIDEBAR_CSS } = mod.exports
+
+    // macOS drag rule excludes .bt-ptabs-in so wheel/trackpad scrolling is never swallowed.
+    assert.match(SHELL_CSS, /html\[data-platform=darwin\] \.bt-panel \[data-window-drag\] :is\([^)]*\.bt-ptabs-in[^)]*\)\{-webkit-app-region:no-drag\}/)
+    // DSH Agent whale sits cleanly on transparent background without a fake-selected grey disc.
+    assert.match(SIDEBAR_CSS, /\.bt-agent-ava\{[^}]*background:transparent/)
+    assert.doesNotMatch(SIDEBAR_CSS, /\.bt-agent-ava\{[^}]*background:var\(--bt-hover\)/)
+
+    const listeners = new Map()
+    const botTab = { isConnected: true, offsetLeft: 0, offsetWidth: 64 }
+    const tabFiles = { isConnected: true, offsetLeft: 68, offsetWidth: 96 }
+    const box = {
+      offsetWidth: 260,
+      clientWidth: 260,
+      scrollWidth: 520,
+      scrollLeft: 0,
+      dataset: {},
+      addEventListener(type, fn, opts) { listeners.set(type, { fn, opts }) },
+      removeEventListener(type) { listeners.delete(type) },
+      querySelector(sel) {
+        if (sel === '.bt-ptab-bot') return botTab
+        if (sel === '[data-ws-tab="files"]') return tabFiles
+        return null
+      },
+      querySelectorAll: () => [botTab, tabFiles],
+    }
+    const capsule = { style: {}, animate: () => ({ cancel() {} }) }
+    const DummyIcon = () => harness.React.createElement('svg', { width: 14, height: 14 })
+    const renderStrip = (view) => harness.render(harness.React.createElement(PanelStrip, {
+      bot: { id: 'b1', name: 'Chief' },
+      subject: 'b1',
+      view,
+      ids: [],
+      active: null,
+      sides: [],
+      side: null,
+      workspace: { tabs: [{ id: 'files', label: 'Files', icon: DummyIcon }], active: 'files', onSelect() {}, onCloseTab() {} },
+      canBrowse: false,
+      reading: false,
+      onView() {},
+      actions: { closePanel() {}, canOpenFiles: () => true, canOpenTerminal: () => true, openFiles() {}, newTerminal() {}, newSideChat() {} },
+      useBrowserPages: sel => sel({}),
+    }), (tree) => {
+      const wrapNode = findAll(tree, n => n.props?.className === 'bt-ptabs-in')[0]
+      const indNode = findAll(tree, n => n.props?.className === 'bt-ptab-ind')[0]
+      if (!wrapNode.props.ref.current) {
+        wrapNode.props.ref.current = box
+        indNode.props.ref.current = capsule
+      }
+    })
+
+    const stripTree = renderStrip('details')
+    const newTabBtn = findAll(stripTree, n => n.props?.className === 'bt-ptab-new')[0]
+    assert.ok(newTabBtn, 'PanelStrip renders crisp + new-tab button')
+    assert.equal(newTabBtn.props['aria-label'], 'New tab')
+    assert.equal(listeners.get('wheel')?.opts?.passive, false, 'wheel listener must be non-passive so preventDefault works')
+    assert.equal('overflowRight' in box.dataset, true, 'overflowing strip marks data-overflow-right')
+    assert.equal('overflowLeft' in box.dataset, false)
+
+    // Vertical wheel scroll translates deltaY (pixel, line, and page modes) to scrollLeft.
+    let prevented = 0
+    listeners.get('wheel').fn({ deltaX: 0, deltaY: 40, deltaMode: 0, preventDefault() { prevented += 1 } })
+    assert.equal(box.scrollLeft, 40)
+    assert.equal(prevented, 1)
+    assert.equal('overflowLeft' in box.dataset, true)
+    assert.equal('overflowRight' in box.dataset, true)
+
+    listeners.get('wheel').fn({ deltaX: 0, deltaY: 2, deltaMode: 1, preventDefault() { prevented += 1 } })
+    assert.equal(box.scrollLeft, 88, 'line deltaMode multiplies by 24px')
+    assert.equal(prevented, 2)
+
+    // Horizontal trackpad swipe (|deltaX| > |deltaY|) is left to native scrolling.
+    listeners.get('wheel').fn({ deltaX: 50, deltaY: 10, deltaMode: 0, preventDefault() { prevented += 1 } })
+    assert.equal(box.scrollLeft, 88)
+    assert.equal(prevented, 2)
+
+    // While Chief is selected and strip is scrolled right, sticky offsetLeft must not drift capsule; capsule hides until scrolled back.
+    botTab.offsetLeft = 88
+    listeners.get('scroll').fn()
+    assert.equal(capsule.style.opacity, '0', 'capsule hides under sticky Chief when scrolled right')
+    roCallback()
+    assert.equal(capsule.style.left, '0px', 'ResizeObserver keeps sticky Chief spot anchored at 0px')
+
+    // Scrolling to the far right clears data-overflow-right; shrinking content clears both.
+    box.scrollLeft = 260
+    listeners.get('scroll').fn()
+    assert.equal('overflowRight' in box.dataset, false)
+    assert.equal('overflowLeft' in box.dataset, true)
+    box.scrollWidth = 220
+    box.scrollLeft = 0
+    roCallback()
+    assert.equal('overflowRight' in box.dataset, false)
+    assert.equal('overflowLeft' in box.dataset, false)
+    listeners.get('wheel').fn({ deltaX: 0, deltaY: 40, deltaMode: 0, preventDefault() { prevented += 1 } })
+    assert.equal(prevented, 2, 'non-overflowing strip does not hijack wheel')
+
+    // DetailsDrawer top row uses the same crisp `+` ("New tab") trigger under data-info-row="more".
+    harness.unmount()
+    const drawerTree = harness.render(harness.React.createElement(DetailsDrawer, {
+      sessionId: 'b1',
+      startRenaming: false,
+      startTab: null,
+      hasStrip: false,
+      roster: { bots: [{ id: 'b1', name: 'Chief' }], rooms: [], byId: { b1: { id: 'b1', name: 'Chief', parts: [] } }, roomsById: {}, mainBotIds: [], exchangeTurns: {}, models: [], sideChats: {}, browser: false },
+      actions: { closeOverlay() {}, canOpenFiles: () => true, openFiles() {}, newSideChat() {} },
+      useSessions: sel => sel({ byId: {}, projectionsBySession: {} }),
+      useSessionStatus: sel => sel(new Map()),
+      useActivity: sel => sel({}),
+      useWork: sel => sel({ bots: {}, rooms: {}, approvals: [], waiting: {} }),
+      useBrowserTabs: sel => sel({}),
+      useBrowserPages: sel => sel({}),
+      useComputer: sel => sel({}),
+    }))
+    const moreWrap = findAll(drawerTree, n => n.props?.['data-info-row'] === 'more')[0]
+    assert.ok(moreWrap, 'DetailsDrawer keeps data-info-row="more"')
+    const moreBtn = findAll(moreWrap, n => n.type === 'button')[0]
+    assert.equal(moreBtn.props['aria-label'], 'New tab')
+
+    // PanelMenu clamps popover inside [panel.left + 8, panel.right - 8] even when centered in a 320px panel.
+    harness.unmount()
+    const panelRect = { left: 800, right: 1120 }
+    const triggerWrap = {
+      getBoundingClientRect: () => ({ left: 948, right: 976 }),
+      closest: sel => (sel === '.bt-panel' ? { getBoundingClientRect: () => panelRect } : null),
+      contains: () => true,
+    }
+    const popEl = { offsetWidth: 184, style: {} }
+    const renderMenu = () => harness.render(harness.React.createElement(PanelMenu, {
+      items: [{ key: 'files', icon: DummyIcon, label: 'Files', onPick() {} }],
+      className: 'bt-ptab-new',
+      'aria-label': 'New tab',
+    }), (tree) => {
+      const span = findAll(tree, n => n.props?.className === 'bt-pmenu')[0]
+      if (span && !span.props.ref.current) span.props.ref.current = triggerWrap
+      const pop = findAll(tree, n => n.props?.className === 'bt-pmenu-pop')[0]
+      if (pop && !pop.props.ref.current) pop.props.ref.current = popEl
+    })
+    const closedMenuTree = renderMenu()
+    findAll(closedMenuTree, n => n.props?.className === 'bt-ptab-new')[0].props.onClick()
+    renderMenu()
+    // 976 - 184 = 792 < 808 -> clamped left to 808 -> right = 976 - (808 + 184) = -16px.
+    assert.equal(popEl.style.right, '-16px', 'centered + popover on 320px panel must clamp 8px inside left border')
+    harness.unmount()
+  } finally {
+    harness.unmount()
+    globalThis.window = origWin
+    globalThis.document = origDoc
+    globalThis.ResizeObserver = origRO
+    globalThis.requestAnimationFrame = origRaf
+    globalThis.cancelAnimationFrame = origCancelRaf
+  }
+})

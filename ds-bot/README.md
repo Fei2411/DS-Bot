@@ -2,15 +2,16 @@
 
 The DS Bot plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). It turns dsh into a team of long-lived Bots that talk to you, to each other and in group chats. See the [project page](../README.md) for an overview, install steps and screenshots.
 
-> Early release (v0.2). Features, tools and the saved data format can still change.
+Tested with dsh `0.2.2-rc.5` (Web and Desktop).
 
-Tested with dsh `0.2.2-rc.1` (Web and Desktop).
+> For LLM/automated operations, diagnostics, upgrade playbooks, and recovery, see [Self-Maintenance & Operations Reference](../docs/self-maintenance.md) and the bundled [`ds-bot-maintenance`](src/host/skills/ds-bot-maintenance/SKILL.md) skill. For capabilities, connectors, standalone DSH plugins, local ACP CLIs, and `ds-bot` extension development, see [Plugin & Extension Development Reference](../docs/plugin-development.md) and the bundled [`ds-bot-plugin-dev`](src/host/skills/ds-bot-plugin-dev/SKILL.md) skill.
 
 ## Features
 
-- **Long-lived Bots**: each Bot is a dsh Session in the "DS Bot" workspace, with its own name, role, instructions and model.
+- **Long-lived Bots**: each Bot has its own saved profile (name, role, instructions, model, thinking level, folder and permissions). It works in dsh Sessions: its own chat, separate group and background-task Sessions, and fresh parts when needed. This is not a separate DSH installation profile.
 - **Working folders**: a Bot can work in a folder you choose instead of the team workspace, and a group chat can set one folder for all its members there. Pick it in the Bot's settings or details panel or in the group's settings, or ask a Bot (`update_bot`, `update_group`). After a change, the chat goes on in a fresh part that starts in the new folder. When a Bot sets a folder outside the team workspace, or adds a Bot to a group that works in one, it asks for your approval if those Bots can only write in their folder. Folders that hold dsh data (`$DSH_HOME`, the team's data) are refused. The team workspace itself moves in Settings > General > Locations; Bots and groups that work there go on in a fresh part in the new folder, and the old folder keeps its files.
 - **Permission presets**: each Bot runs with its own dsh permission preset (Read only, Workspace or Full access), set in its details panel. A group chat can run all its members with one preset there, in place of their own: turn on **Same for every member** under Permissions in the group's settings. Only you set permissions; Bots cannot change them.
+- **Agent presets**: each Bot runs on one dsh agent preset — the standard one by default, or another preset your dsh profile offers, picked in the Bot's settings or the create form. A preset is the whole tool and prompt composition the Bot's sessions run on; only you can pick it, a preset that is gone or broken fails visibly instead of silently falling back, and a change applies from the next conversation part.
 - **Bots work together**: `message_bot` sends a message to another Bot, `create_bot` and `update_bot` add and set up Bots (including a profile photo from a local image file or a data URL), and `ask_user` asks you a question without blocking the other Bots. `show_view` draws a card in a Bot's own chat — text, metrics, tables, charts, inputs with local formulas, progress, choices, confirmations, short forms and sandboxed HTML; an interactive card waits for your answer. `/side` (or **Side chat** in the panel's `···` menu) opens a side chat in the right panel that answers from a snapshot of the Bot's chat without running tools or interrupting its work. A Bot can also be marked **Private** in its settings: other Bots cannot read its working folder, memory or chat, and its outbound sharing needs your approval.
 - **Group chats**: in admin-first mode the admin answers first and calls in other members with `@Name`; in all-members mode members speak in order. Members `@`-mentioned in the same message start work in parallel. Type `@` to pick a member from a list, or use **+ → Reference a chat** to attach another Bot's chat as context. A member with nothing new to add stays quiet (`[PASS]`). For multi-stage work, the admin can align on and run a group **Goal** (`group_goal`), assigning tasks per stage and checking evidence before advancing. Each member has its own hidden Session per group, so a group never reads a Bot's private chat.
 - **Roles and permissions**:
@@ -18,7 +19,7 @@ Tested with dsh `0.2.2-rc.1` (Web and Desktop).
   | Who | Can do |
   |---|---|
   | You | Everything |
-  | Main Bot (there can be more than one) | Manage every group; change and delete Bots |
+  | Main Bot (there can be more than one) | Create Bots, change other Bots and manage every group; only the user deletes Bots |
   | Group admin | Manage its own group only (name, notice, members, reply mode) |
   | Member | Speak in the group, `@` another member, and post into its groups from outside them |
 
@@ -27,15 +28,19 @@ Tested with dsh `0.2.2-rc.1` (Web and Desktop).
 - **Web search**: see [Web search](#web-search).
 - **Bot browser (dsh Desktop and the desktop app)**: see [Bot browser](#bot-browser).
 - **Images**: for a model that cannot read images, a vision model first turns the image into text.
+- **DeepSeek services**: an official API key can give any model independent OCR, DeepSeek TTS and DeepSeek dictation, each turned on explicitly in Settings → DeepSeek services. The key stays in Settings → Models. See [DeepSeek services](#deepseek-services).
 - **Secrets**: a Bot asks for an API key or token with a card in its own chat and never sees the value. See [Secrets](#secrets).
 - **Usage**: Settings → Usage shows token usage by time (24 hours to 12 months, or days picked on a calendar), by Bot and by model, with a page for each Bot and each model. Calls that a Session logs are read from the logs, so older chats count too. Calls that leave no log (checkpoints, handoff notes, the steward, image readings, dsh titles and compaction) are counted while they stream, from the time the plugin runs. Tokens only, no cost.
-- **Make it yours**: name, role, instructions, model and look (20 characters and 12 colors, or your own photo from the reusable avatar library) for each Bot; a theme, an accent color, a message layout (bubble or flat) with width sliders, and an avatar animation level (quiet, normal or lively) for the team. A pinned Bot or group chat shows a small pushpin in the sidebar. Settings has these pages: General (look, default model for new Bots, Enter key preference, mode and locations), Models, Bots (Main Bots, each Bot's settings and retained private-Bot folders), Group chats (each group's settings), Connectors, Capabilities, Browser, Scheduled tasks, Usage, Secrets, Feedback and About DS Bot (versions, updates and links).
+- **Async background work**: foreground chat always stays responsive. Slow shell commands move to background jobs automatically after a configurable timeout (default 5 seconds), Bots can start background tasks (`task_start` / `task_send` / `task_stop` / `task_list` / `task_read`), and sending a new message to a busy Bot hands the in-flight turn to the background. Progress, approvals, follow-ups and stop controls appear in the chat header island, the details **Tasks** tab and mobile.
+- **Feature packs**: team-library MCP servers, skills and packs can be set per Bot to **Always**, **Catalog** (one-line prompt index loaded on demand with `use_pack` / `drop_pack`), or **Off**. Main-only admin tools (`team-admin`) are hidden from ordinary Bots automatically.
+- **Local agents, IM, phone/browser remote, computer use & MCP access**: connect local coding-agent CLIs as Bots, bridge Bots/groups to 8 IM platforms (WeChat, Feishu, DingTalk, WeCom, QQ, Telegram, Discord, Slack), pair iOS/Android/browser clients over Noise IK, grant per-Bot desktop app control, or expose selected Bots/groups to local MCP clients on `127.0.0.1:8797/mcp`.
+- **Make it yours**: name, role, instructions, model and look (20 characters and 12 colors, or your own photo from the reusable avatar library) for each Bot; a theme, an accent color, a message layout (bubble or flat) with width sliders, interface motion tiers (full / reduced / off), avatar animation levels (quiet / normal / lively), and 8 UI languages. Settings opens on an **Overview** console with `⌘K` / `Ctrl+K` search and grouped scrolling domains: **Overview**, **General**, **Appearance**, **Models** (Providers, Local agents, Bot models, DeepSeek services), **Team** (Bots, Group chats, Scheduled tasks), **Connect** (Connectors, IM, Phone, MCP access), **Tools** (Computer use, Browser, Capabilities, Secrets), **Usage**, and **About DS Bot** (About DS Bot, Feedback).
 
 ## Install
 
 The [project page](../README.md#install) has the full steps for dsh Desktop and dsh Web. In short:
 
-- dsh Desktop: Settings → Plugins → add `ds-bot` (npm), a `.tgz` file, or `github:Fei2411/DS-Bot#v<version>&path:/ds-bot`.
+- dsh Desktop: Settings → Plugins → add `ds-bot` (npm), a `.tgz` file, or `github:Fei-Craft/DS-Bot#v<version>&path:/ds-bot`.
 - Command line: `dsh plugin --profile desktop add ds-bot` (or `--profile web`).
 
 To work on the plugin from a checkout, add it to a dsh profile as a linked dependency and a bundle:
@@ -55,6 +60,15 @@ pnpm -s dsh --profile web --no-open
 
 The first time the team opens, the plugin creates a Main Bot called Chief.
 
+**If DSH was upgraded and the Bot team does not start**: a profile can keep its own pinned copies of official DSH packages (for example `@deepseek-ai/dsh-web-app` at the version before the upgrade). DSH then mounts the new installation's rows against those older modules, disables the rows whose versions do not match, and a plugin that injects their services — the Bot team's `sessionController` and `workspaceRegistry` — stays pending. This is a diagnostic/repair tool you run by hand — DS Bot never invokes it on its own. The doctor names the pins the running DSH does not satisfy; `--fix` removes only those (a version range the running DSH satisfies is kept, and only DSH runtime/bundle packages are considered), then runs `pnpm install` in the changed profile so a restart needs no separate manual install. If that install cannot run, it prints the exact command. Chats, settings and credentials are not touched:
+
+```sh
+npx ds-bot doctor
+npx ds-bot doctor --fix
+```
+
+The doctor reads the profiles' `package.json` files only. If DSH still does not start after a clean report, an older copy may be a transitive dependency that another plugin brought into the profile; the report names `pnpm why @deepseek-ai/<package>` so you can find the plugin that carries it. The doctor never removes such a copy, because that would break the plugin that needs it.
+
 **Upgrading from the legacy `dsh-bot` package**: earlier builds used the package name `dsh-bot`. Remove `dsh-bot` from the profile before you add `ds-bot`, because both use the plugin id `bot`. Your team, chats and secrets stay where they are (see [Data and backups](#data-and-backups)); saved browser settings, the theme and Bot colors move over the first time DS Bot opens.
 
 ## Configuration
@@ -68,9 +82,10 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
     workspace: /path/to/workspace   # where the Bots work; default <home>/workspace
     home: /path/to/bot-data         # where the team is saved; default $DSH_HOME/bot
     checkRatio: 0.8                 # share of the model's usable window where the steward decides
+    # checkTokens: 380000           # optional absolute token cap on the check line; unset follows the model's window
     browser: true                   # force the Bot browser on or off; default on in Desktop and the desktop app only
     memory: true                    # false turns memory off: no memory tools, section or panel
-    memoryReview: true              # false leaves memory to the Bots' own remember calls
+    memoryReview: true              # false leaves memory to the Bots' own bot_remember calls
     diagnosticsFile: false          # keep the error log in memory only; default <home>/logs/diagnostics.jsonl
     updateCheck: true               # look for a newer DS Bot when a window opens; default true
     updateRegistry: https://registry.example/   # ask only this npm registry for updates
@@ -83,27 +98,43 @@ The same card can carry DSH itself: a DS Bot release may name the DSH release it
 
 ## Models
 
-Model providers are set up in DS Bot's **Settings → Models** (or the Main Bot's setup card) and stored through dsh's `llm-pi-ai` plugin in `cordis.patch.yml` and `.credentials.yaml`. Every Bot runs on one model of its own, from the models DSH serves. A new team's first Main Bot starts on a model card when more than one provider is ready or none is configured yet, and greets the user once a usable model is connected. **Settings → General → New Bots** can set a team default model for newly created Bots: the Create Bot form starts on that team default model when it is served and usable (otherwise the DSH default model, or the first usable model), and a Main Bot's `create_bot` without a named model uses the team default model before falling back to the creator's own model. The Bot's details panel and settings (or a Main Bot's `update_bot`) change a Bot's model; a Bot whose model is no longer served falls back to its last working model or shows the card again. A team saved by an older version keeps the model each Bot last ran on.
+Model Bots use DSH's model service and agent loop. Local-agent Bots delegate model access, tools and context to an installed CLI. Auxiliary calls (memory review, handoffs, the context steward, image readings, side chats and `browser_task`) use the model service outside the agent loop. Web search/fetch and the independent DeepSeek services make direct service requests; not every request goes through DSH model routing.
 
-- Give every model a `contextWindow`. DS Bot takes its lines from it: the usable window is the window minus the reply reserve (`maxTokens`), the hard line is 95% of that, and the check line is `checkRatio` of it. A model without `contextWindow` gets the adapter's default (262,144 tokens for `llm-pi-ai`), which may be wrong for that model; a model that reports no window at all counts as 500,000.
+Model providers are set up in DS Bot's **Settings → Models** (or the Main Bot's setup card). The dsh `llm-pi-ai` plugin keeps provider settings in `cordis.patch.yml` and API credentials in `.credentials.yaml` when not supplied externally. Every Bot runs on one model of its own, from the models DSH serves. A new team's first Main Bot starts on a model card when more than one provider is ready or none is configured yet, and greets the user once a usable model is connected. **Settings → General → New Bots** can set a team default model for newly created Bots: the Create Bot form starts on that team default model when it is served and usable (otherwise the DSH default model, or the first usable model), and a Main Bot's `create_bot` without a named model uses the team default model before falling back to the creator's own model. The Bot's details panel and settings (or a Main Bot's `update_bot`) change a Bot's model; a Bot whose model is no longer served falls back to its last working model or shows the card again. A team saved by an older version keeps the model each Bot last ran on.
+
+**ChatGPT plan (standalone desktop app only)**: in **Models → Providers**, open **OpenAI** or select it under **Add a provider → Known provider**. Choose **Sign in with ChatGPT** and complete sign-in in your browser. If prompted, choose **Enable plan usage** to load the models available through your account, then select one under your Bot's **Model** setting. Use the **ChatGPT (plan)** provider row to refresh models or sign out. The app encrypts the ChatGPT credentials with OS-backed secure storage, separately from OpenAI API keys.
+
+- Give every model a `contextWindow`. DS Bot takes its lines from it: the usable window is the window minus the reply reserve (`maxTokens`), the hard line is 95% of that, and the check line is `checkRatio` of it (further capped only if you explicitly set `checkTokens`). A model without `contextWindow` gets the adapter's default (262,144 tokens for `llm-pi-ai`), which may be wrong for that model; a model that reports no window at all counts as 500,000.
 - To send images, the provider needs `defaultInput: [ text, image ]`.
 - Keep API keys out of the repository. Use dsh's own key storage or environment variables.
+
+## DeepSeek services
+
+Settings → DeepSeek services reports the state of the independent DeepSeek capabilities. `actions.deepseekServices()` returns `{ endpoint, key, ocr, tts, speech, preferences }` without any secret, and `setDeepseekServices({ ocr, tts, voice })` saves the three preferences (`ocr` on/off, `tts` `system|deepseek`, `voice` `stella|tide`). Omitted fields keep their value; `null` resets one. They live in `roster.prefs.deepseekServices`. The API key is set through the existing provider-key controls in Settings → Models (`actions.openModels()`); the page never reads or renders it, and shows the real ready/not-ready reason for each capability.
+
+OCR is off by default: only after it is turned on in Settings → DeepSeek services do Bots get `read_document` and upload selected files (`path` or `attachment_id`) for text recognition. Local Office editing is unchanged, but `read_document` can also read Office files, so the page does not promise that Office files are never uploaded. It is read-only: `attachment_id` must name a file or image in the calling Session's own messages (a guessed id reads nothing), workspace paths follow that Session's working directory and privacy rules, and long results are filed so the full text stays readable (a private Bot's copy stays in its own folder, named with its Session id). TTS defaults to the system voice. Dictation is not a DS Bot preference: the host registers `deepseek-asr` with `speechToText`, and the page selects it through the existing speech Remote `configure({ providerId: 'deepseek-asr', language: 'auto' })`; when the Voice Input plugin is off the browser dictation path stays. A configured key alone enables nothing, and voice reads `roster.prefs.deepseekServices` for serial TTS with no new page layout.
+
+Calls go to the official `https://api.deepseek.com` only and are billed to the user's own API key by usage. A gateway the DeepSeek route points at never receives (or provides) the key: when the route's credential happens to be named `DEEPSEEK_API_KEY`, DS Bot refuses rather than guess, and the status says why. See the [design note](../docs/plans/2026-11-14-deepseek-services.md) and `ds-bot/test/deepseek-services.test.js` (mock tests only, no network).
 
 ## Memory
 
 A Bot remembers what should last beyond one conversation: your preferences, decisions, corrections and facts it should not ask again. Memory is plain Markdown in the [Agent Memory Repo](https://github.com/AgentMemoryRepo/agentmemoryrepo) format: one entry per line, ending in `[source: …; added: …]`.
 
-After each turn, a memory review reads what is new in the conversation and keeps, updates or removes entries itself, so memory does not depend on the Bot deciding to call `remember`. A Bot's own chat is reviewed by its model into its own memory; a group chat is reviewed once for the whole group, by the admin's model (or the first member's), into the group memory only. It keeps only what you say, writes entries in your language, and refuses keys, passwords and ID numbers.
+After each turn, a memory review reads what is new in the conversation and keeps, updates or removes entries itself, so memory does not depend on the Bot deciding to call `bot_remember`. A Bot's own chat is reviewed by its model into its own memory; a group chat is reviewed once for the whole group, by the admin's model (or the first member's), into the group memory only. It keeps only what you say, writes entries in your language, and refuses keys, passwords and ID numbers.
 
 - **Three scopes**: each Bot has its own memory; each group chat has a group memory, which its members read in that group only (not in their own chats, and not in other groups); and the team memory is read by every Bot. A Bot writes its own, and any member writes its group's memory from the group. Main Bots and group admins (of any group) also write the team memory; a Main Bot can read and change another Bot's memory when you ask.
-- **Tools**: `remember` saves an entry or replaces one (`replace`), `forget` removes one, and `recall` searches every entry, reads a topic whole, or lists what is saved. In a Bot's own chat they use its own memory by default; in a group chat, the group memory (`scope: "own"` for the Bot's own). The Bot adds the source (a part anchor such as `part 2 #1234`, which `read_own_chat` opens, or the group and the time) and the date; a Bot that writes for others is named with `by:`.
+- **Tools**: `bot_remember` saves an entry or replaces one (`replace`), `bot_forget` removes one, and `bot_recall` searches every entry, reads a topic whole, or lists what is saved. In a Bot's own chat they use its own memory by default; in a group chat, the group memory (`scope: "own"` for the Bot's own). The Bot adds the source (a part anchor such as `part 2 #1234`, which `read_own_chat` opens, or the group and the time) and the date; a Bot that writes for others is named with `by:`.
 - **Files**: `MEMORY.md` holds what every conversation needs, and details go in topic files linked from its `## Index` as `[[topic]]`.
-- **In the prompt**: the Bot's own and the team's `MEMORY.md` go into the Bot's system prompt; in a group Session the group's `MEMORY.md` goes in as a snapshot message at the start of the Session instead, so the group Session keeps the exact system prompt and tool declarations of the Bot's private chat and shares the provider's prefix cache. Each section is frozen when a Session starts; a change shows from the next part or checkpoint, and `recall` finds it at once.
-- **Fixed sizes**: an entry has at most 300 characters, a `MEMORY.md` 4,000, a topic 16,000, and a scope 40 topics. A save past a limit fails and says how to make room.
+- **In the prompt**: the Bot's own and the team's `MEMORY.md` go into the Bot's system prompt, frozen for the conversation part; in a group Session the group's `MEMORY.md` goes in as a snapshot message at the start of the Session instead. What others change later comes as a short update message before the next step, and a turn can bring up matching topic entries as a message. Both leave the prompt as it was, so the provider's prefix cache holds.
+- **Sizes**: only entry text counts. A `MEMORY.md` holds 12,000 characters in a group, 8,000 for a Bot and 4,000 for the team, changeable in Settings, and takes at most 2% of the model's usable window in the prompt. An entry has at most 300 characters and a topic 16,000. A save never fails for room: the oldest entries move to the topic `earlier`, and a full topic continues in a numbered one.
+- **Team memory**: what every Bot always reads takes only what the user says, through `always` on `bot_remember` or the memory panel. Everything else written to the team waits in the topic `shared` for whoever needs it.
+- **Entries**: each has a short id, an optional `until` after which it no longer shows, and a pin the user sets, which automatic changes leave alone.
+- **Tidy**: once a day at most, a background pass merges repeats and archives what is over in each memory that changed, at most a fifth of its entries at a time. The memory panel shows each pass and undoes it whole.
+- **Between Bots**: a Bot can read a public Bot's memory with `bot_recall`. Nothing of another Bot's reaches it unless it looks.
 - **Safety**: memory is data, not instructions. An entry that looks like a key or token is refused, and a Bot is told not to save what a web page, file or tool result asks it to remember.
 - **History**: files change in place, and `journal.jsonl` keeps every change with the line before and after (a private Bot keeps its own `journal.jsonl` in its folder). When a Bot or a group chat is deleted, its memory moves to `archive/`.
 
-**The memory panel**: the details panel of a Bot, and of a group chat, has a Memory row with the entry count; Manage opens the memory panel. A Bot's panel shows its own memory and the team memory; a group's shows the group memory.
+**The memory panel**: the details panel of a Bot, and of a group chat, has a Memory row with the entry count; Manage opens the memory panel. A Bot's panel shows its own memory and the team memory; a group's shows the group memory. Each entry can be moved to the team memory, another Bot, or a group chat; it keeps its end date and pin, and in the team memory it starts as "Only when needed".
 
 - **Memory summary**: a model writes a short summary in prose from every entry, in the interface language: the Bot's, or for a group its admin's. It is written again when the entries change, and the ⋯ menu can regenerate it.
 - **All entries**: the ⋯ menu lists every entry by scope and topic, with its date and author, and the size of each `MEMORY.md`. Remove takes two clicks.
@@ -118,7 +149,7 @@ A read-only dsh (see [Data and backups](#data-and-backups)) shows memory but can
 The package includes a second plugin, `ds-bot/web-search`. It registers the search provider `auto`, and `cordis.patch.yml` makes it the default. Each search goes in this order:
 
 1. If the profile names another `searchProvider`, that one is used.
-2. The current model route's own search, with that route's key and host. The plugin knows the Anthropic Messages, OpenAI Responses and Gemini protocols, and a few search APIs (Ollama, Kimi, Zhipu, MiMo). Add more with `searchApis`.
+2. The current model route's own search, with that route's key and host. The plugin knows the Anthropic Messages, OpenAI Responses and Gemini protocols, and a few search APIs (DeepSeek, Ollama, Kimi, Zhipu, MiMo). A declared API runs only on an `https` base, since it carries the route's key. A provider's own long extract is kept as each source's `summary` beside the display snippet. Add more with `searchApis`.
 3. A fallback without a key: the public result pages of Bing and DuckDuckGo.
 4. If nothing works, the search fails and tells the model not to guess addresses.
 
@@ -150,10 +181,10 @@ In dsh Desktop and the desktop app, each Bot has its own browser panel in the ri
   - It never reads the values of password, credit card (`autocomplete="cc-*"`) or one-time code fields.
   - Limits: 400,000 characters, 150,000 nodes, 5,000 rows per table, 3,000 links and controls, 1.5 seconds. A cut result says so.
   - It cannot read cross-origin iframes (one line with the address), closed shadow roots, canvas content (online editors, maps), or text in CSS `::before` / `::after`. On pages that render on demand, only the rendered part is read.
-  - Without a browser plugin, `read_browser` is read-only. When a browser plugin (`refs`, `script` or `task`; see [`browser-plugins/`](../browser-plugins/)) is enabled in **Settings → Browser**, Bots can open, inspect and interact with pages in their own profile (`bot/browser-profiles/<botId>/`); in the desktop app they share the panel's tabs with you, hand off sign-in or payment steps via a chat card (`browser_handoff`), and yield whenever you take over.
+  - Without a browser plugin, `read_browser` is read-only. Set `browserPlugin` to `refs`, `script` or `task` in the DSH profile and restart (see [`browser-plugins/`](../browser-plugins/)); **Settings → Tools → Browser** explains setup and manages grants, but does not enable the plugin. Interactive plugins use each Bot's profile (`bot/browser-profiles/<botId>/`); in the desktop app they share the panel's tabs with you, hand off sign-in or payment steps via a chat card (`browser_handoff`), and yield whenever you take over.
 - **Addresses**: http and https only. localhost and LAN addresses are allowed; cloud metadata addresses (such as `169.254.x.x`) and dsh's own ports are not.
 - The browser panel and the details drawer share the right column; opening one closes the other. Switching chats switches the panel to that Bot. Deleting a Bot clears its browser and saved address.
-- **Cookie import (desktop app only)**: the import button in the browser bar previews the cookies of a file (Cookie-Editor JSON, Netscape `cookies.txt`, Playwright `storageState`) or of an installed Chromium/Firefox profile, then writes them into the Bot's partition. A source browser closes for a moment so its cookie store can be copied, and it reopens with its tabs. Sign-in that lives outside cookies (localStorage, passkeys) does not come along.
+- **Cookie import (desktop app only)**: the import button previews cookies from a file (Cookie-Editor JSON, Netscape `cookies.txt`, Playwright `storageState`, DevTools Copy as cURL or a URL-scoped Cookie header) or an installed Chromium/Firefox profile, then writes them into the Bot's partition. Playwright storageState and supported browser imports also carry localStorage; passkeys do not come along. Live remote debugging can import Windows v20 cookies without closing the browser; fallback copying can require closing and reopening it.
 
 dsh Web has no browser panel and no `read_browser` tool.
 
@@ -167,6 +198,7 @@ When a Bot needs an API key, token or password, it calls `request_secret`, and a
 - **Masking**: before a tool result is saved and before each request goes to the model, every copy of a secret value is replaced with `[secret:<NAME>]`.
 - **Manage**: Settings → Secrets lists every secret by name, purpose, the Bot that asked and the last use. You can change who may use it, replace the value, delete it or add one. Deleting a Bot removes it from every secret.
 - **Storage**: `<DSH_HOME>/bot/secrets.json`, file mode 600, written atomically. Values are never in `state.json` or logs.
+- **Encryption at rest (optional)**: Settings → Secrets → Encryption at rest turns the same file into a passphrase-locked envelope (scrypt key, AES-256-GCM payload). An unattended start unlocks it with `DS_BOT_SECRETS_PASSPHRASE` or with `DS_BOT_SECRETS_PASSPHRASE_FILE` (a file with the passphrase); without either the store starts locked, the Secrets page says how to unlock it, and secret writes are refused. Plaintext stays the default and existing files need no migration.
 
 Limits:
 
@@ -192,7 +224,7 @@ Files in `bot/`:
 | File | Content |
 |---|---|
 | `state.json` | The team: Bots, groups, Bot-to-Bot messages, preferences and open questions. A long message keeps only its first 2,000 characters here; all of it is in the Session it went to. |
-| `group-lines/` | Long group lines, up to the 20,000 characters a member reads, one file per line; each is removed when its line leaves the group's latest 60 lines or the group is deleted |
+| `ledger/` | Everything said in each group, whole, one append-only file per group (`group-<id>.jsonl`); removed with the group. `state.json` keeps only a group's latest 60 lines, cut to their start |
 | `handoff-results/` | The whole result of a piece of work a Bot handed on, when it is longer than the 2,000 characters `state.json` keeps, one file per result; each is removed once the answer it went into has gone up |
 | `state.lock` | The dsh that is using this data (pid and host), its mtime bumped as a heartbeat. It is removed when that dsh exits; a leftover whose heartbeat has stopped is taken over by the next dsh to load. |
 | `chat-index.sqlite` | Full-text index of older chat parts (`read_own_chat`); rebuilt if deleted |
@@ -221,10 +253,12 @@ The chats themselves are dsh Sessions and are not in `bot/`: they are in `~/.dsh
 You need Node 24, pnpm and a deepseek-harness checkout with its dependencies installed, next to this repository (`../deepseek-harness`, or set `DSH_HARNESS`). The Desktop test bench also needs `xvfb-run` and `ffmpeg`. Web screenshots need Chrome or Chromium (`CHROME_BIN`; by default `google-chrome` or `chromium`).
 
 ```sh
-npm ci                                   # esbuild, for the client build
-npm run build                            # src/client → client.js
+npm ci                                   # the plugin's packages and esbuild, for the client build
+npm ci --prefix ../link                  # the phone link's packages, for link.js and its test
+npm run harness                          # DSH packages and oxlint for tests/lint
+npm run build                            # build client.js and link.js
 npm test                                 # unit tests
-npm run lint                             # oxlint from the dsh repository (.oxlintrc.json)
+npm run lint                             # oxlint from dev/harness or DSH_HARNESS (.oxlintrc.json)
 dev/bench.sh dev 3100 8800 start         # Web test bench: mock model + dsh Web, data in ../.dsh-test-dev
 dev/desktop-linux/desktop.sh dev start   # Desktop test bench: mock model + dsh Desktop in Xvfb
 CONTEXT_WINDOW=100000 CHECK_RATIO=0.45 dev/bench.sh smoke 3101 8801 reset && node dev/smoke.mjs smoke 3101
@@ -245,8 +279,8 @@ dev/check.sh                             # all checks (see below)
 | Path | Purpose |
 |---|---|
 | `index.js` | Host entry: installs the `src/host/` modules in order |
-| `src/host/` | Host: team and storage (`roster`, `store`), tools (`tools`), turns and delivery (`turns`, `delivery`), group chats (`groups`), chat parts, the context steward and the index (`parts`, `steward`, `chat-index`), image text (`images`), secrets (`secrets`), Bot browser (`browser`), the `POST api/bot` route (`channel`) |
-| `src/client/` | Browser source: sidebar, chat header, transcript cells, panels and dialogs, themes, Bot browser panel |
+| `src/host/` | Host modules: roster and store (`roster`, `store`, `home-lock`), tools (`tools`), turns and delivery (`turns`, `delivery`, `handoffs`, `bot-tasks`), group chats (`groups`, `ledger`, `goals`, `tasks`), conversation parts and search (`parts`, `steward`, `chat-index`), memory and learning (`memory*`, `learning`), capabilities and packs (`capabilities`, `builtin-packs`), connectors and secrets (`connectors/`, `secrets*`), local agents (`local-agents/`), browser and computer use (`browser*`, `computer/`), IM/phone/MCP bridges (`im/`, `phone`, `mobile`, `remote`, `mcp-server`), DeepSeek services (`deepseek-services`), and the `POST api/bot` + `GET api/bot/feed` routes (`channel`, `feed`) |
+| `src/client/` | Browser source: sidebar and sections, chat header/island, transcript cells, Settings console (`settings*`), panels and dialogs, themes and `motion-rest`, 8-language `i18n`, characters, Bot browser panel |
 | `client.js` | Built from `src/client/` by `scripts/build-client.mjs` (esbuild); committed |
 | `web-search.js` | The `auto` search provider; independent of the team code |
 | `test/` | Unit tests and fixtures |

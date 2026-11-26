@@ -14,6 +14,22 @@ function bench() {
   return { actions, sent, ui, pulls: () => pulls }
 }
 
+test('ChatGPT uses only account endpoints, never provider keys or relay credentials', async () => {
+  const { actions, sent } = bench()
+  await actions.chatgpt()
+  await actions.chatgptSignIn({ consent: true })
+  await actions.chatgptCancel()
+  await actions.chatgptSignOut()
+  await actions.chatgptModels()
+  assert.deepEqual(sent, [
+    ['chatgpt', undefined],
+    ['chatgpt-sign-in', { consent: true }],
+    ['chatgpt-cancel', undefined],
+    ['chatgpt-sign-out', undefined],
+    ['chatgpt-models', undefined],
+  ])
+})
+
 test('every window reaches the host model providers, and key changes read the team again', async () => {
   const { actions, sent, pulls } = bench()
   await actions.providers()
@@ -34,6 +50,19 @@ test('every window reaches the host model providers, and key changes read the te
   assert.equal(pulls(), 4)
 })
 
+test('capability choices send the channel mode and refresh the roster after saving', async () => {
+  const { actions, sent, pulls } = bench()
+  await actions.setBotCapability('chief', 'echo', true)
+  await actions.setBotCapability('chief', 'echo', true, 'catalog')
+  await actions.setBotCapability('chief', 'echo', false)
+  assert.deepEqual(sent, [
+    ['bot-capability', { botId: 'chief', name: 'echo', attached: true, mode: 'always' }],
+    ['bot-capability', { botId: 'chief', name: 'echo', attached: true, mode: 'catalog' }],
+    ['bot-capability', { botId: 'chief', name: 'echo', attached: false, mode: 'always' }],
+  ])
+  assert.equal(pulls(), 3)
+})
+
 test('Retry after a failed turn asks the host to resume the Bot, with nothing but its id', async () => {
   const { actions, sent, pulls } = bench()
   await actions.resume('chief')
@@ -48,4 +77,29 @@ test('openModels opens DS Bot settings on the Models page and closes the menus',
   assert.equal(ui.getSnapshot().menu, null)
   actions.openSettings()
   assert.deepEqual(ui.getSnapshot().settings, { page: 'general', id: null })
+})
+
+test('the details status line asks the host for one Bot\'s current part', async () => {
+  const { actions, sent, pulls } = bench()
+  await actions.runStats('chief')
+  assert.deepEqual(sent, [['run-stats', { botId: 'chief' }]])
+  // A read: it does not pull the whole team again.
+  assert.equal(pulls(), 0)
+})
+
+test('computerAppAnswer refreshes team state and approval island stays mutually exclusive with goal panels (#1623)', async () => {
+  const { actions, sent, ui, pulls } = bench()
+  await actions.computerAppAnswer('ask-1', 'once')
+  assert.deepEqual(sent, [['computer-app-answer', { id: 'ask-1', answer: 'once' }]])
+  assert.equal(pulls(), 1)
+  actions.composeGoal('r1')
+  assert.equal(ui.getSnapshot().goalCompose, 'r1')
+  assert.equal(ui.getSnapshot().approvalOpen, null)
+  actions.toggleApproval('r1')
+  assert.equal(ui.getSnapshot().approvalOpen, 'r1')
+  assert.equal(ui.getSnapshot().goalOpen, null)
+  assert.equal(ui.getSnapshot().goalCompose, null)
+  actions.toggleGoal('r1')
+  assert.equal(ui.getSnapshot().goalOpen, 'r1')
+  assert.equal(ui.getSnapshot().approvalOpen, null)
 })

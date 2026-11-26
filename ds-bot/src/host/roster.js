@@ -1,17 +1,28 @@
 // Roster: creating, changing, and deleting Bots and group chats, the Main Bot role, and
 // the first Main Bot of a new team.
+import { isMissingSessionError, openSessions, ownChatSessions, retiredTaskSessionIds } from './threads.js'
+import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
-import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
-import { currentColor, isColor, normalize, splitRef, unquote } from './text.js'
+import { agentAvatar } from '../client/agent-routes.js'
+import { cleanAvatarImage } from './avatar.js'
+import { ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
+import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 
 const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete', '*'])
+export const API_ACTOR = Symbol('external API')
+const API_ROOM_FIELDS = new Set(['name', 'notice', 'mode', 'members', 'add', 'remove', 'avatar'])
 const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/
 
 const OWN_RULES = 'Where your instructions say otherwise, follow them.'
 const writeIn = language => `Write in ${language ?? 'the user\'s language if known; otherwise Chinese'}.`
 // The first Main Bot's greeting when the user wrote before it had a model that works.
 const AFTER_USER = 'You were just set up as the user\'s Main Bot. The user wrote to you before your model could answer; their message above has no answer yet. Answer it now, and say in one short sentence that you run their Bot team.'
+
+function cleanRoomAvatar(input) {
+  if (input === undefined || input === null) return input
+  return { image: cleanAvatarImage(input.image) }
+}
 
 function cleanBrowserGrants(input) {
   if (input === null) return null
@@ -69,42 +80,180 @@ export function install(rt) {
     return workspace.id
   }
 
-  // Under the PTC preset (DSH Desktop's default) a model may call only run_code, which
-  // turns down the group_relay call that a group chat's Session is given. A Session
-  // keeps the preset it is made with.
-  async function botPreset() {
+  // Agent presets: the roster the running DSH serves, as the Bot settings list it. A
+  // Bot's own pick is checked against it; a Bot without one keeps DS Bot's standard
+  // default, and no usable standard leaves the choice to DSH.
+  const cleanPreset = (value) => {
+    if (value === undefined) return undefined
+    if (value === null) return null
+    if (typeof value !== 'string') throw new Error('An agent preset must be named by its id')
+    const id = value.trim()
+    return id === '' ? null : id
+  }
+  async function agentPresetRows({ fit = false } = {}) {
     const presets = ctx.get?.('agentPresets')
-    if (presets === undefined) return {}
-    const standard = (await presets.list()).some(preset => preset.id === 'standard' && preset.broken === undefined)
-    return standard ? { agentPreset: 'standard' } : {}
+    if (presets === undefined) return []
+    const rows = (await presets.list())
+      .filter(row => typeof row?.id === 'string' && row.id !== '')
+      .map(row => ({
+        id: row.id,
+        ...(typeof row.name === 'string' && row.name !== '' ? { name: row.name } : {}),
+        ...(typeof row.description === 'string' && row.description !== '' ? { description: row.description } : {}),
+        ...(row.broken === undefined ? {} : { broken: String(row.broken) }),
+      }))
+    if (!fit) return rows
+    return Promise.all(rows.map(async (row) => {
+      if (row.broken !== undefined) return row
+      const checked = await presetFits(row.id)
+      return checked.fits ? row : { ...row, broken: checked.reason }
+    }))
+  }
+  // A preset DS Bot can run keeps the Bot's own prompt. A composition whose persona is
+  // complete replaces every global section — the Bot's identity, its instructions and
+  // the Main Bot rules included — so DS Bot does not offer it. The check goes through
+  // the public registry and prompt services and reads no declaration; a DSH without
+  // them cannot answer, and that baseline is left as it was.
+  const BOT_IDENTITY_SECTION = 'bot-identity'
+  async function presetFits(id) {
+    const presets = ctx.get?.('agentPresets')
+    const prompt = ctx.get?.('systemPrompt')
+    if (typeof presets?.acquireScope !== 'function' || typeof prompt?.assemble !== 'function') return { fits: true, unverified: true }
+    let lease
+    try {
+      lease = await presets.acquireScope(id)
+      const assembly = await prompt.assemble({ scope: lease.key })
+      return (assembly?.sections ?? []).some(section => section?.name === BOT_IDENTITY_SECTION)
+        ? { fits: true }
+        : { fits: false, reason: 'DS Bot needs the Bot\'s own prompt, which this preset replaces' }
+    } catch (error) {
+      // The probe exists but failed: the preset cannot be verified, so it is refused
+      // rather than offered and possibly replacing the Bot's own prompt.
+      rt.warn('ds-bot: the agent preset "%s" could not be checked for a Bot: %s', id, error?.message ?? error)
+      return { fits: false, reason: 'DS Bot could not verify that it keeps the Bot\'s own prompt' }
+    } finally {
+      try {
+        await lease?.[Symbol.asyncDispose]?.()
+      } catch (error) {
+        rt.warn('ds-bot: the agent preset scope of "%s" was not released: %s', id, error?.message ?? error)
+      }
+    }
+  }
+  // What a Bot's Sessions run, resolved once for every path: its own pick, the standard
+  // default when DSH serves it, or the profile's default when it does not. `undefined`
+  // when DSH decides (no roster, or a default that cannot be checked): the baseline.
+  // `usable: false` carries the user-facing reason a part must not be made on it.
+  async function effectivePreset(wanted) {
+    if (wanted !== undefined && wanted !== null) {
+      const row = (await agentPresetRows()).find(entry => entry.id === wanted)
+      if (row === undefined) return { id: wanted, usable: false, problem: `The agent preset "${wanted}" is not available in this DeepSeek Harness. Pick another preset in the Bot's settings.` }
+      if (row.broken !== undefined) return { id: wanted, usable: false, problem: `The agent preset "${wanted}" cannot run: ${row.broken}. Pick another preset in the Bot's settings.` }
+      const fit = await presetFits(wanted)
+      return fit.fits
+        ? { id: wanted, usable: true }
+        : { id: wanted, usable: false, problem: `The agent preset "${wanted}" cannot be used for a Bot: ${fit.reason}. Pick another preset in the Bot's settings.` }
+    }
+    const standard = (await agentPresetRows()).find(row => row.id === 'standard' && row.broken === undefined)
+    if (standard !== undefined) {
+      const fit = await presetFits('standard')
+      if (fit.fits) return { id: 'standard', usable: true }
+    }
+    // No usable standard: DSH composes its own default for a Session that names none.
+    // Name that one and check it like any other pick, so a default that replaces the
+    // Bot's prompt is refused instead of starting a Bot without its identity. A DSH
+    // without the probe keeps the baseline behavior.
+    const fallback = ctx.get?.('agentPresets')?.defaultId
+    if (typeof fallback !== 'string' || fallback === '') return undefined
+    const fit = await presetFits(fallback)
+    if (fit.unverified === true) return undefined
+    return fit.fits
+      ? { id: fallback, usable: true }
+      : { id: fallback, usable: false, problem: `The default agent preset "${fallback}" cannot be used for a Bot: ${fit.reason}. Choose a preset for the Bot in its settings.` }
+  }
+  // A pick must be in the roster, usable, and keep the Bot's own prompt: one that is
+  // gone, broken or incompatible is a visible error, never a silent fall back.
+  async function checkedPreset(id) {
+    const effective = await effectivePreset(id)
+    if (effective === undefined || !effective.usable) {
+      throw new Error(effective?.problem ?? `The agent preset "${id}" is not available in this DeepSeek Harness. Pick another preset in the Bot's settings.`)
+    }
+    return effective.id
+  }
+  // What a new Session of a Bot runs. Under the PTC preset (DSH Desktop's default) a
+  // model may call only run_code, which turns down the group_relay call that a group
+  // chat's Session is given; so the standard default is named explicitly when DSH
+  // serves it. A Session keeps the preset it is made with.
+  async function sessionPreset(wanted) {
+    const effective = await effectivePreset(wanted)
+    if (effective === undefined) return {}
+    if (!effective.usable) throw new Error(effective.problem)
+    return { agentPreset: effective.id }
+  }
+  // What a Bot's parts should run, resolved by the same rule as a new Session, so a
+  // cleared pick follows the same default creation does. `usable` is false when the
+  // preset is gone, broken, or incompatible, so a part is never made on it.
+  async function botPresetOf(bot) {
+    if (rt.isLocalAgentRef?.(bot?.model ?? bot?.appliedModel) === true) return undefined
+    const effective = await effectivePreset(typeof bot?.agentPreset === 'string' && bot.agentPreset !== '' ? bot.agentPreset : undefined)
+    if (effective?.usable === true && bot?.id !== undefined) clearPresetWarnings(bot.id, effective.id)
+    return effective === undefined ? undefined : { id: effective.id, usable: effective.usable }
+  }
+  // A pick that cannot make a part is reported once, in the log and through DSH's
+  // Session error channel, so the user learns why the Bot keeps its old preset.
+  const warnedPresets = new Set()
+  function clearPresetWarnings(botId, presetId) {
+    if (presetId !== undefined) {
+      warnedPresets.delete(`${botId}\0${presetId}`)
+      return
+    }
+    const prefix = `${botId}\0`
+    for (const key of warnedPresets) {
+      if (key.startsWith(prefix)) warnedPresets.delete(key)
+    }
+  }
+  function presetProblem(bot, id) {
+    const key = `${bot.id}\0${id}`
+    if (warnedPresets.has(key)) return
+    warnedPresets.add(key)
+    const why = `The agent preset "${id}" of ${bot.name} cannot run a Bot in this DeepSeek Harness, so it keeps the preset its running conversations were made with. Pick another preset in the Bot's settings.`
+    rt.warn('ds-bot: %s', why)
+    ctx.emit?.('api-session/error', rt.chatOf(bot.id), why)
   }
 
   // `dir` is a working folder outside the team workspace. Such a Session is made by cwd
   // alone, so it joins no DSH workspace and the user's own project lists stay as they are —
   // unless the folder is already registered as a workspace, which it then joins (#710).
-  async function createSession(title, { dir } = {}) {
+  // `bot` is the Bot the Session speaks for; its own preset applies. A group's own relay
+  // Session names no Bot and keeps the standard default.
+  async function createSession(title, { dir, bot, agentPreset } = {}) {
     // A Bot's tools run here too; while another dsh holds the team, a new Session would
     // belong to no saved Bot.
     const readOnly = rt.readOnly()
     if (readOnly !== undefined) throw new Error(readOnly)
+    // Checked before anything is made, so a pick that is gone or broken leaves no
+    // workspace, folder, or Session behind.
+    const local = rt.isLocalAgentRef?.(bot?.model ?? bot?.appliedModel) === true
+    const preset = await sessionPreset(local ? undefined : agentPreset !== undefined ? agentPreset : bot?.agentPreset)
     const usable = dir !== undefined && await rt.isFolder(dir)
     if (dir !== undefined && !usable) rt.warn('ds-bot: the working folder %s is gone; %s starts in the team workspace', dir, title)
     const known = usable ? await ctx.workspaceRegistry.resolveByPath(dir) : undefined
     const place = known !== undefined ? { workspaceId: known.id } : usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() }
-    const { sessionId } = await ctx.sessionController.create({ ...place, ...await botPreset() })
+    const { sessionId } = await ctx.sessionController.create({ ...place, ...preset })
     const agent = await rt.resolveAgent(sessionId)
     await ctx.sessionTitle.rename(agent.session, title)
     return sessionId
   }
 
-  function cleanAvatar(input) {
+  function cleanAvatar(input, { previousImage, engine } = {}) {
     if (input === null || typeof input !== 'object') return undefined
     const avatar = {}
     if (typeof input.shape === 'string' && /^[a-z][\w-]{0,31}$/.test(input.shape)) avatar.shape = input.shape
-    if (typeof input.image === 'string') {
-      if (!/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(input.image)) throw new Error('Avatar images must be PNG, JPEG, WebP, GIF, or SVG')
-      if (input.image.length > MAX_AVATAR_IMAGE) throw new Error('Avatar image is too large')
-      avatar.image = input.image
+    if (input.image != null) {
+      // Existing photos may predate raster validation. Keeping the same image isn't an upload.
+      const unchanged = typeof input.image === 'string' && input.image === previousImage
+      // Compare with the client's fixed badge, not a caller-supplied SVG template.
+      const badge = engine !== undefined && typeof input.image === 'string' && input.image.startsWith('data:image/svg+xml;base64,')
+        && input.image === agentAvatar(engine)?.image
+      avatar.image = unchanged || badge ? input.image : cleanAvatarImage(input.image)
     }
     return Object.keys(avatar).length > 0 ? avatar : undefined
   }
@@ -113,6 +262,12 @@ export function install(rt) {
   // its name was checked. The name is held from the check until the create ends, so a
   // create or rename that runs meanwhile cannot take it too.
   const held = { bot: new Set(), room: new Set() }
+  // deleteBot waits for the Bot's memory archive and running turns before removing it
+  // from state.bots; while it is on its way out, no group or Bot change treats it as
+  // alive, and a second deleteBot does not start.
+  const deleting = new Set()
+  const botDeleteHooks = []
+  const liveBot = id => (deleting.has(id) ? undefined : rt.botOf(id))
   const isHeld = (kind, name) => held[kind].has(normalize(name))
   async function holdName(kind, name, work) {
     const key = normalize(name)
@@ -134,10 +289,48 @@ export function install(rt) {
     return `${stem} ${index}`
   }
 
+  function cleanSectionName(text, selfId) {
+    const next = unquote(text).replace(/\s+/g, ' ').slice(0, SECTION_NAME_MAX)
+    if (next === '') throw new Error('Enter a section name')
+    if ((state.sections ?? []).some(sec => sec.id !== selfId && normalize(sec.name) === normalize(next))) {
+      throw new Error(`Another section is already called "${next}"`)
+    }
+    return next
+  }
+
+  function freshSectionName(base = 'New section') {
+    const stem = unquote(base).replace(/\s+/g, ' ').slice(0, SECTION_NAME_MAX - 4) || 'New section'
+    const taken = name => (state.sections ?? []).some(sec => normalize(sec.name) === normalize(name))
+    if (!taken(stem)) return stem
+    let index = 2
+    while (taken(`${stem} ${index}`)) index += 1
+    return `${stem} ${index}`
+  }
+
+  // Resolves a section by id (`sectionId`) or by name/id (`section`, creating one when
+  // a new name is given); `null` or an empty string clears the entry's section.
+  function resolveSectionInput({ section, sectionId }, { allowCreate = true } = {}) {
+    if (section === undefined && sectionId === undefined) return undefined
+    const raw = section !== undefined ? section : sectionId
+    if (raw === null || raw === '' || /^(none|null|无|未分组)$/i.test(String(raw).trim())) return null
+    const list = (state.sections ??= [])
+    const byId = list.find(sec => sec.id === raw)
+    if (byId !== undefined) return byId.id
+    if (section === undefined) throw new Error('Unknown section')
+    const byName = list.find(sec => normalize(sec.name) === normalize(raw))
+    if (byName !== undefined) return byName.id
+    const clean = cleanSectionName(raw)
+    if (!allowCreate) return clean
+    const created = { id: `sec-${randomUUID().slice(0, 8)}`, name: clean }
+    list.push(created)
+    return created.id
+  }
+
   // `pickModel` leaves the model to the user: the chat opens on a model card, and the
   // greeting waits until a model is chosen. So does a Bot made when no model it can
   // run on is served.
-  async function createBot(options) {
+  async function createBot(options, actorId) {
+    if (actorId === API_ACTOR) options = { ...options, createdBy: 'api:external', main: false }
     const cleanName = String(options.name ?? '').trim().slice(0, 40)
     const problem = nameProblem(cleanName)
     if (problem !== undefined) throw new Error(problem)
@@ -145,10 +338,13 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false }) {
-    const cleanAvatarValue = cleanAvatar(avatar)
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, agentPreset, extraDirs, copyOf, pickModel = false, section, sectionId }) {
+    // A chosen preset is checked before the Session is made, so an unknown or broken
+    // one leaves no half-made Bot behind.
+    const presetId = cleanPreset(agentPreset) ?? undefined
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
+    const cleanAvatarValue = cleanAvatar(avatar, { engine: model ? rt.localAgentBadge?.(modelRef) : undefined })
     // A thinking level needs a model to resolve against; with none it would be dropped
     // silently, so the create fails before a Session is made.
     if (effort && modelRef === undefined) throw new Error('Pick a model before choosing a thinking level')
@@ -160,8 +356,15 @@ export function install(rt) {
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
     const clash = dir === undefined ? undefined : await rt.privateClash(dir)
     if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${cleanName} cannot work there`)
-    const id = await createSession(cleanName, { dir })
+    const extras = extraDirs === undefined ? [] : await rt.cleanExtraDirs(extraDirs)
+    for (const path of extras) {
+      const found = await rt.privateClash(path)
+      if (found) throw new Error(`${path} is in or around the folder of ${found.name}, a private Bot, so ${cleanName} cannot work there`)
+    }
+    if (!main && (section !== undefined || sectionId !== undefined)) resolveSectionInput({ section, sectionId }, { allowCreate: false })
+    const id = await createSession(cleanName, { dir, bot: { model: modelRef }, agentPreset: presetId })
     try {
+      const resolvedSecId = !main ? resolveSectionInput({ section, sectionId }) : undefined
       state.bots[id] = {
         id,
         name: cleanName,
@@ -169,16 +372,20 @@ export function install(rt) {
         // A color is only stored when the user picks one; otherwise the id picks it.
         ...(isColor(currentColor(color)) ? { color: currentColor(color) } : {}),
         ...(cleanAvatarValue ? { avatar: cleanAvatarValue } : {}),
+        ...(presetId !== undefined ? { agentPreset: presetId } : {}),
         ...(modelRef ? { model: modelRef } : {}),
         ...(effortId ? { effort: effortId } : {}),
         ...(dir ? { workDir: dir } : {}),
+        ...(extras.length > 0 ? { extraDirs: extras } : {}),
+        ...(resolvedSecId ? { sectionId: resolvedSecId } : {}),
         instructions: String(instructions).trim(),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
         capabilities: [],
+        packs: [],
       }
       if (main) state.mainBotIds.push(id)
-      const creator = rt.botOf(createdBy)
+      const creator = createdBy === 'api:external' ? { name: 'The external API' } : rt.botOf(createdBy)
       const original = rt.botOf(copyOf)
       const language = rt.uiLanguage?.()
       // The kickoff arrives as a user message, so it outranks the Bot's instructions
@@ -209,9 +416,16 @@ export function install(rt) {
       await rt.save()
       await scopeTools()
       // The greeting runs on the Bot's own model, once its provider is registered.
+      // Reading the model catalog can throw: the greeting then goes out on the model
+      // the Bot has, as a released greeting does. Nothing awaits this chain, so an
+      // uncaught rejection here would end the host.
       void rt.waitForModel(bot)
-        .then(() => rt.applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', cleanName, error)))
+        .then(
+          () => rt.applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', cleanName, error)),
+          error => rt.warn('ds-bot: model for %s not ready, greeting on its current model: %s', cleanName, error),
+        )
         .then(() => sendKickoff(bot, greeting))
+        .catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', cleanName, error))
       return bot
     } catch (error) {
       // The Bot's Session was already made: archive it instead of leaving an orphan.
@@ -231,18 +445,33 @@ export function install(rt) {
   // again (turns.js), to go out once the user has fixed that.
   const sentKickoffs = new Map()
   function sendKickoff(bot, greeting) {
+    // A greeting waiting for its model may still be waiting when the host goes away.
+    if (rt.hostClosing?.() === true) return
+    if (bot.sessionMissing === rt.chatOf(bot.id)) {
+      sentKickoffs.set(bot.id, greeting)
+      holdKickoffAgain(bot.id)
+      return
+    }
     sentKickoffs.set(bot.id, greeting)
     const text = greeting.afterUser ? `${AFTER_USER} ${writeIn(rt.uiLanguage?.())}\n${OWN_RULES}` : greeting.text
-    void rt.deliver({ fromId: greeting.from ?? undefined, toId: bot.id, text, role: 'kickoff' })
-      .catch(error => rt.warn('ds-bot: kickoff failed: %s', error))
+    void rt.deliver({ fromId: greeting.from ?? undefined, ...(greeting.from === 'api:external' ? { fromName: 'External API' } : {}), toId: bot.id, text, role: 'kickoff' })
+      .catch((error) => {
+        if (isMissingSessionError(error)) {
+          const missingId = rt.chatOf(bot.id)
+          if (missingId !== undefined && bot.sessionMissing !== missingId) bot.sessionMissing = missingId
+          holdKickoffAgain(bot.id)
+        }
+        rt.warn('ds-bot: kickoff failed: %s', error)
+      })
   }
 
   // A held greeting goes out once its Bot has a model, on that model once its provider
-  // is registered. False while the Bot has none.
+  // is registered. False while the Bot has none or its current Session is missing.
   const releasing = new Set()
   async function releaseKickoff(bot) {
     const greeting = bot.kickoff
     if (greeting === undefined || !bot.model) return false
+    if (bot.sessionMissing === rt.chatOf(bot.id)) return false
     delete bot.kickoff
     releasing.add(bot.id)
     await rt.save().catch((error) => { releasing.delete(bot.id); throw error })
@@ -267,6 +496,10 @@ export function install(rt) {
     void rt.save().catch(() => {})
   }
 
+  function clearSentKickoff(botId) {
+    sentKickoffs.delete(botId)
+  }
+
   // The user wrote in a Bot's own chat, so a held greeting would only interrupt. The
   // first Main Bot's stays while that Bot has no model it can run on, and a Bot that a
   // key, a sign-in or a balance blocks has none: once it has one, it answers the message
@@ -284,6 +517,7 @@ export function install(rt) {
   // A turn that answered the user in a Bot's own chat leaves nothing for a greeting held
   // for that message to answer.
   function userAnswered(botId) {
+    sentKickoffs.delete(botId)
     const bot = rt.botOf(botId)
     if (bot?.kickoff?.afterUser !== true) return
     delete bot.kickoff
@@ -291,50 +525,97 @@ export function install(rt) {
   }
 
   async function duplicateBot(id) {
-    const bot = rt.botOf(id)
+    const bot = liveBot(id)
     if (bot === undefined) throw new Error('Unknown Bot')
     if (bot.private === true) throw new Error(`${bot.name} is private, so it cannot be copied`)
     const served = (await rt.catalog()).some(entry => entry.ref === bot.model)
+    const model = served ? bot.model : undefined
     // A folder that went away since leaves the copy in the team workspace.
     const workDir = bot.workDir !== undefined && await rt.isFolder(bot.workDir) ? bot.workDir : undefined
+    const extraDirs = (await Promise.all((bot.extraDirs ?? []).map(async dir => (await rt.isFolder(dir) ? dir : undefined)))).filter(Boolean)
+    let avatar
+    try {
+      avatar = cleanAvatar(bot.avatar, { engine: rt.localAgentBadge?.(model) })
+    } catch {
+      // A legacy photo can stay on its original Bot but can't be added to a new one.
+      avatar = { shape: bot.avatar?.shape }
+    }
     // No await from here to createBot's check, so two copies at once get different names.
     return createBot({
       name: freshName(`${bot.name} copy`),
       role: bot.role,
       instructions: bot.instructions,
       color: bot.color,
-      avatar: bot.avatar,
-      model: served ? bot.model : undefined,
+      avatar,
+      model,
       // A copy of a Bot on the model's own default stays on it (null marks the
       // explicit Default pick); else the create would inherit the profile level.
       effort: served ? (bot.effort ?? null) : undefined,
+      // A preset that is gone or broken since fails the copy with a visible error,
+      // rather than starting the copy on some other composition.
+      agentPreset: bot.agentPreset,
       workDir,
+      extraDirs,
+      sectionId: bot.sectionId,
       copyOf: bot.id,
     })
   }
 
   async function updateBot(id, patch, actorId, fromSessionId) {
-    const bot = rt.botOf(id)
+    const bot = liveBot(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (patch.permission !== undefined && actorId !== undefined) throw new Error('Only the user can change approval and sandbox settings')
+    if (patch.autoApprove !== undefined) throw new Error('Choose the review permission mode instead of autoApprove')
     if (patch.browserGrants !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can set what ${bot.name} may do in the browser`)
     }
     if (patch.private !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can make ${bot.name} private or open`)
     }
+    // The preset belongs to the user alone: no Bot may choose it for itself or another
+    // one through update_bot.
+    if (patch.agentPreset !== undefined && actorId !== undefined) {
+      throw new Error(`Only the user can choose the agent preset of ${bot.name}`)
+    }
+    // Checked first, so a pick that is gone or broken leaves everything else unchanged.
+    const presetPick = cleanPreset(patch.agentPreset)
+    const presetBefore = bot.agentPreset
+    if ((patch.section !== undefined || patch.sectionId !== undefined) && actorId !== undefined && !rt.isMain(actorId)) {
+      throw new Error(`Only the user or a Main Bot can move ${bot.name} between sidebar sections`)
+    }
+    if (patch.section !== undefined || patch.sectionId !== undefined) {
+      resolveSectionInput({ section: patch.section, sectionId: patch.sectionId }, { allowCreate: false })
+    }
     const browserGrants = patch.browserGrants === undefined ? undefined : cleanBrowserGrants(patch.browserGrants)
     // Checked first, so a folder, model or level that does not pass leaves the rest
     // unchanged too.
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    const extraDirs = patch.extraDirs === undefined ? undefined : await rt.cleanExtraDirs(patch.extraDirs ?? [])
     const flag = patch.private === undefined ? undefined : patch.private === true
-    await rt.checkPrivacyChange(bot, { flag, moving, workDir })
+    await rt.checkPrivacyChange(bot, { flag, moving, workDir, extraDirs })
     const modelRef = patch.model === undefined ? undefined
       : patch.model === null || patch.model === '' ? null
       : await rt.resolveModel(patch.model)
+    // What a Bot runs on changes only from its settings, after the user confirmed: every
+    // conversation of the Bot starts a new part for it. A Bot without a model runs on the
+    // one it last ran on, and one that never ran runs on DS Bot's models.
+    const engineBefore = rt.engineOf === undefined ? undefined : rt.engineOfBot(bot) ?? 'model'
+    if (modelRef === null && engineBefore !== undefined && engineBefore !== 'model') throw new Error(`${bot.name} runs on a local agent and keeps a model of it`)
+    const engineChanged = !!modelRef && engineBefore !== undefined && rt.engineOf(modelRef) !== engineBefore
+    const toLocalAgent = engineChanged ? rt.engineOf(modelRef) !== 'model' : rt.onLocalAgent(bot)
+    if (toLocalAgent && extraDirs?.length > 0) throw new Error(`${bot.name} runs on a local agent, which keeps its own file permissions, so it has no extra folders`)
+    if (engineChanged && actorId !== undefined) throw new Error(`Only the user can change what ${bot.name} runs on, in the Bot's settings`)
+    if (engineChanged && patch.changeEngine !== true) throw new Error(`Changing what ${bot.name} runs on needs a confirmation in the Bot's settings`)
+    const avatar = cleanAvatar(patch.avatar, {
+      previousImage: bot.avatar?.image,
+      engine: engineChanged ? rt.localAgentBadge?.(modelRef) : undefined,
+    })
     // A new level resolves against the model the Bot will run on: the new one, the
     // model it keeps, or — the model cleared — the one it last ran on.
     const effortRef = modelRef === undefined ? bot.model ?? bot.appliedModel : modelRef ?? bot.appliedModel
+    const presetId = presetPick === undefined || presetPick === null || rt.isLocalAgentRef?.(effortRef) === true
+      ? presetPick : await checkedPreset(presetPick)
     let effortId
     if (patch.effort !== undefined) {
       if (patch.effort === null || patch.effort === '') effortId = null
@@ -343,6 +624,7 @@ export function install(rt) {
         effortId = await rt.resolveEffort(effortRef, patch.effort)
       }
     }
+    if (!liveBot(id)) throw new Error('Unknown Bot')
     if (patch.name !== undefined) {
       const next = String(patch.name).trim().slice(0, 40)
       const clash = rt.findBot(next)
@@ -366,11 +648,9 @@ export function install(rt) {
       else if (isColor(currentColor(patch.color))) bot.color = currentColor(patch.color)
     }
     if (patch.avatar !== undefined) {
-      const avatar = cleanAvatar(patch.avatar)
       if (avatar) bot.avatar = avatar
       else delete bot.avatar
     }
-    const providerBefore = patch.model !== undefined ? splitRef(bot.appliedModel ?? bot.model)?.provider : undefined
     if (patch.model !== undefined) {
       // A failure that blocked the Bot was its old model's (turns.js).
       if ((modelRef ?? undefined) !== bot.model) delete bot.blocked
@@ -378,6 +658,8 @@ export function install(rt) {
       else bot.model = modelRef
       modelChanged = true
     }
+    // Extra folders cannot apply on a local agent, so a move there drops them.
+    if (engineChanged && toLocalAgent) delete bot.extraDirs
     if (patch.effort !== undefined) {
       if (effortId === null) delete bot.effort
       else bot.effort = effortId
@@ -390,10 +672,36 @@ export function install(rt) {
     }
     if (flag === true) bot.private = true
     else if (flag === false) delete bot.private
+    if (presetId !== undefined) {
+      if (presetId === null) {
+        delete bot.agentPreset
+        // The default is now the user's own choice, not an old team's silence: a switch
+        // that fails is retried on the next turn instead of leaving the old preset.
+        bot.agentPresetDefault = true
+        if (presetBefore !== undefined) bot.agentPresetDefaultPending = [...new Set([
+          ...ownChatSessions(bot),
+          ...rt.groupSessionsOf(bot.id),
+        ].filter(Boolean))]
+      } else {
+        bot.agentPreset = presetId
+        delete bot.agentPresetDefault
+        delete bot.agentPresetDefaultPending
+      }
+    }
+    if (patch.section !== undefined || patch.sectionId !== undefined) {
+      const nextSecId = id === state.mainBotIds[0] ? null : resolveSectionInput({ section: patch.section, sectionId: patch.sectionId })
+      if (nextSecId === null || nextSecId === undefined) delete bot.sectionId
+      else bot.sectionId = nextSecId
+    }
     const moved = moving && workDir !== bot.workDir
     if (moving) {
       if (workDir === undefined) delete bot.workDir
       else bot.workDir = workDir
+    }
+    // A Session keeps its folder, so new extra folders hold from the Bot's next step on.
+    if (extraDirs !== undefined) {
+      if (extraDirs.length === 0) delete bot.extraDirs
+      else bot.extraDirs = extraDirs
     }
     await rt.save()
     // The system prompt reads the live profile every turn, but a Session with
@@ -414,31 +722,113 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: profile update for %s not delivered: %s', bot.name, error?.message ?? error))
     }
     if (modelChanged) await rt.applyModel(bot, { force: true })
-    // A different engine cannot share the conversation's CLI session: to or
-    // from a local agent route, or between two different local agents, the
-    // chat opens in a fresh part.
-    if (patch.model !== undefined) {
-      const providerAfter = splitRef(bot.appliedModel ?? bot.model)?.provider
-      const wasLocal = rt.isLocalAgentRoute?.(providerBefore) === true
-      const isLocal = rt.isLocalAgentRoute?.(providerAfter) === true
-      if ((wasLocal !== isLocal || (isLocal && providerBefore !== providerAfter)) && providerBefore !== providerAfter) {
-        void rt.newPart?.(rt.chatOf(bot.id)).catch(error => rt.warn('ds-bot: fresh part after the engine change of %s failed: %s', bot.name, error))
-      }
-    }
+    if (engineChanged) void rt.followEngine(bot.id)
     if (moved) void rt.followFolder({ botId: bot.id })
     // A new model lifted what blocked the Bot; a new thinking level alone fixes nothing.
     // releaseKickoff itself leaves when the Bot still lacks a model or holds no greeting.
     if (modelChanged && bot.blocked === undefined) await releaseKickoff(bot)
+    // A Session keeps the preset it was made with, so a new pick moves the Bot's own
+    // chat and each of its group Sessions on to a fresh part at their next idle moment;
+    // the earlier parts stay readable and input that arrives meanwhile moves along.
+    if (presetId !== undefined && presetId !== (presetBefore ?? null)) {
+      clearPresetWarnings(bot.id)
+      void rt.applyBotPreset?.(bot)
+        .catch(error => rt.warn('ds-bot: %s does not move on to a part on its new agent preset: %s', bot.name, error))
+    }
     return bot
   }
 
-  async function setFlags(id, { pinned, hidden }) {
+  async function setFlags(id, { pinned, hidden, sectionId }) {
     const entry = rt.botOf(id) ?? rt.roomOf(id) ?? rt.own(state.agents, id)
     if (entry === undefined) throw new Error('Unknown conversation')
     if (typeof pinned === 'boolean') entry.pinned = pinned
     if (typeof hidden === 'boolean') entry.hidden = hidden
+    if (sectionId !== undefined) {
+      if (sectionId === null || sectionId === '' || id === state.mainBotIds[0]) delete entry.sectionId
+      else if (typeof sectionId === 'string' && (state.sections ?? []).some(sec => sec.id === sectionId)) entry.sectionId = sectionId
+      else throw new Error('Unknown section')
+    }
     await rt.save()
     return entry
+  }
+
+  async function saveSection({ id, name, collapsed, color, items, add, remove } = {}) {
+    if (color !== undefined && color !== null && color !== '' && !SECTION_COLORS.includes(color)) {
+      throw new Error('Unknown section color')
+    }
+    const list = (state.sections ??= [])
+    let sec
+    if (id !== undefined && id !== null && id !== '') {
+      sec = list.find(entry => entry.id === id)
+      if (sec === undefined) throw new Error('Unknown section')
+      if (name !== undefined) sec.name = cleanSectionName(name, sec.id)
+      if (typeof collapsed === 'boolean') {
+        if (collapsed) sec.collapsed = true
+        else delete sec.collapsed
+      }
+      if (color !== undefined) {
+        if (color === null || color === '') delete sec.color
+        else sec.color = color
+      }
+    } else {
+      const clean = name !== undefined && String(name).trim() !== '' ? cleanSectionName(name) : freshSectionName()
+      sec = {
+        id: `sec-${randomUUID().slice(0, 8)}`,
+        name: clean,
+        ...(collapsed === true ? { collapsed: true } : {}),
+        ...(SECTION_COLORS.includes(color) ? { color } : {}),
+      }
+      list.push(sec)
+    }
+    const entryOf = entryId => (entryId === state.mainBotIds[0] ? undefined : rt.botOf(entryId) ?? rt.roomOf(entryId) ?? rt.own(state.agents, entryId))
+    if (Array.isArray(items)) {
+      const keep = new Set(items)
+      for (const entry of [...Object.values(state.bots), ...Object.values(state.rooms), ...Object.values(state.agents)]) {
+        if (entry.sectionId === sec.id && !keep.has(entry.id)) delete entry.sectionId
+      }
+      for (const itemId of keep) {
+        const entry = entryOf(itemId)
+        if (entry !== undefined) entry.sectionId = sec.id
+      }
+    }
+    for (const itemId of add ?? []) {
+      const entry = entryOf(itemId)
+      if (entry !== undefined) entry.sectionId = sec.id
+    }
+    for (const itemId of remove ?? []) {
+      const entry = entryOf(itemId)
+      if (entry !== undefined && entry.sectionId === sec.id) delete entry.sectionId
+    }
+    await rt.save()
+    return sec
+  }
+
+  async function reorderSections(ids) {
+    if (!Array.isArray(ids)) throw new Error('Section order must be an array of section ids')
+    const list = (state.sections ??= [])
+    const byId = new Map(list.map(sec => [sec.id, sec]))
+    const next = []
+    for (const id of ids) {
+      const sec = byId.get(id)
+      if (sec !== undefined) {
+        next.push(sec)
+        byId.delete(id)
+      }
+    }
+    for (const sec of byId.values()) next.push(sec)
+    state.sections = next
+    await rt.save()
+    return state.sections
+  }
+
+  async function deleteSection(id) {
+    const list = (state.sections ??= [])
+    if (!list.some(sec => sec.id === id)) throw new Error('Unknown section')
+    state.sections = list.filter(sec => sec.id !== id)
+    for (const entry of [...Object.values(state.bots), ...Object.values(state.rooms), ...Object.values(state.agents)]) {
+      if (entry.sectionId === id) delete entry.sectionId
+    }
+    await rt.save()
   }
 
   // ---------------------------------------------------------------------------
@@ -490,17 +880,19 @@ export function install(rt) {
   // member when it has one.
   const defaultAdmin = (members, createdBy) => (members.includes(createdBy) ? createdBy : members.find(rt.isMain) ?? null)
 
-  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy } = {}) {
-    const members = [...new Set(memberIds)].filter(id => rt.botOf(id))
+  async function createRoom({ members: memberIds = [], name: roomName, avatar, notice, mode, admin, createdBy, section, sectionId } = {}) {
+    const members = [...new Set(memberIds)].filter(id => liveBot(id))
     checkMembers(members)
     const custom = cleanRoomName(roomName ?? '')
     const adminId = admin !== undefined ? admin : defaultAdmin(members, createdBy)
     if (adminId !== null && !members.includes(adminId)) throw new Error('The admin must be a member of the group')
     if (mode !== undefined && !ROOM_MODES.includes(mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
-    return holdName('room', custom, () => buildRoom({ members, custom, notice, mode, adminId, createdBy }))
+    if (section !== undefined || sectionId !== undefined) resolveSectionInput({ section, sectionId }, { allowCreate: false })
+    const photo = cleanRoomAvatar(avatar)
+    return holdName('room', custom, () => buildRoom({ members, custom, avatar: photo, notice, mode, adminId, createdBy, section, sectionId }))
   }
 
-  async function buildRoom({ members, custom, notice, mode, adminId, createdBy }) {
+  async function buildRoom({ members, custom, avatar, notice, mode, adminId, createdBy, section, sectionId }) {
     const title = custom || autoRoomName(members)
     // The group's own Session only relays; like a member's it moves to a fresh part
     // in the group's folder once the group has one (parts.js).
@@ -508,14 +900,17 @@ export function install(rt) {
     try {
       // A member deleted while the Session was made stays out, and the group is checked
       // again as it is written.
-      const live = members.filter(member => rt.botOf(member))
+      const live = members.filter(member => liveBot(member))
       checkMembers(live)
       const lead = adminId === null || live.includes(adminId) ? adminId : defaultAdmin(live, createdBy)
       const name = custom || autoRoomName(live)
+      const resolvedSecId = resolveSectionInput({ section, sectionId })
       const room = {
         id,
         name,
         ...(custom ? { named: true } : {}),
+        ...(avatar ? { avatar } : {}),
+        ...(resolvedSecId ? { sectionId: resolvedSecId } : {}),
         members: live,
         admin: lead,
         mode: mode ?? 'admin',
@@ -525,6 +920,8 @@ export function install(rt) {
       }
       state.rooms[id] = room
       await rt.save()
+      // A new Session starts on DSH's default, which may be a model no longer served.
+      await rt.selectRoomSession(id)
       // The Session was resolved before the group owned it, so its relay tool lands now.
       await rt.resolveAgent(id)
       if (name !== title) await retitleRoom(room)
@@ -544,14 +941,16 @@ export function install(rt) {
   // await: another change or a deleted Bot may have come in meanwhile, and `add` and
   // `remove` apply to the members the group has then.
   function planRoomChange(room, patch, actorId) {
+    const byApi = actorId === API_ACTOR
+    if (byApi && Object.keys(patch).some(field => !API_ROOM_FIELDS.has(field))) throw new Error('The API can only change safe group settings')
     const byMain = actorId === undefined || rt.isMain(actorId)
     const byAdmin = !byMain && rt.isAdminOf(room, actorId)
-    if (!byMain && !byAdmin) throw new Error(`Only the user, a Main Bot, or the admin of "${room.name}" can change it`)
+    if (!byMain && !byAdmin && !byApi) throw new Error(`Only the user, a Main Bot, or the admin of "${room.name}" can change it`)
     let members = Array.isArray(patch.members) ? [...new Set(patch.members)] : [...room.members]
     for (const member of patch.add ?? []) if (!members.includes(member)) members.push(member)
-    members = members.filter(member => !(patch.remove ?? []).includes(member) && rt.botOf(member))
+    members = members.filter(member => !(patch.remove ?? []).includes(member) && liveBot(member))
     // A group left with one Bot by a deletion can still change its other settings.
-    const current = room.members.filter(member => rt.botOf(member))
+    const current = room.members.filter(member => liveBot(member))
     if (members.length !== current.length || members.some(member => !current.includes(member))) checkMembers(members)
     let admin = room.admin ?? null
     if (patch.admin !== undefined) {
@@ -565,9 +964,16 @@ export function install(rt) {
     }
     if (patch.mode !== undefined && !ROOM_MODES.includes(patch.mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
     const notice = patch.notice === undefined ? undefined : cleanNotice(patch.notice)
-    if (patch.workDir !== undefined && byAdmin) throw new Error(`Only the user or a Main Bot can set the folder of "${room.name}"`)
+    if ((patch.workDir !== undefined || patch.extraDirs !== undefined) && byAdmin) throw new Error(`Only the user or a Main Bot can set the folder of "${room.name}"`)
+    if ((patch.section !== undefined || patch.sectionId !== undefined) && byAdmin) {
+      throw new Error(`Only the user or a Main Bot can move "${room.name}" between sidebar sections`)
+    }
+    if (patch.section !== undefined || patch.sectionId !== undefined) {
+      resolveSectionInput({ section: patch.section, sectionId: patch.sectionId }, { allowCreate: false })
+    }
     // A Bot's own permissions are the user's to set, so a group's are too.
     if (patch.permission !== undefined && actorId !== undefined) throw new Error(`Only the user can set the permissions of "${room.name}"`)
+    if (patch.autoApprove !== undefined) throw new Error('Choose the review permission mode instead of autoApprove')
     const permission = patch.permission === undefined ? undefined : rt.cleanRoomPermission(patch.permission)
     // The second run is the last check before the change is written, so no other change
     // can take the name in between.
@@ -580,30 +986,41 @@ export function install(rt) {
     const asked = rt.roomOf(id)
     if (asked === undefined) throw new Error('Unknown group chat')
     planRoomChange(asked, patch, actorId)
+    const avatar = cleanRoomAvatar(patch.avatar)
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
-    const clash = workDir === undefined ? undefined : await rt.privateClash(workDir)
-    if (clash) throw new Error(`${workDir} is in or around the folder of ${clash.name}, a private Bot, so a group cannot work there`)
+    const extraDirs = patch.extraDirs === undefined ? undefined : await rt.cleanExtraDirs(patch.extraDirs ?? [])
+    for (const path of [...(workDir === undefined ? [] : [workDir]), ...(extraDirs ?? [])]) {
+      const clash = await rt.privateClash(path)
+      if (clash) throw new Error(`${path} is in or around the folder of ${clash.name}, a private Bot, so a group cannot work there`)
+    }
     // No await from here until every change is written.
     const room = rt.roomOf(id)
     if (room === undefined) throw new Error('Unknown group chat')
     const { members, admin, name, notice, permission } = planRoomChange(room, patch, actorId)
 
     const changes = []
-    const names = ids => ids.map(member => rt.botOf(member)?.name).filter(Boolean).join(', ')
+    const names = ids => ids.map(member => liveBot(member)?.name).filter(Boolean).join(', ')
     const added = members.filter(member => !room.members.includes(member))
     const removed = room.members.filter(member => !members.includes(member))
     if (added.length > 0) changes.push(`added ${names(added)}`)
     // A deleted Bot still listed goes without a word.
     if (names(removed) !== '') changes.push(`removed ${names(removed)}`)
     // A member who leaves and comes back starts from a fresh look at the log.
+    const noteCleanups = []
     for (const member of removed) {
       if (room.seen) delete room.seen[member]
-      rt.dropGroupSession(room, member)
+      rt.forgetSessionChanges?.(room.sessions?.[member])
+      for (const segment of room.segments?.[member] ?? []) rt.forgetSessionChanges?.(segment.sessionId)
+      noteCleanups.push(rt.dropGroupSession(room, member))
+      rt.cancelMemberTasks?.(room, member, 'Member was removed from the group')
+      rt.goalMemberRemoved?.(room, member)
     }
+    const prevAdmin = room.admin ?? null
     room.members = members
-    if (admin !== (room.admin ?? null)) changes.push(admin ? `made ${rt.botOf(admin).name} the admin` : 'removed the admin')
+    if (admin !== prevAdmin) changes.push(admin ? `made ${rt.botOf(admin).name} the admin` : 'removed the admin')
     room.admin = admin
+    if (prevAdmin !== null && admin === null) rt.goalAdminCleared?.(room, 'no admin is assigned')
     if (patch.mode !== undefined && patch.mode !== room.mode) {
       room.mode = patch.mode
       changes.push(patch.mode === 'admin' ? 'plain messages now go to the admin first' : 'every member now replies in turn')
@@ -611,6 +1028,11 @@ export function install(rt) {
     if (notice !== undefined && notice !== (room.notice ?? '')) {
       room.notice = notice
       changes.push(notice ? 'updated the notice' : 'cleared the notice')
+    }
+    if (avatar !== undefined && avatar?.image !== room.avatar?.image) {
+      if (avatar === null) delete room.avatar
+      else room.avatar = avatar
+      changes.push(avatar === null ? 'removed the avatar' : 'updated the avatar')
     }
     // Members' group conversations move on to the folder at their next turn there;
     // the group's own Session moves the same way, now when it is idle.
@@ -623,6 +1045,11 @@ export function install(rt) {
       delete room.memberDirs
       changes.push(workDir ? `every member now works in ${workDir} here` : 'every member works in its own folder again')
       void rt.followFolder({ roomId: room.id })
+    }
+    if (extraDirs !== undefined && extraDirs.join('\n') !== (room.extraDirs ?? []).join('\n')) {
+      if (extraDirs.length === 0) delete room.extraDirs
+      else room.extraDirs = extraDirs
+      changes.push(extraDirs.length > 0 ? `every member also works in ${extraDirs.join(', ')} here` : 'removed the extra folders')
     }
     const before = room.name
     if (name !== undefined) {
@@ -642,7 +1069,28 @@ export function install(rt) {
       changes.push(`renamed it "${room.name}"`)
       await retitleRoom(room)
     }
+    if (patch.section !== undefined || patch.sectionId !== undefined) {
+      const nextSecId = resolveSectionInput({ section: patch.section, sectionId: patch.sectionId })
+      if ((nextSecId ?? undefined) !== room.sectionId) {
+        if (nextSecId === null || nextSecId === undefined) {
+          delete room.sectionId
+          changes.push('removed it from its sidebar section')
+        } else {
+          room.sectionId = nextSecId
+          const secName = (state.sections ?? []).find(sec => sec.id === nextSecId)?.name ?? nextSecId
+          changes.push(`moved it to section "${secName}"`)
+        }
+      }
+    }
     await rt.save()
+    if (noteCleanups.length > 0) await Promise.allSettled(noteCleanups)
+    for (const member of removed) {
+      await rt.stopMemberRoomTasks?.(room.id, member, 'removed from group')
+        .catch(error => rt.warn('ds-bot: stopping group tasks for removed member %s in %s failed: %s', member, room.name, error))
+      await rt.reconcileStoppedRoomTask?.(room.id, member)
+        .catch(error => rt.warn('ds-bot: reconciling group batch for removed member %s in %s failed: %s', member, room.name, error))
+    }
+    if (added.length > 0 || removed.length > 0) await rt.selectRoomSession?.(rt.sessionOfRoom(room), room)
     return { room, changes }
   }
 
@@ -651,13 +1099,34 @@ export function install(rt) {
     if (room === undefined) throw new Error('Unknown group chat')
     // Before the group's Sessions leave the state, which the archive reads.
     const archived = rt.archiveGroupMemory(room)
-    for (const botId of Object.keys(room.sessions ?? {})) rt.dropGroupSession(room, botId)
-    for (const segment of room.parts ?? []) delete state.switching[segment.sessionId]
-    delete state.switching[rt.sessionOfRoom(room)]
+    await rt.stopRoomTasks?.(room.id, 'group deleted')
+      .catch(error => rt.warn('ds-bot: stopping tasks of deleted group %s failed: %s', room.name, error))
+    const noteCleanups = []
+    for (const botId of new Set([...Object.keys(room.sessions ?? {}), ...Object.keys(room.segments ?? {})])) {
+      rt.forgetSessionChanges?.(room.sessions?.[botId])
+      for (const segment of room.segments?.[botId] ?? []) rt.forgetSessionChanges?.(segment.sessionId)
+      noteCleanups.push(rt.dropGroupSession(room, botId))
+    }
+    const partIds = (room.parts ?? []).map(segment => segment?.sessionId).filter(Boolean)
+    if (partIds.length > 0) noteCleanups.push(rt.deleteSegmentNotes?.(partIds))
+    const roomSessions = new Set([rt.sessionOfRoom(room), ...partIds].filter(Boolean))
+    for (const sid of roomSessions) {
+      delete state.switching[sid]
+      delete state.questions[sid]
+      if (state.views !== undefined) delete state.views[sid]
+      if (state.closedCards !== undefined) delete state.closedCards[sid]
+      delete state.exchangeTurns[sid]
+      rt.forgetSessionParts?.(sid)
+      rt.forgetSessionTurn?.(sid)
+      rt.forgetHeldSteps?.(sid)
+      rt.forgetSessionModel?.(sid)
+    }
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)
+    void rt.forgetRoomReports?.(room).catch(error => rt.warn('ds-bot: settling reports of deleted group %s failed: %s', room.name, error))
     await archived
+    await Promise.allSettled(noteCleanups)
     const failed = await saveForDelete()
     // Armed scheduled tasks refuse a plain archive and would keep delivering into
     // the deleted group; the session-stop that stopActivity runs removes them.
@@ -666,11 +1135,76 @@ export function install(rt) {
     if (failed !== undefined) throw failed
   }
 
+  // The shared to-do list of a group lives on the room, so every member reads the same
+  // list and deleting the group deletes it with the rest of the room.
+  async function addRoomTodo(id, text, by) {
+    const room = rt.roomOf(id)
+    if (room === undefined) throw new Error('Unknown group chat')
+    const clean = String(text ?? '').replace(/\s+/g, ' ').trim()
+    if (clean === '') throw new Error('Write the to-do first.')
+    if (clean.length > ROOM_TODO_TEXT_MAX) throw new Error(`Keep a to-do under ${ROOM_TODO_TEXT_MAX} characters.`)
+    const todos = room.todos ??= []
+    if (todos.length >= ROOM_TODO_MAX) throw new Error(`The shared to-do list is full (${ROOM_TODO_MAX}). Remove one or clear the completed items.`)
+    const item = { id: randomUUID(), text: clean, done: false, createdAt: Date.now(), ...(by ? { createdBy: by } : {}) }
+    todos.push(item)
+    await rt.save()
+    return item
+  }
+
+  // Without `done` the item flips; ticking twice is not an error, so two members can
+  // act on the same row without a race.
+  async function setRoomTodoDone(id, todoId, done, by) {
+    const room = rt.roomOf(id)
+    if (room === undefined) throw new Error('Unknown group chat')
+    const item = (room.todos ?? []).find(entry => entry.id === todoId)
+    if (item === undefined) throw new Error('That to-do is no longer on the list.')
+    const next = done === undefined ? item.done !== true : done === true
+    if (item.done !== next) {
+      item.done = next
+      if (next) {
+        item.doneAt = Date.now()
+        if (by) item.doneBy = by
+      } else {
+        delete item.doneAt
+        delete item.doneBy
+      }
+      await rt.save()
+    }
+    return item
+  }
+
+  async function removeRoomTodo(id, todoId) {
+    const room = rt.roomOf(id)
+    if (room === undefined) throw new Error('Unknown group chat')
+    const todos = room.todos ?? []
+    const index = todos.findIndex(entry => entry.id === todoId)
+    if (index === -1) throw new Error('That to-do is no longer on the list.')
+    const [item] = todos.splice(index, 1)
+    await rt.save()
+    return item
+  }
+
+  // Open rows stay. A full list is unblocked by dropping the completed ones, or by
+  // removing a single row, and nothing is discarded on its own.
+  async function clearDoneRoomTodos(id) {
+    const room = rt.roomOf(id)
+    if (room === undefined) throw new Error('Unknown group chat')
+    const todos = room.todos ?? []
+    const removed = []
+    let index = 0
+    while (index < todos.length) {
+      if (todos[index].done === true) removed.push(todos.splice(index, 1)[0])
+      else index += 1
+    }
+    if (removed.length > 0) await rt.save()
+    return removed
+  }
+
   // The first Main Bot is the sidebar tile. `replace` gives a Main Bot's place to
   // another Bot in one step, so the team never has none; `primary` moves a Bot to the
   // front and keeps the others.
   async function setMain(id, main, { primary = false, replace } = {}) {
-    const bot = rt.botOf(id)
+    const bot = liveBot(id)
     if (bot === undefined) throw new Error('Unknown Bot')
     if (main && bot.private === true) throw new Error(`${bot.name} is private, so it cannot be a Main Bot`)
     const others = state.mainBotIds.filter(other => other !== id)
@@ -695,65 +1229,100 @@ export function install(rt) {
       if (rt.botOf(other)?.kickoff?.main) delete rt.botOf(other).kickoff
     }
     state.mainBotIds = next
+    if (next[0] && state.bots[next[0]]) delete state.bots[next[0]].sectionId
     await rt.save()
   }
 
   async function deleteBot(id) {
-    const bot = rt.botOf(id)
+    const bot = liveBot(id)
     if (bot === undefined) throw new Error('Unknown Bot')
     if (rt.isMain(id)) throw new Error('A Main Bot cannot be deleted; remove its Main Bot role first')
-    // Before the Bot and its group Sessions leave the state, which the archive reads.
-    const archived = rt.archiveBotMemory(id)
-    const current = rt.chatOf(id)
-    // Questions and exchange turns are kept per Session, so every part of the chat is cleared.
-    const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId)])
-    // `archiving` stands until the archive's path is known: the memory may already be
-    // there, and no region of its own closes it yet.
-    const closedArchive = bot.private === true ? {
-      id: bot.id,
-      name: bot.name,
-      ...(bot.workDir === undefined ? {} : { workDir: bot.workDir }),
-      sessionIds: [...parts, ...rt.groupSessionsOf(id)],
-      archiving: true,
-    } : undefined
-    await rt.releaseBot(id, [...parts, ...rt.groupSessionsOf(id)])
-    if (closedArchive !== undefined) state.privateArchives = [...(state.privateArchives ?? []).filter(entry => entry.id !== id), closedArchive]
-    delete state.bots[id]
-    // The shared capability list is the user's and keeps its items; only a
-    // still-unapproved local MCP this Bot alone asked for leaves with it.
-    rt.dropOrphanCapabilities?.(bot)
-    for (const part of parts) {
-      delete state.questions[part]
-      if (state.views !== undefined) delete state.views[part]
-      if (state.closedCards !== undefined) delete state.closedCards[part]
-      delete state.exchangeTurns[part]
-      delete state.switching[part]
+    deleting.add(id)
+    try {
+      sentKickoffs.delete(id)
+      clearPresetWarnings(id)
+      for (const hook of botDeleteHooks) await hook(id)
+      rt.forgetBotTasks?.(bot)
+      rt.forgetBotPermissions?.(id)
+      // Before the Bot and its group Sessions leave the state, which the archive reads.
+      const archived = rt.archiveBotMemory(id)
+      const current = rt.chatOf(id)
+      // Questions and exchange turns are kept per Session, so every part of the chat is cleared.
+      const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId), ...openSessions(bot)])
+      // `archiving` stands until the archive's path is known: the memory may already be
+      // there, and no region of its own closes it yet.
+      const closedArchive = bot.private === true ? {
+        id: bot.id,
+        name: bot.name,
+        ...(bot.workDir === undefined ? {} : { workDir: bot.workDir }),
+        sessionIds: [...parts, ...rt.groupSessionsOf(id), ...retiredTaskSessionIds(bot)],
+        archiving: true,
+      } : undefined
+      await rt.releaseBot(id, [...parts, ...rt.groupSessionsOf(id)])
+      if (closedArchive !== undefined) state.privateArchives = [...(state.privateArchives ?? []).filter(entry => entry.id !== id), closedArchive]
+      delete state.bots[id]
+      rt.forgetBotRequests?.(id)
+      rt.dropBotLedgers?.(id)
+      const noteCleanups = [rt.deleteSegmentNotes?.([...parts])]
+      // The shared capability list is the user's and keeps its items; only a
+      // still-unapproved local MCP this Bot alone asked for leaves with it.
+      const orphanCleanup = rt.dropOrphanCapabilities?.(bot)
+      if (orphanCleanup !== undefined) noteCleanups.push(orphanCleanup)
+      for (const part of parts) {
+        delete state.questions[part]
+        if (state.views !== undefined) delete state.views[part]
+        if (state.closedCards !== undefined) delete state.closedCards[part]
+        delete state.exchangeTurns[part]
+        delete state.switching[part]
+        rt.forgetSessionChanges?.(part)
+        rt.forgetSessionParts?.(part)
+        rt.forgetSessionTurn?.(part)
+        rt.forgetHeldSteps?.(part)
+        rt.forgetSessionModel?.(part)
+      }
+      const touched = []
+      for (const room of Object.values(state.rooms)) {
+        if (!room.members.includes(id)) {
+          if (room.sessions?.[id] !== undefined || room.segments?.[id] !== undefined) noteCleanups.push(rt.dropGroupSession(room, id))
+          continue
+        }
+        const wasAdmin = room.admin === id
+        room.members = room.members.filter(member => member !== id)
+        if (wasAdmin) {
+          room.admin = null
+          rt.goalAdminCleared?.(room, 'the admin was deleted')
+        }
+        rt.goalMemberRemoved?.(room, id)
+        rt.cancelMemberTasks?.(room, id, 'Bot was deleted')
+        rt.forgetSessionChanges?.(room.sessions?.[id])
+        for (const segment of room.segments?.[id] ?? []) rt.forgetSessionChanges?.(segment.sessionId)
+        noteCleanups.push(rt.dropGroupSession(room, id))
+        touched.push(room)
+      }
+      await Promise.allSettled(noteCleanups)
+      await rt.forgetBotRoomReports?.(id, touched)
+        .catch(error => rt.warn('ds-bot: cleaning group reports for deleted Bot %s failed: %s', bot.name, error))
+      await followMemberNames(touched)
+      await rt.forgetBotSecrets(id)
+      const archivePath = await archived
+      if (closedArchive !== undefined) {
+        // No path means nothing was moved: a memory that stayed in place is a region already.
+        if (archivePath !== undefined) closedArchive.archivePath = archivePath
+        delete closedArchive.archiving
+      }
+      const failed = await saveForDelete()
+      for (const room of touched) await rt.selectRoomSession?.(rt.sessionOfRoom(room), room)
+      // Same as deleteRoom: stopActivity removes the Session's armed scheduled tasks.
+      // Past parts are archived too: a part move can leave tasks on the old Session,
+      // which otherwise stays armed and invisible. Already-archived ids are a no-op.
+      for (const part of parts) {
+        await ctx.workspaceRegistry.archiveSession(part, { stopActivity: true })
+          .catch(error => rt.warn('ds-bot: Bot %s not archived: %s', bot.name, error))
+      }
+      if (failed !== undefined) throw failed
+    } finally {
+      deleting.delete(id)
     }
-    const touched = []
-    for (const room of Object.values(state.rooms)) {
-      if (!room.members.includes(id)) continue
-      room.members = room.members.filter(member => member !== id)
-      if (room.admin === id) room.admin = null
-      rt.dropGroupSession(room, id)
-      touched.push(room)
-    }
-    await followMemberNames(touched)
-    await rt.forgetBotSecrets(id)
-    const archivePath = await archived
-    if (closedArchive !== undefined) {
-      // No path means nothing was moved: a memory that stayed in place is a region already.
-      if (archivePath !== undefined) closedArchive.archivePath = archivePath
-      delete closedArchive.archiving
-    }
-    const failed = await saveForDelete()
-    // Same as deleteRoom: stopActivity removes the Session's armed scheduled tasks.
-    // Past parts are archived too: a part move can leave tasks on the old Session,
-    // which otherwise stays armed and invisible. Already-archived ids are a no-op.
-    for (const part of parts) {
-      await ctx.workspaceRegistry.archiveSession(part, { stopActivity: true })
-        .catch(error => rt.warn('ds-bot: Bot %s not archived: %s', bot.name, error))
-    }
-    if (failed !== undefined) throw failed
   }
 
   // A deletion whose save fails stays in memory, and the next save writes it, so its
@@ -782,8 +1351,13 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
+    // Reverse install order (side before BTW) matches the old delete wrappers.
+    onBotDelete: hook => { botDeleteHooks.unshift(hook) },
     ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags,
+    agentPresetRows, agentPresetFits: presetFits, botPresetOf, presetProblem,
+    saveSection, reorderSections, deleteSection,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
-    setMain, deleteBot, bootstrap, releaseKickoff, greetingOut, holdKickoffAgain, userWrote, userAnswered,
+    addRoomTodo, setRoomTodoDone, removeRoomTodo, clearDoneRoomTodos,
+    setMain, deleteBot, bootstrap, releaseKickoff, greetingOut, holdKickoffAgain, clearSentKickoff, userWrote, userAnswered,
   })
 }

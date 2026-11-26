@@ -3,10 +3,27 @@
 // it, the route's key in DSH's credential store under the reference the route names.
 // The providers to add are the ones DSH's directory of configurable providers offers.
 
+import { serviceOf } from './services.js'
+import { CHATGPT_PROVIDER } from './chatgpt.js'
 const PI_AI = 'llm-pi-ai'
 const ROUTE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
-// The wire protocols DSH's pi-ai adapter serves on a route it ships nothing about.
+// The baseline wire protocols DSH's pi-ai adapter serves on a custom route; newer DSH
+// builds advertise any additional protocols (such as `google-generative-ai`) in their
+// `llm-pi-ai` settings schema.
 export const PROTOCOLS = ['openai-completions', 'openai-responses', 'anthropic-messages']
+// The protocols whose model-listing the pi-ai adapter can read. A route on any other
+// protocol has no refresh entry: the adapter would answer DISCOVERY_UNSUPPORTED.
+const LISTABLE_PROTOCOLS = new Set(PROTOCOLS)
+
+function protocolsOf(section) {
+  const schema = section?.schema
+  const refs = schema?.refs
+  const at = node => (typeof node === 'number' || typeof node === 'string' ? refs?.[String(node)] : node)
+  const root = at(schema?.uid ?? schema)
+  const api = at(at(at(root?.dict?.providers)?.inner)?.dict?.api)
+  const fromSchema = api?.list?.map(item => at(item)?.value).filter(item => typeof item === 'string' && item !== '')
+  return Array.isArray(fromSchema) && fromSchema.length > 0 ? fromSchema : PROTOCOLS
+}
 const MAX_MODELS = 500
 // pi-ai guesses compatibility from the endpoint hostname and treats any unrecognized
 // gateway as OpenAI's own server (sending the `developer` role, `store: false`, and
@@ -180,7 +197,9 @@ export function install(rt) {
     if (found === undefined) return new Map()
     const map = sections(found.settings)
     const refs = new Map()
-    for (const entry of ctx.llm.listConfigurableProviders()) {
+    const llm = serviceOf(ctx, 'llm')
+    if (llm === undefined) return refs
+    for (const entry of llm.listConfigurableProviders()) {
       const ref = refOf(profileOf(entry, map))
       if (ref !== undefined) refs.set(entry.provider, ref)
     }
@@ -217,25 +236,42 @@ export function install(rt) {
         continue
       }
       const ref = refOf(profile)
-      const models = catalog.filter(model => model.provider === entry.provider).map(model => ({ ref: model.ref, name: model.name }))
+      const models = catalog.filter(model => model.provider === entry.provider).map(model => ({ id: model.id, ref: model.ref, name: model.name }))
       if (ref === undefined && models.length === 0 && entry.error === undefined) continue
       const info = ref === undefined ? undefined : await found.credentials.describe(ref).catch(() => undefined)
+      // A route can be refreshed when DSH's pi-ai discovery can list its endpoint and
+      // the route has a user layer to write the new model list into. Native and
+      // subscription routes (other settings namespaces, or base-only routes) have no
+      // such entry; they are not named here.
+      const listable = entry.settingsNs === PI_AI && profile !== undefined
+        && typeof profile.baseURL === 'string' && profile.baseURL !== ''
+        && LISTABLE_PROTOCOLS.has(typeof profile.api === 'string' ? profile.api : 'openai-completions')
+      const refreshable = listable && profileOf(entry, map, 'user') !== undefined
+      const declared = (Array.isArray(profile?.models) ? profile.models : []).map(model => {
+        const id = typeof model === 'string' ? model : model?.id
+        if (typeof id !== 'string' || id.trim() === '') return undefined
+        return { id, ref: `${entry.provider}/${id}`, name: typeof model?.name === 'string' && model.name.trim() !== '' ? model.name : id }
+      }).filter(Boolean)
       providers.push({
         id: entry.provider,
+        ...(entry.provider === CHATGPT_PROVIDER ? { auth: 'chatgpt' } : {}),
         name: entry.displayName,
         models,
-        key: ref === undefined ? null : { configured: info?.configured === true, writable: info?.writable !== false },
-        removable: entry.settingsNs === PI_AI && profileOf(entry, map, 'user') !== undefined && profileOf(entry, map, 'base') === undefined,
+        declaredModels: declared,
+        refreshable,
+        key: ref === undefined ? null : { configured: info?.configured === true, writable: entry.provider !== CHATGPT_PROVIDER && info?.writable !== false },
+        removable: entry.provider !== CHATGPT_PROVIDER && entry.settingsNs === PI_AI && profileOf(entry, map, 'user') !== undefined && profileOf(entry, map, 'base') === undefined,
         custom: entry.declared === true,
         ...(entry.error ? { error: entry.error } : {}),
       })
     }
     // The ones that come with the setup first, then the added ones as DSH lists them.
     providers.sort((a, b) => Number(a.removable) - Number(b.removable))
-    return { available: true, providers, addable, protocols: PROTOCOLS }
+    return { available: true, providers, addable, protocols: protocolsOf(map.get(PI_AI)), revision: map.get(PI_AI)?.revision }
   }
 
   async function writableRef(provider) {
+    if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-in and sign-out to manage this connection, not an API key.')
     const ref = keyRefs().get(provider)
     if (ref === undefined) throw invalid(`${provider} takes no API key here`)
     if ((await usable().credentials.describe(ref)).writable === false) throw invalid(`The API key for ${provider} is set outside DS Bot and cannot be changed here`)
@@ -244,6 +280,7 @@ export function install(rt) {
 
   // A key is only ever written; nothing here reads one back.
   async function setProviderKey(provider, value) {
+    if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-in and sign-out to manage this connection, not an API key.')
     const key = checkKey(value)
     await usable().credentials.set(await writableRef(provider), key)
     rt.dropCatalog()
@@ -261,6 +298,7 @@ export function install(rt) {
     await repairing
     const { settings, credentials } = usable()
     const provider = String(body.provider ?? '').trim()
+    if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-in to add this connection.')
     const custom = body.custom === true
     const known = custom ? await knownCatalogModels() : undefined
     const map = sections(settings)
@@ -275,7 +313,7 @@ export function install(rt) {
     if (key !== undefined && info.writable === false) throw invalid(`The API key for ${provider} is set outside DS Bot and cannot be changed here`)
     // A blank key keeps a key that is already there, else the provider's own sign-in.
     const keyed = key !== undefined || info.configured === true
-    const profile = custom ? customProfile(body, known) : {}
+    const profile = custom ? customProfile(body, known, protocolsOf(map.get(PI_AI))) : {}
     if (keyed) profile.apiKeyEnv = ref
     await settings.mutate(PI_AI, [{ op: 'set', path: entry?.settingsPath ?? ['providers', provider], value: profile }], map.get(PI_AI)?.revision)
     if (key !== undefined) await credentials.set(ref, key)
@@ -283,8 +321,8 @@ export function install(rt) {
     return providersView()
   }
 
-  function customProfile(body, known) {
-    if (!PROTOCOLS.includes(body.api)) throw invalid(`The protocol must be one of ${PROTOCOLS.join(', ')}`)
+  function customProfile(body, known, protocols = PROTOCOLS) {
+    if (!protocols.includes(body.api)) throw invalid(`The protocol must be one of ${protocols.join(', ')}`)
     const models = Array.isArray(body.models) ? body.models.slice(0, MAX_MODELS).map(model => modelEntry(model, known)) : []
     if (models.length === 0) throw invalid('Add at least one model')
     if (new Set(models.map(model => model.id)).size !== models.length) throw invalid('Two models have the same id')
@@ -302,13 +340,27 @@ export function install(rt) {
   // The models an endpoint (or a provider DSH ships) says it serves. The key typed for
   // the question goes with it and is not stored.
   async function discoverModels(body) {
-    usable()
+    const { settings } = usable()
+    const map = sections(settings)
+    const protocols = protocolsOf(map.get(PI_AI))
     const provider = typeof body.provider === 'string' && body.provider !== '' ? body.provider : undefined
-    const request = provider !== undefined && entryOf(provider)?.declared === false
-      ? { provider }
+    const entry = provider === undefined ? undefined : entryOf(provider)
+    const profile = entry !== undefined && entry.settingsNs === PI_AI ? profileOf(entry, map) : undefined
+    const stored = entry !== undefined && entry.settingsNs === PI_AI
+      && (profile !== undefined || entry.declared === false)
+    // An existing route is discovered through the profile DSH already has: the endpoint,
+    // protocol, headers and the credential reference it names. The key never comes back
+    // to the client and is never part of the request here; DSH's stored profile resolves
+    // it for the named provider.
+    const request = stored
+      ? {
+          provider,
+          ...(typeof profile?.baseURL === 'string' && profile.baseURL !== '' ? { baseURL: profile.baseURL } : {}),
+          ...(typeof profile?.api === 'string' ? { api: profile.api } : {}),
+        }
       : {
           baseURL: checkEndpoint(body.baseURL),
-          ...(PROTOCOLS.includes(body.api) ? { api: body.api } : {}),
+          ...(protocols.includes(body.api) ? { api: body.api } : {}),
           ...(typeof body.key === 'string' && body.key.trim() !== '' ? { apiKey: checkKey(body.key) } : {}),
         }
     const models = await ctx.llm.discoverModels(PI_AI, request)
@@ -327,9 +379,50 @@ export function install(rt) {
     })
   }
 
+  // Replace only one provider's models. The route, its endpoint, protocol, key
+  // reference, headers and compatibility settings stay as they are; a Bot's model
+  // choice is not touched here.
+  async function saveProviderModels(body) {
+    const { settings } = usable()
+    const provider = String(body.provider ?? '').trim()
+    if (provider === '') throw invalid('Choose a provider')
+    const map = sections(settings)
+    const entry = entryOf(provider)
+    if (entry === undefined || entry.settingsNs !== PI_AI) throw invalid(`No editable provider ${provider}`)
+    if (profileOf(entry, map, 'user') === undefined) throw invalid(`${provider} cannot be changed here`)
+    const profile = profileOf(entry, map)
+    const listable = typeof profile?.baseURL === 'string' && profile.baseURL !== ''
+      && LISTABLE_PROTOCOLS.has(typeof profile.api === 'string' ? profile.api : 'openai-completions')
+    if (!listable) throw invalid(`${provider} has no model list to refresh here`)
+    const section = map.get(PI_AI)
+    if (body.revision !== undefined && section !== undefined && body.revision !== section.revision) {
+      throw Object.assign(new Error('The provider settings changed in another window; refresh the models and try again'), { code: 'bot/stale' })
+    }
+    const list = Array.isArray(body.models) ? body.models : []
+    if (list.length === 0) throw invalid('Select at least one model')
+    if (list.length > MAX_MODELS) throw invalid(`At most ${MAX_MODELS} models can be kept`)
+    const known = await knownCatalogModels()
+    const current = new Map((Array.isArray(profile?.models) ? profile.models : [])
+      .map(model => [typeof model === 'string' ? model : model?.id, model])
+      .filter(([id]) => typeof id === 'string' && id !== ''))
+    const models = list.map((model) => {
+      const id = typeof model === 'string' ? model.trim() : model?.id?.trim()
+      const old = current.get(id)
+      const saved = typeof old === 'string' ? { id: old } : old
+      const incoming = typeof model === 'string' ? { id: model } : model
+      const next = modelEntry({ ...saved, ...incoming }, known)
+      return { ...saved, ...next }
+    })
+    if (new Set(models.map(model => model.id)).size !== models.length) throw invalid('Two models have the same id')
+    await settings.mutate(PI_AI, [{ op: 'set', path: [...entry.settingsPath, 'models'], value: models }], section?.revision)
+    rt.dropCatalog()
+    return providersView()
+  }
+
   // Only a route the user added goes; its key goes with it when it is the one this page
   // derives and no other provider names it.
   async function removeProvider(provider) {
+    if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-out to disconnect this connection; its model route is retained.')
     await repairing
     const { settings, credentials } = usable()
     const map = sections(settings)
@@ -347,5 +440,5 @@ export function install(rt) {
     return providersView()
   }
 
-  Object.assign(rt, { keyRefs, missingKeys, providersView, setProviderKey, clearProviderKey, addProvider, discoverModels, removeProvider })
+  Object.assign(rt, { keyRefs, missingKeys, providersView, setProviderKey, clearProviderKey, addProvider, discoverModels, saveProviderModels, removeProvider })
 }

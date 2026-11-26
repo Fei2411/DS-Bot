@@ -6,9 +6,10 @@ import { dirname } from 'node:path'
 
 const THEMES = new Set(['light', 'dark', 'system'])
 const MOTIONS = new Set(['quiet', 'normal', 'lively'])
-const DEFAULTS = { themeSource: 'system', motion: 'normal' }
+const EFFECTS = new Set(['full', 'reduced', 'off'])
+const DEFAULTS = { themeSource: 'system', motion: 'normal', effects: 'full' }
 
-/** @returns {{ themeSource: 'light' | 'dark' | 'system', motion: 'quiet' | 'normal' | 'lively' }} */
+/** @returns {{ themeSource: 'light' | 'dark' | 'system', motion: 'quiet' | 'normal' | 'lively', effects: 'full' | 'reduced' | 'off' }} */
 export function readStartFrame(file) {
   let saved
   try {
@@ -19,6 +20,7 @@ export function readStartFrame(file) {
   return {
     themeSource: THEMES.has(saved?.themeSource) ? saved.themeSource : DEFAULTS.themeSource,
     motion: MOTIONS.has(saved?.motion) ? saved.motion : DEFAULTS.motion,
+    effects: EFFECTS.has(saved?.effects) ? saved.effects : DEFAULTS.effects,
   }
 }
 
@@ -28,8 +30,9 @@ export function writeStartFrame(file, change) {
   const next = {
     themeSource: THEMES.has(change.themeSource) ? change.themeSource : current.themeSource,
     motion: MOTIONS.has(change.motion) ? change.motion : current.motion,
+    effects: EFFECTS.has(change.effects) ? change.effects : current.effects,
   }
-  if (next.themeSource === current.themeSource && next.motion === current.motion) return false
+  if (next.themeSource === current.themeSource && next.motion === current.motion && next.effects === current.effects) return false
   try {
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(`${file}.tmp`, `${JSON.stringify(next)}\n`)

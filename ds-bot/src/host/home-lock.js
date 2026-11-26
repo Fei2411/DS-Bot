@@ -22,6 +22,17 @@ export function pidAlive(pid) {
   }
 }
 
+// A quit that ends the process without running the plugin's cleanup (a shutdown
+// timeout, a signal handler that exits) still lets go of the lock: an exit listener
+// deletes the file this process wrote, and only while its token is still in it, so a
+// host that lost the lock never erases the new holder's.
+const held = new Set()
+process.once('exit', () => {
+  for (const release of held) {
+    try { release() } catch {}
+  }
+})
+
 export function homeLock(path, { staleMs = 60_000, beatMs = 15_000, host = hostname(), pid = process.pid, isAlive = pidAlive, now = Date.now } = {}) {
   const token = randomUUID()
   let timer
@@ -68,6 +79,7 @@ export function homeLock(path, { staleMs = 60_000, beatMs = 15_000, host = hostn
         stop()
         timer = setInterval(beat, beatMs)
         timer.unref?.()
+        held.add(release)
         return undefined
       } catch (error) {
         if (error?.code !== 'EEXIST') throw error
@@ -89,6 +101,7 @@ export function homeLock(path, { staleMs = 60_000, beatMs = 15_000, host = hostn
 
   function release() {
     stop()
+    held.delete(release)
     if (owns()) {
       try { unlinkSync(path) } catch {}
     }

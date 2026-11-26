@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { resolve } from 'node:path'
 import { test } from 'node:test'
-import { absoluteLinks } from '../src/host/links.js'
+import { absoluteLinks, fileLinks } from '../src/host/links.js'
 
 const folder = resolve('/work/group folder')
 // The path DSH opens for a link, as its chat decodes the destination.
@@ -14,6 +14,14 @@ test('a relative file link names the file in the folder it was written in', () =
   // A line range and an image keep their form.
   assert.match(absoluteLinks('[main](src/main.js#L12-L20)', folder), /#L12-L20\)$/)
   assert.equal(opened(absoluteLinks('![chart](out/chart.png)', folder)), full('out/chart.png'))
+})
+
+test('a name with # or ? still resolves after the link is made absolute', () => {
+  // A destination encodes both, because `fileTarget` ends the path at either one.
+  const text = absoluteLinks('[out](report%232.md) and [q](why%3F.txt)', folder)
+  assert.deepEqual(fileLinks(text), [full('report#2.md'), full('why?.txt')])
+  // The line range is added after the path is encoded, so it stays a fragment.
+  assert.deepEqual(fileLinks(absoluteLinks('[main](src/main.js#L12-L20)', folder)), [full('src/main.js')])
 })
 
 test('a path with spaces, parentheses or a percent sign opens as written', () => {

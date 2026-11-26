@@ -6,17 +6,18 @@ export const PROVIDERS = { cua: 'cua', driver: 'cua-driver' }
 export const KINDS = ['observe', 'background', 'foreground']
 
 // The macOS provider's single `cua` tool dispatches on params.method. Pure reads and
-// consent-gated selection need no lease; activate and hover can raise an app or move
-// the visible pointer, so they are foreground; permission UI opens on the user's
-// screen. Everything else stays in the app's background.
+// consent-gated selection need no lease; activate, 0.2.2-rc.1's hover, and mouseMove
+// with useSystemPointer raise an app or move the visible pointer, so they are
+// foreground; permission UI opens on the user's screen. Everything else stays in the
+// app's background.
 const CUA_OBSERVE = new Set([
-  'getCapabilities', 'listApps', 'findApps', 'getApp', 'listWindows', 'getState', 'screenshot',
-  'permissionStatus', 'applicationIcons',
+  'getCapabilities', 'listApps', 'findApps', 'getApp', 'listWindows', 'getState', 'listActions',
+  'screenshot', 'permissionStatus', 'applicationIcons',
 ])
 const CUA_FOREGROUND = new Set(['activate', 'hover', 'requestPermission', 'openPermissionSettings'])
 const CUA_BACKGROUND = new Set([
-  'click', 'scroll', 'drag', 'setValue', 'selectText', 'performSecondaryAction',
-  'typeText', 'paste', 'pressKey', 'show', 'launchApp',
+  'click', 'scroll', 'drag', 'setValue', 'selectText', 'invoke', 'performAction',
+  'performSecondaryAction', 'typeText', 'paste', 'pressKey', 'sendKeyEvent', 'show', 'launchApp',
 ])
 
 // The Cua Driver provider serves one tool per method as `cua_driver_native__<name>`.
@@ -46,9 +47,11 @@ const DRIVER_BACKGROUND = new Set([
 export function classify(name, args = {}) {
   if (name === 'cua') {
     const method = typeof args?.method === 'string' ? args.method : ''
-    const kind = CUA_OBSERVE.has(method) ? 'observe'
-      : CUA_FOREGROUND.has(method) ? 'foreground'
-        : CUA_BACKGROUND.has(method) ? 'background' : 'foreground'
+    const kind = method === 'mouseMove'
+      ? (args?.params?.useSystemPointer === true ? 'foreground' : 'background')
+      : CUA_OBSERVE.has(method) ? 'observe'
+        : CUA_FOREGROUND.has(method) ? 'foreground'
+          : CUA_BACKGROUND.has(method) ? 'background' : 'foreground'
     return { provider: PROVIDERS.cua, kind, method }
   }
   if (typeof name === 'string' && name.startsWith(DRIVER_PREFIX)) {
@@ -73,6 +76,9 @@ export const DRIVER_GLOBAL = new Set([
   'get_agent_cursor_state',
   'start_session', 'end_session',
 ])
+
+// Global listings that only return window metadata, so a pid filter needs no consent.
+export const DRIVER_LISTINGS = new Set(['list_apps', 'list_windows'])
 
 // Refused at every level: a Bot must not reconfigure the driver, and whole-screen
 // capture/replay bypasses per-app consent and the protected list. The session

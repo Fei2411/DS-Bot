@@ -35,7 +35,7 @@ const INACTIVE = 'cannot get required service "sessions" in inactive context'
 
 // `fail.create`/`fail.resolve`/`fail.flush`: true fails with the inactive-context
 // error; an Error value fails with it, so an ordinary error is testable too.
-async function start({ fail = {}, services = {}, home: reuse } = {}) {
+async function start({ fail = {}, services = {}, home: reuse, state: seed = TEAM } = {}) {
   const root = reuse === undefined
     ? realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-switch-')))
     : join(reuse, '..', '..')
@@ -43,7 +43,7 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
   const team = join(home, 'workspace')
   const project = join(root, 'project')
   for (const dir of [team, project]) mkdirSync(dir, { recursive: true })
-  if (reuse === undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  if (reuse === undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
 
   // The real inbox is durable; the fake keeps it in a file so a "restart" sees it.
   const inboxPath = join(home, 'fake-inbox.json')
@@ -78,7 +78,7 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
       const nextTurn = [...saved[sessionId]?.nextTurn ?? []]
       agents.set(sessionId, {
         id: sessionId,
-        session: { id: sessionId, header: { cwd: cwds.get(sessionId) ?? team }, requestHeader: () => undefined, deriveMessages: () => [] },
+        session: { id: sessionId, seq: 0, header: { cwd: cwds.get(sessionId) ?? team }, requestHeader: () => undefined, deriveMessages: () => [] },
         ctx: { tools: { register: () => () => {} } },
         calls,
         status: 'idle',
@@ -158,13 +158,21 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
   const tool = (name, args, sessionId) => rt.teamTools.find(d => d.name === name).execute(args, { agent: agentOf(sessionId), name, callId: 'c1' })
   const preStep = (sessionId, messages = [], step = 1) => ctx.listeners.get('agent/pre-step').at(-1)(
     { agent: agentOf(sessionId), messages, step, signal: AbortSignal.timeout(60_000) }, async () => 'next')
+  // A Session event as DSH emits it, on the Session the test's Agent holds.
+  let seq = 0
+  const emit = (sessionId, type, data) => {
+    const session = agentOf(sessionId).session
+    for (const listener of ctx.listeners.get('session/event') ?? []) {
+      if (listener.length >= 2) listener(session, { type, seq: ++seq, data })
+    }
+  }
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   const stop = async ({ keep = false } = {}) => {
     await ctx.dispose()
     if (!keep) rmSync(root, { recursive: true, force: true, maxRetries: 5 })
   }
   await tool('list_bots', {}, 'a')
-  return { ctx, rt, root, home, team, project, created, resolved, archived, agentOf, call, tool, preStep, state, warnings, infos, fail, stop }
+  return { ctx, rt, root, home, team, project, created, resolved, archived, agentOf, call, tool, preStep, emit, state, warnings, infos, fail, stop }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -195,8 +203,9 @@ const moveWriter = async (host, input, step = 2) => {
 }
 
 test('a move that fails while the plugin unloads hands its input back to the part it left', async (t) => {
-  // The first flush writes the fresh part's handoff; the second moves the input.
-  const fail = { flush: 2 }
+  // Flush 1 checkpoints the parked input on the old part, flush 2 writes the fresh
+  // part's handoff, and flush 3 moves the input.
+  const fail = { flush: 3 }
   const host = await start({ fail, services })
   t.after(host.stop)
   host.agentOf('b').inbox.nextTurn.push(said('h1', 'waiting input', 'e-held'))
@@ -282,7 +291,7 @@ test('an ordinary failure in the move that never started wakes the part at once'
 })
 
 test('a marked earlier part hands its kept input on after a restart, once, and is archived', async (t) => {
-  const fail = { flush: 2 }
+  const fail = { flush: 3 }
   const host = await start({ fail, services })
   host.agentOf('b').inbox.nextTurn.push(said('h1', 'waiting input', 'e-held'))
   await moveWriter(host, [said('m1', 'Now build it', 'e-carry')])
@@ -352,6 +361,54 @@ test('an earlier part is stopped only after its tasks moved to the fresh part', 
   assert.deepEqual(order, [['move', 'b', 's1'], ['archive', 'b']])
 })
 
+test('a part switch carries a reminder arriving from a pruned task', async (t) => {
+  const reminder = { id: 'reminder', status: 'active', target: { kind: 'session', sessionId: 'pruned' } }
+  const editStarted = Promise.withResolvers()
+  const releaseEdit = Promise.withResolvers()
+  const editFinished = Promise.withResolvers()
+  const schedule = {
+    catalog: async () => reminder.status === 'ended' ? [] : [{ ...reminder }],
+    edit: async ({ patch }) => {
+      if (patch.target.sessionId === 'b') {
+        editStarted.resolve()
+        await releaseEdit.promise
+      }
+      reminder.target = patch.target
+      if (patch.target.sessionId === 'b') editFinished.resolve()
+    },
+  }
+  const host = await start({ services: { ...services, schedule } })
+  t.after(async () => { releaseEdit.resolve(); await host.stop() })
+  const switchMoveStarted = Promise.withResolvers()
+  const moveSchedules = host.rt.moveSchedules
+  host.rt.moveSchedules = (from, ...args) => {
+    if (from === 'b') switchMoveStarted.resolve()
+    return moveSchedules(from, ...args)
+  }
+  const archive = host.ctx.workspaceRegistry.archiveSession
+  host.ctx.workspaceRegistry.archiveSession = async (id, options) => {
+    if (id === 'b' && options?.stopActivity) {
+      await editFinished.promise
+      if (reminder.target.sessionId === id) reminder.status = 'ended'
+    }
+    return archive(id, options)
+  }
+  host.rt.state.retiredTasks = [{ botId: 'b', sessionIds: ['pruned'] }]
+  const retirement = host.rt.retireTasks()
+  await editStarted.promise
+  await moveWriter(host, [])
+  await switchMoveStarted.promise
+  await new Promise(resolve => setImmediate(resolve))
+  releaseEdit.resolve()
+
+  await retirement
+  await until(() => host.archived.some(([id]) => id === 'b'))
+  await host.rt.retireTasks()
+  assert.equal(reminder.status, 'active')
+  assert.equal(reminder.target.sessionId, 's1')
+  assert.ok(host.archived.some(([id]) => id === 'pruned'))
+})
+
 test('a failed task move leaves the earlier part unarchived and marked for retry', async (t) => {
   const host = await start({ services })
   t.after(host.stop)
@@ -366,6 +423,26 @@ test('a failed task move leaves the earlier part unarchived and marked for retry
   await host.rt.heldBack()
   assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
   assert.deepEqual(host.state().switching, {})
+})
+
+test('a switch stops an earlier part when deleting a copied legacy reminder fails', async (t) => {
+  const reminder = { id: 'reminder', kind: 'every', title: 'Check in', prompt: 'Check', everySeconds: 3600 }
+  const copies = []
+  const schedule = {
+    list: async ({ sessionId }) => sessionId === 'b' ? [reminder] : [],
+    create: async (sessionId, request) => {
+      copies.push({ sessionId, request })
+      return { id: 'copy' }
+    },
+    delete: async () => { throw new Error('Temporary deletion failure') },
+  }
+  const host = await start({ services: { ...services, schedule } })
+  t.after(host.stop)
+  await moveWriter(host, [])
+  await until(() => host.state().bots.b.sessionId === 's1' && Object.keys(host.state().switching).length === 0)
+  assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
+  assert.deepEqual(copies, [{ sessionId: 's1', request: { title: 'Check in', prompt: 'Check', every_seconds: 3600 } }])
+  assert.equal(host.state().legacyScheduleMoves, undefined)
 })
 
 test('unmarked earlier parts are never resolved by the restart pass', async (t) => {
@@ -397,4 +474,189 @@ test('a state write that fails as a switch ends is warned about, not left unhand
   await until(() => host.warnings.some(line => line.includes('did not finish') && line.includes('disk full')))
   await settle()
   assert.deepEqual(unhandled, [])
+})
+
+// A turn cut off at the output limit with nothing written, twice in a row, is the
+// shape a route whose real window is smaller than configured leaves behind. The part
+// moves on the way an overflow moves it, without a note at the same size (#1104).
+const cutOffServices = { ...services, tokenMeter: { measure: () => ({ totalTokens: 129_000 }) } }
+const GROUP_TEAM = {
+  ...TEAM,
+  rooms: { r1: { id: 'r1', name: 'Ops', members: ['a', 'b'], mode: 'admin', admin: 'a', named: true, sessions: { b: 'gb' }, log: [], seq: 0, seen: {} } },
+}
+const cutOff = (host, sessionId, turn) => {
+  host.emit(sessionId, 'turn/start', { turn })
+  host.emit(sessionId, 'turn/end', { turn, reason: { kind: 'max-tokens' } })
+}
+const finished = (host, sessionId, turn) => {
+  host.emit(sessionId, 'turn/start', { turn })
+  host.emit(sessionId, 'turn/end', { turn, reason: { kind: 'completed' } })
+}
+
+test('a Bot cut off at the output limit with nothing written moves on to a fresh part', async (t) => {
+  const host = await start({ services: cutOffServices })
+  t.after(host.stop)
+  const agent = host.agentOf('b')
+  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5', maxTokens: 16384 } })
+  const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
+  for (const turn of [1, 2]) {
+    cutOff(host, 'b', turn)
+    idle()
+    await settle()
+  }
+  await until(() => host.state().bots.b.sessionId === 's1')
+
+  // The diagnostics name the route and the input size, so a wrong window is findable.
+  const entries = (await host.rt.diagnostics.entries()).filter(entry => entry.code === 'MAX_TOKENS')
+  assert.equal(entries.length, 2)
+  assert.match(entries[0].text, /^the turn was cut off at the output limit before it wrote anything \(gateway\/step-5, 129000 tokens in\)$/)
+  assert.deepEqual([entries[0].level, entries[0].bot, entries[0].where], ['warn', 'Writer', 'own chat'])
+
+  // The old part is archived and the fresh one opens with the deterministic handoff:
+  // no model call, and the cut-off turn is not replayed.
+  await until(() => host.archived.length > 0)
+  assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
+  const handoff = text(host.agentOf('s1').calls.find(([kind]) => kind === 'followup')[1])
+  assert.match(handoff, /^\[Handoff · part 2\]/)
+  assert.match(handoff, /kept being cut off at the output limit/)
+  assert.match(handoff, /Nothing needs an answer now/)
+  assert.equal(host.state().bots.b.segments[0].fallback, 'cutoff')
+})
+
+test('a turn that finished in between resets the count, so one cut-off does not move the part', async (t) => {
+  const host = await start({ services: cutOffServices })
+  t.after(host.stop)
+  const agent = host.agentOf('b')
+  const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
+  cutOff(host, 'b', 1)
+  idle()
+  await settle()
+  finished(host, 'b', 2)
+  idle()
+  await settle()
+  cutOff(host, 'b', 3)
+  idle()
+  await settle()
+  assert.equal(host.state().bots.b.sessionId, 'b')
+  assert.deepEqual(host.created, [])
+})
+
+test('a cut-off turn that wrote text does not move the part without usage to tell it apart', async (t) => {
+  const host = await start({ services: cutOffServices })
+  t.after(host.stop)
+  const agent = host.agentOf('b')
+  const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
+  for (const turn of [1, 2]) {
+    host.emit('b', 'turn/start', { turn })
+    // No usage: the model's output limit cannot be ruled out, so this stays a cut-off
+    // answer and the part stays.
+    host.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: `Half ${turn}` }] } })
+    host.emit('b', 'turn/end', { turn, reason: { kind: 'max-tokens' } })
+    idle()
+    await settle()
+  }
+  assert.equal(host.state().bots.b.sessionId, 'b')
+  assert.deepEqual(host.created, [])
+})
+
+// #1461: an OpenAI-compatible route whose real window is smaller than the declared one
+// stops an oversized request with finish `length` and a short answer, not an error. The
+// turn wrote a line, so #1109's nothing-written count never moved the part, and every
+// later turn stopped at the same wall.
+const shortCutOff = (host, turn, usage) => {
+  host.emit('b', 'turn/start', { turn })
+  host.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: `Half ${turn}` }] }, usage })
+  host.emit('b', 'turn/end', { turn, reason: { kind: 'max-tokens' } })
+}
+
+test('a short answer cut off twice in a row makes room like an overflow', async (t) => {
+  const host = await start({ services: cutOffServices })
+  t.after(host.stop)
+  const agent = host.agentOf('b')
+  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5', maxTokens: 16384 } })
+  const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
+  // The second turn reads most of its prompt from the provider's cache: the request is
+  // still the whole prompt, so it counts the same.
+  const sizes = [{ inputTokens: 129_000, outputTokens: 40 }, { inputTokens: 4_000, cacheReadTokens: 125_000, outputTokens: 40 }]
+  for (const [index, usage] of sizes.entries()) {
+    shortCutOff(host, index + 1, usage)
+    idle()
+    await settle()
+  }
+  await until(() => host.state().bots.b.sessionId === 's1')
+  // The diagnostics name the route, the input and what came out, so the too-large
+  // window can be found from them.
+  const entries = (await host.rt.diagnostics.entries()).filter(entry => entry.code === 'MAX_TOKENS')
+  assert.equal(entries.length, 2)
+  assert.match(entries[0].text, /the turn was cut off at the output limit, so its answer is not complete \(gateway\/step-5, 129000 tokens in, 40 tokens out\)$/)
+  assert.equal(host.state().bots.b.segments[0].fallback, 'cutoff')
+})
+
+test('a cut-off at the model output limit is not a window cut, so the part stays', async (t) => {
+  const host = await start({ services: cutOffServices })
+  t.after(host.stop)
+  const agent = host.agentOf('b')
+  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5', maxTokens: 16384 } })
+  const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
+  for (const turn of [1, 2]) {
+    shortCutOff(host, turn, { inputTokens: 129_000, outputTokens: 120_000 })
+    idle()
+    await settle()
+  }
+  assert.equal(host.state().bots.b.sessionId, 'b')
+  assert.deepEqual(host.created, [])
+})
+
+test('a group conversation cut off with nothing written moves on too', async (t) => {
+  const host = await start({ services: cutOffServices, state: GROUP_TEAM })
+  t.after(host.stop)
+  const agent = host.agentOf('gb')
+  const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
+  for (const turn of [1, 2]) {
+    cutOff(host, 'gb', turn)
+    idle()
+    await settle()
+  }
+  await until(() => host.state().rooms.r1.sessions.b === 's1')
+  assert.equal(host.state().rooms.r1.segments.b[0].fallback, 'cutoff')
+  // The old part is archived just after the switch is saved.
+  await until(() => host.archived.length > 0)
+  assert.deepEqual(host.archived, [['gb', { stopActivity: true }]])
+})
+
+test('stream-only usage on assistant/message also detects premature window cut-offs', async (t) => {
+  const host = await start({ services: cutOffServices })
+  t.after(host.stop)
+  const agent = host.agentOf('b')
+  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5', maxTokens: 16384 } })
+  const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
+  for (const turn of [1, 2]) {
+    host.emit('b', 'turn/start', { turn })
+    host.emit('b', 'assistant/message', {
+      message: { content: [{ type: 'text', text: `Half ${turn}` }] },
+      stream: [{ type: 'chunk', chunk: { type: 'usage', usage: { inputTokens: 129_000, outputTokens: 40 } } }],
+    })
+    host.emit('b', 'turn/end', { turn, reason: { kind: 'max-tokens' } })
+    idle()
+    await settle()
+  }
+  await until(() => host.state().bots.b.sessionId === 's1')
+  assert.equal(host.state().bots.b.segments[0].fallback, 'cutoff')
+})
+
+
+test('a configured small output limit is an ordinary cutoff, including reasoning-only output', async t => {
+  const host = await start({ services: cutOffServices })
+  t.after(host.stop)
+  const agent = host.agentOf('b')
+  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'small-budget', maxTokens: 1024 } })
+  for (const turn of [1, 2]) {
+    host.emit('b', 'turn/start', { turn })
+    host.emit('b', 'assistant/message', { message: { content: [] }, usage: { inputTokens: 129000, outputTokens: 1024 } })
+    host.emit('b', 'turn/end', { turn, reason: { kind: 'max-tokens' } })
+    host.ctx.emit('agent/status', { agent, status: 'idle' })
+    await settle()
+  }
+  assert.equal(host.state().bots.b.sessionId, 'b')
+  assert.deepEqual(host.created, [])
 })

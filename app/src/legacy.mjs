@@ -8,6 +8,9 @@ export const LEGACY_PRODUCT_NAME = 'DeepSeek Bot'
 export const LEGACY_ENGINE = 'deepseek-bot-engine'
 export const LEGACY_ARTIFACT_PREFIX = 'DeepSeek-Bot'
 
+/** CLI flags that keep throwaway Electron runs off the macOS login keychain. */
+export const mockKeychainArgs = (platform = process.platform) => (platform === 'darwin' ? ['--use-mock-keychain'] : [])
+
 /** Keep the shell data and Chromium encryption identity of an existing installation. */
 export function configureIdentity(app, { env = process.env, platform = process.platform, exists = existsSync, mkdir = mkdirSync } = {}) {
   const current = app.getPath('userData')
@@ -19,6 +22,14 @@ export function configureIdentity(app, { env = process.env, platform = process.p
   mkdir(userData, { recursive: true })
   app.setPath('userData', userData)
   app.setPath('sessionData', userData)
+  // On macOS, an unpackaged run with an isolated shell directory (DS_BOT_SHELL_DATA) uses
+  // the generic Electron binary against throwaway shell storage. Enabling Chromium's mock
+  // keychain avoids SecurityAgent prompts against an installed DS Bot.app and never writes
+  // a stale ACL entry to the login keychain, while keeping packaged installs and default
+  // persistent shell directories on the real login keychain.
+  if (platform === 'darwin' && !app.isPackaged && Boolean(explicit)) {
+    if (!app.commandLine?.hasSwitch?.('use-mock-keychain')) app.commandLine?.appendSwitch('use-mock-keychain')
+  }
   if (platform === 'win32') app.setAppUserModelId(APP_ID)
   // Electron 44 captures this name for OSCrypt before ready. Restore the visible name
   // before creating menus or windows; the captured keychain identity stays unchanged.

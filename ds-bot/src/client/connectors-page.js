@@ -1,10 +1,12 @@
 // Settings → Connectors. The catalog is a two-column grid of apps grouped by
 // category, with search and category chips on top and the connected count at the
-// right. A tile connects in place when nothing more is needed; anything that needs
-// a form, a code or a choice opens the app's own view, which reuses the rows in
-// connectors.js. Connected apps and the mailbox accounts have their own view.
+// right. A tile connects in place when nothing more is needed, and shows the
+// sign-in it started; anything that needs a form or a choice opens the app's own
+// view, which reuses the rows in connectors.js. Connected apps and the mailbox
+// accounts have their own view.
 import { createElement as h, useEffect, useRef, useState } from 'react'
-import { ConnectorMark, ConnectorRow, MailAccount, MailCatalogRow, MailPending, MailRules, AddMenu, openSignIn } from './connectors.js'
+import { ConnectorMark, ConnectorRow, MailAccount, MailCatalogRow, MailPending, MailRules, AddMenu, openSignIn, SignInPanel } from './connectors.js'
+import { useMorph } from './motion.js'
 import { reserveWindow } from './open-window.js'
 import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, PlusIcon, SearchIcon } from './icons.js'
 import { hostText, t } from './i18n.js'
@@ -44,7 +46,7 @@ function tileStatus(app) {
   return null
 }
 
-function AppTile({ app, actions, onOpen }) {
+function AppTile({ app, actions, onOpen, showsSignIn, onSignIn }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const fresh = useJustConnected(app.state)
@@ -58,6 +60,7 @@ function AppTile({ app, actions, onOpen }) {
     const auth = app.auth ?? {}
     if (app.id === 'mail' || auth.kind === 'key' || (auth.kind === 'oauth' && auth.token && !auth.client?.id)) return onOpen()
     if (auth.kind === 'oauth') {
+      onSignIn()
       const win = reserveWindow()
       return void run(actions.connectorConnect(app.id, {}), view => openSignIn(win, app.id, view), () => win.close())
     }
@@ -72,27 +75,39 @@ function AppTile({ app, actions, onOpen }) {
     if (app.state === 'error') return void run(actions.connectorRetry(app.id))
     return onOpen()
   }
-  return h('div', { className: 'bt-app', 'data-state': app.state, 'data-fresh': fresh ? '' : undefined, 'data-error': error ? '' : undefined },
+  const signIn = showsSignIn ? app.pending?.kind : undefined
+  const tile = useRef(null)
+  useMorph(tile, signIn ?? '')
+  return h('div', { ref: tile, className: 'bt-app', 'data-state': app.state, 'data-fresh': fresh ? '' : undefined, 'data-error': error ? '' : undefined, 'data-signing': signIn ? '' : undefined },
     h('button', { type: 'button', className: 'bt-app-main', onClick: onOpen },
       h(AppIcon, { app }),
       h('span', { className: 'bt-app-text' },
         h('span', { className: 'bt-app-name' }, app.name, app.custom ? h('span', { className: 'bt-tag' }, t('Added')) : null),
         status ? h('span', { className: 'bt-app-status' }, status) : null)),
-    h('button', { type: 'button', className: ready ? 'bt-app-btn bt-app-btn-done' : 'bt-app-btn', disabled: busy, onClick: press },
-      ready ? h(CheckIcon) : null, label))
+    signIn ? null : h('button', { type: 'button', className: ready ? 'bt-app-btn bt-app-btn-done' : 'bt-app-btn', disabled: busy, onClick: press },
+      ready ? h(CheckIcon) : null, label),
+    signIn ? h(SignInPanel, { connector: app, actions, run }) : null)
 }
 
-function Grid({ apps, actions, open }) {
-  return h('div', { className: 'bt-app-grid' }, apps.map(app => h(AppTile, { key: app.id, app, actions, onOpen: () => open(app.id) })))
+// An app can be listed in two sections. Only one tile draws the sign-in: the one
+// that was clicked, or after a reload the first one on the page.
+function Grid({ apps, actions, open, place = null, signInPlaces }) {
+  const homePlace = app => (FEATURED.includes(app.id) ? 'featured' : app.category)
+  return h('div', { className: 'bt-app-grid' }, apps.map(app => h(AppTile, {
+    key: app.id, app, actions,
+    onOpen: () => open(app.id),
+    showsSignIn: place === null || place === (signInPlaces.current[app.id] ?? homePlace(app)),
+    onSignIn: () => { signInPlaces.current[app.id] = place },
+  })))
 }
 
-function Section({ title, apps, actions, open, onAll }) {
+function Section({ title, apps, actions, open, onAll, place, signInPlaces, tour = null }) {
   if (apps.length === 0) return null
-  return h('section', { className: 'bt-app-section' },
+  return h('section', { className: 'bt-app-section', 'data-tour': tour || undefined },
     h('div', { className: 'bt-app-section-head' },
       h('h3', null, title),
       onAll && apps.length > PREVIEW ? h('button', { type: 'button', className: 'bt-app-all', onClick: onAll }, t('See all')) : null),
-    h(Grid, { apps: onAll ? apps.slice(0, PREVIEW) : apps, actions, open }))
+    h(Grid, { apps: onAll ? apps.slice(0, PREVIEW) : apps, actions, open, place, signInPlaces }))
 }
 
 function Subview({ title, onBack, children }) {
@@ -115,6 +130,7 @@ export function ConnectorsPage({ roster, actions }) {
   const [category, setCategory] = useState('')
   const [view, setView] = useState(null)
   const [error, setError] = useState(null)
+  const signInPlaces = useRef({})
   const run = (task, onDone) => Promise.resolve(task).then((value) => { setError(null); onDone?.(value) }, failure => setError(failure?.message ?? String(failure)))
   const data = roster?.connectors ?? { connectors: [], mail: { accounts: [], google: false } }
   const mail = data.mail ?? { accounts: [] }
@@ -158,7 +174,7 @@ export function ConnectorsPage({ roster, actions }) {
   }
   if (view === 'custom') {
     return h(Subview, { title: t('Other MCP server'), onBack: back }, banner,
-      h('div', { className: 'bt-set-card bt-connectors-card' }, h(AddMenu, { actions, run })))
+      h('div', { className: 'bt-set-card bt-connectors-card' }, h(AddMenu, { actions, run, initialKind: 'url', onCancel: back })))
   }
 
   const inCategory = id => apps.filter(app => app.category === id)
@@ -168,17 +184,21 @@ export function ConnectorsPage({ roster, actions }) {
   if (searching || category !== '') {
     body = found.length === 0
       ? h('p', { className: 'bt-app-empty' }, t('Nothing matches'))
-      : h(Grid, { apps: found, actions, open })
+      : h(Grid, { apps: found, actions, open, signInPlaces })
   } else {
     const featured = FEATURED.map(id => apps.find(app => app.id === id)).filter(Boolean)
     body = [
-      h(Section, { key: 'featured', title: t('Recommended'), apps: featured, actions, open }),
-      ...CATEGORIES.map(([id, label]) => h(Section, { key: id, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) })),
+      h(Section, { key: 'featured', place: 'featured', signInPlaces, title: t('Recommended'), apps: featured, actions, open, tour: 'conn-grid' }),
+      ...CATEGORIES.map(([id, label]) => h(Section, { key: id, place: id, signInPlaces, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) })),
+      // An added server has no catalog category. Without its own section a new OAuth
+      // entry, which stays off until its sign-in finishes, would be on neither the
+      // default page nor Connected, leaving Connect and Remove reachable by search only.
+      h(Section, { key: 'custom', place: 'custom', signInPlaces, title: t('Other MCP server'), apps: inCategory('custom'), actions, open, onAll: () => setCategory('custom') }),
     ]
   }
   return h('div', { className: 'bt-apps' },
     banner,
-    h('div', { className: 'bt-app-bar' },
+    h('div', { className: 'bt-app-bar', 'data-tour': 'conn-search' },
       h('label', { className: 'bt-app-search' },
         h(SearchIcon),
         h('input', { type: 'search', 'aria-label': t('Search connectors'), placeholder: t('Search connectors'), value: query, onChange: e => setQuery(e.target.value) })),
@@ -211,13 +231,14 @@ export const CONNECTORS_PAGE_CSS = `
 .bt-app-chips button:hover{background:var(--bt-active)}
 .bt-app-chips button[aria-pressed=true]{background:var(--bt-ink);color:var(--bt-main)}
 .bt-app-section{display:flex;flex-direction:column;gap:4px;margin-top:6px}
-.bt-app-section-head{display:flex;align-items:center;justify-content:space-between;min-height:24px}
+.bt-app-section-head{display:flex;align-items:center;justify-content:space-between;min-height:28px}
 .bt-app-section-head h3{margin:0;font-size:14px;line-height:20px;font-weight:600}
-.bt-app-all{border:0;background:none;padding:2px 4px;color:var(--bt-ink-3);font:inherit;font-size:12px;cursor:pointer}
-.bt-app-all:hover{color:var(--bt-ink)}
-.bt-app-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px}
+.bt-app-all{display:inline-flex;align-items:center;min-height:28px;border:0;border-radius:6px;background:none;padding:0 8px;margin-right:-8px;color:var(--bt-ink-3);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-app-all:hover{color:var(--bt-ink);background:var(--bt-hover)}
+.bt-app-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start}
 @container (max-width:520px){.bt-app-grid{grid-template-columns:minmax(0,1fr)}}
-.bt-app{position:relative;display:flex;align-items:center;gap:10px;min-height:60px;border-radius:12px}
+.bt-app{position:relative;display:flex;align-items:center;gap:10px;min-height:60px;padding:10px 12px;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);box-sizing:border-box;transition:border-color .14s ease,background-color .14s ease}
+.bt-app:hover{border-color:var(--bt-line-2);background:color-mix(in srgb,var(--bt-hover) 45%,var(--bt-card))}
 .bt-app-main{flex:1;min-width:0;display:flex;align-items:center;gap:12px;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .bt-app-icon{--bt-mark-ink:var(--bt-ink);flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-app-icon svg{width:22px;height:22px}
@@ -238,12 +259,15 @@ export const CONNECTORS_PAGE_CSS = `
 @keyframes bt-app-pop{0%{transform:scale(.86)}55%{transform:scale(1.07)}100%{transform:scale(1)}}
 @keyframes bt-app-shine{0%{background-position:100% 0}100%{background-position:0 0}}
 @keyframes bt-app-done{0%{opacity:.4;transform:scale(.94)}100%{opacity:1;transform:none}}
+.bt-app[data-signing]{flex-wrap:wrap;padding-bottom:12px}
+.bt-app[data-signing] .bt-app-main{flex-basis:100%;min-height:60px}
+.bt-app[data-signing] .bt-connector-form{flex:1 0 100%;min-width:0}
 .bt-app-empty{margin:24px 0;text-align:center;font-size:13px;color:var(--bt-ink-3)}
 .bt-app-sub{display:flex;flex-direction:column;gap:12px}
 .bt-app-sub-head{display:flex;align-items:center;gap:4px;margin-left:-6px}
 .bt-app-sub-head h3{margin:0;font-size:14px;line-height:20px;font-weight:600}
 .bt-app-about{margin:0 4px;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
 .bt-connector-mark{--bt-mark-ink:var(--bt-ink)}
-[data-bt-motion=off] .bt-app,[data-bt-motion=off] .bt-app *,[data-bt-motion=off] .bt-app::after{animation:none!important;transition:none!important}
+[data-bt-effects=off] .bt-app,[data-bt-effects=off] .bt-app *,[data-bt-effects=off] .bt-app::after{animation:none!important;transition:none!important}
 @media (prefers-reduced-motion:reduce){.bt-app[data-fresh]::after,.bt-app[data-fresh] .bt-app-icon,.bt-app[data-fresh] .bt-app-btn-done{animation:none}}
 `

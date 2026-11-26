@@ -219,3 +219,45 @@ test('missing Bot session model fails with a clear error', async () => {
     { message: 'browser_task needs a Bot session model' },
   )
 })
+
+test('session completion retries TRANSPORT failures and cancels during retry backoff on abort', async () => {
+  let attempts = 0
+  const ctx = {
+    get: () => undefined,
+    llm: {
+      providerRetryPolicy: () => ({ mode: 'normal', maxRetries: 3, retryableCodes: ['TRANSPORT'], initialDelayMs: 1, maxDelayMs: 5, jitterRatio: 0 }),
+      async *stream() {
+        attempts += 1
+        if (attempts < 3) {
+          yield { type: 'finish', reason: { kind: 'error', failure: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } } }
+          return
+        }
+        yield { type: 'text-delta', index: 0, text: 'Recovered.' }
+        yield stop
+      },
+    },
+  }
+  const exec = { agent: { session: { id: 's-browser', requestHeader: () => header } }, signal: new AbortController().signal }
+  const result = await sessionComplete(ctx, exec)({ messages: [{ role: 'user', content: 'Open.' }], tools: [] })
+  assert.equal(attempts, 3)
+  assert.equal(result.choices[0].message.content, 'Recovered.')
+
+  const abort = new AbortController()
+  let abortedAttempts = 0
+  const slowCtx = {
+    get: () => undefined,
+    llm: {
+      providerRetryPolicy: () => ({ mode: 'normal', maxRetries: 3, retryableCodes: ['TRANSPORT'], initialDelayMs: 5_000, maxDelayMs: 5_000, jitterRatio: 0 }),
+      async *stream() {
+        abortedAttempts += 1
+        setTimeout(() => abort.abort(), 10)
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } } }
+      },
+    },
+  }
+  await assert.rejects(
+    sessionComplete(slowCtx, { agent: { session: { id: 's-browser', requestHeader: () => header } }, signal: abort.signal })({ messages: [{ role: 'user', content: 'Open.' }], tools: [] }),
+  )
+  assert.equal(abortedAttempts, 1)
+})
+

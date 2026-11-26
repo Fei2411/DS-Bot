@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DS Bot · Avatar motion studio</title>
+<!--
+  A workbench for the avatar engine (src/client/avatar/). Serve the repository root
+  (for example `python3 -m http.server`) and open /ds-bot/dev/avatar-studio.html.
+-->
+<style>
+  :root { color-scheme: light; --bg: #fcfcfc; --panel: #ffffff; --side: #f7f7f7; --ink: #141414; --ink2: rgba(20,20,20,.6); --ink3: rgba(20,20,20,.36); --line: rgba(20,20,20,.08); --line2: rgba(20,20,20,.15); --hover: rgba(119,119,119,.09); --active: rgba(119,119,119,.17); --accent: #4d6bfe; --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
+  body[data-ds-dark-theme] { color-scheme: dark; --bg: #141414; --panel: #1f1f1f; --side: #1b1b1b; --ink: #f2f2f2; --ink2: rgba(242,242,242,.6); --ink3: rgba(242,242,242,.36); --line: rgba(255,255,255,.08); --line2: rgba(255,255,255,.15); --hover: rgba(160,160,160,.12); --active: rgba(160,160,160,.2); }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font); }
+  main { display: grid; grid-template-columns: minmax(380px, 1fr) 360px; gap: 0; min-height: 100vh; }
+  .stage { position: relative; display: grid; place-items: center; min-height: 560px; border-right: .5px solid var(--line); background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 20px 20px; }
+  .stage-tag { position: absolute; left: 20px; top: 16px; display: flex; gap: 8px; align-items: center; color: var(--ink2); }
+  .stage-tag b { color: var(--ink); font-weight: 600; }
+  .stats { position: absolute; right: 20px; top: 16px; font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink3); text-align: right; }
+  .hint { position: absolute; bottom: 16px; left: 0; right: 0; text-align: center; color: var(--ink3); font-size: 12px; }
+  aside { background: var(--side); padding: 18px 18px 28px; overflow: auto; max-height: 100vh; }
+  h3 { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink3); margin: 18px 0 8px; }
+  h3:first-child { margin-top: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { appearance: none; border: .5px solid var(--line2); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; transition: background .12s ease, border-color .12s ease; }
+  .chip:hover { background: var(--hover); }
+  .chip[aria-pressed=true] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .shapes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .shape { appearance: none; border: 0; background: transparent; border-radius: 10px; padding: 6px 0 4px; display: grid; justify-items: center; gap: 2px; cursor: pointer; color: var(--ink3); font: 10px var(--font); }
+  .shape:hover { background: var(--hover); }
+  .shape[aria-pressed=true] { background: var(--active); color: var(--ink); }
+  .swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+  .swatch { width: 22px; height: 22px; border-radius: 50%; border: 0; cursor: pointer; box-shadow: inset 0 0 0 .5px var(--line2); }
+  .swatch[aria-pressed=true] { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--ink); }
+  .bt-mark { display: inline-block; position: relative; line-height: 0; flex: none; }
+  .bt-mark svg { width: 100%; height: 100%; overflow: visible; }
+  .bt-mark[data-live3d] > svg { visibility: hidden; }
+  .bt-mark-live { position: absolute; pointer-events: none; }
+  body.compare .bt-mark[data-live3d] > svg { visibility: visible; opacity: .35; }
+  body.compare .bt-mark-live { opacity: .7; }
+  .hero { cursor: pointer; }
+  .scenes { grid-column: 1 / -1; border-top: .5px solid var(--line); display: grid; grid-template-columns: 300px 1fr; }
+  .sidebar { background: var(--side); border-right: .5px solid var(--line); padding: 10px 8px; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 12px; }
+  .row:hover { background: var(--hover); }
+  .row .name { font-weight: 500; }
+  .row .sub { color: var(--ink3); font-size: 12px; }
+  .chat { padding: 18px 28px; display: flex; flex-direction: column; gap: 18px; }
+  .pill { align-self: center; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px 0 10px; border-radius: 999px; background: var(--panel); box-shadow: 0 8px 28px -6px rgba(0,0,0,.08), 0 0 0 .5px var(--line2); }
+  .typing { display: flex; align-items: center; gap: 10px; color: var(--ink2); }
+  .inline { color: var(--ink2); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 14px 8px; padding: 18px 28px 28px; grid-column: 1 / -1; border-top: .5px solid var(--line); }
+  .cell { display: grid; justify-items: center; gap: 6px; color: var(--ink3); font-size: 11px; }
+  label.toggle { display: flex; align-items: center; gap: 8px; color: var(--ink2); cursor: pointer; margin-top: 6px; }
+  select { font: inherit; background: var(--panel); color: var(--ink); border: .5px solid var(--line2); border-radius: 8px; padding: 4px 8px; }
+</style>
+</head>
+<body>
+<main>
+  <section class="stage" id="stage">
+    <div class="stage-tag"><b id="tag-shape">whale</b><span id="tag-state">idle</span><span id="tag-face"></span></div>
+    <div class="stats" id="stats"></div>
+    <span class="bt-mark hero" id="hero"></span>
+    <div class="hint">Move the pointer: it follows. Rest on it: it purrs. Click it: each quick click goes further.</div>
+  </section>
+  <aside>
+    <h3>Character</h3>
+    <div class="shapes" id="shapes"></div>
+    <h3>Color</h3>
+    <div class="swatches" id="colors"></div>
+    <h3>State</h3>
+    <div class="chips" id="states"></div>
+    <h3>Motion level</h3>
+    <div class="chips" id="tiers"></div>
+    <h3>Interface motion</h3>
+    <div class="chips" id="effects"></div>
+    <h3>Expression</h3>
+    <div class="chips" id="faces"></div>
+    <h3>Moves</h3>
+    <div class="chips" id="moves"></div>
+    <h3>Size</h3>
+    <div class="chips" id="sizes"></div>
+    <h3>View</h3>
+    <div class="chips">
+      <button class="chip" id="theme">Dark</button>
+      <button class="chip" id="rest">Rest the window</button>
+      <button class="chip" id="doze">Doze</button>
+    </div>
+    <label class="toggle"><input type="checkbox" id="compare"> Overlay the flat art</label>
+  </aside>
+  <section class="scenes">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="chat">
+      <div class="pill" id="pill"></div>
+      <div class="typing" id="typing"></div>
+      <div class="inline" id="inline"></div>
+    </div>
+  </section>
+  <section class="grid" id="grid"></section>
+</main>
+<script type="module">
+import { characterMarkup, CHARACTERS, MASK_ID, PICKER_SHAPES, SHAPES, CHARACTER_COLORS } from '../src/client/characters.js'
+import { INKS, inkFill, paintCss } from '../src/client/inks.js'
+import { LiveMark } from '../src/client/avatar/live.js'
+import { STATES } from '../src/client/avatar/states.js'
+import { FACE_NAMES } from '../src/client/avatar/face.js'
+import { CLIPS } from '../src/client/avatar/clips.js'
+
+// Character inks as the client defines them.
+const inkCss = document.createElement('style')
+inkCss.textContent = Object.entries(INKS).map(([name, [light, dark]]) => `body{--bt-ink-${name}:${light}}body[data-ds-dark-theme]{--bt-ink-${name}:${dark}}`).join('')
+document.head.append(inkCss)
+
+let serial = 0
+const flat = (shape, color) => characterMarkup(shape, color).replaceAll(MASK_ID, `st-${serial += 1}`)
+function mount(host, { shape, color, size, state = 'idle', live = false, seed }) {
+  host.style.width = `${size}px`
+  host.style.height = `${size}px`
+  host.innerHTML = `<svg viewBox="0 0 100 100">${flat(shape, color)}</svg>`
+  return new LiveMark(host, { look: { shape, color }, def: SHAPES[shape], size, seed: seed ?? Math.floor(Math.random() * 1e9), live, state })
+}
+
+const ui = { shape: 'whale', color: 'deepseek', state: 'idle', size: 220, tier: 'normal', effects: 'full' }
+const hero = document.getElementById('hero')
+let heroMark = mount(hero, { shape: ui.shape, color: ui.color, size: ui.size, live: true, seed: 7 })
+
+function remountHero() {
+  heroMark.destroy()
+  heroMark = mount(hero, { shape: ui.shape, color: ui.color, size: ui.size, state: ui.state, live: true, seed: 7 })
+  document.getElementById('tag-shape').textContent = ui.shape
+}
+
+const pressed = (group, value) => { for (const button of document.querySelectorAll(`#${group} > *`)) button.setAttribute('aria-pressed', String(button.dataset.value === String(value))) }
+function chips(id, values, onPick, label = v => v) {
+  const box = document.getElementById(id)
+  for (const value of values) {
+    const button = document.createElement('button')
+    button.className = 'chip'
+    button.dataset.value = value
+    button.textContent = label(value)
+    button.addEventListener('click', () => onPick(value, button))
+    box.append(button)
+  }
+}
+
+// Characters.
+const shapes = document.getElementById('shapes')
+for (const id of [...PICKER_SHAPES, 'magnet', 'ring', 'gem']) {
+  const button = document.createElement('button')
+  button.className = 'shape'
+  button.dataset.value = id
+  button.innerHTML = `<svg width="34" height="34" viewBox="0 0 100 100">${flat(id, ui.color)}</svg><span>${id}</span>`
+  button.addEventListener('click', () => { ui.shape = id; pressed('shapes', id); remountHero() })
+  shapes.append(button)
+}
+pressed('shapes', ui.shape)
+
+// Colors.
+const colors = document.getElementById('colors')
+for (const color of ['deepseek', ...CHARACTER_COLORS]) {
+  const button = document.createElement('button')
+  button.className = 'swatch'
+  button.dataset.value = color
+  button.title = color
+  button.style.background = paintCss(color)
+  button.addEventListener('click', () => { ui.color = color; pressed('colors', color); remountHero() })
+  colors.append(button)
+}
+pressed('colors', ui.color)
+
+chips('states', Object.keys(STATES), (value) => {
+  ui.state = value
+  pressed('states', value)
+  heroMark.update({ state: value })
+  document.getElementById('tag-state').textContent = value
+})
+pressed('states', 'idle')
+
+function setBody(key, value) { document.body.dataset[key] = value }
+chips('tiers', ['quiet', 'normal', 'lively'], (value) => { ui.tier = value; pressed('tiers', value); setBody('btMotion', value) })
+pressed('tiers', 'normal')
+setBody('btMotion', 'normal')
+chips('effects', ['full', 'reduced', 'off'], (value) => { pressed('effects', value); if (value === 'full') delete document.body.dataset.btEffects; else setBody('btEffects', value) })
+pressed('effects', 'full')
+
+chips('faces', FACE_NAMES, value => heroMark.act(engine => engine.setFace(value, 2.4)))
+chips('moves', ['blink', 'poke', ...Object.keys(CLIPS)], (value) => {
+  heroMark.act((engine) => {
+    if (value === 'blink') engine.blink()
+    else if (value === 'poke') engine.poke()
+    else engine.play(value)
+  })
+})
+chips('sizes', [16, 20, 24, 28, 36, 44, 60, 120, 220], (value) => { ui.size = value; pressed('sizes', value); remountHero() }, v => `${v}px`)
+pressed('sizes', 220)
+
+document.getElementById('theme').addEventListener('click', (event) => {
+  const dark = !document.body.hasAttribute('data-ds-dark-theme')
+  document.body.toggleAttribute('data-ds-dark-theme', dark)
+  event.target.textContent = dark ? 'Light' : 'Dark'
+  for (const button of shapes.children) button.querySelector('svg').innerHTML = flat(button.dataset.value, ui.color)
+})
+document.getElementById('compare').addEventListener('change', event => document.body.classList.toggle('compare', event.target.checked))
+document.getElementById('doze').addEventListener('click', () => heroMark.act(engine => engine.doze(!engine.dozing)))
+document.getElementById('rest').addEventListener('click', () => heroMark.act(engine => engine.rest(!engine.resting)))
+
+// Pointer: follow, pet, poke.
+const stage = document.getElementById('stage')
+stage.addEventListener('pointermove', (event) => {
+  const box = hero.getBoundingClientRect()
+  const r = box.width / 2
+  const point = { x: (event.clientX - box.left - r) / r, y: (event.clientY - box.top - r) / r }
+  const inside = Math.hypot(point.x, point.y) < 0.85
+  heroMark.act((engine) => {
+    engine.gaze(inside ? null : point)
+    engine.pet(inside, point.x)
+  })
+})
+stage.addEventListener('pointerleave', () => heroMark.act((engine) => { engine.gaze(null); engine.pet(false) }))
+hero.addEventListener('click', () => heroMark.act(engine => engine.poke()))
+
+// Scenes: a sidebar of Bots doing different things, a header pill, a typing row, and
+// small inline marks.
+const STATE_CYCLE = ['idle', 'idle', 'working', 'thinking', 'searching', 'idle', 'waiting', 'alert', 'sending', 'relaying']
+const sidebar = document.getElementById('sidebar')
+const sideMarks = []
+PICKER_SHAPES.slice(0, 8).forEach((shape, index) => {
+  const row = document.createElement('div')
+  row.className = 'row'
+  const host = document.createElement('span')
+  host.className = 'bt-mark'
+  const text = document.createElement('div')
+  const color = CHARACTER_COLORS[(index * 5 + 3) % CHARACTER_COLORS.length]
+  const state = STATE_CYCLE[index % STATE_CYCLE.length]
+  text.innerHTML = `<div class="name">${shape[0].toUpperCase() + shape.slice(1)}</div><div class="sub">${state}</div>`
+  row.append(host, text)
+  sidebar.append(row)
+  const mark = mount(host, { shape, color: shape === 'whale' ? 'deepseek' : color, size: index === 0 ? 44 : 36, live: true, state, seed: index * 977 + 13 })
+  sideMarks.push({ mark, text, shape })
+  row.addEventListener('pointerenter', event => mark.act(engine => engine.pet(true, 1)))
+  row.addEventListener('pointerleave', () => mark.act(engine => engine.pet(false)))
+  row.addEventListener('click', () => mark.act(engine => engine.poke()))
+})
+// Every few seconds one row changes what it is doing, as a team would.
+setInterval(() => {
+  const pick = sideMarks[Math.floor(Math.random() * sideMarks.length)]
+  const state = STATE_CYCLE[Math.floor(Math.random() * STATE_CYCLE.length)]
+  const was = pick.text.querySelector('.sub').textContent
+  const next = was !== 'idle' && was !== 'done' && Math.random() < 0.5 ? 'done' : state
+  pick.mark.update({ state: next })
+  pick.text.querySelector('.sub').textContent = next
+}, 2600)
+
+const pill = document.getElementById('pill')
+const pillHost = document.createElement('span')
+pillHost.className = 'bt-mark'
+pill.append(pillHost, Object.assign(document.createElement('span'), { textContent: 'Whale · working' }))
+mount(pillHost, { shape: 'whale', color: 'deepseek', size: 24, state: 'working', live: true, seed: 5 })
+
+const typing = document.getElementById('typing')
+const typingHost = document.createElement('span')
+typingHost.className = 'bt-mark'
+typing.append(typingHost, Object.assign(document.createElement('span'), { textContent: 'Kitty is thinking…' }))
+mount(typingHost, { shape: 'kitty', color: 'violet', size: 22, state: 'thinking', seed: 9 })
+
+const inline = document.getElementById('inline')
+for (const [shape, color, state] of [['bear', 'brown', 'idle'], ['octopus', 'red', 'working'], ['bunny', 'magenta', 'alert'], ['moon', 'yellow', 'searching']]) {
+  const host = document.createElement('span')
+  host.className = 'bt-mark'
+  inline.append(host, Object.assign(document.createElement('span'), { textContent: `${shape} · ${state}` }))
+  mount(host, { shape, color, size: 16, state, seed: shape.length * 31 })
+}
+
+// All characters at row size, waiting to be clicked.
+const grid = document.getElementById('grid')
+for (const [index, shape] of PICKER_SHAPES.entries()) {
+  const cell = document.createElement('div')
+  cell.className = 'cell'
+  const host = document.createElement('span')
+  host.className = 'bt-mark'
+  cell.append(host, Object.assign(document.createElement('span'), { textContent: shape }))
+  grid.append(cell)
+  const color = shape === 'whale' ? 'deepseek' : CHARACTER_COLORS[(index * 7 + 1) % CHARACTER_COLORS.length]
+  const mark = mount(host, { shape, color, size: 52, live: true, seed: index * 131 + 7 })
+  host.addEventListener('click', () => mark.act(engine => engine.poke()))
+  host.addEventListener('pointerenter', () => mark.act(engine => engine.pet(true, 1)))
+  host.addEventListener('pointerleave', () => mark.act(engine => engine.pet(false)))
+}
+
+// Frame cost.
+const stats = document.getElementById('stats')
+let frames = 0
+let spent = 0
+const raf = window.requestAnimationFrame
+let last = performance.now()
+window.requestAnimationFrame = fn => raf((time) => { const t0 = performance.now(); fn(time); spent += performance.now() - t0; frames += 1 })
+setInterval(() => {
+  const now = performance.now()
+  stats.textContent = `${Math.round(frames * 1000 / (now - last))} fps · ${(frames ? spent / frames : 0).toFixed(2)} ms / frame`
+  frames = 0; spent = 0; last = now
+  document.getElementById('tag-face').textContent = heroMark.engine.face.name
+}, 1000)
+</script>
+</body>
+</html>

@@ -2,12 +2,17 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
-import { bundleClient } from '../scripts/build-client.mjs'
+import { bundleClient, bundleOffice } from '../scripts/build-client.mjs'
 
 const committed = () => readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+const committedOffice = () => readFileSync(new URL('../office.js', import.meta.url), 'utf8')
 
 test('client.js is the build of src/client', async () => {
   assert.equal(await bundleClient(), committed(), 'client.js is stale: run `npm run build` and commit it')
+})
+
+test('office.js is the build of src/office', async () => {
+  assert.equal(await bundleOffice(), committedOffice(), 'office.js is stale: run `npm run build` and commit it')
 })
 
 // dsh runs client.js as a classic script that hands a factory to the module loader; the

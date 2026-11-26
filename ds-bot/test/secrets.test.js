@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { Context } from '@deepseek-ai/cordis'
+import { ShellEnvRegistry } from '@deepseek-ai/dsh-shell-env'
 import { createRuntime } from '../index.js'
-import { canUse, encodeUrlComponent, normalizeName, redactDeep, redactor, SECRET_NAME } from '../src/host/secrets.js'
+import { install as installDiagnostics } from '../src/host/diagnostics.js'
+import { inject as hostInject, name as hostName } from '../src/host/entry.js'
+import { canUse, encodeUrlComponent, install as installSecrets, normalizeName, redactDeep, redactor, SECRET_NAME } from '../src/host/secrets.js'
+import { install as installStore } from '../src/host/store.js'
 import { fakeContext } from './fake-ctx.js'
 
 // Test values are random on every run, so a leak can only come from this run.
@@ -201,6 +207,9 @@ test('a Bot outside the scope gets an allow card, and allowing resolves it', asy
   let [request] = (await bench.view()).secretRequests.b2
   assert.equal((await bench.call('secret-set', { requestId: request.id, value, scope: 'bot' })).value.scope.join(), 'b2')
   assert.deepEqual(bench.env('c3'), {})
+  assert.deepEqual(rt.secretEnvForSession('g-b2'), { DSH_SECRET_DEMO_TOKEN: value })
+  assert.deepEqual(rt.secretEnvForSession('c3'), {})
+  assert.deepEqual(rt.secretEnvForSession('not-a-bot'), {})
 
   // Coder asks too, while a second Writer card would be superseded by the first answer.
   const asked = await bench.tool('request_secret', { name: 'DEMO_TOKEN', purpose: 'build' }, 'c3')
@@ -356,6 +365,162 @@ test('tool results and model requests lose the values', async (t) => {
   assert.equal(passed.length, 2)
 })
 
+function redactRequest(bench, messages, system) {
+  const options = { provider: 'p', model: 'm', messages, system }
+  let sent = options
+  const before = bench.streamed.length
+  bench.listeners['llm/stream'].at(-2)(options, () => (async function* () {})())
+  if (bench.streamed.length > before) sent = bench.streamed.at(-1)
+  return sent
+}
+
+const freezeMessage = value => {
+  if (value !== null && typeof value === 'object') {
+    for (const child of Object.values(value)) freezeMessage(child)
+    Object.freeze(value)
+  }
+  return value
+}
+
+test('model message memo invalidates when a secret is added', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  await bench.call('secret-set', { name: 'FIRST', value: fresh() })
+  const value = fresh()
+  const message = freezeMessage({ role: 'user', content: [{ type: 'text', text: value }] })
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+  await bench.call('secret-set', { name: 'SECOND', value })
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, '[secret:SECOND]')
+})
+
+test('model message memo invalidates when a secret is replaced or deleted', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const first = fresh()
+  const second = fresh()
+  await bench.call('secret-set', { name: 'KEEP', value: fresh() })
+  await bench.call('secret-set', { name: 'TOKEN', value: first })
+  const message = freezeMessage({ role: 'user', content: [{ type: 'text', text: `${first} ${second}` }] })
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, `[secret:TOKEN] ${second}`)
+  await bench.call('secret-set', { name: 'TOKEN', value: second })
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, `${first} [secret:TOKEN]`)
+  await bench.call('secret-delete', { name: 'TOKEN' })
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+})
+
+test('mutable model messages are redacted fresh after mutation', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'TOKEN', value })
+  const message = { role: 'user', content: [{ type: 'text', text: 'clean' }] }
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+  message.content[0].text = value
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, '[secret:TOKEN]')
+  message.content[0].text = 'clean again'
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+})
+
+test('shallow-frozen model messages are redacted fresh after nested mutation', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'TOKEN', value })
+  const message = Object.freeze({ role: 'user', content: [{ type: 'text', text: 'clean' }] })
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+  message.content[0].text = value
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, '[secret:TOKEN]')
+  message.content.push({ type: 'text', text: value })
+  assert.equal(redactRequest(bench, [message]).messages[0].content[1].text, '[secret:TOKEN]')
+})
+
+test('frozen accessor model messages are redacted fresh', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'TOKEN', value })
+  let text = 'clean'
+  const message = Object.freeze({ role: 'user', get content() { return text } })
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+  text = value
+  assert.equal(redactRequest(bench, [message]).messages[0].content, '[secret:TOKEN]')
+})
+
+test('frozen arrays with custom prototypes are redacted fresh', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'TOKEN', value })
+  const prototype = Object.create(Array.prototype)
+  prototype[0] = Object.freeze({ type: 'text', text: 'clean' })
+  const content = Object.freeze(Object.setPrototypeOf(new Array(1), prototype))
+  const message = Object.freeze({ role: 'user', content })
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+  prototype[0] = Object.freeze({ type: 'text', text: value })
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, '[secret:TOKEN]')
+})
+
+test('frozen sparse array proxies are redacted fresh', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'TOKEN', value })
+  let text = 'clean'
+  let reads = 0
+  const content = new Proxy(Object.freeze(new Array(1)), {
+    has: (target, key) => key === '0' || Reflect.has(target, key),
+    get: (target, key, receiver) => {
+      if (key !== '0') return Reflect.get(target, key, receiver)
+      reads++
+      return text
+    },
+  })
+  const message = Object.freeze({ role: 'user', content })
+  assert.equal(redactDeep(content, text => text), content)
+  assert.equal(reads, 1)
+  assert.equal(redactRequest(bench, [message]).messages[0], message)
+  text = value
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0], '[secret:TOKEN]')
+})
+
+test('cached redacted copies reject downstream mutation', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = fresh()
+  await bench.call('secret-set', { name: 'TOKEN', value })
+  const message = freezeMessage({ role: 'user', content: [{ type: 'text', text: value }] })
+  const first = redactRequest(bench, [message]).messages[0]
+  assert.throws(() => { first.content[0].text = value }, TypeError)
+  assert.throws(() => { first.content.push({ type: 'text', text: value }) }, TypeError)
+  assert.equal(redactRequest(bench, [message]).messages[0].content[0].text, '[secret:TOKEN]')
+})
+
+test('memoized model messages equal the original deep redaction path', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const value = `${fresh()} /+"\\ 中文`
+  const entries = [{ name: 'TOKEN', value }, { name: 'PIN', value: '4821' }]
+  for (const entry of entries) await bench.call('secret-set', entry)
+  const messages = freezeMessage([
+    { role: 'system', content: [{ type: 'text', text: value }] },
+    { role: 'user', content: [{ type: 'text', text: 'clean' }, { type: 'text', text: encodeUrlComponent(value) }] },
+    { role: 'assistant', content: [{ type: 'tool-call', arguments: { nested: [value, null, 42, true, { text: JSON.stringify(value) }] } }] },
+    { role: 'tool', content: [{ type: 'text', text: '4821 x4821 中文4821中文' }], meta: { text: value } },
+    { role: 'user', content: [] },
+  ])
+  const originalPath = Object.freeze(redactDeep)
+  const expected = originalPath(messages, redactor(entries))
+  const system = { text: value }
+  const first = redactRequest(bench, messages, system)
+  const second = redactRequest(bench, messages, system)
+  assert.deepEqual(first.messages, expected)
+  assert.deepEqual(second.messages, expected)
+  assert.equal(second.messages[0], first.messages[0])
+  assert.equal(second.messages[4], messages[4])
+  assert.deepEqual(second.system, originalPath(system, redactor(entries)))
+  assert.deepEqual(redactRequest(bench, []).messages, [])
+})
+
 test('a restarted host resolves its team Sessions and their keys before the first shell call', (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-secrets-'))
   const value = fresh()
@@ -377,6 +542,7 @@ test('a secrets file that cannot be read blocks every write instead of being ove
   const bench = start({ home })
   t.after(bench.stop)
   const file = join(home, 'secrets.json')
+  assert.deepEqual(rt.secretEnvForSession('b2'), {})
   const denied = await bench.call('secret-set', { name: 'TEST_TOKEN', value: '12345678' })
   assert.equal(denied.ok, false)
   assert.match(denied.error.message, /secrets\.json could not be read \(EISDIR\)\. DS Bot does not change it/)
@@ -385,6 +551,32 @@ test('a secrets file that cannot be read blocks every write instead of being ove
   rmSync(file, { recursive: true })
   const saved = await bench.call('secret-set', { name: 'TEST_TOKEN', value: '12345678' })
   assert.equal(saved.ok, true, JSON.stringify(saved.error))
+  assert.deepEqual(rt.secretEnvForSession('b2'), { DSH_SECRET_TEST_TOKEN: '12345678' })
+})
+
+test('secretEnvForSession returns empty when the encrypted store is locked and resolves once unlocked', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-secrets-locked-'))
+  const value = fresh()
+  const passphrase = `pass-${fresh()}`
+  const first = start({ home })
+  const saved = await first.call('secret-set', { name: 'LOCKED_TOKEN', value, scope: ['b2'] })
+  assert.equal(saved.ok, true, JSON.stringify(saved.error))
+  const encrypted = await first.call('secret-encrypt', { passphrase })
+  assert.equal(encrypted.ok, true, JSON.stringify(encrypted.error))
+  assert.deepEqual(rt.secretEnvForSession('g-b2'), { DSH_SECRET_LOCKED_TOKEN: value })
+  await first.ctx.dispose()
+
+  const second = start({ home })
+  t.after(second.stop)
+  await rt.loadSecrets()
+  assert.equal((await second.call('secret-store', {})).value.locked, true)
+  assert.deepEqual(rt.secretEnvForSession('b2'), {})
+  assert.deepEqual(rt.secretEnvForSession('g-b2'), {})
+
+  const unlocked = await second.call('secret-unlock', { passphrase })
+  assert.equal(unlocked.ok, true, JSON.stringify(unlocked.error))
+  assert.deepEqual(rt.secretEnvForSession('g-b2'), { DSH_SECRET_LOCKED_TOKEN: value })
+  assert.deepEqual(rt.secretEnvForSession('c3'), {})
 })
 
 test('a secrets file that is not JSON is kept aside, and the store goes on', async (t) => {
@@ -397,4 +589,297 @@ test('a secrets file that is not JSON is kept aside, and the store goes on', asy
   const broken = readdirSync(home).filter(name => name.startsWith('secrets.json.broken-'))
   assert.deepEqual(broken.length, 1)
   assert.equal(readFileSync(join(home, broken[0]), 'utf8'), 'not a secrets file\n')
+})
+
+function stubCordisHost(ctx) {
+  const noop = () => () => {}
+  const services = {
+    llm: { listProviders: () => [], registerAdapter: () => { const h = () => {}; h.replace = () => {}; return h } },
+    tools: { register: noop, guard: noop, schemas: () => [] },
+    systemPrompt: { section: noop },
+    sessionController: { runningSessions: () => [], running: () => new Set(), list: () => [], get: () => undefined, resolveAgent: async () => undefined, watch: noop },
+    sessions: { list: async () => [], get: async () => null, load: async () => null, on: noop },
+    sessionTitle: { register: noop, setSource: noop },
+    workspaceRegistry: { list: () => [], get: () => null },
+    connection: { fetch: { register: noop }, ws: { register: noop } },
+  }
+  for (const [key, service] of Object.entries(services)) ctx.provide(key, service)
+}
+
+test('real Cordis ShellEnvRegistry resolves secrets after restart and reload across session shapes', async (t) => {
+  const dshHome = mkdtempSync(join(tmpdir(), 'ds-bot-cordis-secrets-'))
+  const team = join(dshHome, 'bot')
+  mkdirSync(team, { recursive: true })
+  const apiKey = fresh()
+  const coderKey = fresh()
+  writeFileSync(join(team, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['main'],
+    bots: {
+      main: { id: 'main', name: 'Chief', main: true },
+      'empty-sid': { id: 'empty-sid', name: 'Empty', sessionId: '' },
+      coder: {
+        id: 'coder',
+        name: 'Coder',
+        sessionId: 'sess-coder-2',
+        segments: [{ sessionId: 'sess-coder-1', workDir: '/a' }],
+        openParts: [{ sessionId: 'sess-coder-open', segments: [{ sessionId: 'sess-coder-open-old' }] }],
+      },
+    },
+    rooms: {
+      r1: { id: 'r1', name: 'SecRoom', named: true, members: ['main', 'coder'], sessions: { main: 'grp-main-1' } },
+    },
+  }))
+  writeFileSync(join(team, 'secrets.json'), JSON.stringify({
+    version: 1,
+    secrets: [
+      { name: 'API_KEY', value: apiKey, purpose: 'p', scope: 'all', requestedBy: 'main', createdAt: 1, updatedAt: 1 },
+      { name: 'CODER_KEY', value: coderKey, purpose: 'c', scope: ['coder'], requestedBy: 'coder', createdAt: 1, updatedAt: 1 },
+    ],
+  }))
+
+  const ctx = new Context()
+  stubCordisHost(ctx)
+  await ctx.plugin(ShellEnvRegistry, { dshHome })
+  const mount = async () => {
+    const fiber = ctx.plugin({
+      name: hostName,
+      inject: hostInject,
+      apply(c) { createRuntime(c, { home: team }) },
+    })
+    await fiber
+    await new Promise(resolve => setImmediate(resolve))
+    return fiber
+  }
+
+  let active = await mount()
+  t.after(async () => {
+    await active?.dispose?.()
+    await ctx.stop?.()
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+
+  const collect = agent => ctx.shellEnv.collect({ agent, arguments: { command: 'env' } })
+  const checkAll = () => {
+    assert.equal(collect({ session: { header: { id: 'main' } } }).DSH_SECRET_API_KEY, apiKey)
+    assert.equal(collect({ session: { header: { id: 'main' } } }).DSH_SECRET_CODER_KEY, undefined)
+    assert.equal(collect({ session: { header: { id: 'empty-sid' } } }).DSH_SECRET_API_KEY, apiKey)
+    assert.equal(collect({ session: { id: 'sess-coder-2', header: {} } }).DSH_SECRET_CODER_KEY, coderKey)
+    assert.equal(collect({ session: { header: { id: 'sess-coder-1' } } }).DSH_SECRET_CODER_KEY, coderKey)
+    assert.equal(collect({ session: { header: { id: 'sess-coder-open' } } }).DSH_SECRET_CODER_KEY, coderKey)
+    assert.equal(collect({ session: { header: { id: 'sess-coder-open-old' } } }).DSH_SECRET_CODER_KEY, coderKey)
+    assert.equal(collect({ session: { header: { id: 'grp-main-1' } } }).DSH_SECRET_API_KEY, apiKey)
+    assert.equal(collect({ session: { header: { id: 'unrelated-chat' } } }).DSH_SECRET_API_KEY, undefined)
+  }
+
+  checkAll()
+  await active.dispose()
+  active = await mount()
+  checkAll()
+})
+
+test('read-only host with secrets loaded before store.load does not touch files and picks up external updates', async (t) => {
+  const dshHome = mkdtempSync(join(tmpdir(), 'ds-bot-ro-secrets-'))
+  const team = join(dshHome, 'bot')
+  mkdirSync(team, { recursive: true })
+
+  writeFileSync(join(team, 'state.lock'), JSON.stringify({ pid: process.pid, startedAt: Date.now(), token: 'writer-host' }))
+  writeFileSync(join(team, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['main'],
+    bots: { main: { id: 'main', name: 'Chief', main: true } },
+    rooms: {},
+  }))
+  const v1 = fresh()
+  const secPath = join(team, 'secrets.json')
+  writeFileSync(secPath, JSON.stringify({
+    version: 1,
+    secrets: [{ name: 'API_KEY', value: v1, purpose: 'p', scope: 'all', requestedBy: null, createdAt: 1, updatedAt: 1 }],
+  }))
+  chmodSync(secPath, 0o444)
+  const modeBefore = statSync(secPath).mode & 0o777
+
+  const ctx = new Context()
+  stubCordisHost(ctx)
+  await ctx.plugin(ShellEnvRegistry, { dshHome })
+  let rt
+  const fiber = ctx.plugin({
+    name: 'ro-secrets-test',
+    inject: ['shellEnv', 'tools', 'connection'],
+    apply(c) {
+      rt = { ctx: c, config: {}, home: team, statePath: join(team, 'state.json'), teamTools: [] }
+      installDiagnostics(rt)
+      installStore(rt)
+      installSecrets(rt)
+    },
+  })
+  await fiber
+  await new Promise(resolve => setImmediate(resolve))
+  t.after(async () => {
+    await fiber.dispose()
+    await ctx.stop?.()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+
+  // Before rt.load(), secrets must not chmod a locked team's secrets.json.
+  assert.equal(statSync(secPath).mode & 0o777, modeBefore)
+
+  // Calling collect before explicit rt.load() must load state & resolve secrets without modifying secrets.json mode.
+  const first = ctx.shellEnv.collect({ agent: { session: { header: { id: 'main' } } }, arguments: {} })
+  assert.equal(first.DSH_SECRET_API_KEY, v1)
+  await rt.load()
+  assert.equal(statSync(secPath).mode & 0o777, modeBefore)
+
+  // Writer updates an existing secret and adds a new key while this host stays read-only.
+  chmodSync(secPath, 0o644)
+  const v2 = fresh()
+  const extra = fresh()
+  writeFileSync(secPath, JSON.stringify({
+    version: 1,
+    secrets: [
+      { name: 'API_KEY', value: v2, purpose: 'p', scope: 'all', requestedBy: null, createdAt: 1, updatedAt: 2 },
+      { name: 'NEW_KEY', value: extra, purpose: 'n', scope: 'all', requestedBy: null, createdAt: 2, updatedAt: 2 },
+    ],
+  }))
+  const second = ctx.shellEnv.collect({ agent: { session: { header: { id: 'main' } } }, arguments: {} })
+  assert.equal(second.DSH_SECRET_API_KEY, v2)
+  await new Promise(resolve => setImmediate(resolve))
+  const third = ctx.shellEnv.collect({ agent: { session: { header: { id: 'main' } } }, arguments: {} })
+  assert.equal(third.DSH_SECRET_NEW_KEY, extra)
+
+  // Corrupt secrets file under read-only must not create .broken-* files on disk.
+  writeFileSync(secPath, 'not valid json\n')
+  await rt.refresh()
+  const broken = readdirSync(team).filter(name => name.startsWith('secrets.json.broken-'))
+  assert.deepEqual(broken, [])
+})
+
+test('multiline secrets normalize line endings, preserve internal lines into subprocess env, and reject null bytes', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const line1 = `-----BEGIN TEST KEY-${fresh()}-----`
+  const line2 = `  body-${fresh()}`
+  const line3 = `-----END TEST KEY-----`
+  const expected = `${line1}\n${line2}\n${line3}`
+  const crlfRaw = `\r\n${line1}\r\n${line2}\r${line3}\r\n\r\n`
+
+  const badNull = await bench.call('secret-set', { name: 'BAD_KEY', value: `${line1}\0${line2}` })
+  assert.equal(badNull.ok, false)
+  assert.match(badNull.error.message, /null bytes/)
+
+  const saved = await bench.call('secret-set', { name: 'MULTI_KEY', purpose: 'multiline cert', value: crlfRaw, scope: 'all' })
+  assert.equal(saved.ok, true, JSON.stringify(saved.error))
+  const stored = JSON.parse(readFileSync(join(bench.home, 'secrets.json'), 'utf8')).secrets[0]
+  assert.equal(stored.value, expected)
+
+  const env = bench.env('b2', 'printf "%s" "$DSH_SECRET_MULTI_KEY"')
+  assert.equal(env.DSH_SECRET_MULTI_KEY, expected)
+
+  // Real subprocess contract: Node/OS environment passing preserves every line intact.
+  const child = spawnSync(process.execPath, ['-e', 'process.stdout.write(process.env.DSH_SECRET_MULTI_KEY ?? "")'], {
+    env: { ...process.env, ...env },
+    encoding: 'utf8',
+  })
+  assert.equal(child.status, 0, child.stderr)
+  assert.equal(child.stdout, expected)
+
+  const team = await bench.view()
+  assert.ok(!JSON.stringify(team).includes(line1))
+  assert.ok(!JSON.stringify(team).includes(line2))
+})
+
+test('multiline redaction covers LF, CRLF, JSON-escaped, URL-encoded, and space-folded shell output', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const line1 = `header-${fresh()}`
+  const line2 = `  indented-${fresh()}`
+  const line3 = `footer-${fresh()}`
+  const lf = `${line1}\n${line2}\n${line3}`
+  const crlf = `${line1}\r\n${line2}\r\n${line3}`
+  const spaced = `${line1} ${line2} ${line3}`
+  const collapsed = `${line1} ${line2.trim()} ${line3}`
+
+  await bench.call('secret-set', { name: 'PEM_BLOCK', value: crlf })
+
+  const legacyA = `a-${fresh()}`
+  const legacyB = `b-${fresh()}`
+  const legacyCrlf = `${legacyA}\r\n${legacyB}`
+  const legacyLf = `${legacyA}\n${legacyB}`
+  const redact = redactor([{ name: 'PEM_BLOCK', value: lf }, { name: 'LEGACY_CRLF', value: legacyCrlf }])
+  assert.equal(redact(`out:\n${lf}\nend`), 'out:\n[secret:PEM_BLOCK]\nend')
+  assert.equal(redact(`out:\r\n${crlf}\r\nend`), 'out:\r\n[secret:PEM_BLOCK]\r\nend')
+  assert.equal(redact(`legacy:\r\n${legacyCrlf}\nand\n${legacyLf}`), 'legacy:\r\n[secret:LEGACY_CRLF]\nand\n[secret:LEGACY_CRLF]')
+  assert.equal(redact(JSON.stringify({ key: lf })), '{"key":"[secret:PEM_BLOCK]"}')
+  assert.equal(redact(JSON.stringify({ key: crlf })), '{"key":"[secret:PEM_BLOCK]"}')
+  assert.equal(redact(`url?k=${encodeUrlComponent(lf)}&ok=1`), 'url?k=[secret:PEM_BLOCK]&ok=1')
+  assert.equal(redact(`url?k=${encodeUrlComponent(crlf)}&ok=1`), 'url?k=[secret:PEM_BLOCK]&ok=1')
+  assert.equal(redact(`echo ${spaced}`), 'echo [secret:PEM_BLOCK]')
+  assert.equal(redact(`unquoted ${collapsed}`), 'unquoted [secret:PEM_BLOCK]')
+
+  // A short multiline value (including a legacy 8-char CRLF value whose LF form is 7 chars)
+  // still obeys Unicode word boundaries and does not fold into ordinary text.
+  const shortRedact = redactor([
+    { name: 'TINY', value: '12\n34' },
+    { name: 'LEGACY_SHORT', value: '123\r\n456' },
+  ])
+  assert.equal(shortRedact('code 12\n34 done'), 'code [secret:TINY] done')
+  assert.equal(shortRedact('code 12\r\n34 done'), 'code [secret:TINY] done')
+  assert.equal(shortRedact('x12\n34y'), 'x12\n34y')
+  assert.equal(shortRedact('12 34'), '12 34')
+  assert.equal(shortRedact('abc123\n456def'), 'abc123\n456def')
+  assert.equal(shortRedact(' 123\n456 '), ' [secret:LEGACY_SHORT] ')
+  assert.equal(shortRedact('\u{10400}12\n34'), '\u{10400}12\n34')
+  assert.equal(shortRedact('12\n34\u{1D7CF}'), '12\n34\u{1D7CF}')
+  assert.equal(shortRedact('😀12\n34😀'), '😀[secret:TINY]😀')
+
+  // Exact raw values win over synthetic space-folded forms from an earlier multiline secret.
+  const partA = `alpha-${fresh()}`
+  const partB = `beta-${fresh()}`
+  const priorityRedact = redactor([
+    { name: 'MULTI', value: `${partA}\n${partB}` },
+    { name: 'EXACT', value: `${partA} ${partB}` },
+  ])
+  assert.equal(priorityRedact(`exact=${partA} ${partB}; multi=${partA}\n${partB}`), 'exact=[secret:EXACT]; multi=[secret:MULTI]')
+
+  // Host pipeline redacts CRLF and collapsed output on both tools/execute and llm/stream.
+  const execute = bench.listeners['tools/execute'].filter(listener => listener.name !== 'listOwnSchedules' && listener.name !== 'computerTrack').at(-1)
+  const toolRes = await execute({}, async () => ({
+    isError: false,
+    value: { stdout: { text: `win=${crlf}\nbash=${collapsed}\n` } },
+    content: [{ type: 'text', text: crlf }],
+  }))
+  assert.equal(toolRes.value.stdout.text, 'win=[secret:PEM_BLOCK]\nbash=[secret:PEM_BLOCK]\n')
+  assert.equal(toolRes.content[0].text, '[secret:PEM_BLOCK]')
+
+  const sent = redactRequest(bench, [{ role: 'user', content: [{ type: 'text', text: `pasted:\r\n${crlf}` }] }], `sys ${collapsed}`)
+  assert.equal(sent.messages[0].content[0].text, 'pasted:\r\n[secret:PEM_BLOCK]')
+  assert.equal(sent.system, 'sys [secret:PEM_BLOCK]')
+})
+
+test('redactor handles large multiline secrets past V8 RegExp size limits without throwing or crashing', () => {
+  // Single legal ~14 KiB indented multiline JSON whose URL-encoded CRLF form exceeds 32,767 chars.
+  const makeLargeJson = (seed) => {
+    const rows = Array.from({ length: 180 }, (_, i) => ({ k: `${seed}/${i}`, v: `a:b=c&d?e#${i}` }))
+    return JSON.stringify({ items: rows }, null, 4)
+  }
+  const big = makeLargeJson('one')
+  const bigCrlf = big.replace(/\n/g, '\r\n')
+  const bigUrlCrlf = encodeUrlComponent(bigCrlf)
+  assert.ok(big.length <= 16384, `big fixture should fit MAX_VALUE (${big.length})`)
+  assert.ok(bigUrlCrlf.length > 32768, `URL-encoded CRLF should exceed V8 32 KiB RegExp atom limit (${bigUrlCrlf.length})`)
+
+  const unrelated = fresh()
+  const singleHuge = redactor([{ name: 'BIG_JSON', value: big }, { name: 'SHORT_TOK', value: unrelated }])
+  assert.equal(singleHuge(`tok=${unrelated}`), 'tok=[secret:SHORT_TOK]')
+  assert.equal(singleHuge(`raw=${big}`), 'raw=[secret:BIG_JSON]')
+  assert.equal(singleHuge(`crlf=${bigCrlf}`), 'crlf=[secret:BIG_JSON]')
+  assert.equal(singleHuge(`url=${bigUrlCrlf}`), 'url=[secret:BIG_JSON]')
+
+  // 30 large (~14 KiB) multiline JSON secrets must build and run without V8 RegExp limits or crashes.
+  const many = Array.from({ length: 30 }, (_, i) => ({ name: `KEY_${i}`, value: makeLargeJson(`k${i}`) }))
+  const manyRedact = redactor(many)
+  const clean = 'nothing secret in this log line'
+  assert.equal(manyRedact(clean), clean)
+  assert.equal(manyRedact(`hit ${many[17].value.replace(/\n/g, '\r\n')} ok`), 'hit [secret:KEY_17] ok')
 })

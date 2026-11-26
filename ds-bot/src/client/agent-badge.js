@@ -1,8 +1,13 @@
 // The engine badge next to an abot's name: the agent's own logo, small; a
 // monogram only for agents that have none here.
 import { createElement as h } from 'react'
-import { inkFill } from './inks.js'
+import { inkFill, isHex, luminance } from './inks.js'
 import { badgeOf, logoOf } from './agent-routes.js'
+
+const badgeColor = (hex) => {
+  const full = `#${String(hex ?? '').replace(/^#/, '')}`
+  return isHex(full) && luminance(full) < 0.05 ? 'var(--bt-ink, currentColor)' : full
+}
 
 export function AgentBadge({ engine, size = 15 }) {
   const logo = logoOf(engine)
@@ -11,7 +16,7 @@ export function AgentBadge({ engine, size = 15 }) {
     return h('img', { src: logo.src, width: size, height: size, alt: '', title: logo.title, className: 'bt-agent-badge', style: { ...style, borderRadius: 4 } })
   }
   if (logo?.kind === 'path') {
-    return h('svg', { width: size, height: size, viewBox: '0 0 24 24', className: 'bt-agent-badge', role: 'img', 'aria-label': logo.title, style: { ...style, color: `#${logo.hex}` } },
+    return h('svg', { width: size, height: size, viewBox: '0 0 24 24', className: 'bt-agent-badge', role: 'img', 'aria-label': logo.title, style: { ...style, color: badgeColor(logo.hex) } },
       h('title', null, logo.title), h('path', { d: logo.d, fill: 'currentColor' }))
   }
   const badge = badgeOf(engine)

@@ -15,10 +15,11 @@ DS Bot 里设置 `browserPlugin` 为 `refs`、`script` 或 `task`。三个不会
 ```sh
 npm install
 npx playwright install chromium
-npm test
 node bench/run.mjs
 node bench/render-report.mjs
 ```
+
+三个插件共用 `ds-bot/src/host/browser/` 里的实现，它的测试在 `ds-bot/test/browser/`（在 `ds-bot/` 里跑 `npm run test:browser`）。
 
 `browser_task` 使用调用它的 Bot 在 DSH 中配置的模型。跑基准测试前设置 `BENCH_BASE_URL`、`BENCH_MODEL` 和 `BENCH_API_KEY`。
 

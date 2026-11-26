@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import fsp from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { afterRound } from './relay-rows.js'
 import { format } from 'node:util'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { API_ACTOR } from '../src/host/roster.js'
+import { createApiRoutes } from '../src/host/api/routes.js'
+import { agentAvatar } from '../src/client/agent-routes.js'
 
 // DSH's settings and credentials for a DeepSeek route that takes an API key. A key set
 // or removed is announced the way DSH announces it. `records` are the stored records
@@ -27,10 +32,19 @@ function keyed(ctx, stored, records) {
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
 // With `keys`, the models' route takes an API key and these are the ones set.
 let rt
-function start(team, { models = [], reasoning = {}, archiveError, keys, selection } = {}) {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
+function start(team, { home: existingHome, keepHome = false, inflight, models = [], reasoning = {}, archiveError, keys, selection, lock, lost = new Set(), listed, schedules, flush } = {}) {
+  const home = existingHome ?? mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  if (inflight !== undefined) writeFileSync(join(home, 'inflight.json'), JSON.stringify(inflight))
+  // A lock another dsh holds, written before this host loads the team.
+  if (lock !== undefined) writeFileSync(join(home, 'state.lock'), JSON.stringify(lock))
   const services = {}
+  if (listed !== undefined) {
+    services.sessionQuery = {
+      listSessions: async () => [...listed].map(id => ({ header: { id }, persisted: true, live: false })),
+    }
+  }
+  if (schedules !== undefined) services.schedule = schedules
   const ctx = fakeContext({ services })
   const records = new Set()
   if (keys !== undefined) Object.assign(services, keyed(ctx, new Set(keys), records))
@@ -40,7 +54,19 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
   }
   const workspaces = new Map()
   const sent = []
+  const injected = []
+  const inboxes = new Map()
+  const inboxOf = (sessionId) => {
+    let inbox = inboxes.get(sessionId)
+    if (inbox === undefined) {
+      inbox = { nextStep: [], nextTurn: [] }
+      inboxes.set(sessionId, inbox)
+    }
+    return inbox
+  }
   const selected = []
+  // Every selection asked for, including the ones a lost Session refused.
+  const attempts = []
   const archived = []
   const warnings = []
   let sessions = 0
@@ -67,11 +93,29 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
     },
     sessionController: {
       create: async () => ({ sessionId: `s${++sessions}` }),
-      resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup: message => sent.push({ sessionId, message }) } }),
-      selectModel: async (request) => { selected.push(request) },
+      // A Session the `lost` set names is gone from the library: resolving its agent and
+      // selecting its model answer the same `session/not-found` the real controller does.
+      resolveAgent: async sessionId => (lost.has(sessionId)
+        ? { error: { code: 'session/not-found', message: `session "${sessionId}" not found` } }
+        : {
+            agent: {
+              session: { id: sessionId },
+              inbox: inboxOf(sessionId),
+              followup: message => sent.push({ sessionId, message }),
+              inject: (message) => {
+                inboxOf(sessionId).nextStep.push(message)
+                injected.push({ sessionId, message })
+              },
+            },
+          }),
+      selectModel: async (request) => {
+        attempts.push(request)
+        if (lost.has(request.sessionId)) throw Object.assign(new Error(`session "${request.sessionId}" not found`), { code: 'session/not-found' })
+        selected.push(request)
+      },
     },
     sessionTitle: { rename: async () => {} },
-    sessions: { flush: async () => {} },
+    sessions: { flush: flush ?? (async () => {}) },
   })
   let route
   const register = ctx.connection.fetch.register
@@ -86,9 +130,9 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
   }
   const stop = async () => {
     await ctx.dispose()
-    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+    if (!keepHome) rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { call, stop, home, sent, selected, ctx, archived, warnings, records }
+  return { call, stop, home, rt, sent, injected, selected, attempts, ctx, archived, warnings, records }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -101,6 +145,27 @@ const until = async (check) => {
     await settle()
   }
 }
+
+test('API-created Bots retain a non-user creator across persistence and receive no Main rights', async t => {
+  const { stop, home, sent } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  await rt.load()
+  await rt.bootstrap()
+  const bot = await rt.createBot({ name: 'API worker', main: true, createdBy: null }, API_ACTOR)
+  assert.equal(bot.createdBy, 'api:external')
+  assert.equal(rt.isMain(bot.id), false)
+  assert.equal(rt.isMain(bot.createdBy), false)
+  await rt.save()
+  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).bots[bot.id]
+  assert.equal(saved.createdBy, 'api:external')
+  await until(() => sent.some(entry => entry.sessionId === bot.id))
+  const kickoff = sent.find(entry => entry.sessionId === bot.id).message
+  assert.equal(kickoff.source.senderName, 'External API')
+  assert.equal(kickoff.source.senderSessionId, 'api:external')
+  assert.match(JSON.stringify(kickoff.content), /external API.*created you/)
+  await assert.rejects(rt.updateBot(bot.id, { private: true }, API_ACTOR), /Only the user/)
+  await assert.rejects(rt.updateBot(bot.id, { browserGrants: [] }, API_ACTOR), /Only the user/)
+})
 
 test('the first Main Bot waits for the user to pick a model, then greets', async (t) => {
   const { call, stop, sent, selected } = start(undefined, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
@@ -191,6 +256,22 @@ for (const kind of ['main', 'copy', 'made by a Main Bot', 'made by the user']) {
   })
 }
 
+test('a greeting whose model wait fails still goes out, with no unhandled rejection', async (t) => {
+  const { call, stop, sent, warnings } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  const unhandled = []
+  const onUnhandled = reason => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  t.after(() => process.off('unhandledRejection', onUnhandled))
+  await call('state', {})
+  rt.waitForModel = async () => { throw new Error('providers unreadable') }
+  const bot = (await call('create-bot', { name: 'Writer' })).value
+  await until(() => warnings.some(line => line.includes('model for Writer not ready')))
+  await until(() => sent.some(entry => entry.sessionId === bot.id))
+  await settle()
+  assert.deepEqual(unhandled, [])
+})
+
 test('a first message from the user is helped with, not replaced by an opening question', async (t) => {
   const { call, stop, sent } = start(undefined, { models: ['deepseek-v4-flash'] })
   t.after(stop)
@@ -218,11 +299,11 @@ test('a group the user makes without a first message opens with its admin asking
 
   // The relay gives the admin alone a turn, and the cue adds no line to the group.
   for (const listener of ctx.listeners.get('session/event')) listener({ id: room.id }, { type: 'user/message', data: sent[0].message })
-  const controller = new AbortController()
-  const relay = rt.teamTools.find(d => d.name === 'group_relay').execute({}, { agent: { id: room.id }, callId: 'relay', signal: controller.signal })
+  const relay = rt.teamTools.find(d => d.name === 'group_relay').execute({}, { agent: { id: room.id }, callId: 'relay', signal: new AbortController().signal })
+    .then(value => afterRound(rt, room.id, value))
   await until(() => sent.length > 1)
-  controller.abort()
-  const result = JSON.parse(await relay)
+  rt.stopRoomRound(room.id)
+  const result = await relay
   const turns = sent.slice(1)
   assert.equal(turns.length, 1)
   const text = turns[0].message.content[0].text
@@ -846,11 +927,22 @@ test('a host that loses its lock to another dsh refuses changes instead of makin
 
 test('a delete whose save fails still stops the Sessions, and the next save writes it', async (t) => {
   const { call, stop, home, archived } = start(TEAM_WITH_PART, { models: ['deepseek-v4-flash'] })
-  t.after(stop)
+  const statePath = join(home, 'state.json')
+  const writeFile = fsp.writeFile
+  let failWrite = false
+  fsp.writeFile = async (path, ...args) => {
+    if (failWrite && String(path).startsWith(`${statePath}.`)) throw Object.assign(new Error('disk error'), { code: 'EISDIR' })
+    return writeFile(path, ...args)
+  }
+  syncBuiltinESMExports()
+  t.after(async () => {
+    fsp.writeFile = writeFile
+    syncBuiltinESMExports()
+    await stop()
+  })
   await call('state', {})
   archived.length = 0
-  const blocker = join(home, `state.json.${process.pid}.tmp`)
-  mkdirSync(blocker)
+  failWrite = true
   const answer = await call('delete-bot', { id: 'w1' })
   assert.equal(answer.ok, false)
   // The Bot is gone from the team, so nothing could stop its tasks later.
@@ -858,9 +950,9 @@ test('a delete whose save fails still stops the Sessions, and the next save writ
     ['w1', { stopActivity: true }],
     ['w2', { stopActivity: true }],
   ])
-  rmSync(blocker, { recursive: true })
+  failWrite = false
   await call('set-prefs', { theme: 'dark' })
-  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  const saved = JSON.parse(readFileSync(statePath, 'utf8'))
   assert.equal(saved.bots.w1, undefined)
 })
 
@@ -907,7 +999,19 @@ test('a rolled-back Bot does not come back with a save queued before the rollbac
 
 test('a write that fails at save time archives the Session it made', async (t) => {
   const { call, stop, home, ctx } = start({ version: 1, mainBotIds: ['chief'], bots: { chief: { id: 'chief', name: 'Chief' } } })
-  t.after(stop)
+  const statePath = join(home, 'state.json')
+  const writeFile = fsp.writeFile
+  let failWrite = false
+  fsp.writeFile = async (path, ...args) => {
+    if (failWrite && String(path).startsWith(`${statePath}.`)) throw Object.assign(new Error('disk error'), { code: 'EISDIR' })
+    return writeFile(path, ...args)
+  }
+  syncBuiltinESMExports()
+  t.after(async () => {
+    fsp.writeFile = writeFile
+    syncBuiltinESMExports()
+    await stop()
+  })
   await call('state', {})
   const created = []
   const create = ctx.sessionController.create
@@ -915,7 +1019,7 @@ test('a write that fails at save time archives the Session it made', async (t) =
     const made = await create(...args)
     created.push(made.sessionId)
     // The disk write fails after this request's refresh, before its save.
-    mkdirSync(join(home, `state.json.${process.pid}.tmp`))
+    failWrite = true
     return made
   }
   const archived = []
@@ -925,9 +1029,10 @@ test('a write that fails at save time archives the Session it made', async (t) =
   assert.equal(answer.ok, false)
   assert.equal(answer.error.code, 'bot/internal')
   assert.deepEqual(archived, created)
+  failWrite = false
   const team = (await call('state', {})).value
   assert.equal(team.bots.some(bot => bot.name === 'Phantom'), false)
-  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  const saved = JSON.parse(readFileSync(statePath, 'utf8'))
   assert.equal(Object.values(saved.bots).some(bot => bot.name === 'Phantom'), false)
 })
 
@@ -1170,6 +1275,50 @@ test('list_bot_models names the thinking levels of the models a Bot runs on', as
 // store it in the same data URL the settings page writes.
 const PNG_BYTES = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(24, 1)])
 const PNG_DATA_URL = `data:image/png;base64,${PNG_BYTES.toString('base64')}`
+
+test('API Bot and group avatars use the roster raster validator and exact badge rules', async t => {
+  const { stop } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  await rt.load()
+  await rt.bootstrap()
+  const principal = {
+    hasScope: () => true,
+    assertBotAccess: () => ({ ok: true }), assertRoomAccess: () => ({ ok: true }),
+    canAccessBot: () => true,
+  }
+  const routes = createApiRoutes(rt, { auth: {}, runs: {}, sseClients: new Set() })
+  t.after(() => routes.dispose())
+  const api = routes.service
+  const bot = await api.createBot(principal, { name: 'Photo worker', avatar: { image: PNG_DATA_URL } })
+  const members = [bot.id, rt.state.mainBotIds[0]]
+  const group = await api.createGroup(principal, { name: 'Photo team', members, avatar: { image: PNG_DATA_URL } })
+  assert.equal(rt.botOf(bot.id).avatar.image, PNG_DATA_URL)
+  assert.equal(rt.roomOf(group.id).avatar.image, PNG_DATA_URL)
+  const updateBot = avatar => api.updateBot(principal, bot.id, { avatar })
+  const updateGroup = avatar => api.updateGroup(principal, group.id, { avatar })
+  const badge = agentAvatar('local-acp-api-test').image
+  const invalid = [
+    `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64')}`,
+    `data:image/png;base64,${Buffer.from('not an image').toString('base64')}`,
+    badge,
+  ]
+  for (const image of invalid) {
+    for (const update of [updateBot, updateGroup]) await assert.rejects(() => update({ image }), /PNG, JPEG, WebP, or GIF/)
+    await assert.rejects(() => api.createBot(principal, { name: 'Bad photo', avatar: { image } }), /PNG, JPEG, WebP, or GIF/)
+    await assert.rejects(() => api.createGroup(principal, { name: 'Bad group photo', members, avatar: { image } }), /PNG, JPEG, WebP, or GIF/)
+  }
+  for (const update of [updateBot, updateGroup]) {
+    await update(null)
+    await update({ image: PNG_DATA_URL })
+    await update(undefined)
+  }
+  assert.equal(rt.botOf(bot.id).avatar.image, PNG_DATA_URL)
+  assert.equal(rt.roomOf(group.id).avatar.image, PNG_DATA_URL)
+  rt.botOf(bot.id).avatar = { image: badge }
+  await updateBot({ image: badge })
+  assert.equal(rt.botOf(bot.id).avatar.image, badge, 'an unchanged stored badge is not an upload')
+  await assert.rejects(() => updateBot({ image: `${badge} ` }), /PNG, JPEG, WebP, or GIF/)
+})
 const tempAvatarDir = (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'ds-bot-avatar-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
@@ -1336,6 +1485,35 @@ test('create_bot uses a named model, then the team default, then its creator’s
   assert.equal((await botNamed('Inherited')).model, 'deepseek/deepseek-v4-pro')
 })
 
+// A Bot created from inside another Bot's turn is the one path a user reported as
+// sharing history (#1196). Its Session, its greeting and its transcript stay its own.
+test('a Bot created inside another Bot’s turn gets a Session of its own', async (t) => {
+  const { call, stop, sent } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
+  t.after(stop)
+  const before = (await call('state', {})).value
+  const chief = before.bots.find(bot => bot.id === before.mainBotId)
+  assert.match(await createBotAs('Isolated'), /^Created Isolated/)
+
+  const after = (await call('state', {})).value
+  const created = after.bots.find(bot => bot.name === 'Isolated')
+  const keptChief = after.bots.find(bot => bot.id === chief.id)
+  // Its own chat, not the chat whose turn made it.
+  assert.notEqual(created.id, chief.id)
+  assert.equal(created.sessionId, created.id)
+  assert.ok(!(created.parts ?? []).includes(chief.id))
+  // The greeting goes to the new Bot's Session and nowhere else.
+  await until(() => sent.length > 0)
+  assert.deepEqual([...new Set(sent.map(entry => entry.sessionId))], [created.id])
+  // The creator keeps its own chat, and the new Bot's Session is not part of it.
+  assert.equal(keptChief.sessionId, chief.sessionId)
+  assert.ok(!(keptChief.parts ?? []).includes(created.id))
+  // Nothing of the creator's conversation is reachable from the new Bot's chat: it
+  // answers with its own Session and no lines, never with the chat that made it.
+  const chat = await call('chat', { botId: created.id })
+  assert.ok(chat.value === undefined || chat.value.sessionId === created.id, `chat answered for ${chat.value?.sessionId}`)
+  assert.deepEqual(chat.value?.items ?? [], [])
+})
+
 test('create_bot inherits the creator’s model when no team default is set', async (t) => {
   const { stop } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
   t.after(stop)
@@ -1379,4 +1557,627 @@ test('a model-less create-bot starts the Bot on the saved team default model', a
   await call('set-prefs', { defaultBotModel: null })
   const plain = (await call('create-bot', { name: 'Plain' })).value
   assert.equal(plain.model, 'deepseek/deepseek-v4-flash')
+})
+
+// A window opened while the old dsh was still running reads the team read-only. When
+// that dsh goes away this host takes the lock over on its next poll, and the answer's
+// live fields say so: the window goes writable without a reload.
+test('a window learns that the other dsh closed and takes the team over without a reload', async (t) => {
+  const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'])
+  t.after(() => holder.kill())
+  const { call, stop } = start({ version: 1, mainBotIds: ['chief'], bots: { chief: { id: 'chief', sessionId: 'chief', name: 'Chief' } } }, {
+    models: ['deepseek-v4-flash'],
+    lock: { pid: holder.pid, host: hostname(), token: 'other', since: Date.now() },
+  })
+  t.after(stop)
+
+  const first = (await call('state', {})).value
+  assert.match(first.readOnly ?? '', /open in another dsh/)
+  const refused = await call('create-bot', { name: 'Refused' })
+  assert.equal(refused.ok, false)
+  assert.equal(refused.error.code, 'bot/read-only')
+
+  // The other dsh closes; the next poll takes the lock over and says so in the same
+  // unchanged answer a window with this live key receives.
+  const exited = new Promise(resolve => holder.once('exit', resolve))
+  holder.kill()
+  await exited
+  const live = (await call('state', { since: first.revision, models: first.modelsKey, live: first.liveKey })).value
+  assert.equal(live.unchanged, true)
+  assert.equal(live.readOnly, null)
+  assert.notEqual(live.liveKey, first.liveKey, 'a changed read-only notice moves the live key')
+  assert.equal((await call('create-bot', { name: 'Took over' })).ok, true)
+})
+
+// #1929: a Bot's own Session can vanish from the Session library while its id stays
+// pinned in the team state. Model syncing must not ask that id again on every sync, and
+// missing-session recovery must work when there is no agent to move on from.
+test('a Session gone from the library is marked once, and recover-session replaces it', async (t) => {
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        segments: [{ sessionId: 'earlier-ok', endedAt: 1 }],
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {},
+    agents: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+    revision: 0,
+  }
+  const movedSchedules = []
+  const schedules = {
+    catalog: async () => [{ id: 'sch-1', status: 'active', target: { kind: 'session', sessionId: 'gone-session' } }],
+    edit: async (req) => { movedSchedules.push(req) },
+  }
+  const { call, stop, selected, attempts } = start(team, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost: new Set(['gone-session']),
+    schedules,
+  })
+  t.after(stop)
+
+  // A model change is the sync that meets the lost Session first.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  assert.deepEqual(attempts.filter(entry => entry.sessionId === 'gone-session').map(entry => entry.model), ['deepseek-v4-pro'])
+  let chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, 'gone-session')
+
+  // The next sync skips the marked id instead of asking again.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-flash' })).ok, true)
+  assert.equal(attempts.filter(entry => entry.sessionId === 'gone-session').length, 1)
+
+  // `recover-session` retires the missing Session cleanly without adding it to `segments`,
+  // clears sessionMissing, preserves readable earlier segments, and retargets schedules.
+  const recovered = await call('recover-session', { botId: 'chief' })
+  assert.equal(recovered.ok, true)
+  assert.equal(recovered.value.recovered, true)
+  chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionId, recovered.value.sessionId)
+  assert.notEqual(chief.sessionId, 'gone-session')
+  assert.equal(chief.sessionMissing, undefined)
+  assert.deepEqual(chief.parts, ['earlier-ok'])
+  assert.equal(rt.chatOwners.has('gone-session'), false)
+  assert.equal(rt.pastOwners.has('gone-session'), false)
+  assert.deepEqual(movedSchedules, [{ id: 'sch-1', action: 'update', patch: { target: { kind: 'session', sessionId: chief.sessionId } } }])
+  const fresh = selected.filter(entry => entry.sessionId === chief.sessionId)
+  assert.equal(fresh.length, 1)
+  assert.equal(fresh[0].model, 'deepseek-v4-flash')
+
+  // Calling recover-session on a healthy Session keeps it intact instead of replacing it.
+  const healthy = await call('recover-session', { botId: 'chief' })
+  assert.equal(healthy.ok, true)
+  assert.equal(healthy.value.recovered, false)
+  assert.equal(healthy.value.sessionId, chief.sessionId)
+
+  // The replaced part is retired, so later syncs do not ask it either.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  assert.equal(attempts.filter(entry => entry.sessionId === 'gone-session').length, 1)
+})
+
+test('recover-session refuses read-only windows and missing task Sessions skip retries without marking sessionMissing', async (t) => {
+  // Missing active task Session is skipped after one not-found without setting bot.sessionMissing.
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'live-session',
+        tasks: [{ id: 'task-1', sessionId: 'gone-task', status: 'running', title: 'Bg', startedAt: 1, updatedAt: 1 }],
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const { call, stop, attempts } = start(team, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost: new Set(['gone-task']),
+  })
+  t.after(stop)
+
+  await call('state', {})
+  // Attach a live active task after boot (startup reconciles persisted running tasks as orphans).
+  rt.botOf('chief').tasks = [{ id: 'task-1', sessionId: 'gone-task', status: 'running', title: 'Bg', startedAt: 1, updatedAt: 1 }]
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  assert.equal(attempts.filter(entry => entry.sessionId === 'gone-task').length, 1)
+  const chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, undefined)
+
+  // Subsequent sync skips the gone task session; forgetSessionModel clears the remembered skip.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-flash' })).ok, true)
+  assert.equal(attempts.filter(entry => entry.sessionId === 'gone-task').length, 1)
+  rt.forgetSessionModel('gone-task')
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  assert.equal(attempts.filter(entry => entry.sessionId === 'gone-task').length, 2)
+
+  // Read-only window refuses recover-session before mutating anything.
+  const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'])
+  t.after(() => holder.kill())
+  const roTeam = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const ro = start(roTeam, {
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+    lock: { pid: holder.pid, host: hostname(), token: 'other', since: Date.now() },
+  })
+  t.after(ro.stop)
+  const denied = await ro.call('recover-session', { botId: 'chief' })
+  assert.equal(denied.ok, false)
+  assert.equal(denied.error.code, 'bot/read-only')
+  await assert.rejects(rt.recoverMissingSession('chief'), { code: 'bot/read-only' })
+})
+
+test('concurrent model edit during missing-Session recovery is re-applied to the fresh Session', async (t) => {
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const { call, stop, ctx, selected } = start(team, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(stop)
+  // Let bootstrap's model sync finish before recovery starts: a sync still in flight
+  // would write the new model to the fresh Session on its own and hide the recheck.
+  await call('state', {})
+  await settle()
+
+  // Hold the fresh Session's permission step: `picked` has already read the Bot's old
+  // model and written it to the fresh Session, so the concurrent edit lands between
+  // that read and the post-registration recheck.
+  let freshId
+  let permissionStarted
+  let releasePermission
+  const permissionReached = new Promise(resolve => { permissionStarted = resolve })
+  const released = new Promise(resolve => { releasePermission = resolve })
+  let held = false
+  const origCreate = ctx.sessionController.create
+  ctx.sessionController.create = async (...args) => {
+    const created = await origCreate(...args)
+    freshId = created.sessionId
+    return created
+  }
+  const origApplyPermission = rt.applyPermission
+  rt.applyPermission = async (...args) => {
+    if (!held && args[1] === freshId) {
+      held = true
+      permissionStarted()
+      await released
+    }
+    return origApplyPermission(...args)
+  }
+
+  const recovering = call('recover-session', { botId: 'chief' })
+  await permissionReached
+  assert.deepEqual(selected.filter(entry => entry.sessionId === freshId).map(entry => entry.model), ['deepseek-v4-flash'])
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  releasePermission()
+  assert.equal((await recovering).ok, true)
+
+  // Read the runtime directly so a `state` refresh does not trigger another sync.
+  const chief = rt.botOf('chief')
+  assert.equal(chief.sessionId, freshId)
+  const freshSelections = selected.filter(entry => entry.sessionId === freshId)
+  assert.deepEqual(freshSelections.map(entry => entry.model), ['deepseek-v4-flash', 'deepseek-v4-pro'])
+})
+
+test('restoring a missing Session heals sessionMissing and re-applies the Bot model', async (t) => {
+  const lost = new Set(['restored-session'])
+  const listed = new Set()
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'restored-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const first = start(team, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost,
+    listed,
+  })
+  t.after(first.stop)
+
+  // Model change while Session is missing marks sessionMissing without lying that the new model applied.
+  assert.equal((await first.call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  let chief = (await first.call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, 'restored-session')
+  const savedAfterMiss = JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8'))
+  assert.equal(savedAfterMiss.bots.chief.appliedModel, 'deepseek/deepseek-v4-flash')
+
+  // Simulate restart after the Session is restored into the library, even if appliedModel already matched.
+  const restoredTeam = {
+    ...savedAfterMiss,
+    bots: {
+      chief: {
+        ...savedAfterMiss.bots.chief,
+        appliedModel: 'deepseek/deepseek-v4-pro',
+      },
+    },
+  }
+  const restored = start(restoredTeam, {
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    lost: new Set(),
+    listed: new Set(['restored-session']),
+  })
+  t.after(restored.stop)
+
+  await restored.call('state', {})
+  await until(() => restored.selected.some(entry => entry.sessionId === 'restored-session' && entry.model === 'deepseek-v4-pro'))
+  chief = (await restored.call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, undefined)
+})
+
+test('buffered silent notes survive missing-Session recovery onto the fresh Session', async (t) => {
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  let failFlush = true
+  let flushes = 0
+  const { call, stop, injected } = start(team, {
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+    flush: async () => {
+      flushes += 1
+      if (failFlush) {
+        failFlush = false
+        throw new Error('transient flush error')
+      }
+    },
+  })
+  t.after(stop)
+  await call('state', {})
+
+  // Persisted silent note restored onto the missing Session stays buffered while owned.
+  const note = {
+    id: 'silent-note-1',
+    content: [{ type: 'text', text: '[Note from Peer · FYI only, no reply needed]\nKeep this note across recovery.' }],
+    source: { kind: 'ds-bot', role: 'note', exchangeId: 'ex-silent-1' },
+  }
+  await rt.restoreSilentNotes({ 'gone-session': [{ message: note }] })
+  assert.equal(injected.length, 0)
+
+  // First flush fails during `recover-session`, leaving `state.switching['gone-session']`
+  // with `missing: true` for `handOnHeld` retry; no note is dropped.
+  const recovered = await call('recover-session', { botId: 'chief' })
+  assert.equal(recovered.ok, true)
+  const freshId = recovered.value.sessionId
+  assert.notEqual(freshId, 'gone-session')
+  assert.equal(rt.state.switching['gone-session']?.missing, true)
+  assert.equal(flushes, 1)
+
+  // Retry path (`handOnHeld`) flushes the migrated silent note onto the fresh Session
+  // without duplicating it and clears the recovery record.
+  await rt.heldBack()
+  assert.equal(flushes, 2)
+  const delivered = injected.filter(entry => entry.sessionId === freshId && entry.message?.source?.exchangeId === 'ex-silent-1')
+  assert.equal(delivered.length, 1)
+  assert.equal(rt.state.switching['gone-session'], undefined)
+
+  // Direct recovery path (when flush succeeds immediately) also moves silent notes
+  // before dropping the lost Session from `chatOwners`.
+  const direct = start(team, {
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(direct.stop)
+  await direct.call('state', {})
+  await rt.restoreSilentNotes({ 'gone-session': [{ message: note }] })
+  const directRecovered = await direct.call('recover-session', { botId: 'chief' })
+  assert.equal(directRecovered.ok, true)
+  assert.deepEqual(
+    direct.injected.filter(entry => entry.sessionId === directRecovered.value.sessionId).map(entry => entry.message?.source?.exchangeId),
+    ['ex-silent-1'],
+  )
+  assert.equal(rt.state.switching['gone-session'], undefined)
+})
+
+test('kickoff greeting is preserved while a Bot Session is missing and sent after recovery', async (t) => {
+  const greeting = { text: 'Hello from kickoff', from: null, main: true }
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        kickoff: { ...greeting },
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const { call, stop, home, sent } = start(team, {
+    models: ['deepseek-v4-pro'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(stop)
+
+  // Picking a model while the Session is gone marks `sessionMissing` and must not consume `kickoff`.
+  assert.equal((await call('update-bot', { id: 'chief', model: 'deepseek/deepseek-v4-pro' })).ok, true)
+  await settle()
+  let chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.sessionMissing, 'gone-session')
+  assert.equal(chief.waiting, true)
+  const savedWhileMissing = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  assert.deepEqual(savedWhileMissing.bots.chief.kickoff, greeting)
+  assert.equal(sent.length, 0)
+
+  // Replacing the missing Session clears `sessionMissing` and delivers the held greeting to the fresh Session.
+  const recovered = await call('recover-session', { botId: 'chief' })
+  assert.equal(recovered.ok, true)
+  const freshId = recovered.value.sessionId
+  await until(() => sent.some(entry => entry.sessionId === freshId && entry.message?.source?.role === 'kickoff'))
+  chief = (await call('state', {})).value.bots.find(bot => bot.id === 'chief')
+  assert.equal(chief.waiting, undefined)
+
+  // Restoring/healing a missing Session also preserves and delivers the held greeting.
+  const healedRun = start(savedWhileMissing, {
+    models: ['deepseek-v4-pro'],
+    lost: new Set(),
+    listed: new Set(['gone-session']),
+  })
+  t.after(healedRun.stop)
+  await healedRun.call('state', {})
+  await until(() => healedRun.sent.some(entry => entry.sessionId === 'gone-session' && entry.message?.source?.role === 'kickoff'))
+})
+
+test('persisted silent notes survive missing-Session recovery when recovery runs before startup replay', async (t) => {
+  const note = {
+    id: 'silent-startup-race-1',
+    content: [{ type: 'text', text: '[Note from Peer · FYI only, no reply needed]\nDo not lose me before startup replay.' }],
+    source: { kind: 'ds-bot', role: 'note', exchangeId: 'ex-startup-race-1' },
+  }
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-race-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  t.after(() => t.mock.timers.reset())
+
+  // Boot with the silent note ONLY persisted on disk under `gone-session` (not in memory).
+  const first = start(team, {
+    home,
+    keepHome: true,
+    inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(first.stop)
+
+  await first.call('state', {})
+  assert.equal(first.injected.length, 0, 'startup replay timer has not fired yet')
+
+  // Trigger missing-Session recovery BEFORE the 3s startup replay timer fires.
+  const recovered = await first.call('recover-session', { botId: 'chief' })
+  assert.equal(recovered.ok, true)
+  const freshId = recovered.value.sessionId
+  assert.notEqual(freshId, 'gone-session')
+  assert.deepEqual(
+    first.injected.filter(entry => entry.sessionId === freshId).map(entry => entry.message?.source?.exchangeId),
+    ['ex-startup-race-1'],
+  )
+  assert.equal(first.rt.state.switching['gone-session'], undefined)
+
+  // Now let startup replay (`resumeAll` -> `restoreSilentNotes`) and `heldBack` fire:
+  // the note must not be dropped or duplicated.
+  t.mock.timers.tick(3500)
+  await first.rt.flushInflight?.()
+  t.mock.timers.reset()
+  await settle()
+  assert.deepEqual(
+    first.injected.filter(entry => entry.sessionId === freshId).map(entry => entry.message?.source?.exchangeId),
+    ['ex-startup-race-1'],
+  )
+  await first.stop()
+
+  // A subsequent restart on the same home must not replay the already-delivered note.
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const second = start(undefined, {
+    home,
+    keepHome: true,
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(second.stop)
+  await second.call('state', {})
+  t.mock.timers.tick(3500)
+  t.mock.timers.reset()
+  await settle()
+  assert.equal(second.injected.length, 0)
+})
+
+test('missing-Session recovery commits replacement ownership before removing silent notes across crash boundaries', async (t) => {
+  const note = {
+    id: 'silent-crash-window-1',
+    content: [{ type: 'text', text: '[Note from Peer · FYI only, no reply needed]\nSurvive any crash boundary.' }],
+    source: { kind: 'ds-bot', role: 'note', exchangeId: 'ex-crash-window-1' },
+  }
+  const makeTeam = () => ({
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  })
+
+  // 1) Failure/crash BEFORE `rt.save()` commits: persisted silent notes must stay under
+  //    `gone-session` (never deleted or moved onto an unowned replacement Session).
+  const homeBeforeSave = mkdtempSync(join(tmpdir(), 'ds-bot-roster-crash-before-'))
+  const statePathBeforeSave = join(homeBeforeSave, 'state.json')
+  const origRename = fsp.rename
+  let failStateRename = false
+  fsp.rename = async (from, to) => {
+    if (failStateRename && to === statePathBeforeSave) {
+      throw Object.assign(new Error('simulated crash before state.json commit'), { code: 'EIO' })
+    }
+    return origRename(from, to)
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.rename = origRename
+    syncBuiltinESMExports()
+    rmSync(homeBeforeSave, { recursive: true, force: true, maxRetries: 5 })
+  })
+
+  const beforeCrash = start(makeTeam(), {
+    home: homeBeforeSave,
+    keepHome: true,
+    inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  await beforeCrash.call('state', {})
+  failStateRename = true
+  const failedRecover = await beforeCrash.call('recover-session', { botId: 'chief' })
+  assert.equal(failedRecover.ok, false)
+  assert.equal(beforeCrash.injected.length, 0, 'no silent note may flush to an uncommitted replacement Session')
+  await beforeCrash.rt.flushInflight?.()
+  const stateStillOld = JSON.parse(readFileSync(statePathBeforeSave, 'utf8'))
+  assert.equal(stateStillOld.bots.chief.sessionId, 'gone-session')
+  const inflightStillOld = JSON.parse(readFileSync(join(homeBeforeSave, 'inflight.json'), 'utf8'))
+  assert.equal(inflightStillOld.silent?.['gone-session']?.length, 1)
+  await beforeCrash.stop()
+
+  // Restart after pre-save crash: `gone-session` is still owned, and recovery delivers the note once.
+  failStateRename = false
+  const afterPreSaveCrash = start(undefined, {
+    home: homeBeforeSave,
+    keepHome: true,
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(afterPreSaveCrash.stop)
+  await afterPreSaveCrash.call('state', {})
+  let diskStateAtMove
+  const origMove = afterPreSaveCrash.rt.moveSilentNotes
+  afterPreSaveCrash.rt.moveSilentNotes = (...args) => {
+    diskStateAtMove = JSON.parse(readFileSync(statePathBeforeSave, 'utf8'))
+    return origMove(...args)
+  }
+  const recoveredAfterRestart = await afterPreSaveCrash.call('recover-session', { botId: 'chief' })
+  assert.equal(recoveredAfterRestart.ok, true)
+  const freshAfterRestart = recoveredAfterRestart.value.sessionId
+  assert.equal(diskStateAtMove?.bots?.chief?.sessionId, freshAfterRestart, 'state.json must own freshId before moveSilentNotes runs')
+  assert.equal(diskStateAtMove?.switching?.['gone-session']?.missing, true, 'state.json must persist recovery lineage before moveSilentNotes runs')
+  assert.deepEqual(
+    afterPreSaveCrash.injected.filter(entry => entry.sessionId === freshAfterRestart).map(entry => entry.message?.source?.exchangeId),
+    ['ex-crash-window-1'],
+  )
+
+  // 2) Crash AFTER `rt.save()` committed `fresh-committed` + `state.switching['gone-session']`,
+  //    BEFORE `moveSilentNotes` removed `gone-session`'s persisted silent note.
+  const postSaveTeam = {
+    ...makeTeam(),
+    bots: {
+      chief: {
+        ...makeTeam().bots.chief,
+        sessionId: 'fresh-committed',
+        sessionMissing: undefined,
+      },
+    },
+    switching: { 'gone-session': { botId: 'chief', missing: true } },
+  }
+
+  // 2a) Restart where startup replay (`resumeAll` -> `restoreSilentNotes`) runs first:
+  const homePostSaveReplay = mkdtempSync(join(tmpdir(), 'ds-bot-roster-crash-after-a-'))
+  t.after(() => rmSync(homePostSaveReplay, { recursive: true, force: true, maxRetries: 5 }))
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  t.after(() => t.mock.timers.reset())
+  const restartA = start(postSaveTeam, {
+    home: homePostSaveReplay,
+    keepHome: true,
+    inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(restartA.stop)
+  await restartA.call('state', {})
+  t.mock.timers.tick(3500)
+  t.mock.timers.reset()
+  await until(() => restartA.injected.some(entry => entry.sessionId === 'fresh-committed'))
+  await settle()
+  assert.deepEqual(
+    restartA.injected.filter(entry => entry.sessionId === 'fresh-committed').map(entry => entry.message?.source?.exchangeId),
+    ['ex-crash-window-1'],
+  )
+  assert.equal(restartA.rt.state.switching['gone-session'], undefined)
+
+  // 2b) Restart where `handOnHeld` runs BEFORE the 3s startup replay timer fires (e.g. schedules attach early):
+  const homePostSaveHeld = mkdtempSync(join(tmpdir(), 'ds-bot-roster-crash-after-b-'))
+  t.after(() => rmSync(homePostSaveHeld, { recursive: true, force: true, maxRetries: 5 }))
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const restartB = start(postSaveTeam, {
+    home: homePostSaveHeld,
+    keepHome: true,
+    inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(restartB.stop)
+  await restartB.call('state', {})
+  await restartB.rt.heldBack()
+  assert.deepEqual(
+    restartB.injected.filter(entry => entry.sessionId === 'fresh-committed').map(entry => entry.message?.source?.exchangeId),
+    ['ex-crash-window-1'],
+  )
+  assert.equal(restartB.rt.state.switching['gone-session'], undefined)
+  t.mock.timers.tick(3500)
+  t.mock.timers.reset()
+  await settle()
+  assert.deepEqual(
+    restartB.injected.filter(entry => entry.sessionId === 'fresh-committed').map(entry => entry.message?.source?.exchangeId),
+    ['ex-crash-window-1'],
+  )
 })

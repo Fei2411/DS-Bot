@@ -1,5 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { fileURLToPath } from 'node:url'
+import { runInNewContext } from 'node:vm'
+import { build } from 'esbuild'
 import { RANGES, bucketsOf, compact, percent, spanOf, spanRange, summarize } from '../src/client/usage-data.js'
 
 const range = id => RANGES.find(item => item.id === id)
@@ -121,4 +124,163 @@ test('counts read short and shares round', () => {
   assert.equal(percent(0, 300), '0')
   assert.equal(percent(1, 3), '33')
   assert.equal(percent(5, 0), '0')
+})
+
+// Mounts the real Stats component from usage-page.js with stateful React hooks and
+// controllable rAF / clock so tests exercise useTween and layout structure directly.
+async function mountStats({ reduced = false } = {}) {
+  const bundle = await build({
+    entryPoints: [fileURLToPath(new URL('../src/client/usage-page.js', import.meta.url))],
+    bundle: true, format: 'cjs', platform: 'node', write: false,
+    external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+  })
+  let now = 0
+  let nextFrame = 1
+  const frames = new Map()
+  const cancelled = []
+  let slots = []
+  let cursor = 0
+  let pendingEffects = []
+  let activeProps = null
+  let tree = null
+  const sameDeps = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => Object.is(v, b[i]))
+  const react = {
+    createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
+    useContext: ctx => ctx.value,
+    useId: () => 'u-id',
+    useMemo: make => make(),
+    useCallback: fn => fn,
+    useSyncExternalStore: (_sub, get) => get(),
+    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+    Fragment: 'fragment',
+    useState(initial) {
+      const idx = cursor++
+      if (!(idx in slots)) slots[idx] = typeof initial === 'function' ? initial() : initial
+      const set = (next) => {
+        const value = typeof next === 'function' ? next(slots[idx]) : next
+        if (!Object.is(slots[idx], value)) {
+          slots[idx] = value
+          render(activeProps)
+        }
+      }
+      return [slots[idx], set]
+    },
+    useRef(initial) {
+      const idx = cursor++
+      if (!(idx in slots)) slots[idx] = { current: initial }
+      return slots[idx]
+    },
+    useLayoutEffect(fn, deps) {
+      const idx = cursor++
+      const prev = slots[idx]
+      if (prev === undefined || !sameDeps(prev.deps, deps)) {
+        pendingEffects.push({ idx, fn, deps, cleanup: prev?.cleanup })
+      }
+    },
+    useEffect() {},
+  }
+  const module = { exports: {} }
+  runInNewContext(bundle.outputFiles[0].text, {
+    module, exports: module.exports,
+    Intl, URL, URLSearchParams, setTimeout, clearTimeout,
+    performance: { now: () => now },
+    requestAnimationFrame: (cb) => { const id = nextFrame++; frames.set(id, cb); return id },
+    cancelAnimationFrame: (id) => { cancelled.push(id); frames.delete(id) },
+    window: { matchMedia: () => ({ matches: reduced }) },
+    require: (name) => {
+      if (name === 'react') return react
+      if (name === 'react-dom' || name === '@deepseek-ai/dsh-client-ui-primitives') return {}
+      throw new Error(`unexpected external ${name}`)
+    },
+  })
+  const { Stats, USAGE_CSS } = module.exports
+  const render = (props) => {
+    activeProps = props
+    cursor = 0
+    pendingEffects = []
+    tree = Stats(props)
+    const effects = pendingEffects
+    pendingEffects = []
+    for (const effect of effects) {
+      effect.cleanup?.()
+      const cleanup = effect.fn()
+      slots[effect.idx] = { deps: effect.deps, cleanup }
+    }
+    return tree
+  }
+  const find = (node, pred) => {
+    if (!node || typeof node !== 'object') return null
+    if (pred(node)) return node
+    for (const child of node.children ?? []) {
+      const hit = find(child, pred)
+      if (hit) return hit
+    }
+    return null
+  }
+  const text = (node) => {
+    if (node == null || typeof node === 'boolean') return ''
+    if (typeof node === 'string' || typeof node === 'number') return String(node)
+    return (node.children ?? []).map(text).join('')
+  }
+  const tick = (ms) => {
+    now = ms
+    const batch = [...frames.entries()]
+    frames.clear()
+    for (const [, cb] of batch) cb(now)
+  }
+  const unmount = () => {
+    for (const slot of slots) slot?.cleanup?.()
+    slots = []
+  }
+  return { render, find, text, tick, unmount, frames, cancelled, USAGE_CSS, get tree() { return tree } }
+}
+
+// #1547: switching ranges snaps Stats immediately without counting across unrelated
+// totals, while updates within the same range still ease smoothly, and .bt-us-delta
+// lives in the header row decoupled from the animated figure's width.
+test('Stats snaps total immediately on range switch, eases within one range, and decouples the delta badge from the figure', async () => {
+  const m = await mountStats()
+  const statsOf = total => ({ input: total, cacheRead: 0, output: 0, calls: 1, total })
+  const mainValue = () => m.text(m.find(m.tree, n => n.props?.className === 'bt-us-stat-value'))
+  const head = () => m.find(m.tree, n => n.props?.className === 'bt-us-stat-head')
+  const valueNode = () => m.find(m.tree, n => n.props?.className === 'bt-us-stat-value')
+
+  // Initial mount eases from 0 toward 10K via requestAnimationFrame.
+  m.render({ range: range('24h'), total: statsOf(10_000), previous: 8_000 })
+  assert.equal(m.frames.size, 1, 'initial render schedules tween rAF')
+  m.tick(325)
+  const midway = mainValue()
+  assert.notEqual(midway, '0tokens')
+  assert.notEqual(midway, '10Ktokens')
+  m.tick(650)
+  assert.equal(mainValue(), '10Ktokens')
+  assert.equal(m.frames.size, 0)
+
+  // Same range growth eases smoothly and cleans up if interrupted.
+  m.render({ range: range('24h'), total: statsOf(20_000), previous: 8_000 })
+  assert.equal(m.frames.size, 1, 'same-range total change schedules tween rAF')
+  const pendingId = [...m.frames.keys()][0]
+
+  // Switching range cancels any in-flight tween and snaps immediately to the new range total.
+  m.render({ range: range('7d'), total: statsOf(4_330_000_000), previous: 2_000_000_000 })
+  assert.ok(m.cancelled.includes(pendingId), 'in-flight rAF from previous range is cancelled')
+  assert.equal(m.frames.size, 0, 'range switch must not schedule a tween across unrelated totals')
+  assert.equal(mainValue(), '4.33Btokens', 'switched range displays its total immediately')
+
+  // Switching between custom spans also snaps immediately.
+  m.render({ range: spanRange('2026-10-01', '2026-10-03'), total: statsOf(500), previous: 400 })
+  assert.equal(m.frames.size, 0)
+  assert.equal(mainValue(), '500tokens')
+  m.render({ range: spanRange('2026-10-04', '2026-10-06'), total: statsOf(1_500_000), previous: 500 })
+  assert.equal(m.frames.size, 0)
+  assert.equal(mainValue(), '1.5Mtokens')
+
+  // Layout contract: .bt-us-delta sits in .bt-us-stat-head (not inside .bt-us-stat-value),
+  // so number width changes during initial load, same-range updates, or range switches never shift it.
+  const deltaInHead = m.find(head(), n => n.props?.className === 'bt-us-delta')
+  const deltaInValue = m.find(valueNode(), n => n.props?.className === 'bt-us-delta')
+  assert.ok(deltaInHead, '.bt-us-delta must render in .bt-us-stat-head')
+  assert.equal(deltaInValue, null, '.bt-us-delta must not sit inline inside .bt-us-stat-value')
+  assert.match(m.USAGE_CSS, /\.bt-us-stat-head\{[^}]*display:flex[^}]*justify-content:space-between/)
+  m.unmount()
 })

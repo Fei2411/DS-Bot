@@ -1,0 +1,25 @@
+/* Windows 11 with Mica, and macOS with its sidebar vibrancy: the sidebar shows the material
+   for the full window height, and the conversation reaches the top edge. The Windows caption
+   buttons stand on the conversation, because Windows paints them opaque; the traffic lights
+   stand on the sidebar. Theme variables only.
+   Disabled cleanly whenever the user turns off Window material or picks a custom background. */
+
+/* The sidebar's coat lies on the whole frame, once: the conversation stands on the same coat
+   as the sidebar beside it, not on the bare material. */
+body:not([data-bt-material="off"]):not([data-bt-bg]) {
+  background: transparent !important;
+  --bt-leftcol-fill: transparent;
+}
+body:not([data-bt-material="off"]):not([data-bt-bg]) .dsb-frame {
+  padding-top: 0 !important;
+  background: color-mix(in srgb, var(--bt-sidebar) 45%, transparent) !important;
+}
+body:not([data-bt-material="off"]):not([data-bt-bg]) .bt-leftcol:not([data-left="drawer"]),
+body:not([data-bt-material="off"]):not([data-bt-bg]) .dsb-side {
+  background: transparent !important;
+}
+body:not([data-bt-material="off"]):not([data-bt-bg]) .dsb-main,
+body:not([data-bt-material="off"]):not([data-bt-bg]) .bt-panel {
+  box-sizing: border-box !important;
+  background: var(--bt-main) !important;
+}
