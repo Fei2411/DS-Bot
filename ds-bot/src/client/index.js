@@ -79,6 +79,7 @@ import { createQuestionDrafts } from './question-draft.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
+import { installTitle } from './branding.js'
 import { needsIdleSample, pollDelay } from './polling.js'
 import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
@@ -92,6 +93,7 @@ export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'th
 const WINDOWS = globalThis.navigator?.userAgentData?.platform === 'Windows' || /^Win/u.test(globalThis.navigator?.platform ?? '')
 
 export function apply(ctx) {
+  ctx.effect(() => installTitle(document), 'ds-bot: window title')
   ctx.effect(() => installLocale(ctx.get('locale')), 'ds-bot: interface copy')
   migrateStorage()
   // The window's cached prefs stand in until the first pull answers: a saved
