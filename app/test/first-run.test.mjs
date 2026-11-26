@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
-import fs, { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { syncBuiltinESMExports } from 'node:module'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { paths } from './helpers/fake-electron.mjs'
@@ -54,46 +53,35 @@ test('an unreadable locations file is not treated as corrupt or replaced', (t) =
   assert.equal(warn.mock.callCount(), 0)
 })
 
-test('recovery links the original file without copying its contents', (t) => {
-  const corrupt = '{"dataDir":'
+test('recovery preserves the original bytes and writes default locations', (t) => {
+  const corrupt = Buffer.from('{"dataDir":"custom",\r\n"workspace":"work",\r\n"freeAtStart":')
   const backup = `${file}.corrupt-201`
   t.mock.method(Date, 'now', () => 201)
   t.mock.method(console, 'warn', () => {})
   writeFileSync(file, corrupt)
-  const original = statSync(file, { bigint: true })
 
   assert.deepEqual(chooseLocations(), defaults)
-  assert.equal(statSync(backup, { bigint: true }).ino, original.ino)
-  assert.equal(readFileSync(backup, 'utf8'), corrupt)
+  assert.deepEqual(readFileSync(backup), corrupt)
+  const { dataDir, workspace } = JSON.parse(readFileSync(file, 'utf8'))
+  assert.deepEqual({ dataDir, workspace }, defaults)
 })
 
-test('unsupported links fall back to an exclusive copy and clean up a failed copy', (t) => {
+test('a failed defaults write leaves the backup and the next startup can retry', (t) => {
   const corrupt = '{"dataDir":'
   const backup = `${file}.corrupt-202`
-  const full = Object.assign(new Error('disk full'), { code: 'ENOSPC' })
+  const temporary = `${file}.tmp`
   t.mock.method(Date, 'now', () => 202)
   t.mock.method(console, 'warn', () => {})
-  const link = t.mock.method(fs, 'linkSync', () => {
-    throw Object.assign(new Error('links unsupported'), { code: 'ENOTSUP' })
-  })
-  const copyFile = fs.copyFileSync
-  const copy = t.mock.method(fs, 'copyFileSync', (from, to, flags) => {
-    assert.equal(flags, fs.constants.COPYFILE_EXCL)
-    if (to === `${backup}-1`) {
-      writeFileSync(to, 'partial', { flag: 'wx' })
-      throw full
-    }
-    copyFile(from, to, flags)
-  })
-  syncBuiltinESMExports()
-  t.after(() => { link.mock.restore(); copy.mock.restore(); syncBuiltinESMExports() })
-
+  mkdirSync(temporary)
+  t.after(() => { rmSync(temporary, { force: true, recursive: true }) })
   writeFileSync(file, corrupt)
-  assert.deepEqual(chooseLocations(), defaults)
+
+  assert.throws(() => chooseLocations(), { path: temporary })
+  assert.equal(existsSync(file), false)
   assert.equal(readFileSync(backup, 'utf8'), corrupt)
-  writeFileSync(file, 'null')
-  assert.throws(() => chooseLocations(), error => error === full)
-  assert.equal(readFileSync(file, 'utf8'), 'null')
+
+  rmSync(temporary, { recursive: true })
+  assert.deepEqual(chooseLocations(), defaults)
   assert.equal(readFileSync(backup, 'utf8'), corrupt)
   assert.equal(existsSync(`${backup}-1`), false)
 })
