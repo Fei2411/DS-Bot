@@ -2634,6 +2634,9 @@ export function openCoordinationDb({
       const legacyWorks = legacyState?.works && typeof legacyState.works === 'object' ? legacyState.works : {}
       const legacyWorkEntries = Object.entries(legacyWorks).filter(([, w]) => w && typeof w === 'object')
 
+      const hasLegacyInflightTurns = legacyInflight?.turns && typeof legacyInflight.turns === 'object'
+        && Object.keys(legacyInflight.turns).length > 0
+
       for (const [id, lw] of legacyWorkEntries) {
         const ownerBot = lw.to ?? lw.from
         if (!ownerBot) continue
@@ -2646,13 +2649,14 @@ export function openCoordinationDb({
         const hasPendingSubwork = lw.state === 'need_input'
           || (Array.isArray(lw.open) && lw.open.length > 0)
           || (Array.isArray(lw.results) && lw.results.length > 0)
+        const isOrphanLegacyOpen = hasLegacyInflightTurns && lw.state === 'open' && !hasPendingSubwork && !lw.toSession
         const status = lw.state === 'paused'
           ? 'paused'
-          : hasPendingSubwork
-            ? 'waiting'
-            : 'queued'
+          : isOrphanLegacyOpen
+            ? 'queued'
+            : 'waiting'
         const resolvedSessionId = lw.toSession
-          ?? (hasPendingSubwork && !lw.room ? (bot?.sessionId ?? (bot ? ownerBot : undefined)) : undefined)
+          ?? (!isOrphanLegacyOpen && !lw.room ? (bot?.sessionId ?? (bot ? ownerBot : undefined)) : undefined)
         const res = createWork({
           workId,
           workRef: typeof lw.ref === 'string' ? lw.ref : undefined,
