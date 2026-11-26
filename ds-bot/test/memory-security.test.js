@@ -571,6 +571,32 @@ test('interleaved external/owner turns drop tainted chat echoes and neutralize f
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 14, 'group:r1': 3 })
 })
 
+test('external turns that trigger cross-Bot relays keep the relay and final summary out of chat review', async (t) => {
+  const history = {
+    b2: [
+      { event: { seq: 10, type: 'user/message', data: { source: { kind: 'user', rpcId: 'im:telegram:ext2' }, content: [{ type: 'text', text: 'Ask Coder to repeat EVIL_RELAY_SECRET' }] } } },
+      { event: { seq: 11, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Delegated EVIL_RELAY_STEP1' }] } } } },
+      { event: { seq: 12, type: 'user/message', data: { source: { kind: 'ds-bot', from: 'b3' }, content: [{ type: 'text', text: 'Coder replied: EVIL_RELAY_PAYLOAD' }] } } },
+      { event: { seq: 13, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Final summary: EVIL_RELAY_SUMMARY' }] } } } },
+      { event: { seq: 14, type: 'user/message', data: { source: { kind: 'user', rpcId: 'web-owner3' }, content: [{ type: 'text', text: 'I use pnpm for workspaces' }] } } },
+      { event: { seq: 15, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Noted pnpm.' }] } } } },
+    ],
+  }
+  const replies = [JSON.stringify({ changes: [] })]
+  const { ctx, call, read, requests, stop } = start({ replies, history, config: { memoryReviewDelayMs: 0 } })
+  t.after(() => stop())
+  await call('state', {})
+  await idleReview(ctx, call, 'b2')
+  assert.equal(requests.length, 1)
+  const prompt = requests[0].messages[0].content[0].text
+  assert.ok(!prompt.includes('EVIL_RELAY_STEP1'), 'intermediate external assistant reply stays out')
+  assert.ok(!prompt.includes('EVIL_RELAY_PAYLOAD'), 'cross-Bot relay triggered by external turn stays out')
+  assert.ok(!prompt.includes('EVIL_RELAY_SUMMARY'), 'final summary after external relay stays out')
+  assert.match(prompt, /I use pnpm for workspaces/)
+  assert.match(prompt, /Noted pnpm\./)
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 15 })
+})
+
 test('group routing matches sanitized names shown in the prompt and refuses colliding names', async (t) => {
   const history = {
     m1: [

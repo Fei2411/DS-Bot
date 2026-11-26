@@ -9,6 +9,7 @@ import { unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { HEADING, MAIN, MEMORY_LIMITS, addLink, cleanEntry, cleanTopic, entryId, formatEntry, insertEntry, isExpired, isPinned, joinLines, parseMemory, removeLink } from './memory-entries.js'
 import { tidyRequest, tidySystem } from './memory-copy.js'
+import { inlineUntrusted } from '../shared/quoted-text-fence.js'
 
 const EVERY_MS = 30 * 60_000
 // Below this there is nothing a tidy would be worth a model call for.
@@ -165,10 +166,10 @@ export function installTidy(rt, memory) {
   // Every memory with someone to read it for: a team tidy offers only its topics, since
   // what every Bot always reads is the user's to change.
   function jobs() {
-    const bots = Object.values(state.bots).map(bot => ({ scope: ownScope(bot.id), keeper: bot, who: `one Bot, ${bot.name}` }))
+    const bots = Object.values(state.bots).map(bot => ({ scope: ownScope(bot.id), keeper: bot, who: `one Bot, ${inlineUntrusted(bot.name)}` }))
     const rooms = Object.values(state.rooms).flatMap((room) => {
       const keeper = keeperOf(room)
-      return keeper === undefined ? [] : [{ scope: groupScope(room.id), keeper, who: `one group chat, "${room.name}"` }]
+      return keeper === undefined ? [] : [{ scope: groupScope(room.id), keeper, who: `one group chat, "${inlineUntrusted(room.name)}"` }]
     })
     const main = Object.values(state.bots).find(bot => rt.isMain(bot.id))
     return [...bots, ...rooms, ...(main === undefined ? [] : [{ scope: TEAM, keeper: main, who: 'the notes a team of Bots shares' }])]

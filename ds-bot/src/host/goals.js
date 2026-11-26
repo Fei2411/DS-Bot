@@ -594,7 +594,7 @@ export function install(rt) {
 
   // goal-control { roomId, goalId, action, stopWork? }: the user's pause, resume,
   // stop and clear from the goal panel.
-  async function goalControl(roomId, body = {}) {
+  async function goalControl(roomId, body = {}, origin = undefined) {
     const room = rt.roomOf(roomId)
     if (room === undefined) return { error: 'Unknown group chat' }
     const goal = room.goal
@@ -617,7 +617,7 @@ export function install(rt) {
       rt.clearRoomIdleStreak?.(room.id)
       announce(room, result.reply)
       await rt.save()
-      await queueGoalRelay(room, 'resume', '[Goal resumed]')
+      await queueGoalRelay(room, 'resume', '[Goal resumed]', 'You', origin)
       return {}
     }
     if (action === 'stop') {

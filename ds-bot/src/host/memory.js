@@ -812,6 +812,7 @@ export function install(rt) {
     try {
       await applySteps(steps)
       await journalRow(record.row)
+      droppedCache.clear()
       await unlink(pendingPath(root)).catch(error => { if (error?.code !== 'ENOENT') throw error })
     } catch (error) {
       rt.warn('ds-bot: memory change %s is pending: %s', id, error)
@@ -828,6 +829,7 @@ export function install(rt) {
     if (record === undefined) return
     await applySteps(record.steps)
     await journalRow(record.row)
+    droppedCache.clear()
     await unlink(pendingPath(root)).catch(error => { if (error?.code !== 'ENOENT') throw error })
   }
 

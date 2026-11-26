@@ -824,7 +824,10 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
         const res = await rt.goalDraft(room.id, body.text, { via: 'api' })
         if (res?.error) throw httpError(400, res.code ?? 'bot/refused', res.error)
       } else {
-        const res = await rt.goalControl(room.id, patch)
+        // Thread `{ via: 'api' }` on goalControl too so API `resume` relays carry the
+        // external channel marker in the group ledger and never trigger memory review
+        // as if the owner had posted in the group.
+        const res = await rt.goalControl(room.id, patch, { via: 'api' })
         if (res?.error) throw httpError(400, res.code ?? 'bot/refused', res.error)
       }
       return groupSummary(rt.roomOf(room.id), principal)

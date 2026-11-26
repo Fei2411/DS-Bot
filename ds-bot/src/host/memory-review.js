@@ -96,25 +96,32 @@ export function installReview(rt, memory) {
   // question-card answers as user lines — is the same.
   async function* transcriptLines(sessionId, signal) {
     let answers = []
+    let pendingTail = []
     let pendingUsers = []
     const scan = {}
-    // Flush a cluster of consecutive user prompts together with the assistant replies
-    // that followed them. If ANY prompt in the cluster came from an external channel
-    // (including when an owner steers while an external prompt is still unanswered:
-    // `user(external) -> user(owner) -> assistant`), tag the shared replies external
-    // too so echoed attacker text stays out of the transcript while the owner's own
-    // message is preserved.
+    const markExternal = items => items.map(item => ({ ...item, trust: 'external' }))
+    // Flush a turn cluster: consecutive user prompts together with both their direct
+    // assistant replies AND any follow-up `who: 'bot'` relay/task-report turns and
+    // summaries that ran before the next user turn. If ANY prompt in the cluster came
+    // from an external channel (including interleaved `user(external) -> user(owner)`
+    // or `user(external) -> assistant -> bot-relay -> final-assistant`), tag every
+    // reply and relay in that turn external so attacker-induced output stays out of
+    // the transcript while verified owner messages are preserved.
     function* flushCluster() {
       if (pendingUsers.length === 0) return
       const tainted = pendingUsers.some(item => item.trust === 'external')
       const keep = pendingUsers[0].keepAnswers
+      if (pendingTail.length > 0) {
+        yield* (tainted ? markExternal(pendingTail) : pendingTail)
+      }
       if (keep && answers.length > 0) {
-        yield* (tainted ? answers.map(item => ({ ...item, trust: 'external' })) : answers)
+        yield* (tainted ? markExternal(answers) : answers)
       }
       for (const item of pendingUsers) {
         if (item.line !== undefined) yield item.line
       }
       answers = []
+      pendingTail = []
       pendingUsers = []
     }
     for await (const event of rt.eventsBackwards(sessionId, signal, Infinity, scan)) {
@@ -132,12 +139,26 @@ export function installReview(rt, memory) {
         continue
       }
       if (pendingUsers.length > 0) yield* flushCluster()
+      if (entry.who === 'bot' && entry.keepAnswers) {
+        // Hold cross-Bot relays / task reports and their trailing assistant summaries
+        // until the initiating `who: 'user'` event is seen so an external turn's relay
+        // chain is tagged external as a whole.
+        pendingTail.push(...answers)
+        answers = []
+        if (entry.text !== '') pendingTail.push({ text: entry.text, time: event.time, seq: event.seq, who: entry.who, trust })
+        continue
+      }
+      if (pendingTail.length > 0) {
+        yield* pendingTail
+        pendingTail = []
+      }
       const kept = entry.keepAnswers ? answers : []
       answers = []
       yield* kept
       if (entry.text !== '') yield { text: entry.who === 'user' ? `User: ${entry.text}` : entry.text, time: event.time, seq: event.seq, who: entry.who, trust }
     }
     if (pendingUsers.length > 0) yield* flushCluster()
+    if (pendingTail.length > 0) yield* pendingTail
     if (answers.length > 0 && scan.capped === true && scan.complete !== true) {
       for (const item of answers) {
         if (item.text !== `You: ${HANDOFF_ACK}`) yield item
