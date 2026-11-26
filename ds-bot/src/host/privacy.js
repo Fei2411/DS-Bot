@@ -1447,5 +1447,10 @@ export function install(rt) {
     ? (await ownerOfPath(expandHome(path), { self, base })) !== undefined
     : false)
 
-  Object.assign(rt, { isPrivate, isPrivatePathBlocked, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, releaseArchive, archivesView })
+  Object.assign(rt, {
+    isPrivate, isPrivatePathBlocked, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, releaseArchive, archivesView,
+    // The private Bot a real path belongs to, for callers outside the file tools that read
+    // a file the user names: a photo must not come out of a folder that is closed.
+    privateOwnerOf: (path, options) => ownerOfPath(path, options),
+  })
 }
