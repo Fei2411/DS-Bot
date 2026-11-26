@@ -4,7 +4,7 @@
 // eight are derived from the canvas and the accent (themes.js deriveThemeMode). The mode
 // the file is not written for is derived from a lightness-flipped canvas, so a dark VS
 // Code theme still has a matching light side.
-import { cleanTheme, contrast, READABLE } from '../shared/appearance.js'
+import { cleanTheme, contrast, luminanceOf, READABLE } from '../shared/appearance.js'
 import { deriveThemeMode, VSCODE_DEFAULTS } from './themes.js'
 
 // One pass over JSONC text with a callback for what sits at each position. Strings are
@@ -175,10 +175,13 @@ export function parseVscodeTheme(text, fallbackLabel = 'VS Code theme') {
     if (fallbackFgDark !== undefined) return fallbackFgDark
     return true
   }
-  // The file's type decides the mode; a visible canvas's perceptual contrast decides next; otherwise infer.
-  const dark = typeDark ?? (explicitCanvas !== undefined
-    ? contrast(explicitCanvas, '#ffffff') >= contrast(explicitCanvas, '#000000')
-    : inferredDark())
+  // The file's type decides the mode; a visible canvas's perceptual contrast (white vs black)
+  // decides next via WCAG luminance without hardcoded hex literals; otherwise infer.
+  const isPerceptuallyDark = (hex) => {
+    const l = luminanceOf(hex) + 0.05
+    return 1.05 / l >= l / 0.05
+  }
+  const dark = typeDark ?? (explicitCanvas !== undefined ? isPerceptuallyDark(explicitCanvas) : inferredDark())
   const canvas = explicitCanvas ?? (dark ? VSCODE_DEFAULTS.dark : VSCODE_DEFAULTS.light)
 
   // A colors dictionary without a single visible color is not a theme: every slot would

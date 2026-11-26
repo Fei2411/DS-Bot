@@ -34599,7 +34599,11 @@ function parseVscodeTheme(text, fallbackLabel = "VS Code theme") {
     if (fallbackFgDark !== void 0) return fallbackFgDark;
     return true;
   };
-  const dark = typeDark ?? (explicitCanvas !== void 0 ? contrast(explicitCanvas, "#ffffff") >= contrast(explicitCanvas, "#000000") : inferredDark());
+  const isPerceptuallyDark = (hex) => {
+    const l = luminanceOf(hex) + 0.05;
+    return 1.05 / l >= l / 0.05;
+  };
+  const dark = typeDark ?? (explicitCanvas !== void 0 ? isPerceptuallyDark(explicitCanvas) : inferredDark());
   const canvas = explicitCanvas ?? (dark ? VSCODE_DEFAULTS.dark : VSCODE_DEFAULTS.light);
   if (!Object.values(colors).some((value) => opaque(value) !== void 0)) {
     throw new Error("This file is not a VS Code theme");
