@@ -334,7 +334,14 @@ export function chunkMarkdown(markdown, limit, { unit = 'code-point' } = {}) {
       if (space > half) at = space
     }
     chunks.push(rest.slice(0, at))
-    rest = rest.slice(at).replace(/^\s+/, '')
+    // Only the separator the cut landed on goes, plus any blank lines it left behind.
+    // Dropping every leading space also took the four spaces of an indented code block —
+    // and the indent of a nested list item — that happened to start the next chunk, so
+    // those lines arrived as prose and as a top-level item.
+    const next = rest.slice(at)
+    rest = next.startsWith('\n')
+      ? next.replace(/^(?:[ \t]*\n)+/, '')
+      : next.startsWith(' ') ? next.slice(1) : next
   }
   return chunks
 }
