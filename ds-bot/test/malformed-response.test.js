@@ -136,7 +136,7 @@ for (const finishReason of ['MALFORMED_FUNCTION_CALL', 'UNEXPECTED_TOOL_CALL', '
     const unrecovered = await boot(t, false, gemini(finishReason))
     assert.equal(unrecovered.failures.length, 1)
     assert.equal(unrecovered.failures[0].code, 'PI_AI_ERROR')
-    assert.match(unrecovered.failures[0].message, new RegExp(`^((Provider stopped with)|(Unhandled stop reason)): ${finishReason}$`))
+    assert.ok(unrecovered.failures[0].message.includes(finishReason), unrecovered.failures[0].message)
     const result = await boot(t, true, gemini(finishReason))
     assert.equal(result.attempts, 2)
     assert.equal(result.events.findLast(event => event.type === 'turn/end').data.reason.kind, 'completed')

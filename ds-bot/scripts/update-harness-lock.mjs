@@ -30,7 +30,7 @@ function versionsByName(lock) {
 }
 
 function npm(args) {
-  const result = spawnSync('npm', ['install', '--prefix', harnessDir, '--legacy-peer-deps=false', '--package-lock-only', '--ignore-scripts', '--no-fund', '--no-audit', ...args], { stdio: 'inherit' })
+  const result = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--prefix', harnessDir, '--legacy-peer-deps=false', '--package-lock-only', '--ignore-scripts', '--no-fund', '--no-audit', ...args], { stdio: 'inherit' })
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
 
