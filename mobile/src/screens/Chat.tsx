@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking, Modal, Pressable, StyleSheet, Text, View, ScrollView, type ListRenderItem } from 'react-native'
+import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, View, ScrollView, type ListRenderItem } from 'react-native'
 import { useIsFocused, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -8,6 +8,8 @@ import { shareFile } from '../team/share-file'
 import type { Agent, Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache, createChatHistory, refreshChatHistory, roomHeadPart } from '../team/chat-cache.ts'
 import { connectorCanConnectOnMobile } from '../team/connectors.ts'
+import { onPrefsChange, peekPrefs, readPrefs } from '../store.ts'
+import { enterMode, sendsOnEnter } from './chat/enter-key.ts'
 import { useTeam } from '../team/context.tsx'
 import { markSeen } from '../team/seen.ts'
 import { messageClock, t } from '../ui/i18n.ts'
@@ -129,6 +131,15 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
   const kind: ChatKind = room !== undefined ? 'room' : agent !== undefined ? 'agent' : 'bot'
   const id = bot?.id ?? room?.id ?? agent?.id ?? ''
   const chatKey = `${computer?.hostDeviceId ?? ''}:${kind}:${id}`
+  const [prefs, setPrefs] = useState(peekPrefs)
+  useEffect(() => {
+    const read = () => void readPrefs().then(setPrefs)
+    read()
+    return onPrefsChange(read)
+  }, [])
+  const mode = enterMode(prefs ?? undefined, Platform.OS)
+  // Do not announce submit behavior to the keyboard before the phone's choice is loaded.
+  const sends = prefs !== null && sendsOnEnter(mode, team?.prefs)
   const cached = pages.get(chatKey)
   const [pageState, setPageState] = useState<{ key: string; page: ChatPage | null; older: ChatItem[] }>(() => ({
     key: chatKey,
@@ -561,7 +572,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
       <Dock question={question} sessionId={sessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
-      <Composer key={chatKey} chatKey={chatKey} name={bot?.name ?? (room && roomTitle(room)) ?? agent?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
+      <Composer key={chatKey} chatKey={chatKey} name={bot?.name ?? (room && roomTitle(room)) ?? agent?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} sends={sends} onSend={send} onStop={stop} p={p} />
       <Actions visible={menuText !== null} text={menuText ?? ''} p={p}
         onClose={() => setMenuText(null)}
         onSelect={() => { setReaderTitle(null); setReaderText(menuText); setMenuText(null) }} />
