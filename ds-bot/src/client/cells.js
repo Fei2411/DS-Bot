@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
 import { linkMentions, normalizeFileLinks, mentionTarget, dayLabel, contentText, stripHeader, stripToolCallTags, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
-import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, GoalIcon, MemoryIcon } from './icons.js'
+import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, EyeIcon, HideIcon, GoalIcon, MemoryIcon } from './icons.js'
+import { detectSecrets } from '../shared/secret-mask.js'
 import { ChangesCard } from './changes-card.js'
 import { goalEventText } from './goal.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
@@ -151,9 +152,27 @@ const Bubble = memo(function Bubble({ text, index, first = true, last = true, ro
   // still invalidates memoization when `lang` changes.
   const labels = mdLabels()
   const linked = useMemo(() => (shown === '' ? '' : linkMentions(normalizeFileLinks(shown), roster.bots, selfId)), [shown, roster.bots, selfId])
+  const openFile = useMemo(() => (typeof actions?.openFile === 'function'
+    ? target => actions.openFile(typeof target === 'string'
+      ? { path: target, sessionId }
+      : { ...target, sessionId: target?.sessionId ?? sessionId })
+    : undefined), [actions, sessionId])
+  const revealFolder = useMemo(() => (typeof actions?.revealFolder === 'function'
+    ? target => actions.revealFolder(typeof target === 'string'
+      ? { path: target, sessionId }
+      : { ...target, sessionId: target?.sessionId ?? sessionId })
+    : undefined), [actions, sessionId])
   const body = useMemo(
-    () => (linked === '' ? null : h(MarkdownText, { text: linked, streaming: live, labels, variant: 'compact', fileMentions: mentions })),
-    [linked, live, labels, mentions],
+    () => (linked === '' ? null : h(MarkdownText, {
+      text: linked,
+      streaming: live,
+      labels,
+      variant: 'compact',
+      fileMentions: mentions,
+      ...(openFile ? { onOpenFile: openFile } : {}),
+      ...(revealFolder ? { onRevealFolder: revealFolder } : {}),
+    })),
+    [linked, live, labels, mentions, openFile, revealFolder],
   )
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its tools, a tap elsewhere
@@ -583,9 +602,54 @@ const scrollParent = (node) => {
   return null
 }
 
+function MaskedUserInline({ text, spans }) {
+  const [revealed, setRevealed] = useState(() => new Set())
+  useEffect(() => {
+    setRevealed(prev => (prev.size === 0 ? prev : new Set()))
+  }, [text])
+  const toggle = (key) => {
+    setRevealed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const nodes = []
+  let cursor = 0
+  for (let i = 0; i < spans.length; i += 1) {
+    const span = spans[i]
+    if (span.start > cursor) nodes.push(h(Fragment, { key: `t:${i}` }, text.slice(cursor, span.start)))
+    const isOpen = revealed.has(span.key)
+    const label = isOpen ? t('Hide secret') : t('Reveal secret')
+    nodes.push(h('span', {
+      key: `s:${span.key}:${i}`,
+      className: `dsb-secret${isOpen ? ' is-revealed' : ''}`,
+      'data-secret-masked': isOpen ? undefined : '',
+    },
+    h('span', { className: 'dsb-secret-val' }, isOpen ? span.raw : span.masked),
+    h('button', {
+      type: 'button',
+      className: 'dsb-secret-toggle',
+      'aria-pressed': isOpen,
+      'aria-label': label,
+      title: label,
+      onClick: (event) => { event.stopPropagation(); toggle(span.key) },
+    }, isOpen ? h(HideIcon) : h(EyeIcon))))
+    cursor = span.end
+  }
+  if (cursor < text.length) nodes.push(h(Fragment, { key: 't:end' }, text.slice(cursor)))
+  return h('div', { className: 'bt-umasked', style: { whiteSpace: 'pre-wrap' } }, nodes)
+}
+
 function EarlierUser({ row, actions, renderUserAttachments }) {
   const { shown, folded, control, code, codeHead } = useFold(row.text ?? '')
-  const body = row.text && shown !== '' ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
+  const secretSpans = useMemo(() => detectSecrets(shown), [shown])
+  const body = row.text && shown !== ''
+    ? (secretSpans.length > 0
+      ? h(MaskedUserInline, { text: shown, spans: secretSpans })
+      : h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }))
+    : null
   const area = foldArea(body, code, codeHead, actions)
   const hasRich = typeof renderUserAttachments === 'function' && ((row.imageRefs?.length ?? 0) > 0 || (row.fileRefs?.length ?? 0) > 0)
   const attachments = hasRich ? renderUserAttachments(row) : null
@@ -1325,8 +1389,12 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
     stacked.map(({ reply, index, texts, time, duration, claims, changes }, at) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
+        const secretSpans = detectSecrets(reply.text ?? '')
         return h('div', { key: `user-${index}`, className: 'bt-urow' },
-          h('div', { className: 'bt-ububble', 'data-text-interaction-source': '' }, h(MarkdownText, { text: reply.text, labels: mdLabels(), variant: 'compact' })),
+          h('div', { className: 'bt-ububble', 'data-text-interaction-source': '' },
+            secretSpans.length > 0
+              ? h(MaskedUserInline, { text: reply.text ?? '', spans: secretSpans })
+              : h(MarkdownText, { text: reply.text, labels: mdLabels(), variant: 'compact' })),
           (reply.via !== undefined || Number.isFinite(time)) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, ...(reply.via !== undefined ? [h(ViaTag, { key: 'via', via: reply.via })] : []), Number.isFinite(time) ? messageClock(time) : null) : null)
       }
       if (reply.kind === 'goal') {

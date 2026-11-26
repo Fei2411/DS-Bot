@@ -332,7 +332,7 @@ export function createTeam() {
 
   // Unified right sidebar workspace state: coexists with Bot/Group details, browser, side
   // chats, and tasks inside one shared `BotPanel` strip.
-  const EMPTY_RIGHT_PANEL = { tabs: [], tab: 'files', file: null, fileSessionId: null, fileRoot: null, changes: null, terminalNonce: 0 }
+  const EMPTY_RIGHT_PANEL = { tabs: [], tab: 'files', file: null, fileLine: null, fileSessionId: null, fileRoot: null, revealDir: null, revealNonce: 0, changes: null, terminalNonce: 0 }
   const STALE_WORKSPACE_TABS = new Set(['preview', 'changes'])
   const normalizeRightPanel = (prev) => {
     if (!prev || typeof prev !== 'object') return { ...EMPTY_RIGHT_PANEL, tabs: [] }
@@ -350,8 +350,10 @@ export function createTeam() {
     const changed = keptTabs.length !== normalized.tabs.length
       || nextTab !== prev.tab
       || prev.file !== null
+      || prev.fileLine !== null
       || prev.fileSessionId !== null
       || prev.fileRoot !== null
+      || prev.revealDir !== null
       || prev.changes !== null
     if (!changed) return prev
     return {
@@ -359,8 +361,10 @@ export function createTeam() {
       tabs: keptTabs,
       tab: nextTab,
       file: null,
+      fileLine: null,
       fileSessionId: null,
       fileRoot: null,
+      revealDir: null,
       changes: null,
     }
   }
@@ -675,12 +679,28 @@ export function createTeam() {
     canOpenFiles: () => true,
     canOpenTerminal: () => !roster.getSnapshot().readOnly,
     openFiles: () => openWorkspaceTab('files'),
+    revealFolder: (input) => {
+      const raw = typeof input === 'string' ? input : (typeof input?.path === 'string' ? input.path : '')
+      const target = raw.replace(/[\\/]+$/, '')
+      const revealSessionId = typeof input?.sessionId === 'string' && input.sessionId !== '' ? input.sessionId : null
+      openWorkspaceTab('files', prev => ({
+        ...prev,
+        revealDir: target,
+        revealNonce: (prev?.revealNonce ?? 0) + 1,
+      }), revealSessionId)
+    },
     openFile: (path) => {
       const target = typeof path === 'string' ? path : (typeof path?.path === 'string' ? path.path : '')
       if (target === '') return
       const fileSessionId = typeof path?.sessionId === 'string' && path.sessionId !== '' ? path.sessionId : null
+      const isDir = path?.isDir === true || (/[\\/]$/.test(target) && target !== '/' && !/^[A-Za-z]:[\\/]$/.test(target))
+      if (isDir) {
+        actions.revealFolder({ path: target, sessionId: fileSessionId })
+        return
+      }
       const fileRoot = typeof path?.root === 'string' && path.root !== '' ? path.root : null
-      openWorkspaceTab('preview', prev => ({ ...prev, file: target, fileSessionId, fileRoot }), fileSessionId)
+      const fileLine = Number.isInteger(path?.line) && path.line > 0 ? path.line : null
+      openWorkspaceTab('preview', prev => ({ ...prev, file: target, fileLine, fileSessionId, fileRoot }), fileSessionId)
     },
     openChanges: async (changes) => {
       if (!changes || typeof changes !== 'object' || typeof changes.sessionId !== 'string' || !Number.isInteger(changes.seq)) return
@@ -705,7 +725,7 @@ export function createTeam() {
               ...prev,
               tabs: remaining,
               tab: prev.tab === tabId ? remaining[remaining.length - 1] : prev.tab,
-              ...(tabId === 'preview' ? { file: null, fileSessionId: null, fileRoot: null } : {}),
+              ...(tabId === 'preview' ? { file: null, fileLine: null, fileSessionId: null, fileRoot: null } : {}),
               ...(tabId === 'changes' ? { changes: null } : {}),
             },
           }
@@ -1075,7 +1095,7 @@ export function createTeam() {
     const cleanups = []
     const appComputer = globalThis.dsBotApp
     if (typeof appComputer?.computer === 'function') {
-      const nameOf = id => roster.getSnapshot().byId[id]?.name ?? 'a Bot'
+      const nameOf = id => roster.getSnapshot().byId[id]?.name ?? t('a Bot')
       const syncComputer = () => {
         if (stopped) return
         const live = computer.getSnapshot()

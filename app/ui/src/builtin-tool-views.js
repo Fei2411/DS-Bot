@@ -585,7 +585,7 @@ function DiffFileView({ diff, computed, cwd }) {
         ...(row.noNewline ? [h('div', { key: `${index}:nnl`, className: 'dsb-diff-row dsb-diff-note', 'data-kind': row.kind },
           h('span', { className: 'dsb-diff-num', 'aria-hidden': true }, ''),
           h('span', { className: 'dsb-diff-sign', 'aria-hidden': true }, '\\'),
-          h('span', { className: 'dsb-diff-text' }, 'No newline at end of file'))] : []),
+          h('span', { className: 'dsb-diff-text' }, t('No newline at end of file')))] : []),
       ])) : null,
     clipped ? h('button', {
       type: 'button',

@@ -722,7 +722,14 @@ test('Unified right sidebar coexists across Details, Side chat, Files, Preview, 
       registry: reg,
       visible: true,
     })
-    assert.match(textOf(tree), /console\.log\(1\)/)
+    const codeCells = all(tree, n => n.type === 'td' && n.props?.className === 'dsb-pv-line')
+    const rawCodeText = (node) => {
+      if (node === null || node === undefined || typeof node === 'boolean') return ''
+      if (typeof node === 'string' || typeof node === 'number') return String(node)
+      if (Array.isArray(node)) return node.map(rawCodeText).join('')
+      return rawCodeText(node.props?.children)
+    }
+    assert.match(codeCells.map(rawCodeText).join('\n'), /console\.log\(1\)/)
 
     // Switch to crashing plugin tab -> isolated fallback with Retry.
     tree = panelInst.render({

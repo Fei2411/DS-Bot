@@ -1,0 +1,553 @@
+import assert from 'node:assert/strict'
+import { readdirSync, readFileSync } from 'node:fs'
+import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { runInNewContext } from 'node:vm'
+import { build } from 'esbuild'
+import { DICTIONARY, installLocale, t } from '../../ds-bot/src/client/i18n.js'
+import { installMiniDom } from './mini-dom.mjs'
+
+const entryCode = `
+  export {
+    MarkdownText,
+    projectUserText,
+    FileTypeIcon,
+    JsonBlock,
+  } from './ui/src/primitives.js'
+  export { ensureLanguage, isLanguageLoaded, highlightSync } from './ui/src/code-highlight.js'
+  export { ensureKatex, normalizeMathDelimiters } from './ui/src/math-render.js'
+  export { parseFileTarget, parseLocalFileHref, isInlineCodeFilePath, extractUserFileRefs } from './ui/src/file-references.js'
+  export { UserMessageText, tokenizeUserText, copyableUserText } from './ui/src/user-text.js'
+  export { SessionTranscript } from './ui/src/session-chat.js'
+  export { FilePreview } from './ui/src/file-preview.js'
+  export { WorkspacePaneBody } from './ui/src/right-panel.js'
+  export { createTeam } from './ui/src/team.js'
+  export { QueueDock } from '../ds-bot/src/client/queue-dock.js'
+`
+
+const { outputFiles } = await build({
+  stdin: {
+    contents: entryCode,
+    resolveDir: fileURLToPath(new URL('..', import.meta.url)),
+    loader: 'js',
+  },
+  bundle: true,
+  format: 'cjs',
+  platform: 'browser',
+  write: false,
+  logLevel: 'silent',
+  nodePaths: [fileURLToPath(new URL('../node_modules', import.meta.url))],
+  external: ['react', 'react-dom', 'react-dom/client'],
+  plugins: [{
+    name: 'parity-stubs',
+    setup(bundler) {
+      bundler.onResolve({ filter: /^@xterm\/(xterm|addon-fit)$/ }, args => ({ path: args.path, namespace: 'stub' }))
+      bundler.onResolve({ filter: /dsh-primitives\.js$/ }, () => ({
+        path: fileURLToPath(new URL('../ui/src/primitives.js', import.meta.url)),
+      }))
+      bundler.onResolve({ filter: /ds-bot\/src\/client\/api\.js$|^\.\/api\.js$/ }, (args) => {
+        if (args.path === './api.js' && !args.resolveDir.replace(/\\/g, '/').endsWith('/ds-bot/src/client')) return null
+        return { path: 'api.js', namespace: 'stub' }
+      })
+      bundler.onLoad({ filter: /.*/, namespace: 'stub' }, (args) => {
+        if (args.path === 'api.js') return { contents: 'export const call = (...args) => globalThis.__testCall(...args)\n', loader: 'js' }
+        return { contents: 'export class Terminal {}\nexport class FitAddon {}\n', loader: 'js' }
+      })
+    },
+  }],
+})
+
+const React = await import('react')
+const ReactJsxRuntime = await import('react/jsx-runtime')
+const ReactDOM = await import('react-dom')
+const ReactDOMClient = await import('react-dom/client')
+
+const { document, window } = installMiniDom()
+const { Element, HTMLElement, Node, Event } = window
+globalThis.IS_REACT_ACT_ENVIRONMENT = true
+const copied = []
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: {
+    language: 'en',
+    platform: 'MacIntel',
+    clipboard: { writeText: async (value) => { copied.push(value) } },
+  },
+})
+
+const mod = { exports: {} }
+const sandbox = {
+  ...globalThis,
+  module: mod,
+  exports: mod.exports,
+  __testCall: async () => ({}),
+  navigator: globalThis.navigator,
+  window,
+  document,
+  Element,
+  HTMLElement,
+  Node,
+  Event,
+  TextEncoder,
+  URL,
+  Blob,
+  setTimeout,
+  clearTimeout,
+  requestAnimationFrame: fn => setTimeout(() => fn(Date.now()), 0),
+  cancelAnimationFrame: id => clearTimeout(id),
+  require: (name) => {
+    if (name === 'react') return React
+    if (name === 'react/jsx-runtime') return ReactJsxRuntime
+    if (name === 'react-dom') return ReactDOM
+    if (name === 'react-dom/client') return ReactDOMClient
+    throw new Error(`unexpected require ${name}`)
+  },
+}
+runInNewContext(outputFiles[0].text, sandbox)
+
+const {
+  MarkdownText,
+  projectUserText,
+  FileTypeIcon,
+  JsonBlock,
+  ensureLanguage,
+  ensureKatex,
+  normalizeMathDelimiters,
+  parseFileTarget,
+  isInlineCodeFilePath,
+  extractUserFileRefs,
+  UserMessageText,
+  copyableUserText,
+  SessionTranscript,
+  FilePreview,
+  WorkspacePaneBody,
+  createTeam,
+  QueueDock,
+} = mod.exports
+
+const flush = async (ms = 20) => {
+  await React.act(async () => {
+    await new Promise(resolve => setTimeout(resolve, ms))
+  })
+}
+
+function mountDom(element) {
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = ReactDOMClient.createRoot(host)
+  React.act(() => { root.render(element) })
+  return {
+    host,
+    update(next) { React.act(() => { root.render(next) }) },
+    unmount() { React.act(() => { root.unmount() }); host.remove() },
+  }
+}
+
+const join = (...parts) => parts.join('')
+const plain = v => JSON.parse(JSON.stringify(v))
+const findBtn = (root, pred) => Array.from(root.querySelectorAll('button')).find(pred)
+const reactProps = (el) => {
+  const key = Object.keys(el).find(k => k.startsWith('__reactProps$'))
+  return key ? el[key] : {}
+}
+const clickEl = el => reactProps(el).onClick?.({ preventDefault() {}, stopPropagation() {}, currentTarget: el, target: el })
+const submitForm = el => reactProps(el).onSubmit?.({ preventDefault() {}, stopPropagation() {}, currentTarget: el, target: el })
+
+test('primitives exports projectUserText, FileTypeIcon, and JsonBlock to prevent Vite warnings', () => {
+  assert.equal(projectUserText, undefined)
+  assert.equal(FileTypeIcon, undefined)
+  assert.equal(JsonBlock, undefined)
+})
+
+test('UserRow masks credentials in Bot chat and Classic session, supports per-secret reveal, and Copy keeps mask unless revealed', async () => {
+  copied.length = 0
+  const sk = join('sk-', '1234567890', 'AbCdEfGhIjKlMnOpQr')
+  const ghp = join('ghp_', '1234567890abcdefABCDEF1234567890abcd')
+  const raw = `Keys: ${sk} and ${ghp}`
+  const log = {
+    header: { cwd: '/repo' },
+    events: [
+      { seq: 1, time: 1000, type: 'user/message', data: { turn: 1, content: [{ type: 'text', text: raw }], source: { kind: 'user' } } },
+    ],
+    writing: null,
+  }
+  const roster = { bots: [{ id: 'b1', name: 'Chief', sessions: ['b1'] }], byId: { b1: { id: 'b1', name: 'Chief' } }, rooms: [], roomsById: {}, prefs: {} }
+  const actions = { openSession() {}, openFile() {}, revealFolder() {}, notice() {} }
+
+  for (const classic of [false, true]) {
+    copied.length = 0
+    sandbox.__testCall = async (ep) => (ep === 'engine-feedback-list' ? { available: false, items: [] } : {})
+    const view = mountDom(React.createElement(SessionTranscript, {
+      log,
+      sessionId: classic ? 'as1' : 'b1',
+      bot: classic ? undefined : roster.byId.b1,
+      roster,
+      actions,
+      classic,
+    }))
+    try {
+      await flush()
+      const text = view.host.textContent
+      assert.equal(text.includes(sk), false, `sk must be masked by default (classic=${classic})`)
+      assert.equal(text.includes(ghp), false, `ghp must be masked by default (classic=${classic})`)
+      assert.equal(text.includes('sk-12345***'), true)
+
+      // Copy while masked must keep BOTH secrets masked.
+      const copyBtn = findBtn(view.host, el => el.getAttribute('aria-label') === 'Copy')
+      assert.ok(copyBtn, 'Copy button exists')
+      await React.act(async () => { clickEl(copyBtn); await Promise.resolve() })
+      assert.equal(copied.at(-1).includes(sk), false, 'Copy keeps sk masked')
+      assert.equal(copied.at(-1).includes(ghp), false, 'Copy keeps ghp masked')
+
+      // Reveal ONLY the first secret.
+      const toggles = view.host.querySelectorAll('.dsb-secret-toggle')
+      assert.equal(toggles.length, 2)
+      assert.equal(toggles[0].getAttribute('aria-pressed'), 'false')
+      await React.act(async () => { clickEl(toggles[0]) })
+      assert.equal(toggles[0].getAttribute('aria-pressed'), 'true')
+      assert.equal(view.host.textContent.includes(sk), true, 'First secret revealed on demand')
+      assert.equal(view.host.textContent.includes(ghp), false, 'Second secret stays masked')
+
+      // Copy now includes first secret raw, second still masked.
+      await React.act(async () => { clickEl(copyBtn); await Promise.resolve() })
+      assert.equal(copied.at(-1).includes(sk), true, 'Copy includes revealed secret')
+      assert.equal(copied.at(-1).includes(ghp), false, 'Copy keeps unrevealed secret masked')
+
+      // Hide again -> Copy re-masks.
+      await React.act(async () => { clickEl(toggles[0]) })
+      await React.act(async () => { clickEl(copyBtn); await Promise.resolve() })
+      assert.equal(copied.at(-1).includes(sk), false, 'Copy re-masks after hiding')
+    } finally {
+      view.unmount()
+    }
+  }
+
+  // QueueDock fallback preview masks secrets without corrupting edit buffer.
+  const queuedToken = join('npm_', '1234567890abcdefABCDEF1234567890abcd')
+  const qView = mountDom(React.createElement(QueueDock, {
+    useProjection: () => ({ 'next-turn': [{ id: 'q1', source: { kind: 'user' }, content: [{ type: 'text', text: `token ${queuedToken}` }] }] }),
+    useSession: sel => sel({ pendingSubmissions: [], running: false }),
+    updateQueue: async () => ({ ok: true }),
+    actions: { reportError() {} },
+  }))
+  try {
+    assert.equal(qView.host.textContent.includes(queuedToken), false, 'QueueDock preview masks secret')
+    assert.equal(qView.host.textContent.includes('npm_1234***'), true)
+  } finally {
+    qView.unmount()
+  }
+  assert.equal(copyableUserText(`ok ${sk}`, new Set()).includes(sk), false)
+})
+
+test('file and folder references parse cleanly with no false positives and open files or reveal folders', async () => {
+  assert.deepEqual(plain(parseFileTarget('src/app.js:42')), { path: 'src/app.js', line: 42, endLine: null, isDir: false, display: 'src/app.js:42' })
+  assert.deepEqual(plain(parseFileTarget('app/ui/src/')), { path: 'app/ui/src', line: null, endLine: null, isDir: true, display: 'app/ui/src/' })
+  assert.equal(parseFileTarget('https://example.com/a.js'), null)
+
+  // Inline code: true positives vs false positives.
+  assert.equal(isInlineCodeFilePath('src/app.js:12')?.path, 'src/app.js')
+  assert.equal(isInlineCodeFilePath('README.md')?.path, 'README.md')
+  assert.equal(isInlineCodeFilePath('./docs/plans/')?.isDir, true)
+  assert.equal(isInlineCodeFilePath('console.log'), null)
+  assert.equal(isInlineCodeFilePath('Math.max'), null)
+  assert.equal(isInlineCodeFilePath('application/json'), null)
+  assert.equal(isInlineCodeFilePath('light/dark'), null)
+  assert.equal(isInlineCodeFilePath('2026/11/26'), null)
+  assert.equal(isInlineCodeFilePath('--flag'), null)
+  assert.equal(isInlineCodeFilePath('plainword'), null)
+  assert.equal(isInlineCodeFilePath('@scope/pkg'), null)
+
+  // User refs: `@"quoted"`, `@path`, relative/absolute, no plain words or `/help`.
+  const refs = extractUserFileRefs('Check @"docs/my spec.md", @src/app.js:10, ./folder/, and /help or hello@example.com')
+  assert.deepEqual(plain(refs.map(r => [r.target.path, r.target.line, r.target.isDir])), [
+    ['docs/my spec.md', null, false],
+    ['src/app.js', 10, false],
+    ['./folder', null, true],
+  ])
+
+  const openedFiles = []
+  const revealedFolders = []
+  const md = [
+    'See [chat](app/ui/src/session-chat.js:42), `src/host/channel.js`, [folder](app/ui/src/), and plain `console.log` or `light/dark`.',
+    '',
+    '```js',
+    'const path = "src/not-a-link.js"',
+    '```',
+  ].join('\n')
+  const view = mountDom(React.createElement(MarkdownText, {
+    text: md,
+    labels: { code: { copyLabel: 'Copy', copiedLabel: 'Copied' } },
+    onOpenFile: target => openedFiles.push(target),
+    onRevealFolder: target => revealedFolders.push(target),
+  }))
+  try {
+    const chips = Array.from(view.host.querySelectorAll('.dsb-file-ref'))
+    assert.deepEqual(chips.map(el => el.getAttribute('data-file-ref')), [
+      'app/ui/src/session-chat.js',
+      'src/host/channel.js',
+      'app/ui/src',
+    ])
+    // Ensure zero file-ref buttons inside fenced code blocks.
+    const preBlocks = view.host.querySelectorAll('pre')
+    assert.equal(preBlocks.reduce((n, pre) => n + pre.querySelectorAll('.dsb-file-ref').length, 0), 0)
+    await React.act(async () => { clickEl(chips[0]) })
+    await React.act(async () => { clickEl(chips[2]) })
+    assert.deepEqual(plain(openedFiles), [{ path: 'app/ui/src/session-chat.js', line: 42 }])
+    assert.deepEqual(plain(revealedFolders), [{ path: 'app/ui/src' }])
+  } finally {
+    view.unmount()
+  }
+
+  // UserMessageText: Bot mentions win over file refs, secrets win over both.
+  const uOpened = []
+  const uBots = []
+  const uView = mountDom(React.createElement(UserMessageText, {
+    text: '@Chief check @README.md',
+    bots: [{ id: 'b1', name: 'Chief' }],
+    onOpenBot: id => uBots.push(id),
+    onOpenFile: target => uOpened.push(target),
+  }))
+  try {
+    const mentionBtn = uView.host.querySelector('.bt-umention')
+    const fileBtn = uView.host.querySelector('.dsb-file-ref')
+    assert.ok(mentionBtn)
+    assert.equal(fileBtn?.getAttribute('data-file-ref'), 'README.md')
+    await React.act(async () => { clickEl(mentionBtn); clickEl(fileBtn) })
+    assert.deepEqual(plain(uBots), ['b1'])
+    assert.deepEqual(plain(uOpened), [{ path: 'README.md' }])
+  } finally {
+    uView.unmount()
+  }
+})
+
+test('Classic session renders reply feedback (submit, dialog, retract) and never renders it in Bot chats', async () => {
+  const rpcCalls = []
+  const notices = []
+  sandbox.__testCall = async (ep, body) => {
+    rpcCalls.push([ep, body])
+    if (ep === 'engine-feedback-list') return { available: true, items: [] }
+    if (ep === 'engine-feedback-put') {
+      return { ok: true, item: { sessionId: body.sessionId, messageId: body.messageId, rating: body.rating, category: body.category, note: body.note, version: 'v1' } }
+    }
+    if (ep === 'engine-feedback-delete') return { ok: true, absent: true }
+    return {}
+  }
+
+  const log = {
+    header: { cwd: '/repo' },
+    events: [
+      { seq: 1, time: 1000, type: 'assistant/message', data: { turn: 1, message: { id: 'msg-42', content: [{ type: 'text', text: 'Here is the answer.' }] } } },
+    ],
+    writing: null,
+  }
+  const roster = { bots: [{ id: 'b1', name: 'Chief' }], byId: { b1: { id: 'b1', name: 'Chief' } }, rooms: [], roomsById: {}, prefs: {} }
+  const actions = { openSession() {}, openFile() {}, revealFolder() {}, notice: msg => notices.push(msg), toggleReaction() {} }
+
+  // Bot chat must NOT mount classic feedback buttons.
+  const botView = mountDom(React.createElement(SessionTranscript, {
+    log, sessionId: 'b1', bot: roster.byId.b1, roster, actions, classic: false,
+  }))
+  try {
+    await flush()
+    assert.equal(botView.host.querySelectorAll('.dsb-fb-btn').length, 0, 'Bot chat has no classic feedback row')
+  } finally {
+    botView.unmount()
+  }
+
+  // Classic session mounts thumbs up / down, submits via modal, and retracts on second click.
+  const classicView = mountDom(React.createElement(SessionTranscript, {
+    log, sessionId: 'as1', roster, actions, classic: true,
+  }))
+  try {
+    await flush()
+    const up = findBtn(classicView.host, el => el.getAttribute('data-feedback-rating') === 'positive')
+    const down = findBtn(classicView.host, el => el.getAttribute('data-feedback-rating') === 'negative')
+    assert.ok(up && down, 'Classic assistant reply shows thumbs up and thumbs down')
+    await React.act(async () => { clickEl(down) })
+    await flush()
+
+    const dialog = document.body.querySelector('.dsb-fb-dialog')
+    assert.ok(dialog, 'Clicking thumbs down opens feedback dialog')
+    const catBtn = dialog.querySelector('.dsb-fb-cat')
+    await React.act(async () => { clickEl(catBtn) })
+    await React.act(async () => { submitForm(dialog) })
+    await flush()
+
+    const putCall = rpcCalls.find(([ep]) => ep === 'engine-feedback-put')
+    assert.equal(putCall?.[1]?.messageId, 'msg-42')
+    assert.equal(putCall?.[1]?.rating, 'negative')
+    assert.equal(putCall?.[1]?.category, 'task-result')
+    assert.equal(findBtn(classicView.host, el => el.getAttribute('data-feedback-rating') === 'negative')?.getAttribute('aria-pressed'), 'true')
+
+    // Click active thumbs down again to retract.
+    await React.act(async () => { clickEl(findBtn(classicView.host, el => el.getAttribute('data-feedback-rating') === 'negative')) })
+    await flush()
+    const delCall = rpcCalls.find(([ep]) => ep === 'engine-feedback-delete')
+    assert.equal(delCall?.[1]?.ifVersion, 'v1')
+    assert.equal(findBtn(classicView.host, el => el.getAttribute('data-feedback-rating') === 'negative')?.getAttribute('aria-pressed'), 'false')
+  } finally {
+    classicView.unmount()
+  }
+})
+
+test('syntax highlighting highlights fenced code blocks and FilePreview, and math renders KaTeX without currency false positives', async () => {
+  await ensureLanguage('javascript')
+  await ensureKatex()
+
+  assert.equal(normalizeMathDelimiters('Inline \\(x+1\\) and `\\(code\\)`'), 'Inline $x+1$ and `\\(code\\)`')
+  assert.match(normalizeMathDelimiters('Block \\[a^2 + b^2\\]'), /\$\$\na\^2 \+ b\^2\n\$\$/)
+
+  const md = [
+    'Price is $5 and $10, while $E = mc^2$ and \\(a + b\\) are math.',
+    '',
+    '$$',
+    '\\int_0^1 x\\,dx = \\frac{1}{2}',
+    '$$',
+    '',
+    '```math',
+    'x^2 + y^2 = r^2',
+    '```',
+    '',
+    '```javascript',
+    'const answer = 42',
+    '```',
+  ].join('\n')
+
+  const view = mountDom(React.createElement(MarkdownText, {
+    text: md,
+    labels: { code: { copyLabel: 'Copy', copiedLabel: 'Copied' } },
+  }))
+  try {
+    await flush()
+    assert.equal(view.host.textContent.includes('$5 and $10'), true, 'currency stays plain text')
+    assert.equal(view.host.querySelectorAll('.dsb-math-inline').length, 2, 'inline $...$ and \\(...\\) render as math')
+    assert.equal(view.host.querySelectorAll('.dsb-math-block').length, 2, '$$...$$ and ```math render as display math')
+    const mathEl = view.host.querySelector('.dsb-math-inline')
+    assert.equal(mathEl?.textContent.includes('class="katex"'), true, 'KaTeX markup rendered')
+    const hljsCode = view.host.querySelector('.hljs')
+    assert.ok(hljsCode?.querySelector('.hljs-keyword'), 'fenced JS code block is syntax highlighted')
+    assert.equal(view.host.querySelector('.md-code-lang')?.textContent, 'javascript')
+  } finally {
+    view.unmount()
+  }
+
+  // FilePreview CodeLines highlights code and marks target line.
+  const pv = mountDom(React.createElement(FilePreview, {
+    file: { kind: 'code', language: 'javascript', name: 'demo.js', path: 'src/demo.js', size: 42, text: 'const a = 1\nexport const b = 2' },
+    line: 2,
+  }))
+  try {
+    await flush()
+    assert.ok(pv.host.querySelector('.hljs-keyword'), 'FilePreview highlights syntax tokens')
+    const targetRow = Array.from(pv.host.querySelectorAll('tr')).find(el => el.getAttribute('data-target-line') !== null)
+    assert.ok(targetRow, 'target line row is marked')
+    assert.equal(targetRow.querySelector('.dsb-pv-ln')?.textContent, '2')
+  } finally {
+    pv.unmount()
+  }
+})
+
+test('WorkspacePaneBody reveals folders in FileTree (including when workspace-read returns kind:dir)', async () => {
+  const revealed = []
+  const closed = []
+  sandbox.__testCall = async (ep, body) => {
+    if (ep === 'workspace-read' && body.path === 'app/ui') {
+      return { kind: 'dir', name: 'ui', path: 'app/ui', root: '/repo' }
+    }
+    if (ep === 'workspace-list') {
+      if (body.path === '') return { root: '/repo', rootName: 'repo', path: '', truncated: false, entries: [{ name: 'app', path: 'app', kind: 'dir', size: 0, ext: '' }] }
+      if (body.path === 'app') return { root: '/repo', rootName: 'repo', path: 'app', truncated: false, entries: [{ name: 'ui', path: 'app/ui', kind: 'dir', size: 0, ext: '' }] }
+      if (body.path === 'app/ui') return { root: '/repo', rootName: 'repo', path: 'app/ui', truncated: false, entries: [{ name: 'src', path: 'app/ui/src', kind: 'dir', size: 0, ext: '' }] }
+    }
+    return {}
+  }
+
+  const fakeTeam = {
+    actions: {
+      openFile() {},
+      revealFolder: target => revealed.push(target),
+      closeWorkspaceTab: tab => closed.push(tab),
+    },
+    chat: { on: () => () => {} },
+  }
+
+  // Clicking a folder path without trailing `/` triggers workspace-read -> kind:'dir' -> revealFolder.
+  const dirView = mountDom(React.createElement(WorkspacePaneBody, {
+    sessionId: 'b1',
+    panel: { tabs: ['preview'], tab: 'preview', file: 'app/ui', fileSessionId: 'b1' },
+    team: fakeTeam,
+    visible: true,
+  }))
+  try {
+    await flush(30)
+    assert.deepEqual(plain(revealed), [{ path: 'app/ui', sessionId: 'b1' }])
+    assert.deepEqual(plain(closed), ['preview'])
+  } finally {
+    dirView.unmount()
+  }
+
+  // Opening FileTree with revealDir expands ancestors and marks target folder as revealed.
+  const treeView = mountDom(React.createElement(WorkspacePaneBody, {
+    sessionId: 'b1',
+    panel: { tabs: ['files'], tab: 'files', revealDir: 'app/ui', revealNonce: 1 },
+    team: fakeTeam,
+    visible: true,
+  }))
+  try {
+    await flush(50)
+    const row = Array.from(treeView.host.querySelectorAll('.dsb-ft-row')).find(el => el.getAttribute('data-tree-path') === 'app/ui')
+    assert.ok(row, 'nested folder app/ui expanded and rendered in FileTree')
+    assert.equal(row.getAttribute('data-revealed') !== null, true, 'revealed folder is highlighted')
+  } finally {
+    treeView.unmount()
+  }
+})
+
+test('every t() key in app/ui/src exists across all supported locales and previously hardcoded English translates', () => {
+  const dir = new URL('../ui/src/', import.meta.url)
+  const locales = ['zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de']
+  const missing = []
+  for (const name of readdirSync(dir).filter(f => f.endsWith('.js'))) {
+    const text = readFileSync(new URL(name, dir), 'utf8')
+    for (const m of text.matchAll(/\bt\(\s*(['"])((?:\\.|(?!\1).)*)\1/g)) {
+      const key = m[2].replace(/\\(['"])/g, '$1')
+      for (const loc of locales) {
+        if (!Object.hasOwn(DICTIONARY[loc] ?? {}, key)) missing.push(`${loc}:${name}: ${key}`)
+      }
+    }
+    for (const m of text.matchAll(/labelKey:\s*(['"])((?:\\.|(?!\1).)*)\1/g)) {
+      const key = m[2].replace(/\\(['"])/g, '$1')
+      for (const loc of locales) {
+        if (!Object.hasOwn(DICTIONARY[loc] ?? {}, key)) missing.push(`${loc}:${name}: ${key}`)
+      }
+    }
+  }
+  assert.deepEqual(missing, [])
+
+  // Verify previously hardcoded strings translate in zh.
+  let active = 'zh'
+  const dicts = new Map()
+  const off = installLocale({
+    getLocale: () => ({ active, locales: [] }),
+    addLanguage: () => () => {},
+    register: (ns, localeOrMap, dict) => {
+      if (!dicts.has(ns)) dicts.set(ns, new Map())
+      const map = dicts.get(ns)
+      if (typeof localeOrMap === 'string') map.set(localeOrMap.toLowerCase(), dict)
+      else for (const [k, v] of Object.entries(localeOrMap ?? {})) map.set(k.toLowerCase(), v)
+      return () => dicts.delete(ns)
+    },
+    bind: ns => (key, params) => {
+      const val = dicts.get(ns)?.get(active.toLowerCase())?.[key] ?? key
+      return params ? val.replace(/\{(\w+)\}/g, (_, k) => String(params[k])) : val
+    },
+  })
+  try {
+    assert.equal(t('No newline at end of file'), '文件末尾无换行符')
+    assert.equal(t('Column {n}', { n: 3 }), '第 3 列')
+    assert.equal(t('Binary'), '二进制')
+    assert.equal(t('Large'), '大文件')
+  } finally {
+    off()
+  }
+})

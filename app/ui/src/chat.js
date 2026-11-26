@@ -29,6 +29,7 @@ import { ApprovalDock } from './approval-dock.js'
 import { AgentEmptyHero } from './classic-sidebar.js'
 import { ComposerMenu, activeComposerTrigger, applyTriggerText, buildComposerMenuItems } from './composer-menus.js'
 import { SessionTranscript, UserAttachments, useSessionFollow } from './session-chat.js'
+import { UserMessageText } from './user-text.js'
 
 // The chat follows its end while the user is this close to it.
 const FOLLOW_PX = 80
@@ -71,7 +72,7 @@ async function fileToBase64(file) {
         const comma = result.indexOf(',')
         resolve(comma >= 0 ? result.slice(comma + 1) : result)
       }
-      reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'))
+      reader.onerror = () => reject(reader.error ?? new Error(t('Failed to read file')))
       reader.readAsDataURL(file)
     })
   }
@@ -942,12 +943,12 @@ function PendingUserRows({ items, sessionId, classic = false }) {
     return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'dsb-dsh-user' },
       h('div', { className: 'dsb-dsh-user-stack' },
         entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
-        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, entry.text) : null))))
+        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, h(UserMessageText, { text: entry.text, interactive: false })) : null))))
   }
   return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
       entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
-      entry.text !== '' ? h('div', { className: 'bt-ubody' }, entry.text) : null))))
+      entry.text !== '' ? h('div', { className: 'bt-ubody' }, h(UserMessageText, { text: entry.text, interactive: false })) : null))))
 }
 
 // One conversation in the main view, drawn with the Bot views' own rows, cards and docks.
