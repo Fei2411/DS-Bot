@@ -75,9 +75,9 @@
 - `notices`：`{ boot?, since? }` → `{ boot, seq, reset, notices }`。`boot` 不一致（重启过）或者 `since` 之后的提醒已经被挤掉时，`reset` 为真，客户端重读团队。内存里最多留 200 条。
 - 提醒只说「有事」，不记已读。已读和通知怎么弹由客户端决定。
 - 离线推送登记（仅原生手机 App，能力标识 `push-register`，浏览器端拒绝）：
-  - `push-register`：`{ kind: 'unifiedpush', endpoint }`（仅允许 `https://`）或 `{ kind: 'fcm', token }` → `{ registered: true, kind, relayFcm }`。
+  - `push-register`：`{ kind: 'unifiedpush', endpoint }`（仅允许指向公网地址的 `https://`）→ `{ registered: true, kind: 'unifiedpush' }`。
   - `push-unregister`：`{}` → `{ registered: false }`。
-  - 手机离线且登记了推送时，宿主用手机的 X25519 公钥（HKDF-SHA256 + ChaCha20-Poly1305）将提醒密封为 `{ v: 1, h, p }` 密文信封发出；收到 `404`/`410` 或 `UNREGISTERED` 时自动清理失效登记。
+  - 手机离线且登记了推送时，宿主使用手机与宿主双方的 X25519 密钥（`es || ss` 认证密钥协商 + HKDF-SHA256 + ChaCha20-Poly1305）将提醒密封为 `{ v: 1, h, p }` 密文信封发往 UnifiedPush 端点；收到 `404`/`410` 时自动清理失效登记。
 
 ### 直播（feed）
 
