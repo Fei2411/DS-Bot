@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
-import { install as installTelemetry, sanitizeStack, envDisabledReason, botCountBucket, turnsBucket, normalizeProvider, normalizeWhere } from '../src/host/telemetry.js'
+import { install as installTelemetry, sanitizeStack, envDisabledReason, botCountBucket, turnsBucket, normalizeProvider, normalizeWhere, normalizeErrorName, normalizeErrorCode } from '../src/host/telemetry.js'
 import { validatePayload } from '../../telemetry/src/validate.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -54,7 +54,15 @@ function makeRt(home, opts = {}) {
       bots: {
         pub1: { id: 'pub1', name: 'SecretBotName', model: 'deepseek-official/deepseek-chat', private: false },
         pub2: { id: 'pub2', name: 'CustomBot', model: 'my-corp-llm/internal-model', private: false },
-        priv1: { id: 'priv1', name: 'PrivateDiary', model: 'anthropic/claude-opus', private: true, segments: [{ sessionId: 'priv-seg-1' }] },
+        priv1: {
+          id: 'priv1',
+          name: 'PrivateDiary',
+          model: 'anthropic/claude-opus',
+          private: true,
+          workDir: '/private/diary',
+          segments: [{ sessionId: 'priv-seg-1' }],
+          openParts: [{ sessionId: 'priv-open-1', segments: [{ sessionId: 'priv-open-seg-1' }] }],
+        },
       },
       rooms: { r1: { id: 'r1', name: 'SecretRoom', members: ['pub1', 'pub2'] } },
       prefs: { theme: 'deepseek', layout: 'bubble' },
@@ -163,19 +171,20 @@ test('sends nothing before noticeAccepted, then sends valid daily payload accept
   }
 })
 
-test('sanitizeStack strips absolute paths, drive letters, and third-party frames', () => {
+test('sanitizeStack strips absolute paths, drive letters, function names, non-source files, and third-party frames', () => {
   const stack = [
     'TypeError: ENOENT /Users/<user>/Confidential/contract.pdf',
     '    at runTurn (/Users/<user>/Work/DS-Bot/ds-bot/src/host/turns.js:412:15)',
     '    at winFn (C:\\Users\\<user>\\app\\src\\main.mjs:99:4)',
+    '    at secretFn (/Users/<user>/Work/DS-Bot/ds-bot/notes/contract.pdf:1:1)',
     '    at thirdParty (/Users/<user>/my-private-plugin/index.js:12:3)',
     '    at node:internal/timers:512:7',
     '    at file:///opt/ds-bot/ds-bot/src/host/groups.js?v=1:88:2',
   ].join('\n')
   const frames = sanitizeStack(stack)
   assert.deepEqual(frames, [
-    'runTurn @ ds-bot/src/host/turns.js:412:15',
-    'winFn @ app/src/main.mjs:99:4',
+    'ds-bot/src/host/turns.js:412:15',
+    'app/src/main.mjs:99:4',
     'ds-bot/src/host/groups.js:88:2',
   ])
 })
@@ -325,6 +334,88 @@ test('envDisabledReason and bucketing helpers behave predictably', () => {
   assert.equal(normalizeWhere('overlay.settings'), 'overlay')
   assert.equal(normalizeWhere('turns'), 'turns')
   assert.equal(normalizeWhere('secret-custom-name'), undefined)
+  assert.equal(normalizeErrorName('TypeError'), 'TypeError')
+  assert.equal(normalizeErrorName('ArbitraryCustomError'), 'Error')
+  assert.equal(normalizeErrorCode('ENOENT'), 'ENOENT')
+  assert.equal(normalizeErrorCode('HTTP_502'), 'HTTP_502')
+  assert.equal(normalizeErrorCode('bot/refused'), 'bot/refused')
+  assert.equal(normalizeErrorCode('USER_SECRET_TOKEN'), undefined)
+})
+
+test('enabling only error reports before notice acceptance never enables usage statistics', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-tel-consent-'))
+  // Even if a pre-existing unaccepted file on disk had usage:true, readInitialState must not pre-arm it.
+  writeFileSync(join(home, 'telemetry.json'), JSON.stringify({
+    version: 1,
+    noticeAccepted: false,
+    usage: true,
+    errors: false,
+  }))
+  const env = makeRt(home)
+  try {
+    assert.equal(env.rt.telemetry.status().usage, false)
+    assert.equal(env.rt.telemetry.status().errors, false)
+
+    // User opens Privacy settings and enables ONLY error reports.
+    const next = await env.rt.telemetry.update({ noticeAccepted: true, errors: true })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(next.noticeAccepted, true)
+    assert.equal(next.errors, true)
+    assert.equal(next.usage, false)
+    assert.equal(env.sent.length, 0)
+    assert.equal(await env.rt.telemetry.maybeSendDaily(), false)
+    assert.equal(env.sent.length, 0)
+  } finally {
+    await env.dispose()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('DSH safeguards fail closed on offline/disk-resumed subagents, openParts, and private cwd while allowing verified public/classic roots', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-tel-offline-'))
+  const sessions = new Map([
+    ['live-classic-root', { id: 'live-classic-root', header: { cwd: '/tmp/public-work' } }],
+    ['live-orphan-child', { id: 'live-orphan-child', header: { cwd: '/tmp/public-work', parentSession: 'offline-unknown-parent' } }],
+    ['live-pub-child', { id: 'live-pub-child', header: { cwd: '/tmp/public-work', parentSession: 'pub1' } }],
+  ])
+  const env = makeRt(home, { sessions })
+  try {
+    await env.rt.telemetry.update({ dshSessionLog: true, dshFeedbackTelemetry: true })
+    const excluded = env.exclusions[0]
+    const recordListener = env.listeners.get('session-telemetry/record')[0]
+
+    // Private openParts and offline/unresolvable sessions must be excluded.
+    assert.equal(excluded({ sessionId: 'priv-open-1' }), true)
+    assert.equal(excluded({ sessionId: 'priv-open-seg-1' }), true)
+    assert.equal(excluded({ sessionId: 'offline-subagent-99' }), true)
+    assert.equal(excluded({ sessionId: 'live-orphan-child' }), true)
+    assert.equal(excluded({}), true)
+
+    // Positively verified public Bot, public subagent, and live classic root are allowed.
+    assert.equal(excluded({ sessionId: 'pub1' }), false)
+    assert.equal(excluded({ sessionId: 'live-pub-child' }), false)
+    assert.equal(excluded({ sessionId: 'live-classic-root' }), false)
+
+    // Feedback uploads withhold offline subagents, private cwd, and missing session IDs.
+    const mkRec = (sid, cwd = '/tmp/public-work') => ({
+      sourceEvent: sid ? { sessionId: sid, envelope: {} } : { envelope: {} },
+      attributes: { ...(sid ? { 'session.id': sid } : {}), 'session.cwd': cwd },
+      body: { text: 'hello' },
+    })
+    assert.equal(recordListener(mkRec('offline-subagent-99'), () => mkRec('offline-subagent-99')).sourceEvent, undefined)
+    assert.equal(recordListener(mkRec('live-orphan-child'), () => mkRec('live-orphan-child')).sourceEvent, undefined)
+    assert.equal(recordListener(mkRec('priv-open-1'), () => mkRec('priv-open-1')).sourceEvent, undefined)
+    assert.equal(recordListener(mkRec('live-classic-root', '/private/diary/sub'), () => mkRec('live-classic-root', '/private/diary/sub')).sourceEvent, undefined)
+    assert.equal(recordListener(mkRec(''), () => mkRec('')).sourceEvent, undefined)
+
+    // Verified live classic root in a non-private folder passes through with scrubbed cwd.
+    const allowed = recordListener(mkRec('live-classic-root'), () => mkRec('live-classic-root'))
+    assert.ok(allowed.sourceEvent)
+    assert.equal(allowed.attributes['session.cwd'], '~')
+  } finally {
+    await env.dispose()
+    rmSync(home, { recursive: true, force: true })
+  }
 })
 
 test('real createRuntime wires every host view into a schema-valid daily payload and enforces noticeVersion', async (t) => {

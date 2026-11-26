@@ -50622,18 +50622,18 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
         hint: t("Daily active count, versions, OS, and built-in feature overview. Sent at most once per day.")
       }, (0, import_react58.createElement)(Switch, {
         label: t("Anonymous usage statistics"),
-        on: !disabled && state?.usage === true && state?.noticeAccepted !== false,
+        on: !disabled && state?.usage === true && state?.noticeAccepted === true,
         disabled: state === null || disabled,
-        onChange: (usage) => save({ usage, noticeAccepted: true })
+        onChange: (usage) => save(state?.noticeAccepted === true ? { usage } : { usage, errors: false, noticeAccepted: true })
       })),
       (0, import_react58.createElement)(Row4, {
         label: t("Anonymous error reports"),
         hint: t("Error codes and DS Bot source frames only. No messages, file paths, or chats.")
       }, (0, import_react58.createElement)(Switch, {
         label: t("Anonymous error reports"),
-        on: !disabled && state?.errors === true && state?.noticeAccepted !== false,
+        on: !disabled && state?.errors === true && state?.noticeAccepted === true,
         disabled: state === null || disabled,
-        onChange: (errors) => save({ errors, noticeAccepted: true })
+        onChange: (errors) => save(state?.noticeAccepted === true ? { errors } : { usage: false, errors, noticeAccepted: true })
       })),
       (0, import_react58.createElement)(Row4, {
         label: t("Anonymous ID"),
