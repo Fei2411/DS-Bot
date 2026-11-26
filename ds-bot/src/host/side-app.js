@@ -5,7 +5,7 @@
 // working root; and a ticketed web-server route serves a Canvas entry document and
 // its same-directory assets to the sandboxed preview iframe.
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { open, readdir, stat } from 'node:fs/promises'
 import { basename, dirname, extname, resolve, sep } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { output } from './tools.js'
@@ -166,6 +166,26 @@ export function install(rt) {
     return (await rt.realBeyond?.(folder).catch(() => undefined)) ?? (await rt.real?.(folder).catch(() => undefined)) ?? resolve(folder)
   }
 
+  // Reads stat and bytes through one open handle: what the checks approved is what
+  // the caller gets, even if the path is swapped in between. Size and kind come from
+  // the handle's own fstat, never from a separate look at the path.
+  async function readVerified(realPath, { limit, oversized } = {}) {
+    let handle
+    try {
+      handle = await open(realPath, 'r')
+    } catch {
+      throw notFound('The file is no longer there')
+    }
+    try {
+      const info = await handle.stat()
+      if (!info.isFile()) throw invalid('That path is not a file')
+      if (limit !== undefined && info.size > limit) throw tooLarge(oversized ?? 'The file is too large')
+      return { bytes: await handle.readFile(), size: info.size }
+    } finally {
+      await handle.close().catch(() => {})
+    }
+  }
+
   const rootTag = root => sha(Buffer.from(foldKey(root), 'utf8'))
 
   // Resolve `raw` inside `root` and prove the real target stays inside it.
@@ -209,11 +229,14 @@ export function install(rt) {
 
   // ---- diff bases -------------------------------------------------------------
   // The before/after text a `ctx.fs` write hands its caller, captured as the write's
-  // tool result passes. Per file the first before and the last after of a turn form
-  // one base; shell redirection and outside editors never produce one, which the
-  // plan accepts as the client-snapshot case.
+  // tool result passes. Bases are keyed by session and file: one conversation's
+  // write chain never merges with another's view of the same path. Per file the
+  // first before and the last after of a turn form one base, and only a chain
+  // whose versions actually connect may merge — shell redirection and outside
+  // editors never produce one, which the plan accepts as the client-snapshot case.
   /** @type {Map<string, {realPath:string, before:string, after:string, baseRevision:string, afterRevision:string, turn?:number, sessionId:string, at:number}>} */
   const diffBases = new Map()
+  const diffKey = (sessionId, realPath) => `${sessionId}${foldKey(realPath)}`
 
   const sweepDiffs = (now = Date.now()) => {
     for (const [key, entry] of diffBases) if (now - entry.at > DIFF_KEEP_MS) diffBases.delete(key)
@@ -267,7 +290,8 @@ export function install(rt) {
     } catch {
       return
     }
-    const key = foldKey(target.realPath)
+    const sessionId = agentId ?? session.id
+    const key = diffKey(sessionId, target.realPath)
     const turn = rt.live?.get(agentId)?.turn
     const entry = {
       realPath: target.realPath,
@@ -276,12 +300,19 @@ export function install(rt) {
       baseRevision: sha(Buffer.from(pair.before, 'utf8')),
       afterRevision: sha(Buffer.from(pair.after, 'utf8')),
       ...(Number.isInteger(turn) ? { turn } : {}),
-      sessionId: agentId ?? session.id,
+      sessionId,
       at: Date.now(),
     }
     const earlier = diffBases.get(key)
-    if (earlier !== undefined && earlier.turn === entry.turn && earlier.sessionId === entry.sessionId) {
-      // Several writes in one turn diff from the first before to the last after.
+    if (
+      earlier !== undefined
+      && earlier.turn !== undefined && earlier.turn === entry.turn
+      && earlier.sessionId === entry.sessionId
+      && Date.now() - earlier.at <= DIFF_KEEP_MS
+      && sha(Buffer.from(pair.before, 'utf8')) === earlier.afterRevision
+    ) {
+      // Several writes in one turn diff from the first before to the last after —
+      // but only while the chain of versions actually connects and the turn is known.
       entry.before = earlier.before
       entry.baseRevision = earlier.baseRevision
     }
@@ -354,8 +385,11 @@ export function install(rt) {
     const hash = createHash('sha256')
     let counted = 0
     let truncated = false
-    const entryBytes = await readFile(ticket.entryReal)
-    hash.update(entryBytes)
+    // The entry is part of the scan's own authorization: gone or mutated into a
+    // non-file makes the preview unavailable, never a hash of an error.
+    const entryRead = await readVerified(ticket.entryReal).catch(error => error)
+    if (entryRead instanceof Error) throw entryRead
+    hash.update(entryRead.bytes)
     const walk = async (dir, depth) => {
       if (depth > MANIFEST_DEPTH_MAX) {
         truncated = true
@@ -379,8 +413,9 @@ export function install(rt) {
         if (!entry.isFile() || real === ticket.entryReal) continue
         const ext = extname(entry.name).toLowerCase()
         if (!ASSET_MIMES.has(ext) || SENSITIVE_NAME.test(real)) continue
+        if (await rt.inData?.(real)) continue
         const info = await stat(real).catch(() => undefined)
-        if (info === undefined || info.size > ASSET_LIMIT) continue
+        if (info === undefined || !info.isFile() || info.size > ASSET_LIMIT) continue
         counted += 1
         if (counted > MANIFEST_FILES_MAX) {
           truncated = true
@@ -390,7 +425,7 @@ export function install(rt) {
         hash.update(real.slice(ticket.root.length))
         hash.update(String(info.size))
         hash.update(String(Math.floor(info.mtimeMs)))
-        if (info.size <= MANIFEST_BYTES_MAX) hash.update(await readFile(real).catch(() => Buffer.alloc(0)))
+        if (info.size <= MANIFEST_BYTES_MAX) hash.update((await readVerified(real).catch(() => ({ bytes: Buffer.alloc(0) }))).bytes)
       }
     }
     await walk(ticket.root, 0)
@@ -423,11 +458,14 @@ export function install(rt) {
     const mime = ASSET_MIMES.get(ext)
     if (mime === undefined) return errorPage(404, 'Not found')
     const limit = ext === '.html' || ext === '.htm' ? HTML_LIMIT : ASSET_LIMIT
-    const info = await stat(real).catch(() => undefined)
-    if (info === undefined || !info.isFile()) return errorPage(404, 'Not found')
-    if (info.size > limit) return errorPage(413, 'Too large')
-    const bytes = await readFile(real).catch(() => undefined)
-    if (bytes === undefined) return errorPage(404, 'Not found')
+    // Checks and bytes go through one open handle: the file the path checks approved
+    // is the file that is served, even if the path is swapped in between.
+    let bytes
+    try {
+      bytes = (await readVerified(real, { limit, oversized: 'too large' })).bytes
+    } catch (error) {
+      return errorPage(error?.code === 'bot/too-large' ? 413 : 404, error?.code === 'bot/too-large' ? 'Too large' : 'Not found')
+    }
     return new Response(bytes, {
       status: 200,
       headers: {
@@ -505,8 +543,11 @@ export function install(rt) {
     const ownerBot = rt.chatOwners.get(sessionId) ?? past?.botId
     const roomId = rt.roomOf(sessionId)?.id ?? rt.groupOwners.get(sessionId)?.roomId ?? past?.roomId
     if (ownerBot === undefined && roomId === undefined) throw notFound('Unknown session')
+    // The card's own conversation must still resolve: an older part or a reaped session
+    // never authorizes a read, instead of silently re-anchoring to some other root.
     const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
-    const root = await workRootOf(agent?.session)
+    if (agent?.session === undefined) throw notFound('The conversation that wrote this card is no longer here; open the file again from the current chat')
+    const root = await workRootOf(agent.session)
     if (root === undefined) throw invalid('This conversation has no working folder here')
     if (typeof file.workspaceTag !== 'string' || file.workspaceTag !== rootTag(root)) {
       throw workspaceChanged('The working folder changed since this card was written; open the file again')
@@ -524,15 +565,14 @@ export function install(rt) {
     if (app === undefined) throw invalid('app must be canvas or reader')
     const { target } = await authorizeFile(body, { app })
     const ext = fileKind(app, target.realPath)
-    const info = await statTarget(target.realPath)
-    if (app === 'canvas' && info.size > HTML_LIMIT) throw tooLarge('The HTML file is larger than 8 MiB')
-    const revision = sha(await readFile(target.realPath))
+    const { bytes, size } = await readVerified(target.realPath, app === 'canvas' ? { limit: HTML_LIMIT, oversized: 'The HTML file is larger than 8 MiB' } : {})
+    const revision = sha(bytes)
     return {
       file: { app, displayPath: target.displayPath, workspaceTag: rootTag(target.root) },
       revision,
-      size: info.size,
-      previewAvailable: app === 'canvas' && info.size <= HTML_LIMIT,
-      textLimited: info.size > TEXT_LIMIT,
+      size,
+      previewAvailable: app === 'canvas' && size <= HTML_LIMIT,
+      textLimited: size > TEXT_LIMIT,
       extension: ext,
     }
   }
@@ -542,11 +582,9 @@ export function install(rt) {
     // The card's app binds what may be read: a canvas card never reads Markdown and a
     // reader card never reads HTML, however the caller rewrites displayPath.
     fileKind(app, target.realPath)
-    const info = await statTarget(target.realPath)
-    const isHtml = CANVAS_EXTENSIONS.has(extname(target.realPath).toLowerCase())
-    if (isHtml && info.size > HTML_LIMIT) throw tooLarge('The HTML file is larger than 8 MiB')
-    if (info.size > TEXT_LIMIT) throw tooLarge('The file is larger than 4 MiB of text')
-    const bytes = await readFile(target.realPath)
+    // Text reads cap at the text line even for HTML: the 8 MiB allowance is for the
+    // rendered preview bytes, never for text a client shows.
+    const { bytes } = await readVerified(target.realPath, { limit: TEXT_LIMIT, oversized: 'The file is larger than 4 MiB of text' })
     if (!isUtf8(bytes)) throw invalid('The file is not valid UTF-8 text')
     const revision = sha(bytes)
     if (typeof body.knownRevision === 'string' && body.knownRevision === revision) return { kind: 'unchanged', revision }
@@ -578,12 +616,13 @@ export function install(rt) {
     const document = await resolveSiblingOf(root, article, target)
     const documentExt = extname(document.realPath).toLowerCase()
     if (!READER_EXTENSIONS.has(documentExt)) throw invalid('The article is not a Markdown document')
+    // The article the image binds to must be a real regular file, not a path that
+    // merely names one: a symlinked directory or a missing file never anchors bytes.
+    await statTarget(document.realPath)
     const ext = extname(target.realPath).toLowerCase()
     const mime = IMAGE_MIMES.get(ext)
     if (mime === undefined) throw invalid(`Only image files can be read here (png, jpg, gif, webp, avif, svg), not ${ext || 'this file'}`)
-    const info = await statTarget(target.realPath)
-    if (info.size > IMAGE_LIMIT) throw tooLarge('The image is larger than 4 MiB')
-    const bytes = await readFile(target.realPath)
+    const { bytes } = await readVerified(target.realPath, { limit: IMAGE_LIMIT, oversized: 'The image is larger than 4 MiB' })
     const revision = sha(bytes)
     if (typeof body.knownRevision === 'string' && body.knownRevision === revision) return { kind: 'unchanged', revision }
     return { kind: 'bytes', revision, mime, size: bytes.length, data: bytes.toString('base64') }
@@ -592,7 +631,7 @@ export function install(rt) {
   async function sideAppDiff(body) {
     const { sessionId, target } = await authorizeFile(body)
     const revision = typeof body.revision === 'string' ? body.revision : ''
-    const entry = diffBases.get(foldKey(target.realPath))
+    const entry = diffBases.get(diffKey(sessionId, target.realPath))
     // A base answers only the conversation whose writes produced it, while it is young:
     // another session editing the same file or an hour-old write is the client-snapshot case.
     if (
@@ -602,6 +641,7 @@ export function install(rt) {
     return {
       kind: 'host',
       before: entry.before,
+      after: entry.after,
       baseRevision: entry.baseRevision,
       revision: entry.afterRevision,
       ...(entry.turn !== undefined ? { turn: entry.turn } : {}),
@@ -610,6 +650,9 @@ export function install(rt) {
 
   async function sideAppPreview(body) {
     const { sessionId, target } = await authorizeFile(body, { app: 'canvas' })
+    // The preview entry revalidates as a real, regular HTML file every time: a card
+    // cannot outlive its target turning into a directory, a symlink or another type.
+    fileKind('canvas', target.realPath)
     const info = await statTarget(target.realPath)
     if (info.size > HTML_LIMIT) return { kind: 'preview-unavailable', reason: 'The HTML file is larger than 8 MiB' }
     // One live ticket per file and session: a repeat call refreshes it instead of
@@ -620,7 +663,9 @@ export function install(rt) {
     // so the answer always carries a live frameUrl, never an unchanged dead address.
     const fresh = ticket === undefined
     if (ticket === undefined) ticket = issueTicket({ entryReal: target.realPath, displayPath: target.displayPath, sessionId })
-    const { revision, truncated } = await previewRevision(ticket)
+    const scanned = await previewRevision(ticket).catch(error => error)
+    if (scanned instanceof Error) return { kind: 'preview-unavailable', reason: 'The file could not be read; open it again when it is back' }
+    const { revision, truncated } = scanned
     // A fresh ticket never answers `unchanged`: its frame URL differs from the one the
     // client holds, and unchanged bytes on a dead address would leave the preview dark.
     if (!fresh && typeof body.knownPreviewRevision === 'string' && body.knownPreviewRevision === revision) {
