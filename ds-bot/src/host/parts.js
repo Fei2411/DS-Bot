@@ -3355,11 +3355,6 @@ export function install(rt) {
         ? unreadRequestsForRuntimeLost(session, agent.id, job, { markOriginSent: true })
         : []
       await forward(job, [...runtimeLostUnread, ...carry, ...held], freshId)
-      if (hasRuntimeLostUnread && state.switching[agent.id] !== undefined) {
-        delete state.switching[agent.id].runtimeLost
-        delete state.switching[agent.id].runtimeLostContext
-        if (job.kept === true) await rt.save().catch(() => {})
-      }
       // Migrate buffered silent entries after forward succeeds so entry.ledger stays
       // intact until freshId actually flushes (or takes them on pre-step), and a failed
       // forward never leaves duplicate silent notes on both old and new parts.

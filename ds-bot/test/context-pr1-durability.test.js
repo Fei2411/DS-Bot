@@ -1960,4 +1960,86 @@ test('immediate handoff claim during moveOn still forwards parked prompts ahead 
     assert.deepEqual(droppedOrigins, [], 'IM origin token was consumed by replay, never dropped')
     assert.deepEqual(host.state().switching, {})
   }
+
+  // 3) Unconfirmed handoff (immediate claim) keeps runtimeLost replay metadata intact so a clean
+  //    shutdown that cancels the successor's queued unread request still replays prompt + attachment once on restart.
+  {
+    const host = makeSwitchFixture()
+    await host.rt.load()
+
+    const bAgent = host.agentOf('b')
+    bAgent.session.deriveMessages = () => [
+      {
+        id: 'u-cli-photo-1',
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Inspect this screenshot' },
+          { type: 'image', attachment: { attachmentId: 'att-shot-9', mimeType: 'image/png' } },
+        ],
+        source: { kind: 'user', exchangeId: 'ex-cli-photo-1' },
+      },
+    ]
+    const s1 = host.agentOf('s1')
+    const s1Events = []
+    s1.session.snapshotEvents = () => s1Events
+    const origFollowup = s1.followup.bind(s1)
+    s1.followup = (msg) => {
+      origFollowup(msg)
+      s1Events.push({ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 0, inserted: [msg] } })
+      if (msg?.source?.handoff === true) {
+        s1.inbox.remove(msg.id)
+        s1Events.push({ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } })
+      }
+    }
+
+    host.rt.state.localAgents = { sessions: { b: { handedId: 'earlier-0' } } }
+    const reqErrListeners = host.ctx.listeners.get('agent/request-error') ?? []
+    const payload = { agent: bAgent, failure: { code: 'LOCAL_AGENT_SESSION_LOST', message: 'session lost' } }
+    const dispatch = i => (i < reqErrListeners.length ? reqErrListeners[i](payload, () => dispatch(i + 1)) : Promise.resolve(undefined))
+    await dispatch(0)
+
+    assert.equal(await waitFor(() => host.state().bots.b.sessionId === 's1' && !host.rt.isSwitchingPart('b')), true)
+    assert.equal(host.state().switching.b?.handoffPending, true)
+    assert.equal(host.state().switching.b?.runtimeLost, true, 'runtimeLost replay metadata must stay persisted while handoff is unconfirmed')
+    await host.stop({ keep: true })
+
+    // Simulate clean shutdown canceling s1's queued unread request before s1 logged user/message,
+    // while s1's handoff finished logging user/message.
+    const inboxFile = join(host.home, 'fake-inbox.json')
+    const onDisk = JSON.parse(readFileSync(inboxFile, 'utf8'))
+    onDisk.s1 = { nextStep: [], nextTurn: [] }
+    writeFileSync(inboxFile, JSON.stringify(onDisk))
+
+    const second = makeSwitchFixture({ home: host.home })
+    t.after(second.stop)
+    await second.rt.load()
+    second.agentOf('b').session.deriveMessages = () => [
+      {
+        id: 'u-cli-photo-1',
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Inspect this screenshot' },
+          { type: 'image', attachment: { attachmentId: 'att-shot-9', mimeType: 'image/png' } },
+        ],
+        source: { kind: 'user', exchangeId: 'ex-cli-photo-1' },
+      },
+    ]
+    const handoffMsg = s1Events[0].data.inserted[0]
+    const queuedUnread = s1Events.find(ev => ev.type === 'agent/inbox/spliced' && ev.data.inserted?.[0]?.source?.handoff !== true)?.data.inserted[0]
+    second.agentOf('s1').session.snapshotEvents = () => [
+      { type: 'user/message', data: { message: handoffMsg } },
+      { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 0, inserted: [queuedUnread] } },
+      { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } },
+    ]
+
+    await second.rt.heldBack()
+    const replayed = second.agentOf('s1').calls
+      .filter(([kind, m]) => kind === 'followup' && m?.source?.handoff !== true)
+      .map(([, m]) => m)
+    assert.equal(replayed.length, 1, 'restart recovery must replay canceled unread local-agent request once')
+    assert.equal(replayed[0].content[0].text, 'Inspect this screenshot')
+    assert.equal(replayed[0].content[1].attachment.attachmentId, 'att-shot-9')
+    assert.deepEqual(second.state().switching, {})
+    assert.deepEqual(second.archived, [['b', { stopActivity: true }]])
+  }
 })
