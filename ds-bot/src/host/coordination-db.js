@@ -5,7 +5,7 @@
 // atomically via BEGIN IMMEDIATE transactions, while secondary windows open the same
 // file with `{ readonly: true }` and never take write locks or mutate state.
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, realpathSync, unlinkSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, realpathSync, renameSync, unlinkSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
@@ -410,6 +410,7 @@ export function openCoordinationDb({
   busyTimeoutMs = 5000,
   now = Date.now,
   idGenerator = randomUUID,
+  onWarn,
 } = {}) {
   const dbPath = explicitPath ?? (home ? join(home, 'coordination.sqlite') : undefined)
   if (!dbPath) {
@@ -420,10 +421,37 @@ export function openCoordinationDb({
     mkdirSync(dirname(dbPath), { recursive: true })
   }
 
-  const cleanupCorruptFiles = () => {
+  const makeCorruptTag = () => {
+    const stamp = new Date(now()).toISOString().replace(/[:.]/g, '-')
+    return `corrupt-${stamp}-${String(idGenerator()).slice(0, 8)}`
+  }
+
+  const preserveCorruptFiles = (cause, preSaved = undefined) => {
     if (inMemory || readonly) return
+    const tag = preSaved?.tag ?? makeCorruptTag()
+    const preserved = [...(preSaved?.preserved ?? [])]
     for (const suffix of ['', '-wal', '-shm', '-journal']) {
-      try { unlinkSync(`${dbPath}${suffix}`) } catch {}
+      const src = `${dbPath}${suffix}`
+      if (!existsSync(src)) continue
+      const dst = `${dbPath}.${tag}${suffix}`
+      if (preserved.includes(dst)) {
+        try { unlinkSync(src) } catch {}
+        continue
+      }
+      try {
+        renameSync(src, dst)
+        preserved.push(dst)
+      } catch {
+        try { unlinkSync(src) } catch {}
+      }
+    }
+    if (preserved.length > 0) {
+      onWarn?.(
+        'ds-bot: coordination database %s was corrupt (%s); preserved backup (%s) and initialized a fresh ledger',
+        dbPath,
+        cause?.message ?? cause,
+        preserved.join(', '),
+      )
     }
   }
 
@@ -435,7 +463,7 @@ export function openCoordinationDb({
         : new DatabaseSync(dbPath)
     } catch (error) {
       if (allowCorruptReset && !readonly && !inMemory && isCorruptSqliteError(error)) {
-        cleanupCorruptFiles()
+        preserveCorruptFiles(error)
         return openAndInit(false)
       }
       throw new CoordinationError('coordination/open_failed', `Failed to open coordination database at ${dbPath}: ${error?.message ?? error}`, { cause: error })
@@ -494,9 +522,27 @@ export function openCoordinationDb({
       }
       return conn
     } catch (error) {
+      const willReset = allowCorruptReset && !readonly && !inMemory && isCorruptSqliteError(error)
+      let preSaved
+      if (willReset) {
+        // Snapshot any `-wal` / `-journal` sidecar BEFORE `conn.close()`, since SQLite may
+        // unlink sidecar files during close of a malformed database handle.
+        const tag = makeCorruptTag()
+        const preserved = []
+        for (const suffix of ['-wal', '-journal']) {
+          const src = `${dbPath}${suffix}`
+          if (!existsSync(src)) continue
+          const dst = `${dbPath}.${tag}${suffix}`
+          try {
+            copyFileSync(src, dst)
+            preserved.push(dst)
+          } catch {}
+        }
+        preSaved = { tag, preserved }
+      }
       try { conn.close() } catch {}
-      if (allowCorruptReset && !readonly && !inMemory && isCorruptSqliteError(error)) {
-        cleanupCorruptFiles()
+      if (willReset) {
+        preserveCorruptFiles(error, preSaved)
         return openAndInit(false)
       }
       throw error
@@ -1776,7 +1822,9 @@ export function openCoordinationDb({
         const openReqWaits = stmt.countOpenRequiredWaits.get(workId).n
         const revisionChanged = work.claimed_revision !== null && work.claimed_revision !== undefined && work.revision !== work.claimed_revision
         const unreadAfter = openReqWaits > 0
-          ? stmt.hasUnreadInterruptingAfter.get(workId, ackBound)
+          ? (work.kind === 'foreground'
+              ? stmt.hasUnreadForegroundInterruptingAfter.get(workId, ackBound)
+              : stmt.hasUnreadInterruptingAfter.get(workId, ackBound))
           : stmt.hasUnreadWakingAfter.get(workId, ackBound)
 
         if (deliveryStatus.yielded === true || work.kind === 'foreground') {
@@ -1850,7 +1898,9 @@ export function openCoordinationDb({
         // Release claim and return foreground (or non-autoSettled work) to a schedulable state so it never sticks in `running`.
         const openReqWaits = stmt.countOpenRequiredWaits.get(workId).n
         const unreadAfter = openReqWaits > 0
-          ? stmt.hasUnreadInterruptingAfter.get(workId, ackBound)
+          ? (work.kind === 'foreground'
+              ? stmt.hasUnreadForegroundInterruptingAfter.get(workId, ackBound)
+              : stmt.hasUnreadInterruptingAfter.get(workId, ackBound))
           : stmt.hasUnreadWakingAfter.get(workId, ackBound)
         const nextStatus = unreadAfter ? 'queued' : (openReqWaits > 0 ? 'waiting' : 'idle')
         db.prepare(`
@@ -3222,7 +3272,7 @@ export function install(rt) {
     if (isReadOnly && !existsSync(dbPath)) {
       return null
     }
-    handle = openCoordinationDb({ path: dbPath, readonly: isReadOnly })
+    handle = openCoordinationDb({ path: dbPath, readonly: isReadOnly, onWarn: rt.warn })
     return handle
   }
 

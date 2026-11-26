@@ -1479,3 +1479,55 @@ test('R1 P1-3: resumePausedWork on group room_work (paused and needs_verificatio
     'resuming needs_verification group room_work must route through resumeRoomPause',
   )
 })
+
+test('R2 P1: deliverToTask keeps revise unread until DSH user/message commits and replays original revise text on restart (not_found & aborted+!consumed)', async (t) => {
+  for (const d2Status of [
+    { status: 'not_found', consumed: false },
+    { status: 'aborted', consumed: false },
+  ]) {
+    const { rt, agents, emit, tool } = await startHost(t)
+    await tool('task_start', { title: `bg-${d2Status.status}`, brief: 'initial build' }, 'dm-a')
+    const task = rt.botOf('a').tasks[0]
+    const taskWorkId = `task:${task.id}`
+    const taskAgent = agents.get(task.sessionId)
+    task.status = 'waiting_work'
+    rt.coordDb.parkWaiting(taskWorkId)
+
+    const followText = `switch target to arm64 (${d2Status.status})`
+    const callsBeforeSend = taskAgent.calls.length
+    await rt.deliverToTask(task.id, { text: followText })
+    const sentMsg = taskAgent.calls[callsBeforeSend][1]
+    assert.equal(taskAgent.calls.length, callsBeforeSend + 1, 'live process delivers once without duplicate')
+
+    // BEFORE DSH commits `user/message`, revise MUST remain unread in SQLite.
+    const unreadBeforeCrash = rt.coordDb.listInbox(taskWorkId, { unreadOnly: true })
+    assert.equal(unreadBeforeCrash.length, 1, 'revise must stay unread until DSH commits user/message')
+    assert.equal(unreadBeforeCrash[0].payload?.text, followText)
+
+    // Simulate crash right after rt.deliver() flush, before DSH persisted `user/message`.
+    taskAgent.inbox.nextStep.length = 0
+    taskAgent.inbox.nextTurn.length = 0
+    rt.forgetDelivery?.(sentMsg.source.exchangeId)
+    rt.forgetWorkDeliveries?.(taskWorkId)
+
+    const callsBeforeRestart = taskAgent.calls.length
+    const origQuery = rt.queryDeliveryStatus
+    rt.queryDeliveryStatus = async () => d2Status
+    try {
+      await rt.adoptLiveWork()
+    } finally {
+      rt.queryDeliveryStatus = origQuery
+    }
+
+    await settle(() => taskAgent.calls.length > callsBeforeRestart, 2000, `restart replay must fire for ${d2Status.status}`)
+    const replayedMsg = taskAgent.calls.at(-1)[1]
+    const replayedText = textOf(replayedMsg.content)
+    assert.ok(replayedText.includes(followText), `replayed message must contain original revise text (${d2Status.status}), got: ${replayedText}`)
+    assert.ok(!replayedText.includes('(continue work)'), `must NOT fall back to placeholder "(continue work)" (${d2Status.status})`)
+
+    // Once DSH commits `user/message`, lifecycle ack marks the revise read!
+    emit(task.sessionId, 'turn/start', { turn: 2 })
+    emit(task.sessionId, 'user/message', { content: replayedMsg.content, source: replayedMsg.source })
+    assert.equal(rt.coordDb.listInbox(taskWorkId, { unreadOnly: true }).length, 0, 'DSH user/message lifecycle must ack revise seq')
+  }
+})

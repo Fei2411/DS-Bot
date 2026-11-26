@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -1028,8 +1028,15 @@ test('verifier regressions: foreground chain isolation, reconcileDeliveryStatus 
 
   const corruptPath = join(futureDir, 'corrupt.sqlite')
   writeFileSync(corruptPath, 'definitely not a valid sqlite database header!!!')
+  writeFileSync(`${corruptPath}-wal`, 'simulated-wal-bytes')
   assert.throws(() => openCoordinationDb({ path: corruptPath, readonly: true }))
-  const recovered = openCoordinationDb({ path: corruptPath })
+  const warnings = []
+  const recovered = openCoordinationDb({ path: corruptPath, onWarn: (...args) => warnings.push(args) })
   assert.equal(recovered.schemaVersion(), SCHEMA_VERSION)
   recovered.close()
+  const preservedFiles = readdirSync(futureDir).filter(name => name.startsWith('corrupt.sqlite.corrupt-'))
+  assert.equal(preservedFiles.length, 2, 'corrupt db and wal must be renamed to .corrupt-* backups instead of deleted')
+  assert.ok(preservedFiles.some(name => !name.endsWith('-wal')), 'corrupt db backup preserved')
+  assert.ok(preservedFiles.some(name => name.endsWith('-wal')), 'corrupt wal backup preserved')
+  assert.equal(warnings.length, 1, 'corrupt reset must emit a diagnostic warning')
 })

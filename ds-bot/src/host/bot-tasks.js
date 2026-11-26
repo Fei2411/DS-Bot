@@ -1296,9 +1296,6 @@ export function install(rt) {
         ...(reviseWorkId ? { coordWorkId: reviseWorkId } : {}),
         ...(Number.isInteger(reviseSeq) ? { coordThroughSeq: reviseSeq } : {}),
       })
-      if (writableCoordDb() && reviseWorkId !== undefined && Number.isInteger(reviseSeq)) {
-        try { rt.coordDb.ackInboxSeq(reviseWorkId, reviseSeq) } catch { /* best-effort */ }
-      }
       return { botId: bot.id, taskId: task.id, sessionId: task.sessionId }
     } finally {
       delivering.delete(task.id)
