@@ -232,6 +232,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     cancelWork: (id, reason) => after(call('cancel-work', { id, ...(reason ? { reason } : {}) })),
     resumeRoomPause: roomId => after(call('resume-room-pause', { roomId })),
     refreshModels: () => after(call('models')).catch(() => {}),
+    // The Agent presets of the profile: the directory the Agent preset picker shows.
+    presets: () => call('presets'),
     // One local agent's models: the first look starts its CLI, later ones read what it said.
     agentModels: route => after(call('local-agent-models', { route })).catch(() => {}),
     efforts: ref => call('efforts', { ref }),

@@ -1,6 +1,23 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  'Agent preset': 'Agent 프리셋',
+  'Agent preset: {preset}': 'Agent 프리셋: {preset}',
+  'Default (Standard)': '기본값 (표준)',
+  'Default (DSH default)': '기본값 (DSH 기본값)',
+  'The standard agent preset': '표준 Agent 프리셋',
+  'The default for new tasks in DeepSeek Harness.': 'DeepSeek Harness의 새 작업에 사용하는 기본 프리셋입니다.',
+  'Missing preset': '프리셋을 찾을 수 없음',
+  'This preset cannot start.': '이 프리셋을 시작할 수 없습니다.',
+  'This preset cannot start. Pick another one.': '이 프리셋을 시작할 수 없습니다. 다른 프리셋을 선택하세요.',
+  'This preset cannot start ({reason}). Pick another one.': '이 프리셋을 시작할 수 없습니다 ({reason}). 다른 프리셋을 선택하세요.',
+  'This preset is not in the profile anymore. Pick another one.': '이 프리셋은 현재 프로필에 없습니다. 다른 프리셋을 선택하세요.',
+  'The preset list could not be loaded.': '프리셋 목록을 불러올 수 없습니다.',
+  'DS Bot needs the Bot\'s own prompt, which this preset replaces': '이 프리셋은 DS Bot에 필요한 Bot 고유의 프롬프트를 대체합니다.',
+  'DS Bot could not verify that it keeps the Bot\'s own prompt': 'Bot 고유의 프롬프트가 유지되는지 확인할 수 없습니다.',
+  'Applies from the next conversation segment.': '다음 대화 구간부터 적용됩니다.',
+  'The Bot runs on the default agent preset.': 'Bot은 기본 Agent 프리셋으로 실행됩니다.',
+  'The Bot runs on the {name} agent preset.': 'Bot은 {name} Agent 프리셋으로 실행됩니다.',
   "Direct value": "직접 입력",
   "1Password (op://)": "1Password (op://)",
   "Secret source": "시크릿 출처",
@@ -2582,6 +2599,13 @@ export const KO = {
 }
 
 export const HOST_ERRORS_KO = [
+  [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"은(는) 현재 DeepSeek Harness에서 사용할 수 없습니다. Bot 설정에서 다른 프리셋을 선택하세요.'],
+  [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"을(를) 실행할 수 없습니다: $2. Bot 설정에서 다른 프리셋을 선택하세요.'],
+  [/^An agent preset must be named by its id$/, 'Agent 프리셋은 id로 지정해야 합니다'],
+  [/^The agent preset "(.+)" cannot be used for a Bot: (.+)\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"은(는) Bot에 사용할 수 없습니다: $2. Bot 설정에서 다른 프리셋을 선택하세요.'],
+  [/^The default agent preset "(.+)" cannot be used for a Bot: (.+)\. Choose a preset for the Bot in its settings\.$/, '기본 Agent 프리셋 "$1"은(는) Bot에 사용할 수 없습니다: $2. Bot 설정에서 이 Bot의 프리셋을 선택하세요.'],
+  [/^The agent preset "(.+)" of (.+) cannot run a Bot in this DeepSeek Harness, so it keeps the preset its running conversations were made with\. Pick another preset in the Bot's settings\.$/, '$2의 Agent 프리셋 "$1"은(는) 현재 DeepSeek Harness에서 Bot을 실행할 수 없으므로, 기존 대화는 생성 당시의 프리셋을 유지합니다. Bot 설정에서 다른 프리셋을 선택하세요.'],
+  [/^Only the user can choose the agent preset of (.+)$/, '$1의 Agent 프리셋은 사용자만 선택할 수 있습니다'],
   [/^Plugin disabled by the kill list: (.+)$/, '플러그인이 보안 킬 리스트에 의해 비활성화되었습니다: $1'],
   [/^Plugin disabled by the kill list\.$/, '플러그인이 보안 킬 리스트에 의해 비활성화되었습니다.'],
   [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, '이 플러그인은 승인 후 변경되었습니다(기능, 실행 계층, 실행 진입점, 콘텐츠 또는 위치). 명시적 승인 전까지 다시 실행할 수 없습니다.'],
