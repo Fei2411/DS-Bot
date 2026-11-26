@@ -543,13 +543,28 @@ export function install(rt) {
   }
 
 
+  // Resolve the slot currently assigned to `targetId` in persisted state, if any.
+  const slotOfTarget = (targetId) => {
+    const slots = pluginStore().slots ?? {}
+    for (const [slotName, assigned] of Object.entries(slots)) {
+      if (assigned === targetId) return slotName
+    }
+    return null
+  }
+
+  // Load the catalog with the same failure-tolerant freshness contract used by
+  // `assertNotKilled` and `listPlugins`, so mutation entrypoints never evaluate
+  // consent against a cold/empty catalog and diverge from reconcile.
+  const loadCatalogFresh = () => catalogManager.load({ sources: pluginStore().sources }).catch(() => catalogManager.hydrate())
+
   // Compute the canonical consent-fingerprint input set for one activation target.
   // `activationKind` is what will actually run: `builtin` (exempt), `provider` (native
   // in-process), `dsh` (package-only bundle), or `mcp` (MCP wrapper). Secret values are
   // never inputs — the stored manifest text with `$DSH_SECRET_*` references verbatim is
   // both stable across restarts and free of secret material.
-  async function targetSecurityInputs(targetId, { activationKind, descriptor, entry, bundle } = {}) {
+  async function targetSecurityInputs(targetId, { activationKind, descriptor, entry, bundle, slot } = {}) {
     if (activationKind === 'builtin') return { kind: 'builtin' }
+    const assignedSlot = slot ?? slotOfTarget(targetId)
     if (activationKind === 'provider' && descriptor) {
       const tier = normalizedTierOf(descriptor)
       // A bundle-backed native provider shares the bundle's executable truth — same
@@ -569,7 +584,7 @@ export function install(rt) {
         version: backing?.version ?? descriptor.version ?? null,
         contentHash,
         hashError,
-        slot: descriptor.slot ?? entry?.slot ?? null,
+        slot: assignedSlot ?? descriptor.slot ?? entry?.slot ?? null,
         replaces: descriptor.replaces ?? [],
         packageName: descriptor.packageName ?? null,
       }
@@ -593,7 +608,7 @@ export function install(rt) {
         version: bundle?.version ?? null,
         contentHash,
         hashError,
-        slot: entry?.slot ?? null,
+        slot: assignedSlot ?? entry?.slot ?? null,
         replaces: entry?.replaces ?? [],
         packageName,
       }
@@ -623,7 +638,7 @@ export function install(rt) {
         contentHash: null,
         version: pin.pinned,
         unpinnedSpec: pin.floating,
-        slot: entry.slot ?? null,
+        slot: assignedSlot ?? entry.slot ?? null,
         replaces: entry.replaces ?? [],
       }
       if (rawMcp.transport === 'streamable-http') {
@@ -642,22 +657,22 @@ export function install(rt) {
   // Resolve which activation spec a target id maps to, mirroring the precedence the
   // reconcilers use: native descriptors (incl. bundle-backed) first, then MCP entries,
   // then package-only DSH bundles.
-  function securitySpecForTarget(targetId) {
+  function securitySpecForTarget(targetId, { slot } = {}) {
     if (builtinPlugins.has(targetId)) return { activationKind: 'builtin' }
     const nativeDesc = nativePlugins.get(targetId)
       ?? (targetId.startsWith('provider:') ? nativePlugins.get(targetId.slice('provider:'.length)) : null)
-    if (nativeDesc) return { activationKind: 'provider', descriptor: nativeDesc }
     const entry = findKnownEntry(targetId)
-    if (entry?.kind === 'mcp') return { activationKind: 'mcp', entry }
+    if (nativeDesc) return { activationKind: 'provider', descriptor: nativeDesc, entry, ...(slot ? { slot } : {}) }
+    if (entry?.kind === 'mcp') return { activationKind: 'mcp', entry, ...(slot ? { slot } : {}) }
     if (targetId.startsWith('dsh:') || entry?.kind === 'dsh') {
       const pkgName = entry?.install?.packageName ?? entry?.packageName ?? targetId.slice('dsh:'.length)
       const bundle = entry ? resolveDshBundleForEntry(entry) : cachedBundles.get(pkgName)
       const nativeBacking = findNativeForPackage(bundle?.name ?? pkgName)
-      if (nativeBacking) return { activationKind: 'provider', descriptor: nativeBacking }
+      if (nativeBacking) return { activationKind: 'provider', descriptor: nativeBacking, entry, ...(slot ? { slot } : {}) }
       // A bare `dsh:` id with neither a catalog/custom/snapshot entry nor an installed
       // bundle resolves to nothing: there is no plugin to consent to.
       if (!entry && !bundle) return null
-      return { activationKind: 'dsh', entry, bundle }
+      return { activationKind: 'dsh', entry, bundle, ...(slot ? { slot } : {}) }
     }
     return null
   }
@@ -1066,7 +1081,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     const nativeDesc = nativePlugins.get(targetId)
       ?? (targetId.startsWith('provider:') ? nativePlugins.get(targetId.slice('provider:'.length)) : null)
     if (nativeDesc) {
-      const gate = await activationSecurityCheck(targetId, { activationKind: 'provider', descriptor: nativeDesc })
+      const gate = await activationSecurityCheck(targetId, { activationKind: 'provider', descriptor: nativeDesc, entry, slot })
       if (gate?.blocked) {
         await activateFallback({ status: gate.blocked.status, desiredId: targetId, error: gate.blocked.error })
         return
@@ -1091,7 +1106,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
 
     // 3. MCP plugin (catalog preset or custom)
     if (entry?.kind === 'mcp') {
-      const gate = await activationSecurityCheck(targetId, { activationKind: 'mcp', entry })
+      const gate = await activationSecurityCheck(targetId, { activationKind: 'mcp', entry, slot })
       if (gate?.blocked) {
         await activateFallback({ status: gate.blocked.status, desiredId: targetId, error: gate.blocked.error })
         return
@@ -1130,7 +1145,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       }
       const nativeFromBundle = findNativeForPackage(actualPkg)
       if (nativeFromBundle) {
-        const gate = await activationSecurityCheck(targetId, { activationKind: 'provider', descriptor: nativeFromBundle })
+        const gate = await activationSecurityCheck(targetId, { activationKind: 'provider', descriptor: nativeFromBundle, entry, slot })
         if (gate?.blocked) {
           await activateFallback({ status: gate.blocked.status, desiredId: targetId, error: gate.blocked.error })
           return
@@ -1164,7 +1179,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       // other way around. Installs land disabled (`enabled: false`); enabling happens
       // here, after the kill list and the consent fingerprint have both cleared the
       // exact bytes the bundle carries.
-      const dshGate = await activationSecurityCheck(targetId, { activationKind: 'dsh', entry, bundle })
+      const dshGate = await activationSecurityCheck(targetId, { activationKind: 'dsh', entry, bundle, slot })
       if (dshGate?.blocked) {
         await activateFallback({ status: dshGate.blocked.status, desiredId: targetId, error: dshGate.blocked.error })
         return
@@ -2044,7 +2059,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     if (!id) throw Object.assign(new Error('Plugin id is required.'), { code: 'bot/invalid' })
 
     await rt.load()
-    await Promise.all([refreshBundles(), catalogManager.hydrate()])
+    await Promise.all([refreshBundles(), loadCatalogFresh()])
     const store = pluginStore()
 
     const previousTarget = desiredSlotTarget(cleanSlot)
@@ -2061,7 +2076,8 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         // never execute because a user re-picked its slot — changing what it is
         // requires the explicit approval path, never a silent slot flip.
         await assertNotKilled({ ids: [id, `dsh:${nextDshPkg}`], version: bundle.version ?? null })
-        const gate = await activationSecurityCheck(id, { activationKind: 'dsh', entry: catalogEntry, bundle })
+        const spec = securitySpecForTarget(id, { slot: cleanSlot }) ?? { activationKind: 'dsh', entry: catalogEntry, bundle, slot: cleanSlot }
+        const gate = await activationSecurityCheck(id, spec)
         if (gate?.blocked) {
           throw Object.assign(new Error(gate.blocked.error ?? 'This plugin cannot run until it is approved.'), { code: 'bot/refused' })
         }
@@ -2120,7 +2136,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
   async function installPlugin({ id, spec, approvedBuilds, customMeta } = {}) {
     ensureWritable()
     await rt.load()
-    await catalogManager.hydrate()
+    await loadCatalogFresh()
     const pm = pluginManager()
     const store = pluginStore()
     const catalogEntries = catalogManager.peek().entries
@@ -2251,7 +2267,8 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         const targetEntry = findKnownEntry(activeTargetId) ?? { kind: 'dsh', install: { packageName: actualPkg } }
         const bundleNow = cachedBundles.get(actualPkg)
         if (bundleNow && bundleNow.enabled === false && isBundleAvailable(bundleNow)) {
-          const gate = await activationSecurityCheck(activeTargetId, { activationKind: 'dsh', entry: targetEntry, bundle: bundleNow })
+          const gateSpec = securitySpecForTarget(activeTargetId) ?? { activationKind: 'dsh', entry: targetEntry, bundle: bundleNow }
+          const gate = await activationSecurityCheck(activeTargetId, gateSpec)
           if (!gate?.blocked) {
             const enableRes = await pm.setBundleEnabled(actualPkg, true)
             if (enableRes?.application === 'applied' || enableRes?.application === 'overridden') {
@@ -2289,7 +2306,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     const targetId = String(id ?? '').trim()
     if (!targetId) throw Object.assign(new Error('Plugin id is required.'), { code: 'bot/invalid' })
     await rt.load()
-    await Promise.all([refreshBundles(), catalogManager.hydrate()])
+    await Promise.all([refreshBundles(), loadCatalogFresh()])
     const store = pluginStore()
     const entry = findKnownEntry(targetId) ?? nativePlugins.get(targetId)
 
@@ -2320,16 +2337,18 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     }
     if (enabled) {
       // The full activation gate rules before enablement starts the bundle's code —
-      // a drifted (consent-required) or unverifiable bundle must never execute because
-      // its switch flipped; the explicit approval path is the only way back.
+      // a drifted (consent-required), unverifiable, or unresolvable bundle must never
+      // execute because its switch flipped; the explicit approval path is the only way back.
       await assertNotKilled({ ids: [targetId, `dsh:${pkgName}`], version: bundle?.version ?? null })
-      if (bundle) {
-        const gate = await activationSecurityCheck(targetId, { activationKind: 'dsh', entry, bundle })
-        if (gate?.blocked) {
-          throw Object.assign(new Error(gate.blocked.error ?? 'Plugin cannot be enabled.'), { code: 'bot/refused' })
-        }
-        if (gate) recordConsentBaseline(targetId, gate.fingerprint, gate.consentState)
+      if (!bundle) {
+        throw Object.assign(new Error(`Plugin "${pkgName}" is not installed or cannot be verified.`), { code: 'bot/refused' })
       }
+      const spec = securitySpecForTarget(targetId) ?? { activationKind: 'dsh', entry, bundle }
+      const gate = await activationSecurityCheck(targetId, spec)
+      if (gate?.blocked) {
+        throw Object.assign(new Error(gate.blocked.error ?? 'Plugin cannot be enabled.'), { code: 'bot/refused' })
+      }
+      if (gate) recordConsentBaseline(targetId, gate.fingerprint, gate.consentState)
     }
     const res = await pm.setBundleEnabled(pkgName, Boolean(enabled))
     if (res?.application === 'failed' || res?.application === 'cancelled') {
@@ -2644,7 +2663,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     const targetId = String(id ?? '').trim()
     if (!targetId) throw Object.assign(new Error('Plugin id is required.'), { code: 'bot/invalid' })
     await rt.load()
-    await Promise.all([refreshBundles(), catalogManager.hydrate(), killListStore.load()])
+    await Promise.all([refreshBundles(), loadCatalogFresh(), killListStore.load()])
     const spec = securitySpecForTarget(targetId)
     if (!spec) {
       throw Object.assign(new Error(`Plugin "${targetId}" is not installed or loaded.`), { code: 'bot/not-found' })

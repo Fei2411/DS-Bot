@@ -110,7 +110,13 @@ export async function hashPluginTree(dir, { maxFiles = CONTENT_HASH_LIMITS.maxFi
         // tree's content is not self-contained: refuse to fingerprint it at all rather
         // than binding consent to bytes outside the hashed boundary.
         const resolvedTarget = resolve(current, target)
-        const inner = relative(rootReal, resolvedTarget)
+        // Canonicalize existing targets via `realpath` so an intra-tree absolute
+        // symlink spelled through a symlinked ancestor (e.g. `/var/...` vs
+        // `/private/var/...` on macOS) is not misread as an escape, while also
+        // catching multi-hop chains that ultimately resolve outside `rootReal`.
+        // Dangling targets fall back to lexical resolution so escapes fail closed.
+        const canonicalTarget = await realpath(resolvedTarget).catch(() => resolvedTarget)
+        const inner = relative(rootReal, canonicalTarget)
         const inside = inner === '' || (!isAbsolute(inner) && inner !== '..' && !inner.startsWith(`..${sep}`))
         if (!inside) {
           throw new ContentHashError('symlink-escape', `Symlink "${rel}" escapes the plugin directory.`)

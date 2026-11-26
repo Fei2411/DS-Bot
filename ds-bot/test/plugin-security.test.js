@@ -1590,3 +1590,107 @@ test('failed post-install enablement surfaces as an error instead of silent inst
   assert.equal(item.status, 'error')
   assert.match(item.error ?? '', /profile write locked|Could not enable/)
 })
+
+test('cold-catalog setSlot baselines identical slot fingerprint and never self-locks on reconcile', async (t) => {
+  const pluginDir = mkdtempSync(join(tmpdir(), 'ds-bot-coldslot-'))
+  writeFileSync(join(pluginDir, 'index.js'), 'export const ok = true\n')
+  writeFileSync(join(pluginDir, 'package.json'), JSON.stringify({ name: 'catbrowser', version: '1.0.0' }))
+  t.after(() => rmSync(pluginDir, { recursive: true, force: true, maxRetries: 5 }))
+
+  const bundle = {
+    name: 'catbrowser',
+    official: false,
+    availability: 'profile',
+    version: '1.0.0',
+    enabled: false,
+    installed: true,
+    optional: false,
+    removable: true,
+    updatable: false,
+    rows: [],
+    overrides: [],
+    source: `link:${pluginDir}`,
+  }
+  const pmCalls = []
+  const fakePm = {
+    async listBundles() { return [{ ...bundle }] },
+    async setBundleEnabled(name, enabled) {
+      pmCalls.push([name, enabled])
+      bundle.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+  }
+  const { rt, call, stop } = startRuntime({
+    services: { pluginManager: fakePm },
+    config: {
+      pluginFetch: async () => new Response(JSON.stringify({
+        schemaVersion: 1,
+        plugins: [
+          {
+            id: 'dsh:catbrowser',
+            name: 'Catalog Browser',
+            kind: 'dsh',
+            slot: 'browser',
+            category: 'browser',
+            install: { packageName: 'catbrowser' },
+            toolPrefixes: ['cat_'],
+          },
+        ],
+      }), { status: 200 }),
+    },
+  })
+  t.after(stop)
+  await rt.load()
+
+  // Cold start: call plugins-slot-set directly WITHOUT calling plugins-list first.
+  const pick = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:catbrowser' })
+  assert.equal(pick.ok, true)
+  assert.equal(pick.value.slots.browser.status, 'ready', 'cold-catalog pick must not self-lock into consent-required')
+  assert.equal(rt.plugins.getSlotActiveId('browser'), 'dsh:catbrowser')
+  assert.deepEqual(pmCalls, [['catbrowser', true]], 'bundle is enabled once and never immediately disabled by enforcement')
+})
+
+test('togglePlugin(enabled=true) fails closed when bundle cannot be resolved', async (t) => {
+  const pmCalls = []
+  const fakePm = {
+    async listBundles() { return [] },
+    async setBundleEnabled(name, enabled) {
+      pmCalls.push([name, enabled])
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  const res = await call('plugins-toggle', { id: 'dsh:missing-bundle', enabled: true })
+  assert.equal(res.ok, false)
+  assert.match(res.error.message, /not installed|cannot be verified/)
+  assert.equal(pmCalls.length, 0, 'setBundleEnabled(true) must never run for an unresolvable bundle')
+
+  // Disabling remains unobstructed even if listBundles missed it.
+  const off = await call('plugins-toggle', { id: 'dsh:missing-bundle', enabled: false })
+  assert.equal(off.ok, true)
+})
+
+test('hashPluginTree accepts intra-tree absolute symlinks spelled via symlinked ancestors and blocks escaping chains', async (t) => {
+  const base = mkdtempSync(join(tmpdir(), 'ds-bot-symcanon-'))
+  const realRoot = join(base, 'real', 'pkg')
+  const aliasParent = join(base, 'alias')
+  const outsideFile = join(base, 'secret.txt')
+  mkdirSync(realRoot, { recursive: true })
+  writeFileSync(join(realRoot, 'target.txt'), 'hello\n')
+  writeFileSync(outsideFile, 'top-secret\n')
+  symlinkSync(join(base, 'real'), aliasParent, 'dir')
+  // Absolute symlink using the non-canonical ancestor path (mirrors macOS /var -> /private/var).
+  symlinkSync(join(aliasParent, 'pkg', 'target.txt'), join(realRoot, 'self-abs-link'))
+  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5 }))
+
+  const hashed = await hashPluginTree(realRoot)
+  assert.match(hashed.hash, /^[0-9a-f]{64}$/)
+
+  // Indirect escape chain: inner-link -> escape-hop -> outsideFile must fail closed.
+  symlinkSync(outsideFile, join(realRoot, 'escape-hop'))
+  symlinkSync('./escape-hop', join(realRoot, 'inner-link'))
+  await assert.rejects(hashPluginTree(realRoot), { code: 'symlink-escape' })
+})
