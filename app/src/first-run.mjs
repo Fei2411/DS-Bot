@@ -2,7 +2,7 @@
 // one folder picked from the start page), and whether it copies the Bot team of the user's own
 // DSH. The answers are kept in the app's own data.
 import { app } from 'electron'
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { constants, copyFileSync, existsSync, linkSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { findTeam, userDshHome } from './import.mjs'
@@ -90,14 +90,37 @@ function offerOf(dataDir) {
   }
 }
 
+function discardPartial(file) {
+  try { rmSync(file, { force: true }) } catch { /* keep the original error */ }
+}
+
+function linkOrCopy(file, backup) {
+  try {
+    linkSync(file, backup)
+    return
+  } catch (error) {
+    // FAT can report EISDIR even when linking a regular file.
+    if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EISDIR'].includes(error?.code)) throw error
+  }
+  try {
+    copyFileSync(file, backup, constants.COPYFILE_EXCL)
+  } catch (error) {
+    if (error?.code !== 'EEXIST') discardPartial(backup)
+    throw error
+  }
+}
+
 function backUpCorruptLocations(file) {
   const base = `${file}.corrupt-${String(Date.now())}`
-  let backup = base
-  for (let attempt = 1; existsSync(backup); attempt += 1) {
-    backup = `${base}-${String(attempt)}`
+  for (let attempt = 0; ; attempt += 1) {
+    const backup = attempt === 0 ? base : `${base}-${String(attempt)}`
+    try {
+      linkOrCopy(file, backup)
+      return backup
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error
+    }
   }
-  renameSync(file, backup)
-  return backup
 }
 
 /**
@@ -113,9 +136,15 @@ export function saveLocations({ dataDir, workspace }) {
   // A full drive gives no room to measure a fifth of: the next save measures again.
   const freeAtStart = kept ? saved.freeAtStart : roomOf(freeSpace(dataDir))
   // A write that fails half way leaves the places that were there.
-  writeFileSync(`${file}.tmp`, `${JSON.stringify({ dataDir, workspace, freeAtStart }, null, 2)}\n`)
-  if (saved === null) console.warn(`DS Bot: ignoring invalid locations.json; backed up to ${backUpCorruptLocations(file)}`)
-  renameSync(`${file}.tmp`, file)
+  const temporary = `${file}.tmp`
+  writeFileSync(temporary, `${JSON.stringify({ dataDir, workspace, freeAtStart }, null, 2)}\n`)
+  try {
+    if (saved === null) console.warn(`DS Bot: ignoring invalid locations.json; backed up to ${backUpCorruptLocations(file)}`)
+    renameSync(temporary, file)
+  } catch (error) {
+    discardPartial(temporary)
+    throw error
+  }
 }
 
 const roomOf = bytes => (Number.isFinite(bytes) && bytes > 0 ? bytes : undefined)
