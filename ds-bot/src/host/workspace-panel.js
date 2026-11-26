@@ -7,11 +7,13 @@
 // (phone.js, remote.js), and terminal output rides local SSE only (`publishLocalFeed`).
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { watch as fsWatch } from 'node:fs'
 import { copyFile, mkdtemp, open, readdir, realpath, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { within } from './folders.js'
+import { parseXlsxBuffer } from './xlsx-preview.js'
 
 const MAX_LIST_ENTRIES = 500
 const PARALLEL_LIST_INSPECTS = 8
@@ -21,12 +23,17 @@ const MAX_OFFICE_INPUT_BYTES = 32 * 1024 * 1024
 const MAX_OFFICE_OUTPUT_BYTES = 24 * 1024 * 1024
 const MAX_OFFICE_CONVERSIONS = 2
 const MAX_TERMINALS = 8
+const MAX_WATCHES = 8
+const MAX_WATCH_DIRS = 32
+const MAX_WATCH_PATHS_PER_EVENT = 64
+const WATCH_DEBOUNCE_MS = 180
 const TERMINAL_SCROLLBACK_CHARS = 64 * 1024
 const TERMINAL_BATCH_MS = 16
 const TERMINAL_GRACE_MS = 3000
 const DIFF_TIMEOUT_MS = 30_000
 
 const DEFAULT_IGNORED_NAMES = new Set(['.git', 'node_modules', '.DS_Store', 'Thumbs.db'])
+const XLSX_EXTS = new Set(['.xlsx', '.xlsm'])
 const SENSITIVE_ENV_RE = /KEY|PASSWORD|SECRET|TOKEN/i
 const STRIPPED_ENV_RE = /^(DS_BOT_|DSBOT_|DSH_|ELECTRON_RUN_AS_NODE$|ACP_BACKEND$|DEEPSEEK_|ANTIGRAVITY_|AGY_)/i
 
@@ -179,14 +186,75 @@ async function convertOfficeToPdf(inputRealPath, ext, signal) {
   }
 }
 
+function openOsPath(target, action, isDirectory) {
+  let command
+  let args
+  if (process.platform === 'darwin') {
+    command = 'open'
+    args = action === 'reveal' ? ['-R', target] : [target]
+  } else if (process.platform === 'win32') {
+    if (action === 'reveal') {
+      command = 'explorer.exe'
+      args = isDirectory ? [target] : [`/select,${target}`]
+    } else {
+      command = 'rundll32.exe'
+      args = ['url.dll,FileProtocolHandler', target]
+    }
+  } else {
+    command = 'xdg-open'
+    args = [action === 'reveal' && !isDirectory ? dirname(target) : target]
+  }
+  return new Promise((resolveOpen, rejectOpen) => {
+    let settled = false
+    const child = spawn(command, args, { detached: true, stdio: 'ignore', shell: false })
+    child.once('error', (error) => {
+      if (!settled) { settled = true; rejectOpen(error) }
+    })
+    child.once('spawn', () => {
+      child.unref?.()
+      if (!settled) { settled = true; resolveOpen(true) }
+    })
+  })
+}
+
+function isIgnoredWatchRel(rel) {
+  if (!rel) return false
+  const parts = rel.replace(/\\/g, '/').split('/')
+  for (const part of parts) {
+    if (DEFAULT_IGNORED_NAMES.has(part)) return true
+  }
+  return false
+}
+
 export function install(rt) {
   const { ctx } = rt
   /** @type {Map<string, { id: string, cwd: string, title: string, pty: boolean, exited: boolean, closed: boolean, exitCode: number | null, buffer: string, write: (data: string) => Promise<void>, resize: (cols: number, rows: number) => Promise<void>, terminate: () => Promise<void> }>} */
   const terminals = new Map()
+  /** @type {Map<string, { id: string, root: string, recursive: boolean, watchers: Map<string, { close: () => void }>, dirtyPaths: Set<string>, timer: ReturnType<typeof setTimeout> | null, closed: boolean, close: () => void }>} */
+  const watches = new Map()
   /** @type {Set<Promise<void>>} */
   const inFlightSpawns = new Set()
   let reservedSlots = 0
   let disposed = false
+
+  const closeWatchRecord = (record) => {
+    if (!record || record.closed) return
+    record.closed = true
+    if (record.timer !== null) {
+      clearTimeout(record.timer)
+      record.timer = null
+    }
+    record.dirtyPaths.clear()
+    for (const watcher of record.watchers.values()) {
+      try { watcher.close() } catch { /* ignore close errors */ }
+    }
+    record.watchers.clear()
+    watches.delete(record.id)
+  }
+
+  const closeAllWatches = () => {
+    for (const record of [...watches.values()]) closeWatchRecord(record)
+  }
 
   const emitLocal = (event, data) => {
     if (typeof rt.publishLocalFeed === 'function') rt.publishLocalFeed(event, data)
@@ -294,8 +362,130 @@ export function install(rt) {
     }
   }
 
+  async function watchWorkspace(realRoot, body = {}) {
+    if (disposed) throw refused('Host is shutting down')
+    const requestedId = typeof body.watchId === 'string' && body.watchId.trim() !== '' ? body.watchId.trim() : null
+    const extraDirs = Array.isArray(body.dirs)
+      ? body.dirs.filter(d => typeof d === 'string' && d !== '').slice(0, MAX_WATCH_DIRS)
+      : []
+    const watchFn = typeof rt.watchWorkspaceDir === 'function' ? rt.watchWorkspaceDir : fsWatch
+    const debounceMs = Number.isFinite(rt.workspaceWatchDebounceMs) && rt.workspaceWatchDebounceMs >= 0
+      ? rt.workspaceWatchDebounceMs
+      : WATCH_DEBOUNCE_MS
+
+    const attachDirWatcher = (record, dirAbs, relPrefix, recursive) => {
+      if (record.watchers.has(dirAbs)) return true
+      const onChange = (_eventType, filename) => {
+        if (record.closed) return
+        const name = typeof filename === 'string' ? filename : (filename ? String(filename) : '')
+        const normalized = name.replace(/\\/g, '/').replace(/^\/+/, '')
+        const rel = relPrefix ? (normalized ? `${relPrefix}/${normalized}` : relPrefix) : normalized
+        if (rel && isIgnoredWatchRel(rel)) return
+        if (rel && record.dirtyPaths.size < MAX_WATCH_PATHS_PER_EVENT) {
+          record.dirtyPaths.add(rel)
+        }
+        if (record.timer === null) {
+          record.timer = setTimeout(() => {
+            record.timer = null
+            if (record.closed) return
+            const paths = [...record.dirtyPaths]
+            record.dirtyPaths.clear()
+            emitLocal('workspace-changed', { watchId: record.id, root: record.root, paths })
+          }, debounceMs)
+          record.timer.unref?.()
+        }
+      }
+      const watcher = watchFn(dirAbs, { recursive, persistent: false }, onChange)
+      watcher.on?.('error', () => {
+        try { watcher.close() } catch { /* ignore */ }
+        record.watchers.delete(dirAbs)
+      })
+      record.watchers.set(dirAbs, watcher)
+      return true
+    }
+
+    const existing = requestedId ? watches.get(requestedId) : undefined
+    if (existing && existing.root === realRoot && !existing.closed) {
+      if (!existing.recursive) {
+        const wanted = new Set([realRoot])
+        for (const relDir of extraDirs) {
+          try {
+            const resolved = await resolveSafeTarget(realRoot, relDir)
+            const info = await stat(resolved)
+            if (info.isDirectory()) {
+              wanted.add(resolved)
+              attachDirWatcher(existing, resolved, toPosixRel(realRoot, resolved), false)
+            }
+          } catch { /* skip missing/invalid dir */ }
+        }
+        for (const [watchedAbs, watcher] of existing.watchers) {
+          if (!wanted.has(watchedAbs)) {
+            try { watcher.close() } catch { /* ignore */ }
+            existing.watchers.delete(watchedAbs)
+          }
+        }
+      }
+      return { watchId: existing.id, root: existing.root, recursive: existing.recursive }
+    }
+    if (existing) closeWatchRecord(existing)
+
+    // Evict oldest watch when over the bound so watchers never leak.
+    while (watches.size >= MAX_WATCHES) {
+      const oldest = watches.values().next().value
+      if (!oldest) break
+      closeWatchRecord(oldest)
+    }
+
+    const id = requestedId ?? `watch-${randomUUID().slice(0, 8)}`
+    const record = {
+      id,
+      root: realRoot,
+      recursive: false,
+      watchers: new Map(),
+      dirtyPaths: new Set(),
+      timer: null,
+      closed: false,
+      close: () => closeWatchRecord(record),
+    }
+
+    let recursive = false
+    try {
+      attachDirWatcher(record, realRoot, '', true)
+      recursive = true
+    } catch {
+      try {
+        attachDirWatcher(record, realRoot, '', false)
+      } catch (error) {
+        closeWatchRecord(record)
+        return { watchId: null, root: realRoot, recursive: false, error: error?.message ?? String(error) }
+      }
+    }
+    record.recursive = recursive
+    if (!recursive) {
+      for (const relDir of extraDirs) {
+        try {
+          const resolved = await resolveSafeTarget(realRoot, relDir)
+          const info = await stat(resolved)
+          if (info.isDirectory()) attachDirWatcher(record, resolved, toPosixRel(realRoot, resolved), false)
+        } catch { /* skip missing/invalid dir */ }
+      }
+    }
+    watches.set(id, record)
+    return { watchId: id, root: realRoot, recursive }
+  }
+
+  function unwatchWorkspace(body = {}) {
+    const watchId = typeof body.watchId === 'string' ? body.watchId.trim() : ''
+    if (watchId === '') return { ok: true, removed: false }
+    const existing = watches.get(watchId)
+    if (!existing) return { ok: true, removed: false }
+    closeWatchRecord(existing)
+    return { ok: true, removed: true }
+  }
+
   async function workspaceEndpoint(name, body = {}, signal) {
     if (name === 'changes') return changesDetail(body, signal)
+    if (name === 'unwatch') return unwatchWorkspace(body)
     const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
     let realRoot
     try {
@@ -353,6 +543,27 @@ export function install(rt) {
       }
     }
 
+    if (name === 'watch') {
+      return await watchWorkspace(realRoot, body)
+    }
+
+    if (name === 'open') {
+      if (body.action !== undefined && body.action !== 'open' && body.action !== 'reveal') {
+        throw invalid(`Unsupported workspace open action: ${String(body.action)}`)
+      }
+      const action = body.action === 'open' ? 'open' : 'reveal'
+      const target = await resolveSafeTarget(realRoot, body.path ?? '')
+      const info = await stat(target)
+      const isDirectory = info.isDirectory()
+      if (!isDirectory && !info.isFile()) throw invalid('Path is neither a file nor a folder')
+      if (typeof rt.openWorkspacePath === 'function') {
+        await rt.openWorkspacePath({ target, root: realRoot, action, isDirectory })
+      } else {
+        await openOsPath(target, action, isDirectory)
+      }
+      return { ok: true, action, path: toPosixRel(realRoot, target) }
+    }
+
     if (name === 'read') {
       if (typeof body.path !== 'string' || body.path === '') throw invalid('A file path is required')
       const target = await resolveSafeTarget(realRoot, body.path)
@@ -383,6 +594,24 @@ export function install(rt) {
       if (OFFICE_EXTS.has(ext)) {
         if (info.size > MAX_OFFICE_INPUT_BYTES) {
           return { kind: 'too-large', name: fileName, path: relPath, size: info.size, maxBytes: MAX_OFFICE_INPUT_BYTES }
+        }
+        if (XLSX_EXTS.has(ext) && body.format !== 'pdf') {
+          try {
+            const { bytes, truncated } = await readBoundedBytes(target, MAX_OFFICE_INPUT_BYTES)
+            if (!truncated) {
+              const parsed = parseXlsxBuffer(bytes)
+              return {
+                kind: 'spreadsheet',
+                ext,
+                name: fileName,
+                path: relPath,
+                size: info.size,
+                ...parsed,
+              }
+            }
+          } catch {
+            // Fall through to LibreOffice PDF conversion for encrypted or non-standard workbooks.
+          }
         }
         try {
           const converted = await convertOfficeToPdf(target, ext, signal)
@@ -710,6 +939,7 @@ export function install(rt) {
 
   async function terminalDispose() {
     disposed = true
+    closeAllWatches()
     const pending = [...inFlightSpawns]
     const active = [...terminals.values()]
     terminals.clear()

@@ -1,7 +1,7 @@
 // Minimal slot lookup for the desktop window's own interface (docs/plans/2026-11-21-own-frontend.md).
 // Slot names and owner props match DSH (`tool.call.toolview`, `conversation.chat.node`) so the
 // upcoming UI plugin runtime can plug directly into these seats without rewriting chat rendering.
-import { Component, createElement as h, useCallback, useSyncExternalStore } from 'react'
+import { Component, Fragment, createElement as h, useCallback, useSyncExternalStore } from 'react'
 import { noteClientError } from '../../../ds-bot/src/client/diagnostics.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 
@@ -41,11 +41,11 @@ export function createSlotRegistry() {
   }
 
   return {
-    register({ name, key, id, priority = 0, meta }, component) {
+    register({ name, key, id, priority = 0, meta, pluginId, runtime, onRetry }, component) {
       if (typeof name !== 'string' || name === '' || !isReactComponent(component)) {
         throw new TypeError('Slot registration requires a slot name and component')
       }
-      const entry = { key, id: id ?? key, priority, order: ++seq, meta, component }
+      const entry = { key, id: id ?? key, priority, order: ++seq, meta, pluginId, runtime, onRetry, component }
       const entries = listOf(name)
       entries.push(entry)
       entries.sort((a, b) => (a.priority - b.priority) || (a.order - b.order))
@@ -63,6 +63,13 @@ export function createSlotRegistry() {
     },
     list(name) {
       return snapshots.get(name) ?? EMPTY_LIST
+    },
+    resolveEntry(name, key) {
+      const entries = bySlot.get(name)
+      if (!entries || entries.length === 0) return undefined
+      return key === undefined
+        ? entries.find(entry => entry.key === undefined)
+        : entries.find(entry => entry.key === key)
     },
     resolve(name, key) {
       const entries = bySlot.get(name)
@@ -94,11 +101,12 @@ export function useSlotEntries(registry = slots, name) {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
-// One plugin view throwing must only affect its own block and offer Retry.
+// One plugin view throwing must only affect its own block and offer Retry that actually
+// resets cached lazy modules / re-activates the owning plugin and remounts fresh.
 export class SlotErrorBoundary extends Component {
   constructor(props) {
     super(props)
-    this.state = { failed: false, resetKey: props.resetKey }
+    this.state = { failed: false, resetKey: props.resetKey, retryCount: 0 }
   }
 
   static getDerivedStateFromError() {
@@ -106,7 +114,7 @@ export class SlotErrorBoundary extends Component {
   }
 
   static getDerivedStateFromProps(props, state) {
-    return props.resetKey === state.resetKey ? null : { failed: false, resetKey: props.resetKey }
+    return props.resetKey === state.resetKey ? null : { failed: false, resetKey: props.resetKey, retryCount: 0 }
   }
 
   componentDidCatch(error) {
@@ -114,21 +122,47 @@ export class SlotErrorBoundary extends Component {
     noteClientError?.(`slot:${this.props.slotName ?? 'unknown'}`, error)
   }
 
+  retry() {
+    this.props.onRetry?.()
+    if (this.props.pluginId && typeof this.props.runtime?.retry === 'function') {
+      this.props.runtime.retry(this.props.pluginId, { force: true })
+    }
+    this.setState(prev => ({ failed: false, retryCount: (prev.retryCount ?? 0) + 1 }))
+  }
+
   render() {
-    if (!this.state.failed) return this.props.children
+    if (!this.state.failed) {
+      return this.state.retryCount > 0
+        ? h(Fragment, { key: this.state.retryCount }, this.props.children)
+        : this.props.children
+    }
     return h('div', { className: 'dsb-slot-error', role: 'alert' },
       h('span', null, t('This view could not be shown.')),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => this.setState({ failed: false }) }, t('Retry')))
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => this.retry() }, t('Retry')))
   }
 }
 
 export function SlotOutlet({ registry = slots, name, slotKey, resetKey, props, fallback }) {
   const subscribe = useCallback(listener => registry.subscribe(name, listener), [registry, name])
-  const getSnapshot = useCallback(() => registry.resolve(name, slotKey), [registry, name, slotKey])
-  const Registered = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const getSnapshot = useCallback(() => (
+    typeof registry.resolveEntry === 'function' ? registry.resolveEntry(name, slotKey) : registry.resolve(name, slotKey)
+  ), [registry, name, slotKey])
+  const resolved = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const Registered = typeof resolved === 'object' && resolved !== null && 'component' in resolved ? resolved.component : resolved
+  const pluginId = typeof resolved === 'object' && resolved !== null ? resolved.pluginId : undefined
+  const runtime = typeof resolved === 'object' && resolved !== null ? resolved.runtime : undefined
+  const onRetry = typeof resolved === 'object' && resolved !== null ? resolved.onRetry : undefined
   if (Registered !== undefined) {
-    return h(SlotErrorBoundary, { slotName: `${name}:${slotKey ?? ''}`, resetKey: resetKey ?? slotKey },
-      h(Registered, props))
+    return h(SlotErrorBoundary, {
+      slotName: `${name}:${slotKey ?? ''}`,
+      resetKey: resetKey ?? slotKey,
+      pluginId,
+      runtime,
+      onRetry: () => {
+        Registered?.reset?.()
+        onRetry?.()
+      },
+    }, h(Registered, props))
   }
   return typeof fallback === 'function' ? fallback() : (fallback ?? null)
 }

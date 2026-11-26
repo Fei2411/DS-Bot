@@ -932,20 +932,24 @@ test('SessionTranscript routes DS Bot tools (including inside PTC run_code) via 
     const botCells = all(tree, n => n.type === 'bot-tool-cell' && n.props?.toolName === 'ask_user')
     assert.equal(botCells.length, 1)
 
-    // Lightbox opens via createPortal(..., document.body), stops Escape propagation, and closes cleanly.
+    // Lightbox opens via createPortal(..., document.body), registers on shared Escape stack, and closes cleanly.
     portalTargets.length = 0
-    let escapeHandler = null
-    sandbox.window.addEventListener = (ev, fn, opts) => { if (ev === 'keydown' && (opts === true || opts?.capture)) escapeHandler = fn }
-    sandbox.window.removeEventListener = (ev, fn) => { if (ev === 'keydown' && fn === escapeHandler) escapeHandler = null }
+    const keydownHandlers = new Set()
+    sandbox.window.addEventListener = (ev, fn) => { if (ev === 'keydown') keydownHandlers.add(fn) }
+    sandbox.window.removeEventListener = (ev, fn) => { if (ev === 'keydown') keydownHandlers.delete(fn) }
     const imgBtn = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-uimg-btn')[0]
     imgBtn.props.onClick()
     await tick()
     const openTree = inst.render()
     assert.equal(all(openTree, n => n.props?.className === 'dsb-lightbox').length, 1)
     assert.equal(portalTargets.includes(sandbox.document.body), true, 'Lightbox must portal to document.body')
-    assert.equal(typeof escapeHandler, 'function', 'Lightbox listens for Escape in capture phase')
+    assert.equal(keydownHandlers.size, 1, 'Lightbox registers on shared useEscape stack')
+    let prevented = false
     let stopped = false
-    escapeHandler({ key: 'Escape', stopPropagation() { stopped = true } })
+    for (const fn of [...keydownHandlers]) {
+      fn({ key: 'Escape', defaultPrevented: false, preventDefault() { prevented = true }, stopPropagation() { stopped = true } })
+    }
+    assert.equal(prevented, true)
     assert.equal(stopped, true)
     assert.equal(all(inst.render(), n => n.props?.className === 'dsb-lightbox').length, 0)
   } finally {

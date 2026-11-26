@@ -2,7 +2,7 @@ import { createElement as h, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CloseIcon } from '../../../ds-bot/src/client/icons.js'
-import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import {
   SHORTCUT_DEFS,
   SHORTCUT_GROUPS,
@@ -44,8 +44,9 @@ export function matchGlobalShortcut(event, options = {}) {
   return matchShortcutEvent(event, options)
 }
 
-function labelForDef(def) {
-  return def.labelVars ? t(def.label, def.labelVars) : t(def.label)
+function labelForDef(def, classic = false) {
+  const key = classic && def.classicLabel ? def.classicLabel : def.label
+  return def.labelVars ? t(key, def.labelVars) : t(key)
 }
 
 /**
@@ -55,9 +56,13 @@ function labelForDef(def) {
 export function ShortcutsDialog({
   open,
   enterToSend = true,
+  classic = false,
   hasSurface = true,
   hasBrowser = true,
   hasInbox = false,
+  hasDetails = !classic,
+  hasMemory = !classic,
+  hasGroupSearch = !classic,
   onCustomize,
   onClose,
   store = shortcutsStore,
@@ -65,7 +70,7 @@ export function ShortcutsDialog({
   const closeBtn = useRef(null)
   const returnFocus = useRef(null)
   const overrides = useShortcutOverrides(store)
-  useEscape(onClose, open)
+  useEscape(onClose, open, { priority: ESCAPE_PRIORITY.SHORTCUTS })
   useEffect(() => {
     if (open) {
       returnFocus.current = typeof document !== 'undefined' ? document.activeElement : null
@@ -88,7 +93,7 @@ export function ShortcutsDialog({
 
   const sections = useMemo(() => {
     const out = []
-    const capabilities = { hasSurface, hasBrowser, hasInbox }
+    const capabilities = { hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch }
     const regularGroups = SHORTCUT_GROUPS.filter(group => group.id !== 'chats')
     for (const group of regularGroups) {
       const rows = []
@@ -99,7 +104,7 @@ export function ShortcutsDialog({
         if (!binding) continue
         rows.push({
           id: def.id,
-          label: labelForDef(def),
+          label: labelForDef(def, classic),
           keys: formatBindingCaps(binding, mac),
         })
       }
@@ -118,7 +123,7 @@ export function ShortcutsDialog({
             if (!binding) continue
             rows.push({
               id: def.id,
-              label: labelForDef(def),
+              label: labelForDef(def, classic),
               keys: formatBindingCaps(binding, mac),
             })
           }
@@ -130,7 +135,7 @@ export function ShortcutsDialog({
       id: 'fixed',
       title: t('Fixed'),
       rows: [
-        { id: 'fixed:mention', keys: ['@'], label: t('Mention a Bot') },
+        ...(classic ? [] : [{ id: 'fixed:mention', keys: ['@'], label: t('Mention a Bot') }]),
         { id: 'fixed:commands', keys: ['/'], label: t('Commands') },
         { id: 'fixed:send', keys: enterToSend ? ['Enter'] : [mod, 'Enter'], label: t('Send message') },
         { id: 'fixed:newline', keys: enterToSend ? [shift, 'Enter'] : ['Enter'], label: t('New line') },
@@ -139,7 +144,7 @@ export function ShortcutsDialog({
       ],
     })
     return out
-  }, [overrides, mac, mod, shift, enterToSend, hasSurface, hasBrowser, hasInbox])
+  }, [overrides, mac, mod, shift, enterToSend, classic, hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch])
 
   if (!open) return null
 

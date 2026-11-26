@@ -2701,7 +2701,43 @@ var JA = {
   "Search fonts…": "フォントを検索…",
   "No matching fonts": "一致するフォントがありません",
   'Use "{font}"': "「{font}」を使用",
-  "Built-in engine": "内蔵エンジン"
+  "Built-in engine": "内蔵エンジン",
+  "Allow agents to choose models for subagents": "エージェントがサブエージェントのモデルを選択することを許可",
+  "Automatic": "自動",
+  "Click a cell to inspect": "セルをクリックして内容を表示",
+  "Copy path": "パスをコピー",
+  "Copy relative path": "相対パスをコピー",
+  "Could not load models.": "モデルを読み込めませんでした。",
+  "DeepSeek Fetch API": "DeepSeek 取得 API",
+  "DeepSeek Messages search": "DeepSeek Messages 検索",
+  "DeepSeek Search API": "DeepSeek 検索 API",
+  "Direct HTTP": "直接 HTTP",
+  "Empty sheet": "空のシート",
+  "Enter a valid number": "有効な数値を入力してください",
+  "Enter a whole number": "整数を入力してください",
+  "Expand": "展開",
+  "Fetch billing": "取得の課金方式",
+  "Limits": "上限",
+  "Must be at least {min}": "{min} 以上にしてください",
+  "Must be at most {max}": "{max} 以下にしてください",
+  "No models available.": "利用可能なモデルがありません。",
+  "Open a page beside your session. Enter an address above to get started.": "セッションの横にページを開きます。上にアドレスを入力して開始してください。",
+  "Open in default app": "既定のアプリで開く",
+  "Path copied": "パスをコピーしました",
+  "Relative path copied": "相対パスをコピーしました",
+  "Saved": "保存済み",
+  "Search billing": "検索の課金方式",
+  "Search requests per second": "1 秒あたりの検索リクエスト数",
+  "Select at least one model before saving.": "保存する前に少なくとも 1 つのモデルを選択してください。",
+  "Sheets": "シート",
+  "Show in folder": "フォルダーに表示",
+  "Showing first {shown} of {total} columns": "{total} 列中先頭 {shown} 列を表示",
+  "Showing first {shown} of {total} rows": "{total} 行中先頭 {shown} 行を表示",
+  "Showing first {shown} of {total} sheets": "{total} シート中先頭 {shown} シートを表示",
+  "Some model providers could not be loaded.": "一部のモデルプロバイダーを読み込めませんでした。",
+  "Toggle browser": "ブラウザーを開閉",
+  "Waiting": "待機中",
+  "Window plugins": "ウィンドウプラグイン"
 };
 var HOST_ERRORS_JA = [
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は現在の DeepSeek Harness で利用できません。Bot の設定で別のプリセットを選んでください。"],
@@ -6050,7 +6086,43 @@ var KO = {
   "Search fonts…": "글꼴 검색…",
   "No matching fonts": "일치하는 글꼴 없음",
   'Use "{font}"': '"{font}" 사용',
-  "Built-in engine": "내장 엔진"
+  "Built-in engine": "내장 엔진",
+  "Allow agents to choose models for subagents": "에이전트가 서브에이전트 모델을 선택하도록 허용",
+  "Automatic": "자동",
+  "Click a cell to inspect": "셀을 클릭하여 내용 확인",
+  "Copy path": "경로 복사",
+  "Copy relative path": "상대 경로 복사",
+  "Could not load models.": "모델을 불러올 수 없습니다.",
+  "DeepSeek Fetch API": "DeepSeek 가져오기 API",
+  "DeepSeek Messages search": "DeepSeek Messages 검색",
+  "DeepSeek Search API": "DeepSeek 검색 API",
+  "Direct HTTP": "직접 HTTP",
+  "Empty sheet": "빈 시트",
+  "Enter a valid number": "유효한 숫자를 입력하세요",
+  "Enter a whole number": "정수를 입력하세요",
+  "Expand": "펼치기",
+  "Fetch billing": "가져오기 과금 방식",
+  "Limits": "한도",
+  "Must be at least {min}": "{min} 이상이어야 합니다",
+  "Must be at most {max}": "{max} 이하여야 합니다",
+  "No models available.": "사용 가능한 모델이 없습니다.",
+  "Open a page beside your session. Enter an address above to get started.": "세션 옆에 웹페이지를 엽니다. 시작하려면 위에 주소를 입력하세요.",
+  "Open in default app": "기본 앱으로 열기",
+  "Path copied": "경로를 복사했습니다",
+  "Relative path copied": "상대 경로를 복사했습니다",
+  "Saved": "저장됨",
+  "Search billing": "검색 과금 방식",
+  "Search requests per second": "초당 검색 요청 수",
+  "Select at least one model before saving.": "저장하기 전에 최소 하나의 모델을 선택하세요.",
+  "Sheets": "시트",
+  "Show in folder": "폴더에서 보기",
+  "Showing first {shown} of {total} columns": "전체 {total}열 중 처음 {shown}열 표시",
+  "Showing first {shown} of {total} rows": "전체 {total}행 중 처음 {shown}행 표시",
+  "Showing first {shown} of {total} sheets": "전체 {total}개 시트 중 처음 {shown}개 표시",
+  "Some model providers could not be loaded.": "일부 모델 공급자를 불러오지 못했습니다.",
+  "Toggle browser": "브라우저 열기/닫기",
+  "Waiting": "대기 중",
+  "Window plugins": "창 플러그인"
 };
 var HOST_ERRORS_KO = [
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"은(는) 현재 DeepSeek Harness에서 사용할 수 없습니다. Bot 설정에서 다른 프리셋을 선택하세요.'],
@@ -9400,7 +9472,43 @@ var ES = {
   "Search fonts…": "Buscar fuentes…",
   "No matching fonts": "No hay fuentes coincidentes",
   'Use "{font}"': "Usar «{font}»",
-  "Built-in engine": "Motor integrado"
+  "Built-in engine": "Motor integrado",
+  "Allow agents to choose models for subagents": "Permitir que los agentes elijan modelos para subagentes",
+  "Automatic": "Automático",
+  "Click a cell to inspect": "Haz clic en una celda para inspeccionarla",
+  "Copy path": "Copiar ruta",
+  "Copy relative path": "Copiar ruta relativa",
+  "Could not load models.": "No se pudieron cargar los modelos.",
+  "DeepSeek Fetch API": "API de obtención de DeepSeek",
+  "DeepSeek Messages search": "Búsqueda de mensajes de DeepSeek",
+  "DeepSeek Search API": "API de búsqueda de DeepSeek",
+  "Direct HTTP": "HTTP directo",
+  "Empty sheet": "Hoja vacía",
+  "Enter a valid number": "Introduce un número válido",
+  "Enter a whole number": "Introduce un número entero",
+  "Expand": "Expandir",
+  "Fetch billing": "Facturación de obtención",
+  "Limits": "Límites",
+  "Must be at least {min}": "Debe ser al menos {min}",
+  "Must be at most {max}": "Debe ser como máximo {max}",
+  "No models available.": "No hay modelos disponibles.",
+  "Open a page beside your session. Enter an address above to get started.": "Abre una página junto a tu sesión. Escribe una dirección arriba para empezar.",
+  "Open in default app": "Abrir en la app predeterminada",
+  "Path copied": "Ruta copiada",
+  "Relative path copied": "Ruta relativa copiada",
+  "Saved": "Guardado",
+  "Search billing": "Facturación de búsqueda",
+  "Search requests per second": "Solicitudes de búsqueda por segundo",
+  "Select at least one model before saving.": "Selecciona al menos un modelo antes de guardar.",
+  "Sheets": "Hojas",
+  "Show in folder": "Mostrar en carpeta",
+  "Showing first {shown} of {total} columns": "Mostrando las primeras {shown} de {total} columnas",
+  "Showing first {shown} of {total} rows": "Mostrando las primeras {shown} de {total} filas",
+  "Showing first {shown} of {total} sheets": "Mostrando las primeras {shown} de {total} hojas",
+  "Some model providers could not be loaded.": "No se pudieron cargar algunos proveedores de modelos.",
+  "Toggle browser": "Mostrar/ocultar navegador",
+  "Waiting": "En espera",
+  "Window plugins": "Complementos de ventana"
 };
 var HOST_ERRORS_ES = [
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'El preajuste de Agent "$1" no está disponible en este DeepSeek Harness. Elige otro en los ajustes del Bot.'],
@@ -12706,7 +12814,43 @@ var FR = {
   "Search fonts…": "Rechercher des polices…",
   "No matching fonts": "Aucune police correspondante",
   'Use "{font}"': "Utiliser « {font} »",
-  "Built-in engine": "Moteur intégré"
+  "Built-in engine": "Moteur intégré",
+  "Allow agents to choose models for subagents": "Autoriser les agents à choisir des modèles pour les sous-agents",
+  "Automatic": "Automatique",
+  "Click a cell to inspect": "Cliquer sur une cellule pour l’inspecter",
+  "Copy path": "Copier le chemin",
+  "Copy relative path": "Copier le chemin relatif",
+  "Could not load models.": "Impossible de charger les modèles.",
+  "DeepSeek Fetch API": "API de récupération DeepSeek",
+  "DeepSeek Messages search": "Recherche DeepSeek Messages",
+  "DeepSeek Search API": "API de recherche DeepSeek",
+  "Direct HTTP": "HTTP direct",
+  "Empty sheet": "Feuille vide",
+  "Enter a valid number": "Saisissez un nombre valide",
+  "Enter a whole number": "Saisissez un nombre entier",
+  "Expand": "Développer",
+  "Fetch billing": "Facturation de récupération",
+  "Limits": "Limites",
+  "Must be at least {min}": "Doit être au moins {min}",
+  "Must be at most {max}": "Doit être au plus {max}",
+  "No models available.": "Aucun modèle disponible.",
+  "Open a page beside your session. Enter an address above to get started.": "Ouvrez une page à côté de votre session. Saisissez une adresse ci-dessus pour commencer.",
+  "Open in default app": "Ouvrir dans l’application par défaut",
+  "Path copied": "Chemin copié",
+  "Relative path copied": "Chemin relatif copié",
+  "Saved": "Enregistré",
+  "Search billing": "Facturation de recherche",
+  "Search requests per second": "Requêtes de recherche par seconde",
+  "Select at least one model before saving.": "Sélectionnez au moins un modèle avant d’enregistrer.",
+  "Sheets": "Feuilles",
+  "Show in folder": "Afficher dans le dossier",
+  "Showing first {shown} of {total} columns": "Affichage des {shown} premières colonnes sur {total}",
+  "Showing first {shown} of {total} rows": "Affichage des {shown} premières lignes sur {total}",
+  "Showing first {shown} of {total} sheets": "Affichage des {shown} premières feuilles sur {total}",
+  "Some model providers could not be loaded.": "Certains fournisseurs de modèles n’ont pas pu être chargés.",
+  "Toggle browser": "Afficher/masquer le navigateur",
+  "Waiting": "En attente",
+  "Window plugins": "Extensions de fenêtre"
 };
 var HOST_ERRORS_FR = [
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » n’est pas disponible dans ce DeepSeek Harness. Choisissez-en un autre dans les paramètres du Bot."],
@@ -16055,7 +16199,43 @@ var DE = {
   "Search fonts…": "Schriften suchen…",
   "No matching fonts": "Keine passenden Schriften",
   'Use "{font}"': "„{font}“ verwenden",
-  "Built-in engine": "Integrierte Engine"
+  "Built-in engine": "Integrierte Engine",
+  "Allow agents to choose models for subagents": "Agenten die Modellauswahl für Subagenten erlauben",
+  "Automatic": "Automatisch",
+  "Click a cell to inspect": "Zelle anklicken, um Inhalt anzuzeigen",
+  "Copy path": "Pfad kopieren",
+  "Copy relative path": "Relativen Pfad kopieren",
+  "Could not load models.": "Modelle konnten nicht geladen werden.",
+  "DeepSeek Fetch API": "DeepSeek-Abruf-API",
+  "DeepSeek Messages search": "DeepSeek-Messages-Suche",
+  "DeepSeek Search API": "DeepSeek-Such-API",
+  "Direct HTTP": "Direktes HTTP",
+  "Empty sheet": "Leeres Tabellenblatt",
+  "Enter a valid number": "Gültige Zahl eingeben",
+  "Enter a whole number": "Ganze Zahl eingeben",
+  "Expand": "Aufklappen",
+  "Fetch billing": "Abrechnung für Abrufe",
+  "Limits": "Grenzen",
+  "Must be at least {min}": "Mindestens {min}",
+  "Must be at most {max}": "Höchstens {max}",
+  "No models available.": "Keine Modelle verfügbar.",
+  "Open a page beside your session. Enter an address above to get started.": "Öffne eine Seite neben deiner Sitzung. Gib oben eine Adresse ein, um zu beginnen.",
+  "Open in default app": "Mit Standard-App öffnen",
+  "Path copied": "Pfad kopiert",
+  "Relative path copied": "Relativer Pfad kopiert",
+  "Saved": "Gespeichert",
+  "Search billing": "Abrechnung für Suche",
+  "Search requests per second": "Suchanfragen pro Sekunde",
+  "Select at least one model before saving.": "Wähle vor dem Speichern mindestens ein Modell aus.",
+  "Sheets": "Tabellenblätter",
+  "Show in folder": "Im Ordner anzeigen",
+  "Showing first {shown} of {total} columns": "Erste {shown} von {total} Spalten angezeigt",
+  "Showing first {shown} of {total} rows": "Erste {shown} von {total} Zeilen angezeigt",
+  "Showing first {shown} of {total} sheets": "Erste {shown} von {total} Blättern angezeigt",
+  "Some model providers could not be loaded.": "Einige Modellanbieter konnten nicht geladen werden.",
+  "Toggle browser": "Browser ein-/ausblenden",
+  "Waiting": "Wartend",
+  "Window plugins": "Fenster-Plugins"
 };
 var HOST_ERRORS_DE = [
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" ist in diesem DeepSeek Harness nicht verfügbar. Wähle eine andere in den Bot-Einstellungen.'],
@@ -19516,7 +19696,43 @@ var HOST_ZH = {
   "Help needed on the computer": "需要你在电脑上帮忙",
   "You control the computer": "你在操控电脑",
   "{name} · foreground": "{name} · 前台",
-  "{name} waits for the computer": "{name} 等你停手"
+  "{name} waits for the computer": "{name} 等你停手",
+  "Allow agents to choose models for subagents": "允许 Agent 为子代理选择模型",
+  "Automatic": "自动",
+  "Click a cell to inspect": "点击单元格查看内容",
+  "Copy path": "复制路径",
+  "Copy relative path": "复制相对路径",
+  "Could not load models.": "无法加载模型列表。",
+  "DeepSeek Fetch API": "DeepSeek 网页抓取 API",
+  "DeepSeek Messages search": "DeepSeek Messages 搜索",
+  "DeepSeek Search API": "DeepSeek 搜索 API",
+  "Direct HTTP": "直接 HTTP",
+  "Empty sheet": "空工作表",
+  "Enter a valid number": "请输入有效数字",
+  "Enter a whole number": "请输入整数",
+  "Expand": "展开",
+  "Fetch billing": "抓取计费方式",
+  "Limits": "上限",
+  "Must be at least {min}": "不能小于 {min}",
+  "Must be at most {max}": "不能大于 {max}",
+  "No models available.": "当前没有可用模型。",
+  "Open a page beside your session. Enter an address above to get started.": "在会话旁打开网页。在上方输入网址开始浏览。",
+  "Open in default app": "用默认应用打开",
+  "Path copied": "已复制路径",
+  "Relative path copied": "已复制相对路径",
+  "Saved": "已保存",
+  "Search billing": "搜索计费方式",
+  "Search requests per second": "每秒搜索请求数",
+  "Select at least one model before saving.": "保存前请至少选择一个模型。",
+  "Sheets": "工作表",
+  "Show in folder": "在文件夹中显示",
+  "Showing first {shown} of {total} columns": "仅显示前 {shown} / {total} 列",
+  "Showing first {shown} of {total} rows": "仅显示前 {shown} / {total} 行",
+  "Showing first {shown} of {total} sheets": "仅显示前 {shown} / {total} 个工作表",
+  "Some model providers could not be loaded.": "部分模型提供方未能加载。",
+  "Toggle browser": "打开/关闭浏览器",
+  "Waiting": "等待中",
+  "Window plugins": "窗口界面插件"
 };
 Object.assign(ZH, HOST_ZH);
 var ZH_TW = convertDict(ZH);
@@ -24648,7 +24864,7 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 }
 [data-composer-card]>[class*="_row"]{display:contents!important}
 [data-composer-card] [class*="_tools"]{order:1!important;flex:none!important;align-self:flex-end!important;margin:0!important}
-[data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important}
+[data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important;box-sizing:border-box}
 [data-composer-card] [class*="_trailing"]{order:3!important;flex:none!important;align-self:flex-end!important;margin:0!important}
 /* The slot anchor is display:contents, so the rail inside it is the flex item. */
 [data-composer-card]>[data-slot="conversation.input.attachments"]>[class*="_rail"]{order:0!important;flex:0 0 100%!important;margin:0!important;padding:2px 8px 6px!important}
@@ -24763,7 +24979,10 @@ div:has(> nav [class*="_marks"]){display:none!important}
    the flow, and long text or a wide block wraps inside it instead of running off
    the edge. This covers the group's chat flow, not only DS Bot's own panels. */
 @media (max-width:640px){
-.bt-msg,.bt-astack[data-lead]>.bt-msg{max-width:100%}
+.bt-msg,.bt-astack[data-lead]>.bt-msg{position:relative;max-width:100%}
+.bt-msg-line{position:static}
+.bt-tools{top:100%;bottom:auto;left:auto;right:4px;margin-left:0;margin-top:2px;border-radius:999px;padding:2px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
+.bt-tools::after{top:-6px;bottom:auto;left:0;right:0;width:auto;height:8px}
 .bt-bubble,[data-chat-flow] [class*="_bubble"]{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 .bt-group-msg,.bt-group-name{max-width:100%}
 .bt-q{width:100%;max-width:none;padding:12px 14px;border-radius:16px}
@@ -28652,10 +28871,10 @@ var CUSTOM_PREFIX = `${PREFIX}acp-`;
 var PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 function splitProfileRoute(route) {
   if (typeof route !== "string") return null;
-  const at = route.indexOf("@");
-  if (at <= 0 || route.indexOf("@", at + 1) !== -1) return null;
-  const baseRoute = route.slice(0, at);
-  const profileId = route.slice(at + 1);
+  const at2 = route.indexOf("@");
+  if (at2 <= 0 || route.indexOf("@", at2 + 1) !== -1) return null;
+  const baseRoute = route.slice(0, at2);
+  const profileId = route.slice(at2 + 1);
   if (!baseRoute.startsWith(PREFIX) || baseRoute.startsWith(CUSTOM_PREFIX)) return null;
   const cli = baseRoute.slice(PREFIX.length);
   if (!Object.hasOwn(AGENT_BADGES, cli) || !PROFILE_ID_RE.test(profileId)) return null;
@@ -28810,6 +29029,20 @@ var CHANGES_CSS = `
 
 // src/client/overlay-hooks.js
 var import_react6 = require("react");
+var ESCAPE_PRIORITY = {
+  PANEL: -1,
+  DRAWER: 0,
+  DIALOG: 0,
+  TOUR: 5,
+  PALETTE: 10,
+  INLINE_ACTION: 12,
+  MENU: 15,
+  SHORTCUTS: 20,
+  MODAL_CHILD: 30,
+  SELECT_MENU: 35,
+  LIGHTBOX: 40,
+  RECORDING: 100
+};
 var escapeLayers = [];
 function hasEscapeLayer() {
   return escapeLayers.length > 0;
@@ -28821,9 +29054,17 @@ var topEscapeLayer = () => {
   }
   return top;
 };
+function topEscapePriority() {
+  const top = topEscapeLayer();
+  return top === null ? -Infinity : top.priority;
+}
 var onEscapeKey = (event) => {
   if (event.defaultPrevented || event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
-  topEscapeLayer()?.ref.current();
+  const top = topEscapeLayer();
+  if (!top) return;
+  event.preventDefault?.();
+  event.stopPropagation?.();
+  top.ref.current();
 };
 function useEscape(onClose, active = true, { priority = 0 } = {}) {
   const ref = (0, import_react6.useRef)(onClose);
@@ -30583,6 +30824,10 @@ function SelectMenu({
   (0, import_react12.useEffect)(() => {
     if (isDisabled && isOpen) close();
   }, [isDisabled, isOpen]);
+  useEscape(() => {
+    close();
+    button.current?.focus?.({ preventScroll: true });
+  }, isOpen, { priority: ESCAPE_PRIORITY.SELECT_MENU });
   (0, import_react12.useEffect)(() => {
     if (!isOpen || typeof window === "undefined") return void 0;
     const onResize = () => setResizeTick((count) => count + 1);
@@ -30596,14 +30841,6 @@ function SelectMenu({
       if (!menu.current?.contains(event.target)) close();
     };
     const onKey = (event) => {
-      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation?.();
-        close();
-        button.current?.focus?.({ preventScroll: true });
-        return;
-      }
       if (event.key === "Tab") {
         button.current?.focus?.({ preventScroll: true });
         close();
@@ -35264,12 +35501,7 @@ function useAnchoredMenu(minWidth = 240) {
       close();
     };
     const onKey = (event) => {
-      if (stepMenuFocus(menu.current, event, button.current)) return;
-      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
-        event.stopPropagation();
-        close();
-        button.current?.focus();
-      }
+      stepMenuFocus(menu.current, event, button.current);
     };
     const onScroll = (event) => {
       if (!menu.current?.contains(event.target)) close();
@@ -35283,6 +35515,10 @@ function useAnchoredMenu(minWidth = 240) {
       window.removeEventListener("scroll", onScroll, true);
     };
   }, [place]);
+  useEscape(() => {
+    close();
+    button.current?.focus();
+  }, place !== null, { priority: ESCAPE_PRIORITY.MENU });
   const open = () => setAnchor({});
   (0, import_react21.useLayoutEffect)(() => {
     if (anchor === null || !button.current) return;
@@ -35306,12 +35542,7 @@ function useInlineMenu() {
       if (!root.current?.contains(event.target)) close();
     };
     const onKey = (event) => {
-      if (stepMenuFocus(menu.current, event, button.current)) return;
-      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
-        event.stopPropagation();
-        close();
-        button.current?.focus();
-      }
+      stepMenuFocus(menu.current, event, button.current);
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey, true);
@@ -35320,6 +35551,10 @@ function useInlineMenu() {
       window.removeEventListener("keydown", onKey, true);
     };
   }, [isOpen]);
+  useEscape(() => {
+    close();
+    button.current?.focus();
+  }, isOpen, { priority: ESCAPE_PRIORITY.MENU });
   return { isOpen, root, button, menu, open: () => setOpen(true), close };
 }
 function Collapse({ open, children }) {
@@ -37353,12 +37588,7 @@ function useMenuDismiss(open, menuRef, triggerRef, close) {
       close();
     };
     const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event, triggerRef.current)) return;
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        close();
-        triggerRef.current?.focus();
-      }
+      stepMenuFocus(menuRef.current, event, triggerRef.current);
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey, true);
@@ -37367,6 +37597,10 @@ function useMenuDismiss(open, menuRef, triggerRef, close) {
       window.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
+  useEscape(() => {
+    close();
+    triggerRef.current?.focus();
+  }, open, { priority: ESCAPE_PRIORITY.MENU });
 }
 function useMemoryCount(id, actions) {
   const [count, setCount] = (0, import_react28.useState)(counts.get(id) ?? null);
@@ -38623,14 +38857,6 @@ function FontField({ label, value, kind = "ui", save, fonts = [], load }) {
       if (!menu.current?.contains?.(event.target)) close();
     };
     const onKey = (event) => {
-      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation?.();
-        close();
-        button.current?.focus?.({ preventScroll: true });
-        return;
-      }
       if (event.key === "Tab") {
         close();
       }
@@ -38651,6 +38877,10 @@ function FontField({ label, value, kind = "ui", save, fonts = [], load }) {
       window.removeEventListener("keydown", onKey, true);
     };
   }, [isOpen]);
+  useEscape(() => {
+    close();
+    button.current?.focus?.({ preventScroll: true });
+  }, isOpen, { priority: ESCAPE_PRIORITY.MENU });
   (0, import_react29.useLayoutEffect)(() => {
     if (!isOpen) return;
     if (button.current) {
@@ -39291,19 +39521,12 @@ function AvatarEditor({ bot, room: room2, actions, run: run2, onClose, leaving =
       if (!(event.target instanceof Element) || ref.current?.contains(event.target) || event.target.closest(".bt-avatar-trigger")) return;
       onClose();
     };
-    const onKey = (event) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        onClose();
-      }
-    };
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey, true);
     };
   }, [onClose]);
+  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.MENU });
   (0, import_react31.useEffect)(() => {
     if (tab !== "upload") return void 0;
     const onPaste = (event) => {
@@ -41904,21 +42127,14 @@ function useDismiss(open, close, refs) {
       if (refs.some((ref) => ref.current?.contains(event.target))) return;
       close();
     };
-    const onKey = (event) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        close();
-      }
-    };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("touchstart", onDown);
-    window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("touchstart", onDown);
-      window.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
+  useEscape(close, open, { priority: ESCAPE_PRIORITY.MENU });
 }
 function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
   const [panel, setPanel] = (0, import_react38.useState)(null);
@@ -45528,10 +45744,11 @@ function TeamSidebar(props) {
     ),
     foot
   );
+  const hideTitleToggle = props.hideTitleToggle === true;
   return (0, import_react41.createElement)(
     import_react41.Fragment,
     null,
-    (0, import_react41.createElement)(TitleToggle, { hidden: mode === "hidden", mode, onToggle }),
+    hideTitleToggle ? null : (0, import_react41.createElement)(TitleToggle, { hidden: mode === "hidden", mode, onToggle }),
     shown === "hidden" ? null : (0, import_react41.createElement)(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content)
   );
 }
@@ -45543,24 +45760,19 @@ function UpdateButton({ useUpdate, actions }) {
   const [error, setError] = (0, import_react41.useState)("");
   const [dshError, setDshError] = (0, import_react41.useState)("");
   const button = (0, import_react41.useRef)(null);
+  useEscape(() => {
+    setOpen(false);
+    button.current?.focus();
+  }, open, { priority: ESCAPE_PRIORITY.MENU });
   (0, import_react41.useEffect)(() => {
     if (!open) return void 0;
     const onDown = (event) => {
       if (event.target instanceof Element && (event.target.closest(".bt-update-pop") || button.current?.contains(event.target))) return;
       setOpen(false);
     };
-    const onKey = (event) => {
-      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
-        event.stopPropagation();
-        setOpen(false);
-        button.current?.focus();
-      }
-    };
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
   const phase = update?.phase ?? "idle";
@@ -45681,6 +45893,10 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
   (0, import_react41.useEffect)(() => {
     if (settingsOpen) setOpen(false);
   }, [settingsOpen]);
+  useEscape(() => {
+    setOpen(false);
+    button.current?.focus();
+  }, open, { priority: ESCAPE_PRIORITY.MENU });
   (0, import_react41.useEffect)(() => {
     if (!open) return void 0;
     const onDown = (event) => {
@@ -45688,12 +45904,7 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
       setOpen(false);
     };
     const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event, button.current)) return;
-      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
-        event.stopPropagation();
-        setOpen(false);
-        button.current?.focus();
-      }
+      stepMenuFocus(menuRef.current, event, button.current);
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey, true);
@@ -47408,20 +47619,12 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
       const inside = [box.current, near.current, ...ownedPopups([box.current].filter(Boolean))];
       if (!inside.some((node) => node?.contains(event.target))) onClose();
     };
-    const onKey = (event) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (ownedPopups([box.current].filter(Boolean)).length > 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      onClose();
-    };
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey, true);
     };
   }, []);
+  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.MENU });
   const [low, high] = anchor ? [anchor, hover ?? anchor].sort() : span ? [span.from, span.to] : [null, null];
   const press = (key) => {
     if (!anchor) {
@@ -56629,7 +56832,7 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     if (!active) return;
     setStepState((prev2) => ({ key: tourKey, index: Math.max(0, (prev2.key === tourKey ? prev2.index : 0) - 1) }));
   }, [active, tourKey]);
-  useEscape(dismiss, active, { priority: 1 });
+  useEscape(dismiss, active, { priority: ESCAPE_PRIORITY.TOUR });
   (0, import_react65.useLayoutEffect)(() => {
     if (!active) return void 0;
     const dialog = dialogRef?.current ?? layerRef.current?.closest?.(".bt-settings");
@@ -57162,14 +57365,14 @@ var SHORTCUT_DEFS = [
   // Panels
   { id: "sidebar", group: "panels", label: "Toggle sidebar", defaultBinding: b("Backslash", { mod: true }) },
   { id: "right-panel", group: "panels", label: "Toggle right panel", defaultBinding: b("Backslash", { mod: true, shift: true }) },
-  { id: "browser", group: "panels", label: "Toggle Bot browser", defaultBinding: b("KeyB", { mod: true }), requiresBrowser: true },
+  { id: "browser", group: "panels", label: "Toggle Bot browser", classicLabel: "Toggle browser", defaultBinding: b("KeyB", { mod: true }), requiresBrowser: true },
   { id: "terminal", group: "panels", label: "Open terminal", defaultBinding: b("Backquote", { ctrl: true }), allowInTerminal: true },
-  { id: "details", group: "panels", label: "Toggle details", defaultBinding: b("KeyD", { mod: true, shift: true }) },
-  { id: "memory", group: "panels", label: "Open memory", defaultBinding: b("KeyE", { mod: true, shift: true }), allowInModal: ["memory"] },
+  { id: "details", group: "panels", label: "Toggle details", defaultBinding: b("KeyD", { mod: true, shift: true }), requiresDetails: true },
+  { id: "memory", group: "panels", label: "Open memory", defaultBinding: b("KeyE", { mod: true, shift: true }), requiresMemory: true, allowInModal: ["memory"] },
   // Conversation
   { id: "new-chat", group: "conversation", label: "New chat", defaultBinding: b("KeyN", { mod: true }), allowInModal: ["settings"] },
   { id: "focus-composer", group: "conversation", label: "Focus message input", defaultBinding: b("KeyL", { mod: true }) },
-  { id: "group-search", group: "conversation", label: "Search in group", defaultBinding: b("KeyF", { mod: true, shift: true }), allowInModal: ["groupSearch"] },
+  { id: "group-search", group: "conversation", label: "Search in group", defaultBinding: b("KeyF", { mod: true, shift: true }), requiresGroupSearch: true, allowInModal: ["groupSearch"] },
   { id: "stop-turn", group: "conversation", label: "Stop generating", defaultBinding: b("Period", { mod: true }) },
   // Application
   { id: "settings", group: "application", label: "Settings", defaultBinding: b("Comma", { mod: true }), allowInModal: ["settings", "shortcuts", "palette"] },
@@ -57354,11 +57557,21 @@ function formatBindingAria(binding, mac = isMacPlatform()) {
   parts.push(codeLabel(binding.code));
   return parts.join("+");
 }
-function isCommandAvailable(def, { hasSurface = true, hasBrowser = true, hasInbox = true } = {}) {
+function isCommandAvailable(def, {
+  hasSurface = true,
+  hasBrowser = true,
+  hasInbox = true,
+  hasDetails = true,
+  hasMemory = true,
+  hasGroupSearch = true
+} = {}) {
   if (!def) return false;
   if (def.requiresSurface && !hasSurface) return false;
   if (def.requiresBrowser && !hasBrowser) return false;
   if (def.requiresInbox && !hasInbox) return false;
+  if (def.requiresDetails && !hasDetails) return false;
+  if (def.requiresMemory && !hasMemory) return false;
+  if (def.requiresGroupSearch && !hasGroupSearch) return false;
   return true;
 }
 function isAltGraph(event) {
@@ -57696,16 +57909,21 @@ function KeyCaps({ caps, className = "" }) {
     caps.map((cap, index) => (0, import_react67.createElement)("kbd", { key: `${cap}-${index}`, className: "bt-kbd" }, cap))
   );
 }
-function labelForDef(def) {
-  return def.labelVars ? t(def.label, def.labelVars) : t(def.label);
+function labelForDef(def, classic = false) {
+  const key = classic && def.classicLabel ? def.classicLabel : def.label;
+  return def.labelVars ? t(key, def.labelVars) : t(key);
 }
-function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = shortcutsStore }) {
+function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2, Row: Row4, store = shortcutsStore }) {
   const overrides = useShortcutOverrides(store);
   const mac = isMacPlatform();
+  const classic = surfaceMode === "agent";
   const enterToSend = sendsOnEnter(roster?.prefs);
   const hasSurface = typeof actions?.setSurface === "function";
   const hasBrowser = typeof actions?.openBrowser === "function" && roster?.browser !== false;
-  const hasInbox = typeof actions?.openInbox === "function";
+  const hasInbox = !classic && typeof actions?.openInbox === "function";
+  const hasDetails = !classic;
+  const hasMemory = !classic;
+  const hasGroupSearch = !classic;
   const [query, setQuery] = (0, import_react67.useState)("");
   const [recordingId, setRecordingId] = (0, import_react67.useState)(null);
   const [notice, setNotice] = (0, import_react67.useState)(null);
@@ -57794,15 +58012,16 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
   useEscape(() => setNotice(null), Boolean(notice && !recordingId), { priority: 100 });
   const wanted = query.trim().toLowerCase();
   const visibleDefs = (0, import_react67.useMemo)(() => {
-    const capabilities = { hasSurface, hasBrowser, hasInbox };
+    const capabilities = { hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch };
     return SHORTCUT_DEFS.filter((def) => {
       if (!isCommandAvailable(def, capabilities)) return false;
       if (!wanted) return true;
-      const label = labelForDef(def).toLowerCase();
+      const label = labelForDef(def, classic).toLowerCase();
+      const rawLabel = (classic && def.classicLabel ? def.classicLabel : def.label).toLowerCase();
       const caps = formatBindingCaps(effectiveBinding(def.id, overrides), mac).join(" ").toLowerCase();
-      return label.includes(wanted) || def.label.toLowerCase().includes(wanted) || caps.includes(wanted);
+      return label.includes(wanted) || rawLabel.includes(wanted) || caps.includes(wanted);
     });
-  }, [hasSurface, hasBrowser, hasInbox, wanted, overrides, mac]);
+  }, [hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch, classic, wanted, overrides, mac]);
   const grouped3 = (0, import_react67.useMemo)(() => {
     const byGroup = /* @__PURE__ */ new Map();
     for (const group of SHORTCUT_GROUPS) byGroup.set(group.id, []);
@@ -57818,14 +58037,14 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
     const all = [
       { id: "fixed:send", label: t("Send message"), caps: enterToSend ? ["Enter"] : [modCap, "Enter"] },
       { id: "fixed:newline", label: t("New line"), caps: enterToSend ? [shiftCap, "Enter"] : ["Enter"] },
-      { id: "fixed:mention", label: t("Mention a Bot"), caps: ["@"] },
+      ...classic ? [] : [{ id: "fixed:mention", label: t("Mention a Bot"), caps: ["@"] }],
       { id: "fixed:commands", label: t("Commands"), caps: ["/"] },
       { id: "fixed:stop-esc", label: t("Stop generating"), caps: ["Esc", "Esc"] },
       { id: "fixed:escape", label: t("Close dialog or menu"), caps: ["Esc"] }
     ];
     if (!wanted) return all;
     return all.filter((row) => row.label.toLowerCase().includes(wanted) || row.caps.join(" ").toLowerCase().includes(wanted));
-  }, [enterToSend, modCap, shiftCap, wanted]);
+  }, [enterToSend, modCap, shiftCap, classic, wanted]);
   const startRecording = (id) => {
     if (recordingId === id) {
       setRecordingId(null);
@@ -57902,7 +58121,7 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
         const customized = Object.prototype.hasOwnProperty.call(overrides, def.id);
         const isRecording = recordingId === def.id;
         const rowNotice = notice?.id === def.id ? notice : null;
-        const label = labelForDef(def);
+        const label = labelForDef(def, classic);
         return (0, import_react67.createElement)(
           "div",
           { key: def.id, className: "bt-sc-item", "data-shortcut-row": def.id },
@@ -57944,7 +58163,7 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
             (0, import_react67.createElement)(
               "span",
               { className: "bt-sc-alert-text" },
-              t("Already used by {name}", { name: labelForDef(rowNotice.conflict) })
+              t("Already used by {name}", { name: labelForDef(rowNotice.conflict, classic) })
             ),
             (0, import_react67.createElement)(
               "div",
@@ -58192,6 +58411,7 @@ function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface,
       hit.meta && hit.meta !== hit.title ? (0, import_react68.createElement)("span", { className: "bt-set-search-meta" }, hit.meta) : null
     ));
   });
+  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.PALETTE });
   return (0, import_react68.createElement)(
     "div",
     { className: "bt-set-palette-layer" },
@@ -58224,6 +58444,7 @@ function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface,
               return;
             }
             if (event.key === "Escape") {
+              if (topEscapePriority() > ESCAPE_PRIORITY.PALETTE) return;
               event.preventDefault();
               event.stopPropagation();
               event.nativeEvent?.stopPropagation?.();
@@ -59200,7 +59421,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
       case "general":
         return (0, import_react70.createElement)(GeneralPage, { roster, actions, run: run2, dsh, openAdvanced: advancedToken });
       case "shortcuts":
-        return (0, import_react70.createElement)(ShortcutsPage, { roster, actions, Section: SetSection, Row: SetRow });
+        return (0, import_react70.createElement)(ShortcutsPage, { roster, actions, surfaceMode: dsh?.surfaceMode ?? "bot", Section: SetSection, Row: SetRow });
       case "models":
         return (0, import_react70.createElement)(ProvidersPage, { actions, run: run2, roster, Section: SetSection, advanced: hasSection(dsh, "models") ? () => actions.openSettings("models", "advanced") : null });
       case "local-agents":
@@ -64545,7 +64766,7 @@ function sectionMoveItems(entry, roster, actions) {
 }
 var useNullWork2 = () => "null";
 function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
-  useEscape(() => actions.closeMenu(), !leaving);
+  useEscape(() => actions.closeMenu(), !leaving, { priority: ESCAPE_PRIORITY.MENU });
   const ref = (0, import_react87.useRef)(null);
   const trigger = (0, import_react87.useRef)(typeof document === "undefined" ? null : document.activeElement);
   const [armedDelete, setArmedDelete] = (0, import_react87.useState)(false);
@@ -65659,7 +65880,7 @@ function PanelMenu({ items, className, "aria-label": label, icon: TriggerIcon = 
   useEscape(() => {
     setOpen(false);
     button.current?.focus();
-  }, open);
+  }, open, { priority: ESCAPE_PRIORITY.MENU });
   (0, import_react90.useLayoutEffect)(() => {
     const el = wrap2.current;
     const menu = pop.current;
@@ -65760,7 +65981,8 @@ var measureTabSpot = (box, node, isStickyBot) => {
   const left = isStickyBot ? 0 : node.offsetLeft;
   return { left, right: box.offsetWidth - left - node.offsetWidth, boxWidth: box.offsetWidth };
 };
-function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side: side2, task, workspace, hasSubjectDetails = true, canBrowse, reading, onView, actions, useBrowserPages }) {
+function PanelStrip({ bot, roomSubject, subject, browserOwner, view, ids, active, sides, side: side2, task, workspace, hasSubjectDetails = true, canBrowse, reading, onView, actions, useBrowserPages }) {
+  const browserId = browserOwner ?? bot?.id ?? subject;
   const pages = useBrowserPages((map) => map);
   const wsTabs = workspace?.tabs ?? [];
   const wsActive = workspace?.active ?? null;
@@ -65878,7 +66100,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side:
     canSide: Boolean(bot),
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true
-  }).map((key) => menuItemFor(key, actions, subject));
+  }).map((key) => menuItemFor(key, actions, key === "browser" || key === "new-tab" ? browserId : subject));
   return (0, import_react90.createElement)(
     "div",
     { className: "bt-ptabs", role: "tablist", "data-window-drag": true, "aria-label": t("Panel tabs") },
@@ -65919,13 +66141,13 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side:
               className: "bt-ptab bt-ptab-btn",
               title: page.url || t("New tab"),
               onClick: () => {
-                actions.browserActivate(bot.id, tabId);
+                actions.browserActivate(browserId, tabId);
                 onView("browser");
               },
               onAuxClick: (event) => {
                 if (event.button === 1) {
                   event.preventDefault();
-                  void actions.browserCloseTab(bot.id, tabId);
+                  void actions.browserCloseTab(browserId, tabId);
                 }
               }
             },
@@ -65938,7 +66160,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side:
             "aria-label": t("Close tab"),
             title: t("Close tab"),
             onClick: () => {
-              void actions.browserCloseTab(bot.id, tabId);
+              void actions.browserCloseTab(browserId, tabId);
             }
           }, "×")
         );
@@ -66097,14 +66319,15 @@ function shouldCheckBrowserCover(records) {
     return hasOverlayNode(record.addedNodes) || hasOverlayNode(record.removedNodes);
   });
 }
-function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+  const browserId = ownerId ?? bot?.id ?? "";
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
   const frame3 = (0, import_react90.useRef)(null);
   const input = (0, import_react90.useRef)(null);
   const importBoxRef = (0, import_react90.useRef)(null);
   const [draft, setDraft] = (0, import_react90.useState)(null);
   const [covered, setCovered] = (0, import_react90.useState)(false);
-  const imports = actions.browserImport;
+  const imports = bot ? actions.browserImport : void 0;
   const {
     flow,
     sources,
@@ -66126,7 +66349,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     openPermission
   } = useCookieImportFlow({
     imports,
-    botId: bot.id,
+    botId: bot?.id ?? "",
     pageUrl: page.url,
     resetKey: tabId,
     idleFlow: null,
@@ -66202,12 +66425,13 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   useEscape(() => {
     setDraft(null);
     input.current?.blur();
-  }, editing);
+  }, editing, { priority: ESCAPE_PRIORITY.INLINE_ACTION });
   const secure = /^https:/i.test(page.url);
+  const viewLabel = bot ? t("{name}'s browser", { name: bot.name }) : t("Browser");
   return (0, import_react90.createElement)(
     "div",
-    { className: "bt-panel-view bt-panel-browser", "aria-label": t("{name}'s browser", { name: bot.name }) },
-    actions.browserTakeover ? (0, import_react90.createElement)(
+    { className: "bt-panel-view bt-panel-browser", "aria-label": viewLabel },
+    bot && actions.browserTakeover ? (0, import_react90.createElement)(
       "div",
       { className: "bt-browser-takeover", "data-held": hold?.by === "user" || void 0 },
       (0, import_react90.createElement)("span", null, hold?.by === "user" ? t("You control this browser") : hold?.by === "bot" ? t("The Bot handed this browser to you: {reason}", { reason: hold.reason }) : t("The Bot controls this browser")),
@@ -66266,7 +66490,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
         className: "bt-icon-btn",
         "aria-label": t("New browser tab"),
         title: t("New browser tab"),
-        onClick: () => actions.browserNewTab(bot.id)
+        onClick: () => actions.browserNewTab(browserId)
       }, (0, import_react90.createElement)(PlusTabIcon)),
       imports ? (0, import_react90.createElement)("button", {
         type: "button",
@@ -66339,10 +66563,10 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       ) : flow === null && !page.url ? (0, import_react90.createElement)(
         "div",
         { className: "bt-browser-empty" },
-        (0, import_react90.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }),
-        (0, import_react90.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
-        (0, import_react90.createElement)("div", { className: "bt-browser-empty-text" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
-        imports ? (0, import_react90.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
+        bot ? (0, import_react90.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }) : (0, import_react90.createElement)("span", { className: "bt-browser-empty-icon", "aria-hidden": true }, (0, import_react90.createElement)(GlobeIcon2)),
+        (0, import_react90.createElement)("div", { className: "bt-browser-empty-title" }, bot ? t("{name}'s browser", { name: bot.name }) : t("Browser")),
+        (0, import_react90.createElement)("div", { className: "bt-browser-empty-text" }, bot ? t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name }) : t("Open a page beside your session. Enter an address above to get started.")),
+        bot && imports ? (0, import_react90.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
       ) : null
     )
   );
@@ -66355,13 +66579,14 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   const wsTabs = workspace?.tabs ?? [];
   const hasWs = wsTabs.length > 0;
   const activeWsTab = wsTabs.find((tab) => tab.id === workspace?.active);
-  const canBrowse = Boolean(bot && roster.browser === true && actions.browserShow);
+  const browserOwner = bot ? bot.id : !hasSubjectDetails && workspace?.browserId ? workspace.browserId : null;
+  const canBrowse = Boolean(browserOwner && roster.browser === true && actions.browserShow);
   const sideChats = bot ? sideChatsOf(roster, bot.id) : [];
   const sideChat = sideChats.find((chat) => chat?.id === pane.side);
   const taskBot = pane.task?.botId ? roster.byId?.[pane.task.botId] : void 0;
   const taskEntry = taskBot && pane.task?.taskId ? (taskBot.tasks ?? []).find((item) => item?.id === pane.task.taskId) : void 0;
   const view = pane.view === "browser" && canBrowse ? "browser" : pane.view === "side" && sideChat !== void 0 ? "side" : pane.view === "task" && taskEntry !== void 0 ? "task" : pane.view === "workspace" && (hasWs || leaving) ? "workspace" : hasSubjectDetails ? "details" : hasWs ? "workspace" : "details";
-  const tabState = useBrowserTabs((map) => bot ? map[bot.id] ?? EMPTY_TABS2 : EMPTY_TABS2);
+  const tabState = useBrowserTabs((map) => browserOwner ? map[browserOwner] ?? EMPTY_TABS2 : EMPTY_TABS2);
   const active = tabState.active;
   const page = useBrowserPages((pages) => (active ? pages[active] : null) ?? EMPTY_PAGE);
   const hold = useBrowserHolds?.((map) => bot ? map[bot.id] ?? null : null) ?? null;
@@ -66399,7 +66624,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     if (switched) chatRoom.hold(false);
   }, [view, panelWidth, leaving, overlay]);
   const dragCleanup = (0, import_react90.useRef)(null);
-  useEscape(() => actions.closeOverlay(), !leaving, { priority: -1 });
+  useEscape(() => actions.closeOverlay(), !leaving, { priority: ESCAPE_PRIORITY.PANEL });
   (0, import_react90.useEffect)(() => () => {
     dragCleanup.current?.();
     chatRoom.setRight(null);
@@ -66425,13 +66650,15 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     return () => clearTimeout(timer2);
   }, []);
   (0, import_react90.useEffect)(() => {
-    if (canBrowse) actions.browserEnsure(bot.id);
-  }, [bot?.id, canBrowse]);
+    if (canBrowse && browserOwner) actions.browserEnsure(browserOwner);
+  }, [browserOwner, canBrowse]);
   (0, import_react90.useEffect)(() => {
     if (view === "browser" && (active === null || !tabState.ids.includes(active))) {
-      actions.setPanelView(workspace !== void 0 && hasWs ? "workspace" : "details");
+      if (workspace !== void 0 && hasWs) actions.setPanelView("workspace");
+      else if (hasSubjectDetails) actions.setPanelView("details");
+      else actions.closePanel?.();
     }
-  }, [view, active, tabState.ids.length, workspace, hasWs]);
+  }, [view, active, tabState.ids.length, workspace, hasWs, hasSubjectDetails]);
   (0, import_react90.useEffect)(() => {
     if (pane.view === "side" && sideChat === void 0) actions.setPanelView("details");
   }, [pane.view, sideChat]);
@@ -66440,14 +66667,16 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   }, [pane.view, taskEntry]);
   (0, import_react90.useEffect)(() => {
     if (leaving) return;
-    if (workspace !== void 0 && !hasSubjectDetails && !hasWs) {
+    const hasBrowser = canBrowse && (pane.view === "browser" || tabState.ids.length > 0);
+    if (workspace !== void 0 && !hasSubjectDetails && !hasWs && !hasBrowser) {
       actions.closePanel?.();
       return;
     }
     if (pane.view !== "workspace" || hasWs) return;
-    if (hasSubjectDetails) actions.setPanelView("details");
+    if (canBrowse && tabState.ids.length > 0) actions.setPanelView("browser");
+    else if (hasSubjectDetails) actions.setPanelView("details");
     else actions.closePanel?.();
-  }, [leaving, workspace, pane.view, hasWs, hasSubjectDetails]);
+  }, [leaving, workspace, pane.view, hasWs, hasSubjectDetails, canBrowse, tabState.ids.length]);
   (0, import_react90.useEffect)(() => {
     if (view !== "browser" || leaving) void actions.browserShow?.(null);
   }, [view, leaving]);
@@ -66594,14 +66823,14 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     grip.addEventListener("pointermove", onMove);
     for (const name of ends) grip.addEventListener(name, onEnd);
   };
-  const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length, taskEntry !== void 0, wsTabs.length) || workspace !== void 0 && (!hasSubjectDetails || leaving && pane.view === "workspace");
+  const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length, taskEntry !== void 0, wsTabs.length) || workspace !== void 0 && (!hasSubjectDetails || leaving && (pane.view === "workspace" || pane.view === "browser"));
   return (0, import_react90.createElement)(
     "aside",
     {
       ref: root,
       className: "bt-panel",
       "data-view": view,
-      "aria-label": view === "browser" && bot ? t("{name}'s browser", { name: bot.name }) : view === "side" ? t("Side chat") : view === "task" && taskEntry ? taskEntry.title : view === "workspace" ? activeWsTab?.label || t("Workspace") : t("Conversation details"),
+      "aria-label": view === "browser" ? bot ? t("{name}'s browser", { name: bot.name }) : t("Browser") : view === "side" ? t("Side chat") : view === "task" && taskEntry ? taskEntry.title : view === "workspace" ? activeWsTab?.label || t("Workspace") : t("Conversation details"),
       "data-leaving": leaving || void 0,
       "aria-hidden": leaving || void 0,
       "data-settling": settling || void 0,
@@ -66621,6 +66850,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       bot,
       roomSubject,
       subject: pane.id,
+      browserOwner,
       view,
       ids: tabState.ids,
       active,
@@ -66640,7 +66870,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       { key: "workspace", className: "bt-panel-view bt-panel-workspace", hidden: view !== "workspace" },
       workspace.render(workspace.active, view === "workspace")
     ) : null,
-    view === "workspace" ? !hasWs ? (0, import_react90.createElement)("div", { key: "workspace-empty", className: "bt-panel-view bt-panel-workspace" }) : null : view === "browser" && bot ? (0, import_react90.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react90.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react90.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react90.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react90.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : hasSubjectDetails || workspace === void 0 ? (0, import_react90.createElement)(
+    view === "workspace" ? !hasWs ? (0, import_react90.createElement)("div", { key: "workspace-empty", className: "bt-panel-view bt-panel-workspace" }) : null : view === "browser" && browserOwner ? (0, import_react90.createElement)(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react90.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react90.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react90.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react90.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : hasSubjectDetails || workspace === void 0 ? (0, import_react90.createElement)(
       "div",
       { key: `details:${subjectId}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
       (0, import_react90.createElement)(DetailsDrawer, {
@@ -66888,6 +67118,8 @@ var BROWSER_CSS = `
 .bt-import-plain:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-import-plain:disabled{opacity:.4;cursor:default}
 @media (prefers-reduced-motion:reduce){.bt-import-card,.bt-import-stage,.bt-import-cb svg,.bt-import-status-badge,.bt-import-skel-ico,.bt-import-skel-bar{animation:none!important}.bt-import-item,.bt-import-mini,.bt-import-primary,.bt-import-plain,.bt-import-chev,.bt-import-disc-chev{transition:none!important}}
+.bt-browser-empty-icon{width:44px;height:44px;border-radius:12px;background:var(--bt-hover);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center}
+.bt-browser-empty-icon svg{width:22px;height:22px}
 /* A viewport too narrow to leave the conversation its room: the panel covers it,
    and its close controls get a touch-sized target. */
 .bt-panel[data-overlay]{width:100vw}

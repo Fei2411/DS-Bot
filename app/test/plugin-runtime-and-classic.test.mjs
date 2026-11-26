@@ -21,7 +21,7 @@ const stubs = {
 }
 
 const entryCode = `
-  export { createPluginRuntime } from './ui/src/plugin-runtime.js'
+  export { bustImportUrl, createPluginRuntime } from './ui/src/plugin-runtime.js'
   export {
     createSlotRegistry,
     SlotErrorBoundary,
@@ -31,10 +31,10 @@ const entryCode = `
     TOOL_VIEW_SLOT,
   } from './ui/src/slots.js'
   export { extractSchemaFields } from './ui/src/engine-settings.js'
-  export { registerEngineSettingsPlugin, useDshSettingsBridge } from './ui/src/engine-settings-bridge.js'
+  export { createRetryableLazy, registerEngineSettingsPlugin, useDshSettingsBridge } from './ui/src/engine-settings-bridge.js'
   export { ClassicSidebar, ClassicHeader, AgentEmptyHero } from './ui/src/classic-sidebar.js'
   export { foregroundApprovalsOf } from './ui/src/approval-dock.js'
-  export { createTeam } from './ui/src/team.js'
+  export { CLASSIC_BROWSER_OWNER, createTeam } from './ui/src/team.js'
   export { createLocale, LANGUAGE_STORAGE_KEY } from './ui/src/locale.js'
   export { matchProviderId, ProviderLogo } from '../ds-bot/src/client/provider-logos.js'
   export { AppearancePage } from '../ds-bot/src/client/appearance-page.js'
@@ -130,7 +130,7 @@ const memoryStorage = () => {
   }
 }
 
-function loadMod(callHandler = async () => ({})) {
+function loadMod(callHandler = async () => ({}), extraGlobals = {}) {
   const storage = memoryStorage()
   const sandbox = {
     console: { log: () => {}, warn: () => {}, error: () => {} },
@@ -141,6 +141,7 @@ function loadMod(callHandler = async () => ({})) {
     AbortController,
     AbortSignal,
     URL,
+    URLSearchParams,
     localStorage: storage,
     sessionStorage: memoryStorage(),
     window: {
@@ -161,6 +162,7 @@ function loadMod(callHandler = async () => ({})) {
     },
     module: { exports: {} },
     exports: {},
+    ...extraGlobals,
   }
   sandbox.exports = sandbox.module.exports
   sandbox.globalThis = sandbox
@@ -638,4 +640,169 @@ test('createPluginRuntime service stack handles out-of-order disposal without re
   assert.equal(runtime.get('svc'), 'A', 'disposing C after B must restore A, never disposed B')
   releaseA()
   assert.equal(runtime.get('svc'), undefined)
+})
+
+test('Plugin runtime loads page-scoped plugins lazily and busts failed module imports on Retry', async () => {
+  const { mod } = loadMod()
+  const slots = mod.createSlotRegistry()
+  const runtime = mod.createPluginRuntime({ slots })
+
+  // bustImportUrl appends/updates the retry query parameter without breaking existing params or hash.
+  assert.equal(mod.bustImportUrl('http://127.0.0.1:41901/plugins/demo.js', 1), 'http://127.0.0.1:41901/plugins/demo.js?retry=1')
+  assert.equal(mod.bustImportUrl('http://127.0.0.1:41901/plugins/demo.js?v=2#top', 3), 'http://127.0.0.1:41901/plugins/demo.js?v=2&retry=3#top')
+
+  // Per-page UI plugin stays idle and does not invoke load() until its page opens.
+  const attempts = []
+  let failOnce = true
+  const Panel = () => ({ type: 'div', props: { children: ['loaded'] } })
+  runtime.use({
+    id: 'ext.settings-only',
+    pages: ['settings'],
+    load: async ({ attempt, bust }) => {
+      attempts.push([attempt, bust('/plugins/demo.js')])
+      if (failOnce) {
+        failOnce = false
+        throw new Error('transient import error')
+      }
+      return {
+        apply(ctx) {
+          ctx.slot({ name: mod.SETTINGS_SECTION_SLOT, id: 'custom-sec' }, Panel)
+        },
+      }
+    },
+  })
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'ext.settings-only').status, 'idle')
+  assert.deepEqual(attempts, [], 'unopened page plugin must not load')
+
+  // Entering another page ('chat') still keeps 'settings' plugin unloaded.
+  const leaveChat = runtime.enterPage('chat')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'ext.settings-only').status, 'idle')
+  assert.deepEqual(attempts, [])
+  leaveChat()
+
+  // Entering 'settings' triggers load (attempt 0) -> fails in isolation -> retry() invokes attempt 1 and succeeds.
+  const leaveSettings = runtime.enterPage('settings')
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'ext.settings-only').status, 'error')
+  assert.deepEqual(attempts, [[0, '/plugins/demo.js']])
+
+  assert.equal(runtime.retry('ext.settings-only'), true)
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'ext.settings-only').status, 'active')
+  assert.deepEqual(attempts, [[0, '/plugins/demo.js'], [1, '/plugins/demo.js?retry=1']], 'retry re-runs loader with incremented attempt and busted URL')
+  assert.equal(slots.list(mod.SETTINGS_SECTION_SLOT).some(e => e.id === 'custom-sec'), true)
+  leaveSettings()
+})
+
+test('createRetryableLazy and SlotErrorBoundary Retry reset cached lazy wrapper and re-activate plugin', async () => {
+  const { mod } = loadMod()
+  const slots = mod.createSlotRegistry()
+  const runtime = mod.createPluginRuntime({ slots })
+
+  const seenAttempts = []
+  const LazyComp = mod.createRetryableLazy(async (attempt) => {
+    seenAttempts.push(attempt)
+    return { Page: () => ({ type: 'div', props: { children: [`ok-${attempt}`] } }) }
+  }, m => m.Page)
+
+  assert.equal(LazyComp.attempt(), 0)
+  const firstNode = renderTree(LazyComp, {})
+  await firstNode.props.loader()
+  assert.deepEqual(seenAttempts, [0])
+
+  // SlotErrorBoundary Retry invokes onRetry (resetting lazy wrapper) and runtime.retry(pluginId, { force: true }).
+  let retriedPlugin = 0
+  runtime.use({ id: 'ext.widget' }, () => { retriedPlugin += 1 })
+  assert.equal(retriedPlugin, 1)
+
+  const Broken = () => { throw new Error('render boom') }
+  const tree = renderTree(mod.SlotErrorBoundary, {
+    slotName: 'settings.section:demo',
+    resetKey: 'demo',
+    pluginId: 'ext.widget',
+    runtime,
+    onRetry: () => { LazyComp.reset() },
+    children: [{ type: Broken, props: {} }],
+  })
+  const retryBtn = findAll(tree, node => node.type === 'button' && node.props?.children?.includes('Retry'))[0]
+  assert.ok(retryBtn)
+  retryBtn.props.onClick()
+  assert.equal(LazyComp.attempt(), 1, 'onRetry resets RetryableLazy attempt counter')
+  assert.equal(retriedPlugin, 2, 'SlotErrorBoundary Retry re-activates plugin on runtime')
+  const secondNode = renderTree(LazyComp, {})
+  await secondNode.props.loader()
+  assert.deepEqual(seenAttempts, [0, 1])
+})
+
+test('Classic mode browser pane opens, toggles, creates, and closes tabs under CLASSIC_BROWSER_OWNER', async () => {
+  const fakeBridge = {
+    onState: () => () => {},
+    onNewTab: () => () => {},
+    show: async () => {},
+    hide: async () => {},
+    close: async () => {},
+    load: async () => {},
+    back: async () => {},
+    forward: async () => {},
+    reload: async () => {},
+    list: async () => [],
+    tabs: async () => [],
+  }
+  const { mod } = loadMod(async (endpoint) => {
+    if (endpoint === 'state') {
+      return {
+        revision: 1,
+        modelsKey: 'm1',
+        browser: true,
+        bots: [{ id: 'b1', name: 'Chief', sessionId: 'b1' }],
+        rooms: [],
+        agents: [{ id: 'a1', name: 'DSH Agent', sessions: ['cs-1'], createdAt: 100 }],
+        mainBotId: 'b1',
+        prefs: {},
+      }
+    }
+    if (endpoint === 'engine-classic-sessions') {
+      return { sessions: [{ id: 'cs-1', title: 'Classic', updatedAt: 1000, running: false, blank: false }] }
+    }
+    return {}
+  }, { dsBotApp: { browser: fakeBridge } })
+
+  const team = mod.createTeam()
+  await team.actions.refreshClassicSessions()
+  await team.actions.setSurface('agent')
+  assert.equal(mod.CLASSIC_BROWSER_OWNER, 'classic')
+
+  // Open browser in Classic mode -> binds BotPanel to classic session with browser view.
+  team.actions.openBrowser('classic')
+  let snap = null
+  let tabsSnap = null
+  const Probe = () => {
+    snap = team.hooks.useUi(s => s)
+    tabsSnap = team.hooks.useBrowserTabs(s => s)
+    return null
+  }
+  renderTree(Probe, {})
+  assert.equal(snap.details, 'cs-1')
+  assert.equal(snap.view, 'browser')
+  assert.equal(tabsSnap.classic.ids.length, 1)
+
+  // New tab and close tabs cleanly closes panel when no workspace tabs remain.
+  team.actions.browserNewTab('classic')
+  renderTree(Probe, {})
+  assert.equal(tabsSnap.classic.ids.length, 2)
+
+  for (const tabId of [...tabsSnap.classic.ids]) {
+    await team.actions.browserCloseTab('classic', tabId)
+  }
+  renderTree(Probe, {})
+  assert.equal(snap.details, null, 'closing last Classic browser tab closes panel')
+  assert.equal(snap.view, 'details')
+
+  // Toggle browser opens and closes cleanly in Classic mode.
+  team.actions.toggleBrowser('classic')
+  renderTree(Probe, {})
+  assert.equal(snap.view, 'browser')
+  team.actions.toggleBrowser('classic')
+  renderTree(Probe, {})
+  assert.equal(snap.details, null)
 })

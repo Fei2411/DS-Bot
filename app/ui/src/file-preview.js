@@ -139,6 +139,170 @@ function TablePreview({ text, delimiter }) {
     truncatedRows ? h('p', { className: 'dsb-pv-note' }, t('Showing first {count} rows', { count: MAX_TABLE_ROWS })) : null)
 }
 
+export function colIndexToLetters(index) {
+  let n = index + 1
+  let out = ''
+  while (n > 0) {
+    const rem = (n - 1) % 26
+    out = String.fromCharCode(65 + rem) + out
+    n = Math.floor((n - 1) / 26)
+  }
+  return out
+}
+
+function SpreadsheetPreview({ file }) {
+  const sheets = Array.isArray(file.sheets) ? file.sheets : []
+  const initialIndex = useMemo(() => {
+    const visible = sheets.findIndex(sheet => sheet.state !== 'hidden' && sheet.state !== 'veryHidden')
+    return visible >= 0 ? visible : 0
+  }, [file.path, sheets.length])
+  const [sheetIdx, setSheetIdx] = useState(initialIndex)
+  const [selected, setSelected] = useState(null)
+  const [copiedCell, setCopiedCell] = useState(false)
+  const tabRefs = useRef([])
+  const copyTimer = useRef(0)
+
+  useEffect(() => {
+    setSheetIdx(initialIndex)
+    setSelected(null)
+    setCopiedCell(false)
+  }, [file.path, initialIndex])
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
+
+  if (sheets.length === 0) return h('div', { className: 'dsb-rp-empty' }, t('Empty file'))
+  const safeIdx = sheetIdx >= 0 && sheetIdx < sheets.length ? sheetIdx : 0
+  const sheet = sheets[safeIdx]
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : []
+  const colCount = Math.max(0, sheet.colCount ?? (rows[0]?.length ?? 0))
+  const colHeaders = useMemo(() => Array.from({ length: colCount }, (_, idx) => colIndexToLetters(idx)), [colCount])
+
+  const mergeLayout = useMemo(() => {
+    const spans = new Map()
+    const covered = new Set()
+    for (const m of sheet.merges ?? []) {
+      const rowSpan = Math.max(1, (m.r2 - m.r1) + 1)
+      const colSpan = Math.max(1, (m.c2 - m.c1) + 1)
+      if (rowSpan === 1 && colSpan === 1) continue
+      spans.set(`${m.r1}:${m.c1}`, { rowSpan, colSpan })
+      for (let r = m.r1; r <= m.r2; r += 1) {
+        for (let c = m.c1; c <= m.c2; c += 1) {
+          if (r !== m.r1 || c !== m.c1) covered.add(`${r}:${c}`)
+        }
+      }
+    }
+    return { spans, covered }
+  }, [sheet])
+
+  const activeCell = selected && rows[selected.r] ? rows[selected.r][selected.c] ?? null : null
+  const activeRef = selected ? `${colIndexToLetters(selected.c)}${selected.r + 1}` : ''
+  const activeText = activeCell ? (activeCell.f ? `${activeCell.f}  →  ${activeCell.v}` : activeCell.v) : ''
+
+  const copySelected = () => {
+    if (!activeCell) return
+    const text = activeCell.v ?? ''
+    void writeClipboard(text).then((ok) => {
+      if (!ok) return
+      setCopiedCell(true)
+      if (copyTimer.current) clearTimeout(copyTimer.current)
+      copyTimer.current = setTimeout(() => { copyTimer.current = 0; setCopiedCell(false) }, 1200)
+    })
+  }
+
+  const onTabKeyDown = (event) => {
+    if (sheets.length <= 1) return
+    let next = -1
+    if (event.key === 'ArrowRight') next = (safeIdx + 1) % sheets.length
+    else if (event.key === 'ArrowLeft') next = (safeIdx - 1 + sheets.length) % sheets.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = sheets.length - 1
+    if (next < 0) return
+    event.preventDefault()
+    setSheetIdx(next)
+    setSelected(null)
+    tabRefs.current[next]?.focus?.()
+  }
+
+  return h('div', { className: 'dsb-pv-xlsx' },
+    h('div', { className: 'dsb-pv-formula-bar' },
+      h('span', { className: 'dsb-pv-cell-ref' }, activeRef || `${sheet.totalRows ?? rows.length} × ${sheet.totalCols ?? colCount}`),
+      h('span', { className: 'dsb-pv-cell-val', title: activeText },
+        selected
+          ? (activeCell?.f
+            ? h('span', null, h('code', { className: 'dsb-pv-formula-expr' }, activeCell.f), activeCell.v !== activeCell.f ? ` = ${activeCell.v}` : '')
+            : (activeCell?.v ?? ''))
+          : t('Click a cell to inspect')),
+      activeCell ? h('button', {
+        type: 'button',
+        className: 'bt-icon-btn dsb-pv-copy',
+        'aria-label': copiedCell ? t('Copied') : t('Copy'),
+        title: copiedCell ? t('Copied') : t('Copy'),
+        onClick: copySelected,
+      }, copiedCell ? h(CheckIcon) : h(CopyIcon)) : null),
+    (sheet.truncatedRows || sheet.truncatedCols || file.truncatedSheets)
+      ? h('div', { className: 'dsb-pv-banner' },
+        [
+          sheet.truncatedRows ? t('Showing first {shown} of {total} rows', { shown: sheet.rowCount, total: sheet.totalRows }) : null,
+          sheet.truncatedCols ? t('Showing first {shown} of {total} columns', { shown: sheet.colCount, total: sheet.totalCols }) : null,
+          file.truncatedSheets ? t('Showing first {shown} of {total} sheets', { shown: sheets.length, total: file.totalSheets }) : null,
+        ].filter(Boolean).join(' · '))
+      : null,
+    rows.length === 0 || colCount === 0
+      ? h('div', { className: 'dsb-rp-empty' }, t('Empty sheet'))
+      : h('div', { className: 'dsb-pv-table-wrap dsb-pv-sheet-wrap' },
+        h('table', { className: 'dsb-pv-table dsb-pv-sheet' },
+          h('thead', null, h('tr', null,
+            h('th', { className: 'dsb-pv-rn dsb-pv-sheet-corner', 'aria-hidden': true }, ''),
+            colHeaders.map((letter, cIdx) => h('th', {
+              key: letter,
+              scope: 'col',
+              'data-active': selected?.c === cIdx ? '' : undefined,
+            }, letter)))),
+          h('tbody', null, rows.map((row, rIdx) => h('tr', { key: rIdx },
+            h('td', {
+              className: 'dsb-pv-rn',
+              'data-active': selected?.r === rIdx ? '' : undefined,
+            }, rIdx + 1),
+            colHeaders.map((_, cIdx) => {
+              const key = `${rIdx}:${cIdx}`
+              if (mergeLayout.covered.has(key)) return null
+              const span = mergeLayout.spans.get(key)
+              const cell = row?.[cIdx] ?? null
+              const isSelected = selected?.r === rIdx && selected?.c === cIdx
+              const cls = [
+                'dsb-pv-sheet-cell',
+                cell?.num ? 'is-num' : '',
+                cell?.err ? 'is-err' : '',
+                cell?.f ? 'has-formula' : '',
+              ].filter(Boolean).join(' ')
+              return h('td', {
+                key: cIdx,
+                className: cls,
+                rowSpan: span?.rowSpan,
+                colSpan: span?.colSpan,
+                'data-selected': isSelected ? '' : undefined,
+                title: cell?.f ? `${cell.f}\n${cell.v}` : (cell?.v || undefined),
+                onClick: () => setSelected({ r: rIdx, c: cIdx }),
+              }, cell?.v ?? '')
+            })))))),
+    h('div', {
+      className: 'dsb-pv-sheet-tabs',
+      role: 'tablist',
+      'aria-label': t('Sheets'),
+      onKeyDown: onTabKeyDown,
+    },
+    sheets.map((entry, idx) => h('button', {
+      key: `${entry.name}:${idx}`,
+      ref: (el) => { tabRefs.current[idx] = el },
+      type: 'button',
+      role: 'tab',
+      className: 'dsb-pv-sheet-tab',
+      'aria-selected': idx === safeIdx,
+      tabIndex: idx === safeIdx ? 0 : -1,
+      'data-hidden-sheet': entry.state && entry.state !== 'visible' ? '' : undefined,
+      onClick: () => { setSheetIdx(idx); setSelected(null) },
+    }, entry.name))))
+}
+
 function PdfPreview({ file }) {
   const blobUrl = useBlobUrl(file.base64, file.mime || 'application/pdf')
   const downloadName = file.convertedFrom
@@ -200,9 +364,10 @@ export function FilePreview({ file, loading, error, onRetry }) {
   }
 
   const badge = file.convertedFrom ? file.convertedFrom.slice(1).toUpperCase()
-    : file.language && file.language !== 'text' ? file.language.toUpperCase()
-      : file.kind === 'table' ? (file.delimiter === '\t' ? 'TSV' : 'CSV')
-        : file.kind.toUpperCase()
+    : file.kind === 'spreadsheet' ? (file.ext ? file.ext.slice(1).toUpperCase() : 'XLSX')
+      : file.language && file.language !== 'text' ? file.language.toUpperCase()
+        : file.kind === 'table' ? (file.delimiter === '\t' ? 'TSV' : 'CSV')
+          : file.kind.toUpperCase()
 
   return h('div', { className: 'dsb-pv' },
     h('div', { className: 'dsb-pv-bar' },
@@ -239,7 +404,9 @@ export function FilePreview({ file, loading, error, onRetry }) {
         })))
         : file.kind === 'table'
           ? (mode === 'source' ? h(CodeLines, { text: file.text }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
-          : file.kind === 'html'
+          : file.kind === 'spreadsheet'
+            ? h(SpreadsheetPreview, { file })
+            : file.kind === 'html'
             ? (mode === 'source'
                 ? h(CodeLines, { text: file.text })
                 : h('div', { className: 'dsb-pv-html-wrap' },

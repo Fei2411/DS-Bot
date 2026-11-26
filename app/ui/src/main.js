@@ -55,8 +55,8 @@ setAppLocaleService(appLocale)
 installLocale(appLocale)
 installMotionRest()
 pluginRuntime.provide('slots', slots)
-pluginRuntime.use({ id: 'ds-bot.builtin-tool-views', name: 'Built-in tool views' }, () => registerBuiltinToolViews(slots))
-registerEngineSettingsPlugin(pluginRuntime)
+pluginRuntime.use({ id: 'ds-bot.builtin-tool-views', name: 'Built-in tool views', pages: ['chat'] }, () => registerBuiltinToolViews(slots))
+registerEngineSettingsPlugin(pluginRuntime, { pages: ['settings'] })
 globalThis.dsBotPlugins = pluginRuntime
 document.documentElement.lang = appLocale.getLocale().active
 // macOS puts the window buttons at the band's left end, over the sidebar (app.css).

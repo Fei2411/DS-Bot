@@ -18,6 +18,7 @@ import { t } from '../../../ds-bot/src/client/i18n.js'
 import { LearningTurnTail } from '../../../ds-bot/src/client/learning-card.js'
 import { BotMark, RoomAvatar } from '../../../ds-bot/src/client/mark.js'
 import { noHover } from '../../../ds-bot/src/client/motion.js'
+import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { addPage, applyFrame, emptyLog, pageBefore, writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { clockLabel, messageClock } from '../../../ds-bot/src/client/text.js'
 import { layoutOf, thinkingShown } from '../../../ds-bot/src/client/themes.js'
@@ -315,17 +316,11 @@ function UserImageThumb({ sessionId, attachment }) {
     return () => { alive = false }
   }, [direct, sessionId, attachmentId])
 
+  useEscape(() => setZoomed(false), zoomed, { priority: ESCAPE_PRIORITY.LIGHTBOX })
   useEffect(() => {
     if (!zoomed) return undefined
     closeBtn.current?.focus?.()
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation()
-        setZoomed(false)
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
+    return undefined
   }, [zoomed])
 
   if (!src) {

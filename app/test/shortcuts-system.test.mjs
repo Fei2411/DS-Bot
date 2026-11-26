@@ -50,6 +50,7 @@ const { outputFiles } = await build({
       export { ShortcutsDialog, matchGlobalShortcut } from './ui/src/shortcuts.js'
       export { ShortcutsPage } from '../ds-bot/src/client/shortcuts-page.js'
       export { createShortcutStore } from '../ds-bot/src/client/shortcuts-model.js'
+      export { ESCAPE_PRIORITY, useEscape } from '../ds-bot/src/client/overlay-hooks.js'
     `,
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
     loader: 'js',
@@ -359,6 +360,129 @@ test('ShortcutsDialog and ShortcutsPage filter by capability, honor IME/conflict
     tree = pageInst.render()
     assert.equal(store.bindingOf('inbox')?.code, 'KeyJ')
     assert.equal(store.bindingOf('browser'), null)
+  } finally {
+    pageInst.unmount()
+  }
+})
+
+test('Shared Escape stack closes ShortcutsDialog before SettingsTour and SettingsDialog in strict priority order', () => {
+  const { exports, mount, winListeners } = loadUi()
+  const storageMap = new Map()
+  const store = exports.createShortcutStore({
+    mac: true,
+    storage: {
+      getItem: k => (storageMap.has(k) ? storageMap.get(k) : null),
+      setItem: (k, v) => { storageMap.set(k, v) },
+    },
+  })
+
+  const closedOrder = []
+  let openState = {
+    settings: true,
+    tour: true,
+    shortcuts: true,
+    modal: true,
+    select: true,
+    lightbox: true,
+  }
+
+  function StackHost() {
+    exports.useEscape(() => { closedOrder.push('settings'); openState = { ...openState, settings: false } }, openState.settings, { priority: exports.ESCAPE_PRIORITY.DIALOG })
+    exports.useEscape(() => { closedOrder.push('tour'); openState = { ...openState, tour: false } }, openState.tour, { priority: exports.ESCAPE_PRIORITY.TOUR })
+    exports.useEscape(() => { closedOrder.push('modal'); openState = { ...openState, modal: false } }, openState.modal, { priority: exports.ESCAPE_PRIORITY.MODAL_CHILD })
+    exports.useEscape(() => { closedOrder.push('select'); openState = { ...openState, select: false } }, openState.select, { priority: exports.ESCAPE_PRIORITY.SELECT_MENU })
+    exports.useEscape(() => { closedOrder.push('lightbox'); openState = { ...openState, lightbox: false } }, openState.lightbox, { priority: exports.ESCAPE_PRIORITY.LIGHTBOX })
+    return { type: 'div', props: { children: [] } }
+  }
+
+  const hostInst = mount(StackHost, {})
+  const scInst = mount(exports.ShortcutsDialog, {
+    open: true,
+    enterToSend: true,
+    hasSurface: true,
+    hasBrowser: true,
+    hasInbox: false,
+    store,
+    onClose: () => { closedOrder.push('shortcuts'); openState = { ...openState, shortcuts: false } },
+  })
+  const fireEsc = () => {
+    const evt = { key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() {} }
+    for (const fn of [...(winListeners.get('keydown') ?? [])]) fn(evt)
+    hostInst.render()
+    scInst.render({
+      open: openState.shortcuts,
+      enterToSend: true,
+      hasSurface: true,
+      hasBrowser: true,
+      hasInbox: false,
+      store,
+      onClose: () => { closedOrder.push('shortcuts'); openState = { ...openState, shortcuts: false } },
+    })
+    return evt
+  }
+  try {
+    hostInst.render()
+    scInst.render()
+    for (let i = 0; i < 6; i += 1) {
+      const evt = fireEsc()
+      assert.equal(evt.defaultPrevented, true)
+    }
+    assert.deepEqual(closedOrder, ['lightbox', 'select', 'modal', 'shortcuts', 'tour', 'settings'])
+  } finally {
+    scInst.unmount()
+    hostInst.unmount()
+  }
+})
+
+test('Classic mode ShortcutsDialog and ShortcutsPage omit Bot-only shortcuts and label Toggle browser', () => {
+  const { exports, mount, textOf } = loadUi()
+  const store = exports.createShortcutStore({ mac: true, storage: { getItem: () => null, setItem() {} } })
+
+  const dialogInst = mount(exports.ShortcutsDialog, {
+    open: true,
+    classic: true,
+    enterToSend: true,
+    hasSurface: true,
+    hasBrowser: true,
+    hasInbox: false,
+    hasDetails: false,
+    hasMemory: false,
+    hasGroupSearch: false,
+    store,
+    onClose: () => {},
+  })
+  try {
+    const body = textOf(dialogInst.render())
+    assert.match(body, /Toggle browser/)
+    assert.doesNotMatch(body, /Toggle Bot browser/)
+    assert.doesNotMatch(body, /Open Inbox/)
+    assert.doesNotMatch(body, /Toggle Bot details/)
+    assert.doesNotMatch(body, /Open Bot memory/)
+    assert.doesNotMatch(body, /Search messages in group/)
+    assert.doesNotMatch(body, /Mention a Bot/)
+  } finally {
+    dialogInst.unmount()
+  }
+
+  const Section = ({ title, children }) => ({ type: 'section', props: { title, children } })
+  const Row = ({ label, children }) => ({ type: 'row', props: { label, children: [label, ...(Array.isArray(children) ? children : [children])] } })
+  const pageInst = mount(exports.ShortcutsPage, {
+    roster: { prefs: { enterToSend: true }, browser: true },
+    actions: { setSurface() {}, openBrowser() {}, openInbox() {} },
+    surfaceMode: 'agent',
+    Section,
+    Row,
+    store,
+  })
+  try {
+    const body = textOf(pageInst.render())
+    assert.match(body, /Toggle browser/)
+    assert.doesNotMatch(body, /Toggle Bot browser/)
+    assert.doesNotMatch(body, /Open Inbox/)
+    assert.doesNotMatch(body, /Toggle Bot details/)
+    assert.doesNotMatch(body, /Open Bot memory/)
+    assert.doesNotMatch(body, /Search messages in group/)
+    assert.doesNotMatch(body, /Mention a Bot/)
   } finally {
     pageInst.unmount()
   }

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { CheckIcon, ChevronDownIcon } from './icons.js'
 import { useLinger, useViewport, viewBottom } from './motion.js'
 import { registerPopupOwner } from './popup-ownership.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 
 const MENU_EXIT_MS = 120
 const TYPEAHEAD_RESET_MS = 500
@@ -244,6 +245,11 @@ export function SelectMenu({
     if (isDisabled && isOpen) close()
   }, [isDisabled, isOpen])
 
+  useEscape(() => {
+    close()
+    button.current?.focus?.({ preventScroll: true })
+  }, isOpen, { priority: ESCAPE_PRIORITY.SELECT_MENU })
+
   useEffect(() => {
     if (!isOpen || typeof window === 'undefined') return undefined
     const onResize = () => setResizeTick(count => count + 1)
@@ -257,14 +263,6 @@ export function SelectMenu({
       if (!menu.current?.contains(event.target)) close()
     }
     const onKey = (event) => {
-      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) {
-        event.preventDefault()
-        event.stopPropagation()
-        event.stopImmediatePropagation?.()
-        close()
-        button.current?.focus?.({ preventScroll: true })
-        return
-      }
       if (event.key === 'Tab') {
         button.current?.focus?.({ preventScroll: true })
         close()

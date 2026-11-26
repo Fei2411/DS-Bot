@@ -221,6 +221,22 @@ export function install(rt) {
     return ctx.get?.('agentPresets') ?? ctx.agentPresets
   }
 
+  function webService() {
+    return ctx.get?.('web') ?? ctx.web
+  }
+
+  function llmService() {
+    return ctx.get?.('llm') ?? ctx.llm
+  }
+
+  function cleanWebProvider(provider) {
+    return {
+      id: String(provider?.id ?? ''),
+      ...(typeof provider?.title === 'string' && provider.title !== '' ? { title: provider.title } : {}),
+      ...(typeof provider?.description === 'string' && provider.description !== '' ? { description: provider.description } : {}),
+    }
+  }
+
   async function readPresetsRoster() {
     const presets = agentPresetsService()
     if (presets === undefined) return { available: false, writable: false, revision: null, presets: [] }
@@ -485,6 +501,63 @@ export function install(rt) {
           }
         }
         return { sessionId, restored: true, ...(adoptedAgentId ? { adoptedAgentId } : {}) }
+      }
+      case 'web-providers': {
+        const web = webService()
+        if (web === undefined || typeof web.listProviders !== 'function') {
+          return { available: false, search: [], fetch: [] }
+        }
+        const raw = await web.listProviders()
+        return {
+          available: true,
+          search: Array.isArray(raw?.search) ? raw.search.map(cleanWebProvider).filter(p => p.id !== '') : [],
+          fetch: Array.isArray(raw?.fetch) ? raw.fetch.map(cleanWebProvider).filter(p => p.id !== '') : [],
+        }
+      }
+      case 'model-catalog': {
+        const llm = llmService()
+        if (llm !== undefined && typeof llm.listProviders === 'function' && typeof llm.listModels === 'function') {
+          const providers = llm.listProviders() ?? []
+          let partial = false
+          const groups = []
+          for (const provider of providers) {
+            if (!provider?.id) continue
+            try {
+              const rawModels = await llm.listModels(provider.id)
+              const models = Array.isArray(rawModels)
+                ? rawModels
+                  .filter(model => typeof model?.id === 'string' && model.id !== '')
+                  .map(model => ({ id: model.id, name: typeof model.name === 'string' && model.name !== '' ? model.name : model.id }))
+                : []
+              if (models.length > 0) {
+                groups.push({
+                  id: String(provider.id),
+                  name: typeof provider.name === 'string' && provider.name !== '' ? provider.name : String(provider.id),
+                  models,
+                })
+              }
+            } catch {
+              partial = true
+            }
+          }
+          return { available: true, partial, groups }
+        }
+        const cached = typeof rt.cachedCatalog === 'function' ? rt.cachedCatalog() : []
+        const byProvider = new Map()
+        for (const entry of cached ?? []) {
+          const provider = typeof entry?.provider === 'string' ? entry.provider : ''
+          const modelId = typeof entry?.id === 'string' && entry.id !== ''
+            ? entry.id
+            : (typeof entry?.ref === 'string' && provider && entry.ref.startsWith(`${provider}/`) ? entry.ref.slice(provider.length + 1) : '')
+          if (!provider || !modelId) continue
+          let group = byProvider.get(provider)
+          if (!group) {
+            group = { id: provider, name: String(entry.providerName ?? provider), models: [] }
+            byProvider.set(provider, group)
+          }
+          group.models.push({ id: modelId, name: String(entry.name ?? modelId) })
+        }
+        return { available: byProvider.size > 0, partial: false, groups: [...byProvider.values()] }
       }
       case 'classic-sessions': {
         await rt.load()

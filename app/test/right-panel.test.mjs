@@ -151,6 +151,7 @@ const createdUrls = []
 const revokedUrls = []
 const windowEvents = []
 const resizeObservers = []
+const winListeners = new Map()
 const mod = { exports: {} }
 const sandbox = {
   module: mod,
@@ -183,8 +184,12 @@ const sandbox = {
   },
   window: {
     innerWidth: 1280,
-    addEventListener() {},
-    removeEventListener() {},
+    innerHeight: 800,
+    addEventListener(type, fn) {
+      if (!winListeners.has(type)) winListeners.set(type, new Set())
+      winListeners.get(type).add(fn)
+    },
+    removeEventListener(type, fn) { winListeners.get(type)?.delete(fn) },
     dispatchEvent(event) { windowEvents.push(event?.type); return true },
   },
   document: { body: {}, addEventListener() {}, removeEventListener() {}, documentElement: { addEventListener() {}, removeEventListener() {} } },
@@ -1018,5 +1023,183 @@ test('WorkspaceTerminal closes sub-tabs reliably on rapid/concurrent clicks, pre
     assert.ok(themed.theme.background && themed.theme.foreground && themed.theme.cursor)
   } finally {
     inst.unmount()
+  }
+})
+
+test('FileTree watches workspace changes, refreshes without losing expansion/selection/filter, and exposes context menu actions', async () => {
+  const calls = []
+  sandbox.__copied.length = 0
+  winListeners.clear()
+  let extraFileAdded = false
+  sandbox.__testCall = async (endpoint, body) => {
+    calls.push([endpoint, body])
+    if (endpoint === 'workspace-watch') return { watchId: 'w-1', root: '/repo', recursive: true }
+    if (endpoint === 'workspace-unwatch') return { ok: true }
+    if (endpoint === 'workspace-open') return { ok: true }
+    if (endpoint === 'workspace-list') {
+      if (body.path === 'src') {
+        const entries = [{ name: 'app.js', path: 'src/app.js', kind: 'file', size: 128, ext: '.js' }]
+        if (extraFileAdded) entries.push({ name: 'added.js', path: 'src/added.js', kind: 'file', size: 64, ext: '.js' })
+        return { root: '/repo', rootName: 'repo', path: 'src', truncated: false, entries }
+      }
+      const entries = [
+        { name: 'src', path: 'src', kind: 'dir', size: 0, ext: '' },
+        { name: 'README.md', path: 'README.md', kind: 'file', size: 42, ext: '.md' },
+      ]
+      if (extraFileAdded) entries.push({ name: 'notes.md', path: 'notes.md', kind: 'file', size: 12, ext: '.md' })
+      return { root: '/repo', rootName: 'repo', path: '', truncated: false, entries }
+    }
+    return {}
+  }
+
+  const team = createTeam()
+  const openedFiles = []
+  team.actions.openFile = target => openedFiles.push(target)
+
+  const panel = mount(WorkspacePaneBody, {
+    sessionId: 'b1',
+    panel: { tabs: ['files'], tab: 'files' },
+    team,
+    visible: true,
+  })
+  try {
+    panel.render()
+    await tick()
+    let tree = panel.render()
+    assert.equal(calls.some(([ep]) => ep === 'workspace-watch'), true, 'subscribes to workspace-watch on mount')
+
+    // Expand `src` directory.
+    const srcBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-row') && /src/.test(textOf(n)))[0]
+    srcBtn.props.onClick()
+    await tick()
+    tree = panel.render()
+    assert.match(textOf(tree), /app\.js/)
+
+    // External file change triggers soft refresh without collapsing `src`.
+    extraFileAdded = true
+    team.chat.emit('workspace-changed', { root: '/repo', path: '' })
+    await tick()
+    await tick()
+    tree = panel.render()
+    assert.match(textOf(tree), /notes\.md/, 'root listing refreshed')
+    assert.match(textOf(tree), /added\.js/, 'expanded subfolder refreshed while preserving expansion')
+
+    // Open context menu on README.md -> verify actions, Show in folder, Copy path, Copy relative path.
+    const readmeBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-row') && /README\.md/.test(textOf(n)))[0]
+    assert.ok(readmeBtn)
+    readmeBtn.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 120, clientY: 160 })
+    tree = panel.render()
+    const menuItems = all(tree, n => n.type === 'button' && n.props?.role === 'menuitem')
+    assert.deepEqual(menuItems.map(item => textOf(item).trim()), ['Open', 'Show in folder', 'Open in default app', 'Copy path', 'Copy relative path'])
+
+    // Show in folder invokes workspace-open reveal.
+    menuItems[1].props.onClick()
+    await tick()
+    tree = panel.render()
+    assert.equal(calls.some(([ep, b]) => ep === 'workspace-open' && b.path === 'README.md' && b.action === 'reveal'), true)
+    assert.equal(all(tree, n => n.props?.role === 'menu').length, 0, 'menu closes after action')
+
+    // Reopen context menu, Copy path & Copy relative path.
+    readmeBtn.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 120, clientY: 160 })
+    tree = panel.render()
+    all(tree, n => n.type === 'button' && n.props?.role === 'menuitem')[3].props.onClick()
+    await tick()
+    assert.equal(sandbox.__copied.at(-1), '/repo/README.md')
+
+    readmeBtn.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 120, clientY: 160 })
+    tree = panel.render()
+    all(tree, n => n.type === 'button' && n.props?.role === 'menuitem')[4].props.onClick()
+    await tick()
+    assert.equal(sandbox.__copied.at(-1), 'README.md')
+
+    // Folder context menu offers Collapse/Expand and Escape dismisses menu via useEscape.
+    const srcRow = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-row') && /src/.test(textOf(n)))[0]
+    srcRow.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 100, clientY: 100 })
+    tree = panel.render()
+    const dirItems = all(tree, n => n.type === 'button' && n.props?.role === 'menuitem')
+    assert.equal(textOf(dirItems[0]).trim(), 'Collapse')
+
+    for (const fn of [...(winListeners.get('keydown') ?? [])]) {
+      fn({ key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() {}, stopPropagation() {} })
+    }
+    tree = panel.render()
+    assert.equal(all(tree, n => n.props?.role === 'menu').length, 0, 'Escape dismisses file tree context menu')
+  } finally {
+    panel.unmount()
+  }
+  assert.equal(calls.some(([ep]) => ep === 'workspace-unwatch'), true, 'unmount cleans up workspace-unwatch')
+})
+
+test('FilePreview renders SpreadsheetPreview with sheet tabs, merges, formula bar, numeric cells, and truncation notices', () => {
+  const wb = {
+    kind: 'spreadsheet',
+    name: 'budget.xlsx',
+    path: 'budget.xlsx',
+    size: 4096,
+    truncatedSheets: true,
+    totalSheets: 42,
+    sheets: [
+      {
+        name: 'Summary',
+        rowCount: 2,
+        colCount: 3,
+        totalRows: 600,
+        totalCols: 3,
+        truncatedRows: true,
+        truncatedCols: false,
+        merges: [{ r1: 0, c1: 0, r2: 0, c2: 1 }],
+        rows: [
+          [{ v: 'Q4 Report' }, null, { v: 'Status' }],
+          [{ v: '42', num: true }, { v: '84', f: '=A2*2', num: true }, { v: '#DIV/0!', err: true }],
+        ],
+      },
+      {
+        name: 'Details',
+        rowCount: 1,
+        colCount: 2,
+        totalRows: 1,
+        totalCols: 2,
+        truncatedRows: false,
+        truncatedCols: false,
+        merges: [],
+        rows: [
+          [{ v: 'Item' }, { v: 'Notes' }],
+        ],
+      },
+    ],
+  }
+  const view = mount(FilePreview, { file: wb })
+  try {
+    let tree = view.render()
+    const tabs = all(tree, n => n.type === 'button' && n.props?.role === 'tab')
+    assert.deepEqual(tabs.map(tab => textOf(tab).trim()), ['Summary', 'Details'])
+    assert.equal(tabs[0].props['aria-selected'], true)
+
+    // Truncation notices are visible (never silent caps).
+    const bodyText = textOf(tree)
+    assert.match(bodyText, /Showing first 2 of 600 rows/)
+    assert.match(bodyText, /Showing first 2 of 42 sheets/)
+
+    // Merged cell gets colSpan=2, numeric cell gets is-num, formula cell gets has-formula, error cell gets is-err.
+    const cells = all(tree, n => n.type === 'td' && String(n.props?.className ?? '').includes('dsb-pv-sheet-cell'))
+    assert.equal(cells[0].props.colSpan, 2)
+    assert.match(cells[2].props.className, /\bis-num\b/)
+    assert.match(cells[3].props.className, /\bhas-formula\b/)
+    assert.match(cells[4].props.className, /\bis-err\b/)
+
+    // Clicking formula cell shows `B2` and `=A2*2` in the formula bar.
+    cells[3].props.onClick()
+    tree = view.render()
+    assert.match(textOf(tree), /B2/)
+    assert.match(textOf(tree), /=A2\*2/)
+
+    // Switching to Details sheet renders Details cells.
+    const detailsTab = all(tree, n => n.type === 'button' && n.props?.role === 'tab')[1]
+    detailsTab.props.onClick()
+    tree = view.render()
+    assert.match(textOf(tree), /Item/)
+    assert.match(textOf(tree), /Notes/)
+  } finally {
+    view.unmount()
   }
 })

@@ -4,7 +4,7 @@
 // open, can be replayed from About DS Bot, and every section has its own focused guide.
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CloseIcon } from './icons.js'
-import { useEscape } from './overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { isImeComposing } from './enter-key.js'
 import { t } from './i18n.js'
 import { ownedPopups } from './popup-ownership.js'
@@ -289,8 +289,8 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     setStepState(prev => ({ key: tourKey, index: Math.max(0, (prev.key === tourKey ? prev.index : 0) - 1) }))
   }, [active, tourKey])
 
-  // Priority 1 catches Escape before SettingsDialog closes.
-  useEscape(dismiss, active, { priority: 1 })
+  // Tour sits above SettingsDialog (0) and below dialogs/sheets opened on top of Settings.
+  useEscape(dismiss, active, { priority: ESCAPE_PRIORITY.TOUR })
 
   useLayoutEffect(() => {
     if (!active) return undefined

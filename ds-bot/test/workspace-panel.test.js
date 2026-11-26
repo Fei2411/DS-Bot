@@ -6,9 +6,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { test } from 'node:test'
+import { deflateRawSync } from 'node:zlib'
 import { install as installFeed } from '../src/host/feed.js'
 import { install as installFolders } from '../src/host/folders.js'
 import { install as installWorkspacePanel } from '../src/host/workspace-panel.js'
+import { parseXlsxBuffer } from '../src/host/xlsx-preview.js'
 
 function createRuntime(rootDir, { dshHome, workspaceChanges, subprocess, bots, liveSessions, chatOwners } = {}) {
   const localFeedEvents = []
@@ -460,4 +462,223 @@ test('feed.js publishLocalFeed never notifies remote feedTap / subscribeFeed lis
   rt.publishFeed('live', { ok: true })
   assert.equal(tapSeen.some(e => e.event === 'terminal'), false)
   assert.equal(tapSeen.some(e => e.event === 'live'), true)
+})
+
+function crc32(buf) {
+  let c = 0xffffffff
+  for (let i = 0; i < buf.length; i += 1) {
+    c ^= buf[i]
+    for (let k = 0; k < 8; k += 1) c = (c >>> 1) ^ (0xedb88320 & -(c & 1))
+  }
+  return (c ^ 0xffffffff) >>> 0
+}
+
+function buildZip(files) {
+  const locals = []
+  const centrals = []
+  let offset = 0
+  for (const [name, raw] of Object.entries(files)) {
+    const nameBuf = Buffer.from(name, 'utf8')
+    const data = Buffer.isBuffer(raw) ? raw : Buffer.from(String(raw), 'utf8')
+    const comp = deflateRawSync(data)
+    const crc = crc32(data)
+    const lfh = Buffer.alloc(30)
+    lfh.writeUInt32LE(0x04034b50, 0)
+    lfh.writeUInt16LE(20, 4)
+    lfh.writeUInt16LE(0, 6)
+    lfh.writeUInt16LE(8, 8)
+    lfh.writeUInt32LE(crc, 14)
+    lfh.writeUInt32LE(comp.length, 18)
+    lfh.writeUInt32LE(data.length, 22)
+    lfh.writeUInt16LE(nameBuf.length, 26)
+    lfh.writeUInt16LE(0, 28)
+    locals.push(lfh, nameBuf, comp)
+
+    const cdh = Buffer.alloc(46)
+    cdh.writeUInt32LE(0x02014b50, 0)
+    cdh.writeUInt16LE(20, 4)
+    cdh.writeUInt16LE(20, 6)
+    cdh.writeUInt16LE(0, 8)
+    cdh.writeUInt16LE(8, 10)
+    cdh.writeUInt32LE(crc, 16)
+    cdh.writeUInt32LE(comp.length, 20)
+    cdh.writeUInt32LE(data.length, 24)
+    cdh.writeUInt16LE(nameBuf.length, 28)
+    cdh.writeUInt16LE(0, 30)
+    cdh.writeUInt16LE(0, 32)
+    cdh.writeUInt32LE(offset, 42)
+    centrals.push(cdh, nameBuf)
+    offset += lfh.length + nameBuf.length + comp.length
+  }
+  const cdBuf = Buffer.concat(centrals)
+  const eocd = Buffer.alloc(22)
+  eocd.writeUInt32LE(0x06054b50, 0)
+  eocd.writeUInt16LE(Object.keys(files).length, 8)
+  eocd.writeUInt16LE(Object.keys(files).length, 10)
+  eocd.writeUInt32LE(cdBuf.length, 12)
+  eocd.writeUInt32LE(offset, 16)
+  return Buffer.concat([...locals, cdBuf, eocd])
+}
+
+test('workspace-watch debounces events, ignores .git/node_modules, bounds watches, and cleans up on unwatch/dispose', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-watch-'))
+  const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-watch-dsh-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+  mkdirSync(join(workDir, 'src'), { recursive: true })
+
+  const watchers = []
+  const { rt, localFeedEvents, sharedFeedEvents } = createRuntime(workDir, { dshHome })
+  rt.workspaceWatchDebounceMs = 20
+  rt.watchWorkspaceDir = (dir, opts, onEvent) => {
+    const entry = { dir, opts, onEvent, closed: false, close() { this.closed = true } }
+    watchers.push(entry)
+    return entry
+  }
+
+  const started = await rt.workspaceEndpoint('watch', { sessionId: 'b1' })
+  assert.ok(started.watchId)
+  assert.equal(watchers.length, 1)
+
+  // Ignored paths (.git, node_modules, .DS_Store) emit nothing.
+  watchers[0].onEvent('change', '.git/HEAD')
+  watchers[0].onEvent('change', 'node_modules/pkg/index.js')
+  watchers[0].onEvent('change', '.DS_Store')
+  await new Promise(resolve => setTimeout(resolve, 45))
+  assert.equal(localFeedEvents.length, 0)
+
+  // Rapid bursts coalesce into a single debounced local-only `workspace-changed` event.
+  watchers[0].onEvent('rename', 'src/a.js')
+  watchers[0].onEvent('change', 'src/b.js')
+  watchers[0].onEvent('change', 'README.md')
+  await new Promise(resolve => setTimeout(resolve, 45))
+  assert.equal(localFeedEvents.length, 1)
+  assert.equal(localFeedEvents[0].event, 'workspace-changed')
+  assert.deepEqual(localFeedEvents[0].data.paths.sort(), ['README.md', 'src/a.js', 'src/b.js'])
+  assert.equal(sharedFeedEvents.length, 0, 'workspace-changed stays local-only')
+
+  // Unwatch closes watcher and stops further events.
+  const removed = await rt.workspaceEndpoint('unwatch', { watchId: started.watchId })
+  assert.equal(removed.removed, true)
+  assert.equal(watchers[0].closed, true)
+
+  // Opening more than 8 watches evicts the oldest, and terminalDispose closes all remaining watchers.
+  for (let i = 0; i < 10; i += 1) {
+    await rt.workspaceEndpoint('watch', { sessionId: 'b1' })
+  }
+  const openCount = watchers.filter(w => !w.closed).length
+  assert.equal(openCount, 8)
+  await rt.terminalDispose()
+  assert.equal(watchers.every(w => w.closed), true)
+})
+
+test('workspace-open enforces containment and dispatches reveal/open actions', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-open-'))
+  const outsideDir = mkdtempSync(join(tmpdir(), 'dsb-wp-open-out-'))
+  const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-open-dsh-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+  writeFileSync(join(workDir, 'doc.txt'), 'hello')
+  writeFileSync(join(outsideDir, 'secret.txt'), 'nope')
+
+  const opened = []
+  const { rt } = createRuntime(workDir, { dshHome })
+  rt.openWorkspacePath = async (spec) => { opened.push(spec) }
+
+  const revealed = await rt.workspaceEndpoint('open', { sessionId: 'b1', path: 'doc.txt', action: 'reveal' })
+  assert.equal(revealed.ok, true)
+  const launched = await rt.workspaceEndpoint('open', { sessionId: 'b1', path: 'doc.txt', action: 'open' })
+  assert.equal(launched.ok, true)
+  assert.equal(opened.length, 2)
+  assert.equal(opened[0].action, 'reveal')
+  assert.equal(opened[1].action, 'open')
+  assert.equal(opened[0].isDirectory, false)
+
+  await assert.rejects(() => rt.workspaceEndpoint('open', { sessionId: 'b1', path: '../secret.txt', action: 'reveal' }), { code: 'bot/refused' })
+  await assert.rejects(() => rt.workspaceEndpoint('open', { sessionId: 'b1', path: join(outsideDir, 'secret.txt'), action: 'open' }), { code: 'bot/refused' })
+  await assert.rejects(() => rt.workspaceEndpoint('open', { sessionId: 'b1', path: 'doc.txt', action: 'delete' }), { code: 'bot/invalid' })
+})
+
+test('parseXlsxBuffer and workspace-read decode multi-sheet .xlsx workbooks with shared strings, dates, formulas, and merges', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-xlsx-'))
+  const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-xlsx-dsh-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+
+  const xlsxBuf = buildZip({
+    'xl/workbook.xml': `<?xml version="1.0" encoding="UTF-8"?>
+      <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <sheets>
+          <sheet name="Summary" sheetId="1" r:id="rId1"/>
+          <sheet name="Notes" sheetId="2" r:id="rId2"/>
+        </sheets>
+      </workbook>`,
+    'xl/_rels/workbook.xml.rels': `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+        <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+      </Relationships>`,
+    'xl/sharedStrings.xml': `<?xml version="1.0" encoding="UTF-8"?>
+      <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="3" uniqueCount="3">
+        <si><t>Budget &amp; Plan</t></si>
+        <si><r><t>Rich </t></r><r><t>Label</t></r></si>
+        <si><t>Second sheet</t></si>
+      </sst>`,
+    'xl/styles.xml': `<?xml version="1.0" encoding="UTF-8"?>
+      <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <cellXfs count="2">
+          <xf numFmtId="0"/>
+          <xf numFmtId="14"/>
+        </cellXfs>
+      </styleSheet>`,
+    'xl/worksheets/sheet1.xml': `<?xml version="1.0" encoding="UTF-8"?>
+      <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <sheetData>
+          <row r="1">
+            <c r="A1" t="s"><v>0</v></c>
+            <c r="C1" t="s"><v>1</v></c>
+          </row>
+          <row r="2">
+            <c r="A2"><v>42</v></c>
+            <c r="B2"><f>A2*2</f><v>84</v></c>
+            <c r="C2" s="1"><v>45658</v></c>
+            <c r="D2" t="e"><v>#DIV/0!</v></c>
+          </row>
+        </sheetData>
+        <mergeCells count="1"><mergeCell ref="A1:B1"/></mergeCells>
+      </worksheet>`,
+    'xl/worksheets/sheet2.xml': `<?xml version="1.0" encoding="UTF-8"?>
+      <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <sheetData>
+          <row r="1"><c r="A1" t="s"><v>2</v></c></row>
+        </sheetData>
+      </worksheet>`,
+  })
+
+  const parsed = parseXlsxBuffer(xlsxBuf)
+  assert.equal(parsed.sheets.length, 2)
+  assert.equal(parsed.sheets[0].name, 'Summary')
+  assert.equal(parsed.sheets[0].rows[0][0].v, 'Budget & Plan')
+  assert.equal(parsed.sheets[0].rows[0][2].v, 'Rich Label')
+  assert.deepEqual(parsed.sheets[0].merges, [{ r1: 0, c1: 0, r2: 0, c2: 1 }])
+  assert.deepEqual(parsed.sheets[0].rows[1][0], { v: '42', num: true })
+  assert.deepEqual(parsed.sheets[0].rows[1][1], { v: '84', f: '=A2*2', num: true })
+  assert.equal(parsed.sheets[0].rows[1][2].v, '2025-01-01')
+  assert.deepEqual(parsed.sheets[0].rows[1][3], { v: '#DIV/0!', err: true })
+  assert.equal(parsed.sheets[1].name, 'Notes')
+  assert.equal(parsed.sheets[1].rows[0][0].v, 'Second sheet')
+
+  writeFileSync(join(workDir, 'budget.xlsx'), xlsxBuf)
+  const { rt } = createRuntime(workDir, { dshHome })
+  const read = await rt.workspaceEndpoint('read', { sessionId: 'b1', path: 'budget.xlsx' })
+  assert.equal(read.kind, 'spreadsheet')
+  assert.equal(read.sheets.length, 2)
+  assert.equal(read.sheets[0].name, 'Summary')
 })

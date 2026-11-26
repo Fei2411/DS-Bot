@@ -5,6 +5,21 @@ import { useEffect, useRef } from 'react'
 
 // Escape closes only the newest open layer at the highest priority, so a dialog,
 // menu, or inline editor over the details pane does not take the pane down with it.
+export const ESCAPE_PRIORITY = {
+  PANEL: -1,
+  DRAWER: 0,
+  DIALOG: 0,
+  TOUR: 5,
+  PALETTE: 10,
+  INLINE_ACTION: 12,
+  MENU: 15,
+  SHORTCUTS: 20,
+  MODAL_CHILD: 30,
+  SELECT_MENU: 35,
+  LIGHTBOX: 40,
+  RECORDING: 100,
+}
+
 const escapeLayers = []
 export function hasEscapeLayer() {
   return escapeLayers.length > 0
@@ -16,9 +31,17 @@ const topEscapeLayer = () => {
   }
   return top
 }
+export function topEscapePriority() {
+  const top = topEscapeLayer()
+  return top === null ? -Infinity : top.priority
+}
 const onEscapeKey = (event) => {
   if (event.defaultPrevented || event.key !== 'Escape' || event.isComposing || event.keyCode === 229) return
-  topEscapeLayer()?.ref.current()
+  const top = topEscapeLayer()
+  if (!top) return
+  event.preventDefault?.()
+  event.stopPropagation?.()
+  top.ref.current()
 }
 export function useEscape(onClose, active = true, { priority = 0 } = {}) {
   const ref = useRef(onClose)

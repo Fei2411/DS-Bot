@@ -37,17 +37,22 @@ export function KeyCaps({ caps, className = '' }) {
     caps.map((cap, index) => h('kbd', { key: `${cap}-${index}`, className: 'bt-kbd' }, cap)))
 }
 
-function labelForDef(def) {
-  return def.labelVars ? t(def.label, def.labelVars) : t(def.label)
+function labelForDef(def, classic = false) {
+  const key = classic && def.classicLabel ? def.classicLabel : def.label
+  return def.labelVars ? t(key, def.labelVars) : t(key)
 }
 
-export function ShortcutsPage({ roster, actions, Section, Row, store = shortcutsStore }) {
+export function ShortcutsPage({ roster, actions, surfaceMode = 'bot', Section, Row, store = shortcutsStore }) {
   const overrides = useShortcutOverrides(store)
   const mac = isMacPlatform()
+  const classic = surfaceMode === 'agent'
   const enterToSend = sendsOnEnter(roster?.prefs)
   const hasSurface = typeof actions?.setSurface === 'function'
   const hasBrowser = typeof actions?.openBrowser === 'function' && roster?.browser !== false
-  const hasInbox = typeof actions?.openInbox === 'function'
+  const hasInbox = !classic && typeof actions?.openInbox === 'function'
+  const hasDetails = !classic
+  const hasMemory = !classic
+  const hasGroupSearch = !classic
 
   const [query, setQuery] = useState('')
   const [recordingId, setRecordingId] = useState(null)
@@ -144,15 +149,16 @@ export function ShortcutsPage({ roster, actions, Section, Row, store = shortcuts
 
   const wanted = query.trim().toLowerCase()
   const visibleDefs = useMemo(() => {
-    const capabilities = { hasSurface, hasBrowser, hasInbox }
+    const capabilities = { hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch }
     return SHORTCUT_DEFS.filter((def) => {
       if (!isCommandAvailable(def, capabilities)) return false
       if (!wanted) return true
-      const label = labelForDef(def).toLowerCase()
+      const label = labelForDef(def, classic).toLowerCase()
+      const rawLabel = (classic && def.classicLabel ? def.classicLabel : def.label).toLowerCase()
       const caps = formatBindingCaps(effectiveBinding(def.id, overrides), mac).join(' ').toLowerCase()
-      return label.includes(wanted) || def.label.toLowerCase().includes(wanted) || caps.includes(wanted)
+      return label.includes(wanted) || rawLabel.includes(wanted) || caps.includes(wanted)
     })
-  }, [hasSurface, hasBrowser, hasInbox, wanted, overrides, mac])
+  }, [hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch, classic, wanted, overrides, mac])
 
   const grouped = useMemo(() => {
     const byGroup = new Map()
@@ -172,14 +178,14 @@ export function ShortcutsPage({ roster, actions, Section, Row, store = shortcuts
     const all = [
       { id: 'fixed:send', label: t('Send message'), caps: enterToSend ? ['Enter'] : [modCap, 'Enter'] },
       { id: 'fixed:newline', label: t('New line'), caps: enterToSend ? [shiftCap, 'Enter'] : ['Enter'] },
-      { id: 'fixed:mention', label: t('Mention a Bot'), caps: ['@'] },
+      ...(classic ? [] : [{ id: 'fixed:mention', label: t('Mention a Bot'), caps: ['@'] }]),
       { id: 'fixed:commands', label: t('Commands'), caps: ['/'] },
       { id: 'fixed:stop-esc', label: t('Stop generating'), caps: ['Esc', 'Esc'] },
       { id: 'fixed:escape', label: t('Close dialog or menu'), caps: ['Esc'] },
     ]
     if (!wanted) return all
     return all.filter(row => row.label.toLowerCase().includes(wanted) || row.caps.join(' ').toLowerCase().includes(wanted))
-  }, [enterToSend, modCap, shiftCap, wanted])
+  }, [enterToSend, modCap, shiftCap, classic, wanted])
 
   const startRecording = (id) => {
     if (recordingId === id) {
@@ -252,7 +258,7 @@ export function ShortcutsPage({ roster, actions, Section, Row, store = shortcuts
         const customized = Object.prototype.hasOwnProperty.call(overrides, def.id)
         const isRecording = recordingId === def.id
         const rowNotice = notice?.id === def.id ? notice : null
-        const label = labelForDef(def)
+        const label = labelForDef(def, classic)
         return h('div', { key: def.id, className: 'bt-sc-item', 'data-shortcut-row': def.id },
           h(Row, {
             label: h('span', { className: 'bt-sc-name' },
@@ -285,7 +291,7 @@ export function ShortcutsPage({ roster, actions, Section, Row, store = shortcuts
           rowNotice?.kind === 'conflict'
             ? h('div', { className: 'bt-sc-alert', role: 'alert' },
               h('span', { className: 'bt-sc-alert-text' },
-                t('Already used by {name}', { name: labelForDef(rowNotice.conflict) })),
+                t('Already used by {name}', { name: labelForDef(rowNotice.conflict, classic) })),
               h('div', { className: 'bt-sc-alert-actions' },
                 h('button', { type: 'button', className: 'bt-mini', onClick: () => setNotice(null) }, t('Cancel')),
                 h('button', { type: 'button', className: 'bt-mini bt-sc-replace', onClick: acceptConflict }, t('Replace'))))

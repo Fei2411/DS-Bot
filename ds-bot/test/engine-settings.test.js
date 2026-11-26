@@ -513,3 +513,57 @@ test('Classic Agent approvals bridge into approvalsView without botId, and sessi
   assert.equal(await rt.stopAgent('a1'), true)
   assert.deepEqual(cancelled, [['cs-2', { kind: 'user' }], ['cs-1', { kind: 'user' }]])
 })
+
+test('engine-web-providers and engine-model-catalog expose registered providers/models, allow read-only, and refuse remote', async () => {
+  const web = {
+    async listProviders() {
+      return {
+        search: [{ id: 'deepseek-search-api', title: 'DeepSeek Search API', available: true }],
+        fetch: [{ id: 'http', title: 'Direct HTTP', available: true }],
+      }
+    },
+  }
+  const llm = {
+    listProviders() {
+      return [
+        { id: 'deepseek', name: 'DeepSeek' },
+        { id: 'flaky', name: 'Flaky Provider' },
+      ]
+    },
+    async listModels(providerId) {
+      if (providerId === 'flaky') throw new Error('provider offline')
+      return [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }, { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner' }]
+    },
+  }
+  const { rt } = makeHarness({ readOnly: 'Another dsh holds this team', services: { web, llm } })
+
+  const webRes = await rt.channelCall('engine-web-providers', {})
+  assert.equal(webRes.ok, true)
+  assert.equal(webRes.value.available, true)
+  assert.deepEqual(webRes.value.search.map(p => p.id), ['deepseek-search-api'])
+  assert.deepEqual(webRes.value.fetch.map(p => p.id), ['http'])
+
+  const catRes = await rt.channelCall('engine-model-catalog', {})
+  assert.equal(catRes.ok, true)
+  assert.equal(catRes.value.available, true)
+  assert.equal(catRes.value.partial, true, 'flaky provider failure sets partial=true while keeping healthy providers')
+  assert.equal(catRes.value.groups.length, 1)
+  assert.deepEqual(catRes.value.groups[0].models.map(m => m.id), ['deepseek-chat', 'deepseek-reasoner'])
+
+  // Remote/phone access refuses both read endpoints.
+  for (const ep of ['engine-web-providers', 'engine-model-catalog']) {
+    assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, ep).code, 'bot/refused')
+    assert.equal(remoteAccessError({ deviceId: 'b1', kind: 'browser' }, ep).code, 'bot/refused')
+  }
+
+  // Fallback to rt.cachedCatalog() when ctx.llm is absent.
+  const { rt: fallbackRt } = makeHarness()
+  fallbackRt.cachedCatalog = () => [
+    { ref: 'openai/gpt-5', provider: 'openai', providerName: 'OpenAI', name: 'GPT-5' },
+  ]
+  const fbRes = await fallbackRt.channelCall('engine-model-catalog', {})
+  assert.equal(fbRes.ok, true)
+  assert.equal(fbRes.value.groups.length, 1)
+  assert.equal(fbRes.value.groups[0].id, 'openai')
+  assert.equal(fbRes.value.groups[0].models[0].id, 'gpt-5')
+})
