@@ -78,6 +78,8 @@ export const KO = {
   'A new reply is waiting': "새 답변이 도착했습니다",
   'Opening…': '여는 중…',
   'Still opening…': '아직 여는 중…',
+  'This session is not available yet.': '이 세션을 아직 열 수 없습니다.',
+  'This session is no longer available.': '이 세션은 더 이상 존재하지 않습니다.',
   "Android beta": "Android 베타",
   "Cannot reach the Server. Trying again…": "서버에 연결할 수 없습니다. 다시 시도하는 중…",
   "No phones yet": "아직 휴대폰이 없습니다",

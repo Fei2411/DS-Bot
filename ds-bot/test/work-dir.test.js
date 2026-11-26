@@ -868,7 +868,7 @@ test('a team workspace that holds the data still keeps Bots out of it', async (t
   // Nor can a photo be read out of the data root into the team.
   writeFileSync(join(dsh, 'profiles', 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
   const pic = join(dsh, 'profiles', 'pic.png')
-  assert.equal(await tool('update_bot', { avatar: pic }, 'b'), `Could not update the Bot: ${pic} is in DeepSeek Harness data, so it cannot be a Bot's photo. Pass an image from another folder.`)
+  assert.equal(await tool('update_bot', { avatar: pic }, 'b'), `Could not update the Bot: ${pic} is in DeepSeek Harness data, so it cannot be used as a photo. Pass an image from another folder.`)
 })
 
 // #508: the exception covers a workspace lying inside a data root, not one equal to
@@ -891,7 +891,7 @@ test('a team workspace that is a data root still keeps Bots out of it', async (t
     }
     writeFileSync(join(env.dsh, 'profiles', 'pic.png'), PNG)
     const pic = join(env.dsh, 'profiles', 'pic.png')
-    assert.equal(await env.tool('update_bot', { avatar: pic }, 'b'), `Could not update the Bot: ${pic} is in DeepSeek Harness data, so it cannot be a Bot's photo. Pass an image from another folder.`)
+    assert.equal(await env.tool('update_bot', { avatar: pic }, 'b'), `Could not update the Bot: ${pic} is in DeepSeek Harness data, so it cannot be used as a photo. Pass an image from another folder.`)
   }
 })
 

@@ -1838,7 +1838,10 @@ export function install(rt) {
         if (chat === undefined) continue
         entry.edited = true
         const body = entry.text !== undefined ? `${entry.text}\n— ${entry.answer}` : `(${text('answered')})`
-        runner.handle.edit({ key: entry.chatKey, kind: chat.kind, title: chat.title }, entry.messageId, { text: body }).catch(() => {})
+        // The platform sent the card as its own final chunk; tell the adapter how much of
+        // `body` was already on screen so an edit rewrites that chunk instead of the head
+        // of the card.
+        runner.handle.edit({ key: entry.chatKey, kind: chat.kind, title: chat.title }, entry.messageId, { text: body, sentLength: entry.text?.length }).catch(() => {})
         scheduleWrite(conn.id)
       }
     }

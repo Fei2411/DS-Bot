@@ -761,16 +761,16 @@ test('a group retry that cannot read the catalog logs and keeps the retry, it do
   assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
 })
 
-// #1937: a Bot's model applied at a start can fail, e.g. while its Session is not in
-// the live store yet; only a restart applied it again. It is now retried at the next
-// trigger, so a Session that comes back is fixed without a restart.
+// #1937: a Bot's model applied at a start can fail transiently, e.g. while its Session is
+// unavailable; only a restart applied it again. It is now retried at the next trigger, so
+// a Session that recovers is fixed without a restart.
 test('a Bot whose model could not be applied is retried at the next sync, though the models are the same', async () => {
   const { rt, selected } = bench()
   rt.state.bots = { b1: { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' } }
   const select = rt.ctx.sessionController.selectModel
   let failed = false
   rt.ctx.sessionController.selectModel = async (request) => {
-    if (!failed) { failed = true; throw new Error('session "b1" not found') }
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
     return select(request)
   }
   await rt.catalog()
@@ -812,9 +812,9 @@ test('a model that fails to apply again is kept for the next turn of its Bot to 
   const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
   rt.state.bots = { b1: bot }
   const select = rt.ctx.sessionController.selectModel
-  rt.ctx.sessionController.selectModel = async () => { throw new Error('session "b1" not found') }
+  rt.ctx.sessionController.selectModel = async () => { throw new Error('Session unavailable') }
   await rt.catalog()
-  await assert.rejects(rt.reapplyModel(bot), /session "b1" not found/)
+  await assert.rejects(rt.reapplyModel(bot), /Session unavailable/)
   // The next turn proves the Session can be reached; the recorded retry runs then.
   rt.ctx.sessionController.selectModel = select
   await rt.retryModel('b1')
@@ -835,10 +835,10 @@ test('a forced rewrite that failed is retried with its force, though the record 
   const select = rt.ctx.sessionController.selectModel
   let failed = false
   rt.ctx.sessionController.selectModel = async (request) => {
-    if (!failed) { failed = true; throw new Error('session "b1" not found') }
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
     return select(request)
   }
-  await assert.rejects(rt.reapplyModel(bot), /session "b1" not found/)
+  await assert.rejects(rt.reapplyModel(bot), /Session unavailable/)
   assert.deepEqual(selected, [])
   // The record matches the model, so only the force the failure carried writes again.
   await rt.retryModel('b1')
@@ -893,10 +893,10 @@ test('a failed Session keeps its retry when no model can be written yet, and cle
   const select = rt.ctx.sessionController.selectModel
   let failed = false
   rt.ctx.sessionController.selectModel = async (request) => {
-    if (!failed) { failed = true; throw new Error('session "b1" not found') }
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
     return select(request)
   }
-  await assert.rejects(rt.reapplyModel(bot, 'b1'), /not found/)
+  await assert.rejects(rt.reapplyModel(bot, 'b1'), /Session unavailable/)
   assert.deepEqual(selected, [])
   // For a moment the Bot has no model to write: the retry trigger must not drop the
   // record of the Session that still owes its selection.
@@ -1020,12 +1020,12 @@ test('restoring a preferred provider after a partial fallback apply reconciles b
   const select = rt.ctx.sessionController.selectModel
   let failMain = true
   rt.ctx.sessionController.selectModel = async (request) => {
-    if (request.sessionId === 'b1' && failMain) throw new Error('session "b1" not found')
+    if (request.sessionId === 'b1' && failMain) throw new Error('Session unavailable')
     return select(request)
   }
   // preferred/x is absent: applyModel tries fallback/y; b1 fails while b1-bg succeeds,
   // leaving bot.appliedModel on preferred/x and b1-bg on fallback/y.
-  await assert.rejects(rt.applyModel(bot), /session "b1" not found/)
+  await assert.rejects(rt.applyModel(bot), /Session unavailable/)
   assert.equal(bot.appliedModel, 'preferred/x')
   assert.deepEqual(selected, ['b1-bg:fallback/y'])
   selected.length = 0
@@ -1051,10 +1051,10 @@ test('restoring a preferred provider after restart reconciles a background part 
   firstRt.state.bots = { b1: bot }
   const firstSelect = firstRt.ctx.sessionController.selectModel
   firstRt.ctx.sessionController.selectModel = async (request) => {
-    if (request.sessionId === 'b1') throw new Error('session "b1" not found')
+    if (request.sessionId === 'b1') throw new Error('Session unavailable')
     return firstSelect(request)
   }
-  await assert.rejects(firstRt.applyModel(bot), /session "b1" not found/)
+  await assert.rejects(firstRt.applyModel(bot), /Session unavailable/)
   assert.equal(bot.appliedModel, 'preferred/x')
   assert.deepEqual(firstSelected, ['b1-bg:fallback/y'])
   assert.deepEqual(firstRt.state.sessionModelSelections['b1-bg'].requested, { provider: 'fallback', model: 'y' })
@@ -1345,4 +1345,182 @@ test('selectRoomSession checks resolveModelInfo when listModels omits inputModal
   ctx.llm.listProviders = listProviders
   await rt.syncModels()
   assert.ok(selected.includes('r1:local-claude-code/default'), selected.join(', '))
+})
+
+test('missing Sessions stop retrying instead of looping in sessionRetry, and heal once back in the library', async () => {
+  const listed = new Set()
+  const lost = new Set(['b1', 'b1-task', 'g1', 'r1'])
+  const attempts = []
+  const kickoffs = []
+  const { rt, selected } = bench({
+    services: {
+      sessionQuery: {
+        listSessions: async () => [...listed].map(id => ({ header: { id }, persisted: true, live: false })),
+      },
+    },
+  })
+  const bot = {
+    id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x',
+    tasks: [{ id: 't1', sessionId: 'b1-task', status: 'running', segments: [] }],
+  }
+  rt.state.bots = { b1: bot }
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: ['b1'] } }
+  rt.groupSessionsOf = () => ['g1']
+  rt.sessionOfRoom = room => room.id
+  rt.roomOf = id => rt.state.rooms[id]
+  rt.releaseKickoff = async (target) => { kickoffs.push(target.id) }
+
+  const select = rt.ctx.sessionController.selectModel
+  rt.ctx.sessionController.selectModel = async (request) => {
+    attempts.push(request.sessionId)
+    if (lost.has(request.sessionId)) {
+      throw Object.assign(new Error(`session "${request.sessionId}" not found`), { code: 'session/not-found' })
+    }
+    return select(request)
+  }
+
+  // First sync encounters missing foreground, task, group member, and room Sessions once.
+  await rt.catalog()
+  await rt.syncModels()
+  assert.equal(bot.sessionMissing, 'b1')
+  assert.equal(bot.appliedModel, 'gone/x')
+  assert.deepEqual(attempts, ['b1', 'b1-task', 'g1', 'r1'])
+  assert.deepEqual(selected, [])
+
+  // Subsequent syncModels / retryModel do NOT loop retrying missing Sessions.
+  await rt.syncModels()
+  await rt.retryModel('b1')
+  assert.deepEqual(attempts, ['b1', 'b1-task', 'g1', 'r1'])
+
+  // Read-only host never heals or mutates missing-Session markers.
+  lost.clear()
+  for (const id of ['b1', 'b1-task', 'g1', 'r1']) listed.add(id)
+  rt.readOnly = () => 'another dsh holds the team'
+  rt.dropCatalog()
+  await rt.syncModels()
+  assert.equal(bot.sessionMissing, 'b1')
+  assert.deepEqual(selected, [])
+  assert.deepEqual(kickoffs, [])
+
+  // Writable host heals sessionMissing, goneParts, and missingRoomSessions, reapplies models, and releases kickoff.
+  rt.readOnly = () => undefined
+  rt.dropCatalog()
+  await rt.syncModels()
+  assert.equal(bot.sessionMissing, undefined)
+  assert.equal(bot.appliedModel, 'deepseek/v4-flash')
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'b1-task:deepseek/v4-flash', 'g1:deepseek/v4-flash', 'r1:deepseek/v4-flash'])
+  assert.deepEqual(kickoffs, ['b1'])
+})
+
+test('a restored Session heals immediately on forced model change and on same-catalog syncModels (#2004 review)', async () => {
+  // Case 1: Bot Settings forces a model change after the Session is restored — must heal via library check without skipping.
+  {
+    const listed = new Set()
+    const lost = new Set(['b1'])
+    const kickoffs = []
+    const { rt, selected } = bench({
+      services: {
+        sessionQuery: {
+          listSessions: async () => [...listed].map(id => ({ header: { id }, persisted: true, live: false })),
+        },
+      },
+    })
+    const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+    rt.state.bots = { b1: bot }
+    rt.releaseKickoff = async (target) => { kickoffs.push(target.id) }
+    const select = rt.ctx.sessionController.selectModel
+    rt.ctx.sessionController.selectModel = async (request) => {
+      if (lost.has(request.sessionId)) {
+        throw Object.assign(new Error(`session "${request.sessionId}" not found`), { code: 'session/not-found' })
+      }
+      return select(request)
+    }
+
+    await rt.catalog()
+    await rt.syncModels()
+    assert.equal(bot.sessionMissing, 'b1')
+    assert.deepEqual(selected, [])
+
+    // Restore Session to library and change model in Bot Settings (force: true) without catalog change.
+    lost.clear()
+    listed.add('b1')
+    bot.model = 'stepfun/step-5'
+    await rt.applyModel(bot, { force: true })
+    assert.equal(bot.sessionMissing, undefined)
+    assert.equal(bot.appliedModel, 'stepfun/step-5')
+    assert.deepEqual(selected, ['b1:stepfun/step-5'])
+    assert.deepEqual(kickoffs, ['b1'])
+  }
+
+  // Case 2: Restored Session heals on a same-catalog syncModels() without requiring a catalog change.
+  {
+    const listed = new Set()
+    const lost = new Set(['b1'])
+    const { rt, selected } = bench({
+      services: {
+        sessionQuery: {
+          listSessions: async () => [...listed].map(id => ({ header: { id }, persisted: true, live: false })),
+        },
+      },
+    })
+    const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+    rt.state.bots = { b1: bot }
+    const select = rt.ctx.sessionController.selectModel
+    rt.ctx.sessionController.selectModel = async (request) => {
+      if (lost.has(request.sessionId)) {
+        throw Object.assign(new Error(`session "${request.sessionId}" not found`), { code: 'session/not-found' })
+      }
+      return select(request)
+    }
+
+    await rt.catalog()
+    await rt.syncModels()
+    assert.equal(bot.sessionMissing, 'b1')
+    assert.deepEqual(selected, [])
+
+    // Restore Session to library; same-catalog syncModels() heals and applies without dropCatalog().
+    lost.clear()
+    listed.add('b1')
+    await rt.syncModels()
+    assert.equal(bot.sessionMissing, undefined)
+    assert.equal(bot.appliedModel, 'deepseek/v4-flash')
+    assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+  }
+
+  // Case 3: Overlapping same-catalog syncModels() polls while sessionMissing persists coalesce into one library listing.
+  {
+    let listCalls = 0
+    let releaseList
+    const pendingList = new Promise(resolve => { releaseList = resolve })
+    const { rt } = bench({
+      services: {
+        sessionQuery: {
+          listSessions: async () => {
+            listCalls += 1
+            await pendingList
+            return []
+          },
+        },
+      },
+    })
+    const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+    rt.state.bots = { b1: bot }
+    rt.ctx.sessionController.selectModel = async () => {
+      throw Object.assign(new Error('session "b1" not found'), { code: 'session/not-found' })
+    }
+
+    await rt.catalog()
+    await rt.syncModels()
+    assert.equal(bot.sessionMissing, 'b1')
+    assert.equal(listCalls, 0)
+
+    const polls = Array.from({ length: 6 }, () => rt.syncModels())
+    releaseList()
+    await Promise.all(polls)
+    assert.equal(listCalls, 1)
+    // Another immediate poll within the cooldown does not issue another listing.
+    await rt.syncModels()
+    assert.equal(listCalls, 1)
+  }
 })
