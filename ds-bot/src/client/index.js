@@ -260,6 +260,7 @@ export function apply(ctx) {
     // The read-only notice goes once this host takes the team over from a dsh that
     // closed, without a reload: the window holds the answer's live fields until then.
     if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) live.readOnly = value.readOnly
+    if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(current.telemetryPrompt)) live.telemetryPrompt = Boolean(value.telemetryPrompt)
     if (value.unchanged || (!avatarIncomplete && value.revision === current.revision && value.modelsKey === current.modelsKey)) {
       if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
       return value.liveKey !== undefined && value.liveKey !== prevLiveKey

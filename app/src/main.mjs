@@ -614,12 +614,16 @@ const hostOutput = (stream, chunk) => {
 }
 
 function dshTelemetryEnv(dataDir) {
-  if (process.env.DSH_TELEMETRY_DISABLED !== undefined) return {}
-  try {
-    const saved = JSON.parse(readFileSync(join(dataDir, 'bot', 'telemetry.json'), 'utf8'))
-    if (saved?.dshFeedbackTelemetry === true) return {}
-  } catch { /* default off until the user explicitly opts in */ }
-  return { DSH_TELEMETRY_DISABLED: '1' }
+  const out = {}
+  if (process.env.DSH_TELEMETRY_DISABLED === undefined) {
+    let feedbackEnabled = false
+    try {
+      const saved = JSON.parse(readFileSync(join(dataDir, 'bot', 'telemetry.json'), 'utf8'))
+      feedbackEnabled = saved?.dshFeedbackTelemetry === true
+    } catch { /* default off until the user explicitly opts in */ }
+    if (!feedbackEnabled) out.DSH_TELEMETRY_DISABLED = '1'
+  }
+  return out
 }
 
 function newHost() {
