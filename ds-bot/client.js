@@ -29181,6 +29181,16 @@ var escapeLayers = [];
 function hasEscapeLayer() {
   return escapeLayers.length > 0;
 }
+function settingsOwnsKeyboard(dialog, doc = typeof document === "undefined" ? null : document) {
+  if (dialog && dialog.isConnected === false) return false;
+  if (!doc || typeof doc.querySelectorAll !== "function") return true;
+  for (const modal of doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')) {
+    if (modal === dialog) continue;
+    if (typeof modal.closest === "function" && modal.closest("[data-leaving]")) continue;
+    return false;
+  }
+  return true;
+}
 var topEscapeLayer = () => {
   let top = null;
   for (const layer of escapeLayers) {
@@ -59397,7 +59407,8 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     if (leaving || typeof window === "undefined") return void 0;
     const mac = isMac();
     const onKeyDown = (event) => {
-      if (event.defaultPrevented || isImeComposing(event) || isShortcutRecording()) return;
+      if (event.defaultPrevented || event.repeat || isImeComposing(event) || isShortcutRecording()) return;
+      if (!settingsOwnsKeyboard(dialogRef.current)) return;
       const modifier = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
       if (!modifier || event.altKey || event.shiftKey || event.code !== "KeyK" && String(event.key).toLowerCase() !== "k") return;
       event.preventDefault();
@@ -69021,6 +69032,132 @@ var LEARNING_CSS = `
 .bt-learning-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 `;
 
+// src/client/plugin-shortcuts.js
+var pluginDefaults = (code, desktopModifiers, webModifiers) => ({
+  "desktop:macos": { code, modifiers: desktopModifiers },
+  "desktop:windows": { code, modifiers: desktopModifiers },
+  "desktop:linux": { code, modifiers: desktopModifiers },
+  ...webModifiers ? {
+    "web:macos": { code, modifiers: webModifiers },
+    "web:windows": { code, modifiers: webModifiers }
+  } : {}
+});
+function buildPluginShortcutCommands({ roster, ui, surface, actions, mainView, sessionsById }) {
+  const activeBotTarget = () => {
+    const snap = roster.getSnapshot();
+    const current2 = mainView();
+    if (current2 && snap.byId?.[current2]) return snap.byId[current2].id;
+    return snap.mainBotId ?? snap.bots?.[0]?.id ?? null;
+  };
+  return [
+    {
+      id: "ds-bot.switch-surface",
+      label: () => t("Switch Bot / Classic Agent mode"),
+      aliases: ["classic", "agent", "bot", "mode"],
+      defaults: pluginDefaults("KeyM", ["primary", "shift"], ["primary", "shift"]),
+      regions: ["page", "editable"],
+      modals: [],
+      resolve: ({ modal }) => {
+        if (modal !== null) return { status: "blocked", reason: "modal" };
+        return { status: "handled", run: () => actions.setSurface(surface.getSnapshot().mode === "agent" ? "bot" : "agent") };
+      }
+    },
+    ...typeof actions.openInbox === "function" ? [{
+      id: "ds-bot.open-inbox",
+      label: () => t("Open Inbox"),
+      aliases: ["inbox", "notifications"],
+      defaults: pluginDefaults("KeyI", ["primary"], ["primary", "alt"]),
+      regions: ["page", "editable"],
+      modals: [],
+      resolve: ({ modal }) => {
+        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+        if (modal !== null) return { status: "blocked", reason: "modal" };
+        return {
+          status: "handled",
+          run: () => {
+            if (ui.getSnapshot().inbox) actions.closeInbox?.();
+            else actions.openInbox();
+          }
+        };
+      }
+    }] : [],
+    ...typeof actions.openBrowser === "function" ? [{
+      id: "ds-bot.open-browser",
+      label: () => t("Toggle Bot browser"),
+      aliases: ["browser", "web"],
+      defaults: pluginDefaults("KeyB", ["primary", "shift"], ["primary", "alt", "shift"]),
+      regions: ["page", "editable"],
+      modals: [],
+      resolve: ({ modal }) => {
+        const snap = roster.getSnapshot();
+        if (surface.getSnapshot().mode !== "bot" || snap.browser === false) return { status: "blocked", reason: "unavailable" };
+        if (modal !== null) return { status: "blocked", reason: "modal" };
+        const botId = activeBotTarget();
+        if (!botId) return { status: "blocked", reason: "unavailable" };
+        return {
+          status: "handled",
+          run: () => actions.toggleBrowser(botId)
+        };
+      }
+    }] : [],
+    {
+      id: "ds-bot.group-search",
+      label: () => t("Search in group"),
+      aliases: ["search", "group"],
+      defaults: pluginDefaults("KeyF", ["primary", "shift"], ["primary", "alt"]),
+      regions: ["page", "editable"],
+      modals: [],
+      resolve: ({ modal }) => {
+        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+        if (modal !== null) return { status: "blocked", reason: "modal" };
+        const current2 = mainView();
+        const room2 = current2 ? roster.getSnapshot().roomsById?.[current2] : null;
+        return {
+          status: "handled",
+          run: () => {
+            if (room2) actions.openGroupSearch?.(room2.id);
+            else actions.openPalette();
+          }
+        };
+      }
+    },
+    ...Array.from({ length: 9 }, (_, index) => ({
+      id: `ds-bot.switch-bot-${index + 1}`,
+      label: () => t("Switch to conversation {n}", { n: index + 1 }),
+      aliases: ["bot", "switch", String(index + 1)],
+      defaults: pluginDefaults(`Digit${index + 1}`, ["primary"], ["primary", "alt"]),
+      regions: ["page", "editable"],
+      modals: [],
+      resolve: ({ modal }) => {
+        if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
+        if (modal !== null) return { status: "blocked", reason: "modal" };
+        const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView());
+        const target = targets[index];
+        if (!target) return { status: "blocked", reason: "unavailable" };
+        return {
+          status: "handled",
+          run: () => target.kind === "agent" ? actions.openAgent?.(target.id) : actions.openSession(target.id)
+        };
+      }
+    }))
+  ];
+}
+function registerPluginShortcuts(shortcuts, { onError, ...deps }) {
+  const commands = buildPluginShortcutCommands(deps);
+  const disposers = [];
+  for (const command of commands) {
+    try {
+      disposers.push(shortcuts.register(command));
+    } catch (error) {
+      if (typeof onError === "function") onError(command.id, error);
+      else throw error;
+    }
+  }
+  return () => {
+    for (const dispose of disposers) dispose?.();
+  };
+}
+
 // src/client/command-actions.js
 var SCHEDULED_TASK = "scheduled-task";
 function commandEntries({ roster, actions }) {
@@ -71090,120 +71227,18 @@ function apply(ctx) {
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === "function";
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), "ds-bot: bot command actions");
   ctx.inject(["shortcuts"], (scope) => {
-    const safeRegister = (command) => {
-      try {
-        return scope.shortcuts.register(command);
-      } catch {
-        return () => {
-        };
+    scope.effect(() => registerPluginShortcuts(scope.shortcuts, {
+      roster,
+      ui,
+      surface,
+      actions,
+      mainView,
+      sessionsById: () => ctx.sessions.list.getSnapshot().byId,
+      onError: (id, error) => {
+        noteClientError(`shortcut:${id}`, error);
+        console.error(`ds-bot: failed to register shortcut "${id}":`, error);
       }
-    };
-    const defaultsOf = (code, modifiers) => ({
-      "desktop:macos": { code, modifiers },
-      "desktop:windows": { code, modifiers },
-      "desktop:linux": { code, modifiers },
-      "web:macos": { code, modifiers },
-      "web:windows": { code, modifiers },
-      "web:linux": { code, modifiers }
-    });
-    const activeBotTarget = () => {
-      const snap = roster.getSnapshot();
-      const current2 = mainView();
-      if (current2 && snap.byId?.[current2]) return snap.byId[current2].id;
-      return snap.mainBotId ?? snap.bots?.[0]?.id ?? null;
-    };
-    scope.effect(() => {
-      const disposers = [
-        safeRegister({
-          id: "ds-bot.switch-surface",
-          label: () => t("Switch Bot / Classic Agent mode"),
-          aliases: ["classic", "agent", "bot", "mode"],
-          defaults: defaultsOf("KeyM", ["primary", "shift"]),
-          regions: ["page", "editable"],
-          resolve: ({ modal }) => {
-            if (modal !== null) return { status: "blocked", reason: "modal" };
-            return { status: "handled", run: () => actions.setSurface(surface.getSnapshot().mode === "agent" ? "bot" : "agent") };
-          }
-        }),
-        ...typeof actions.openInbox === "function" ? [safeRegister({
-          id: "ds-bot.open-inbox",
-          label: () => t("Open Inbox"),
-          aliases: ["inbox", "notifications"],
-          defaults: defaultsOf("KeyI", ["primary"]),
-          regions: ["page", "editable"],
-          resolve: ({ modal }) => {
-            if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-            if (modal !== null) return { status: "blocked", reason: "modal" };
-            return {
-              status: "handled",
-              run: () => {
-                if (ui.getSnapshot().inbox) actions.closeInbox?.();
-                else actions.openInbox();
-              }
-            };
-          }
-        })] : [],
-        ...typeof actions.openBrowser === "function" ? [safeRegister({
-          id: "ds-bot.open-browser",
-          label: () => t("Toggle Bot browser"),
-          aliases: ["browser", "web"],
-          defaults: defaultsOf("KeyB", ["primary"]),
-          regions: ["page", "editable"],
-          resolve: ({ modal }) => {
-            const snap = roster.getSnapshot();
-            if (surface.getSnapshot().mode !== "bot" || snap.browser === false) return { status: "blocked", reason: "unavailable" };
-            if (modal !== null) return { status: "blocked", reason: "modal" };
-            const botId = activeBotTarget();
-            if (!botId) return { status: "blocked", reason: "unavailable" };
-            return {
-              status: "handled",
-              run: () => actions.toggleBrowser(botId)
-            };
-          }
-        })] : [],
-        safeRegister({
-          id: "ds-bot.group-search",
-          label: () => t("Search in group"),
-          aliases: ["search", "group"],
-          defaults: defaultsOf("KeyF", ["primary", "shift"]),
-          regions: ["page", "editable"],
-          resolve: ({ modal }) => {
-            if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-            if (modal !== null) return { status: "blocked", reason: "modal" };
-            const current2 = mainView();
-            const room2 = current2 ? roster.getSnapshot().roomsById?.[current2] : null;
-            return {
-              status: "handled",
-              run: () => {
-                if (room2) actions.openGroupSearch?.(room2.id);
-                else actions.openPalette();
-              }
-            };
-          }
-        }),
-        ...Array.from({ length: 9 }, (_, index) => safeRegister({
-          id: `ds-bot.switch-bot-${index + 1}`,
-          label: () => t("Switch to conversation {n}", { n: index + 1 }),
-          aliases: ["bot", "switch", String(index + 1)],
-          defaults: defaultsOf(`Digit${index + 1}`, ["primary"]),
-          regions: ["page", "editable"],
-          resolve: ({ modal }) => {
-            if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
-            if (modal !== null) return { status: "blocked", reason: "modal" };
-            const targets = visibleSidebarTargets(roster.getSnapshot(), ctx.sessions.list.getSnapshot().byId, mainView());
-            const target = targets[index];
-            if (!target) return { status: "blocked", reason: "unavailable" };
-            return {
-              status: "handled",
-              run: () => target.kind === "agent" ? actions.openAgent?.(target.id) : actions.openSession(target.id)
-            };
-          }
-        }))
-      ];
-      return () => {
-        for (const dispose of disposers) dispose?.();
-      };
-    }, "ds-bot: bot shortcuts");
+    }), "ds-bot: bot shortcuts");
   });
   ctx.effect(() => {
     const offStyles = installCompiledStyles(SETTINGS_SHELL_CSS, "settings-shell");
