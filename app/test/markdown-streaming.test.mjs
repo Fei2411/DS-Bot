@@ -416,6 +416,38 @@ test('backtick fence lookalikes with backticks in info string never hide definit
   }
 })
 
+test('list-hosted fences never truncate top-level code blocks or restart numbered steps during streaming', async () => {
+  const { splitMarkdownBlocks } = await import('../../ds-bot/src/client/markdown-blocks.js')
+  const prose = 'prose that fills the reply well past the split threshold. '.repeat(12)
+  const unclosedListFence = `${prose}\n\n- Example:\n  \`\`\`text\n  inside\n\nOutside the list.\n\n\`\`\`\nline one\n\nline two\n\`\`\`\n\nDone.\n`
+  assert.equal(splitMarkdownBlocks(unclosedListFence), null)
+
+  const numberedWithCode = `${prose}\n\n1. Step one\n\n   \`\`\`sh\n   echo one\n   \`\`\`\n\n1. Step two\n\nClosing paragraph.\n`
+  const blocks = splitMarkdownBlocks(numberedWithCode)
+  assert.ok(blocks !== null && blocks.length >= 2, 'keeps splitting outside the list')
+  assert.equal(blocks.join(''), numberedWithCode)
+
+  const fold = html => html.replace(/>\n</g, '><')
+  for (const [name, text] of [['unclosedListFence', unclosedListFence], ['numberedWithCode', numberedWithCode]]) {
+    const settled = mounted()
+    settled.render(h(MarkdownText, { text, labels }))
+    const reference = fold(settled.container.innerHTML)
+    settled.unmount()
+    const streamed = mounted()
+    streamed.render(h(MarkdownText, { text, streaming: true, labels }))
+    assert.equal(fold(streamed.container.innerHTML), reference, `${name} streamed matches settled byte for byte`)
+    if (name === 'unclosedListFence') {
+      const codes = streamed.container.querySelectorAll('code')
+      assert.ok(codes.some(node => node.textContent.includes('line one') && node.textContent.includes('line two')), 'top-level code block keeps both lines intact')
+    } else {
+      const lists = streamed.container.querySelectorAll('ol')
+      assert.equal(lists.length, 1, 'both numbered steps stay in a single ordered list')
+      assert.equal(lists[0].querySelectorAll('li').length, 2, 'ordered list contains both items')
+    }
+    streamed.unmount()
+  }
+})
+
 test('teardown: the bundle file goes away with the temp directory', () => {
   rmSync(dir, { recursive: true, force: true })
 })

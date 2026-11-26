@@ -90,6 +90,12 @@ const slugOf = (text) => {
   return inner.replace(/ /g, '-')
 }
 
+const leadingSpaces = (line) => {
+  let count = 0
+  while (count < line.length && line[count] === ' ') count += 1
+  return count
+}
+
 const fenceOpen = (line) => {
   const match = FENCE_OPEN.exec(line)
   if (match === null) return null
@@ -97,7 +103,7 @@ const fenceOpen = (line) => {
   // CommonMark §4.5 / micromark code-fenced: a backtick fence's info string cannot
   // contain any backtick, so that line stays a paragraph (tilde fences have no limit).
   if (marker[0] === '`' && line.includes('`', match[0].length)) return null
-  return { char: marker[0], length: marker.length }
+  return { char: marker[0], length: marker.length, indent: leadingSpaces(line) }
 }
 
 const fenceClose = (line, fence) => {
@@ -133,21 +139,36 @@ export function splitMarkdownBlocks(text) {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
     if (fence !== null) {
+      const blankInside = BLANK.test(line)
+      // An indented fence (1–3 spaces) can sit inside a list item, where a less-indented
+      // non-blank line closes the list container and implicitly ends the fence without a
+      // closing marker. Without container-stack tracking, bail rather than invert state
+      // on a later top-level fence.
+      if (!blankInside && fence.indent > 0 && leadingSpaces(line) < fence.indent) return null
       if (fenceClose(line, fence)) {
+        const wasIndented = fence.indent > 0
         fence = null
-        // Fence contents never decide a boundary. The closing fence line itself is plain
-        // non-blank content for what follows it: not blank, not a marker, not indented
-        // in the list-continuation sense.
+        // A top-level fence (indent 0) always ends any open list, whereas an indented
+        // fence may belong to a list item whose next marker (`1. Step two`) continues the
+        // same loose list. Preserve the indentation signal across an indented fence close.
         previousBlank = false
         previousLineMarker = false
-        previousLineIndented = false
+        previousLineIndented = wasIndented
       }
       continue
     }
     const blank = BLANK.test(line)
     if (!blank) {
       const opening = fenceOpen(line)
-      if (opening !== null) fence = opening
+      if (opening !== null) {
+        fence = opening
+      } else {
+        // A fence nested behind a container prefix (`- ```js`, `> ```js`, `    ```js`)
+        // cannot be tracked safely without container state: its later indented closing
+        // marker could be misread as a new opening fence. Fall back to whole-doc parse.
+        const stripped = stripContainerPrefixes(line)
+        if (stripped !== line && fenceOpen(stripped) !== null) return null
+      }
       // Anything whose reach crosses block boundaries stops the split outright.
       if (opensLinkDefinition(line)) return null
       if (FOOTNOTE_REFERENCE.test(line)) return null

@@ -114,6 +114,28 @@ test('never splits inside a fence: blank lines, fence lookalikes and boundaries 
     splitMarkdownBlocks('a\n\n~~~x~y`z\ncode one\n\ncode two\n~~~\n\nafter\n'),
     ['a\n\n', '~~~x~y`z\ncode one\n\ncode two\n~~~\n\n', 'after\n'],
   )
+  // An unclosed indented fence inside a list ends when the list item ends; bail rather
+  // than mistaking the next top-level opening fence for a closing fence.
+  assert.equal(
+    splitMarkdownBlocks('- Example:\n  ```text\n  inside\n\nOutside the list.\n\n```\nline one\n\nline two\n```\n\nDone.\n'),
+    null,
+  )
+  // A fence started on a container line (`- ```js`, `> ```js`) also bails so its indented
+  // closing fence can never be mistaken for a new opening fence.
+  assert.equal(
+    splitMarkdownBlocks('- ```js\n  inside\n  ```\n\n```\nline one\n\nline two\n```\n'),
+    null,
+  )
+  assert.equal(
+    splitMarkdownBlocks('> ```js\n> inside\n> ```\n\nafter\n'),
+    null,
+  )
+  // A closed indented fence inside a loose ordered list preserves list continuation so
+  // repeated `1.` markers stay in one list, while a plain paragraph after the list splits.
+  assert.deepEqual(
+    splitMarkdownBlocks('1. Step one\n\n   ```sh\n   echo one\n   ```\n\n1. Step two\n\nAfter list.\n'),
+    ['1. Step one\n\n   ```sh\n   echo one\n   ```\n\n1. Step two\n\n', 'After list.\n'],
+  )
 })
 
 test('never splits before a list continuation or an indented continuation', () => {
