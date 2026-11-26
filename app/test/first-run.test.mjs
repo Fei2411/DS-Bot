@@ -66,8 +66,8 @@ test('recovery preserves the original bytes and writes default locations', (t) =
   assert.deepEqual({ dataDir, workspace }, defaults)
 })
 
-test('a failed defaults write leaves the backup and the next startup can retry', (t) => {
-  const corrupt = '{"dataDir":'
+test('a failed defaults write keeps the original in place and the next startup can retry', (t) => {
+  const corrupt = Buffer.from('{"dataDir":"custom",\r\n"workspace":"work",\r\n"freeAtStart":')
   const backup = `${file}.corrupt-202`
   const temporary = `${file}.tmp`
   t.mock.method(Date, 'now', () => 202)
@@ -76,12 +76,12 @@ test('a failed defaults write leaves the backup and the next startup can retry',
   t.after(() => { rmSync(temporary, { force: true, recursive: true }) })
   writeFileSync(file, corrupt)
 
-  assert.throws(() => chooseLocations(), { path: temporary })
-  assert.equal(existsSync(file), false)
-  assert.equal(readFileSync(backup, 'utf8'), corrupt)
+  assert.throws(() => saveLocations(defaults), { path: temporary })
+  assert.deepEqual(readFileSync(file), corrupt)
+  assert.equal(existsSync(backup), false)
 
   rmSync(temporary, { recursive: true })
   assert.deepEqual(chooseLocations(), defaults)
-  assert.equal(readFileSync(backup, 'utf8'), corrupt)
+  assert.deepEqual(readFileSync(backup), corrupt)
   assert.equal(existsSync(`${backup}-1`), false)
 })

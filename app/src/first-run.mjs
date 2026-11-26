@@ -109,12 +109,12 @@ export function saveLocations({ dataDir, workspace }) {
   const file = locationsFile(app.getPath('userData'))
   mkdirSync(dirname(file), { recursive: true })
   const saved = readSavedLocations(file)
-  if (saved === null) console.warn(`DS Bot: ignoring invalid locations.json; backed up to ${backUpCorruptLocations(file)}`)
   const kept = saved && resolve(saved.dataDir) === resolve(dataDir) && roomOf(saved.freeAtStart) !== undefined
   // A full drive gives no room to measure a fifth of: the next save measures again.
   const freeAtStart = kept ? saved.freeAtStart : roomOf(freeSpace(dataDir))
   // A write that fails half way leaves the places that were there.
   writeFileSync(`${file}.tmp`, `${JSON.stringify({ dataDir, workspace, freeAtStart }, null, 2)}\n`)
+  if (saved === null) console.warn(`DS Bot: ignoring invalid locations.json; backed up to ${backUpCorruptLocations(file)}`)
   renameSync(`${file}.tmp`, file)
 }
 
