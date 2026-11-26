@@ -61,6 +61,8 @@ test('goal controls accept only supported fields and typed values', async t => {
     await routes.service.controlGroupGoal(principal, 'r1', body)
   }
   assert.equal(calls.length, 5)
+  assert.deepEqual(calls[0][2], { via: 'api' }, 'goalDraft passes via: api')
+  assert.deepEqual(calls[2][2], { via: 'api' }, 'goalControl resume passes via: api')
 })
 
 test('upload image MIME comes from bytes, never client declarations', async t => {

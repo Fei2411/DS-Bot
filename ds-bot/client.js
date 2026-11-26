@@ -37318,7 +37318,13 @@ var IM_PLATFORMS = [
   }
 ];
 var imPlatform = (id) => IM_PLATFORMS.find((platform) => platform.id === id);
-var viaOf = (source) => typeof source?.rpcId === "string" && source.rpcId.startsWith("im:") ? source.rpcId.split(":")[1] : void 0;
+var viaOf = (source) => {
+  const rpcId = typeof source?.rpcId === "string" ? source.rpcId : "";
+  if (rpcId.startsWith("im:")) return rpcId.split(":")[1];
+  if (rpcId.startsWith("api:")) return "api";
+  return void 0;
+};
+var viaIsIm = (via) => typeof via === "string" && imPlatform(via) !== void 0;
 
 // src/client/user-message.js
 var import_react36 = require("react");
