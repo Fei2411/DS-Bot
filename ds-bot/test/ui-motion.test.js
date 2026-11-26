@@ -18,7 +18,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { effectsTier, reducedEffects, reducedMotion, useViewport } from './src/client/motion.js'",
+      "export { effectsTier, fitSegmented, reducedEffects, reducedMotion, useGlide, useViewport } from './src/client/motion.js'",
       "export { SHELL_CSS, botOwnCss } from './src/client/styles.js'",
       "export { SettingsDialog } from './src/client/settings.js'",
       "export { BotMark } from './src/client/mark.js'",
@@ -334,4 +334,144 @@ test('BotMark gaze listeners and offsets respond dynamically to data-bt-effects 
   rafCalls = 0
   move(10, 10)
   assert.equal(rafCalls, 0)
+})
+
+test('fitSegmented picks single row, grid-2, grid-3, wrap or stack from button geometry without thumb interference', () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>')
+  const { window } = dom
+  const { document } = window
+  const { fitSegmented } = loadClient({ window, document, getComputedStyle: () => ({ paddingRight: '2px' }) }).exports
+
+  function makeSeg(containerW, specs) {
+    const node = document.createElement('div')
+    const thumb = document.createElement('span')
+    thumb.className = 'bt-thumb'
+    node.appendChild(thumb)
+    // Intentionally report a stale, wide scrollWidth on the container (as when a gliding
+    // thumb sits at a previous wide coordinate) to verify fitSegmented ignores it.
+    Object.defineProperty(node, 'clientWidth', { get: () => containerW, configurable: true })
+    Object.defineProperty(node, 'scrollWidth', { get: () => containerW + 300, configurable: true })
+    const buttons = specs.map((spec, idx) => {
+      const btn = document.createElement('button')
+      Object.defineProperty(btn, 'offsetLeft', { get: () => spec(node.dataset.layout, idx).left, configurable: true })
+      Object.defineProperty(btn, 'offsetWidth', { get: () => spec(node.dataset.layout, idx).width, configurable: true })
+      Object.defineProperty(btn, 'clientWidth', { get: () => spec(node.dataset.layout, idx).width, configurable: true })
+      Object.defineProperty(btn, 'scrollWidth', { get: () => spec(node.dataset.layout, idx).scrollWidth, configurable: true })
+      node.appendChild(btn)
+      return btn
+    })
+    return { node, buttons }
+  }
+
+  // 4 buttons: overflows in 1 row (320 > 288), fits cleanly in grid-2 even with stale container scrollWidth.
+  const four = makeSeg(288, Array.from({ length: 4 }, () => (layout, i) => {
+    if (!layout) return { left: 2 + i * 80, width: 78, scrollWidth: 78 }
+    if (layout === 'grid-2') return { left: 2 + (i % 2) * 143, width: 141, scrollWidth: 90 }
+    return { left: 2, width: 284, scrollWidth: 90 }
+  }))
+  assert.equal(fitSegmented(four.node), 'grid-2')
+  assert.equal(four.node.dataset.layout, 'grid-2')
+
+  // Widened: same 4 buttons fit in 1 row -> clears data-layout.
+  Object.defineProperty(four.node, 'clientWidth', { get: () => 400, configurable: true })
+  assert.equal(fitSegmented(four.node), undefined)
+  assert.equal(four.node.dataset.layout, undefined)
+
+  // 6 buttons: overflows 1 row, fits in grid-3 (3x2).
+  const six = makeSeg(311, Array.from({ length: 6 }, () => (layout, i) => {
+    if (!layout) return { left: 2 + i * 58, width: 56, scrollWidth: 56 }
+    if (layout === 'grid-3') return { left: 2 + (i % 3) * 103, width: 101, scrollWidth: 68 }
+    return { left: 2, width: 307, scrollWidth: 68 }
+  }))
+  assert.equal(fitSegmented(six.node), 'grid-3')
+
+  // 3 buttons: overflows 1 row -> uses wrap (no empty grid corner).
+  const three = makeSeg(240, Array.from({ length: 3 }, () => (layout, i) => {
+    if (!layout) return { left: 2 + i * 100, width: 98, scrollWidth: 98 }
+    if (layout === 'wrap') return i < 2 ? { left: 2 + i * 119, width: 117, scrollWidth: 90 } : { left: 2, width: 236, scrollWidth: 160 }
+    return { left: 2, width: 236, scrollWidth: 160 }
+  }))
+  assert.equal(fitSegmented(three.node), 'wrap')
+
+  // Unbreakable word wider than a 2-col cell -> promotes from grid-2 to stack.
+  const narrow = makeSeg(200, Array.from({ length: 2 }, () => (layout, i) => {
+    if (!layout) return { left: 2 + i * 150, width: 148, scrollWidth: 148 }
+    if (layout === 'grid-2') return { left: 2 + i * 99, width: 97, scrollWidth: 132 }
+    return { left: 2, width: 196, scrollWidth: 132 }
+  }))
+  assert.equal(fitSegmented(narrow.node), 'stack')
+})
+
+test('useGlide axis=both tracks 2D thumb rect and snaps on syncKey without springing', () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>')
+  const { window } = dom
+  const { document } = window
+  window.matchMedia = () => ({ matches: false })
+  let rafCount = 0
+  const refs = []
+  let refIdx = 0
+  let layoutFn = null
+  const { exports: client } = loadClient(
+    {
+      window, document,
+      requestAnimationFrame: () => { rafCount += 1; return rafCount },
+      cancelAnimationFrame() {},
+      performance: { now: () => 0 },
+    },
+    {
+      useRef: (init) => { const idx = refIdx++; if (!(idx in refs)) refs[idx] = { current: init }; return refs[idx] },
+      useLayoutEffect: (fn) => { layoutFn = fn },
+      useEffect() {},
+    },
+  )
+
+  const box = document.createElement('div')
+  const thumb = document.createElement('span')
+  const b0 = document.createElement('button')
+  const b1 = document.createElement('button')
+  b0.setAttribute('aria-pressed', 'true')
+  const rect = { b0: { l: 2, t: 2, w: 120, h: 30 }, b1: { l: 124, t: 34, w: 120, h: 30 } }
+  for (const [el, key] of [[b0, 'b0'], [b1, 'b1']]) {
+    Object.defineProperty(el, 'offsetLeft', { get: () => rect[key].l })
+    Object.defineProperty(el, 'offsetTop', { get: () => rect[key].t })
+    Object.defineProperty(el, 'offsetWidth', { get: () => rect[key].w })
+    Object.defineProperty(el, 'offsetHeight', { get: () => rect[key].h })
+  }
+  box.append(thumb, b0, b1)
+
+  const runRender = (key, syncKey) => {
+    refIdx = 0
+    const res = client.useGlide(key, { axis: 'both', box: { current: box }, syncKey })
+    res.thumb.current = thumb
+    layoutFn()
+    return res
+  }
+
+  runRender('a', 'en')
+  assert.equal(thumb.style.transform, 'translate3d(2px,2px,0)')
+  assert.equal(thumb.style.width, '120px')
+  assert.equal(thumb.style.height, '30px')
+  assert.equal(rafCount, 0)
+
+  // Locale change (syncKey changes while key stays 'a'): snaps immediately without RAF spring.
+  rect.b0 = { l: 2, t: 2, w: 96, h: 30 }
+  runRender('a', 'zh')
+  assert.equal(thumb.style.transform, 'translate3d(2px,2px,0)')
+  assert.equal(thumb.style.width, '96px')
+  assert.equal(rafCount, 0)
+
+  // Selection change to row 2 (key changes to 'b'): starts 2D spring animation.
+  b0.setAttribute('aria-pressed', 'false')
+  b1.setAttribute('aria-pressed', 'true')
+  runRender('b', 'zh')
+  assert.equal(rafCount, 1)
+})
+
+test('SHELL_CSS uses container queries on narrow cards and responsive Segmented layouts', () => {
+  const { SHELL_CSS } = loadClient().exports
+  assert.match(SHELL_CSS, /\.bt-set-card\{[^}]*container-type:inline-size/)
+  assert.match(SHELL_CSS, /@container \(max-width:440px\)\{/)
+  assert.match(SHELL_CSS, /\.bt-seg\[data-layout=grid-2\]\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/)
+  assert.match(SHELL_CSS, /\.bt-seg\[data-layout=grid-3\]\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)\}/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-seg\.bt-permissions button\{/)
 })

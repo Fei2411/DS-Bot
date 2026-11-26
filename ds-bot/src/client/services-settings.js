@@ -19,7 +19,6 @@ export const SERVICES_CSS = `
 .bt-svc-line .bt-svc-dot{margin-top:4.5px}
 .bt-svc-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .bt-svc-note{font-size:12px;line-height:16px;color:var(--bt-ink-2)}
-.bt-svc .bt-svc-seg button{white-space:nowrap}
 .bt-svc :focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 `
 
