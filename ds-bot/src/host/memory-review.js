@@ -67,9 +67,10 @@ export function installReview(rt, memory) {
   // the review keeps; the rest is there to make it understood.
   const reviewLine = (who, text, bot) => {
     if (who === 'user') return ends(text, REVIEW_USER_LINE_MAX)
-    const raw = who === 'you'
+    const assembled = who === 'you'
       ? `${inlineUntrusted(bot.name)}: ${text.replace(/^You: /, '')}`
-      : (/^\s*user\s*:/i.test(text) ? `[Bot] ${text}` : text)
+      : text
+    const raw = /^\s*user\s*:/i.test(assembled) ? `[Bot] ${assembled}` : assembled
     return indentContinuations(clip(raw, REVIEW_OTHER_LINE_MAX))
   }
 
