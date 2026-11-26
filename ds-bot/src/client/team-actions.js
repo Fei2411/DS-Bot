@@ -3,15 +3,12 @@ import { noteClientError } from './diagnostics.js'
 import { chatOfSession } from './draft-keep.js'
 
 export function sectionFoldWrites() {
-  let version = 0
   const saved = new Map()
   return {
-    version: () => version,
-    note(id, collapsed) { saved.set(id, { version: ++version, collapsed }) },
-    reconcile(sections, readVersion) {
+    note(id, collapsed, revision) { saved.set(id, { revision, collapsed }) },
+    reconcile(sections, revision) {
       if (!sections || saved.size === 0) return sections
-      // A read that was already in flight can have fresh names and order but an old fold.
-      for (const [id, fold] of saved) if (fold.version <= readVersion) saved.delete(id)
+      for (const [id, fold] of saved) if (fold.revision <= revision) saved.delete(id)
       return saved.size === 0 ? sections : sections.map(section => {
         const fold = saved.get(section.id)
         return fold ? { ...section, collapsed: fold.collapsed } : section
@@ -63,9 +60,14 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     }
     const previous = sectionSaves.get(id)
     const save = async () => {
-      const saved = await call('section-save', payload)
-      foldWrites?.note(id, saved.collapsed)
+      const reply = await call('section-save', { ...payload, withRevision: true })
+      const { section: saved, revision } = reply
+      if (!Number.isSafeInteger(revision)) return after(Promise.resolve(reply))
+      if (!saved) return saved
       roster.set(state => {
+        // The full roster revision describes the last state read, not this one field.
+        if (state.revision >= revision) return state
+        foldWrites?.note(id, saved.collapsed, revision)
         const section = state.sections?.find(section => section.id === id)
         if (!section || Boolean(section.collapsed) === Boolean(saved.collapsed)) return state
         return { ...state, sections: state.sections.map(entry => (entry === section ? { ...entry, collapsed: saved.collapsed } : entry)) }

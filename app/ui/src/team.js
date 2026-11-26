@@ -233,7 +233,6 @@ export function createTeam() {
   let liveKey
   const pull = async () => {
     const order = ++pulls
-    const foldVersion = foldWrites.version()
     const known = roster.getSnapshot()
     const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
     if (order < applied) return
@@ -272,7 +271,7 @@ export function createTeam() {
     }
     // In a window with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
-    const indexed = indexRoster({ ...value, sections: foldWrites.reconcile(value.sections, foldVersion) })
+    const indexed = indexRoster({ ...value, sections: foldWrites.reconcile(value.sections, value.revision) })
     if (current.ready) {
       const gone = [
         ...Object.keys(current.byId ?? {}).filter(id => indexed.byId[id] === undefined),

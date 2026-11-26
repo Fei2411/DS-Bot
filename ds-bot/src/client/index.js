@@ -220,7 +220,6 @@ export function apply(ctx) {
   let avatarIncomplete = false
   const pull = async () => {
     const order = ++pulls
-    const foldVersion = foldWrites.version()
     const known = roster.getSnapshot()
     const since = avatarIncomplete ? -1 : known.revision
     const value = await call('state', { since, models: known.modelsKey ?? '', live: liveKey, locale: language(), avatars: 'ref' })
@@ -282,7 +281,7 @@ export function apply(ctx) {
     }
     // On a browser with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...hydrated.bots, ...hydrated.rooms].map(entry => entry.id))
-    roster.set(indexRoster({ ...hydrated, sections: foldWrites.reconcile(hydrated.sections, foldVersion) }))
+    roster.set(indexRoster({ ...hydrated, sections: foldWrites.reconcile(hydrated.sections, hydrated.revision) }))
     try {
       const ids = (hydrated.agents ?? []).flatMap(agent => agent.sessions ?? [])
       localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids))

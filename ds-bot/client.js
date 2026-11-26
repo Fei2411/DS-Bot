@@ -21339,16 +21339,14 @@ function forgetKeptFiles() {
 
 // src/client/team-actions.js
 function sectionFoldWrites() {
-  let version = 0;
   const saved = /* @__PURE__ */ new Map();
   return {
-    version: () => version,
-    note(id, collapsed) {
-      saved.set(id, { version: ++version, collapsed });
+    note(id, collapsed, revision) {
+      saved.set(id, { revision, collapsed });
     },
-    reconcile(sections, readVersion) {
+    reconcile(sections, revision) {
       if (!sections || saved.size === 0) return sections;
-      for (const [id, fold] of saved) if (fold.version <= readVersion) saved.delete(id);
+      for (const [id, fold] of saved) if (fold.revision <= revision) saved.delete(id);
       return saved.size === 0 ? sections : sections.map((section) => {
         const fold = saved.get(section.id);
         return fold ? { ...section, collapsed: fold.collapsed } : section;
@@ -21389,9 +21387,13 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     }
     const previous = sectionSaves.get(id);
     const save = async () => {
-      const saved = await call2("section-save", payload);
-      foldWrites?.note(id, saved.collapsed);
+      const reply = await call2("section-save", { ...payload, withRevision: true });
+      const { section: saved, revision } = reply;
+      if (!Number.isSafeInteger(revision)) return after(Promise.resolve(reply));
+      if (!saved) return saved;
       roster.set((state) => {
+        if (state.revision >= revision) return state;
+        foldWrites?.note(id, saved.collapsed, revision);
         const section = state.sections?.find((section2) => section2.id === id);
         if (!section || Boolean(section.collapsed) === Boolean(saved.collapsed)) return state;
         return { ...state, sections: state.sections.map((entry) => entry === section ? { ...entry, collapsed: saved.collapsed } : entry) };
@@ -71558,7 +71560,6 @@ function apply(ctx) {
   let avatarIncomplete = false;
   const pull = async () => {
     const order = ++pulls;
-    const foldVersion = foldWrites.version();
     const known = roster.getSnapshot();
     const since = avatarIncomplete ? -1 : known.revision;
     const value = await call("state", { since, models: known.modelsKey ?? "", live: liveKey, locale: language(), avatars: "ref" });
@@ -71622,7 +71623,7 @@ function apply(ctx) {
       return value.liveKey !== void 0 && value.liveKey !== prevLiveKey;
     }
     if (Object.keys(seenAt).length === 0) leaveVisits([...hydrated.bots, ...hydrated.rooms].map((entry) => entry.id));
-    roster.set(indexRoster({ ...hydrated, sections: foldWrites.reconcile(hydrated.sections, foldVersion) }));
+    roster.set(indexRoster({ ...hydrated, sections: foldWrites.reconcile(hydrated.sections, hydrated.revision) }));
     try {
       const ids = (hydrated.agents ?? []).flatMap((agent) => agent.sessions ?? []);
       localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids));

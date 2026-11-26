@@ -146,7 +146,7 @@ test('a sidebar section folds before the save finishes and opens again if saving
   assert.deepEqual(headers().map(header => header.props['aria-expanded']), [false, true])
   assert.equal(roster.getSnapshot().sections, sections)
   await Promise.resolve()
-  assert.deepEqual(sent, [['section-save', { id: 'one', collapsed: true }]])
+  assert.deepEqual(sent, [['section-save', { id: 'one', collapsed: true, withRevision: true }]])
   write.reject(new Error('save failed'))
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(headers().map(header => header.props['aria-expanded']), [true, true])
