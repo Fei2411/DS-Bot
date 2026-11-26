@@ -69197,6 +69197,18 @@ function listedOpener({ list, open, refresh, current: current2, begin, done }) {
   };
 }
 
+// src/client/branding.js
+function installTitle(document2, Observer = globalThis.MutationObserver) {
+  const update = () => {
+    if (document2.title !== "DS Bot") document2.title = "DS Bot";
+  };
+  update();
+  const title = document2.head?.querySelector("title") ?? null;
+  const observer2 = new Observer(update);
+  if (title !== null) observer2.observe(title, { childList: true, characterData: true, subtree: true });
+  return () => observer2.disconnect();
+}
+
 // src/client/polling.js
 var POLL_MAX_MS = 5e3;
 function pollDelay(base, unchanged) {
@@ -69770,6 +69782,7 @@ function watchBotCompletions({ roster, sessions, statuses, unread }) {
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 var WINDOWS = globalThis.navigator?.userAgentData?.platform === "Windows" || /^Win/u.test(globalThis.navigator?.platform ?? "");
 function apply(ctx) {
+  ctx.effect(() => installTitle(document), "ds-bot: window title");
   ctx.effect(() => installLocale(ctx.get("locale")), "ds-bot: interface copy");
   migrateStorage();
   const PREFS_KEY = STORAGE.prefs;
