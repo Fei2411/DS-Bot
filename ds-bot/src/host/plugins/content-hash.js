@@ -71,7 +71,12 @@ export async function hashPluginTree(dir, { maxFiles = CONTENT_HASH_LIMITS.maxFi
   } catch {
     throw new ContentHashError('unreadable', `Plugin directory "${root}" cannot be read.`)
   }
-  const rootStat = await lstat(root).catch(() => null)
+  // The entry point itself may be a symlink: pnpm's isolated layout links
+  // `<profile>/node_modules/<pkg>` into `.pnpm/`, and `link:` installs link the
+  // development folder, so validating `lstat(root)` would reject every real
+  // installation. The tree being hashed is the RESOLVED directory — validate that.
+  // Symlink escapes are still caught strictly INSIDE the resolved tree below.
+  const rootStat = await lstat(rootReal).catch(() => null)
   if (!rootStat?.isDirectory()) {
     throw new ContentHashError('not-directory', `Plugin path "${root}" is not a directory.`)
   }

@@ -204,6 +204,48 @@ test('hashPluginTree rejects escaping symlinks and caps file count and bytes', a
   }
 })
 
+test('hashPluginTree resolves a symlinked root (pnpm layout) while internal escapes still fail closed', async () => {
+  // Mirror pnpm's real isolated layout: <profile>/node_modules/<pkg> is a symlink
+  // into <profile>/node_modules/.pnpm/<pkg>/node_modules/<pkg>, with a dependency
+  // tree nested inside that must be skipped, not hashed.
+  const profile = mkdtempSync(join(tmpdir(), 'ds-bot-pnpm-prof-'))
+  try {
+    const storeDir = join(profile, 'node_modules', '.pnpm', 'real-plugin@1.0.0', 'node_modules', 'real-plugin')
+    mkdirSync(join(storeDir, 'node_modules', 'dep-pkg'), { recursive: true })
+    writeFileSync(join(storeDir, 'index.js'), 'export const v = 1\n')
+    writeFileSync(join(storeDir, 'package.json'), JSON.stringify({ name: 'real-plugin', version: '1.0.0' }))
+    writeFileSync(join(storeDir, 'node_modules', 'dep-pkg', 'index.js'), 'module.exports = 1\n')
+    const linkPath = join(profile, 'node_modules', 'real-plugin')
+    symlinkSync(storeDir, linkPath, 'dir')
+
+    // Hashing through the symlinked entry point resolves and hashes the real tree.
+    const first = await hashPluginTree(linkPath)
+    const direct = await hashPluginTree(storeDir)
+    assert.equal(first.hash, direct.hash, 'symlinked root and real root hash identically')
+    // index.js + package.json + node_modules(dir entry only — dep contents skipped).
+    assert.equal(first.files, 3)
+    const again = await hashPluginTree(linkPath)
+    assert.equal(again.hash, first.hash, 'deterministic across repeated runs')
+
+    // A symlink INSIDE the resolved tree that escapes it still fails closed.
+    symlinkSync('/etc', join(storeDir, 'escape'), 'dir')
+    await assert.rejects(() => hashPluginTree(linkPath), error => error.code === 'symlink-escape')
+  } finally {
+    rmSync(profile, { recursive: true, force: true })
+  }
+
+  // A symlinked root pointing at a file (not a directory) is not-directory.
+  const fileTarget = mkdtempSync(join(tmpdir(), 'ds-bot-pnpm-file-'))
+  try {
+    writeFileSync(join(fileTarget, 'plain.txt'), 'x')
+    const badLink = join(fileTarget, 'bad-link')
+    symlinkSync(join(fileTarget, 'plain.txt'), badLink, 'file')
+    await assert.rejects(() => hashPluginTree(badLink), error => error.code === 'not-directory')
+  } finally {
+    rmSync(fileTarget, { recursive: true, force: true })
+  }
+})
+
 test('localPluginDirOf resolves only local path specs', () => {
   assert.equal(localPluginDirOf('/abs/path/plugin'), '/abs/path/plugin')
   assert.equal(localPluginDirOf('file:/abs/path/plugin'), '/abs/path/plugin')
@@ -1340,4 +1382,211 @@ test('non-slot install enables the bundle after the gate clears, and a killed po
   assert.equal(item.enabled, true)
   assert.equal(item.consentRequired, false)
   assert.ok(rt.state.plugins.consent['dsh:honest-tools']?.fingerprint, 'first activation baselines consent')
+})
+
+test('plugins-slot-set refuses drifted or unverifiable bundles before setBundleEnabled ever runs', async (t) => {
+  const pluginDir = mkdtempSync(join(tmpdir(), 'ds-bot-slotgate-'))
+  writeFileSync(join(pluginDir, 'index.js'), 'export const v = 1\n')
+  writeFileSync(join(pluginDir, 'package.json'), JSON.stringify({ name: 'slot-gated', version: '1.0.0' }))
+  t.after(() => rmSync(pluginDir, { recursive: true, force: true, maxRetries: 5 }))
+
+  const bundle = {
+    name: 'slot-gated',
+    official: false,
+    availability: 'profile',
+    version: '1.0.0',
+    enabled: false,
+    installed: true,
+    optional: false,
+    removable: true,
+    updatable: false,
+    rows: [],
+    overrides: [],
+    source: `link:${pluginDir}`,
+  }
+  const pmCalls = []
+  const fakePm = {
+    async listBundles() { return [{ ...bundle }] },
+    async setBundleEnabled(name, enabled) {
+      pmCalls.push(['setBundleEnabled', name, enabled])
+      bundle.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  // First activation: the gate clears, enablement runs, consent baselines.
+  const first = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:slot-gated' })
+  assert.equal(first.ok, true)
+  assert.equal(first.value.slots.browser.status, 'ready')
+  assert.ok(pmCalls.some(c => c[2] === true), 'first-time activation enables the bundle')
+
+  // Drift the bytes: consent invalidates. Disabling is fine, but re-picking the slot
+  // must NOT re-enable through the gate bypass the round-1 review caught.
+  bundle.enabled = false
+  pmCalls.length = 0
+  writeFileSync(join(pluginDir, 'index.js'), 'export const v = 2\n')
+  const drifted = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:slot-gated' })
+  assert.equal(drifted.ok, false, 'drifted bundle refuses re-picking the slot')
+  assert.match(drifted.error.message, /explicit approval/)
+  assert.equal(pmCalls.filter(c => c[2] === true).length, 0,
+    'setBundleEnabled(true) never runs for a consent-invalid bundle')
+  assert.equal(bundle.enabled, false, 'the bundle stays disabled in the profile')
+
+  // Approval is the only way back: after explicit consent the slot pick succeeds.
+  const consent = await call('plugins-consent', { id: 'dsh:slot-gated' })
+  assert.equal(consent.ok, true)
+  const repick = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:slot-gated' })
+  assert.equal(repick.ok, true)
+  assert.equal(repick.value.slots.browser.status, 'ready')
+})
+
+test('plugins-toggle refuses drifted or unverifiable bundles before setBundleEnabled(true) ever runs', async (t) => {
+  const pluginDir = mkdtempSync(join(tmpdir(), 'ds-bot-togglegate-'))
+  writeFileSync(join(pluginDir, 'index.js'), 'export const v = 1\n')
+  writeFileSync(join(pluginDir, 'package.json'), JSON.stringify({ name: 'toggle-gated', version: '1.0.0' }))
+  t.after(() => rmSync(pluginDir, { recursive: true, force: true, maxRetries: 5 }))
+
+  const bundle = {
+    name: 'toggle-gated',
+    official: false,
+    availability: 'profile',
+    version: '1.0.0',
+    enabled: true,
+    installed: true,
+    optional: false,
+    removable: true,
+    updatable: false,
+    rows: [],
+    overrides: [],
+    source: `link:${pluginDir}`,
+  }
+  const pmCalls = []
+  const fakePm = {
+    async listBundles() { return [{ ...bundle }] },
+    async setBundleEnabled(name, enabled) {
+      pmCalls.push(['setBundleEnabled', name, enabled])
+      bundle.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  // Baseline the consent by activating once through toggle-on semantics: reconcile
+  // baselines the bare dsh key on first sight of the running bundle.
+  await call('plugins-retry', {})
+  assert.ok(rt.state.plugins.consent['dsh:toggle-gated']?.fingerprint, 'first sight baselines consent')
+
+  // Drift bytes, disable the bundle (as enforcement would), then try to toggle on:
+  // the gate must refuse BEFORE enablement executes the unapproved bytes.
+  writeFileSync(join(pluginDir, 'index.js'), 'export const v = 2\n')
+  bundle.enabled = false
+  pmCalls.length = 0
+  const toggled = await call('plugins-toggle', { id: 'dsh:toggle-gated', enabled: true })
+  assert.equal(toggled.ok, false, 'drifted bundle refuses the enable toggle')
+  assert.match(toggled.error.message, /explicit approval/)
+  assert.equal(pmCalls.filter(c => c[2] === true).length, 0,
+    'setBundleEnabled(true) never runs for a consent-invalid bundle')
+
+  // Toggling OFF is never gated — refusal would trap the user with running code.
+  const off = await call('plugins-toggle', { id: 'dsh:toggle-gated', enabled: false })
+  assert.equal(off.ok, true)
+
+  // An unverifiable (symlink-escape) tree refuses the toggle outright.
+  symlinkSync('/etc', join(pluginDir, 'escape'), 'dir')
+  const bad = await call('plugins-toggle', { id: 'dsh:toggle-gated', enabled: true })
+  assert.equal(bad.ok, false)
+  assert.match(bad.error.message, /cannot be verified/)
+  assert.equal(pmCalls.filter(c => c[2] === true).length, 0)
+})
+
+test('v-prefixed exact versions pin and normalize for kill matching', async () => {
+  const { analyzePackageSpecPin } = await import('../src/host/plugins/catalog.js')
+  assert.deepEqual(analyzePackageSpecPin('pkg@v1.2.3'), { pinned: '1.2.3', floating: false })
+  assert.deepEqual(analyzePackageSpecPin('@scope/pkg@v2.0.0-rc.1'), { pinned: '2.0.0-rc.1', floating: false })
+  assert.deepEqual(analyzePackageSpecPin('pkg@v^1.2.3'), { pinned: null, floating: true })
+})
+
+test('slot security status does not bleed onto sibling entries sharing the slot', async (t) => {
+  const now = Date.now()
+  const killDoc = {
+    schemaVersion: 1,
+    issuedAt: new Date(now).toISOString(),
+    entries: [{ id: 'dsh:evil-sibling', reason: 'sibling is compromised' }],
+  }
+  const fakePm = {
+    async listBundles() {
+      return [
+        {
+          name: 'evil-sibling', official: false, availability: 'profile', version: '1.0.0',
+          enabled: true, installed: true, optional: false, removable: true, updatable: false, rows: [], overrides: [],
+        },
+        {
+          name: 'good-sibling', official: false, availability: 'profile', version: '1.0.0',
+          enabled: true, installed: true, optional: false, removable: true, updatable: false, rows: [], overrides: [],
+        },
+      ]
+    },
+  }
+  const { rt, call, stop } = startRuntime({
+    services: { pluginManager: fakePm },
+    config: {
+      pluginFetch: async () => new Response(JSON.stringify({
+        schemaVersion: 1,
+        killList: killDoc,
+        plugins: [
+          { id: 'dsh:evil-sibling', name: 'Evil Sibling', kind: 'dsh', slot: 'browser', category: 'browser', install: { packageName: 'evil-sibling' }, toolPrefixes: ['evil_'] },
+          { id: 'dsh:good-sibling', name: 'Good Sibling', kind: 'dsh', slot: 'browser', category: 'browser', install: { packageName: 'good-sibling' }, toolPrefixes: ['good_'] },
+        ],
+      }), { status: 200 }),
+    },
+  })
+  t.after(stop)
+  await rt.load()
+
+  // Pick the killed sibling: the slot reports killed for IT.
+  const pick = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:evil-sibling' })
+  assert.equal(pick.ok, true)
+  const view = await call('plugins-list', {})
+  const evil = view.value.plugins.find(p => p.id === 'dsh:evil-sibling')
+  const good = view.value.plugins.find(p => p.id === 'dsh:good-sibling')
+  assert.equal(evil.status, 'killed')
+  assert.equal(evil.killed, true)
+  // The innocent sibling sharing the same slot must not inherit the killed status:
+  // its own state stays clean and its controls are not hidden behind a foreign kill.
+  assert.notEqual(good.status, 'killed')
+  assert.equal(good.killed, false)
+  assert.equal(good.consentRequired, false)
+})
+
+test('failed post-install enablement surfaces as an error instead of silent installed-but-dead', async (t) => {
+  const bundles = new Map()
+  const fakePm = {
+    async listBundles() { return [...bundles.values()].map(b => ({ ...b })) },
+    async installBundle(spec) {
+      bundles.set(spec, {
+        name: spec, official: false, availability: 'profile', version: '1.0.0',
+        enabled: false, installed: true, optional: false, removable: true, updatable: false, rows: [], overrides: [],
+      })
+      return { changed: true, application: 'applied', stage: 'install', target: spec, bundle: spec, version: '1.0.0' }
+    },
+    async setBundleEnabled() {
+      return { changed: false, application: 'failed', stage: 'enable', target: 'x', error: { code: 'operation-error', diagnostic: 'profile write locked' } }
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  const clean = await call('plugins-install', { spec: 'locked-plugin' })
+  assert.equal(clean.ok, true, 'the install itself did succeed — the failure is the enablement')
+  const view = await call('plugins-list', {})
+  const item = view.value.plugins.find(p => p.packageName === 'locked-plugin')
+  assert.ok(item)
+  assert.equal(item.status, 'error')
+  assert.match(item.error ?? '', /profile write locked|Could not enable/)
 })

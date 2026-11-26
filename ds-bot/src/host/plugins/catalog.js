@@ -495,8 +495,11 @@ export function analyzePackageSpecPin(spec) {
   }
   const range = text.slice(at + 1).trim()
   // Exact pinned semver: one release version, optionally with prerelease/build.
-  if (/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(range)) {
-    return { pinned: range, floating: false }
+  // npm accepts a `v` prefix on exact versions (`pkg@v1.2.3`); it normalizes away
+  // for semver comparisons and kill-list version matching.
+  const exact = /^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/.exec(range)
+  if (exact) {
+    return { pinned: exact[1], floating: false }
   }
   return { pinned: null, floating: true }
 }

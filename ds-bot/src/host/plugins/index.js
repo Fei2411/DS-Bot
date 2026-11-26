@@ -725,6 +725,14 @@ export function install(rt) {
     return { inputs, fingerprint: inputs.hashError ? null : consentFingerprint(inputs), hashError: inputs.hashError ?? null }
   }
 
+// One phrasing for the unverifiable state everywhere it surfaces, so the UI, the
+// disable log, and the consent refusal never drift apart — including how to recover.
+function unverifiableMessage(hashError, { action = 'run' } = {}) {
+  const detail = hashError?.message ?? String(hashError ?? 'unknown error')
+  const verb = action === 'approve' ? 'be approved' : 'run'
+  return `Plugin files cannot be verified (${detail}). It cannot ${verb} until its directory is safe to read. Remove and reinstall the plugin if the problem persists.`
+}
+
   // The activation security gate: a resolved-but-unhashable executable tree first
   // (fail closed — never bind consent to bytes that cannot be verified), then the kill
   // list (absolute refusal, circuit breaker), then the consent fingerprint (updated
@@ -749,7 +757,7 @@ export function install(rt) {
       return {
         blocked: {
           status: 'unverifiable',
-          error: `Plugin files cannot be verified (${inputs.hashError?.message ?? inputs.hashError}). It cannot run until its directory is safe to read.`,
+          error: unverifiableMessage(inputs.hashError),
         },
         inputs,
       }
@@ -1457,7 +1465,7 @@ export function install(rt) {
         const displayKey = keys[0] ?? `dsh:${bundle.name}`
         const status = unverifiable ? 'unverifiable' : killHit ? 'killed' : 'consent-required'
         const error = unverifiable
-          ? `Plugin files cannot be verified (${hashError?.message ?? hashError}). It cannot run until its directory is safe to read.`
+          ? unverifiableMessage(hashError)
           : killHit
             ? (killHit.reason ? `Plugin disabled by the kill list: ${killHit.reason}` : 'Plugin disabled by the kill list.')
             : 'This plugin changed since it was approved (capabilities, execution tier, executable entry, content, or placement). It needs explicit approval before it can run again.'
@@ -1648,6 +1656,18 @@ export function install(rt) {
     const activeSlotTarget = slot => activeMounts.get(`slot:${slot}`)?.slotTargetId ?? null
     const slotDesired = slot => desiredSlotTarget(slot)
     const slotStat = slot => runtimeStatus.get(`slot:${slot}`)
+    // A slot has ONE runtime status but several entries sharing it: the status belongs
+    // to the target it names (`desiredId` for blocked/error states, `activeId` for a
+    // live mount). Entries that are neither must not inherit the sibling's killed or
+    // consent-required state — that would hide their own controls behind a status
+    // that was never about them.
+    const slotStatForEntry = (slot, entryId) => {
+      const stat = slotStat(slot)
+      if (!stat || !entryId) return null
+      if (stat.desiredId && stat.desiredId !== entryId) return null
+      if (!stat.desiredId && stat.activeId && stat.activeId !== entryId) return null
+      return stat
+    }
 
     // Security-gate outcomes surface on the desired item: a killed or consent-blocked
     // plugin shows its explicit status instead of a plain `inactive`/`error`.
@@ -1667,6 +1687,10 @@ export function install(rt) {
         consentRequired: blocked?.status === 'consent-required',
         killed: blocked?.status === 'killed',
         ...(blocked ? { status: blocked.status, error: blocked.error } : {}),
+        // An enable or mount failure recorded against this entry must surface even
+        // when its desired flag already flipped off — otherwise an installation
+        // silently reads as successful-but-dead.
+        ...(!blocked && stat?.status === 'error' && stat.error ? { status: 'error', error: stat.error } : {}),
       }
     }
 
@@ -1676,7 +1700,7 @@ export function install(rt) {
       const slot = desc.slot
       const active = slot ? activeSlotTarget(slot) === desc.id : true
       const desired = slot ? slotDesired(slot) === desc.id : true
-      const stat = slot ? slotStat(slot) : null
+      const stat = slot ? slotStatForEntry(slot, desc.id) : null
       items.push({
         id: desc.id,
         name: desc.name,
@@ -1740,7 +1764,7 @@ export function install(rt) {
       seenIds.add(entry.id)
       const slot = entry.slot ?? null
       const mountKey = slot ? `slot:${slot}` : `plugin:${entry.id}`
-      const stat = runtimeStatus.get(mountKey)
+      const stat = slot ? slotStatForEntry(slot, entry.id) : runtimeStatus.get(mountKey)
 
       if (entry.kind === 'mcp') {
         const installed = entry.custom || own(store.enabled, entry.id) !== undefined || (slot && slotDesired(slot) === entry.id)
@@ -1855,7 +1879,7 @@ export function install(rt) {
       const mountKey = slot ? `slot:${slot}` : `plugin:${desc.id}`
       const active = slot ? (activeSlotTarget(slot) === desc.id || activeSlotTarget(slot) === `provider:${desc.id}`) : activeMounts.has(mountKey)
       const desired = slot ? (slotDesired(slot) === desc.id || slotDesired(slot) === `provider:${desc.id}`) : own(store.enabled, desc.id) !== false
-      const stat = runtimeStatus.get(mountKey)
+      const stat = slot ? slotStatForEntry(slot, desc.id) : runtimeStatus.get(mountKey)
       items.push({
         id: desc.id,
         name: desc.name,
@@ -2032,8 +2056,15 @@ export function install(rt) {
       const bundle = catalogEntry ? resolveDshBundleForEntry(catalogEntry) : cachedBundles.get(id.slice('dsh:'.length))
       nextDshPkg = bundle?.name ?? catalogEntry?.install?.packageName ?? catalogEntry?.packageName ?? id.slice('dsh:'.length)
       if (bundle && !bundle.enabled && typeof pluginManager().setBundleEnabled === 'function') {
-        // The kill list rules before enablement starts the bundle's code.
+        // The full activation gate rules before enablement starts the bundle's code:
+        // the kill list first, then consent. A drifted or unverifiable bundle must
+        // never execute because a user re-picked its slot — changing what it is
+        // requires the explicit approval path, never a silent slot flip.
         await assertNotKilled({ ids: [id, `dsh:${nextDshPkg}`], version: bundle.version ?? null })
+        const gate = await activationSecurityCheck(id, { activationKind: 'dsh', entry: catalogEntry, bundle })
+        if (gate?.blocked) {
+          throw Object.assign(new Error(gate.blocked.error ?? 'This plugin cannot run until it is approved.'), { code: 'bot/refused' })
+        }
         const res = await pluginManager().setBundleEnabled(bundle.name, true)
         if (res?.application === 'failed' || res?.application === 'cancelled') {
           throw Object.assign(new Error(res.error?.diagnostic || res.error?.code || `Could not enable "${bundle.name}".`), { code: 'bot/refused' })
@@ -2046,6 +2077,10 @@ export function install(rt) {
           delete store.knownPrefixes[bundle.name]
           enabledByUsBundles.add(bundle.name)
         }
+        // First-time activation consent baselines here too (idempotent with the
+        // reconcile-path recording) so a crash between enable and reconcile never
+        // leaves the bundle running unbaselined.
+        if (gate) recordConsentBaseline(id, gate.fingerprint, gate.consentState)
         await refreshBundles()
       }
     }
@@ -2226,11 +2261,22 @@ export function install(rt) {
               enabledByUsBundles.add(actualPkg)
               if (gate) recordConsentBaseline(activeTargetId, gate.fingerprint, gate.consentState)
               pendingRestartPackages.set(actualPkg, { action: 'enable', reason: enableRes.restartReason ?? 'no-hmr' })
+            } else {
+              // Enablement refused or cancelled: never let the install silently read
+              // as successful-but-dead — the view surfaces why it is not running.
+              runtimeStatus.set(`plugin:${activeTargetId}`, {
+                status: 'error',
+                error: enableRes?.error?.diagnostic || enableRes?.error?.code || `Could not enable "${actualPkg}" after installation.`,
+              })
             }
             await refreshBundles()
           }
         }
       } catch (enableError) {
+        runtimeStatus.set(`plugin:${activeTargetId}`, {
+          status: 'error',
+          error: redactError(rt, enableError),
+        })
         rt.warn?.('ds-bot: enabling installed plugin %s failed: %s', actualPkg, enableError?.message ?? enableError)
       }
     }
@@ -2273,9 +2319,17 @@ export function install(rt) {
       throw Object.assign(new Error('Plugin manager is unavailable in this environment.'), { code: 'bot/refused' })
     }
     if (enabled) {
-      // The kill list rules before enablement starts the bundle's code; consent drift
-      // is handled by the gate inside the reconcile that follows.
+      // The full activation gate rules before enablement starts the bundle's code —
+      // a drifted (consent-required) or unverifiable bundle must never execute because
+      // its switch flipped; the explicit approval path is the only way back.
       await assertNotKilled({ ids: [targetId, `dsh:${pkgName}`], version: bundle?.version ?? null })
+      if (bundle) {
+        const gate = await activationSecurityCheck(targetId, { activationKind: 'dsh', entry, bundle })
+        if (gate?.blocked) {
+          throw Object.assign(new Error(gate.blocked.error ?? 'Plugin cannot be enabled.'), { code: 'bot/refused' })
+        }
+        if (gate) recordConsentBaseline(targetId, gate.fingerprint, gate.consentState)
+      }
     }
     const res = await pm.setBundleEnabled(pkgName, Boolean(enabled))
     if (res?.application === 'failed' || res?.application === 'cancelled') {
@@ -2618,7 +2672,7 @@ export function install(rt) {
       // would bind a fingerprint computed without a content hash, which is exactly
       // the gap fail-closed hashing exists to close.
       throw Object.assign(
-        new Error(`Plugin files cannot be verified (${inputs.hashError?.message ?? inputs.hashError}). It cannot be approved until its directory is safe to read.`),
+        new Error(unverifiableMessage(inputs.hashError, { action: 'approve' })),
         { code: 'bot/refused' },
       )
     }
