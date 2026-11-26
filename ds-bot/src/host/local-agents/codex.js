@@ -15,6 +15,7 @@ export class CodexEngine {
     this.child = undefined
     this.peer = undefined
     this.starting = undefined
+    this.forkSupported = undefined
     this.threads = new Map()
     this.probeEngines = new Set()
   }
@@ -262,7 +263,7 @@ export class CodexEngine {
         thread.threadId = undefined
         if (resumeOnly) {
           if (created && this.threads.get(dshSessionId) === thread) this.threads.delete(dshSessionId)
-          throw Object.assign(new Error('the saved local agent session could not be resumed for maintenance'), { code: 'LOCAL_AGENT_EXIT' })
+          throw Object.assign(new Error('the saved local agent session could not be resumed'), { code: 'LOCAL_AGENT_SESSION_LOST' })
         }
       }
     }
@@ -276,10 +277,44 @@ export class CodexEngine {
     return thread
   }
 
+  // Forks an existing Codex thread via `thread/fork` (Codex app-server v2) so a
+  // background task can inherit the parent thread's working context natively.
+  // Caches `forkSupported = false` if an older Codex returns JSON-RPC -32601.
+  async fork(sourceThreadId, newDshSessionId, { cwd, mcp, mode, instructions, model, review, ephemeral } = {}) {
+    if (this.forkSupported === false || typeof sourceThreadId !== 'string' || sourceThreadId === '') return undefined
+    const peer = await this.ensure()
+    const params = {
+      threadId: sourceThreadId,
+      ...(cwd ? { cwd } : {}),
+      ...(model && model !== 'default' ? { model } : {}),
+      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' && !review ? 'never' : 'on-request' } : {}),
+      ...(mcp !== undefined ? { config: { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } } : {}),
+      ...(instructions ? { developerInstructions: instructions } : {}),
+      ...(ephemeral ? { ephemeral: true } : {}),
+    }
+    try {
+      const reply = await peer.request('thread/fork', params, { timeout: 60_000 })
+      const forkedId = reply?.thread?.id ?? reply?.threadId
+      if (typeof forkedId !== 'string' || forkedId === '') return undefined
+      this.forkSupported = true
+      return { cliSessionId: forkedId }
+    } catch (error) {
+      if (error?.code === -32601) this.forkSupported = false
+      return undefined
+    }
+  }
+
   // Follow-up instructions while a thread lives (Codex injects a developer item).
+  // Returns `{ ok, unsupported }` so callers only advance promptHash once delivered.
   async instruct(thread, text) {
-    if (text === '') return
-    await this.peer?.request('thread/inject_items', { threadId: thread.threadId, items: [{ type: 'developerMessage', text }] }, { timeout: 15_000 }).catch(() => {})
+    if (text === '') return { ok: true }
+    if (this.peer === undefined || thread?.threadId === undefined) return { ok: false, unsupported: false }
+    try {
+      await this.peer.request('thread/inject_items', { threadId: thread.threadId, items: [{ type: 'developerMessage', text }] }, { timeout: 15_000 })
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, unsupported: error?.code === -32601 }
+    }
   }
 
   async prompt(thread, blocks, { signal, effort }) {

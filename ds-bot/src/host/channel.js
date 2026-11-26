@@ -523,15 +523,15 @@ export function install(rt) {
           const sessionId = rt.chatOf(bot.id)
           const agent = await rt.resolveAgent(sessionId)
           const values = projections.snapshot(agent.session, RUN_STATS).values
-          const isLocal = rt.isLocalAgentRoute?.(agent.session?.requestHeader?.()?.config?.provider ?? '') === true
-            || rt.isLocalAgentSession?.(sessionId) === true
+          const measured = rt.contextRuntime?.measure?.(agent.session)
+          const isLocal = measured?.isLocal === true
           if (values && isLocal) {
-            const localContext = rt.localAgentContext?.(sessionId)
-            const contextWindow = localContext?.size ?? values.contextPressure?.contextWindow
+            const resolved = await rt.contextRuntime.resolveWindow(agent.session).catch(() => undefined)
+            const contextWindow = (resolved?.source !== 'default' ? resolved?.window : undefined) ?? values.contextPressure?.contextWindow
             return ok({
               ...values,
-              contextPressure: Number.isFinite(localContext?.used) && contextWindow > 0
-                ? { ...values.contextPressure, pressureTokens: localContext.used, projectedTokens: localContext.used, contextWindow }
+              contextPressure: Number.isFinite(measured.workingTokens) && contextWindow > 0
+                ? { ...values.contextPressure, pressureTokens: measured.workingTokens, projectedTokens: measured.workingTokens, contextWindow }
                 : undefined,
             })
           }
@@ -606,6 +606,13 @@ export function install(rt) {
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
           await rt.resumeBot(bot)
           return ok(true)
+        }
+        // Recovery escape hatch when continuous context overflow prevents auto-switching.
+        case 'new-part': {
+          await rt.load()
+          const botId = String(body.botId ?? '')
+          const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim() !== '' ? body.sessionId.trim() : undefined
+          return ok(await rt.recoverOverflowPart(botId, sessionId))
         }
         // Background pictures and a chat's own background (appearance.js).
         case 'background-add':
