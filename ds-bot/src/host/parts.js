@@ -2664,6 +2664,7 @@ export function install(rt) {
         }
         throw error
       }
+      if (job.botId !== undefined) rt.pastOwners.set(agent.id, job.roomId === undefined ? { botId: job.botId } : { botId: job.botId, roomId: job.roomId })
       await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
         .then(() => {
           finishMove?.()
@@ -4339,5 +4340,11 @@ export function install(rt) {
     return { sessionId: nextId }
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, noteDefaultPresetPending, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  // Recovery marks can outlive a failed job whose private part stayed current.
+  // Group parts never describe the Bot's private-chat state.
+  const isSwitching = botId => Array.from(switches.values()).some(job => job.botId === botId && job.roomId === undefined)
+    || Object.entries(state.switching ?? {}).some(([sessionId, owner]) => owner?.botId === botId
+      && owner.roomId === undefined && currentOf(owner) !== sessionId)
+
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, isSwitchingPart: id => switches.has(id), isSwitching, isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, noteDefaultPresetPending, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }
