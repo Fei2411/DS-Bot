@@ -350,6 +350,34 @@ test('a subagent Session is read through its parent, even a parent that is gone;
   assert.equal(unread().length, 1)
 })
 
+test('usage diagnostics omit unavailable subagent descriptors but still report corrupt ones', async (t) => {
+  const { call, ctx, stop } = start(undefined, {
+    listedExtra: [
+      { sessionId: 's-unsupported', parentSessionId: 's-b1', origin: 'subagent', projections: { kind: 'sequenced', asOfSeq: 1, values: {} } },
+      { sessionId: 's-corrupt', parentSessionId: 's-b1', origin: 'subagent', projections: { kind: 'sequenced', asOfSeq: 1, values: {} } },
+    ],
+  })
+  t.after(stop)
+  const page = ctx.sessionController.page
+  ctx.sessionController.page = async (request) => {
+    const { childSessionId } = request.address
+    if (childSessionId === 's-unsupported' || childSessionId === 's-corrupt') {
+      const reason = childSessionId === 's-unsupported' ? 'unsupported' : 'corrupt'
+      throw Object.assign(new Error(`subagent descriptor is ${reason === 'unsupported' ? 'unavailable' : 'corrupt'}`), {
+        code: 'subagent/catalog-diagnostic',
+        details: { reason },
+      })
+    }
+    return page(request)
+  }
+  const view = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
+  assert.equal(totals(view)['Chief/chat'], 160 + 220 + 10)
+  const { entries } = (await call('diagnostics', {})).value
+  assert.deepEqual(entries.map(entry => entry.text).filter(line => line.startsWith('usage could not read')), [
+    'usage could not read 1 Session: s-corrupt (first error: Error: subagent descriptor is corrupt)',
+  ])
+})
+
 // #654: a Session with no Agent attached seals once read to its tip, at the checkpoint
 // watermark its listing shows. Later scans skip it without a read while that watermark
 // stands; a warm scan clears the seal, and a moved watermark means the log grew.

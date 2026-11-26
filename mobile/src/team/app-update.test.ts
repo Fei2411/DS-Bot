@@ -52,7 +52,7 @@ test('parseReleaseMirrorUrl and stripDownloadTable match release-notes.mjs forma
     '',
     '| System / 系统 | Download / 下载 | Size / 大小 |',
     '|---|---|---|',
-    '| Android (phone app / 手机 App) | DS-Bot-0.3.11-android.apk: [Mirror / 国内镜像](https://dl.dsbot.app/DS-Bot-0.3.11-android.apk) · [GitHub](https://github.com/Fei2411/DS-Bot/releases/download/v0.3.11/DS-Bot-0.3.11-android.apk) | 61 MB |',
+    '| Android (phone app / 手机 App) | DS-Bot-0.3.11-android.apk: [Mirror / 国内镜像](https://dl.dsbot.app/DS-Bot-0.3.11-android.apk) · [GitHub](https://github.com/Fei-Craft/DS-Bot/releases/download/v0.3.11/DS-Bot-0.3.11-android.apk) | 61 MB |',
     '<!-- /downloads -->',
     '',
     '### Added',
@@ -75,17 +75,17 @@ test('checkAndroidUpdate verifies SHA256SUMS, prefers mirror URLs, ignores prere
       tag_name: 'v0.4.0-rc.1',
       draft: false,
       prerelease: true,
-      assets: [{ name: androidApkName('0.4.0-rc.1'), browser_download_url: 'https://github.com/Fei2411/DS-Bot/releases/download/v0.4.0-rc.1/DS-Bot-0.4.0-rc.1-android.apk', digest: `sha256:${OTHER_SHA}` }],
+      assets: [{ name: androidApkName('0.4.0-rc.1'), browser_download_url: 'https://github.com/Fei-Craft/DS-Bot/releases/download/v0.4.0-rc.1/DS-Bot-0.4.0-rc.1-android.apk', digest: `sha256:${OTHER_SHA}` }],
     },
     {
       tag_name: 'v0.3.11',
       draft: false,
       prerelease: false,
-      html_url: 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.3.11',
+      html_url: 'https://github.com/Fei-Craft/DS-Bot/releases/tag/v0.3.11',
       body: `<!-- downloads -->\n| Android | ${apkName}: [Mirror / 国内镜像](https://mirror.test/${apkName}) · [GitHub](https://github.com/x) | 61 MB |\n<!-- /downloads -->\n\n### Fixed\n- Faster sync`,
       assets: [
-        { name: apkName, browser_download_url: `https://github.com/Fei2411/DS-Bot/releases/download/v0.3.11/${apkName}`, size: 62_000_000, digest: `sha256:${VALID_SHA}` },
-        { name: 'SHA256SUMS.txt', browser_download_url: 'https://github.com/Fei2411/DS-Bot/releases/download/v0.3.11/SHA256SUMS.txt' },
+        { name: apkName, browser_download_url: `https://github.com/Fei-Craft/DS-Bot/releases/download/v0.3.11/${apkName}`, size: 62_000_000, digest: `sha256:${VALID_SHA}` },
+        { name: 'SHA256SUMS.txt', browser_download_url: 'https://github.com/Fei-Craft/DS-Bot/releases/download/v0.3.11/SHA256SUMS.txt' },
       ],
     },
   ]
@@ -108,7 +108,7 @@ test('checkAndroidUpdate verifies SHA256SUMS, prefers mirror URLs, ignores prere
   assert.equal(res.release.sha256, VALID_SHA)
   assert.deepEqual(res.release.downloadUrls, [
     `https://mirror.test/${apkName}`,
-    `https://github.com/Fei2411/DS-Bot/releases/download/v0.3.11/${apkName}`,
+    `https://github.com/Fei-Craft/DS-Bot/releases/download/v0.3.11/${apkName}`,
   ])
   assert.equal(res.release.notes, '### Fixed\n- Faster sync')
 
@@ -151,12 +151,14 @@ test('checkAndroidUpdate refuses updates with missing or conflicting SHA-256', a
 
 test('checkAndroidUpdate falls back to releases/latest on API rate limit and supports custom mirror manifest', async () => {
   const apkName = androidApkName('0.3.12')
+  const requests: string[] = []
   const rateLimitedFetch: typeof globalThis.fetch = async (url) => {
     const target = String(url)
+    requests.push(target)
     if (target.includes('api.github.com')) return new Response('rate limit', { status: 403 })
     if (target.endsWith('/releases/latest')) {
       const resp = new Response('', { status: 200 })
-      Object.defineProperty(resp, 'url', { value: 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.3.12' })
+      Object.defineProperty(resp, 'url', { value: 'https://github.com/Fei-Craft/DS-Bot/releases/tag/v0.3.12' })
       return resp
     }
     if (target.endsWith('SHA256SUMS.txt')) return new Response(`${VALID_SHA}  ${apkName}\n`, { status: 200 })
@@ -166,6 +168,14 @@ test('checkAndroidUpdate falls back to releases/latest on API rate limit and sup
   assert.equal(fallback.status, 'available')
   assert.equal(fallback.release.version, '0.3.12')
   assert.equal(fallback.release.sha256, VALID_SHA)
+  assert.deepEqual(requests, [
+    'https://api.github.com/repos/Fei-Craft/DS-Bot/releases?per_page=20',
+    'https://github.com/Fei-Craft/DS-Bot/releases/latest',
+    'https://github.com/Fei-Craft/DS-Bot/releases/download/v0.3.12/SHA256SUMS.txt',
+  ])
+  assert.deepEqual(fallback.release.downloadUrls, [
+    `https://github.com/Fei-Craft/DS-Bot/releases/download/v0.3.12/${apkName}`,
+  ])
 
   // Custom mirror manifest works even when GitHub is completely unreachable.
   const mirrorOnlyFetch: typeof globalThis.fetch = async (url) => {

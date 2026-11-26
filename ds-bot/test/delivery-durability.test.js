@@ -451,7 +451,8 @@ test('F4 (resume.js): unified recoverTurnDeferred recovers steered reply/ask_bac
   assert.ok(cMsgs.some(m => m.source?.exchangeId === 'w_cut_steered' && m.source?.deferred === true))
 
   // Atomic inflight.json write leaves no leftover .tmp files once async persist settles.
-  await settle(() => readdirSync(home).filter(name => name.startsWith('inflight.json.') && name.endsWith('.tmp')).length === 0, 2000, 'atomic inflight.json write must leave no leftover .tmp files')
+  await host.stop()
+  assert.equal(readdirSync(home).filter(name => name.startsWith('inflight.json.') && name.endsWith('.tmp')).length, 0, 'atomic inflight.json write must leave no leftover .tmp files')
   assert.doesNotThrow(() => JSON.parse(readFileSync(join(home, 'inflight.json'), 'utf8')))
 })
 
@@ -982,7 +983,8 @@ test('F10 + State Hygiene + Weixin: deleteBot/startup prune requests & pair ledg
   host.emit(newestTask.sessionId, 'assistant/message', assistantText('Done 51'))
   host.emit(newestTask.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   await settle(() => archiveCalls.some(c => c.sid === 'old-task-sess-0'), 2000, 'pruneSettledTasks must archive pruned task session')
-  assert.ok(archiveCalls.some(c => c.sid === 'old-task-seg-0' && c.opts?.stopActivity === true), 'pruneSettledTasks must archive pruned task segments too')
+  await settle(() => archiveCalls.some(c => c.sid === 'old-task-seg-0'), 2000, 'pruneSettledTasks must archive pruned task segments too')
+  assert.equal(archiveCalls.find(c => c.sid === 'old-task-seg-0').opts?.stopActivity, undefined, 'archiving a pruned task must not forcibly stop Session activity')
 
   // 2) F10: feed.js skips taskOwners events & streams, and displayItems/feed/tails suppress silent [PASS] on Bot-triggered own-chat turns!
   const abort = new AbortController()

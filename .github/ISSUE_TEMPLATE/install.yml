@@ -8,8 +8,8 @@ body:
         **No diagnostics needed**: the app may not have started at all. Tell us where it stopped and what the message said.
         **不需要诊断信息**：应用可能根本没跑起来。告诉我们卡在哪一步、提示框里写了什么就行。
 
-        Many warnings have a way through: see [Install](https://github.com/Fei2411/DS-Bot#install) in the README.
-        很多提示都能点过去：先看 [README 的安装说明](https://github.com/Fei2411/DS-Bot/blob/main/README.zh.md#安装)。
+        Many warnings have a way through: see [Install](https://github.com/Fei-Craft/DS-Bot#install) in the README.
+        很多提示都能点过去：先看 [README 的安装说明](https://github.com/Fei-Craft/DS-Bot/blob/main/README.zh.md#安装)。
   - type: dropdown
     id: step
     attributes:

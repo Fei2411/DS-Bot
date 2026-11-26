@@ -396,3 +396,30 @@ test('corrupt encrypted storage fails closed without overwriting it', async t =>
   await assert.rejects(client.signIn({ openExternal: () => assert.fail('must not open browser') }), typed('temporarily-unavailable', 'secure-storage-failed'))
   assert.deepEqual(await fs.readFile(file), corrupt)
 })
+
+test('macOS mock keychain fails closed so ChatGPT credentials are never written with the mock key and existing OS-backed credentials survive', async t => {
+  const f = await fixture(t)
+  await f.login()
+  const file = join(f.userData, 'chatgpt-signin.enc')
+  const savedBytes = await fs.readFile(file)
+
+  const strictSafeStorage = {
+    isEncryptionAvailable: () => true,
+    encryptString: () => { throw new Error('must not encrypt under mock keychain') },
+    decryptString: () => { throw new Error('must not decrypt under mock keychain') },
+  }
+  const mockStore = createChatGPTStore({ userData: f.userData, safeStorage: strictSafeStorage, platform: 'darwin', mockKeychain: true })
+  assert.equal(mockStore.supported(), false)
+  await assert.rejects(mockStore.read(), { message: 'ChatGPT credentials could not be stored or read securely.' })
+  await assert.rejects(mockStore.write({ version: 1, hostId: 'urn:uuid:00000000-0000-4000-8000-000000000000' }), { message: 'ChatGPT credentials could not be stored or read securely.' })
+
+  const mockClient = await createChatGPTSignIn({ ...f.clientOptions, safeStorage: strictSafeStorage, platform: 'darwin', mockKeychain: true })
+  assert.deepEqual(mockClient.status(), { state: 'unsupported' })
+  await assert.rejects(mockClient.signIn({ openExternal: () => assert.fail('must not open browser') }), typed('unsupported', 'secure-storage-unavailable'))
+  assert.deepEqual(await fs.readFile(file), savedBytes)
+
+  // Restarting back on the real OS keychain recovers the untouched credential file cleanly.
+  const recovered = await createChatGPTSignIn(f.clientOptions)
+  assert.equal(recovered.status().state, 'connected')
+  assert.equal(await recovered.getAccessToken(), 'synthetic-access')
+})

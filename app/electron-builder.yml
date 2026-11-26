@@ -7,6 +7,7 @@ directories:
 files:
   - package.json
   - src/**
+  - ui/dist/**
   - assets/**
   # The LibreOffice engine goes beside the app instead (extraResources).
   - '!node_modules/@deepseek-ai/libreoffice-kit-*{,/**/*}'
@@ -117,5 +118,5 @@ deb:
 # so the build itself never publishes (--publish never).
 publish:
   provider: github
-  owner: Fei2411
+  owner: Fei-Craft
   repo: DS-Bot

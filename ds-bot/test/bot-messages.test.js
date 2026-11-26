@@ -705,7 +705,7 @@ test('a Bot may take part in the same work again, but not delegate back to one t
   await settled(() => callsOf(agents, 'a').length === 1)
   take('a')
   // With the result in hand, Chief asks Tester again, and Tester may ask Writer.
-  assert.match(await tool('delegate_work', { to: 'Tester', goal: 'check the last part once more' }, 'a'), /^Delegated work #W\d+ to Tester/)
+  assert.match(await tool('delegate_work', { to: 'Tester', goal: 'check the last part once more', follow_up_to: callsOf(agents, 'a').at(-1)[1].source.workRef }, 'a'), /^Delegated work #W\d+ to Tester/)
   end('a')
   take('c')
   assert.match(await tool('delegate_work', { to: 'Writer', goal: 'what did you change last?' }, 'c'), /^Delegated work #W\d+ to Writer/)
@@ -1627,4 +1627,3 @@ test('a message between Bots that the book cannot keep is not sent', { skip: pro
   }
   assert.deepEqual(await exchanges(), [])
 })
-

@@ -94,7 +94,7 @@ runInNewContext(bundle.outputFiles[0].text, {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: tree => tree } : {}),
 })
-const { ModelMenu, EffortBar } = module.exports
+const { ModelMenu, EffortBar, MODEL_CSS } = module.exports
 
 const nodes = (tree, match) => (!tree || typeof tree !== 'object' ? [] : [...(match(tree) ? [tree] : []), ...(tree.children ?? []).flatMap(child => nodes(child, match))])
 const settle = () => new Promise(done => setImmediate(done))
@@ -426,4 +426,9 @@ test('the popup can open before models load, then focus a model row from search'
   search().props.onKeyDown({ ...keydown('ArrowDown'), currentTarget: field })
   assert.equal(sandbox.document.activeElement, row)
   sandbox.document.activeElement = null
+})
+
+test('wide select triggers fill stacked drawer and form fields while keeping settings controls capped', () => {
+  assert.match(MODEL_CSS, /\.bt-model-trigger\[data-wide\]\{[^}]*max-width:min\(340px,100%\)/)
+  assert.match(MODEL_CSS, /:is\(\.bt-drawer-model,\.bt-field\)\s+\.bt-model-trigger\[data-wide\]\{width:100%;max-width:100%\}/)
 })

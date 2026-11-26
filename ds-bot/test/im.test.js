@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { fork } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
+import { setImmediate as nextTurn, setTimeout as delay } from 'node:timers/promises'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
@@ -22,6 +23,7 @@ import { adapters } from '../src/host/im/platforms/index.js'
 // sent; it is off by default, like most platforms.
 const fakeAdapter = ({ buttons = true, quote = false } = {}) => {
   const sent = []
+  const sends = new EventEmitter()
   const edited = []
   const typed = []
   const fails = []
@@ -36,6 +38,14 @@ const fakeAdapter = ({ buttons = true, quote = false } = {}) => {
     edited,
     typed,
     handlers: null,
+    waitForSend: match => new Promise(resolve => {
+      const observe = job => {
+        if (!match(job)) return
+        sends.off('send', observe)
+        resolve(job)
+      }
+      sends.on('send', observe)
+    }),
     async check(fields) {
       if (fields.token === 'bad-token') throw new Error('platform refused the token')
       return { account: { id: 'bot1', name: '@fakebot' } }
@@ -49,6 +59,7 @@ const fakeAdapter = ({ buttons = true, quote = false } = {}) => {
         send: async (chat, body) => {
           const messageId = String(++nextMessage)
           sent.push({ chat, messageId, ...body })
+          sends.emit('send', sent.at(-1))
           jobs.push(body)
           const next = fails.shift()
           if (next !== undefined) throw next
@@ -122,8 +133,9 @@ async function start({ platform = 'telegram', adapter, seed, home, services = {}
       if (listener.length >= 2) listener({ id: sessionId }, { type, data, time: Date.now() })
     }
   }
-  const fireApprovals = (request, next) => Promise.all((ctx.listeners.get('approval/request') ?? [])
-    .map(listener => listener(request, next)))
+  // As DSH's waterfall runs them: every listener is prepended, so the last one goes first.
+  const fireApprovals = (request, next) => [...(ctx.listeners.get('approval/request') ?? [])]
+    .reduce((rest, listener) => () => listener(request, rest), next)().then(outcome => [outcome])
   const close = async () => {
     adapters[platform] = real
     await ctx.dispose()
@@ -152,13 +164,26 @@ const gm = (s, senderId, text, { mentioned = true, chat = { key: 'g1', kind: 'gr
   chat, sender: { id: senderId, name: `User ${senderId}` }, text, mentioned, ...extra,
 })
 
-const tokenCard = async (s, index = 0) => {
-  for (let at = 0; at < 200; at += 1) {
-    const card = s.fake.sent.filter(job => /Card V\d+/.test(job.text))[index]
-    if (card !== undefined) return card
-    await delay(10)
+const waitFor = async (check, options = {}) => {
+  const { timeoutMs = 5000, stepMs = 10, label = 'condition was not reached' } = typeof options === 'number'
+    ? { timeoutMs: options }
+    : options
+  const deadline = Date.now() + timeoutMs
+  let value = check()
+  while (!value && Date.now() < deadline) {
+    await delay(stepMs)
+    value = check()
   }
-  assert.fail('token card was not delivered')
+  assert.ok(value, label)
+  return value
+}
+
+const tokenCard = async (s, index = 0) => {
+  return waitFor(() => s.fake.sent.filter(job => /Card V\d+/.test(job.text))[index], {
+    timeoutMs: 4000,
+    stepMs: 10,
+    label: 'token card was not delivered',
+  })
 }
 
 test('two concurrent syncs start exactly one adapter', async (t) => {
@@ -298,15 +323,19 @@ test('a quoted reply carries the message it answers into the Bot', async (t) => 
   s.imTurn('a')
   s.fake.sent.length = 0
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
-  await s.flush()
-  const sentId = s.fake.sent.at(-1)?.messageId
-  assert.ok(sentId !== undefined, 'the sent message has an id')
+  const sentId = await waitFor(() => s.fake.sent.at(-1)?.messageId, { label: 'the sent message has an id' })
   await dm(s, 'u1', 'ship it', { quote: { ids: [sentId] } })
   assert.equal(s.prompts.length, 2)
   assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Project A is done\n\nship it')
-  // The reply can come after a restart, so the message is kept in the runtime file.
-  await delay(600)
-  const runtime = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  // The reply can come after a restart, so the message is kept in the runtime file
+  // (written on a debounce timer).
+  const fileOf = () => {
+    try { return JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')) } catch { return undefined }
+  }
+  const runtime = await waitFor(() => {
+    const data = fileOf()
+    return data?.sent?.['dm-u1']?.some(entry => entry.text === 'Project A is done') ? data : undefined
+  }, { timeoutMs: 5000, stepMs: 25, label: 'runtime file persisted sent message for quote lookup' })
   assert.ok(runtime.sent['dm-u1'].some(entry => entry.text === 'Project A is done'))
 })
 
@@ -1487,6 +1516,7 @@ test('pending legacy code cards receive the new reply instructions once with the
 
 test('only reserved card commands answer forms and all malformed or unknown commands stay out of ordinary chat', async (t) => {
   const s = await start()
+  const isRejection = job => job.chat.key === 'g2' && /Invalid|no longer answerable/.test(job.text)
   t.after(s.stop)
   const { one } = await pairedConn(s)
   one.chats.g1 = { kind: 'group', target: { botId: 'a' }, at: 1 }
@@ -1523,11 +1553,12 @@ test('only reserved card commands answer forms and all malformed or unknown comm
   for (const text of ['!card', '!card invalid', '!card V999999\n1: private', '/card', '/card invalid', '/card V999999\n1: private', `!card ${codes[0]}\n1: wrong chat`, `!card ${codes[1]} prose is not an answer`]) {
     const prompts = s.prompts.length
     const sent = s.fake.sent.length
+    const rejected = s.fake.waitForSend(isRejection)
     await gm(s, 'u1', text, { chat: { key: 'g2', kind: 'group' } })
-    await s.flush()
+    await rejected
     assert.equal(s.prompts.length, prompts)
     assert.equal(s.rt.state.views.b.id, pending)
-    assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g2' && /Invalid|no longer answerable/.test(job.text)))
+    assert.ok(s.fake.sent.slice(sent).some(isRejection))
   }
   await gm(s, 'u1', `!card ${codes[1]}\n1: Bob`, { chat: { key: 'g2', kind: 'group' } })
   assert.equal(s.rt.state.views.b, undefined)
@@ -1643,8 +1674,9 @@ test('legacy bare replies stay private after delivery pruning, rebind and restar
     for (const text of [`${code.toLowerCase()}\n1: Private value`, `${code} 1,3`, `${code} 2\n1: Private value`, `${code} cancel`, `${code} 2 cancel`]) {
       const prompts = s.prompts.length
       const sent = s.fake.sent.length
+      const refused = s.fake.waitForSend(job => job.chat.key === 'g1' && job.text.includes(`use !card ${code}`))
       await gm(s, 'u1', text)
-      await s.flush()
+      await refused
       assert.equal(s.prompts.length, prompts, text)
       assert.equal(s.rt.state.views.b.id, pending)
       assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g1' && job.text.includes(`use !card ${code}`)), text)
@@ -1939,13 +1971,16 @@ test('own-chat IM views accept a button answer using the shared view reply path'
   s.imTurn('a')
   await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Route', view: { type: 'options', id: 'pick', options: [{ label: 'A' }, { label: 'B' }] } }, { agent: { id: 'a' }, concludeTurn() {} })
   const view = s.rt.state.views.a
-  await s.flush()
+  await waitFor(() => s.fake.sent.some(job => job.buttons?.some(button => button.data === `v:${view.id}:1`)), {
+    label: 'single-select view card with buttons was delivered',
+  })
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct' }, sender: { id: 'u1' }, data: `v:${view.id}:1` })
   assert.equal(s.rt.state.views.a, undefined)
   assert.deepEqual(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0], { id: view.id, action: 'pick', values: { selected: ['B'] } })
   await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Multi route', view: { type: 'options', id: 'routes', multi: true, options: [{ label: 'A' }, { label: 'B' }] } }, { agent: { id: 'a' }, concludeTurn() {} })
-  await s.flush()
-  const multiCard = s.fake.sent.find(job => job.text.includes('Multi route'))
+  const multiCard = await waitFor(() => s.fake.sent.find(job => job.text.includes('Multi route')), {
+    label: 'multi-select view card was delivered after runtime write',
+  })
   assert.ok(multiCard)
   assert.equal(multiCard.buttons, undefined)
   const pending = s.rt.state.views.a
@@ -2228,6 +2263,19 @@ test('reply origin: a Web turn does not reach IM', async (t) => {
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'answer to the browser' }] } })
   await s.flush()
   assert.equal(s.fake.sent.length, 0)
+})
+
+test('API turns cannot acquire an IM origin from input arriving during their output', async t => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  s.emitEvent('a', 'turn/start', {})
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: 'api:key:run' }, content: [{ type: 'text', text: 'API work' }] })
+  await dm(s, 'u1', 'IM input after API admission')
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId }, content: [{ type: 'text', text: 'IM input' }] })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'API-only output' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.some(entry => entry.text.includes('API-only output')), false)
 })
 
 test('reply origin: a peer Bot message and a scheduled task do not reach IM', async (t) => {
@@ -2828,16 +2876,61 @@ test('reply origin: a message that waited in the queue past any window still nam
 // group keeps its chat while its members still work after the relay turn, and
 // unpairing stops a running turn from replying.
 
+test('IM idle waits for an existing drain and another connection queued while waiting', async (t) => {
+  const gatedAdapter = () => {
+    const adapter = fakeAdapter()
+    const entered = Promise.withResolvers()
+    const release = Promise.withResolvers()
+    t.after(release.resolve)
+    const connect = adapter.connect
+    adapter.connect = (...args) => {
+      const handle = connect(...args)
+      return { ...handle, send: async (...sendArgs) => {
+        entered.resolve()
+        await release.promise
+        return handle.send(...sendArgs)
+      } }
+    }
+    return { adapter, entered: entered.promise, release: release.resolve }
+  }
+  const telegram = gatedAdapter()
+  const dingtalk = gatedAdapter()
+  const original = adapters.dingtalk
+  adapters.dingtalk = dingtalk.adapter
+  t.after(() => { adapters.dingtalk = original })
+  const s = await start({ adapter: telegram.adapter })
+  t.after(s.stop)
+  await add(s)
+  await s.rt.imEndpoint('im-add', { platform: 'dingtalk', botId: 'a', fields: FIELDS.dingtalk })
+  await s.rt.imWhenIdle()
+
+  await dm(s, 'u1', 'hi')
+  await telegram.entered
+  let idle = false
+  const done = s.rt.imWhenIdle().then(() => { idle = true })
+  await nextTurn()
+  assert.equal(idle, false, 'the existing Telegram drain is still active')
+
+  await dm({ fake: dingtalk.adapter }, 'u2', 'hi')
+  await dingtalk.entered
+  telegram.release()
+  await nextTurn()
+  assert.equal(idle, false, 'the new DingTalk drain is still active')
+  dingtalk.release()
+  await done
+  assert.equal(dingtalk.adapter.sent.length, 1)
+})
+
 test('reply origin: cards and approvals leave only on the connection whose chat asked', async (t) => {
   const s = await start()
   t.after(s.stop)
   const telegram = s.fake
-  const dingtalk = fakeAdapter()
+  const dingtalk = fakeAdapter({ buttons: false })
   const original = adapters.dingtalk
   adapters.dingtalk = dingtalk
   t.after(() => { adapters.dingtalk = original })
-  const connA = await add(s)
   const connB = await s.rt.imEndpoint('im-add', { platform: 'dingtalk', botId: 'a', fields: FIELDS.dingtalk })
+  const connA = await add(s)
   for (const id of [connA.id, connB.id]) {
     const one = s.rt.state.im.connections[id]
     one.paired.push({ id: 'u1', name: 'U1', at: 1 })
@@ -2850,33 +2943,40 @@ test('reply origin: cards and approvals leave only on the connection whose chat 
   telegram.sent.length = 0
   dingtalk.sent.length = 0
 
+  const questionSent = telegram.waitForSend(entry => entry.buttons?.[0]?.data.startsWith('q:'))
   s.rt.state.questions.a = { id: 'q1', question: 'Which?', options: [{ label: 'yes' }, { label: 'no' }] }
   await s.rt.save()
-  await s.flush()
+  await questionSent
   assert.equal(telegram.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('q:')).length, 1, 'the asking chat got its question card')
   assert.equal(dingtalk.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('q:')).length, 0, 'the other connection got no question card')
   delete s.rt.state.questions.a
 
+  const secretSent = telegram.waitForSend(entry => entry.text.includes('MY_KEY'))
   s.rt.state.secretRequests = { a: [{ id: 's1', name: 'MY_KEY', purpose: 'for tests', status: 'pending', askedAt: 1 }] }
   await s.rt.save()
-  await s.flush()
+  await secretSent
   assert.equal(telegram.sent.filter(entry => entry.text.includes('MY_KEY')).length, 1, 'the asking chat got the secret request')
   assert.equal(dingtalk.sent.filter(entry => entry.text.includes('MY_KEY')).length, 0, 'the other connection got no secret request')
   s.rt.state.secretRequests = {}
 
+  const viewSent = telegram.waitForSend(entry => entry.text.includes('Pick'))
   s.rt.state.views.a = { id: 'v1', title: 'Pick', view: { type: 'text', text: 'Answer me' } }
   await s.rt.save()
-  await s.flush()
+  await viewSent
   assert.equal(telegram.sent.filter(entry => entry.text.includes('Pick')).length, 1, 'the asking chat got the view card')
   assert.equal(dingtalk.sent.filter(entry => entry.text.includes('Pick')).length, 0, 'the other connection got no view card')
   delete s.rt.state.views.a
 
   telegram.sent.length = 0
   dingtalk.sent.length = 0
-  void s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason: 'run it', signal: new AbortController().signal }, () => new Promise(() => {}))
-  await s.flush()
-  assert.equal(telegram.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('a:')).length, 1, 'the asking chat got the approval card')
-  assert.equal(dingtalk.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('a:')).length, 0, 'the other connection got no approval card')
+  const reason = 'run the approval routing test'
+  const isApproval = entry => entry.text.includes(reason) || entry.buttons?.some(button => button.data.startsWith('a:'))
+  const approvalSent = telegram.waitForSend(entry => entry.chat.key === 'dm-u1' && entry.buttons?.some(button => button.data.startsWith('a:')))
+  void s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason, signal: new AbortController().signal }, () => new Promise(() => {}))
+  await approvalSent
+  await s.rt.imWhenIdle()
+  assert.deepEqual(telegram.sent.filter(isApproval).map(entry => entry.chat.key), ['dm-u1'], 'only the asking chat got the approval card')
+  assert.equal(dingtalk.sent.filter(isApproval).length, 0, 'the other connection got no approval card')
 })
 
 test('reply origin: an answer from IM keeps its chat for the turn the answer continues', async (t) => {
@@ -3367,7 +3467,9 @@ async function startSwitchHarness(t, { tokens = new Map([['a', 1_000]]), cwd = (
     failure: { code },
     signal: AbortSignal.timeout(60_000),
   })
-  const fireApprovals = (request, next) => Promise.all((ctx.listeners.get('approval/request') ?? []).map(listener => listener(request, next)))
+  // As DSH's waterfall runs them: every listener is prepended, so the last one goes first.
+  const fireApprovals = (request, next) => [...(ctx.listeners.get('approval/request') ?? [])]
+    .reduce((rest, listener) => () => listener(request, rest), next)().then(outcome => [outcome])
 
   const conn = await rt.imEndpoint('im-add', { platform: 'telegram', botId: 'a', fields: { token: 'tok-1234' } })
   rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'U1', at: 1 })
@@ -4094,6 +4196,91 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
   )
 })
 
+test('IM /steer, /background, and platform messageId redelivery deduplication (#2077)', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+
+  // 1) /steer <text> sends with mode: 'steer'; bare /steer prints usage without prompting.
+  await dm(s, 'u1', '/steer')
+  assert.equal(s.prompts.length, 0)
+  assert.match(s.fake.sent.at(-1).text, /\/steer/)
+  s.fake.sent.length = 0
+
+  await dm(s, 'u1', '/steer focus on API')
+  assert.equal(s.prompts.length, 1)
+  assert.equal(s.prompts[0].mode, 'steer')
+  assert.equal(s.prompts[0].content[0].text, 'focus on API')
+
+  // 2) Duplicate platform messageId redelivery is deduplicated, while two distinct messageIds with identical text "?" both deliver.
+  await dm(s, 'u1', '?', { messageId: 'qq-msg-1' })
+  await dm(s, 'u1', '?', { messageId: 'qq-msg-1' })
+  await dm(s, 'u1', '?', { messageId: 'qq-msg-1' })
+  assert.equal(s.prompts.length, 2, 'duplicate platform messageId must deliver only once')
+  await dm(s, 'u1', '?', { messageId: 'qq-msg-2' })
+  assert.equal(s.prompts.length, 3, 'distinct platform messageId with identical text must still deliver')
+
+  // 3) /background calls moveForegroundToBackground explicitly with operationId, and redelivery
+  //    with the same messageId does NOT move a later turn OR another Bot after rebinding the chat.
+  const bgCalls = []
+  s.rt.moveForegroundToBackground = async ({ botId, operationId }) => {
+    bgCalls.push({ botId, operationId })
+    return { sessionId: `${botId}-new-${bgCalls.length}`, taskId: `k_im_bg_${bgCalls.length}`, moved: true }
+  }
+  await dm(s, 'u1', '/background', { messageId: 'im-bg-1' })
+  await dm(s, 'u1', '/bg', { messageId: 'im-bg-1' })
+  // Rebind chat from Bot 'a' to Bot 'b' and redeliver the exact same platform messageId -> MUST still dedup!
+  one.chats['dm-u1'].target = { botId: 'b' }
+  await dm(s, 'u1', '/bg', { messageId: 'im-bg-1' })
+  one.chats['dm-u1'].target = { botId: 'a' }
+  assert.equal(bgCalls.length, 1, 'redelivered /bg with same messageId must NOT move a second turn or another Bot after rebinding')
+  assert.equal(bgCalls[0].botId, 'a')
+  assert.ok(bgCalls[0].operationId?.includes('im-bg-1'), '/background must pass a stable operationId derived from platform messageId')
+  assert.equal(bgCalls[0].operationId?.includes(':bot:a:'), false, '/background operationId must NOT depend on current Bot binding')
+  assert.match(s.fake.sent.at(-1).text, /background/i)
+
+  // 4) If origin persistence fails before sendUser (e.g. Weixin save failure), seenInboundIds is cleared so redelivery succeeds.
+  const origPlatform = one.platform
+  const origSave = s.rt.save
+  one.platform = 'weixin'
+  let failOnce = true
+  s.rt.save = async (...args) => {
+    if (failOnce) { failOnce = false; throw new Error('disk full during rememberWeixinRequest') }
+    return origSave(...args)
+  }
+  const promptsBeforeWx = s.prompts.length
+  await dm(s, 'u1', 'weixin retryable text', { messageId: 'wx-retry-1' })
+  assert.equal(s.prompts.length, promptsBeforeWx, 'failed rememberWeixinRequest must not prompt')
+  await dm(s, 'u1', 'weixin retryable text', { messageId: 'wx-retry-1' })
+  one.platform = origPlatform
+  s.rt.save = origSave
+  assert.equal(s.prompts.length, promptsBeforeWx + 1, 'redelivery after rememberWeixinRequest failure must not be swallowed')
+  assert.equal(s.prompts.at(-1).content[0].text, 'weixin retryable text')
+
+  // 5) Redelivered ordinary numeric message "1" must NOT answer a question card opened afterward.
+  const origConfirm = s.rt.confirmSessionFlushed
+  s.rt.confirmSessionFlushed = async () => true
+  await dm(s, 'u1', '1', { messageId: 'num-msg-1' })
+  assert.equal(s.prompts.at(-1).content[0].text, '1')
+  assert.equal(one.seenInbound?.includes(`${one.id}:dm-u1:num-msg-1`), true, 'persisted seenInbound written once session flush confirmed true')
+  // Open a question card and redeliver the exact same messageId "num-msg-1" -> MUST be ignored!
+  let answeredQ = 0
+  const origAnswerQ = s.rt.answerQuestion
+  s.rt.answerQuestion = async (...args) => { answeredQ += 1; return origAnswerQ(...args) }
+  s.rt.state.questions[s.rt.chatOf('a')] = { id: 'q-after-1', question: 'Pick one', options: [{ label: 'Alpha' }, { label: 'Beta' }] }
+  s.rt.emitImCard?.(one.id, 'dm-u1', 'q:q-after-1')
+  await dm(s, 'u1', '1', { messageId: 'num-msg-1' })
+  assert.equal(answeredQ, 0, 'redelivered ordinary "1" must NOT answer a newly opened question card')
+  delete s.rt.state.questions[s.rt.chatOf('a')]
+  s.rt.answerQuestion = origAnswerQ
+
+  // 6) conn.seenInbound must NOT be persisted when session flush returns false (un-durable session).
+  s.rt.confirmSessionFlushed = async () => false
+  await dm(s, 'u1', 'unflushed prompt', { messageId: 'unflushed-1' })
+  assert.equal(one.seenInbound?.includes(`${one.id}:dm-u1:unflushed-1`), false, 'unflushed session must NOT persist seenInbound key')
+  s.rt.confirmSessionFlushed = origConfirm
+})
+
 
 test('P0-5/P0-B: group task-report restores persisted IM origin across restart and after a finished desktop round (via real room post path)', async (t) => {
   const s = await start()
@@ -4373,15 +4560,6 @@ test('P0-B: after restart, group task-report restores IM origin even while sibli
   await s.flush()
   assert.deepEqual(s.fake.sent, [], 'g1 task report must not leak into a different IM group chat g2')
 })
-
-const waitFor = async (fn, ms = 2000) => {
-  const deadline = Date.now() + ms
-  while (Date.now() < deadline) {
-    if (fn()) return
-    await delay(10)
-  }
-  assert.ok(fn(), 'timed out waiting for condition')
-}
 
 test('IM-origin delegate_work dispatch returns the summary reply to the originating IM chat and respects unpair/mix guards (#1836)', async (t) => {
   const s = await start()
@@ -5490,4 +5668,25 @@ test('drainRoomInbox classifies drained user messages through the IM origin stat
   )
   assert.equal(s.rt.captureImOrigin(roomSid)?.chatKey, 'g1', 'same-IM follow-up drained by drainRoomInbox must preserve g1 origin')
   assert.ok(s.fake.sent.some(entry => entry.chat.key === 'g1' && entry.text.includes('Writer follow-up reply')), 'replies after same-IM follow-up drained must reach g1')
+})
+
+test('a group chat title from the platform is stored and refreshed', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await add(s)
+  const [one] = Object.values(s.rt.state.im.connections)
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  // First sight: the chat is stored with the platform-provided title.
+  await gm(s, 'u1', 'hello group', { chat: { key: 'g1', kind: 'group', title: '发布群' } })
+  s.imTurn('a')
+  assert.equal(one.chats.g1.title, '发布群', 'first-seen chat keeps the platform title')
+  // The stored title does not drift back to empty when a later frame omits it.
+  await gm(s, 'u1', 'again', { chat: { key: 'g1', kind: 'group', title: '' } })
+  s.imTurn('a')
+  assert.equal(one.chats.g1.title, '发布群', 'an empty later title never erases the stored name')
+  // A rename arrives on a later frame: the stored title follows it.
+  await gm(s, 'u1', 'renamed?', { chat: { key: 'g1', kind: 'group', title: '发布群 v2' } })
+  s.imTurn('a')
+  assert.equal(one.chats.g1.title, '发布群 v2', 'a later title refreshes the stored chat name')
 })

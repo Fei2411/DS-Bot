@@ -57,8 +57,12 @@ const actions = { updateBot: async () => {} }
 const Section = 'section'
 const page = () => BotModelsPage({ roster, actions, run: promise => promise, Section })
 
-test('the page lists every Bot with model, and a local agent Bot cannot be selected', () => {
-  const rows = walk(page()).filter(node => String(node.props?.className ?? '').includes('bt-set-row bt-bm-row'))
+test('the page unifies batch toolbar and Bot list in one Section, hiding local-agent hint when none use local agents', () => {
+  const tree = page()
+  const sections = walk(tree).filter(node => node.type === Section)
+  assert.equal(sections.length, 1, 'batch toolbar and Bot rows live in ONE single Section')
+  assert.ok(hasText(tree, 'Bots on a local agent keep their own model.'), 'shows local-agent hint when a Bot runs on one')
+  const rows = walk(tree).filter(node => String(node.props?.className ?? '').includes('bt-set-row bt-bm-row'))
   assert.equal(rows.length, 3)
   const rowOf = name => rows.find(row => hasText(row, name))
   for (const bot of chiefs) assert.ok(rowOf(bot.name), `${bot.name} is listed`)
@@ -66,6 +70,10 @@ test('the page lists every Bot with model, and a local agent Bot cannot be selec
   assert.equal(boxOf('Claude').props.disabled, true)
   assert.equal(boxOf('Chief').props.disabled, false)
   assert.equal(boxOf('Claude').props.checked, false)
+
+  const cloudOnly = { ...roster, bots: [chiefs[0], chiefs[2]] }
+  const cloudTree = BotModelsPage({ roster: cloudOnly, actions, run: promise => promise, Section })
+  assert.equal(hasText(cloudTree, 'Bots on a local agent keep their own model.'), false, 'omits local-agent hint when no Bot uses a local agent')
 })
 
 test('a Bot with no model shows the team default, one whose model is gone says so', () => {

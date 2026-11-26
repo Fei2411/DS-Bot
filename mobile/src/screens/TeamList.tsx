@@ -11,6 +11,7 @@ import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { MarksShown } from '../ui/avatar/LiveMark.tsx'
 import { FishLogo, PinMarkIcon } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
+import { teamListEmptyMessage } from '../nav/team-list-empty.ts'
 import { cleanPreview } from './chat/settled.ts'
 
 export interface ChatTarget { kind: 'bot' | 'room' | 'agent'; id: string }
@@ -55,6 +56,8 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
       .sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || (b.item.lastAt ?? b.item.createdAt ?? 0) - (a.item.lastAt ?? a.item.createdAt ?? 0))
   }, [bots, team?.rooms, team?.mainBotIds, needle])
 
+  const emptyMessage = teamListEmptyMessage(team !== null, needle, mainList.length + agentList.length + entries.length)
+
   const preview = (bot: Bot): string | undefined => {
     const sessionId = bot.sessionId ?? bot.id
     if (questions[sessionId] !== undefined || team?.views?.[sessionId] !== undefined) return t('Waiting for your answer')
@@ -85,7 +88,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
     <View style={styles.root}>
       {error ? <Text style={[typeScale.small, { color: p.danger, paddingHorizontal: 20, paddingBottom: 4 }]} accessibilityRole="alert">{error}</Text> : null}
       <SectionList
-        sections={[{ data: entries }]}
+        sections={entries.length > 0 ? [{ data: entries }] : []}
         keyExtractor={entry => `${entry.kind}-${entry.item.id}`}
         stickySectionHeadersEnabled={false}
         onViewableItemsChanged={onViewable}
@@ -112,7 +115,9 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
         ) : (
           <RoomRow room={entry.item} bots={bots} p={p} dark={dark} waiting={roomHasPending(team, entry.item)} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
         )}
-        ListEmptyComponent={<Text style={[typeScale.small, { color: p.ink3, textAlign: 'center', marginTop: 40 }]}>{team === null ? t('Connecting…') : ''}</Text>}
+        ListEmptyComponent={emptyMessage === null ? undefined : (
+          <Text style={[typeScale.small, { color: p.ink3, textAlign: 'center', marginTop: 40 }]} accessibilityLiveRegion="polite">{emptyMessage}</Text>
+        )}
       />
     </View>
   )

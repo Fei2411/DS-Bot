@@ -31,7 +31,7 @@ export function install(rt) {
     return agent
   }
 
-  async function createAgentSession(agentId, workspaceId) {
+  async function createAgentSession(agentId, workspaceId, agentPreset) {
     writeCheck()
     const agent = record(agentId)
     // A known workspace id wins (the Agent's latest Session may live outside the
@@ -39,7 +39,13 @@ export function install(rt) {
     const target = typeof workspaceId === 'string' && ctx.workspaceRegistry.get(workspaceId)
       ? workspaceId
       : await rt.ensureWorkspace()
-    const { sessionId } = await ctx.sessionController.create({ workspaceId: target })
+    const preset = typeof agentPreset === 'string' && agentPreset.trim() !== '' && agentPreset.trim().length <= 128
+      ? agentPreset.trim()
+      : undefined
+    const { sessionId } = await ctx.sessionController.create({
+      workspaceId: target,
+      ...(preset ? { agentPreset: preset } : {}),
+    })
     agent.sessions.push(sessionId)
     await rt.save()
     return sessionId
@@ -61,13 +67,13 @@ export function install(rt) {
     return sessionId
   }
 
-  async function addAgent() {
+  async function addAgent(agentPreset) {
     writeCheck()
     if (Object.keys(state.agents).length > 0) throw new Error('The team already has a DSH Agent')
     const agent = { id: randomUUID(), name: AGENT_NAME, sessions: [], createdAt: Date.now() }
     state.agents[agent.id] = agent
     try {
-      await createAgentSession(agent.id)
+      await createAgentSession(agent.id, undefined, agentPreset)
     } catch (error) {
       // The first Session may already be created and saved: archive it and
       // persist the rollback, or the Agent returns on restart with its team

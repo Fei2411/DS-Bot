@@ -16,7 +16,7 @@ export const DEBT = join(PLUGIN, 'test', 'style-debt.json')
 
 // The theme colors, the Bot colors, the characters (their models and the generated
 // flat art) and the service logos.
-const PALETTES = new Set(['themes.js', 'inks.js', 'characters.js', 'avatar/models.js', 'connector-marks.js', 'plugin-marks.js'])
+const PALETTES = new Set(['themes.js', 'inks.js', 'characters.js', 'avatar/models.js', 'connector-marks.js', 'plugin-marks.js', 'browser-marks.js'])
 export const RADII = ['0', '4px', '6px', '8px', '10px', '12px', '16px', '18px', '20px', '22px', '999px', '50%', 'inherit']
 
 const COLOR = /#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^)]*\)/gi

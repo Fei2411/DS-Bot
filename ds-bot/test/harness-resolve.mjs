@@ -63,9 +63,17 @@ const pluginUrl = `${pathToFileURL(plugin).href}/`
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (specifier.startsWith('@deepseek-ai/') && context.parentURL?.startsWith(pluginUrl)) {
-      const parentURL = workspacePackages.get(packageNameOf(specifier)) ?? anchor
-      return nextResolve(specifier, { ...context, parentURL })
+    if (specifier.startsWith('@deepseek-ai/')) {
+      const pkg = packageNameOf(specifier)
+      if (context.parentURL?.startsWith(pluginUrl)) {
+        const parentURL = workspacePackages.get(pkg) ?? anchor
+        return nextResolve(specifier, { ...context, parentURL })
+      }
+      // Keep @deepseek-ai/* singletons (e.g. dsh-scope's Symbol("dsh.scope")) unified when a
+      // nested .pnpm peer resolves a second copy of a package already hoisted in dev/harness.
+      if (context.parentURL?.includes('/node_modules/.pnpm/') && existsSync(join(harness, 'node_modules', pkg))) {
+        return nextResolve(specifier, { ...context, parentURL: anchor })
+      }
     }
     return nextResolve(specifier, context)
   },
