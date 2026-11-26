@@ -39,7 +39,7 @@ const expand = (node) => {
   if (Array.isArray(node)) return node.map(expand)
   if (typeof node !== 'object') return node
   if (typeof node.type === 'function') return expand(node.type(node.props))
-  return { ...node, props: { ...(node.props ?? {}), children: expand(node.props?.children) } }
+  return { ...node, props: { ...node.props, children: expand(node.props?.children) } }
 }
 let active = () => expand(AgentSignInRow(props))
 const rerender = () => { idx = 0; concrete = active() }
@@ -48,7 +48,7 @@ const react = {
   useContext: ctx => ctx.value,
   useCallback: fn => fn,
   useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
-  createElement: (type, p, ...children) => ({ type, props: { ...(p ?? {}), children } }),
+  createElement: (type, p, ...children) => ({ type, props: { ...p, children } }),
   Fragment: 'fragment',
   useEffect() {}, useLayoutEffect() {},
   useState: (init) => {
@@ -142,6 +142,21 @@ test('conflicted custom agents stay manageable but are absent from CLI choices',
   slots.push({ detected: [], custom: [] }, false)
   idx = 0
   assert.equal(module.exports.useLocalAgents(false).agents.length, 0)
+})
+
+test('LocalAgentsPage renders a loading state while scanning and Retry on error instead of a blank void', () => {
+  slots.length = 0
+  slots.push(null, null, null, false)
+  active = () => expand(module.exports.LocalAgentsPage({ run: () => {}, Row }))
+  rerender()
+  assert.match(text(concrete), /Checking local agents…/)
+  assert.equal(note('status') !== undefined, true)
+
+  slots.length = 0
+  slots.push(null, null, null, true)
+  rerender()
+  assert.match(text(concrete), /Could not load local agents\./)
+  assert.equal(collect(n => n.type === 'button' && text(n) === 'Try again').length, 1)
 })
 
 test('clicking Sign in says the command was copied and where to run it', async () => {
@@ -281,6 +296,53 @@ test('CodeBuddy Code is signed in while its session file holds a login and it ha
     writeFileSync(`${session}.logged-out`, '')
     assert.equal(await probeSignIn(cli, signedIn, { home, platform }), null, `${platform}: a logout marker wins over the file`)
   }
+})
+
+test('Local Agents detects Qoder CN sign-in without using its credential for global Qoder (#2179)', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-qoder-'))
+  const route = 'local-qoder'
+  const qoder = ENGINES[route]
+  const owner = new Context()
+  const ctx = fakeContext({ services: { llm: new LlmRuntime(owner) } })
+  t.after(async () => {
+    await ctx.dispose()
+    await owner.fiber.dispose()
+    ENGINES[route] = qoder
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  const selectCli = (name) => {
+    const cli = join(home, `${name}.cmd`)
+    writeFileSync(cli, '')
+    ENGINES[route] = { ...qoder, commands: [cli] }
+  }
+  selectCli('qoderclicn')
+  const rt = { ctx, state: { bots: {} } }
+  installLocalAgents(rt, {
+    probeSignIn: (path, check, opts) => probeSignIn(path, check, { ...opts, home, platform: 'win32' }),
+    probeVersion: async () => ({ version: '1.0.0' }),
+  })
+  const refresh = async () => (await rt.localAgentsEndpoint('local-agent-refresh', {})).detected.find(entry => entry.route === route)
+  const unknown = await refresh()
+  assert.equal(unknown.signIn, 'qoderclicn')
+  assert.equal(unknown.signedIn, null)
+
+  const auth = join(home, '.qoder-cn', '.auth')
+  mkdirSync(auth, { recursive: true })
+  writeFileSync(join(auth, 'user'), 'fixture')
+  const signedIn = await refresh()
+  assert.equal(signedIn.signedIn, true)
+  props = { agent: signedIn, Row }
+  render()
+  assert.equal(text(collect(n => n.props?.className === 'bt-la-state')[0]), 'Signed in')
+  assert.equal(collect(n => n.type === 'button' && flatten(n).join('') === 'Sign in').length, 0)
+
+  for (const alias of ['qodercn', 'qoder-cn']) {
+    selectCli(alias)
+    assert.equal((await refresh()).signedIn, true, alias)
+  }
+  selectCli('qodercli')
+  assert.equal((await refresh()).signedIn, null)
 })
 
 test('AgentBadge adapts dark monochrome SVG logos to theme ink and preserves brand colors', () => {

@@ -17,7 +17,7 @@ Open **Settings** from the sidebar. Settings opens on **Overview** and groups do
 | Connect → Connectors | Service accounts, custom servers and mail | User sign-in; Bot can request a connection |
 | Connect → IM | Messaging platform connections | User |
 | Connect → Phone | Phone and browser remote access, pairing and device revocation | User |
-| Connect → MCP access | Scoped local-agent access tokens | User |
+| Connect → API | Unified local API gateway (`/v1/*`, `/mcp`, optional OpenAI compat) and scoped tokens | User |
 | Tools → Computer use | Provider status and computer access | User |
 | Tools → Browser | Browser access information and website action grants | User |
 | Tools → Capabilities | Shared MCP servers, skills and feature packs (Always / Catalog / Off per Bot) | User or Bot; local commands require user approval |
@@ -36,4 +36,4 @@ For any setting not exposed by these supported tools, explain the UI steps. Do n
 
 The UI may be translated. These are the English source labels, not a promise that the user's current language shows English. Plugin-provided pages can differ from the standalone app. If a page or option is missing, ask which host/version is running and inspect its current capabilities rather than inventing a menu.
 
-Sources: src/client/settings.js (NAV_GROUPS), settings-overview.js, settings-palette.js, bot-settings.js; src/host/tools.js, connectors/index.js, secrets.js, mcp-server.js.
+Sources: src/client/settings.js (NAV_GROUPS), settings-overview.js, settings-palette.js, bot-settings.js; src/host/tools.js, connectors/index.js, secrets.js, api/index.js.

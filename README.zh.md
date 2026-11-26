@@ -25,7 +25,7 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 
 **桌面应用（Windows、macOS、Linux）**
 
-桌面应用自带锁定版本的 DSH，不需要先装 DSH。直接在 [Releases](https://github.com/Fei2411/DS-Bot/releases/latest) 下载对应系统的安装包，打开后在设置里配好模型即可使用（也可以直接复制你原来在 DSH 里的 Bot 团队）。
+桌面应用自带锁定版本的 DSH，不需要先装 DSH。直接在 [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest) 下载对应系统的安装包，打开后在设置里配好模型即可使用（也可以直接复制你原来在 DSH 里的 Bot 团队）。
 
 如果安装或打开时提示未签名拦截：Windows 点 **更多信息** → **仍要运行**；macOS 在 **系统设置** → **隐私与安全性** 里点 **仍要打开**。
 
@@ -54,7 +54,7 @@ npx @deepseek-ai/dsh@0.2.2-rc.5 web
 - **通用**与**外观**（实时预览、8 种界面语言、主题、布局与动效）
 - **模型**：服务商 · 本地智能体 · Bot 模型 · DeepSeek 服务
 - **团队**：Bot · 群聊 · 定时任务
-- **连接**：连接器 · IM · 手机 · MCP 访问
+- **连接**：连接器 · IM · 手机 · API
 - **工具**：电脑操控 · 浏览器 · 能力 · 密钥
 - **用量**与**关于 DS Bot**（含**反馈**）
 
@@ -63,6 +63,18 @@ npx @deepseek-ai/dsh@0.2.2-rc.5 web
 > **网页搜索提示**：DS Bot 会把 `auto` 搜索 provider 选为整个 profile 的后端。禁用 `web-search-auto` 时，须同时为该 profile 指定另一个已注册的搜索 provider。详见[网页搜索说明](ds-bot/README.md#web-search)和[恢复步骤](docs/known-issues.zh.md#关掉web-search-auto后所有会话的网页搜索都失败)。
 
 ## 功能
+
+### 浏览器远程访问（预览）
+
+无需安装 App，也能在浏览器里使用手机端界面。在电脑上打开 **设置 → 手机**，开启手机访问并显示配对码，然后选择 **Open in a browser** 或 **Copy browser link**；也可以在网页里粘贴配对链接。浏览器作为一台额外设备，经已有的端到端加密链路配对；在电脑的已配对设备列表里移除即可撤销访问。
+
+中转服务器需要部署网页构建：在 `mobile/` 运行 `npm ci && npm run export:web`，启动[中转服务器](link/README.md)时把 `DSBOT_LINK_WEB_DIR` 设为 `mobile/dist` 的绝对路径。localhost 以外使用 HTTPS/WSS。`relay.dsbot.app` 完成这项部署后，默认服务器的浏览器链接才能使用。浏览器存储由 IndexedDB 中不可导出的密钥进行 AES-GCM 加密，但浏览器仍运行服务器提供的网页，请只使用可信的服务器。敏感操作需要改用手机 App 或电脑；网页没有后台通知。详见[设计与安全限制](docs/plans/2026-11-17-web-remote.md)。
+
+### 本地 API 与 MCP
+
+本机的其他智能体（Claude Desktop、Cursor、Codex、Antigravity 或你自己的脚本与本地服务）可以通过统一的本地 API 网关调用你的 Bot 和群聊。打开 **设置 → 连接 → API** 开启服务（默认关闭，仅监听 `127.0.0.1:17830`），按能力域与目标范围创建可撤销的 Bearer 令牌；令牌只在创建时展示一次并仅存哈希，隐私 Bot 默认彻底隔离，仅在显式二次确认后才对指定令牌开放。
+
+同一本地网关同时提供版本化 `/v1/*` REST + SSE、MCP Streamable HTTP（`/mcp`）、可单独开关的 OpenAI 兼容层（`/compat/openai/v1/*`）以及薄层命令行（`ds-bot mcp` stdio 桥、`ds-bot send`、`ds-bot event`）。旧版 `mcp.json` 配置与 `npx -p ds-bot ds-bot-mcp` 命令自动平滑迁移与兼容。详见[设计](docs/plans/2026-11-21-external-api.md)。
 
 ### Bot
 
@@ -128,7 +140,7 @@ Bot 可直接创建、检查和编辑 Word（`.docx`）、PowerPoint（`.pptx`�
 
 ### 手机 App 与浏览器远程访问
 
-通过端到端加密链路（Noise IK）在 iOS、Android 或浏览器里远程操控电脑上的 Bot 团队——电脑仅向外连接，不需要公网 IP 或开放端口。在 **设置 → 连接 → 手机** 开启手机访问，用手机 App 扫码即可配对（Android APK 见 [Releases](https://github.com/Fei2411/DS-Bot/releases/latest)，iOS 构建见 [`mobile/README.md`](mobile/README.md)）。
+通过端到端加密链路（Noise IK）在 iOS、Android 或浏览器里远程操控电脑上的 Bot 团队——电脑仅向外连接，不需要公网 IP 或开放端口。在 **设置 → 连接 → 手机** 开启手机访问，用手机 App 扫码即可配对（Android APK 见 [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest)，iOS 构建见 [`mobile/README.md`](mobile/README.md)）。
 
 无需安装 App 也可使用**浏览器远程访问（预览）**：在同一配对页点 **Open in a browser** 或 **Copy browser link**。自建中转服务器与安全限制见 [`link/README.md`](link/README.md) 和 [`docs/plans/2026-11-17-web-remote.md`](docs/plans/2026-11-17-web-remote.md)。
 
@@ -138,9 +150,6 @@ Bot 可直接创建、检查和编辑 Word（`.docx`）、PowerPoint（`.pptx`�
 
 微信仅支持与扫码账号私聊；微信与 QQ 有平台回复时间窗；微信、QQ、钉钉不支持卡片按钮，按编号回复即可；密钥卡不允许在聊天软件中填写。
 
-### MCP 访问（预览）
-
-让本机其他智能体（Claude Desktop、Cursor、Codex 或你自己的脚本）经由 MCP 与指定 Bot 和群聊对话。在 **设置 → 连接 → MCP 访问** 开启并为每个客户端生成独立令牌（隐私 Bot 永远隔离，审批、设置和密钥均留在本机）。HTTP MCP 客户端连 `http://127.0.0.1:8797/mcp`（请求头 `Authorization: Bearer <令牌>`），stdio 客户端用 `DSBOT_MCP_TOKEN=<令牌> npx -p ds-bot ds-bot-mcp`。详见 [`docs/plans/2026-11-20-mcp-access.md`](docs/plans/2026-11-20-mcp-access.md)。
 
 ### 用量与外观
 
@@ -148,9 +157,11 @@ Bot 可直接创建、检查和编辑 Word（`.docx`）、PowerPoint（`.pptx`�
 
 ![用量页](docs/images/usage.zh.png)
 
-## 数据
+## 数据与隐私
 
 所有数据都留在你自己的电脑上：桌面应用存在首次启动选定的数据目录（默认 `~/.ds-bot`），插件版存在 DSH 主目录（默认 `~/.dsh`）的 `bot/` 和 `sessions/` 下。卸载应用或插件不会删除这些数据。
+
+可选的匿名遥测在首次隐私告知卡确认前不会发送任何数据；你随时可以在 **设置 → 关于 DS Bot → 隐私** 中调整、查看本机最近发出的 20 条完整 JSON 原文或一键关闭（也支持 `DS_BOT_TELEMETRY_DISABLED=1` / `DO_NOT_TRACK=1` 环境变量）。对话、记忆、密钥、文件路径、Bot 名称、隐私 Bot、报错原文与 IP 地址绝不收集。DS Bot 同时默认关闭 DSH 上游的官方 API Session Log 与反馈会话上传，并永久排除隐私 Bot。详见 [`docs/plans/2026-11-25-telemetry-and-privacy.md`](docs/plans/2026-11-25-telemetry-and-privacy.md) 与开源接收端 [`telemetry/`](telemetry/)。
 
 ## 文档与开发
 

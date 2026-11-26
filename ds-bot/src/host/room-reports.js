@@ -5,7 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import { LATE_ANSWER, MESSAGE_INLINE_MAX, SOURCE_KIND } from './constants.js'
 import { normalizeImOrigin, sameImOrigin } from './im/origin.js'
-import { threadCurrentOfPart } from './threads.js'
+import { addressedSession, returnAddress } from './threads.js'
 import { failureLine } from './turns.js'
 
 const STOPPED_RELAYS_KEPT = 200
@@ -16,6 +16,8 @@ export function createRoomReports(rt, deps) {
     batches,
     closeBatch,
     exitMemberBatches,
+    releaseIdleParentBatches,
+    pendingDirectRelays,
     activeInRoom,
     runningRound,
     isFinalizing,
@@ -29,6 +31,7 @@ export function createRoomReports(rt, deps) {
   } = deps
 
   const reports = () => (rt.state.roomReports ??= {})
+  const returning = new Set()
   // Follow-up relays queued on a room's own Session and not yet taken into roomInbox.
   // Maps `roomId -> Map<exchangeId, reportId | undefined>` so startup checks each report's
   // own relay without letting a surviving sibling mask a missing report.
@@ -563,6 +566,7 @@ export function createRoomReports(rt, deps) {
     if (roomId !== undefined) touchedRoomIds.add(roomId)
     for (const [id, report] of Object.entries(reports())) {
       if (roomId !== undefined && report.roomId !== roomId) continue
+      if (returning.has(id)) continue
       touchedRoomIds.add(report.roomId)
       if (rt.botOf(report.botId) === undefined) {
         delete reports()[id]
@@ -571,8 +575,7 @@ export function createRoomReports(rt, deps) {
       }
       const room = rt.roomOf(report.roomId)
       if (room === undefined) {
-        delete reports()[id]
-        pruned = true
+        returning.add(id)
         ready.push({ room: { id: report.roomId, name: 'a group chat' }, report, deleted: true })
         continue
       }
@@ -586,16 +589,19 @@ export function createRoomReports(rt, deps) {
       }
       // Re-check after awaiting resolveAgent in case a live round claimed or deleted this report.
       const current = reports()[id]
-      if (current === undefined || isReportBusy(room, current, { startup })) continue
+      if (current === undefined || returning.has(id) || isReportBusy(room, current, { startup })) continue
       const neverStarted = current.status !== 'tracking' || current.neverStarted === true
-      delete reports()[id]
-      pruned = true
+      returning.add(id)
       ready.push({ room, report: current, deleted: false, neverStarted })
     }
     for (const [recheckRoomId, agent] of rechecks) scheduleStartupRecheck(recheckRoomId, agent)
     if (pruned) saveSoon()
-    for (const id of touchedRoomIds) clearRoomOriginIfIdle(rt.roomOf(id))
-    for (const item of ready) await deliverRoomReport(item.room, item.report, { deleted: item.deleted, neverStarted: item.neverStarted })
+    try {
+      for (const item of ready) await deliverRoomReport(item.room, item.report, { deleted: item.deleted, neverStarted: item.neverStarted })
+    } finally {
+      for (const item of ready) returning.delete(item.report.id)
+      for (const id of touchedRoomIds) clearRoomOriginIfIdle(rt.roomOf(id))
+    }
   }
 
   async function forgetRoomReports(room) {
@@ -606,13 +612,15 @@ export function createRoomReports(rt, deps) {
     rt.clearRoomWebRound?.(room.id)
     const dropped = []
     for (const [id, report] of Object.entries(reports())) {
-      if (report.roomId !== room.id) continue
-      delete reports()[id]
+      if (report.roomId !== room.id || returning.has(id)) continue
+      returning.add(id)
       dropped.push(report)
     }
-    if (dropped.length === 0) return
-    saveSoon()
-    for (const report of dropped) await deliverRoomReport(room, report, { deleted: true })
+    try {
+      for (const report of dropped) await deliverRoomReport(room, report, { deleted: true })
+    } finally {
+      for (const report of dropped) returning.delete(report.id)
+    }
   }
 
   async function forgetBotRoomReports(botId, touchedRooms = []) {
@@ -661,7 +669,28 @@ export function createRoomReports(rt, deps) {
     if (Object.values(rt.state.switching ?? {}).some(entry => entry?.roomId === source.roomId && entry.botId === undefined)) return
     if ([...(rt.switchJobs?.() ?? [])].some(job => job.roomId === source.roomId && job.botId === undefined)) return
     roomRelayTaken(source.roomId, source.exchangeId)
-    if (source.batchEnd && source.batch) closeBatch(source.batch)
+    const discardedParents = []
+    if (typeof source.exchangeId === 'string') {
+      const relay = pendingDirectRelays?.get(source.exchangeId)
+      if (relay !== undefined) {
+        pendingDirectRelays.delete(source.exchangeId)
+        if (relay.by !== undefined && relay.parentBatchKey !== undefined) {
+          discardedParents.push({ by: relay.by, parentBatchKey: relay.parentBatchKey })
+        }
+      }
+    }
+    if (source.batchEnd && source.batch) {
+      const batch = batches()[source.batch]
+      const parentKey = batch?.parentBatchKey ?? source.parentBatchKey
+      const callerId = batch?.by ?? source.askedBy
+      closeBatch(source.batch)
+      if (callerId !== undefined && parentKey !== undefined) {
+        discardedParents.push({ by: callerId, parentBatchKey: parentKey })
+      }
+    }
+    if (room !== undefined && discardedParents.length > 0) {
+      releaseIdleParentBatches?.(room, discardedParents)
+    }
     if (typeof source.reportId === 'string' && reports()[source.reportId]?.status === 'queued') {
       reports()[source.reportId].neverStarted = true
       reports()[source.reportId].stopped = true
@@ -673,7 +702,11 @@ export function createRoomReports(rt, deps) {
 
   async function deliverRoomReport(room, report, { deleted = false, neverStarted = false } = {}) {
     const bot = rt.botOf(report.botId)
-    if (bot === undefined) return
+    if (bot === undefined) {
+      delete reports()[report.id]
+      saveSoon()
+      return
+    }
     let text
     if (deleted) {
       text = `Group "${room.name}" was deleted before it finished.`
@@ -753,16 +786,23 @@ export function createRoomReports(rt, deps) {
     // The report goes back to the conversation the post was written from: its
     // Session in that group when the post came from one, or the current part of
     // that own-chat thread, else the own chat.
-    const back = rt.roomOf(report.fromRoomId)?.sessions?.[report.botId]
-    const part = back === undefined && report.fromPart !== undefined ? threadCurrentOfPart(bot, report.fromPart) : undefined
-    const target = back ?? part
+    const rawAddress = report.fromTaskId ? { taskId: report.fromTaskId } : returnAddress(bot, report.fromPart, report.fromRoomId)
+    const resolvedTarget = addressedSession(rt, bot.id, rawAddress)
+    const address = resolvedTarget !== undefined ? rawAddress : { foreground: true }
+    const target = resolvedTarget ?? rt.chatOf(bot.id)
     // Never carry a group IM origin onto the Bot's own chat if the Bot left or the origin group was deleted.
     const replyOrigin = report.imOriginMixed === true ? { mixed: true } : report.imOrigin
-    if (replyOrigin !== undefined && !(report.fromRoomId !== undefined && back === undefined)) {
-      rt.rememberImReplyOrigin?.(reportKey, replyOrigin)
+    const eligibleReplyOrigin = replyOrigin !== undefined && !(report.fromRoomId !== undefined && resolvedTarget === undefined)
+      ? replyOrigin
+      : undefined
+    if (eligibleReplyOrigin !== undefined) {
+      rt.rememberImReplyOrigin?.(reportKey, eligibleReplyOrigin)
     }
-    await rt.deliver({
+    const exchangeId = `group-report:${reportKey}`
+    const deliverPayload = {
       toId: report.botId,
+      address,
+      exchangeId,
       ...(target ? { sessionId: target } : {}),
       role: 'report',
       roomId: room.id,
@@ -770,7 +810,49 @@ export function createRoomReports(rt, deps) {
       ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
       replyTo: reportKey,
       ...(work ? { work } : {}),
-    }).catch(error => rt.warn('ds-bot: group report to %s failed: %s', report.name, error))
+    }
+    const obligationId = `room-report:${reportKey}`
+    // Persist the delivery obligation and watcher-removal marker atomically in SQLite
+    // before dropping the pending report from state.roomReports so a crash between SQLite
+    // commit and `state.json` save never drops OR duplicates the report, and preserves
+    // delegated child-work closure and eligible IM reply origin on recovery.
+    rt.coordination?.commitObligation?.({
+      id: obligationId,
+      kind: 'room_report',
+      ownerId: report.id,
+      botId: report.botId,
+      address,
+      payload: deliverPayload,
+      deliveryId: exchangeId,
+      terminalMarker: {
+        kind: 'room_report',
+        ownerId: report.id,
+        snapshot: {
+          roomId: room.id,
+          roomName: room.name,
+          botId: report.botId,
+          reportKey,
+          ...(report.sub !== undefined ? { sub: report.sub, workResult: text, worked: report.worked === true } : {}),
+          ...(eligibleReplyOrigin !== undefined ? { imReplyOrigin: eligibleReplyOrigin } : {}),
+        },
+      },
+    })
+    delete reports()[report.id]
+    void rt.save().then(() => {
+      try {
+        rt.coordination?.clearTerminalMarker?.('room_report', report.id)
+      } catch (error) {
+        rt.warn?.('ds-bot: clearing room_report terminal marker %s failed: %s', report.id, error)
+      }
+    }, () => {})
+    await rt.deliver(deliverPayload).then(() => {
+      rt.coordination?.markObligation?.(obligationId, 'settled')
+    }, (error) => {
+      if (error?.code === 'bot/unresolved-return') {
+        rt.coordination?.markObligation?.(obligationId, 'cancelled')
+      }
+      rt.warn('ds-bot: group report to %s failed: %s', report.name, error)
+    })
   }
 
   Object.assign(rt, {

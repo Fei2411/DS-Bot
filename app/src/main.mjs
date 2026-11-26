@@ -30,8 +30,12 @@ import { readStartFrame, writeStartFrame } from './start-frame.mjs'
 import { explainOf, StartWindow } from './start-window.mjs'
 import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
+import { installSocketTosGuard } from 'ds-bot/socket-tos-guard'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
+import { matchForwardedShortcut } from './shortcut-match.mjs'
+
+installSocketTosGuard()
 
 const { rm } = disk.promises
 
@@ -58,6 +62,7 @@ const IPC = {
   appUpdateChanged: 'ds-bot:app-update-changed',
   idleSeconds: 'ds-bot:idle-seconds', computer: 'ds-bot:computer', computerAction: 'ds-bot:computer-action', computerCursor: 'ds-bot:computer-cursor',
   notify: 'ds-bot:notify', notifyStatus: 'ds-bot:notify-status', badge: 'ds-bot:badge', openSession: 'ds-bot:open-session',
+  syncShortcuts: 'ds-bot:sync-shortcuts', shortcut: 'ds-bot:shortcut',
 }
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
@@ -90,7 +95,7 @@ if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SH
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
 
 // Loaded once the start window is up (loadModules).
-let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
+let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, applyImportToTargets, seedOriginsInPartition, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
 let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
 let watchReleases, watchUpdates, RELEASE_PAGE, readAutoUpdate, writeAutoUpdate, getDshRuntimeVersion, electronUpdater
@@ -157,6 +162,7 @@ let copying
 const copyAbort = new AbortController()
 let browserGuests
 let botViews
+let activeShortcuts = []
 let cookieImports
 const cachedImportSources = new Map()
 const activeLiveImports = new Map()
@@ -294,6 +300,7 @@ async function start() {
 async function prepare() {
   if (!chatgpt) {
     const signIn = await createChatGPTSignIn({ userData: app.getPath('userData'), safeStorage,
+      mockKeychain: process.platform === 'darwin' && Boolean(app.commandLine?.hasSwitch('use-mock-keychain')),
       onChange: status => host?.send({ type: 'chatgpt:changed', status }),
     })
     const relay = await createChatGPTRelay({ signIn })
@@ -325,7 +332,7 @@ async function loadModules() {
   ;({ BotBrowserGuests, partitionOf } = browser)
   ;({ BotViews, isBotId } = views)
   ;({ probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary } = sources)
-  ;({ applyCookies, seedOriginsInPartition, CookieImports } = cookies)
+  ;({ applyCookies, applyImportToTargets, seedOriginsInPartition, CookieImports } = cookies)
   ;({ parseCookieFile } = cookieFiles)
   ;({ downloadSaver } = downloads)
   ;({ chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx } = firstRun)
@@ -343,6 +350,15 @@ async function loadModules() {
     window: () => mainWindow, WebContentsView, guests: browserGuests, origin: () => origin, devTools: !app.isPackaged,
     statePath: join(app.getPath('userData'), 'bot-views.json'),
     onChange: state => mainWindow?.webContents.send(IPC.browserViewChanged, state),
+    onInputShortcut: (input) => {
+      const id = matchForwardedShortcut(input, activeShortcuts, process.platform)
+      if (!id) return false
+      // Return keyboard focus from the child Bot WebContentsView to the app window so
+      // opened palettes, settings, or the composer accept typing immediately.
+      mainWindow?.webContents.focus()
+      mainWindow?.webContents.send(IPC.shortcut, id)
+      return true
+    },
   })
   cookieImports = new CookieImports()
 }
@@ -596,13 +612,22 @@ const hostOutput = (stream, chunk) => {
   rawOutput[stream](/token=/iu.test(chunk) ? logs.redact(chunk) : chunk)
 }
 
+function dshTelemetryEnv(dataDir) {
+  if (process.env.DSH_TELEMETRY_DISABLED !== undefined) return {}
+  try {
+    const saved = JSON.parse(readFileSync(join(dataDir, 'bot', 'telemetry.json'), 'utf8'))
+    if (saved?.dshFeedbackTelemetry === true) return {}
+  } catch { /* default off until the user explicitly opts in */ }
+  return { DSH_TELEMETRY_DISABLED: '1' }
+}
+
 function newHost() {
   // A Host of an attempt that a retry has replaced no longer stands for the start.
   const mine = attempt
   const child = new HostProcess({
     entry: join(here, 'host.mjs'),
     cwd: profileDir(),
-    env: { ...process.env, DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(app.isPackaged && process.platform === 'darwin' ? { DS_BOT_COMPUTER_HELPER_HOME: join(app.getPath('userData'), 'computer-use') } : {}), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
+    env: { ...process.env, ...dshTelemetryEnv(places.dataDir), DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_UI_DIR: join(here, '..', 'ui', 'dist'), DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(app.isPackaged && process.platform === 'darwin' ? { DS_BOT_COMPUTER_HELPER_HOME: join(app.getPath('userData'), 'computer-use') } : {}), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
     pnpm: pnpmEntry(),
     onFailure: (error) => { if (mine === attempt) void fail(error) },
     output: hostOutput,
@@ -616,7 +641,7 @@ function newHost() {
 function newCheck(home, list) {
   const cwd = join(home, 'profiles', CHECK_PROFILE)
   mkdirSync(cwd, { recursive: true })
-  return new HostProcess({ entry: join(here, 'host.mjs'), cwd, env: { ...process.env, DSH_HOME: home, DS_BOT_CHECK: list, DS_BOT_RUNTIME_DIR: runtimeDir() }, pnpm: pnpmEntry(), onFailure: () => {}, output: hostOutput, redactOutput: false })
+  return new HostProcess({ entry: join(here, 'host.mjs'), cwd, env: { ...process.env, DSH_HOME: home, DS_BOT_PORT: '0', DS_BOT_CHECK: list, DS_BOT_RUNTIME_DIR: runtimeDir() }, pnpm: pnpmEntry(), onFailure: () => {}, output: hostOutput, redactOutput: false })
 }
 
 /**
@@ -854,6 +879,19 @@ function handleIpc() {
   })
   ipcMain.on(IPC.motion, (event, tier) => { if (fromWindow(event)) writeStartFrame(frameFile, { motion: tier }) })
   ipcMain.on(IPC.effects, (event, tier) => { if (fromWindow(event)) writeStartFrame(frameFile, { effects: tier }) })
+  ipcMain.on(IPC.syncShortcuts, (event, bindings) => {
+    if (!fromWindow(event) || !Array.isArray(bindings)) return
+    activeShortcuts = bindings.slice(0, 64).filter(entry =>
+      entry && typeof entry === 'object' && typeof entry.id === 'string' && typeof entry.code === 'string',
+    ).map(entry => ({
+      id: entry.id,
+      code: entry.code,
+      mod: entry.mod === true,
+      ctrl: entry.ctrl === true,
+      alt: entry.alt === true,
+      shift: entry.shift === true,
+    }))
+  })
   ipcMain.handle(IPC.dataLocation, (event) => {
     assertWindow(event)
     return { path: places.dataDir, fixed }
@@ -1058,20 +1096,23 @@ function handleIpc() {
       if (activeLiveImports.get(reqKey) === controller) activeLiveImports.delete(reqKey)
     }
   })
-  ipcMain.handle(IPC.browserImportApply, async (event, key, id, options) => {
+  ipcMain.handle(IPC.browserImportApply, async (event, keyOrKeys, id, options) => {
     assertWindow(event)
-    if (typeof key !== 'string' || !key.startsWith('bot:')) throw new Error('DS Bot: a Bot storage key is required')
-    const pending = cookieImports.take(typeof id === 'string' ? id : '')
-    if (!pending) throw new Error('DS Bot: this import is no longer pending')
-    const sites = Array.isArray(options?.sites) ? options.sites.map(String) : undefined
-    const persistSession = options?.persistSession === true
-    const partition = partitionOf(key)
-    const storage = session.fromPartition(partition)
-    const report = await applyCookies(storage, pending.cookies, { sites, persistSession })
-    const storageReport = (pending.origins ?? []).length > 0
-      ? await seedOriginsInPartition(BrowserWindow, partition, pending.origins, { sites })
-      : { originsStored: 0, entriesStored: 0, failedOrigins: [] }
-    return { ...report, ...storageReport }
+    return applyImportToTargets({
+      keyOrKeys,
+      id,
+      options,
+      store: cookieImports,
+      applyOne: async (key, pending, { sites, persistSession }) => {
+        const partition = partitionOf(key)
+        const storage = session.fromPartition(partition)
+        const report = await applyCookies(storage, pending.cookies, { sites, persistSession })
+        const storageReport = (pending.origins ?? []).length > 0
+          ? await seedOriginsInPartition(BrowserWindow, partition, pending.origins, { sites })
+          : { originsStored: 0, entriesStored: 0, failedOrigins: [] }
+        return { ...report, ...storageReport }
+      },
+    })
   })
   ipcMain.handle(IPC.browserImportCancel, (event, id) => {
     assertWindow(event)

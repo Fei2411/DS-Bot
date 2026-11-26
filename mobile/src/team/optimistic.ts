@@ -47,6 +47,7 @@ export function optimistic(team: TeamState | null, endpoint: string, payload: Re
       const { id: _id, ...patch } = payload
       const next: Room[] = [...rooms]
       const room: Room = { ...rooms[index], ...patch }
+      if (typeof patch.name === 'string' && patch.name.trim() !== '') room.named = true
       // As for a Bot: the computer reads `''` as "clear" and the state omits the key.
       if (patch.workDir === '') delete room.workDir
       next[index] = room

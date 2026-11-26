@@ -301,6 +301,27 @@ test('a private Bot\'s background part stays closed to other Bots', async (t) =>
   assert.deepEqual(await run('session_search', { query: 'x', session_ids: ['p-bg'] }, P), { ran: true })
 })
 
+test('pruned private task history stays protected after reloading state and deleting its Bot', async (t) => {
+  const { rt, run, state, stop } = await start()
+  t.after(stop)
+  const bot = rt.botOf(P)
+  bot.tasks = Array.from({ length: 51 }, (_, n) => ({
+    id: `task-${n}`, sessionId: `retired-private-${n}`, status: 'completed',
+  }))
+  bot.tasks[0].segments = [{ sessionId: 'retired-private-earlier' }]
+  await rt.reconcileTasksAfterRestart()
+  const saved = state().bots[P]
+  assert.equal(saved.tasks.length, 50)
+  assert.deepEqual(saved.retiredTaskSessions, ['retired-private-0', 'retired-private-earlier'])
+  rt.state.bots[P] = saved
+  const ids = { session_ids: saved.retiredTaskSessions }
+  assert.match((await run('session_search', ids, 'b')).error, CLOSED)
+  assert.deepEqual(await run('session_search', ids, P), { ran: true })
+  await rt.deleteBot(P)
+  assert.match((await run('session_search', ids, 'b')).error, CLOSED)
+  assert.ok(ids.session_ids.every(id => state().privateArchives[0].sessionIds.includes(id)))
+})
+
 test('other Bots cannot read, write or search what a private Bot keeps', async (t) => {
   const { run, root, dsh, home, diary, team, project, stop } = await start()
   t.after(stop)
@@ -404,8 +425,7 @@ test('the private Bot reads its own and the team\'s files; a Session it starts s
   t.after(stop)
   assert.deepEqual(await run('read', { file_path: join(diary, 'notes.txt') }, P), { ran: true })
   assert.deepEqual(await run('glob', { pattern: '**/*', path: diary }, P), { ran: true })
-  // Its own data is no secret from it: with no other private Bot, the data folder is open to a search.
-  assert.deepEqual(await run('glob', { pattern: '**/*', path: home }, P), { ran: true })
+  assert.equal((await run('glob', { pattern: '**/*', path: home }, P)).ran, false)
   assert.deepEqual(await run('read', { file_path: join(project, 'a.txt') }, P), { ran: true })
   assert.deepEqual(await run('glob', { pattern: '**/*', path: team }, P), { ran: true })
   assert.deepEqual(await run('read', { file_path: join(home, 'memory', 'team', 'MEMORY.md') }, P), { ran: true })
@@ -425,6 +445,7 @@ test('what a private Bot sends to the others waits for the user', async (t) => {
   assert.deepEqual(await run('message_bot', { to: 'Writer', message: 'My secret plan' }, P), { ran: true })
   assert.equal(approval.requests.length, 1)
   assert.equal(approval.requests[0].toolName, 'message_bot')
+  assert.equal(approval.requests[0].privacy, true)
   assert.match(approval.requests[0].reason, /Diary[\s\S]*Writer[\s\S]*My secret plan/)
   assert.match(approval.requests[0].displayReason.zh, /My secret plan/)
   // The Bots that are not private send as before.
@@ -734,5 +755,216 @@ test('with no private Bot the tools run as they did', async (t) => {
   t.after(stop)
   assert.deepEqual(await run('read', { file_path: join(diary, 'notes.txt') }, 'b'), { ran: true })
   assert.deepEqual(await run('message_bot', { to: 'Diary', message: 'hi' }, 'a'), { ran: true })
-  assert.deepEqual(await run('glob', { pattern: '*', path: join(diary, '..') }, 'b'), { ran: true })
+  assert.equal((await run('glob', { pattern: '*', path: join(diary, '..') }, 'b')).ran, false)
+})
+
+test('temporary secret files and secret-refs are isolated per Bot even when no Bot is marked private', async (t) => {
+  const { rt, run, home, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const posix = path => path.replace(/\\/g, '/')
+
+  // Bot A gets a delivery='file' secret file AND a Shell File Mode file; Bot B is a regular (non-private) Bot.
+  const secretVal = 'cross-bot-secret-value-123456'
+  const writtenA = await rt.secrets.writeSecretFile({ botId: 'a', sessionId: 'a', name: 'DEPLOY_KEY', value: secretVal })
+  const writtenB = await rt.secrets.writeSecretFile({ botId: 'b', sessionId: 'b', name: 'OWN_KEY', value: 'bot-b-secret-value-123456' })
+  const shellFileA = join(home, 'secret-files', 'a', 'env-deadbeef01234567-abcdef012345-1.secret')
+  writeFileSync(shellFileA, 'bot-a-scoped-shell-secret-123456')
+  const refA = await rt.secrets.issueRef({ botId: 'a', sessionId: 'a', requestId: 'req-iso', field: 'TOKEN', value: 'one-time-ref-secret-123456' })
+  const refFileA = join(home, 'secret-refs', `${refA.slice('secret-ref:'.length)}.json`)
+  const opDir = join(home, 'secret-files', '_op')
+  mkdirSync(opDir, { recursive: true, mode: 0o700 })
+  const opTpl = join(opDir, 'dsbot-op-1-abc.tpl')
+  writeFileSync(opTpl, '{{ op://Vault/Item/field }}')
+
+  // Bot A can read its own delivery='file' and Shell File Mode secret files via read and bash,
+  // and can reference $DSH_SECRET_FILE_* normally.
+  assert.deepEqual(await run('read', { file_path: writtenA.filePath }, 'a'), { ran: true })
+  assert.deepEqual(await run('read', { file_path: shellFileA }, 'a'), { ran: true })
+  assert.deepEqual(await run('bash', { command: `cat "${posix(writtenA.filePath)}"` }, 'a'), { ran: true })
+  assert.deepEqual(await run('bash', { command: `cat "${posix(shellFileA)}"` }, 'a'), { ran: true })
+  assert.deepEqual(await run('bash', { command: 'cat "$DSH_SECRET_FILE_DEPLOY_KEY"' }, 'a'), { ran: true })
+  assert.deepEqual(await run('read', { file_path: writtenB.filePath }, 'b'), { ran: true })
+  assert.deepEqual(await run('bash', { command: `cat "${posix(writtenB.filePath)}"` }, 'b'), { ran: true })
+
+  // Bot B (ordinary non-private Bot) is strictly blocked from reading Bot A's files,
+  // listing secret-files root, reading _op templates, or touching secret-refs.
+  const blockedForB = [
+    ['read', { file_path: writtenA.filePath }],
+    ['read', { file_path: shellFileA }],
+    ['read', { file_path: opTpl }],
+    ['read', { file_path: refFileA }],
+    ['write', { file_path: writtenB.filePath, content: 'tamper' }],
+    ['glob', { pattern: '**/*', path: join(home, 'secret-files') }],
+    ['glob', { pattern: '**/*', path: join(home, 'secret-files', 'a') }],
+    ['glob', { pattern: '**/*', path: opDir }],
+    ['glob', { pattern: '**/*', path: join(home, 'secret-refs') }],
+    ['grep', { pattern: 'secret', path: join(home, 'secret-files') }],
+    ['working_directory', { cd: join(home, 'secret-files') }],
+    ['working_directory', { cd: join(home, 'secret-files', 'a') }],
+    ['working_directory', { cd: join(home, 'secret-refs') }],
+    ['bash', { command: `cat "${posix(writtenA.filePath)}"` }],
+    ['bash', { command: `cat "${posix(shellFileA)}"` }],
+    ['pwsh', { command: `Get-Content '${writtenA.filePath}'` }],
+    ['bash', { command: `ls "${posix(join(home, 'secret-files'))}"` }],
+    ['bash', { command: `ls "${posix(join(home, 'secret-files'))}/"` }],
+    ['bash', { command: `cat "${posix(join(home, 'secret-files', 'b'))}/../a/sf-x.secret"` }],
+    ['bash', { command: `cat "${posix(join(home, 'secret-files'))}/*/sf-*.secret"` }],
+    ['bash', { command: `cat "${posix(opTpl)}"` }],
+    ['bash', { command: `cat "${posix(refFileA)}"` }],
+    ['bash', { command: `ls "${posix(join(home, 'secret-refs'))}"` }],
+    ['bash', { command: 'ls ../secret-files' }],
+    ['bash', { command: 'ls ../secret-refs' }],
+    ['bash', { command: 'ls', workdir: join(home, 'secret-files', 'a') }],
+    ['bash', { command: 'ls "$(dirname "$DSH_SECRET_FILE_OWN_KEY")/.."' }],
+  ]
+  for (const [toolName, args] of blockedForB) {
+    const res = await run(toolName, args, 'b')
+    assert.equal(res.ran, false, `expected blocked for b: ${toolName} ${JSON.stringify(args)}`)
+    assert.match(res.error, /secret/i)
+  }
+
+  // Bot A is ALSO blocked from accessing secret-refs, _op, or listing secret-files root.
+  for (const [toolName, args] of [
+    ['read', { file_path: refFileA }],
+    ['read', { file_path: opTpl }],
+    ['bash', { command: `ls "${posix(join(home, 'secret-files'))}"` }],
+    ['bash', { command: `cat "${posix(opTpl)}"` }],
+    ['bash', { command: `cat "${posix(refFileA)}"` }],
+  ]) {
+    const res = await run(toolName, args, 'a')
+    assert.equal(res.ran, false, `expected blocked for a: ${toolName} ${JSON.stringify(args)}`)
+    assert.match(res.error, /secret/i)
+  }
+})
+
+test('guardSecretFiles allows text searches for secret-refs/secret-files in unrelated workspaces while blocking path operands and traversals', async (t) => {
+  const { run, home, root, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const posix = path => path.replace(/\\/g, '/')
+  const repoDir = join(root, 'unrelated-repo')
+  mkdirSync(join(repoDir, 'docs'), { recursive: true })
+  writeFileSync(join(repoDir, 'README.md'), 'secret-refs and secret-files documentation\n')
+  const workspaceDir = join(home, 'workspace')
+  mkdirSync(workspaceDir, { recursive: true })
+
+  // Content searches in unrelated workspaces must NOT be blocked.
+  for (const [toolName, args] of [
+    ['grep', { pattern: 'secret-refs', path: repoDir }],
+    ['grep', { pattern: 'secret-files/_op', path: repoDir }],
+    ['glob', { pattern: '**/*secret-refs*', path: repoDir }],
+    ['glob', { pattern: 'src/host/secret-refs.js', path: repoDir }],
+    ['bash', { command: "grep 'secret-refs' README.md", workdir: repoDir }],
+    ['bash', { command: 'rg "secret-refs" docs/', workdir: repoDir }],
+    ['bash', { command: "grep -rn 'secret-files' README.md", workdir: repoDir }],
+    ['bash', { command: "grep -e 'secret-refs' README.md", workdir: repoDir }],
+    ['bash', { command: "grep --regexp='secret-refs' README.md", workdir: repoDir }],
+    ['bash', { command: "git grep 'secret-refs'", workdir: repoDir }],
+    ['pwsh', { command: "Select-String -Pattern 'secret-refs' README.md", workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -Leaf $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -LeafBase -Path $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+  ]) {
+    assert.deepEqual(await run(toolName, args, 'b'), { ran: true }, `expected allowed: ${toolName} ${JSON.stringify(args)}`)
+  }
+
+  // Path operands, traversals, redirections, command substitutions, and home-overlapping cwd remain strictly blocked.
+  for (const [toolName, args] of [
+    ['grep', { pattern: 'token', path: workspaceDir, glob: '../secret-refs/*.json' }],
+    ['glob', { pattern: '../secret-refs/*', path: workspaceDir }],
+    ['glob', { pattern: '*/../secret-refs/*', path: workspaceDir }],
+    ['glob', { pattern: `${posix(home)}/secret-refs/*`, path: repoDir }],
+    ['bash', { command: 'grep foo ../secret-refs/x', workdir: repoDir }],
+    ['bash', { command: `grep foo "${posix(join(home, 'secret-refs'))}"`, workdir: repoDir }],
+    ['bash', { command: "grep 'secret-refs' ../secret-refs/x", workdir: repoDir }],
+    ['bash', { command: "grep -f ../secret-refs/x README.md", workdir: repoDir }],
+    ['bash', { command: "grep 'secret-refs' < ../secret-refs/x", workdir: repoDir }],
+    ['bash', { command: 'grep "$(cat ../secret-refs/x)" README.md', workdir: repoDir }],
+    ['bash', { command: "grep 'secret-refs' README.md; ls ../secret-refs", workdir: repoDir }],
+    ['bash', { command: "grep 'secret-refs' .", workdir: home }],
+    ['bash', { command: 'ls "$(dirname "$DSH_SECRET_FILE_OWN_KEY")/.."', workdir: repoDir }],
+    ['bash', { command: 'ls "$(DIRNAME "$DSH_SECRET_FILE_OWN_KEY")/.."', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -Parent $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -Leaf -Parent $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -Leaf "$env:DSH_SECRET_FILE_DEPLOY_KEY/.."', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path $env:DSH_SECRET_FILE_DEPLOY_KEY > -Leaf', workdir: repoDir }],
+    ['pwsh', { command: "Split-Path '-Leaf' $env:DSH_SECRET_FILE_DEPLOY_KEY", workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -Path -Leaf $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -- -Leaf $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path $env:DSH_SECRET_FILE_DEPLOY_KEY # -Leaf', workdir: repoDir }],
+    ['pwsh', { command: "Split-Path $env:DSH_SECRET_FILE_DEPLOY_KEY #'x' -Leaf", workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path $env:DSH_SECRET_FILE_DEPLOY_KEY <# -Leaf #>', workdir: repoDir }],
+    ['pwsh', { command: "Split-Path $env:DSH_SECRET_FILE_DEPLOY_KEY <#'x' -Leaf #>", workdir: repoDir }],
+  ]) {
+    const res = await run(toolName, args, 'b')
+    assert.equal(res.ran, false, `expected blocked: ${toolName} ${JSON.stringify(args)}`)
+    assert.match(res.error, /secret/i)
+  }
+})
+
+test('guardSecretFiles preserves isolation when secret-files is symlinked outside home', { skip: process.platform === 'win32' }, async (t) => {
+  const { run, home, root, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const externalStore = join(root, 'external-secret-files')
+  const externalRefs = join(root, 'external-vault')
+  const siblingFiles = join(root, 'external-secret-files-tools')
+  const siblingRefs = join(root, 'external-vault-tools')
+  mkdirSync(join(externalStore, 'a'), { recursive: true })
+  mkdirSync(externalRefs, { recursive: true })
+  mkdirSync(siblingFiles, { recursive: true })
+  mkdirSync(siblingRefs, { recursive: true })
+  const secretA = join(externalStore, 'a', 'sf-linked.secret')
+  writeFileSync(secretA, 'linked-bot-a-secret-123456')
+  symlinkSync(externalStore, join(home, 'secret-files'))
+  symlinkSync(externalRefs, join(home, 'secret-refs'))
+
+  // Sibling directories sharing a prefix with symlinked secret storage must NOT be blocked.
+  assert.deepEqual(await run('bash', { command: 'pwd', workdir: siblingFiles }, 'b'), { ran: true })
+  assert.deepEqual(await run('bash', { command: 'pwd', workdir: siblingRefs }, 'b'), { ran: true })
+
+  // Bot A can read its own file via either symlink or real target; Bot B is blocked on both,
+  // including PowerShell comma path lists and shell wildcard/brace/variable expansions.
+  assert.deepEqual(await run('read', { file_path: secretA }, 'a'), { ran: true })
+  for (const [toolName, args] of [
+    ['read', { file_path: secretA }],
+    ['bash', { command: `cat "${secretA}"` }],
+    ['bash', { command: `ls "${externalRefs}"` }],
+    ['bash', { command: `cat ${externalRefs}*/*.json` }],
+    ['bash', { command: `ls ${externalRefs}{,/}` }],
+    ['bash', { command: `ls ${externalRefs}$x` }],
+    ['bash', { command: `cat ${externalStore}*/a/sf-linked.secret` }],
+    ['pwsh', { command: `Get-ChildItem ${externalRefs},${siblingRefs}` }],
+    ['pwsh', { command: `Get-ChildItem ${externalStore},${siblingFiles}` }],
+  ]) {
+    const blocked = await run(toolName, args, 'b')
+    assert.equal(blocked.ran, false, `expected blocked: ${toolName} ${JSON.stringify(args)}`)
+    assert.match(blocked.error, /secret/i)
+  }
+})
+
+test('telemetry consent file stays protected from Bots even when no Bot is private', async (t) => {
+  const { run, home, project, agentOf, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const telFile = join(home, 'telemetry.json')
+  writeFileSync(telFile, JSON.stringify({ noticeAccepted: false, usage: false, errors: false }))
+  for (const [toolName, args] of [
+    ['read', { file_path: telFile }],
+    ['write', { file_path: telFile, content: '{"noticeAccepted":true,"usage":true}' }],
+    ['write', { file_path: `${telFile}.tmp`, content: '{}' }],
+    ['edit', { file_path: telFile, old_string: 'false', new_string: 'true' }],
+    ['grep', { pattern: 'telemetry.json', path: home }],
+    ['glob', { pattern: '*', path: home }],
+    ['bash', { command: `cat "${telFile}"` }],
+    ['bash', { command: 'cat ../telemetry.json' }],
+  ]) {
+    const res = await run(toolName, args, 'b')
+    assert.equal(res.ran, false, `${toolName} must not access telemetry.json`)
+    assert.match(res.error, /telemetry consent/)
+  }
+  // Searching an unrelated workspace for references to `telemetry.json` stays allowed.
+  const agent = agentOf('b')
+  agent.session.header.cwd = project
+  assert.deepEqual(await run('grep', { pattern: 'telemetry.json', path: project }, 'b', agent), { ran: true })
+  assert.deepEqual(await run('bash', { command: 'rg telemetry.json src/' }, 'b', agent), { ran: true })
+  // Direct host path in bash is still blocked even from an unrelated cwd.
+  assert.equal((await run('bash', { command: `cat "${telFile}"` }, 'b', agent)).ran, false)
 })

@@ -929,34 +929,36 @@ test('freshMemoryView rebuilds current authorized memory snapshot and advances s
 
   const memSection = ctx.sections.get('bot-memory')
   assert.ok(memSection, 'bot-memory section must be registered')
-  const frozenBefore = memSection.text({ agent: { id: 'b2' } })
-  assert.match(frozenBefore, /Deploy to staging/)
+  const staticBefore = memSection.text({ agent: { id: 'b2' } })
+  assert.match(staticBefore, /^# Your memory\n/)
+  const preSteps = ctx.listeners.get('agent/pre-step') ?? []
+  const runPreSteps = async (decision, history = []) => {
+    let idx = 0
+    const next = async () => (idx < preSteps.length ? preSteps[idx++]({ agent: { id: 'b2', session: { deriveMessages: () => history } }, signal: new AbortController().signal }, next) : decision)
+    return next()
+  }
+  const initialDecision = await runPreSteps({ kind: 'continue', messages: [createUserMessage({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } })] })
+  const ownSnap = initialDecision.messages.find(m => m.source?.kind === 'ds-bot-own-memory')
+  assert.ok(ownSnap, 'part-opening own memory snapshot must be injected')
+  assert.match(ownSnap.content[0].text, /Deploy to staging/)
 
   // Delete "Deploy to staging" and add a new memory entry via the real memory API.
   await rt.memoryEndpoint('memory-forget', { botId: 'b2', scope: 'own', text: 'Deploy to staging' })
   await rt.memoryAdd({ botId: 'b2', scope: 'own', text: 'Always run lint' })
-  // Before refresh, frozen sectionFor still holds the old snapshot (prefix-cache invariant).
-  assert.match(memSection.text({ agent: { id: 'b2' } }), /Deploy to staging/)
+  // System prompt stays byte-identical across memory changes (prefix-cache invariant).
+  assert.equal(memSection.text({ agent: { id: 'b2' } }), staticBefore)
 
-  // Refresh for CLI replay: returns previous + current authorized view without deleted entry,
-  // and updates frozen snapshot so future turns stay consistent.
+  // Refresh for CLI replay: returns current authorized view without deleted entry,
+  // and advances watermark so subsequent edits still deliver as deltas.
   const view = rt.freshMemoryView('b2')
   assert.ok(view, 'freshMemoryView must return current snapshot')
-  assert.equal(view.previous, frozenBefore)
   assert.doesNotMatch(view.own, /Deploy to staging/, 'freshMemoryView must not contain deleted entry')
   assert.match(view.own, /Always run lint/, 'freshMemoryView must include latest memory entry')
-  assert.doesNotMatch(memSection.text({ agent: { id: 'b2' } }), /Deploy to staging/, 'subsequent sectionFor must use refreshed snapshot')
 
   // Any memory edit AFTER freshMemoryView must still be delivered as a delta on the next turn.
   await new Promise(r => setTimeout(r, 15))
   await rt.memoryAdd({ botId: 'b2', scope: 'own', text: 'Use pnpm workspaces' })
-  const preSteps = ctx.listeners.get('agent/pre-step') ?? []
-  const runPreSteps = async (decision) => {
-    let idx = 0
-    const next = async () => (idx < preSteps.length ? preSteps[idx++]({ agent: { id: 'b2', session: { deriveMessages: () => [] } }, signal: new AbortController().signal }, next) : decision)
-    return next()
-  }
-  const decision = await runPreSteps({ kind: 'continue', messages: [createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })] })
+  const decision = await runPreSteps({ kind: 'continue', messages: [createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })] }, [ownSnap])
   const delta = decision.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
   assert.ok(delta, 'memory edit after freshMemoryView must still emit a memory-update delta')
   assert.match(delta.content[0].text, /Use pnpm workspaces/)

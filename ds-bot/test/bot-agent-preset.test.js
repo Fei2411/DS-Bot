@@ -80,7 +80,10 @@ function start({ presets = ROSTER, team = TEAM, home: reuse } = {}) {
         followup(message) { calls.push(['followup', message]); sent.push({ sessionId, message }) },
         steer(message) { calls.push(['steer', message]) },
         inject(message) { calls.push(['inject', message]) },
-        send() {},
+        send(message, target = 'next-turn') {
+          agent.inbox.append(target, message)
+          calls.push(['send', message, target])
+        },
         cancel() {},
         async whenIdle() {
           while (agent.status !== 'idle') await new Promise(resolve => setTimeout(resolve, 5))
@@ -1033,4 +1036,65 @@ test('a corrupted stored pick falls back to the default instead of failing every
   assert.equal(writer.agentPresetDefault, undefined)
   assert.equal(host.state().bots.writer.agentPreset, undefined)
   assert.equal(host.state().bots.writer.agentPresetDefault, undefined)
+})
+
+test('a forked task Session inherits opaque default-clear tracking', async (t) => {
+  const host = start({ presets: [{ id: 'research' }, { id: 'custom' }] })
+  t.after(host.stop)
+  host.presetService.defaultId = undefined
+  await host.call('state')
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'research' })).value
+  const bot = host.rt.botOf(writer.id)
+  host.rt.desiredModel = async () => 'test/model'
+  host.agentOf(writer.id).status = 'running'
+  assert.equal((await host.call('update-bot', { id: writer.id, agentPreset: null })).ok, true)
+  assert.deepEqual(host.state().bots[writer.id].agentPresetDefaultPending, [writer.id])
+
+  host.ctx.sessionController.fork = async ({ sessionId }) => {
+    const forkedId = 'fork-task-1'
+    host.headers.set(forkedId, host.headers.get(sessionId))
+    return { sessionId: forkedId }
+  }
+  const opened = await host.rt.openTaskPart(bot, writer.id, {
+    id: 'task-fork', title: 'Forked task', brief: 'Forked task', origin: 'user', status: 'running', startedAt: 1, updatedAt: 1,
+  })
+  assert.equal(opened.forked, true)
+  assert.equal(opened.sessionId, 'fork-task-1')
+  assert.equal(host.headers.get('fork-task-1'), 'research')
+  assert.deepEqual([...(host.state().bots[writer.id].agentPresetDefaultPending ?? [])].sort(), ['fork-task-1', writer.id].sort())
+
+  // Once the forked task becomes idle, it rolls over to a default-composed part.
+  host.idle('fork-task-1')
+  await until(() => host.archived.some(([id]) => id === 'fork-task-1'))
+  const taskAfter = host.state().bots[writer.id].tasks.find(entry => entry.id === 'task-fork')
+  assert.notEqual(taskAfter.sessionId, 'fork-task-1')
+  assert.equal(host.headers.get(taskAfter.sessionId), undefined)
+  assert.deepEqual(host.state().bots[writer.id].agentPresetDefaultPending, [writer.id])
+})
+
+test('presetProblem warns again after a broken preset recovers or changes', async (t) => {
+  const presets = [{ id: 'standard', name: 'Standard' }, { id: 'research', name: 'Research' }]
+  const host = start({ presets })
+  t.after(host.stop)
+  await host.call('state')
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'research' })).value
+  const problemWarnings = () => host.warnings.filter(line => line.includes('cannot run a Bot in this DeepSeek Harness'))
+
+  // Break the selected preset: warns once and deduplicates repeated checks.
+  presets[1].broken = 'missing mcp'
+  await host.startTurn(writer.id)
+  await until(() => problemWarnings().length === 1)
+  await host.startTurn(writer.id)
+  await settle()
+  assert.equal(problemWarnings().length, 1)
+
+  // Recovering the preset clears the deduplication entry so a later breakage warns again.
+  delete presets[1].broken
+  await host.startTurn(writer.id)
+  await settle()
+  assert.equal(host.chatOf(writer.id), writer.id)
+
+  presets[1].broken = 'missing mcp again'
+  await host.startTurn(writer.id)
+  await until(() => problemWarnings().length === 2)
 })

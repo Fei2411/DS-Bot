@@ -99,6 +99,10 @@ export function install(rt) {
         connected: `Connected — you can talk to ${values.target} now.`,
         stopped: 'Stopped.',
         idle: 'Nothing is running.',
+        backgrounded: 'Moved the current turn to the background. Send a new message whenever you are ready.',
+        backgroundGroupOnly: 'Moving a turn to the background is only available in a Bot private chat.',
+        backgroundFailed: 'Could not move the current turn to the background right now.',
+        steerUsage: 'Write a message after /steer.',
         stale: 'This card was already answered.',
         noFile: 'This file cannot be sent here; send it on the computer.',
         greeting: `Hello, I am ${values.name}.`,
@@ -121,6 +125,10 @@ export function install(rt) {
         connected: `已连接，现在可以和 ${values.target} 说话了。`,
         stopped: '已停下。',
         idle: '现在没有在做的活。',
+        backgrounded: '已将当前工作转到后台，现在可以继续发新消息。',
+        backgroundGroupOnly: '转到后台仅支持 Bot 私聊。',
+        backgroundFailed: '当前暂时无法将这一轮转到后台。',
+        steerUsage: '请在 /steer 后写要插话的内容。',
         stale: '这张卡已经答过了。',
         noFile: '这个文件发不过去，请在电脑上发。',
         greeting: `你好，我是 ${values.name}。`,
@@ -143,6 +151,10 @@ export function install(rt) {
         connected: `已連線，現在可以和 ${values.target} 說話了。`,
         stopped: '已停下。',
         idle: '現在沒有在做的活。',
+        backgrounded: '已將目前工作轉到背景，現在可以繼續發新訊息。',
+        backgroundGroupOnly: '轉到背景僅支援 Bot 私聊。',
+        backgroundFailed: '目前暫時無法將這一輪轉到背景。',
+        steerUsage: '請在 /steer 後寫要插話的內容。',
         stale: '這張卡已經答過了。',
         noFile: '這個檔案傳不過去，請在電腦上傳。',
         greeting: `你好，我是 ${values.name}。`,
@@ -165,6 +177,10 @@ export function install(rt) {
         connected: `接続しました。${values.target} と話せます。`,
         stopped: '停止しました。',
         idle: '実行中のタスクはありません。',
+        backgrounded: '現在の作業をバックグラウンドへ移動しました。新しいメッセージを送れます。',
+        backgroundGroupOnly: 'バックグラウンドへの移動は Bot との個別チャットでのみ使えます。',
+        backgroundFailed: '今は現在のターンをバックグラウンドへ移動できません。',
+        steerUsage: '/steer の後にメッセージを入力してください。',
         stale: 'このカードは回答済みです。',
         noFile: 'このファイルはここでは送信できません。PC から送信してください。',
         greeting: `こんにちは、${values.name} です。`,
@@ -187,6 +203,10 @@ export function install(rt) {
         connected: `연결되었습니다. 이제 ${values.target}와(과) 대화할 수 있습니다.`,
         stopped: '중지되었습니다.',
         idle: '진행 중인 작업이 없습니다.',
+        backgrounded: '현재 작업을 백그라운드로 옮겼습니다. 새 메시지를 보낼 수 있습니다.',
+        backgroundGroupOnly: '백그라운드로 옮기기는 Bot 개인 채팅에서만 사용할 수 있습니다.',
+        backgroundFailed: '지금은 현재 턴을 백그라운드로 옮길 수 없습니다.',
+        steerUsage: '/steer 뒤에 보낼 메시지를 입력해 주세요.',
         stale: '이미 응답한 카드입니다.',
         noFile: '이 파일은 여기서 보낼 수 없습니다. 컴퓨터에서 보내 주세요.',
         greeting: `안녕하세요, ${values.name}입니다.`,
@@ -209,6 +229,10 @@ export function install(rt) {
         connected: `Conectado — ya puedes hablar con ${values.target}.`,
         stopped: 'Detenido.',
         idle: 'No hay nada en curso.',
+        backgrounded: 'El turno actual pasó a segundo plano. Puedes enviar un nuevo mensaje cuando quieras.',
+        backgroundGroupOnly: 'Pasar un turno a segundo plano solo está disponible en un chat privado con un Bot.',
+        backgroundFailed: 'No se pudo pasar el turno actual a segundo plano ahora mismo.',
+        steerUsage: 'Escribe un mensaje después de /steer.',
         stale: 'Esta tarjeta ya fue respondida.',
         noFile: 'Este archivo no se puede enviar por aquí; envíalo desde el ordenador.',
         greeting: `Hola, soy ${values.name}.`,
@@ -231,6 +255,10 @@ export function install(rt) {
         connected: `Connecté — vous pouvez maintenant parler à ${values.target}.`,
         stopped: 'Arrêté.',
         idle: 'Rien n’est en cours.',
+        backgrounded: 'Le tour en cours a été déplacé en arrière-plan. Vous pouvez envoyer un nouveau message.',
+        backgroundGroupOnly: 'Le déplacement en arrière-plan n’est disponible que dans une discussion privée avec un Bot.',
+        backgroundFailed: 'Impossible de déplacer le tour en cours en arrière-plan pour le moment.',
+        steerUsage: 'Écrivez un message après /steer.',
         stale: 'Cette carte a déjà reçu une réponse.',
         noFile: 'Ce fichier ne peut pas être envoyé ici ; envoyez-le depuis l’ordinateur.',
         greeting: `Bonjour, je suis ${values.name}.`,
@@ -253,6 +281,10 @@ export function install(rt) {
         connected: `Verbunden — du kannst jetzt mit ${values.target} sprechen.`,
         stopped: 'Gestoppt.',
         idle: 'Aktuell läuft nichts.',
+        backgrounded: 'Der aktuelle Durchlauf wurde in den Hintergrund verschoben. Du kannst jetzt eine neue Nachricht senden.',
+        backgroundGroupOnly: 'Das Verschieben in den Hintergrund ist nur im Einzelchat mit einem Bot verfügbar.',
+        backgroundFailed: 'Der aktuelle Durchlauf kann gerade nicht in den Hintergrund verschoben werden.',
+        steerUsage: 'Schreibe eine Nachricht nach /steer.',
         stale: 'Diese Karte wurde bereits beantwortet.',
         noFile: 'Diese Datei kann hier nicht gesendet werden; sende sie am Computer.',
         greeting: `Hallo, ich bin ${values.name}.`,
@@ -275,6 +307,16 @@ export function install(rt) {
   // ---------------------------------------------------------------- runtime file
   const runtimes = new Map() // id → { data: {runtime, cards, sent}, timer }
   const resendCards = new WeakSet()
+  const MAX_SEEN_INBOUND_IDS = 1000
+  const seenInboundIds = new Set()
+  const markInboundSeen = (key) => {
+    if (seenInboundIds.has(key)) return false
+    seenInboundIds.add(key)
+    while (seenInboundIds.size > MAX_SEEN_INBOUND_IDS) {
+      seenInboundIds.delete(seenInboundIds.values().next().value)
+    }
+    return true
+  }
   const runtimeOf = async (id) => {
     let held = runtimes.get(id)
     if (held !== undefined) return held
@@ -518,6 +560,25 @@ export function install(rt) {
   const sendStatuses = new Map()
   const failedSends = new Map()
   const pendingSends = new Map()
+  const outboundWork = new Set()
+  const trackOutbound = (work) => {
+    outboundWork.add(work)
+    const done = () => { outboundWork.delete(work) }
+    work.then(done, done)
+    return work
+  }
+  const imWhenIdle = async () => {
+    // Dispatch and drains can add work on a different chat while we wait.
+    do {
+      await Promise.allSettled(outboundWork)
+    } while (outboundWork.size > 0)
+  }
+  const clearSendRetry = (queue) => {
+    if (queue.retry === undefined) return
+    clearTimeout(queue.retry.timer)
+    queue.retry.resolve()
+    queue.retry = undefined
+  }
   const setPendingSend = (id, chatKey, entry) => {
     let chats = pendingSends.get(id)
     if (chats === undefined) pendingSends.set(id, chats = new Map())
@@ -618,6 +679,7 @@ export function install(rt) {
   // Turns that may be a member's late result waking a group up again: wait for the first
   // message of the turn before dropping the chat's origin (see the turn/start handler).
   const pendingReset = new Set()
+  const apiOrigins = new Set()
   // Request id of an IM message → the chat it came from, until that message shows up.
   const requests = new Map()
   const consumedRequests = new Set()
@@ -704,6 +766,7 @@ export function install(rt) {
   }
   const claimOrigin = (sessionId, connId, chatKey, senderId, binding) => {
     if (sessionId === undefined || connId === undefined) return
+    if (apiOrigins.has(sessionId)) return
     if (mixed.has(sessionId)) {
       if (!withheldOrigins.has(sessionId)) setWithheldOrigin(sessionId, false)
       return
@@ -737,6 +800,7 @@ export function install(rt) {
     forgetHeldOrigins(sessionId)
   }
   const resetOrigin = (sessionId) => {
+    apiOrigins.delete(sessionId)
     origins.delete(sessionId)
     mixed.delete(sessionId)
     nonImTurn.delete(sessionId)
@@ -932,7 +996,7 @@ export function install(rt) {
     const waiterDone = settled?.waiter !== undefined && current === settled.waiter.runner && (current.queues.get(chatKey)?.jobs.length ?? 0) === 0
     if (activeDone || waiterDone) setSendStatus(id, chatKey, undefined)
   }
-  const drain = async (conn, chatKey) => {
+  const drainQueue = async (conn, chatKey) => {
     const runner = runners.get(conn.id)
     const queue = runner?.queues.get(chatKey)
     // A reserved slot has no handle until connect() lands; start() re-kicks
@@ -942,8 +1006,7 @@ export function install(rt) {
     // flag, weixin today) needs what it sent kept; elsewhere the reply text
     // would sit in the runtime file and never be read.
     const remembersSent = adapters[conn.platform]?.quote === true
-    clearTimeout(queue.retry)
-    queue.retry = undefined
+    clearSendRetry(queue)
     queue.draining = true
     try {
       while (!runner.stopped && queue.jobs.length > 0) {
@@ -1002,8 +1065,11 @@ export function install(rt) {
               const backoff = Math.min(RETRY_MS * 2 ** (job.attempts - 1), RETRY_MAX_MS)
               const asked = Number(error?.retryAfter) > 0 ? Math.min(error.retryAfter * 1000, RETRY_MAX_MS) : backoff
               setSendStatus(conn.id, chatKey, { state: 'retrying', error: failMessage(error) })
-              queue.retry = setTimeout(() => { void drain(conn, chatKey) }, asked)
-              queue.retry.unref?.()
+              const retry = Promise.withResolvers()
+              const timer = setTimeout(() => { void drain(conn, chatKey) }, asked)
+              timer.unref?.()
+              queue.retry = { timer, resolve: retry.resolve }
+              trackOutbound(retry.promise)
               return
             }
             // A failed job keeps its delivery callback: Try again resumes the same
@@ -1044,6 +1110,7 @@ export function install(rt) {
       queue.draining = false
     }
   }
+  const drain = (conn, chatKey) => trackOutbound(drainQueue(conn, chatKey))
   // Per-chat staging chain: keeps async local-image resolution ordered ahead of
   // subsequent replies and cards on the same chat without delaying plain-text sends.
   const outboundStages = new Map()
@@ -1054,7 +1121,7 @@ export function install(rt) {
     outboundStages.set(stageKey, next)
     const cleanup = () => { if (outboundStages.get(stageKey) === next) outboundStages.delete(stageKey) }
     next.then(cleanup, cleanup)
-    return next
+    return trackOutbound(next)
   }
   const enqueueAfterStage = (conn, chatKey, job) => {
     const stageKey = `${conn.id}:${chatKey}`
@@ -1102,6 +1169,7 @@ export function install(rt) {
         return
       }
       const prepared = await prepareOutboundReply(body, {
+        maxBytes: adapters[conn.platform]?.imageMaxBytes,
         resolveImage: (path) => rt.mobileEndpoint('markdown-image', {
           sessionId,
           ...(botId !== undefined ? { botId } : {}),
@@ -1359,96 +1427,183 @@ export function install(rt) {
     if (conn.chats[msg.chat.key] === undefined) {
       conn.chats[msg.chat.key] = { kind: msg.chat.kind, title: msg.chat.title, at: Date.now() }
       await rt.save()
+    } else if (typeof msg.chat.title === 'string' && msg.chat.title !== '' && conn.chats[msg.chat.key].title !== msg.chat.title) {
+      // A group rename (or a first title after the chat was recorded by an older
+      // build): keep the stored name fresh so the settings page shows the real one.
+      conn.chats[msg.chat.key].title = msg.chat.title
+      await rt.save()
     }
     const raw = String(msg.text ?? '')
     const body = raw.trim()
     const chat = conn.chats[msg.chat.key]
     const target = resolveTarget(conn, chat)
-    if (await answerViewCode(conn, msg.chat, raw.trimStart(), msg.sender.id)) return
-    if (/^\/start(?:@\S+)?\s*$/.test(body)) {
-      const name = target === undefined ? undefined : targetName(conn, target)
-      await sendText(conn, msg.chat, name === undefined ? text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound') : text('greeting', { name }))
-      return
+    const platformMsgId = msg.messageId !== undefined && String(msg.messageId).trim() !== '' ? String(msg.messageId).trim() : ''
+    const inboundKey = platformMsgId !== '' ? `${conn.id}:${msg.chat.key}:${platformMsgId}` : ''
+    // Deduplicate platform redeliveries BEFORE card-answer or command handlers so a
+    // redelivered ordinary message (e.g. "1") can never answer a newly opened card (#2077).
+    if (inboundKey !== '' && Array.isArray(conn.seenInbound) && conn.seenInbound.includes(inboundKey)) return
+    if (inboundKey !== '' && !markInboundSeen(inboundKey)) return
+    const persistInboundSeen = async () => {
+      if (inboundKey === '') return
+      const seen = Array.isArray(conn.seenInbound) ? conn.seenInbound : (conn.seenInbound = [])
+      if (!seen.includes(inboundKey)) {
+        seen.push(inboundKey)
+        while (seen.length > 200) seen.shift()
+        await rt.save().catch(() => {})
+      }
     }
-    if (/^\/stop(?:@\S+)?\s*$/.test(body)) {
+    const releaseInboundSeen = () => {
+      if (inboundKey !== '') seenInboundIds.delete(inboundKey)
+    }
+    try {
+      if (await answerViewCode(conn, msg.chat, raw.trimStart(), msg.sender.id)) {
+        await persistInboundSeen()
+        return
+      }
+      if (/^\/start(?:@\S+)?\s*$/.test(body)) {
+        const name = target === undefined ? undefined : targetName(conn, target)
+        await sendText(conn, msg.chat, name === undefined ? text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound') : text('greeting', { name }))
+        await persistInboundSeen()
+        return
+      }
+      if (/^\/stop(?:@\S+)?\s*$/.test(body)) {
+        if (target === undefined) {
+          await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
+          return
+        }
+        const stopped = target.botId !== undefined ? await rt.stopChat(target.botId) : await rt.stopRoomWork(target.roomId)
+        await persistInboundSeen()
+        await sendText(conn, msg.chat, text(stopped ? 'stopped' : 'idle'))
+        return
+      }
+      if (/^\/(?:background|bg)(?:@\S+)?\s*$/.test(body)) {
+        if (target === undefined) {
+          await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
+          return
+        }
+        if (target.botId === undefined) {
+          await sendText(conn, msg.chat, text('backgroundGroupOnly'))
+          await persistInboundSeen()
+          return
+        }
+        const operationId = inboundKey !== '' ? `im:${conn.platform}:bg:${inboundKey}` : undefined
+        let res
+        try {
+          res = await rt.moveForegroundToBackground({ botId: target.botId, operationId })
+        } catch (error) {
+          const terminal = ['bot/idle', 'bot/stale', 'bot/card-open', 'bot/pending-input', 'bot/unsupported', 'bot/read-only'].includes(error?.code)
+          if (!terminal) releaseInboundSeen()
+          else await persistInboundSeen()
+          await sendText(conn, msg.chat, text(error?.code === 'bot/idle' ? 'idle' : 'backgroundFailed'))
+          return
+        }
+        await persistInboundSeen()
+        await sendText(conn, msg.chat, text(res?.moved ? 'backgrounded' : 'idle'))
+        return
+      }
+      let promptMode = 'queue'
+      let effectiveBody = body
+      const steerCommand = /^\/steer(?:@\S+)?(?:\s+([\s\S]*))?$/.exec(body)
+      if (steerCommand !== null) {
+        if (target === undefined) {
+          await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
+          return
+        }
+        const steerText = (steerCommand[1] ?? '').trim()
+        if (steerText === '' && (msg.images ?? []).length === 0 && (msg.files ?? []).length === 0) {
+          await sendText(conn, msg.chat, text('steerUsage'))
+          await persistInboundSeen()
+          return
+        }
+        effectiveBody = steerText
+        if (target.botId !== undefined) promptMode = 'steer'
+      }
+      if (NUMBERS.test(body)) {
+        const picked = body.trim().split(/\s+/).map(Number)
+        const held = newestOpenCard(conn, msg.chat.key)
+        // Anything that does not clearly answer the newest open card — a stale
+        // source, an out-of-range pick, several picks on a single choice — is a
+        // normal message for the Bot, never swallowed and never 'stale'.
+        if (held !== undefined && held.cardKey.startsWith('q:')) {
+          const found = questionById(held.cardKey.slice(2))
+          if (found !== undefined) {
+            const options = found.question.options ?? []
+            const inRange = picked.length > 0 && (found.question.multiSelect === true || picked.length === 1)
+              && picked.every(index => options[index - 1] !== undefined)
+            if (inRange) {
+              const answered = await answerQuestionCard(conn, msg.chat, held.cardKey, picked.map(index => options[index - 1].label), msg.sender.id)
+              if (answered !== false) { await persistInboundSeen(); return }
+            }
+          }
+        } else if (held !== undefined && held.cardKey.startsWith('v:') && picked.length === 1) {
+          const found = viewById(held.cardKey.slice(2))
+          if (found !== undefined && imViewChoices(found.view.view)[picked[0] - 1] !== undefined) {
+            const answered = await answerViewCard(conn, msg.chat, held.cardKey, picked[0] - 1, msg.sender.id)
+            if (answered !== false) { await persistInboundSeen(); return }
+          }
+        } else if (held !== undefined && held.cardKey.startsWith('a:')
+          && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)) {
+          const entry = rt.approvalsView().find(item => `a:${item.id}` === held.cardKey)
+          if (entry !== undefined) {
+            const answered = await answerApprovalCard(conn, msg.chat, held.cardKey, picked[0] === 1 ? 'allow' : 'reject')
+            if (answered === 'answered' && shouldClaimApprovalChat(conn, msg.chat, entry)) claimChat(conn, msg.chat, msg.sender.id)
+            if (answered !== false) { await persistInboundSeen(); return }
+          }
+        }
+      }
       if (target === undefined) {
         await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
         return
       }
-      const stopped = target.botId !== undefined ? await rt.stopChat(target.botId) : await rt.stopRoomWork(target.roomId)
-      await sendText(conn, msg.chat, text(stopped ? 'stopped' : 'idle'))
-      return
-    }
-    if (NUMBERS.test(body)) {
-      const picked = body.trim().split(/\s+/).map(Number)
-      const held = newestOpenCard(conn, msg.chat.key)
-      // Anything that does not clearly answer the newest open card — a stale
-      // source, an out-of-range pick, several picks on a single choice — is a
-      // normal message for the Bot, never swallowed and never 'stale'.
-      if (held !== undefined && held.cardKey.startsWith('q:')) {
-        const found = questionById(held.cardKey.slice(2))
-        if (found !== undefined) {
-          const options = found.question.options ?? []
-          const inRange = picked.length > 0 && (found.question.multiSelect === true || picked.length === 1)
-            && picked.every(index => options[index - 1] !== undefined)
-          if (inRange) {
-            const answered = await answerQuestionCard(conn, msg.chat, held.cardKey, picked.map(index => options[index - 1].label), msg.sender.id)
-            if (answered !== false) return
+      const sessionId = target.botId ?? target.roomId
+      let requestId
+      try {
+        // The receipt has to sit on the Session that takes the message. A group's own
+        // Session moves on to a fresh part (`room.sessionId`) while `room.id` stays the
+        // first one, so uploading under the id leaves the receipt on a Session the
+        // message never reaches and DSH drops the file (#1121).
+        const uploadTo = target.botId !== undefined
+          ? rt.chatOf(target.botId)
+          : rt.sessionOfRoom(rt.roomOf(target.roomId))
+        const content = []
+        // A quoted reply goes in as the quoted message, then what the user said:
+        // commands above are read from the reply alone.
+        const quoted = msg.quote === undefined ? undefined : await quotedText(conn, msg.chat.key, msg.quote)
+        const said = quoted === undefined ? effectiveBody : composeQuoted(effectiveBody, quoted)
+        if (said !== '') content.push({ type: 'text', text: said })
+        for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
+        const env = await envFor(conn)
+        for (const file of msg.files ?? []) {
+          try {
+            const receiptId = await env.uploadFile(uploadTo, file)
+            content.push({ type: 'file', receiptId })
+          } catch {
+            await sendText(conn, msg.chat, text('noFile'))
           }
         }
-      } else if (held !== undefined && held.cardKey.startsWith('v:') && picked.length === 1) {
-        const found = viewById(held.cardKey.slice(2))
-        if (found !== undefined && imViewChoices(found.view.view)[picked[0] - 1] !== undefined) {
-          const answered = await answerViewCard(conn, msg.chat, held.cardKey, picked[0] - 1, msg.sender.id)
-          if (answered !== false) return
+        if (content.length === 0) {
+          releaseInboundSeen()
+          return
         }
-      } else if (held !== undefined && held.cardKey.startsWith('a:')
-        && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)) {
-        const entry = rt.approvalsView().find(item => `a:${item.id}` === held.cardKey)
-        if (entry !== undefined) {
-          const answered = await answerApprovalCard(conn, msg.chat, held.cardKey, picked[0] === 1 ? 'allow' : 'reject')
-          if (answered === 'answered' && shouldClaimApprovalChat(conn, msg.chat, entry)) claimChat(conn, msg.chat, msg.sender.id)
-          if (answered !== false) return
+        requestId = inboundKey !== ''
+          ? `im:${conn.platform}:${inboundKey}`
+          : `im:${conn.platform}:${randomUUID()}`
+        // The turn this starts belongs to this chat: its replies go back here and nowhere else.
+        if (conn.platform === 'weixin') await rememberWeixinRequest(conn, requestId, msg.chat.key, msg.sender.id)
+        else rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
+        await rt.sendUser({ sessionId, content, requestId, mode: promptMode })
+        // Persist `conn.seenInbound` ONLY after the receiving DSH Session confirms flush() === true
+        // so a crash before session durability can never leave a persisted seen key that suppresses
+        // redelivery of a lost prompt.
+        if (inboundKey !== '' && await rt.confirmSessionFlushed?.(sessionId) === true) {
+          await persistInboundSeen()
         }
+      } catch (error) {
+        if (requestId !== undefined) requests.delete(requestId)
+        throw error
       }
-    }
-    if (target === undefined) {
-      await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
-      return
-    }
-    const sessionId = target.botId ?? target.roomId
-    // The receipt has to sit on the Session that takes the message. A group's own
-    // Session moves on to a fresh part (`room.sessionId`) while `room.id` stays the
-    // first one, so uploading under the id leaves the receipt on a Session the
-    // message never reaches and DSH drops the file (#1121).
-    const uploadTo = target.botId !== undefined
-      ? rt.chatOf(target.botId)
-      : rt.sessionOfRoom(rt.roomOf(target.roomId))
-    const content = []
-    // A quoted reply goes in as the quoted message, then what the user said:
-    // commands above are read from the reply alone.
-    const quoted = msg.quote === undefined ? undefined : await quotedText(conn, msg.chat.key, msg.quote)
-    const said = quoted === undefined ? body : composeQuoted(body, quoted)
-    if (said !== '') content.push({ type: 'text', text: said })
-    for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
-    const env = await envFor(conn)
-    for (const file of msg.files ?? []) {
-      try {
-        const receiptId = await env.uploadFile(uploadTo, file)
-        content.push({ type: 'file', receiptId })
-      } catch {
-        await sendText(conn, msg.chat, text('noFile'))
-      }
-    }
-    if (content.length === 0) return
-    const requestId = `im:${conn.platform}:${randomUUID()}`
-    // The turn this starts belongs to this chat: its replies go back here and nowhere else.
-    if (conn.platform === 'weixin') await rememberWeixinRequest(conn, requestId, msg.chat.key, msg.sender.id)
-    else rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
-    try {
-      await rt.sendUser({ sessionId, content, requestId })
     } catch (error) {
-      requests.delete(requestId)
+      releaseInboundSeen()
       throw error
     }
   }
@@ -1555,7 +1710,7 @@ export function install(rt) {
     }
   }
 
-  const diffCards = async () => {
+  const dispatchCards = async () => {
     if (rt.readOnly() !== undefined) return
     for (const conn of Object.values(connections())) {
       const runner = runners.get(conn.id)
@@ -1615,6 +1770,7 @@ export function install(rt) {
       }
     }
   }
+  const diffCards = () => trackOutbound(dispatchCards())
 
   // Buttons drop and the answer shows wherever the card was settled.
   const settledEdits = async (conn) => {
@@ -1714,11 +1870,11 @@ export function install(rt) {
       const handle = adapter.connect(fieldsOf(conn), env, {
         onMessage: (msg) => {
           const current = fresh(conn.id)
-          return current === undefined ? undefined : onMessage(current)(msg).catch(error => rt.warn('ds-bot: im message failed: %s', error))
+          return current === undefined ? undefined : trackOutbound(onMessage(current)(msg).catch(error => rt.warn('ds-bot: im message failed: %s', error)))
         },
         onAction: (action) => {
           const current = fresh(conn.id)
-          return current === undefined ? undefined : onAction(current)(action).catch(error => rt.warn('ds-bot: im action failed: %s', error))
+          return current === undefined ? undefined : trackOutbound(onAction(current)(action).catch(error => rt.warn('ds-bot: im action failed: %s', error)))
         },
         onStatus: onStatus(conn.id),
       })
@@ -1774,8 +1930,7 @@ export function install(rt) {
     }
     const dropped = []
     for (const [chatKey, queue] of runner.queues) {
-      clearTimeout(queue.retry)
-      queue.retry = undefined
+      clearSendRetry(queue)
       const rest = queue.jobs.splice(queue.sending ? 1 : 0)
       const pending = pendingSends.get(id)?.get(chatKey)
       if (!dropOnly && queue.sending && queue.stoppedSend === undefined) {
@@ -1824,7 +1979,7 @@ export function install(rt) {
       await diffCards()
     })
     syncing = run.catch(() => {})
-    return run
+    return trackOutbound(run)
   }
 
   let stopped = false
@@ -2028,8 +2183,7 @@ export function install(rt) {
       }
       for (const [chatKey, queue] of runner?.queues ?? []) {
         if (queue.retry === undefined || queue.draining || queue.jobs.length === 0) continue
-        clearTimeout(queue.retry)
-        queue.retry = undefined
+        clearSendRetry(queue)
         queue.jobs[0].attempts = 0
         setSendStatus(conn.id, chatKey, { state: 'retrying' })
         void drain(conn, chatKey)
@@ -2082,13 +2236,14 @@ export function install(rt) {
     },
   }
 
-  const imEndpoint = async (endpoint, body) => {
+  const dispatchEndpoint = async (endpoint, body) => {
     const result = await endpoints[endpoint]?.(body ?? {})
     if (result === undefined) throw new Error(`Unknown endpoint ${endpoint}`)
     if (endpoint !== 'im-retry') void sync()
     void diffCards()
     return result
   }
+  const imEndpoint = (endpoint, body) => trackOutbound(dispatchEndpoint(endpoint, body))
 
   // ------------------------------------------------------------------ im via
   // IM-originated user messages, keyed by session and event seq, so the client
@@ -2261,6 +2416,7 @@ export function install(rt) {
           forgetHeldOrigins(session.id)
           resetOrigin(session.id)
         }
+        if (typeof rpcId === 'string' && rpcId.startsWith('api:') && !origins.has(session.id)) apiOrigins.add(session.id)
         if (source?.kind === 'tool-jobs' || source?.kind === 'subagent-settled') {
           if (!ownsNotice(session.id, event.data)) {
             dropOrigin(session.id)
@@ -2378,13 +2534,14 @@ export function install(rt) {
 
   rt.onApproval((kind, data) => {
     if (kind === 'open') {
-      void (async () => {
+      if (data.botId === undefined) return
+      void trackOutbound((async () => {
         const origin = approvalOrigin(data)
         if (origin === undefined) return
         const bot = rt.botOf(data.botId)
         const buttons = imPlatform(origin.conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined
         await sendCard(origin.conn, `a:${data.id}`, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.approval(bot?.name ?? '?', data), buttons, true)
-      })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error))
+      })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error)))
       return
     }
     if (kind !== 'settled') return
@@ -2404,10 +2561,10 @@ export function install(rt) {
   let interval
   ctx.effect(() => {
     interval = setInterval(() => {
-      void rt.refresh().then(() => sync()).catch(() => {})
+      void trackOutbound(rt.refresh().then(() => sync()).catch(() => {}))
     }, RECONCILE_MS)
     interval.unref?.()
-    void rt.load().then(() => sync()).catch(() => {})
+    void trackOutbound(rt.load().then(() => sync()).catch(() => {}))
     return () => {
       stopped = true
       clearInterval(interval)
@@ -2425,5 +2582,5 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin, clearRoomWebRound, taintRoomImOrigin, classifyRoomUserSource })
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, imWhenIdle, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin, clearRoomWebRound, taintRoomImOrigin, classifyRoomUserSource })
 }

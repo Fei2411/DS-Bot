@@ -27,7 +27,8 @@
 | 文档 | 内容 |
 |---|---|
 | [Bot 异步工作](2026-11-16-async-work.md) | 慢 Shell 自动转后台 job、前台忙收新消息转后台、`task_*` 后台任务工具与顶栏灵动岛 |
-| [Bot 之间派活](2026-10-16-bot-handoffs.md) | 同伴状态可见、未读消息合并与派活树（子活交回后再向上交回） |
+| [消息与异步协作底座](2026-11-25-message-coordination.md) | 本机 SQLite 协调真相库（`coordination.sqlite`）、逻辑地址投递、原子终态与报告义务、统一冷历史核实与不打断工作更正（英文） |
+| [Bot 之间派活](2026-10-16-bot-handoffs.md) | 同伴状态可见、独立委托编号与派活树（子活交回后再向上交回） |
 | [本地 Agent CLI 作为 Bot](2026-11-04-local-agents.md) | 将本机编程 CLI 接入为 Bot：运行切换、会话映射、工具桥、审批与记忆（英文） |
 | [Side chat（侧边对话）](2026-10-21-btw.md) | 右侧栏 `/side` 顺手提问：基于快照回答、不执行工具、不打断主对话 |
 | [Bot 聊天和群聊的 `/` 菜单](2026-11-13-bot-slash-commands.md) | agent 作用域命令遮蔽（`commandShield`）与 DS Bot 动作注入（`/scheduled-task`、`/goal`） |
@@ -82,16 +83,18 @@
 | [Linux 桌面包](2026-10-21-linux-app-package.md) | 同轮产出 AppImage（自更新）与 deb（沙箱兜底） |
 | [手机 App](2026-10-24-mobile-app.md) | iOS / Android 原生远程端：Noise IK 加密中转、高权限生物解锁与同步规则 |
 | [移动端客户端 API](2026-10-24-mobile-api.md) | 握手版本、头像引用、群聊分页、提醒补发、分块下载与 Gateway Remote 方法 |
-| [浏览器远程客户端](2026-11-17-web-remote.md) | Expo 网页导出与中转同源部署、链接配对与安全允许列表 |
+| [浏览器远程客户端](2026-11-17-web-remote.md) | Expo 网页版与 Relay 同源部署；浏览器链接配对、独立设备身份、localStorage 与 CSP 安全边界 |
 | [iOS 出包与 TestFlight](2026-11-13-ios-release.md) | Apple 账号准备、签名归档与 TestFlight 上传指引 |
 | [IM](2026-11-04-im.md) | 微信、飞书、钉钉、企业微信、QQ、Telegram、Discord、Slack 双向桥接与配对边界 |
-| [MCP 访问](2026-11-20-mcp-access.md) | 本机 `127.0.0.1:8797/mcp` 网关：每客户端独立令牌与作用域、私密隔离 |
+| [MCP 访问](2026-11-20-mcp-access.md) | （已收口至 [对外统一 API](2026-11-21-external-api.md)）初版独立 MCP 访问设计记录；现统一由设置 → API 同端口 `/mcp` 与自动迁移承接 |
+| [对外统一 API](2026-11-21-external-api.md) | 持锁宿主自建本机网关（默认关闭、`127.0.0.1:17830`）：独立可撤销 Bearer Token、Scope × 目标白名单与隐私隔离、统一 `Run` 状态机、`/v1/*` REST+SSE、`/mcp` Streamable HTTP、薄层 `ds-bot` CLI 与可选 OpenAI 兼容层 |
 
 ### 7. 界面与交互
 
 | 文档 | 内容 |
 |---|---|
 | [设置总控台](2026-11-22-settings-console.md) | Overview 概览、⌘K 搜索面板、分组一页滚动锚点、外观实时预览与 `OverlayBoundary` 隔离 |
+| [键盘快捷键系统](2026-11-25-shortcuts.md) | 统一快捷键注册表、切换经典模式/收件箱/浏览器/1–9 切对话、设置页自定义改键与冲突检测、Bot 浏览器视图透传 |
 | [Bot 视图](2026-10-20-widget-views.md) | `show_view` 结构化蓝图组件（图表/表格/表单/公式）与沙箱 HTML 视图 |
 | [侧边栏分组](2026-11-04-sidebar-sections.md) | 折叠分组、微缩角色簇与待处理状态透出、右键/拖拽归组与 88px 窄栏 |
 | [消息布局和宽度](2026-10-22-message-layout.md) | 气泡 / 平铺两种消息布局与百分比宽度滑块 |

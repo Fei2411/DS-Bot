@@ -3,9 +3,9 @@
 // start/text.mjs.
 
 const CHECK_EVERY_MS = 4 * 60 * 60_000
-export const RELEASES_URL = 'https://api.github.com/repos/Fei2411/DS-Bot/releases?per_page=20'
+export const RELEASES_URL = 'https://api.github.com/repos/Fei-Craft/DS-Bot/releases?per_page=20'
 // Where a user downloads the newest version by hand.
-export const RELEASE_PAGE = 'https://github.com/Fei2411/DS-Bot/releases/latest'
+export const RELEASE_PAGE = 'https://github.com/Fei-Craft/DS-Bot/releases/latest'
 const MB = 1024 * 1024
 
 function parseVersion(version) {

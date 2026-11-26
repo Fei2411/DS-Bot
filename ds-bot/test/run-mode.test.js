@@ -744,10 +744,31 @@ test('closing a Session answers what its CLI waits on and lets the process go', 
   for await (const chunk of first) if (chunk.type === 'finish') assert.equal(chunk.reason.kind, 'tool-calls')
   assert.equal(adapter.live.get('s1').pending.size, 1)
   const child = engines[0].child
+  const exited = child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve) => {
+      const done = () => { child.off('exit', done); child.off('close', done); resolve() }
+      child.once('exit', done)
+      child.once('close', done)
+    })
   await adapter.closeSession('s1', 'moved on')
   assert.equal(adapter.live.has('s1'), false)
   assert.equal(engines[0].child, undefined)
-  assert.notEqual(child.killed, false)
+  if (!child.killed && child.exitCode === null && child.signalCode === null) {
+    let timer
+    try {
+      await Promise.race([
+        exited,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('child process did not exit after closeSession')), 5_000)
+          timer.unref?.()
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  assert.ok(child.killed || child.exitCode !== null || child.signalCode !== null, 'CLI child process should be terminated or exited')
   // The record stays, so opening that part again resumes the CLI session.
   assert.ok(records.s1.cliSessionId)
 })

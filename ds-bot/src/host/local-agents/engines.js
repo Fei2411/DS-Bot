@@ -15,6 +15,9 @@ export const KINDS = ['acp', 'codex', 'claude']
 // load with a duplicate adapter.
 export const ROUTE_PREFIX = 'local-'
 
+const QODER_CN_COMMANDS = ['qoderclicn', 'qodercn', 'qoder-cn']
+const QODER_CN_SIGN_IN = { file: ['.qoder-cn', '.auth', 'user'] }
+
 const CLIS = {
   'devin-cli': {
     name: 'Devin CLI', kind: 'acp', command: 'devin', args: ['acp'], version: ['--version'], signIn: 'devin auth login',
@@ -61,6 +64,10 @@ const CLIS = {
   'antigravity': {
     name: 'Antigravity', kind: 'acp', command: 'agy', args: ['acp'], version: ['--version'], signIn: 'agy acp --login',
     signedIn: { macKeychain: { service: 'gemini', account: 'antigravity' } },
+    // `agy models` lists the same concrete model ids the ACP session advertises in
+    // models.availableModels. The ACP reply can be a partial snapshot while the CLI
+    // is still fetching its catalog (#2145), so the probe merges both sources.
+    modelsArgs: ['models'],
     cwdPerProcess: true,
     modes: {
       'read-only': ['default'],
@@ -82,7 +89,11 @@ const CLIS = {
     // only accepts a file with a token and an account (the values may be encrypted).
     signedIn: { appDataFile: { path: ['CodeBuddyExtension', 'Data', 'Public', 'auth', 'Tencent-Cloud.coding-copilot.info'], loggedOut: '.logged-out', has: [['auth', 'accessToken'], ['account']] } },
   },
-  'qoder': { name: 'Qoder CLI', kind: 'acp', command: 'qodercli', commands: ['qodercli', 'qoder', 'qoderclicn', 'qodercn', 'qoder-cn'], args: ['--acp'], version: ['--version'], signIn: 'qodercli', signInBy: { qoderclicn: 'qoderclicn', qodercn: 'qoderclicn', 'qoder-cn': 'qoderclicn' } },
+  'qoder': {
+    name: 'Qoder CLI', kind: 'acp', command: 'qodercli', commands: ['qodercli', 'qoder', ...QODER_CN_COMMANDS], args: ['--acp'], version: ['--version'], signIn: 'qodercli',
+    signInBy: Object.fromEntries(QODER_CN_COMMANDS.map(command => [command, 'qoderclicn'])),
+    signedInBy: Object.fromEntries(QODER_CN_COMMANDS.map(command => [command, QODER_CN_SIGN_IN])),
+  },
   'minimax-code': { name: 'MiniMax Code', kind: 'acp', command: 'mcode', args: ['acp'], version: ['--version'], signIn: 'mcode' },
   'glm-cli': { name: 'GLM Agent', kind: 'acp', command: 'glm-acp-agent', args: [], version: ['--version'], signIn: 'glm-acp-agent --setup' },
   'kiro-cli': { name: 'Kiro CLI', kind: 'acp', command: 'kiro-cli', args: ['acp'], version: ['--version'], signIn: 'kiro-cli login' },
@@ -96,26 +107,26 @@ const CLIS = {
 // route -> engine, e.g. 'local-codex-cli'. `id` is the CLI's name without the prefix.
 export const ENGINES = Object.fromEntries(Object.entries(CLIS).map(([id, spec]) => [`${ROUTE_PREFIX}${id}`, { ...spec, id }]))
 
+const executableCommand = path => typeof path === 'string' ? win32.basename(path).replace(/\.(cmd|exe|bat|com)$/i, '') : undefined
+
 // An engine found under another product's command (Qoder CN) signs in through that command.
-export function signInFor(spec, path) {
-  const command = typeof path === 'string' ? win32.basename(path).replace(/\.(cmd|exe|bat|com)$/i, '') : undefined
-  return spec?.signInBy?.[command] ?? spec?.signIn
-}
+export const signInFor = (spec, path) => spec?.signInBy?.[executableCommand(path)] ?? spec?.signIn
+export const signedInFor = (spec, path) => spec?.signedInBy?.[executableCommand(path)] ?? spec?.signedIn
 
 export const CUSTOM_PREFIX = `${ROUTE_PREFIX}acp-`
 
 // LEGACY: the route a ref saved before the prefix names, or undefined when its
-// provider was never a local-agent route. Some of those names are also provider
-// ids DSH or another plugin ships, so an old `<name>/...` ref is ambiguous: the
-// caller decides on evidence. `qoder` is one too — dsh-connect-qoder registers a
-// provider called `qoder` for the same models the Qoder CLI offers. `antigravity`
-// is one too — dsh-llm-antigravity-acp registers a provider called `antigravity`
-// for the same models the Antigravity CLI offers.
+// provider was never a local-agent route. Only the CLIs that shipped before the
+// prefix (v0.3.2) were saved unprefixed: a later CLI's name, such as `qoder`,
+// `antigravity` or `mistral-vibe`, is always a provider of that name (#1890,
+// #2104). `opencode` is also DSH's own provider, so an old `opencode/...` ref is
+// ambiguous: the caller decides on evidence.
 const OLD_CUSTOM_PREFIX = 'acp-'
-export const AMBIGUOUS_OLD_ROUTES = new Set(['opencode', 'qoder', 'antigravity'])
+export const AMBIGUOUS_OLD_ROUTES = new Set(['opencode'])
+const OLD_ROUTES = new Set(['devin-cli', 'claude-code', 'codex-cli', 'opencode', 'cursor-cli', 'gemini-cli', 'grok-cli', 'cline', 'qwen-code', 'goose'])
 export const legacyRoute = (provider) => {
   if (typeof provider !== 'string') return undefined
-  if (CLIS[provider] !== undefined) return `${ROUTE_PREFIX}${provider}`
+  if (OLD_ROUTES.has(provider) && CLIS[provider] !== undefined) return `${ROUTE_PREFIX}${provider}`
   if (provider.startsWith(OLD_CUSTOM_PREFIX)) return `${ROUTE_PREFIX}${provider}`
   return undefined
 }

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
-import { request as httpRequest } from 'node:http'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -22,11 +21,11 @@ import { install as installHandoffs } from '../src/host/handoffs.js'
 import { install as installImages } from '../src/host/images.js'
 import { install as installLearning } from '../src/host/learning.js'
 import { install as installLedger } from '../src/host/ledger.js'
-import { install as installMcpServer, mcpHttpServer, closeServer } from '../src/host/mcp-server.js'
+import { install as installExternalApi } from '../src/host/api/index.js'
 import { install as installMemory } from '../src/host/memory.js'
 import { avatarRef, clearAvatarRefCache, install as installMobile } from '../src/host/mobile.js'
 import { install as installModels } from '../src/host/models.js'
-import { install as installParts } from '../src/host/parts.js'
+import { historyEntry, install as installParts } from '../src/host/parts.js'
 import { install as installPermissions } from '../src/host/permissions.js'
 import { install as installPrivacy } from '../src/host/privacy.js'
 import { install as installRequests } from '../src/host/requests.js'
@@ -36,6 +35,18 @@ import { install as installTasks } from '../src/host/tasks.js'
 import { install as installTurns } from '../src/host/turns.js'
 import { install as installUsage } from '../src/host/usage.js'
 import { fakeContext } from './fake-ctx.js'
+
+
+// The review reads transcripts through rt.eventsBackwards + rt.historyEntry (raw
+// events carry the source a line's trust lives on). A fake session of one user
+// line, newest first as the real index yields them, projected by the same
+// historyEntry parts.js installs on the real rt.
+const fakeTranscript = (text) => ({
+  eventsBackwards: async function* () {
+    yield { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } }
+  },
+  historyEntry: (event, group) => historyEntry(event, group),
+})
 
 const tempDirs = []
 after(() => {
@@ -803,9 +814,10 @@ test('memory-review.js does not cancel pending review timer on agent/disposed', 
     isMain: id => id === 'a',
     isPrivate: () => false,
     partsOfThread: () => [{ sessionId: 'a' }],
-    async *partLines() {
+    ...fakeTranscript('Remember that we always ship with tests.'),
+    eventsBackwards: async function* () {
       partLinesCalls += 1
-      yield { seq: 1, who: 'user', text: 'Remember that we always ship with tests.' }
+      yield { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Remember that we always ship with tests.' }] } }
     },
     desiredModel: async () => 'deepseek/deepseek-chat',
     defaultModel: async () => 'deepseek/deepseek-chat',
@@ -993,8 +1005,8 @@ test('chat-index.js configures WAL + busy_timeout, unlinks WAL/SHM on corruption
   }
 })
 
-test('mcp-server.js backs off EADDRINUSE with cooldown recovery, awaits stop on dispose, and aborts wait_for_reply on HTTP close', async (t) => {
-  const home = tempDir(t, 'ds-bot-perf-mcp-')
+test('api/index.js recovers after EADDRINUSE and awaits stop on ctx.dispose', async (t) => {
+  const home = tempDir(t, 'ds-bot-perf-api-')
   const blocker = createServer()
   await new Promise(resolve => blocker.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise(resolve => blocker.close(() => resolve())))
@@ -1010,83 +1022,37 @@ test('mcp-server.js backs off EADDRINUSE with cooldown recovery, awaits stop on 
   const rt = {
     ctx,
     home,
-    mcpBindRetryCooldownMs: 120,
     state: seedState(),
     readOnly: () => undefined,
     load: async () => {},
     save: async () => {},
+    refresh: async () => {},
+    botOf: id => seedState().bots[id],
+    roomOf: () => undefined,
+    chatOwners: new Map(),
+    roomOwners: new Map(),
+    groupOwners: new Map(),
+    live: new Map(),
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
     warn() {},
   }
-  installMcpServer(rt)
+  installExternalApi(rt)
   t.after(() => ctx.dispose())
 
-  // First settle hits EADDRINUSE and records error.
-  await new Promise(resolve => setTimeout(resolve, 40))
-  const first = rt.mcpView()
-  assert.equal(first.status, 'off')
-  assert.equal(first.error, `Port ${busyPort} is in use`)
+  await rt.apiReconcile()
+  const first = rt.apiView()
+  assert.equal(first.status, 'error')
+  assert.match(first.error, new RegExp(`Port ${busyPort}.*in use`))
 
-  // Free the blocker port: polls INSIDE cooldown MUST NOT spin listen() immediately.
   await new Promise(resolve => blocker.close(resolve))
-  for (let i = 0; i < 5; i += 1) {
-    assert.equal(rt.mcpView().status, 'off', 'mcpView polls during bind cooldown must not hammer listen()')
-  }
+  await rt.apiReconcile()
+  assert.equal(rt.apiView().status, 'running')
+  assert.equal(rt.apiView().boundPort, busyPort)
 
-  // Once cooldown expires, next mcpView() self-heals automatically and binds the port!
-  await new Promise(resolve => setTimeout(resolve, 140))
-  rt.mcpView()
-  await new Promise(resolve => setTimeout(resolve, 50))
-  assert.equal(rt.mcpView().status, 'on', 'mcp-server must auto-recover after bind retry cooldown expires')
-  assert.equal(rt.mcpView().error, null)
-
-  // Plugin dispose MUST await stop() so the port is immediately bindable right after ctx.dispose()!
   await ctx.dispose()
   const probe = createServer()
   await new Promise((resolve, reject) => probe.once('error', reject).listen(busyPort, '127.0.0.1', resolve))
   await new Promise(resolve => probe.close(resolve))
-
-  // Real HTTP disconnect test: response.on('close') aborts an in-flight wait_for_reply immediately!
-  let abortedObserved = false
-  let callResolved = false
-  const server = mcpHttpServer({
-    authorize: token => (token === 'valid-tok' ? { id: 'c1', name: 'CLI' } : undefined),
-    callFor: () => async (_name, _args, { signal }) => {
-      await new Promise((resolve) => {
-        const timer = setTimeout(resolve, 30_000)
-        signal?.addEventListener('abort', () => {
-          abortedObserved = true
-          clearTimeout(timer)
-          resolve()
-        }, { once: true })
-      })
-      callResolved = true
-      return { done: false, working: true, messages: [], after: 0 }
-    },
-  })
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  t.after(() => closeServer(server))
-  const { port } = server.address()
-
-  const payload = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'wait_for_reply', arguments: { bot: 'a', timeoutSeconds: 30 } } })
-  const req = httpRequest({
-    hostname: '127.0.0.1',
-    port,
-    path: '/mcp',
-    method: 'POST',
-    headers: {
-      authorization: 'Bearer valid-tok',
-      'content-type': 'application/json',
-      'content-length': Buffer.byteLength(payload),
-    },
-  })
-  req.on('error', () => {})
-  req.write(payload)
-  req.end()
-  await new Promise(resolve => setTimeout(resolve, 40))
-  req.destroy()
-  await new Promise(resolve => setTimeout(resolve, 60))
-  assert.equal(abortedObserved, true, 'response close must abort AbortSignal passed to wait_for_reply')
-  assert.equal(callResolved, true, 'wait_for_reply promise must settle immediately after client disconnect')
 })
 
 test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and drops/retains result files based on onSaved', async (t) => {
@@ -1159,7 +1125,10 @@ test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and dro
   assert.equal(existsSync(join(home, 'state.json')), false, 'state.json does not exist on disk')
 
   rt.closeWork('parent-drop', 'Chief', 'all done')
-  await new Promise(resolve => setTimeout(resolve, 20))
+  const deadline = Date.now() + 3000
+  while (existsSync(droppedPath) && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
   assert.equal(existsSync(droppedPath), false, 'closeWork on parent must delete result file once onSaved fires')
 })
 
@@ -1866,6 +1835,8 @@ test('memory-review.js deleting a Bot while its review is queued does not reject
   const home = tempDir(t, 'ds-bot-perf-review-queue-')
   const { ctx } = minimalCtx()
   let releaseFirst
+  let signalFirstStarted
+  const firstStarted = new Promise((resolve) => { signalFirstStarted = resolve })
   const reviewed = []
   const state = seedState({
     bots: {
@@ -1895,8 +1866,9 @@ test('memory-review.js deleting a Bot while its review is queued does not reject
     isMain: id => id === 'a',
     isPrivate: () => false,
     partsOfThread: id => [{ sessionId: id }],
-    async *partLines(id) {
-      yield { seq: 1, who: 'user', text: `Fact for ${id}` }
+    ...fakeTranscript(''),
+    eventsBackwards: async function* (id) {
+      yield { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: `Fact for ${id}` }] } }
     },
     desiredModel: async () => 'deepseek/deepseek-chat',
     defaultModel: async () => 'deepseek/deepseek-chat',
@@ -1905,7 +1877,12 @@ test('memory-review.js deleting a Bot while its review is queued does not reject
       const text = JSON.stringify(req)
       const who = text.includes('Fact for a') ? 'a' : text.includes('Fact for b') ? 'b' : 'c'
       reviewed.push(who)
-      if (who === 'a') await new Promise(resolve => { releaseFirst = resolve })
+      if (who === 'a') {
+        await new Promise((resolve) => {
+          releaseFirst = resolve
+          signalFirstStarted()
+        })
+      }
       return { finish: { kind: 'stop' }, blocks: () => [{ type: 'text', text: '[]' }] }
     },
     warn() {},
@@ -1917,19 +1894,35 @@ test('memory-review.js deleting a Bot while its review is queued does not reject
   // Start review for 'a' (blocks inside assembleLlm), then queue 'b' and 'c' behind it.
   onStatus({ agent: { id: 'a' }, status: 'running' })
   onStatus({ agent: { id: 'a' }, status: 'idle' })
-  await new Promise(resolve => setTimeout(resolve, 35))
+  let startTimer
+  try {
+    await Promise.race([
+      firstStarted,
+      new Promise((_, reject) => {
+        startTimer = setTimeout(() => reject(new Error('timed out waiting for review a to start')), 5000)
+      }),
+    ])
+  } finally {
+    clearTimeout(startTimer)
+  }
   assert.equal(typeof releaseFirst, 'function', 'review for a is in-flight')
 
+  t.mock.timers.enable({ apis: ['setTimeout'] })
   onStatus({ agent: { id: 'b' }, status: 'running' })
   onStatus({ agent: { id: 'b' }, status: 'idle' })
   onStatus({ agent: { id: 'c' }, status: 'running' })
   onStatus({ agent: { id: 'c' }, status: 'idle' })
-  await new Promise(resolve => setTimeout(resolve, 35))
+  t.mock.timers.tick(rt.config.memoryReviewDelayMs)
+  t.mock.timers.reset()
 
   // Delete 'b' while its review is queued -> archiveBotMemory calls forgetBotReview -> deletes from reviewQueue without poisoning reviewChain!
   await rt.archiveBotMemory('b')
   releaseFirst()
-  await new Promise(resolve => setTimeout(resolve, 60))
+  const drainDeadline = Date.now() + 5000
+  while (rt.memoryReviews() > 0 && Date.now() < drainDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(rt.memoryReviews(), 0, 'review queue drained cleanly')
   assert.deepEqual(reviewed, ['a', 'c'], 'deleted bot b is skipped cleanly and subsequent bot c review still runs')
 })
 
@@ -2052,8 +2045,8 @@ test('btw.js btwDelete never self-evicts or writes [] under 51 pinned writingPar
   assert.equal(rt.btwCachedParts(), cachedBefore, 'dropped bot readPart must not re-populate cards cache')
 })
 
-test('mcp-server.js reconcilingKey clears even if readOnly flips before settle() runs', async (t) => {
-  const home = tempDir(t, 'ds-bot-perf-mcp-flip-')
+test('api/index.js starts and stops cleanly when readOnly ownership flips', async (t) => {
+  const home = tempDir(t, 'ds-bot-perf-api-flip-')
   const probe = createServer()
   await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve))
   const port = probe.address().port
@@ -2074,23 +2067,33 @@ test('mcp-server.js reconcilingKey clears even if readOnly flips before settle()
     readOnly: () => readOnlyReason,
     load: async () => {},
     save: async () => {},
+    refresh: async () => {},
+    botOf: id => seedState().bots[id],
+    roomOf: () => undefined,
+    chatOwners: new Map(),
+    roomOwners: new Map(),
+    groupOwners: new Map(),
+    live: new Map(),
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
     warn() {},
   }
-  installMcpServer(rt)
+  installExternalApi(rt)
   t.after(() => ctx.dispose())
 
-  // Queue reconcile while readOnly === 'another host' (keyA = 1:port:ro), then synchronously flip to writable (keyB)
-  // BEFORE settle() executes -> settle() sees keyB and starts the server; reconcilingKey MUST still clear!
-  rt.mcpView()
-  readOnlyReason = undefined
-  await new Promise(resolve => setTimeout(resolve, 60))
-  assert.equal(rt.mcpView().status, 'on', 'server started after writable flip')
+  await rt.apiReconcile()
+  assert.equal(rt.apiView().status, 'readonly')
 
-  // Now flip back to readOnly (keyA): if reconcilingKey stayed wedged on keyA, mcpView() would ignore it and keep serving!
+  readOnlyReason = undefined
+  await rt.apiReconcile()
+  assert.equal(rt.apiView().status, 'running', 'server started after writable flip')
+
   readOnlyReason = 'another host'
-  rt.mcpView()
-  await new Promise(resolve => setTimeout(resolve, 60))
-  assert.equal(rt.mcpView().status, 'off', 'mcp-server must stop cleanly when flipping back to readOnly')
+  await rt.apiReconcile()
+  assert.equal(rt.apiView().status, 'readonly', 'api server must report readonly after flipping back to readOnly')
+  assert.equal(rt.apiView().boundPort, null, 'api server must clear boundPort after flipping back to readOnly')
+  const checkClosed = createServer()
+  await new Promise((resolve, reject) => checkClosed.once('error', reject).listen(port, '127.0.0.1', resolve))
+  await new Promise(resolve => checkClosed.close(resolve))
 })
 
 test('ledger.js mergeRecords releases writing pin for LRU eviction and concurrent drop does not leak totalBytes', async (t) => {
@@ -2176,9 +2179,7 @@ test('memory-review.js forgetBotReview cancels pending failure retry timers', as
     isMain: id => id === 'a',
     isPrivate: () => false,
     partsOfThread: id => [{ sessionId: id }],
-    async *partLines() {
-      yield { seq: 1, who: 'user', text: 'Remember my test preference.' }
-    },
+    ...fakeTranscript('Remember my test preference.'),
     desiredModel: async () => 'deepseek/deepseek-chat',
     defaultModel: async () => 'deepseek/deepseek-chat',
     tagUsage: msgs => msgs,
@@ -2203,4 +2204,3 @@ test('memory-review.js forgetBotReview cancels pending failure retry timers', as
   await new Promise(resolve => setTimeout(resolve, 120))
   assert.equal(attempts, 1, 'forgetBotReview must cancel pending failure retry timer')
 })
-
