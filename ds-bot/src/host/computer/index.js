@@ -600,13 +600,6 @@ export function install(rt) {
     const decisions = decisionsOf(bot.id, sessionId)
     const decision = decisions.get(app.key) ?? decisions.get(normName(app.name))
     if (decision === 'deny') return refuse(`The user did not allow ${bot.name} to use ${app.name}.`)
-    if (legacyConsent?.grantId !== undefined) {
-      const { grantId, path } = legacyConsent
-      const grant = Object.hasOwn(grantsOf(bot), grantId) ? grantsOf(bot)[grantId] : undefined
-      if (!exec.signal?.aborted && result.bundleId === grantId && grant?.id === grantId && grant.path === path) return undefined
-      appsOfSession(sessionId).delete(`handle:${handle}`)
-      return refuse(`${bot.name} cannot use ${app.name}: the saved grant does not match the selected application.`)
-    }
     if (legacyConsent !== undefined && !exec.signal?.aborted) {
       if (legacyConsent.answer === 'always' && app.id === result.bundleId && typeof app.id === 'string' && app.id.trim() !== '') {
         await recordGrant(bot, app, legacyConsent.path)
@@ -876,14 +869,8 @@ export function install(rt) {
     app.key = appKeyOf(app)
     if (!normName(app.name) || (legacy && flight?.sessionId !== sessionId)) return deny()
     if (isProtectedApp(app)) return deny()
-    if (legacy && app.path !== undefined) {
-      // Legacy DSH supplies the selected executable path here, but not its bundle ID until getApp returns.
-      const matches = Object.entries(grantsOf(bot)).filter(([id, grant]) => id === grant.id && grant.path === app.path)
-      if (matches.length === 1) {
-        flight.legacyConsent = { grantId: matches[0][0], path: app.path }
-        return allow()
-      }
-    }
+    // Legacy DSH can launch the app before returning its bundle ID. A matching
+    // path alone cannot authorize that launch.
     if (!legacy && grantFor(bot, app) !== undefined) return allow()
     const call = flight?.sessionId === sessionId ? flight : [...inFlight.values()].find(item => item.sessionId === sessionId)
     const answer = await askAppAccess({ botId: bot.id, sessionId, callId: call?.callId, app, signal: request.signal })
