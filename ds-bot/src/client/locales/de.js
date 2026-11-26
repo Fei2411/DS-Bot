@@ -165,6 +165,19 @@ export const DE = {
   "Another dsh has this Bot team open, so phones connect to that one": "Ein anderes dsh hat dieses Bot-Team geöffnet, daher verbinden sich Telefone mit diesem",
   "This dsh runs on a Node without WebSocket": "Dieses dsh läuft auf einem Node ohne WebSocket",
   "Phones are paired and removed on the computer": "Telefone werden auf dem Computer gekoppelt und entfernt",
+  'Session logs are read on the computer': 'Session-Protokolle werden auf dem Computer gelesen',
+  'External API settings and tokens are managed on the computer': 'Externe API-Einstellungen und Tokens werden auf dem Computer verwaltet',
+  'MCP access is set up on the computer': 'MCP-Zugriff wird auf dem Computer eingerichtet',
+  'Workspace files and terminals are available on the computer': 'Arbeitsbereichsdateien und Terminals sind auf dem Computer verfügbar',
+  'Engine settings are managed on the computer': 'Engine-Einstellungen werden auf dem Computer verwaltet',
+  'Plugins are managed on the computer': 'Plugins werden auf dem Computer verwaltet',
+  'Voice input settings and transcription are available on the computer': 'Spracheingabeeinstellungen und Transkription sind auf dem Computer verfügbar',
+  'Privacy and telemetry settings are managed on the computer': 'Datenschutz- und Telemetrieeinstellungen werden auf dem Computer verwaltet',
+  'Folders are chosen in a window on the computer': 'Ordner werden in einem Fenster auf dem Computer ausgewählt',
+  'Computer use is controlled on the computer': 'Die Computersteuerung wird auf dem Computer kontrolliert',
+  'Connector imports read apps on this computer': 'Connector-Importe lesen Apps auf diesem Computer',
+  'This action is available in the window on the computer': 'Diese Aktion ist im Fenster auf dem Computer verfügbar',
+  'This endpoint has not been approved for paired devices': 'Dieser Endpunkt ist nicht für gekoppelte Geräte freigegeben',
   "Your phone scans it once. After that it connects by itself.": "Dein Telefon scannt ihn einmal. Danach verbindet es sich von selbst.",
   "Beta": "Beta",
   // Shared
@@ -2441,6 +2454,7 @@ export const DE = {
   "Showing first {count} rows": "Erste {count} Zeilen werden angezeigt",
   "Converted from {ext}": "Aus {ext} konvertiert",
   "Preview unavailable in this environment": "Vorschau in dieser Umgebung nicht verfügbar",
+  "Scripts and external or local resources are blocked in this preview": "Skripte sowie externe oder lokale Ressourcen sind in dieser Vorschau blockiert",
   "Select a file to preview": "Datei für Vorschau auswählen",
   "Preview": "Vorschau",
   "File truncated for preview": "Datei für Vorschau gekürzt",
@@ -2613,6 +2627,7 @@ export const DE = {
 }
 
 export const HOST_ERRORS_DE = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" ist in diesem DeepSeek Harness nicht verfügbar. Wähle eine andere in den Bot-Einstellungen.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" kann nicht ausgeführt werden: $2. Wähle eine andere in den Bot-Einstellungen.'],
   [/^An agent preset must be named by its id$/, 'Eine Agent-Voreinstellung muss über ihre ID benannt werden'],
