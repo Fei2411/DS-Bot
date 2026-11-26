@@ -374,8 +374,12 @@ export function install(rt) {
     const owner = rt.selfOf?.(sessionId)
     if (owner !== undefined && !rt.isPrivate?.(owner)) return true
     if (rt.roomOf?.(sessionId)) return true
+    if (rt.agentOf?.(sessionId) !== undefined) return true
     for (const bot of Object.values(rt.state?.bots ?? {})) {
       if (bot?.private !== true && botOwnsSession(bot, sessionId)) return true
+    }
+    for (const agent of Object.values(rt.state?.agents ?? {})) {
+      if (Array.isArray(agent?.sessions) && agent.sessions.includes(sessionId)) return true
     }
     return false
   }

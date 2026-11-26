@@ -65,6 +65,7 @@ function makeRt(home, opts = {}) {
         },
       },
       rooms: { r1: { id: 'r1', name: 'SecretRoom', members: ['pub1', 'pub2'] } },
+      agents: { classic1: { id: 'classic1', sessions: ['classic-disk-1'] } },
       prefs: { theme: 'deepseek', layout: 'bubble' },
       privateArchives: [{ id: 'archived-priv', sessionIds: ['archived-sess-1'] }],
       capabilities: { items: {} },
@@ -391,10 +392,11 @@ test('DSH safeguards fail closed on offline/disk-resumed subagents, openParts, a
     assert.equal(excluded({ sessionId: 'live-orphan-child' }), true)
     assert.equal(excluded({}), true)
 
-    // Positively verified public Bot, public subagent, and live classic root are allowed.
+    // Positively verified public Bot, public subagent, live classic root, and persisted Classic Agent root are allowed.
     assert.equal(excluded({ sessionId: 'pub1' }), false)
     assert.equal(excluded({ sessionId: 'live-pub-child' }), false)
     assert.equal(excluded({ sessionId: 'live-classic-root' }), false)
+    assert.equal(excluded({ sessionId: 'classic-disk-1' }), false)
 
     // Feedback uploads withhold offline subagents, private cwd, and missing session IDs.
     const mkRec = (sid, cwd = '/tmp/public-work') => ({
@@ -406,12 +408,16 @@ test('DSH safeguards fail closed on offline/disk-resumed subagents, openParts, a
     assert.equal(recordListener(mkRec('live-orphan-child'), () => mkRec('live-orphan-child')).sourceEvent, undefined)
     assert.equal(recordListener(mkRec('priv-open-1'), () => mkRec('priv-open-1')).sourceEvent, undefined)
     assert.equal(recordListener(mkRec('live-classic-root', '/private/diary/sub'), () => mkRec('live-classic-root', '/private/diary/sub')).sourceEvent, undefined)
+    assert.equal(recordListener(mkRec('classic-disk-1', '/private/diary/sub'), () => mkRec('classic-disk-1', '/private/diary/sub')).sourceEvent, undefined)
     assert.equal(recordListener(mkRec(''), () => mkRec('')).sourceEvent, undefined)
 
-    // Verified live classic root in a non-private folder passes through with scrubbed cwd.
+    // Verified live classic root and persisted Classic Agent disk session pass through with scrubbed cwd.
     const allowed = recordListener(mkRec('live-classic-root'), () => mkRec('live-classic-root'))
     assert.ok(allowed.sourceEvent)
     assert.equal(allowed.attributes['session.cwd'], '~')
+    const allowedDiskClassic = recordListener(mkRec('classic-disk-1'), () => mkRec('classic-disk-1'))
+    assert.ok(allowedDiskClassic.sourceEvent)
+    assert.equal(allowedDiskClassic.attributes['session.cwd'], '~')
   } finally {
     await env.dispose()
     rmSync(home, { recursive: true, force: true })
