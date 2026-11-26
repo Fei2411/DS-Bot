@@ -295,6 +295,19 @@ var JA = {
   "Another dsh has this Bot team open, so phones connect to that one": "別の dsh がこの Bot チームを開いているため、スマートフォンはそちらに接続します",
   "This dsh runs on a Node without WebSocket": "この dsh は WebSocket のない Node 上で動作しています",
   "Phones are paired and removed on the computer": "スマートフォンのペアリングと削除はコンピューターで行います",
+  "Session logs are read on the computer": "Session ログはコンピューターで確認します",
+  "External API settings and tokens are managed on the computer": "外部 API 設定とトークンはコンピューターで管理します",
+  "MCP access is set up on the computer": "MCP アクセスはコンピューターで設定します",
+  "Workspace files and terminals are available on the computer": "ワークスペースのファイルとターミナルはコンピューターで利用できます",
+  "Engine settings are managed on the computer": "エンジン設定はコンピューターで管理します",
+  "Plugins are managed on the computer": "プラグインはコンピューターで管理します",
+  "Voice input settings and transcription are available on the computer": "音声入力設定と文字起こしはコンピューターで利用できます",
+  "Privacy and telemetry settings are managed on the computer": "プライバシーとテレメトリの設定はコンピューターで管理します",
+  "Folders are chosen in a window on the computer": "フォルダーはコンピューターのウィンドウで選択します",
+  "Computer use is controlled on the computer": "コンピューター操作はコンピューターで制御します",
+  "Connector imports read apps on this computer": "コネクターのインポートはこのコンピューター上のアプリを読み取ります",
+  "This action is available in the window on the computer": "この操作はコンピューターのウィンドウで利用できます",
+  "This endpoint has not been approved for paired devices": "この端点はペアリング済みデバイスでの使用が承認されていません",
   "Your phone scans it once. After that it connects by itself.": "スキャンは 1 回だけです。その後は自動で接続します。",
   "Beta": "ベータ",
   "Main Bot": "メイン Bot",
@@ -2536,6 +2549,7 @@ var JA = {
   "Showing first {count} rows": "先頭 {count} 行を表示",
   "Converted from {ext}": "{ext} から変換済み",
   "Preview unavailable in this environment": "この環境ではプレビューできません",
+  "Scripts and external or local resources are blocked in this preview": "このプレビューではスクリプトと外部またはローカルのリソースがブロックされています",
   "Select a file to preview": "プレビューするファイルを選択",
   "Preview": "プレビュー",
   "File truncated for preview": "プレビュー用に一部のみ表示しています",
@@ -2707,6 +2721,7 @@ var JA = {
   "Built-in engine": "内蔵エンジン"
 };
 var HOST_ERRORS_JA = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は現在の DeepSeek Harness で利用できません。Bot の設定で別のプリセットを選んでください。"],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は実行できません: $2。Bot の設定で別のプリセットを選んでください。"],
   [/^An agent preset must be named by its id$/, "Agent プリセットは id で指定する必要があります"],
@@ -3603,6 +3618,19 @@ var KO = {
   "Another dsh has this Bot team open, so phones connect to that one": "다른 dsh에서 이 Bot 팀을 열어 두고 있어 휴대폰이 그쪽에 연결됩니다",
   "This dsh runs on a Node without WebSocket": "이 dsh는 WebSocket이 없는 Node에서 실행 중입니다",
   "Phones are paired and removed on the computer": "휴대폰 페어링 및 제거는 컴퓨터에서 수행합니다",
+  "Session logs are read on the computer": "Session 로그는 컴퓨터에서 확인합니다",
+  "External API settings and tokens are managed on the computer": "외부 API 설정과 토큰은 컴퓨터에서 관리합니다",
+  "MCP access is set up on the computer": "MCP 접근은 컴퓨터에서 설정합니다",
+  "Workspace files and terminals are available on the computer": "작업 공간 파일과 터미널은 컴퓨터에서 사용할 수 있습니다",
+  "Engine settings are managed on the computer": "엔진 설정은 컴퓨터에서 관리합니다",
+  "Plugins are managed on the computer": "플러그인은 컴퓨터에서 관리합니다",
+  "Voice input settings and transcription are available on the computer": "음성 입력 설정과 전사는 컴퓨터에서 사용할 수 있습니다",
+  "Privacy and telemetry settings are managed on the computer": "개인 정보 및 원격 측정 설정은 컴퓨터에서 관리합니다",
+  "Folders are chosen in a window on the computer": "폴더는 컴퓨터 창에서 선택합니다",
+  "Computer use is controlled on the computer": "컴퓨터 사용은 컴퓨터에서 제어합니다",
+  "Connector imports read apps on this computer": "커넥터 가져오기는 이 컴퓨터의 앱을 읽습니다",
+  "This action is available in the window on the computer": "이 작업은 컴퓨터 창에서 사용할 수 있습니다",
+  "This endpoint has not been approved for paired devices": "이 엔드포인트는 페어링된 기기에서 사용하도록 승인되지 않았습니다",
   "Your phone scans it once. After that it connects by itself.": "한 번만 스캔하면 됩니다. 그 후에는 자동으로 연결됩니다.",
   "Beta": "베타",
   // Shared
@@ -5888,6 +5916,7 @@ var KO = {
   "Showing first {count} rows": "처음 {count}행 표시",
   "Converted from {ext}": "{ext}에서 변환됨",
   "Preview unavailable in this environment": "이 환경에서는 미리 보기를 사용할 수 없습니다",
+  "Scripts and external or local resources are blocked in this preview": "이 미리 보기에서는 스크립트와 외부 또는 로컬 리소스가 차단됩니다",
   "Select a file to preview": "미리 볼 파일을 선택하세요",
   "Preview": "미리 보기",
   "File truncated for preview": "미리 보기를 위해 파일 일부만 표시됩니다",
@@ -6059,6 +6088,7 @@ var KO = {
   "Built-in engine": "내장 엔진"
 };
 var HOST_ERRORS_KO = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"은(는) 현재 DeepSeek Harness에서 사용할 수 없습니다. Bot 설정에서 다른 프리셋을 선택하세요.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"을(를) 실행할 수 없습니다: $2. Bot 설정에서 다른 프리셋을 선택하세요.'],
   [/^An agent preset must be named by its id$/, "Agent 프리셋은 id로 지정해야 합니다"],
@@ -6956,6 +6986,19 @@ var ES = {
   "Another dsh has this Bot team open, so phones connect to that one": "Otro dsh tiene abierto este equipo de Bots, así que los teléfonos se conectan a ese",
   "This dsh runs on a Node without WebSocket": "Este dsh se ejecuta en un Node sin WebSocket",
   "Phones are paired and removed on the computer": "Los teléfonos se vinculan y eliminan desde el ordenador",
+  "Session logs are read on the computer": "Los registros de Session se leen en el ordenador",
+  "External API settings and tokens are managed on the computer": "La configuración y los tokens de API externas se gestionan en el ordenador",
+  "MCP access is set up on the computer": "El acceso MCP se configura en el ordenador",
+  "Workspace files and terminals are available on the computer": "Los archivos del espacio de trabajo y los terminales están disponibles en el ordenador",
+  "Engine settings are managed on the computer": "La configuración del motor se gestiona en el ordenador",
+  "Plugins are managed on the computer": "Los plugins se gestionan en el ordenador",
+  "Voice input settings and transcription are available on the computer": "La configuración de entrada de voz y la transcripción están disponibles en el ordenador",
+  "Privacy and telemetry settings are managed on the computer": "La configuración de privacidad y telemetría se gestiona en el ordenador",
+  "Folders are chosen in a window on the computer": "Las carpetas se eligen en una ventana del ordenador",
+  "Computer use is controlled on the computer": "El uso del ordenador se controla en el ordenador",
+  "Connector imports read apps on this computer": "Las importaciones de conectores leen aplicaciones de este ordenador",
+  "This action is available in the window on the computer": "Esta acción está disponible en la ventana del ordenador",
+  "This endpoint has not been approved for paired devices": "Este endpoint no está aprobado para dispositivos emparejados",
   "Your phone scans it once. After that it connects by itself.": "Tu teléfono lo escanea una vez. Después se conecta solo.",
   "Beta": "Beta",
   // Shared
@@ -9241,6 +9284,7 @@ var ES = {
   "Showing first {count} rows": "Mostrando las primeras {count} filas",
   "Converted from {ext}": "Convertido de {ext}",
   "Preview unavailable in this environment": "Vista previa no disponible en este entorno",
+  "Scripts and external or local resources are blocked in this preview": "Los scripts y los recursos externos o locales están bloqueados en esta vista previa",
   "Select a file to preview": "Selecciona un archivo para previsualizar",
   "Preview": "Vista previa",
   "File truncated for preview": "Archivo truncado para la vista previa",
@@ -9412,6 +9456,7 @@ var ES = {
   "Built-in engine": "Motor integrado"
 };
 var HOST_ERRORS_ES = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "Estos ajustes de apariencia solo se pueden cambiar en este ordenador: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'El preajuste de Agent "$1" no está disponible en este DeepSeek Harness. Elige otro en los ajustes del Bot.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'El preajuste de Agent "$1" no puede ejecutarse: $2. Elige otro en los ajustes del Bot.'],
   [/^An agent preset must be named by its id$/, "Un preajuste de Agent debe indicarse por su id"],
@@ -10309,6 +10354,19 @@ var FR = {
   "Another dsh has this Bot team open, so phones connect to that one": "Un autre dsh a déjà ouvert cette équipe de Bots, les téléphones s’y connectent donc",
   "This dsh runs on a Node without WebSocket": "Ce dsh s’exécute sur un Node sans WebSocket",
   "Phones are paired and removed on the computer": "L’association et la suppression des téléphones se font sur l’ordinateur",
+  "Session logs are read on the computer": "Les journaux de Session se lisent sur l’ordinateur",
+  "External API settings and tokens are managed on the computer": "Les réglages et jetons des API externes se gèrent sur l’ordinateur",
+  "MCP access is set up on the computer": "L’accès MCP se configure sur l’ordinateur",
+  "Workspace files and terminals are available on the computer": "Les fichiers de l’espace de travail et les terminaux sont disponibles sur l’ordinateur",
+  "Engine settings are managed on the computer": "Les réglages du moteur se gèrent sur l’ordinateur",
+  "Plugins are managed on the computer": "Les plugins se gèrent sur l’ordinateur",
+  "Voice input settings and transcription are available on the computer": "Les réglages de saisie vocale et la transcription sont disponibles sur l’ordinateur",
+  "Privacy and telemetry settings are managed on the computer": "Les réglages de confidentialité et de télémétrie se gèrent sur l’ordinateur",
+  "Folders are chosen in a window on the computer": "Les dossiers se choisissent dans une fenêtre de l’ordinateur",
+  "Computer use is controlled on the computer": "Le contrôle de l’ordinateur se gère sur l’ordinateur",
+  "Connector imports read apps on this computer": "Les importations de connecteurs lisent les apps de cet ordinateur",
+  "This action is available in the window on the computer": "Cette action est disponible dans la fenêtre de l’ordinateur",
+  "This endpoint has not been approved for paired devices": "Ce point de terminaison n’est pas approuvé pour les appareils associés",
   "Your phone scans it once. After that it connects by itself.": "Votre téléphone le scanne une seule fois. Ensuite, il se connecte tout seul.",
   "Beta": "Bêta",
   "Main Bot": "Bot principal",
@@ -12550,6 +12608,7 @@ var FR = {
   "Showing first {count} rows": "Affichage des {count} premières lignes",
   "Converted from {ext}": "Converti depuis {ext}",
   "Preview unavailable in this environment": "Aperçu indisponible dans cet environnement",
+  "Scripts and external or local resources are blocked in this preview": "Les scripts et les ressources externes ou locales sont bloqués dans cet aperçu",
   "Select a file to preview": "Sélectionnez un fichier à prévisualiser",
   "Preview": "Aperçu",
   "File truncated for preview": "Fichier tronqué pour l'aperçu",
@@ -12721,6 +12780,7 @@ var FR = {
   "Built-in engine": "Moteur intégré"
 };
 var HOST_ERRORS_FR = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » n’est pas disponible dans ce DeepSeek Harness. Choisissez-en un autre dans les paramètres du Bot."],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » ne peut pas fonctionner : $2. Choisissez-en un autre dans les paramètres du Bot."],
   [/^An agent preset must be named by its id$/, "Un préréglage Agent doit être désigné par son id"],
@@ -13617,6 +13677,19 @@ var DE = {
   "Another dsh has this Bot team open, so phones connect to that one": "Ein anderes dsh hat dieses Bot-Team geöffnet, daher verbinden sich Telefone mit diesem",
   "This dsh runs on a Node without WebSocket": "Dieses dsh läuft auf einem Node ohne WebSocket",
   "Phones are paired and removed on the computer": "Telefone werden auf dem Computer gekoppelt und entfernt",
+  "Session logs are read on the computer": "Session-Protokolle werden auf dem Computer gelesen",
+  "External API settings and tokens are managed on the computer": "Externe API-Einstellungen und Tokens werden auf dem Computer verwaltet",
+  "MCP access is set up on the computer": "MCP-Zugriff wird auf dem Computer eingerichtet",
+  "Workspace files and terminals are available on the computer": "Arbeitsbereichsdateien und Terminals sind auf dem Computer verfügbar",
+  "Engine settings are managed on the computer": "Engine-Einstellungen werden auf dem Computer verwaltet",
+  "Plugins are managed on the computer": "Plugins werden auf dem Computer verwaltet",
+  "Voice input settings and transcription are available on the computer": "Spracheingabeeinstellungen und Transkription sind auf dem Computer verfügbar",
+  "Privacy and telemetry settings are managed on the computer": "Datenschutz- und Telemetrieeinstellungen werden auf dem Computer verwaltet",
+  "Folders are chosen in a window on the computer": "Ordner werden in einem Fenster auf dem Computer ausgewählt",
+  "Computer use is controlled on the computer": "Die Computersteuerung wird auf dem Computer kontrolliert",
+  "Connector imports read apps on this computer": "Connector-Importe lesen Apps auf diesem Computer",
+  "This action is available in the window on the computer": "Diese Aktion ist im Fenster auf dem Computer verfügbar",
+  "This endpoint has not been approved for paired devices": "Dieser Endpunkt ist nicht für gekoppelte Geräte freigegeben",
   "Your phone scans it once. After that it connects by itself.": "Dein Telefon scannt ihn einmal. Danach verbindet es sich von selbst.",
   "Beta": "Beta",
   // Shared
@@ -15902,6 +15975,7 @@ var DE = {
   "Showing first {count} rows": "Erste {count} Zeilen werden angezeigt",
   "Converted from {ext}": "Aus {ext} konvertiert",
   "Preview unavailable in this environment": "Vorschau in dieser Umgebung nicht verfügbar",
+  "Scripts and external or local resources are blocked in this preview": "Skripte sowie externe oder lokale Ressourcen sind in dieser Vorschau blockiert",
   "Select a file to preview": "Datei für Vorschau auswählen",
   "Preview": "Vorschau",
   "File truncated for preview": "Datei für Vorschau gekürzt",
@@ -16073,6 +16147,7 @@ var DE = {
   "Built-in engine": "Integrierte Engine"
 };
 var HOST_ERRORS_DE = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" ist in diesem DeepSeek Harness nicht verfügbar. Wähle eine andere in den Bot-Einstellungen.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" kann nicht ausgeführt werden: $2. Wähle eine andere in den Bot-Einstellungen.'],
   [/^An agent preset must be named by its id$/, "Eine Agent-Voreinstellung muss über ihre ID benannt werden"],
@@ -19069,6 +19144,7 @@ var ZH = {
   "Showing first {count} rows": "仅显示前 {count} 行",
   "Converted from {ext}": "已从 {ext} 转换",
   "Preview unavailable in this environment": "当前环境暂不支持预览",
+  "Scripts and external or local resources are blocked in this preview": "此预览已阻止脚本以及外部或本地资源",
   "Select a file to preview": "选择一个文件进行预览",
   "Preview": "预览",
   "File truncated for preview": "文件较大，仅展示预览片段",
@@ -19240,6 +19316,7 @@ var ZH = {
   "Built-in engine": "内置引擎"
 };
 var HOST_ERRORS = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "这些外观设置只能在电脑上修改：$1"],
   [/^Plugin disabled by the kill list: (.+)$/, "插件已被安全拦截列表停用：$1"],
   [/^Plugin disabled by the kill list\.$/, "插件已被安全拦截列表停用。"],
   [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "这个插件在批准后发生了变化（能力、执行层级、可执行入口、内容或位置）。需要明确批准后才能重新运行。"],
@@ -19345,6 +19422,19 @@ var HOST_ZH = {
   "Another dsh has this Bot team open, so phones connect to that one": "另一个 dsh 打开了这个 Bot 团队，手机会连到那一个",
   "This dsh runs on a Node without WebSocket": "这个 dsh 用的 Node 不支持 WebSocket",
   "Phones are paired and removed on the computer": "配对和删除手机只能在电脑上做",
+  "Session logs are read on the computer": "Session 日志只能在电脑上查看",
+  "External API settings and tokens are managed on the computer": "外部 API 设置和令牌只能在电脑上管理",
+  "MCP access is set up on the computer": "MCP 访问只能在电脑上设置",
+  "Workspace files and terminals are available on the computer": "工作区文件和终端只能在电脑上使用",
+  "Engine settings are managed on the computer": "引擎设置只能在电脑上管理",
+  "Plugins are managed on the computer": "插件只能在电脑上管理",
+  "Voice input settings and transcription are available on the computer": "语音输入设置和转写只能在电脑上使用",
+  "Privacy and telemetry settings are managed on the computer": "隐私和遥测设置只能在电脑上管理",
+  "Folders are chosen in a window on the computer": "文件夹只能在电脑窗口里选择",
+  "Computer use is controlled on the computer": "电脑操控只能在电脑上控制",
+  "Connector imports read apps on this computer": "连接器导入会读取这台电脑上的应用",
+  "This action is available in the window on the computer": "此操作只能在电脑窗口里使用",
+  "This endpoint has not been approved for paired devices": "此端点尚未允许配对设备使用",
   "Request failed": "请求失败",
   "Permissions are not available in this DeepSeek Harness": "这个 DeepSeek Harness 不支持权限设置",
   "Avatar image is too large": "头像图片太大了",
@@ -21695,6 +21785,7 @@ var FIELDS = {
   }
 };
 var APPEARANCE_FIELDS = Object.keys(FIELDS);
+var COMPUTER_APPEARANCE_FIELDS = /* @__PURE__ */ new Set(["css", "mode", "uiFont", "codeFont", "fontSize", "lineHeight", "material"]);
 function patchAppearance(current2, patch) {
   if (patch === null || typeof patch !== "object" || Array.isArray(patch)) refuse("An appearance change names its fields");
   const next = { ...current2 };
@@ -22020,8 +22111,9 @@ var flatWidthOf = (prefs) => percent(prefs?.flatWidth, 100);
 // src/shared/theme-css.js
 var isCssSpace = (ch) => ch === " " || ch === "	" || ch === "\n" || ch === "\f" || ch === "\r";
 var isNameCode = (code) => code === 45 || code === 95 || code >= 48 && code <= 57 || code >= 65 && code <= 90 || code >= 97 && code <= 122 || code >= 128;
+var urlAllowedByDefault = (content) => content.startsWith("#") || content.length >= 5 && content.slice(0, 5).toLowerCase() === "data:";
 var REMOTE_FUNCTIONS = /* @__PURE__ */ new Set(["image-set", "-webkit-image-set", "image", "src"]);
-function scanThemeCss(text) {
+function scanThemeCss(text, allowUrl = urlAllowedByDefault) {
   const source = String(text ?? "");
   const n = source.length;
   let fetches = false;
@@ -22135,8 +22227,7 @@ function scanThemeCss(text) {
       fetches = true;
       return;
     }
-    if (content.startsWith("#")) return;
-    if (content.length >= 5 && content.slice(0, 5).toLowerCase() === "data:") return;
+    if (allowUrl(content)) return;
     fetches = true;
   };
   while (i < n) {
@@ -22213,8 +22304,8 @@ function scanThemeCss(text) {
   }
   return { fetches, imports };
 }
-var themeCssValueFetches = (value) => scanThemeCss(value).fetches;
-var themeCssLoadsRemoteFiles = (css) => scanThemeCss(css).fetches;
+var themeCssValueFetches = (value, allowUrl) => scanThemeCss(value, allowUrl).fetches;
+var themeCssLoadsRemoteFiles = (css, allowUrl) => scanThemeCss(css, allowUrl).fetches;
 function themeCssWithoutImports(css) {
   const source = String(css ?? "");
   const { imports } = scanThemeCss(source);
@@ -22251,16 +22342,16 @@ function declarationItems(style) {
   return names;
 }
 var URL_SHORTHANDS = ["background", "border-image", "-webkit-border-image", "list-style", "mask", "-webkit-mask", "-webkit-mask-box-image", "marker", "offset"];
-function cleanStyle(style) {
+function cleanStyle(style, allowUrl) {
   if (!style || typeof style.getPropertyValue !== "function" || typeof style.removeProperty !== "function") return;
   for (const name of declarationItems(style)) {
-    if (themeCssValueFetches(style.getPropertyValue(name))) style.removeProperty(name);
+    if (themeCssValueFetches(style.getPropertyValue(name), allowUrl)) style.removeProperty(name);
   }
   for (const name of URL_SHORTHANDS) {
     const value = style.getPropertyValue(name);
-    if (value !== "" && themeCssValueFetches(value)) style.removeProperty(name);
+    if (value !== "" && themeCssValueFetches(value, allowUrl)) style.removeProperty(name);
   }
-  if (typeof style.cssText === "string" && themeCssLoadsRemoteFiles(style.cssText)) {
+  if (typeof style.cssText === "string" && themeCssLoadsRemoteFiles(style.cssText, allowUrl)) {
     try {
       style.cssText = "";
     } catch {
@@ -22271,7 +22362,8 @@ function cleanStyle(style) {
     }
   }
 }
-function sanitizeUserSheet(sheet, view) {
+var sanitizeStyleDeclarations = cleanStyle;
+function sanitizeUserSheet(sheet, view, allowUrl) {
   const cleanList = (owner) => {
     const list = owner?.cssRules;
     if (!list || typeof list.length !== "number") return;
@@ -22290,11 +22382,11 @@ function sanitizeUserSheet(sheet, view) {
       if (type === "CSSPropertyRule") {
         const initial = typeof rule.initialValue === "string" ? rule.initialValue : "";
         const styleInitial = style && typeof style.getPropertyValue === "function" ? style.getPropertyValue("initial-value") : "";
-        if (themeCssValueFetches(initial) || themeCssValueFetches(styleInitial)) drop(index);
-        else if (style) cleanStyle(style);
+        if (themeCssValueFetches(initial, allowUrl) || themeCssValueFetches(styleInitial, allowUrl)) drop(index);
+        else if (style) cleanStyle(style, allowUrl);
         continue;
       }
-      if (style) cleanStyle(style);
+      if (style) cleanStyle(style, allowUrl);
       if (type !== void 0 && CONTAINERS.has(type)) {
         cleanList(rule);
         if (type !== "CSSKeyframesRule" && type !== "CSSLayerBlockRule" && (rule.cssRules?.length ?? 0) === 0) drop(index);
