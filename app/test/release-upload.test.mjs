@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { uploadReleaseAssets } from '../scripts/release-upload.mjs'
+import { isRetryableUploadError, uploadReleaseAssets } from '../scripts/release-upload.mjs'
 
 const script = fileURLToPath(new URL('../scripts/release-upload.mjs', import.meta.url))
 
@@ -40,6 +40,18 @@ test('uploadReleaseAssets rejects invalid concurrency', async () => {
   }
 })
 
+test('isRetryableUploadError distinguishes transient errors from deterministic 4xx failures', () => {
+  assert.equal(isRetryableUploadError('HTTP 502 Bad Gateway'), true)
+  assert.equal(isRetryableUploadError('HTTP 429 Too Many Requests'), true)
+  assert.equal(isRetryableUploadError('HTTP 408 Request Timeout'), true)
+  assert.equal(isRetryableUploadError('connection reset by peer'), true)
+  assert.equal(isRetryableUploadError(''), true)
+  assert.equal(isRetryableUploadError('HTTP 403 Forbidden'), false)
+  assert.equal(isRetryableUploadError('HTTP 404 Not Found'), false)
+  assert.equal(isRetryableUploadError('release not found'), false)
+  assert.equal(isRetryableUploadError('HTTP 422 Unprocessable Entity'), false)
+})
+
 test('uploadReleaseAssets retries transient upload errors and succeeds', async () => {
   const attempts = new Map()
   const delays = []
@@ -58,6 +70,24 @@ test('uploadReleaseAssets retries transient upload errors and succeeds', async (
   assert.equal(attempts.get('a.exe'), 1)
   assert.equal(attempts.get('b.zip'), 2)
   assert.deepEqual(delays, [100])
+})
+
+test('uploadReleaseAssets does not retry deterministic 4xx errors', async () => {
+  let calls = 0
+  await assert.rejects(
+    () => uploadReleaseAssets('v0.3.11', ['forbidden.zip'], {
+      concurrency: 1,
+      retryDelaysMs: [100, 200],
+      log: () => {},
+      sleepImpl: async () => { throw new Error('must not sleep on HTTP 403') },
+      runImpl: async () => {
+        calls += 1
+        return { code: 1, signal: null, stderr: 'HTTP 403 Forbidden' }
+      },
+    }),
+    /failed forbidden\.zip after 1\/3 attempts \(exit 1: HTTP 403 Forbidden\)/u,
+  )
+  assert.equal(calls, 1)
 })
 
 test('uploadReleaseAssets does not retry when a child is terminated by signal', async () => {
@@ -102,6 +132,31 @@ test('uploadReleaseAssets aborts sibling retry sleeps when another worker fails'
   assert.ok(Date.now() - started < 5_000, 'should abort sibling retry sleep immediately')
 })
 
+test('uploadReleaseAssets lets an in-flight sibling upload finish without scheduling queued files', async () => {
+  const startedFiles = []
+  let inFlightCompleted = false
+  await assert.rejects(
+    () => uploadReleaseAssets('v0.3.11', ['in-flight.exe', 'fatal.apk', 'queued.zip'], {
+      concurrency: 2,
+      retryDelaysMs: [100],
+      log: () => {},
+      runImpl: async (_tag, file) => {
+        startedFiles.push(file)
+        if (file === 'fatal.apk') {
+          await new Promise(resolve => setTimeout(resolve, 10))
+          return { code: 1, signal: null, stderr: 'HTTP 403 Forbidden' }
+        }
+        await new Promise(resolve => setTimeout(resolve, 50))
+        inFlightCompleted = true
+        return { code: 0, signal: null, stderr: '' }
+      },
+    }),
+    /failed fatal\.apk after 1\/2 attempts \(exit 1: HTTP 403 Forbidden\)/u,
+  )
+  assert.equal(inFlightCompleted, true)
+  assert.deepEqual(startedFiles.sort(), ['fatal.apk', 'in-flight.exe'])
+})
+
 test('uploadReleaseAssets fails with file detail after exhausting retries', async () => {
   await assert.rejects(
     () => uploadReleaseAssets('v0.3.11', ['bad.zip'], {
@@ -135,7 +190,7 @@ test('CLI validates arguments and invokes gh release upload --clobber for each f
   const fileB = join(work, 'DS-Bot-0.3.11-android.apk')
   writeFileSync(fileA, 'win')
   writeFileSync(fileB, 'apk')
-  spawnSync('mkdir', ['-p', binDir])
+  mkdirSync(binDir, { recursive: true })
   writeFileSync(fakeGh, `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(logFile)}\nexit 0\n`)
   chmodSync(fakeGh, 0o755)
 
@@ -149,27 +204,4 @@ test('CLI validates arguments and invokes gh release upload --clobber for each f
     `release upload v0.3.11 ${fileA} --clobber`,
     `release upload v0.3.11 ${fileB} --clobber`,
   ].sort())
-})
-
-test('uploadReleaseAssets passes abortSignal to in-flight uploads and aborts siblings on fatal error', async () => {
-  let siblingAborted = false
-  await assert.rejects(
-    () => uploadReleaseAssets('v0.3.11', ['slow.zip', 'fatal.zip'], {
-      concurrency: 2,
-      retryDelaysMs: [],
-      log: () => {},
-      runImpl: (_tag, file, signal) => new Promise((done) => {
-        if (file === 'fatal.zip') {
-          setTimeout(() => done({ code: 1, signal: null, stderr: 'HTTP 403' }), 15)
-          return
-        }
-        signal.addEventListener('abort', () => {
-          siblingAborted = true
-          done({ code: null, signal: 'SIGTERM', stderr: '' })
-        }, { once: true })
-      }),
-    }),
-    /failed fatal\.zip after 1\/1 attempts \(exit 1: HTTP 403\)/u,
-  )
-  assert.equal(siblingAborted, true)
 })

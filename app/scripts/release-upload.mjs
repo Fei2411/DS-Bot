@@ -7,6 +7,13 @@ import { fileURLToPath } from 'node:url'
 
 const DEFAULT_CONCURRENCY = 5
 const DEFAULT_RETRY_DELAYS_MS = [5_000, 15_000, 30_000]
+// Deterministic client/auth/target errors will not succeed on retry (408 and 429 are transient).
+const NON_RETRYABLE_STDERR = /\bHTTP (?:400|401|403|404|405|410|413|422)\b|release not found|not found \(HTTP 404\)|authentication|Bad credentials/iu
+
+export function isRetryableUploadError(stderr) {
+  if (typeof stderr !== 'string' || stderr.trim() === '') return true
+  return !NON_RETRYABLE_STDERR.test(stderr)
+}
 
 function sleep(ms, signal) {
   return new Promise((done) => {
@@ -23,22 +30,16 @@ function sleep(ms, signal) {
   })
 }
 
-export function runGhUpload(tag, file, abortSignal) {
+// Do not kill an already-started `gh release upload --clobber` process on sibling failure:
+// `--clobber` deletes an existing release asset before streaming the replacement, so
+// terminating it mid-transfer could leave a rerun release missing that asset.
+export function runGhUpload(tag, file) {
   return new Promise((done, fail) => {
-    const child = spawn('gh', ['release', 'upload', tag, file, '--clobber'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      signal: abortSignal,
-    })
+    const child = spawn('gh', ['release', 'upload', tag, file, '--clobber'], { stdio: ['ignore', 'pipe', 'pipe'] })
     let stderr = ''
     child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8') })
     child.stdout.on('data', (chunk) => { process.stdout.write(chunk) })
-    child.once('error', (error) => {
-      if (abortSignal?.aborted && error?.name === 'AbortError') {
-        done({ code: null, signal: 'SIGTERM', stderr: '' })
-        return
-      }
-      fail(error)
-    })
+    child.once('error', fail)
     child.once('close', (code, signal) => { done({ code, signal, stderr: stderr.trim() }) })
   })
 }
@@ -48,17 +49,17 @@ async function uploadOne(tag, file, { runImpl, sleepImpl, retryDelaysMs, log, ab
   const attempts = retryDelaysMs.length + 1
   for (let attempt = 1; ; attempt += 1) {
     if (abortSignal.aborted) return
-    const { code, signal, stderr } = await runImpl(tag, file, abortSignal)
-    if (abortSignal.aborted) return
+    const { code, signal, stderr } = await runImpl(tag, file)
     if (code === 0 && signal === null) {
       log(`release-upload: uploaded ${label}`)
       return
     }
+    if (abortSignal.aborted) return
     const detail = signal !== null ? `signal ${signal}` : `exit ${String(code)}${stderr ? `: ${stderr}` : ''}`
     if (signal !== null) {
       throw new Error(`release-upload: ${label} terminated (${detail})`)
     }
-    const delay = retryDelaysMs[attempt - 1]
+    const delay = isRetryableUploadError(stderr) ? retryDelaysMs[attempt - 1] : undefined
     if (delay === undefined || abortSignal.aborted) {
       throw new Error(`release-upload: failed ${label} after ${String(attempt)}/${String(attempts)} attempts (${detail})`)
     }
