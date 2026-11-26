@@ -29,7 +29,16 @@ const NOT_PUBLIC = /(^|[\s(`'"]|\.\.\/)(spec|research|backup|shots|attachments|w
 // color keys) to move saved data over; there, and on lines that say "legacy" (旧版), old names stay.
 const LEGACY_FILES = /(^|\/)(src\/client\/storage\.js|src\/legacy\.mjs|test\/legacy[\w-]*\.test\.(?:js|mjs))$/
 
-const scanExtraTracked = scanExtraIsTracked()
+const args = process.argv.slice(2)
+const root = args.find(a => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--json')
+if (!root) {
+  console.error('usage: node scripts/scan.mjs <dir> [--json <file>] [--all]')
+  process.exit(2)
+}
+const jsonOut = args.includes('--json') ? args[args.indexOf('--json') + 1] : null
+const showAll = args.includes('--all')
+
+const scanExtraTracked = scanExtraIsTracked(root)
 const extra = extraPatterns()
 
 const TEXT_RULES = [
@@ -76,15 +85,6 @@ const FORBIDDEN_FILES = [
   { re: /\.(env|pem|key|p12|sqlite|db)$/, why: 'secret or data file' },
   { re: /^\.scan-extra$/, why: 'local scan patterns' },
 ]
-
-const args = process.argv.slice(2)
-const root = args.find(a => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--json')
-if (!root) {
-  console.error('usage: node scripts/scan.mjs <dir> [--json <file>] [--all]')
-  process.exit(2)
-}
-const jsonOut = args.includes('--json') ? args[args.indexOf('--json') + 1] : null
-const showAll = args.includes('--all')
 
 const findings = []
 const files = walk(root).map(path => relative(root, path).split('\\').join('/')).sort()
@@ -137,11 +137,19 @@ for (const name of ['README.md', 'README.zh.md', 'CONTRIBUTING.md', 'CHANGELOG.m
 
 report()
 
-function scanExtraIsTracked() {
+function scanExtraIsTracked(targetRoot) {
+  const insideTarget = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: targetRoot, stdio: 'ignore' })
+  if (insideTarget.status === 0) {
+    return spawnSync('git', ['ls-files', '--error-unmatch', '.scan-extra'], { cwd: targetRoot, stdio: 'ignore' }).status === 0
+  }
   const checkout = join(dirname(fileURLToPath(import.meta.url)), '..')
-  const inside = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: checkout, stdio: 'ignore' })
-  if (inside.status !== 0) return true
-  return spawnSync('git', ['ls-files', '--error-unmatch', '.scan-extra'], { cwd: checkout, stdio: 'ignore' }).status === 0
+  const insideCheckout = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: checkout, stdio: 'ignore' })
+  if (insideCheckout.status !== 0) return true
+  if (spawnSync('git', ['ls-files', '--error-unmatch', '.scan-extra'], { cwd: checkout, stdio: 'ignore' }).status === 0) return true
+  const checkoutExtra = join(checkout, '.scan-extra')
+  const targetExtra = join(targetRoot, '.scan-extra')
+  if (!existsSync(checkoutExtra) || !existsSync(targetExtra)) return true
+  return !readFileSync(checkoutExtra).equals(readFileSync(targetExtra))
 }
 function extraPatterns() {
   const local = join(dirname(fileURLToPath(import.meta.url)), '..', '.scan-extra')

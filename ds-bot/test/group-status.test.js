@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { afterRound } from './relay-rows.js'
+import { afterRound, loopTurn } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { ROOM_REPLY_TIMEOUT_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
@@ -83,7 +83,7 @@ async function start() {
 // Waits on real I/O (state writes) without timers, which some tests mock.
 const settle = async (check) => {
   const until = Date.now() + 3000
-  while (!check() && Date.now() < until) await new Promise(resolve => setImmediate(resolve))
+  while (!check() && Date.now() < until) await loopTurn()
   assert.ok(check(), 'condition not reached')
 }
 const text = message => message.content.map(block => block.text ?? '').join('\n')

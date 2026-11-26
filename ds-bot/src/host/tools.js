@@ -278,6 +278,21 @@ export function install(rt) {
     return `${plain} ${kept}${whole} If you end your turn without writing any text, ${cut ? 'that part' : 'it'} goes up to ${to}; any text you write for this work from now on goes up instead.`
   }
 
+  // Tracks works currently mid-dispatch or rolling back so startup orphan reconciliation
+  // never closes a work during its openTaskPart/deliver/rollback await window.
+  const dispatchingWorks = new Map()
+  const beginDispatchWork = (id) => {
+    if (typeof id !== 'string' || id === '') return
+    dispatchingWorks.set(id, (dispatchingWorks.get(id) ?? 0) + 1)
+  }
+  const endDispatchWork = (id) => {
+    if (typeof id !== 'string' || id === '') return
+    const left = (dispatchingWorks.get(id) ?? 0) - 1
+    if (left <= 0) dispatchingWorks.delete(id)
+    else dispatchingWorks.set(id, left)
+  }
+  const isDispatchingWork = id => typeof id === 'string' && ((dispatchingWorks.get(id) ?? 0) > 0 || resumingWorks.has(id))
+
   // Each admission is a distinct assignment even when the target already has unread work;
   // only an explicit request_id retry or resumption reuses an existing assignment.
   async function dispatchDelegation({ sender, target, text, files = [], length, fromPart, parentWork, imOrigin, follows, toUser = false, when = 'now', request, existingWork, callerWorked = false }) {
@@ -290,105 +305,110 @@ export function install(rt) {
     if (long === undefined) { if (request !== undefined) request.unsent = true; return tooLong(text) }
     const working = rt.live.get(chat)?.turn !== undefined || agent.status === 'running'
     const exchangeId = existingWork?.id ?? randomUUID()
-    const spawnInBackground = working && !toUser && when !== 'queue'
-      && rt.shouldMoveForeground?.(target, chat, { forPeer: true }) === true
-      && typeof rt.spawnBotHandoffTask === 'function'
-    if (spawnInBackground) {
+    beginDispatchWork(exchangeId)
+    try {
+      const spawnInBackground = working && !toUser && when !== 'queue'
+        && rt.shouldMoveForeground?.(target, chat, { forPeer: true }) === true
+        && typeof rt.spawnBotHandoffTask === 'function'
+      if (spawnInBackground) {
+        const prevState = existingWork?.work?.state
+        const prevPaused = existingWork?.work?.paused
+        if (existingWork !== undefined) {
+          existingWork.work.state = 'open'
+          delete existingWork.work.paused
+          void rt.save().catch(() => {})
+        }
+        try {
+          await rt.spawnBotHandoffTask(target, chat, {
+            fromBot: sender,
+            follows,
+            fromPart,
+            parentWork,
+            ...(imOrigin ? { imOrigin } : {}),
+            text: long.text,
+            files: long.files,
+            length: long.length,
+            exchangeId,
+            ...(existingWork !== undefined ? { reuseWork: true } : {}),
+          })
+        } catch (error) {
+          if (existingWork !== undefined && error?.delivered !== true) {
+            existingWork.work.state = prevState
+            if (prevPaused !== undefined) existingWork.work.paused = prevPaused
+            void rt.save().catch(() => {})
+          }
+          throw error
+        }
+        const ref = rt.workRefOf?.(exchangeId)
+        const asker = rt.ownsWork(sender.id, parentWork) ? rt.botOf(state.works[parentWork].from)?.name : undefined
+        const notes = [
+          `Delegated${ref ? ` work #${ref}` : ''} to ${target.name} in a background task while its foreground chat is busy. Its result will return automatically when done; do not poll or message back to acknowledge.`,
+          asker ? `When you have handed on everything, end your turn: each completed sub-work brings you back, and your answer goes to ${asker} once all of it is back.` : '',
+        ].filter(Boolean)
+        return notes.join(' ')
+      }
+      let workRef = existingWork?.work?.ref
       const prevState = existingWork?.work?.state
       const prevPaused = existingWork?.work?.paused
-      if (existingWork !== undefined) {
+      if (existingWork !== undefined && !toUser) {
         existingWork.work.state = 'open'
         delete existingWork.work.paused
         void rt.save().catch(() => {})
+      } else if (!toUser) {
+        const opened = rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: parentWork, ...(fromPart ? { fromPart } : {}), ...(imOrigin ? { imOrigin } : {}), goal: text })
+        workRef = opened?.ref
       }
       try {
-        await rt.spawnBotHandoffTask(target, chat, {
-          fromBot: sender,
-          follows,
-          fromPart,
-          parentWork,
-          ...(imOrigin ? { imOrigin } : {}),
+        await rt.deliver({
+          fromId: sender.id,
+          toId: target.id,
+          ...(fromPart ? { fromPart } : {}),
           text: long.text,
           files: long.files,
           length: long.length,
+          role: 'request',
+          ...(follows ? { follows } : {}),
+          steer: !working && when !== 'queue' && !toUser,
           exchangeId,
-          ...(existingWork !== undefined ? { reuseWork: true } : {}),
+          ...(workRef ? { workRef } : {}),
+          ...(toUser ? { audience: 'user' } : {}),
         })
       } catch (error) {
-        if (existingWork !== undefined && error?.delivered !== true) {
-          existingWork.work.state = prevState
-          if (prevPaused !== undefined) existingWork.work.paused = prevPaused
-          void rt.save().catch(() => {})
+        if (error?.delivered === false) rt.forgetDelivery?.(exchangeId)
+        if (existingWork !== undefined && !toUser) {
+          if (error?.delivered !== true) {
+            existingWork.work.state = prevState
+            if (prevPaused !== undefined) existingWork.work.paused = prevPaused
+            void rt.save().catch(() => {})
+          }
+        } else if (existingWork === undefined && !toUser && (error?.delivered === false || rt.botOf(target.id) === undefined)) {
+          rt.dropWork(exchangeId)
         }
         throw error
       }
-      const ref = rt.workRefOf?.(exchangeId)
+      if (toUser) {
+        if (existingWork !== undefined) rt.dropWork?.(exchangeId)
+        rt.noteWorkCompleted?.(sender.id, target.id, { worked: callerWorked, id: exchangeId, text })
+      }
+      const label = workRef ? ` work #${workRef}` : ''
+      const sent = toUser
+        ? `Delegated to ${target.name}. It will answer the user in its own chat; nothing comes back to you, so point the user to ${target.name}'s chat instead of relaying.`
+        : working
+          ? `Queued${label} for ${target.name}: it starts after its current work and returns the result once done. Do not wait or poll.`
+          : `Delegated${label} to ${target.name}. Its result returns automatically and closes${label || ' the work'} when done; do not wait or poll.`
       const asker = rt.ownsWork(sender.id, parentWork) ? rt.botOf(state.works[parentWork].from)?.name : undefined
       const notes = [
-        `Delegated${ref ? ` work #${ref}` : ''} to ${target.name} in a background task while its foreground chat is busy. Its result will return automatically when done; do not poll or message back to acknowledge.`,
+        status === 'idle' ? '' : `${target.name} now: ${status}.`,
         asker ? `When you have handed on everything, end your turn: each completed sub-work brings you back, and your answer goes to ${asker} once all of it is back.` : '',
       ].filter(Boolean)
-      return notes.join(' ')
+      const out = [sent, ...notes].join(' ')
+      const elsewhere = activeSessions(target.id).running.filter(sessionId => sessionId !== chat)
+      if (elsewhere.length === 0) return out
+      const stop = rt.isMain(sender.id) ? ' If it must not go on there, use stop_bot.' : ''
+      return `${out} This request does not reach its work in ${elsewhere.map(whereOf).join(' and ')}.${stop}`
+    } finally {
+      endDispatchWork(exchangeId)
     }
-    let workRef = existingWork?.work?.ref
-    const prevState = existingWork?.work?.state
-    const prevPaused = existingWork?.work?.paused
-    if (existingWork !== undefined && !toUser) {
-      existingWork.work.state = 'open'
-      delete existingWork.work.paused
-      void rt.save().catch(() => {})
-    } else if (!toUser) {
-      const opened = rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: parentWork, ...(fromPart ? { fromPart } : {}), ...(imOrigin ? { imOrigin } : {}), goal: text })
-      workRef = opened?.ref
-    }
-    try {
-      await rt.deliver({
-        fromId: sender.id,
-        toId: target.id,
-        ...(fromPart ? { fromPart } : {}),
-        text: long.text,
-        files: long.files,
-        length: long.length,
-        role: 'request',
-        ...(follows ? { follows } : {}),
-        steer: !working && when !== 'queue' && !toUser,
-        exchangeId,
-        ...(workRef ? { workRef } : {}),
-        ...(toUser ? { audience: 'user' } : {}),
-      })
-    } catch (error) {
-      if (error?.delivered === false) rt.forgetDelivery?.(exchangeId)
-      if (existingWork !== undefined && !toUser) {
-        if (error?.delivered !== true) {
-          existingWork.work.state = prevState
-          if (prevPaused !== undefined) existingWork.work.paused = prevPaused
-          void rt.save().catch(() => {})
-        }
-      } else if (existingWork === undefined && !toUser && (error?.delivered === false || rt.botOf(target.id) === undefined)) {
-        rt.dropWork(exchangeId)
-      }
-      throw error
-    }
-    if (toUser) {
-      if (existingWork !== undefined) rt.dropWork?.(exchangeId)
-      rt.noteWorkCompleted?.(sender.id, target.id, { worked: callerWorked, id: exchangeId, text })
-    }
-    const label = workRef ? ` work #${workRef}` : ''
-    const sent = toUser
-      ? `Delegated to ${target.name}. It will answer the user in its own chat; nothing comes back to you, so point the user to ${target.name}'s chat instead of relaying.`
-      : working
-        ? `Queued${label} for ${target.name}: it starts after its current work and returns the result once done. Do not wait or poll.`
-        : `Delegated${label} to ${target.name}. Its result returns automatically and closes${label || ' the work'} when done; do not wait or poll.`
-    const asker = rt.ownsWork(sender.id, parentWork) ? rt.botOf(state.works[parentWork].from)?.name : undefined
-    const notes = [
-      status === 'idle' ? '' : `${target.name} now: ${status}.`,
-      asker ? `When you have handed on everything, end your turn: each completed sub-work brings you back, and your answer goes to ${asker} once all of it is back.` : '',
-    ].filter(Boolean)
-    const out = [sent, ...notes].join(' ')
-    const elsewhere = activeSessions(target.id).running.filter(sessionId => sessionId !== chat)
-    if (elsewhere.length === 0) return out
-    const stop = rt.isMain(sender.id) ? ' If it must not go on there, use stop_bot.' : ''
-    return `${out} This request does not reach its work in ${elsewhere.map(whereOf).join(' and ')}.${stop}`
   }
 
   // Stops any in-flight turn, queued inbox item, or background handoff task for a
@@ -844,42 +864,47 @@ export function install(rt) {
       const prevState = resolved.work.state
       const prevQuestion = resolved.work.question
       const prevWorked = resolved.work.worked
-      const outcome = rt.answerWork?.(resolved.id)
-      if (outcome?.error !== undefined) refuse(`Could not answer work #${resolved.work.ref ?? resolved.id}: ${outcome.error}.`)
-      const ref = resolved.work.ref ? `#${resolved.work.ref}` : resolved.id
-      // If the work runs inside a bot-handoff background task, route the answer back to
-      // that task's active segment rather than the worker's foreground chat.
-      const taskTarget = resolved.work.toSession ? threadCurrentOfPart(worker, resolved.work.toSession) : undefined
-      const answerExchangeId = randomUUID()
+      beginDispatchWork(resolved.id)
       try {
-        await rt.deliver({
-          fromId: sender.id,
-          toId: worker.id,
-          ...(taskTarget ? { sessionId: taskTarget } : {}),
-          text: long.text,
-          files: long.files,
-          ...(long.length !== undefined ? { length: long.length } : {}),
-          role: 'answer',
-          address: resolved.work.toTaskId ? { taskId: resolved.work.toTaskId } : returnAddress(worker, resolved.work.toSession),
-          work: resolved.id,
-          ...(resolved.work.ref ? { workRef: resolved.work.ref } : {}),
-          steer: false,
-          exchangeId: answerExchangeId,
-        })
-      } catch (error) {
-        if (error?.delivered !== true) {
-          if (error?.delivered === false) rt.forgetDelivery?.(answerExchangeId)
-          if (state.works?.[resolved.id] === resolved.work) {
-            resolved.work.state = prevState
-            if (prevQuestion === undefined) delete resolved.work.question
-            else resolved.work.question = prevQuestion
-            resolved.work.worked = prevWorked
-            void rt.save().catch(() => {})
+        const outcome = rt.answerWork?.(resolved.id)
+        if (outcome?.error !== undefined) refuse(`Could not answer work #${resolved.work.ref ?? resolved.id}: ${outcome.error}.`)
+        const ref = resolved.work.ref ? `#${resolved.work.ref}` : resolved.id
+        // If the work runs inside a bot-handoff background task, route the answer back to
+        // that task's active segment rather than the worker's foreground chat.
+        const taskTarget = resolved.work.toSession ? threadCurrentOfPart(worker, resolved.work.toSession) : undefined
+        const answerExchangeId = randomUUID()
+        try {
+          await rt.deliver({
+            fromId: sender.id,
+            toId: worker.id,
+            ...(taskTarget ? { sessionId: taskTarget } : {}),
+            text: long.text,
+            files: long.files,
+            ...(long.length !== undefined ? { length: long.length } : {}),
+            role: 'answer',
+            address: resolved.work.toTaskId ? { taskId: resolved.work.toTaskId } : returnAddress(worker, resolved.work.toSession),
+            work: resolved.id,
+            ...(resolved.work.ref ? { workRef: resolved.work.ref } : {}),
+            steer: false,
+            exchangeId: answerExchangeId,
+          })
+        } catch (error) {
+          if (error?.delivered !== true) {
+            if (error?.delivered === false) rt.forgetDelivery?.(answerExchangeId)
+            if (state.works?.[resolved.id] === resolved.work) {
+              resolved.work.state = prevState
+              if (prevQuestion === undefined) delete resolved.work.question
+              else resolved.work.question = prevQuestion
+              resolved.work.worked = prevWorked
+              void rt.save().catch(() => {})
+            }
           }
+          throw error
         }
-        throw error
+        return `Answered ${worker.name} on work ${ref}; it will resume and return the result when done. Reply [PASS] if nothing needs to be told to the user.`
+      } finally {
+        endDispatchWork(resolved.id)
       }
-      return `Answered ${worker.name} on work ${ref}; it will resume and return the result when done. Reply [PASS] if nothing needs to be told to the user.`
     },
   }))
 
@@ -2553,5 +2578,5 @@ export function install(rt) {
   }
 
   const hiddenToolsFor = id => new Set([...HIDDEN_TOOLS, ...hiddenSessionTools(id)])
-  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, syncScopedSession, hiddenTeamToolsFor, hiddenSessionTools, hiddenToolsFor, addTeamTool, removeTeamTool, reapplyToolMasks, resumePausedWork, cancelWorkByUser, abortWorkExecution })
+  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, syncScopedSession, hiddenTeamToolsFor, hiddenSessionTools, hiddenToolsFor, addTeamTool, removeTeamTool, reapplyToolMasks, resumePausedWork, isDispatchingWork, cancelWorkByUser, abortWorkExecution })
 }

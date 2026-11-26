@@ -1448,6 +1448,7 @@ export function install(rt) {
         if (stopped || rt.readOnly?.() !== undefined) return totalSettled
         if (!work || !Object.hasOwn(works, workId)) continue
         if (keptWorks.has(workId) || wokenWorks.has(workId)) continue
+        if (rt.isDispatchingWork?.(workId) === true) continue
         if ((work.state ?? 'open') !== 'open') continue
         if ((work.open?.length ?? 0) !== 0) continue
         if (work.child !== undefined || work.room !== undefined) continue
@@ -1499,6 +1500,7 @@ export function install(rt) {
         const current = Object.hasOwn(works, workId) ? works[workId] : undefined
         if (current === undefined || (current.state ?? 'open') !== 'open' || (current.open?.length ?? 0) !== 0) continue
         if (keptWorks.has(workId) || wokenWorks.has(workId)) continue
+        if (rt.isDispatchingWork?.(workId) === true) continue
         const recheck = collectProtectedSets()
         if (recheck.activeTaskWorks.has(workId) || (current.toTaskId !== undefined && recheck.activeTaskIds.has(current.toTaskId))) continue
         if (recheck.roomTrackedWorks.has(workId) || recheck.inflightWorks.has(workId)) continue

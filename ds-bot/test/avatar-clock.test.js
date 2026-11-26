@@ -42,8 +42,9 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
   const timers = new Map()
   let nextTimer = 1
   const setTimer = every => (fn, ms = 0) => { const id = nextTimer++; timers.set(id, { fn, at: clock() + ms, every: every ? ms : 0 }); return id }
-  // The longest single timer callback and slice count, measured on the real clock so
-  // a single-chunk build regression cannot hide behind capped virtual time.
+  // The longest single timer callback (measured in process CPU time so OS preemption on
+  // a shared runner does not cause false spikes, while an un-yielded single-chunk build
+  // still registers its full CPU burst) and slice count.
   let longestTimer = 0
   let timerRuns = 0
   const runTimers = () => {
@@ -54,9 +55,10 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
       const [id, timer] = due
       if (timer.every) timer.at += timer.every
       else timers.delete(id)
-      const start = performance.now()
+      const cpuStart = process.cpuUsage()
       timer.fn()
-      longestTimer = Math.max(longestTimer, performance.now() - start)
+      const cpu = process.cpuUsage(cpuStart)
+      longestTimer = Math.max(longestTimer, (cpu.user + cpu.system) / 1000)
       if (!timer.every) timerRuns += 1
     }
   }

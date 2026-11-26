@@ -4167,7 +4167,7 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
   })
   s.emitEvent('a-new', 'assistant/message', { message: { content: [{ type: 'text', text: 'quick foreground answer' }] } })
   s.emitEvent('a-new', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await s.flush()
+  await waitFor(() => s.fake.sent.some(entry => entry.text === 'quick foreground answer'), { label: 'foreground answer must reach IM' })
 
   assert.deepEqual(
     s.fake.sent.map(entry => [entry.chat.key, entry.text]),
@@ -4184,7 +4184,7 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
   })
   s.emitEvent('a-new', 'assistant/message', { message: { content: [{ type: 'text', text: 'Your background job finished!' }] } })
   s.emitEvent('a-new', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await s.flush()
+  await waitFor(() => s.fake.sent.some(entry => entry.text === 'Your background job finished!'), { label: 'task-report reply must reach IM' })
 
   assert.deepEqual(
     s.fake.sent.map(entry => [entry.chat.key, entry.text]),
@@ -4267,8 +4267,7 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   s.fake.sent.length = 0
   s.rt.state.questions[s.rt.chatOf('a')] = { id: 'q-after-1', question: 'Pick one', options: [{ label: 'Alpha' }, { label: 'Beta' }] }
   await s.rt.save()
-  await s.flush()
-  assert.ok(s.fake.sent.some(entry => entry.text?.includes('Pick one')), 'question card must actually be registered and sent to IM')
+  await waitFor(() => s.fake.sent.some(entry => entry.text?.includes('Pick one')), { label: 'question card must actually be registered and sent to IM' })
   // Simulate crash/restart before `conn.seenInbound` was persisted: strip seenInbound AND record
   // `numReqId` in DSH's persisted session events on a fresh runtime sharing the same home!
   one.seenInbound = one.seenInbound.filter(k => k !== `${one.id}:dm-u1:num-msg-1`)
@@ -4369,7 +4368,7 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   sRestart.imTurn('a-moved-fg')
   sRestart.rt.state.questions['a-moved-fg'] = { id: 'q-corrupt-peer', question: 'Confirm?', options: [{ label: 'Yes' }, { label: 'No' }] }
   await sRestart.rt.save()
-  await sRestart.flush()
+  await waitFor(() => sRestart.fake.sent.some(entry => entry.text?.includes('Confirm?')), { label: 'question card must be sent to IM before answering' })
   await dm(sRestart, 'u1', '1', { messageId: 'fresh-card-answer-1' })
   assert.equal(sRestart.rt.state.questions['a-moved-fg'], undefined, 'unrelated corrupt cold archive on Bot B must NOT block numbered card answer on Bot A')
   // Open a real view card on Bot A via show_view and answer it with reserved `!card V<n>` reply.
@@ -4377,7 +4376,6 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
     { title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name', value: 'Default' }] } },
     { agent: { id: 'a-moved-fg' }, concludeTurn() {} },
   )
-  await sRestart.flush()
   const viewMsg = await waitFor(() => [...sRestart.fake.sent].reverse().find(entry => /!card\s+(V\d+)/i.test(entry.text ?? '')), { label: 'view card with !card code must be sent to IM' })
   const viewCode = /!card\s+(V\d+)/i.exec(viewMsg.text ?? '')?.[1]
   assert.ok(viewCode)
@@ -4391,7 +4389,7 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   assert.ok(oneR.chats['dm-u1'].pastTargets?.includes('b'), 'rebinding must record former target in chat.pastTargets')
   sRestart.rt.state.questions['a-moved-fg'] = { id: 'q-rebound-corrupt', question: 'Confirm rebound?', options: [{ label: 'Yes' }, { label: 'No' }] }
   await sRestart.rt.save()
-  await sRestart.flush()
+  await waitFor(() => sRestart.fake.sent.some(entry => entry.text?.includes('Confirm rebound?')), { label: 'rebound question card must be sent to IM' })
   const promptsBeforeCorruptRebound = sRestart.prompts.length
   await dm(sRestart, 'u1', '1', { messageId: 'maybe-rebound-redelivery-1' })
   assert.equal(sRestart.rt.state.questions['a-moved-fg']?.id, 'q-rebound-corrupt', 'question card must remain unanswered when former binding history is corrupt')
@@ -4407,7 +4405,7 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   assert.ok(oneR.pastBotIds?.includes('b'), 'im-update changing conn.botId must record former default Bot in conn.pastBotIds')
   sRestart.rt.state.questions['a-moved-fg'] = { id: 'q-implicit-rebound-corrupt', question: 'Confirm implicit?', options: [{ label: 'Yes' }, { label: 'No' }] }
   await sRestart.rt.save()
-  await sRestart.flush()
+  await waitFor(() => sRestart.fake.sent.some(entry => entry.text?.includes('Confirm implicit?')), { label: 'implicit rebound question card must be sent to IM' })
   await dm(sRestart, 'u1', '1', { messageId: 'maybe-implicit-rebound-1' })
   assert.equal(sRestart.rt.state.questions['a-moved-fg']?.id, 'q-implicit-rebound-corrupt', 'implicit direct-chat rebind via conn.botId must fail closed when former default Bot is corrupt')
   delete sRestart.rt.state.questions['a-moved-fg']

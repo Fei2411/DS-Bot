@@ -395,16 +395,21 @@ test('secrets.js avoids rt.save in noteUsed via shellEnv.resolve, skips reload o
   t.mock.timers.tick(5_500)
   t.mock.timers.reset()
   let persistedSecrets
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    persistedSecrets = JSON.parse(readFileSync(join(home, 'secrets.json'), 'utf8'))
-    if (typeof persistedSecrets.secrets[0].lastUsedAt === 'number') break
+  const persistDeadline = Date.now() + 2000
+  while (Date.now() < persistDeadline) {
+    try {
+      const parsed = JSON.parse(readFileSync(join(home, 'secrets.json'), 'utf8'))
+      if (typeof parsed.secrets?.[0]?.lastUsedAt === 'number') {
+        persistedSecrets = parsed
+        break
+      }
+    } catch {}
     await new Promise(resolve => setTimeout(resolve, 10))
   }
   assert.equal(typeof persistedSecrets?.secrets[0].lastUsedAt, 'number', 'noteUsed persisted lastUsedAt to secrets.json')
-  // persist() records the file stamp right after the atomic rename resolves; once the file is
-  // visible, that bookkeeping needs only microtasks, but the write completion itself does not.
-  await new Promise(resolve => setImmediate(resolve))
-  await new Promise(resolve => setImmediate(resolve))
+  // Wait a timer turn after rename visibility so libuv delivers replaceFile's completion
+  // and persist() records seenStamp before read-only onStoreSync checks fileStamp().
+  await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(saveCalls, savesAfterSet, 'noteUsed timer firing must persist secrets.json without calling rt.save()')
 
   // Unchanged objects/arrays in redactDeep return identical reference (zero allocation).
@@ -437,7 +442,10 @@ test('secrets.js avoids rt.save in noteUsed via shellEnv.resolve, skips reload o
   }
   writeFileSync(join(home, 'secrets.json'), JSON.stringify(updatedPayload))
   rt.onStoreSync()
-  await new Promise(resolve => setTimeout(resolve, 25))
+  const reloadDeadline = Date.now() + 2000
+  while (secretsChangedCalls === changedBeforePoll && Date.now() < reloadDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
   assert.equal(secretsChangedCalls, changedBeforePoll + 1, 'modified secrets.json must trigger reload on read-only onStoreSync')
   assert.ok(rt.secretsView().some(item => item.name === 'EXTRA_KEY'))
 })
@@ -516,6 +524,7 @@ test('usage.js journal() uses revision-keyed cache before scanning book.owners()
       sessionQuery: { listSessions: async () => { listCalls += 1; return [] } },
     },
   })
+  let journalChatReads = 0
   const rt = {
     ctx,
     home,
@@ -524,7 +533,7 @@ test('usage.js journal() uses revision-keyed cache before scanning book.owners()
     load: async () => {},
     readOnly: () => undefined,
     cachedCatalog: () => [],
-    chatOf: id => id,
+    chatOf: id => { journalChatReads += 1; return id },
     chatOwners: new Map([['a', 'a']]),
     groupOwners: new Map(),
     roomOwners: new Map(),
@@ -551,13 +560,21 @@ test('usage.js journal() uses revision-keyed cache before scanning book.owners()
   }
   const msgs1 = rt.tagUsage([], { sessionId: 'a', kind: 'memory' })
   assert.equal(await drain(onStream({ sessionId: 'a', messages: msgs1, provider: 'deepseek', model: 'deepseek-chat' }, () => makeStream())), 1)
-  await new Promise(resolve => setTimeout(resolve, 20))
+  // Opening usage.sqlite (WAL + schema creation) runs asynchronously behind noteSession();
+  // wait until journal() actually populates the revision-keyed cache before sending msgs2.
+  const journalDeadline = Date.now() + 5000
+  while (journalChatReads === 0 && Date.now() < journalDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.ok(journalChatReads > 0, 'first noteSession must open the ledger and journal session owners')
   const loadsAfterFirst = loadCalls
+  const journalReadsAfterFirst = journalChatReads
 
   const msgs2 = rt.tagUsage([], { sessionId: 'a', kind: 'memory' })
   assert.equal(await drain(onStream({ sessionId: 'a', messages: msgs2, provider: 'deepseek', model: 'deepseek-chat' }, () => makeStream())), 1)
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(loadCalls, loadsAfterFirst, 'second noteSession at same revision hits fast-path journaled cache')
+  assert.equal(journalChatReads, journalReadsAfterFirst, 'second noteSession at same revision skips liveOwners/book.owners scan')
 
   const view = await rt.usageView({ range: '7d' })
   assert.equal(view.rows.reduce((sum, row) => sum + row[8], 0), 2)
