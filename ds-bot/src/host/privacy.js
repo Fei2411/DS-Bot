@@ -20,6 +20,7 @@ const SESSION_TOOLS = ['session_search', 'session_event_search', 'session_trace'
 const SECRET_GUARDED_TOOLS = new Set([
   ...Object.keys(FILE_TOOLS),
   'apply_patch',
+  'present',
   ...SEARCH_TOOLS,
   ...SHELL_TOOLS,
   'subagent',
@@ -936,6 +937,10 @@ export function install(rt) {
     }
   }
 
+  const presentPathsOf = (args) => (Array.isArray(args?.files) ? args.files : [])
+    .map(file => (typeof file?.path === 'string' && file.path.trim() !== '' ? expandHome(file.path) : ''))
+    .filter(Boolean)
+
   // The file tools, the shell and the session search: where the path or text names a
   // closed place, the call fails before it runs.
   async function guardFiles(exec, self) {
@@ -944,6 +949,14 @@ export function install(rt) {
     const refuse = (bot) => { throw closed(bot, 'files') }
     const name = exec.name
     const memo = new Map()
+    if (name === 'present') {
+      const base = folder()
+      for (const path of presentPathsOf(args)) {
+        const bot = await ownerOfPath(path, { self, base, memo })
+        if (bot) refuse(bot)
+      }
+      return
+    }
     if (name in FILE_TOOLS) {
       const path = args[FILE_TOOLS[name]]
       if (typeof path !== 'string' || path === '') return
@@ -1107,6 +1120,17 @@ export function install(rt) {
       if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
       return
     }
+    if (name === 'present') {
+      const paths = presentPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      const protectedPaths = await apiProtectedFiles(memo)
+      for (const path of paths) {
+        const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+        if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+      }
+      return
+    }
     if (name === 'apply_patch') {
       const paths = patchPathsOf(args)
       if (paths.length === 0) return
@@ -1172,6 +1196,8 @@ export function install(rt) {
       if (typeof path !== 'string' || path === '') return
     } else if (name === 'apply_patch') {
       if (typeof args.input !== 'string' || args.input === '') return
+    } else if (name === 'present') {
+      if (presentPathsOf(args).length === 0) return
     } else if (name === 'subagent' || name === 'subagent_fork') {
       if (typeof args.cwd !== 'string' || args.cwd === '') return
     } else if (name === 'working_directory') {
@@ -1213,6 +1239,18 @@ export function install(rt) {
         if (WRITE_TOOLS.includes(name)) throw closedSecret()
         const ownDir = await getOwnDir()
         if (!allOwnSecretFiles(keys, ownDir)) throw closedSecret()
+      }
+      return
+    }
+    if (name === 'present') {
+      const paths = presentPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      const roots = await spelledSecretRoots(memo)
+      const { inRefs, inFiles } = rootsOf(roots)
+      for (const path of paths) {
+        const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+        if (inRefs(keys) || inFiles(keys)) throw closedSecret()
       }
       return
     }
@@ -1434,6 +1472,22 @@ export function install(rt) {
     }
   }
 
+  async function guardPresentData(exec) {
+    if (exec.name !== 'present' || typeof rt.inData !== 'function') return
+    const paths = presentPathsOf(exec.arguments ?? {})
+    if (paths.length === 0) return
+    const base = exec.agent?.session?.header?.cwd
+    for (const path of paths) {
+      const full = base === undefined ? resolve(path) : resolve(base, path)
+      const candidates = new Set([full])
+      const realPath = await (rt.realBeyond ?? rt.real)?.(full)
+      if (realPath) candidates.add(realPath)
+      for (const candidate of candidates) {
+        if (await rt.inData(candidate)) throw new Error('Files inside DeepSeek Harness data cannot be presented')
+      }
+    }
+  }
+
   // Before the tools' own hooks, so that a closed call never reaches a card they show.
   ctx.on('tools/execute', async (exec, next) => {
     const self = await callerOf(exec)
@@ -1445,6 +1499,7 @@ export function install(rt) {
       const memo = new Map()
       await guardApiFiles(exec, memo)
       await guardSecretFiles(exec, self, memo)
+      await guardPresentData(exec)
     }
     return next()
   })
@@ -1516,8 +1571,12 @@ export function install(rt) {
   // What the settings list shows. Session ids stay on the host.
   const archivesView = () => (state.privateArchives ?? []).map(({ id, name, workDir }) => ({ id, name, ...(workDir === undefined ? {} : { workDir }) }))
 
+  const isPrivatePathBlocked = async (path, self, base) => (typeof path === 'string' && path !== ''
+    ? (await ownerOfPath(expandHome(path), { self, base })) !== undefined
+    : false)
+
   Object.assign(rt, {
-    isPrivate, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, checkWorkVisibility, releaseArchive, archivesView,
+    isPrivate, isPrivatePathBlocked, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, checkWorkVisibility, releaseArchive, archivesView,
     // The private Bot a real path belongs to, for callers outside the file tools that read
     // a file the user names: a photo must not come out of a folder that is closed.
     privateOwnerOf: (path, options) => ownerOfPath(path, options),

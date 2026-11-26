@@ -1724,3 +1724,206 @@ test('removing or deleting a speaking member immediately resolves its round wait
     assert.equal(rt.roomWaiters.size, 0)
   }
 })
+
+// #975: DSH's present tool records a member's files in its own group Session, which the
+// group chat does not show. They ride as structured `presented` entries on the ledger row
+// (keeping bubble text clean), reach other members' prompts and report-back via lineText,
+// survive member part switches, and support files-only [PASS] replies.
+test('files a member presents in its group turn ride the ledger cleanly and survive part switches', async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const present = (sessionId, seq, turn, files) => emit(sessionId, { seq, type: 'deliverables/presented', data: { turn, callId: `present-${turn}`, files } })
+  const turnWith = async (sessionId, exchangeId, text, turn, files, { seq = 10 + turn, switchTo } = {}) => {
+    await emit(sessionId, { type: 'turn/start', data: { turn } })
+    await emit(sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+    if (files.length > 0) {
+      await emit(sessionId, { type: 'tool/call', data: { callId: `present-${turn}`, name: 'present', arguments: '{}' } })
+      await present(sessionId, seq, turn, files)
+      await emit(sessionId, { type: 'tool/result', data: { callId: `present-${turn}` } })
+    }
+    const endSid = switchTo ?? sessionId
+    if (switchTo !== undefined) {
+      const owner = rt.groupOwners.get(sessionId)
+      rt.groupOwners.set(switchTo, owner)
+      rt.roomOf(room.id).sessions[owner.botId] = switchTo
+      await emit(switchTo, { type: 'turn/start', data: { turn } })
+      await emit(switchTo, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'continued' }] } })
+    }
+    await emit(endSid, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } })
+    await emit(endSid, { type: 'turn/end', data: { reason: { kind: 'completed' } } })
+  }
+
+  await emit(room.id, userMessage('Write the report'))
+  const running = relay(room.id, 'relay-present')
+  const first = await turnFor(sent)
+  const switchedSid = `${first.sessionId}-part2`
+  await turnWith(first.sessionId, first.message.source.exchangeId, 'The report is ready.', 1, [
+    { path: '/work/report.docx', description: 'First draft' },
+    { path: '/work/report.docx', description: 'Final report' },
+    { path: '' },
+  ], { seq: 11, switchTo: switchedSid })
+  const second = await turnFor(sent, first)
+  // Other members read the presented file in the prompt via lineText.
+  assert.match(second.message.content[0].text, /The report is ready\.\n\[Presented file \/work\/report\.docx: Final report\]/)
+  await turnWith(second.sessionId, second.message.source.exchangeId, '[PASS]', 2, [{ path: '/work/notes.md' }], { seq: 22 })
+  const result = JSON.parse(await running)
+  assert.deepEqual(result.replies.map(reply => [reply.text, reply.presented]), [
+    ['The report is ready.', [{ path: '/work/report.docx', description: 'Final report', sessionId: first.sessionId, seq: 11, index: 1 }]],
+    ['', [{ path: '/work/notes.md', sessionId: second.sessionId, seq: 22, index: 0 }]],
+  ])
+  // Ledger record keeps bubble text clean (never concatenates [Presented file ...] into record.text).
+  const ledgerLines = rt.roomOf(room.id).log.filter(line => line.botId !== undefined)
+  assert.equal(ledgerLines[0].text, 'The report is ready.')
+  assert.equal(ledgerLines[1].text, '')
+  assert.equal(lineText(ledgerLines[1]), `${ledgerLines[1].who}: [Presented file /work/notes.md]`)
+  // Sidebar room preview falls back to presented filename(s) instead of trailing colon on files-only replies.
+  const stateView = await call('state')
+  assert.equal(stateView.value.rooms.find(entry => entry.id === room.id)?.preview, `${ledgerLines[1].who}：notes.md`)
+
+  // Consumed once: the member's next turn carries none.
+  sent.length = 0
+  await emit(room.id, userMessage('Thanks'))
+  const again = relay(room.id, 'relay-present-2')
+  const next = await turnFor(sent)
+  await turnWith(next.sessionId, next.message.source.exchangeId, 'You are welcome.', 3, [])
+  const last = await turnFor(sent, next)
+  await turnWith(last.sessionId, last.message.source.exchangeId, 'Sure.', 4, [])
+  const later = JSON.parse(await again)
+  assert.deepEqual(later.replies.map(reply => reply.presented), [undefined, undefined])
+})
+
+test('pending presented files are cleared on failed, aborted, stopped, removed-member, and deleted-group paths', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+
+  // Round 1: first member presents a file, then its turn fails.
+  await emit(room.id, userMessage('Try first'))
+  const r1 = relay(room.id, 'relay-fail')
+  const first = await turnFor(sent)
+  await emit(first.sessionId, { type: 'turn/start', data: { turn: 1 } })
+  await emit(first.sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId: first.message.source.exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+  await emit(first.sessionId, { seq: 5, type: 'deliverables/presented', data: { turn: 1, callId: 'p1', files: [{ path: '/work/stale-fail.pdf' }] } })
+  await emit(first.sessionId, { type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'NETWORK', message: 'boom' } } } })
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, 'Got it.', 1)
+  await r1
+
+  // Round 2: first member replies normally — must NOT leak stale-fail.pdf.
+  sent.length = 0
+  await emit(room.id, userMessage('Next message'))
+  const r2 = relay(room.id, 'relay-clean')
+  const first2 = await turnFor(sent)
+  await answer(first2.sessionId, first2.message.source.exchangeId, 'Clean reply.', 2)
+  const second2 = await turnFor(sent, first2)
+  // Second member presents a file then is aborted.
+  await emit(second2.sessionId, { type: 'turn/start', data: { turn: 2 } })
+  await emit(second2.sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId: second2.message.source.exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+  await emit(second2.sessionId, { seq: 6, type: 'deliverables/presented', data: { turn: 2, callId: 'p2', files: [{ path: '/work/stale-abort.pdf' }] } })
+  await emit(second2.sessionId, { type: 'turn/end', data: { reason: { kind: 'aborted' } } })
+  const res2 = JSON.parse(await r2)
+  assert.deepEqual(res2.replies.map(reply => [reply.text, reply.presented]), [['Clean reply.', undefined]])
+
+  // Round 3: second member replies normally — must NOT leak stale-abort.pdf.
+  sent.length = 0
+  await emit(room.id, userMessage('After abort'))
+  const r3 = relay(room.id, 'relay-clean-2')
+  const first3 = await turnFor(sent)
+  await answer(first3.sessionId, first3.message.source.exchangeId, 'Ok 1', 3)
+  const second3 = await turnFor(sent, first3)
+  await answer(second3.sessionId, second3.message.source.exchangeId, 'Ok 2', 3)
+  const res3 = JSON.parse(await r3)
+  assert.deepEqual(res3.replies.map(reply => reply.presented), [undefined, undefined])
+
+  // dropGroupLines clears pending presented files for the whole room.
+  await emit(first.sessionId, { seq: 9, type: 'deliverables/presented', data: { turn: 4, callId: 'p3', files: [{ path: '/work/dropped.pdf' }] } })
+  rt.dropGroupLines(room.id)
+  sent.length = 0
+  await rt.lateRoomReply(first.sessionId, { role: 'room', roomId: room.id }, '[PASS]')
+  assert.equal(sent.some(entry => entry.sessionId === room.id && entry.message.source?.role === 'post'), false)
+})
+
+test('lateRoomReply attaches presented files once and never duplicates on pass-with-files when done=true', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay-late')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'On it.', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, 'Me too.', 2)
+  await running
+
+  // 1) Normal late reply with presented file.
+  sent.length = 0
+  await emit(first.sessionId, { seq: 30, type: 'deliverables/presented', data: { turn: 3, callId: 'c1', files: [{ path: '/work/plan.pdf', description: 'Plan' }] } })
+  await rt.lateRoomReply(first.sessionId, { role: 'room', roomId: room.id }, 'Here is the plan.')
+  const posts1 = sent.filter(entry => entry.sessionId === room.id && entry.message.source?.role === 'post')
+  assert.equal(posts1.length, 1)
+  assert.deepEqual(posts1[0].message.source.presented, [{ path: '/work/plan.pdf', description: 'Plan', sessionId: first.sessionId, seq: 30, index: 0 }])
+
+  // 2) Pass with presented files AND shown=true + askedBy (where done would be true):
+  // must emit strictly ONE post carrying the file cards and askedBy, never two!
+  const callerId = rt.groupOwners.get(second.sessionId).botId
+  sent.length = 0
+  await emit(first.sessionId, { seq: 31, type: 'deliverables/presented', data: { turn: 4, callId: 'c2', files: [{ path: '/work/deck.pptx' }] } })
+  await rt.lateRoomReply(first.sessionId, { role: 'room', roomId: room.id, askedBy: callerId }, '[PASS]', { shown: true })
+  const posts2 = sent.filter(entry => entry.sessionId === room.id && entry.message.source?.role === 'post')
+  assert.equal(posts2.length, 1, 'pass-with-files when done=true must not post twice')
+  assert.equal(posts2[0].message.source.done, undefined)
+  assert.equal(posts2[0].message.source.askedBy, callerId)
+  assert.deepEqual(posts2[0].message.source.presented, [{ path: '/work/deck.pptx', sessionId: first.sessionId, seq: 31, index: 0 }])
+})
+
+test('group presented files filter out protected data directory paths', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Check'))
+  const running = relay(room.id, 'relay-guard')
+  const first = await turnFor(sent)
+  const secretPath = join(rt.home, 'state.json')
+  await emit(first.sessionId, { seq: 40, type: 'deliverables/presented', data: { turn: 1, callId: 'p-sec', files: [{ path: secretPath }, { path: '/work/ok.pdf' }] } })
+  await answer(first.sessionId, first.message.source.exchangeId, 'Done.', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 1)
+  const result = JSON.parse(await running)
+  assert.deepEqual(result.replies[0].presented, [{ path: '/work/ok.pdf', sessionId: first.sessionId, seq: 40, index: 1 }])
+})
+
+test('in-round pass-with-files reports admin goal tasks and late [PASS] with @mention does not wake another member', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const [adminId, memberId] = room.members
+  rt.state.rooms[room.id].admin = adminId
+  rt.state.rooms[room.id].mode = 'admin'
+  const reported = []
+  rt.goalTaskReported = (roomId, botId) => reported.push([roomId, botId])
+
+  await emit(room.id, userMessage('Deliver the file'))
+  const running = relay(room.id, 'relay-goal-pass')
+  const first = await turnFor(sent)
+  const memberName = rt.botOf(memberId).name
+  await answer(first.sessionId, first.message.source.exchangeId, `@${memberName} please send the report.`, 1)
+  const second = await turnFor(sent, first)
+  await emit(second.sessionId, { seq: 50, type: 'deliverables/presented', data: { turn: 1, callId: 'p-goal', files: [{ path: '/work/report.pdf', description: 'Report' }] } })
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 1)
+  const third = await turnFor(sent, first, second)
+  await answer(third.sessionId, third.message.source.exchangeId, 'Thanks, received.', 2)
+  await running
+  assert.deepEqual(reported, [[room.id, memberId]], 'in-round pass with presented files must call goalTaskReported')
+
+  // Late reply with `[PASS] @<other>` + files must NOT parse `@<other>` as a request route.
+  const adminName = rt.botOf(adminId).name
+  sent.length = 0
+  await emit(second.sessionId, { seq: 51, type: 'deliverables/presented', data: { turn: 2, callId: 'p-late-pass', files: [{ path: '/work/final.pdf' }] } })
+  await rt.lateRoomReply(second.sessionId, { role: 'room', roomId: room.id, askedBy: adminId }, `[PASS] @${memberName} @${adminName}`)
+  const posts = sent.filter(entry => entry.sessionId === room.id && entry.message.source?.role === 'post')
+  assert.equal(posts.length, 1)
+  assert.equal(posts[0].message.source.route?.kind, 'result', 'late pass-with-files routes back to askedBy, not as a request')
+  assert.deepEqual(posts[0].message.source.route?.to, [adminId])
+  assert.deepEqual(posts[0].message.source.presented, [{ path: '/work/final.pdf', sessionId: second.sessionId, seq: 51, index: 0 }])
+})

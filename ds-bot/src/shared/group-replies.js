@@ -81,7 +81,8 @@ function scanReplies(text, start, replies) {
 }
 
 // A member's messages in a row, as one block under its name: what it says while it
-// works comes one message at a time. A block carries the last message's time and run.
+// works comes one message at a time. A block carries the last message's time and run,
+// and the files its messages presented; a message of files only adds no bubble.
 export function stackReplies(replies) {
   const items = []
   replies.forEach((reply, index) => {
@@ -93,10 +94,16 @@ export function stackReplies(replies) {
     // approval, done, the user) breaks the run.
     if (reply.kind === 'working' && last?.reply.kind === 'working'
       && reply.botId !== undefined && reply.botId === last.reply.botId) return
+    const texts = reply.kind === undefined && typeof reply.text === 'string' && reply.text !== '' ? [reply.text] : []
+    const files = reply.kind === undefined ? presentedFiles(reply.presented) : []
     if (reply.kind === undefined && last?.reply.kind === undefined && last?.reply.botId === reply.botId
       && last.claims === undefined && (last.changes === undefined
         || (reply.changes?.sessionId === last.changes.sessionId && reply.changes?.turn === last.changes.turn))) {
-      last.texts.push(reply.text)
+      last.texts.push(...texts)
+      // A path presented again keeps one card, with its last description and locator.
+      if (files.length > 0) {
+        last.files = [...last.files.filter(file => !files.some(again => again.path === file.path)), ...files]
+      }
       last.time = reply.time
       last.duration = reply.duration
       if (reply.claims !== undefined) last.claims = reply.claims
@@ -106,7 +113,8 @@ export function stackReplies(replies) {
     } else {
       items.push({
         reply, index,
-        texts: reply.kind === undefined ? [reply.text] : [],
+        texts,
+        files,
         time: reply.time, duration: reply.duration,
         ...(reply.claims === undefined ? {} : { claims: reply.claims }),
         ...(reply.changes === undefined ? {} : { changes: reply.changes }),
@@ -115,3 +123,17 @@ export function stackReplies(replies) {
   })
   return items
 }
+
+// The basename of a presented path on POSIX or Windows.
+export const presentedFileName = path => String(path ?? '').split(/[\\/]/).filter(Boolean).at(-1) || String(path ?? '') || 'file'
+
+// The files of a reply or post, as far as they name a path.
+export const presentedFiles = value => (Array.isArray(value) ? value : [])
+  .filter(file => typeof file?.path === 'string' && file.path.trim() !== '')
+  .map(file => ({
+    path: file.path,
+    ...(typeof file.description === 'string' && file.description !== '' ? { description: file.description } : {}),
+    ...(typeof file.sessionId === 'string' && file.sessionId !== '' ? { sessionId: file.sessionId } : {}),
+    ...(Number.isInteger(file.seq) ? { seq: file.seq } : {}),
+    ...(Number.isInteger(file.index) ? { index: file.index } : {}),
+  }))

@@ -100,6 +100,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: deepseek services',
     'effect ds-bot: chat index',
     'effect ds-bot: group rounds',
+    'on session/event',
     'effect ds-bot: group step lines',
     'on llm/stream',
     'on agent/created',

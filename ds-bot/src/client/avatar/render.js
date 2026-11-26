@@ -209,7 +209,7 @@ export function drawShapes(ctx, shapes, ink, confetti = []) {
 
 // A spin throws confetti: paper bits that tumble and streamers that curl, bursting up
 // from behind the body, slowing in the air and falling. Each burst has its own start and
-// seed (accent.bursts), and it stays inside the canvas margin (MARGIN in live.js).
+// seed (accent.bursts), and it stays inside the canvas margin (MARGIN in stage.js).
 const CONFETTI = 18
 function drawConfetti(ctx, accent, colors) {
   for (const { at, seed } of accent.bursts) drawBurst(ctx, accent.t - at, seed, colors)

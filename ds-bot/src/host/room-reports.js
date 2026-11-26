@@ -665,7 +665,9 @@ export function createRoomReports(rt, deps) {
         .map(rowOf)
         .filter(Boolean)
       const rows = Array.isArray(report.ids) ? allRows.filter(row => report.ids.includes(row.botId)) : allRows
-      const lines = rows.filter(row => row.kind === undefined).map(row => `${row.name}: ${row.text}`)
+      const presentedLine = file => `[Presented file ${file.path}${file.description ? `: ${file.description}` : ''}]`
+      const lines = rows.filter(row => row.kind === undefined)
+        .map(row => `${row.name}: ${[row.text, ...(row.presented ?? []).map(presentedLine)].filter(Boolean).join('\n')}`)
       const repliedNames = new Set(rows.filter(row => row.kind === undefined).map(row => row.name))
       const stoppedNames = [...new Set(rows.filter(row => row.kind === 'stopped').map(row => row.name).filter(Boolean))]
       const passed = [...new Set(report.passed ?? [])].filter(name => !repliedNames.has(name) && !stoppedNames.includes(name))

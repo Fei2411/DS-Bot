@@ -9,6 +9,7 @@ import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
 import { threadCurrentOfPart } from './threads.js'
 import { viaOf } from '../shared/im-platforms.js'
+import { presentedFiles } from '../shared/group-replies.js'
 import { reminderText } from './schedules.js'
 import { usageChunk } from './usage.js'
 
@@ -1164,9 +1165,11 @@ export function install(rt) {
         if (source?.kind === SOURCE_KIND && source.role === 'post' && rt.roomOf(id)) {
           const roomId = rt.roomOf(id).id
           const files = (Array.isArray(event.data.content) ? event.data.content : []).filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
+          const presented = presentedFiles(source.presented)
           queueRoomMessage(roomId, {
             text: textOf(event.data.content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
             ...(files.length > 0 ? { files } : {}),
+            ...(presented.length > 0 ? { presented } : {}),
             botId: source.senderSessionId,
             name: source.senderName,
             reportBack: source.reportBack === true,
@@ -1392,6 +1395,7 @@ export function install(rt) {
         entry.usage = undefined
         if (steerCut || suppressedSubagent) {
           rt.dropRoomStepEcho?.(id)
+          rt.clearGroupPresented?.(id)
           if (suppressedSubagent && !steerCut && rt.groupOwners.has(id)) {
             void rt.settleRoomReports?.(rt.groupOwners.get(id).roomId).catch(error => rt.warn('ds-bot: group report settle in %s failed: %s', id, error))
           }
@@ -1571,11 +1575,14 @@ export function install(rt) {
           } else if (!stopped && reason?.kind !== 'aborted') {
             if (failure !== undefined) void rt.lateRoomFailure?.(id, info, failure)
             else void rt.lateRoomReply?.(id, info, groupReply(), { shown, toolCount: workToolCount, turn })
+          } else {
+            rt.clearGroupPresented?.(id)
           }
         } else if (!retry && speaksInGroup(id, info)) {
           const inRound = failure !== undefined && info === undefined && rt.failRoomTurn?.(id, failure) === true
           if (failure !== undefined) { if (!inRound) void rt.lateRoomFailure?.(id, info ?? {}, failure) }
           else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply(), { shown, toolCount: workToolCount, turn })
+          else rt.clearGroupPresented?.(id)
         } else if (!retry && info !== undefined && info.coordWorkId === undefined) {
           finish(info, replyText())
         }
