@@ -12,7 +12,7 @@ import { roomTitle, workPhrase } from '../ui/phrases.ts'
 import { teamListEmptyMessage } from '../nav/team-list-empty.ts'
 import { cleanPreview } from './chat/settled.ts'
 
-export interface ChatTarget { kind: 'bot' | 'room' | 'agent'; id: string }
+export interface ChatTarget { kind: 'bot' | 'room' | 'agent'; id: string; focus?: string }
 
 // The drawer's team list, laid out like the desktop sidebar (sidebar.js): every Main
 // Bot as a tile on top, then the other Bots and groups as rows, pinned first, then

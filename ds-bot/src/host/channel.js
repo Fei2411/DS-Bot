@@ -225,6 +225,9 @@ export function install(rt) {
     // Browser holds (handoffs and takeovers) change without bumping state.revision,
     // so they ride on live() to reconcile unchanged-revision polls.
     browserHolds: rt.browserChannel?.holdSnapshot?.() ?? {},
+    // Everything across the team that waits on the user (inbox.js): one list for the
+    // sidebar, the inbox page, the phone and notifications.
+    inbox: rt.inboxView?.() ?? null,
     // Plugin runtime summary (active slots, restart status, installed count) updates
     // asynchronously as slots reconcile, so it rides on live().
     plugins: rt.pluginsSummary?.() ?? null,
@@ -1081,7 +1084,7 @@ export function install(rt) {
           // Taking over a handoff keeps its reason, note, and call, so its card stays up.
           const asked = rt.browserChannel.holdOf(botId)
           rt.browserChannel.setHold(botId, asked?.callId !== undefined
-            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId, ...(asked.sessionId !== undefined ? { sessionId: asked.sessionId } : {}) }
+            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId, ...(Number.isFinite(asked.at) ? { at: asked.at } : {}), ...(asked.sessionId !== undefined ? { sessionId: asked.sessionId } : {}) }
             : { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' })
           return ok(true)
         }
