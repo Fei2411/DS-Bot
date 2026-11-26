@@ -2315,7 +2315,7 @@ export function install(rt) {
 
   // Recovers a handoff package that was not yet flushed to `target` when the process
   // crashed or errored between flipping the current-part pointer and flushing flush #1.
-  async function ensureHandoffDelivered(oldSessionId, owner, targetId, { metaOverride, fallbackSessionId } = {}) {
+  async function ensureHandoffDelivered(oldSessionId, owner, targetId, { metaOverride, fallbackSessionId, entries = [] } = {}) {
     await rt.ensureCapabilities(targetId)
     const fresh = await rt.resolveAgent(targetId)
     const meta = metaOverride ?? owner.handoffMeta ?? {}
@@ -2341,13 +2341,14 @@ export function install(rt) {
     const oldPartNumber = segment.number ?? Math.max(1, number - 1)
     const lines = await contextLines(fresh.session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
+    const activeTurn = meta.resume === true || meta.overflow === true || meta.runtimeLost === true
     let carried = meta.bare
       ? { recent: [], earlier: [], tools: [], unlisted: 0, complete: true }
-      : await handoffLines(oldSessionId, { budget, group: effectiveRoom !== undefined, number: oldPartNumber })
+      : await handoffLines(oldSessionId, { budget, group: effectiveRoom !== undefined, number: oldPartNumber, activeTurn })
     if (!meta.bare && carried.recent.length === 0 && carried.earlier.length === 0 && fallbackSessionId !== undefined && fallbackSessionId !== oldSessionId) {
       const fallbackSegment = parts.find(part => part?.sessionId === fallbackSessionId)
       const fallbackPartNumber = fallbackSegment?.number ?? Math.max(1, oldPartNumber - 1)
-      const fallbackCarried = await handoffLines(fallbackSessionId, { budget, group: effectiveRoom !== undefined, number: fallbackPartNumber })
+      const fallbackCarried = await handoffLines(fallbackSessionId, { budget, group: effectiveRoom !== undefined, number: fallbackPartNumber, activeTurn })
       if (fallbackCarried.recent.length > 0 || fallbackCarried.earlier.length > 0 || fallbackCarried.tools.length > 0) {
         carried = fallbackCarried
         segment = fallbackSegment ?? segment
@@ -2357,11 +2358,45 @@ export function install(rt) {
     const engine = meta.engine && bot !== undefined ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
     const hasRuntimeLostUnread = meta.runtimeLost === true && meta.runtimeLostHasUnread === true
     const resume = !hasRuntimeLostUnread && (meta.resume === true || meta.overflow === true || meta.runtimeLost === true)
+    const recoveredHeld = []
+    const recoveredUnread = []
+    let sourceSession
+    for (const entry of entries) {
+      if (entry.sessionId === oldSessionId && entry.agent?.session !== undefined) sourceSession = entry.agent.session
+      if (Array.isArray(entry.held)) recoveredHeld.push(...entry.held)
+      if (entry.owner?.runtimeLost === true && entry.agent?.session !== undefined) {
+        recoveredUnread.push(...unreadRequestsForRuntimeLost(entry.agent.session, entry.sessionId, entry.owner.runtimeLostContext ?? {}, { markOriginSent: false }))
+      }
+    }
+    const budgetSession = sourceSession ?? fresh.session
+    const targetWindow = await targetWindowTokensOf(bot, budgetSession, lines?.window)
+    let budgeted = applyHandoffBudget(carried, {
+      session: budgetSession,
+      targetWindowTokens: targetWindow,
+      noteBody: noteText(segment) ?? '',
+      carry: recoveredUnread,
+      held: recoveredHeld,
+      maxHistoryTokens: budget + LIST_TOKENS + TOOL_TRAIL_TOKENS,
+      pinCurrentTurn: !hasRuntimeLostUnread,
+    })
+    if (segment.fallback === 'whole' && budgeted.whole !== true) {
+      segment.fallback = 'trimmed'
+      await rt.save()
+      budgeted = applyHandoffBudget(carried, {
+        session: budgetSession,
+        targetWindowTokens: targetWindow,
+        noteBody: noteText(segment) ?? '',
+        carry: recoveredUnread,
+        held: recoveredHeld,
+        maxHistoryTokens: budget + LIST_TOKENS + TOOL_TRAIL_TOKENS,
+        pinCurrentTurn: !hasRuntimeLostUnread,
+      })
+    }
     const text = handoffPackage({
       room: effectiveRoom,
       self: bot === undefined,
       segment,
-      lines: carried,
+      lines: budgeted,
       number,
       resume,
       overflow: meta.overflow === true,
@@ -2582,6 +2617,7 @@ export function install(rt) {
             await ensureHandoffDelivered(newest.sessionId, newest.owner, target, {
               metaOverride: mergedMeta,
               fallbackSessionId: resumedEntry?.sessionId,
+              entries,
             })
             for (const entry of entries) {
               delete entry.owner.handoffPending

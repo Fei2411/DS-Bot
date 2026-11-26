@@ -1285,3 +1285,149 @@ test('parts.js runtime-lost recovery reserves budget for full unread request and
     'forwarded unread request must preserve all image attachments',
   )
 })
+
+test('parts.js crash recovery (ensureHandoffDelivered) enforces handoff budget, activeTurn preservation, and runtime-lost unread reservation', async () => {
+  // 1. Overflow crash recovery: activeTurn=true + applyHandoffBudget trims older history while preserving initiating request.
+  {
+    const followed = []
+    const initiating = `CRASH_INIT_START_${'关键需求说明_'.repeat(180)}_CRASH_INIT_END`
+    const historyEvents = [
+      { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: `CRASH_OLD_1_${'旧'.repeat(500)}` }], source: { kind: 'user' } } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { message: { content: [{ type: 'text', text: `CRASH_OLD_REPLY_${'答'.repeat(500)}` }] } } },
+      { type: 'user/message', seq: 3, time: 3, data: { content: [{ type: 'text', text: initiating }], source: { kind: 'user' } } },
+      { type: 'assistant/message', seq: 4, time: 4, data: { message: { content: [{ type: 'text', text: 'Working on it...' }] } } },
+    ]
+    const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 1_000 }) } } })
+    ctx.logger = { warn: () => {}, info: () => {} }
+    ctx.sessions = { flush: async () => {} }
+    ctx.workspaceRegistry = { archiveSession: async () => {} }
+    ctx.llm = { resolveModelInfo: async () => ({ context: { contextWindow: 2_500 } }) }
+    const bot = { id: 'b1', name: 'Kai', sessionId: 's2', model: 'provider/small', segments: [{ number: 1, sessionId: 's1', fallback: 'overflow', endedAt: 10 }, { number: 2, sessionId: 's2' }] }
+    const oldAgent = {
+      id: 's1',
+      session: { id: 's1', header: { cwd: '/tmp/team' }, requestHeader: () => ({ config: { provider: 'provider', model: 'small' } }), deriveMessages: () => [], toolHistory: () => [] },
+      inbox: { nextStep: [], nextTurn: [] },
+    }
+    const freshAgent = {
+      id: 's2',
+      session: { id: 's2', header: { cwd: '/tmp/team' }, requestHeader: () => ({ config: { provider: 'provider', model: 'small' } }), deriveMessages: () => [], toolHistory: () => [] },
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: message => followed.push(message),
+      send: async () => {},
+    }
+    const rt = {
+      ctx, home: '/unused', config: {},
+      state: {
+        bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, questions: {}, views: {},
+        switching: {
+          s1: { botId: 'b1', handoffPending: true, handoffMeta: { resume: true, overflow: true } },
+        },
+      },
+      warn: () => {}, async save() {}, async load() {}, readOnly: () => undefined,
+      botOf: id => rt.state.bots[id], roomOf: () => undefined,
+      selfOf: () => 'b1', isMain: () => false, chatOf: () => 's2', sessionOfRoom: () => undefined,
+      isBotSession: id => ['s1', 's2'].includes(id), isLocalAgentRef: () => false, isLocalAgentRoute: () => false,
+      chatOwners: new Map([['s2', 'b1']]), groupOwners: new Map(), pastOwners: new Map([['s1', { botId: 'b1' }]]), roomOwners: new Map(),
+      teamTools: [], live: new Map(), groupSessionsOf: () => [], unreadOf: () => [],
+      eventsBackwards: async function* (_sid, _sig, _pages, scan) {
+        for (const event of [...historyEvents].reverse()) yield event
+        if (scan) scan.complete = true
+      },
+      resolveAgent: async id => (id === 's2' ? freshAgent : oldAgent),
+      desiredModel: async subject => subject.model, desiredEffort: async () => undefined,
+      ensureCapabilities: async () => {}, renewMemory: () => {}, moveSchedules: async () => {}, deliver: async () => {},
+      teamFolder: () => '/tmp/team', workDirOf: () => '/tmp/team', isFolder: async () => true, roomProgress: new Map(),
+    }
+    partsInstall(rt)
+    await rt.heldBack()
+    assert.equal(rt.state.switching.s1, undefined, 'recovered switch entry must clear after handoff delivery')
+    assert.equal(followed.length, 1)
+    const text = followed[0].content.map(b => b.text).join('')
+    assert.ok(text.includes('CRASH_INIT_START_') && text.includes('_CRASH_INIT_END'), 'crash recovery must preserve active initiating request verbatim')
+    assert.equal(text.includes('CRASH_OLD_1_'), false, 'crash recovery must trim older history to fit destination budget')
+  }
+
+  // 2. Runtime-lost crash recovery: reserves budget for full unread request + attachments without pinning clipped duplicate.
+  {
+    const followed = []
+    const sent = []
+    const longUnread = `CRASH_UNREAD_START_${'未读文档内容_'.repeat(300)}_CRASH_UNREAD_END`
+    const unreadMessage = {
+      id: 'msg-crash-unread',
+      role: 'user',
+      content: [
+        { type: 'text', text: longUnread },
+        { type: 'image', attachment: { attachmentId: 'crash-shot-1' } },
+        { type: 'image', attachment: { attachmentId: 'crash-shot-2' } },
+      ],
+      source: { kind: 'user' },
+    }
+    const historyEvents = [
+      { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: `CRASH_RL_OLD_${'旧'.repeat(400)}` }], source: { kind: 'user' } } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { message: { content: [{ type: 'text', text: `CRASH_RL_REPLY_${'答'.repeat(400)}` }] } } },
+      { type: 'user/message', seq: 3, time: 3, data: { content: unreadMessage.content, source: { kind: 'user' } } },
+    ]
+    const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 4_000 }) } } })
+    ctx.logger = { warn: () => {}, info: () => {} }
+    ctx.sessions = { flush: async () => {} }
+    ctx.workspaceRegistry = { archiveSession: async () => {} }
+    ctx.llm = { resolveModelInfo: async () => ({ context: { contextWindow: 8_000 } }) }
+    const bot = { id: 'b1', name: 'Kai', sessionId: 's2', model: 'local-claude-code/default', segments: [{ number: 1, sessionId: 's1', fallback: 'runtime-lost', endedAt: 10 }, { number: 2, sessionId: 's2' }] }
+    const oldAgent = {
+      id: 's1',
+      session: {
+        id: 's1', header: { cwd: '/tmp/team' },
+        requestHeader: () => ({ config: { provider: 'local-claude-code', model: 'default' } }),
+        deriveMessages: () => [
+          { id: 'm1', role: 'user', content: [{ type: 'text', text: 'old' }], source: { kind: 'user' } },
+          { id: 'm2', role: 'assistant', content: [{ type: 'text', text: 'old reply' }] },
+          unreadMessage,
+        ],
+        toolHistory: () => [],
+      },
+      inbox: { nextStep: [], nextTurn: [] },
+    }
+    const freshAgent = {
+      id: 's2',
+      session: { id: 's2', header: { cwd: '/tmp/team' }, requestHeader: () => ({ config: {} }), deriveMessages: () => [], toolHistory: () => [] },
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: message => followed.push(message),
+      send: async message => sent.push(message),
+    }
+    const rt = {
+      ctx, home: '/unused', config: {},
+      state: {
+        bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, questions: {}, views: {},
+        localAgents: { sessions: { s1: { handedId: 'm2' } } },
+        switching: {
+          s1: { botId: 'b1', handoffPending: true, runtimeLost: true, handoffMeta: { resume: true, runtimeLost: true, runtimeLostHasUnread: true } },
+        },
+      },
+      warn: () => {}, async save() {}, async load() {}, readOnly: () => undefined,
+      botOf: id => rt.state.bots[id], roomOf: () => undefined,
+      selfOf: () => 'b1', isMain: () => false, chatOf: () => 's2', sessionOfRoom: () => undefined,
+      isBotSession: id => ['s1', 's2'].includes(id), isLocalAgentRef: () => true, isLocalAgentRoute: () => true,
+      chatOwners: new Map([['s2', 'b1']]), groupOwners: new Map(), pastOwners: new Map([['s1', { botId: 'b1' }]]), roomOwners: new Map(),
+      teamTools: [], live: new Map(), groupSessionsOf: () => [], unreadOf: () => [],
+      eventsBackwards: async function* (_sid, _sig, _pages, scan) {
+        for (const event of [...historyEvents].reverse()) yield event
+        if (scan) scan.complete = true
+      },
+      resolveAgent: async id => (id === 's2' ? freshAgent : oldAgent),
+      desiredModel: async subject => subject.model, desiredEffort: async () => undefined,
+      ensureCapabilities: async () => {}, renewMemory: () => {}, moveSchedules: async () => {}, deliver: async () => {},
+      teamFolder: () => '/tmp/team', workDirOf: () => '/tmp/team', isFolder: async () => true, roomProgress: new Map(),
+    }
+    partsInstall(rt)
+    await rt.heldBack()
+    const handoffMsg = followed.find(m => m.source?.handoff === true)
+    assert.ok(handoffMsg !== undefined, 'crash recovery must deliver budgeted handoff')
+    const handoffText = handoffMsg.content.map(b => b.text).join('')
+    assert.equal(handoffText.includes('CRASH_RL_OLD_'), false, 'older history must be dropped when full unread request + attachments fill window')
+    assert.equal(handoffText.includes('CRASH_UNREAD_START_'), false, 'clipped transcript duplicate must not be pinned in recovered handoff')
+    const forwarded = [...followed, ...sent].filter(m => m.source?.handoff !== true)
+    assert.equal(forwarded.length, 1, 'unread request must still be forwarded verbatim during crash recovery')
+    assert.equal(forwarded[0].content[0].text, longUnread)
+    assert.deepEqual(forwarded[0].content.filter(b => b.type === 'image').map(b => b.attachment.attachmentId), ['crash-shot-1', 'crash-shot-2'])
+  }
+})
