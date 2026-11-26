@@ -2176,7 +2176,12 @@ export function install(rt) {
       const handle = writableDb()
       if (handle !== null) {
         try {
-          handle.recordDirectDeliveryAttempt({ workId: slot.workId, idempotencyKey: deliveryKey, sessionId })
+          handle.recordDirectDeliveryAttempt({
+            workId: slot.workId,
+            idempotencyKey: deliveryKey,
+            sessionId,
+            ...(Number.isInteger(slot.throughSeq) ? { throughSeq: slot.throughSeq } : {}),
+          })
         } catch (error) {
           if (error?.code === 'coordination/work_paused') {
             // Preserve the original `paused` / `needs_verification` status and reason untouched.

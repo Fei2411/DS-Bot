@@ -600,6 +600,9 @@ export function openCoordinationDb({
     getInboxByDedup: db.prepare('SELECT * FROM inbox WHERE work_id = ? AND dedup_key = ? LIMIT 1'),
     nextInboxSeq: db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM inbox WHERE work_id = ?'),
     maxInboxSeq: db.prepare('SELECT COALESCE(MAX(seq), 0) AS max_seq FROM inbox WHERE work_id = ?'),
+    maxInboxSeqByIdempotencyKey: db.prepare(
+      'SELECT COALESCE(MAX(seq), 0) AS max_seq FROM inbox WHERE work_id = ? AND dsh_idempotency_key = ?',
+    ),
     maxWakingInboxSeq: db.prepare("SELECT COALESCE(MAX(seq), 0) AS max_seq FROM inbox WHERE work_id = ? AND kind <> 'note'"),
     hasUnreadWakingAfter: db.prepare(
       "SELECT seq FROM inbox WHERE work_id = ? AND seq > ? AND read_at IS NULL AND kind <> 'note' ORDER BY seq ASC LIMIT 1",
@@ -1645,6 +1648,7 @@ export function openCoordinationDb({
     workId,
     idempotencyKey,
     sessionId,
+    throughSeq,
     setRunning = true,
   }) {
     nonEmptyString(workId, 'workId')
@@ -1664,15 +1668,27 @@ export function openCoordinationDb({
       const ts = now()
       const nextStatus = setRunning ? 'running' : work.status
       const nextSession = sessionId !== undefined ? toSql(sessionId) : work.session_id
+      const keySeq = stmt.maxInboxSeqByIdempotencyKey.get(workId, idempotencyKey).max_seq
+      const boundSeq = Number.isInteger(throughSeq)
+        ? Math.max(0, Math.trunc(throughSeq), keySeq)
+        : keySeq
+      if (boundSeq > 0) {
+        db.prepare(`
+          UPDATE inbox
+          SET dsh_idempotency_key = COALESCE(dsh_idempotency_key, ?)
+          WHERE work_id = ? AND seq <= ? AND read_at IS NULL
+        `).run(idempotencyKey, workId, boundSeq)
+      }
       db.prepare(`
         UPDATE works
         SET status = ?,
             session_id = ?,
             active_delivery_key = ?,
             active_turn = NULL,
+            last_delivered_seq = MAX(last_delivered_seq, ?),
             updated_at = ?
         WHERE work_id = ?
-      `).run(nextStatus, nextSession, idempotencyKey, ts, workId)
+      `).run(nextStatus, nextSession, idempotencyKey, boundSeq, ts, workId)
       return mapWork(stmt.getWork.get(workId))
     })
   }
@@ -1739,18 +1755,23 @@ export function openCoordinationDb({
       const status = deliveryStatus.status
       const consumed = deliveryStatus.consumed === true
       const interruptedTools = Array.isArray(deliveryStatus.interruptedTools) ? deliveryStatus.interruptedTools : []
+      const deliveryKey = deliveryStatus.idempotencyKey ?? work.active_delivery_key
+      const keySeq = typeof deliveryKey === 'string' && deliveryKey !== ''
+        ? stmt.maxInboxSeqByIdempotencyKey.get(workId, deliveryKey).max_seq
+        : 0
+      const deliveredBound = keySeq > 0 ? keySeq : work.last_delivered_seq
 
       if (status === 'running' || status === 'queued') {
-        if (consumed && work.last_delivered_seq > work.last_consumed_seq) {
-          stmt.ackInbox.run(ts, workId, work.last_delivered_seq)
+        if (consumed && deliveredBound > work.last_consumed_seq) {
+          stmt.ackInbox.run(ts, workId, deliveredBound)
         }
         db.prepare(`
           UPDATE works
           SET active_turn = COALESCE(?, active_turn),
-              last_consumed_seq = CASE WHEN ? = 1 THEN MAX(last_consumed_seq, last_delivered_seq) ELSE last_consumed_seq END,
+              last_consumed_seq = CASE WHEN ? = 1 THEN MAX(last_consumed_seq, ?) ELSE last_consumed_seq END,
               updated_at = ?
           WHERE work_id = ?
-        `).run(toSql(deliveryStatus.turn), consumed ? 1 : 0, ts, workId)
+        `).run(toSql(deliveryStatus.turn), consumed ? 1 : 0, deliveredBound, ts, workId)
         return { action: 'adopt_live', work: mapWork(stmt.getWork.get(workId)) }
       }
 
@@ -1772,9 +1793,9 @@ export function openCoordinationDb({
       }
 
       if (status === 'aborted' && consumed) {
-        if (work.last_delivered_seq > work.last_consumed_seq) {
-          stmt.ackInbox.run(ts, workId, work.last_delivered_seq)
-          db.prepare('UPDATE works SET last_consumed_seq = MAX(last_consumed_seq, last_delivered_seq) WHERE work_id = ?').run(workId)
+        if (deliveredBound > work.last_consumed_seq) {
+          stmt.ackInbox.run(ts, workId, deliveredBound)
+          db.prepare('UPDATE works SET last_consumed_seq = MAX(last_consumed_seq, ?) WHERE work_id = ?').run(deliveredBound, workId)
         }
         if (interruptedTools.length > 0) {
           db.prepare('UPDATE works SET active_delivery_key = NULL, active_turn = NULL WHERE work_id = ?').run(workId)
@@ -1807,7 +1828,7 @@ export function openCoordinationDb({
       }
 
       if (status === 'completed') {
-        const ackBound = Math.max(work.last_consumed_seq, work.last_delivered_seq)
+        const ackBound = Math.max(work.last_consumed_seq, deliveredBound)
         if (ackBound > work.last_consumed_seq) {
           stmt.ackInbox.run(ts, workId, ackBound)
         }
@@ -1874,7 +1895,7 @@ export function openCoordinationDb({
 
       if (status === 'failed') {
         const failure = deliveryStatus.error ?? { code: 'turn/failed', message: 'Turn failed before host acknowledgement' }
-        const ackBound = consumed ? Math.max(work.last_consumed_seq, work.last_delivered_seq) : work.last_consumed_seq
+        const ackBound = consumed ? Math.max(work.last_consumed_seq, deliveredBound) : work.last_consumed_seq
         if (consumed && ackBound > work.last_consumed_seq) {
           stmt.ackInbox.run(ts, workId, ackBound)
         }

@@ -1276,6 +1276,7 @@ export function install(rt) {
                   workId: coordWorkId,
                   idempotencyKey: deliveryKey,
                   sessionId: task.sessionId,
+                  ...(Number.isInteger(reviseSeq) ? { throughSeq: reviseSeq } : {}),
                 })
               }
             })

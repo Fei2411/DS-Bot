@@ -1039,4 +1039,54 @@ test('verifier regressions: foreground chain isolation, reconcileDeliveryStatus 
   assert.ok(preservedFiles.some(name => !name.endsWith('-wal')), 'corrupt db backup preserved')
   assert.ok(preservedFiles.some(name => name.endsWith('-wal')), 'corrupt wal backup preserved')
   assert.equal(warnings.length, 1, 'corrupt reset must emit a diagnostic warning')
+
+  // 11. Direct-delivery key->seq binding (`recordDirectDeliveryAttempt` + `dsh_idempotency_key`):
+  //     persists `lastDeliveredSeq` and maps D2 `consumed: true` to exact inbox seqs for both `task`
+  //     and group `room_work`, preventing duplicate replay on restart even if host crashed before ack.
+  const ddTask = db.createWork({ botId: 'botA', kind: 'task', logicalAddress: 'task:dd1', sessionId: 'sess-dd1' }).work
+  const rev1 = db.receiveMessage({
+    workId: ddTask.workId,
+    kind: 'revise',
+    bodyPreview: 'follow up 1',
+    dshIdempotencyKey: 'task-send:dd1:k1',
+    wake: false,
+  })
+  const afterAttempt = db.recordDirectDeliveryAttempt({
+    workId: ddTask.workId,
+    idempotencyKey: 'task-send:dd1:k1',
+    sessionId: 'sess-dd1',
+    throughSeq: rev1.message.seq,
+  })
+  assert.equal(afterAttempt.lastDeliveredSeq, rev1.message.seq)
+  const recDone = db.reconcileDeliveryStatus({
+    workId: ddTask.workId,
+    deliveryStatus: { status: 'completed', consumed: true, idempotencyKey: 'task-send:dd1:k1', assistantText: 'done' },
+    autoSettle: true,
+  })
+  assert.equal(recDone.action, 'settled')
+  assert.equal(db.getWork(ddTask.workId).status, 'done')
+  assert.equal(db.listInbox(ddTask.workId, { unreadOnly: true }).length, 0)
+
+  // Group `room_work` direct delivery with explicit `throughSeq` also binds unread child results to deliveryKey.
+  const ddRoom = db.createWork({ botId: 'botB', kind: 'room_work', roomId: 'r1', originKind: 'group', sessionId: 'sess-r1-b' }).work
+  const childRes = db.receiveMessage({
+    workId: ddRoom.workId,
+    kind: 'result',
+    bodyPreview: 'child done',
+    wake: false,
+  })
+  const roomAttempt = db.recordDirectDeliveryAttempt({
+    workId: ddRoom.workId,
+    idempotencyKey: 'room-call:r1:k1',
+    sessionId: 'sess-r1-b',
+    throughSeq: childRes.message.seq,
+  })
+  assert.equal(roomAttempt.lastDeliveredSeq, childRes.message.seq)
+  const recRoom = db.reconcileDeliveryStatus({
+    workId: ddRoom.workId,
+    deliveryStatus: { status: 'completed', consumed: true, idempotencyKey: 'room-call:r1:k1', assistantText: 'synthesized' },
+    autoSettle: true,
+  })
+  assert.equal(recRoom.action, 'settled')
+  assert.equal(db.listInbox(ddRoom.workId, { unreadOnly: true }).length, 0)
 })

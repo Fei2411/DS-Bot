@@ -1496,7 +1496,6 @@ test('R2 P1: deliverToTask keeps revise unread until DSH user/message commits an
     const followText = `switch target to arm64 (${d2Status.status})`
     const callsBeforeSend = taskAgent.calls.length
     await rt.deliverToTask(task.id, { text: followText })
-    const sentMsg = taskAgent.calls[callsBeforeSend][1]
     assert.equal(taskAgent.calls.length, callsBeforeSend + 1, 'live process delivers once without duplicate')
 
     // BEFORE DSH commits `user/message`, revise MUST remain unread in SQLite.
@@ -1507,7 +1506,7 @@ test('R2 P1: deliverToTask keeps revise unread until DSH user/message commits an
     // Simulate crash right after rt.deliver() flush, before DSH persisted `user/message`.
     taskAgent.inbox.nextStep.length = 0
     taskAgent.inbox.nextTurn.length = 0
-    rt.forgetDelivery?.(sentMsg.source.exchangeId)
+    for (const [, m] of taskAgent.calls) rt.forgetDelivery?.(m?.source?.exchangeId)
     rt.forgetWorkDeliveries?.(taskWorkId)
 
     const callsBeforeRestart = taskAgent.calls.length
@@ -1529,5 +1528,51 @@ test('R2 P1: deliverToTask keeps revise unread until DSH user/message commits an
     emit(task.sessionId, 'turn/start', { turn: 2 })
     emit(task.sessionId, 'user/message', { content: replayedMsg.content, source: replayedMsg.source })
     assert.equal(rt.coordDb.listInbox(taskWorkId, { unreadOnly: true }).length, 0, 'DSH user/message lifecycle must ack revise seq')
+  }
+})
+
+test('R2 P1b: deliverToTask consumed-after-commit crash (completed+consumed and aborted+consumed without host ack) MUST NOT replay follow-up or fire "(continue work)"', async (t) => {
+  const cases = [
+    { label: 'completed+consumed', d2: { status: 'completed', consumed: true, assistantText: 'Finished arm64 build.' }, expectedDb: 'done', expectedTask: 'completed' },
+    { label: 'aborted+consumed(no-tools)', d2: { status: 'aborted', consumed: true, interruptedTools: [] }, expectedDb: 'stopped', expectedTask: 'interrupted' },
+    { label: 'aborted+consumed(interrupted-tools)', d2: { status: 'aborted', consumed: true, interruptedTools: [{ toolName: 'bash', callId: 'c1' }] }, expectedDb: 'needs_verification', expectedTask: 'waiting_work' },
+  ]
+  for (const tc of cases) {
+    const { rt, agents, tool } = await startHost(t)
+    await tool('task_start', { title: `bg-${tc.label}`, brief: 'initial build' }, 'dm-a')
+    const task = rt.botOf('a').tasks[0]
+    const taskWorkId = `task:${task.id}`
+    const taskAgent = agents.get(task.sessionId)
+    task.status = 'waiting_work'
+    rt.coordDb.parkWaiting(taskWorkId)
+
+    const followText = `deploy arm64 (${tc.label})`
+    const callsBeforeSend = taskAgent.calls.length
+    await rt.deliverToTask(task.id, { text: followText })
+    const sentMsg = taskAgent.calls[callsBeforeSend][1]
+
+    // Crash occurred AFTER DSH committed `user/message` (consumed: true) but BEFORE host lifecycle ack ran!
+    assert.equal(rt.coordDb.listInbox(taskWorkId, { unreadOnly: true }).length, 1)
+    assert.ok(rt.coordDb.getWork(taskWorkId).lastDeliveredSeq >= 1, 'recordDirectDeliveryAttempt must persist lastDeliveredSeq')
+
+    taskAgent.inbox.nextStep.length = 0
+    taskAgent.inbox.nextTurn.length = 0
+    for (const [, m] of taskAgent.calls) rt.forgetDelivery?.(m?.source?.exchangeId)
+    rt.forgetWorkDeliveries?.(taskWorkId)
+
+    const callsBeforeRestart = taskAgent.calls.length
+    const origQuery = rt.queryDeliveryStatus
+    rt.queryDeliveryStatus = async () => ({ ...tc.d2, idempotencyKey: sentMsg.source.idempotencyKey })
+    try {
+      await rt.adoptLiveWork()
+    } finally {
+      rt.queryDeliveryStatus = origQuery
+    }
+    await realDelay(40)
+
+    assert.equal(rt.coordDb.listInbox(taskWorkId, { unreadOnly: true }).length, 0, `${tc.label}: consumed revise must be acked during D2 reconciliation`)
+    assert.equal(rt.coordDb.getWork(taskWorkId).status, tc.expectedDb, `${tc.label}: db work status`)
+    assert.equal(task.status, tc.expectedTask, `${tc.label}: task status`)
+    assert.equal(taskAgent.calls.length, callsBeforeRestart, `${tc.label}: MUST NOT replay follow-up or fire "(continue work)"`)
   }
 })
