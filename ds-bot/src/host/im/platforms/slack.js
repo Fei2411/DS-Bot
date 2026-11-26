@@ -10,6 +10,11 @@ import { retryDelay } from './retry.js'
 
 const API = 'https://slack.com/api/'
 const TEXT_LIMIT = 4000
+// A section block's `text` is capped at 3000 characters. Slack rejects the whole
+// message with invalid_blocks when one is longer, so the blocks have to be split
+// by that limit even though the message-level `text` field allows more.
+const SECTION_LIMIT = 3000
+const FENCE = '```'
 
 const apiBase = env => `${String(env.config?.api ?? API).replace(/\/+$/, '')}/`
 
@@ -180,7 +185,10 @@ export default {
     })()
 
     const blocksFor = (text, buttons) => {
-      const blocks = [{ type: 'section', text: { type: 'mrkdwn', text } }]
+      // A section block's `text` is capped at 3,000 characters and Slack rejects the whole
+      // message with invalid_blocks when one is longer, so long text is split here rather
+      // than left to the 4,000-character message limit.
+      const blocks = sectionsOf(String(text ?? '')).map(section => ({ type: 'section', text: { type: 'mrkdwn', text: section } }))
       if (buttons?.length > 0) {
         blocks.push({
           type: 'actions',
@@ -290,8 +298,24 @@ export default {
         }
         return { messageId: String(meta.file_id) }
       },
-      edit: async (chat, messageId, { text, buttons }) => {
-        await api('chat.update', { channel: chat.key, ts: messageId, text: toMrkdwn(text).slice(0, TEXT_LIMIT), blocks: blocksFor(toMrkdwn(text).slice(0, TEXT_LIMIT), buttons) })
+      edit: async (chat, messageId, { text, buttons, sentLength }) => {
+        // `send` spreads a long card over several messages and answers with the last
+        // one, so the edit has to rebuild that same last chunk: rebuilding the whole
+        // card here put every earlier section back into the final message.
+        const body = settledChunk(text, sentLength)
+        // The blocks render `body` whole: trimming it to the 4,000-character message limit
+        // first removed the closing fence of a card that nearly filled it, `toMrkdwn` then
+        // read the code as prose, and the answer ended up inside the block. Sections are
+        // what Slack caps at 3,000, and the split there reopens a fence it has to cut.
+        // The top-level `text` is a 4,000-character field that screen readers read instead
+        // of the blocks, so it carries the question plus the answer rather than the tail
+        // of the card alone — which for a settled card is just `— yes`.
+        await api('chat.update', {
+          channel: chat.key,
+          ts: messageId,
+          text: toMrkdwn(accessibleText(body, sentLength)).slice(0, TEXT_LIMIT),
+          blocks: blocksFor(toMrkdwn(body), buttons),
+        })
       },
       stop: () => {
         stopped = true
@@ -337,3 +361,105 @@ async function download(url, token, env, limit, signal) {
   if (got.overLimit || got.bytes === undefined) return undefined
   return got.bytes
 }
+
+// Slack caps a section block's text at SECTION_LIMIT characters and rejects the whole
+// message when one is longer. Converted Markdown can also grow (a [label](url) link
+// becomes <url|link>), so the split is applied to the rendered text rather than to the
+// Markdown that chunkMarkdown measured.
+function sectionsOf(text) {
+  const parts = []
+  let rest = text
+  const closingMarker = `\n${FENCE}`
+  while (rest.length > SECTION_LIMIT) {
+    let at = cutAt(rest, SECTION_LIMIT)
+    let fence = fenceAt(rest, at)
+    // A cut inside a fence leaves one section with an unclosed fence and the next with
+    // stray code. The section that ends inside it closes it and the next one reopens it
+    // with the same info string; both marker lines come out of this section's budget, so a
+    // cut that fits the text alone has to move back. Moving back can land before the line
+    // that opened the fence, which turns the fence off rather than carrying a marker that
+    // no longer belongs there — so the fence is read again at the cut that is really used.
+    for (let pass = 0; pass < 3 && fence !== null; pass += 1) {
+      // A fence line too long to leave room for text is not worth reopening: the block
+      // continues as plain text instead of growing `rest` on every pass.
+      if (fence.length + 1 + closingMarker.length >= SECTION_LIMIT) {
+        fence = null
+        at = cutAt(rest, SECTION_LIMIT)
+        break
+      }
+      const budget = SECTION_LIMIT - closingMarker.length - (fence.length + 1)
+      if (at <= budget) break
+      at = cutAt(rest, budget)
+      fence = fenceAt(rest, at)
+    }
+    // What is open at the cut that is really used is the state this section ends in.
+    if (fence !== null) fence = fenceAt(rest, at)
+    const closing = fence === null || at + closingMarker.length > SECTION_LIMIT ? '' : closingMarker
+    // A continuation that is longer than the text it moves to the next section would make
+    // `rest` grow instead of shrink, and the loop would never end. The bare marker keeps
+    // the block open when the info string cannot.
+    const reopen = fence === null ? null : fence.length + 1 < at ? `${fence}\n` : `${FENCE}\n`
+    const opening = reopen !== null && reopen.length < at ? reopen : ''
+    parts.push(`${rest.slice(0, at).replace(/\n+$/, '')}${closing}`)
+    rest = `${opening}${rest.slice(at).replace(/^\n+/, '')}`
+  }
+  if (rest !== '' || parts.length === 0) parts.push(rest)
+  return parts
+}
+
+// Where one section ends: a line break in the second half of the limit when there is one,
+// otherwise the limit itself. A cut between the halves of a surrogate pair is stepped back
+// one unit, or both sections carry half an emoji.
+function cutAt(text, limit) {
+  const newline = text.lastIndexOf('\n', limit)
+  let at = newline > limit / 2 ? newline : limit
+  const before = text.charCodeAt(at - 1)
+  if (at > 1 && before >= 0xd800 && before <= 0xdbff) at -= 1
+  return at
+}
+
+// The fence a cut lands inside: the line that opened it, or null when no block is open at
+// `at`. A line that starts with a fence marker opens or closes a block, which is what both
+// Slack and this split have to agree on.
+function fenceAt(text, at) {
+  let open = null
+  for (const line of text.slice(0, at).split('\n')) {
+    if (!line.trimStart().startsWith(FENCE)) continue
+    open = open === null ? line.trim() : null
+  }
+  return open
+}
+
+// The chunk an edit has to write. `send` spreads a long card over several messages and
+// answers with the last one, so the edit belongs to that message's own chunk. A settled
+// card arrives as the card plus `\n— <answer>`: cutting the combined text again moves
+// every boundary, and a card already near the limit comes out as the answer alone. Take
+// the chunk that was already sent and append what came after it — whole, because the
+// blocks split it by the section limit and trimming here would cut a closing fence.
+function settledChunk(text, sentLength) {
+  const whole = String(text ?? '')
+  if (sentLength === undefined || sentLength >= whole.length) return chunkMarkdown(whole, TEXT_LIMIT).at(-1) ?? ''
+  const sent = whole.slice(0, Math.max(0, sentLength))
+  const tail = whole.slice(Math.max(0, sentLength))
+  return (chunkMarkdown(sent, TEXT_LIMIT).at(-1) ?? '') + tail
+}
+
+// The top-level `text` field: Slack shows it to screen readers and in notifications
+// instead of the blocks. The blocks above carry the whole card, but that field is capped
+// at 4,000 characters, so a card that nearly fills a message plus its answer has to be
+// summarised. Keeping the head of the card keeps the question; appending the answer keeps
+// the outcome. Trimming the combined text instead left exactly `— yes!!`, which named
+// neither the question nor which card it belonged to.
+function accessibleText(body, sentLength) {
+  const whole = String(body ?? '')
+  if (whole.length <= TEXT_LIMIT) return whole
+  const tail = sentLength !== undefined && sentLength < whole.length ? whole.slice(sentLength) : ''
+  if (tail === '' || tail.length >= TEXT_LIMIT) return whole.slice(0, TEXT_LIMIT)
+  const room = TEXT_LIMIT - tail.length - 1
+  const head = room > 0 ? whole.slice(0, room) : ''
+  // A budget can land between the halves of an astral character.
+  const at = head.length > 0 && isHighSurrogate(head.charCodeAt(head.length - 1)) ? head.length - 1 : head.length
+  return `${head.slice(0, at).replace(/\s+$/, '')}\n${tail}`
+}
+
+const isHighSurrogate = code => code >= 0xd800 && code <= 0xdbff
