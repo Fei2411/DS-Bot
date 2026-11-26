@@ -9,7 +9,7 @@ import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
 import { emptyAccelQueueKey, enterSteers, steerable } from './enter-steer.js'
 import {
   captureAdmissionBaseline, chatOfSession, dropPartDraft, dropSentDraft,
-  flushDrafts, hasLivePartDraft, isSentAdmitted, keepDraft, keepDraftFiles, keepSentDraft,
+  flushDrafts, hasLivePartDraft, hasOtherTabPartDraft, isSentAdmitted, keepDraft, keepDraftFiles, keepSentDraft,
   markSentAdmitted, maxUserSeqOf, peekSentDraft, takeDraft, takeSentDraft,
 } from './draft-keep.js'
 import { lruGet, lruSet } from './memo.js'
@@ -539,9 +539,6 @@ export function DraftKeeper({
     if (watch !== undefined) {
       const livePartDraft = hasLivePartDraft({ chatId, part: sessionId })
       if (draft !== watch.text || livePartDraft) {
-        if (draft === watch.text && livePartDraft) {
-          skippedLiveDraft.current = { key, draft }
-        }
         dropSentDraft({ chatId, sessionId })
       } else if (isSentAdmitted(watch, { chat, pendingSubmissions, queue, nextStep })) {
         takeSentDraft({ chatId, sessionId })
@@ -598,6 +595,9 @@ export function DraftKeeper({
     // draft is kept from what the box holds now, and the user hears the files are gone.
     pending.current = { text: restoredText, staleDraft: restoredText ? draft : null, files: restoredFiles }
     restored.current = key
+    if (!restoredText && !clearSent && hasOtherTabPartDraft({ chatId, part: sessionId, text: draft })) {
+      skippedLiveDraft.current = { key, draft }
+    }
     const wasDeferred = deferredRestore.current
     deferredRestore.current = false
     if (wasDeferred && !restoredText && !restoredFiles && (draft !== '' || ids.length > 0)) {

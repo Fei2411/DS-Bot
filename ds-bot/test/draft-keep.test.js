@@ -1390,5 +1390,21 @@ test('preserving another tab\'s live text draft still keeps this page\'s private
     stateA.attachmentIds = []
     tabA.remount(propsA)
     assert.deepEqual(restoredNames, ['local-image.png', 'extra-image.png'], `${mode}: private attachments survive competing Tab B text draft`)
+
+    // Once restored attachment IDs land on that second remount (with either stale sent text or
+    // an empty box in Tab A), Tab B's shared text draft must STILL remain intact.
+    for (const secondMountDraft of ['Run the tests', '']) {
+      stateA.draft = secondMountDraft
+      stateA.attachmentIds = []
+      tabA.remount(propsA)
+      stateA.attachmentIds = ['restored-0', 'restored-1']
+      tabA.render(propsA)
+      await new Promise(resolve => setTimeout(resolve, 350))
+      assert.deepEqual(
+        JSON.parse(ls.getItem(STORAGE.drafts)),
+        { bee: { part: 'bee-2', text: 'Review the results' } },
+        `${mode} (second remount draft=${JSON.stringify(secondMountDraft)}): Tab B text stays intact`,
+      )
+    }
   }
 })

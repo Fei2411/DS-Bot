@@ -20774,6 +20774,10 @@ function hasLivePartDraft({ chatId, part }, storage = globalThis.localStorage) {
   const entry = entryFor(storage, { sync: true }).texts[chatId];
   return textEntry(entry) && entry.part === part && entry.text !== "";
 }
+function hasOtherTabPartDraft({ chatId, part, text }, storage = globalThis.localStorage) {
+  const entry = entryFor(storage, { sync: true }).texts[chatId];
+  return textEntry(entry) && entry.part === part && entry.text !== "" && entry.text !== text;
+}
 var contentText2 = (content) => Array.isArray(content) ? content.filter((block) => block?.type === "text" && typeof block.text === "string").map((block) => block.text).join("") : "";
 var isQuoteLine = (line) => line.startsWith(">");
 function normalizeQuoteText(text) {
@@ -62117,9 +62121,6 @@ function DraftKeeper({
     if (watch2 !== void 0) {
       const livePartDraft = hasLivePartDraft({ chatId, part: sessionId });
       if (draft !== watch2.text || livePartDraft) {
-        if (draft === watch2.text && livePartDraft) {
-          skippedLiveDraft.current = { key, draft };
-        }
         dropSentDraft({ chatId, sessionId });
       } else if (isSentAdmitted(watch2, { chat, pendingSubmissions, queue: queue2, nextStep })) {
         takeSentDraft({ chatId, sessionId });
@@ -62174,6 +62175,9 @@ function DraftKeeper({
     }
     pending.current = { text: restoredText, staleDraft: restoredText ? draft : null, files: restoredFiles };
     restored.current = key;
+    if (!restoredText && !clearSent && hasOtherTabPartDraft({ chatId, part: sessionId, text: draft })) {
+      skippedLiveDraft.current = { key, draft };
+    }
     const wasDeferred = deferredRestore.current;
     deferredRestore.current = false;
     if (wasDeferred && !restoredText && !restoredFiles && (draft !== "" || ids.length > 0)) {

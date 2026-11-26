@@ -202,6 +202,18 @@ export function hasLivePartDraft({ chatId, part }, storage = globalThis.localSto
   return textEntry(entry) && entry.part === part && entry.text !== ''
 }
 
+/**
+ * Whether shared storage currently holds a live unsent draft for `part` whose text differs
+ * from this page's current box text (written by another tab).
+ * @param {{ chatId: string, part: string, text: string }} where
+ * @param {Storage} [storage]
+ * @returns {boolean}
+ */
+export function hasOtherTabPartDraft({ chatId, part, text }, storage = globalThis.localStorage) {
+  const entry = entryFor(storage, { sync: true }).texts[chatId]
+  return textEntry(entry) && entry.part === part && entry.text !== '' && entry.text !== text
+}
+
 const contentText = content => (Array.isArray(content)
   ? content.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('')
   : '')
