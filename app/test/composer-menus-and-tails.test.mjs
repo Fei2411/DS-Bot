@@ -102,9 +102,11 @@ class TestComponent {
   constructor(props) { this.props = props; this.state = {} }
   setState(next) { this.state = { ...this.state, ...(typeof next === 'function' ? next(this.state, this.props) : next) } }
 }
+const MEMO_TYPE = Symbol.for('react.memo')
 const react = {
   Component: TestComponent,
   Fragment: 'fragment',
+  memo: fn => ({ $$typeof: MEMO_TYPE, type: fn }),
   createElement: (type, props, ...children) => ({ type, props: { ...props, children: children.flat() } }),
   useState: (initial) => {
     const cell = slot(() => ({ value: typeof initial === 'function' ? initial() : initial }))
@@ -208,23 +210,26 @@ const {
   mentionSpans,
 } = mod.exports
 
+const resolveType = type => (type && typeof type === 'object' && type.$$typeof === MEMO_TYPE ? type.type : type)
+
 const expand = (node, path = 'root') => {
   if (Array.isArray(node)) return node.map((child, idx) => expand(child, `${path}[${child?.props?.key ?? idx}]`))
   if (!node || typeof node !== 'object') return node
-  if (typeof node.type === 'function') {
-    const id = `${path}/${node.type.name || 'fn'}:${node.props?.key ?? ''}`
+  const fn = resolveType(node.type)
+  if (typeof fn === 'function') {
+    const id = `${path}/${fn.name || 'fn'}:${node.props?.key ?? ''}`
     let bucket = current.fibers.get(id)
     if (!bucket) { bucket = { slots: [], index: 0 }; current.fibers.set(id, bucket) }
     bucket.index = 0
     const prev = current.fiber
     current.fiber = bucket
     try {
-      if (node.type.prototype instanceof TestComponent) {
-        const cell = slot(() => ({ inst: new node.type(node.props) }))
+      if (fn.prototype instanceof TestComponent) {
+        const cell = slot(() => ({ inst: new fn(node.props) }))
         cell.inst.props = node.props
         return expand(cell.inst.render(), id)
       }
-      return expand(node.type(node.props), id)
+      return expand(fn(node.props), id)
     } finally {
       current.fiber = prev
     }

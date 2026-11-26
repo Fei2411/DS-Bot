@@ -1691,7 +1691,7 @@ export function install(rt) {
       : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${note}`
   }
 
-  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, cutoff, runtimeLost = false, failed, bare, folder, engine }) {
+  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, cutoff, runtimeLost = false, failed, bare, folder, engine, preset }) {
     const where = room === undefined ? 'your own chat with the user'
       : self ? `the group chat "${room.name}"` : `your conversation in the group chat "${room.name}"`
     const lookup = room === undefined
@@ -1704,7 +1704,8 @@ export function install(rt) {
           : engine !== undefined ? `the user changed what you run on, to ${engine}`
             : cutoff ? 'the previous part kept being cut off at the output limit'
               : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}`
-                : 'the previous part grew long'
+                : preset ? 'your agent preset changed'
+                  : 'the previous part grew long'
     const { recent, earlier, tools = [], unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
@@ -2174,6 +2175,7 @@ export function install(rt) {
       bare: meta.bare === true,
       folder,
       engine,
+      preset: meta.preset === true,
     })
     freshParts.set(targetId, estimateTokens(text))
     const recoveredJob = {
@@ -2219,6 +2221,7 @@ export function install(rt) {
       let runtimeLostHasUnread = false
       let folder = newestMeta.folder === true
       let engine = newestMeta.engine === true
+      let preset = newestMeta.preset === true
       let bare = newestMeta.bare === true
       let failed = newestMeta.failed
       let primaryInfo
@@ -2236,6 +2239,7 @@ export function install(rt) {
         if (meta.runtimeLostHasUnread === true) runtimeLostHasUnread = true
         if (meta.folder === true) folder = true
         if (meta.engine === true) engine = true
+        if (meta.preset === true) preset = true
         if (meta.failed !== undefined) failed = meta.failed
         if (meta.info !== undefined) primaryInfo = meta.info
         if (meta.resumeOrigin !== undefined) resumeOrigin = meta.resumeOrigin
@@ -2259,6 +2263,7 @@ export function install(rt) {
         ...(runtimeLostHasUnread ? { runtimeLostHasUnread: true } : {}),
         folder,
         engine,
+        preset,
         bare,
         ...(failed !== undefined ? { failed } : {}),
         ...(primaryInfo !== undefined ? { info: primaryInfo } : {}),
@@ -2482,12 +2487,12 @@ export function install(rt) {
   // `engine`: because the Bot now runs on something else (see engineMoved).
   // `idle`: initiated after a turn ended (after async checks like decide/canMakeRoom);
   // bail out atomically if a new turn started meanwhile so running work is never killed.
-  function startSwitch(agent, { idle = false, resume = false, carry = [], carriedIds, info, joined, overflow = false, runtimeLost = false, failed, bare = false, folder = false, cutoff = false, engine = false, hard = overflow || runtimeLost || folder || engine || cutoff } = {}) {
+  function startSwitch(agent, { idle = false, resume = false, carry = [], carriedIds, info, joined, overflow = false, runtimeLost = false, failed, bare = false, folder = false, cutoff = false, engine = false, preset = false, hard = overflow || runtimeLost || folder || engine || cutoff || preset } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return false
     if (idle && !isAgentIdle(agent)) return false
     const resumeOrigin = resume || place.botId === undefined ? rt.holdImOrigin?.(agent.id) : undefined
-    const job = { ...place, carry: [...carry], carriedIds: new Set(carriedIds ?? []), info, joined, resume, resumeOrigin, overflow, runtimeLost, failed, bare, folder, engine, hard, cutoff, since: Date.now() }
+    const job = { ...place, carry: [...carry], carriedIds: new Set(carriedIds ?? []), info, joined, resume, resumeOrigin, overflow, runtimeLost, failed, bare, folder, engine, preset, hard, cutoff, since: Date.now() }
     switches.set(agent.id, job)
     const done = runSwitch(agent, job)
       .catch(error => {
@@ -2723,6 +2728,22 @@ export function install(rt) {
     engineWakes.clear()
   }, 'ds-bot: wake parts that wait for their run mode')
 
+  // The card's call stays in the old part: the fresh part raises it in the
+  // composer dock while pending, and closing it records at the part that asked it.
+  // A group member's IM card is the same store, keyed by the session that asked.
+  function movePendingCards(fromId, freshId) {
+    if (state.questions[fromId] !== undefined) {
+      const pending = state.questions[fromId]
+      state.questions[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: fromId } : pending
+      delete state.questions[fromId]
+    }
+    if (state.views?.[fromId] !== undefined) {
+      const pending = state.views[fromId]
+      state.views[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: fromId } : pending
+      delete state.views[fromId]
+    }
+  }
+
   async function moveOn(agent, job, signal) {
     job.started = true
     const bot = job.botId === undefined ? undefined : rt.botOf(job.botId)
@@ -2753,7 +2774,7 @@ export function install(rt) {
     let failure
     const local = localPart(session)
     // The group's own Session only relays; it has no route a note could be written with.
-    if (!job.engine && !job.overflow && job.cutoff !== true && job.runtimeLost !== true && job.failed === undefined && !whole && bot !== undefined) {
+    if (!job.preset && !job.engine && !job.overflow && job.cutoff !== true && job.runtimeLost !== true && job.failed === undefined && !whole && bot !== undefined) {
       try {
         const noteSignal = AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)])
         written = local ? await writeLocalNote(agent, noteSignal, { folder: job.folder }) : await writeNote(agent, noteSignal, { folder: job.folder })
@@ -2783,7 +2804,7 @@ export function install(rt) {
     const fallback = written !== undefined ? undefined
       : job.engine ? 'engine'
       : job.runtimeLost === true ? 'runtime-lost'
-      : whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : 'failed'
+      : whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : job.preset ? 'preset' : 'failed'
     const noteBody = written !== undefined ? written.note : earlierNote.note
     const noteFrom = written !== undefined ? undefined : earlierNote.noteFrom
     carried ??= await readLines()
@@ -2792,7 +2813,8 @@ export function install(rt) {
       ? (taskEntry.workDir ?? undefined)
       : rt.workDirOf(effectiveRoom !== undefined && job.roomId === undefined ? { ...job, roomId: effectiveRoom.id } : job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
-    const freshId = await rt.createSession(effectiveRoom === undefined ? name : bot === undefined ? effectiveRoom.name : `${name} · ${effectiveRoom.name}`, { dir })
+    const presetAtCreation = bot?.agentPreset
+    const freshId = await rt.createSession(effectiveRoom === undefined ? name : bot === undefined ? effectiveRoom.name : `${name} · ${effectiveRoom.name}`, { dir, bot })
     // The group's own Session never asks the model, so selectRoomSession picks an
     // image-capable route when available; the earlier part's route may no longer be served (#1310).
     if (bot === undefined) await rt.selectRoomSession(freshId, room)
@@ -2856,17 +2878,10 @@ export function install(rt) {
       // The card's call stays in the old part: the fresh part raises it in the
       // composer dock (and IM routing for group members) while pending, and closing it
       // records at the part that asked it.
-      if (state.questions[agent.id] !== undefined) {
-        const pending = state.questions[agent.id]
-        state.questions[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: agent.id } : pending
-        delete state.questions[agent.id]
-      }
-      if (state.views?.[agent.id] !== undefined) {
-        const pending = state.views[agent.id]
-        state.views[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: agent.id } : pending
-        delete state.views[agent.id]
-      }
+      movePendingCards(agent.id, freshId)
     }
+    // A clear arriving during creation still belongs to the part made with the old pick.
+    finishPresetClear(bot, agent.id, presetAtCreation !== undefined ? freshId : undefined)
     const hasRuntimeLostUnread = job.runtimeLost === true && !job.bare && unreadRequestsForRuntimeLost(session, agent.id, job).length > 0
     const resume = job.resume || (job.overflow && !job.bare) || job.runtimeLost
     const handoffResume = resume && !hasRuntimeLostUnread
@@ -2894,6 +2909,7 @@ export function install(rt) {
         bare: job.bare === true,
         folder: job.folder === true,
         engine: job.engine === true,
+        preset: job.preset === true,
         ...(sanitizedInfo !== undefined ? { info: sanitizedInfo } : {}),
         ...(resume && job.joined?.length ? { joined: job.joined } : {}),
         ...(job.resumeOrigin !== undefined ? { resumeOrigin: job.resumeOrigin } : {}),
@@ -2923,7 +2939,7 @@ export function install(rt) {
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume: handoffResume, overflow: job.overflow, cutoff: job.cutoff === true, runtimeLost: job.runtimeLost === true, failed: job.failed, bare: job.bare, folder, engine })
+      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume: handoffResume, overflow: job.overflow, cutoff: job.cutoff === true, runtimeLost: job.runtimeLost === true, failed: job.failed, bare: job.bare, folder, engine, preset: job.preset })
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, handoffResume, { omitOrigin: hasRuntimeLostUnread }) }))
       await ctx.sessions.flush(fresh.session)
@@ -3541,7 +3557,9 @@ export function install(rt) {
         void Promise.resolve().then(() => wakeFailedTurnInbox(agent, end))
           .catch(error => rt.warn('ds-bot: waking queued input in %s after a failed turn failed: %s', agent.id, error))
       } else {
-        void checkContext(agent).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
+        void followPreset(agent).then(() => {
+          if (agent.status === 'idle') return checkContext(agent)
+        }).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
       }
     }
   })
@@ -3955,6 +3973,98 @@ export function install(rt) {
     return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor, steps)) }
   }
 
+  function noteDefaultPresetPending(bot, sessionId) {
+    if (bot?.agentPresetDefault !== true || !Array.isArray(bot.agentPresetDefaultPending)) return false
+    if (typeof sessionId !== 'string' || sessionId === '' || bot.agentPresetDefaultPending.includes(sessionId)) return false
+    bot.agentPresetDefaultPending.push(sessionId)
+    return true
+  }
+
+  function finishPresetClear(bot, sessionId, replacement) {
+    if (!bot?.agentPresetDefaultPending?.includes(sessionId)) return false
+    bot.agentPresetDefaultPending.splice(bot.agentPresetDefaultPending.indexOf(sessionId), 1, ...(replacement === undefined ? [] : [replacement]))
+    if (bot.agentPresetDefaultPending.length === 0) delete bot.agentPresetDefaultPending
+    return true
+  }
+
+  // The Sessions a Bot speaks from right now: every live own-chat thread and each group it is in.
+  const presetSessionsOf = bot => [...new Set([...ownChatSessions(bot), ...(rt.groupSessionsOf?.(bot.id) ?? [])].filter(Boolean))]
+
+  // A part keeps the preset it was made with. A part that does not run the Bot's pick
+  // moves on to a fresh part at its next idle moment; its history stays readable and
+  // input that arrives meanwhile moves along.
+  async function applyBotPreset(bot) {
+    let started = false
+    for (const sessionId of presetSessionsOf(bot)) {
+      if (rt.botOf(bot.id) === undefined) break
+      // A part already moving reads the pick when it makes its fresh part.
+      if (switches.has(sessionId)) continue
+      const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+      if (agent !== undefined && await followPreset(agent)) started = true
+    }
+    return started
+  }
+
+  // Registering a switch blocks the next step, so wait for the whole turn to finish.
+  // The idle event also retries saved changes after a failed switch or host restart.
+  async function followPreset(agent) {
+    const place = placeOf(agent.id)
+    if (place?.botId === undefined || agent.status !== 'idle' || readOnly() || switches.has(agent.id)) return
+    // Keep the failed turn and its repair controls until the user retries successfully.
+    if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
+    // An owner map can still name a settled task until the next save. That session
+    // is not one the Bot speaks from, so a preset change must not move it.
+    const bot = rt.botOf(place.botId)
+    if (bot === undefined || !presetSessionsOf(bot).includes(agent.id)) return
+    if (!await presetMismatch(agent, place.botId)) return
+    // Resolving the preset can yield to a new turn, a switch of run mode, or a task
+    // that settled and left the live set while the roster was being read.
+    const still = rt.botOf(place.botId)
+    if (agent.status !== 'idle' || placeOf(agent.id)?.botId !== place.botId
+      || lastTurnEnd(agent)?.data?.reason?.kind === 'error'
+      || rt.isLocalAgentRef?.(still?.model ?? still?.appliedModel) === true
+      || still === undefined || !presetSessionsOf(still).includes(agent.id)) return
+    startSwitch(agent, { preset: true })
+    return true
+  }
+
+  // Whether the idle part still needs to move to the Bot's saved pick. A Bot with
+  // no pick at all keeps the preset its parts were made with (a team saved before presets
+  // existed); one whose user cleared the pick has stated the default as its intent, so a
+  // switch that failed is tried again here.
+  async function presetMismatch(agent, botId) {
+    const bot = rt.botOf(botId)
+    if (bot === undefined) return undefined
+    const explicit = typeof bot.agentPreset === 'string' && bot.agentPreset !== ''
+    if (!explicit && bot.agentPresetDefault !== true) return undefined
+    const pick = bot.agentPreset
+    const cleared = bot.agentPresetDefault
+    const pending = bot.agentPresetDefaultPending
+    const wanted = await rt.botPresetOf?.(bot)
+    if (rt.botOf(botId) !== bot || bot.agentPreset !== pick || bot.agentPresetDefault !== cleared
+      || bot.agentPresetDefaultPending !== pending) return undefined
+    // A clear still needs a default-composed part when DSH cannot name that default.
+    // Background threads are own chats too, so a live one recorded at the clear qualifies.
+    if (wanted === undefined) {
+      const recorded = bot.agentPresetDefaultPending ?? []
+      if (!recorded.includes(agent.id)) return undefined
+      return presetSessionsOf(bot).includes(agent.id) ? botId : undefined
+    }
+    if (!wanted.usable) {
+      rt.presetProblem?.(bot, wanted.id)
+      return undefined
+    }
+    const presets = ctx.get?.('agentPresets')
+    if (typeof presets?.presetForSession !== 'function') return undefined
+    if (presets.presetForSession(agent.session) === wanted.id) {
+      if (finishPresetClear(bot, agent.id)) await rt.save()
+      return undefined
+    }
+    // The session may have left the live set while the roster was read.
+    if (!presetSessionsOf(bot).includes(agent.id)) return undefined
+    return botId
+  }
+
   // A DSH Agent's newest Session, paged like one part of a Bot's chat.
   async function agentPage(agentId, cursor, steps = false) {
     const agent = rt.agentById(agentId)
@@ -4011,7 +4121,7 @@ export function install(rt) {
       }
     }
     if (sessionId === undefined) {
-      sessionId = await rt.createSession(`${bot.name} · ${task.title}`, { dir })
+      sessionId = await rt.createSession(`${bot.name} · ${task.title}`, { dir, bot })
     }
     const sourceAgent = ctx.get('agents')?.get(fromSessionId)
     const picked = await freshRoute(bot, sourceAgent?.session)
@@ -4082,6 +4192,9 @@ export function install(rt) {
       ...(workDir !== undefined ? { workDir } : {}),
     }
     ;(bot.tasks ??= []).push(stored)
+    if (dshForked && bot.agentPresetDefaultPending?.includes(fromSessionId)) {
+      noteDefaultPresetPending(bot, sessionId)
+    }
     await rt.save()
     const now = await freshRoute(bot, sourceAgent?.session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {
@@ -4114,7 +4227,7 @@ export function install(rt) {
       }
     }
     if (sessionId === undefined) {
-      sessionId = await rt.createSession(bot.name, { dir })
+      sessionId = await rt.createSession(bot.name, { dir, bot })
     }
     const picked = await freshRoute(bot, sourceAgent?.session)
     if (picked !== undefined) await selectRoute({ name: bot.name }, sessionId, picked)
@@ -4233,5 +4346,5 @@ export function install(rt) {
     || Object.entries(state.switching ?? {}).some(([sessionId, owner]) => owner?.botId === botId
       && owner.roomId === undefined && currentOf(owner) !== sessionId)
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, isSwitchingPart: id => switches.has(id), isSwitching, isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, isSwitchingPart: id => switches.has(id), isSwitching, isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, noteDefaultPresetPending, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }
