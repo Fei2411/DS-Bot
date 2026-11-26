@@ -7,7 +7,8 @@ import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
-import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+import { botState, lastTurnFailed, latestTurnOf, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+export { botPendingOf } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { SidebarTaskPill, taskCountsOf } from './bot-tasks.js'
 import { reducedMotion } from './activity-row.js'
@@ -100,6 +101,7 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   const active = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
   const pendingInteraction = useSessionStatus(map => map.get(part)?.pendingInteraction !== undefined)
   const unread = pendingInteraction || completionUnread || (marked && !active)
+  const finished = completionUnread && !active
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
@@ -116,8 +118,15 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   // a running turn paused on a card still wears the alert mark; any remaining
   // 'alert' activity comes from a group, background-task, or unanswerable approval
   // and is stripped while the foreground turn runs.
+  const taskCounts = taskCountsOf({ bot })
+  const failed = lastTurnFailed(bot, useSessions(list => latestTurnOf(list, part)))
   const dmDoing = asks.blocking ? 'alert' : doing === 'alert' ? undefined : doing
-  const state = botState(running || away, dmDoing, alert)
+  const markAlert = Boolean(asks.blocking) || (asks.deferred !== undefined && asks.deferred.kind !== 'blocked') || taskCounts.waitingApproval > 0
+  const state = botState(running || away, dmDoing, markAlert, {
+    failed,
+    background: taskCounts.active > 0,
+    replied: finished,
+  })
   const waitLine = waitLineOf(asks.blocking)
   const deferredWaitLine = waitLineOf(asks.deferred)
   // A Bot running in its own chat previews what it is doing, like a group's row.
@@ -133,7 +142,6 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
     actions.openMenu({ kind: 'bot', id, x: event.clientX, y: event.clientY })
   }
   const pinned = bot.pinned === true && !tile
-  const taskCounts = taskCountsOf({ bot })
   const openTasks = () => { actions.openSession(id); actions.openTaskDeck?.(id) }
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', taskCounts.active > 0 ? t('{count} background tasks running', { count: taskCounts.active }) : '', waitsFor, waitLine || deferredWaitLine || '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
   if (tile && wide) {

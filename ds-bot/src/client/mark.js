@@ -2,6 +2,7 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
 import { LiveMark } from './avatar/live.js'
 import { memo } from './memo.js'
+import { currentPart, turnOutlineOf } from './text.js'
 import { t } from './i18n.js'
 
 export { colorOf, lookOf } from './characters.js'
@@ -13,12 +14,91 @@ export { colorOf, lookOf } from './characters.js'
 // moves gets a live layer (avatar/live.js): the character's 3D model turned and drawn
 // by the avatar engine, from the same pose, so nothing jumps when it takes over.
 
-// Mark states: what the Bot is doing picks the motion (avatar/states.js). `waiting`:
-// no turn runs, but work it handed on has not come back yet. `orbit`: relaying
-// messages in a group.
-const STATES = ['idle', 'thinking', 'searching', 'working', 'sending', 'orbit', 'waiting', 'alert', 'done']
-export const botState = (running, activity, alert) => (running ? (STATES.includes(activity) && activity !== 'waiting' ? activity : 'working')
-  : alert ? 'alert' : activity === 'waiting' ? 'waiting' : 'idle')
+// Mark states: what the Bot is doing picks the motion (avatar/states.js), and the motion
+// alone says it; no state needs a badge or a line of text to read. `waiting`: no turn
+// runs, but work it handed on has not come back yet. `orbit`: relaying messages in a
+// group. Between turns, in this order: a question for you (`alert`), a last turn that
+// failed (`failed`), work handed on (`waiting`), background tasks running
+// (`background`), a reply you have not read (`replied`).
+const STATES = ['idle', 'thinking', 'searching', 'working', 'sending', 'orbit', 'waiting', 'background', 'alert', 'failed', 'done', 'replied']
+// States between turns; a running turn shows what it does instead.
+const BETWEEN = new Set(['waiting', 'background', 'failed', 'replied'])
+// States that wear the working badge.
+const RUNNING = new Set(['thinking', 'searching', 'working', 'sending', 'orbit', 'done'])
+export const botState = (running, activity, alert, { failed = false, background = false, replied = false } = {}) => (running
+  ? (STATES.includes(activity) && !BETWEEN.has(activity) ? activity : 'working')
+  : alert ? 'alert' : failed ? 'failed' : activity === 'waiting' ? 'waiting' : background ? 'background' : replied ? 'replied' : 'idle')
+// The newest turn a part's live outline lists, or undefined while the list holds none.
+export const latestTurnOf = (list, part) => {
+  const outline = turnOutlineOf(list, part)
+  return Array.isArray(outline) && outline.length > 0 ? outline.at(-1).turn : undefined
+}
+// Whether the Bot's last turn in its chat failed. The host keeps the failure under the
+// part and turn it happened in until a turn there goes through, but the roster that
+// carries it is polled, while the part's turn outline is live. So a non-blocking failure
+// counts until a later turn shows in the outline: a retry under way, finished or stopped
+// leaves it behind at once, as the chat's failure card does (turn-error.js). A turn the
+// host could not number (picked up after a restart) cannot be placed, so it counts. A
+// block (a key, a balance) stands for the whole Bot until the host clears it on a
+// completed turn or provider fix: turnOutline records turn/start, so a retry that is
+// manually stopped must not hide an active block.
+export function lastTurnFailed(bot, latestTurn) {
+  if (bot === undefined) return false
+  if (bot.blocked !== undefined) return true
+  const failure = bot.failures?.[currentPart(bot)]
+  if (failure === undefined) return false
+  return !(failure.turn >= 1 && latestTurn > failure.turn)
+}
+
+const useFalse = () => false
+const hasPendingRequest = list => Array.isArray(list) && list.some(entry => entry?.status === 'pending')
+
+// Pending user-action cards stored on the roster for one Bot's DM:
+// skill / AGENTS.md learning proposals, secret / connector / mail approvals,
+// and ask_user / show_view cards.
+export function botPendingOf(roster, bot) {
+  if (bot === undefined) return { learning: false, cardApproval: false, question: false }
+  const id = bot.id
+  const part = currentPart(bot)
+  const learning = (roster?.learning?.[id]?.length ?? 0) > 0
+  const cardApproval = hasPendingRequest(roster?.secretRequests?.[id])
+    || hasPendingRequest(roster?.connectorRequests?.[id])
+    || hasPendingRequest(roster?.mailRequests?.[id])
+  const question = roster?.questions?.[part] !== undefined || roster?.views?.[part] !== undefined
+  return { learning, cardApproval, question }
+}
+
+// Direct-chat foreground and background approvals for one Bot (excluding group approvals #1623).
+export function useBotApprovals(botId, useWork, useComputer) {
+  const useReadWork = useWork ?? useFalse
+  const useReadComputer = useComputer ?? useFalse
+  const fgTool = useReadWork(work => botId !== undefined && (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === botId && entry.taskId === undefined && entry.answerable !== false))
+  const fgComputer = useReadComputer(comp => botId !== undefined && Object.values(comp?.asks ?? {}).some(ask => ask.roomId === undefined && ask.botId === botId))
+  const bgApproval = useReadWork(work => botId !== undefined && (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === botId && entry.taskId !== undefined && entry.answerable !== false))
+  return { fgApproval: fgTool || fgComputer, bgApproval }
+}
+
+export const isBrowserHandoff = hold => hold?.callId !== undefined
+export const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.fromBot === true || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))
+
+// Active browser/computer handoff hold waiting for the user on one Bot.
+export function useBotHandoff(botId, useBrowserHolds, useComputer) {
+  const useReadBrowserHolds = useBrowserHolds ?? useFalse
+  const useReadComputer = useComputer ?? useFalse
+  const browserHandoff = useReadBrowserHolds(map => botId !== undefined && isBrowserHandoff(map?.[botId]))
+  const computerHandoff = useReadComputer(comp => botId !== undefined && isComputerHandoff(comp?.holds?.[botId]))
+  return browserHandoff || computerHandoff
+}
+
+// Unified direct-chat mark state shared by the sidebar row, header pill and details drawer.
+// Blocking DM approvals/questions/handoffs override a running foreground turn; non-blocking items
+// (background-task approvals, learning proposals) alert once idle without hiding foreground work.
+export function dmMarkState({ running = false, doing, failed = false, background = false, waitingApproval = false, replied = false, fgApproval = false, bgApproval = false, handoff = false, pending = {} }) {
+  const blockingAlert = Boolean(fgApproval || pending.cardApproval || pending.question || handoff)
+  const alert = blockingAlert || Boolean(bgApproval || pending.learning || waitingApproval)
+  const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
+  return botState(running, dmDoing, alert, { failed, background, replied })
+}
 export const toolState = name => (/^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
   : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? 'searching' : 'working')
 
@@ -118,25 +198,35 @@ function MainStar() {
 }
 
 // Marks settle with a short squash when a run finishes.
+// Done, for a moment, when a piece of work comes to an end: the Bot was busy and is now
+// idle or has a reply waiting. Idle and an unread reply count as one (opening the chat
+// reads the reply), so the moment runs its course across that change. A question
+// answered or a failure is not work done.
+const AFTER_WORK = new Set(['idle', 'replied'])
+const NOT_WORK = new Set(['alert', 'failed'])
 function useSettled(state, id) {
-  const prev = useRef({ state, id })
+  const after = AFTER_WORK.has(state)
+  const before = useRef({ state, id })
   const [settled, setSettled] = useState(false)
   useEffect(() => {
-    const was = prev.current
-    prev.current = { state, id }
-    if (was.id !== id || state !== 'idle') { setSettled(false); return undefined }
-    if (was.state === 'idle' || was.state === 'alert') return undefined
+    const was = before.current
+    before.current = { state, id }
+    if (was.id !== id || !after) { setSettled(false); return undefined }
+    if (AFTER_WORK.has(was.state) || NOT_WORK.has(was.state)) return undefined
     setSettled(true)
     const timer = setTimeout(() => setSettled(false), 1800)
     return () => clearTimeout(timer)
-  }, [state, id])
+  }, [after, id])
+  // While the Bot is busy, the latest of what it does: a turn run after a failure is
+  // work, and its end is done.
+  useEffect(() => { if (!after) before.current = { state, id } })
   return settled
 }
 
 export const BotAvatar = memo(function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
   const settled = useSettled(state, bot?.id)
   if (bot === undefined) return h(BotMark, { size })
-  const badgeKind = !badge ? null : state === 'alert' ? 'alert' : state !== 'idle' && state !== 'waiting' ? 'working' : admin ? 'admin' : main ? 'main' : null
+  const badgeKind = !badge ? null : state === 'alert' ? 'alert' : RUNNING.has(state) ? 'working' : admin ? 'admin' : main ? 'main' : null
   return h('span', { className: 'bt-mark', style: { width: size, height: size, '--bt-size': `${size}px` } },
     h(BotMark, { bot, size, state: settled ? 'done' : state, live, gaze, pokeable }),
     badgeKind === 'working' ? h('span', { className: 'bt-badge bt-badge-working', 'aria-label': t('Working'), role: 'img' }) : null,

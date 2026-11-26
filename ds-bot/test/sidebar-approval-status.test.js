@@ -10,7 +10,7 @@ import { createSource } from '../src/client/sources.js'
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 
 const { outputFiles } = await build({
-  stdin: { contents: "export { TeamSidebar } from './src/client/sidebar.js'; export { waitsOf, waitLineOf } from './src/client/inbox.js'", resolveDir: PLUGIN },
+  stdin: { contents: "export { TeamSidebar } from './src/client/sidebar.js'\nexport { waitsOf, waitLineOf } from './src/client/inbox.js'\nexport { HeaderPill } from './src/client/header.js'\nexport { DetailsDrawer } from './src/client/details-drawer.js'", resolveDir: PLUGIN },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -30,7 +30,7 @@ runInNewContext(outputFiles[0].text, {
   document: { body: {}, documentElement: { hasAttribute: () => false }, querySelector: () => null },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: child => child } : {}),
 })
-const { TeamSidebar, waitsOf, waitLineOf } = module.exports
+const { TeamSidebar, HeaderPill, DetailsDrawer, waitsOf, waitLineOf } = module.exports
 
 // What waits for the user, as the host's inbox lists it (src/host/inbox.js; its items'
 // shape is pinned by test/inbox.test.js against the state each module writes).
@@ -458,6 +458,33 @@ test('a background task approval does not mask a foreground question, and still 
   assert.equal(textOf(walk(idleRow, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your approval')
 })
 
+test('a Bot row shows between turns a failed turn, background tasks and an unread reply in its mark, with no badge', () => {
+  const stateOf = (tree, id) => walk(tree, node => node.props?.['data-bot-id'] === id).flatMap(row => walk(row, node => node.props?.['data-state'] !== undefined))[0]?.props['data-state']
+  const badges = (tree, id) => walk(walk(tree, node => node.props?.['data-bot-id'] === id)[0], node => classes(node).includes('bt-badge')).length
+  // The host keeps a failed turn on the Bot, under the part it failed in (turns.js).
+  const failed = { id: 'f', name: 'Failed', createdAt: 1, sessionId: 'f-2', failures: { 'f-2': { turn: 4, code: 'NETWORK', message: 'socket hang up', at: 1 } } }
+  const stale = { id: 's', name: 'Stale', createdAt: 2, sessionId: 's-2', failures: { s: { turn: 9, code: 'NETWORK', message: 'old', at: 1 } } }
+  const tasks = { id: 't', name: 'Tasks', createdAt: 3, tasks: [{ id: 'k1', status: 'running', title: 'Nightly report' }] }
+  const done = { id: 'd', name: 'Done', createdAt: 4 }
+  const tree = renderSidebar({ bots: [failed, stale, tasks, done], statusMap: new Map([['d', { running: false, completionUnread: true }]]) })
+  assert.equal(stateOf(tree, 'f'), 'failed')
+  assert.equal(stateOf(tree, 's'), 'idle', 'a failure in an earlier part of the chat no longer shows')
+  assert.equal(stateOf(tree, 't'), 'background')
+  assert.equal(stateOf(tree, 'd'), 'replied')
+  for (const id of ['f', 't', 'd']) assert.equal(badges(tree, id), 0, `${id}: the motion says it, no badge`)
+  // Running wins; an open chat has no unread reply.
+  const running = renderSidebar({ bots: [failed, done], statusMap: new Map([['f-2', { running: true }], ['d', { running: false, completionUnread: true }]]), activeSession: 'd' })
+  assert.equal(stateOf(running, 'f'), 'working')
+  assert.equal(stateOf(running, 'd'), 'idle')
+  // The roster with the failure is polled; the part's outline is live. Once it lists a
+  // later turn (a retry under way, finished or stopped), the failure is behind it.
+  const outline = turns => ({ 'f-2': { values: { turnOutline: turns } } })
+  const failedTurn = { turn: 4, seq: 31, prompt: 'Check the inbox', response: '' }
+  assert.equal(stateOf(renderSidebar({ bots: [failed], projectionsBySession: outline([failedTurn]) }), 'f'), 'failed')
+  const retried = renderSidebar({ bots: [failed], projectionsBySession: outline([failedTurn, { turn: 5, seq: 40, prompt: '', response: 'Inbox is clear.' }]), activeSession: 'f-2' })
+  assert.equal(stateOf(retried, 'f'), 'idle')
+})
+
 test('a running DM keeps its working shimmer line even if stale alert activity arrives alongside group, background-task, or unanswerable approvals', () => {
   const bot = { id: 'reviewer', name: 'Reviewer', createdAt: 1 }
   const room = { id: 'r1', name: 'Review Group', members: ['reviewer'], createdAt: 2 }
@@ -669,4 +696,53 @@ test('collapsed SectionBlock ignores running and unread state of inactive hidden
   })
   const [status] = walk(activeHiddenRunning, node => classes(node).includes('bt-sec-status'))
   assert.equal(status?.props?.['data-kind'], 'working')
+})
+
+test('HeaderPill and DetailsDrawer surface alert mark state on browser and computer handoffs, not manual takeovers (#2305 review)', () => {
+  const ops = { id: 'ops', name: 'Ops', createdAt: 1, sessionId: 'ops' }
+  const roster = {
+    ready: true, bots: [ops], rooms: [], byId: { ops }, roomsById: {},
+    exchangeTurns: {}, learning: {}, secretRequests: {}, connectorRequests: {}, mailRequests: {}, questions: {}, views: {},
+  }
+  const hook = value => select => select(value)
+  const markStates = tree => walk(tree, node => node.props?.['data-state'] !== undefined).map(node => node.props['data-state'])
+
+  for (const [label, browserHolds, computer, expected] of [
+    ['browser handoff', { ops: { by: 'bot', reason: 'login', callId: 'bh-1' } }, { asks: {}, holds: {} }, 'alert'],
+    ['computer handoff', {}, { asks: {}, holds: { ops: { by: 'bot', reason: 'confirm' } } }, 'alert'],
+    ['manual takeover', { ops: { by: 'user', reason: 'takeover' } }, { asks: {}, holds: { ops: { by: 'user', reason: 'takeover' } } }, 'idle'],
+  ]) {
+    const headerTree = expand(HeaderPill({
+      sessionId: 'ops',
+      useRoster: hook(roster),
+      useSessions: hook({ byId: { ops: { title: 'Ops' } }, projectionsBySession: {} }),
+      useSessionStatus: hook(new Map([['ops', { running: true }]])),
+      useSession: hook({}),
+      useActivity: hook({ ops: 'working' }),
+      useMemoryNews: hook({}),
+      useTurnClock: hook({}),
+      useUi: hook({}),
+      useLive: hook({}),
+      useWork: hook({ waiting: {}, rooms: {}, approvals: [] }),
+      useBrowserHolds: hook(browserHolds),
+      useComputer: hook(computer),
+      actions: {},
+    }))
+    const drawerTree = expand(DetailsDrawer({
+      sessionId: 'ops',
+      roster,
+      actions: {},
+      useSessions: hook({ byId: { ops: { title: 'Ops' } }, projectionsBySession: {} }),
+      useSessionStatus: hook(new Map([['ops', { running: true }]])),
+      useActivity: hook({ ops: 'working' }),
+      useWork: hook({ waiting: {}, rooms: {}, approvals: [] }),
+      useBrowserTabs: hook({}),
+      useBrowserPages: hook({}),
+      useBrowserHolds: hook(browserHolds),
+      useComputer: hook(computer),
+    }))
+    const expectedRunning = expected === 'alert' ? 'alert' : 'working'
+    assert.ok(markStates(headerTree).includes(expectedRunning), `HeaderPill ${label}: ${JSON.stringify(markStates(headerTree))}`)
+    assert.ok(markStates(drawerTree).includes(expectedRunning), `DetailsDrawer ${label}: ${JSON.stringify(markStates(drawerTree))}`)
+  }
 })
