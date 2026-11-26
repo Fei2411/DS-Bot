@@ -1096,7 +1096,17 @@ export function install(rt) {
     ctl.state = 'user'
     ctl.waitingFor = undefined
     const hold = holds.get(botId)
-    holds.set(botId, { id: hold?.id ?? randomUUID(), by: 'user', surface: 'computer', reason: hold?.reason ?? 'takeover', note: hold?.note ?? 'The user is operating the computer.', at: Number.isFinite(hold?.at) ? hold.at : Date.now(), ...(hold?.callId !== undefined ? { callId: hold.callId } : {}) })
+    const fromBot = hold?.by === 'bot' || hold?.fromBot === true || hold?.callId !== undefined
+    holds.set(botId, {
+      id: hold?.id ?? randomUUID(),
+      by: 'user',
+      surface: 'computer',
+      reason: hold?.reason ?? 'takeover',
+      note: hold?.note ?? 'The user is operating the computer.',
+      at: Number.isFinite(hold?.at) ? hold.at : Date.now(),
+      ...(fromBot ? { fromBot: true } : {}),
+      ...(hold?.callId !== undefined ? { callId: hold.callId } : {}),
+    })
     rt.inboxChanged?.()
     return true
   }
@@ -1141,7 +1151,7 @@ export function install(rt) {
       const callId = rt.chatOwners.get(sessionId) === bot.id && typeof exec.callId === 'string' ? exec.callId : undefined
       holds.set(bot.id, {
         id: randomUUID(),
-        by: 'bot', surface: 'computer',
+        by: 'bot', fromBot: true, surface: 'computer',
         reason: HANDOFF_REASONS.includes(args.reason) ? args.reason : 'other',
         note: String(args.note ?? '').slice(0, 500),
         ...(callId !== undefined ? { callId } : {}),

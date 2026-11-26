@@ -100,7 +100,7 @@ test('a learning proposal is a suggestion, and a source can add its own items', 
   rt.learningView = () => ({ writer: [{ id: 'p-1', kind: 'skill', botId: 'writer', name: 'release-notes', at: 90 }] })
   t.after(() => { rt.learningView = real })
   const off = rt.addInboxSource(() => [
-    { kind: 'stalled', ref: 'turn-7', group: 'fix', botId: 'writer', at: 1, text: 'No progress for 20 minutes' },
+    { kind: 'stalled', ref: 'turn-7', group: 'fix', botId: 'writer', taskId: 'bg-9', at: 1, text: 'No progress for 20 minutes' },
     { kind: 'stalled', ref: 'turn-8', botId: 'gone' },
     { kind: '', ref: 'nothing' },
   ])
@@ -109,7 +109,7 @@ test('a learning proposal is a suggestion, and a source can add its own items', 
   assert.deepEqual([learning.group, learning.text, learning.proposal], ['suggest', 'skills/release-notes/SKILL.md', 'skill'])
   assert.equal(items.at(-1).id, 'learning:p-1')
   const stalled = items.filter(item => item.kind === 'stalled')
-  assert.deepEqual(stalled.map(item => [item.id, item.group, item.text]), [['stalled:turn-7', 'fix', 'No progress for 20 minutes']])
+  assert.deepEqual(stalled.map(item => [item.id, item.group, item.text, item.taskId]), [['stalled:turn-7', 'fix', 'No progress for 20 minutes', 'bg-9']])
   off()
   assert.equal(rt.inboxView().items.some(item => item.kind === 'stalled'), false)
 })
@@ -178,4 +178,45 @@ test('archived-part and id-less secret, connector, and mail requests are exclude
   for (const dropped of ['secret:sec-archived', 'secret:undefined', 'connector:con-archived', 'connector:', 'mail:mail-archived']) {
     assert.equal(ids.includes(dropped), false, `${dropped} should be excluded`)
   }
+})
+
+test('computer handoff stays in the inbox after Take over until settled, while a plain user takeover does not enter', async (t) => {
+  const { rt } = openHost(t)
+  await rt.load()
+  const realComputerLive = rt.computerLive
+  let holds = {
+    writer: { id: 'ch-1', by: 'bot', fromBot: true, surface: 'computer', reason: 'login', note: 'Sign in', at: 1234 },
+    chief: { id: 'ch-user', by: 'user', surface: 'computer', reason: 'takeover', note: 'User started', at: 1235 },
+  }
+  rt.computerLive = () => ({ asks: {}, holds })
+  t.after(() => { rt.computerLive = realComputerLive })
+
+  let changes = 0
+  const off = rt.onInboxChanged(() => { changes += 1 })
+  t.after(off)
+
+  // Bot-initiated computer handoff is listed; plain user takeover is not.
+  assert.equal(rt.inboxView().items.some(item => item.id === 'handoff:ch-1'), true)
+  assert.equal(rt.inboxView().items.some(item => item.id === 'handoff:ch-user'), false)
+
+  // After user clicks Take over, `by` becomes 'user' while `fromBot: true` keeps it in the inbox.
+  holds = {
+    writer: { id: 'ch-1', by: 'user', fromBot: true, surface: 'computer', reason: 'login', note: 'Sign in', at: 1234 },
+  }
+  rt.inboxChanged()
+  const stillThere = rt.inboxView().items.find(item => item.id === 'handoff:ch-1')
+  assert.ok(stillThere, 'computer handoff remains listed after Take over until Skip / Done')
+  assert.equal(stillThere.at, 1234)
+
+  // Settling the hold removes it and fires onInboxChanged.
+  holds = {}
+  rt.inboxChanged()
+  assert.equal(rt.inboxView().items.some(item => item.id === 'handoff:ch-1'), false)
+  assert.ok(changes >= 1)
+
+  // Saving state does not fire redundant live pings through onInboxChanged.
+  const beforeSave = changes
+  rt.state.connectorRequests.chief.push({ id: 'con-save-only', sessionId: 'chief', connectorId: 'linear', name: 'Linear', purpose: '', status: 'pending', askedAt: 200 })
+  await rt.save()
+  assert.equal(changes, beforeSave)
 })

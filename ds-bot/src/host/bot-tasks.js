@@ -2562,6 +2562,7 @@ export function install(rt) {
       // those inherited turns so previously hidden [PASS]/Bot-to-Bot turns never leak
       // back into the user's chat after an fg-handoff or bot-handoff fork.
       if (forked) {
+        if (bot.agentPresetDefaultPending?.includes(oldSid)) rt.noteDefaultPresetPending?.(bot, newSid)
         let inheritedTurns = priorTurns
         let inheritedCallIds = priorCallIds
         const hasEventBounds = forkedEvents.length > 0 || oldEvents.length > 0

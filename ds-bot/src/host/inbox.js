@@ -33,6 +33,7 @@ function sourceItem(raw) {
     ...(typeof raw.botId === 'string' ? { botId: raw.botId } : {}),
     ...(typeof raw.roomId === 'string' ? { roomId: raw.roomId } : {}),
     ...(typeof raw.sessionId === 'string' ? { sessionId: raw.sessionId } : {}),
+    ...(typeof raw.taskId === 'string' && raw.taskId !== '' ? { taskId: raw.taskId } : {}),
     ...(clip(raw.text) ? { text: clip(raw.text) } : {}),
   }
 }
@@ -55,10 +56,10 @@ export function install(rt) {
   const archived = sessionId => rt.pastOwners?.has?.(sessionId) === true
   // A card asked in a background task does not stop the Bot's own chat.
   const task = ({ taskId }) => (taskId === undefined ? {} : { taskId })
-  const known = (botId, roomId) => (botId !== undefined && rt.botOf(botId) !== undefined) || (roomId !== undefined && rt.roomOf(roomId) !== undefined)
+  const known = (botId, roomId) => (typeof botId === 'string' && rt.botOf(botId) !== undefined) || (typeof roomId === 'string' && rt.roomOf(roomId) !== undefined)
   const where = ({ botId, roomId, sessionId }) => ({
-    ...(botId !== undefined && rt.botOf(botId) !== undefined ? { botId } : {}),
-    ...(roomId !== undefined && rt.roomOf(roomId) !== undefined ? { roomId } : {}),
+    ...(typeof botId === 'string' && rt.botOf(botId) !== undefined ? { botId } : {}),
+    ...(typeof roomId === 'string' && rt.roomOf(roomId) !== undefined ? { roomId } : {}),
     ...(typeof sessionId === 'string' ? { sessionId } : {}),
   })
 
@@ -130,7 +131,7 @@ export function install(rt) {
       add('computer', ask.id, ask.at, ask, { text: clip(ask.appName) })
     }
     for (const [botId, hold] of Object.entries(computer.holds ?? {})) {
-      if (hold?.by !== 'bot') continue
+      if (hold?.by !== 'bot' && hold?.fromBot !== true && hold?.callId === undefined) continue
       add('handoff', hold.id ?? botId, hold.at, { botId, sessionId: rt.chatOf?.(botId) }, { surface: 'computer', text: clip(hold.note), reason: String(hold.reason ?? '') })
     }
     for (const [botId, hold] of Object.entries(rt.browserChannel?.holdSnapshot?.() ?? {})) {
@@ -212,7 +213,7 @@ export function install(rt) {
   // refresh immediately instead of waiting for the next poll.
   let shown = null
   let lastSnapshot = null
-  const refresh = () => {
+  const refresh = ({ live = true } = {}) => {
     if (listeners.size === 0 && changeListeners.size === 0) {
       shown = null
       lastSnapshot = null
@@ -241,7 +242,7 @@ export function install(rt) {
       if (snapshot !== lastSnapshot) {
         const hadBaseline = lastSnapshot !== null
         lastSnapshot = snapshot
-        if (hadBaseline) {
+        if (hadBaseline && live) {
           for (const listener of changeListeners) {
             try { listener() } catch (error) { rt.warn?.('ds-bot: an inbox change listener failed: %s', error?.message ?? error) }
           }
@@ -251,12 +252,12 @@ export function install(rt) {
   }
   const onInboxAdded = (listener) => {
     listeners.add(listener)
-    if (shown === null) refresh()
+    if (shown === null) refresh({ live: false })
     return () => listeners.delete(listener)
   }
   const onInboxChanged = (listener) => {
     changeListeners.add(listener)
-    if (lastSnapshot === null) refresh()
+    if (lastSnapshot === null) refresh({ live: false })
     return () => changeListeners.delete(listener)
   }
   const addInboxSource = (source) => {
@@ -265,10 +266,10 @@ export function install(rt) {
     return () => { sources.delete(source); refresh() }
   }
 
-  // What can add or remove an item: a save (cards, requests, blocks, pauses, goals),
-  // an approval, a browser hold. Computer asks/holds and learning proposals call
-  // inboxChanged themselves.
-  const offSaved = rt.onSaved?.(() => refresh())
+  // What can add or remove an item: a save (cards, requests, blocks, pauses, goals —
+  // already broadcast as a state revision, so no extra live ping), an approval, a
+  // browser hold. Computer asks/holds and learning proposals call inboxChanged themselves.
+  const offSaved = rt.onSaved?.(() => refresh({ live: false }))
   const offApproval = rt.onApproval?.(() => refresh())
   const offHolds = rt.browserChannel?.subscribeHolds?.(() => refresh())
   rt.ctx.effect?.(() => () => {
@@ -280,5 +281,5 @@ export function install(rt) {
     sources.clear()
   }, 'ds-bot: inbox')
 
-  Object.assign(rt, { inboxView, inboxChanged: refresh, onInboxAdded, onInboxChanged, addInboxSource })
+  Object.assign(rt, { inboxView, inboxChanged: () => refresh(), onInboxAdded, onInboxChanged, addInboxSource })
 }
