@@ -10,6 +10,7 @@
 //   - buildFallbackContext: non-forked background task recent-context summary
 //   - formatOwnChatBrief: private-chat brief injected into a fresh group session
 import { REPLY_KIND } from './constants.js'
+import { utf8Bytes } from './handoff-budget.js'
 import { clip as clipText, estimateTokens as defaultEstimateTokens, textOf } from './text.js'
 
 const DEFAULT_TOOL_SKIP = new Set(['ask_user', 'show_view', 'request_secret', 'group_relay'])
@@ -249,44 +250,50 @@ export async function buildReplayPack({
   const latestHandoff = [...body].reverse().find(message => message.source?.handoff === true)
   const preserveSet = new Set(preserve)
   let full = false
+  const entryTextBytes = blocks => blocks.reduce((sum, block) => sum + (block?.type === 'text' ? utf8Bytes(block.text) : 0), 0)
   for (const message of [...body].reverse()) {
     const sourceKind = message.source?.kind
     const isCurrentInput = message === latest || message === latestNonClock || preserveSet.has(message)
     if (!isCurrentInput && isClockSource(message.source)) continue
     if (sourceKind === ownMemorySource && message !== latestOwnMem) continue
     if (sourceKind === groupMemorySource && message !== latestGroupMem) continue
-    const text = textOf(message.content)
     const prefix = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}:`
     if (sourceKind === memoryUpdateSource) {
       if (freshMemory !== undefined) continue
-      const len = prefix.length + 1 + text.length
-      if (memoryUpdates >= memUpdateMax || (memoryUpdates > 0 && memoryUpdateBytes + len > memUpdateBytes)) continue
-      const maxText = Math.max(500, memUpdateBytes - memoryUpdateBytes)
-      const blocks = await blocksOfMessage(message, { maxText, resolveImage, includeToolCalls: true })
+      if (memoryUpdates >= memUpdateMax || (memoryUpdates > 0 && memoryUpdateBytes >= memUpdateBytes)) continue
+      const maxBytes = Math.max(500, memUpdateBytes - memoryUpdateBytes)
+      const blocks = await blocksOfMessage(message, { maxBytes, maxText: maxBytes, resolveImage, includeToolCalls: true })
       if (blocks.length === 0) continue
       const entry = blocks[0].type === 'text'
         ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
         : [{ type: 'text', text: prefix }, ...blocks]
+      const entryBytes = entryTextBytes(entry)
+      if (memoryUpdates > 0 && memoryUpdateBytes + entryBytes > memUpdateBytes) continue
       picked.unshift(entry)
       memoryUpdates += 1
-      memoryUpdateBytes += Math.min(len, maxText)
+      memoryUpdateBytes += entryBytes
       continue
     }
     const whole = isCurrentInput || message === latestHandoff || message === latestOwnMem || message === latestGroupMem
-    const approxLen = prefix.length + 1 + (whole ? text.length : Math.min(text.length, replayLineMax))
     if (!whole) {
-      full ||= conversationCount >= replayMessages || picked.length >= replayTotalMax || used + approxLen > replayBytes
+      full ||= conversationCount >= replayMessages || picked.length >= replayTotalMax || used + utf8Bytes(prefix) + 1 > replayBytes
       if (full) continue
     }
-    const blocks = await blocksOfMessage(message, { maxText: whole ? Infinity : replayLineMax, resolveImage, includeToolCalls: true })
+    const cap = whole ? Infinity : replayLineMax
+    const blocks = await blocksOfMessage(message, { maxBytes: cap, maxText: cap, resolveImage, includeToolCalls: true })
     if (blocks.length === 0 && !whole) continue
     const entry = blocks.length > 0 && blocks[0].type === 'text'
       ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
       : blocks.length > 0
         ? [{ type: 'text', text: prefix }, ...blocks]
         : [{ type: 'text', text: `${prefix} ` }]
+    const entryBytes = entryTextBytes(entry)
+    if (!whole && used + entryBytes > replayBytes) {
+      full = true
+      continue
+    }
     picked.unshift(entry)
-    if (!whole) used += approxLen
+    if (!whole) used += entryBytes
     if (message.role !== 'tool' && sourceKind !== ownMemorySource && sourceKind !== groupMemorySource && !isClockSource(message.source)) {
       conversationCount += 1
     }

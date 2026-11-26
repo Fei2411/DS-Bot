@@ -338,6 +338,13 @@ const ZH = {
   'Custom agents': '自定义 Agent',
   'ACP-compatible agents, added by command.': '按命令添加的 ACP 兼容 Agent。',
   'Add agent': '添加 Agent',
+  Profiles: '账号配置',
+  'Add profile': '添加配置',
+  'Profile name': '配置名称',
+  'Config folder': '配置文件夹',
+  'Default folder': '默认文件夹',
+  'No profiles added': '还没有添加账号配置',
+  'Not installed': '未安装',
   'Copies the sign-in command': '复制登录命令',
   'Sign in': '登录',
   'Sign-in command copied. Run it in a terminal: {command}': '登录命令已复制。请在终端运行：{command}',
@@ -754,7 +761,7 @@ const ZH = {
   Graphite: '石墨', Rose: '玫瑰', Sky: '天蓝', Tangerine: '橘', Cobalt: '钴蓝',
 
   // Themes
-  DeepSeek: 'DeepSeek', Mono: '黑白', Paper: '纸张', Moonlight: '月光',
+  DeepSeek: 'DeepSeek', Mono: '黑白', Paper: '纸张', Moonlight: '月光', Celadon: '天青',
 
   // Settings dialog
   General: '通用',

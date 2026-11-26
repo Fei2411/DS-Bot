@@ -11,6 +11,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { LlmAdapter, LlmError, isContextWindowExceededError, isQuotaExceededError, offloadedImageText, resolveImageAttachmentAccess, resolveRetryPolicy, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { isClockSource, isContextOnlyMessage, isSnapshotContextSource } from '../context-messages.js'
 import { buildCompactDigest, buildReplayPack } from '../context-pack.js'
+import { truncateUtf8Bytes, utf8Bytes } from '../handoff-budget.js'
 import { GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, OWN_HEADING, OWN_MEMORY_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
 import { engineOf, cliMode, signInFor } from './engines.js'
@@ -130,6 +131,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.nextModelEpoch = 0
     this.globalModelEpoch = 0
     this.modelEpochs = new Map() // route -> monotonic epoch for modelCache writes
+    this.closingRoutes = new Map() // route -> in-flight closeRoute promise
     this.windows = new Map()   // route\0model -> the window the CLI reported for it
     this.probes = new Map()    // route -> { epoch, promise }
     this.activeProbes = new Set() // active askModels runs, so superseding probes stay protected
@@ -139,8 +141,12 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.disposed = false
   }
 
+  specOf(route) {
+    return engineOf(route, this.deps.customAgents?.() ?? [], this.deps.profiles?.() ?? [], { home: this.deps.home ?? this.deps.rt?.home })
+  }
+
   providerInfo(route) {
-    const engine = engineOf(route, this.deps.customAgents())
+    const engine = this.specOf(route)
     return { id: route, name: engine?.name ?? route }
   }
   providerRetryPolicy() { return LOCAL_RETRY_POLICY }
@@ -149,7 +155,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   engine(route) {
     let driver = this.engines.get(route)
     if (driver === undefined) {
-      const spec = engineOf(route, this.deps.customAgents())
+      const spec = this.specOf(route)
       if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'NO_ADAPTER')
       driver = this.deps.spawnEngine(spec.kind, route, spec)
       this.engines.set(route, driver)
@@ -160,7 +166,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // What DS Bot knows of a route without starting its CLI: the CLI's default, what a
   // probe found, and what a Bot runs on. DSH and the catalog ask this for every route.
   async listModels(route) {
-    const spec = engineOf(route, this.deps.customAgents())
+    const spec = this.specOf(route)
     if (spec === undefined) return []
     const supportsImage = spec.kind !== 'acp' || this.engines.get(route)?.supportsImages?.() !== false
     const inputModalities = supportsImage ? ['text', 'image'] : ['text']
@@ -196,7 +202,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // again. The process it took leaves unless a Session runs on it.
   async probeModels(route) {
     if (this.modelCache.has(route)) return this.listModels(route)
-    if (engineOf(route, this.deps.customAgents()) === undefined) return []
+    if (this.specOf(route) === undefined) return []
     const epoch = this.modelEpochOf(route)
     let entry = this.probes.get(route)
     if (entry === undefined || entry.epoch !== epoch) {
@@ -244,7 +250,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   async resolveModel(route, model) {
-    const spec = engineOf(route, this.deps.customAgents())
+    const spec = this.specOf(route)
     const listed = (await this.listModels(route).catch(() => [])).find(entry => entry.id === model)
     const supportsImage = spec?.kind !== 'acp' || this.engines.get(route)?.supportsImages?.() !== false
     return {
@@ -258,12 +264,47 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
   }
 
+  // Tears down a route's engine and live sessions (e.g. after a profile's configDir
+  // or env changes, or when a profile is removed) so subsequent turns spawn fresh.
+  // Any session with an in-flight turn or waiting reader fails explicitly so an
+  // interrupted reply is never reported as completed and unread markers roll back.
+  async closeRoute(route, reason = 'the local agent configuration changed', { code = 'LOCAL_AGENT_EXIT' } = {}) {
+    const prev = this.closingRoutes.get(route)
+    const run = (async () => {
+      if (prev !== undefined) await prev.catch(() => {})
+      this.dropModelCache(route)
+      for (const key of this.windows.keys()) {
+        if (key.startsWith(`${route}\u0000`)) this.windows.delete(key)
+      }
+      const matching = [...this.live.values()].filter(live => live.route === route)
+      for (const live of matching) {
+        const active = !live.started || live.state !== 'idle' || live.waiters.length > 0 || live.pending.size > 0 || live.queue.length > 0
+        const error = active
+          ? new LlmError(`${live.spec.name} stopped: ${reason}.`, code)
+          : undefined
+        if (error === undefined) this.stopTurn(live, reason)
+        await this.closeLive(live, { idle: true, error }).catch(() => {})
+      }
+      const engine = this.engines.get(route)
+      if (engine !== undefined) {
+        this.engines.delete(route)
+        await engine.close?.().catch(() => {})
+      }
+    })()
+    this.closingRoutes.set(route, run)
+    try {
+      await run
+    } finally {
+      if (this.closingRoutes.get(route) === run) this.closingRoutes.delete(route)
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // The live bridge for one DS Bot Session.
   async liveFor(options, preset) {
     const sessionId = String(options.sessionId)
     const route = options.provider
-    const spec = engineOf(route, this.deps.customAgents())
+    let spec = this.specOf(route)
     if (spec === undefined) {
       const existing = this.live.get(sessionId)
       if (existing !== undefined) await this.closeLive(existing)
@@ -272,6 +313,17 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (spec.kind === 'codex' && this.deps.prepareSecretEnvForSession !== undefined) {
       await this.deps.prepareSecretEnvForSession(sessionId, options.signal)
       options.signal?.throwIfAborted()
+    }
+    const closing = this.closingRoutes.get(route)
+    if (closing !== undefined) {
+      await closing.catch(() => {})
+      options.signal?.throwIfAborted()
+    }
+    spec = this.specOf(route)
+    if (spec === undefined) {
+      const existing = this.live.get(sessionId)
+      if (existing !== undefined) await this.closeLive(existing)
+      throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
     }
     const resolveSecrets = () => spec.kind === 'codex' ? this.deps.secretEnvForSession?.(sessionId) ?? {} : {}
     let live = this.live.get(sessionId)
@@ -291,7 +343,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
       // A CLI takes its model and permission mode when its session opens. A
       // changed secret set also requires replacing the Codex process, even mid-turn.
-      if (isDeepStrictEqual(live.secrets, resolveSecrets())) {
+      if (isDeepStrictEqual(live.secrets, resolveSecrets()) && isDeepStrictEqual(live.spec?.env ?? {}, spec.env ?? {})) {
         if ((live.model === options.model && live.preset === preset) || live.state !== 'idle') return live
       } else {
         if (live.pending.size > 0 || live.orphanedPending?.size > 0) {
@@ -309,6 +361,13 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
       await this.closeLive(live, { idle: true })
     } else if (live !== undefined) await this.closeLive(live)
+    const closingBeforeSpawn = this.closingRoutes.get(route)
+    if (closingBeforeSpawn !== undefined) {
+      await closingBeforeSpawn.catch(() => {})
+      options.signal?.throwIfAborted()
+    }
+    spec = this.specOf(route)
+    if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
     if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
     const record = this.deps.record(sessionId)
     const secrets = resolveSecrets()
@@ -594,7 +653,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     const route = sourceLive?.route ?? sourceRecord?.route
     const sourceCliId = sourceLive?.cliSessionId ?? sourceRecord?.cliSessionId
     if (!route || !sourceCliId) return undefined
-    const spec = engineOf(route, this.deps.customAgents())
+    const spec = this.specOf(route)
     if (spec === undefined) return undefined
     if (this.isForkUnsupported(route) || sourceLive?.engine?.forkSupported === false) {
       this.forkUnsupportedRoutes.add(route)
@@ -922,6 +981,13 @@ export class LocalAgentAdapter extends LlmAdapter {
           if (live.spec.kind === 'codex' || error?.code === 'LOCAL_AGENT_SESSION_LOST') await this.closeLive(live)
           throw toLlmError(error, live)
         })
+      if (live.dead) {
+        const openedSession = live.engineSession
+        live.engineSession = undefined
+        await live.engine.closeSession?.(openedSession).catch(() => {})
+        live.engine.forget?.(sessionId)
+        throw toLlmError(live.closeFailure?.error ?? new LlmError(`${live.spec.name} session closed while opening.`, 'LOCAL_AGENT_EXIT'), live)
+      }
       // A resumed CLI reports its id only with `system/init`: keep the saved one
       // in the meantime, or a resume that fails would erase it. When DS Bot owns
       // the Bot part, a lost CLI session escalates to a formal `runtime-lost` part
@@ -1678,7 +1744,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
     const record = named !== undefined ? { route: named, model: namedModel } : this.live.get(sessionId) ?? this.deps.record(sessionId)
     const route = record?.route
-    const spec = route === undefined ? undefined : engineOf(route, this.deps.customAgents())
+    const spec = route === undefined ? undefined : this.specOf(route)
     if (spec === undefined) throw new LlmError('this conversation has no local agent', 'LOCAL_AGENT_MISSING')
     const isolated = spec.kind === 'codex'
     const engine = isolated ? this.deps.spawnEngine(spec.kind, route, spec) : this.engine(route)
@@ -1795,11 +1861,12 @@ function briefToolCall(block) {
   return `[tool: ${name}]`
 }
 
-async function blocksOfMessage(message, { maxText, resolveImage, includeToolCalls = false }) {
+async function blocksOfMessage(message, { maxBytes, maxText, resolveImage, includeToolCalls = false }) {
   const raw = Array.isArray(message.content) ? message.content : []
   const out = []
   let textParts = []
-  let textLeft = maxText ?? Infinity
+  const byteCap = maxBytes ?? maxText ?? Infinity
+  let bytesLeft = byteCap
   const flushText = () => {
     const text = textParts.join('\n').trim()
     textParts = []
@@ -1807,13 +1874,13 @@ async function blocksOfMessage(message, { maxText, resolveImage, includeToolCall
   }
   for (const block of raw) {
     if (block?.type === 'text' && typeof block.text === 'string') {
-      const piece = textLeft === Infinity ? block.text : block.text.slice(0, textLeft)
-      if (textLeft !== Infinity) textLeft = Math.max(0, textLeft - piece.length)
+      const piece = bytesLeft === Infinity ? block.text : truncateUtf8Bytes(block.text, bytesLeft, '')
+      if (bytesLeft !== Infinity) bytesLeft = Math.max(0, bytesLeft - utf8Bytes(piece))
       textParts.push(piece)
     } else if (includeToolCalls && block?.type === 'tool-call') {
       const note = briefToolCall(block)
-      const piece = textLeft === Infinity ? note : note.slice(0, textLeft)
-      if (textLeft !== Infinity) textLeft = Math.max(0, textLeft - piece.length)
+      const piece = bytesLeft === Infinity ? note : truncateUtf8Bytes(note, bytesLeft, '')
+      if (bytesLeft !== Infinity) bytesLeft = Math.max(0, bytesLeft - utf8Bytes(piece))
       if (piece !== '') textParts.push(piece)
     } else if (block?.type === 'image') {
       flushText()

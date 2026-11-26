@@ -559,6 +559,13 @@ var JA = {
   "Custom agents": "カスタムエージェント",
   "ACP-compatible agents, added by command.": "コマンドで追加された ACP 互換エージェント。",
   "Add agent": "エージェントを追加",
+  "Profiles": "プロファイル",
+  "Add profile": "プロファイルを追加",
+  "Profile name": "プロファイル名",
+  "Config folder": "設定フォルダ",
+  "Default folder": "デフォルトフォルダ",
+  "No profiles added": "プロファイルはまだありません",
+  "Not installed": "未インストール",
   "Copies the sign-in command": "サインインコマンドをコピー",
   "Sign in": "サインイン",
   "Sign-in command copied. Run it in a terminal: {command}": "サインインコマンドをコピーしました。ターミナルで実行してください: {command}",
@@ -970,6 +977,7 @@ var JA = {
   "Mono": "モノクロ",
   "Paper": "ペーパー",
   "Moonlight": "ムーンライト",
+  "Celadon": "青磁",
   "General": "一般",
   "Bots": "Bot",
   "Group chats": "グループチャット",
@@ -3862,6 +3870,13 @@ var KO = {
   "Custom agents": "사용자 지정 Agent",
   "ACP-compatible agents, added by command.": "명령어로 추가한 ACP 호환 Agent입니다.",
   "Add agent": "Agent 추가",
+  Profiles: "프로필",
+  "Add profile": "프로필 추가",
+  "Profile name": "프로필 이름",
+  "Config folder": "설정 폴더",
+  "Default folder": "기본 폴더",
+  "No profiles added": "추가된 프로필이 없습니다",
+  "Not installed": "설치되지 않음",
   "Copies the sign-in command": "로그인 명령어 복사",
   "Sign in": "로그인",
   "Sign-in command copied. Run it in a terminal: {command}": "로그인 명령어가 복사되었습니다. 터미널에서 실행하세요: {command}",
@@ -4286,6 +4301,7 @@ var KO = {
   Mono: "모노",
   Paper: "페이퍼",
   Moonlight: "문라이트",
+  Celadon: "청자",
   // Settings dialog
   General: "일반",
   Bots: "Bot",
@@ -7205,6 +7221,13 @@ var ES = {
   "Custom agents": "Agentes personalizados",
   "ACP-compatible agents, added by command.": "Agentes compatibles con ACP, añadidos por comando.",
   "Add agent": "Añadir agente",
+  Profiles: "Perfiles",
+  "Add profile": "Añadir perfil",
+  "Profile name": "Nombre del perfil",
+  "Config folder": "Carpeta de configuración",
+  "Default folder": "Carpeta predeterminada",
+  "No profiles added": "No hay perfiles añadidos",
+  "Not installed": "No instalado",
   "Copies the sign-in command": "Copia el comando de inicio de sesión",
   "Sign in": "Iniciar sesión",
   "Sign-in command copied. Run it in a terminal: {command}": "Comando de inicio de sesión copiado. Ejecútalo en una terminal: {command}",
@@ -7629,6 +7652,7 @@ var ES = {
   Mono: "Mono",
   Paper: "Papel",
   Moonlight: "Luz de luna",
+  Celadon: "Celadón",
   // Settings dialog
   General: "General",
   Bots: "Bots",
@@ -10543,6 +10567,13 @@ var FR = {
   "Custom agents": "Agents personnalisés",
   "ACP-compatible agents, added by command.": "Agents compatibles ACP, ajoutés par commande.",
   "Add agent": "Ajouter un agent",
+  "Profiles": "Profils",
+  "Add profile": "Ajouter un profil",
+  "Profile name": "Nom du profil",
+  "Config folder": "Dossier de configuration",
+  "Default folder": "Dossier par défaut",
+  "No profiles added": "Aucun profil ajouté",
+  "Not installed": "Non installé",
   "Copies the sign-in command": "Copie la commande de connexion",
   "Sign in": "Se connecter",
   "Sign-in command copied. Run it in a terminal: {command}": "Commande de connexion copiée. Exécutez-la dans un terminal : {command}",
@@ -10954,6 +10985,7 @@ var FR = {
   "Mono": "Mono",
   "Paper": "Papier",
   "Moonlight": "Clair de lune",
+  "Celadon": "Céladon",
   "General": "Général",
   "Bots": "Bots",
   "Group chats": "Discussions de groupe",
@@ -13846,6 +13878,13 @@ var DE = {
   "Custom agents": "Benutzerdefinierte Agenten",
   "ACP-compatible agents, added by command.": "ACP-kompatible Agenten, per Befehl hinzugefügt.",
   "Add agent": "Agent hinzufügen",
+  Profiles: "Profile",
+  "Add profile": "Profil hinzufügen",
+  "Profile name": "Profilname",
+  "Config folder": "Konfigurationsordner",
+  "Default folder": "Standardordner",
+  "No profiles added": "Keine Profile hinzugefügt",
+  "Not installed": "Nicht installiert",
   "Copies the sign-in command": "Kopiert den Anmeldebefehl",
   "Sign in": "Anmelden",
   "Sign-in command copied. Run it in a terminal: {command}": "Anmeldebefehl kopiert. Führe ihn im Terminal aus: {command}",
@@ -14270,6 +14309,7 @@ var DE = {
   Mono: "Monochrom",
   Paper: "Papier",
   Moonlight: "Mondlicht",
+  Celadon: "Seladon",
   // Settings dialog
   General: "Allgemein",
   Bots: "Bots",
@@ -17083,6 +17123,13 @@ var ZH = {
   "Custom agents": "自定义 Agent",
   "ACP-compatible agents, added by command.": "按命令添加的 ACP 兼容 Agent。",
   "Add agent": "添加 Agent",
+  Profiles: "账号配置",
+  "Add profile": "添加配置",
+  "Profile name": "配置名称",
+  "Config folder": "配置文件夹",
+  "Default folder": "默认文件夹",
+  "No profiles added": "还没有添加账号配置",
+  "Not installed": "未安装",
   "Copies the sign-in command": "复制登录命令",
   "Sign in": "登录",
   "Sign-in command copied. Run it in a terminal: {command}": "登录命令已复制。请在终端运行：{command}",
@@ -17525,6 +17572,7 @@ var ZH = {
   Mono: "黑白",
   Paper: "纸张",
   Moonlight: "月光",
+  Celadon: "天青",
   // Settings dialog
   General: "通用",
   Bots: "Bot",
@@ -21452,7 +21500,29 @@ function contrast(a, b2) {
 }
 var READABLE = 4.5;
 
+// src/shared/reply-fonts.js
+var FONT_ROUTE = "api/bot/fonts";
+var REPLY_FAMILY = "DS Bot Serif";
+var FONT_FILES = {
+  latin: "ds-bot-serif-latin.woff2",
+  latinItalic: "ds-bot-serif-latin-italic.woff2",
+  cjk: "ds-bot-serif-sc-medium.woff2",
+  cjkBold: "ds-bot-serif-sc-bold.woff2"
+};
+var FONT_RANGES = {
+  latin: "U+0000-024F,U+0259,U+02B0-02FF,U+0300-036F,U+1E00-1EFF,U+2000-206F,U+20A0-20CF,U+2100-214F,U+2190-21FF,U+2212,U+2215,U+FEFF,U+FFFD",
+  cjk: "U+3000-303F,U+3400-4DBF,U+4E00-9FFF,U+F900-FAFF,U+FF00-FFEF"
+};
+var WEIGHTS = [["100 500", FONT_FILES.cjk], ["600 900", FONT_FILES.cjkBold]];
+var REPLY_FACES = [["normal", FONT_FILES.latin], ["italic", FONT_FILES.latinItalic]].flatMap(([style, latin]) => WEIGHTS.flatMap(([weight, cjk]) => [
+  { file: latin, style, weight, range: "latin" },
+  { file: cjk, style, weight, range: "cjk" }
+]));
+
 // src/client/themes.js
+var fontFace = ({ file, style, weight, range }) => `@font-face{font-family:"${REPLY_FAMILY}";src:url(${FONT_ROUTE}/${file}) format("woff2");font-style:${style};font-weight:${weight};font-display:swap;unicode-range:${FONT_RANGES[range]}}`;
+var SERIF_REPLIES = `${REPLY_FACES.map(fontFace).join("\n")}
+.bt-look-bot,.bt-model-dock .bt-bubble,.bt-bubble [class*="_markdown"],.bt-bubble [class*="_markdown"] :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default,sans-serif)}`;
 var THEMES = {
   deepseek: {
     label: "DeepSeek",
@@ -21473,6 +21543,12 @@ var THEMES = {
     label: "Moonlight",
     light: { bg: "#f7f9fc", sidebar: "#eef2f8", bubble: "#e5ebf5", card: "#ffffff", text: "#121826", user: "#1e3a8a", userText: "#ffffff", accent: "#1e86ff" },
     dark: { bg: "#0b1020", sidebar: "#10172a", bubble: "#1a2340", card: "#141c33", text: "#e8edf7", user: "#3b6fd8", userText: "#ffffff", accent: "#4f9dff" }
+  },
+  celadon: {
+    label: "Celadon",
+    light: { bg: "#faf6ee", sidebar: "#f3ede2", bubble: "#efe8db", card: "#fdfbf7", text: "#211f1b", user: "#e2eeec", userText: "#163f46", accent: "#1e8294" },
+    dark: { bg: "#1d1c19", sidebar: "#23221e", bubble: "#2d2b26", card: "#27251f", text: "#f2ede3", user: "#1f4a51", userText: "#e6f1f0", accent: "#3fa9ba" },
+    css: SERIF_REPLIES
   }
 };
 var DARK_INK = "#141414";
@@ -28738,7 +28814,24 @@ var AGENT_LOGOS = {
 // src/client/agent-routes.js
 var PREFIX = "local-";
 var CUSTOM_PREFIX = `${PREFIX}acp-`;
-var cliOf = (route) => typeof route === "string" && route.startsWith(PREFIX) ? route.slice(PREFIX.length) : void 0;
+var PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+function splitProfileRoute(route) {
+  if (typeof route !== "string") return null;
+  const at2 = route.indexOf("@");
+  if (at2 <= 0 || route.indexOf("@", at2 + 1) !== -1) return null;
+  const baseRoute = route.slice(0, at2);
+  const profileId = route.slice(at2 + 1);
+  if (!baseRoute.startsWith(PREFIX) || baseRoute.startsWith(CUSTOM_PREFIX)) return null;
+  const cli = baseRoute.slice(PREFIX.length);
+  if (!Object.hasOwn(AGENT_BADGES, cli) || !PROFILE_ID_RE.test(profileId)) return null;
+  return { baseRoute, profileId };
+}
+var cliOf = (route) => {
+  if (typeof route !== "string" || !route.startsWith(PREFIX)) return void 0;
+  const split = splitProfileRoute(route);
+  const base = split ? split.baseRoute : route;
+  return base.slice(PREFIX.length);
+};
 var AGENT_BADGES = {
   "devin-cli": ["DV", "violet"],
   "claude-code": ["CC", "tangerine"],
@@ -36133,12 +36226,26 @@ function useLocalAgents(wanted) {
   const [scanning, setScanning] = (0, import_react23.useState)(false);
   const load = (endpoint) => {
     setScanning(true);
-    return call(endpoint).then(setView).catch(() => setView({ detected: [], custom: [] })).finally(() => setScanning(false));
+    return call(endpoint).then(setView).catch(() => setView({ detected: [], profiles: [], custom: [] })).finally(() => setScanning(false));
   };
   (0, import_react23.useEffect)(() => {
     if (wanted && view === null) void load("local-agents");
   }, [wanted]);
-  const agents = view === null ? [] : [...view.detected, ...view.custom.filter((agent) => agent.available !== false).map((agent) => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))];
+  const profiles = (view?.profiles ?? []).filter((profile) => profile.available !== false).map((profile) => ({
+    route: profile.route,
+    baseRoute: profile.baseRoute,
+    profileId: profile.id,
+    name: profile.displayName ?? profile.name,
+    version: profile.version,
+    signIn: profile.signIn,
+    signedIn: profile.signedIn,
+    configDir: profile.configDir
+  }));
+  const agents = view === null ? [] : [
+    ...view.detected,
+    ...profiles,
+    ...view.custom.filter((agent) => agent.available !== false).map((agent) => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))
+  ];
   return { agents, known: view !== null, scanning, refresh: () => load("local-agent-refresh") };
 }
 var shortVersion = (version) => {
@@ -55905,12 +56012,77 @@ function AgentForm({ initial, submit, close }) {
     )
   );
 }
-function AgentSignInRow({ agent }) {
+function ProfileForm({ initial, detected, submit, close }) {
+  const [baseRoute, setBaseRoute] = (0, import_react63.useState)(initial?.baseRoute ?? detected[0]?.route ?? "");
+  const [name, setName] = (0, import_react63.useState)(initial?.name ?? "");
+  const [configDir, setConfigDir] = (0, import_react63.useState)(initial?.customConfigDir ?? "");
+  const [saving, setSaving] = (0, import_react63.useState)(false);
+  const [error, setError] = (0, import_react63.useState)("");
+  const savingRef = (0, import_react63.useRef)(false);
+  const isEdit = Boolean(initial);
+  const selectedBaseRoute = isEdit ? initial.baseRoute : detected.some((item) => item.route === baseRoute) ? baseRoute : detected[0]?.route ?? "";
+  const canSave = !saving && (isEdit || selectedBaseRoute !== "");
+  const save = () => {
+    if (savingRef.current || !canSave) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError("");
+    const payload = isEdit ? { route: initial.route, name, configDir: configDir.trim() === "" ? null : configDir.trim() } : { baseRoute: selectedBaseRoute, name, ...configDir.trim() === "" ? {} : { configDir: configDir.trim() } };
+    submit(payload).then(() => close()).catch((failure) => {
+      savingRef.current = false;
+      setSaving(false);
+      setError(failure?.message ?? String(failure));
+    });
+  };
+  return (0, import_react63.createElement)(
+    "div",
+    { className: "bt-set-form" },
+    (0, import_react63.createElement)(
+      "div",
+      { className: "bt-set-form-row" },
+      isEdit ? (0, import_react63.createElement)(
+        "label",
+        { className: "bt-set-field" },
+        (0, import_react63.createElement)("span", null, t("Agent")),
+        (0, import_react63.createElement)("input", { className: "bt-input", value: detected.find((item) => item.route === initial.baseRoute)?.name ?? initial.baseRoute, disabled: true })
+      ) : (0, import_react63.createElement)(
+        "label",
+        { className: "bt-set-field" },
+        (0, import_react63.createElement)("span", null, t("Agent")),
+        (0, import_react63.createElement)(
+          "select",
+          { className: "bt-select", value: selectedBaseRoute, disabled: saving || detected.length === 0, onChange: (event) => setBaseRoute(event.target.value) },
+          detected.map((agent) => (0, import_react63.createElement)("option", { key: agent.route, value: agent.route }, agent.name))
+        )
+      ),
+      (0, import_react63.createElement)(
+        "label",
+        { className: "bt-set-field" },
+        (0, import_react63.createElement)("span", null, t("Profile name")),
+        (0, import_react63.createElement)("input", { className: "bt-input", value: name, autoFocus: true, disabled: saving, placeholder: "Work", maxLength: 32, onChange: (event) => setName(event.target.value) })
+      )
+    ),
+    (0, import_react63.createElement)(
+      "label",
+      { className: "bt-set-field" },
+      (0, import_react63.createElement)("span", null, t("Config folder")),
+      (0, import_react63.createElement)("input", { className: "bt-input bt-la-code-input", value: configDir, disabled: saving, placeholder: t("Default folder"), spellCheck: false, onChange: (event) => setConfigDir(event.target.value) })
+    ),
+    error ? (0, import_react63.createElement)("div", { className: "bt-error", role: "alert" }, error) : null,
+    (0, import_react63.createElement)(
+      "div",
+      { className: "bt-set-actions bt-set-form-foot" },
+      (0, import_react63.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: saving, onClick: close }, t("Cancel")),
+      (0, import_react63.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: !canSave, onClick: save }, saving ? t("Saving…") : t("Save"))
+    )
+  );
+}
+function useCopySignIn(command) {
   const [note, setNote] = (0, import_react63.useState)(null);
   const copy2 = () => {
-    const done = (copied) => setNote({ copied, command: agent.signIn });
+    const done = (copied) => setNote({ copied, command });
     try {
-      const writing = navigator.clipboard?.writeText(agent.signIn);
+      const writing = navigator.clipboard?.writeText(command);
       if (writing === void 0) {
         done(false);
         return;
@@ -55920,13 +56092,17 @@ function AgentSignInRow({ agent }) {
       done(false);
     }
   };
-  const version = shortVersion(agent.version);
-  const canSignIn = Boolean(agent.signIn) && agent.signedIn !== true;
-  const status = agent.signedIn === true ? t("Signed in") : agent.signedIn === false ? t("Not signed in") : null;
   const message = note === null ? null : (0, import_react63.createElement)("span", {
     className: note.copied ? "bt-note bt-la-note" : "bt-note bt-la-note bt-danger",
     role: note.copied ? "status" : "alert"
   }, note.copied ? t("Sign-in command copied. Run it in a terminal: {command}", { command: note.command }) : t("Could not copy the sign-in command. Run this in a terminal: {command}", { command: note.command }));
+  return { copy: copy2, message };
+}
+function AgentSignInRow({ agent }) {
+  const { copy: copy2, message } = useCopySignIn(agent.signIn);
+  const version = shortVersion(agent.version);
+  const canSignIn = Boolean(agent.signIn) && agent.signedIn !== true;
+  const status = agent.signedIn === true ? t("Signed in") : agent.signedIn === false ? t("Not signed in") : null;
   return (0, import_react63.createElement)(
     "div",
     { className: "bt-set-row bt-la-row" },
@@ -55954,6 +56130,48 @@ function AgentSignInRow({ agent }) {
       ) : null,
       canSignIn ? (0, import_react63.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", title: t("Copies the sign-in command"), onClick: copy2 }, t("Sign in")) : null
     ) : null
+  );
+}
+function ProfileRow({ profile, armed, onEdit, onRemove, onBlurRemove }) {
+  const { copy: copy2, message } = useCopySignIn(profile.signIn);
+  const version = shortVersion(profile.version);
+  const canSignIn = profile.available !== false && Boolean(profile.signIn) && profile.signedIn !== true;
+  const status = profile.available === false ? t("Not installed") : profile.signedIn === true ? t("Signed in") : profile.signedIn === false ? t("Not signed in") : null;
+  return (0, import_react63.createElement)(
+    "div",
+    { className: "bt-set-row bt-la-row" },
+    (0, import_react63.createElement)(AgentLogo, { route: profile.route, name: profile.displayName ?? profile.name, size: 32, className: "bt-cli-logo bt-la-logo" }),
+    (0, import_react63.createElement)(
+      "div",
+      { className: "bt-set-copy bt-la-copy" },
+      (0, import_react63.createElement)(
+        "span",
+        { className: "bt-la-head" },
+        (0, import_react63.createElement)("span", { className: "bt-la-name" }, profile.displayName ?? profile.name),
+        version ? (0, import_react63.createElement)("span", { className: "bt-la-ver" }, version) : null
+      ),
+      profile.configDir ? (0, import_react63.createElement)("span", { className: "bt-la-path" }, profile.configDir) : null,
+      message
+    ),
+    (0, import_react63.createElement)(
+      "div",
+      { className: "bt-set-control bt-la-actions" },
+      status !== null ? (0, import_react63.createElement)(
+        "span",
+        { className: "bt-la-state", "data-state": String(profile.available === false ? false : profile.signedIn) },
+        (0, import_react63.createElement)("i", { className: "bt-cli-dot", "aria-hidden": true }),
+        status
+      ) : null,
+      canSignIn ? (0, import_react63.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", title: t("Copies the sign-in command"), onClick: copy2 }, t("Sign in")) : null,
+      (0, import_react63.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onEdit }, t("Edit")),
+      (0, import_react63.createElement)("button", {
+        type: "button",
+        className: armed ? "bt-soft bt-soft-sm bt-danger bt-la-armed" : "bt-soft bt-soft-sm bt-danger",
+        "aria-label": armed ? t("Click again to remove") : t("Remove"),
+        onClick: onRemove,
+        onBlur: onBlurRemove
+      }, armed ? t("Remove?") : (0, import_react63.createElement)(TrashIcon))
+    )
   );
 }
 function LocalAgentsPage({ run: run2, Row: Row4 }) {
@@ -55997,6 +56215,9 @@ function LocalAgentsPage({ run: run2, Row: Row4 }) {
     );
   }
   if (view.available === false) return (0, import_react63.createElement)("p", { className: "bt-set-hint" }, t("This DSH cannot register local agent routes."));
+  const profiles = view.profiles ?? [];
+  const profileCapable = view.detected.filter((agent) => agent.supportsProfiles === true);
+  const canAddProfile = profileCapable.length > 0;
   return [
     (0, import_react63.createElement)(
       "section",
@@ -56014,6 +56235,57 @@ function LocalAgentsPage({ run: run2, Row: Row4 }) {
         view.detected.map((agent) => (0, import_react63.createElement)(AgentSignInRow, { key: agent.route, agent, Row: Row4 }))
       )
     ),
+    canAddProfile || profiles.length > 0 ? (0, import_react63.createElement)(
+      "section",
+      { key: "profiles", className: "bt-set-section" },
+      (0, import_react63.createElement)(
+        "div",
+        { className: "bt-la-sec-head" },
+        (0, import_react63.createElement)("h3", null, t("Profiles")),
+        canAddProfile && editing !== "profile:new" ? (0, import_react63.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "aria-label": t("Add profile"), onClick: () => {
+          setArmedRemove(null);
+          setEditing("profile:new");
+        } }, (0, import_react63.createElement)(PlusIcon), t("Add profile")) : null
+      ),
+      (0, import_react63.createElement)(
+        "div",
+        { className: "bt-set-card" },
+        profiles.length === 0 && editing !== "profile:new" ? (0, import_react63.createElement)("div", { className: "bt-set-row" }, (0, import_react63.createElement)("span", { className: "bt-set-hint" }, t("No profiles added"))) : null,
+        profiles.map((profile) => editing === `profile:${profile.route}` ? (0, import_react63.createElement)(ProfileForm, {
+          key: profile.route,
+          initial: profile,
+          detected: view.detected,
+          close: () => setEditing(null),
+          submit: (payload) => call("local-agent-profile-update", payload).then(() => load("local-agents"))
+        }) : (0, import_react63.createElement)(ProfileRow, {
+          key: profile.route,
+          profile,
+          armed: armedRemove === `profile:${profile.route}`,
+          onEdit: () => {
+            setArmedRemove(null);
+            setEditing(`profile:${profile.route}`);
+          },
+          onRemove: () => {
+            const key = `profile:${profile.route}`;
+            if (armedRemove !== key) {
+              setArmedRemove(key);
+              return;
+            }
+            setArmedRemove(null);
+            void run2(call("local-agent-profile-remove", { route: profile.route })).then(() => load("local-agents"));
+          },
+          onBlurRemove: () => {
+            if (armedRemove === `profile:${profile.route}`) setArmedRemove(null);
+          }
+        })),
+        editing === "profile:new" ? (0, import_react63.createElement)(ProfileForm, {
+          key: "profile:new",
+          detected: profileCapable,
+          close: () => setEditing(null),
+          submit: (payload) => call("local-agent-profile-add", payload).then(() => load("local-agents"))
+        }) : null
+      )
+    ) : null,
     (0, import_react63.createElement)(
       "section",
       { key: "custom", className: "bt-set-section" },
