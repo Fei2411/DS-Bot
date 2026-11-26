@@ -428,8 +428,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
-          key: android-ccache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/plugins/**', '.github/gradle/ccache.init.gradle') }}
-          restore-keys: android-ccache-${{ runner.os }}-${{ runner.arch }}-
+          key: android-ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/plugins/**', '.github/gradle/ccache.init.gradle') }}
+          restore-keys: android-ccache-v2-${{ runner.os }}-${{ runner.arch }}-
       - uses: gradle/actions/setup-gradle@v4
         with:
           # Tag builds cannot share newly written caches with later tags; main's scheduled CI
@@ -442,6 +442,8 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           CCACHE_BASEDIR: ${{ github.workspace }}
           CCACHE_NOHASHDIR: 'true'
+          # Default mtime check misses whenever GitHub rotates runner image builds with identical NDK binaries.
+          CCACHE_COMPILERCHECK: content
           CCACHE_SLOPPINESS: include_file_mtime,include_file_ctime,time_macros
           CCACHE_MAXSIZE: 600M
         run: |

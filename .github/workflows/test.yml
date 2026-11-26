@@ -428,8 +428,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
-          key: android-ccache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/plugins/**', '.github/gradle/ccache.init.gradle') }}
-          restore-keys: android-ccache-${{ runner.os }}-${{ runner.arch }}-
+          key: android-ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/plugins/**', '.github/gradle/ccache.init.gradle') }}
+          restore-keys: android-ccache-v2-${{ runner.os }}-${{ runner.arch }}-
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
@@ -437,6 +437,8 @@ jobs:
         env:
           CCACHE_BASEDIR: ${{ github.workspace }}
           CCACHE_NOHASHDIR: 'true'
+          # Default mtime check misses whenever GitHub rotates runner image builds with identical NDK binaries.
+          CCACHE_COMPILERCHECK: content
           CCACHE_SLOPPINESS: include_file_mtime,include_file_ctime,time_macros
           CCACHE_MAXSIZE: 600M
         run: |
