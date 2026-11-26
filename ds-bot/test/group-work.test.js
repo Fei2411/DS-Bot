@@ -3790,7 +3790,7 @@ test('pause notices reflect cycle vs zero-work causes, alreadyPaused re-announce
     assert.equal(r1.idlePaused, undefined)
   }
 
-  // 2) Zero-work 4-turn non-cyclic chain notice copy uses real limit 4.
+  // 2) All six members of a non-cyclic text-only handoff chain get their own turn without a fixed 4-hop cap.
   {
     const host = await start(t, {}, undefined, {}, { d: {} })
     const r1 = rt.roomOf('r1')
@@ -3804,7 +3804,6 @@ test('pause notices reflect cycle vs zero-work causes, alreadyPaused re-announce
     rt.groupOwners.set('ge', { botId: 'e', roomId: 'r1' })
     rt.groupOwners.set('gf', { botId: 'f', roomId: 'r1' })
 
-    // Chain: User -> Chief -> Writer (1) -> Tester (2) -> Reviewer (3) -> Editor (4, hits limit) -> @QA (parked).
     const first = host.round('c-zw', host.say('@Chief kick off the chain'))
     await settle(() => host.agentOf('ga').calls.length === 1)
     host.begin('ga')
@@ -3821,12 +3820,12 @@ test('pause notices reflect cycle vs zero-work causes, alreadyPaused re-announce
     await settle(() => host.agentOf('ge').calls.length === 1)
     host.begin('ge')
     host.finish('ge', '@QA please inspect the output')
+    await settle(() => host.agentOf('gf').calls.length === 1)
+    host.begin('gf')
+    host.finish('gf', 'QA verified the output.')
     await settle(() => first() !== undefined)
-    assert.equal(host.agentOf('gf').calls.length, 0, 'QA must be parked after 4th consecutive zero-work hop')
-    const notice = r1.log.find(line => line.kind === 'notice' && line.reason === 'paused')
-    assert.equal(notice?.cause, 'zero-work')
-    assert.equal(notice?.limit, 4)
-    assert.match(await host.tool('read_group_chat', { group: 'Ops' }, 'a'), /exchanged 4 consecutive messages without running any work tool/)
+    assert.equal(host.agentOf('gf').calls.length, 1, 'acyclic text-only chain should reach QA without fixed turn cap')
+    assert.equal(r1.idlePaused, undefined)
   }
 
   // 3) releaseParked merges multiple parked calls from the same caller into ONE batch and skips removed members.
@@ -5689,7 +5688,7 @@ test('persisted batch replacement survives restart and startup settleRoomBatches
       },
     )
     // Tester's recovered turn still carries k1Key -> must settle K3 (P1), leaving K2 (P2) pending!
-    await settle(() => host2.agentOf('gc').calls.some(msg => msg.source?.exchangeId === 'ex-t-rec-k1'))
+    await until(() => host2.agentOf('gc').calls.some(msg => msg.source?.exchangeId === 'ex-t-rec-k1'), 6000)
     const k1Recovered = host2.agentOf('gc').calls.find(msg => msg.source?.exchangeId === 'ex-t-rec-k1')
     host2.agentOf('gc').calls.push(k1Recovered)
     host2.begin('gc')
@@ -5770,7 +5769,7 @@ test('persisted batch replacement survives restart and startup settleRoomBatches
     )
 
     // Startup settleRoomBatches automatically runs with P2 queued on Writer and C1 finished for P1.
-    await settle(() => host.agentOf('gb').calls.some(msg => msg.source?.exchangeId === 'ex-w-res-p2'))
+    await until(() => host.agentOf('gb').calls.some(msg => msg.source?.exchangeId === 'ex-w-res-p2'), 6000)
     await settle(() => host.agentOf('r1').calls.length === 1)
     assert.ok(rt.state.roomBatches?.[p1.key] !== undefined, 'parent P1 with finished waking child C1 must not be pruned')
     const wakePost = host.takePost()
@@ -5890,7 +5889,7 @@ test('persisted batch replacement survives restart and startup settleRoomBatches
       },
     )
 
-    await settle(() => host.agentOf('r1').calls.length === 2)
+    await until(() => host.agentOf('r1').calls.length === 2, 6000)
     const wakeIdle = host.agentOf('r1').calls.find(m => m.source?.batch === cIdle.key)
     const wakeBusy = host.agentOf('r1').calls.find(m => m.source?.batch === cDone.key)
     assert.ok(wakeIdle && wakeBusy)

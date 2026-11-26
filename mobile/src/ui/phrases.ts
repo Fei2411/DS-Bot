@@ -1,4 +1,10 @@
+import type { Room } from '../connection.ts'
 import { t } from './i18n.ts'
+
+export function roomTitle(room: Pick<Room, 'name' | 'named'>): string {
+  if (room.named === true || (room.name !== 'You' && !room.name.startsWith('You, '))) return room.name
+  return t('You') + room.name.slice('You'.length)
+}
 
 // What a Bot is doing, worded like the desktop's workPhrase (cells.js): what it
 // said in its step, else the kind of tool and what it works on.

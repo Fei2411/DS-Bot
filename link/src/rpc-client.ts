@@ -104,6 +104,11 @@ export class RpcClient {
 
   onClose(handler: () => void): () => void {
     this.closeHandlers.add(handler)
+    if (this.closeNotified) {
+      queueMicrotask(() => {
+        if (this.closeHandlers.has(handler)) handler()
+      })
+    }
     return () => this.closeHandlers.delete(handler)
   }
 

@@ -32,6 +32,7 @@ const makeTeam = (over = {}) => ({
   works: over.works ?? {},
   questions: {},
   views: {},
+  ...(over.completedMoveOps ? { completedMoveOps: over.completedMoveOps } : {}),
   prefs: over.prefs ?? {},
   revision: 0,
 })
@@ -291,7 +292,29 @@ test('Mobile/IM sendUser does NOT auto-move ordinary busy foreground, supports s
   assert.equal(env.prompts[2].sessionId, 'fork-1')
 })
 
-test('canMoveForeground blocks local CLI agents and open interactive cards, while peer spawn keeps busy heuristic', async (t) => {
+test('IM sendUser keeps the message queued on the current chat when a hidden-work fresh preset session fails before commit', async (t) => {
+  const env = await startEnv({ forkImpl: async () => { throw new Error('no completed turn to fork') } })
+  t.after(env.stop)
+  const dmB = env.agentMap.get('dm-b')
+  dmB.status = 'running'
+  env.rt.openWork('w-preset-fallback', { from: 'a', to: 'b' })
+  await env.emit('dm-b', 'turn/start', { turn: 1 })
+  env.rt.live.get('dm-b').info = { kind: SOURCE_KIND, role: 'request', exchangeId: 'w-preset-fallback', senderSessionId: 'a', senderName: 'Chief' }
+  await env.emit('dm-b', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
+  env.rt.botOf('b').agentPreset = 'removed-from-profile'
+  assert.equal(env.rt.mustIsolateHiddenWork(env.rt.botOf('b'), 'dm-b'), true)
+
+  await env.rt.sendUser({ sessionId: 'dm-b', content: [{ type: 'text', text: 'IM follow-up' }], requestId: 'req-im-fallback', mode: 'steer' })
+  assert.equal(env.rt.botOf('b').sessionId, 'dm-b')
+  assert.deepEqual(env.rt.botOf('b').tasks ?? [], [])
+  assert.equal(env.createdSessions.length, 0, 'the unavailable preset still refuses a fresh Session')
+  assert.equal(env.prompts.length, 1, 'the incoming IM is queued exactly once')
+  assert.deepEqual(env.prompts[0], {
+    requestId: 'req-im-fallback', sessionId: 'dm-b', mode: 'queue', content: [{ type: 'text', text: 'IM follow-up' }],
+  })
+})
+
+test('canMoveForeground blocks open interactive cards and supports local CLI backgrounding, while peer spawn keeps busy heuristic', async (t) => {
   const env = await startEnv()
   t.after(env.stop)
   await env.emit('dm-a', 'turn/start', { turn: 1 })
@@ -307,16 +330,16 @@ test('canMoveForeground blocks local CLI agents and open interactive cards, whil
   )
   delete env.rt.state.questions['dm-a']
 
-  // Local CLI agent stays exempt from both explicit move and peer background spawn.
+  // Local CLI agent supports explicit backgrounding and peer background spawn (D8):
+  // the running CLI session moves to background while foreground opens a fresh session.
   env.rt.localAgentBadge = () => 'claude'
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
   env.rt.live.get('dm-a').since = Date.now() - 60_000
-  assert.equal(env.rt.shouldMoveForeground(env.rt.botOf('a'), 'dm-a', { forPeer: true }), false)
-  assert.equal(env.rt.canMoveForeground(env.rt.botOf('a'), 'dm-a'), false)
-  await assert.rejects(
-    () => env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' }),
-    err => err?.code === 'bot/unsupported',
-  )
+  assert.equal(env.rt.shouldMoveForeground(env.rt.botOf('a'), 'dm-a', { forPeer: true }), true)
+  assert.equal(env.rt.canMoveForeground(env.rt.botOf('a'), 'dm-a'), true)
+  const moved = await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
+  assert.equal(moved.moved, true)
+  assert.notEqual(moved.sessionId, 'dm-a')
 })
 
 test('hidden peer-Bot turn moved to background gets bot-handoff origin, never leaks to user chat, and settles work if stopped', async (t) => {
@@ -2023,4 +2046,445 @@ test('round-5 invariants: room.segments object does not crash IM sendUser, recon
   assert.equal(ok3.moved, true)
   assert.equal(env3.rt.state.completedMoveOps?.['op-sup-2']?.moved, true)
   assert.equal(env3.rt.state.completedMoveOps?.['op-sup-1']?.stale, true, 'Move 2 retry must still persist stale tombstone for op-sup-1 after failed stale replay')
+})
+
+test('follow-up durability invariants: capacity eviction during save, failed no-op save, corrupt cold session, and live flush=false auto-retry', async (t) => {
+  // 1) At 64-entry capacity after restart (cold in-memory LRU), while Bot A's save is in flight
+  //    and provisionally evicts op-cap-0, replaying op-cap-0 on busy Bot B must hit op-cap-0's
+  //    durable receipt and NOT move Bot B; when A's save fails, op-cap-0 is restored cleanly.
+  const seededOps = {}
+  for (let i = 0; i < 64; i += 1) {
+    seededOps[`op-cap-${i}`] = { sessionId: `hist-${i}`, taskId: `k_hist_${i}`, moved: true, at: 100 + i }
+  }
+  const env1 = await startEnv({
+    team: makeTeam({
+      completedMoveOps: seededOps,
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1 },
+        b: { id: 'b', name: 'Helper', role: 'Dev', sessionId: 'dm-b', createdAt: 2 },
+      },
+    }),
+  })
+  t.after(env1.stop)
+  const dmA1 = env1.agentMap.get('dm-a')
+  const dmB1 = env1.agentMap.get('dm-b')
+  dmA1.status = 'running'
+  dmB1.status = 'running'
+  await env1.emit('dm-a', 'turn/start', { turn: 1 })
+  await env1.emit('dm-b', 'turn/start', { turn: 1 })
+  const origSave1 = env1.rt.save
+  let rejectSaveA
+  let interceptSaveA = true
+  env1.rt.save = async (opts = {}) => {
+    if (opts?.required && interceptSaveA) {
+      interceptSaveA = false
+      return new Promise((_, reject) => { rejectSaveA = reject })
+    }
+    return origSave1(opts)
+  }
+  const moveA = env1.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-cap-64' })
+  await waitFor(() => typeof rejectSaveA === 'function')
+  // While A's save is pending (having provisionally evicted op-cap-0), replay op-cap-0 against busy Bot B!
+  const replay0 = await env1.rt.moveForegroundToBackground({ botId: 'b', operationId: 'op-cap-0' })
+  assert.deepEqual(replay0, { sessionId: 'hist-0', taskId: 'k_hist_0', moved: true })
+  assert.equal(env1.rt.botOf('b').sessionId, 'dm-b', 'replaying provisionally evicted durable receipt must NOT move Bot B')
+  assert.equal(env1.rt.botOf('b').tasks?.length ?? 0, 0)
+  // Now fail A's save -> op-cap-0 must be back in state.completedMoveOps and op-cap-64 unstaged.
+  rejectSaveA(new Error('disk full for A'))
+  await assert.rejects(() => moveA, /disk full for A/)
+  assert.equal(env1.rt.state.completedMoveOps?.['op-cap-0']?.sessionId, 'hist-0')
+  assert.equal(env1.rt.state.completedMoveOps?.['op-cap-64'], undefined)
+  assert.equal(env1.rt.botOf('b').sessionId, 'dm-b')
+
+  // 2) Natural completion mid-fork whose required save fails MUST retain the no-op in pendingSaveMoveOps
+  //    so retrying the same operationId after Turn 2 starts returns moved:false without moving Turn 2,
+  //    AND if a newer Move 2 commits instead, it also persists op-1's moved:false receipt atomically.
+  let releaseFork2
+  const env2 = await startEnv({
+    forkImpl: async (_opts, make) => new Promise((resolve) => { releaseFork2 = () => resolve({ sessionId: make() }) }),
+  })
+  t.after(env2.stop)
+  const dmA2 = env2.agentMap.get('dm-a')
+  dmA2.status = 'running'
+  await env2.emit('dm-a', 'turn/start', { turn: 1 })
+  const origSave2 = env2.rt.save
+  let failNoOpSave = true
+  env2.rt.save = async (opts = {}) => {
+    if (opts?.required && failNoOpSave) { failNoOpSave = false; throw new Error('no-op save failed') }
+    return origSave2(opts)
+  }
+  const pNoOp = env2.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-noop-fail' })
+  await waitFor(() => typeof releaseFork2 === 'function')
+  dmA2.status = 'idle'
+  await env2.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  releaseFork2()
+  await assert.rejects(() => pNoOp, /no-op save failed/)
+  // Turn 2 starts on dm-a; retrying op-noop-fail must persist & return moved:false, NOT move Turn 2!
+  dmA2.status = 'running'
+  await env2.emit('dm-a', 'turn/start', { turn: 2 })
+  const retryNoOp = await env2.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-noop-fail' })
+  assert.deepEqual(retryNoOp, { sessionId: 'dm-a', taskId: null, moved: false })
+  assert.equal(env2.rt.botOf('a').sessionId, 'dm-a', 'retrying failed no-op save must NOT move Turn 2')
+  assert.equal(env2.rt.botOf('a').tasks?.length ?? 0, 0)
+  assert.equal(env2.rt.state.completedMoveOps?.['op-noop-fail']?.moved, false)
+
+  // 3) SESSION_QUERY_CORRUPT_SESSION whose message includes "not found in surface" must FAIL CLOSED,
+  //    never be misclassified as missing session!
+  const env3 = await startEnv({
+    team: makeTeam({
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a-corrupt', createdAt: 1 },
+        b: { id: 'b', name: 'Helper', role: 'Dev', sessionId: 'dm-b-target', createdAt: 2 },
+      },
+    }),
+  })
+  t.after(env3.stop)
+  delete env3.ctx.sessionController.inspect
+  env3.agentMap.delete('dm-a-corrupt')
+  const query3 = {
+    inspectSession: async (sid) => {
+      if (sid === 'dm-a-corrupt') {
+        throw Object.assign(new Error('session dm-a-corrupt not found in surface index'), { code: 'SESSION_QUERY_CORRUPT_SESSION' })
+      }
+      throw Object.assign(new Error('session not found'), { code: 'SESSION_QUERY_SESSION_NOT_FOUND' })
+    },
+  }
+  const origGet3 = env3.ctx.get
+  env3.ctx.get = name => (name === 'sessionQuery' ? query3 : origGet3(name))
+  await assert.rejects(
+    () => env3.rt.sendUser({ sessionId: 'b', content: [{ type: 'text', text: 'Retry' }], requestId: 'im:telegram:c1:dm-u1:corrupt-1' }),
+    err => err?.code === 'SESSION_QUERY_CORRUPT_SESSION',
+    'SESSION_QUERY_CORRUPT_SESSION containing "not found in surface" must fail closed instead of admitting duplicate',
+  )
+  assert.equal(env3.prompts.length, 0)
+
+  // 4) Live forwardPulledMessages encountering flush() === false MUST schedule automatic retry
+  //    so pendingHandoffInputs drains once flush() returns true (without manual reconcile).
+  let releaseFork4
+  const env4 = await startEnv({
+    forkImpl: async (_opts, make) => new Promise((resolve) => { releaseFork4 = () => resolve({ sessionId: make() }) }),
+  })
+  t.after(env4.stop)
+  let allowFlush4 = false
+  env4.ctx.sessions.flush = async () => allowFlush4
+  const dmA4 = env4.agentMap.get('dm-a')
+  dmA4.status = 'running'
+  await env4.emit('dm-a', 'turn/start', { turn: 1 })
+  const msg4 = { id: 'm-live-unflushed', content: [{ type: 'text', text: 'Drain automatically' }], source: { kind: 'user', rpcId: 'rpc-live-unflushed' } }
+  const handoff4 = env4.rt.handoffForeground(env4.rt.botOf('a'), 'dm-a', [{ msg: msg4, target: 'next-turn', oldAgent: dmA4, originalSessionId: 'dm-a' }])
+  await waitFor(() => typeof releaseFork4 === 'function')
+  releaseFork4()
+  const newSid4 = await handoff4
+  assert.equal(env4.rt.state.pendingHandoffInputs?.length, 1, 'journal stays while live recipient flush returns false')
+  // Now flush becomes available -> automatic scheduled replay must drain the journal without manual reconcile!
+  allowFlush4 = true
+  await waitFor(() => env4.rt.state.pendingHandoffInputs === undefined, 2500)
+  assert.equal(env4.rt.state.pendingHandoffInputs, undefined, 'live flush=false must auto-schedule replay and drain once flush returns true')
+  assert.equal(env4.agentMap.get(newSid4).followups.length, 1, 'already-admitted message must not duplicate on auto-replay')
+})
+
+test('round-1 review invariants: repeat cold lookup preserves durable, non-im scoping, concurrent op-1/op-2 serialization, and ENOENT fail-closed', async (t) => {
+  // 1) Repeat cold-session lookup preserves durable: true and exact cold sessionId (including cache hits),
+  //    and non-im requestIds reused across Bots stay scoped to each Bot's own ownerKey.
+  const env1 = await startEnv({
+    team: makeTeam({
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1 },
+        b: {
+          id: 'b',
+          name: 'Helper',
+          role: 'Dev',
+          sessionId: 'dm-b-cur',
+          segments: [{ sessionId: 'dm-b-cold', endedAt: 10 }],
+          createdAt: 2,
+        },
+      },
+    }),
+  })
+  t.after(env1.stop)
+  delete env1.ctx.sessionController.inspect
+  env1.agentMap.delete('dm-b-cold')
+  const query1 = {
+    inspectSession: async (sid, read) => {
+      if (sid === 'dm-b-cold') {
+        return read({
+          snapshotEvents: () => [
+            { type: 'user/message', seq: 1, data: { id: 'm-cold-repeat', content: [{ type: 'text', text: 'Cold' }], source: { kind: 'user', rpcId: 'im:telegram:c1:dm-u1:cold-repeat' } } },
+          ],
+        })
+      }
+      throw Object.assign(new Error('not found'), { code: 'SESSION_QUERY_SESSION_NOT_FOUND' })
+    },
+  }
+  const origGet1 = env1.ctx.get
+  env1.ctx.get = name => (name === 'sessionQuery' ? query1 : origGet1(name))
+  const cold1 = await env1.rt.findAdmittedForSend({ ref: 'a', requestId: 'im:telegram:c1:dm-u1:cold-repeat', callerSupplied: true })
+  assert.deepEqual(cold1, { admitted: true, sessionId: 'dm-b-cold', durable: true })
+  const cold2 = await env1.rt.findAdmittedForSend({ ref: 'a', requestId: 'im:telegram:c1:dm-u1:cold-repeat', callerSupplied: true })
+  assert.deepEqual(cold2, { admitted: true, sessionId: 'dm-b-cold', durable: true }, 'repeat cold lookup must retain durable: true and exact cold sessionId')
+
+  // Non-im requestId shared by Bot A and Bot B must stay scoped to each Bot's ownerKey.
+  env1.rt.noteAdmittedRpc('dm-a', 'req-shared')
+  env1.rt.noteAdmittedRpc('dm-b-cur', 'req-shared')
+  const foundB = await env1.rt.findAdmittedForSend({ ref: 'b', requestId: 'req-shared', callerSupplied: true })
+  assert.equal(foundB.admitted, true)
+  assert.equal(foundB.sessionId, 'dm-b-cur', 'non-im lookup on Bot B must never return Bot A sessionId')
+
+  // 2) Concurrent op-1 (no-op) + op-2 (move) pending-save retries:
+  //    (a) dual failure leaves state.completedMoveOps completely clean (no leaked uncommitted op-1);
+  //    (b) retrying op-1 first atomically persists BOTH op-1 (moved: false) AND op-2 (moved: true)!
+  let releaseForkA
+  let holdFirstFork = true
+  const env2 = await startEnv({
+    forkImpl: async (_opts, make) => {
+      if (holdFirstFork) {
+        holdFirstFork = false
+        return new Promise((resolve) => { releaseForkA = () => resolve({ sessionId: make() }) })
+      }
+      return { sessionId: make() }
+    },
+  })
+  t.after(env2.stop)
+  const dmA2 = env2.agentMap.get('dm-a')
+  dmA2.status = 'running'
+  await env2.emit('dm-a', 'turn/start', { turn: 1 })
+  const origSave2 = env2.rt.save
+  let failSaves2 = true
+  let saveCalls2 = 0
+  let releasePendingSave2
+  let pauseNextSave2 = false
+  env2.rt.save = async (opts = {}) => {
+    if (opts?.required) {
+      saveCalls2 += 1
+      if (pauseNextSave2) {
+        pauseNextSave2 = false
+        await new Promise((resolve) => { releasePendingSave2 = resolve })
+      }
+      if (failSaves2) throw new Error('disk offline')
+    }
+    return origSave2(opts)
+  }
+  // op-1 completes naturally mid-fork and its required save fails -> stored as pending no-op.
+  const pOp1 = env2.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-noop-1' })
+  await waitFor(() => typeof releaseForkA === 'function')
+  dmA2.status = 'idle'
+  await env2.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  releaseForkA()
+  await assert.rejects(() => pOp1, /disk offline/)
+  // Turn 2 starts and moves with op-2 whose required save ALSO fails -> both op-1 and op-2 are pending!
+  dmA2.status = 'running'
+  await env2.emit('dm-a', 'turn/start', { turn: 2 })
+  await assert.rejects(
+    () => env2.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-move-2' }),
+    /disk offline/,
+  )
+  // Now retry op-2 and op-1 CONCURRENTLY while disk is still offline -> must share ONE serialized batch and leak NOTHING!
+  pauseNextSave2 = true
+  const savesBeforeConcurrent = saveCalls2
+  const retryOp2 = env2.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-move-2' })
+  await waitFor(() => typeof releasePendingSave2 === 'function')
+  const retryOp1 = env2.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-noop-1' })
+  releasePendingSave2()
+  await assert.rejects(() => retryOp2, /disk offline/)
+  await assert.rejects(() => retryOp1, /disk offline/)
+  assert.equal(saveCalls2, savesBeforeConcurrent + 1, 'concurrent retries for same Bot must coalesce into a single serialized save')
+  assert.equal(env2.rt.state.completedMoveOps, undefined, 'dual failure must NOT leak uncommitted op-noop-1 into state.completedMoveOps')
+
+  // Now disk recovers and caller retries ONLY op-noop-1 -> MUST atomically persist op-move-2 alongside Move 2 state!
+  failSaves2 = false
+  const resOp1 = await env2.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-noop-1' })
+  assert.deepEqual(resOp1, { sessionId: 'dm-a', taskId: null, moved: false })
+  assert.equal(env2.rt.state.completedMoveOps?.['op-noop-1']?.moved, false)
+  assert.equal(env2.rt.state.completedMoveOps?.['op-move-2']?.moved, true, 'saving op-1 must atomically include active pending op-2 receipt')
+  assert.equal(env2.rt.state.completedMoveOps?.['op-move-2']?.sessionId, env2.rt.botOf('a').sessionId)
+
+  // 3) Bare ENOENT must fail closed (not treated as missing session); SessionPersistenceNotFoundError is missing.
+  const env3 = await startEnv({
+    team: makeTeam({
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a-enoent', createdAt: 1 },
+        b: { id: 'b', name: 'Helper', role: 'Dev', sessionId: 'dm-b-ok', createdAt: 2 },
+      },
+    }),
+  })
+  t.after(env3.stop)
+  delete env3.ctx.sessionController.inspect
+  env3.agentMap.delete('dm-a-enoent')
+  let errKind = 'enoent'
+  const query3 = {
+    inspectSession: async (sid) => {
+      if (sid === 'dm-a-enoent') {
+        if (errKind === 'enoent') throw Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
+        if (errKind === 'notfound') {
+          const e = new Error('missing session')
+          e.name = 'SessionPersistenceNotFoundError'
+          throw e
+        }
+        const e = new Error('session not found in corrupted index')
+        e.name = 'SessionPersistenceCorruptionError'
+        throw e
+      }
+      throw Object.assign(new Error('not found'), { code: 'SESSION_QUERY_SESSION_NOT_FOUND' })
+    },
+  }
+  const origGet3 = env3.ctx.get
+  env3.ctx.get = name => (name === 'sessionQuery' ? query3 : origGet3(name))
+  await assert.rejects(
+    () => env3.rt.sendUser({ sessionId: 'b', content: [{ type: 'text', text: 'Test' }], requestId: 'im:telegram:c1:dm-u1:enoent-1' }),
+    err => err?.code === 'ENOENT',
+    'bare ENOENT must fail closed',
+  )
+  errKind = 'corrupt-name'
+  await assert.rejects(
+    () => env3.rt.sendUser({ sessionId: 'b', content: [{ type: 'text', text: 'Test' }], requestId: 'im:telegram:c1:dm-u1:enoent-2' }),
+    err => err?.name === 'SessionPersistenceCorruptionError',
+    'SessionPersistenceCorruptionError without code must still fail closed',
+  )
+  errKind = 'notfound'
+  await env3.rt.sendUser({ sessionId: 'b', content: [{ type: 'text', text: 'Test' }], requestId: 'im:telegram:c1:dm-u1:enoent-3' })
+  assert.equal(env3.prompts.length, 1, 'SessionPersistenceNotFoundError must be treated as missing session')
+
+  // 4) Busy-boundary flush barrier race: when an inbox-pending item transitions to claimed + user/message
+  //    around flush #1, confirmSessionFlushed MUST perform an unconditional second flush (and return false
+  //    if flush #2 fails), and agent/disposed `{ agent }` payload must exit waitForClaimedAdmission immediately.
+  const env4 = await startEnv()
+  t.after(env4.stop)
+  const dmA4 = env4.agentMap.get('dm-a')
+  dmA4.status = 'running'
+  const raceReqId = 'im:telegram:c1:dm-u1:busy-barrier-1'
+  dmA4.session.events.push({
+    type: 'agent/inbox/spliced',
+    seq: 1,
+    data: {
+      target: 'next-turn',
+      start: 0,
+      inserted: [{ id: 'm-barrier-1', role: 'user', content: [{ type: 'text', text: 'Queued' }], source: { kind: 'user', rpcId: raceReqId } }],
+    },
+  })
+  let flushCount4 = 0
+  let flush2Result = false
+  env4.ctx.sessions.flush = async () => {
+    flushCount4 += 1
+    if (flushCount4 === 1) {
+      // Simulate claim splice inside barrier #1, then user/message appended AFTER barrier #1 resolves!
+      dmA4.session.events.push({ type: 'agent/inbox/spliced', seq: 2, data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } })
+      queueMicrotask(() => {
+        dmA4.session.events.push({
+          type: 'user/message',
+          seq: 3,
+          data: { id: 'm-barrier-1', content: [{ type: 'text', text: 'Queued' }], source: { kind: 'user', rpcId: raceReqId } },
+        })
+      })
+      return true
+    }
+    return flush2Result
+  }
+  const confirmedWhenFlush2Fails = await env4.rt.confirmSessionFlushed('dm-a', raceReqId)
+  assert.equal(flushCount4, 2, 'transitioning inbox item must trigger an unconditional second flush')
+  assert.equal(confirmedWhenFlush2Fails, false, 'failing flush #2 must return false instead of trusting flush #1')
+
+  // Reset to inbox-pending and let flush #2 succeed -> must invoke 2 flushes and confirm true!
+  const raceReqId2 = 'im:telegram:c1:dm-u1:busy-barrier-2'
+  dmA4.session.events.length = 0
+  dmA4.session.events.push({
+    type: 'agent/inbox/spliced',
+    seq: 1,
+    data: {
+      target: 'next-turn',
+      start: 0,
+      inserted: [{ id: 'm-barrier-2', role: 'user', content: [{ type: 'text', text: 'Queued 2' }], source: { kind: 'user', rpcId: raceReqId2 } }],
+    },
+  })
+  flushCount4 = 0
+  flush2Result = true
+  env4.ctx.sessions.flush = async () => {
+    flushCount4 += 1
+    if (flushCount4 === 1) {
+      dmA4.session.events.push({ type: 'agent/inbox/spliced', seq: 2, data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } })
+      dmA4.session.events.push({
+        type: 'user/message',
+        seq: 3,
+        data: { id: 'm-barrier-2', content: [{ type: 'text', text: 'Queued 2' }], source: { kind: 'user', rpcId: raceReqId2 } },
+      })
+      return true
+    }
+    return flush2Result
+  }
+  const confirmedWhenFlush2Succeeds = await env4.rt.confirmSessionFlushed('dm-a', raceReqId2)
+  assert.equal(flushCount4, 2, 'even if user/message became visible before post-flush check, flush #2 must run')
+  assert.equal(confirmedWhenFlush2Succeeds, true)
+
+  // Remove + reinsert rollback across flush #1 barrier MUST also require flush #2 (cannot trust flush #1!).
+  const reinsertReqId = 'im:telegram:c1:dm-u1:remove-reinsert-1'
+  dmA4.session.events.length = 0
+  dmA4.session.events.push({
+    type: 'agent/inbox/spliced',
+    seq: 1,
+    data: {
+      target: 'next-turn',
+      start: 0,
+      inserted: [{ id: 'm-reins-1', role: 'user', content: [{ type: 'text', text: 'Reinserted' }], source: { kind: 'user', rpcId: reinsertReqId } }],
+    },
+  })
+  flushCount4 = 0
+  env4.ctx.sessions.flush = async () => {
+    flushCount4 += 1
+    if (flushCount4 === 1) {
+      // Removal included in flush #1; rollback reinsertion lands right after barrier #1 resolves!
+      dmA4.session.events.push({ type: 'agent/inbox/spliced', seq: 2, data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } })
+      queueMicrotask(() => {
+        dmA4.session.events.push({
+          type: 'agent/inbox/spliced',
+          seq: 3,
+          data: {
+            target: 'next-turn',
+            start: 0,
+            inserted: [{ id: 'm-reins-1', role: 'user', content: [{ type: 'text', text: 'Reinserted' }], source: { kind: 'user', rpcId: reinsertReqId } }],
+          },
+        })
+      })
+      return true
+    }
+    return false
+  }
+  const reinsertFlush2Fails = await env4.rt.confirmSessionFlushed('dm-a', reinsertReqId)
+  assert.equal(flushCount4, 2, 'remove+reinsert across flush #1 must trigger a second flush barrier')
+  assert.equal(reinsertFlush2Fails, false, 'failed second flush after reinsert must return false')
+
+  // When flush #2 succeeds with no further splices, confirmSessionFlushed returns true on flush #2.
+  flushCount4 = 0
+  env4.ctx.sessions.flush = async () => {
+    flushCount4 += 1
+    if (flushCount4 === 1) {
+      dmA4.session.events.push({ type: 'agent/inbox/spliced', seq: 4, data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } })
+      dmA4.session.events.push({
+        type: 'agent/inbox/spliced',
+        seq: 5,
+        data: {
+          target: 'next-turn',
+          start: 0,
+          inserted: [{ id: 'm-reins-1', role: 'user', content: [{ type: 'text', text: 'Reinserted' }], source: { kind: 'user', rpcId: reinsertReqId } }],
+        },
+      })
+    }
+    return true
+  }
+  const reinsertFlush2Succeeds = await env4.rt.confirmSessionFlushed('dm-a', reinsertReqId)
+  assert.equal(flushCount4, 2)
+  assert.equal(reinsertFlush2Succeeds, true)
+
+  // Verify real DSH `agent/disposed` payload `{ agent }` exits waitForClaimedAdmission immediately (not 5s timeout).
+  const disposeReqId = 'im:telegram:c1:dm-u1:dispose-fast-1'
+  dmA4.session.events.length = 0
+  dmA4.session.events.push(
+    { type: 'agent/inbox/spliced', seq: 1, data: { target: 'next-turn', start: 0, inserted: [{ id: 'm-disp-1', role: 'user', content: [{ type: 'text', text: 'Claimed' }], source: { kind: 'user', rpcId: disposeReqId } }] } },
+    { type: 'agent/inbox/spliced', seq: 2, data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } },
+  )
+  const startedAt = Date.now()
+  const waitPromise = env4.rt.confirmSessionFlushed('dm-a', disposeReqId)
+  await new Promise(r => setTimeout(r, 20))
+  for (const listener of env4.ctx.listeners.get('agent/disposed') ?? []) listener({ agent: dmA4 })
+  const disposedResult = await waitPromise
+  assert.equal(disposedResult, false)
+  assert.ok(Date.now() - startedAt < 1000, 'agent/disposed { agent } payload must settle confirmSessionFlushed immediately')
 })

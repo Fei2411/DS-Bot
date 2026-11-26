@@ -20,6 +20,25 @@ const SIGNED_IN_TTL_MS = 60_000
 const SIGNED_IN_RETRY_MS = 20_000
 const VERSION_FAIL_TTL_MS = 30_000
 
+export function parseCliSemver(raw) {
+  if (typeof raw !== 'string') return undefined
+  const match = /(\d+)\.(\d+)(?:\.(\d+))?/.exec(raw)
+  if (match === null) return undefined
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3] ?? 0) }
+}
+
+// Capability detection for native CLI session fork based on probed CLI version:
+// - Codex app-server v2 supports `thread/fork` (>= 0.80.0)
+// - Claude Code supports `--resume <id> --fork-session` (>= 2.0.0)
+// - ACP has no standard session fork RPC
+export function versionSupportsFork(kind, version) {
+  const semver = parseCliSemver(version)
+  if (semver === undefined) return false
+  if (kind === 'codex') return semver.major > 0 || semver.minor >= 80
+  if (kind === 'claude') return semver.major >= 2
+  return false
+}
+
 // The preset a Session runs on: its group's, else its Bot's, else DSH's default — the one
 // a Bot without a preset of its own is shown with (permissions.js keeps it applied to the
 // Session). A hard-coded workspace-write made a local agent open in a stricter mode than
@@ -69,42 +88,48 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     applyRoutes()
     return [...found.values()]
   }
+  async function probeEntryVersion(entry, { force = false } = {}) {
+    if (entry === undefined) return
+    if (!force && entry.version !== undefined) return
+    if (!force && entry.versionFailedAt !== undefined && now() - entry.versionFailedAt < VERSION_FAIL_TTL_MS) return
+    if (force || entry.versionProbe === undefined) {
+      const epoch = ++nextProbeEpoch
+      entry.versionEpoch = epoch
+      entry.versionAbort?.abort()
+      const controller = new AbortController()
+      entry.versionAbort = controller
+      const spec = ENGINES[entry.route]
+      const probe = Promise.resolve()
+        .then(() => checkVersion(entry.path, spec.version ?? ['--version'], probeEnv(spec.env ?? {}), { signal: controller.signal }))
+        .catch(() => undefined)
+        .then((result) => {
+          if (entry.versionEpoch !== epoch || entry.versionProbe !== probe || found.get(entry.route) !== entry) return
+          if (result?.version !== undefined) {
+            entry.version = result.version
+            entry.supportsFork = versionSupportsFork(spec.kind, result.version)
+            delete entry.versionFailedAt
+          } else {
+            if (force) {
+              entry.version = undefined
+              entry.supportsFork = false
+            }
+            entry.versionFailedAt = now()
+          }
+        })
+        .finally(() => {
+          if (entry.versionProbe === probe) {
+            delete entry.versionProbe
+            delete entry.versionAbort
+          }
+        })
+      entry.versionProbe = probe
+    }
+    while (entry.versionProbe !== undefined) {
+      await entry.versionProbe
+    }
+  }
   async function probeVersions({ force = false } = {}) {
-    await Promise.all([...found.values()].map(async (entry) => {
-      if (!force && entry.version !== undefined) return
-      if (!force && entry.versionFailedAt !== undefined && now() - entry.versionFailedAt < VERSION_FAIL_TTL_MS) return
-      if (force || entry.versionProbe === undefined) {
-        const epoch = ++nextProbeEpoch
-        entry.versionEpoch = epoch
-        entry.versionAbort?.abort()
-        const controller = new AbortController()
-        entry.versionAbort = controller
-        const spec = ENGINES[entry.route]
-        const probe = Promise.resolve()
-          .then(() => checkVersion(entry.path, spec.version ?? ['--version'], probeEnv(spec.env ?? {}), { signal: controller.signal }))
-          .catch(() => undefined)
-          .then((result) => {
-            if (entry.versionEpoch !== epoch || entry.versionProbe !== probe || found.get(entry.route) !== entry) return
-            if (result?.version !== undefined) {
-              entry.version = result.version
-              delete entry.versionFailedAt
-            } else {
-              if (force) entry.version = undefined
-              entry.versionFailedAt = now()
-            }
-          })
-          .finally(() => {
-            if (entry.versionProbe === probe) {
-              delete entry.versionProbe
-              delete entry.versionAbort
-            }
-          })
-        entry.versionProbe = probe
-      }
-      while (entry.versionProbe !== undefined) {
-        await entry.versionProbe
-      }
-    }))
+    await Promise.all([...found.values()].map(entry => probeEntryVersion(entry, { force })))
   }
   // Asked only when the list of CLIs is about to show, never at start or for a menu.
   async function probeSignIns({ force = false } = {}) {
@@ -156,6 +181,8 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     customAgents,
     findExecutable,
     spawnEngine,
+    prepareSecretEnvForSession: (sessionId, signal) => rt.prepareSecretEnvForSession?.(sessionId, signal),
+    secretEnvForSession: sessionId => rt.secretEnvForSession?.(sessionId),
     usedModels: route => usedRefs().map(ref => splitRef(ref)).filter(used => used?.provider === route).map(used => used.model),
     record: sessionId => store().sessions[sessionId],
     saveRecord: (sessionId, record) => {
@@ -171,6 +198,14 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     },
     presetFor: sessionId => presetOf(rt, sessionId),
     freshMemoryView: sessionId => rt.freshMemoryView?.(sessionId),
+    onCompaction: (sessionId, info) => {
+      rt.contextRuntime?.bumpEpoch(sessionId, info?.reason ?? 'cli-compaction')
+      if (info?.reason === 'resume-dropped' && Number.isInteger(info?.compactions)) {
+        rt.contextRuntime?.setCliCompactions(sessionId, info.compactions)
+      }
+      rt.renewMemory?.(sessionId)
+    },
+    switchOnResumeLost: sessionId => rt.isBotSession?.(sessionId) === true && rt.readOnly?.() === undefined,
     cwdFor: async (sessionId) => {
       try {
         const agent = await rt.resolveAgent(sessionId)
@@ -180,10 +215,17 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       }
     },
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
-    toolsFor: (options) => {
+    toolsFor: (options, sessionId = options?.sessionId) => {
       // Only DS Bot's own team tools cross the bridge; the CLI keeps its own.
+      // Read live scoped schemas from the active Agent when available so
+      // `notifications/tools/list_changed` immediately serves fresh tools/list
+      // without waiting for the next adapter.stream() turn.
       const names = new Set([...rt.teamTools.map(def => def.name), 'approve_agent_action'])
-      return (options.tools ?? []).filter(tool => names.has(tool.name))
+      const liveAgent = sessionId === undefined ? undefined : ctx.get?.('agents')?.get?.(sessionId)
+      const schemas = liveAgent !== undefined && typeof ctx.tools?.schemas === 'function'
+        ? ctx.tools.schemas(liveAgent)
+        : (options?.tools ?? [])
+      return schemas.filter(tool => names.has(tool.name))
     },
   })
 
@@ -219,6 +261,11 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   const initialScan = scan().catch(error => rt.warn?.('ds-bot: initial local agent scan failed: %s', error))
   // Custom agents arrive with the state load; their routes register then too.
   void rt.load?.().then(() => { if (!disposed) applyRoutes() }).catch(() => {})
+  const prevSecretsChanged = rt.secretsChanged
+  rt.secretsChanged = () => {
+    prevSecretsChanged?.()
+    if (!disposed) void adapter.secretsChanged?.().catch(() => {})
+  }
   // The callback returns the disposer: running adapter.dispose() inside the
   // setup would leave the adapter disposed from the moment it installs.
   ctx.effect(() => async () => {
@@ -349,10 +396,62 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     }
   }
 
+  // Cleans up a forgotten or archived session's live CLI handle and persisted record.
+  function forgetLocalAgentSession(sessionId, { persist = true } = {}) {
+    if (typeof sessionId !== 'string' || sessionId === '') return false
+    void adapter.closeSession(sessionId, 'session forgotten').catch(() => {})
+    const sessions = store().sessions
+    if (!Object.hasOwn(sessions, sessionId)) return false
+    delete sessions[sessionId]
+    if (persist && rt.readOnly?.() === undefined) void rt.save().catch(() => {})
+    return true
+  }
+
+  // Prunes orphaned `state.localAgents.sessions` entries whose DS Bot sessions are no
+  // longer active (archived parts, deleted Bots, left groups, or settled tasks).
+  function pruneLocalAgentSessions(liveIds) {
+    if (!(liveIds instanceof Set)) return 0
+    const sessions = store().sessions
+    let removed = 0
+    for (const sid of Object.keys(sessions)) {
+      if (!liveIds.has(sid)) {
+        void adapter.closeSession(sid, 'session pruned').catch(() => {})
+        delete sessions[sid]
+        removed += 1
+      }
+    }
+    if (removed > 0 && rt.readOnly?.() === undefined) void rt.save().catch(() => {})
+    return removed
+  }
+
+  const localAgentSupportsFork = (route) => {
+    if (typeof route !== 'string' || route === '') return false
+    if (adapter.isForkUnsupported(route)) return false
+    return found.get(route)?.supportsFork === true
+  }
+
+  // On-demand version probe for one route when starting a fork-eligible task,
+  // reusing the cached/in-flight probe so native forks work immediately after restart
+  // without waiting for Settings -> Local agents to be opened.
+  async function ensureLocalAgentForkCapability(route) {
+    if (typeof route !== 'string' || route === '' || adapter.isForkUnsupported(route)) return false
+    await initialScan.catch(() => {})
+    const entry = found.get(route)
+    if (entry === undefined) return false
+    if (entry.supportsFork !== undefined) return entry.supportsFork === true
+    await probeEntryVersion(entry).catch(() => {})
+    return !adapter.isForkUnsupported(route) && entry.supportsFork === true
+  }
+
   Object.assign(rt, {
     isLocalAgentRoute, isLocalAgentRef, engineOf, engineOfBot, localAgentOf, isLocalAgentSession,
     localAgentRoutes: allRoutes, localAgentsEndpoint, localAgentModels,
     isLocalAgentAvailable: route => registeredRoutes.has(route),
+    localAgentSupportsFork,
+    ensureLocalAgentForkCapability,
+    forkLocalAgentSession: (fromSessionId, toSessionId, options) => adapter.forkSession(fromSessionId, toSessionId, options),
+    forgetLocalAgentSession,
+    pruneLocalAgentSessions,
     engineNameOf: ref => (isLocalAgentRef(ref) ? adapter.providerInfo(splitRef(ref).provider).name : `the model ${ref}`),
     closeLocalAgentSession: (sessionId, reason) => adapter.closeSession(sessionId, reason),
     localAgentLaunchPreset: sessionId => adapter.live.get(String(sessionId))?.preset,
@@ -363,6 +462,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     localAgentCompact: (sessionId, signal) => adapter.compact(String(sessionId), signal),
     localAgentNote: (sessionId, text, signal) => adapter.note(String(sessionId), text, signal),
     localAgentAsk: (sessionId, request) => adapter.ask(String(sessionId), request),
+    notifyLocalAgentToolsChanged: sessionId => adapter.notifyToolsChanged(sessionId),
     localAgentBadge: (ref) => {
       const provider = splitRef(ref)?.provider
       return provider !== undefined && isLocalAgentRoute(provider) ? provider : undefined

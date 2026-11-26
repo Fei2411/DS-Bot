@@ -25,9 +25,9 @@ Use this reference while the DS Bot host is running. Stick to read-only Bot tool
 
 Check these thresholds when investigating truncated context, frequent handoffs, or stalled Bot loops:
 
-- **Context windows & trigger math (`steward.js`):**
-  - Steward cap: `500,000` tokens (even if DSH reports `1,000,000` model context).
-  - Auto-handoff check triggers at `0.8` utilization or `380,000` tokens, with a hard ceiling of `0.95 * usable`.
+- **Context windows & trigger math (`steward.js` / `context-runtime.js`):**
+  - Default fallback window when a model declares no `contextWindow`: `500,000` tokens.
+  - Auto-handoff check triggers at `0.8` (`checkRatio`) of the usable window (no default hard token ceiling; an explicit `checkTokens` config caps it when set), with a hard ceiling of `0.95 * usable`.
   - Reserved headroom/summary defaults: `16,384` response reserve and `4,096` token budget parameters during summary/compaction.
 - **Handoff failure backoff:** Failed handoff retries back off through `1m`, `5m`, and `15m` delays before retrying automatically.
 - **Non-retryable `BLOCKING_CODES`:** Provider/request failures classified as blocking (including HTTP `403` `CONTENT_POLICY`) stop automatic retries immediately instead of looping; inspect `diagnostics.jsonl` for the exact blocking code and status.

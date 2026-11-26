@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { cleanPreview, handoffTitleOf, relayReplyText, roundEventText, settledQuestionPicks, stripLongNote } from '../screens/chat/settled.ts'
 import { setLang, weekdayShort } from '../ui/i18n.ts'
-import { workPhrase } from '../ui/phrases.ts'
+import { roomTitle, workPhrase } from '../ui/phrases.ts'
 
 test('settledQuestionPicks preserves option letters and custom slot from host answer item', () => {
   // Exact shape emitted by ds-bot/src/host/parts.js displayItems for kind: 'answer' (ask_user)
@@ -39,6 +39,19 @@ test('handoffTitleOf decodes host browser_handoff answer reasons in both languag
   assert.equal(handoffTitleOf(handoff.reason), 'Verification needed')
   assert.equal(handoffTitleOf('confirmation'), 'Confirmation needed')
   assert.equal(handoffTitleOf('other'), 'Your turn in the browser')
+  setLang('system')
+})
+
+test('roomTitle localizes only the host-generated You prefix', () => {
+  const room = { name: 'You, Coder, You, Writer' }
+  setLang('zh')
+  assert.equal(roomTitle(room), '你, Coder, You, Writer')
+  assert.equal(roomTitle({ name: 'You', named: false }), '你')
+  assert.equal(roomTitle({ ...room, named: true }), room.name)
+  assert.equal(roomTitle({ name: 'You and Coder' }), 'You and Coder')
+
+  setLang('en')
+  assert.equal(roomTitle(room), room.name)
   setLang('system')
 })
 

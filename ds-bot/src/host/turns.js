@@ -9,7 +9,7 @@ import { HANDOFF_ACK, isSilentTurnText, isWorkTool, LATE_ANSWER, MESSAGE_INLINE_
 import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
-import { sameConversation, threadCurrentOfPart } from './threads.js'
+import { addressedSession, returnAddress, sameConversation, threadCurrentOfPart } from './threads.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { reminderText } from './schedules.js'
 import { usageChunk } from './usage.js'
@@ -106,17 +106,15 @@ function dropSuppressedWork(rt, exchangeId, name, text) {
 // for closes, and the answer goes up to the Bot that asked. `id` is the Session the
 // answer comes from; `source` is the trigger the turn answered.
 export function answerSender(rt, id, source, text, long, options = {}) {
-  const back = rt.roomOf(source.senderRoomId)?.sessions?.[source.senderSessionId]
-  // The asking Bot may have written from a background part of its own chat: its reply
-  // goes back to that part's thread, not to the part the user is reading. When the part
-  // is gone, or no part was recorded, the reply goes to the Bot's current chat, as before.
-  const asker = source.senderPart === undefined ? undefined : rt.botOf(source.senderSessionId)
-  const part = back === undefined && asker !== undefined ? threadCurrentOfPart(asker, source.senderPart) : undefined
-  const target = back ?? part
   const fromId = rt.selfOf(id)
   const toId = source.senderSessionId
+  const rawAddress = returnAddress(rt.botOf(toId), source.senderPart, source.senderRoomId)
+  const resolvedTarget = addressedSession(rt, toId, rawAddress)
+  const address = resolvedTarget !== undefined ? rawAddress : { foreground: true }
+  const target = resolvedTarget
   const targetSessionId = target ?? rt.chatOf?.(toId) ?? toId
   const name = rt.botOf(fromId)?.name ?? 'The other Bot'
+  const obligationId = typeof options?.obligationId === 'string' && options.obligationId !== '' ? options.obligationId : undefined
   const guards = guardsOf(rt)
   const exchangeKey = typeof source.exchangeId === 'string' && source.exchangeId !== ''
     ? `${fromId ?? ''}\0${toId ?? ''}\0${source.exchangeId}`
@@ -128,6 +126,7 @@ export function answerSender(rt, id, source, text, long, options = {}) {
     if (typeof source.exchangeId === 'string' && source.exchangeId !== '') {
       rt.closeWork?.(source.exchangeId, name, deliveredReply?.text || text)
     }
+    if (obligationId !== undefined) rt.coordination?.markObligation?.(obligationId, 'settled')
     return false
   }
   const failureRequestId = typeof options?.failure?.requestId === 'string' && options.failure.requestId !== ''
@@ -149,19 +148,23 @@ export function answerSender(rt, id, source, text, long, options = {}) {
         .findLast(entry => parentCoveredBy(rt, ownParent, entry.replyTo))
   if (matchedInMemory || matchedLedger !== undefined) {
     dropSuppressedWork(rt, source.exchangeId, name, text)
+    if (obligationId !== undefined) rt.coordination?.markObligation?.(obligationId, 'settled')
     return false
   }
   if (typeof source.exchangeId === 'string' && source.exchangeId !== '' && rt.closedWorkOf?.(source.exchangeId)?.status === 'cancelled') {
+    if (obligationId !== undefined) rt.coordination?.markObligation?.(obligationId, 'cancelled')
     return false
   }
   const workBeforeClose = typeof source.exchangeId === 'string' && Object.hasOwn(rt.state?.works ?? {}, source.exchangeId) ? rt.state.works[source.exchangeId] : undefined
   const workRef = source.workRef ?? workBeforeClose?.ref ?? rt.workRefOf?.(source.exchangeId)
   const workWorked = workBeforeClose?.worked === true || options.worked === true
   const replyImOrigin = rt.workImOrigin?.(source.exchangeId)
-  if (replyImOrigin !== undefined) rt.rememberImReplyOrigin?.(source.exchangeId, replyImOrigin)
+  if (replyImOrigin !== undefined && !(source.senderRoomId !== undefined && resolvedTarget === undefined)) {
+    rt.rememberImReplyOrigin?.(source.exchangeId, replyImOrigin)
+  }
   const work = rt.closeWork?.(source.exchangeId, name, text, workWorked ? { worked: true } : undefined)
   if (workBeforeClose !== undefined && options.failure === undefined && options.aborted !== true) {
-    rt.noteWorkCompleted?.(workBeforeClose.from, workBeforeClose.to, { worked: workWorked, id: source.exchangeId, text })
+    rt.noteWorkCompleted?.(workBeforeClose.from, workBeforeClose.to, { worked: workWorked, id: source.exchangeId, goalKey: workBeforeClose.goalKey, text })
   }
   if (exchangeKey !== undefined) {
     guards.exchanges.add(exchangeKey)
@@ -179,9 +182,10 @@ export function answerSender(rt, id, source, text, long, options = {}) {
   const marker = late === undefined ? '' : LATE_ANSWER
   const body = marker === '' ? (long?.text ?? text) : `${marker}${long?.text ?? text}`
   const length = long === undefined ? undefined : late === undefined ? long.length : (long.length ?? text.length) + marker.length
-  const exchangeId = randomUUID()
-  void rt.deliver({
+  const exchangeId = source.exchangeId ? `${late ? 'late-reply' : 'reply'}:${source.exchangeId}` : randomUUID()
+  const deliverPayload = {
     fromId,
+    fromName: name,
     toId,
     ...(target ? { sessionId: target } : {}),
     text: body,
@@ -189,11 +193,23 @@ export function answerSender(rt, id, source, text, long, options = {}) {
     role: 'reply',
     replyTo: source.exchangeId,
     exchangeId,
+    address,
     ...(work ? { work } : {}),
     ...(workRef ? { workRef } : {}),
     ...(failureRequestId === undefined ? {} : { failureRequestId }),
-  }).catch((error) => {
+  }
+  void rt.deliver(deliverPayload).then(() => {
+    if (obligationId === undefined) return
+    try {
+      rt.coordination?.markObligation?.(obligationId, 'settled')
+    } catch (error) {
+      rt.warn?.('ds-bot: marking obligation %s settled failed: %s', obligationId, error)
+    }
+  }, (error) => {
     rt.warn('ds-bot: reply delivery failed: %s', error)
+    // If admission/flush is uncertain or the target task/room permanently closed,
+    // never emit a second waking message.
+    if (error?.delivered === true || error?.code === 'bot/unresolved-return') return
     // The reply never reached the asker: its note goes — the notice below carries
     // what it answered — the result kept with the work is marked, and the failure
     // reaches the asker the way the reply would have, so the work goes on and its
@@ -203,12 +219,14 @@ export function answerSender(rt, id, source, text, long, options = {}) {
     const said = `${name} could not send its reply to you (${failureLine(turnFailure(error))}); what it had answered:\n`
     void rt.deliver({
       fromId,
+      fromName: name,
       toId,
       ...(target ? { sessionId: target } : {}),
       text: `${said}${long?.text ?? text}`,
       ...(long?.length === undefined ? {} : { files: long.files, length: said.length + long.length }),
       role: 'reply',
       replyTo: source.exchangeId,
+      address,
       ...(work ? { work } : {}),
       ...(failureRequestId === undefined ? {} : { failureRequestId }),
     }).catch((again) => {
@@ -813,7 +831,13 @@ export function install(rt) {
       if (job.roomId === undefined) merged[job.botId] = 'thinking'
       else merged[job.botId ?? job.roomId] ??= 'thinking'
     }
-    for (const approval of rt.approvalsView?.() ?? []) if (approval.botId) merged[approval.botId] = 'alert'
+    // Only answerable foreground DM approvals alert the Bot's own mascot; group approvals
+    // live on the group row/island (#1623) and background task approvals live in the task deck.
+    for (const approval of rt.approvalsView?.() ?? []) {
+      if (approval.botId && approval.roomId === undefined && approval.taskId === undefined && approval.answerable !== false) {
+        merged[approval.botId] = 'alert'
+      }
+    }
     // Waiting for work it handed on shows only while no turn of the Bot runs.
     for (const botId of Object.keys(rt.waitingView?.() ?? {})) merged[botId] ??= 'waiting'
     return merged
@@ -1174,6 +1198,9 @@ export function install(rt) {
         endCall(id, entry, event.data?.callId)
         break
       case 'turn/start':
+        // A model that could not be applied before is tried again now that a turn has
+        // proved its Session can be reached; the first try may have come too early (#1937).
+        if (rt.readOnly?.() === undefined) void rt.retryModel?.(rt.selfOf?.(id))
         setActivity(id, 'thinking')
         entry.turn = event.data.turn
         entry.since = event.time ?? Date.now()
@@ -1376,6 +1403,7 @@ export function install(rt) {
             ...(source.exchangeId ? { exchangeId: source.exchangeId } : {}),
             ...(source.goal !== undefined ? { goal: source.goal } : {}),
             ...(source.goalId !== undefined ? { goalId: source.goalId } : {}),
+            ...(source.via !== undefined ? { via: source.via } : {}),
           })
           rt.roomRelayTaken?.(roomId, source.exchangeId)
         } else if (source?.kind === SOURCE_KIND) {
@@ -1536,6 +1564,7 @@ export function install(rt) {
         const suppressedSubagent = entry.suppressedSubagent === true
         // A turn stopped for a switch goes on in the next part, which answers instead.
         const switched = entry.switched === true
+        const overflowFailure = entry.overflowFailure === true
         // A turn the plugin watched start. A turn/end replayed after a restart, whose
         // turn is settled from the Session's log, is not one (resume.js does that).
         const watched = entry.turn !== undefined
@@ -1551,6 +1580,7 @@ export function install(rt) {
         entry.uiToolCount = 0
         entry.suppressedSubagent = false
         entry.switched = false
+        entry.overflowFailure = false
         entry.lastSwitched = switched
         entry.askedBackWork = undefined
         entry.lastAskedBackWork = askedBackWork
@@ -1605,7 +1635,10 @@ export function install(rt) {
           }).catch(error => rt.warn('ds-bot: handing back a result failed: %s', error))
         }
         const reason = event.data?.reason
-        const failure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
+        const rawFailure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
+        const failure = rawFailure !== undefined && overflowFailure
+          ? { ...rawFailure, code: 'CONTEXT_WINDOW_EXCEEDED' }
+          : rawFailure
         if (failure !== undefined) noteTurnFailure(id, failure)
         // A route that is not a model endpoint refuses every generation; the failed
         // Session's own request names it, so it is refused everywhere from now on.
@@ -1613,6 +1646,24 @@ export function install(rt) {
           const config = session.requestHeader?.()?.config
           const ref = config?.provider && config?.model ? `${config.provider}/${config.model}` : undefined
           if (ref !== undefined) void rt.routeRefused(ref, rt.botOf(rt.selfOf(id))).catch(error => rt.warn('ds-bot: %s still failing: %s', ref, error))
+        }
+        // A turn refused before its request left because the Session's selection names
+        // a provider with no adapter, or a model DSH no longer serves, applies the Bot's
+        // model again and rewrites that selection, so the next turn can run (#1937).
+        if ((failure?.code === 'NO_ADAPTER' || failure?.code === 'UNKNOWN_MODEL') && rt.readOnly?.() === undefined) {
+          const bot = rt.botOf(rt.selfOf(id))
+          if (bot !== undefined) {
+            // The turned-away Session is the one whose own selection is wrong; only it
+            // is rewritten, not every part and group of the Bot (#2002 review).
+            void Promise.resolve(rt.reapplyModel?.(bot, id))
+              .catch(error => rt.warn('ds-bot: model for %s still not applied: %s', bot.name, error))
+          } else {
+            const room = rt.roomOf?.(id)
+            if (room !== undefined) {
+              void Promise.resolve(rt.selectRoomSession?.(id, room, { force: true }))
+                .catch(error => rt.warn('ds-bot: model for the group Session %s not applied: %s', id, error))
+            }
+          }
         }
         const held = rt.groupOwners.has(id) ? rt.takeRoomSteps?.(id) ?? '' : ''
         if (switched) {
@@ -1730,6 +1781,10 @@ export function install(rt) {
           const currentState = rt.workStateOf?.(work)
           if (currentState === 'need_input' || currentState === 'paused' || askedBackWork === work) return
           if (rt.waitsWork(work)) return rt.holdWork(work, reply)
+          const task = rt.taskBySession?.(id)?.task
+          if (task?.origin === 'bot-handoff' && task.exchangeId === work && (rt.runningJobs?.(id)?.length ?? 0) > 0) {
+            return rt.holdWork(work, reply)
+          }
           // With what came back, the answer may pass what one message carries.
           const text = rt.answerText(work, reply, name)
           const opts = { worked: workToolCount > 0 }

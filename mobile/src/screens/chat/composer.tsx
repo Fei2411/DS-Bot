@@ -8,6 +8,7 @@ import { noteInput } from '../../ui/avatar/host.ts'
 import { t } from '../../ui/i18n.ts'
 import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from '../../ui/icons.tsx'
 import { radius, shadow, type as typeScale, type Palette } from '../../ui/tokens.ts'
+import { enterHandler, submitProps } from './composer.enter'
 import { draftTextOf, keepDraftText } from './draft-text.ts'
 
 // A photo ready to send: shown from `uri`, sent as base64 JPEG.
@@ -28,8 +29,9 @@ async function prepare(asset: ImagePicker.ImagePickerAsset): Promise<Photo> {
 // shadow; send is a 36px accent circle. While the Bot runs and the draft is
 // empty a stop button shows instead of send. "+" adds photos when the
 // computer takes them.
-export function Composer({ chatKey, name, running, canStop, canAttach, onSend, onStop, p }: {
+export function Composer({ chatKey, name, running, canStop, canAttach, sends, onSend, onStop, p }: {
   chatKey: string; name: string; running: boolean; canStop: boolean; canAttach: boolean
+  sends: boolean
   onSend: (text: string, photos: Photo[]) => Promise<void>; onStop: () => void; p: Palette
 }) {
   const [text, setText] = useState(() => draftTextOf(chatKey))
@@ -93,7 +95,8 @@ export function Composer({ chatKey, name, running, canStop, canAttach, onSend, o
             </Pressable>
           ) : null}
           <TextInput value={text} onChangeText={next => { noteInput(); changeText(next) }} placeholder={t('Message {name}', { name })} placeholderTextColor={p.ink3}
-            multiline style={[styles.input, { color: p.ink, paddingLeft: canAttach ? 2 : 6 }]} accessibilityLabel={t('Message {name}', { name })} />
+            multiline {...submitProps(sends)} onKeyPress={enterHandler(sends, send)} onSubmitEditing={sends ? send : undefined}
+            style={[styles.input, { color: p.ink, paddingLeft: canAttach ? 2 : 6 }]} accessibilityLabel={t('Message {name}', { name })} />
           {running && canStop && !ready
             ? <Pressable accessibilityRole="button" accessibilityLabel={t('Stop')} onPress={onStop} hitSlop={6}
                 style={[styles.send, { backgroundColor: p.accent }]}>

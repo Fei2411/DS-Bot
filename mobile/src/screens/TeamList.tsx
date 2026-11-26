@@ -5,12 +5,12 @@ import { useTeam } from '../team/context.tsx'
 import { botHasPending, roomHasPending } from '../nav/pending.ts'
 import { botMarkState, botRunning } from '../team/mark-state.ts'
 import { isUnread, seenVersion, subscribeSeen } from '../team/seen.ts'
-import { t } from '../ui/i18n.ts'
+import { getLang, t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { MarksShown } from '../ui/avatar/LiveMark.tsx'
 import { FishLogo, PinMarkIcon } from '../ui/icons.tsx'
-import { workPhrase } from '../ui/phrases.ts'
+import { roomTitle, workPhrase } from '../ui/phrases.ts'
 import { teamListEmptyMessage } from '../nav/team-list-empty.ts'
 import { cleanPreview } from './chat/settled.ts'
 
@@ -46,6 +46,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
     scrollY.current = 0
     setHeaderInView(true)
   }, [needle])
+  const lang = getLang()
   const mainList = bots.filter(bot => mains.has(bot.id) && bot.hidden !== true && (needle === '' || (bot.name ?? '').toLowerCase().includes(needle)))
   const agentList = (Array.isArray(team?.agents) ? team.agents : []).filter(agent => needle === '' || agentName(agent).toLowerCase().includes(needle))
   const workBots = team?.work?.bots ?? {}
@@ -61,9 +62,10 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
       ...rooms.filter(room => room.hidden !== true).map(room => ({ kind: 'room' as const, item: room })),
     ]
     return list
-      .filter(entry => needle === '' || (entry.item.name ?? '').toLowerCase().includes(needle))
+      .filter(entry => needle === '' || (entry.item.name ?? '').toLowerCase().includes(needle) ||
+        (entry.kind === 'room' && roomTitle(entry.item).toLowerCase().includes(needle)))
       .sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || (b.item.lastAt ?? b.item.createdAt ?? 0) - (a.item.lastAt ?? a.item.createdAt ?? 0))
-  }, [bots, team?.rooms, team?.mainBotIds, needle])
+  }, [bots, team?.rooms, team?.mainBotIds, needle, lang])
 
   const emptyMessage = teamListEmptyMessage(team !== null, needle, mainList.length + agentList.length + entries.length)
 
@@ -77,7 +79,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
     const workingEntry = groupWork?.[1]?.find(e => e?.botId === bot.id)
     if (groupWork && workingEntry !== undefined) {
       const room = team?.rooms?.find(r => r.id === groupWork[0])
-      return `${room?.name ?? t('a group chat')} · ${workPhrase(workingEntry)}…`
+      return `${room !== undefined ? roomTitle(room) : t('a group chat')} · ${workPhrase(workingEntry)}…`
     }
     const waits = waiting[bot.id]
     if (waits !== undefined && (waits.bots?.length || waits.rooms?.length)) return t('Waiting for your answer')
@@ -181,7 +183,7 @@ function RoomRow({ room, bots, p, dark, waiting, preview, unread, working, selec
       </View>
       <View style={styles.rowBody}>
         <View style={styles.nameRow}>
-          <Text style={[typeScale.rowName, { color: p.ink, flexShrink: 1 }]} numberOfLines={1}>{room.name}</Text>
+          <Text style={[typeScale.rowName, { color: p.ink, flexShrink: 1 }]} numberOfLines={1}>{roomTitle(room)}</Text>
           {room.pinned === true ? <PinMarkIcon size={12} /> : null}
           {unread === true ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent, marginLeft: 'auto' }} /> : null}
         </View>

@@ -42,8 +42,10 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
   const timers = new Map()
   let nextTimer = 1
   const setTimer = every => (fn, ms = 0) => { const id = nextTimer++; timers.set(id, { fn, at: clock() + ms, every: every ? ms : 0 }); return id }
-  // The longest single timer callback, so a test can time one build slice alone.
+  // The longest single timer callback and slice count, measured on the real clock so
+  // a single-chunk build regression cannot hide behind capped virtual time.
   let longestTimer = 0
+  let timerRuns = 0
   const runTimers = () => {
     for (let guard = 0; guard < 10_000; guard += 1) {
       let due = null
@@ -55,6 +57,7 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
       const start = performance.now()
       timer.fn()
       longestTimer = Math.max(longestTimer, performance.now() - start)
+      if (!timer.every) timerRuns += 1
     }
   }
   const idleAsks = []
@@ -174,6 +177,7 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
     get asking() { return rafs.size > 0 },
     get timers() { return timers.size },
     get longestTimer() { return longestTimer },
+    get timerRuns() { return timerRuns },
     idleAsks,
     get frames() { return frames },
     get drawn() { return drawn },
@@ -255,6 +259,7 @@ test('without requestIdleCallback a build slice stays short', () => {
   // A slice is its 8 ms budget plus the step of about a millisecond that starts just
   // before it runs out: about 11 ms here, 30-odd on a shared CI machine. Building the
   // whole model at once takes 130 ms or more.
+  assert.ok(p.timerRuns > 1, `model builds across multiple slices (${p.timerRuns} timer runs)`)
   assert.ok(p.longestTimer < 60, `slices stay short (${p.longestTimer.toFixed(1)} ms)`)
 })
 

@@ -115,12 +115,20 @@ test('a group Session\'s approval waits in the team view, frees the round, and t
   assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['approval', 'Writer']])
 
   const { value } = await host.call('state', {})
-  assert.equal(value.activity.b, 'alert')
+  // Group approvals live on the group row/island (#1623), not on the member's own DM mascot.
+  assert.equal(value.activity.b, 'working')
   const [approval] = value.work.approvals
   assert.deepEqual([approval.botId, approval.roomId, approval.tool, approval.answerable], ['b', 'r1', 'pwsh', true])
   assert.deepEqual(approval.detail, { text: 'Copy the doc', code: 'Copy-Item a.md E:/docs' })
   assert.equal(value.work.bots.b.roomId, 'r1')
   assert.equal(value.work.bots.b.tool, 'pwsh')
+
+  // A foreground DM turn keeps its own activity even while a group approval waits.
+  host.emit('b', 'turn/start', { turn: 1 })
+  host.emit('b', 'tool/call', { callId: 'dm-1', name: 'web_search', arguments: '{}' })
+  assert.equal((await host.call('state', {})).value.activity.b, 'searching')
+  host.emit('b', 'tool/result', { callId: 'dm-1' })
+  host.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
   assert.equal((await host.call('approval-answer', { id: approval.id, choice: 'allow' })).ok, true)
   assert.equal(await outcome, 'allowed-once')
@@ -141,7 +149,9 @@ test('an own chat\'s approval races DSH\'s card and is listed while it waits', a
   t.after(host.stop)
   let release
   const outcome = host.askApproval('a', {}, () => new Promise((resolve) => { release = resolve }))
-  const [approval] = (await host.call('state', {})).value.work.approvals
+  const state = (await host.call('state', {})).value
+  assert.equal(state.activity.a, 'alert')
+  const [approval] = state.work.approvals
   assert.deepEqual([approval.botId, approval.roomId, approval.answerable], ['a', undefined, true])
   assert.equal((await host.call('approval-answer', { id: approval.id, choice: 'allow' })).ok, true)
   assert.equal(await outcome, 'allowed-once')
@@ -327,6 +337,21 @@ test('an approval asked inside a PTC program shows what that call does', async (
   const [approval] = value.work.approvals
   assert.deepEqual(approval.detail, { text: 'Copy the doc', code: 'Copy-Item a.md E:/docs' })
   assert.equal(value.work.bots.b.tool, 'pwsh')
+})
+
+test('activityView ignores unanswerable approvals so foreground DM activity stays intact', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  const original = host.rt.approvalsView
+  host.rt.approvalsView = () => [
+    ...original(),
+    { id: 'u1', botId: 'a', answerable: false },
+    { id: 'u2', botId: 'b', roomId: 'r1', answerable: true },
+  ]
+  host.emit('a', 'turn/start', { turn: 1 })
+  host.emit('a', 'tool/call', { callId: 'c1', name: 'bash', arguments: '{}' })
+  assert.equal(host.rt.activityView().a, 'working')
+  assert.equal(host.rt.activityView().b, undefined)
 })
 
 test('Bots cannot change permission modes and an invalid approval model leaves preferences unchanged', async t => {

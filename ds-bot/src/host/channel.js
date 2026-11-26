@@ -7,6 +7,7 @@ import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
 import { threadCurrentOfPart, threadOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
+import { validateOnePasswordConfig } from './secret-providers/onepassword.js'
 import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
@@ -126,7 +127,7 @@ export function install(rt) {
     // `sessionId` is the Bot's current own-chat part; `parts` its earlier ones.
     // `waiting`: the Bot holds its greeting until the user picks its model or fixes
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
-    bots: Object.values(state.bots).map(({ segments, kickoff, tasks: _rawTasks, ...bot }) => {
+    bots: Object.values(state.bots).map(({ segments, kickoff, agentPresetDefault, agentPresetDefaultPending, tasks: _rawTasks, ...bot }) => {
       const tail = rt.chatTail(rt.chatOf(bot.id))
       const botTasks = rt.taskViewOf?.(state.bots[bot.id]) ?? []
       return {
@@ -200,7 +201,7 @@ export function install(rt) {
     secretStore: rt.secretStoreStatus(),
     secrets: rt.secretsView(),
     activity: rt.activityView(),
-    work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, paused: rt.pausedWorksView?.() ?? [], turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {}, canBackground: rt.canBackgroundView?.() ?? {} },
+    work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), activeRooms: Object.values(state.rooms ?? {}).filter(room => rt.roomActive?.(room.id) === true).map(room => room.id), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, paused: rt.pausedWorksView?.() ?? [], turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {}, canBackground: rt.canBackgroundView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
     learning: rt.learningView(),
@@ -247,7 +248,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'telemetry-status', 'telemetry-client-error', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'secret-refresh-external', 'state', 'models', 'presets', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'telemetry-status', 'telemetry-client-error', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
   READS.add('chatgpt')
 
   const modelRequests = { approvalModel: 0, defaultBotModel: 0 }
@@ -266,8 +267,9 @@ export function install(rt) {
       approvalModel = ref ? await rt.resolveModel(ref) : undefined
     }
     const before = structuredClone(state.prefs)
+    let secretChanges
     try {
-      applyPrefs(body, model, approvalModel, requests)
+      secretChanges = applyPrefs(body, model, approvalModel, requests)
     } catch (error) {
       for (const key of Object.keys(state.prefs)) delete state.prefs[key]
       Object.assign(state.prefs, before)
@@ -275,6 +277,12 @@ export function install(rt) {
     }
     // The appearance and the user themes (appearance.js); a picture a change stops using is removed later.
     await rt.save()
+    if (secretChanges.secretShellModeChanged || secretChanges.secretProvidersChanged) {
+      rt.onSecretPrefsChanged?.({
+        shellModeChanged: secretChanges.secretShellModeChanged,
+        providersChanged: secretChanges.secretProvidersChanged,
+      })
+    }
     if (body.appearance !== undefined || body.themes !== undefined) void rt.backgroundSweep()
     if (body.defaultBotModel !== undefined) await rt.syncRoomSessions?.()
   }
@@ -356,12 +364,49 @@ export function install(rt) {
       if (sizes.length === 0) delete state.prefs.memoryLimits
       else state.prefs.memoryLimits = { ...state.prefs.memoryLimits, ...Object.fromEntries(sizes) }
     }
+    let secretShellModeChanged = false
+    let secretProvidersChanged = false
+    if (body.secretShellMode !== undefined) {
+      const prevMode = state.prefs.secretShellMode ?? 'env'
+      if (body.secretShellMode === null || body.secretShellMode === 'env') delete state.prefs.secretShellMode
+      else if (body.secretShellMode === 'file') state.prefs.secretShellMode = 'file'
+      else throw invalid('Secret shell exposure must be env or file')
+      secretShellModeChanged = (state.prefs.secretShellMode ?? 'env') !== prevMode
+    }
+    if (body.secretProviders !== undefined) {
+      const prevJson = JSON.stringify(state.prefs.secretProviders ?? {})
+      if (body.secretProviders === null) {
+        delete state.prefs.secretProviders
+      } else if (typeof body.secretProviders === 'object' && !Array.isArray(body.secretProviders)) {
+        const next = { ...state.prefs.secretProviders }
+        if (body.secretProviders.onepassword !== undefined) {
+          if (body.secretProviders.onepassword === null) {
+            delete next.onepassword
+          } else {
+            let cleaned
+            try {
+              cleaned = validateOnePasswordConfig(body.secretProviders.onepassword)
+            } catch (error) {
+              throw invalid(error?.message ?? 'Invalid 1Password configuration.')
+            }
+            if (cleaned.account === '') delete next.onepassword
+            else next.onepassword = cleaned
+          }
+        }
+        if (Object.keys(next).length === 0) delete state.prefs.secretProviders
+        else state.prefs.secretProviders = next
+      } else {
+        throw invalid('Secret providers settings must be an object')
+      }
+      secretProvidersChanged = JSON.stringify(state.prefs.secretProviders ?? {}) !== prevJson
+    }
     if (body.approvalModel !== undefined && (requests.approvalModel === undefined || requests.approvalModel === modelRequests.approvalModel)) {
       rt.cancelApprovalReviews?.({})
       if (approvalModel) state.prefs.approvalModel = approvalModel
       else delete state.prefs.approvalModel
     }
     rt.appearancePrefs(body)
+    return { secretShellModeChanged, secretProvidersChanged }
   }
 
   const handle = async (endpoint, payload, signal, metaOrRemote = false) => {
@@ -396,6 +441,11 @@ export function install(rt) {
         case 'models':
           await rt.catalog({ fresh: true })
           return ok({ modelsKey: modelsKey() })
+        // The Agent presets this profile serves, for the Bot settings picker. A broken
+        // one stays listed with its reason, and so does one whose composition would
+        // replace the Bot's own prompt, so the picker shows it as unusable.
+        case 'presets':
+          return ok({ presets: await rt.agentPresetRows({ fit: true }) })
         case 'efforts':
           return ok(await rt.reasoningOf(String(body.ref ?? '')) ?? { efforts: [] })
         // A Turn's exact thinking time, from the timed stream in its events; `ms`
@@ -478,15 +528,15 @@ export function install(rt) {
           const sessionId = rt.chatOf(bot.id)
           const agent = await rt.resolveAgent(sessionId)
           const values = projections.snapshot(agent.session, RUN_STATS).values
-          const isLocal = rt.isLocalAgentRoute?.(agent.session?.requestHeader?.()?.config?.provider ?? '') === true
-            || rt.isLocalAgentSession?.(sessionId) === true
+          const measured = rt.contextRuntime?.measure?.(agent.session)
+          const isLocal = measured?.isLocal === true
           if (values && isLocal) {
-            const localContext = rt.localAgentContext?.(sessionId)
-            const contextWindow = localContext?.size ?? values.contextPressure?.contextWindow
+            const resolved = await rt.contextRuntime.resolveWindow(agent.session).catch(() => undefined)
+            const contextWindow = (resolved?.source !== 'default' ? resolved?.window : undefined) ?? values.contextPressure?.contextWindow
             return ok({
               ...values,
-              contextPressure: Number.isFinite(localContext?.used) && contextWindow > 0
-                ? { ...values.contextPressure, pressureTokens: localContext.used, projectedTokens: localContext.used, contextWindow }
+              contextPressure: Number.isFinite(measured.workingTokens) && contextWindow > 0
+                ? { ...values.contextPressure, pressureTokens: measured.workingTokens, projectedTokens: measured.workingTokens, contextWindow }
                 : undefined,
             })
           }
@@ -530,7 +580,7 @@ export function install(rt) {
           return ok(rt.groupRelayReplies(body.sessionId, body.preview))
         case 'create-bot': {
           await rt.bootstrap()
-          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, section: body.section, sectionId: body.sectionId })
+          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, agentPreset: body.agentPreset, section: body.section, sectionId: body.sectionId })
           return ok(bot)
         }
         case 'update-bot':
@@ -561,6 +611,13 @@ export function install(rt) {
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
           await rt.resumeBot(bot)
           return ok(true)
+        }
+        // Recovery escape hatch when continuous context overflow prevents auto-switching.
+        case 'new-part': {
+          await rt.load()
+          const botId = String(body.botId ?? '')
+          const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim() !== '' ? body.sessionId.trim() : undefined
+          return ok(await rt.recoverOverflowPart(botId, sessionId))
         }
         // Background pictures and a chat's own background (appearance.js).
         case 'background-add':
@@ -772,6 +829,7 @@ export function install(rt) {
         case 'secret-unlock':
         case 'secret-encrypt':
         case 'secret-decrypt':
+        case 'secret-refresh-external':
           await rt.load()
           return ok(await rt.secretEndpoint(endpoint, body))
         case 'connector-connect':
@@ -1258,14 +1316,30 @@ export function install(rt) {
       ?? (room !== undefined ? rt.sessionOfRoom(room)
         : past !== undefined ? rt.sessionOfRoom(rt.roomOf(past.roomId)) : ref)
     const ownerBotId = rt.chatOwners.get(sessionId)
-    if (await rt.isAdmittedForSend?.({ ref, sessionId, requestId, callerSupplied })) return
+    const admittedBefore = await rt.findAdmittedForSend?.({ ref, sessionId, requestId, callerSupplied })
+    if (admittedBefore?.admitted === true) {
+      return { sessionId: admittedBefore.sessionId, alreadyAdmitted: true, durable: admittedBefore.durable === true }
+    }
+    let handoffFallback = false
     if (ownerBotId !== undefined && !rt.groupOwners.has(sessionId) && !rt.taskOwners?.has(sessionId)) {
       const bot = rt.botOf(ownerBotId)
       if (rt.mustIsolateHiddenWork?.(bot, sessionId)) {
-        sessionId = await rt.handoffForeground(bot, sessionId)
+        try {
+          sessionId = await rt.handoffForeground(bot, sessionId)
+        } catch (error) {
+          // Before the handoff commits, the incoming message has not been queued
+          // anywhere. Keep it queued for the next turn on the usable current chat
+          // with its original request id (never steering into the hidden peer turn).
+          if (rt.chatOf(ownerBotId) !== sessionId || rt.taskOwners?.has(sessionId)) throw error
+          handoffFallback = true
+          rt.warn('ds-bot: foreground handoff for %s failed before commit; queueing the user message on the current chat: %s', sessionId, error)
+        }
       }
     }
-    if (await rt.isAdmittedForSend?.({ ref, sessionId, requestId, callerSupplied })) return
+    const admittedAfter = await rt.findAdmittedForSend?.({ ref, sessionId, requestId, callerSupplied })
+    if (admittedAfter?.admitted === true) {
+      return { sessionId: admittedAfter.sessionId, alreadyAdmitted: true, durable: admittedAfter.durable === true }
+    }
     let blocks = content
     if (Array.isArray(files) && files.length > 0) {
       const uploads = ctx.get?.('fileUploads')
@@ -1286,7 +1360,7 @@ export function install(rt) {
       blocks = [...(Array.isArray(content) ? content : []), ...uploaded]
     }
     await rt.ensureCapabilities(sessionId)
-    const promptMode = mode === 'steer' ? 'steer' : 'queue'
+    const promptMode = !handoffFallback && mode === 'steer' ? 'steer' : 'queue'
     try {
       await ctx.sessionController.prompt({
         requestId,
@@ -1295,6 +1369,7 @@ export function install(rt) {
         content: blocks,
       }, AbortSignal.timeout(30_000))
       rt.noteSendPrompted?.(sessionId, requestId)
+      return { sessionId, alreadyAdmitted: false, durable: false }
     } catch (error) {
       if (promptMode === 'steer' && error?.code === 'session/steer-unavailable') {
         await ctx.sessionController.prompt({
@@ -1304,7 +1379,7 @@ export function install(rt) {
           content: blocks,
         }, AbortSignal.timeout(30_000))
         rt.noteSendPrompted?.(sessionId, requestId)
-        return
+        return { sessionId, alreadyAdmitted: false, durable: false }
       }
       throw error
     }
