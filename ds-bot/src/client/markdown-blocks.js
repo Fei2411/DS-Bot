@@ -30,8 +30,26 @@
 
 const LIST_MARKER = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?=[ \t]|$)/
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
-const LINK_DEFINITION = /^ {0,3}\[[^\]\n]*\]:/
+// Link reference definitions reach across the whole document from wherever they sit —
+// inside blockquotes (nested included) and list items — so the check strips the
+// container prefixes a definition can hide behind before looking at the label. The
+// label itself can hold escaped brackets and even a newline inside it, so the check is
+// deliberately coarse: any line that starts with `[` counts, whatever follows. False
+// positives only cost the split; a missed definition would corrupt the render.
+const LINK_DEFINITION = /^\[/
 const FOOTNOTE_REFERENCE = /\[\^[^\]\n]+\]/
+const CONTAINER_PREFIX = /^(?:>+ *|\d{1,9}[.)] +|[-+*] +| *)/
+
+// Container prefixes a definition can hide behind, stripped as far as they nest
+// (`> > [x]: url` is a definition inside a quote inside a quote).
+const stripContainerPrefixes = (line) => {
+  let rest = line
+  while (true) {
+    const next = rest.replace(CONTAINER_PREFIX, '')
+    if (next === rest) return rest
+    rest = next
+  }
+}
 const RAW_HTML_BLOCK = /^ {0,3}<[A-Za-z/!?]/
 const CONTAINER_DIRECTIVE = /^ {0,3}:::/
 const DISPLAY_MATH = /^ {0,3}\$\$/
@@ -100,7 +118,7 @@ export function splitMarkdownBlocks(text) {
         fence = { char: opening[1][0], length: opening[1].length }
       }
       // Anything whose reach crosses block boundaries stops the split outright.
-      if (LINK_DEFINITION.test(line)) return null
+      if (LINK_DEFINITION.test(stripContainerPrefixes(line))) return null
       if (FOOTNOTE_REFERENCE.test(line)) return null
       if (RAW_HTML_BLOCK.test(line)) return null
       if (CONTAINER_DIRECTIVE.test(line)) return null

@@ -25,6 +25,7 @@ import { FailureCell, failureText } from '../../../ds-bot/src/client/turn-error.
 import { ViaTag, contentParts, mentionableBots, userTextParts } from '../../../ds-bot/src/client/user-message.js'
 import { AnsweredReply } from '../../../ds-bot/src/client/widget-cell.js'
 import { openSessionFollow } from './api.js'
+import { useUiLanguage } from './locale.js'
 import { buildSessionRows, extractTurnFacts } from './session-transcript.js'
 import { CHAT_NODE_SLOT, SlotOutlet, slots as defaultSlots } from './slots.js'
 import { GenericToolCard, ToolCallCard } from './tool-card.js'
@@ -482,7 +483,7 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
-const AssistantRow = memo(function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, classic = false }) {
+const AssistantRow = memo(function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic = false }) {
   const showThinking = thinkingShown(roster.prefs)
   const selfId = bot?.id ?? sessionId
   const flat = layoutOf(roster.prefs) === 'flat'
@@ -546,6 +547,7 @@ const AssistantRow = memo(function AssistantRow({ row, showSpeaker, bot, session
       sessionId,
       msgKey,
       useUi,
+      lang,
       fold: FOLD_HUGE,
       time: flat || row.streaming ? undefined : row.time,
       textInteractionSource: !row.streaming,
@@ -567,6 +569,51 @@ const TurnErrorRow = memo(function TurnErrorRow({ row, bot, sessionId, useRoster
   const title = code === 'AUTH' ? code : (row.error?.message || code || undefined)
   return h('div', { className: 'bt-fail', 'data-settled': '', role: 'status', title },
     h('div', { className: 'bt-fail-head' }, h('span', { className: 'bt-fail-dot', 'aria-hidden': true }), h('span', { className: 'bt-fail-text' }, text)))
+})
+
+
+// A tool row, memoized like the message rows: the fallback closures exist only when the
+// row itself renders, so a committed tool card renders once per roster or language change
+// and never per stream chunk. `lang` rides along because the cards carry translated copy.
+const SessionToolRow = memo(function SessionToolRow({
+  row, showSpeaker, flat, bot, cwd, sessionId, actions, registry, lang,
+  useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
+}) {
+  const renderToolFallback = (ownerProps) => {
+    if (typeof isBotTool === 'function' && isBotTool(ownerProps.toolName)) {
+      if (ownerProps.toolName === 'show_view' && ownerProps.phase === 'preparing') {
+        return h(GenericToolCard, ownerProps)
+      }
+      return h(ToolCell, {
+        node: {
+          key: ownerProps.callId || row.key,
+          data: { root: { ...ownerProps.block, subCalls: [] } },
+          location: { turn: { turn: row.turn } },
+        },
+        sessionId,
+        useRoster,
+        useUi,
+        useWork,
+        useHeldCards,
+        useBrowserHolds,
+        useBrowserTabs,
+        useBrowserPages,
+        useComputer,
+        actions,
+      })
+    }
+    return h(GenericToolCard, ownerProps)
+  }
+
+  return h(Fragment, null,
+    showSpeaker && flat && bot ? h(SpeakerHead, { bot, time: row.time }) : null,
+    h(ToolCallCard, {
+      entry: row,
+      cwd,
+      openFile: actions?.openFile,
+      registry,
+      fallback: renderToolFallback,
+    }))
 })
 
 /**
@@ -653,6 +700,9 @@ export function SessionTranscript({
   useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
   thinkingAt, hasMore = false, registry = defaultSlots,
 }) {
+  // The memoized rows read `t()` at render time, so the language travels as a prop:
+  // a switch re-renders them in the new language, and a stream chunk never changes it.
+  const lang = useUiLanguage()
   const rows = useMemo(() => buildSessionRows(log, { roster, sessionId }), [log, roster, sessionId])
   const turnFacts = useMemo(() => extractTurnFacts(log?.events, { roster, sessionId }), [log?.events, roster, sessionId])
   const turnSig = turnFactsSignature(turnFacts)
@@ -681,9 +731,15 @@ export function SessionTranscript({
     if (typeof actions?.noteTurnFacts === 'function' && sessionId) actions.noteTurnFacts(sessionId, null)
   }, [sessionId, actions])
   // Sync turn start/end timestamps straight from `log.events` so `FailureCell` settles as
-  // soon as a Retry turn starts, even before the new turn emits any assistant text.
+  // soon as a Retry turn starts, even before the new turn emits any assistant text. A
+  // stream chunk replaces neither the events array nor any committed row (the cache in
+  // session-transcript.js), and writing rows carry no time, so when the events array is
+  // the same one the effect already noted there is nothing new to note and it skips.
+  const notedEventsRef = useRef(null)
   useEffect(() => {
     if (typeof actions?.noteTurnTime !== 'function') return
+    if (log?.events !== undefined && notedEventsRef.current === log.events) return
+    notedEventsRef.current = log?.events ?? null
     for (const event of Array.isArray(log?.events) ? log.events : []) {
       const turn = event?.data?.turn
       if (!Number.isInteger(turn) || !Number.isFinite(event.time)) continue
@@ -735,54 +791,24 @@ export function SessionTranscript({
     const pause = !classic && Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
     if (Number.isFinite(row.time)) prevTime = row.time
 
-    const renderToolFallback = (ownerProps) => {
-      if (typeof isBotTool === 'function' && isBotTool(ownerProps.toolName)) {
-        if (ownerProps.toolName === 'show_view' && ownerProps.phase === 'preparing') {
-          return h(GenericToolCard, ownerProps)
-        }
-        return h(ToolCell, {
-          node: {
-            key: ownerProps.callId || row.key,
-            data: { root: { ...ownerProps.block, subCalls: [] } },
-            location: { turn: { turn: row.turn } },
-          },
-          sessionId,
-          useRoster: resolvedUseRoster,
-          useUi: resolvedUseUi,
-          useWork: resolvedUseWork,
-          useHeldCards: resolvedUseHeldCards,
-          useBrowserHolds: resolvedUseBrowserHolds,
-          useBrowserTabs: resolvedUseBrowserTabs,
-          useBrowserPages: resolvedUseBrowserPages,
-          useComputer: resolvedUseComputer,
-          actions,
-        })
-      }
-      return h(GenericToolCard, ownerProps)
-    }
-
-    const renderTool = () => h(Fragment, null,
-      showSpeaker && flat && bot ? h(SpeakerHead, { bot, time: row.time }) : null,
-      h(ToolCallCard, {
-        entry: row,
-        cwd,
-        openFile: actions?.openFile,
-        registry,
-        fallback: renderToolFallback,
-      }))
-
     const renderDefault = () => {
       switch (row.kind) {
-        case 'user': return h(UserRow, { row, sessionId, roster, actions, classic })
+        case 'user': return h(UserRow, { row, sessionId, roster, actions, lang, classic })
         case 'answer': return h(AnsweredReply, { node: { data: row.data } })
-        case 'assistant': return h(AssistantRow, { row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, classic })
-        case 'tool': return renderTool()
-        case 'compaction': return h(CompactionRow, { row })
-        case 'event': return h(SessionEventRow, { row, selfId, roster, actions })
-        case 'deliverables': return h(DeliverablesRow, { row, sessionId, onOpenFile: actions?.openFile })
-        case 'changes': return h(SessionChangesRow, { row, sessionId, actions })
-        case 'turn-error': return h(TurnErrorRow, { row, bot, sessionId, useRoster, useTurnClock, actions })
-        case 'turn-tail': return h(TurnTailRow, { row, sessionId, useRoster: resolvedUseRoster, actions })
+        case 'assistant': return h(AssistantRow, { row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic })
+        case 'tool': return h(SessionToolRow, {
+          row, showSpeaker, flat, bot, cwd, sessionId, actions, registry, lang,
+          useRoster: resolvedUseRoster, useUi: resolvedUseUi, useWork: resolvedUseWork,
+          useHeldCards: resolvedUseHeldCards, useBrowserHolds: resolvedUseBrowserHolds,
+          useBrowserTabs: resolvedUseBrowserTabs, useBrowserPages: resolvedUseBrowserPages,
+          useComputer: resolvedUseComputer,
+        })
+        case 'compaction': return h(CompactionRow, { row, lang })
+        case 'event': return h(SessionEventRow, { row, selfId, roster, actions, lang })
+        case 'deliverables': return h(DeliverablesRow, { row, sessionId, onOpenFile: actions?.openFile, lang })
+        case 'changes': return h(SessionChangesRow, { row, sessionId, actions, lang })
+        case 'turn-error': return h(TurnErrorRow, { row, bot, sessionId, useRoster, useTurnClock, actions, lang })
+        case 'turn-tail': return h(TurnTailRow, { row, sessionId, useRoster: resolvedUseRoster, actions, lang })
         default: return null
       }
     }

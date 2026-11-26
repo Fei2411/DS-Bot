@@ -217,6 +217,36 @@ test('the split keeps one flat .md_markdown wrapper: no nested markdown divs, bl
   view.unmount()
 })
 
+
+test('reference definitions in containers and escaped labels fall back to the whole-document parse', async () => {
+  // The detector over-approximates exactly the lines micromark would read as a link
+  // reference definition wherever containers can hide them; every one of these must
+  // render byte-identically to the settled whole-document render — and since a definition
+  // anywhere is a definition everywhere, that is the one correct parse.
+  const { splitMarkdownBlocks } = await import('../../ds-bot/src/client/markdown-blocks.js')
+  const prose = 'prose that fills the reply well past the split threshold. '.repeat(12)
+  const cases = {
+    inBlockquote: `[x] the link\n\n${prose}\n\n> [x]: https://example.com\n\ntail paragraph\n`,
+    inNestedBlockquote: `[x] the link\n\n${prose}\n\n> > [x]: https://example.com\n\ntail paragraph\n`,
+    inListItem: `[x] the link\n\n${prose}\n\n- item\n\n    [x]: https://example.com\n\ntail paragraph\n`,
+    escapedLabel: `[a\\]b] the link\n\n${prose}\n\n[a\\]b]: https://example.com\n\ntail paragraph\n`,
+  }
+  const fold = html => html.replace(/>\n</g, '><')
+  for (const [name, text] of Object.entries(cases)) {
+    assert.ok(text.length > 512, `${name} passes the split threshold`)
+    assert.equal(splitMarkdownBlocks(text), null, `${name} never splits`)
+    const settled = mounted()
+    settled.render(h(MarkdownText, { text, labels }))
+    const reference = fold(settled.container.innerHTML)
+    settled.unmount()
+    const streamed = mounted()
+    streamed.render(h(MarkdownText, { text, streaming: true, labels }))
+    assert.equal(fold(streamed.container.innerHTML), reference, `${name} matches the settled render byte for byte`)
+    assert.match(streamed.container.innerHTML, /href="https:\/\/example\.com"/, `${name} resolves the reference`)
+    streamed.unmount()
+  }
+})
+
 test('teardown: the bundle file goes away with the temp directory', () => {
   rmSync(dir, { recursive: true, force: true })
 })

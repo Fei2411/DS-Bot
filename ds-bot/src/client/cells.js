@@ -46,6 +46,7 @@ const sameBubbles = (a, b) => sameStringList(a.texts, b.texts)
   && a.selfId === b.selfId
   && a.actions === b.actions
   && a.streaming === b.streaming
+  && a.lang === b.lang
   && a.sessionId === b.sessionId
   && a.msgKey === b.msgKey
   && a.useUi === b.useUi
@@ -63,7 +64,7 @@ const sameBubbles = (a, b) => sameStringList(a.texts, b.texts)
 // `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
 // of its message (see useFold). `time` marks the bubbles' message below them; a caller
 // whose own head already shows one (the flat speaker line, the group name row) leaves it unset.
-export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
+export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, lang, fold = FOLD_AT, whole, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -79,7 +80,7 @@ export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, s
       const first = index === 0
       const last = index === cleaned.length - 1
       return h(Bubble, {
-        key: index, text, index, first, last, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
+        key: index, text, index, first, last, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource, lang,
         picked: msgKey ? reactions?.[index] ?? EMPTY_PICKED : EMPTY_PICKED,
         live: streaming && last,
         lead: lead && last ? lead : null,
@@ -126,6 +127,7 @@ const sameBubble = (a, b) => a.text === b.text
   && a.first === b.first
   && a.last === b.last
   && a.selfId === b.selfId
+  && a.lang === b.lang
   && a.actions === b.actions
   && a.sessionId === b.sessionId
   && a.msgKey === b.msgKey
@@ -139,10 +141,14 @@ const sameBubble = (a, b) => a.text === b.text
   && a.roster?.bots === b.roster?.bots
   && a.roster?.byId?.[a.selfId]?.name === b.roster?.byId?.[b.selfId]?.name
 
-const Bubble = memo(function Bubble({ text, index, first = true, last = true, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
+// `lang` only invalidates the memo on a language switch: the labels inside are localized,
+// and `mdLabels()` is content-addressed, so an unchanged language keeps the same object.
+const Bubble = memo(function Bubble({ text, index, first = true, last = true, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource, lang }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live })
   const key = msgKey ? `${msgKey}:${index}` : undefined
-  const labels = mdLabels()
+  // The language keys the labels: a switch rebuilds them in the new language, and
+  // `mdLabels()` returns the shared instance again as long as nothing changed.
+  const labels = useMemo(() => mdLabels(), [lang])
   const linked = useMemo(() => (shown === '' ? '' : linkMentions(normalizeFileLinks(shown), roster.bots, selfId)), [shown, roster.bots, selfId])
   const body = useMemo(
     () => (linked === '' ? null : h(MarkdownText, { text: linked, streaming: live, labels, variant: 'compact', fileMentions: mentions })),

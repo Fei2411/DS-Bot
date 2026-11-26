@@ -37266,8 +37266,8 @@ var ASSISTANT_ROSTER_FIELDS = ["bots", "byId", "roomsById", "exchangeTurns", "pr
 var TRIGGER_ROSTER_FIELDS = ["bots", "byId", "roomsById", "exchangeTurns", "prefs", "closedCards"];
 var TOOL_ROSTER_FIELDS = ["bots", "byId", "rooms", "roomsById", "exchangeTurns", "prefs", "closedCards", "questions", "views", "secrets", "secretRequests", "connectors", "connectorRequests", "mailRequests", "browser", "computer"];
 var sameStringList = (a, b) => a === b || Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => item === b[i]);
-var sameBubbles = (a, b) => sameStringList(a.texts, b.texts) && a.selfId === b.selfId && a.actions === b.actions && a.streaming === b.streaming && a.sessionId === b.sessionId && a.msgKey === b.msgKey && a.useUi === b.useUi && a.lead === b.lead && a.mentions === b.mentions && a.fold === b.fold && a.whole === b.whole && a.time === b.time && a.textInteractionSource === b.textInteractionSource && a.roster?.bots === b.roster?.bots && a.roster?.byId?.[a.selfId]?.name === b.roster?.byId?.[b.selfId]?.name;
-var Bubbles = memo(function Bubbles2({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole: whole2, time, textInteractionSource }) {
+var sameBubbles = (a, b) => sameStringList(a.texts, b.texts) && a.selfId === b.selfId && a.actions === b.actions && a.streaming === b.streaming && a.lang === b.lang && a.sessionId === b.sessionId && a.msgKey === b.msgKey && a.useUi === b.useUi && a.lead === b.lead && a.mentions === b.mentions && a.fold === b.fold && a.whole === b.whole && a.time === b.time && a.textInteractionSource === b.textInteractionSource && a.roster?.bots === b.roster?.bots && a.roster?.byId?.[a.selfId]?.name === b.roster?.byId?.[b.selfId]?.name;
+var Bubbles = memo(function Bubbles2({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, lang, fold = FOLD_AT, whole: whole2, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -37298,6 +37298,7 @@ var Bubbles = memo(function Bubbles2({ texts: texts2, roster, selfId, actions, s
         mentions,
         fold,
         textInteractionSource,
+        lang,
         picked: msgKey ? reactions?.[index] ?? EMPTY_PICKED : EMPTY_PICKED,
         live: streaming && last,
         lead: lead && last ? lead : null,
@@ -37333,11 +37334,11 @@ var foldArea = (body, code, codeHead, actions) => code === void 0 ? body : (0, i
   (0, import_react37.createElement)("pre", { className: "bt-fold-pre" }, (0, import_react37.createElement)("code", null, codeHead)),
   (0, import_react37.createElement)(FoldCodeCopy, { code, actions })
 );
-var sameBubble = (a, b) => a.text === b.text && a.index === b.index && a.first === b.first && a.last === b.last && a.selfId === b.selfId && a.actions === b.actions && a.sessionId === b.sessionId && a.msgKey === b.msgKey && a.mentions === b.mentions && a.fold === b.fold && sameStringList(a.picked, b.picked) && a.live === b.live && a.lead === b.lead && a.whole === b.whole && a.textInteractionSource === b.textInteractionSource && a.roster?.bots === b.roster?.bots && a.roster?.byId?.[a.selfId]?.name === b.roster?.byId?.[b.selfId]?.name;
-var Bubble = memo(function Bubble2({ text, index, first = true, last = true, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole: whole2, textInteractionSource }) {
+var sameBubble = (a, b) => a.text === b.text && a.index === b.index && a.first === b.first && a.last === b.last && a.selfId === b.selfId && a.lang === b.lang && a.actions === b.actions && a.sessionId === b.sessionId && a.msgKey === b.msgKey && a.mentions === b.mentions && a.fold === b.fold && sameStringList(a.picked, b.picked) && a.live === b.live && a.lead === b.lead && a.whole === b.whole && a.textInteractionSource === b.textInteractionSource && a.roster?.bots === b.roster?.bots && a.roster?.byId?.[a.selfId]?.name === b.roster?.byId?.[b.selfId]?.name;
+var Bubble = memo(function Bubble2({ text, index, first = true, last = true, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole: whole2, textInteractionSource, lang }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole: whole2, live });
   const key = msgKey ? `${msgKey}:${index}` : void 0;
-  const labels2 = mdLabels();
+  const labels2 = (0, import_react37.useMemo)(() => mdLabels(), [lang]);
   const linked = (0, import_react37.useMemo)(() => shown === "" ? "" : linkMentions(normalizeFileLinks(shown), roster.bots, selfId), [shown, roster.bots, selfId]);
   const body = (0, import_react37.useMemo)(
     () => linked === "" ? null : (0, import_react37.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linked, streaming: live, labels: labels2, variant: "compact", fileMentions: mentions }),

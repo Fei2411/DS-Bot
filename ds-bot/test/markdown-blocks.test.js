@@ -21,6 +21,21 @@ test('unsafe input falls back: empty, CRLF, BOM, link definitions, footnotes, ht
   // Link reference definitions reach across the whole document.
   assert.equal(splitMarkdownBlocks('see [x][y]\n\n[y]: https://example.com\n'), null)
   assert.equal(splitMarkdownBlocks('paragraph\n\n  [id]: /url\n\ntail\n'), null)
+  // ...from inside blockquotes (nested included) and list items, in a label that holds
+  // escaped brackets, and even across a newline inside the label. Any line that starts
+  // with `[` after the container prefixes counts, so none of these can slip through.
+  assert.equal(splitMarkdownBlocks('[x]\n\n> [x]: https://example.com\n\ntail\n'), null)
+  assert.equal(splitMarkdownBlocks('[x]\n\n> > [x]: https://example.com\n\ntail\n'), null)
+  assert.equal(splitMarkdownBlocks('[x]\n\n- item\n\n    [x]: https://example.com\n\ntail\n'), null)
+  assert.equal(splitMarkdownBlocks('[x]\n\n1. [x]: https://example.com\n\ntail\n'), null)
+  assert.equal(splitMarkdownBlocks('[a\\]b]\n\n[a\\]b]: https://example.com\n\ntail\n'), null)
+  assert.equal(splitMarkdownBlocks('[x]\n\n[long\nlabel]: https://example.com\n\ntail\n'), null)
+  // The price of the coarse check: a plain line starting with `[` bails as well.
+  assert.equal(splitMarkdownBlocks('para\n\n[a] is just bracket text\n\nmore\n'), null)
+  assert.equal(splitMarkdownBlocks('- [ ] todo\n- [x] done\n\npara\n'), null)
+  // Inline brackets never start a line, so inline links split normally.
+  assert.ok(splitMarkdownBlocks('para with [text](https://a.com)\n\nmore\n\nend\n') !== null)
+  assert.ok(splitMarkdownBlocks('para with [x][y] dangling\n\nmore text here\n') !== null)
   // Footnotes: a reference or its definition anywhere stops the split.
   assert.equal(splitMarkdownBlocks('text[^a]\n\n[^a]: the note\n'), null)
   assert.equal(splitMarkdownBlocks('first\n\nsecond uses [^late] before its note\n'), null)

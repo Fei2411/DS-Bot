@@ -18,33 +18,10 @@ const seqOf = event => event.seq
 const changed = (log, change) => ({ ...log, ...change, revision: log.revision + 1 })
 const same = { reopen: false }
 
-// Stream-only transitions, as two nested WeakMaps: the outer one keys on the log before
-// the frame, the inner one on the log after it. A transition is recorded when an
-// `assistant-stream` frame is applied cleanly (no reopen) and the committed events list
-// is the very same array afterwards, so the only thing that moved is the reply being
-// written. WeakMaps key without holding: once a window drops both logs the entry goes
-// with them, and lookup stays O(1) however many frames have passed.
-const streamOnlyTransition = new WeakMap()
-
-const noteStreamOnly = (prevLog, nextLog) => {
-  let inner = streamOnlyTransition.get(prevLog)
-  if (inner === undefined) {
-    inner = new WeakMap()
-    streamOnlyTransition.set(prevLog, inner)
-  }
-  inner.set(nextLog, true)
-  return { log: nextLog, reopen: false }
-}
-
-/**
- * @param {SessionLog | null | undefined} prevLog
- * @param {SessionLog | null | undefined} nextLog
- * @returns {boolean} whether `nextLog` came from `prevLog` through stream frames alone
- */
-export const isStreamOnlyUpdate = (prevLog, nextLog) => {
-  if (prevLog === null || prevLog === undefined || nextLog === null || nextLog === undefined) return false
-  return streamOnlyTransition.get(prevLog)?.get(nextLog) === true
-}
+// A stream frame never clones the events array: only event frames, snapshots and pages
+// build a new one. Anything downstream that keys its work on the events array (the
+// committed-row cache in the desktop window's transcript) therefore settles a whole
+// stream chunk in O(1), without any further signal from here.
 
 // Events the window holds and an opening's window of the same Session, as one ordered list
 // without repeats. What the window held joins on only when nothing lies between the two.
@@ -101,23 +78,21 @@ export function applyFrame(log, frame) {
     // counting from 1) means the window opens again for a new baseline, as DSH's client does.
     if (log.header === null) return { log, reopen: true }
     if (log.streamRevision !== null && part.revision !== log.streamRevision + 1) return { log, reopen: true }
-    // None of these paths touches the events list: applied cleanly, every one of them is
-    // a stream-only transition (stream-only frames never clone the events array).
     const counted = { streamRevision: part.revision }
-    if (part.type === 'start') return noteStreamOnly(log, changed(log, { ...counted, writing: newWriting(part, 0) }))
+    if (part.type === 'start') return { log: changed(log, { ...counted, writing: newWriting(part, 0) }), reopen: false }
     const writing = log.writing
     // A frame of an attempt the window does not hold (it began before the opening's cut) is
     // left out, as DSH's client leaves it.
-    if (writing === null || writing.attemptId !== part.attemptId) return noteStreamOnly(log, changed(log, counted))
+    if (writing === null || writing.attemptId !== part.attemptId) return { log: changed(log, counted), reopen: false }
     if (part.type === 'chunk') {
       if (part.index !== writing.next) return { log, reopen: true }
       const tail = { chunk: part.chunk, before: writing.tail }
-      return noteStreamOnly(log, changed(log, { ...counted, writing: { ...writing, next: writing.next + 1, tail, count: writing.count + 1 } }))
+      return { log: changed(log, { ...counted, writing: { ...writing, next: writing.next + 1, tail, count: writing.count + 1 } }), reopen: false }
     }
     if (part.type === 'end') {
       // An end that names more chunks than came: the reply's last chunks were missed.
       if (part.index !== writing.next) return { log: changed(log, { ...counted, writing: null }), reopen: true }
-      return noteStreamOnly(log, changed(log, { ...counted, writing: null }))
+      return { log: changed(log, { ...counted, writing: null }), reopen: false }
     }
   }
   return { log, ...same }
