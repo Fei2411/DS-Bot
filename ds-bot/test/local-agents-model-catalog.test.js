@@ -302,8 +302,6 @@ test('a model switch notice does not flatten the cached catalog levels', async (
   const probed = await adapter.probeModels('local-acp-agyfake')
   assert.deepEqual(probed.find(model => model.id === 'fake-large')?.reasoning?.efforts?.map(effort => effort.id), ['low', 'medium', 'high', 'xhigh'])
 
-  // The open() itself writes the discovered catalog once; the notice the model
-  // switch emits is the write after it. Both must leave the full catalog intact.
   // The open() writes the catalog once and the notice it emits once more; the
   // flattened-overwrite regression of #2145 lands, if at all, in the second.
   const epochBefore = Math.max(adapter.nextModelEpoch, adapter.modelEpochs.get('local-acp-agyfake') ?? 0)
@@ -323,13 +321,18 @@ test('a model switch notice does not flatten the cached catalog levels', async (
 test('cwdPerProcess workers share the probe evidence: a live notice in any folder keeps the full catalog', async (t) => {
   const dirA = mkdtempSync(join(tmpdir(), 'dsb-agy-a-'))
   const dirB = mkdtempSync(join(tmpdir(), 'dsb-agy-b-'))
-  t.after(() => { rmSync(dirA, { recursive: true, force: true }); rmSync(dirB, { recursive: true, force: true }) })
   const adapter = makeAgyAdapter({
     args: ['--degraded-catalog', '--emit-config-update'],
     cwdPerProcess: true,
     dirs: { s1: dirA, s2: dirB },
   })
-  t.after(() => adapter.dispose())
+  // Dispose workers before removing their cwd directories — on Windows a running
+  // child process holds a handle on its cwd and rmSync fails with EPERM.
+  t.after(async () => {
+    await adapter.dispose()
+    rmSync(dirA, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+    rmSync(dirB, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  })
 
   // The probe runs against a temporary worker in dirA; the listing merge repairs
   // the degraded reply. This is the state the regression wiped at the first notice.
