@@ -666,13 +666,13 @@ export function apply(ctx) {
   // Host marks it when a model selection comes back not-found): keep the cover as a
   // failure card with a way out. Standalone DSH Agent sessions have no cover, so report
   // the failure directly when one never arrives.
-  const failOpening = (target) => {
+  const failOpening = (target, reason = 'missing') => {
     if (ownerOfSession(target) === undefined) {
       endOpening()
-      actions.reportError(new Error(t('This session is no longer available.')), 'open-session')
+      actions.reportError(new Error(t(reason === 'timeout' ? 'This session is not available yet.' : 'This session is no longer available.')), 'open-session')
       return
     }
-    openingWait.fail(target)
+    openingWait.fail(target, reason)
   }
   const lostSession = (target) => (roster.getSnapshot().bots ?? []).some(bot => bot.sessionMissing === target)
   const recovering = new Set()
@@ -736,6 +736,10 @@ export function apply(ctx) {
       ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state))
       setPlain(false)
       const target = partFor(id)
+      show(target)
+    },
+    retryOpening: (target) => {
+      if (!target) return
       show(target)
     },
     // The Bot's current Session is gone from the library: a fresh part takes its place

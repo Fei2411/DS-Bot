@@ -1412,3 +1412,79 @@ test('missing Sessions stop retrying instead of looping in sessionRetry, and hea
   assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'b1-task:deepseek/v4-flash', 'g1:deepseek/v4-flash', 'r1:deepseek/v4-flash'])
   assert.deepEqual(kickoffs, ['b1'])
 })
+
+test('a restored Session heals immediately on forced model change and on same-catalog syncModels (#2004 review)', async () => {
+  // Case 1: Bot Settings forces a model change after the Session is restored — must heal via library check without skipping.
+  {
+    const listed = new Set()
+    const lost = new Set(['b1'])
+    const kickoffs = []
+    const { rt, selected } = bench({
+      services: {
+        sessionQuery: {
+          listSessions: async () => [...listed].map(id => ({ header: { id }, persisted: true, live: false })),
+        },
+      },
+    })
+    const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+    rt.state.bots = { b1: bot }
+    rt.releaseKickoff = async (target) => { kickoffs.push(target.id) }
+    const select = rt.ctx.sessionController.selectModel
+    rt.ctx.sessionController.selectModel = async (request) => {
+      if (lost.has(request.sessionId)) {
+        throw Object.assign(new Error(`session "${request.sessionId}" not found`), { code: 'session/not-found' })
+      }
+      return select(request)
+    }
+
+    await rt.catalog()
+    await rt.syncModels()
+    assert.equal(bot.sessionMissing, 'b1')
+    assert.deepEqual(selected, [])
+
+    // Restore Session to library and change model in Bot Settings (force: true) without catalog change.
+    lost.clear()
+    listed.add('b1')
+    bot.model = 'stepfun/step-5'
+    await rt.applyModel(bot, { force: true })
+    assert.equal(bot.sessionMissing, undefined)
+    assert.equal(bot.appliedModel, 'stepfun/step-5')
+    assert.deepEqual(selected, ['b1:stepfun/step-5'])
+    assert.deepEqual(kickoffs, ['b1'])
+  }
+
+  // Case 2: Restored Session heals on a same-catalog syncModels() without requiring a catalog change.
+  {
+    const listed = new Set()
+    const lost = new Set(['b1'])
+    const { rt, selected } = bench({
+      services: {
+        sessionQuery: {
+          listSessions: async () => [...listed].map(id => ({ header: { id }, persisted: true, live: false })),
+        },
+      },
+    })
+    const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+    rt.state.bots = { b1: bot }
+    const select = rt.ctx.sessionController.selectModel
+    rt.ctx.sessionController.selectModel = async (request) => {
+      if (lost.has(request.sessionId)) {
+        throw Object.assign(new Error(`session "${request.sessionId}" not found`), { code: 'session/not-found' })
+      }
+      return select(request)
+    }
+
+    await rt.catalog()
+    await rt.syncModels()
+    assert.equal(bot.sessionMissing, 'b1')
+    assert.deepEqual(selected, [])
+
+    // Restore Session to library; same-catalog syncModels() heals and applies without dropCatalog().
+    lost.clear()
+    listed.add('b1')
+    await rt.syncModels()
+    assert.equal(bot.sessionMissing, undefined)
+    assert.equal(bot.appliedModel, 'deepseek/v4-flash')
+    assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+  }
+})

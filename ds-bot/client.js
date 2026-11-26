@@ -208,6 +208,7 @@ var JA = {
   "A new reply is waiting": "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",
+  "This session is not available yet.": "このセッションはまだ開けません。",
   "This session is no longer available.": "このセッションはもう存在しません。",
   "Android beta": "Android ベータ版",
   "Cannot reach the Server. Trying again…": "サーバーに接続できません。再試行しています…",
@@ -3514,6 +3515,7 @@ var KO = {
   "A new reply is waiting": "새 답변이 도착했습니다",
   "Opening…": "여는 중…",
   "Still opening…": "아직 여는 중…",
+  "This session is not available yet.": "이 세션을 아직 열 수 없습니다.",
   "This session is no longer available.": "이 세션은 더 이상 존재하지 않습니다.",
   "Android beta": "Android 베타",
   "Cannot reach the Server. Trying again…": "서버에 연결할 수 없습니다. 다시 시도하는 중…",
@@ -6865,6 +6867,7 @@ var ES = {
   "A new reply is waiting": "Tienes una nueva respuesta",
   "Opening…": "Abriendo…",
   "Still opening…": "Sigue abriendo…",
+  "This session is not available yet.": "Esta sesión aún no está disponible.",
   "This session is no longer available.": "Esta sesión ya no está disponible.",
   "Android beta": "Android beta",
   "Cannot reach the Server. Trying again…": "No se puede conectar con el servidor. Reintentando…",
@@ -10216,6 +10219,7 @@ var FR = {
   "A new reply is waiting": "Une nouvelle réponse vous attend",
   "Opening…": "Ouverture…",
   "Still opening…": "Toujours en cours d’ouverture…",
+  "This session is not available yet.": "Cette session n’est pas encore disponible.",
   "This session is no longer available.": "Cette session n’est plus disponible.",
   "Android beta": "Android bêta",
   "Cannot reach the Server. Trying again…": "Impossible de joindre le serveur. Nouvel essai…",
@@ -13522,6 +13526,7 @@ var DE = {
   "A new reply is waiting": "Eine neue Antwort wartet auf dich",
   "Opening…": "Wird geöffnet…",
   "Still opening…": "Wird noch geöffnet…",
+  "This session is not available yet.": "Diese Sitzung ist noch nicht verfügbar.",
   "This session is no longer available.": "Diese Sitzung ist nicht mehr verfügbar.",
   "Android beta": "Android-Beta",
   "Cannot reach the Server. Trying again…": "Server nicht erreichbar. Neuer Versuch…",
@@ -18537,6 +18542,7 @@ var ZH = {
   // A Session that is still landing
   "Opening…": "正在打开…",
   "Still opening…": "还在打开…",
+  "This session is not available yet.": "这个会话暂时还打不开。",
   "This session is no longer available.": "这个会话已不存在。",
   "Add files": "添加文件",
   "Reference a chat": "引用对话",
@@ -66946,12 +66952,12 @@ function bindOpeningWait(ui, { waitMs = OPENING_WAIT_MS, schedule = setTimeout, 
     // The wait ended without the Session and cannot succeed: keep the cover, mark it
     // failed, so the card says what happened and offers a way out. A newer navigation
     // lifts it the same way `end` does.
-    fail(target) {
+    fail(target, reason = "missing") {
       stop();
       ui.set((state) => {
         const pending = state.pendingOpen;
-        if (!pending || pending.target !== target || pending.failed === true) return state;
-        return { ...state, pendingOpen: { ...pending, failed: true } };
+        if (!pending || pending.target !== target || pending.failed === true && pending.reason === reason) return state;
+        return { ...state, pendingOpen: { ...pending, failed: true, reason } };
       });
     }
   };
@@ -66967,21 +66973,39 @@ function openingModel({ pending, current: current2, roster }) {
   }
   return {
     id: pending.id,
+    target: pending.target,
     name: bot?.name ?? room2?.name ?? pending.name ?? "",
     bot,
     group: room2 !== void 0,
     slow: pending.slow === true,
-    failed: pending.failed === true
+    failed: pending.failed === true,
+    reason: pending.failed === true ? pending.reason ?? "missing" : void 0
   };
 }
-function OpeningCover({ model, column, onNewSession, actions }) {
+function OpeningCover({ model, column, onNewSession, onRetry, actions }) {
   if (model === null) return null;
   const recover = onNewSession ?? actions?.recoverOpening;
-  const recovery = model.failed && model.bot !== void 0 ? (0, import_react91.createElement)("button", {
-    type: "button",
-    className: "bt-soft bt-soft-sm bt-opening-new",
-    onClick: () => recover?.(model.bot.id)
-  }, t("New session")) : null;
+  const retry = onRetry ?? actions?.retryOpening;
+  const timedOut = model.failed && model.reason === "timeout";
+  const buttons = [];
+  if (timedOut && retry) {
+    buttons.push((0, import_react91.createElement)("button", {
+      key: "retry",
+      type: "button",
+      className: "bt-soft bt-soft-sm bt-opening-retry",
+      onClick: () => retry(model.target)
+    }, t("Try again")));
+  }
+  if (model.failed && model.bot !== void 0) {
+    buttons.push((0, import_react91.createElement)("button", {
+      key: "new",
+      type: "button",
+      className: "bt-soft bt-soft-sm bt-opening-new",
+      onClick: () => recover?.(model.bot.id)
+    }, t("New session")));
+  }
+  const controls = buttons.length === 0 ? null : buttons.length === 1 ? buttons[0] : (0, import_react91.createElement)("div", { className: "bt-opening-actions" }, buttons);
+  const note = timedOut ? "This session is not available yet." : model.failed ? "This session is no longer available." : model.slow ? "Still opening…" : "Opening…";
   return (0, import_react91.createElement)(
     "div",
     {
@@ -66995,8 +67019,8 @@ function OpeningCover({ model, column, onNewSession, actions }) {
       { className: "bt-opening-card" },
       (0, import_react91.createElement)("span", { className: "bt-opening-mark" }, model.bot ? (0, import_react91.createElement)(BotMark, { bot: model.bot, size: 44 }) : (0, import_react91.createElement)(PeopleIcon)),
       model.name ? (0, import_react91.createElement)("span", { className: "bt-opening-name" }, model.name) : null,
-      (0, import_react91.createElement)("span", { className: "bt-opening-note" }, t(model.failed ? "This session is no longer available." : model.slow ? "Still opening…" : "Opening…")),
-      recovery
+      (0, import_react91.createElement)("span", { className: "bt-opening-note" }, t(note)),
+      controls
     )
   );
 }
@@ -67006,7 +67030,9 @@ var OPENING_CSS = `
 .bt-opening-mark{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--bt-ink-3)}
 .bt-opening-name{font-size:15px;font-weight:600;line-height:20px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-opening-note{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
-.bt-opening-new{margin-top:2px}
+.bt-opening-actions{display:flex;align-items:center;gap:8px;margin-top:2px}
+.bt-opening-new,.bt-opening-retry{margin-top:2px}
+.bt-opening-actions .bt-opening-new,.bt-opening-actions .bt-opening-retry{margin-top:0}
 @keyframes bt-opening-in{from{opacity:0}to{opacity:1}}
 `;
 
@@ -67081,7 +67107,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     opening ? (0, import_react92.createElement)(
       OverlayBoundary,
       { name: "opening", reset: opening.id, notify: false },
-      (0, import_react_dom16.createPortal)((0, import_react92.createElement)(OpeningCover, { model: opening, column: layout.column, onNewSession: actions?.recoverOpening }), document.body)
+      (0, import_react_dom16.createPortal)((0, import_react92.createElement)(OpeningCover, { model: opening, column: layout.column, onNewSession: actions?.recoverOpening, onRetry: actions?.retryOpening }), document.body)
     ) : null,
     pane ? (0, import_react92.createElement)(OverlayBoundary, {
       name: "panel",
@@ -69046,12 +69072,12 @@ function listedOpener({ list, open, refresh, current: current2, begin, done, fai
       done?.(target);
       return true;
     };
-    const failWait = () => {
+    const failWait = (reason) => {
       if (state !== "waiting") return false;
       state = "failed";
       if (waitingTarget === target) waitingTarget = null;
       clearTimer();
-      fail2?.(target);
+      fail2?.(target, reason);
       return true;
     };
     drop = () => {
@@ -69071,12 +69097,12 @@ function listedOpener({ list, open, refresh, current: current2, begin, done, fai
       if (settle()) open(target);
     });
     if (gone?.(target) === true) {
-      failWait();
+      failWait("missing");
       return;
     }
     timer2 = schedule(() => {
       if (state !== "waiting" || listed()) return;
-      failWait();
+      failWait("timeout");
     }, waitMs);
     refresh?.();
   };
@@ -70200,13 +70226,13 @@ function apply(ctx) {
   const endOpening = () => {
     openingWait.end();
   };
-  const failOpening = (target) => {
+  const failOpening = (target, reason = "missing") => {
     if (ownerOfSession(target) === void 0) {
       endOpening();
-      actions.reportError(new Error(t("This session is no longer available.")), "open-session");
+      actions.reportError(new Error(t(reason === "timeout" ? "This session is not available yet." : "This session is no longer available.")), "open-session");
       return;
     }
-    openingWait.fail(target);
+    openingWait.fail(target, reason);
   };
   const lostSession = (target) => (roster.getSnapshot().bots ?? []).some((bot) => bot.sessionMissing === target);
   const recovering = /* @__PURE__ */ new Set();
@@ -70275,6 +70301,10 @@ function apply(ctx) {
       ui.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state);
       setPlain(false);
       const target = partFor(id);
+      show2(target);
+    },
+    retryOpening: (target) => {
+      if (!target) return;
       show2(target);
     },
     // The Bot's current Session is gone from the library: a fresh part takes its place

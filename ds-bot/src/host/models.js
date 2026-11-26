@@ -612,7 +612,26 @@ export function install(rt) {
     // the first one would leave the later parts unapplied with nothing recorded to retry
     // them once another pass has advanced the Bot's record (#2002 review).
     let currentMissed = false
+    let healedCurrent = false
     let failure
+    const mayHeal = (force || forceSessions !== undefined) && (
+      (bot.sessionMissing !== undefined && own.includes(bot.sessionMissing))
+      || own.some(id => goneParts.has(id))
+      || groups.some(id => goneParts.has(id))
+    )
+    if (mayHeal) {
+      const records = await listedSessions({ fresh: true }).catch(() => undefined)
+      if (llm() === undefined || readOnly()) return ref
+      if (records !== undefined) {
+        if (bot.sessionMissing !== undefined && records.has(bot.sessionMissing)) {
+          delete bot.sessionMissing
+          healedCurrent = true
+        }
+        for (const sessionId of [...own, ...groups]) {
+          if (goneParts.has(sessionId) && records.has(sessionId)) goneParts.delete(sessionId)
+        }
+      }
+    }
     if (own.some(owesWrite)) {
       const currentChat = rt.chatOf?.(bot.id) ?? bot.sessionId ?? bot.id
       for (const sessionId of own) {
@@ -677,14 +696,19 @@ export function install(rt) {
       }
     }
     if (failure !== undefined) throw failure
-    if (llm() === undefined || readOnly() || !ownChanged) return ref
-    if (!currentMissed) {
+    if (llm() === undefined || readOnly()) return ref
+    if (ownChanged && !currentMissed) {
       bot.appliedModel = ref
       if (effort === undefined) delete bot.appliedEffort
       else bot.appliedEffort = effort
       await rt.save()
+    } else if (healedCurrent) {
+      await rt.save()
     }
-    if (syncGroups) await syncBotRooms(bot.id)
+    if (healedCurrent && bot.sessionMissing === undefined && bot.blocked === undefined && !readOnly()) {
+      await rt.releaseKickoff?.(bot).catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', bot.name, error))
+    }
+    if (ownChanged && syncGroups) await syncBotRooms(bot.id)
     return ref
   }
 
@@ -784,11 +808,14 @@ export function install(rt) {
   // not one of them): a provider that registers late still gets its Bots' models selected.
   // A Session recorded as failed is retried on the next trigger even when the models are
   // the same, as every state refresh finds them.
+  const hasMissingSessions = () => Object.values(state.bots ?? {}).some(bot => bot.sessionMissing !== undefined)
+    || goneParts.size > 0
+    || missingRoomSessions.size > 0
   const syncModels = () => {
     if (readOnly()) return modelsSynced ?? Promise.resolve()
     const key = answerable(catalogCache.value).map(entry => entry.ref).join(',')
     if (key !== syncedKey) { syncedKey = key; modelsSynced = modelsSynced?.then(syncAll, syncAll) ?? syncAll() }
-    else if (roomRetry.size > 0 || sessionRetry.size > 0) modelsSynced = modelsSynced?.then(syncRetry, syncRetry) ?? syncRetry()
+    else if (roomRetry.size > 0 || sessionRetry.size > 0 || hasMissingSessions()) modelsSynced = modelsSynced?.then(syncRetry, syncRetry) ?? syncRetry()
     return modelsSynced
   }
   // Nothing awaits a sync (bootstrap starts one and drops the promise), so a failure
@@ -870,15 +897,31 @@ export function install(rt) {
     }
     await syncRooms()
   }
-  // Only what failed is tried again; a Bot or group that is now applied costs nothing.
+  // Only what failed or just healed is tried again; a Bot or group that is now applied costs nothing.
   async function syncRetry() {
-    for (const botId of new Set([...sessionRetry.values()].map(record => record.botId))) {
+    if (readOnly()) return
+    const { healedBots, healedParts } = await healMissingSessions().catch(() => ({ healedBots: new Set(), healedParts: new Map() }))
+    const botIds = new Set([
+      ...[...sessionRetry.values()].map(record => record.botId),
+      ...healedBots,
+      ...healedParts.keys(),
+    ])
+    for (const botId of botIds) {
       const bot = state.bots?.[botId]
       if (bot === undefined) {
         clearBotRetries(botId)
         continue
       }
-      await retryBot(bot)
+      const botHealed = healedBots.has(bot.id)
+      const partForced = healedParts.get(bot.id)
+      const forceSessions = partForced === undefined
+        ? forcedSessionsOf(bot.id)
+        : new Set([...forcedSessionsOf(bot.id), ...partForced])
+      await applyModel(bot, { force: botHealed, forceSessions, syncGroups: false })
+        .catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
+      if (botHealed && bot.sessionMissing === undefined && bot.blocked === undefined && !readOnly()) {
+        await rt.releaseKickoff?.(bot).catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', bot.name, error))
+      }
     }
     await syncRooms()
   }

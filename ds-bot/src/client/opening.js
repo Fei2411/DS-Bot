@@ -56,12 +56,12 @@ export function bindOpeningWait(ui, { waitMs = OPENING_WAIT_MS, schedule = setTi
     // The wait ended without the Session and cannot succeed: keep the cover, mark it
     // failed, so the card says what happened and offers a way out. A newer navigation
     // lifts it the same way `end` does.
-    fail(target) {
+    fail(target, reason = 'missing') {
       stop()
       ui.set(state => {
         const pending = state.pendingOpen
-        if (!pending || pending.target !== target || pending.failed === true) return state
-        return { ...state, pendingOpen: { ...pending, failed: true } }
+        if (!pending || pending.target !== target || (pending.failed === true && pending.reason === reason)) return state
+        return { ...state, pendingOpen: { ...pending, failed: true, reason } }
       })
     },
   }
@@ -85,33 +85,53 @@ export function openingModel({ pending, current, roster }) {
   }
   return {
     id: pending.id,
+    target: pending.target,
     name: bot?.name ?? room?.name ?? pending.name ?? '',
     bot,
     group: room !== undefined,
     slow: pending.slow === true,
     failed: pending.failed === true,
+    reason: pending.failed === true ? (pending.reason ?? 'missing') : undefined,
   }
 }
 
-// A failed wait keeps the cover for the same Bot, says its Session is gone, and lets the
-// user start a new one; a group chat's lost Session has no such move here.
-export function OpeningCover({ model, column, onNewSession, actions }) {
+// A failed wait keeps the cover for the same Bot, explains whether the Session is gone
+// or still unavailable, and lets the user retry or start a new one; a group chat gets
+// retry on timeout and no Bot recovery button.
+export function OpeningCover({ model, column, onNewSession, onRetry, actions }) {
   if (model === null) return null
   const recover = onNewSession ?? actions?.recoverOpening
-  const recovery = model.failed && model.bot !== undefined
-    ? h('button', {
-      type: 'button', className: 'bt-soft bt-soft-sm bt-opening-new',
+  const retry = onRetry ?? actions?.retryOpening
+  const timedOut = model.failed && model.reason === 'timeout'
+  const buttons = []
+  if (timedOut && retry) {
+    buttons.push(h('button', {
+      key: 'retry', type: 'button', className: 'bt-soft bt-soft-sm bt-opening-retry',
+      onClick: () => retry(model.target),
+    }, t('Try again')))
+  }
+  if (model.failed && model.bot !== undefined) {
+    buttons.push(h('button', {
+      key: 'new', type: 'button', className: 'bt-soft bt-soft-sm bt-opening-new',
       onClick: () => recover?.(model.bot.id),
-    }, t('New session'))
-    : null
+    }, t('New session')))
+  }
+  const controls = buttons.length === 0 ? null : buttons.length === 1 ? buttons[0] : h('div', { className: 'bt-opening-actions' }, buttons)
+  const note = timedOut
+    ? 'This session is not available yet.'
+    : model.failed
+      ? 'This session is no longer available.'
+      : model.slow
+        ? 'Still opening…'
+        : 'Opening…'
   return h('div', {
     className: 'bt-opening', style: { left: `${column}px` }, role: 'status', 'aria-live': 'polite',
   },
   h('div', { className: 'bt-opening-card' },
     h('span', { className: 'bt-opening-mark' }, model.bot ? h(BotMark, { bot: model.bot, size: 44 }) : h(PeopleIcon)),
     model.name ? h('span', { className: 'bt-opening-name' }, model.name) : null,
-    h('span', { className: 'bt-opening-note' }, t(model.failed ? 'This session is no longer available.' : model.slow ? 'Still opening…' : 'Opening…')),
-    recovery))
+    h('span', { className: 'bt-opening-note' }, t(note)),
+    controls))
 }
 
 export const OPENING_CSS = `
@@ -120,6 +140,8 @@ export const OPENING_CSS = `
 .bt-opening-mark{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--bt-ink-3)}
 .bt-opening-name{font-size:15px;font-weight:600;line-height:20px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-opening-note{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
-.bt-opening-new{margin-top:2px}
+.bt-opening-actions{display:flex;align-items:center;gap:8px;margin-top:2px}
+.bt-opening-new,.bt-opening-retry{margin-top:2px}
+.bt-opening-actions .bt-opening-new,.bt-opening-actions .bt-opening-retry{margin-top:0}
 @keyframes bt-opening-in{from{opacity:0}to{opacity:1}}
 `

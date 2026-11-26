@@ -224,3 +224,40 @@ test('a part switch within the same Bot or group does not cover the current chat
   assert.equal(failedRoom?.failed, true)
   assert.equal(failedRoom?.group, true)
 })
+
+test('a timed-out wait says the session is not available yet and offers retry alongside recovery (#2004 review)', () => {
+  const { ui, wait } = waitRig()
+  wait.begin({ target: 'bot-2', id: 'bot-2', name: 'Newcomer' })
+  wait.fail('bot-2', 'timeout')
+  const model = openingModel({ pending: ui.value.pendingOpen, current: 'bot-1', roster })
+  assert.equal(model.failed, true)
+  assert.equal(model.reason, 'timeout')
+  assert.equal(model.target, 'bot-2')
+  const retried = []
+  const recovered = []
+  const tree = module.exports.OpeningCover({
+    model, column: 260,
+    onRetry: target => retried.push(target),
+    onNewSession: id => recovered.push(id),
+  })
+  const nodes = flat(tree)
+  const text = nodes.filter(node => typeof node === 'string')
+  assert.ok(text.includes('This session is not available yet.'))
+  assert.equal(text.includes('This session is no longer available.'), false)
+  assert.ok(text.includes('Try again'))
+  assert.ok(text.includes('New session'))
+  const retryBtn = nodes.find(node => typeof node === 'object' && node?.props?.className === 'bt-soft bt-soft-sm bt-opening-retry')
+  const newBtn = nodes.find(node => typeof node === 'object' && node?.props?.className === 'bt-soft bt-soft-sm bt-opening-new')
+  retryBtn.props.onClick()
+  newBtn.props.onClick()
+  assert.deepEqual(retried, ['bot-2'])
+  assert.deepEqual(recovered, ['bot-2'])
+
+  // Group timeout shows retry without New session.
+  const roomModel = openingModel({ pending: { target: 'room-1', id: 'room-1', name: 'Ops', failed: true, reason: 'timeout' }, current: 'bot-1', roster })
+  const roomTree = module.exports.OpeningCover({ model: roomModel, column: 260, onRetry: target => retried.push(target) })
+  const roomText = flat(roomTree).filter(node => typeof node === 'string')
+  assert.ok(roomText.includes('This session is not available yet.'))
+  assert.ok(roomText.includes('Try again'))
+  assert.equal(roomText.includes('New session'), false)
+})

@@ -53,12 +53,12 @@ export function listedOpener({ list, open, refresh, current, begin, done, fail, 
       done?.(target)
       return true
     }
-    const failWait = () => {
+    const failWait = (reason) => {
       if (state !== 'waiting') return false
       state = 'failed'
       if (waitingTarget === target) waitingTarget = null
       clearTimer()
-      fail?.(target)
+      fail?.(target, reason)
       return true
     }
     drop = () => { settle() }
@@ -71,10 +71,10 @@ export function listedOpener({ list, open, refresh, current, begin, done, fail, 
       if (!listed()) return
       if (settle()) open(target)
     })
-    if (gone?.(target) === true) { failWait(); return }
+    if (gone?.(target) === true) { failWait('missing'); return }
     timer = schedule(() => {
       if (state !== 'waiting' || listed()) return
-      failWait()
+      failWait('timeout')
     }, waitMs)
     refresh?.()
   }

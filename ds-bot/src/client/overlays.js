@@ -84,7 +84,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     h(OverlayBoundary, { key: 'ds-bot:notifications', name: 'notifications', notify: false },
       h(NotificationWatcher, { useSessions, useSessionStatus, useRoster, useWork, actions })),
     opening ? h(OverlayBoundary, { name: 'opening', reset: opening.id, notify: false },
-      createPortal(h(OpeningCover, { model: opening, column: layout.column, onNewSession: actions?.recoverOpening }), document.body)) : null,
+      createPortal(h(OpeningCover, { model: opening, column: layout.column, onNewSession: actions?.recoverOpening, onRetry: actions?.retryOpening }), document.body)) : null,
     pane ? h(OverlayBoundary, {
       name: 'panel', active: shown !== null, notify: shown !== null,
       reset: `${roster.byId[pane.id]?.id ?? roster.roomsById[pane.id]?.id ?? pane.id}:${pane.view}:${pane.tab ?? ''}:${pane.side ?? ''}:${pane.task?.botId ?? ''}:${pane.task?.taskId ?? ''}:${workspace?.active ?? ''}`,

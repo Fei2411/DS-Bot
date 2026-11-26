@@ -25,16 +25,17 @@ const rig = (list, { gone } = {}) => {
   const began = []
   const finished = []
   const failed = []
+  const failReasons = []
   const timers = []
   let refreshes = 0
   const show = listedOpener({
     list, open: id => opened.push(id), refresh: () => { refreshes += 1 }, current: () => mainViewOf(list),
-    begin: id => began.push(id), done: id => finished.push(id), fail: id => failed.push(id), gone,
+    begin: id => began.push(id), done: id => finished.push(id), fail: (id, reason) => { failed.push(id); failReasons.push(reason) }, gone,
     schedule: (fn, ms) => { const timer = { fn, ms }; timers.push(timer); return timer },
     clear: () => {},
   })
   const lastTimer = () => timers.at(-1)
-  return { show, opened, began, finished, failed, refreshCount: () => refreshes, lastTimer }
+  return { show, opened, began, finished, failed, failReasons, refreshCount: () => refreshes, lastTimer }
 }
 
 test('a listed Session opens at once and no refresh is asked for', () => {
@@ -116,12 +117,13 @@ test('a newer navigation ends the wait it took over', () => {
 
 test('a Session that never arrives ends as a failure instead of covering forever (#1929)', () => {
   const list = store()
-  const { show, opened, failed, finished, lastTimer } = rig(list)
+  const { show, opened, failed, failReasons, finished, lastTimer } = rig(list)
   show('bot-2')
   assert.equal(OPENING_FAIL_MS, 10_000)
   assert.equal(lastTimer().ms, OPENING_FAIL_MS)
   lastTimer().fn()
   assert.deepEqual(failed, ['bot-2'])
+  assert.deepEqual(failReasons, ['timeout'])
   // The failure keeps the caller's card up; the wait is not also reported as done.
   assert.deepEqual(finished, [])
   assert.deepEqual(opened, [])
@@ -140,10 +142,11 @@ test('a Session that arrives before the deadline opens, and a late timer cannot 
 
 test('a Session the roster already knows is gone fails at once, without a refresh', () => {
   const list = store()
-  const { show, began, failed, refreshCount } = rig(list, { gone: target => target === 'bot-2' })
+  const { show, began, failed, failReasons, refreshCount } = rig(list, { gone: target => target === 'bot-2' })
   show('bot-2')
   assert.deepEqual(began, ['bot-2'])
   assert.deepEqual(failed, ['bot-2'])
+  assert.deepEqual(failReasons, ['missing'])
   assert.equal(refreshCount(), 0)
 })
 
