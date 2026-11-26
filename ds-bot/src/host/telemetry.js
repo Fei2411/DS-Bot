@@ -398,10 +398,10 @@ export function install(rt) {
     while (cur !== undefined && !seen.has(cur)) {
       seen.add(cur)
       if (isDirectlyPrivate(cur)) return true
-      if (isDirectlyPublic(cur)) return false
       const live = ctx.sessions?.get?.(cur)
+      if (live && isPrivateCwd(live.header?.cwd)) return true
+      if (isDirectlyPublic(cur)) return false
       if (live) {
-        if (isPrivateCwd(live.header?.cwd)) return true
         const nextParent = live.header?.parentSession
         if (nextParent === undefined) return false
         cur = String(nextParent)

@@ -376,18 +376,21 @@ test('DSH safeguards fail closed on offline/disk-resumed subagents, openParts, a
   const home = mkdtempSync(join(tmpdir(), 'dsb-tel-offline-'))
   const sessions = new Map([
     ['live-classic-root', { id: 'live-classic-root', header: { cwd: '/tmp/public-work' } }],
+    ['classic-in-private-dir', { id: 'classic-in-private-dir', header: { cwd: '/private/diary/work' } }],
     ['live-orphan-child', { id: 'live-orphan-child', header: { cwd: '/tmp/public-work', parentSession: 'offline-unknown-parent' } }],
     ['live-pub-child', { id: 'live-pub-child', header: { cwd: '/tmp/public-work', parentSession: 'pub1' } }],
   ])
   const env = makeRt(home, { sessions })
+  env.rt.state.agents.classic1.sessions.push('classic-in-private-dir')
   try {
     await env.rt.telemetry.update({ dshSessionLog: true, dshFeedbackTelemetry: true })
     const excluded = env.exclusions[0]
     const recordListener = env.listeners.get('session-telemetry/record')[0]
 
-    // Private openParts and offline/unresolvable sessions must be excluded.
+    // Private openParts, private live cwd (even for registered Classic Agent), and offline/unresolvable sessions must be excluded.
     assert.equal(excluded({ sessionId: 'priv-open-1' }), true)
     assert.equal(excluded({ sessionId: 'priv-open-seg-1' }), true)
+    assert.equal(excluded({ sessionId: 'classic-in-private-dir' }), true)
     assert.equal(excluded({ sessionId: 'offline-subagent-99' }), true)
     assert.equal(excluded({ sessionId: 'live-orphan-child' }), true)
     assert.equal(excluded({}), true)
