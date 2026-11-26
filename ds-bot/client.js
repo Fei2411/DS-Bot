@@ -20932,9 +20932,12 @@ function chatOfSession(roster, sessionId) {
   if (room2 !== void 0) return { id: room2.id, part: room2.sessionId ?? room2.id };
   return void 0;
 }
-function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage, { deferMs = 0 } = {}) {
+function keepDraftFiles({ chatId, part, files }) {
   if (files.length === 0) keptFiles.delete(chatId);
   else keptFiles.set(chatId, { part, files: [...files] });
+}
+function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage, { deferMs = 0 } = {}) {
+  keepDraftFiles({ chatId, part, files });
   const entry = entryFor(storage);
   const texts2 = entry.texts;
   const before = texts2[chatId];
@@ -20963,6 +20966,245 @@ function keepDraft({ chatId, part, text, files }, storage = globalThis.localStor
   }
   writeEntry(storage, entry);
 }
+function dropPartDraft({ chatId, part }, storage = globalThis.localStorage) {
+  if (keptFiles.get(chatId)?.part === part) keptFiles.delete(chatId);
+  const entry = entryFor(storage, { sync: true });
+  if (entry.texts[chatId]?.part !== part) return;
+  delete entry.texts[chatId];
+  entry.dirtyKeys.add(chatId);
+  writeEntry(storage, entry);
+}
+function hasLivePartDraft({ chatId, part }, storage = globalThis.localStorage) {
+  const entry = entryFor(storage, { sync: true }).texts[chatId];
+  return textEntry(entry) && entry.part === part && entry.text !== "";
+}
+function hasOtherTabPartDraft({ chatId, part, text }, storage = globalThis.localStorage) {
+  const entry = entryFor(storage, { sync: true }).texts[chatId];
+  return textEntry(entry) && entry.part === part && entry.text !== "" && entry.text !== text;
+}
+var contentText2 = (content) => Array.isArray(content) ? content.filter((block) => block?.type === "text" && typeof block.text === "string").map((block) => block.text).join("") : "";
+var isQuoteLine = (line) => line.startsWith(">");
+function normalizeQuoteText(text) {
+  const normalized = text.replace(/\r\n?/gu, "\n").trim();
+  if (!normalized.includes(">")) return normalized;
+  const lines = normalized.split("\n");
+  const out = [];
+  let prevKind = null;
+  let pendingBlanks = [];
+  for (const line of lines) {
+    if (line.trim() === "") {
+      pendingBlanks.push(line);
+      continue;
+    }
+    const kind = isQuoteLine(line) ? "quote" : "text";
+    if (prevKind !== null) {
+      if (prevKind === "quote" && kind === "quote") {
+        out.push("\n");
+      } else if (prevKind === "quote" || kind === "quote") {
+        if (prevKind === "text") out[out.length - 1] = out[out.length - 1].trimEnd();
+        out.push("\n\n");
+      } else {
+        for (const blank3 of pendingBlanks) out.push("\n", blank3);
+        out.push("\n");
+      }
+    }
+    out.push(prevKind === "quote" && kind === "text" ? line.trimStart() : line);
+    prevKind = kind;
+    pendingBlanks = [];
+  }
+  return out.join("");
+}
+function quoteBoundarySegments(text) {
+  const lines = text.replace(/\r\n?/gu, "\n").trim().split("\n");
+  const segments = [];
+  let current2 = [];
+  let currentKind = null;
+  let pendingBlanks = [];
+  const flush = () => {
+    if (current2.length === 0) return;
+    segments.push({ kind: currentKind, text: current2.join("\n") });
+    current2 = [];
+  };
+  for (const line of lines) {
+    if (line.trim() === "") {
+      pendingBlanks.push(line);
+      continue;
+    }
+    const kind = isQuoteLine(line) ? "quote" : "text";
+    if (currentKind === null) {
+      currentKind = kind;
+      current2.push(line);
+    } else if (kind !== currentKind || kind === "quote" && pendingBlanks.length > 0) {
+      flush();
+      currentKind = kind;
+      current2.push(line);
+    } else {
+      if (pendingBlanks.length > 0) current2.push(...pendingBlanks);
+      current2.push(line);
+    }
+    pendingBlanks = [];
+  }
+  flush();
+  return segments;
+}
+function matchesAdmittedText(draft, candidate) {
+  if (typeof draft !== "string" || typeof candidate !== "string") return false;
+  const wanted = normalizeQuoteText(draft);
+  if (wanted === "") return false;
+  const actual = normalizeQuoteText(candidate);
+  if (actual === wanted) return true;
+  if (!actual.includes(">") || !draft.includes(">")) return false;
+  const segments = quoteBoundarySegments(candidate);
+  if (segments.length < 2 || !segments.some((seg) => seg.kind === "quote")) return false;
+  const rawDraft = draft.replace(/\r\n?/gu, "\n").trim();
+  let pos = 0;
+  for (let i = 0; i < segments.length; i += 1) {
+    if (i > 0) {
+      while (pos < rawDraft.length && /\s/u.test(rawDraft[pos])) pos += 1;
+    }
+    const seg = segments[i].text;
+    if (!rawDraft.startsWith(seg, pos)) return false;
+    pos += seg.length;
+  }
+  return pos === rawDraft.length;
+}
+var nodeSeq = (node) => typeof node?.data?.seq === "number" ? node.data.seq : typeof node?.anchorSeq === "number" ? node.anchorSeq : 0;
+function chatUserNodes(chat) {
+  if (chat?.nodes === void 0) return [];
+  const out = [];
+  if (typeof chat.nodes.values === "function") {
+    for (const node of chat.nodes.values()) {
+      if (node?.kind === "user" || node?.kind === "steering") out.push(node);
+    }
+    return out;
+  }
+  if (Array.isArray(chat.order) && typeof chat.nodes.get === "function") {
+    for (const key of chat.order) {
+      const node = chat.nodes.get(key);
+      if (node?.kind === "user" || node?.kind === "steering") out.push(node);
+    }
+    return out;
+  }
+  return out;
+}
+function maxUserSeqOf(chat) {
+  if (chat?.nodes === void 0) return 0;
+  if (Array.isArray(chat.order) && typeof chat.nodes.get === "function") {
+    for (let i = chat.order.length - 1; i >= 0; i -= 1) {
+      const node = chat.nodes.get(chat.order[i]);
+      if (node?.kind !== "user" && node?.kind !== "steering") continue;
+      const seq = nodeSeq(node);
+      if (seq > 0) return seq;
+    }
+    return 0;
+  }
+  let max = 0;
+  for (const node of chatUserNodes(chat)) {
+    const seq = nodeSeq(node);
+    if (seq > max) max = seq;
+  }
+  return max;
+}
+function captureAdmissionBaseline({ chat, maxUserSeq, pendingSubmissions, queue: queue2, nextStep } = {}) {
+  const pendingIds = /* @__PURE__ */ new Set();
+  for (const item of pendingSubmissions ?? []) {
+    if (typeof item?.requestId === "string") pendingIds.add(item.requestId);
+  }
+  const queueIds = /* @__PURE__ */ new Set();
+  const queueTexts = [];
+  for (const list of [queue2, nextStep]) {
+    for (const item of list ?? []) {
+      const id = typeof item?.id === "string" ? item.id : void 0;
+      const rpcId = typeof item?.source?.rpcId === "string" ? item.source.rpcId : void 0;
+      if (id !== void 0) queueIds.add(id);
+      if (rpcId !== void 0) pendingIds.add(rpcId);
+      if (item?.source?.kind === void 0 || item.source.kind === "user") {
+        const text = contentText2(item?.content);
+        if (text !== "") queueTexts.push({ id, rpcId, text });
+      }
+    }
+  }
+  return {
+    maxUserSeq: typeof maxUserSeq === "number" ? maxUserSeq : maxUserSeqOf(chat),
+    pendingIds,
+    queueIds,
+    queueTexts
+  };
+}
+function isSentAdmitted(watch2, { chat, pendingSubmissions, queue: queue2, nextStep } = {}) {
+  if (watch2 === void 0 || watch2.text === "") return false;
+  if (watch2.admitted === true) return true;
+  if (watch2.text.trim() === "") return false;
+  const baseline = watch2.baseline;
+  for (const sub2 of pendingSubmissions ?? []) {
+    if (typeof sub2?.requestId === "string" && baseline?.pendingIds?.has(sub2.requestId)) continue;
+    if (matchesAdmittedText(watch2.text, sub2?.text)) return true;
+  }
+  const liveQueueIds = /* @__PURE__ */ new Set();
+  for (const list of [queue2, nextStep]) {
+    for (const item of list ?? []) {
+      if (typeof item?.id === "string") liveQueueIds.add(item.id);
+      if (typeof item?.id === "string" && baseline?.queueIds?.has(item.id)) continue;
+      if (typeof item?.source?.rpcId === "string" && baseline?.pendingIds?.has(item.source.rpcId)) continue;
+      if (item?.source?.kind !== void 0 && item.source.kind !== "user") continue;
+      if (matchesAdmittedText(watch2.text, contentText2(item?.content))) return true;
+    }
+  }
+  const minSeq = baseline?.maxUserSeq ?? 0;
+  const seenBaselineQueueIds = /* @__PURE__ */ new Set();
+  const seenBaselineRpcIds = /* @__PURE__ */ new Set();
+  let unidentifiedMatches = 0;
+  for (const node of chatUserNodes(chat)) {
+    if (nodeSeq(node) <= minSeq) continue;
+    if (node?.data?.source?.kind !== void 0 && node.data.source.kind !== "user") continue;
+    const msgId = typeof node?.data?.messageId === "string" ? node.data.messageId : void 0;
+    const rpcId = typeof node?.data?.source?.rpcId === "string" ? node.data.source.rpcId : void 0;
+    if (msgId !== void 0 && baseline?.queueIds?.has(msgId)) {
+      seenBaselineQueueIds.add(msgId);
+      continue;
+    }
+    if (rpcId !== void 0 && baseline?.pendingIds?.has(rpcId)) {
+      seenBaselineRpcIds.add(rpcId);
+      continue;
+    }
+    if (!matchesAdmittedText(watch2.text, contentText2(node?.data?.content))) continue;
+    if (msgId !== void 0 || rpcId !== void 0) return true;
+    unidentifiedMatches += 1;
+  }
+  if (unidentifiedMatches > 0) {
+    let drainedBaselineQueued = 0;
+    for (const item of baseline?.queueTexts ?? []) {
+      if (item.id !== void 0 && (liveQueueIds.has(item.id) || seenBaselineQueueIds.has(item.id))) continue;
+      if (item.rpcId !== void 0 && seenBaselineRpcIds.has(item.rpcId)) continue;
+      if (matchesAdmittedText(watch2.text, item.text)) drainedBaselineQueued += 1;
+    }
+    if (unidentifiedMatches > drainedBaselineQueued) return true;
+  }
+  return false;
+}
+var sentTexts = /* @__PURE__ */ new Map();
+var sentKey = (chatId, sessionId) => `${chatId}:${sessionId ?? ""}`;
+function keepSentDraft({ chatId, sessionId, text, baseline }) {
+  const key = sentKey(chatId, sessionId);
+  if (text === "") sentTexts.delete(key);
+  else sentTexts.set(key, { text, baseline, admitted: false });
+}
+function peekSentDraft({ chatId, sessionId }) {
+  return sentTexts.get(sentKey(chatId, sessionId));
+}
+function markSentAdmitted({ chatId, sessionId }) {
+  const entry = sentTexts.get(sentKey(chatId, sessionId));
+  if (entry !== void 0) entry.admitted = true;
+}
+function takeSentDraft({ chatId, sessionId }) {
+  const key = sentKey(chatId, sessionId);
+  const entry = sentTexts.get(key);
+  sentTexts.delete(key);
+  return entry;
+}
+function dropSentDraft({ chatId, sessionId }) {
+  sentTexts.delete(sentKey(chatId, sessionId));
+}
 function takeDraft({ chatId, part, text, attached }, storage = globalThis.localStorage) {
   const kept = keptFiles.get(chatId);
   const files = attached === 0 && kept !== void 0 ? kept.files : NO_FILES;
@@ -20972,7 +21214,11 @@ function takeDraft({ chatId, part, text, attached }, storage = globalThis.localS
 }
 function pruneDrafts(gone, storage = globalThis.localStorage) {
   if (gone.length === 0) return;
-  for (const chatId of gone) keptFiles.delete(chatId);
+  for (const chatId of gone) {
+    keptFiles.delete(chatId);
+    const prefix = `${chatId}:`;
+    for (const key of sentTexts.keys()) if (key.startsWith(prefix)) sentTexts.delete(key);
+  }
   const entry = entryFor(storage, { sync: true });
   const texts2 = entry.texts;
   const listed = gone.filter((chatId) => texts2[chatId] !== void 0);
@@ -20985,6 +21231,7 @@ function pruneDrafts(gone, storage = globalThis.localStorage) {
 }
 function forgetKeptFiles() {
   keptFiles.clear();
+  sentTexts.clear();
 }
 
 // src/client/team-actions.js
@@ -62816,7 +63063,9 @@ function useDictation(onText) {
   const [note, setNote] = (0, import_react79.useState)("");
   const recognition = (0, import_react79.useRef)(null);
   const latest = (0, import_react79.useRef)(onText);
-  latest.current = onText;
+  (0, import_react79.useEffect)(() => {
+    latest.current = onText;
+  }, [onText]);
   (0, import_react79.useEffect)(() => () => recognition.current?.abort(), []);
   (0, import_react79.useEffect)(() => {
     if (!note) return void 0;
@@ -63148,11 +63397,15 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, a
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open, sessionId, enterToSend]);
-  const place = (0, import_react79.useMemo)(() => {
-    if (!shown || !button.current) return null;
+  const [place, setPlace] = (0, import_react79.useState)(void 0);
+  (0, import_react79.useLayoutEffect)(() => {
+    if (!shown || !button.current) {
+      setPlace(void 0);
+      return;
+    }
     const rect = button.current.getBoundingClientRect();
     const cardTop = button.current.closest?.("[data-composer-card]")?.getBoundingClientRect?.().top ?? rect.top;
-    return { left: rect.left, bottom: viewBottom() - Math.min(rect.top, cardTop) + 8 };
+    setPlace({ left: rect.left, bottom: viewBottom() - Math.min(rect.top, cardTop) + 8 });
   }, [shown, open, tick]);
   if (sessionId === void 0 || target === void 0) return null;
   const fileInput = () => button.current?.closest("[data-composer-card]")?.querySelector("input[type=file]");
@@ -63219,6 +63472,8 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, a
   );
 }
 var NO_IDS = [];
+var NO_QUEUE = [];
+var NO_SUBMISSIONS = [];
 var FROZEN_PHASES = /* @__PURE__ */ new Set(["adjudicating", "submitting", "sending"]);
 var DRAFT_DEBOUNCE_MS = 300;
 var appendRescuedPreservingChips = (inputActions, base, rescued) => {
@@ -63235,29 +63490,71 @@ var appendRescuedPreservingChips = (inputActions, base, rescued) => {
   const ok = inputActions.insertText(addition, { start: span.end, end: span.end, draftRev: span.draftRev });
   return { applied: ok === true, changed: ok === true, nextText: ok === true ? merged : base };
 };
-function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedDrafts, actions }) {
+function DraftKeeper({
+  sessionId,
+  inputActions,
+  useInput,
+  useSession,
+  useConversation,
+  useProjection,
+  useRoster,
+  useRescuedDrafts,
+  actions
+}) {
   const chatId = useRoster((roster) => chatOfSession(roster, sessionId)?.id);
   const current2 = useRoster((roster) => chatOfSession(roster, sessionId)?.part === sessionId);
   const draft = useInput?.((state) => state.draft) ?? "";
   const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
   const phase = useInput?.((state) => state.phase) ?? "plain";
+  const queue2 = useInput?.((state) => state.queue) ?? NO_QUEUE;
   const occurrences = useInput?.((state) => state.occurrences) ?? NO_IDS;
   const hasChips = Array.isArray(occurrences) && occurrences.length > 0;
+  const openState = useSession?.((state) => state?.openState);
+  const pendingSubmissions = useSession?.((state) => state?.pendingSubmissions) ?? NO_SUBMISSIONS;
+  const nextStep = useProjection?.("inbox", (inbox) => inbox?.["next-step"]) ?? NO_QUEUE;
   const rescued = useRescuedDrafts?.((state) => readRescuedForChat(state, chatId, sessionId)) ?? "";
   const frozen = FROZEN_PHASES.has(phase);
+  const sending = phase === "sending";
   const rescueBlocked = frozen || phase === "claimed";
   const key = `${chatId}:${sessionId}`;
+  const chatOrSeq = useConversation?.((conversation) => {
+    const chatSnapshot = conversation?.views?.get?.("chat");
+    if (!current2) return 0;
+    if (!sending && peekSentDraft({ chatId, sessionId }) === void 0) return maxUserSeqOf(chatSnapshot);
+    return chatSnapshot;
+  }) ?? 0;
+  const chat = typeof chatOrSeq === "object" && chatOrSeq !== null ? chatOrSeq : void 0;
+  const lastUserSeq = typeof chatOrSeq === "number" ? chatOrSeq : maxUserSeqOf(chat);
   const keyRef = (0, import_react79.useRef)(key);
   const restored = (0, import_react79.useRef)("");
+  const deferredRestore = (0, import_react79.useRef)(false);
+  const skippedLiveDraft = (0, import_react79.useRef)(null);
   const pending = (0, import_react79.useRef)({ text: false, staleDraft: null, files: false });
   const latestDraft = (0, import_react79.useRef)(draft);
-  if (keyRef.current !== key) {
-    keyRef.current = key;
-    pending.current = { text: false, staleDraft: null, files: false };
-    latestDraft.current = draft;
-  } else if (!pending.current.text || draft !== pending.current.staleDraft) {
-    latestDraft.current = draft;
-  }
+  const preSendBaseline = (0, import_react79.useRef)(null);
+  (0, import_react79.useEffect)(() => {
+    if (keyRef.current !== key) {
+      keyRef.current = key;
+      deferredRestore.current = false;
+      skippedLiveDraft.current = null;
+      pending.current = { text: false, staleDraft: null, files: false };
+      latestDraft.current = draft;
+    } else if (!pending.current.text || draft !== pending.current.staleDraft) {
+      latestDraft.current = draft;
+    }
+  }, [key, draft]);
+  (0, import_react79.useEffect)(() => {
+    if (!current2 || frozen) return;
+    preSendBaseline.current = {
+      key,
+      baseline: captureAdmissionBaseline({
+        maxUserSeq: lastUserSeq,
+        pendingSubmissions,
+        queue: queue2,
+        nextStep
+      })
+    };
+  }, [current2, frozen, key, lastUserSeq, pendingSubmissions, queue2, nextStep]);
   (0, import_react79.useEffect)(() => {
     const flush = () => flushDrafts();
     const onVisibility2 = () => {
@@ -63283,11 +63580,30 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
   (0, import_react79.useEffect)(() => {
     if (!current2 || frozen || inputActions === void 0) return;
     if (restored.current === key) return;
-    const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length });
-    const canLandRescueHere = rescued !== "" && !rescueBlocked && (!hasChips || back.text !== "");
-    const baseText = back.text !== "" ? back.text : draft;
+    let effectiveDraft = draft;
+    let clearSent = false;
+    const watch2 = peekSentDraft({ chatId, sessionId });
+    if (watch2 !== void 0) {
+      const livePartDraft = hasLivePartDraft({ chatId, part: sessionId });
+      if (draft !== watch2.text || livePartDraft) {
+        dropSentDraft({ chatId, sessionId });
+      } else if (isSentAdmitted(watch2, { chat, pendingSubmissions, queue: queue2, nextStep })) {
+        takeSentDraft({ chatId, sessionId });
+        effectiveDraft = "";
+        clearSent = true;
+      } else if (openState === "cold" || openState === "loading") {
+        deferredRestore.current = true;
+        return;
+      } else {
+        dropSentDraft({ chatId, sessionId });
+      }
+    }
+    const back = takeDraft({ chatId, part: sessionId, text: effectiveDraft, attached: ids.length });
+    const canLandRescueHere = rescued !== "" && !rescueBlocked && (!hasChips || back.text !== "" || clearSent);
+    const baseText = back.text !== "" ? back.text : effectiveDraft;
     const mergedText = canLandRescueHere ? mergeRescuedDraft(baseText, rescued) : back.text;
-    const applyText = canLandRescueHere ? mergedText !== draft : back.text !== "";
+    const nextText2 = canLandRescueHere ? mergedText : back.text !== "" ? back.text : clearSent ? "" : null;
+    const applyText = nextText2 !== null && nextText2 !== draft;
     if (canLandRescueHere) rescuedHandled = true;
     let added = [];
     let attached = false;
@@ -63296,9 +63612,9 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
     let ok = true;
     try {
       if (applyText) {
-        inputActions.setDraft(mergedText);
+        inputActions.setDraft(nextText2);
         restoredText = true;
-        latestDraft.current = mergedText;
+        latestDraft.current = nextText2;
       }
       if (canLandRescueHere) {
         actions.consumeRescuedDraft?.(chatId, sessionId, rescued);
@@ -63324,8 +63640,21 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
     }
     pending.current = { text: restoredText, staleDraft: restoredText ? draft : null, files: restoredFiles };
     restored.current = key;
+    if (!restoredText && !clearSent && hasOtherTabPartDraft({ chatId, part: sessionId, text: draft })) {
+      skippedLiveDraft.current = { key, draft };
+    }
+    const wasDeferred = deferredRestore.current;
+    deferredRestore.current = false;
+    if (wasDeferred && !restoredText && !restoredFiles && (draft !== "" || ids.length > 0)) {
+      const files = actions.draftFiles?.(ids) ?? [];
+      if (hasLivePartDraft({ chatId, part: sessionId })) {
+        if (files.length > 0) keepDraftFiles({ chatId, part: sessionId, files });
+      } else {
+        keepDraft({ chatId, part: sessionId, text: draft, files }, void 0, { deferMs: DRAFT_DEBOUNCE_MS });
+      }
+    }
     if (!ok && back.files.length > 0) actions.notice?.(t("The files attached to this draft could not be put back."));
-  }, [current2, frozen, chatId, sessionId, inputActions]);
+  }, [current2, frozen, rescueBlocked, hasChips, chatId, sessionId, key, inputActions, draft, rescued, openState, chat, lastUserSeq, pendingSubmissions, queue2, nextStep]);
   (0, import_react79.useEffect)(() => {
     if (rescuedHandled || !current2 || rescueBlocked || inputActions === void 0 || rescued === "" || restored.current !== key) return;
     const base = latestDraft.current;
@@ -63352,18 +63681,53 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
     } catch (error) {
       console.warn("[ds-bot] could not return the question draft", error);
     }
-  }, [current2, rescueBlocked, hasChips, chatId, sessionId, inputActions, rescued]);
+  }, [current2, rescueBlocked, hasChips, chatId, sessionId, key, inputActions, rescued]);
   (0, import_react79.useEffect)(() => {
-    if (!current2 || restored.current !== key) return;
-    if (frozen) {
-      keepDraft({ chatId, part: sessionId, text: "", files: [] });
+    if (!current2) return;
+    const existing = peekSentDraft({ chatId, sessionId });
+    if (!sending) {
+      if (existing !== void 0 && !existing.admitted && isSentAdmitted(existing, { chat, pendingSubmissions, queue: queue2, nextStep })) {
+        markSentAdmitted({ chatId, sessionId });
+      }
       return;
     }
+    const admissionState = { chat, pendingSubmissions, queue: queue2, nextStep };
+    if (draft === "") {
+      if (existing !== void 0 && !existing.admitted && isSentAdmitted(existing, admissionState)) {
+        markSentAdmitted({ chatId, sessionId });
+      }
+      return;
+    }
+    if (existing?.text === draft) {
+      if (!existing.admitted && isSentAdmitted(existing, admissionState)) markSentAdmitted({ chatId, sessionId });
+      return;
+    }
+    const baseline = preSendBaseline.current?.key === key ? preSendBaseline.current.baseline : captureAdmissionBaseline({ ...admissionState, maxUserSeq: lastUserSeq });
+    keepSentDraft({ chatId, sessionId, text: draft, baseline });
+    const created = peekSentDraft({ chatId, sessionId });
+    if (isSentAdmitted(created, admissionState)) markSentAdmitted({ chatId, sessionId });
+  }, [current2, sending, key, chatId, sessionId, draft, chat, lastUserSeq, pendingSubmissions, queue2, nextStep]);
+  (0, import_react79.useEffect)(() => {
+    if (!current2) return;
+    if (frozen) {
+      if (restored.current === key) keepDraft({ chatId, part: sessionId, text: "", files: [] });
+      else if (sending) dropPartDraft({ chatId, part: sessionId });
+      return;
+    }
+    if (restored.current !== key) return;
+    dropSentDraft({ chatId, sessionId });
     if (pending.current.text && draft === pending.current.staleDraft) return;
     if (pending.current.files && ids.length === 0) return;
     pending.current = { text: false, staleDraft: null, files: false };
+    if (skippedLiveDraft.current?.key === key) {
+      if (draft === skippedLiveDraft.current.draft) {
+        keepDraftFiles({ chatId, part: sessionId, files: actions.draftFiles?.(ids) ?? [] });
+        return;
+      }
+      skippedLiveDraft.current = null;
+    }
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) }, void 0, { deferMs: DRAFT_DEBOUNCE_MS });
-  }, [current2, frozen, chatId, sessionId, draft, ids]);
+  }, [current2, sending, frozen, key, chatId, sessionId, draft, ids]);
   return null;
 }
 
