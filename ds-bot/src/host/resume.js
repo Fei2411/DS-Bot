@@ -193,6 +193,14 @@ export function install(rt) {
         }
       }
 
+      const liveTaskSessions = new Set()
+      for (const [sid, entry] of rt.live?.entries?.() ?? []) {
+        if (entry?.turn !== undefined) liveTaskSessions.add(sid)
+      }
+      for (const [sid, agent] of rt.ctx?.get?.('agents')?.entries?.() ?? []) {
+        if (agent?.status === 'running') liveTaskSessions.add(sid)
+      }
+
       const interrupted = coordDb.listInterruptedWorks()
       for (const work of interrupted) {
         if (rt.readOnly?.() !== undefined) return
@@ -245,6 +253,7 @@ export function install(rt) {
           autoSettle: true,
         })
         if (reconciled.action === 'adopt_live') {
+          liveTaskSessions.add(sessionId)
           await rt.adoptActiveDelivery?.(reconciled.work ?? work, sessionId, deliveryStatus)
         } else if (reconciled.action === 'settled' || reconciled.action === 'failed' || reconciled.action === 'stopped') {
           if (reconciled.settled) {
@@ -256,6 +265,7 @@ export function install(rt) {
         }
       }
 
+      await rt.reconcileTasksAfterRestart?.(liveTaskSessions)
       await rt.settleRoomBatches?.()
       await rt.reconcileApiRuns?.()
       await rt.kickScheduler?.()

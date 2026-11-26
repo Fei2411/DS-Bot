@@ -1064,28 +1064,55 @@ export function install(rt) {
   }
 
   function pausedWorksView() {
-    if (!hasCoordDb()) return []
-    const paused = rt.coordDb.listWorks({ statuses: ['paused', 'needs_verification'], limit: 200 })
     const out = []
-    for (const work of paused) {
-      if (work.originKind === 'request_dedup') continue
-      const call = rt.coordDb.listCalls({ childWorkId: work.workId, limit: 1 })[0]
-      const parentWork = work.parentWorkId ? rt.coordDb.getWork(work.parentWorkId) : undefined
-      const from = call?.callerBotId ?? parentWork?.botId ?? null
-      const detail = work.pauseDetail ?? {}
+    const seenIds = new Set()
+    if (hasCoordDb()) {
+      const paused = rt.coordDb.listWorks({ statuses: ['paused', 'needs_verification'], limit: 200 })
+      for (const work of paused) {
+        if (work.originKind === 'request_dedup') continue
+        const call = rt.coordDb.listCalls({ childWorkId: work.workId, limit: 1 })[0]
+        const parentWork = work.parentWorkId ? rt.coordDb.getWork(work.parentWorkId) : undefined
+        const from = call?.callerBotId ?? parentWork?.botId ?? null
+        const detail = work.pauseDetail ?? {}
+        const id = work.meta?.legacyWorkId ?? work.workId
+        seenIds.add(id)
+        seenIds.add(work.workId)
+        out.push({
+          id,
+          ref: work.workRef ?? null,
+          from,
+          fromName: from ? (nameOf(from) ?? null) : null,
+          to: work.botId ?? null,
+          toName: nameOf(work.botId) ?? null,
+          reason: work.pauseReason ?? (work.status === 'needs_verification' ? 'interrupted_tools' : 'paused'),
+          kind: detail.kind ?? (work.status === 'needs_verification' ? 'needs_verification' : 'no_progress'),
+          goal: work.title ?? headOf(detail.message ?? detail.text ?? '', 200),
+          ...(detail.question ? { question: headOf(detail.question, 200) } : {}),
+          ...(detail.count !== undefined ? { bounces: detail.count } : {}),
+          at: typeof detail.at === 'number' ? detail.at : (work.updatedAt ?? work.createdAt),
+        })
+      }
+    }
+    // Project any not-yet-migrated legacy `state.works` paused entries (e.g. before `adoptLiveWork`
+    // or in read-only windows) using the exact same id/timestamp so inbox baselines stay stable.
+    for (const [id, lw] of Object.entries(state.works ?? {})) {
+      if (!lw || typeof lw !== 'object' || lw.state !== 'paused') continue
+      if (seenIds.has(id) || seenIds.has(`handoff:${id}`)) continue
+      seenIds.add(id)
+      const detail = lw.paused ?? {}
       out.push({
-        id: work.workId,
-        ref: work.workRef ?? null,
-        from,
-        fromName: from ? (nameOf(from) ?? null) : null,
-        to: work.botId ?? null,
-        toName: nameOf(work.botId) ?? null,
-        reason: work.pauseReason ?? (work.status === 'needs_verification' ? 'interrupted_tools' : 'paused'),
-        kind: detail.kind ?? (work.status === 'needs_verification' ? 'needs_verification' : 'no_progress'),
-        goal: work.title ?? headOf(detail.message ?? detail.text ?? '', 200),
+        id,
+        ref: lw.ref ?? null,
+        from: lw.from ?? null,
+        fromName: lw.from ? (nameOf(lw.from) ?? null) : null,
+        to: lw.to ?? null,
+        toName: lw.to ? (nameOf(lw.to) ?? null) : null,
+        reason: detail.reason ?? 'paused',
+        kind: detail.kind ?? 'no_progress',
+        goal: lw.goal ?? headOf(detail.message ?? detail.text ?? '', 200),
         ...(detail.question ? { question: headOf(detail.question, 200) } : {}),
-        ...(detail.count !== undefined ? { bounces: detail.count } : {}),
-        at: work.updatedAt ?? work.createdAt,
+        ...(detail.bounces !== undefined ? { bounces: detail.bounces } : {}),
+        at: typeof detail.at === 'number' ? detail.at : (lw.at ?? 0),
       })
     }
     return out.sort((a, b) => a.at - b.at)
@@ -1335,7 +1362,7 @@ export function install(rt) {
   })
   ctx?.effect?.(() => {
     const timer = setTimeout(() => {
-      void rt.load()
+      void (typeof rt.adoptLiveWork === 'function' ? rt.adoptLiveWork() : rt.load())
         .then(() => {
           reconcileLostWorks()
           rt.pruneOrphanRequests?.()

@@ -2446,7 +2446,15 @@ export function install(rt) {
     if (handle === null) return false
     const paused = handle.listWorks({ kind: 'room_work', roomId: room.id, status: 'paused', limit: 200 })
       .filter(work => isDelegationWork(work) || isChainWork(work))
-    if (paused.length === 0) return false
+    const hadIdlePause = room.idlePaused !== undefined
+    if (paused.length === 0 && !hadIdlePause) return false
+    if (hadIdlePause) {
+      delete room.idlePaused
+      delete room.idleRelays
+      delete room.idleEdges
+      await rt.save()
+    }
+    if (paused.length === 0) return true
     const running = runningRound(room.id)
     if (running !== undefined && !running.starting && !running.closed) {
       resumePausedRoomWorks(room, running, { reason: 'user_continue' })
