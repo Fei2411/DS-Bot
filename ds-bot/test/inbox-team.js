@@ -54,10 +54,10 @@ export const team = () => ({
   },
 })
 
-export function openHost(t, state = team()) {
+export function openHost(t, state = team(), { services } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-inbox-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(state))
-  const ctx = fakeContext()
+  const ctx = fakeContext({ services })
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
   const rt = createRuntime(ctx, { home, github: false })

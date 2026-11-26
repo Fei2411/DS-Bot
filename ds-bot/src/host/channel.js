@@ -1066,7 +1066,7 @@ export function install(rt) {
           // Taking over a handoff keeps its reason, note, and call, so its card stays up.
           const asked = rt.browserChannel.holdOf(botId)
           rt.browserChannel.setHold(botId, asked?.callId !== undefined
-            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId, ...(asked.sessionId !== undefined ? { sessionId: asked.sessionId } : {}) }
+            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId, ...(Number.isFinite(asked.at) ? { at: asked.at } : {}), ...(asked.sessionId !== undefined ? { sessionId: asked.sessionId } : {}) }
             : { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' })
           return ok(true)
         }

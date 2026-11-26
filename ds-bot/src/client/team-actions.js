@@ -89,7 +89,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         return { ...state, details: id, view, task: null, renaming: false, tab: null }
       })
     },
-    showDetails: (id, tab = null) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: false, tab, panelYield: yieldTo(state, 'details') })) },
+    showDetails: (id, tab = null) => { ui.set(state => ({ ...state, inbox: false, details: id, view: 'details', renaming: false, tab, panelYield: yieldTo(state, 'details') })) },
     // Opening the conversation would move focus to its composer and blur the name field.
     renameBot: (id) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: true, tab: null, panelYield: yieldTo(state, 'details') })) },
     openSettings,
@@ -211,12 +211,13 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     closeExchange: () => { ui.set(state => (state.exchange ? { ...state, exchange: null } : state)) },
     closeOverlay: () => {
       ui.set((state) => {
-        const keepPanel = Boolean(state.newChat || state.exchange)
+        const keepPanel = Boolean(state.newChat || state.exchange || state.inbox)
         return {
           ...state,
           newChat: null,
           newChatSection: null,
           exchange: null,
+          inbox: false,
           details: keepPanel ? state.details : null,
           ...(keepPanel || state.rightPanel === undefined ? {} : { rightPanel: null }),
         }
@@ -404,6 +405,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     pluginsToggle: (id, enabled) => after(call('plugins-toggle', { id, enabled })),
     pluginsRemove: id => after(call('plugins-remove', { id })),
     pluginsUpdate: (id, version) => after(call('plugins-update', { id, ...(version ? { version } : {}) })),
+    pluginsConsent: id => after(call('plugins-consent', { id })),
     pluginsSlotSet: (slot, id) => after(call('plugins-slot-set', { slot, id })),
     pluginsBotToggle: (id, botId, enabled) => after(call('plugins-bot-toggle', { id, botId, enabled })),
     pluginsCustomSave: body => after(call('plugins-custom-save', body)),

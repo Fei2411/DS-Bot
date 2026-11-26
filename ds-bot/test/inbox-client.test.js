@@ -208,3 +208,131 @@ test('the sidebar entry counts what waits and opens or closes the page', async (
   assert.deepEqual(calls, ['open', 'close'])
   assert.equal(textOf(all(draw(120, false, true), node => hasClass(node, 'bt-ib-badge'))[0]), '99+')
 })
+
+test('Take over on a handoff card closes the inbox and focuses the Bot panel; quick buttons guard double clicks', async (t) => {
+  const restore = withDom()
+  const { harness, InboxPane } = await load()
+  t.after(() => { harness.unmount(); restore() })
+  const events = []
+  let answerCalls = 0
+  let resolveAnswer
+  const roster = {
+    bots: [{ id: 'writer', name: 'Writer', sessionId: 'writer', createdAt: 1 }],
+    rooms: [],
+    byId: { writer: { id: 'writer', name: 'Writer', sessionId: 'writer', createdAt: 1 } },
+    roomsById: {},
+    inbox: {
+      count: 2,
+      counts: { decide: 2, fix: 0, suggest: 0 },
+      items: [
+        { id: 'handoff:bh-1', kind: 'handoff', group: 'decide', ref: 'bh-1', at: 10, botId: 'writer', sessionId: 'writer', surface: 'browser', text: 'Sign in' },
+        { id: 'approval:ap-1', kind: 'approval', group: 'decide', ref: 'ap-1', at: 20, botId: 'writer', sessionId: 'writer', tool: 'bash', text: 'ls' },
+      ],
+    },
+  }
+  const actions = {
+    closeInbox: () => events.push('closeInbox'),
+    openSession: id => events.push(`openSession:${id}`),
+    openBrowser: id => events.push(`openBrowser:${id}`),
+    browserTakeover: async id => { events.push(`takeover:${id}`) },
+    answerApproval: () => { answerCalls += 1; return new Promise(resolve => { resolveAnswer = resolve }) },
+    reportError: (err) => { throw err },
+  }
+  const draw = () => harness.render(harness.React.createElement(InboxPane, {
+    paneLeft: 280, roster, actions,
+    useWork: pick => pick({ approvals: [{ id: 'ap-1', botId: 'writer', tool: 'bash', detail: { code: 'ls' } }], paused: [] }),
+    useComputer: pick => pick({ asks: {}, holds: {} }),
+    useBrowserHolds: pick => pick({ writer: { by: 'bot', reason: 'login', note: 'Sign in', callId: 'bh-1' } }),
+    useSessionStatus: pick => pick(new Map()),
+    useBotCompletions: pick => pick({}),
+  }))
+
+  let tree = draw()
+  // Double-clicking Allow once only dispatches one approval answer while in flight.
+  const apRow = rowOf(tree, 'approval:ap-1')
+  button(apRow, 'Allow once').props.onClick()
+  button(apRow, 'Allow once').props.onClick()
+  await sleep(0)
+  assert.equal(answerCalls, 1)
+  button(apRow, 'Allow once').props.onClick()
+  await sleep(0)
+  assert.equal(answerCalls, 1)
+  resolveAnswer()
+  await sleep(0)
+
+  // Opening the browser handoff row and clicking Take over closes inbox before opening browser.
+  all(rowOf(tree, 'handoff:bh-1'), node => hasClass(node, 'bt-ib-sum'))[0].props.onClick()
+  tree = draw()
+  button(rowOf(tree, 'handoff:bh-1'), 'Take over').props.onClick()
+  await sleep(10)
+  assert.deepEqual(events, ['takeover:writer', 'closeInbox', 'openSession:writer', 'openBrowser:writer'])
+})
+
+test('Escape closes the inbox on the first press after switching tabs, and filtering holds steady during leave grace', async (t) => {
+  const keyListeners = new Set()
+  const before = { window: globalThis.window, document: globalThis.document, requestAnimationFrame: globalThis.requestAnimationFrame, cancelAnimationFrame: globalThis.cancelAnimationFrame }
+  globalThis.requestAnimationFrame = () => 0
+  globalThis.cancelAnimationFrame = () => {}
+  const add = (type, fn) => { if (type === 'keydown') keyListeners.add(fn) }
+  const remove = (type, fn) => { if (type === 'keydown') keyListeners.delete(fn) }
+  globalThis.window = { addEventListener: add, removeEventListener: remove, matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }) }
+  globalThis.document = { addEventListener: add, removeEventListener: remove, body: { dataset: {}, hasAttribute: () => false }, documentElement: { hasAttribute: () => false }, activeElement: null, querySelector: () => null, hasFocus: () => true }
+  const { harness, InboxPane } = await load()
+  t.after(() => { harness.unmount(); Object.assign(globalThis, before) })
+
+  let closed = 0
+  const baseRoster = {
+    bots: [
+      { id: 'chief', name: 'Chief', sessionId: 'chief', createdAt: 1 },
+      { id: 'writer', name: 'Writer', sessionId: 'writer', createdAt: 2 },
+    ],
+    rooms: [],
+    byId: {
+      chief: { id: 'chief', name: 'Chief', sessionId: 'chief', createdAt: 1 },
+      writer: { id: 'writer', name: 'Writer', sessionId: 'writer', createdAt: 2 },
+    },
+    roomsById: {},
+    questions: { writer: { id: 'q1', question: 'Ready?', options: [{ label: 'Yes' }] } },
+    inbox: {
+      count: 2,
+      counts: { decide: 2, fix: 0, suggest: 0 },
+      items: [
+        { id: 'question:q1', kind: 'question', group: 'decide', ref: 'q1', at: 10, botId: 'writer', sessionId: 'writer', text: 'Ready?' },
+        { id: 'blocked:chief', kind: 'blocked', group: 'fix', ref: 'chief', at: 20, botId: 'chief', sessionId: 'chief', text: 'RATE_LIMIT' },
+      ],
+    },
+  }
+  let currentRoster = baseRoster
+  const actions = { closeInbox: () => { closed += 1 }, openSession: () => {}, reportError: (err) => { throw err } }
+  const draw = () => harness.render(harness.React.createElement(InboxPane, {
+    paneLeft: 280, roster: currentRoster, actions,
+    useWork: pick => pick({ approvals: [], paused: [] }),
+    useComputer: pick => pick({ asks: {}, holds: {} }),
+    useBrowserHolds: pick => pick({}),
+    useSessionStatus: pick => pick(new Map()),
+    useBotCompletions: pick => pick({}),
+  }))
+
+  let tree = draw()
+  // Filter to Writer, open its row, then settle Writer's only item.
+  all(tree, node => hasClass(node, 'bt-ib-pill') && textOf(node) === 'Writer')[0].props.onClick()
+  tree = draw()
+  all(rowOf(tree, 'question:q1'), node => hasClass(node, 'bt-ib-sum'))[0].props.onClick()
+  tree = draw()
+  assert.equal(rowOf(tree, 'question:q1').props['data-open'], true)
+
+  // Settle Writer's item: during the 900ms leave grace, filter stays on Writer (Chief does not flash in).
+  currentRoster = {
+    ...baseRoster,
+    inbox: { count: 1, counts: { decide: 0, fix: 1, suggest: 0 }, items: [baseRoster.inbox.items[1]] },
+  }
+  tree = draw()
+  tree = draw()
+  assert.equal(rowOf(tree, 'question:q1')?.props['data-gone'], true)
+  assert.equal(rowOf(tree, 'blocked:chief'), undefined, 'other Bot does not jump in while Writer item leaves')
+
+  // Because the opened row is now gone, a single Escape closes the inbox immediately.
+  const esc = { key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() {} }
+  for (const fn of [...keyListeners]) fn(esc)
+  assert.equal(closed, 1, 'single Escape closes inbox after open item leaves')
+})

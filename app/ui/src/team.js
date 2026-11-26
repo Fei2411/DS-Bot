@@ -436,6 +436,7 @@ export function createTeam() {
         panelYield: false,
         rightPanel: null,
         newChat: null,
+        inbox: false,
         exchange: null,
         menu: null,
         palette: null,
@@ -815,7 +816,7 @@ export function createTeam() {
         if (!bot) return
         browsers.ensureTabs(bot.id)
         if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
       },
       toggleBrowser: (id) => {
         const snap = roster.getSnapshot()
@@ -836,7 +837,7 @@ export function createTeam() {
         if (!bot) return null
         browsers.ensureTabs(bot.id)
         const tabId = browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
         return tabId
       },
       // A drawer card: its tab active, the panel on the browser view.
@@ -844,7 +845,7 @@ export function createTeam() {
         const bot = roster.getSnapshot().byId[id]
         if (!bot) return
         browsers.activate(bot.id, tabId)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
       },
       browserEnsure: botId => browsers.ensureTabs(botId),
       browserCloseTab: async (botId, tabId) => {

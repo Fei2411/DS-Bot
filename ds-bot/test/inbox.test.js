@@ -130,3 +130,52 @@ test('the phone hears of a new inbox item, a group card under its group', async 
     ['mail', 'chief', null, 'Invoice'],
   ])
 })
+
+test('browser handoff carries a real timestamp preserved across takeover and signals inbox changes', async (t) => {
+  const previous = process.env.DS_BOT_APP
+  process.env.DS_BOT_APP = '1'
+  t.after(() => { if (previous === undefined) delete process.env.DS_BOT_APP; else process.env.DS_BOT_APP = previous })
+  const { rt, call } = openHost(t, team(), { services: { profileContext: { name: 'ds-bot' } } })
+  await rt.load()
+  let changes = 0
+  const off = rt.onInboxChanged(() => { changes += 1 })
+  t.after(off)
+  const before = Date.now()
+  rt.browserChannel.setHold('writer', { by: 'bot', reason: 'login', note: 'Sign in', callId: 'call-bh-1', sessionId: 'writer' })
+  const item = rt.inboxView().items.find(entry => entry.id === 'handoff:call-bh-1')
+  assert.ok(item, 'browser handoff is listed')
+  assert.ok(item.at >= before, 'browser handoff records a positive timestamp')
+  assert.ok(changes >= 1, 'adding a browser handoff triggers onInboxChanged')
+
+  const originalAt = item.at
+  const takeover = await call('browser-takeover', { botId: 'writer' })
+  assert.equal(takeover.ok, true)
+  const afterTakeover = rt.inboxView().items.find(entry => entry.id === 'handoff:call-bh-1')
+  assert.equal(afterTakeover.at, originalAt, 'browser-takeover preserves original handoff timestamp')
+
+  const changesBeforeClear = changes
+  rt.browserChannel.setHold('writer', null)
+  assert.equal(rt.inboxView().items.some(entry => entry.id === 'handoff:call-bh-1'), false)
+  assert.ok(changes > changesBeforeClear, 'clearing a browser handoff triggers onInboxChanged')
+})
+
+test('archived-part and id-less secret, connector, and mail requests are excluded from the inbox', async (t) => {
+  const state = team()
+  state.secretRequests.coder = [
+    { id: 'sec-archived', sessionId: 'coder', name: 'OLD_KEY', kind: 'fill', status: 'pending', askedAt: 10 },
+    { sessionId: 'coder-p2', name: 'NO_ID', kind: 'fill', status: 'pending', askedAt: 11 },
+  ]
+  state.connectorRequests.coder = [
+    { id: 'con-archived', sessionId: 'coder', connectorId: 'slack', name: 'Slack', status: 'pending', askedAt: 12 },
+    { id: '', sessionId: 'coder-p2', connectorId: 'jira', name: 'Jira', status: 'pending', askedAt: 13 },
+  ]
+  state.mailRequests.coder = [
+    { id: 'mail-archived', sessionId: 'coder', subject: 'Old mail', to: 'a@example.com', status: 'pending', askedAt: 14 },
+  ]
+  const { rt } = openHost(t, state)
+  await rt.load()
+  const ids = rt.inboxView().items.map(item => item.id)
+  for (const dropped of ['secret:sec-archived', 'secret:undefined', 'connector:con-archived', 'connector:', 'mail:mail-archived']) {
+    assert.equal(ids.includes(dropped), false, `${dropped} should be excluded`)
+  }
+})

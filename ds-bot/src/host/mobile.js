@@ -283,6 +283,7 @@ export function install(rt) {
   }
   const offApproval = rt.onApproval?.(() => liveChanged())
   const offHolds = rt.browserChannel?.subscribeHolds?.(() => liveChanged())
+  const offInboxChange = rt.onInboxChanged?.(() => liveChanged())
 
   ctx.effect(() => () => {
     for (const timer of roomTimers.values()) clearTimeout(timer)
@@ -291,6 +292,7 @@ export function install(rt) {
     liveTimer = undefined
     offApproval?.()
     offHolds?.()
+    offInboxChange?.()
     offInbox?.()
     clearAvatarRefCache()
   }, 'ds-bot: mobile room signals')

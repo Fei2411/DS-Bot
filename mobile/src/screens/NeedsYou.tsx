@@ -52,10 +52,11 @@ export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
       renderItem={({ item: row }) => {
         const { name, bot, room } = look(row)
         const to = target(row)
+        const showBot = bot && !(row.kind === 'room-paused' || row.kind === 'goal')
         return (
           <Pressable accessibilityRole="button" disabled={to === null} onPress={() => { if (to !== null) onOpen(to) }}
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: p.hover }]}>
-            {bot ? <Avatar bot={bot} dark={dark} size={44} ring={p.main} waiting />
+            {showBot ? <Avatar bot={bot} dark={dark} size={44} ring={p.main} waiting />
               : room ? <RoomAvatar room={room} bots={bots} dark={dark} size={44} ring={p.main} />
                 : <View style={{ width: 44, height: 44 }} />}
             <View style={styles.body}>

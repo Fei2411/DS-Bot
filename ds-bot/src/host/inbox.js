@@ -41,6 +41,7 @@ export function install(rt) {
   const { state } = rt
   const sources = new Set()
   const listeners = new Set()
+  const changeListeners = new Set()
 
   // Where a card was asked: the Bot, and the group or background task it was asked in.
   const ownerOf = (sessionId) => {
@@ -98,7 +99,11 @@ export function install(rt) {
     // Requests a Bot made through a card: a secret, a connector, an email to send.
     const pending = (map, each) => {
       for (const [botId, list] of Object.entries(map ?? {})) {
-        for (const request of Array.isArray(list) ? list : []) if (request?.status === 'pending') each(botId, request)
+        for (const request of Array.isArray(list) ? list : []) {
+          if (request?.status !== 'pending' || request.id === undefined || request.id === '') continue
+          if (request.sessionId !== undefined && archived(request.sessionId)) continue
+          each(botId, request)
+        }
       }
     }
     const requestPlace = (botId, request) => {
@@ -203,18 +208,44 @@ export function install(rt) {
 
   // New items, for notifications: the ids already shown are remembered, and the first
   // look after start only learns them, so a restart does not announce the old ones.
+  // Change listeners hear about any addition, removal, or update so live SSE clients
+  // refresh immediately instead of waiting for the next poll.
   let shown = null
+  let lastSnapshot = null
   const refresh = () => {
-    if (listeners.size === 0) { shown = null; return }
+    if (listeners.size === 0 && changeListeners.size === 0) {
+      shown = null
+      lastSnapshot = null
+      return
+    }
     let items
     try { items = collect() } catch (error) { rt.warn?.('ds-bot: the inbox could not be read: %s', error?.message ?? error); return }
-    const before = shown
-    shown = new Set(items.map(item => item.id))
-    if (before === null) return
-    for (const item of items) {
-      if (before.has(item.id)) continue
-      for (const listener of listeners) {
-        try { listener(item) } catch (error) { rt.warn?.('ds-bot: an inbox listener failed: %s', error?.message ?? error) }
+    if (listeners.size === 0) {
+      shown = null
+    } else {
+      const before = shown
+      shown = new Set(items.map(item => item.id))
+      if (before !== null) {
+        for (const item of items) {
+          if (before.has(item.id)) continue
+          for (const listener of listeners) {
+            try { listener(item) } catch (error) { rt.warn?.('ds-bot: an inbox listener failed: %s', error?.message ?? error) }
+          }
+        }
+      }
+    }
+    if (changeListeners.size === 0) {
+      lastSnapshot = null
+    } else {
+      const snapshot = JSON.stringify(items)
+      if (snapshot !== lastSnapshot) {
+        const hadBaseline = lastSnapshot !== null
+        lastSnapshot = snapshot
+        if (hadBaseline) {
+          for (const listener of changeListeners) {
+            try { listener() } catch (error) { rt.warn?.('ds-bot: an inbox change listener failed: %s', error?.message ?? error) }
+          }
+        }
       }
     }
   }
@@ -223,14 +254,20 @@ export function install(rt) {
     if (shown === null) refresh()
     return () => listeners.delete(listener)
   }
+  const onInboxChanged = (listener) => {
+    changeListeners.add(listener)
+    if (lastSnapshot === null) refresh()
+    return () => changeListeners.delete(listener)
+  }
   const addInboxSource = (source) => {
     sources.add(source)
     refresh()
     return () => { sources.delete(source); refresh() }
   }
 
-  // What can add an item: a save (cards, requests, blocks, pauses, goals), an approval,
-  // a browser hold. Computer asks and learning proposals call inboxChanged themselves.
+  // What can add or remove an item: a save (cards, requests, blocks, pauses, goals),
+  // an approval, a browser hold. Computer asks/holds and learning proposals call
+  // inboxChanged themselves.
   const offSaved = rt.onSaved?.(() => refresh())
   const offApproval = rt.onApproval?.(() => refresh())
   const offHolds = rt.browserChannel?.subscribeHolds?.(() => refresh())
@@ -239,8 +276,9 @@ export function install(rt) {
     offApproval?.()
     offHolds?.()
     listeners.clear()
+    changeListeners.clear()
     sources.clear()
   }, 'ds-bot: inbox')
 
-  Object.assign(rt, { inboxView, inboxChanged: refresh, onInboxAdded, addInboxSource })
+  Object.assign(rt, { inboxView, inboxChanged: refresh, onInboxAdded, onInboxChanged, addInboxSource })
 }

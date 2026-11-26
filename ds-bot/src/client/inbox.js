@@ -83,9 +83,24 @@ const quickOf = (item, actions) => {
 
 // The card the chat shows for this item, in place. Kinds without one get the step
 // that moves them on.
-function ItemCard({ item, bot, roster, actions, hooks, run }) {
+function ItemCard({ item, bot, roster, actions, hooks, run, busy }) {
   const open = () => openItem(item, actions)
-  const button = (label, onClick, primary = false) => h('button', { key: label, type: 'button', className: primary ? 'bt-q-submit' : 'bt-q-btn', onClick }, t(label))
+  const button = (label, onClick, primary = false, disabled = false) => h('button', { key: label, type: 'button', className: primary ? 'bt-q-submit' : 'bt-q-btn', disabled, onClick }, t(label))
+  // Taking over a browser or computer opens the right panel, which sits below the inbox
+  // pane (z 40 vs 44), so dismiss the inbox and focus the Bot's chat first.
+  const takeoverActions = bot ? {
+    ...actions,
+    openBrowser: (id) => {
+      actions.closeInbox?.()
+      actions.openSession?.(bot.id)
+      return actions.openBrowser?.(id)
+    },
+    showDetails: (id, tab) => {
+      actions.closeInbox?.()
+      actions.openSession?.(bot.id)
+      return actions.showDetails?.(id, tab)
+    },
+  } : actions
   switch (item.kind) {
     case 'approval': {
       const approval = hooks.approvals.find(entry => entry.id === item.ref)
@@ -119,20 +134,20 @@ function ItemCard({ item, bot, roster, actions, hooks, run }) {
       if (!bot) return null
       if (item.surface === 'computer') {
         const hold = hooks.computerHolds[item.botId]
-        return hold ? h(PendingComputerHandoff, { sessionId: item.sessionId ?? currentPart(bot), bot, hold, actions, inline: true }) : null
+        return hold ? h(PendingComputerHandoff, { sessionId: item.sessionId ?? currentPart(bot), bot, hold, actions: takeoverActions, inline: true }) : null
       }
       const hold = hooks.browserHolds[item.botId]
-      return hold ? h(PendingHandoff, { sessionId: item.sessionId ?? currentPart(bot), bot, hold, hooks: hooks.browser, actions, inline: true }) : null
+      return hold ? h(PendingHandoff, { sessionId: item.sessionId ?? currentPart(bot), bot, hold, hooks: hooks.browser, actions: takeoverActions, inline: true }) : null
     }
     case 'paused': {
       const work = hooks.paused.find(entry => entry.id === item.ref)
       return work ? h(WorkPauseCard, { work, roster, actions, inline: true }) : null
     }
     case 'room-paused':
-      return h('div', { className: 'bt-q-foot' }, button('Continue', () => run(actions.resumeRoomPause(item.roomId)), true))
+      return h('div', { className: 'bt-q-foot' }, button('Continue', () => run(() => actions.resumeRoomPause(item.roomId)), true, busy))
     // The chat's own failure card holds every fix (a key, a sign-in, another model).
     case 'blocked':
-      return h('div', { className: 'bt-q-foot' }, button('Retry', () => run(actions.resume(item.botId)), true))
+      return h('div', { className: 'bt-q-foot' }, button('Retry', () => run(() => actions.resume(item.botId)), true, busy))
     case 'learning': {
       // The card answers and shows its own failure; the list follows the host.
       const proposal = (roster.learning?.[item.botId] ?? []).find(entry => entry.id === item.ref)
@@ -151,7 +166,8 @@ function openItem(item, actions) {
   actions.closeInbox?.()
   if (item.roomId !== undefined) {
     actions.openSession(item.roomId)
-    if (item.kind === 'approval' || item.kind === 'computer') actions.openApproval?.(item.roomId)
+    if (item.taskId !== undefined) actions.openTaskDeck?.(item.roomId, item.taskId)
+    else if (item.kind === 'approval' || item.kind === 'computer') actions.openApproval?.(item.roomId)
     else if (item.kind === 'goal') actions.openGoal?.(item.roomId)
   } else if (item.botId !== undefined) {
     actions.openSession(item.botId)
@@ -161,13 +177,22 @@ function openItem(item, actions) {
 
 function Row({ item, gone, open, toggle, roster, actions, hooks, rowRef }) {
   const box = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   useMorph(box, open ? 'open' : 'shut')
   const bot = item.botId === undefined ? undefined : roster.byId?.[item.botId]
   const room = item.roomId === undefined ? undefined : roster.roomsById?.[item.roomId]
   const who = [bot?.name, room?.name].filter(Boolean).join(' · ')
   const summary = inboxSummary(item, t, id => roster.byId?.[id]?.name)
   const quick = !open && !gone ? quickOf(item, actions) : null
-  const run = (promise) => { void Promise.resolve(promise).catch(error => actions.reportError?.(error, 'inbox')) }
+  const run = (make) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    void Promise.resolve().then(make)
+      .catch(error => actions.reportError?.(error, 'inbox'))
+      .finally(() => { busyRef.current = false; setBusy(false) })
+  }
   return h('div', { ref: box, className: 'bt-ib-row', 'data-flip': item.id, 'data-open': open || undefined, 'data-gone': gone || undefined },
     h('div', { className: 'bt-ib-head' },
       h('button', {
@@ -191,7 +216,7 @@ function Row({ item, gone, open, toggle, roster, actions, hooks, rowRef }) {
           : quick
             ? h('span', { className: 'bt-ib-quick' }, quick.map(([label, answer], index) => h('button', {
                 key: label, type: 'button', className: index === quick.length - 1 ? 'bt-send bt-ib-btn' : 'bt-soft bt-soft-sm',
-                onClick: () => run(answer()),
+                disabled: busy, onClick: () => run(answer),
               }, t(label))))
             : null,
         gone ? null : h('button', {
@@ -200,7 +225,7 @@ function Row({ item, gone, open, toggle, roster, actions, hooks, rowRef }) {
         }, h(ChevronDownIcon)))),
     open && !gone
       ? h('div', { className: 'bt-ib-detail' },
-          h(ItemCard, { item, bot, roster, actions, hooks, run }),
+          h(ItemCard, { item, bot, roster, actions, hooks, run, busy }),
           HERE.has(item.kind)
             ? h('div', { className: 'bt-ib-acts' },
                 h('button', { type: 'button', className: 'bt-ib-link', onClick: () => openItem(item, actions) },
@@ -218,13 +243,23 @@ function useLeaving(items) {
   const last = useRef(items)
   const timers = useRef(new Set())
   useEffect(() => () => { for (const timer of timers.current) clearTimeout(timer) }, [])
+  const ids = new Set(items.map(item => item.id))
+  const leftNow = last.current.filter(item => !ids.has(item.id))
+  const effective = (() => {
+    const back = [...gone.keys()].filter(id => ids.has(id))
+    if (back.length === 0 && leftNow.length === 0) return gone
+    const next = new Map(gone)
+    for (const id of back) next.delete(id)
+    for (const item of leftNow) next.set(item.id, item)
+    return next
+  })()
   useEffect(() => {
-    const ids = new Set(items.map(item => item.id))
-    const left = last.current.filter(item => !ids.has(item.id))
+    const currentIds = new Set(items.map(item => item.id))
+    const left = last.current.filter(item => !currentIds.has(item.id))
     last.current = items
     // One that is back (its answer failed) is not leaving any more.
     setGone((current) => {
-      const back = [...current.keys()].filter(id => ids.has(id))
+      const back = [...current.keys()].filter(id => currentIds.has(id))
       if (back.length === 0 && left.length === 0) return current
       const next = new Map(current)
       for (const id of back) next.delete(id)
@@ -242,7 +277,7 @@ function useLeaving(items) {
     }, GONE_MS)
     timers.current.add(timer)
   }, [items])
-  return gone
+  return effective
 }
 
 function Empty({ text }) {
@@ -262,7 +297,6 @@ export function InboxPane({ paneLeft, roster, actions, useWork, useComputer, use
   const [open, setOpen] = useState(null)
   const list = useRef(null)
   const refs = useRef(new Map())
-  useEscape(() => (open !== null ? setOpen(null) : actions.closeInbox?.()))
   const items = inboxItems(roster)
   const gone = useLeaving(items)
   const approvals = (useWork ?? useNothing)(work => work?.approvals) ?? NONE
@@ -272,17 +306,20 @@ export function InboxPane({ paneLeft, roster, actions, useWork, useComputer, use
   const browserHolds = (useBrowserHolds ?? useNothing)(holds => holds) ?? {}
   const hooks = { approvals, paused, asks, computerHolds, browserHolds, browser: { useBrowserTabs, useBrowserPages } }
 
-  const shown = [...items, ...gone.values()]
+  const visible = [...items, ...gone.values()]
     .filter((item, index, all) => all.findIndex(other => other.id === item.id) === index)
-    .filter(item => who === 'all' || item.botId === who || item.roomId === who)
+  const shown = visible.filter(item => who === 'all' || item.botId === who || item.roomId === who)
   const sources = []
-  for (const item of items) {
+  for (const item of visible) {
     for (const id of [item.roomId, item.roomId === undefined ? item.botId : undefined]) {
       if (id !== undefined && !sources.includes(id)) sources.push(id)
     }
   }
   const nameOf = id => roster.byId?.[id]?.name ?? roster.roomsById?.[id]?.name ?? ''
   useEffect(() => { if (who !== 'all' && !sources.includes(who)) setWho('all') }, [sources.join('|')])
+  const visibleOpen = tab === 'wait' && open !== null && shown.some(item => item.id === open && !gone.has(item.id)) ? open : null
+  useEffect(() => { if (open !== null && visibleOpen === null) setOpen(null) }, [open, visibleOpen])
+  useEscape(() => (visibleOpen !== null ? setOpen(null) : actions.closeInbox?.()))
 
   // Conversations with replies not read yet: a Bot's own chat, or a group chat. A Bot's
   // chat reads the window's completions (bot-completions.js leaves out exchanges the user
