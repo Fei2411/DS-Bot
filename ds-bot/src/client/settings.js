@@ -370,6 +370,19 @@ const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.
 // Level-2 typography so no duplicate outer heading ever stacks above it).
 const OWN_HEAD_PARTS = new Set(['groups', 'schedules', 'capabilities', 'feedback'])
 
+// True when Settings owns the active keyboard modal layer (not covered by another
+// non-leaving modal dialog such as ShortcutsDialog, PresetModal, or a DSH modal).
+export function settingsOwnsKeyboard(dialog, doc = typeof document === 'undefined' ? null : document) {
+  if (dialog && dialog.isConnected === false) return false
+  if (!doc || typeof doc.querySelectorAll !== 'function') return true
+  for (const modal of doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')) {
+    if (modal === dialog) continue
+    if (typeof modal.closest === 'function' && modal.closest('[data-leaving]')) continue
+    return false
+  }
+  return true
+}
+
 // While `leaving`, the dialog plays its exit and takes no input.
 export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
   const [error, setError] = useState('')
@@ -414,7 +427,8 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     if (leaving || typeof window === 'undefined') return undefined
     const mac = isMac()
     const onKeyDown = (event) => {
-      if (event.defaultPrevented || isImeComposing(event) || isShortcutRecording()) return
+      if (event.defaultPrevented || event.repeat || isImeComposing(event) || isShortcutRecording()) return
+      if (!settingsOwnsKeyboard(dialogRef.current)) return
       const modifier = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
       if (!modifier || event.altKey || event.shiftKey || (event.code !== 'KeyK' && String(event.key).toLowerCase() !== 'k')) return
       event.preventDefault()
