@@ -21430,6 +21430,7 @@ var FIELDS = {
   }
 };
 var APPEARANCE_FIELDS = Object.keys(FIELDS);
+var COMPUTER_APPEARANCE_FIELDS = /* @__PURE__ */ new Set(["css", "material"]);
 function patchAppearance(current2, patch) {
   if (patch === null || typeof patch !== "object" || Array.isArray(patch)) refuse("An appearance change names its fields");
   const next = { ...current2 };
@@ -28652,10 +28653,10 @@ var CUSTOM_PREFIX = `${PREFIX}acp-`;
 var PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 function splitProfileRoute(route) {
   if (typeof route !== "string") return null;
-  const at = route.indexOf("@");
-  if (at <= 0 || route.indexOf("@", at + 1) !== -1) return null;
-  const baseRoute = route.slice(0, at);
-  const profileId = route.slice(at + 1);
+  const at2 = route.indexOf("@");
+  if (at2 <= 0 || route.indexOf("@", at2 + 1) !== -1) return null;
+  const baseRoute = route.slice(0, at2);
+  const profileId = route.slice(at2 + 1);
   if (!baseRoute.startsWith(PREFIX) || baseRoute.startsWith(CUSTOM_PREFIX)) return null;
   const cli = baseRoute.slice(PREFIX.length);
   if (!Object.hasOwn(AGENT_BADGES, cli) || !PROFILE_ID_RE.test(profileId)) return null;

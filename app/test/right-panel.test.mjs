@@ -378,8 +378,14 @@ test('FilePreview renders Markdown, CSV table, strictly sandboxed HTML, PDF (Off
     const tree = html.render()
     assert.equal(all(tree, n => n.props?.className === 'dsb-pv-html-wrap').length, 1, 'HTML preview wraps iframe in framed canvas container')
     const iframe = all(tree, n => n.type === 'iframe')[0]
-    assert.equal(iframe.props.sandbox, '', 'HTML preview iframe must be strictly sandboxed with empty sandbox attribute')
-    assert.equal(iframe.props.srcDoc, '<p>Hello</p>')
+    if (typeof DOMParser === 'function') {
+      assert.equal(iframe.props.sandbox, '', 'HTML preview iframe must be strictly sandboxed with empty sandbox attribute')
+      assert.match(iframe.props.srcDoc, /Content-Security-Policy/)
+      assert.match(iframe.props.srcDoc, /<p>Hello<\/p>/)
+    } else {
+      assert.equal(iframe, undefined)
+      assert.match(textOf(tree), /Preview unavailable/)
+    }
   } finally {
     html.unmount()
   }

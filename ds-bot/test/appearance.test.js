@@ -138,6 +138,31 @@ test('the appearance and the themes of your own are saved with the team', async 
   assert.equal(after.theme, undefined)
 })
 
+
+test('a paired device cannot change the computer window stylesheet or material', async (t) => {
+  const { rt, call } = team(t)
+  assert.equal((await call('set-prefs', { appearance: { css: 'body{--x:red}', material: false, radius: 40 } })).ok, true)
+  const before = (await call('state', {})).value.prefs.appearance
+  assert.deepEqual(before, { css: 'body{--x:red}', material: false, radius: 40 })
+
+  for (const appearance of [{ css: 'body{display:none}' }, { css: null }, { material: true }]) {
+    const answer = await rt.channelCall('set-prefs', { appearance }, undefined, true)
+    assert.equal(answer.ok, false)
+    assert.equal(answer.error.code, 'bot/refused')
+    assert.match(answer.error.message, /only be changed on this computer/)
+  }
+  assert.deepEqual((await call('state', {})).value.prefs.appearance, before)
+
+  // Team-facing appearance fields still work for the same remote caller.
+  const answer = await rt.channelCall('set-prefs', { appearance: { radius: 60, density: 'compact' } }, undefined, true)
+  assert.equal(answer.ok, true)
+  const after = (await call('state', {})).value.prefs.appearance
+  assert.equal(after.radius, 60)
+  assert.equal(after.density, 'compact')
+  assert.equal(after.css, before.css)
+  assert.equal(after.material, false)
+})
+
 test('a change refused after a wait leaves a save that landed during the wait', async (t) => {
   const { rt, call } = team(t)
   let refuse

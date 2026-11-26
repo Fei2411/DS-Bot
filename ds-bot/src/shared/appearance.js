@@ -170,6 +170,10 @@ const FIELDS = {
   },
 }
 export const APPEARANCE_FIELDS = Object.keys(FIELDS)
+// Window-level appearance: CSS can cover or restyle the computer window (and can fetch
+// remote resources), and material is a native window setting. Paired devices keep the
+// team-facing fields but may not change these.
+export const COMPUTER_APPEARANCE_FIELDS = new Set(['css', 'material'])
 
 /**
  * Apply a change to the saved appearance. Fields the change does not name stay as they are.

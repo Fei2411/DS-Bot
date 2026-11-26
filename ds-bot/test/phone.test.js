@@ -8,6 +8,7 @@ import { RelayTransport, RpcClient, SecureTransport, deviceIdFor, generateKeyPai
 import { startRelayServer } from '../../link/server/server.ts'
 import { fakeContext } from './fake-ctx.js'
 import { BROWSER_ALLOWED, DEFAULT_SERVER, install as installPhone, remoteAccessError } from '../src/host/phone.js'
+import { isClassifiedEndpoint, isComputerOnlyEndpoint, isTeamEndpoint } from '../src/shared/remote-endpoints.js'
 
 const TEAM = {
   version: 1,
@@ -175,6 +176,14 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   const gatedRoutes = new Set([...gatedSrc.matchAll(/'([^']+)'/g)].map(match => match[1]))
   const allHostRoutes = new Set([...channelRoutes, ...computerRoutes])
 
+  // Every host endpoint is explicitly classified. A new endpoint fails here until a
+  // maintainer decides whether it acts on the team or on this computer.
+  for (const endpoint of allHostRoutes) {
+    assert.equal(isClassifiedEndpoint(endpoint), true, `${endpoint} is not classified in shared/remote-endpoints.js`)
+    assert.equal(isTeamEndpoint(endpoint) && isComputerOnlyEndpoint(endpoint), false, `${endpoint} is classified twice`)
+  }
+  for (const endpoint of BROWSER_ALLOWED) assert.equal(isTeamEndpoint(endpoint), true, `browser endpoint ${endpoint} is not a team endpoint`)
+
   // Every allowlisted endpoint must be a real host route and strictly disjoint from GATED.
   for (const endpoint of BROWSER_ALLOWED) {
     assert.equal(channelRoutes.has(endpoint), true, `allowlisted route ${endpoint} missing from channel.js`)
@@ -204,6 +213,13 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'api-token-create'), { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} })
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-add'), undefined)
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'session-page').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'folder-pick').message, 'Folders are chosen in a window on the computer')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'computer-open-settings').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'computer-shot').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'browser-wait').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'chatgpt-sign-in').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'computer-stop'), undefined)
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'future-unlisted-endpoint').code, 'bot/refused')
   assert.equal(BROWSER_ALLOWED.has('session-page'), false)
   for (const localOnly of ['workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open', 'engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe', 'telemetry-status', 'telemetry-update', 'telemetry-reset-id', 'telemetry-clear-log', 'telemetry-client-error']) {
     assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, localOnly).code, 'bot/refused')
@@ -232,7 +248,8 @@ test('the host enforces a default-deny browser allowlist across every channel ro
       const payload = endpoint === 'connector-add' ? { name: 'pwn', command: 'id', args: [] } : {}
       const answer = await link.client.rpc('bot', { endpoint, payload })
       if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
-      else assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
+      else if (isTeamEndpoint(endpoint)) assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
+      else assert.equal(answer.ok, false, endpoint)
     }
     // DSH Agent chats are phone-only, and so is their media.
     for (const endpoint of ['image', 'file-download', 'markdown-image']) {

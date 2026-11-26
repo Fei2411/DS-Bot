@@ -5,6 +5,7 @@ import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import { fileSizeText, MarkdownText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CheckIcon, CopyIcon, DownloadIcon, FileIcon } from '../../../ds-bot/src/client/icons.js'
+import { prepareHtmlPreview } from './html-preview.js'
 
 const MAX_TABLE_ROWS = 500
 const MAX_TABLE_COLS = 64
@@ -168,6 +169,7 @@ export function FilePreview({ file, loading, error, onRetry }) {
   const [mode, setMode] = useState('preview')
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef(0)
+  const htmlPreview = useMemo(() => (file?.kind === 'html' ? prepareHtmlPreview(file.text) : null), [file?.kind, file?.text])
 
   useEffect(() => {
     setMode('preview')
@@ -243,7 +245,9 @@ export function FilePreview({ file, loading, error, onRetry }) {
             ? (mode === 'source'
                 ? h(CodeLines, { text: file.text })
                 : h('div', { className: 'dsb-pv-html-wrap' },
-                  h('iframe', { className: 'dsb-pv-frame dsb-pv-html', sandbox: '', referrerPolicy: 'no-referrer', srcDoc: file.text, title: file.name })))
+                  htmlPreview === null
+                    ? h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment'))
+                    : h('iframe', { className: 'dsb-pv-frame dsb-pv-html', sandbox: '', referrerPolicy: 'no-referrer', srcDoc: htmlPreview, title: file.name })))
             : file.kind === 'svg'
               ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text }) : h(ImagePreview, { file }))
               : file.kind === 'image'
