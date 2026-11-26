@@ -804,11 +804,10 @@ export const ES = {
   'Manage models': 'Gestionar modelos',
 
   // Shapes
-  Whale: 'Ballena', Star: 'Estrella', Moon: 'Luna', Wave: 'Onda', Squircle: 'Cuadrículo', Bull: 'Toro', Blossom: 'Flor',
-  Dolphin: 'Delfín', Octopus: 'Pulpo', Turtle: 'Tortuga', Crab: 'Cangrejo', Pufferfish: 'Pez globo', Jellyfish: 'Medusa',
-  Starfish: 'Estrella de mar', Seahorse: 'Caballito de mar',
-  Gumdrop: 'Gominola', Peanut: 'Cacahuete', Bubbles: 'Burbujas', Saucer: 'Platillo', Sprout: 'Brote', Bunny: 'Conejo',
-  Kitty: 'Gatito', Beacon: 'Faro', Plus: 'Más', Magnet: 'Imán', Acorn: 'Bellota', Pebbles: 'Guijarros', Cushion: 'Cojín',
+  Whale: 'Ballena', Star: 'Estrella', Moon: 'Luna', Cloud: 'Nube', Spark: 'Chispa', Bear: 'Oso', Puppy: 'Cachorro',
+  Squircle: 'Cuadrículo', Blossom: 'Flor', Octopus: 'Pulpo',
+  Gumdrop: 'Gominola', Peanut: 'Cacahuete', Saucer: 'Platillo', Sprout: 'Brote', Bunny: 'Conejo',
+  Kitty: 'Gatito', Beacon: 'Faro', Plus: 'Más', Magnet: 'Imán', Acorn: 'Bellota', Pebbles: 'Guijarros',
   Ring: 'Anillo', Gem: 'Gema',
 
   // Colors

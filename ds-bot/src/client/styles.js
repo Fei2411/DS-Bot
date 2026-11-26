@@ -64,8 +64,8 @@ body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-gaze,body[data-bt-effects=red
 .bt-mark[data-state=searching] .bt-b{animation:bt-seek 1s ease-in-out infinite}
 .bt-mark[data-state=searching] .bt-eyes{animation:bt-scan 1.6s ease-in-out infinite}
 .bt-mark[data-state=working] .bt-b{animation:bt-bob 1.6s ease-in-out infinite}
-.bt-mark[data-state=working]:is([data-shape=star],[data-shape=hex],[data-shape=plus],[data-shape=gem],[data-shape=magnet],[data-shape=ring]) .bt-b{animation:bt-wiggle 1.4s ease-in-out infinite;transform-origin:50% 50%}
-.bt-mark[data-state=working]:is([data-shape=gumdrop],[data-shape=peanut],[data-shape=cushion],[data-shape=squircle],[data-shape=moon],[data-shape=wave]) .bt-b{animation:bt-squash 1.2s ease-in-out infinite}
+.bt-mark[data-state=working]:is([data-shape=star],[data-shape=bloom],[data-shape=plus],[data-shape=gem],[data-shape=magnet],[data-shape=ring]) .bt-b{animation:bt-wiggle 1.4s ease-in-out infinite;transform-origin:50% 50%}
+.bt-mark[data-state=working]:is([data-shape=gumdrop],[data-shape=peanut],[data-shape=squircle],[data-shape=moon],[data-shape=cloud],[data-shape=spark],[data-shape=sprout],[data-shape=octopus]) .bt-b{animation:bt-squash 1.2s ease-in-out infinite}
 .bt-mark[data-state=working] .bt-eye{animation:bt-blink 2.4s ease-in-out infinite}
 .bt-mark[data-state=sending] .bt-b{animation:bt-dash 1.1s cubic-bezier(.4,0,.2,1) infinite}
 /* Waiting for teammates to hand back work circles like coordinating them. */
@@ -551,8 +551,7 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-avedit-tabs[data-glide] .bt-avedit-tab[aria-selected=true]{background:transparent}
 .bt-avedit-reset{padding:3px 6px;color:var(--bt-ink-3)}
 .bt-avedit-reset:hover{color:var(--bt-ink)}
-.bt-shapes{display:flex;flex-direction:column;gap:4px}
-.bt-shape-row{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+.bt-shapes{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
 .bt-shape{position:relative;aspect-ratio:1;border:0;border-radius:10px;background:none;color:var(--bt-ink);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .bt-shape:hover{background:var(--bt-hover)}
 .bt-shape .bt-ring{position:absolute;left:50%;top:50%;width:36px;height:36px;translate:-50% -50%;overflow:visible;opacity:0;scale:.82;pointer-events:none;transition:opacity .14s ease,${spring(SPRING_POP, 'scale')}}
@@ -1641,7 +1640,7 @@ body[data-ds-dark-theme] .bt-cli-logo{background:var(--bt-cli-tile);filter:brigh
   .bt-set-model .bt-set-control{max-width:none}
   .bt-settings-layer .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
-  .bt-shape-row{grid-template-columns:repeat(4,1fr)}
+  .bt-shapes{grid-template-columns:repeat(4,1fr)}
 }
 /* iOS zooms the whole page on focused inputs under 16px. */
 @media (max-width:640px) and (pointer:coarse){
