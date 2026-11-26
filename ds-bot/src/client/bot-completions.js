@@ -2,6 +2,7 @@ import { currentPart, turnOutlineOf } from './text.js'
 
 export function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
   const seen = new Map()
+  let lastTarget = null
   let pendingTarget = null
   const sync = () => {
     const team = roster.getSnapshot()
@@ -9,9 +10,14 @@ export function watchBotCompletions({ roster, sessions, statuses, unread, ui }) 
     const statusMap = statuses?.getSnapshot()
     const uiSnap = ui?.getSnapshot?.()
     const inboxOpen = uiSnap?.inbox === true
-    if (inboxOpen) pendingTarget = null
-    else if (typeof uiSnap?.inboxTarget === 'string' && uiSnap.inboxTarget !== '') pendingTarget = uiSnap.inboxTarget
-    else if (uiSnap?.inboxTarget === null) pendingTarget = null
+    const rawTarget = typeof uiSnap?.inboxTarget === 'string' && uiSnap.inboxTarget !== '' ? uiSnap.inboxTarget : null
+    if (inboxOpen) {
+      lastTarget = null
+      pendingTarget = null
+    } else if (rawTarget !== lastTarget) {
+      lastTarget = rawTarget
+      pendingTarget = rawTarget
+    }
     if (pendingTarget !== null && (list.byId[pendingTarget]?.retainedBy?.mainView ?? 0) > 0) pendingTarget = null
     const previous = unread.getSnapshot()
     const next = {}

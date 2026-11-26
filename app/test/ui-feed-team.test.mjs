@@ -240,12 +240,14 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   team.actions.openSession('r1')
   assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), false, 'opening the group clears its unread flag')
   assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), true, 'opening r1 from Inbox preserves b1 unread')
-  // Opening Inbox over r1, receiving a reply on r1, and dismissing Inbox clears r1.
+  // Opening Inbox over r1, receiving a reply on r1, switching to New chat, then dismissing New chat clears r1 on reveal.
   team.actions.openInbox()
   sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', text: 'ops update 2', time: 112 })
   assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true)
-  team.actions.closeInbox()
-  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), false, 'closing Inbox without navigating clears unread on revealed chat')
+  team.actions.openNewChat('bot')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true, 'replacing Inbox with New chat keeps covered chat unread')
+  team.actions.closeNewChat()
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), false, 'dismissing New chat reveals r1 and clears its unread flag')
   team.actions.openSession('b1')
   assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), false)
 

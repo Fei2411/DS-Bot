@@ -325,8 +325,10 @@ export function MailRequestCard({ request, call, p, bare = false }: {
     catch { setFailed(true) }
     finally { setBusy(false) }
   }
-  const attachments = (request.attachments ?? [])
+  const rawAttachments = request.attachmentDetails?.length ? request.attachmentDetails : (request.attachments ?? [])
+  const attachments = rawAttachments
     .map(file => {
+      if (typeof file === 'string') return file
       const label = file?.name || file?.path || ''
       if (!label) return ''
       const size = typeof file.size === 'number' && Number.isFinite(file.size)

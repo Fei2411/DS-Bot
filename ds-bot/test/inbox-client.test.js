@@ -397,6 +397,39 @@ test('watchBotCompletions marks replies on the active chat unread while Inbox co
   })
   assert.deepEqual(unread.getSnapshot(), { w1: true }, 'switching mainView to w2 clears w2 while keeping w1 unread')
 
+  // Part rotation on w2 (without a new Inbox click) must not re-arm the consumed inboxTarget.
+  roster.set({
+    bots: [
+      { id: 'w1', sessionId: 'w1', parts: ['w1'] },
+      { id: 'w2', sessionId: 'w2-2', parts: ['w2', 'w2-2'] },
+    ],
+    exchangeTurns: {},
+  })
+  sessions.set({
+    ids: ['w1', 'w2', 'w2-2'],
+    byId: {
+      w1: { retainedBy: { mainView: 0 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hi' }, { turn: 2, response: 'done' }] } },
+      w2: { retainedBy: { mainView: 0 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hello' }, { turn: 2, response: 'ready' }] } },
+      'w2-2': { retainedBy: { mainView: 1 }, projectionValues: { turnOutline: [{ turn: 1, response: 'rotated' }] } },
+    },
+  })
+  assert.deepEqual(unread.getSnapshot(), { w1: true }, 'reply in rotated active part stays read')
+  // Restore w2 as active part for the direct Inbox dismissal check below.
+  roster.set({
+    bots: [
+      { id: 'w1', sessionId: 'w1', parts: ['w1'] },
+      { id: 'w2', sessionId: 'w2', parts: ['w2'] },
+    ],
+    exchangeTurns: {},
+  })
+  sessions.set({
+    ids: ['w1', 'w2'],
+    byId: {
+      w1: { retainedBy: { mainView: 0 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hi' }, { turn: 2, response: 'done' }] } },
+      w2: { retainedBy: { mainView: 1 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hello' }, { turn: 2, response: 'ready' }] } },
+    },
+  })
+
   // Closing Inbox directly without navigating clears the revealed active chat (w2).
   ui.set({ inbox: true, inboxTarget: null })
   sessions.set({

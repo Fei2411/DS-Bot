@@ -937,15 +937,15 @@ export function createTeam() {
   }
   roster.subscribe(followWork)
   work.subscribe(followWork)
-  let wasInbox = ui.getSnapshot().inbox === true
+  const isCovered = snap => snap.inbox === true || Boolean(snap.newChat)
+  let wasCovered = isCovered(ui.getSnapshot())
   ui.subscribe(() => {
-    const snap = ui.getSnapshot()
-    const inboxOpen = snap.inbox === true
-    if (wasInbox && !inboxOpen && !snap.newChat) {
+    const covered = isCovered(ui.getSnapshot())
+    if (wasCovered && !covered) {
       const active = shown.getSnapshot()
       if (active) setStatus(active, { completionUnread: false })
     }
-    wasInbox = inboxOpen
+    wasCovered = covered
   })
 
   const onFeed = (event, data) => {
@@ -964,14 +964,14 @@ export function createTeam() {
       }))
       if (item.kind === 'bot') {
         if (streamingReply.delete(sessionId)) actions.noteLive(sessionId, 'reply', null)
-        if (shown.getSnapshot() !== sessionId || ui.getSnapshot().inbox) setStatus(sessionId, { completionUnread: true })
+        if (shown.getSnapshot() !== sessionId || isCovered(ui.getSnapshot())) setStatus(sessionId, { completionUnread: true })
       }
       if (item.kind === 'user') sent.set(state => (state[sessionId]?.length ? { ...state, [sessionId]: state[sessionId].slice(1) } : state))
     }
     if (event === 'notice' && data?.kind === 'group' && data.roomId) {
       const room = roster.getSnapshot().roomsById?.[data.roomId]
       const roomSession = room ? currentPart(room) : data.roomId
-      if (shown.getSnapshot() !== roomSession || ui.getSnapshot().inbox) setStatus(roomSession, { completionUnread: true })
+      if (shown.getSnapshot() !== roomSession || isCovered(ui.getSnapshot())) setStatus(roomSession, { completionUnread: true })
       if (data.text) {
         editRow(roomSession, row => ({
           ...row,

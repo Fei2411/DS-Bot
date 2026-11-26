@@ -204,7 +204,8 @@ export interface MailRequest {
   bcc?: string
   subject?: string
   body?: string
-  attachments?: { name?: string; path?: string; size?: number }[]
+  attachments?: (string | { name?: string; path?: string; size?: number })[]
+  attachmentDetails?: { name?: string; path?: string; size?: number }[]
   status?: string
 }
 
