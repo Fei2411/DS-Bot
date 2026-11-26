@@ -20,7 +20,7 @@ const writeJson = (file, value) => writeFileSync(file, `${JSON.stringify(value, 
 function versionsByName(lock) {
   const out = new Map()
   for (const [path, meta] of Object.entries(lock.packages ?? {})) {
-    if (!path.includes('node_modules/')) continue
+    if (!path.includes('node_modules/') || typeof meta?.version !== 'string') continue
     const parts = path.split('node_modules/').at(-1).split('/')
     const name = parts[0].startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
     if (!out.has(name)) out.set(name, new Set())
@@ -31,7 +31,7 @@ function versionsByName(lock) {
 
 function resolveNpmCli() {
   const envCli = process.env.npm_execpath
-  if (typeof envCli === 'string' && /\.[cm]?js$/i.test(envCli) && existsSync(envCli)) return envCli
+  if (typeof envCli === 'string' && /(?:^|[\\/])npm-cli\.js$/i.test(envCli) && existsSync(envCli)) return envCli
   const nodeDir = dirname(process.execPath)
   for (const candidate of [
     join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
@@ -43,13 +43,13 @@ function resolveNpmCli() {
 }
 
 function npm(args) {
-  const fullArgs = ['install', '--prefix', harnessDir, '--legacy-peer-deps=false', '--package-lock-only', '--ignore-scripts', '--no-fund', '--no-audit', ...args]
+  const fullArgs = ['install', '--legacy-peer-deps=false', '--package-lock-only', '--ignore-scripts', '--no-fund', '--no-audit', ...args]
   const npmCli = resolveNpmCli()
   const result = npmCli !== undefined
-    ? spawnSync(process.execPath, [npmCli, ...fullArgs], { stdio: 'inherit' })
+    ? spawnSync(process.execPath, [npmCli, ...fullArgs], { cwd: harnessDir, stdio: 'inherit' })
     : process.platform === 'win32'
-      ? spawnSync('npm.cmd', fullArgs, { stdio: 'inherit', shell: true })
-      : spawnSync('npm', fullArgs, { stdio: 'inherit' })
+      ? spawnSync('npm.cmd', fullArgs, { cwd: harnessDir, stdio: 'inherit', shell: true })
+      : spawnSync('npm', fullArgs, { cwd: harnessDir, stdio: 'inherit' })
   if (result.error) console.error(`failed to run npm: ${result.error.message}`)
   return result.status === 0
 }

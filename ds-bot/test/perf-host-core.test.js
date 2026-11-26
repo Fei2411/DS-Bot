@@ -1160,6 +1160,96 @@ test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and dro
   assert.equal(existsSync(droppedPath), false, 'closeWork on parent must delete result file once onSaved fires')
 })
 
+test('handoffs.js startup orphan sweep preserves live unsaved results and finishes on load failure or without ctx.effect', async (t) => {
+  const home = tempDir(t, 'ds-bot-perf-handoffs-sweep-')
+  const resultsDir = join(home, 'handoff-results')
+  mkdirSync(resultsDir, { recursive: true })
+  const stalePath = join(resultsDir, 'stale-crash.txt')
+  writeFileSync(stalePath, 'left behind by crashed host', 'utf8')
+
+  const ctx = fakeContext()
+  const savedListeners = new Set()
+  let releaseLoad
+  const loadGate = new Promise(resolve => { releaseLoad = resolve })
+  const rt = {
+    ctx,
+    home,
+    state: seedState({ revision: 2 }),
+    readOnly: () => undefined,
+    load: () => loadGate,
+    onSaved: fn => { savedListeners.add(fn); return () => savedListeners.delete(fn) },
+    botOf: id => rt.state.bots[id],
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    // Simulate a save that does not commit (never fires onSaved).
+    save: async () => {},
+    warn() {},
+  }
+  installHandoffs(rt)
+  t.after(() => ctx.dispose())
+
+  // Write a long result and drop its work without onSaved while startupSweep is still pending.
+  const longText = 'r'.repeat(25_000)
+  rt.openWork('parent-live', { from: 'user', to: 'a' })
+  rt.openWork('w-live', { from: 'a', to: 'b', parent: 'parent-live' })
+  rt.closeWork('w-live', 'Writer', longText)
+  const liveFile = rt.state.works['parent-live'].results[0].file
+  const livePath = join(resultsDir, liveFile)
+  assert.equal(existsSync(livePath), true, 'live result written before startup sweep')
+
+  rt.dropWork('parent-live')
+  assert.equal(existsSync(livePath), true, 'unsaved dropWork keeps live result file')
+
+  // Release startup load so pruneOrphanResultFiles() runs now.
+  releaseLoad()
+  const sweepDeadline = Date.now() + 3000
+  while (existsSync(stalePath) && Date.now() < sweepDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(existsSync(stalePath), false, 'startup orphan sweep removes genuine prior-crash orphan')
+  assert.equal(existsSync(livePath), true, 'startup orphan sweep must not delete live file created before sweep finished')
+
+  // Startup failure path: if rt.load() rejects before pruneOrphanResultFiles(), the startup
+  // chain still settles cleanly without unhandled rejection.
+  const failHome = tempDir(t, 'ds-bot-perf-handoffs-loadfail-')
+  const failCtx = fakeContext()
+  const warns = []
+  const failRt = {
+    ctx: failCtx,
+    home: failHome,
+    state: seedState({ revision: 1 }),
+    readOnly: () => undefined,
+    load: async () => { throw new Error('boom load') },
+    botOf: id => failRt.state.bots[id],
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    save: async () => {},
+    warn: (...args) => warns.push(args.join(' ')),
+  }
+  installHandoffs(failRt)
+  t.after(() => failCtx.dispose())
+  const warnDeadline = Date.now() + 2000
+  while (warns.length === 0 && Date.now() < warnDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(warns.length, 1, 'failed startup load is warned and finished cleanly')
+
+  // Narrow runtime without ctx.effect initializes without throwing or leaking startup tracking.
+  const narrowHome = tempDir(t, 'ds-bot-perf-handoffs-narrow-')
+  const narrowRt = {
+    home: narrowHome,
+    state: seedState({ revision: 1 }),
+    readOnly: () => undefined,
+    botOf: id => narrowRt.state.bots[id],
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    save: async () => {},
+    warn() {},
+  }
+  installHandoffs(narrowRt)
+  narrowRt.openWork('p-narrow', { from: 'user', to: 'a' })
+  narrowRt.openWork('w-narrow', { from: 'a', to: 'b', parent: 'p-narrow' })
+  narrowRt.closeWork('w-narrow', 'Writer', longText)
+  assert.ok(narrowRt.state.works['p-narrow'].results[0].file)
+})
+
 test('ledger.js bounds LRU, handles prepend rename TOCTOU, broken UTF-8 byte boundaries, torn recovery, and write-failure rollback', async (t) => {
   const home = tempDir(t, 'ds-bot-perf-ledger-')
   let readOnly

@@ -27,7 +27,7 @@ const bundle = (await build({
   logLevel: 'silent',
 })).outputFiles[0].text
 
-function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
+function page({ motion = 'normal', effects = 'full', busy = false, stepClockMs = 0 } = {}) {
   const dom = new JSDOM('<!doctype html><html><body></body></html>')
   const { document } = dom.window
   let hidden = false
@@ -35,17 +35,27 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
   document.body.dataset.btMotion = motion
   document.body.dataset.btEffects = effects
 
-  // Time: real time plus what the test skips, so a build slice still sees its own
-  // milliseconds pass.
+  // Time: either real time plus what the test skips, or (when stepClockMs > 0) a
+  // deterministic synthetic clock that advances per clock read inside timer slices so
+  // live.js's timeRemaining() > 2 budget and rigSteps's STEP_MS yields are tested
+  // without OS scheduler or timer-quantum noise.
   let skipped = 0
-  const clock = () => performance.now() + skipped
+  let synthetic = 0
+  let inTimer = false
+  const clock = () => {
+    if (stepClockMs > 0) {
+      if (inTimer) synthetic += stepClockMs
+      return synthetic
+    }
+    return performance.now() + skipped
+  }
   const timers = new Map()
   let nextTimer = 1
   const setTimer = every => (fn, ms = 0) => { const id = nextTimer++; timers.set(id, { fn, at: clock() + ms, every: every ? ms : 0 }); return id }
-  // The longest single timer callback (measured in process CPU time so OS preemption on
-  // a shared runner does not cause false spikes, while an un-yielded single-chunk build
-  // still registers its full CPU burst) and slice count.
-  let longestTimer = 0
+  let longestSliceMs = 0
+  let maxStepsPerSlice = 0
+  let totalSliceSteps = 0
+  let sliceSteps = 0
   let timerRuns = 0
   const runTimers = () => {
     for (let guard = 0; guard < 10_000; guard += 1) {
@@ -55,11 +65,20 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
       const [id, timer] = due
       if (timer.every) timer.at += timer.every
       else timers.delete(id)
-      const cpuStart = process.cpuUsage()
-      timer.fn()
-      const cpu = process.cpuUsage(cpuStart)
-      longestTimer = Math.max(longestTimer, (cpu.user + cpu.system) / 1000)
-      if (!timer.every) timerRuns += 1
+      const sliceStart = synthetic
+      sliceSteps = 0
+      inTimer = true
+      try {
+        timer.fn()
+      } finally {
+        inTimer = false
+      }
+      if (!timer.every) {
+        timerRuns += 1
+        longestSliceMs = Math.max(longestSliceMs, synthetic - sliceStart)
+        maxStepsPerSlice = Math.max(maxStepsPerSlice, sliceSteps)
+        totalSliceSteps += sliceSteps
+      }
     }
   }
   const idleAsks = []
@@ -154,6 +173,18 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
   })
   runInContext(bundle, context)
   const api = context.module.exports
+  if (stepClockMs > 0) {
+    // Count top-level generator steps (rigJob -> steps.next()) per timer slice without
+    // double-counting delegated yield* inner generators.
+    const genProto = runInContext('Object.getPrototypeOf(function* () {}).prototype', context)
+    const rawNext = genProto.next
+    let genDepth = 0
+    genProto.next = function next(...args) {
+      if (inTimer && genDepth === 0) sliceSteps += 1
+      genDepth += 1
+      try { return rawNext.apply(this, args) } finally { genDepth -= 1 }
+    }
+  }
 
   const mount = (shape, options = {}) => {
     const host = document.createElement('span')
@@ -161,13 +192,17 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
     document.body.appendChild(host)
     return new api.LiveMark(host, { look: { shape, color: 'blue' }, def: api.SHAPES[shape], size: 36, seed: 3, ...options })
   }
+  const advance = (ms) => {
+    if (stepClockMs > 0) synthetic += ms
+    else skipped += ms
+  }
   return {
     api,
     document,
     mount,
     // One frame later: timers that came due run, then the frames asked for.
     frame(ms = 1000 / 60) {
-      skipped += ms
+      advance(ms)
       runTimers()
       const queued = [...rafs.values()]
       rafs.clear()
@@ -175,10 +210,12 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
       for (const fn of queued) fn(clock())
       return queued.length
     },
-    skip(ms) { skipped += ms; runTimers() },
+    skip(ms) { advance(ms); runTimers() },
     get asking() { return rafs.size > 0 },
     get timers() { return timers.size },
-    get longestTimer() { return longestTimer },
+    get longestSliceMs() { return longestSliceMs },
+    get maxStepsPerSlice() { return maxStepsPerSlice },
+    get totalSliceSteps() { return totalSliceSteps },
     get timerRuns() { return timerRuns },
     idleAsks,
     get frames() { return frames },
@@ -252,17 +289,20 @@ test('a mark that appears in a state plays its opening move', () => {
 })
 
 test('without requestIdleCallback a build slice stays short', () => {
-  const p = page()
+  const p = page({ stepClockMs: 0.005 })
   const mark = p.mount('whale')
   mark.update({ state: 'working' })
   p.frame()
   for (let i = 0; i < 4000 && mark.rig === undefined; i += 1) p.frame(20)
   assert.notEqual(mark.rig, undefined)
-  // A slice is its 8 ms budget plus the step of about a millisecond that starts just
-  // before it runs out: about 11 ms here, 30-odd on a shared CI machine. Building the
-  // whole model at once takes 130 ms or more.
-  assert.ok(p.timerRuns > 1, `model builds across multiple slices (${p.timerRuns} timer runs)`)
-  assert.ok(p.longestTimer < 60, `slices stay short (${p.longestTimer.toFixed(1)} ms)`)
+  // Without requestIdleCallback, live.js gives each slice an 8 ms budget with a 2 ms
+  // reserve (6 ms usable), and rigSteps yields after STEP_MS (1 ms). Driving the synthetic
+  // clock deterministically per read checks both sides of that contract without OS jitter:
+  // an un-yielded single-chunk build fails slice count, steps/slice, and slice budget.
+  assert.ok(p.totalSliceSteps > 100, `whale rig yields many build steps (${p.totalSliceSteps} steps)`)
+  assert.ok(p.timerRuns > 20, `model builds across many slices (${p.timerRuns} slices)`)
+  assert.ok(p.maxStepsPerSlice > 0 && p.maxStepsPerSlice <= 12, `each slice executes only a few steps (max ${p.maxStepsPerSlice} steps/slice)`)
+  assert.ok(p.longestSliceMs < 15, `synthetic slice duration stays bounded (${p.longestSliceMs.toFixed(2)} ms)`)
 })
 
 test('a page that is never idle still builds the model, a few steps per timeout', () => {

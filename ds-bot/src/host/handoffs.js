@@ -96,10 +96,14 @@ export function install(rt) {
   const keptName = file => (typeof file === 'string' && /^[A-Za-z0-9_-]+\.txt$/.test(file) ? file : undefined)
   const writes = () => rt.readOnly?.() === undefined
   let savedWrites = 0
-  let startupSweepDone = false
+  let startupSweepDone = typeof ctx?.effect !== 'function'
   // Files written by this process before the one-shot startup orphan sweep finishes
   // belong to live dropResults() bookkeeping, not to a prior crashed host.
   const createdBeforeStartupSweep = new Set()
+  const finishStartupSweep = () => {
+    startupSweepDone = true
+    createdBeforeStartupSweep.clear()
+  }
   const tracksSaved = typeof rt.onSaved === 'function'
   if (tracksSaved) rt.onSaved(() => { savedWrites += 1 })
 
@@ -180,8 +184,7 @@ export function install(rt) {
         await rm(resultPath(name), { force: true }).catch(() => {})
       }
     } finally {
-      startupSweepDone = true
-      createdBeforeStartupSweep.clear()
+      finishStartupSweep()
     }
   }
 
@@ -956,9 +959,11 @@ export function install(rt) {
           return pruneOrphanResultFiles()
         })
         .catch(error => rt.warn('ds-bot: lost waits not settled: %s', error))
+        .finally(finishStartupSweep)
     }, 0)
     return () => {
       clearTimeout(timer)
+      finishStartupSweep()
       offAdopted?.()
       whole.clear()
     }

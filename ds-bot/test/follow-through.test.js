@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { afterRound, loopTurn } from './relay-rows.js'
+import { afterRound, loopTurn, waitForRound } from './relay-rows.js'
 import { setTimeout as realDelay } from 'node:timers/promises'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
@@ -135,10 +135,15 @@ async function openRoomTurn(t, host) {
   let result
   const stop = new AbortController()
   t.after(() => stop.abort())
-  void host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then(async (value) => { result = await afterRound(rt, 'r1', value) })
+  const done = host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal })
+    .then(async (value) => (result = await afterRound(rt, 'r1', value)))
+  done.catch(() => {})
   await settle(() => host.agentOf('gb').calls.length === 1)
   run(host, 'gb', 1, host.agentOf('gb').calls[0])
-  return () => result
+  const read = () => result
+  read.done = done
+  read.wait = ms => waitForRound(done, ms)
+  return read
 }
 
 test('a group turn cut off by a restart is picked up once, and the group is told', async (t) => {
@@ -868,7 +873,7 @@ test('a tool call written as text gets one more turn on the same round slot', as
   run(host, 'gb', 2, retry)
   host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: WRITTEN }] } })
   host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await settle(() => result() !== undefined)
+  await result.wait()
   assert.deepEqual(result().replies.map(reply => reply.text), ['Checking now.'])
   assert.equal(host.agentOf('gb').calls.length, 2)
 })
@@ -889,7 +894,7 @@ test('a group member that leaves only the call tags gets the same retry, and nev
   run(host, 'gb', 2, retry)
   host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: ORPHAN_TAGS }] } })
   host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await settle(() => result() !== undefined)
+  await result.wait()
   assert.deepEqual(result().replies.map(reply => reply.text), ['Tried to run a tool but wrote the call as text, so it did not run.'])
   assert.equal(host.agentOf('gb').calls.length, 2)
 })
@@ -909,7 +914,7 @@ test('call tags mixed into the text are stripped, and the readable part still go
   run(host, 'gb', 2, retry)
   host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: MIXED_TAGS }] } })
   host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await settle(() => result() !== undefined)
+  await result.wait()
   const [reply] = result().replies.map(entry => entry.text)
   assert.match(reply, /Hi, everyone\./)
   assert.doesNotMatch(reply, /parameter|function|tool_call/)
@@ -921,7 +926,7 @@ test('a group member cut off on the token limit is not counted as a silent pass'
   const result = await openRoomTurn(t, host)
   // The turn wrote nothing: the round must not read it as the member having passed.
   host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
-  await settle(() => result() !== undefined)
+  await result.wait()
   assert.deepEqual(result().replies.map(reply => reply.text), ['[cut off at the model\'s output limit before it wrote anything]'])
   assert.equal(host.agentOf('gb').calls.length, 1)
 })
@@ -932,7 +937,7 @@ test('a group member cut off on the token limit keeps what it said and marks it 
   const result = await openRoomTurn(t, host)
   host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: 'Half of the answer.' }] } })
   host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
-  await settle(() => result() !== undefined)
+  await result.wait()
   assert.deepEqual(result().replies.map(reply => reply.text), ['Half of the answer.\n\n[cut off at the model\'s output limit; the answer is not complete]'])
   assert.equal(host.agentOf('gb').calls.length, 1)
 })

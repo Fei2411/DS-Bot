@@ -415,7 +415,7 @@ async function chat(cdp) {
   for (;;) {
     if (await evaluate(`(async () => Boolean(await (${greeting})))()`)) break
     if (Date.now() >= greetingDeadline) throw new Error(`timed out waiting for the greeting after ${modelClicks} model-choice click(s)`)
-    if (Date.now() >= nextModelClick && await evaluate("(() => { const chip = document.querySelector('.bt-model-chip[aria-label]'); if (chip === null) return false; chip.click(); return true })()")) {
+    if (Date.now() >= nextModelClick && await evaluate("(() => { const chip = document.querySelector('.bt-model-chip[aria-label]:not(:disabled)'); if (chip === null || chip.disabled) return false; chip.click(); return true })()")) {
       modelClicks += 1
       nextModelClick = Date.now() + 5_000
     }
