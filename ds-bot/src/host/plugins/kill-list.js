@@ -67,11 +67,13 @@ export function validateKillListDocument(raw, { now = Date.now } = {}) {
       if (!range || validRange(range) === null) continue
       entry.versions = range
     }
-    if (Array.isArray(item.contentHashes)) {
+    if (item.contentHashes != null) {
+      if (!Array.isArray(item.contentHashes)) continue
       const hashes = [...new Set(item.contentHashes
         .map(h => String(h ?? '').trim().toLowerCase())
         .filter(h => /^[0-9a-f]{64}$/.test(h)))]
-      if (hashes.length > 0) entry.contentHashes = hashes
+      if (hashes.length === 0) continue
+      entry.contentHashes = hashes
     }
     // An entry that matches neither version nor content hash would kill every install
     // of the plugin; that is a deliberate kill switch, so it stays valid.

@@ -49918,7 +49918,7 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
       setSubview(null);
     }
   }, [initialFilter]);
-  const load = (0, import_react56.useCallback)((refresh = false) => {
+  const load = (0, import_react56.useCallback)((refresh = false, { keepError = false } = {}) => {
     if (!actions.pluginsList) {
       setLoading(false);
       return Promise.resolve();
@@ -49926,7 +49926,7 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
     const seq = ++seqRef.current;
     if (refresh) setRefreshing(true);
     else if (!hasViewRef.current) setLoading(true);
-    setError("");
+    if (!keepError) setError("");
     return Promise.resolve(refresh && actions.pluginsCatalogRefresh ? actions.pluginsCatalogRefresh() : actions.pluginsList(refresh)).then((next) => {
       if (!aliveRef.current || seq !== seqRef.current) return;
       if (next) {
@@ -49989,6 +49989,7 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
   });
   const handleActivateSlot = (slot, id) => {
     void exec(id, actions.pluginsSlotSet(slot, id)).catch(() => {
+      void load(false, { keepError: true });
     });
   };
   const handleInstall = (plugin) => {
@@ -50003,6 +50004,7 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
   };
   const handleToggle = (id, enabled) => {
     void exec(id, actions.pluginsToggle(id, enabled)).catch(() => {
+      void load(false, { keepError: true });
     });
   };
   const handleConsent = (id) => {

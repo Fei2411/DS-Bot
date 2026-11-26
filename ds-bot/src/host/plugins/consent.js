@@ -39,6 +39,7 @@ function canonicalize(value) {
  * @param {string[]} [input.entryArgs] - argv in declared order (order is significant)
  * @param {string[]} [input.envKeys] - declared environment variable names (never values)
  * @param {string[]} [input.headerKeys] - declared HTTP header names (never values)
+ * @param {string[]} [input.secretRefs] - declared `$DSH_SECRET_*` references bound to headers/env (names only, never secret values)
  * @param {string | null} [input.version] - exact installed package version when known
  * @param {string | null} [input.contentHash] - `hashPluginTree` hex digest when a tree exists
  * @param {string | null} [input.slot] - exclusive slot the plugin occupies
@@ -59,6 +60,7 @@ export function consentFingerprint(input) {
     execution: normalized.execution,
     headerKeys: cleanSortedList(input?.headerKeys),
     replaces: cleanSortedList(input?.replaces),
+    secretRefs: cleanSortedList(input?.secretRefs),
     slot: input?.slot ? String(input.slot) : null,
     version: typeof input?.version === 'string' && input.version ? input.version : null,
   }

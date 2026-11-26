@@ -128,6 +128,20 @@ function fingerprint(value) {
   return createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex')
 }
 
+// Extract `$DSH_SECRET_*` reference names (never values) from a header/env map so
+// swapping which saved secret a plugin receives always invalidates prior consent.
+function extractSecretRefs(map, prefix) {
+  if (!map || typeof map !== 'object') return []
+  const refs = []
+  for (const [key, value] of Object.entries(map)) {
+    if (typeof value !== 'string') continue
+    for (const match of value.matchAll(/\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g)) {
+      refs.push(`${prefix}:${key}:${match[1]}`)
+    }
+  }
+  return refs
+}
+
 export function install(rt) {
   const { ctx, state } = rt
   const pluginStore = () => {
@@ -167,6 +181,10 @@ export function install(rt) {
   // or changed kill state landed, so callers can re-run reconciliation — fresh kills
   // must stop already-running plugins, not only future activations. Updates are
   // sequential per source to keep anti-rollback comparisons race-free.
+  let killListGeneration = 0
+  let lastReconciledKillGen = 0
+  let lastReconciledCatalogInputsSig = null
+
   async function applyCatalogKillLists(snapshot) {
     let changed = false
     for (const { sourceId, killList } of snapshot?.killLists ?? []) {
@@ -175,6 +193,7 @@ export function install(rt) {
         if (result.applied && result.changed) changed = true
       } catch { /* a malformed embedded list is inert, the catalog entry flow continues */ }
     }
+    if (changed) killListGeneration += 1
     return changed
   }
 
@@ -553,9 +572,14 @@ export function install(rt) {
   }
 
   // Load the catalog with the same failure-tolerant freshness contract used by
-  // `assertNotKilled` and `listPlugins`, so mutation entrypoints never evaluate
-  // consent against a cold/empty catalog and diverge from reconcile.
-  const loadCatalogFresh = () => catalogManager.load({ sources: pluginStore().sources }).catch(() => catalogManager.hydrate())
+  // `assertNotKilled` and `listPlugins`, applying any embedded kill lists immediately
+  // so mutation entrypoints never evaluate consent or kill gates against stale state.
+  async function loadCatalogFresh() {
+    const snapshot = await catalogManager.load({ sources: pluginStore().sources }).catch(() => catalogManager.hydrate())
+    await killListStore.load()
+    if (snapshot) await applyCatalogKillLists(snapshot)
+    return snapshot
+  }
 
   // Compute the canonical consent-fingerprint input set for one activation target.
   // `activationKind` is what will actually run: `builtin` (exempt), `provider` (native
@@ -642,13 +666,19 @@ export function install(rt) {
         replaces: entry.replaces ?? [],
       }
       if (rawMcp.transport === 'streamable-http') {
-        return { ...base, entry: rawMcp.url ?? null, headerKeys: Object.keys(rawMcp.headers ?? {}) }
+        return {
+          ...base,
+          entry: rawMcp.url ?? null,
+          headerKeys: Object.keys(rawMcp.headers ?? {}),
+          secretRefs: extractSecretRefs(rawMcp.headers, 'header'),
+        }
       }
       return {
         ...base,
         entry: rawMcp.command ?? rawMcp.packageSpec ?? null,
         entryArgs: Array.isArray(rawMcp.args) ? rawMcp.args.map(arg => String(arg)) : [],
         envKeys: Object.keys(rawMcp.env ?? {}),
+        secretRefs: extractSecretRefs(rawMcp.env, 'env'),
       }
     }
     return null
@@ -701,13 +731,18 @@ export function install(rt) {
     // paths are exactly where a fresh kill must bite first. The catalog load is
     // failure-tolerant by contract (offline resolves with cached or bundled state,
     // never throws), so an offline host evaluates whatever it already holds.
+    await killListStore.load()
     const snapshot = await catalogManager.load({ sources: pluginStore().sources }).catch(() => null)
     if (snapshot) await applyCatalogKillLists(snapshot)
     else await applyCatalogKillLists(catalogManager.peek())
-    await killListStore.load()
     for (const id of ids.filter(Boolean)) {
       const hit = killListStore.evaluate({ id, version, contentHash })
       if (hit) {
+        // A newly discovered revocation must also stop any already-running plugin
+        // before rejecting the mutation — later catalog reads would see no diff.
+        if (killListGeneration > lastReconciledKillGen && !stopped && !isReadOnly()) {
+          await reconcileAll()
+        }
         throw Object.assign(
           new Error(hit.reason ? `Plugin disabled by the kill list: ${hit.reason}` : 'Plugin disabled by the kill list.'),
           { code: 'bot/refused' },
@@ -1176,15 +1211,24 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         return
       }
       // The gate evaluates BEFORE any enablement: activation is consent, never the
-      // other way around. Installs land disabled (`enabled: false`); enabling happens
-      // here, after the kill list and the consent fingerprint have both cleared the
-      // exact bytes the bundle carries.
+      // other way around. A disabled bundle is only re-enabled inside reconciliation
+      // when our own enforcement disabled it earlier in this session and consent is
+      // now valid again; a bundle disabled directly by the user in Engine plugins
+      // stays disabled and keeps the slot fallback active.
       const dshGate = await activationSecurityCheck(targetId, { activationKind: 'dsh', entry, bundle, slot })
       if (dshGate?.blocked) {
         await activateFallback({ status: dshGate.blocked.status, desiredId: targetId, error: dshGate.blocked.error })
         return
       }
-      if (!bundle.enabled && typeof pluginManager()?.setBundleEnabled === 'function') {
+      if (!bundle.enabled) {
+        if (!enforcementDisabled.has(actualPkg) || typeof pluginManager()?.setBundleEnabled !== 'function') {
+          await activateFallback({
+            status: 'unavailable',
+            desiredId: targetId,
+            error: `Plugin "${actualPkg}" is disabled in Engine plugins.`,
+          })
+          return
+        }
         let res = null
         try {
           res = await pluginManager().setBundleEnabled(actualPkg, true)
@@ -1200,6 +1244,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
           })
           return
         }
+        enforcementDisabled.delete(actualPkg)
         if (res?.application === 'restart-required') {
           pendingRestartPackages.set(actualPkg, { action: 'enable', reason: res.restartReason ?? 'no-hmr' })
           await activateFallback({
@@ -1255,19 +1300,18 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         desiredActive.add(id)
         const mountKey = `plugin:${id}`
         const existing = activeMounts.get(mountKey)
+        // Always evaluate the security gate (kill list + live consent fingerprint,
+        // including declared capabilities, execution tier, replaces, and secret refs)
+        // independently of the resolved launch config hash so metadata/capability drift
+        // stops an already-running MCP even when its command/URL stayed identical.
+        const gate = await activationSecurityCheck(id, { activationKind: 'mcp', entry })
+        if (gate?.blocked) {
+          await unmountKey(mountKey)
+          runtimeStatus.set(mountKey, { status: gate.blocked.status, error: gate.blocked.error })
+          continue
+        }
         let needRemount = !existing
         if (existing) {
-          // Live mounts still answer to the circuit breaker even while their config is unchanged.
-          await killListStore.load()
-          const kill = killHitForInputs(id, existing.securityInputs)
-          if (kill) {
-            await unmountKey(mountKey)
-            runtimeStatus.set(mountKey, {
-              status: 'killed',
-              error: kill.reason ? `Plugin disabled by the kill list: ${kill.reason}` : 'Plugin disabled by the kill list.',
-            })
-            continue
-          }
           try {
             await rt.loadSecrets?.()
             const nextHash = fingerprint(resolveMcpRuntimeConfig(entry.id, entry.install?.mcp ?? entry.mcp))
@@ -1275,14 +1319,13 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
           } catch {
             needRemount = true
           }
+          if (!needRemount && gate) {
+            existing.securityInputs = gate.inputs
+            existing.securityFingerprint = gate.fingerprint ?? null
+            recordConsentBaseline(id, gate.fingerprint, gate.consentState)
+          }
         }
         if (needRemount) {
-          const gate = await activationSecurityCheck(id, { activationKind: 'mcp', entry })
-          if (gate?.blocked) {
-            await unmountKey(mountKey)
-            runtimeStatus.set(mountKey, { status: gate.blocked.status, error: gate.blocked.error })
-            continue
-          }
           await unmountKey(mountKey)
           if (stopped || isReadOnly()) return
           try {
@@ -1399,6 +1442,51 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     return keys
   }
 
+  const BLOCKED_SECURITY_STATUSES = new Set(['killed', 'consent-required', 'invalid-manifest', 'unverifiable'])
+
+  function clearBlockedStatusForKeys(keys) {
+    for (const key of keys) {
+      if (!key) continue
+      const mountKey = `plugin:${key}`
+      const cur = runtimeStatus.get(mountKey)
+      if (cur && BLOCKED_SECURITY_STATUSES.has(cur.status)) {
+        runtimeStatus.delete(mountKey)
+      }
+    }
+  }
+
+  // Lightweight in-memory signature of catalog-supplied security inputs for every
+  // installed/desired/active plugin. Used by `buildPluginsView` to detect when a
+  // refreshed catalog changed launch args, capabilities, tier, replaces, or secret
+  // references without hashing any disk trees on routine list requests.
+  function installedCatalogInputsSignature(catalogEntries = catalogManager.peek().entries) {
+    const store = pluginStore()
+    const ids = new Set([
+      ...Object.values(store.slots).filter(Boolean),
+      ...Object.keys(store.enabled).filter(id => store.enabled[id] === true),
+    ])
+    for (const [mountKey, mount] of activeMounts.entries()) {
+      if (mount?.slotTargetId) ids.add(mount.slotTargetId)
+      else if (mountKey.startsWith('plugin:')) ids.add(mountKey.slice('plugin:'.length))
+    }
+    const items = [...ids].sort().map((id) => {
+      const entry = findKnownEntry(id, catalogEntries)
+      if (!entry) return [id, null]
+      return [id, {
+        kind: entry.kind ?? null,
+        slot: entry.slot ?? null,
+        execution: entry.execution ?? null,
+        capabilities: entry.capabilities ?? null,
+        replaces: entry.replaces ?? null,
+        version: entry.version ?? null,
+        packageName: entry.packageName ?? null,
+        install: entry.install ?? null,
+        mcp: entry.mcp ?? null,
+      }]
+    })
+    return fingerprint(items)
+  }
+
   // Persistently enforce the gates on the DSH profile itself: a bundle whose bytes are
   // killed or whose consent no longer covers them is DISABLED in the profile, so the
   // next startup does not execute it before this host's gates even evaluate. This is
@@ -1424,7 +1512,8 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       // one tree and user-installed bundles are few.
       const evaluations = []
       for (const key of keys) {
-        const spec = securitySpecForTarget(key)
+        const prevBlockedSlot = runtimeStatus.get(`plugin:${key}`)?.slot ?? null
+        const spec = securitySpecForTarget(key, prevBlockedSlot ? { slot: prevBlockedSlot } : {})
         if (!spec || spec.activationKind === 'builtin') continue
         try {
           const inputs = await targetSecurityInputs(key, spec)
@@ -1488,11 +1577,10 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         continue
       }
 
-      // Bytes are consented (or never consented yet). First observation of a running
-      // bundle establishes the baseline under its canonical key — installing or already
-      // running a plugin is the initial consent, later drift invalidates it. The
-      // fingerprint is the one the bare `dsh:` key's own inputs produce, so a later
-      // evaluation of the same key compares like to like.
+      // Bytes are consented (or never consented yet). Clear any prior blocked security
+      // status across all keys for this bundle regardless of which code path enabled it,
+      // while leaving unrelated restart or activation errors untouched.
+      clearBlockedStatusForKeys(keys)
       const bareKey = `dsh:${bundle.name}`
       const bareState = states.find(s => s.key === bareKey)
       if (bareState?.fingerprint && bareState.state === 'baseline' && !states.some(s => s.state === 'granted' || s.state === 'required')) {
@@ -1505,7 +1593,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
           const res = await pm.setBundleEnabled(bundle.name, true)
           if (res?.application === 'applied' || res?.application === 'restart-required' || res?.application === 'overridden') {
             enforcementDisabled.delete(bundle.name)
-            runtimeStatus.delete(`plugin:${keys[0] ?? `dsh:${bundle.name}`}`)
+            clearBlockedStatusForKeys(keys)
           }
           await refreshBundles()
         } catch (error) {
@@ -1540,12 +1628,16 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       }
       const [, snapshot] = await Promise.all([refreshBundles(), catalogManager.hydrate(), killListStore.load()])
       // Kill state lands before any activation gate evaluates, inside the same pass —
-      // no follow-up reconcile needed here because nothing has mounted yet.
+      // record both the kill-list generation and the installed catalog-inputs signature
+      // so later view reads know whether newer kills or catalog changes need reconcile.
       await applyCatalogKillLists(snapshot)
+      const reconciledKillGen = killListGeneration
+      lastReconciledCatalogInputsSig = installedCatalogInputsSignature(catalogManager.peek().entries)
       const slots = new Set([...slotDefaults.keys(), ...Object.keys(pluginStore().slots)])
       for (const slot of slots) await reconcileSlotInner(slot)
       await reconcileGeneralPluginsInner()
       await enforceBundleGateAlignment()
+      lastReconciledKillGen = Math.max(lastReconciledKillGen, reconciledKillGen)
     })
   }
 
@@ -1657,11 +1749,19 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       refreshBundles(),
       catalogManager.load({ sources: store.sources, force: refreshCatalog, signal }),
     ])
-    // A catalog fetch may carry newer kills than the last reconcile saw. Applying them
-    // here re-reconciles once before the view is built, so the view and the mounts it
-    // describes agree — a killed plugin shows `killed`, not a stale `ready`.
-    if (await applyCatalogKillLists(catalogSnapshot) && !stopped && !isReadOnly()) {
+    // A catalog fetch may carry newer kills OR changed launch args / capabilities /
+    // secret references for installed targets. Re-reconcile once before building the
+    // view so the view and the live mounts agree — a killed or drifted plugin stops
+    // immediately and surfaces its explicit status instead of a stale `ready`.
+    await killListStore.load()
+    const killChanged = await applyCatalogKillLists(catalogSnapshot)
+    const nextCatalogInputsSig = installedCatalogInputsSignature(catalogSnapshot.entries)
+    const catalogInputsChanged = lastReconciledCatalogInputsSig !== null
+      && nextCatalogInputsSig !== lastReconciledCatalogInputsSig
+    if ((killChanged || killListGeneration > lastReconciledKillGen || catalogInputsChanged) && !stopped && !isReadOnly()) {
       await reconcileAll()
+    } else if (lastReconciledCatalogInputsSig === null) {
+      lastReconciledCatalogInputsSig = nextCatalogInputsSig
     }
     const items = []
     const seenIds = new Set()
@@ -1779,7 +1879,11 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       seenIds.add(entry.id)
       const slot = entry.slot ?? null
       const mountKey = slot ? `slot:${slot}` : `plugin:${entry.id}`
-      const stat = slot ? slotStatForEntry(slot, entry.id) : runtimeStatus.get(mountKey)
+      const ownStat = runtimeStatus.get(`plugin:${entry.id}`)
+      const slotEntryStat = slot ? slotStatForEntry(slot, entry.id) : null
+      const stat = slot
+        ? (blockedStatInfo(slotEntryStat) ? slotEntryStat : (blockedStatInfo(ownStat) ? ownStat : (slotEntryStat ?? ownStat)))
+        : ownStat
 
       if (entry.kind === 'mcp') {
         const installed = entry.custom || own(store.enabled, entry.id) !== undefined || (slot && slotDesired(slot) === entry.id)
@@ -1894,7 +1998,11 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       const mountKey = slot ? `slot:${slot}` : `plugin:${desc.id}`
       const active = slot ? (activeSlotTarget(slot) === desc.id || activeSlotTarget(slot) === `provider:${desc.id}`) : activeMounts.has(mountKey)
       const desired = slot ? (slotDesired(slot) === desc.id || slotDesired(slot) === `provider:${desc.id}`) : own(store.enabled, desc.id) !== false
-      const stat = slot ? slotStatForEntry(slot, desc.id) : runtimeStatus.get(mountKey)
+      const ownStatC = runtimeStatus.get(`plugin:${desc.id}`)
+      const slotEntryStatC = slot ? slotStatForEntry(slot, desc.id) : null
+      const stat = slot
+        ? (blockedStatInfo(slotEntryStatC) ? slotEntryStatC : (blockedStatInfo(ownStatC) ? ownStatC : (slotEntryStatC ?? ownStatC)))
+        : ownStatC
       items.push({
         id: desc.id,
         name: desc.name,
@@ -2079,6 +2187,13 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         const spec = securitySpecForTarget(id, { slot: cleanSlot }) ?? { activationKind: 'dsh', entry: catalogEntry, bundle, slot: cleanSlot }
         const gate = await activationSecurityCheck(id, spec)
         if (gate?.blocked) {
+          // Record the blocked state on this specific entry so inactive slot entries
+          // surface Approve / Stopped / Unverifiable in Settings instead of looping on Use.
+          runtimeStatus.set(`plugin:${id}`, {
+            status: gate.blocked.status,
+            error: gate.blocked.error,
+            slot: cleanSlot,
+          })
           throw Object.assign(new Error(gate.blocked.error ?? 'This plugin cannot run until it is approved.'), { code: 'bot/refused' })
         }
         const res = await pluginManager().setBundleEnabled(bundle.name, true)
@@ -2256,27 +2371,29 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     lastSyncSignature = fingerprint(store)
     await rt.save()
 
-    // Slot-bound plugins enable inside the slot reconcile after the gate. Non-slot
-    // bundle installs need their enablement here: installing them IS the user's intent
-    // to run them, and since installations now land disabled by design, nothing else
-    // would ever turn them on. The same gate as everywhere evaluates first — a killed
-    // or unverifiable bundle never enables, a first install baselines its consent.
-    if (!desiredSlot && result?.application !== 'failed' && result?.application !== 'cancelled'
+    // Installations land disabled by design so unapproved bytes never execute inside
+    // `installBundle`. Installing IS the user's explicit activation intent (for both
+    // slot-bound and general plugins), so we gate and enable here right after install —
+    // reconciliation itself will never re-enable a bundle the user disabled in Engine plugins.
+    if (result?.application !== 'failed' && result?.application !== 'cancelled'
       && typeof pm.setBundleEnabled === 'function') {
       try {
         const targetEntry = findKnownEntry(activeTargetId) ?? { kind: 'dsh', install: { packageName: actualPkg } }
         const bundleNow = cachedBundles.get(actualPkg)
         if (bundleNow && bundleNow.enabled === false && isBundleAvailable(bundleNow)) {
-          const gateSpec = securitySpecForTarget(activeTargetId) ?? { activationKind: 'dsh', entry: targetEntry, bundle: bundleNow }
+          const gateSpec = securitySpecForTarget(activeTargetId, desiredSlot ? { slot: desiredSlot } : {})
+            ?? { activationKind: 'dsh', entry: targetEntry, bundle: bundleNow, ...(desiredSlot ? { slot: desiredSlot } : {}) }
           const gate = await activationSecurityCheck(activeTargetId, gateSpec)
           if (!gate?.blocked) {
             const enableRes = await pm.setBundleEnabled(actualPkg, true)
             if (enableRes?.application === 'applied' || enableRes?.application === 'overridden') {
               enabledByUsBundles.add(actualPkg)
               if (gate) recordConsentBaseline(activeTargetId, gate.fingerprint, gate.consentState)
+              clearBlockedStatusForKeys([activeTargetId, ...consentKeysForBundle(actualPkg, catalogManager.peek().entries)])
             } else if (enableRes?.application === 'restart-required') {
               enabledByUsBundles.add(actualPkg)
               if (gate) recordConsentBaseline(activeTargetId, gate.fingerprint, gate.consentState)
+              clearBlockedStatusForKeys([activeTargetId, ...consentKeysForBundle(actualPkg, catalogManager.peek().entries)])
               pendingRestartPackages.set(actualPkg, { action: 'enable', reason: enableRes.restartReason ?? 'no-hmr' })
             } else {
               // Enablement refused or cancelled: never let the install silently read
@@ -2346,6 +2463,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       const spec = securitySpecForTarget(targetId) ?? { activationKind: 'dsh', entry, bundle }
       const gate = await activationSecurityCheck(targetId, spec)
       if (gate?.blocked) {
+        runtimeStatus.set(`plugin:${targetId}`, { status: gate.blocked.status, error: gate.blocked.error })
         throw Object.assign(new Error(gate.blocked.error ?? 'Plugin cannot be enabled.'), { code: 'bot/refused' })
       }
       if (gate) recordConsentBaseline(targetId, gate.fingerprint, gate.consentState)
@@ -2435,7 +2553,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       throw Object.assign(new Error('Plugin updates are unavailable in this environment.'), { code: 'bot/refused' })
     }
     await rt.load()
-    await refreshBundles()
+    await Promise.all([refreshBundles(), loadCatalogFresh()])
     const entry = findKnownEntry(targetId)
     const bundle = entry ? resolveDshBundleForEntry(entry) : cachedBundles.get(targetId.replace(/^dsh:/, ''))
     if (!bundle) throw Object.assign(new Error('Installed plugin bundle not found.'), { code: 'bot/not-found' })
@@ -2663,8 +2781,14 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     const targetId = String(id ?? '').trim()
     if (!targetId) throw Object.assign(new Error('Plugin id is required.'), { code: 'bot/invalid' })
     await rt.load()
-    await Promise.all([refreshBundles(), loadCatalogFresh(), killListStore.load()])
-    const spec = securitySpecForTarget(targetId)
+    await Promise.all([refreshBundles(), killListStore.load()])
+    // Apply any newly fetched catalog kill lists BEFORE evaluating or enabling the bundle
+    // so approval can never start a freshly revoked plugin.
+    await loadCatalogFresh()
+    const knownEntry = findKnownEntry(targetId)
+    const blockedSlot = runtimeStatus.get(`plugin:${targetId}`)?.slot ?? null
+    const intendedSlot = slotOfTarget(targetId) ?? knownEntry?.slot ?? blockedSlot ?? null
+    const spec = securitySpecForTarget(targetId, intendedSlot ? { slot: intendedSlot } : {})
     if (!spec) {
       throw Object.assign(new Error(`Plugin "${targetId}" is not installed or loaded.`), { code: 'bot/not-found' })
     }
@@ -2681,6 +2805,9 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     }
     const kill = killHitForInputs(targetId, inputs)
     if (kill) {
+      if (killListGeneration > lastReconciledKillGen && !stopped && !isReadOnly()) {
+        await reconcileAll()
+      }
       throw Object.assign(
         new Error(kill.reason ? `Plugin disabled by the kill list: ${kill.reason}` : 'Plugin disabled by the kill list.'),
         { code: 'bot/refused' },
@@ -2700,9 +2827,16 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     store.consent[targetId] = { fingerprint: fp, grantedAt: new Date().toISOString() }
     lastSyncSignature = fingerprint(store)
     await rt.save()
-    // Approval re-enables what enforcement disabled: the fingerprint just recorded
-    // covers exactly these bytes, so the enablement is the approval, not a bypass of it.
-    if (inputs.packageName) {
+    clearBlockedStatusForKeys([
+      targetId,
+      ...(inputs.packageName ? consentKeysForBundle(inputs.packageName, catalogManager.peek().entries) : []),
+    ])
+    // Approval re-enables what enforcement disabled for general plugins or the currently
+    // desired slot target. For an INACTIVE slot plugin (e.g. a switched-out browser
+    // plugin approved before clicking Use), approval verifies and stores the placement
+    // consent without prematurely executing or switching to the bundle.
+    const shouldEnableBundle = !intendedSlot || desiredSlotTarget(intendedSlot) === targetId
+    if (inputs.packageName && shouldEnableBundle) {
       const pm = pluginManager()
       const bundle = cachedBundles.get(inputs.packageName)
       if (pm && bundle?.enabled === false && typeof pm.setBundleEnabled === 'function'
@@ -2712,8 +2846,10 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
           if (res?.application === 'applied' || res?.application === 'overridden') {
             enforcementDisabled.delete(bundle.name)
             pendingRestartPackages.delete(bundle.name)
+            if (intendedSlot) enabledByUsBundles.add(bundle.name)
           } else if (res?.application === 'restart-required') {
             enforcementDisabled.delete(bundle.name)
+            if (intendedSlot) enabledByUsBundles.add(bundle.name)
             pendingRestartPackages.set(bundle.name, { action: 'enable', reason: res.restartReason ?? 'no-hmr' })
           }
         } catch (error) {

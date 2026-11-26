@@ -1694,3 +1694,359 @@ test('hashPluginTree accepts intra-tree absolute symlinks spelled via symlinked 
   symlinkSync('./escape-hop', join(realRoot, 'inner-link'))
   await assert.rejects(hashPluginTree(realRoot), { code: 'symlink-escape' })
 })
+
+test('hashPluginTree length-prefixed framing prevents delimiter-injection collisions across distinct trees', async (t) => {
+  const base = mkdtempSync(join(tmpdir(), 'ds-bot-frame-'))
+  const treeOne = join(base, 'one')
+  const treeTwo = join(base, 'two')
+  mkdirSync(treeOne, { recursive: true })
+  mkdirSync(treeTwo, { recursive: true })
+  writeFileSync(join(treeOne, 'a'), Buffer.from('x\0file\0b\0y'))
+  writeFileSync(join(treeTwo, 'a'), Buffer.from('x'))
+  writeFileSync(join(treeTwo, 'b'), Buffer.from('y'))
+  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5 }))
+
+  const h1 = await hashPluginTree(treeOne)
+  const h2 = await hashPluginTree(treeTwo)
+  assert.notEqual(h1.hash, h2.hash, 'file bytes containing NUL framing tokens must never collide with a multi-file tree')
+})
+
+test('validateKillListDocument drops rules whose contentHashes are all invalid instead of creating a blanket kill', () => {
+  const doc = validateKillListDocument({
+    schemaVersion: 1,
+    issuedAt: new Date().toISOString(),
+    entries: [
+      { id: 'dsh:bad-hashes', contentHashes: ['not-a-sha256', '1234'] },
+      { id: 'dsh:empty-hashes', contentHashes: [] },
+      { id: 'dsh:non-array-hashes', contentHashes: 'deadbeef' },
+      { id: 'dsh:good-blanket', reason: 'explicit blanket kill' },
+    ],
+  })
+  assert.equal(evaluateKillEntry(doc, { id: 'dsh:bad-hashes', version: '1.0.0' }), null)
+  assert.equal(evaluateKillEntry(doc, { id: 'dsh:empty-hashes', version: '1.0.0' }), null)
+  assert.equal(evaluateKillEntry(doc, { id: 'dsh:non-array-hashes', version: '1.0.0' }), null)
+  assert.ok(evaluateKillEntry(doc, { id: 'dsh:good-blanket', version: '1.0.0' }), 'explicit unconditional kills still work')
+})
+
+test('MCP consent invalidates when a header or env secret reference swaps to a different saved secret', async (t) => {
+  let headerRef = '$DSH_SECRET_PUBLIC_TOKEN'
+  const mountedConfigs = []
+  const fakeLoader = {
+    async import() {
+      return { apply() {} }
+    },
+  }
+  const { ctx, rt, call, stop } = startRuntime({
+    services: { loader: fakeLoader },
+    config: {
+      pluginFetch: async () => new Response(JSON.stringify({
+        schemaVersion: 1,
+        plugins: [
+          {
+            id: 'mcp:secret-swap',
+            name: 'Secret Swap MCP',
+            kind: 'mcp',
+            execution: 'declarative',
+            capabilities: ['entry'],
+            install: {
+              mcp: {
+                transport: 'streamable-http',
+                url: 'https://mcp.example.com/sse',
+                headers: { Authorization: `Bearer ${headerRef}` },
+              },
+            },
+          },
+        ],
+      }), { status: 200 }),
+    },
+  })
+  ctx.plugin = (_plugin, cfg) => {
+    if (cfg?.serverName === 'dsbp-secret-swap') mountedConfigs.push(cfg)
+    return { async await() {}, async dispose() {} }
+  }
+  t.after(stop)
+  rt.secretValue = name => (name === 'PUBLIC_TOKEN' ? 'pub-val' : 'admin-val')
+  await rt.load()
+
+  const inst = await call('plugins-install', { id: 'mcp:secret-swap' })
+  assert.equal(inst.ok, true)
+  assert.equal(mountedConfigs.length, 1)
+  assert.equal(mountedConfigs[0].headers.Authorization, 'Bearer pub-val')
+
+  // Publisher swaps header secret reference behind the same Authorization header key.
+  headerRef = '$DSH_SECRET_ADMIN_TOKEN'
+  const refreshed = await call('plugins-catalog-refresh', {})
+  assert.equal(refreshed.ok, true)
+  const item = refreshed.value.plugins.find(p => p.id === 'mcp:secret-swap')
+  assert.equal(item.consentRequired, true, 'swapping $DSH_SECRET_* behind an existing header must invalidate consent')
+  assert.equal(item.active, false, 'running MCP must be unmounted rather than receiving the different secret')
+  assert.equal(mountedConfigs.length, 1, 'admin secret must never be mounted before explicit approval')
+})
+
+test('catalog refresh reconciles changed MCP launch args and capability-only changes without a kill-list change', async (t) => {
+  let caps = ['entry', 'process', 'worker']
+  let args = ['-y', '@example/cap-mcp@1.0.0']
+  let mountedCount = 0
+  let disposedCount = 0
+  const fakeLoader = {
+    async import() {
+      return { apply() {} }
+    },
+  }
+  const { ctx, rt, call, stop } = startRuntime({
+    services: { loader: fakeLoader },
+    config: {
+      pluginFetch: async () => new Response(JSON.stringify({
+        schemaVersion: 1,
+        plugins: [
+          {
+            id: 'mcp:http-cap',
+            name: 'HTTP Cap MCP',
+            kind: 'mcp',
+            execution: 'trusted-worker',
+            capabilities: caps,
+            install: { mcp: { transport: 'streamable-http', url: 'https://cap.example.com/mcp' } },
+          },
+          {
+            id: 'mcp:stdio-arg',
+            name: 'Stdio Arg MCP',
+            kind: 'mcp',
+            execution: 'trusted-worker',
+            capabilities: ['entry', 'process', 'worker'],
+            install: { mcp: { transport: 'stdio', command: 'npx', args } },
+          },
+        ],
+      }), { status: 200 }),
+    },
+  })
+  ctx.plugin = (_plugin, cfg) => {
+    const tracked = cfg?.serverName === 'dsbp-http-cap' || cfg?.serverName === 'dsbp-stdio-arg'
+    if (tracked) mountedCount += 1
+    return { async await() {}, async dispose() { if (tracked) disposedCount += 1 } }
+  }
+  t.after(stop)
+  await rt.load()
+
+  assert.equal((await call('plugins-install', { id: 'mcp:http-cap' })).ok, true)
+  assert.equal((await call('plugins-install', { id: 'mcp:stdio-arg' })).ok, true)
+  assert.equal(mountedCount, 2)
+
+  // Refresh catalog with BOTH: capability-only change on http-cap AND new arg on stdio-arg (no kill list).
+  caps = ['entry', 'process', 'worker', 'gpu']
+  args = ['-y', '@example/cap-mcp@1.0.0', '--extra-flag']
+  const refreshed = await call('plugins-catalog-refresh', {})
+  assert.equal(refreshed.ok, true)
+  const httpItem = refreshed.value.plugins.find(p => p.id === 'mcp:http-cap')
+  const stdioItem = refreshed.value.plugins.find(p => p.id === 'mcp:stdio-arg')
+  assert.equal(httpItem.consentRequired, true, 'capability-only change on running HTTP MCP must trigger re-approval')
+  assert.equal(httpItem.active, false)
+  assert.equal(stdioItem.consentRequired, true, 'new launch argument on catalog refresh must trigger re-approval')
+  assert.equal(stdioItem.active, false)
+  assert.equal(disposedCount, 2, 'both drifted MCP servers must be unmounted on refresh')
+})
+
+test('rejected install stops already-running newly revoked plugin and grantPluginConsent never starts a freshly revoked bundle', async (t) => {
+  const pkgDir = mkdtempSync(join(tmpdir(), 'ds-bot-revoked-'))
+  writeFileSync(join(pkgDir, 'index.js'), 'export const v = 1\n')
+  t.after(() => rmSync(pkgDir, { recursive: true, force: true, maxRetries: 5 }))
+
+  let killEntries = []
+  let issuedAt = '2026-11-20T00:00:00.000Z'
+  const bundles = new Map([
+    ['live-pkg', { name: 'live-pkg', version: '1.0.0', source: `link:${pkgDir}`, availability: 'profile', installed: true, enabled: true, removable: true }],
+  ])
+  const pmEvents = []
+  const fakePm = {
+    async listBundles() { return [...bundles.values()] },
+    async setBundleEnabled(name, enabled) {
+      pmEvents.push([name, enabled])
+      const b = bundles.get(name)
+      if (b) b.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+    async installBundle() {
+      pmEvents.push(['install-called'])
+      return { changed: true, application: 'applied', bundle: 'live-pkg' }
+    },
+  }
+  const { rt, call, stop } = startRuntime({
+    services: { pluginManager: fakePm },
+    config: {
+      pluginFetch: async () => new Response(JSON.stringify({
+        schemaVersion: 1,
+        plugins: [
+          { id: 'dsh:live-pkg', name: 'Live Pkg', kind: 'dsh', install: { packageName: 'live-pkg', spec: `link:${pkgDir}` } },
+        ],
+        killList: { schemaVersion: 1, issuedAt, entries: killEntries },
+      }), { status: 200 }),
+    },
+  })
+  t.after(stop)
+  await rt.load()
+  await rt.plugins.reconcileAll()
+
+  // Publish revocation, then trigger a rejected install of another spec (or same package):
+  // assertNotKilled must stop the already-running revoked bundle before throwing.
+  issuedAt = '2026-11-21T00:00:00.000Z'
+  killEntries = [{ id: 'dsh:live-pkg', versions: '*', reason: 'revoked in test' }]
+  const badInst = await call('plugins-install', { id: 'dsh:live-pkg', spec: 'live-pkg@1.0.0' })
+  assert.equal(badInst.ok, false)
+  assert.equal(bundles.get('live-pkg').enabled, false, 'rejected install must immediately disable the newly revoked running bundle')
+
+  // Even if the bundle drifts and the user attempts plugins-consent after a newer kill lands,
+  // grantPluginConsent must evaluate the fresh kill list BEFORE ever calling setBundleEnabled(true).
+  pmEvents.length = 0
+  writeFileSync(join(pkgDir, 'index.js'), 'export const v = 2\n')
+  const consentRes = await call('plugins-consent', { id: 'dsh:live-pkg' })
+  assert.equal(consentRes.ok, false)
+  assert.match(consentRes.error.message, /kill list/i)
+  assert.equal(pmEvents.some(([, enabled]) => enabled === true), false, 'grantPluginConsent must never enable a revoked bundle')
+})
+
+test('switched-out drifted browser plugin surfaces Approve after Use refusal and activates cleanly after approval', async (t) => {
+  const pkgDir = mkdtempSync(join(tmpdir(), 'ds-bot-switch-browser-'))
+  writeFileSync(join(pkgDir, 'index.js'), 'export const rev = 1\n')
+  t.after(() => rmSync(pkgDir, { recursive: true, force: true, maxRetries: 5 }))
+
+  const bundles = new Map([
+    ['alt-browser', { name: 'alt-browser', version: '1.0.0', source: `link:${pkgDir}`, availability: 'profile', installed: true, enabled: false, removable: true }],
+  ])
+  const pmEvents = []
+  const fakePm = {
+    async listBundles() { return [...bundles.values()] },
+    async setBundleEnabled(name, enabled) {
+      pmEvents.push([name, enabled])
+      const b = bundles.get(name)
+      if (b) b.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+  }
+  const { rt, call, stop } = startRuntime({
+    services: { pluginManager: fakePm },
+    config: {
+      pluginFetch: async () => new Response(JSON.stringify({
+        schemaVersion: 1,
+        plugins: [
+          { id: 'dsh:alt-browser', name: 'Alt Browser', kind: 'dsh', slot: 'browser', category: 'browser', install: { packageName: 'alt-browser', spec: `link:${pkgDir}` } },
+        ],
+      }), { status: 200 }),
+    },
+  })
+  t.after(stop)
+  await rt.load()
+
+  // 1. Activate Alt Browser, then switch back to built-in (which disables alt-browser).
+  assert.equal((await call('plugins-slot-set', { slot: 'browser', id: 'dsh:alt-browser' })).ok, true)
+  assert.equal(bundles.get('alt-browser').enabled, true)
+  assert.equal((await call('plugins-slot-set', { slot: 'browser', id: 'builtin:readonly' })).ok, true)
+  assert.equal(bundles.get('alt-browser').enabled, false)
+
+  // 2. Mutate the disabled browser bundle on disk and click Use again.
+  writeFileSync(join(pkgDir, 'index.js'), 'export const rev = 2\n')
+  const blockedUse = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:alt-browser' })
+  assert.equal(blockedUse.ok, false)
+
+  // 3. View now surfaces Approval needed on Alt Browser (without bleeding onto builtin:readonly).
+  const viewAfter = await call('plugins-list', {})
+  const altItem = viewAfter.value.plugins.find(p => p.id === 'dsh:alt-browser')
+  const builtinItem = viewAfter.value.plugins.find(p => p.id === 'builtin:readonly')
+  assert.equal(altItem.consentRequired, true, 'inactive drifted browser bundle must surface Approve in Settings')
+  assert.equal(builtinItem.consentRequired, false, 'sibling built-in browser must remain unaffected')
+
+  // 4. Approve verifies placement WITHOUT prematurely executing/enabling the unselected bundle.
+  pmEvents.length = 0
+  const approved = await call('plugins-consent', { id: 'dsh:alt-browser' })
+  assert.equal(approved.ok, true)
+  assert.equal(bundles.get('alt-browser').enabled, false, 'approving an inactive browser bundle must not prematurely enable it')
+  assert.equal(approved.value.view.plugins.find(p => p.id === 'dsh:alt-browser').consentRequired, false)
+
+  // 5. Clicking Use now enables and activates Alt Browser cleanly.
+  const useAgain = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:alt-browser' })
+  assert.equal(useAgain.ok, true)
+  assert.equal(bundles.get('alt-browser').enabled, true)
+  assert.equal(rt.plugins.getSlotActiveId('browser'), 'dsh:alt-browser')
+})
+
+test('browser bundle disabled directly in Engine plugins stays disabled across restart reconciliation', async (t) => {
+  const pkgDir = mkdtempSync(join(tmpdir(), 'ds-bot-eng-dis-'))
+  writeFileSync(join(pkgDir, 'index.js'), 'export const rev = 1\n')
+  t.after(() => rmSync(pkgDir, { recursive: true, force: true, maxRetries: 5 }))
+
+  const bundles = new Map([
+    ['eng-browser', { name: 'eng-browser', version: '1.0.0', source: `link:${pkgDir}`, availability: 'profile', installed: true, enabled: false, removable: true }],
+  ])
+  const pmEvents = []
+  const fakePm = {
+    async listBundles() { return [...bundles.values()] },
+    async setBundleEnabled(name, enabled) {
+      pmEvents.push([name, enabled])
+      const b = bundles.get(name)
+      if (b) b.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+  }
+  const { rt, call, stop } = startRuntime({
+    services: { pluginManager: fakePm },
+    config: {
+      pluginFetch: async () => new Response(JSON.stringify({
+        schemaVersion: 1,
+        plugins: [
+          { id: 'dsh:eng-browser', name: 'Engine Browser', kind: 'dsh', slot: 'browser', category: 'browser', install: { packageName: 'eng-browser', spec: `link:${pkgDir}` } },
+        ],
+      }), { status: 200 }),
+    },
+  })
+  t.after(stop)
+  await rt.load()
+  assert.equal((await call('plugins-slot-set', { slot: 'browser', id: 'dsh:eng-browser' })).ok, true)
+  assert.equal(bundles.get('eng-browser').enabled, true)
+
+  // Simulate user disabling the bundle directly in Engine plugins, then restarting / reconciling.
+  bundles.get('eng-browser').enabled = false
+  pmEvents.length = 0
+  await rt.plugins.reconcileAll()
+  assert.equal(bundles.get('eng-browser').enabled, false, 'reconcile must not undo a manual Engine plugins disable')
+  assert.equal(pmEvents.length, 0)
+  assert.equal(rt.plugins.getSlotActiveId('browser'), 'builtin:readonly', 'fallback stays active while disabled in Engine plugins')
+})
+
+test('approving a drifted package-only non-slot bundle clears consentRequired so users can disable it again', async (t) => {
+  const pkgDir = mkdtempSync(join(tmpdir(), 'ds-bot-reapprove-off-'))
+  writeFileSync(join(pkgDir, 'index.js'), 'export const rev = 1\n')
+  t.after(() => rmSync(pkgDir, { recursive: true, force: true, maxRetries: 5 }))
+
+  const bundles = new Map([
+    ['plain-pkg', { name: 'plain-pkg', version: '1.0.0', source: `link:${pkgDir}`, availability: 'profile', installed: true, enabled: true, removable: true }],
+  ])
+  const fakePm = {
+    async listBundles() { return [...bundles.values()] },
+    async setBundleEnabled(name, enabled) {
+      const b = bundles.get(name)
+      if (b) b.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+  await rt.plugins.reconcileAll()
+
+  // Mutate files and retry to detect drift.
+  writeFileSync(join(pkgDir, 'index.js'), 'export const rev = 2\n')
+  const drifted = await call('plugins-retry', {})
+  assert.equal(drifted.ok, true)
+  assert.equal(drifted.value.plugins.find(p => p.id === 'dsh:plain-pkg').consentRequired, true)
+  assert.equal(bundles.get('plain-pkg').enabled, false)
+
+  // Approve: bundle re-enables AND consentRequired clears immediately (not stuck on Approve).
+  const approved = await call('plugins-consent', { id: 'dsh:plain-pkg' })
+  assert.equal(approved.ok, true)
+  const item = approved.value.view.plugins.find(p => p.id === 'dsh:plain-pkg')
+  assert.equal(item.enabled, true)
+  assert.equal(item.consentRequired, false, 'stale consent-required status must clear after approval so toggle switch returns')
+
+  // User can turn the approved bundle off via plugins-toggle.
+  const disabled = await call('plugins-toggle', { id: 'dsh:plain-pkg', enabled: false })
+  assert.equal(disabled.ok, true)
+  assert.equal(bundles.get('plain-pkg').enabled, false)
+})

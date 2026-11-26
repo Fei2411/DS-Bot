@@ -698,7 +698,7 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
     }
   }, [initialFilter])
 
-  const load = useCallback((refresh = false) => {
+  const load = useCallback((refresh = false, { keepError = false } = {}) => {
     if (!actions.pluginsList) {
       setLoading(false)
       return Promise.resolve()
@@ -706,7 +706,7 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
     const seq = ++seqRef.current
     if (refresh) setRefreshing(true)
     else if (!hasViewRef.current) setLoading(true)
-    setError('')
+    if (!keepError) setError('')
     return Promise.resolve(refresh && actions.pluginsCatalogRefresh ? actions.pluginsCatalogRefresh() : actions.pluginsList(refresh))
       .then((next) => {
         if (!aliveRef.current || seq !== seqRef.current) return
@@ -777,14 +777,18 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
     return res
   })
 
-  const handleActivateSlot = (slot, id) => { void exec(id, actions.pluginsSlotSet(slot, id)).catch(() => {}) }
+  const handleActivateSlot = (slot, id) => {
+    void exec(id, actions.pluginsSlotSet(slot, id)).catch(() => { void load(false, { keepError: true }) })
+  }
   const handleInstall = (plugin) => { void runInstall({ id: plugin.id, spec: plugin.installSpec }, plugin.id).catch(() => {}) }
   const handleApproveBuilds = () => {
     if (!pendingApproval) return
     const { body, busyKey, packages } = pendingApproval
     void runInstall({ ...body, approvedBuilds: packages }, busyKey).catch(() => {})
   }
-  const handleToggle = (id, enabled) => { void exec(id, actions.pluginsToggle(id, enabled)).catch(() => {}) }
+  const handleToggle = (id, enabled) => {
+    void exec(id, actions.pluginsToggle(id, enabled)).catch(() => { void load(false, { keepError: true }) })
+  }
   const handleConsent = (id) => { void exec(id, actions.pluginsConsent(id)).catch(() => {}) }
   const handleUpdate = (id) => { void exec(id, actions.pluginsUpdate(id)).catch(() => {}) }
   const handleRemove = (id) => {

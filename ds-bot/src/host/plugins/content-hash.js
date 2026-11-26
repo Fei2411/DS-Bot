@@ -36,7 +36,17 @@ export class ContentHashError extends Error {
   }
 }
 
-async function hashFileInto(hash, filePath, remaining) {
+function updateField(hash, value) {
+  const buf = typeof value === 'string' ? Buffer.from(value, 'utf8') : value
+  const len = Buffer.allocUnsafe(4)
+  len.writeUInt32BE(buf.byteLength, 0)
+  hash.update(len)
+  hash.update(buf)
+}
+
+async function hashFileDigest(filePath, remaining) {
+  const fileHash = createHash('sha256')
+  let bytes = 0
   await new Promise((resolvePromise, reject) => {
     const stream = createReadStream(filePath)
     stream.on('error', reject)
@@ -47,10 +57,12 @@ async function hashFileInto(hash, filePath, remaining) {
         reject(new ContentHashError('too-large', `Plugin directory exceeds the ${CONTENT_HASH_LIMITS.maxBytes} byte content hash limit.`))
         return
       }
-      hash.update(chunk)
+      bytes += chunk.byteLength
+      fileHash.update(chunk)
     })
     stream.on('end', resolvePromise)
   })
+  return { digest: fileHash.digest(), bytes }
 }
 
 /**
@@ -121,16 +133,15 @@ export async function hashPluginTree(dir, { maxFiles = CONTENT_HASH_LIMITS.maxFi
         if (!inside) {
           throw new ContentHashError('symlink-escape', `Symlink "${rel}" escapes the plugin directory.`)
         }
-        hash.update('link\0')
-        hash.update(rel, 'utf8')
-        hash.update('\0')
-        hash.update(target.normalize('NFC'), 'utf8')
-        hash.update('\0')
+        // Length-prefixed binary framing ensures arbitrary bytes (including NULs) inside
+        // filenames, symlink targets, or file contents can never collide across entries.
+        updateField(hash, 'link')
+        updateField(hash, rel)
+        updateField(hash, target.normalize('NFC'))
         files += 1
       } else if (stat.isDirectory()) {
-        hash.update('dir\0')
-        hash.update(rel, 'utf8')
-        hash.update('\0')
+        updateField(hash, 'dir')
+        updateField(hash, rel)
         files += 1
         if (files > maxFiles) {
           throw new ContentHashError('too-many-files', `Plugin directory exceeds the ${maxFiles} file content hash limit.`)
@@ -140,20 +151,19 @@ export async function hashPluginTree(dir, { maxFiles = CONTENT_HASH_LIMITS.maxFi
         }
         continue
       } else if (stat.isFile()) {
-        hash.update('file\0')
-        hash.update(rel, 'utf8')
-        hash.update('\0')
         files += 1
         if (files > maxFiles) {
           throw new ContentHashError('too-many-files', `Plugin directory exceeds the ${maxFiles} file content hash limit.`)
         }
-        await hashFileInto(hash, full, remaining)
-        hash.update('\0')
+        const { digest, bytes } = await hashFileDigest(full, remaining)
+        updateField(hash, 'file')
+        updateField(hash, rel)
+        updateField(hash, String(bytes))
+        updateField(hash, digest)
       } else {
         // Sockets, fifos and device nodes have no portable content; record kind + path only.
-        hash.update('other\0')
-        hash.update(rel, 'utf8')
-        hash.update('\0')
+        updateField(hash, 'other')
+        updateField(hash, rel)
         files += 1
       }
       if (files > maxFiles) {
