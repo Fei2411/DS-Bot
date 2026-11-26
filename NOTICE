@@ -286,3 +286,12 @@ import. Each is a trademark of its owner: Chrome and Chromium (Google), Edge
 (Microsoft), Safari (Apple), Firefox (Mozilla), Brave (Brave Software), Arc
 (The Browser Company), Opera (Opera Norway), Vivaldi (Vivaldi Technologies),
 and Zen (Zen Browser). DS Bot is not affiliated with or endorsed by these owners.
+
+Reply fonts (ds-bot/assets/fonts/)
+Subsets made by ds-bot/scripts/build-fonts.py from the google/fonts
+repository (https://github.com/google/fonts), each under the SIL Open Font
+License 1.1; the license texts ship next to the fonts.
+  - Source Serif 4, Copyright 2014 The Source Serif 4 Project Authors
+    (https://github.com/adobe-fonts/source-serif).
+  - Noto Serif SC (Source Han Serif), Copyright 2012 Google Inc.
+The subsets are renamed DS Bot Serif Latin and DS Bot Serif SC.

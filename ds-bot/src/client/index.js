@@ -52,7 +52,7 @@ import { USAGE_CSS } from './usage-page.js'
 import { SCHEDULE_CSS } from './schedules.js'
 import { APPEARANCE_PAGE_CSS } from './appearance-page.js'
 import { SHORTCUTS_PAGE_CSS } from './shortcuts-page.js'
-import { visibleSidebarTargets } from './shortcuts-model.js'
+import { registerPluginShortcuts } from './plugin-shortcuts.js'
 import { STORAGE, migrateStorage } from './storage.js'
 import { noteLeft, setUnread, sharedMap, toggleReaction } from './shared-map.js'
 import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from './surface.js'
@@ -1205,113 +1205,18 @@ export function apply(ctx) {
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), 'ds-bot: bot command actions')
   // Register core DS Bot commands into DSH's shortcut catalog (plugin mode).
   ctx.inject(['shortcuts'], (scope) => {
-    const safeRegister = (command) => {
-      try { return scope.shortcuts.register(command) } catch { return () => {} }
-    }
-    const defaultsOf = (code, modifiers) => ({
-      'desktop:macos': { code, modifiers },
-      'desktop:windows': { code, modifiers },
-      'desktop:linux': { code, modifiers },
-      'web:macos': { code, modifiers },
-      'web:windows': { code, modifiers },
-      'web:linux': { code, modifiers },
-    })
-    const activeBotTarget = () => {
-      const snap = roster.getSnapshot()
-      const current = mainView()
-      if (current && snap.byId?.[current]) return snap.byId[current].id
-      return snap.mainBotId ?? snap.bots?.[0]?.id ?? null
-    }
-    scope.effect(() => {
-      const disposers = [
-        safeRegister({
-          id: 'ds-bot.switch-surface',
-          label: () => t('Switch Bot / Classic Agent mode'),
-          aliases: ['classic', 'agent', 'bot', 'mode'],
-          defaults: defaultsOf('KeyM', ['primary', 'shift']),
-          regions: ['page', 'editable'],
-          resolve: ({ modal }) => {
-            if (modal !== null) return { status: 'blocked', reason: 'modal' }
-            return { status: 'handled', run: () => actions.setSurface(surface.getSnapshot().mode === 'agent' ? 'bot' : 'agent') }
-          },
-        }),
-        ...(typeof actions.openInbox === 'function' ? [safeRegister({
-          id: 'ds-bot.open-inbox',
-          label: () => t('Open Inbox'),
-          aliases: ['inbox', 'notifications'],
-          defaults: defaultsOf('KeyI', ['primary']),
-          regions: ['page', 'editable'],
-          resolve: ({ modal }) => {
-            if (surface.getSnapshot().mode !== 'bot') return { status: 'blocked', reason: 'unavailable' }
-            if (modal !== null) return { status: 'blocked', reason: 'modal' }
-            return {
-              status: 'handled',
-              run: () => {
-                if (ui.getSnapshot().inbox) actions.closeInbox?.()
-                else actions.openInbox()
-              },
-            }
-          },
-        })] : []),
-        ...(typeof actions.openBrowser === 'function' ? [safeRegister({
-          id: 'ds-bot.open-browser',
-          label: () => t('Toggle Bot browser'),
-          aliases: ['browser', 'web'],
-          defaults: defaultsOf('KeyB', ['primary']),
-          regions: ['page', 'editable'],
-          resolve: ({ modal }) => {
-            const snap = roster.getSnapshot()
-            if (surface.getSnapshot().mode !== 'bot' || snap.browser === false) return { status: 'blocked', reason: 'unavailable' }
-            if (modal !== null) return { status: 'blocked', reason: 'modal' }
-            const botId = activeBotTarget()
-            if (!botId) return { status: 'blocked', reason: 'unavailable' }
-            return {
-              status: 'handled',
-              run: () => actions.toggleBrowser(botId),
-            }
-          },
-        })] : []),
-        safeRegister({
-          id: 'ds-bot.group-search',
-          label: () => t('Search in group'),
-          aliases: ['search', 'group'],
-          defaults: defaultsOf('KeyF', ['primary', 'shift']),
-          regions: ['page', 'editable'],
-          resolve: ({ modal }) => {
-            if (surface.getSnapshot().mode !== 'bot') return { status: 'blocked', reason: 'unavailable' }
-            if (modal !== null) return { status: 'blocked', reason: 'modal' }
-            const current = mainView()
-            const room = current ? roster.getSnapshot().roomsById?.[current] : null
-            return {
-              status: 'handled',
-              run: () => {
-                if (room) actions.openGroupSearch?.(room.id)
-                else actions.openPalette()
-              },
-            }
-          },
-        }),
-        ...Array.from({ length: 9 }, (_, index) => safeRegister({
-          id: `ds-bot.switch-bot-${index + 1}`,
-          label: () => t('Switch to conversation {n}', { n: index + 1 }),
-          aliases: ['bot', 'switch', String(index + 1)],
-          defaults: defaultsOf(`Digit${index + 1}`, ['primary']),
-          regions: ['page', 'editable'],
-          resolve: ({ modal }) => {
-            if (surface.getSnapshot().mode !== 'bot') return { status: 'blocked', reason: 'unavailable' }
-            if (modal !== null) return { status: 'blocked', reason: 'modal' }
-            const targets = visibleSidebarTargets(roster.getSnapshot(), ctx.sessions.list.getSnapshot().byId, mainView())
-            const target = targets[index]
-            if (!target) return { status: 'blocked', reason: 'unavailable' }
-            return {
-              status: 'handled',
-              run: () => (target.kind === 'agent' ? actions.openAgent?.(target.id) : actions.openSession(target.id)),
-            }
-          },
-        })),
-      ]
-      return () => { for (const dispose of disposers) dispose?.() }
-    }, 'ds-bot: bot shortcuts')
+    scope.effect(() => registerPluginShortcuts(scope.shortcuts, {
+      roster,
+      ui,
+      surface,
+      actions,
+      mainView,
+      sessionsById: () => ctx.sessions.list.getSnapshot().byId,
+      onError: (id, error) => {
+        noteClientError(`shortcut:${id}`, error)
+        console.error(`ds-bot: failed to register shortcut "${id}":`, error)
+      },
+    }), 'ds-bot: bot shortcuts')
   })
   // DS Bot holds the settings seat in every mode, Agent mode included: the bundle patch
   // turns DSH's own shell off, and this one draws DSH's settings pages in DS Bot's dialog.

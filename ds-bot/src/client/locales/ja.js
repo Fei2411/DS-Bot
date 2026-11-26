@@ -849,6 +849,7 @@ export const JA = {
   "Mono": "モノクロ",
   "Paper": "ペーパー",
   "Moonlight": "ムーンライト",
+  "Celadon": "青磁",
   "General": "一般",
   "Bots": "Bot",
   "Group chats": "グループチャット",
