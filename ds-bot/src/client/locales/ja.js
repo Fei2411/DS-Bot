@@ -1,6 +1,10 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "What's new in v{version}": "v{version} の新機能",
+  "Got it": "わかりました",
+  "Full changelog": "完全な更新履歴",
+  "No release notes for this version yet.": "このバージョンのリリースノートはまだありません。",
   "Agent preset": "Agent プリセット",
   "Agent preset: {preset}": "Agent プリセット: {preset}",
   "Default (Standard)": "デフォルト（標準）",

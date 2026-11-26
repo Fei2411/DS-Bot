@@ -1,6 +1,10 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  "What's new in v{version}": 'v{version} 새로운 기능',
+  'Got it': '확인',
+  'Full changelog': '전체 변경 내역',
+  'No release notes for this version yet.': '이 버전의 릴리스 노트가 아직 없습니다.',
   'Agent preset': 'Agent 프리셋',
   'Agent preset: {preset}': 'Agent 프리셋: {preset}',
   'Default (Standard)': '기본값 (표준)',
