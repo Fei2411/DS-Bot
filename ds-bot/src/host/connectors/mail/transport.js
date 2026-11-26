@@ -304,9 +304,11 @@ export function connectGmail(account, deps = {}) {
   }
   const header = (list, name) => list?.find(h => h.name.toLowerCase() === name.toLowerCase())?.value ?? ''
   const decode = data => data === undefined ? '' : Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
-  const walk = (part, out = { text: '', attachments: [] }) => {
+  const walk = (part, out = { text: '', html: '', attachments: [] }) => {
     if (part === undefined) return out
-    if (part.mimeType === 'text/plain' && part.body?.data) out.text += decode(part.body.data)
+    const mime = String(part.mimeType ?? '').toLowerCase()
+    if (!part.filename && mime === 'text/plain' && part.body?.data) out.text += decode(part.body.data)
+    else if (!part.filename && mime === 'text/html' && part.body?.data) out.html += decode(part.body.data)
     if (part.filename) out.attachments.push({ filename: part.filename, size: part.body?.size ?? 0, attachmentId: part.body?.attachmentId })
     for (const child of part.parts ?? []) walk(child, out)
     return out
@@ -317,7 +319,7 @@ export function connectGmail(account, deps = {}) {
     return {
       uid: full.id, folder: 'gmail', messageId: header(headers, 'Message-ID'),
       subject: header(headers, 'Subject'), from: header(headers, 'From'), to: header(headers, 'To'), cc: header(headers, 'Cc'),
-      date: header(headers, 'Date'), text: body.text, attachments: body.attachments, threadId: full.threadId,
+      date: header(headers, 'Date'), text: body.text.trim() !== '' ? body.text : (body.html ? htmlToText(body.html) : body.text), attachments: body.attachments, threadId: full.threadId,
       references: [header(headers, 'References'), header(headers, 'In-Reply-To')].filter(Boolean),
     }
   }
@@ -373,9 +375,66 @@ export function connectGmail(account, deps = {}) {
   }
 }
 
-const gmailRaw = async (from, { to, cc, bcc, subject, text, inReplyTo, references }) => {
+const HTML_ENTITIES = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+function stripHtmlBlock(source, tag) {
+  // ASCII-only lowercasing preserves 1:1 string indices even around Unicode characters like 'İ'.
+  const lower = source.replace(/[A-Z]/g, c => c.toLowerCase())
+  const open = `<${tag}`
+  const close = `</${tag}`
+  let out = ''
+  let pos = 0
+  while (pos < source.length) {
+    const start = lower.indexOf(open, pos)
+    if (start === -1) { out += source.slice(pos); break }
+    const next = lower[start + open.length]
+    if (next !== undefined && !/[\s>/]/.test(next)) {
+      out += source.slice(pos, start + open.length)
+      pos = start + open.length
+      continue
+    }
+    out += source.slice(pos, start)
+    const openEnd = lower.indexOf('>', start + open.length)
+    if (openEnd === -1) break
+    if (lower[openEnd - 1] === '/') {
+      pos = openEnd + 1
+      continue
+    }
+    const endTag = lower.indexOf(close, openEnd + 1)
+    if (endTag === -1) break
+    const closeEnd = lower.indexOf('>', endTag + close.length)
+    pos = closeEnd === -1 ? source.length : closeEnd + 1
+  }
+  return out
+}
+const decodeHtmlEntities = (text) => text.replace(/&(?:#x([0-9a-f]+)|#(\d+)|([a-z]+));/gi, (full, hex, dec, name) => {
+  if (hex !== undefined) {
+    const n = parseInt(hex, 16)
+    return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : full
+  }
+  if (dec !== undefined) {
+    const n = Number(dec)
+    return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : full
+  }
+  return HTML_ENTITIES[name.toLowerCase()] ?? full
+})
+const htmlToText = (html) => decodeHtmlEntities(
+  stripHtmlBlock(stripHtmlBlock(String(html ?? ''), 'style'), 'script')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|tr|h[1-6]|blockquote)>/gi, '\n')
+    .replace(/<[^>]+>/g, ''),
+)
+  .replace(/[ \t]+\n/g, '\n')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim()
+
+const gmailRaw = async (from, { to, cc, bcc, subject, text, attachments = [], inReplyTo, references }) => {
   const MailComposer = (await import('nodemailer/lib/mail-composer')).default
-  const raw = await new MailComposer({ from, to, cc, bcc, subject, text, ...(inReplyTo ? { inReplyTo, references: references ?? [inReplyTo] } : {}) }).compile().build()
+  const list = Array.isArray(attachments) ? attachments : []
+  const raw = await new MailComposer({
+    from, to, cc, bcc, subject, text,
+    ...(list.length > 0 ? { attachments: list } : {}),
+    ...(inReplyTo ? { inReplyTo, references: references ?? [inReplyTo] } : {}),
+  }).compile().build()
   return raw.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 const gmailDraft = async (send, from, args) => {

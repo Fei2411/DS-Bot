@@ -10,8 +10,10 @@ import { PRESETS, presetOf, mailSecretName } from './presets.js'
 import { connectImap, connectGmail } from './transport.js'
 import { output } from '../../tools.js'
 import { matchSecretRefs } from '../../secret-refs.js'
-import { refreshTokens, invalidGrant, discover, beginBrowser, exchange } from '../oauth.js'
+import { refreshTokens, invalidGrant, discover, rediscover, beginBrowser, exchange } from '../oauth.js'
 
+const GOOGLE_ISSUER = 'https://accounts.google.com'
+const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
 const GOOGLE_SCOPES = 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.modify'
 const MAX_REQUESTS = 20
 
@@ -45,6 +47,8 @@ export function install(rt, host) {
   const sessions = new Map()
   const connecting = new Map()
   const adding = new Map()
+  const refreshing = new Map()
+  let googleDiscovery
 
   const accounts = () => state.connectors?.mail?.accounts ?? {}
   const accountList = () => Object.values(accounts())
@@ -88,7 +92,7 @@ export function install(rt, host) {
           await rt.resolveExternalForBot(undefined, { names: [tokenName] }).catch(() => {})
         }
         const token = () => rt.secretValue(tokenName)
-        const session = connectGmail(account, { token, fetch: rt.config.mail?.fetch, refresh: () => refreshGoogle(account) })
+        const session = connectGmail(account, { token, fetch: rt.config.mail?.fetch, refresh: () => refreshGoogle(accounts()[key] ?? account) })
         sessions.set(key, session)
         return session
       }
@@ -107,30 +111,95 @@ export function install(rt, host) {
     } finally { connecting.delete(key) }
   }
 
+  async function resolveGoogleDiscovery() {
+    if (googleDiscovery !== undefined) return googleDiscovery
+    const found = await rediscover(
+      { authorizationServerUrl: GOOGLE_ISSUER, resource: undefined, scope: GOOGLE_SCOPES },
+      { fetch: rt.config.mail?.fetch },
+    )
+    if (found.metadata?.token_endpoint) {
+      googleDiscovery = found
+      return found
+    }
+    // Without metadata the OAuth SDK falls back to accounts.google.com/token, which returns 400.
+    return {
+      authorizationServerUrl: GOOGLE_ISSUER,
+      metadata: {
+        issuer: GOOGLE_ISSUER,
+        token_endpoint: GOOGLE_TOKEN_ENDPOINT,
+        token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
+      },
+      resource: undefined,
+      scope: GOOGLE_SCOPES,
+    }
+  }
+
   // Gmail tokens refresh through the same OAuth rules as connectors.
   async function refreshGoogle(account) {
-    if (rt.readOnly() !== undefined) { await rt.loadSecrets(); return false }
-    const refresh = rt.secretValue(mailSecretName(account.address, 'REFRESH'))
-    if (refresh === undefined) return false
-    try {
-      const client = googleClient()
-      const tokens = await refreshTokens(
-        { authorizationServerUrl: 'https://accounts.google.com', metadata: undefined, resource: undefined },
-        { client_id: client.id, client_secret: client.secret },
-        refresh,
-        { scope: GOOGLE_SCOPES, fetch: rt.config.mail?.fetch },
-      )
-      await host.secrets.writeSecret(mailSecretName(account.address, 'TOKEN'), tokens.access_token, `Mailbox ${account.address}`)
-      if (typeof tokens.refresh_token === 'string' && tokens.refresh_token !== '') {
-        await host.secrets.writeSecret(mailSecretName(account.address, 'REFRESH'), tokens.refresh_token, `Mailbox ${account.address}`).catch(() => {})
+    if (disposed) return false
+    if (rt.readOnly?.() !== undefined) { await rt.loadSecrets?.(); return false }
+    const key = account.id ?? account.address
+    if (refreshing.has(key)) return refreshing.get(key)
+    const run = (async () => {
+      const tokenName = mailSecretName(account.address, 'TOKEN')
+      const refreshName = mailSecretName(account.address, 'REFRESH')
+      const liveAccount = () => (account.id !== undefined ? accounts()[account.id] : undefined)
+      const hadLive = liveAccount() !== undefined
+      const gone = () => disposed || (hadLive && liveAccount() === undefined)
+      if (typeof rt.resolveExternalForBot === 'function') {
+        await rt.resolveExternalForBot(undefined, { names: [refreshName] }).catch(() => {})
       }
-      rt.warn('ds-bot: connector mail token refresh succeeded (client: manual/Google)')
-      return true
-    } catch (error) {
-      if (invalidGrant(error)) account.error = 'Sign in again'
-      rt.warn('ds-bot: connector mail token refresh failed (client: manual/Google; %s)', invalidGrant(error) ? 'invalid_grant' : 'refresh error')
-      return false
-    }
+      if (gone()) return false
+      const tokenBefore = rt.secretValue(tokenName)
+      const refresh = rt.secretValue(refreshName)
+      if (typeof refresh !== 'string' || refresh === '') {
+        const target = liveAccount() ?? account
+        target.error = 'Sign in again'
+        await rt.save?.().catch(() => {})
+        rt.warn('ds-bot: connector mail token refresh failed (client: manual/Google; missing refresh token)')
+        return false
+      }
+      const rotated = () => rt.secretValue(refreshName) !== refresh || rt.secretValue(tokenName) !== tokenBefore
+      try {
+        const client = googleClient()
+        const discovery = await resolveGoogleDiscovery()
+        if (gone()) return false
+        const tokens = await refreshTokens(
+          discovery,
+          { client_id: client.id, client_secret: client.secret },
+          refresh,
+          { scope: GOOGLE_SCOPES, fetch: rt.config.mail?.fetch },
+        )
+        if (gone()) return false
+        if (rotated()) return Boolean(rt.secretValue(tokenName))
+        await host.secrets.writeSecret(tokenName, tokens.access_token, `Mailbox ${account.address}`)
+        if (typeof tokens.refresh_token === 'string' && tokens.refresh_token !== '') {
+          await host.secrets.writeSecret(refreshName, tokens.refresh_token, `Mailbox ${account.address}`).catch(() => {
+            rt.warn('ds-bot: connector mail refresh token rotation save failed (client: manual/Google)')
+          })
+        }
+        if (gone()) return false
+        const target = liveAccount() ?? account
+        if (target.error !== undefined) {
+          delete target.error
+          await rt.save?.().catch(() => {})
+        }
+        rt.warn('ds-bot: connector mail token refresh succeeded (client: manual/Google)')
+        return true
+      } catch (error) {
+        if (gone()) return false
+        if (rotated()) return Boolean(rt.secretValue(tokenName))
+        if (invalidGrant(error)) {
+          const target = liveAccount() ?? account
+          target.error = 'Sign in again'
+          await rt.save?.().catch(() => {})
+        }
+        rt.warn('ds-bot: connector mail token refresh failed (client: manual/Google; %s)', invalidGrant(error) ? 'invalid_grant' : 'refresh error')
+        return false
+      }
+    })()
+    refreshing.set(key, run)
+    try { return await run } finally { refreshing.delete(key) }
   }
 
   const workDir = (exec) => {
@@ -550,9 +619,13 @@ export function install(rt, host) {
   }
   async function beginGoogle(address) {
     if (disposed) throw new Error('Mail connector is closed')
+    if (rt.readOnly?.() !== undefined) throw new Error(rt.readOnly())
     const client = googleClient()
-    const discovery = await discover('https://accounts.google.com', { originFallback: true, fetch: rt.config.mail?.fetch ?? fetch })
+    const discovery = await discover(GOOGLE_ISSUER, { originFallback: true, fetch: rt.config.mail?.fetch ?? fetch })
     if (disposed) throw new Error('Mail connector is closed')
+    if (discovery.metadata?.token_endpoint) {
+      googleDiscovery = { authorizationServerUrl: discovery.authorizationServerUrl, metadata: discovery.metadata, resource: undefined, scope: GOOGLE_SCOPES }
+    }
     dropGooglePending(address)
     const pending = { discovery, address: address || undefined, key: address }
     googlePendings.set(address, pending)
@@ -595,9 +668,13 @@ export function install(rt, host) {
         if (disposed) throw new Error('Mail connector is closed')
         return mailView()
       }
+      const authUrl = new URL(url)
+      authUrl.searchParams.set('access_type', 'offline')
+      authUrl.searchParams.set('prompt', 'consent')
+      if (address) authUrl.searchParams.set('login_hint', address)
       pending.codeVerifier = codeVerifier
       pending.state = state
-      pending.url = url
+      pending.url = authUrl.toString()
       pending.timer = setTimeout(() => dropGooglePending(address), SIGN_IN_TIMEOUT_MS)
       pending.timer.unref?.()
     } catch (error) {
@@ -608,6 +685,7 @@ export function install(rt, host) {
     return mailView()
   }
   async function googleCode(body, { response } = {}) {
+    if (rt.readOnly?.() !== undefined) throw new Error(rt.readOnly())
     const address = String(body.address ?? '').toLowerCase()
     const pending = googlePendings.get(address) ?? [...googlePendings.values()][0]
     if (pending === undefined) throw new Error('No Google sign-in is waiting')
@@ -623,22 +701,46 @@ export function install(rt, host) {
     const client = googleClient()
     const tokens = await exchange(pending.discovery, { client_id: client.id, client_secret: client.secret }, { code, codeVerifier: pending.codeVerifier, redirectUri: pending.redirectUri, iss: url?.searchParams.get('iss') ?? undefined }, { fetch: rt.config.mail?.fetch })
     if (disposed) throw new Error('Mail connector is closed')
-    const email = pending.address || await googleEmail(tokens.access_token)
+    // Prefer the email Google actually authorized; fall back to the form address only if userinfo is unavailable.
+    const email = await googleEmail(tokens.access_token).catch((error) => {
+      if (pending.address) return pending.address
+      throw error
+    })
     if (disposed) throw new Error('Mail connector is closed')
-    const id = `g${randomUUID().slice(0, 8)}`
-    const account = { id, address: email, provider: 'gmail', auth: 'google', createdAt: Date.now() }
-    state.connectors = { ...(state.connectors ?? {}), mail: { ...state.connectors?.mail, accounts: { ...accounts(), [id]: account } } }
+    const existing = accountOf(email)
+    const id = existing?.id ?? `g${randomUUID().slice(0, 8)}`
+    const account = { id, address: email, provider: 'gmail', auth: 'google', createdAt: existing?.createdAt ?? Date.now() }
+    const oldSession = sessions.get(id)
+    if (oldSession !== undefined) {
+      sessions.delete(id)
+      await oldSession.close?.().catch(() => {})
+    }
     await host.secrets.writeSecret(mailSecretName(email, 'TOKEN'), tokens.access_token, `Mailbox ${email}`)
-    if (typeof tokens.refresh_token === 'string') await host.secrets.writeSecret(mailSecretName(email, 'REFRESH'), tokens.refresh_token, `Mailbox ${email}`)
+    if (typeof tokens.refresh_token === 'string' && tokens.refresh_token !== '') {
+      await host.secrets.writeSecret(mailSecretName(email, 'REFRESH'), tokens.refresh_token, `Mailbox ${email}`)
+    }
+    state.connectors = { ...(state.connectors ?? {}), mail: { ...state.connectors?.mail, accounts: { ...accounts(), [id]: account } } }
     await rt.save()
+    if (existing?.auth === 'password') {
+      const shared = accountList().some(other => other.id !== id && other.address === email && other.auth === 'password')
+      const passName = mailSecretName(email, 'PASSWORD')
+      if (!shared && rt.secretValue(passName) !== undefined) await rt.secretEndpoint?.('secret-delete', { name: passName }).catch(() => {})
+    }
     syncTools()
     return mailView()
   }
   async function googleEmail(token) {
-    const response = await (rt.config.mail?.fetch ?? fetch)('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${token}` } })
+    const response = await (rt.config.mail?.fetch ?? fetch)('https://openidconnect.googleapis.com/v1/userinfo', {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20_000),
+    })
+    if (!response.ok) {
+      await response.body?.cancel?.().catch(() => {})
+      throw new Error(`Google userinfo answered ${response.status}`)
+    }
     const body = await response.json().catch(() => ({}))
-    if (typeof body.email !== 'string') throw new Error('Google did not say which account this is')
-    return body.email.toLowerCase()
+    if (typeof body.email !== 'string' || body.email.trim() === '') throw new Error('Google did not say which account this is')
+    return body.email.trim().toLowerCase()
   }
 
   const mailView = () => ({

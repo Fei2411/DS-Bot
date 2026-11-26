@@ -993,39 +993,241 @@ test('Google sign-in retries get a fresh URL and a success clears the pending ro
   assert.ok(!view.pending?.length, 'pending row must be gone after a successful sign-in: ' + JSON.stringify({ second: second.pending[0].url, leftover: view.pending }))
 })
 
-test('Google mailbox refresh reports success and failure without credentials or addresses', async () => {
+test('Google mailbox refresh uses discovered/Google token endpoint, deduplicates, handles races, and persists error state', async (t) => {
+  const oldId = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+  const oldSecret = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = 'google-refresh-client'
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = 'google-refresh-secret'
+  t.after(() => {
+    if (oldId === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = oldId
+    if (oldSecret === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = oldSecret
+  })
+
   const { install } = await import('../src/host/connectors/mail/index.js')
   const logs = []
+  const tokenCalls = []
   const secrets = new Map()
   const address = addressAt('gmail.com')
-  secrets.set(mailSecretName(address, 'REFRESH'), 'google-refresh-private')
+  const tokenKey = mailSecretName(address, 'TOKEN')
+  const refreshKey = mailSecretName(address, 'REFRESH')
+  secrets.set(tokenKey, 'google-access-old')
+  secrets.set(refreshKey, 'google-refresh-private')
   let fail = false
+  let nextRefreshReply = 'google-refresh-rotated'
+  let saves = 0
+  let readOnlyReason
+  let releaseToken
+  const googleOidc = {
+    issuer: 'https://accounts.google.com',
+    authorization_endpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+    token_endpoint: 'https://oauth2.googleapis.com/token',
+    token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+  }
+  const liveAccount = { id: 'g1', address, provider: 'gmail', auth: 'google', error: 'Sign in again' }
   const rt = {
-    state: {}, readOnly: () => undefined, secretValue: key => secrets.get(key),
+    state: { connectors: { mail: { accounts: { g1: liveAccount } } } },
+    readOnly: () => readOnlyReason,
+    loadSecrets: async () => {},
+    secretValue: key => secrets.get(key),
+    save: async () => { saves += 1 },
     warn: (...args) => logs.push(args),
-    config: { mail: { fetch: async url => {
-      if (String(url).includes('well-known')) return json(AS)
-      if (String(url).includes('/token')) return fail
-        ? json({ error: 'invalid_grant' }, 400)
-        : json({ access_token: 'google-access-private', token_type: 'Bearer' })
+    config: { mail: { fetch: async (url, init) => {
+      const href = String(url)
+      if (href.includes('.well-known/openid-configuration')) return json(googleOidc)
+      if (href === 'https://accounts.google.com/token') return new Response('<html>400</html>', { status: 400, headers: { 'content-type': 'text/html' } })
+      if (href === 'https://oauth2.googleapis.com/token') {
+        const bodyText = typeof init?.body === 'string' ? init.body : String(init?.body ?? '')
+        const headers = new Headers(init?.headers ?? {})
+        tokenCalls.push({ href, body: bodyText, auth: headers.get('authorization') })
+        if (releaseToken) {
+          const gate = releaseToken
+          releaseToken = undefined
+          await gate
+        }
+        return fail
+          ? json({ error: 'invalid_grant' }, 400)
+          : json({ access_token: 'google-access-private', ...(nextRefreshReply !== undefined ? { refresh_token: nextRefreshReply } : {}), token_type: 'Bearer' })
+      }
       return notFound()
     } } },
   }
   const mail = install(rt, { secrets: { writeSecret: async (key, value) => secrets.set(key, value) } })
-  assert.equal(await mail._internals.refreshGoogle({ address }), true)
+
+  // Pass a stale detached copy of the account; refresh must update the live state object.
+  const staleCopy = { id: 'g1', address, error: 'Sign in again' }
+  let unlock
+  releaseToken = new Promise(resolve => { unlock = resolve })
+  const first = mail._internals.refreshGoogle(staleCopy)
+  const second = mail._internals.refreshGoogle(staleCopy)
+  unlock()
+  assert.deepEqual(await Promise.all([first, second]), [true, true])
+  assert.equal(tokenCalls.length, 1, 'concurrent refreshes for the same account must deduplicate')
+  assert.equal(tokenCalls[0].href, 'https://oauth2.googleapis.com/token')
+  const params = new URLSearchParams(tokenCalls[0].body)
+  assert.equal(params.get('grant_type'), 'refresh_token')
+  assert.equal(params.get('refresh_token'), 'google-refresh-private')
+  const hasClientCreds = (params.get('client_id') === 'google-refresh-client' && params.get('client_secret') === 'google-refresh-secret')
+    || tokenCalls[0].auth === `Basic ${Buffer.from('google-refresh-client:google-refresh-secret').toString('base64')}`
+  assert.equal(hasClientCreds, true, 'refresh request must send client credentials')
+  assert.equal(secrets.get(tokenKey), 'google-access-private')
+  assert.equal(secrets.get(refreshKey), 'google-refresh-rotated')
+  assert.equal(liveAccount.error, undefined, 'successful refresh must clear error on the live account object')
+  assert.equal(saves, 1)
+
+  // Empty refresh_token in reply must not clobber the stored refresh token.
+  nextRefreshReply = ''
+  assert.equal(await mail._internals.refreshGoogle(staleCopy), true)
+  assert.equal(secrets.get(refreshKey), 'google-refresh-rotated')
+
+  // invalid_grant must stamp error on the live account and persist.
   fail = true
-  assert.equal(await mail._internals.refreshGoogle({ address }), false)
+  assert.equal(await mail._internals.refreshGoogle(staleCopy), false)
+  assert.equal(liveAccount.error, 'Sign in again')
+  assert.equal(saves, 2)
   assert.match(JSON.stringify(logs), /succeeded.*manual\/Google/)
   assert.match(JSON.stringify(logs), /failed.*manual\/Google/)
   assert.equal(JSON.stringify(logs).includes('private'), false)
   assert.equal(JSON.stringify(logs).includes(address), false)
+
+  // Missing or empty REFRESH secret must mark the account as needing sign-in rather than staying stuck ready.
+  delete liveAccount.error
+  secrets.delete(refreshKey)
+  assert.equal(await mail._internals.refreshGoogle(staleCopy), false)
+  assert.equal(liveAccount.error, 'Sign in again')
+  assert.equal(saves, 3)
+
+  delete liveAccount.error
+  secrets.set(refreshKey, '')
+  assert.equal(await mail._internals.refreshGoogle(staleCopy), false)
+  assert.equal(liveAccount.error, 'Sign in again')
+  assert.equal(saves, 4)
+
+  // Read-only windows must not refresh.
+  secrets.set(refreshKey, 'google-refresh-rotated')
+  readOnlyReason = 'Read-only window'
+  assert.equal(await mail._internals.refreshGoogle(staleCopy), false)
+  readOnlyReason = undefined
+
+  // In-flight refresh must not resurrect secrets or save if the account is removed mid-flight.
+  fail = false
+  let unlockRemoved
+  releaseToken = new Promise(resolve => { unlockRemoved = resolve })
+  const inFlight = mail._internals.refreshGoogle(liveAccount)
+  delete rt.state.connectors.mail.accounts.g1
+  secrets.delete(tokenKey)
+  secrets.delete(refreshKey)
+  unlockRemoved()
+  assert.equal(await inFlight, false)
+  assert.equal(secrets.has(tokenKey), false, 'removed account must not have its token recreated by an in-flight refresh')
+
+  // Even if discovery fails, refresh must still fall back to oauth2.googleapis.com/token with client credentials.
+  secrets.set(refreshKey, 'google-refresh-fallback')
+  const fallbackCalls = []
+  const fallbackMail = install({
+    state: {}, readOnly: () => undefined, secretValue: key => secrets.get(key), warn: () => {},
+    config: { mail: { fetch: async (url, init) => {
+      const href = String(url)
+      if (href.includes('well-known')) return notFound()
+      const headers = new Headers(init?.headers ?? {})
+      fallbackCalls.push({ href, body: String(init?.body ?? ''), auth: headers.get('authorization') })
+      if (href === 'https://oauth2.googleapis.com/token') return json({ access_token: 'google-access-fallback', token_type: 'Bearer' })
+      return new Response('bad endpoint', { status: 400 })
+    } } },
+  }, { secrets: { writeSecret: async (key, value) => secrets.set(key, value) } })
+  assert.equal(await fallbackMail._internals.refreshGoogle({ id: 'g2', address }), true)
+  assert.equal(fallbackCalls.length, 1)
+  assert.equal(fallbackCalls[0].href, 'https://oauth2.googleapis.com/token')
+  const fbParams = new URLSearchParams(fallbackCalls[0].body)
+  assert.equal(fbParams.get('grant_type'), 'refresh_token')
+  const fbHasCreds = (fbParams.get('client_id') === 'google-refresh-client' && fbParams.get('client_secret') === 'google-refresh-secret')
+    || fallbackCalls[0].auth === `Basic ${Buffer.from('google-refresh-client:google-refresh-secret').toString('base64')}`
+  assert.equal(fbHasCreds, true)
+  assert.equal(secrets.get(tokenKey), 'google-access-fallback')
 })
 
-test('gmail transport: search, read, draft, send, modify, trash, and one refresh on 401', async () => {
+test('Google sign-in requests offline consent, trusts userinfo email, merges re-sign-in, and honors readOnly', async (t) => {
+  const oldId = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+  const oldSecret = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = 'google-test'
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = 'google-test-secret'
+  t.after(() => {
+    if (oldId === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = oldId
+    if (oldSecret === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = oldSecret
+  })
+  const realEmail = 'actual@example.com'
+  const typedEmail = 'typed@example.com'
+  const home = teamHome({
+    connectors: {
+      mail: {
+        accounts: {
+          gexisting: { id: 'gexisting', address: realEmail, provider: 'gmail', auth: 'google', error: 'Sign in again', createdAt: 42 },
+        },
+      },
+    },
+  })
+  const ctx = fakeContext()
+  let tokenReply = { access_token: 'tok-new', refresh_token: 'ref-new', expires_in: 3600, token_type: 'Bearer' }
+  const rt = createRuntime(ctx, { home, github: false, mail: { fetch: async url => {
+    const u = String(url)
+    if (u.includes('oauth-authorization-server')) return json(AS)
+    if (u === 'https://as.test/token') return json(tokenReply)
+    if (u.includes('userinfo')) return json({ email: realEmail.toUpperCase() })
+    return notFound()
+  } } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+
+  const view = await rt.connectorEndpoint('mail-account-add', { address: typedEmail, google: true })
+  const authUrl = new URL(view.pending[0].url)
+  assert.equal(authUrl.searchParams.get('access_type'), 'offline')
+  assert.equal(authUrl.searchParams.get('prompt'), 'consent')
+  assert.equal(authUrl.searchParams.get('login_hint'), typedEmail)
+
+  const state = authUrl.searchParams.get('state')
+  const after = await rt.connectorEndpoint('mail-sign-in-code', { address: typedEmail, input: `${authUrl.searchParams.get('redirect_uri')}?code=C1&state=${state}` })
+  assert.equal(after.accounts.length, 1, 're-sign-in must merge into existing account rather than duplicate')
+  assert.equal(after.accounts[0].id, 'gexisting')
+  assert.equal(after.accounts[0].address, realEmail, 'userinfo email must override mismatched form input')
+  assert.equal(after.accounts[0].state, 'ready')
+  assert.equal(after.accounts[0].error, undefined)
+
+  // A subsequent sign-in returning an empty refresh_token must keep the stored refresh token intact.
+  tokenReply = { access_token: 'tok-second', refresh_token: '', expires_in: 3600, token_type: 'Bearer' }
+  const view2 = await rt.connectorEndpoint('mail-account-add', { google: true })
+  const authUrl2 = new URL(view2.pending[0].url)
+  await rt.connectorEndpoint('mail-sign-in-code', { input: `${authUrl2.searchParams.get('redirect_uri')}?code=C2&state=${authUrl2.searchParams.get('state')}` })
+  assert.equal(rt.secretValue(mailSecretName(realEmail, 'TOKEN')), 'tok-second')
+  assert.equal(rt.secretValue(mailSecretName(realEmail, 'REFRESH')), 'ref-new')
+
+  // Read-only windows must reject starting or completing Google sign-in.
+  const { install } = await import('../src/host/connectors/mail/index.js')
+  const roMail = install({
+    state: {}, readOnly: () => 'Read-only window', loadSecrets: async () => {},
+    secretValue: () => undefined, warn: () => {}, config: { mail: {} },
+  }, { secrets: { writeSecret: async () => {} }, reason: e => String(e) })
+  await assert.rejects(() => roMail.endpoint('mail-account-add', { google: true }), /Read-only window/)
+  await assert.rejects(() => roMail.endpoint('mail-sign-in-code', { input: 'C' }), /Read-only window/)
+})
+
+test('gmail transport: search, read (plain + html edge cases), draft, send with attachments, modify, trash, and one refresh on 401', async (t) => {
   const calls = []
   let refreshes = 0
   let authed = false
-  const fakeFetch = async (url) => {
+  let sentRaw
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-gmail-att-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const attPath1 = join(dir, 'report.txt')
+  const attPath2 = join(dir, '会议纪要.txt')
+  writeFileSync(attPath1, 'hello attachment payload')
+  writeFileSync(attPath2, 'second attachment content')
+  const htmlOnly = '<html><head><style/> <style>.a{color:red}</style><script src="x.js"/><script>alert(1)</script></head><body><p>İstanbul &amp;#65; &#x27;ok&#x27;</p><div>Line 2<br/>Line 3</div></body></html>'
+  const fakeFetch = async (url, init) => {
     const u = String(url?.url ?? url)
     calls.push(u)
     if (!authed && u.includes('/messages/1?format=full')) {
@@ -1034,20 +1236,50 @@ test('gmail transport: search, read, draft, send, modify, trash, and one refresh
     }
     if (u.includes('/messages?') || u.includes('maxResults')) return json({ messages: [{ id: '1' }] })
     if (u.includes('metadataHeaders')) return json({ id: '1', labelIds: ['UNREAD'], payload: { headers: [{ name: 'Subject', value: 'S' }, { name: 'From', value: 'a@b' }] } })
+    if (u.includes('/messages/2?format=full')) return json({
+      id: '2', threadId: 't2',
+      payload: {
+        headers: [{ name: 'Subject', value: 'HTML' }],
+        mimeType: 'multipart/mixed',
+        parts: [
+          {
+            mimeType: 'multipart/alternative',
+            parts: [
+              { mimeType: 'text/plain', body: { data: Buffer.from('  \r\n ').toString('base64url') } },
+              { mimeType: 'text/html', body: { data: Buffer.from(htmlOnly).toString('base64url') } },
+            ],
+          },
+          { mimeType: 'text/plain', filename: 'note.txt', body: { size: 12, attachmentId: 'att-1', data: Buffer.from('ATTACHMENT TEXT').toString('base64url') } },
+        ],
+      },
+    })
     if (u.includes('?format=full')) return json({ id: '1', threadId: 't1', payload: { headers: [{ name: 'Subject', value: 'S' }], parts: [{ mimeType: 'text/plain', body: { data: Buffer.from('hi').toString('base64') } }] } })
     if (u.includes('/drafts')) return json({ id: 'd1' })
-    if (u.includes('/messages/send')) return json({ id: 's1' })
+    if (u.includes('/messages/send')) {
+      sentRaw = JSON.parse(init.body).raw
+      return json({ id: 's1' })
+    }
     if (u.includes('/modify')) return json({})
     if (u.includes('/trash')) return json({})
     return json({})
   }
   const { connectGmail } = await import('../src/host/connectors/mail/transport.js')
+  const { simpleParser } = await import('mailparser')
   const gmail = connectGmail({ address: addressAt('gmail.com') }, { token: () => 'G1', fetch: fakeFetch, refresh: async () => { refreshes += 1; return true } })
   const rows = await gmail.search({ subject: 'x' })
   assert.equal(rows.length, 1)
   assert.equal((await gmail.read({ uid: '1' })).messages[0].text, 'hi')
+  const msg2 = (await gmail.read({ uid: '2' })).messages[0]
+  assert.equal(msg2.text, "İstanbul &#65; 'ok'\nLine 2\nLine 3")
+  assert.deepEqual(msg2.attachments.map(a => a.filename), ['note.txt'])
   assert.ok((await gmail.draft({ to: 'a@b', subject: 'd', text: 'x' })).folder)
-  await gmail.send({ to: 'a@b', subject: 's', text: 'x' })
+  await gmail.send({ to: 'a@b', subject: 's', text: 'body text', attachments: null })
+  await gmail.send({ to: 'a@b', subject: 's', text: 'body text', attachments: [{ filename: 'report.txt', path: attPath1 }, { filename: '会议纪要.txt', path: attPath2 }] })
+  const parsed = await simpleParser(Buffer.from(sentRaw, 'base64url'))
+  assert.equal(parsed.attachments.length, 2)
+  assert.deepEqual(parsed.attachments.map(a => a.filename), ['report.txt', '会议纪要.txt'])
+  assert.equal(parsed.attachments[0].content.toString('utf8'), 'hello attachment payload')
+  assert.equal(parsed.attachments[1].content.toString('utf8'), 'second attachment content')
   await gmail.update({ uid: '1', seen: true })
   await gmail.update({ uid: '1', move: 'trash' })
   // The 401 on the first read was refreshed exactly once, then retried.
