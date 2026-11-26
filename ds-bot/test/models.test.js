@@ -340,6 +340,26 @@ test('an attached Session or Agent cannot use a cold listing and matching witnes
   }
 })
 
+// The host does not inject `agents`, and Cordis throws from the property of a service
+// that is not injected: an optional chain on `ctx.agents` cannot guard that read.
+test('a host without the agents service injected still reads a stored selection', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  for (const attached of [false, true]) {
+    const services = storedSessions({ g1: { selection: route } })
+    if (attached) services.agents = { get: () => ({}) }
+    const { rt, selected } = bench({ services })
+    const warnings = []
+    rt.warn = (...args) => warnings.push(args)
+    Object.defineProperty(rt.ctx, 'agents', {
+      get() { throw new Error('cannot get property "agents" without inject') },
+    })
+    rt.state.sessionModelSelections = { g1: route }
+    await rt.selectSessionModel('g1', route)
+    assert.deepEqual(selected, attached ? ['g1:deepseek/v4-flash'] : [])
+    assert.deepEqual(warnings, [])
+  }
+})
+
 test('a provider registering after fallback selection cannot reuse its stale checkpoint', async () => {
   const route = { provider: 'late', model: 'a' }
   const { rt, selected, providers } = bench({

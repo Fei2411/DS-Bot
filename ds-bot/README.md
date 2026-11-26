@@ -81,7 +81,7 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
     workspace: /path/to/workspace   # where the Bots work; default <home>/workspace
     home: /path/to/bot-data         # where the team is saved; default $DSH_HOME/bot
     checkRatio: 0.8                 # share of the model's usable window where the steward decides
-    checkTokens: 380000             # the highest context where it decides, even on a larger window
+    # checkTokens: 380000           # optional absolute token cap on the check line; unset follows the model's window
     browser: true                   # force the Bot browser on or off; default on in Desktop and the desktop app only
     memory: true                    # false turns memory off: no memory tools, section or panel
     memoryReview: true              # false leaves memory to the Bots' own bot_remember calls
@@ -103,7 +103,7 @@ Model providers are set up in DS Bot's **Settings → Models** (or the Main Bot'
 
 **ChatGPT plan (standalone desktop app only)**: in **Models → Providers**, open **OpenAI** or select it under **Add a provider → Known provider**. Choose **Sign in with ChatGPT** and complete sign-in in your browser. If prompted, choose **Enable plan usage** to load the models available through your account, then select one under your Bot's **Model** setting. Use the **ChatGPT (plan)** provider row to refresh models or sign out. The app encrypts the ChatGPT credentials with OS-backed secure storage, separately from OpenAI API keys.
 
-- Give every model a `contextWindow`. DS Bot takes its lines from it: the usable window is the window minus the reply reserve (`maxTokens`), the hard line is 95% of that, and the check line is `checkRatio` of it, capped at `checkTokens` (default 380,000) so a huge window does not keep one part past the point where a provider's prefix cache stops helping. A model without `contextWindow` gets the adapter's default (262,144 tokens for `llm-pi-ai`), which may be wrong for that model; a model that reports no window at all counts as 500,000.
+- Give every model a `contextWindow`. DS Bot takes its lines from it: the usable window is the window minus the reply reserve (`maxTokens`), the hard line is 95% of that, and the check line is `checkRatio` of it (further capped only if you explicitly set `checkTokens`). A model without `contextWindow` gets the adapter's default (262,144 tokens for `llm-pi-ai`), which may be wrong for that model; a model that reports no window at all counts as 500,000.
 - To send images, the provider needs `defaultInput: [ text, image ]`.
 - Keep API keys out of the repository. Use dsh's own key storage or environment variables.
 

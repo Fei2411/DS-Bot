@@ -78,19 +78,19 @@ const form = (extra = {}) => {
   return { tree: () => walk(ServicesForm(props)), log, props }
 }
 
-test('the page shows the real key state and never renders the key value', () => {
+test('the page groups DeepSeek services into 2 clean untitled cards, shows key state, and never renders the key value', () => {
   const { tree } = form()
   const nodes = tree()
-  assert.ok(nodes.some(node => node.props?.title === 'DeepSeek API'))
-  assert.ok(nodes.some(node => node.props?.title === 'Image and document reading'))
-  assert.ok(nodes.some(node => node.props?.title === 'Text to speech'))
-  assert.ok(nodes.some(node => node.props?.title === 'Speech recognition'))
+  const sections = nodes.filter(node => node.type === Section)
+  assert.equal(sections.length, 2, 'must render exactly 2 clean cards (key+search, capabilities)')
+  assert.equal(sections.some(node => node.props?.title), false, 'no heavy stacked sub-headings inside DeepSeek services')
+  const rows = nodes.filter(node => node.type === Row).map(node => node.props.label)
+  assert.deepEqual(rows, ['API key', 'DeepSeek Web Search', 'Image and document reading', 'Read replies aloud', 'Speech recognition'])
   const text = textOf(nodes)
   assert.ok(text.includes('Key set'))
-  assert.ok(text.includes('https://api.deepseek.com'))
+  assert.equal(text.includes('https://api.deepseek.com'), false)
   assert.ok(!text.includes('mock-key'))
-  assert.ok(nodes.some(node => node.props?.hint?.includes('upload selected files to DeepSeek')))
-  assert.ok(!nodes.some(node => node.props?.hint?.includes('stay on this computer')))
+  assert.equal(nodes.some(node => node.props?.hint?.includes('upload selected files to DeepSeek')), false)
   const missing = form({ status: status({ key: { ref: 'deepseek', configured: false } }) }).tree()
   assert.ok(textOf(missing).includes('Needs an API key'))
 })
@@ -101,41 +101,46 @@ test('an enabled preference with a missing key is never shown as ready', () => {
     ocr: { supported: true, enabled: true, configured: false, reason },
     tts: { supported: true, enabled: true, configured: false, reason },
   }) }).tree()
-  const views = nodes.filter(node => node.props?.view)
-  assert.ok(views.length >= 3)
+  const pills = nodes.filter(node => node.props?.className === 'bt-svc-state')
   assert.ok(!textOf(nodes).includes('Ready'))
-  const missing = views.filter(node => node.props.view.state === 'missing')
+  const missing = pills.filter(node => node.props['data-state'] === 'missing')
   assert.equal(missing.length, 2)
-  assert.ok(missing.every(node => node.props.view.text === reason))
+  assert.ok(missing.every(node => textOf(node) === reason))
 })
 
 test('selected dictation is ready only when registered, configured and the Remote exists', () => {
   const picked = { providerId: 'deepseek-asr', language: 'auto' }
-  const ready = form({ selection: picked }).tree().find(node => node.props?.view?.state === 'ready')
-  assert.equal(ready.props.view.text, 'In use')
-  const stateOf = extra => form({ selection: picked, ...extra }).tree().filter(node => node.props?.view).map(node => node.props.view)
-  assert.ok(stateOf({ status: status({ speech: { registered: false, configured: true, reason: 'Voice input is off' } }) })
-    .some(view => view.state === 'missing' && view.text === 'Voice input is off'))
-  assert.ok(stateOf({ status: status({ speech: { registered: true, configured: false, reason: 'Needs an API key' } }) })
-    .some(view => view.state === 'missing'))
-  assert.ok(stateOf({ speechAvailable: false }).some(view => view.state === 'missing'))
-  assert.equal(form({ speechAvailable: true }).tree().filter(node => node.props?.view)[2].props.view.state, 'off')
+  const ready = form({ selection: picked }).tree().find(node => node.props?.className === 'bt-svc-state' && node.props['data-state'] === 'ready' && textOf(node) === 'In use')
+  assert.ok(ready)
+  const pillsOf = extra => form({ selection: picked, ...extra }).tree().filter(node => node.props?.className === 'bt-svc-state')
+  assert.ok(pillsOf({ status: status({ speech: { registered: false, configured: true, reason: 'Voice input is off' } }) })
+    .some(node => node.props['data-state'] === 'missing' && textOf(node) === 'Voice input is off'))
+  assert.ok(pillsOf({ status: status({ speech: { registered: true, configured: false, reason: 'Needs an API key' } }) })
+    .some(node => node.props['data-state'] === 'missing'))
+  assert.ok(pillsOf({ speechAvailable: false }).some(node => node.props['data-state'] === 'missing'))
+  // When speech is unregistered and not selected, show a single calm hint on the Speech recognition row (no separate status line).
+  const offRow = form({ status: status({ speech: { registered: false, configured: false, reason: 'Voice input is off' } }) })
+    .tree().find(node => node.type === Row && node.props.label === 'Speech recognition')
+  assert.equal(offRow.props.hint, 'Voice input is off')
 })
 
-test('a capability that is not ready shows the host reason, not a ready label', () => {
+test('off unconfigured capabilities omit noisy Off footers and red alarms while keeping top amber key pill', () => {
   const reason = 'Add a DeepSeek API key in Models first.'
   const nodes = form({ status: status({
+    key: { ref: 'deepseek', configured: false },
     ocr: { supported: true, enabled: false, configured: false, reason },
     tts: { supported: true, enabled: false, configured: false, reason },
   }) }).tree()
-  const states = nodes.filter(node => node.props?.view?.state === 'missing').map(node => node.props.view.text)
-  assert.ok(states.length >= 2)
-  assert.ok(states.every(text => text === reason))
+  const pills = nodes.filter(node => node.props?.className === 'bt-svc-state')
+  assert.equal(pills.length, 1, 'only the top API key warn pill renders when capabilities are off')
+  assert.equal(pills[0].props['data-state'], 'warn')
+  assert.equal(nodes.some(node => node.props?.className === 'bt-svc-line'), false, 'no separate Off footer lines')
+  assert.equal(textOf(nodes).includes('Ready'), false)
 })
 
 test('enabling OCR saves only the ocr preference', () => {
   const { tree, log } = form()
-  const toggle = tree().find(node => node.type === Switch && node.props.label === 'Use DeepSeek to read images and documents')
+  const toggle = tree().find(node => node.type === Switch && node.props.label === 'Image and document reading')
   assert.equal(toggle.props.on, false)
   assert.equal(toggle.props.disabled, false)
   toggle.props.onChange(true)
@@ -158,14 +163,22 @@ test('text-to-speech is an explicit choice; the voice picker appears only for De
   assert.deepEqual(withTts.log, [['save', { voice: 'tide' }]])
 })
 
-test('the Web search row navigates with the existing Plugins action', () => {
+test('the Web search row navigates to Plugins → Web search via onOpenWebSearch or falls back to onOpenPlugins', () => {
   const { tree, log } = form()
-  const row = tree().find(node => node.type === Row && node.props.label === 'DeepSeek Web Search API')
+  const row = tree().find(node => node.type === Row && node.props.label === 'DeepSeek Web Search')
   assert.ok(row)
-  assert.equal(row.props.hint, 'Find it in Plugins → Web search.')
+  assert.equal(row.props.hint, undefined)
   const button = walk(row).find(node => node.type === 'button' && textOf(node) === 'Open Plugins')
   button.props.onClick()
   assert.deepEqual(log, [['plugins']])
+
+  const pluginHits = []
+  const own = form({ onOpenWebSearch: () => pluginHits.push('plugins:web-search') })
+  const ownRow = own.tree().find(node => node.type === Row && node.props.label === 'DeepSeek Web Search')
+  assert.equal(ownRow.props.hint, undefined)
+  const ownBtn = walk(ownRow).find(node => node.type === 'button' && textOf(node) === 'Configure')
+  ownBtn.props.onClick()
+  assert.deepEqual(pluginHits, ['plugins:web-search'])
 })
 
 test('dictation needs a registered, configured provider; setup and key entries are shown otherwise', () => {
@@ -175,7 +188,7 @@ test('dictation needs a registered, configured provider; setup and key entries a
   assert.ok(byText(noService, 'Set up voice input'))
   assert.ok(!byText(noService, 'Use DeepSeek for dictation'))
   const noKey = form({ status: status({ speech: { registered: true, configured: false, reason: 'Needs an API key' } }) }).tree()
-  assert.ok(byText(noKey, 'Manage models'))
+  assert.ok(byText(noKey, 'Providers'))
   const inUse = form({ selection: { providerId: 'deepseek-asr' } }).tree()
   assert.ok(!byText(inUse, 'Use DeepSeek for dictation'))
   assert.ok(textOf(inUse).includes('In use'))

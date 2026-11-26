@@ -35,15 +35,22 @@ export const emptyAccelQueueKey = (event, input) => event.key === 'Enter'
   && emptyPlainDraft(input)
   && Array.isArray(input.queue) && input.queue.length > 0
 
-// Steers the user's queued messages in FIFO order, like the queue dock's steer
-// button per row. An Agent that stopped between read and steer
-// (session/steer-unavailable) or a row it already claimed
-// (session/queue-item-not-found) converges silently; anything else reports.
-export const steerQueued = async (session) => {
+// Steers the user's queued messages in FIFO order. When the host supports atomic
+// batch steering (`steerBatch`), every queued user row moves together in one
+// step so multiple messages never race or cascade-cut across per-row RPCs.
+// Otherwise falls back to the queue dock's per-row steer verb; an Agent that
+// stopped between read and steer (`session/steer-unavailable`) or a row it
+// already claimed (`session/queue-item-not-found`) converges silently.
+export const steerQueued = async (session, steerBatch) => {
   try {
     const queued = session.projections.faceOf('inbox').getSnapshot()?.['next-turn'] ?? []
-    for (const item of queued) {
-      if (item.source?.kind !== 'user') continue
+    const userItems = queued.filter(item => item.source?.kind === 'user')
+    if (userItems.length === 0) return 'done'
+    if (typeof steerBatch === 'function') {
+      const outcome = await steerBatch(userItems.map(item => item.id))
+      if (outcome === 'done' || outcome === 'failed') return outcome
+    }
+    for (const item of userItems) {
       const result = await session.updateQueue(item.id, { kind: 'steer' })
       if (result.ok) continue
       return result.error.code === 'session/steer-unavailable' || result.error.code === 'session/queue-item-not-found' ? 'done' : 'failed'

@@ -140,7 +140,7 @@ export function Settings({ navigation }: { navigation?: any }) {
             end={<Switch value={notifyPrefs.banners} onValueChange={on => set('banners', on ? 'on' : 'off')} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />}
           />
         )}
-        <Choice label={t('Enter sends message')} value={enterMode(prefs)} onPick={next => set('enterToSend', next)}
+        <Choice label={t('Enter sends message')} value={enterMode(prefs, Platform.OS)} onPick={next => set('enterToSend', next)}
           options={[{ id: 'follow', label: t('Follow computer') }, { id: 'send', label: t('Always send') }, { id: 'newline', label: t('Always newline') }]} />
       </Section>
       {/* The desktop settings pages, in the desktop's order. */}

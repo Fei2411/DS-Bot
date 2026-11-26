@@ -25,6 +25,7 @@
   "main": "plugin.js",
   "exports": {
     ".": "./plugin.js",
+    "./socket-tos-guard": "./src/host/socket-tos-guard.js",
     "./client": "./client.js",
     "./plugin-sdk": "./src/host/plugins/sdk.js",
     "./browser-provider": "./src/host/plugins/sdk.js",

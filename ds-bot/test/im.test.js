@@ -4812,22 +4812,25 @@ test('merged Web + IM delegate_work work stores mixed marker and drops IM origin
   const dispatchId = firstSent.source.exchangeId
   s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
-  // 2) Before Writer reads it, a Web turn sends another delegate_work to Writer -> merges into the same work and marks imOriginMixed.
+  // Before Writer reads the first request, receive an unrelated Web assignment.
   s.emitEvent('a', 'turn/start', { turn: 2 })
   s.emitEvent('a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Web private check' }] })
   await tool('delegate_work', { to: 'Writer', goal: 'Web 私密内容' }, 'a')
-  assert.deepEqual(s.rt.workImOrigin(dispatchId), { mixed: true })
+  assert.ok(s.rt.workImOrigin(dispatchId)?.connId)
   s.emitEvent('a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
 
-  // 3) Writer answers the merged work -> imReplyOrigins records { mixed: true }.
+  // Reply to the Web assignment first. It must not inherit the other work's IM origin.
   const mergedSent = s.agentOf('b').lastFollowup
+  const webId = mergedSent.source.exchangeId
+  assert.notEqual(webId, dispatchId)
+  assert.equal(s.rt.workImOrigin(webId), undefined)
   s.emitEvent('b', 'turn/start', { turn: 1 })
   s.emitEvent('b', 'user/message', { source: mergedSent.source, content: mergedSent.content })
   s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: '包含 Web 私密内容的合并答复' }] } })
   s.emitEvent('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await waitFor(() => s.agentOf('a').lastFollowup?.source?.replyTo === dispatchId)
+  await waitFor(() => s.agentOf('a').lastFollowup?.source?.replyTo === webId)
   const mixedReply = s.agentOf('a').lastFollowup
-  assert.equal(s.rt.imReplyOrigin(dispatchId)?.mixed, true)
+  assert.equal(s.rt.imReplyOrigin(webId), undefined)
 
   // 4) Even if the mixed reply coalesces into an active IM DM turn on Chief, dropOrigin prevents any leak to dm-u1.
   s.fake.sent.length = 0
@@ -5668,4 +5671,25 @@ test('drainRoomInbox classifies drained user messages through the IM origin stat
   )
   assert.equal(s.rt.captureImOrigin(roomSid)?.chatKey, 'g1', 'same-IM follow-up drained by drainRoomInbox must preserve g1 origin')
   assert.ok(s.fake.sent.some(entry => entry.chat.key === 'g1' && entry.text.includes('Writer follow-up reply')), 'replies after same-IM follow-up drained must reach g1')
+})
+
+test('a group chat title from the platform is stored and refreshed', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await add(s)
+  const [one] = Object.values(s.rt.state.im.connections)
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  // First sight: the chat is stored with the platform-provided title.
+  await gm(s, 'u1', 'hello group', { chat: { key: 'g1', kind: 'group', title: '发布群' } })
+  s.imTurn('a')
+  assert.equal(one.chats.g1.title, '发布群', 'first-seen chat keeps the platform title')
+  // The stored title does not drift back to empty when a later frame omits it.
+  await gm(s, 'u1', 'again', { chat: { key: 'g1', kind: 'group', title: '' } })
+  s.imTurn('a')
+  assert.equal(one.chats.g1.title, '发布群', 'an empty later title never erases the stored name')
+  // A rename arrives on a later frame: the stored title follows it.
+  await gm(s, 'u1', 'renamed?', { chat: { key: 'g1', kind: 'group', title: '发布群 v2' } })
+  s.imTurn('a')
+  assert.equal(one.chats.g1.title, '发布群 v2', 'a later title refreshes the stored chat name')
 })

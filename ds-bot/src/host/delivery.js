@@ -2,11 +2,18 @@
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { HISTORY_TIMEOUT_MS, LONG_HEAD, MESSAGE_INLINE_MAX, READ_LINE_MAX, SOURCE_KIND, TEXT_KEPT, TEXT_SHOW_MAX } from './constants.js'
+import { isContextOnlySource } from './context-messages.js'
 import { headOf, textOf } from './text.js'
-import { sameConversation, threadCurrentOfPart } from './threads.js'
+import { addressedSession, sameConversation, threadCurrentOfPart } from './threads.js'
+import { workNotes } from './work-notes.js'
 
 export function install(rt) {
   const { ctx, state } = rt
+  const addressedNotes = workNotes(rt)
+  rt.enqueueWorkNote = addressedNotes.enqueue
+  rt.workNoteTaken = addressedNotes.taken
+  rt.unreadWorkNotes = addressedNotes.unreadCount
+  rt.clearWorkNotes = addressedNotes.clear
 
   const resolveAgent = async (sessionId) => {
     if (ctx.fiber?.uid === null || ctx.sessionController === undefined) {
@@ -39,6 +46,7 @@ export function install(rt) {
     if (deferred && role !== 'room') return `[Work${tag} from ${fromName} · you read it during your last task; complete it now]`
     if (retried && role !== 'room') return '[Your last reply wrote a tool call as text, so nothing ran]'
     if (resumed && role === 'resume') return '[DeepSeek Harness restarted while you were working]'
+    if (resumed && role === 'reply') return `[Work${tag} closed · continue processing its result after restart]`
     if (resumed && role !== 'room') return `[Work${tag} from ${fromName} · DeepSeek Harness restarted while you were working on it]`
     if (resent && role === 'reply') return `[Work${tag} completed by ${fromName} · DeepSeek Harness restarted before it could reach you]`
     if (resent && role === 'ask_back') return `[Work${tag} · ${fromName} asks before continuing · DeepSeek Harness restarted before it could reach you · call answer_work or cancel_work]`
@@ -249,24 +257,19 @@ export function install(rt) {
     return true
   }
 
-  const NON_WAKING_PRE_STEP_KINDS = new Set([
-    'working-directory', 'runtime-context', 'time-context', 'ds-bot-time-context',
-    'bot-memory', 'skill-catalog', 'compact-checkpoint', 'snapshot',
-  ])
   const isWakingPreStepMessage = (msg) => {
     const src = msg?.source
     if (src === undefined) return true
-    if (src.form === 'snapshot' || NON_WAKING_PRE_STEP_KINDS.has(src.kind)) return false
-    if (src.kind === SOURCE_KIND && (src.silent === true || ['note', 'cancelled', 'stopped'].includes(src.role))) return false
-    return true
+    return !isContextOnlySource(src)
   }
 
   // Deterministically prepend any buffered silent notices before step 1 of a real
   // waking turn so queued work (e.g. `delegate_work` after `note_bot`) never runs
   // ahead of them, while never waking an empty or snapshot-only wake boundary.
   ctx.on('agent/pre-step', async ({ agent, step, messages, signal }, next) => {
-    const decision = await next()
-    if (decision?.kind === 'reject' || signal?.aborted || !Array.isArray(decision?.messages)) return decision
+    const raw = await next()
+    if (raw?.kind === 'reject' || signal?.aborted || !Array.isArray(raw?.messages)) return raw
+    const decision = addressedNotes.atStep(agent, step, raw)
     if (step !== 1 || !decision.messages.some(isWakingPreStepMessage) || (Array.isArray(messages) && !messages.some(isWakingPreStepMessage))) return decision
     if (!pendingSilent.has(agent.id)) return decision
     const entries = takeSilentEntries(agent.id)
@@ -459,7 +462,7 @@ export function install(rt) {
   // result that came back goes on with. `merged`: a request that takes in an earlier
   // one its recipient had not read, under that one's exchange. `fromPart`: the Session
   // of the sending Bot, which a reply comes back to when that is a background part.
-  async function deliver({ fromId, fromName: senderName, pairFrom, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, wake = true, afterCancel = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, abandonedReason, recordExchange = true, askedBy, fromRoomId, fromPart, images = [], files = [], length, work, workRef, askWork, taskId, imOrigin, failureRequestId }) {
+  async function deliver({ fromId, fromName: senderName, pairFrom, toId, sessionId, address, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), transferId, steer = false, wake = true, afterCancel = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, abandonedReason, recordExchange = true, askedBy, resultRef, follows, batchKey, resumedUpstream = false, fromRoomId, fromPart, images = [], files = [], length, work, workRef, askWork, taskId, imOrigin, failureRequestId }) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
     if (to === undefined) throw Object.assign(new Error(`Unknown Bot ${toId}`), { delivered: false })
@@ -473,6 +476,7 @@ export function install(rt) {
       form: 'relay',
       role,
       exchangeId,
+      ...(transferId ? { transferId } : {}),
       senderName: fromName,
       ...(wake === false ? { silent: true } : {}),
       ...(work ? { work } : {}),
@@ -489,10 +493,14 @@ export function install(rt) {
       ...(resumed ? { resumed: true } : {}),
       ...(retried ? { retried: true } : {}),
       ...(askedBy ? { askedBy } : {}),
+      ...(resultRef ? { resultRef } : {}),
+      ...(follows ? { follows } : {}),
+      ...(batchKey ? { batchKey } : {}),
+      ...(resumedUpstream ? { resumedUpstream: true } : {}),
       ...(fromRoomId ? { senderRoomId: fromRoomId } : {}),
       ...(abandoned ? { abandoned: true } : {}),
     }
-    const targetSessionId = sessionId ?? rt.chatOf(toId)
+    let targetSessionId = sessionId ?? rt.chatOf(toId)
     // On disk before it goes out: a message the book could not keep is not sent, so none is
     // delivered with no record of it. A resend keeps the record it has; only a merged request
     // replaces it with its added text.
@@ -513,11 +521,22 @@ export function install(rt) {
       : undefined
     try {
       if (book !== undefined && (merged || !pairRecords(bookPeer, toId).written.has(exchangeId))) {
-        rt.ledger.append(book, { id: exchangeId, from: fromId ?? 'user', to: toId, role, text, time: Date.now(), ...(resolvedWorkRef ? { workRef: resolvedWorkRef } : {}), ...(length !== undefined ? { length, files } : {}), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}), ...(roomId ? { roomId } : {}) })
+        rt.ledger.append(book, { id: exchangeId, from: fromId ?? 'user', to: toId, role, text, time: Date.now(), ...(resolvedWorkRef ? { workRef: resolvedWorkRef } : {}), ...(follows ? { follows } : {}), ...(length !== undefined ? { length, files } : {}), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}), ...(roomId ? { roomId } : {}) })
         await rt.ledger.written(book)
       }
       await rt.ensureCapabilities(targetSessionId)
-      const agent = await resolveAgent(targetSessionId)
+      let agent = await resolveAgent(targetSessionId)
+      if (address && addressedSession(rt, toId, address) !== targetSessionId) {
+        const currentTarget = addressedSession(rt, toId, address)
+        const fallbackTarget = currentTarget ?? ((role === 'reply' || role === 'report') ? rt.chatOf(toId) : undefined)
+        if (fallbackTarget === undefined) {
+          throw Object.assign(new Error('The delivery recipient changed during admission'), { code: 'bot/unresolved-return', delivered: false })
+        }
+        targetSessionId = fallbackTarget
+        if (ledgerMeta !== undefined) ledgerMeta.sessionId = targetSessionId
+        await rt.ensureCapabilities(targetSessionId)
+        agent = await resolveAgent(targetSessionId)
+      }
       // A non-waking note/cancel injects model-facing context ONLY while the target is idle
       // (buffering until idle if the target is currently running, so DSH never runs an extra
       // model step or starts a spurious turn). A steered message cuts into a running turn at
@@ -548,7 +567,8 @@ export function install(rt) {
         try {
           const pendingIds = pendingMessageIds(agent)
           for (const entry of takenSilent) injectIfNotPending(agent, entry.message, pendingIds)
-          if (steer) agent.steer(message)
+          // A new assignment never cuts into another assignment's actively running turn.
+          if (steer && !(role === 'request' && isBusyAgent(agent, targetSessionId))) agent.steer(message)
           else agent.followup(message)
           woke = true
           enqueued = true

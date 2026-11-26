@@ -8,12 +8,16 @@ import { enterMode, sendsOnEnter } from './enter-key.ts'
 import { enterHandler as nativeEnter, submitProps as nativeProps } from './composer.enter.ts'
 import { enterHandler as webEnter, submitProps as webProps } from './composer.enter.web.ts'
 
-test('a phone with no choice of its own follows the computer', () => {
-  assert.equal(enterMode(undefined), 'follow')
-  assert.equal(enterMode({}), 'follow')
-  assert.equal(enterMode({ enterToSend: 'follow' }), 'follow')
-  assert.equal(enterMode({ enterToSend: 'send' }), 'send')
-  assert.equal(enterMode({ enterToSend: 'newline' }), 'newline')
+test('native mobile defaults to newline, while web follows the computer until overridden', () => {
+  assert.equal(enterMode(undefined), 'newline')
+  assert.equal(enterMode(undefined, 'ios'), 'newline')
+  assert.equal(enterMode({}, 'android'), 'newline')
+  assert.equal(enterMode(undefined, 'web'), 'follow')
+  assert.equal(enterMode({}, 'web'), 'follow')
+  assert.equal(enterMode({ enterToSend: 'follow' }, 'ios'), 'follow')
+  assert.equal(enterMode({ enterToSend: 'follow' }, 'android'), 'follow')
+  assert.equal(enterMode({ enterToSend: 'send' }, 'ios'), 'send')
+  assert.equal(enterMode({ enterToSend: 'newline' }, 'web'), 'newline')
 })
 
 test('following the computer keeps its default of sending, and its off switch', () => {
@@ -70,9 +74,9 @@ test('the composer takes its Enter behavior from the stored mode and the compute
   assert.match(composer, /onSubmitEditing=\{sends \? send : undefined\}/, 'newline mode cannot submit')
   const chat = readFileSync(new URL('../Chat.tsx', import.meta.url), 'utf8')
   assert.match(chat, /useState\(peekPrefs\)/, 'the first render uses the phone preferences already in memory')
-  assert.match(chat, /enterMode\(prefs \?\? undefined\)/)
+  assert.match(chat, /enterMode\(prefs \?\? undefined, Platform\.OS\)/)
   assert.match(chat, /prefs !== null && sendsOnEnter\(mode, team\?\.prefs\)/, 'unloaded preferences cannot briefly enable submit')
   assert.match(chat, /onPrefsChange\(read\)/)
   const settings = readFileSync(new URL('../Settings.tsx', import.meta.url), 'utf8')
-  assert.match(settings, /enterMode\(prefs\)/)
+  assert.match(settings, /enterMode\(prefs, Platform\.OS\)/)
 })

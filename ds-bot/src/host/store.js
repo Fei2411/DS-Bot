@@ -3,7 +3,7 @@
 // or group chat it belongs to.
 import { createHash, randomUUID } from 'node:crypto'
 import { copyFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, SECTION_COLORS, SECTION_NAME_MAX, TEXT_KEPT } from './constants.js'
 import { replaceFile } from './files.js'
@@ -35,8 +35,8 @@ export function segmentNoteFile(sessionId) {
 export function install(rt) {
   const { ctx, home, statePath } = rt
 
-  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, plugins: { slots: {}, enabled: {}, offFor: {}, custom: {}, snapshots: {}, sources: [], knownPrefixes: {} }, exchanges: [], exchangeTurns: {}, works: {}, closedWorks: {}, pairLoops: {}, workSeq: 0, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
+  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, contextParts:Record<string,any>, revision:number}} */
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, plugins: { slots: {}, enabled: {}, offFor: {}, custom: {}, snapshots: {}, sources: [], knownPrefixes: {} }, exchanges: [], exchangeTurns: {}, works: {}, closedWorks: {}, pairLoops: {}, workSeq: 0, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, contextParts: {}, revision: 0 }
   let loaded = null
   let storeReady = false
   let writing = Promise.resolve()
@@ -307,6 +307,7 @@ export function install(rt) {
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
     if (!Array.isArray(state.exchanges)) state.exchanges = []
     state.prefs ??= {}
+    if (state.contextParts === null || typeof state.contextParts !== 'object' || Array.isArray(state.contextParts)) state.contextParts = {}
     // Teams saved before the DSH Agent existed carry no `agents`; corrupt values reset.
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}
     // `computer` is the computer-use switch; absent or corrupt means off.
@@ -618,6 +619,7 @@ export function install(rt) {
   // Finishes what the fold of withdrawn parallel parts left (see adopt): only the host
   // that saves the team does it, and an entry stays listed until both steps succeed.
   let retiring
+  let sweeping
   let waitingForSchedules
   // A part waiting to be retired may still run a turn, so it is not complete yet.
   const isRetiring = sessionId => Array.isArray(state.retiredParts) && state.retiredParts.some(entry => entry?.sessionId === sessionId)
@@ -696,6 +698,19 @@ export function install(rt) {
     storeReady = true
     notifyStoreSync()
     if (holder !== undefined) return
+    if (teamWriteAccess() === 'locked') {
+      const sweep = (async () => {
+        const entries = await readdir(home)
+        if (teamWriteAccess() !== 'locked') return
+        for (const name of entries) {
+          if (teamWriteAccess() !== 'locked') return
+          const match = /^state\.json\.(\d+)(?:\.[a-f0-9]+)?\.tmp$/.exec(name)
+          if (match === null || Number(match[1]) === process.pid) continue
+          await unlink(join(home, name)).catch(() => {})
+        }
+      })().catch(() => {}).finally(() => { if (sweeping === sweep) sweeping = undefined })
+      sweeping = sweep
+    }
     const storageMigrated = stuck === undefined ? await runStorageMigrations() : false
     void retireParts()
     if ((migrated || storageMigrated) && stuck === undefined) {
@@ -870,7 +885,7 @@ export function install(rt) {
       state.revision += 1
       if (state.exchanges.length > MAX_EXCHANGES) state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
       const snapshot = JSON.stringify(state)
-      const temp = `${statePath}.${process.pid}.tmp`
+      const temp = `${statePath}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
       try {
         await mkdir(home, { recursive: true })
         const ensureLock = () => {
@@ -889,7 +904,10 @@ export function install(rt) {
           }
         }
         ensureLock()
-        await writeFile(temp, snapshot, 'utf8')
+        // Flushed before the rename: after a crash or power loss, a renamed file whose
+        // data never reached the disk can come back empty, and an empty state.json loads
+        // as an empty team (#2238).
+        await writeFile(temp, snapshot, { encoding: 'utf8', flush: true })
         ensureLock()
         await replaceFile(temp, statePath, ensureLock)
         seen = stamp()
@@ -919,7 +937,7 @@ export function install(rt) {
   ctx.effect(() => () => {
     stopped = true
     clearTimeout(waitingForSchedules)
-    return Promise.allSettled([writing, retiring, rt.stopRetiringTasks?.(), ...noteOps.values()]).finally(() => lock.release())
+    return Promise.allSettled([writing, retiring, sweeping, rt.stopRetiringTasks?.(), ...noteOps.values()]).finally(() => lock.release())
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))
@@ -1135,8 +1153,12 @@ export function install(rt) {
 // the Bot's Sessions are selected again on the new route. An old `opencode/...`
 // ref is also DSH's own OpenCode provider: it moves only for a Bot that ran on
 // the local CLI (a CLI record for one of its Sessions) or on its "CLI default".
-// Returns whether anything changed.
+// The move runs once per team: afterwards a local agent is only saved under
+// `local-`, so an unprefixed CLI name is a provider of that name (#2104). The
+// mark is saved with the team's next write. Returns whether anything changed.
 export function migrateLocalRoutes(state) {
+  if (state.localRoutesMoved === true) return false
+  state.localRoutesMoved = true
   let changed = false
   const ranOn = new Map() // old route -> Session ids the CLI served
   for (const [sessionId, record] of Object.entries(state.localAgents?.sessions ?? {})) {
