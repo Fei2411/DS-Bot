@@ -147,27 +147,32 @@ export function parseVscodeTheme(text, fallbackLabel = 'VS Code theme') {
   // gives the highest actual post-compositing WCAG contrast (using flattenColor rather than
   // raw alpha-stripped RGB or perceptual-blind HSL lightness).
   const inferredDark = () => {
-    const rawFg = MAP.text.map(name => colors[name]).find(value => opaque(value) !== undefined)
-    let fgDarkScore = 0
-    let fgLightScore = 0
-    if (rawFg !== undefined) {
+    let fallbackFgDark
+    for (const name of MAP.text) {
+      const rawFg = colors[name]
+      if (opaque(rawFg) === undefined) continue
       const onDark = flattenColor(rawFg, VSCODE_DEFAULTS.dark)
       const onLight = flattenColor(rawFg, VSCODE_DEFAULTS.light)
-      fgDarkScore = onDark ? contrast(onDark, VSCODE_DEFAULTS.dark) : 0
-      fgLightScore = onLight ? contrast(onLight, VSCODE_DEFAULTS.light) : 0
-      if (Math.max(fgDarkScore, fgLightScore) >= READABLE) return fgDarkScore >= fgLightScore
+      const darkScore = onDark ? contrast(onDark, VSCODE_DEFAULTS.dark) : 0
+      const lightScore = onLight ? contrast(onLight, VSCODE_DEFAULTS.light) : 0
+      if (Math.max(darkScore, lightScore) >= READABLE) return darkScore >= lightScore
+      if (fallbackFgDark === undefined) fallbackFgDark = darkScore >= lightScore
     }
-    const rawSurface = [...MAP.sidebar, ...MAP.bubble, ...MAP.card].map(name => colors[name]).find(value => opaque(value) !== undefined)
-    if (rawSurface !== undefined) {
-      const darkInk = deriveThemeMode(VSCODE_DEFAULTS.dark, VSCODE_DEFAULTS.accent, 'dark').text
-      const lightInk = deriveThemeMode(VSCODE_DEFAULTS.light, VSCODE_DEFAULTS.accent, 'light').text
+    const darkInk = deriveThemeMode(VSCODE_DEFAULTS.dark, VSCODE_DEFAULTS.accent, 'dark').text
+    const lightInk = deriveThemeMode(VSCODE_DEFAULTS.light, VSCODE_DEFAULTS.accent, 'light').text
+    let fallbackSurfaceDark
+    for (const name of [...MAP.sidebar, ...MAP.bubble, ...MAP.card]) {
+      const rawSurface = colors[name]
+      if (opaque(rawSurface) === undefined) continue
       const onDark = flattenColor(rawSurface, VSCODE_DEFAULTS.dark)
       const onLight = flattenColor(rawSurface, VSCODE_DEFAULTS.light)
       const darkScore = onDark ? contrast(onDark, darkInk) : 0
       const lightScore = onLight ? contrast(onLight, lightInk) : 0
-      return darkScore >= lightScore
+      if (Math.max(darkScore, lightScore) >= READABLE) return darkScore >= lightScore
+      if (fallbackSurfaceDark === undefined) fallbackSurfaceDark = darkScore >= lightScore
     }
-    if (rawFg !== undefined) return fgDarkScore >= fgLightScore
+    if (fallbackSurfaceDark !== undefined) return fallbackSurfaceDark
+    if (fallbackFgDark !== undefined) return fallbackFgDark
     return true
   }
   // The file's type decides the mode; a visible canvas's perceptual contrast decides next; otherwise infer.
@@ -184,10 +189,19 @@ export function parseVscodeTheme(text, fallbackLabel = 'VS Code theme') {
 
   const accent = MAP.accent.map(key => flattenColor(colors[key], canvas)).find(Boolean) ?? VSCODE_DEFAULTS.accent
   const mode = deriveThemeMode(canvas, accent, dark ? 'dark' : 'light')
-  for (const key of ['text', 'sidebar', 'bubble', 'card']) {
+  const firstSuppliedText = MAP.text.map(name => flattenColor(colors[name], canvas)).find(Boolean)
+  const readableText = MAP.text
+    .map(name => flattenColor(colors[name], canvas))
+    .find(color => color !== undefined && contrast(color, canvas) >= READABLE)
+  if (readableText !== undefined) mode.text = readableText
+  // If a supplied foreground failed readability and was replaced with a different text color,
+  // only apply imported surfaces that stay readable against the final text color; otherwise
+  // keep the readable surfaces deriveThemeMode produced for it.
+  const textReplaced = firstSuppliedText !== undefined && firstSuppliedText !== mode.text
+  for (const key of ['sidebar', 'bubble', 'card']) {
     const found = MAP[key]
       .map(name => flattenColor(colors[name], canvas))
-      .find(color => color !== undefined && (key !== 'text' || contrast(color, canvas) >= READABLE))
+      .find(color => color !== undefined && (!textReplaced || contrast(mode.text, color) >= READABLE))
     if (found !== undefined) mode[key] = found
   }
 

@@ -221,6 +221,33 @@ test('transparent editor.background falls back to the mode default canvas instea
   assert.ok(contrast(translucentFg.light.text, translucentFg.light.bg) >= 4.5, 'unreadable translucent foreground falls back to derived readable ink in light mode')
   assert.ok(contrast(translucentFg.dark.text, translucentFg.dark.bg) >= 4.5, 'dark mode also remains readable')
 
+  // When editor.foreground is unreadable on both default canvases, mode inference continues
+  // to the fallback `foreground` key and picks the mode where it is readable.
+  const fallbackFg = parseVscodeTheme(JSON.stringify({
+    colors: {
+      'editor.background': '#00000000',
+      'editor.foreground': '#cc33ff88',
+      'foreground': '#d4d4d4',
+    },
+  }))
+  assert.equal(fallbackFg.dark.text, '#d4d4d4')
+  assert.ok(contrast(fallbackFg.dark.text, fallbackFg.dark.bg) >= 7)
+
+  // When a supplied foreground fails canvas contrast and gets replaced by derived text,
+  // imported surfaces that clash with the replacement text are skipped in favor of derived ones.
+  const midtoneClash = parseVscodeTheme(JSON.stringify({
+    type: 'dark',
+    colors: {
+      'editor.background': '#777777',
+      'editor.foreground': '#ffffff',
+      'sideBar.background': '#202020',
+      'panel.background': '#202020',
+    },
+  }))
+  assert.ok(contrast(midtoneClash.dark.text, midtoneClash.dark.bg) >= 4.5)
+  assert.ok(contrast(midtoneClash.dark.text, midtoneClash.dark.sidebar) >= 4.5, 'sidebar remains readable with replacement text')
+  assert.ok(contrast(midtoneClash.dark.text, midtoneClash.dark.bubble) >= 4.5, 'bubble remains readable with replacement text')
+
   // Shorthand 4-digit transparent #0000 also falls back to mode default.
   const shortGlass = parseVscodeTheme(JSON.stringify({
     type: 'light',
