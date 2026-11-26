@@ -2070,7 +2070,8 @@ test('a line the members already have is reported delivered when the round canno
   } finally {
     rt.save = realSave
   }
-  await new Promise((resolve) => setTimeout(resolve, 100))
+  // Wait for the turn to come up: a fixed 100ms window loses to load (it went red in a full run).
+  await waitFor(() => (sent.length > turnsBefore ? true : undefined))
   assert.match(String(refusal?.message), /could not be saved/, 'the caller hears the state was not saved')
   assert.equal(refusal?.delivered, true, 'the caller hears the line reached the members')
   assert.equal(sent.length, turnsBefore + 1, 'the member the line calls is woken once')
