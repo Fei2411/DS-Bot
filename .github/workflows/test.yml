@@ -35,6 +35,7 @@ jobs:
       app_update: ${{ steps.filter.outputs.app_update }}
       mobile: ${{ steps.filter.outputs.mobile }}
       mobile_ios: ${{ steps.filter.outputs.mobile_ios }}
+      mobile_android: ${{ steps.filter.outputs.mobile_android }}
       link: ${{ steps.filter.outputs.link }}
       docker: ${{ steps.filter.outputs.docker }}
     steps:
@@ -52,12 +53,18 @@ jobs:
         run: |
           set -euo pipefail
           full=false
-          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$REF" = "refs/heads/main" ] || [ "$BASE_REF" = "main" ]; then
+          main_push=false
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$BASE_REF" = "main" ]; then
             full=true
+          elif [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
+            # Release PRs already pass the full matrix on BASE_REF=main before merge, and daily
+            # schedule keeps main caches warm. Running only the fast baseline + Docker publish here
+            # prevents push:main from competing for macOS runners with the Release workflow.
+            main_push=true
           fi
 
           changed=""
-          if [ "$full" = "false" ]; then
+          if [ "$full" = "false" ] && [ "$main_push" = "false" ]; then
             if [ "$EVENT" = "pull_request" ]; then
               if ! changed="$(git -c core.quotepath=false diff --name-only "origin/$BASE_REF...HEAD")"; then
                 full=true
@@ -77,7 +84,7 @@ jobs:
             grep -qE "$1" <<< "$changed"
           }
 
-          if [ "$full" = "false" ] && has '^\.github/workflows/'; then
+          if [ "$full" = "false" ] && [ "$main_push" = "false" ] && has '^\.github/workflows/'; then
             full=true
           fi
 
@@ -90,6 +97,19 @@ jobs:
             app_update=true
             mobile=true
             mobile_ios=true
+            mobile_android=true
+            link=true
+            docker=true
+          elif [ "$main_push" = "true" ]; then
+            ds_bot=true
+            node22=true
+            app_unit=true
+            app_package_full=false
+            app_package_linux=true
+            app_update=false
+            mobile=true
+            mobile_ios=false
+            mobile_android=false
             link=true
             docker=true
           else
@@ -101,6 +121,7 @@ jobs:
             app_update=false
             mobile=false
             mobile_ios=false
+            mobile_android=false
             link=false
             docker=false
             if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$)'; then ds_bot=true; fi
@@ -110,6 +131,7 @@ jobs:
             if has '^app/'; then app_update=true; fi
             if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/package\.json$|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest)\.js$|ds-bot/src/client/avatar/)'; then mobile=true; fi
             if has '^(mobile/|ds-bot/package\.json$)'; then mobile_ios=true; fi
+            if has '^\.github/gradle/'; then mobile_android=true; fi
             if has '^link/'; then link=true; fi
             if has '^(docker/|docker-compose.*\.yml$|\.dockerignore$|ds-bot/package\.json$|ds-bot/package-lock\.json$|ds-bot/\.npmrc$|ds-bot/cordis\.patch\.yml$|ds-bot/plugin\.js$)'; then docker=true; fi
             # Rapid merges to dev can supersede intermediate queued pushes, so always run the
@@ -133,6 +155,7 @@ jobs:
             echo "app_update=$app_update"
             echo "mobile=$mobile"
             echo "mobile_ios=$mobile_ios"
+            echo "mobile_android=$mobile_android"
             echo "link=$link"
             echo "docker=$docker"
           } | tee -a "$GITHUB_OUTPUT"
@@ -167,29 +190,42 @@ jobs:
       - run: npm ci --no-fund --no-audit
       - name: Install the phone link's packages
         run: npm ci --no-fund --no-audit --prefix ../link
-      - name: Cache DSH test harness
+      - name: Restore DSH test harness
         id: harness-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ds-bot/dev/harness/node_modules
           key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node${{ matrix.node }}-${{ hashFiles('ds-bot/dev/harness/package.json') }}
       - name: Install DSH test harness
         if: steps.harness-cache.outputs.cache-hit != 'true'
         run: npm run harness
+      - name: Save DSH test harness
+        if: github.event_name != 'pull_request' && steps.harness-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: ${{ steps.harness-cache.outputs.cache-primary-key }}
       - run: npm test
       - name: Lint
         if: matrix.lint
         run: npm run lint
       # The Bot browser and settings layout tests drive a real Chromium; one Linux run is enough.
-      - name: Cache Playwright Chromium
+      - name: Restore Playwright Chromium
+        id: playwright-cache
         if: matrix.browser
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ds-bot/package-lock.json') }}
       - name: Install Chromium for the browser tests
         if: matrix.browser
         run: npx playwright-core install --with-deps --only-shell chromium
+      - name: Save Playwright Chromium
+        if: matrix.browser && github.event_name != 'pull_request' && steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
       - name: Browser tests
         if: matrix.browser
         run: npm run test:browser
@@ -216,15 +252,21 @@ jobs:
       - run: npm ci --no-fund --no-audit
       - name: Install the phone link's packages
         run: npm ci --no-fund --no-audit --prefix ../link
-      - name: Cache DSH test harness
+      - name: Restore DSH test harness
         id: harness-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ds-bot/dev/harness/node_modules
           key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('ds-bot/dev/harness/package.json') }}
       - name: Install DSH test harness
         if: steps.harness-cache.outputs.cache-hit != 'true'
         run: npm run harness
+      - name: Save DSH test harness
+        if: github.event_name != 'pull_request' && steps.harness-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: ${{ steps.harness-cache.outputs.cache-primary-key }}
       - run: npm test
 
   scan:
@@ -318,8 +360,9 @@ jobs:
       # the same prebuild the release script runs.
       - name: Generate the iOS project
         run: npx expo prebuild --platform ios --no-install
-      - name: Cache CocoaPods
-        uses: actions/cache@v4
+      - name: Restore CocoaPods
+        id: cocoapods-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/Library/Caches/CocoaPods
           key: cocoapods-${{ runner.os }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/ios/Podfile') }}
@@ -327,6 +370,12 @@ jobs:
       - name: Install CocoaPods
         working-directory: mobile/ios
         run: pod install
+      - name: Save CocoaPods
+        if: github.event_name != 'pull_request' && steps.cocoapods-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/CocoaPods
+          key: ${{ steps.cocoapods-cache.outputs.cache-primary-key }}
       # Unsigned: this proves the app compiles for the simulator. Signing and the
       # TestFlight upload need the Apple account (docs/plans/2026-11-13-ios-release.md).
       - name: Build for the simulator
@@ -338,6 +387,100 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+  # Verifies the Android release APK build on release PRs and warms main's Gradle + ccache
+  # caches on the daily schedule so release tag builds do not cold-compile from scratch.
+  mobile-android:
+    name: Mobile app Android build (APK)
+    needs: changes
+    if: needs.changes.outputs.mobile_android == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            mobile/package-lock.json
+            link/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
+      - run: npm ci --no-fund --no-audit
+      - run: npx expo prebuild --platform android --no-install
+      - name: Install ccache
+        run: |
+          if ! command -v ccache >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq ccache
+          fi
+          echo "CCACHE_BIN=$(command -v ccache)" >> "$GITHUB_ENV"
+      - name: Restore Android C++ ccache
+        id: ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: android-ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/plugins/**', '.github/gradle/ccache.init.gradle') }}
+          restore-keys: android-ccache-v2-${{ runner.os }}-${{ runner.arch }}-
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Build release APK (debug-signed)
+        env:
+          CCACHE_BASEDIR: ${{ github.workspace }}
+          CCACHE_NOHASHDIR: 'true'
+          # Default mtime check misses whenever GitHub rotates runner image builds with identical NDK binaries.
+          CCACHE_COMPILERCHECK: content
+          CCACHE_SLOPPINESS: include_file_mtime,include_file_ctime,time_macros
+          CCACHE_MAXSIZE: 600M
+        run: |
+          export CCACHE_DIR="$HOME/.ccache"
+          mkdir -p "$CCACHE_DIR"
+          (cd android && ./gradlew assembleRelease --no-daemon --build-cache --console=plain -PreactNativeArchitectures=arm64-v8a,armeabi-v7a --init-script "$GITHUB_WORKSPACE/.github/gradle/ccache.init.gradle")
+          ccache -s || true
+      - name: Save Android C++ ccache
+        if: github.event_name != 'pull_request' && steps.ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
+      - name: Check the APK
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          if unzip -l "$apk" | grep -Eq 'lib/(x86|x86_64)/'; then
+            echo "::error::Release APK contains x86 simulator binaries."
+            exit 1
+          fi
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          zipalign="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/zipalign"
+          aapt2="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt2"
+          badging="$("$aapt2" dump badging "$apk")"
+          compile_sdk="$(printf '%s\n' "$badging" | sed -n "s/.*compileSdkVersion='\([0-9]*\)'.*/\1/p" | head -n1)"
+          target_sdk="$(printf '%s\n' "$badging" | sed -n "s/.*targetSdkVersion:'\([0-9]*\)'.*/\1/p" | head -n1)"
+          if [ -z "$compile_sdk" ] || [ -z "$target_sdk" ] || [ "$compile_sdk" -gt "$target_sdk" ]; then
+            echo "::error::Invalid Android SDK levels in APK: compileSdkVersion=$compile_sdk targetSdkVersion=$target_sdk"
+            exit 1
+          fi
+          if ! printf '%s\n' "$badging" | grep -q "android.permission.POST_NOTIFICATIONS"; then
+            echo "::error::Release APK does not declare android.permission.POST_NOTIFICATIONS."
+            exit 1
+          fi
+          "$zipalign" -c -P 16 4 "$apk"
+          certs="$("$apksigner" verify --min-sdk-version 21 --verbose --print-certs "$apk")"
+          for scheme in 'v1 scheme (JAR signing): true' 'v2 scheme (APK Signature Scheme v2): true' 'v3 scheme (APK Signature Scheme v3): true'; do
+            if ! echo "$certs" | grep -Fq "Verified using $scheme"; then
+              echo "::error::The APK is missing signature $scheme."
+              exit 1
+            fi
+          done
 
   link:
     name: Phone link and Relay Server
@@ -381,7 +524,10 @@ jobs:
       # decide the files downloaded.
       - name: Name the download cache
         id: downloads-key
-        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+        run: |
+          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
       - name: Restore Electron and the build tools
         id: downloads
         uses: actions/cache/restore@v4
@@ -390,12 +536,18 @@ jobs:
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
           key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
       - run: npm ci --no-fund --no-audit
+        env:
+          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
+          # under dist.mjs retries, avoiding an unused binary download during npm ci.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - name: Run desktop app unit tests (Windows)
         run: npm test
       - run: node scripts/seed-electron-checksums.mjs
-      - name: Cache the locked runtime archives
-        uses: actions/cache@v4
+      - name: Restore the locked runtime archives
+        id: runtime-cache
+        uses: actions/cache/restore@v4
         with:
           # A cache from another lock version cannot supply a wrong runtime: the archives are
           # stored under their sha256 and every read is verified against it again.
@@ -406,8 +558,14 @@ jobs:
           # CI packages are never published; fast compression cuts archive time dramatically.
           ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
       # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
+      - name: Save the locked runtime archives
+        if: github.event_name != 'pull_request' && steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/build/runtime-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - name: Save Electron and the build tools
-        if: steps.downloads.outputs.cache-hit != 'true'
+        if: github.event_name != 'pull_request' && steps.downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -523,7 +681,10 @@ jobs:
       # decide the files downloaded.
       - name: Name the download cache
         id: downloads-key
-        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+        run: |
+          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
       - name: Restore Electron and the build tools
         id: downloads
         uses: actions/cache/restore@v4
@@ -532,13 +693,19 @@ jobs:
             ~/Library/Caches/electron
             ~/Library/Caches/electron-builder
           key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
       - run: npm ci --no-fund --no-audit
+        env:
+          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
+          # under dist.mjs retries, avoiding an unused binary download during npm ci.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - name: Run desktop app unit tests (macOS)
         if: matrix.arch == 'arm64'
         run: npm test
       - run: node scripts/seed-electron-checksums.mjs
-      - name: Cache the locked runtime archives
-        uses: actions/cache@v4
+      - name: Restore the locked runtime archives
+        id: runtime-cache
+        uses: actions/cache/restore@v4
         with:
           # A cache from another lock version cannot supply a wrong runtime: the archives are
           # stored under their sha256 and every read is verified against it again.
@@ -550,8 +717,14 @@ jobs:
           CSC_FOR_PULL_REQUEST: 'true'
           ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
       # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
+      - name: Save the locked runtime archives
+        if: github.event_name != 'pull_request' && steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/build/runtime-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - name: Save Electron and the build tools
-        if: steps.downloads.outputs.cache-hit != 'true'
+        if: github.event_name != 'pull_request' && steps.downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -595,7 +768,10 @@ jobs:
       # decide the files downloaded.
       - name: Name the download cache
         id: downloads-key
-        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+        run: |
+          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
       - name: Restore Electron and the build tools
         id: downloads
         uses: actions/cache/restore@v4
@@ -604,10 +780,16 @@ jobs:
             ~/.cache/electron
             ~/.cache/electron-builder
           key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
       - run: npm ci --no-fund --no-audit
+        env:
+          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
+          # under dist.mjs retries, avoiding an unused binary download during npm ci.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: node scripts/seed-electron-checksums.mjs
-      - name: Cache the locked runtime archives
-        uses: actions/cache@v4
+      - name: Restore the locked runtime archives
+        id: runtime-cache
+        uses: actions/cache/restore@v4
         with:
           # A cache from another lock version cannot supply a wrong runtime: the archives are
           # stored under their sha256 and every read is verified against it again.
@@ -615,8 +797,14 @@ jobs:
           key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
       - run: npm run dist
       # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
+      - name: Save the locked runtime archives
+        if: github.event_name != 'pull_request' && steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/build/runtime-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - name: Save Electron and the build tools
-        if: steps.downloads.outputs.cache-hit != 'true'
+        if: github.event_name != 'pull_request' && steps.downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -724,7 +912,7 @@ jobs:
   # and fails unless every job required for the changed paths passed.
   result:
     name: Test result
-    needs: [changes, test, test-node22, scan, app, mobile, mobile-ios, link, app-package, app-package-macos, app-package-linux, docker]
+    needs: [changes, test, test-node22, scan, app, mobile, mobile-ios, mobile-android, link, app-package, app-package-macos, app-package-linux, docker]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -742,6 +930,8 @@ jobs:
           MOBILE_RESULT: ${{ needs.mobile.result }}
           RUN_MOBILE_IOS: ${{ needs.changes.outputs.mobile_ios }}
           MOBILE_IOS_RESULT: ${{ needs.mobile-ios.result }}
+          RUN_MOBILE_ANDROID: ${{ needs.changes.outputs.mobile_android }}
+          MOBILE_ANDROID_RESULT: ${{ needs.mobile-android.result }}
           RUN_LINK: ${{ needs.changes.outputs.link }}
           LINK_RESULT: ${{ needs.link.result }}
           RUN_APP_PKG_FULL: ${{ needs.changes.outputs.app_package_full }}
@@ -778,6 +968,7 @@ jobs:
           check "app" "$RUN_APP_UNIT" "$APP_RESULT"
           check "mobile" "$RUN_MOBILE" "$MOBILE_RESULT"
           check "mobile-ios" "$RUN_MOBILE_IOS" "$MOBILE_IOS_RESULT"
+          check "mobile-android" "$RUN_MOBILE_ANDROID" "$MOBILE_ANDROID_RESULT"
           check "link" "$RUN_LINK" "$LINK_RESULT"
           check "app-package" "$RUN_APP_PKG_FULL" "$APP_WIN_RESULT"
           check "app-package-macos" "$RUN_APP_PKG_FULL" "$APP_MAC_RESULT"

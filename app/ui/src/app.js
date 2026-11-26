@@ -400,7 +400,7 @@ export function App() {
         }
         return
       }
-      const targets = visibleSidebarTargets(rosterSnap, sessionsSnap.byId, shownId)
+      const targets = visibleSidebarTargets(rosterSnap, sessionsSnap.byId, shownId, uiSnap.sectionFolds)
       if (targets.length === 0) return
       let target = null
       if (slot >= 0) {
