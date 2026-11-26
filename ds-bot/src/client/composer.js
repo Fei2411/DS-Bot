@@ -469,6 +469,7 @@ export function DraftKeeper({
   const keyRef = useRef(key)
   const restored = useRef('')
   const deferredRestore = useRef(false)
+  const skippedLiveDraft = useRef(null)
   // What was just put back (or cleared) and has not reached the input state yet.
   const pending = useRef({ text: false, staleDraft: null, files: false })
   const latestDraft = useRef(draft)
@@ -480,6 +481,7 @@ export function DraftKeeper({
     if (keyRef.current !== key) {
       keyRef.current = key
       deferredRestore.current = false
+      skippedLiveDraft.current = null
       pending.current = { text: false, staleDraft: null, files: false }
       latestDraft.current = draft
     } else if (!pending.current.text || draft !== pending.current.staleDraft) {
@@ -535,7 +537,11 @@ export function DraftKeeper({
     let clearSent = false
     const watch = peekSentDraft({ chatId, sessionId })
     if (watch !== undefined) {
-      if (draft !== watch.text || hasLivePartDraft({ chatId, part: sessionId })) {
+      const livePartDraft = hasLivePartDraft({ chatId, part: sessionId })
+      if (draft !== watch.text || livePartDraft) {
+        if (draft === watch.text && livePartDraft) {
+          skippedLiveDraft.current = { key, draft, idsKey: ids.join('\0') }
+        }
         dropSentDraft({ chatId, sessionId })
       } else if (isSentAdmitted(watch, { chat, pendingSubmissions, queue, nextStep })) {
         takeSentDraft({ chatId, sessionId })
@@ -678,6 +684,10 @@ export function DraftKeeper({
     if (pending.current.text && draft === pending.current.staleDraft) return
     if (pending.current.files && ids.length === 0) return
     pending.current = { text: false, staleDraft: null, files: false }
+    if (skippedLiveDraft.current?.key === key) {
+      if (draft === skippedLiveDraft.current.draft && ids.join('\0') === skippedLiveDraft.current.idsKey) return
+      skippedLiveDraft.current = null
+    }
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) }, undefined, { deferMs: DRAFT_DEBOUNCE_MS })
   }, [current, sending, frozen, key, chatId, sessionId, draft, ids])
   return null

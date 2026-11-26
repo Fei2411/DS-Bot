@@ -1272,6 +1272,43 @@ test('deferred restore does not overwrite another tab\'s newer live draft when o
   assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'Review the results' } })
 })
 
+test('direct remount on an already-open session does not overwrite another tab\'s newer live draft (#2003 review)', async () => {
+  const ls = memoryStorage()
+  const tabA = loadKeeper(ls, { setTimeout, clearTimeout })
+  const tabB = loadKeeper(ls, { setTimeout, clearTimeout })
+  const setA = []
+  const setB = []
+  const stateA = { draft: 'Run the tests', attachmentIds: [], phase: 'plain', queue: [] }
+  const stateB = { draft: 'Review the results', attachmentIds: [], phase: 'plain', queue: [] }
+  const hostA = sessionHooks({ openState: 'open' })
+  const hostB = sessionHooks({ openState: 'open' })
+  const propsA = draftKeeperProps(stateA, setA, hostA)
+  const propsB = draftKeeperProps(stateB, setB, hostB)
+
+  // Tab A sends and switches away.
+  tabA.render(propsA)
+  stateA.phase = 'sending'
+  tabA.render(propsA)
+
+  // Tab B saves a newer distinct draft for the same session.
+  tabB.render(propsB)
+  await new Promise(resolve => setTimeout(resolve, 350))
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'Review the results' } })
+
+  // Tab A directly remounts onto the already-open session without editing -> must preserve Tab B's draft.
+  stateA.phase = 'plain'
+  tabA.remount(propsA)
+  await new Promise(resolve => setTimeout(resolve, 350))
+  assert.deepEqual(setA, [])
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'Review the results' } })
+
+  // Once the user genuinely edits in Tab A, that new edit persists normally.
+  stateA.draft = 'Updated locally in Tab A'
+  tabA.render(propsA)
+  await new Promise(resolve => setTimeout(resolve, 350))
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'Updated locally in Tab A' } })
+})
+
 test('isSentAdmitted matches inline quote replies whose body contains whitespace-only lines (#2003 review)', () => {
   const baseline = captureAdmissionBaseline()
   // Inline quote followed by body containing a spaces-only line vs DSH serialized blank-line boundary.
