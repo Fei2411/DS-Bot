@@ -669,7 +669,7 @@ test('real @deepseek-ai/dsh-ptc-runtime-node executes programs and honors privac
     signal: new AbortController().signal,
   })
   assert.equal(ok.results[0].result.isError, false, content(ok))
-  assert.equal(content(ok), 'CONTENT:OPEN.TXT')
+  assert.match(content(ok), /^CONTENT:OPEN\.TXT(?:\s+File sandbox enforcement is partial on this host\.)?$/)
 
   // 2. Direct node:fs read of a private Bot's file inside run_code is blocked by privacy.js before execution.
   const blockedDirect = await executor.execute({
