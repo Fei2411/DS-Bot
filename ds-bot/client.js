@@ -28814,6 +28814,16 @@ var escapeLayers = [];
 function hasEscapeLayer() {
   return escapeLayers.length > 0;
 }
+function settingsOwnsKeyboard(dialog, doc = typeof document === "undefined" ? null : document) {
+  if (dialog && dialog.isConnected === false) return false;
+  if (!doc || typeof doc.querySelectorAll !== "function") return true;
+  for (const modal of doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')) {
+    if (modal === dialog) continue;
+    if (typeof modal.closest === "function" && modal.closest("[data-leaving]")) continue;
+    return false;
+  }
+  return true;
+}
 var topEscapeLayer = () => {
   let top = null;
   for (const layer of escapeLayers) {
@@ -58921,16 +58931,6 @@ function partAt(box) {
 var SCROLL_KEYS = /* @__PURE__ */ new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
 var reducedMotion2 = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 var OWN_HEAD_PARTS = /* @__PURE__ */ new Set(["groups", "schedules", "capabilities", "feedback"]);
-function settingsOwnsKeyboard(dialog, doc = typeof document === "undefined" ? null : document) {
-  if (dialog && dialog.isConnected === false) return false;
-  if (!doc || typeof doc.querySelectorAll !== "function") return true;
-  for (const modal of doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')) {
-    if (modal === dialog) continue;
-    if (typeof modal.closest === "function" && modal.closest("[data-leaving]")) continue;
-    return false;
-  }
-  return true;
-}
 function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
   const [error, setError] = (0, import_react70.useState)("");
   const [palette, setPalette] = (0, import_react70.useState)(false);

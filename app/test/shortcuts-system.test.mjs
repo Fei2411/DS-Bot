@@ -50,7 +50,7 @@ const { outputFiles } = await build({
       export { ShortcutsDialog, matchGlobalShortcut } from './ui/src/shortcuts.js'
       export { ShortcutsPage } from '../ds-bot/src/client/shortcuts-page.js'
       export { createShortcutStore } from '../ds-bot/src/client/shortcuts-model.js'
-      export { settingsOwnsKeyboard } from '../ds-bot/src/client/settings.js'
+      export { settingsOwnsKeyboard } from '../ds-bot/src/client/overlay-hooks.js'
     `,
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
     loader: 'js',
@@ -60,7 +60,7 @@ const { outputFiles } = await build({
   platform: 'browser',
   write: false,
   logLevel: 'silent',
-  external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+  external: ['react', 'react-dom'],
 })
 
 function loadUi() {

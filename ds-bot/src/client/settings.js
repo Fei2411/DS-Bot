@@ -3,7 +3,8 @@ import { isMainOf } from './sources.js'
 import { ApiIcon, BlocksIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, CloseIcon, CompassIcon, ConnectorIcon, GlobeIcon, InfoIcon, KeyboardIcon, LayersIcon, MonitorIcon, OverviewIcon, PaletteIcon, PhoneIcon, PlusIcon, PuzzleIcon, SearchIcon, SendIcon, ShieldIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
 import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from './dsh-primitives.js'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
-import { useEscape } from './overlay-hooks.js'
+import { settingsOwnsKeyboard, useEscape } from './overlay-hooks.js'
+export { settingsOwnsKeyboard }
 import { BotSettingsForm, Switch } from './bot-settings.js'
 import { Segmented, useGlide } from './motion.js'
 import { GroupSettingsForm, NewGroupForm } from './group-settings.js'
@@ -369,19 +370,6 @@ const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.
 // Parts whose own top section heading already titles the part (promoted directly to
 // Level-2 typography so no duplicate outer heading ever stacks above it).
 const OWN_HEAD_PARTS = new Set(['groups', 'schedules', 'capabilities', 'feedback'])
-
-// True when Settings owns the active keyboard modal layer (not covered by another
-// non-leaving modal dialog such as ShortcutsDialog, PresetModal, or a DSH modal).
-export function settingsOwnsKeyboard(dialog, doc = typeof document === 'undefined' ? null : document) {
-  if (dialog && dialog.isConnected === false) return false
-  if (!doc || typeof doc.querySelectorAll !== 'function') return true
-  for (const modal of doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')) {
-    if (modal === dialog) continue
-    if (typeof modal.closest === 'function' && modal.closest('[data-leaving]')) continue
-    return false
-  }
-  return true
-}
 
 // While `leaving`, the dialog plays its exit and takes no input.
 export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
