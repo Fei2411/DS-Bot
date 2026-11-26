@@ -279,8 +279,11 @@ test('after REST_MS without input a petted mark finishes and holds still; input 
   const mark = p.mount('gumdrop', { live: true })
   mark.act(engine => engine.pet(true, 1))
   assert.ok(built(p, mark))
-  for (let i = 0; i < 60; i += 1) p.frame()
-  assert.ok(p.asking, 'petting moves')
+  // Between two nuzzles the mark waits on a short timer instead of a frame, so one look
+  // at a moment can miss it: petting moves if the mark draws during the second.
+  let drawn = 0
+  for (let i = 0; i < 60; i += 1) drawn += p.frame()
+  assert.ok(drawn > 0, 'petting moves')
   p.skip(31_000)
   assert.ok(settle(p) < 400, 'it finishes what it does and stops')
   p.skip(10_000)
