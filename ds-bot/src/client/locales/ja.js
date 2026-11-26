@@ -1594,6 +1594,7 @@ export const JA = {
   "Starting a new part…": "新しいパートに切り替え中…",
   "The model service refused the request": "モデルサービスがリクエストを拒否しました",
   "The model service failed": "モデルサービスでエラーが発生しました",
+  "The model service this Bot is set to no longer exists": "この Bot に設定されているモデルサービスはもう存在しません",
   "The model took too long to answer": "モデルの応答がタイムアウトしました",
   "Could not reach the model service": "モデルサービスに接続できませんでした",
   "The conversation could not be compacted for the model switch": "モデル切り替え時に会話を圧縮できませんでした",

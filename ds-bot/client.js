@@ -1724,6 +1724,7 @@ var JA = {
   "Starting a new part…": "新しいパートに切り替え中…",
   "The model service refused the request": "モデルサービスがリクエストを拒否しました",
   "The model service failed": "モデルサービスでエラーが発生しました",
+  "The model service this Bot is set to no longer exists": "この Bot に設定されているモデルサービスはもう存在しません",
   "The model took too long to answer": "モデルの応答がタイムアウトしました",
   "Could not reach the model service": "モデルサービスに接続できませんでした",
   "The conversation could not be compacted for the model switch": "モデル切り替え時に会話を圧縮できませんでした",
@@ -5094,6 +5095,7 @@ var KO = {
   "Starting a new part…": "새 파트로 전환 중…",
   "The model service refused the request": "모델 서비스가 요청을 거부했습니다",
   "The model service failed": "모델 서비스 오류",
+  "The model service this Bot is set to no longer exists": "이 Bot에 설정된 모델 서비스가 더 이상 존재하지 않습니다",
   "The model took too long to answer": "모델 응답 시간이 초과되었습니다",
   "Could not reach the model service": "모델 서비스에 연결할 수 없습니다",
   "The conversation could not be compacted for the model switch": "모델 전환을 위해 대화를 압축하지 못했습니다",
@@ -8470,6 +8472,7 @@ var ES = {
   "Starting a new part…": "Iniciando una nueva parte…",
   "The model service refused the request": "El servicio de modelos rechazó la solicitud",
   "The model service failed": "El servicio de modelos falló",
+  "The model service this Bot is set to no longer exists": "El servicio de modelos de este Bot ya no existe",
   "The model took too long to answer": "El modelo tardó demasiado en responder",
   "Could not reach the model service": "No se pudo conectar con el servicio de modelos",
   "The conversation could not be compacted for the model switch": "No se pudo compactar la conversación para cambiar de modelo",
@@ -11807,6 +11810,7 @@ var FR = {
   "Starting a new part…": "Passage à une nouvelle partie…",
   "The model service refused the request": "Le service de modèles a refusé la requête",
   "The model service failed": "Le service de modèles a rencontré une erreur",
+  "The model service this Bot is set to no longer exists": "Le service de modèles de ce Bot n'existe plus",
   "The model took too long to answer": "Le modèle a mis trop de temps à répondre",
   "Could not reach the model service": "Impossible de joindre le service de modèles",
   "The conversation could not be compacted for the model switch": "La conversation n’a pas pu être condensée pour changer de modèle",
@@ -15177,6 +15181,7 @@ var DE = {
   "Starting a new part…": "Neuer Abschnitt wird gestartet…",
   "The model service refused the request": "Der Modelldienst hat die Anfrage abgelehnt",
   "The model service failed": "Fehler beim Modelldienst",
+  "The model service this Bot is set to no longer exists": "Der Modelldienst dieses Bots existiert nicht mehr",
   "The model took too long to answer": "Zeitüberschreitung bei der Modellantwort",
   "Could not reach the model service": "Modelldienst nicht erreichbar",
   "The conversation could not be compacted for the model switch": "Die Unterhaltung konnte für den Modellwechsel nicht komprimiert werden",
@@ -18640,6 +18645,7 @@ var ZH = {
   "Starting a new part…": "正在换到新的一段…",
   "The model service refused the request": "模型服务拒绝了请求",
   "The model service failed": "模型服务出错",
+  "The model service this Bot is set to no longer exists": "这个 Bot 使用的模型服务已不存在",
   "The model took too long to answer": "模型响应超时",
   "Could not reach the model service": "连不上模型服务",
   "The conversation could not be compacted for the model switch": "切换模型时无法压缩对话",
@@ -19909,6 +19915,7 @@ var FAILURES = {
   LOCAL_AGENT_SESSION_LOST: "The local agent session could not be resumed",
   INVALID_REQUEST: "The model service refused the request",
   SERVER: "The model service failed",
+  NO_ADAPTER: "The model service this Bot is set to no longer exists",
   TIMEOUT: "The model took too long to answer",
   TRANSPORT: "Could not reach the model service",
   MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
@@ -60618,6 +60625,8 @@ function fixesFor(code, { canSignIn, official, topUp, onAccount = false }) {
       return official ? ["top-up"] : [];
     case "ACCOUNT_QUOTA":
       return topUp ? ["top-up"] : [];
+    case "NO_ADAPTER":
+      return ["model"];
     case "CONTEXT_WINDOW_EXCEEDED":
       return ["new-part", "model"];
     case "MODEL_SWITCH_COMPACTION_FAILED":

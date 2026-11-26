@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
 import { createRuntime } from '../index.js'
+import { resolveVerifiedPushAddresses } from '../src/host/phone.js'
 import {
   RelayTransport,
   RpcClient,
@@ -68,6 +69,32 @@ function createPhone(offer, hello, keys = generateKeyPair(), token = randomToken
   return { client, keys, token, deviceId: self.deviceId }
 }
 
+test('resolveVerifiedPushAddresses keeps all public dual-stack records and rejects any private DNS answer', async () => {
+  const dual = await resolveVerifiedPushAddresses('ntfy.sh', async () => [
+    { address: '2606:4700:4700::1111', family: 6 },
+    { address: '1.1.1.1', family: 4 },
+  ])
+  assert.deepEqual(dual, [
+    { address: '2606:4700:4700::1111', family: 6 },
+    { address: '1.1.1.1', family: 4 },
+  ])
+
+  // Split-horizon / DNS rebinding returning any private IP alongside a public IP must be rejected.
+  await assert.rejects(
+    resolveVerifiedPushAddresses('rebind.example', async () => [
+      { address: '1.1.1.1', family: 4 },
+      { address: '10.0.0.5', family: 4 },
+    ]),
+    /non-public/i,
+  )
+  await assert.rejects(
+    resolveVerifiedPushAddresses('v6compat.example', async () => [
+      { address: '::127.0.0.1', family: 6 },
+    ]),
+    /non-public/i,
+  )
+})
+
 test('offline phone receives host-authenticated E2E sealed UnifiedPush notices and auto-clears on 410 Gone', async (t) => {
   const received = []
   let nextStatus = 201
@@ -109,13 +136,19 @@ test('offline phone receives host-authenticated E2E sealed UnifiedPush notices a
   assert.equal(hello.ok, true)
   assert.ok(hello.value.capabilities.includes('push-register'))
 
-  // Invalid and private/SSRF push endpoints are rejected.
+  // Unsupported push kind and SSRF endpoints are rejected.
+  const badKind = await link.client.rpc('bot', { endpoint: 'push-register', payload: { kind: 'fcm', token: 'tok' } })
+  assert.equal(badKind.ok, false)
+  assert.equal(badKind.error.code, 'bot/invalid')
+
   for (const badEndpoint of [
     'http://evil.example/up',
     'https://127.0.0.1/up',
     'https://localhost/up',
     'https://192.168.1.5/up',
     'https://169.254.169.254/latest/meta-data',
+    'https://[::127.0.0.1]/up',
+    'https://[2002:7f00:0001::]/up',
     'https://[fc00::1]/up',
     'https://printer.local/up',
   ]) {
@@ -124,11 +157,16 @@ test('offline phone receives host-authenticated E2E sealed UnifiedPush notices a
     assert.equal(bad.error.code, 'bot/invalid')
   }
 
-  // Register valid UnifiedPush endpoint.
+  // Register valid UnifiedPush endpoint, verify push-unregister removes it, then re-register.
+  const reg0 = await link.client.rpc('bot', { endpoint: 'push-register', payload: { kind: 'unifiedpush', endpoint } })
+  assert.equal(reg0.ok, true)
+  assert.deepEqual(reg0.value, { registered: true, kind: 'unifiedpush' })
+  const unreg = await link.client.rpc('bot', { endpoint: 'push-unregister', payload: {} })
+  assert.equal(unreg.ok, true)
+  assert.equal((await desk.call('state', {})).value.phone.phones[0].push, undefined)
+
   const reg = await link.client.rpc('bot', { endpoint: 'push-register', payload: { kind: 'unifiedpush', endpoint } })
   assert.equal(reg.ok, true)
-  assert.equal(reg.value.registered, true)
-  assert.equal(reg.value.kind, 'unifiedpush')
 
   // Phone view reports push kind without disclosing the private endpoint URL.
   const view = (await desk.call('state', {})).value.phone
@@ -165,13 +203,11 @@ test('offline phone receives host-authenticated E2E sealed UnifiedPush notices a
   assert.equal(received[7].urgency, 'normal')
 
   const decoded = received.map((req) => {
-    // Wire payload contains no plaintext message content.
     assert.equal(req.body.toString('utf8').includes('write_file'), false)
     assert.equal(req.body.toString('utf8').includes('GITHUB_TOKEN'), false)
     assert.equal(req.body.toString('utf8').includes('Gmail'), false)
     const env = parsePushEnvelope(req.body)
     assert.ok(env)
-    // Must verify with paired host's static public key.
     return openPushEnvelope(link.keys.privateKey, link.keys.publicKey, offer.hostKey, env)
   })
   assert.deepEqual(decoded.map(d => d.payload.notice.kind), ['approval', 'secret', 'connector', 'learning', 'mail', 'computer', 'paused', 'message'])
@@ -189,55 +225,6 @@ test('offline phone receives host-authenticated E2E sealed UnifiedPush notices a
   // 410 Gone automatically clears the stale push subscription.
   nextStatus = 410
   desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'question', sessionId: 'm1', text: 'Ship v0.4.0?' })
-  await until(() => desk.call('state', {}), state => state.value.phone.phones[0].push === undefined)
-})
-
-test('push-unregister clears subscription and FCM gone cleans up registered token', async (t) => {
-  const fcmCalls = []
-  let fcmResult = { ok: true }
-  const fcmRelay = await startRelayServer({
-    pushForwarder: async (request) => {
-      fcmCalls.push(request)
-      return fcmResult
-    },
-  })
-  t.after(() => fcmRelay.close())
-
-  const home = mkdtempSync(join(tmpdir(), 'dsb-push-fcm-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
-  const desk = openHost(home)
-  t.after(async () => { await desk.ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
-
-  await desk.call('phone-set', { server: fcmRelay.url, on: true })
-  await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
-
-  const paired = await desk.call('phone-pair', {})
-  const offer = parsePairingUri(paired.value.pairing.uri)
-  const phone = createPhone(offer, { pairingCode: offer.code, name: 'Pixel' })
-  t.after(() => phone.client.close())
-  await phone.client.connect()
-
-  // Register FCM token, verify push-unregister removes it cleanly.
-  const reg1 = await phone.client.rpc('bot', { endpoint: 'push-register', payload: { kind: 'fcm', token: 'fcm-tok-1' } })
-  assert.equal(reg1.ok, true)
-  assert.equal(reg1.value.relayFcm, true)
-  const unreg = await phone.client.rpc('bot', { endpoint: 'push-unregister', payload: {} })
-  assert.equal(unreg.ok, true)
-  assert.equal((await desk.call('state', {})).value.phone.phones[0].push, undefined)
-
-  // Re-register, disconnect, and verify FCM delivery + gone cleanup.
-  const reg2 = await phone.client.rpc('bot', { endpoint: 'push-register', payload: { kind: 'fcm', token: 'fcm-tok-2' } })
-  assert.equal(reg2.ok, true)
-  await phone.client.close()
-  await until(() => desk.call('state', {}), state => state.value.phone.phones[0].connected === false)
-
-  desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'approval', sessionId: 'm1', text: 'bash' })
-  await until(() => fcmCalls.length, n => n >= 1)
-  const opened = openPushEnvelope(phone.keys.privateKey, phone.keys.publicKey, offer.hostKey, fcmCalls[0].envelope)
-  assert.equal(opened.payload.notice.kind, 'approval')
-
-  fcmResult = { ok: false, gone: true, code: 'UNREGISTERED' }
-  desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'question', sessionId: 'm1', text: 'Retry?' })
   await until(() => desk.call('state', {}), state => state.value.phone.phones[0].push === undefined)
 })
 

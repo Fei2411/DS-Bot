@@ -1594,6 +1594,7 @@ export const FR = {
   "Starting a new part…": "Passage à une nouvelle partie…",
   "The model service refused the request": "Le service de modèles a refusé la requête",
   "The model service failed": "Le service de modèles a rencontré une erreur",
+  "The model service this Bot is set to no longer exists": "Le service de modèles de ce Bot n'existe plus",
   "The model took too long to answer": "Le modèle a mis trop de temps à répondre",
   "Could not reach the model service": "Impossible de joindre le service de modèles",
   "The conversation could not be compacted for the model switch": "La conversation n’a pas pu être condensée pour changer de modèle",

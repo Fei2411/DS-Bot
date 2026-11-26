@@ -26,7 +26,6 @@ export interface NotifyPrefs {
   preview: boolean
   banners: boolean
   bgMode: BackgroundDeliveryMode
-  muted: string[]
 }
 
 export interface ClassifiedNotice {
@@ -70,22 +69,17 @@ export const ALL_NOTICE_KINDS = new Set([
   ...GROUP_NOTICE_KINDS,
 ])
 
-export function androidNotificationStatus(sdk: number, granted: boolean, systemEnabled?: boolean): 'Allowed' | 'Allow' | 'Off' | undefined {
+export function androidNotificationStatus(sdk: number, granted: boolean | undefined, systemEnabled?: boolean): 'Allowed' | 'Allow' | 'Off' | undefined {
   if (systemEnabled === false) {
+    if (sdk >= 33 && granted === undefined) return undefined
     return sdk >= 33 && !granted ? 'Allow' : 'Off'
   }
   if (sdk < 33) return systemEnabled === true ? 'Allowed' : undefined
+  if (granted === undefined) return undefined
   return granted ? 'Allowed' : 'Allow'
 }
 
 export function readNotifyPrefsFromRecord(prefs: Record<string, string>): NotifyPrefs {
-  let muted: string[] = []
-  if (typeof prefs.notifyMuted === 'string' && prefs.notifyMuted.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(prefs.notifyMuted)
-      if (Array.isArray(parsed)) muted = parsed.filter((item): item is string => typeof item === 'string')
-    } catch { /* ignore malformed pref */ }
-  }
   const rawMode = prefs.notifyBgMode
   const bgMode: BackgroundDeliveryMode = rawMode === 'instant' || rawMode === 'periodic' || rawMode === 'off'
     ? rawMode
@@ -98,7 +92,6 @@ export function readNotifyPrefsFromRecord(prefs: Record<string, string>): Notify
     preview: prefs.notifyPreview !== 'off',
     banners: prefs.banners !== 'off',
     bgMode,
-    muted,
   }
 }
 
@@ -142,7 +135,6 @@ export function shouldPostSystemNotification(
   if (info.category === 'needs_you' && !prefs.needsYou) return null
   if (info.category === 'replies' && !prefs.replies) return null
   if (info.category === 'groups' && !prefs.groups) return null
-  if (prefs.muted.includes(info.chatKey)) return null
   // While the app is active in foreground, in-app banners handle other chats and
   // the open chat already displays its own live stream and cards.
   if (ctx.appActive) return null
@@ -156,9 +148,13 @@ export function formatNoticeNotification(
   const kind = String(notice.kind ?? '')
   const botName = (notice.name ?? '').trim()
   const roomTitle = (notice.title ?? '').trim()
-  const title = roomTitle && botName && roomTitle !== botName
+  const baseTitle = roomTitle && botName && roomTitle !== botName
     ? `${roomTitle} · ${botName}`
     : roomTitle || botName || 'DS Bot'
+  const host = (options.hostName ?? '').trim()
+  const title = host && host !== baseTitle && !baseTitle.includes(host)
+    ? `${baseTitle} (${host})`
+    : baseTitle
   const snippet = typeof notice.text === 'string' ? notice.text.trim() : ''
   const show = options.preview && snippet.length > 0
 

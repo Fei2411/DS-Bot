@@ -1623,6 +1623,7 @@ export const ES = {
   'Starting a new part…': 'Iniciando una nueva parte…',
   'The model service refused the request': 'El servicio de modelos rechazó la solicitud',
   'The model service failed': 'El servicio de modelos falló',
+  'The model service this Bot is set to no longer exists': 'El servicio de modelos de este Bot ya no existe',
   'The model took too long to answer': 'El modelo tardó demasiado en responder',
   'Could not reach the model service': 'No se pudo conectar con el servicio de modelos',
   "The conversation could not be compacted for the model switch": "No se pudo compactar la conversación para cambiar de modelo",

@@ -1623,6 +1623,7 @@ export const KO = {
   'Starting a new part…': '새 파트로 전환 중…',
   'The model service refused the request': '모델 서비스가 요청을 거부했습니다',
   'The model service failed': '모델 서비스 오류',
+  'The model service this Bot is set to no longer exists': '이 Bot에 설정된 모델 서비스가 더 이상 존재하지 않습니다',
   'The model took too long to answer': '모델 응답 시간이 초과되었습니다',
   'Could not reach the model service': '모델 서비스에 연결할 수 없습니다',
   "The conversation could not be compacted for the model switch": "모델 전환을 위해 대화를 압축하지 못했습니다",

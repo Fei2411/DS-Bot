@@ -4,9 +4,9 @@ import { DICTIONARY } from '../../../ds-bot/src/client/i18n.js'
 // Chinese entries here; the English source stays the key, as on the desktop.
 const ZH = DICTIONARY.zh as Record<string, string>
 // Words the desktop uses in another sense (its "New" badge, "Light" motion, the
-// browser's "Back", the "Not parsed" meaning of "Unknown"); the phone's own meaning
-// wins for these.
-const MOBILE_SENSE = new Set(['New', 'Light', 'Back', 'Unknown'])
+// browser's "Back", the "Not parsed" meaning of "Unknown", OAuth "Verified");
+// the phone's own meaning wins for these.
+const MOBILE_SENSE = new Set(['New', 'Light', 'Back', 'Unknown', 'Verified'])
 
 const MOBILE_ZH: Record<string, string> = {
   "This is the phone app's code. In Settings → Phone on the computer, use Open in a browser or Copy browser link.": '这是手机 App 的配对码。请在电脑的设置 → 手机中选择“在浏览器中打开”或“复制浏览器链接”。',
@@ -307,6 +307,12 @@ const MOBILE_ZH: Record<string, string> = {
   'Release checksum file is missing the Android APK digest.': '发布校验文件缺少安卓安装包摘要',
   'Update package exceeds maximum allowed size': '更新包超过允许的大小上限',
   'Download failed': '下载失败',
+  'Could not resolve the latest release version.': '无法获取最新版本信息。',
+  'No valid download URL found for the Android APK.': '未找到有效的安卓安装包下载地址。',
+  'Invalid releases response.': '版本信息格式无效。',
+  'APK file is not in the update cache': '安装包不在更新缓存目录中',
+  'An update download is already in progress': '已有更新正在下载中',
+  'Invalid relay server address': '中转服务器地址无效',
 }
 
 const systemZh = (): boolean => {

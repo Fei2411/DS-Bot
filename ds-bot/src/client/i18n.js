@@ -1722,6 +1722,7 @@ const ZH = {
   'Starting a new part…': '正在换到新的一段…',
   'The model service refused the request': '模型服务拒绝了请求',
   'The model service failed': '模型服务出错',
+  'The model service this Bot is set to no longer exists': '这个 Bot 使用的模型服务已不存在',
   'The model took too long to answer': '模型响应超时',
   'Could not reach the model service': '连不上模型服务',
   "The conversation could not be compacted for the model switch": "切换模型时无法压缩对话",
