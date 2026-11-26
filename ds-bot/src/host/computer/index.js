@@ -603,7 +603,12 @@ export function install(rt) {
     if (legacyConsent !== undefined && !exec.signal?.aborted) {
       if (legacyConsent.answer === 'always' && app.id === result.bundleId && typeof app.id === 'string' && app.id.trim() !== '') {
         await recordGrant(bot, app, legacyConsent.path)
-      } else decisions.set(app.key, 'once')
+      } else {
+        decisions.set(app.key, 'once')
+        if (legacyConsent.answer === 'always') {
+          return { notice: `Always allow was not saved for ${app.name}: the provider supplied no bundle ID. Access is allowed for this conversation only.` }
+        }
+      }
       return undefined
     }
     if (decision === 'once' || grantFor(bot, app) !== undefined) return undefined
@@ -1026,7 +1031,7 @@ export function install(rt) {
     const started = Date.now()
     const getApp = call.provider === 'cua' && call.method === 'getApp'
     try {
-      const result = await (getApp ? getAppScope.run(flight, next) : next())
+      let result = await (getApp ? getAppScope.run(flight, next) : next())
       // DSH hands a failed tool body back as an error envelope, not an exception.
       if (call.provider === 'cua-driver' && isSessionEnded(result)) {
         await startDriverSession(exec, driverSessionKey(exec))
@@ -1045,9 +1050,12 @@ export function install(rt) {
       // protected, an earlier deny, a This time or a grant, else the same card.
       if (getApp && payload !== null && typeof payload === 'object') {
         const consent = await consentAfterGetApp(exec, payload, flight.legacyConsent)
-        if (consent !== undefined) {
+        if (consent?.envelope !== undefined) {
           noteStep(botId, { time: started, callId: exec.callId, app: consent.app, action: call.method ?? exec.name, kind: call.kind, ok: false, error: consent.reason })
           return consent.envelope
+        }
+        if (consent?.notice !== undefined) {
+          result = { ...result, content: [...(result.content ?? []), { type: 'text', text: consent.notice }] }
         }
       }
       recordGeo(sessionId, payload)

@@ -299,7 +299,11 @@ test('legacy macOS getApp accepts task approval and records grants under the ret
       const outcome = await pending
       const apps = rt.computerView().bots.w1.apps
       assert.deepEqual(Object.keys(apps), scenario === 'always' ? [bundleId] : [])
-      assert.deepEqual(outcome, selected)
+      if (scenario === 'always without a bundle ID') {
+        assert.deepEqual(outcome.value, selected.value)
+        assert.equal(outcome.isError, false)
+        assert.match(outcome.content?.at(-1)?.text ?? '', /not saved.*no bundle ID.*this conversation only/i)
+      } else assert.deepEqual(outcome, selected)
       assert.equal(ask.appName, 'Notes')
       if (scenario === 'always') {
         assert.equal(apps[bundleId].id, bundleId)
