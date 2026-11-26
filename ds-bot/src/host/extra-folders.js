@@ -248,7 +248,7 @@ export function install(rt) {
       try {
         await rt.save()
       } catch (error) {
-        holder.extraDirs = prev
+        if (holder.extraDirs === cleaned) holder.extraDirs = prev
         throw error
       }
       return cleaned

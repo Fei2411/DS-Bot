@@ -56,7 +56,7 @@ export function install(rt) {
       try { listener(kind, data) } catch (error) { rt.warn('ds-bot: approval listener failed: %s', error) }
     }
   }
-  const view = ({ answer, cancelReview, isAborted, ownerSessionId, lineageSessionIds, prepareAlways, answering, privacy: _, ...entry }) => {
+  const view = ({ answer, cancelReview, toManual, isAborted, ownerSessionId, lineageSessionIds, prepareAlways, answering, privacy: _, ...entry }) => {
     const taskSessionId = rt.taskOwners?.has(entry.sessionId) ? entry.sessionId : ownerSessionId ?? entry.sessionId
     const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(taskSessionId) : undefined
     const liveEntry = liveTask === undefined ? undefined : rt.taskBySession?.(taskSessionId)?.task
@@ -263,6 +263,11 @@ export function install(rt) {
       }
       entry.answer = complete
       entry.cancelReview = () => reviewer.abort()
+      entry.toManual = () => {
+        if (automatic && pending.has(id) && entry.review?.status === 'reviewing') {
+          manual('Automatic review stopped; review this action manually.')
+        }
+      }
       entry.isAborted = () => original?.aborted === true
       pending.set(id, entry)
       rt.noteApproval?.(owner.ownerSessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200), ...(entry.privacy ? { privacy: true } : {}) })
@@ -374,6 +379,7 @@ export function install(rt) {
           if (pending.has(id)) {
             entry.answering = false
             if (entry.isAborted?.()) entry.answer('cancelled')
+            else entry.toManual?.()
           }
           throw error
         }
@@ -383,6 +389,7 @@ export function install(rt) {
         }
         if (typeof prepared?.verifySync === 'function' && !prepared.verifySync()) {
           entry.answering = false
+          entry.toManual?.()
           throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
         }
         const settled = entry.answer('allowed-once')

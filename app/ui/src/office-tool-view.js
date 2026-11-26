@@ -401,7 +401,11 @@ export function OfficeCliCard({ parsedCli, command, block, cwd, workdir = '', ph
   )
   const errLine = (!findingsExit ? errorLineOf(block, block?.isError === true) : '') || (cliOut?.ok === false ? cliOut.error : '')
 
-  const previewPath = officePreviewTarget(parsedCli.inputPath, cliOut?.outPath || parsedCli.outputPath, cwd, workdir)
+  // `pptx layout` and `pptx clean` only write `-o` when changes are applied (and include `data.file`
+  // in `--json` output); when structured output omits `data.file`, preview the input document instead.
+  const conditionalWrite = cliOut !== null && parsedCli.subcommand === 'pptx' && (parsedCli.action === 'layout' || parsedCli.action === 'clean')
+  const effectiveOutPath = conditionalWrite ? cliOut.outPath : (cliOut?.outPath || parsedCli.outputPath)
+  const previewPath = officePreviewTarget(parsedCli.inputPath, effectiveOutPath, cwd, workdir)
   const displayPath = shortPath(previewPath || parsedCli.inputPath, cwd)
   const docKind = officeKindOf(previewPath) || parsedCli.docKind
 

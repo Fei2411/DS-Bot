@@ -350,6 +350,21 @@ test('Office tools (office_render, office_convert, office.js CLI) render documen
     assert.equal(opened.at(-1), '/ws/deck.pptx')
     findingsInst.unmount()
 
+    // `pptx layout --autofit -o fixed.pptx --json` with empty `autofitApplied` (no `data.file`) previews the input deck, not the unwritten `-o` path.
+    const noAutofitInst = h.mount(ToolCallCard, {
+      registry,
+      cwd: '/ws',
+      openFile: p => opened.push(p),
+      block: h.makeBlock('bash', { command: 'node /opt/office.js pptx layout deck.pptx --autofit -o fixed.pptx --json' }, {
+        isError: true,
+        content: [{ type: 'text', text: `${JSON.stringify({ ok: true, data: { autofitApplied: [], findings: [{ part: 'ppt/slides/slide1.xml', message: 'Off-slide image' }] } })}\n[exit code: 1]` }],
+      }),
+    })
+    const noAutofitTree = noAutofitInst.render()
+    h.all(noAutofitTree, n => n.type === 'button' && n.props?.className === 'dsb-tool-action')[0].props.onClick()
+    assert.equal(opened.at(-1), '/ws/deck.pptx')
+    noAutofitInst.unmount()
+
     const errCliInst = h.mount(ToolCallCard, {
       registry,
       cwd: '/ws',

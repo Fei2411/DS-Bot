@@ -724,3 +724,88 @@ test('Classic Agent subagent approval exposes ownerSessionId without botId or al
   assert.equal(res.ok, true)
   assert.equal(await promise, 'allowed-once')
 })
+
+test('failed grant save rollback never overwrites newer Settings extraDirs, and failed grant during auto-review transitions approval to manual', async (t) => {
+  // 1. Deferred save failure does not clobber a concurrent Settings extraDirs update.
+  const saveEnv = setup(t)
+  const notesDir = join(saveEnv.root, 'notes')
+  const archiveDir = join(saveEnv.root, 'archive')
+  mkdirSync(notesDir, { recursive: true })
+  mkdirSync(archiveDir, { recursive: true })
+  saveEnv.bots.b1.extraDirs = [notesDir]
+
+  let rejectGrantSave
+  const origSave = saveEnv.rt.save
+  let saveCount = 0
+  saveEnv.rt.save = () => {
+    saveCount += 1
+    if (saveCount === 1) {
+      return new Promise((_, reject) => { rejectGrantSave = reject })
+    }
+    return origSave()
+  }
+
+  const prepared = await saveEnv.rt.prepareGrantExtraDirs({ botId: 'b1', dirs: [saveEnv.extraDir], scope: 'bot' })
+  const pendingCommit = prepared.commit()
+  // Concurrent Settings update replaces bot.extraDirs with [archiveDir] and saves cleanly.
+  saveEnv.bots.b1.extraDirs = [archiveDir]
+  await saveEnv.rt.save()
+  // Earlier grant save now fails: rollback must NOT restore [notesDir] over [archiveDir].
+  rejectGrantSave(new Error('disk full'))
+  await assert.rejects(() => pendingCommit, /disk full/)
+  assert.deepEqual(saveEnv.bots.b1.extraDirs, [archiveDir])
+
+  // 2. Failed Always allow clicked while automatic review is still 'reviewing' transitions
+  // review.status from 'reviewing' to 'manual' and emits an update so Inbox and manual UI
+  // never strand or hide the still-pending approval.
+  const revEnv = setup(t)
+  const staleDir = join(revEnv.root, 'stale-dir')
+  mkdirSync(staleDir, { recursive: true })
+  revEnv.bots.b1.permission = 'review'
+  revEnv.bots.b1.extraDirs = [staleDir]
+  const revAgent = { id: 'b1', session: { id: 'b1', header: { id: 'b1', cwd: revEnv.ws } } }
+  revEnv.rt.resolveAgent = async () => revAgent
+  // Resolve extraDirs synchronously on the next microtask so alwaysAllow lands while review.status === 'reviewing'.
+  const origResolvable = revEnv.rt.resolvableExtraDirs
+  revEnv.rt.resolvableExtraDirs = () => Promise.resolve([revEnv.extraDir])
+  t.after(() => { revEnv.rt.resolvableExtraDirs = origResolvable })
+
+  let clickedDuringReview = false
+  let alwaysAttempt
+  let reviewStatusAtClick
+  const approvalEvents = []
+  const offApproval = revEnv.rt.onApproval((kind, data) => {
+    approvalEvents.push({ kind, status: data?.review?.status })
+    if (!clickedDuringReview && kind === 'updated' && data?.alwaysAllow) {
+      clickedDuringReview = true
+      reviewStatusAtClick = data.review?.status
+      // Delete saved extra folder so Phase 1 validation fails after reviewer is cancelled.
+      rmSync(staleDir, { recursive: true, force: true })
+      alwaysAttempt = revEnv.rt.answerApproval(data.id, 'always').then(() => null, error => error)
+    }
+  })
+  t.after(offApproval)
+
+  await revEnv.firePreExecute({
+    agent: revAgent,
+    callId: 'c-rev-fail',
+    name: 'write',
+    arguments: { file_path: join(revEnv.extraDir, 'r.md'), content: 'x', sandbox_permissions: 'danger-full-access' },
+  })
+  const revPromise = revEnv.requestApproval({
+    agent: revAgent,
+    toolName: 'write',
+    callId: 'c-rev-fail',
+    reason: `${ESCALATION} write during review`,
+  })
+  await waitFor(() => clickedDuringReview)
+  assert.equal(reviewStatusAtClick, 'reviewing', 'test must trigger Always allow while review is still reviewing')
+  const failErr = await alwaysAttempt
+  assert.match(String(failErr?.message ?? ''), /There is no folder at/)
+  const afterFail = revEnv.rt.approvalsView()[0]
+  assert.ok(afterFail, 'approval must remain open after failed grant')
+  assert.equal(afterFail.review?.status, 'manual', 'failed grant during automatic review must transition approval to manual review')
+  assert.equal(approvalEvents.some(e => e.kind === 'updated' && e.status === 'manual'), true, 'manual transition must be published to listeners (including Inbox)')
+  revEnv.rt.answerApproval(afterFail.id, 'reject')
+  assert.equal(await revPromise, 'rejected')
+})
