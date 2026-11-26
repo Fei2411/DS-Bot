@@ -977,6 +977,7 @@ var JA = {
   "Mono": "モノクロ",
   "Paper": "ペーパー",
   "Moonlight": "ムーンライト",
+  "Celadon": "青磁",
   "General": "一般",
   "Bots": "Bot",
   "Group chats": "グループチャット",
@@ -4300,6 +4301,7 @@ var KO = {
   Mono: "모노",
   Paper: "페이퍼",
   Moonlight: "문라이트",
+  Celadon: "청자",
   // Settings dialog
   General: "일반",
   Bots: "Bot",
@@ -7650,6 +7652,7 @@ var ES = {
   Mono: "Mono",
   Paper: "Papel",
   Moonlight: "Luz de luna",
+  Celadon: "Celadón",
   // Settings dialog
   General: "General",
   Bots: "Bots",
@@ -10982,6 +10985,7 @@ var FR = {
   "Mono": "Mono",
   "Paper": "Papier",
   "Moonlight": "Clair de lune",
+  "Celadon": "Céladon",
   "General": "Général",
   "Bots": "Bots",
   "Group chats": "Discussions de groupe",
@@ -14305,6 +14309,7 @@ var DE = {
   Mono: "Monochrom",
   Paper: "Papier",
   Moonlight: "Mondlicht",
+  Celadon: "Seladon",
   // Settings dialog
   General: "Allgemein",
   Bots: "Bots",
@@ -17567,6 +17572,7 @@ var ZH = {
   Mono: "黑白",
   Paper: "纸张",
   Moonlight: "月光",
+  Celadon: "天青",
   // Settings dialog
   General: "通用",
   Bots: "Bot",
@@ -21494,7 +21500,29 @@ function contrast(a, b2) {
 }
 var READABLE = 4.5;
 
+// src/shared/reply-fonts.js
+var FONT_ROUTE = "api/bot/fonts";
+var REPLY_FAMILY = "DS Bot Serif";
+var FONT_FILES = {
+  latin: "ds-bot-serif-latin.woff2",
+  latinItalic: "ds-bot-serif-latin-italic.woff2",
+  cjk: "ds-bot-serif-sc-medium.woff2",
+  cjkBold: "ds-bot-serif-sc-bold.woff2"
+};
+var FONT_RANGES = {
+  latin: "U+0000-024F,U+0259,U+02B0-02FF,U+0300-036F,U+1E00-1EFF,U+2000-206F,U+20A0-20CF,U+2100-214F,U+2190-21FF,U+2212,U+2215,U+FEFF,U+FFFD",
+  cjk: "U+3000-303F,U+3400-4DBF,U+4E00-9FFF,U+F900-FAFF,U+FF00-FFEF"
+};
+var WEIGHTS = [["100 500", FONT_FILES.cjk], ["600 900", FONT_FILES.cjkBold]];
+var REPLY_FACES = [["normal", FONT_FILES.latin], ["italic", FONT_FILES.latinItalic]].flatMap(([style, latin]) => WEIGHTS.flatMap(([weight, cjk]) => [
+  { file: latin, style, weight, range: "latin" },
+  { file: cjk, style, weight, range: "cjk" }
+]));
+
 // src/client/themes.js
+var fontFace = ({ file, style, weight, range }) => `@font-face{font-family:"${REPLY_FAMILY}";src:url(${FONT_ROUTE}/${file}) format("woff2");font-style:${style};font-weight:${weight};font-display:swap;unicode-range:${FONT_RANGES[range]}}`;
+var SERIF_REPLIES = `${REPLY_FACES.map(fontFace).join("\n")}
+.bt-look-bot,.bt-model-dock .bt-bubble,.bt-bubble [class*="_markdown"],.bt-bubble [class*="_markdown"] :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default,sans-serif)}`;
 var THEMES = {
   deepseek: {
     label: "DeepSeek",
@@ -21515,6 +21543,12 @@ var THEMES = {
     label: "Moonlight",
     light: { bg: "#f7f9fc", sidebar: "#eef2f8", bubble: "#e5ebf5", card: "#ffffff", text: "#121826", user: "#1e3a8a", userText: "#ffffff", accent: "#1e86ff" },
     dark: { bg: "#0b1020", sidebar: "#10172a", bubble: "#1a2340", card: "#141c33", text: "#e8edf7", user: "#3b6fd8", userText: "#ffffff", accent: "#4f9dff" }
+  },
+  celadon: {
+    label: "Celadon",
+    light: { bg: "#faf6ee", sidebar: "#f3ede2", bubble: "#efe8db", card: "#fdfbf7", text: "#211f1b", user: "#e2eeec", userText: "#163f46", accent: "#1e8294" },
+    dark: { bg: "#1d1c19", sidebar: "#23221e", bubble: "#2d2b26", card: "#27251f", text: "#f2ede3", user: "#1f4a51", userText: "#e6f1f0", accent: "#3fa9ba" },
+    css: SERIF_REPLIES
   }
 };
 var DARK_INK = "#141414";
@@ -28652,10 +28686,10 @@ var CUSTOM_PREFIX = `${PREFIX}acp-`;
 var PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 function splitProfileRoute(route) {
   if (typeof route !== "string") return null;
-  const at = route.indexOf("@");
-  if (at <= 0 || route.indexOf("@", at + 1) !== -1) return null;
-  const baseRoute = route.slice(0, at);
-  const profileId = route.slice(at + 1);
+  const at2 = route.indexOf("@");
+  if (at2 <= 0 || route.indexOf("@", at2 + 1) !== -1) return null;
+  const baseRoute = route.slice(0, at2);
+  const profileId = route.slice(at2 + 1);
   if (!baseRoute.startsWith(PREFIX) || baseRoute.startsWith(CUSTOM_PREFIX)) return null;
   const cli = baseRoute.slice(PREFIX.length);
   if (!Object.hasOwn(AGENT_BADGES, cli) || !PROFILE_ID_RE.test(profileId)) return null;

@@ -2,11 +2,22 @@ import { ACCENT_INKS, INKS, isHex, luminance } from './inks.js'
 import { SHAPES, markupCache, maskCache } from './characters.js'
 import { createSource } from './sources.js'
 import { BASE_KEYS, cleanTheme, contrast, READABLE, THEME_KEYS, USER_THEME } from '../shared/appearance.js'
+import { FONT_RANGES, FONT_ROUTE, REPLY_FACES, REPLY_FAMILY } from '../shared/reply-fonts.js'
 
 // -------------------------------------------------------------------------
 // Themes. A theme names eight colors per mode; every `--bt-*` variable and the shell
 // tokens derive from them, so a registered theme recolors the whole team UI.
 
+// Bot replies in the bundled serif: Source Serif 4 for Latin, Noto Serif SC for Chinese.
+// DSH resolves its Markdown font tokens on body, so rebinding --dsw-font-family here
+// would not reach them; the reply sets font-family on the Markdown root, headings and
+// table cells instead, which DSH draws with `font` shorthands. Only the Markdown is set:
+// the bubble also holds interface parts (the fold note and button). The model picker's
+// greeting is plain text in a bubble that stands for the Bot's first message, so it is set
+// too. Code keeps its own family, and a text font the user set in Settings still wins.
+const fontFace = ({ file, style, weight, range }) => `@font-face{font-family:"${REPLY_FAMILY}";src:url(${FONT_ROUTE}/${file}) format("woff2");font-style:${style};font-weight:${weight};font-display:swap;unicode-range:${FONT_RANGES[range]}}`
+export const SERIF_REPLIES = `${REPLY_FACES.map(fontFace).join('\n')}
+.bt-look-bot,.bt-model-dock .bt-bubble,.bt-bubble [class*="_markdown"],.bt-bubble [class*="_markdown"] :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default,sans-serif)}`
 const THEMES = {
   deepseek: {
     label: 'DeepSeek',
@@ -27,6 +38,12 @@ const THEMES = {
     label: 'Moonlight',
     light: { bg: '#f7f9fc', sidebar: '#eef2f8', bubble: '#e5ebf5', card: '#ffffff', text: '#121826', user: '#1e3a8a', userText: '#ffffff', accent: '#1e86ff' },
     dark: { bg: '#0b1020', sidebar: '#10172a', bubble: '#1a2340', card: '#141c33', text: '#e8edf7', user: '#3b6fd8', userText: '#ffffff', accent: '#4f9dff' },
+  },
+  celadon: {
+    label: 'Celadon',
+    light: { bg: '#faf6ee', sidebar: '#f3ede2', bubble: '#efe8db', card: '#fdfbf7', text: '#211f1b', user: '#e2eeec', userText: '#163f46', accent: '#1e8294' },
+    dark: { bg: '#1d1c19', sidebar: '#23221e', bubble: '#2d2b26', card: '#27251f', text: '#f2ede3', user: '#1f4a51', userText: '#e6f1f0', accent: '#3fa9ba' },
+    css: SERIF_REPLIES,
   },
 }
 // Text on the accent: prefer crisp white whenever it reads cleanly (>= 4.2:1, e.g. DeepSeek blue);
