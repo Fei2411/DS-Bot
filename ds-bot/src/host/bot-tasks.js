@@ -1276,7 +1276,6 @@ export function install(rt) {
                   workId: coordWorkId,
                   idempotencyKey: deliveryKey,
                   sessionId: task.sessionId,
-                  ...(Number.isInteger(reviseSeq) ? { throughSeq: reviseSeq } : {}),
                 })
               }
             })
@@ -1295,7 +1294,7 @@ export function install(rt) {
         steer,
         recordExchange: false,
         ...(reviseWorkId ? { coordWorkId: reviseWorkId } : {}),
-        ...(Number.isInteger(reviseSeq) ? { coordThroughSeq: reviseSeq } : {}),
+        ...(Number.isInteger(reviseSeq) ? { coordExactSeq: reviseSeq } : {}),
       })
       return { botId: bot.id, taskId: task.id, sessionId: task.sessionId }
     } finally {

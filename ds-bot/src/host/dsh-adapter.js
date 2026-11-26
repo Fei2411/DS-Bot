@@ -1104,6 +1104,11 @@ export function install(rt) {
         // Single-row note ack: NEVER marks earlier unread waking messages read.
         try { coordDb.ackInboxSeq(src.coordWorkId, src.coordNoteSeq, { turn: event.turn }) } catch {}
       }
+      if (src?.coordWorkId && Number.isInteger(src.coordExactSeq)) {
+        // Single-row exact direct-message ack (e.g. `deliverToTask` follow-up):
+        // NEVER marks earlier unread `result`/`answer`/`note` messages read.
+        try { coordDb.ackInboxSeq(src.coordWorkId, src.coordExactSeq, { turn: event.turn }) } catch {}
+      }
       if (src?.coordWorkId && Number.isInteger(src.coordThroughSeq)) {
         try { coordDb.ackInbox(src.coordWorkId, src.coordThroughSeq, { turn: event.turn }) } catch {}
       }

@@ -1040,9 +1040,11 @@ test('verifier regressions: foreground chain isolation, reconcileDeliveryStatus 
   assert.ok(preservedFiles.some(name => name.endsWith('-wal')), 'corrupt wal backup preserved')
   assert.equal(warnings.length, 1, 'corrupt reset must emit a diagnostic warning')
 
-  // 11. Direct-delivery key->seq binding (`recordDirectDeliveryAttempt` + `dsh_idempotency_key`):
-  //     persists `lastDeliveredSeq` and maps D2 `consumed: true` to exact inbox seqs for both `task`
-  //     and group `room_work`, preventing duplicate replay on restart even if host crashed before ack.
+  // 11. Direct-delivery exact-key vs batch-throughSeq binding:
+  //     (a) Single-message direct delivery (no `throughSeq`, e.g. `deliverToTask`) binds ONLY its
+  //         own inbox row via `dsh_idempotency_key`, NEVER stamping or swallowing earlier unread rows;
+  //     (b) Batch direct delivery (`throughSeq`, e.g. group `room_work` synthesis) stamps `<= throughSeq`
+  //         and advances `lastDeliveredSeq`.
   const ddTask = db.createWork({ botId: 'botA', kind: 'task', logicalAddress: 'task:dd1', sessionId: 'sess-dd1' }).work
   const rev1 = db.receiveMessage({
     workId: ddTask.workId,
@@ -1055,9 +1057,8 @@ test('verifier regressions: foreground chain isolation, reconcileDeliveryStatus 
     workId: ddTask.workId,
     idempotencyKey: 'task-send:dd1:k1',
     sessionId: 'sess-dd1',
-    throughSeq: rev1.message.seq,
   })
-  assert.equal(afterAttempt.lastDeliveredSeq, rev1.message.seq)
+  assert.equal(afterAttempt.lastDeliveredSeq, 0, 'single-message direct delivery must not advance batch lastDeliveredSeq')
   const recDone = db.reconcileDeliveryStatus({
     workId: ddTask.workId,
     deliveryStatus: { status: 'completed', consumed: true, idempotencyKey: 'task-send:dd1:k1', assistantText: 'done' },
@@ -1066,8 +1067,31 @@ test('verifier regressions: foreground chain isolation, reconcileDeliveryStatus 
   assert.equal(recDone.action, 'settled')
   assert.equal(db.getWork(ddTask.workId).status, 'done')
   assert.equal(db.listInbox(ddTask.workId, { unreadOnly: true }).length, 0)
+  assert.equal(db.getWork(ddTask.workId).lastConsumedSeq, rev1.message.seq)
 
-  // Group `room_work` direct delivery with explicit `throughSeq` also binds unread child results to deliveryKey.
+  // Mixed inbox probe: unread seq=1 child result + direct seq=2 revise(key='k-follow') ->
+  // consuming 'k-follow' marks ONLY seq=2 read, preserves seq=1 unread, and requeues work for seq=1!
+  const ddMixed = db.createWork({ botId: 'botA', kind: 'task', logicalAddress: 'task:dd-mixed', sessionId: 'sess-dd-mixed' }).work
+  db.receiveMessage({ workId: ddMixed.workId, kind: 'result', bodyPreview: 'child result 1', wake: false })
+  db.receiveMessage({ workId: ddMixed.workId, kind: 'revise', bodyPreview: 'follow up 2', dshIdempotencyKey: 'k-follow', wake: false })
+  db.recordDirectDeliveryAttempt({ workId: ddMixed.workId, idempotencyKey: 'k-follow', sessionId: 'sess-dd-mixed' })
+  const beforeMixed = db.listInbox(ddMixed.workId)
+  assert.equal(beforeMixed[0].dshIdempotencyKey, null, 'recordDirectDeliveryAttempt without throughSeq must NOT stamp earlier seq=1')
+  assert.equal(beforeMixed[1].dshIdempotencyKey, 'k-follow')
+  const recMixed = db.reconcileDeliveryStatus({
+    workId: ddMixed.workId,
+    deliveryStatus: { status: 'completed', consumed: true, idempotencyKey: 'k-follow', assistantText: 'follow-up done' },
+    autoSettle: true,
+  })
+  assert.equal(recMixed.action, 'requeue', 'unread seq=1 result must prevent settling done')
+  const afterMixed = db.listInbox(ddMixed.workId)
+  assert.equal(afterMixed[0].readAt, null, 'seq=1 result must remain unread')
+  assert.ok(afterMixed[1].readAt !== null, 'seq=2 revise must be marked read')
+  assert.equal(db.getWork(ddMixed.workId).lastConsumedSeq, 0, 'contiguous watermark must stay at 0 while seq=1 is unread')
+  const nextClaim = db.claimReady({ workId: ddMixed.workId })
+  assert.deepEqual(nextClaim.unreadMessages.map(m => m.seq), [1], 'next claim delivers ONLY unread seq=1 result')
+
+  // Group `room_work` batch direct delivery with explicit `throughSeq` binds unread child results up to throughSeq.
   const ddRoom = db.createWork({ botId: 'botB', kind: 'room_work', roomId: 'r1', originKind: 'group', sessionId: 'sess-r1-b' }).work
   const childRes = db.receiveMessage({
     workId: ddRoom.workId,

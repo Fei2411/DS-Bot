@@ -1552,8 +1552,11 @@ test('R2 P1b: deliverToTask consumed-after-commit crash (completed+consumed and 
     const sentMsg = taskAgent.calls[callsBeforeSend][1]
 
     // Crash occurred AFTER DSH committed `user/message` (consumed: true) but BEFORE host lifecycle ack ran!
-    assert.equal(rt.coordDb.listInbox(taskWorkId, { unreadOnly: true }).length, 1)
-    assert.ok(rt.coordDb.getWork(taskWorkId).lastDeliveredSeq >= 1, 'recordDirectDeliveryAttempt must persist lastDeliveredSeq')
+    const unreadPending = rt.coordDb.listInbox(taskWorkId, { unreadOnly: true })
+    assert.equal(unreadPending.length, 1)
+    assert.equal(unreadPending[0].dshIdempotencyKey, sentMsg.source.idempotencyKey, 'revise row must carry exact dshIdempotencyKey')
+    assert.equal(sentMsg.source.coordExactSeq, unreadPending[0].seq, 'deliverToTask must pass coordExactSeq, not range coordThroughSeq')
+    assert.equal(sentMsg.source.coordThroughSeq, undefined, 'deliverToTask must not set range coordThroughSeq')
 
     taskAgent.inbox.nextStep.length = 0
     taskAgent.inbox.nextTurn.length = 0
@@ -1574,5 +1577,115 @@ test('R2 P1b: deliverToTask consumed-after-commit crash (completed+consumed and 
     assert.equal(rt.coordDb.getWork(taskWorkId).status, tc.expectedDb, `${tc.label}: db work status`)
     assert.equal(task.status, tc.expectedTask, `${tc.label}: task status`)
     assert.equal(taskAgent.calls.length, callsBeforeRestart, `${tc.label}: MUST NOT replay follow-up or fire "(continue work)"`)
+  }
+})
+
+test('R2 P1c: mixed inbox (unread child result seq=1 + direct deliverToTask revise seq=2) never swallows seq=1 on live ack or D2 consumed crash recovery', async (t) => {
+  // Case A: live lifecycle ack while waiting on sibling child -> seq=1 stays unread & is synthesized once sibling finishes.
+  {
+    const { rt, agents, emit, tool } = await startHost(t)
+    await tool('task_start', { title: 'bg-mixed-live', brief: 'parent task' }, 'dm-a')
+    const task = rt.botOf('a').tasks[0]
+    const taskWorkId = `task:${task.id}`
+    const taskAgent = agents.get(task.sessionId)
+    task.status = 'waiting_work'
+    rt.coordDb.parkWaiting(taskWorkId)
+
+    // Child 1 result arrives (seq=1, unread) while Child 2 required wait is still open.
+    const sibWait = rt.coordDb.addWait({ workId: taskWorkId, kind: 'call', targetId: 'call-sib-2', required: true }).wait
+    const res1 = rt.coordDb.receiveMessage({
+      workId: taskWorkId,
+      kind: 'result',
+      callId: 'call-sib-1',
+      bodyPreview: 'CHILD_ONE_RESULT',
+      payload: { renderedText: 'CHILD_ONE_RESULT' },
+      wake: false,
+    })
+    assert.equal(res1.message.seq, 1)
+
+    // User sends direct follow-up via deliverToTask (seq=2).
+    const callsBeforeSend = taskAgent.calls.length
+    await rt.deliverToTask(task.id, { text: 'FOLLOW_UP_ONLY' })
+    const followMsg = taskAgent.calls[callsBeforeSend][1]
+
+    // seq=1 must NOT be stamped with follow-up's key.
+    const inboxBeforeAck = rt.coordDb.listInbox(taskWorkId)
+    assert.equal(inboxBeforeAck[0].dshIdempotencyKey, null, 'earlier unread result must keep null dshIdempotencyKey')
+    assert.equal(inboxBeforeAck[1].dshIdempotencyKey, followMsg.source.idempotencyKey)
+
+    // DSH commits `user/message` for follow-up -> exact ack marks ONLY seq=2 read!
+    emit(task.sessionId, 'turn/start', { turn: 2 })
+    emit(task.sessionId, 'user/message', { content: followMsg.content, source: followMsg.source })
+    const unreadAfterFollowAck = rt.coordDb.listInbox(taskWorkId, { unreadOnly: true })
+    assert.equal(unreadAfterFollowAck.length, 1, 'exact ack must leave seq=1 child result unread')
+    assert.equal(unreadAfterFollowAck[0].seq, 1)
+    assert.equal(rt.coordDb.getWork(taskWorkId).lastConsumedSeq, 0, 'contiguous last_consumed_seq must not skip unread seq=1')
+
+    // Now sibling child 2 finishes (seq=3) and resolves the last required wait -> parent wakes with BOTH child results and NOT seq=2!
+    rt.coordDb.parkWaiting(taskWorkId)
+    rt.coordDb.receiveMessage({
+      workId: taskWorkId,
+      kind: 'result',
+      callId: 'call-sib-2',
+      bodyPreview: 'CHILD_TWO_RESULT',
+      payload: { renderedText: 'CHILD_TWO_RESULT' },
+      wake: false,
+    })
+    const callsBeforeWake = taskAgent.calls.length
+    rt.coordDb.resolveWait({ waitId: sibWait.waitId, status: 'resolved', wake: true })
+    await rt.kickScheduler({ workId: taskWorkId })
+    await settle(() => taskAgent.calls.length > callsBeforeWake, 2000, 'parent must wake with both child results')
+    const synthText = textOf(taskAgent.calls.at(-1)[1].content)
+    assert.ok(synthText.includes('CHILD_ONE_RESULT'), 'seq=1 child result must be delivered on synthesis wake')
+    assert.ok(synthText.includes('CHILD_TWO_RESULT'), 'seq=3 sibling child result must be delivered on synthesis wake')
+    assert.ok(!synthText.includes('FOLLOW_UP_ONLY'), 'already-consumed seq=2 follow-up must NOT be replayed')
+  }
+
+  // Case B: crash AFTER DSH committed follow-up (seq=2) and completed, BEFORE host ack, with unread seq=1 result ->
+  // D2 reconciliation marks ONLY seq=2 read, preserves seq=1 unread, and dispatches seq=1 without replaying seq=2!
+  {
+    const { rt, agents, tool } = await startHost(t)
+    await tool('task_start', { title: 'bg-mixed-crash', brief: 'parent task' }, 'dm-a')
+    const task = rt.botOf('a').tasks[0]
+    const taskWorkId = `task:${task.id}`
+    const taskAgent = agents.get(task.sessionId)
+    task.status = 'waiting_work'
+    rt.coordDb.parkWaiting(taskWorkId)
+
+    rt.coordDb.receiveMessage({
+      workId: taskWorkId,
+      kind: 'result',
+      callId: 'call-c1',
+      bodyPreview: 'UNREAD_CHILD_RESULT_SURVIVES',
+      payload: { renderedText: 'UNREAD_CHILD_RESULT_SURVIVES' },
+      wake: false,
+    })
+    const callsBeforeSend = taskAgent.calls.length
+    await rt.deliverToTask(task.id, { text: 'CONSUMED_FOLLOW_UP' })
+    const followMsg = taskAgent.calls[callsBeforeSend][1]
+
+    taskAgent.inbox.nextStep.length = 0
+    taskAgent.inbox.nextTurn.length = 0
+    for (const [, m] of taskAgent.calls) rt.forgetDelivery?.(m?.source?.exchangeId)
+    rt.forgetWorkDeliveries?.(taskWorkId)
+
+    const callsBeforeRestart = taskAgent.calls.length
+    const origQuery = rt.queryDeliveryStatus
+    rt.queryDeliveryStatus = async () => ({
+      status: 'completed',
+      consumed: true,
+      idempotencyKey: followMsg.source.idempotencyKey,
+      assistantText: 'handled follow-up',
+    })
+    try {
+      await rt.adoptLiveWork()
+    } finally {
+      rt.queryDeliveryStatus = origQuery
+    }
+
+    await settle(() => taskAgent.calls.length > callsBeforeRestart, 2000, 'unread seq=1 result must be scheduled after seq=2 completes')
+    const replayedText = textOf(taskAgent.calls.at(-1)[1].content)
+    assert.ok(replayedText.includes('UNREAD_CHILD_RESULT_SURVIVES'), 'unread seq=1 child result must be delivered on recovery')
+    assert.ok(!replayedText.includes('CONSUMED_FOLLOW_UP'), 'consumed seq=2 follow-up must NOT be replayed')
   }
 })
