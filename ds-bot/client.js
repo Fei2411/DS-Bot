@@ -61837,6 +61837,36 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
 // src/shared/release-notes-generated.js
 var RELEASE_NOTES = [
   {
+    "version": "0.4.0",
+    "date": "2026-11-27",
+    "notes": {
+      "zh": {
+        "items": [
+          "桌面端切换为 DS Bot 独立前端，新增青瓷主题、双色自动配色、VS Code 主题导入与自定义样式",
+          "新增统一收件箱，所有 Bot 与群聊的待批准、待回答和未读消息集中处理",
+          "全新 20 款 3D 动态形象，桌面与手机端同步展示 Bot 当前动作状态",
+          "新增 Bot 插件市场与四级权限安全模型，支持热切换浏览器控制槽位",
+          "新增「自动审查」权限模式、自定义快捷键，以及本地统一外部 API（含 OpenAI 兼容与 MCP）",
+          "支持 ChatGPT 账号登录、多文件夹授权、1Password（op://）密钥与同 CLI 多账号配置",
+          "大幅降低桌面端 CPU 与内存占用，手机端新增 Android 应用内更新、通知与完整用量看板"
+        ],
+        "intro": "全新桌面前端、统一收件箱、Bot 插件与 3D 动态形象上线，整体更轻更稳。"
+      },
+      "en": {
+        "items": [
+          "New native desktop frontend with the Celadon theme, 2-color themes, VS Code theme import, and custom CSS",
+          "Unified Inbox brings pending approvals, questions, and unread items from all Bots and groups into one view",
+          "Redesigned 20-character 3D avatars show what each Bot is doing at a glance on desktop and phone",
+          "Bot Plugins with a 4-tier security model and a hot-swappable Browser Control slot",
+          "Auto Review permission mode, customizable keyboard shortcuts, and a unified local External API (OpenAI-compatible & MCP)",
+          "Sign in with ChatGPT, multi-folder access, 1Password (op://) secrets, and multiple account profiles per local CLI",
+          "Lower desktop CPU and memory usage, plus Android in-app updates, notifications, and the full Usage dashboard"
+        ],
+        "intro": "A native DS Bot desktop frontend, unified Inbox, Bot Plugins, and 3D live avatars."
+      }
+    }
+  },
+  {
     "version": "0.3.10",
     "date": "2026-11-22",
     "notes": {
