@@ -1857,3 +1857,107 @@ test('real DSH agent-loop paused after inbox.claim() keeps handoffPending set un
     await readHandle.close()
   }
 })
+
+test('immediate handoff claim during moveOn still forwards parked prompts ahead of newer prompts and preserves IM origin across deferred recovery', async (t) => {
+  // 1) Immediate handoff claim on fresh part: moveOn keeps handoffPending=true and skips archive,
+  //    yet forwards parked prompts immediately so a newer prompt sent directly to fresh cannot overtake them.
+  {
+    const host = makeSwitchFixture()
+    t.after(host.stop)
+    await host.rt.load()
+
+    const s1 = host.agentOf('s1')
+    const s1Events = []
+    s1.session.snapshotEvents = () => s1Events
+    const origFollowup = s1.followup.bind(s1)
+    s1.followup = (msg) => {
+      origFollowup(msg)
+      s1Events.push({ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 0, inserted: [msg] } })
+      if (msg?.source?.handoff === true) {
+        // Simulate immediate inbox.claim() before confirmHandoffFlushed runs (no user/message yet).
+        s1.inbox.remove(msg.id)
+        s1Events.push({ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } })
+      }
+    }
+
+    const parked = createUserMessage({
+      id: 'm-parked-first',
+      content: [{ type: 'text', text: 'Read the release checklist' }],
+      source: { kind: 'user', exchangeId: 'ex-parked-first' },
+    })
+    host.agentOf('b').status = 'running'
+    await host.preStep('b', [parked], 2)
+    assert.equal(await waitFor(() => host.state().bots.b.sessionId === 's1' && !host.rt.isSwitchingPart('b')), true)
+
+    // handoffPending stays true and old part b is NOT archived while handoff is only claimed.
+    assert.equal(host.state().switching.b?.handoffPending, true, 'handoffPending must stay set after immediate handoff claim')
+    assert.deepEqual(host.archived, [], 'old part must stay unarchived until handoff user/message is durable')
+
+    // A newer prompt arrives directly on s1 BEFORE heldBack() runs: parked prompt MUST already sit ahead of it!
+    s1.followup(createUserMessage({
+      id: 'm-newer-second',
+      content: [{ type: 'text', text: 'Summarize what you found' }],
+      source: { kind: 'user', exchangeId: 'ex-newer-second' },
+    }))
+    const queuedTexts = s1.inbox.nextTurn.map(m => m.content?.[0]?.text ?? '')
+    assert.deepEqual(queuedTexts, ['Read the release checklist', 'Summarize what you found'], 'parked prompt must precede newer prompt sent directly to successor')
+
+    // Once handoff user/message lands, heldBack() flushes it, clears handoffPending, and archives b.
+    s1Events.push({ type: 'user/message', data: { message: s1Events[0].data.inserted[0] } })
+    await host.rt.heldBack()
+    assert.deepEqual(host.state().switching, {})
+    assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
+  }
+
+  // 2) Deferred recovery after initial flush failure preserves one-use IM origin token instead of dropping it in finally.
+  {
+    let failS1Once = true
+    const host = makeSwitchFixture({
+      fail: {
+        onFlush: (session) => {
+          if (session.id === 's1' && failS1Once) {
+            failS1Once = false
+            throw new Error('transient flush error before unread replay')
+          }
+        },
+      },
+    })
+    t.after(host.stop)
+    await host.rt.load()
+
+    const droppedOrigins = []
+    host.rt.holdImOrigin = () => 'im-origin-tok-42'
+    host.rt.dropImOrigin = (tok) => { if (tok !== undefined) droppedOrigins.push(tok) }
+
+    const bAgent = host.agentOf('b')
+    bAgent.session.deriveMessages = () => [
+      {
+        id: 'u-im-1',
+        role: 'user',
+        content: [{ type: 'text', text: 'Answer me over IM' }],
+        source: { kind: 'user', exchangeId: 'ex-im-1' },
+      },
+    ]
+    host.rt.state.localAgents = { sessions: { b: { handedId: 'earlier-0' } } }
+    const reqErrListeners = host.ctx.listeners.get('agent/request-error') ?? []
+    const payload = { agent: bAgent, failure: { code: 'LOCAL_AGENT_SESSION_LOST', message: 'session lost' } }
+    const dispatch = i => (i < reqErrListeners.length ? reqErrListeners[i](payload, () => dispatch(i + 1)) : Promise.resolve(undefined))
+    await dispatch(0)
+
+    assert.equal(await waitFor(() => host.state().bots.b.sessionId === 's1' && !host.rt.isSwitchingPart('b')), true)
+    assert.equal(host.state().switching.b?.handoffPending, true)
+    assert.equal(host.state().switching.b?.runtimeLostContext?.resumeOrigin, 'im-origin-tok-42')
+    assert.deepEqual(droppedOrigins, [], 'switch finalizer must not drop IM origin token retained for deferred recovery')
+
+    // Retry succeeds: forwarded unread request carries the intact IM origin token!
+    await host.rt.heldBack()
+    const s1 = host.agentOf('s1')
+    const forwardedUnread = s1.calls
+      .filter(([kind, m]) => kind === 'followup' && m?.source?.handoff !== true)
+      .map(([, m]) => m)
+    assert.equal(forwardedUnread.length, 1, 'deferred recovery forwards unread IM request once')
+    assert.equal(forwardedUnread[0].source?.imOrigin, 'im-origin-tok-42', 'forwarded unread request preserves intact IM origin token')
+    assert.deepEqual(droppedOrigins, [], 'IM origin token was consumed by replay, never dropped')
+    assert.deepEqual(host.state().switching, {})
+  }
+})

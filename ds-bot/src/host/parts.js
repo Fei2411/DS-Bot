@@ -2837,7 +2837,11 @@ export function install(rt) {
       .finally(async () => {
         switches.delete(agent.id)
         if (job.moved) {
-          if (!job.originSent) rt.dropImOrigin?.(job.resumeOrigin)
+          const retainedOrigin = job.kept === true && job.resumeOrigin !== undefined && (
+            state.switching[agent.id]?.handoffMeta?.resumeOrigin === job.resumeOrigin
+            || state.switching[agent.id]?.runtimeLostContext?.resumeOrigin === job.resumeOrigin
+          )
+          if (!job.originSent && !retainedOrigin) rt.dropImOrigin?.(job.resumeOrigin)
           // A move that had to put input back keeps the part marked for the restart/retry pass.
           if (job.kept !== true) {
             delete state.switching[agent.id]
@@ -3326,21 +3330,22 @@ export function install(rt) {
         && (handoffSrc.exchangeId === undefined || m.source?.exchangeId === handoffSrc.exchangeId)
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSrc }))
       const handoffConfirmed = await confirmHandoffFlushed(fresh, matchesHandoff, { justQueued: true })
-      if (!handoffConfirmed) {
+      if (handoffConfirmed) {
+        // Handoff package is now durably flushed to the fresh part: clear the pending flag
+        // in memory (persisted on the switch's final save; even on a hard crash before that
+        // save, ensureHandoffDelivered sees the flushed handoff on fresh and skips cleanly).
+        if (state.switching[agent.id] !== undefined) {
+          delete state.switching[agent.id].handoffPending
+          delete state.switching[agent.id].handoffMeta
+          job.handoffCleared = true
+        }
+      } else {
         // The successor claimed the handoff out of its inbox across flush before
-        // user/message was logged. Keep handoffPending and defer archiving/forwarding
-        // to heldBack() so a crash before user/message can still reconstruct it.
+        // user/message was logged. Keep handoffPending and skip archiving until
+        // heldBack() confirms the logged user/message, while still staging parked/unread
+        // prompts onto fresh immediately so newer prompts cannot overtake them and IM
+        // origin routing stays intact.
         job.kept = true
-        try { restore(agent, job.carry.splice(0)) } catch {}
-        return
-      }
-      // Handoff package is now durably flushed to the fresh part: clear the pending flag
-      // in memory (persisted on the switch's final save; even on a hard crash before that
-      // save, ensureHandoffDelivered sees the flushed handoff on fresh and skips cleanly).
-      if (state.switching[agent.id] !== undefined) {
-        delete state.switching[agent.id].handoffPending
-        delete state.switching[agent.id].handoffMeta
-        job.handoffCleared = true
       }
       const heldIds = new Set(held.map(m => m?.id).filter(Boolean))
       for (const message of job.carry.splice(0)) {
@@ -3350,6 +3355,11 @@ export function install(rt) {
         ? unreadRequestsForRuntimeLost(session, agent.id, job, { markOriginSent: true })
         : []
       await forward(job, [...runtimeLostUnread, ...carry, ...held], freshId)
+      if (hasRuntimeLostUnread && state.switching[agent.id] !== undefined) {
+        delete state.switching[agent.id].runtimeLost
+        delete state.switching[agent.id].runtimeLostContext
+        if (job.kept === true) await rt.save().catch(() => {})
+      }
       // Migrate buffered silent entries after forward succeeds so entry.ledger stays
       // intact until freshId actually flushes (or takes them on pre-step), and a failed
       // forward never leaves duplicate silent notes on both old and new parts.
