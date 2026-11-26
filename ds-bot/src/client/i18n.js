@@ -820,7 +820,7 @@ const ZH = {
   Graphite: '石墨', Rose: '玫瑰', Sky: '天蓝', Tangerine: '橘', Cobalt: '钴蓝',
 
   // Themes
-  DeepSeek: 'DeepSeek', Mono: '黑白', Paper: '纸张', Moonlight: '月光',
+  DeepSeek: 'DeepSeek', Mono: '黑白', Paper: '纸张', Moonlight: '月光', Celadon: '天青',
 
   // Settings dialog
   General: '通用',

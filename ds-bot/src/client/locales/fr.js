@@ -906,6 +906,7 @@ export const FR = {
   "Mono": "Mono",
   "Paper": "Papier",
   "Moonlight": "Clair de lune",
+  "Celadon": "Céladon",
   "General": "Général",
   "Bots": "Bots",
   "Group chats": "Discussions de groupe",
