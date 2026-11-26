@@ -622,6 +622,12 @@ export function install(rt) {
           const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim() !== '' ? body.sessionId.trim() : undefined
           return ok(await rt.recoverOverflowPart(botId, sessionId))
         }
+        // Recovery when a Bot's foreground Session is gone from the Session library (#1929).
+        case 'recover-session': {
+          await rt.load()
+          const botId = String(body.botId ?? '')
+          return ok(await rt.recoverMissingSession(botId))
+        }
         // Background pictures and a chat's own background (appearance.js).
         case 'background-add':
           await rt.load()
