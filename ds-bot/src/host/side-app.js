@@ -168,7 +168,10 @@ export function install(rt) {
 
   // Reads stat and bytes through one open handle: what the checks approved is what
   // the caller gets, even if the path is swapped in between. Size and kind come from
-  // the handle's own fstat, never from a separate look at the path.
+  // the handle's own fstat, never from a separate look at the path. Even without a
+  // caller limit the read is capped: a file that grows past fstat never lands whole
+  // in memory.
+  const READ_HARD_CAP = 16 * 1024 * 1024
   async function readVerified(realPath, { limit, oversized } = {}) {
     let handle
     try {
@@ -179,8 +182,11 @@ export function install(rt) {
     try {
       const info = await handle.stat()
       if (!info.isFile()) throw invalid('That path is not a file')
-      if (limit !== undefined && info.size > limit) throw tooLarge(oversized ?? 'The file is too large')
-      return { bytes: await handle.readFile(), size: info.size }
+      const ceiling = limit !== undefined ? Math.min(limit, READ_HARD_CAP) : READ_HARD_CAP
+      if (info.size > ceiling) throw tooLarge(oversized ?? 'The file is too large')
+      const bytes = await handle.readFile()
+      if (bytes.length > ceiling) throw tooLarge(oversized ?? 'The file is too large')
+      return { bytes, size: info.size }
     } finally {
       await handle.close().catch(() => {})
     }
@@ -385,9 +391,10 @@ export function install(rt) {
     const hash = createHash('sha256')
     let counted = 0
     let truncated = false
-    // The entry is part of the scan's own authorization: gone or mutated into a
-    // non-file makes the preview unavailable, never a hash of an error.
-    const entryRead = await readVerified(ticket.entryReal).catch(error => error)
+    // The entry is part of the scan's own authorization: gone, mutated into a
+    // non-file, or grown past the serving limit makes the scan fail, never a hash
+    // of oversized bytes read wholesale into memory.
+    const entryRead = await readVerified(ticket.entryReal, { limit: HTML_LIMIT, oversized: 'The HTML file is larger than 8 MiB' }).catch(error => error)
     if (entryRead instanceof Error) throw entryRead
     hash.update(entryRead.bytes)
     const walk = async (dir, depth) => {
@@ -425,7 +432,7 @@ export function install(rt) {
         hash.update(real.slice(ticket.root.length))
         hash.update(String(info.size))
         hash.update(String(Math.floor(info.mtimeMs)))
-        if (info.size <= MANIFEST_BYTES_MAX) hash.update((await readVerified(real).catch(() => ({ bytes: Buffer.alloc(0) }))).bytes)
+        if (info.size <= MANIFEST_BYTES_MAX) hash.update((await readVerified(real, { limit: MANIFEST_BYTES_MAX }).catch(() => ({ bytes: Buffer.alloc(0) }))).bytes)
       }
     }
     await walk(ticket.root, 0)
