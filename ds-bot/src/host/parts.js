@@ -377,16 +377,16 @@ export function install(rt) {
 
   // Enforces the exact UTF-8 byte budget on a deterministic handoff payload while
   // strictly preserving the active turn's initiating input and carried attachments.
-  function applyHandoffBudget(carried, { session, targetWindowTokens, noteBody = '', carry = [], held = [], maxHistoryTokens } = {}) {
+  function applyHandoffBudget(carried, { session, targetWindowTokens, noteBody = '', carry = [], held = [], maxHistoryTokens, pinCurrentTurn = true } = {}) {
     if (!Number.isInteger(targetWindowTokens) || targetWindowTokens <= 0) return carried
     const recent = carried?.recent ?? []
     const earlier = carried?.earlier ?? []
     const tools = carried?.tools ?? []
     if (recent.length === 0 && earlier.length === 0 && tools.length === 0) return carried
     const hasStructured = Array.isArray(carried?.currentTurn)
-    const currentTurn = hasStructured ? carried.currentTurn : (recent.length > 0 ? [recent.at(-1)] : [])
-    const olderBefore = hasStructured ? (carried.olderRecent ?? []) : (recent.length > 0 ? recent.slice(0, -1) : [])
-    const trailingAfter = hasStructured ? (carried.trailingRecent ?? []) : []
+    const currentTurn = !pinCurrentTurn ? [] : (hasStructured ? carried.currentTurn : (recent.length > 0 ? [recent.at(-1)] : []))
+    const olderBefore = !pinCurrentTurn ? recent : (hasStructured ? (carried.olderRecent ?? []) : (recent.length > 0 ? recent.slice(0, -1) : []))
+    const trailingAfter = !pinCurrentTurn ? [] : (hasStructured ? (carried.trailingRecent ?? []) : [])
     // Evict older turns before the active turn's own interim assistant replies,
     // while keeping the initiating request itself hard-protected even at 0 bytes.
     const trimmableRecent = [...olderBefore, ...trailingAfter]
@@ -3139,13 +3139,21 @@ export function install(rt) {
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
       const targetWindow = await targetWindowTokensOf(bot, session, lines?.window)
+      // When runtime-lost recovery will forward unread requests verbatim (with
+      // full text and attachments), reserve budget for those originals instead of
+      // pinning a second clipped transcript copy in the handoff body.
+      const budgetUnread = hasRuntimeLostUnread
+        ? unreadRequestsForRuntimeLost(session, agent.id, job, { markOriginSent: false })
+        : []
+      const budgetCarry = budgetUnread.length > 0 ? [...budgetUnread, ...job.carry] : job.carry
       budgeted = applyHandoffBudget(carried, {
         session,
         targetWindowTokens: targetWindow,
         noteBody: noteText(segment) ?? '',
-        carry: job.carry,
+        carry: budgetCarry,
         held,
         maxHistoryTokens: budget + LIST_TOKENS + TOOL_TRAIL_TOKENS,
+        pinCurrentTurn: !hasRuntimeLostUnread,
       })
       // Keep the persisted fallback and rendered note text honest if concurrent
       // input or a model change tightened the final budget after the whole check.
@@ -3156,9 +3164,10 @@ export function install(rt) {
           session,
           targetWindowTokens: targetWindow,
           noteBody: noteText(segment) ?? '',
-          carry: job.carry,
+          carry: budgetCarry,
           held,
           maxHistoryTokens: budget + LIST_TOKENS + TOOL_TRAIL_TOKENS,
+          pinCurrentTurn: !hasRuntimeLostUnread,
         })
       }
       const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: budgeted, number: number + 1, resume: handoffResume, overflow: job.overflow, cutoff: job.cutoff === true, runtimeLost: job.runtimeLost === true, failed: job.failed, bare: job.bare, folder, engine })

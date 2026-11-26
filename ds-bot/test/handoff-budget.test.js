@@ -1167,3 +1167,121 @@ test('parts.js canMakeRoom uses idle mode on first-step rollover and idle group 
     assert.ok(pkg.includes('Summary is ready.'), 'latest completed reply must survive alongside its request')
   }
 })
+
+test('parts.js runtime-lost recovery reserves budget for full unread request and attachments without duplicating it in handoff', async () => {
+  const followed = []
+  const sent = []
+  const longUnread = `UNREAD_DOC_START_${'长文档内容片段_'.repeat(300)}_UNREAD_DOC_END`
+  const unreadMessage = {
+    id: 'msg-unread-1',
+    role: 'user',
+    content: [
+      { type: 'text', text: longUnread },
+      { type: 'image', attachment: { attachmentId: 'shot-1' } },
+      { type: 'image', attachment: { attachmentId: 'shot-2' } },
+    ],
+    source: { kind: 'user' },
+  }
+  const historyEvents = [
+    { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: `OLDER_HISTORY_${'旧'.repeat(400)}` }], source: { kind: 'user' } } },
+    { type: 'assistant/message', seq: 2, time: 2, data: { message: { content: [{ type: 'text', text: `OLDER_REPLY_${'答'.repeat(400)}` }] } } },
+    { type: 'user/message', seq: 3, time: 3, data: { content: unreadMessage.content, source: { kind: 'user' } } },
+  ]
+  const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 4_000 }) } } })
+  ctx.logger = { warn: () => {}, info: () => {} }
+  ctx.sessions = { flush: async () => {} }
+  ctx.workspaceRegistry = { archiveSession: async () => {} }
+  // Tight 8k-token window: full unread request (~7.2 KiB) + 2 image allowances (2 * 6 KiB)
+  // leaves 0 history bytes, so older history and clipped transcript copy must both be trimmed.
+  ctx.llm = {
+    resolveModelInfo: async () => ({ context: { contextWindow: 8_000 } }),
+  }
+
+  const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'local-claude-code/default', segments: [] }
+  const session = {
+    id: 's1',
+    header: { cwd: '/tmp/team' },
+    requestHeader: () => ({ config: { provider: 'local-claude-code', model: 'default' } }),
+    deriveMessages: () => [
+      { id: 'msg-1', role: 'user', content: [{ type: 'text', text: 'older' }], source: { kind: 'user' } },
+      { id: 'msg-2', role: 'assistant', content: [{ type: 'text', text: 'older reply' }] },
+      unreadMessage,
+    ],
+    toolHistory: () => [],
+  }
+  const agent = {
+    id: 's1', session, status: 'idle',
+    whenIdle: async () => {},
+    runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+    inbox: { nextStep: [], nextTurn: [] },
+    followup: message => followed.push({ to: 's1', message }),
+    send: async message => sent.push({ to: 's1', message }),
+  }
+  const fresh = {
+    id: 's2',
+    session: { id: 's2', header: { cwd: '/tmp/team' }, requestHeader: () => ({ config: {} }), deriveMessages: () => [], toolHistory: () => [] },
+    status: 'idle',
+    whenIdle: async () => {},
+    runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+    inbox: { nextStep: [], nextTurn: [] },
+    followup: message => followed.push({ to: 's2', message }),
+    send: async message => sent.push({ to: 's2', message }),
+  }
+  const live = new Map()
+  const rt = {
+    ctx, home: '/unused', config: {},
+    state: { bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, switching: {}, questions: {}, views: {}, localAgents: { sessions: { s1: { handedId: 'msg-2' } } } },
+    warn: () => {}, async save() {}, async load() {}, readOnly: () => undefined,
+    botOf: id => rt.state.bots[id], roomOf: () => undefined,
+    selfOf: () => 'b1', isMain: () => false, chatOf: () => 's1', sessionOfRoom: () => undefined,
+    isBotSession: id => ['s1', 's2'].includes(id),
+    isLocalAgentRef: () => true, isLocalAgentRoute: () => true,
+    chatOwners: new Map([['s1', 'b1']]), groupOwners: new Map(), pastOwners: new Map(), roomOwners: new Map(),
+    teamTools: [], live,
+    liveOf: id => {
+      let entry = live.get(id)
+      if (entry === undefined) { entry = { joined: [] }; live.set(id, entry) }
+      return entry
+    },
+    groupSessionsOf: () => [], unreadOf: () => [],
+    eventsBackwards: async function* (_sid, _sig, _pages, scan) {
+      for (const event of [...historyEvents].reverse()) yield event
+      if (scan) scan.complete = true
+    },
+    resolveAgent: async id => (id === 's2' ? fresh : agent),
+    createSession: async () => 's2',
+    desiredModel: async subject => subject.model,
+    desiredEffort: async () => undefined,
+    selectSessionModel: async () => {}, applyPermission: async () => {}, ensureCapabilities: async () => {},
+    renewMemory: () => {}, moveSchedules: async () => {}, deliver: async () => {},
+    teamFolder: () => '/tmp/team', workDirOf: () => '/tmp/team', isFolder: async () => true,
+    roomProgress: new Map(),
+  }
+  partsInstall(rt)
+
+  const reqErrListeners = ctx.listeners.get('agent/request-error') ?? []
+  const payload = {
+    agent,
+    failure: { code: 'LOCAL_AGENT_SESSION_LOST', message: 'no conversation found' },
+  }
+  const dispatch = i => (i < reqErrListeners.length ? reqErrListeners[i](payload, () => dispatch(i + 1)) : Promise.resolve(undefined))
+  await dispatch(0)
+  for (let i = 0; i < 100 && bot.sessionId !== 's2'; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(bot.sessionId, 's2')
+  const handoffMsg = followed.find(entry => entry.to === 's2' && entry.message.source?.handoff === true)?.message
+  assert.ok(handoffMsg !== undefined, 'fresh part must receive the handoff package')
+  const handoffText = handoffMsg.content.map(b => b.text).join('')
+  assert.equal(handoffText.includes('OLDER_HISTORY_'), false, 'older history must be dropped when full unread request + attachments fill the window')
+  assert.equal(handoffText.includes('UNREAD_DOC_START_'), false, 'clipped transcript copy of unread request must not be pinned in handoff when original is forwarded')
+
+  const forwarded = [...followed, ...sent].filter(entry => entry.to === 's2' && entry.message.source?.handoff !== true).map(entry => entry.message)
+  assert.equal(forwarded.length, 1, 'unread request must be forwarded once to fresh part')
+  assert.equal(forwarded[0].content[0].text, longUnread, 'forwarded unread request text must remain verbatim')
+  assert.deepEqual(
+    forwarded[0].content.filter(b => b.type === 'image').map(b => b.attachment.attachmentId),
+    ['shot-1', 'shot-2'],
+    'forwarded unread request must preserve all image attachments',
+  )
+})
