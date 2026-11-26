@@ -344,7 +344,6 @@ export function install(rt) {
       entry.coordWait = openCoordWait(entry, owner)
       pending.set(id, entry)
       rt.noteApproval?.(owner.ownerSessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200), ...(entry.privacy ? { privacy: true } : {}) })
-      if (owner.botId !== undefined) rt.approvalWaiting?.(entry)
       original?.addEventListener('abort', abort, { once: true })
       emit('open', view(entry))
       if (original?.aborted) return complete('cancelled')

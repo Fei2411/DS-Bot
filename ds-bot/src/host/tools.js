@@ -73,6 +73,13 @@ export function install(rt) {
   }
 
   const callerBot = exec => rt.botOf(rt.selfOf(exec.agent?.id))
+  // A photo the user names for a Bot or a group: the same input and checks either way, and
+  // never a file out of a private Bot's folder, which no other Bot reads from.
+  const readPhoto = (input, exec) => readAvatar(String(input), {
+    baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent),
+    isData: rt.inData,
+    isClosed: path => rt.privateOwnerOf?.(path, { self: rt.selfOf(exec.agent?.id) }),
+  })
   const callerRoom = (exec) => {
     const roomId = (rt.groupOwners.get(exec.agent?.id) ?? rt.pastOwners?.get(exec.agent?.id))?.roomId
     return roomId ? { fromRoomId: roomId } : {}
@@ -1055,7 +1062,7 @@ export function install(rt) {
       await rt.load()
       if (!rt.isMain(rt.selfOf(exec.agent?.id))) return 'Only the Main Bot can create Bots. Ask the Main Bot instead.'
       try {
-        const avatar = args.avatar ? await readAvatar(String(args.avatar), { baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent), isData: rt.inData }) : undefined
+        const avatar = args.avatar ? await readPhoto(args.avatar, exec) : undefined
         const workDir = args.work_dir ? await rt.cleanWorkDir(args.work_dir) : undefined
         const name = String(args.name ?? '').trim()
         await rt.approveFolder(exec, { path: workDir, who: { en: `the new Bot ${name}`, zh: `新 Bot ${name} ` } })
@@ -1101,7 +1108,7 @@ export function install(rt) {
         let image
         if (args.avatar !== undefined) {
           const input = typeof args.avatar === 'string' ? args.avatar.trim() : args.avatar
-          image = input === null || input === '' ? null : await readAvatar(String(input), { baseDir: rt.sessionFolder?.(exec.agent?.session ?? exec.agent), isData: rt.inData })
+          image = input === null || input === '' ? null : await readPhoto(input, exec)
         }
         const moving = typeof args.work_dir === 'string'
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
@@ -1208,6 +1215,7 @@ export function install(rt) {
       members: { type: 'array', required: true, items: { type: 'string' }, description: 'Exact names of the other Bots to add; you are added automatically' },
       name: { type: 'string', description: 'Group name; defaults to the member names' },
       notice: { type: 'string', description: 'Shared instructions every member reads before speaking in this group; at most 2000 characters' },
+      avatar: { ...AVATAR_PARAM, description: `${AVATAR_PARAM.description} Optional; without one the group shows its members.` },
       admin: { type: 'string', description: 'Member who leads the group; defaults to you' },
       mode: MODE_PARAM,
       section: SECTION_PARAM,
@@ -1224,7 +1232,9 @@ export function install(rt) {
       const members = [...new Set([self, ...bots.map(bot => bot.id), admin.id])]
       try {
         const hadRooms = Object.keys(state.rooms).length > 0
-        const room = await rt.createRoom({ members, name: args.name, notice: args.notice, mode: args.mode, admin: admin.id, section: args.section, createdBy: self })
+        const given = typeof args.avatar === 'string' ? args.avatar.trim() : ''
+        const photo = given === '' ? undefined : { image: await readPhoto(given, exec) }
+        const room = await rt.createRoom({ members, name: args.name, avatar: photo, notice: args.notice, mode: args.mode, admin: admin.id, section: args.section, createdBy: self })
         if (!hadRooms) rt.refreshToolScopeForSession?.(exec.agent?.id)
         return `Created group "${room.name}" with ${room.members.map(id => rt.botOf(id).name).join(', ')}. ${admin.id === self ? 'You are' : `${admin.name} is`} its admin. It is in the user's sidebar; use post_to_group to start a discussion there.`
       } catch (error) {
@@ -1235,10 +1245,11 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'update_group',
-    description: 'Change a group chat: rename it, set its notice, add or remove members, change its admin or reply mode. Main Bots may change any group; a group\'s admin may change its own group.',
+    description: 'Change a group chat: rename it, set its notice or photo, add or remove members, change its admin or reply mode. Main Bots may change any group; a group\'s admin may change its own group.',
     parameters: {
       group: GROUP_REF,
       name: { type: 'string', description: 'New group name; an empty string names it after its members again' },
+      avatar: { ...AVATAR_PARAM, description: `${AVATAR_PARAM.description} An empty string removes the photo and shows the members again.` },
       notice: { type: 'string', description: 'Replacement notice, the shared instructions every member reads; an empty string clears it; at most 2000 characters' },
       add_members: { type: 'array', items: { type: 'string' }, description: 'Exact names of Bots to add' },
       remove_members: { type: 'array', items: { type: 'string' }, description: 'Exact names of Bots to remove' },
@@ -1271,6 +1282,11 @@ export function install(rt) {
         }
       }
       try {
+        let photo
+        if (args.avatar !== undefined) {
+          const input = typeof args.avatar === 'string' ? args.avatar.trim() : args.avatar
+          photo = input === null || input === '' ? null : { image: await readPhoto(input, exec) }
+        }
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
         const targetDir = moving ? workDir : room.workDir
         const removing = new Set(remove.bots.map(bot => bot.id))
@@ -1315,6 +1331,7 @@ export function install(rt) {
           ...(args.section === undefined ? {} : { section: args.section }),
           ...(moving ? { workDir: workDir ?? '' } : {}),
           ...(extraDirs === undefined ? {} : { extraDirs }),
+          ...(photo === undefined ? {} : { avatar: photo }),
         }, self)
         return changes.length === 0 ? `Nothing changed in "${next.name}".` : `Updated "${next.name}": ${changes.join('; ')}.`
       } catch (failure) {
@@ -1601,7 +1618,6 @@ export function install(rt) {
         }
       }
       await rt.save()
-      rt.cardShown?.(id, 'question', card.question)
       yieldTurn(exec, 'waiting_user_question')
       return 'The card is on screen; the user\'s answer arrives as their next message.'
     },
@@ -1681,7 +1697,6 @@ export function install(rt) {
         }
       }
       await rt.save()
-      rt.cardShown?.(id, 'view', title)
       yieldTurn(exec, 'waiting_user_view')
       return 'The view is on screen; the user\'s answer arrives as their next message.'
     },

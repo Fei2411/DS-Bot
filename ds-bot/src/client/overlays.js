@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { CommandPalette } from './palette.js'
 import { GroupSearch } from './group-search.js'
 import { NewChat } from './new-chat.js'
+import { InboxPane } from './inbox.js'
 import { ExchangeDialog } from './exchange.js'
 import { VoiceMode } from './voice.js'
 import { SettingsDialog } from './settings.js'
@@ -24,7 +25,7 @@ const useDefaultFrame = () => ({ viewport: typeof window === 'undefined' ? 0 : w
 const useDefaultSidebarPref = () => 'open'
 const useDefaultFalse = () => false
 
-export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useComputer, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, dsh, actions, workspace }) {
+export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useComputer, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useBotCompletions, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, dsh, actions, workspace }) {
   const roster = useRoster(value => value)
   const ui = useUi(value => value)
   useRegistry(value => value)
@@ -82,7 +83,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   const groupSearchToken = ui.groupSearch?.token
   return h(Fragment, null,
     h(OverlayBoundary, { key: 'ds-bot:notifications', name: 'notifications', notify: false },
-      h(NotificationWatcher, { useSessions, useSessionStatus, useRoster, useWork, actions })),
+      h(NotificationWatcher, { useSessions, useSessionStatus, useRoster, actions })),
     opening ? h(OverlayBoundary, { name: 'opening', reset: opening.id, notify: false },
       createPortal(h(OpeningCover, { model: opening, column: layout.column, onNewSession: actions?.recoverOpening, onRetry: actions?.retryOpening }), document.body)) : null,
     pane ? h(OverlayBoundary, {
@@ -94,6 +95,10 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
       name: 'new-chat', reset: `${ui.newChat}:${ui.newChatSection ?? ''}`,
       onDismiss: () => (actions.closeNewChat ?? actions.closeOverlay)?.(), actions,
     }, createPortal(h(NewChat, { key: `${ui.newChat}:${ui.newChatSection ?? ''}`, mode: ui.newChat, sectionId: ui.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body)) : null,
+    ui.inbox === true && !ui.newChat ? h(OverlayBoundary, {
+      name: 'inbox', reset: 'inbox',
+      onDismiss: () => actions.closeInbox?.(), actions,
+    }, createPortal(h(InboxPane, { paneLeft: layout.column, roster, actions, useSessions, useWork, useComputer, useSessionStatus, useBotCompletions, useBrowserHolds, useBrowserTabs, useBrowserPages }), document.body)) : null,
     ui.palette ? h(OverlayBoundary, {
       name: 'palette', reset: paletteToken,
       onDismiss: () => actions.closePalette?.(paletteToken), actions,

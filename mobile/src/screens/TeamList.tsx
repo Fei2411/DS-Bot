@@ -12,7 +12,7 @@ import { roomTitle, workPhrase } from '../ui/phrases.ts'
 import { teamListEmptyMessage } from '../nav/team-list-empty.ts'
 import { cleanPreview } from './chat/settled.ts'
 
-export interface ChatTarget { kind: 'bot' | 'room' | 'agent'; id: string }
+export interface ChatTarget { kind: 'bot' | 'room' | 'agent'; id: string; focus?: string }
 
 // The drawer's team list, laid out like the desktop sidebar (sidebar.js): every Main
 // Bot as a tile on top, then the other Bots and groups as rows, pinned first, then
@@ -88,7 +88,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
             {mainList.map(main => (
               <Pressable key={main.id} accessibilityRole="button" accessibilityLabel={`${main.name}, ${t('Main Bot')}`} onPress={() => onOpen({ kind: 'bot', id: main.id })}
                 style={({ pressed }) => [styles.tile, { backgroundColor: pressed || current === main.id ? p.active : p.hover }]}>
-                <Avatar bot={main} dark={dark} size={52} ring={p.hover} main working={workBots[main.id] !== undefined} waiting={botHasPending(team, main)} />
+                <Avatar bot={main} dark={dark} size={52} ring={p.sidebar} main working={workBots[main.id] !== undefined} waiting={botHasPending(team, main)} />
                 <Text style={[typeScale.small, { color: p.ink, fontWeight: '600', marginTop: 6 }]} numberOfLines={1}>{main.name}</Text>
                 {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 15, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
               </Pressable>

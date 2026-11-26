@@ -1389,7 +1389,6 @@ export function install(rt) {
       trimRequests(list)
       openCoordSecretWait(bot.id, id, entry)
       await rt.save()
-      rt.cardShown?.(id, 'secret', name)
       if (typeof rt.yieldToolTurn === 'function') rt.yieldToolTurn(exec, 'waiting_secret')
       else exec.concludeTurn?.()
       return secret

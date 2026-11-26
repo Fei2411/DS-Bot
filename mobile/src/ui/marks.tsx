@@ -4,6 +4,7 @@ import { SvgXml } from 'react-native-svg'
 import { characterMarkup, lookOf, MASK_ID, shapeOf } from '../../../ds-bot/src/client/characters.js'
 import { INKS } from '../../../ds-bot/src/client/inks.js'
 import type { Bot, Room } from '../connection.ts'
+import { badgeOf } from './badge.ts'
 import { MainStarIcon } from './icons.tsx'
 
 // The Bot's own mascot, drawn by the same generator as the desktop mark
@@ -42,29 +43,33 @@ export function BotMark({ bot, dark, size = 36 }: { bot: unknown; dark: boolean;
   return <Mark look={lookOf(bot)} dark={dark} size={size} />
 }
 
-// Status badges per ui-standard 8.2, scaled to the row's 44px avatar: a working
+// Status badges per ui-standard section 8, scaled to the row's 44px avatar: a working
 // green dot (12px), a waiting accent "?" (12px), the Main Bot star at 36% of the
-// avatar, each ringed in the list's background color.
+// avatar within 14-22px like the desktop. One at a time (badge.ts). `ring` is the
+// opaque color the badges are ringed in: the sidebar color in the team list, as on
+// the desktop, or the page's background elsewhere.
 export function Avatar({ bot, dark, size = 44, ring, working = false, waiting = false, main = false }: {
   bot: Bot; dark: boolean; size?: number; ring: string; working?: boolean; waiting?: boolean; main?: boolean
 }) {
-  const star = Math.round(size * 0.36)
+  const star = Math.round(Math.min(22, Math.max(14, size * 0.36)))
   const dot = Math.round(size * 0.27)
+  const badge = badgeOf({ waiting, working, main })
   return (
     <View style={{ width: size, height: size }}>
       <BotMark bot={bot} dark={dark} size={size} />
-      {waiting
+      {badge === 'alert'
         ? <View style={[styles.badge, { width: dot + 4, height: dot + 4, borderRadius: (dot + 4) / 2, backgroundColor: ring, bottom: -2, right: -2 }]}>
             <View style={[styles.badgeIn, { width: dot, height: dot, borderRadius: dot / 2, backgroundColor: '#4d6bfe' }]}>
               <Text style={[styles.q, { fontSize: dot * 0.66, lineHeight: dot }]}>?</Text>
             </View>
           </View>
-        : working
+        : badge === 'working'
           ? <View style={[styles.badge, { width: dot + 4, height: dot + 4, borderRadius: (dot + 4) / 2, backgroundColor: ring, bottom: 0, right: 0 }]}>
               <View style={{ width: dot * 0.67, height: dot * 0.67, borderRadius: dot, backgroundColor: '#00c972', alignSelf: 'center', marginTop: dot * 0.165 }} />
             </View>
-          : null}
-      {main ? <View style={[styles.badge, { width: star + 3, height: star + 3, bottom: -2, right: -2, justifyContent: 'center', alignItems: 'center' }]}><MainStarIcon size={star} /></View> : null}
+          : badge === 'main'
+            ? <View style={[styles.badge, { width: star + 3, height: star + 3, bottom: -2, right: -2, justifyContent: 'center', alignItems: 'center' }]}><MainStarIcon size={star} outline={ring} /></View>
+            : null}
     </View>
   )
 }

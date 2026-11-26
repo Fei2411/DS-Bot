@@ -222,8 +222,10 @@ test('browser-takeover keeps the handoff it takes over, and starts a plain takeo
   await rt.load()
 
   rt.browserChannel.setHold('b2', { ...BOT_HOLD, sessionId: 'b2' })
+  const originalAt = rt.browserChannel.holdOf('b2').at
+  assert.equal(typeof originalAt, 'number')
   assert.equal((await call('browser-takeover', { botId: 'b2' })).value, true)
-  assert.deepEqual(rt.browserChannel.holdOf('b2'), { by: 'user', reason: 'login', note: 'Sign in to the shop.', callId: 'call-1', sessionId: 'b2' })
+  assert.deepEqual(rt.browserChannel.holdOf('b2'), { by: 'user', reason: 'login', note: 'Sign in to the shop.', callId: 'call-1', at: originalAt, sessionId: 'b2' })
 
   rt.browserChannel.setHold('b2', { by: 'bot', reason: 'other', note: '' })
   await call('browser-takeover', { botId: 'b2' })
@@ -301,6 +303,7 @@ test('browser-give-back refuses a stale call, an unknown outcome, and an unknown
   await rt.load()
 
   rt.browserChannel.setHold('b2', { ...BOT_HOLD, callId: 'call-2' })
+  const heldAt = rt.browserChannel.holdOf('b2').at
   const stale = await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })
   assert.equal(stale.ok, false)
   assert.equal(stale.error.code, 'bot/stale')
@@ -308,7 +311,7 @@ test('browser-give-back refuses a stale call, an unknown outcome, and an unknown
   assert.equal(invalid.ok, false)
   assert.equal(invalid.error.code, 'bot/invalid')
   assert.equal((await call('browser-give-back', { botId: 'nobody' })).error.code, 'bot/not-found')
-  assert.deepEqual(rt.browserChannel.holdOf('b2'), { ...BOT_HOLD, callId: 'call-2' })
+  assert.deepEqual(rt.browserChannel.holdOf('b2'), { ...BOT_HOLD, callId: 'call-2', at: heldAt })
   assert.equal(sent.length, 0)
 })
 
@@ -318,11 +321,12 @@ test('browser-give-back restores the hold when the Bot cannot be told', async (t
   await rt.load()
 
   rt.browserChannel.setHold('b2', BOT_HOLD)
+  const heldAt = rt.browserChannel.holdOf('b2').at
   failFlush(new Error('flush failed'))
   const failed = await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })
   assert.equal(failed.ok, false)
   assert.match(failed.error.message, /flush failed/)
-  assert.deepEqual(rt.browserChannel.holdOf('b2'), BOT_HOLD)
+  assert.deepEqual(rt.browserChannel.holdOf('b2'), { ...BOT_HOLD, at: heldAt })
 
   failFlush(undefined)
   sent.length = 0

@@ -1516,5 +1516,10 @@ export function install(rt) {
   // What the settings list shows. Session ids stay on the host.
   const archivesView = () => (state.privateArchives ?? []).map(({ id, name, workDir }) => ({ id, name, ...(workDir === undefined ? {} : { workDir }) }))
 
-  Object.assign(rt, { isPrivate, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, checkWorkVisibility, releaseArchive, archivesView })
+  Object.assign(rt, {
+    isPrivate, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, checkWorkVisibility, releaseArchive, archivesView,
+    // The private Bot a real path belongs to, for callers outside the file tools that read
+    // a file the user names: a photo must not come out of a folder that is closed.
+    privateOwnerOf: (path, options) => ownerOfPath(path, options),
+  })
 }

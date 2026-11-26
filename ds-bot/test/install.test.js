@@ -176,6 +176,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: computer use section',
     'prompt computer-use:ds-bot 0',
     'effect ds-bot: computer use',
+    'effect ds-bot: inbox',
     'effect ds-bot: usage ledger',
     'on llm/stream',
     'effect ds-bot: update check',
