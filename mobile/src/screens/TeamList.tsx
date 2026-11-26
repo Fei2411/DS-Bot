@@ -1,4 +1,4 @@
-import { useContext, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Pressable, StyleSheet, Text, View, SectionList, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import type { Agent, Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
@@ -31,12 +31,21 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   const onViewable = useRef(({ viewableItems }: { viewableItems: { key: string }[] }) => setInView(new Set(viewableItems.map(token => token.key)))).current
   const viewability = useRef({ itemVisiblePercentThreshold: 1 }).current
   const headerHeight = useRef(0)
+  const scrollY = useRef(0)
   const [headerInView, setHeaderInView] = useState(true)
-  const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => setHeaderInView(event.nativeEvent.contentOffset.y < headerHeight.current)
+  const syncHeaderInView = () => setHeaderInView(headerHeight.current <= 0 || scrollY.current < headerHeight.current)
+  const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollY.current = event.nativeEvent.contentOffset.y
+    syncHeaderInView()
+  }
 
   const bots = Array.isArray(team?.bots) ? team.bots : []
   const mains = new Set(team?.mainBotIds ?? [])
   const needle = query.trim().toLowerCase()
+  useEffect(() => {
+    scrollY.current = 0
+    setHeaderInView(true)
+  }, [needle])
   const mainList = bots.filter(bot => mains.has(bot.id) && bot.hidden !== true && (needle === '' || (bot.name ?? '').toLowerCase().includes(needle)))
   const agentList = (Array.isArray(team?.agents) ? team.agents : []).filter(agent => needle === '' || agentName(agent).toLowerCase().includes(needle))
   const workBots = team?.work?.bots ?? {}
@@ -96,7 +105,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
         onScroll={onScroll}
         scrollEventThrottle={100}
         ListHeaderComponent={mainList.length > 0 || agentList.length > 0 ? (
-          <View onLayout={event => { headerHeight.current = event.nativeEvent.layout.height }}>
+          <View onLayout={event => { headerHeight.current = event.nativeEvent.layout.height; syncHeaderInView() }}>
           {mainList.length > 0 ? <MarksShown.Provider value={shown && headerInView}><View style={styles.tiles}>
             {mainList.map(main => (
               <Pressable key={main.id} accessibilityRole="button" accessibilityLabel={`${main.name}, ${t('Main Bot')}`} onPress={() => onOpen({ kind: 'bot', id: main.id })}

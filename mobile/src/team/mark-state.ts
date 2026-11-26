@@ -20,12 +20,14 @@ export function botMarkState(team: TeamState | null, bot: Bot): string {
   // Group approvals show on the group, not on the Bot (#1623).
   const own = (team?.work?.approvals ?? []).filter(entry => entry?.roomId === undefined && entry?.botId === id && entry?.answerable !== false)
   const mail = (team as { mailRequests?: Requests } | null)?.mailRequests
+  const browserHolds = (team as { browserHolds?: Record<string, { callId?: string } | undefined> } | null)?.browserHolds
   const card = hasPending(team?.secretRequests?.[id]) || hasPending(team?.connectorRequests?.[id]) || hasPending(mail?.[id])
   const question = team?.questions?.[part] !== undefined || team?.views?.[part] !== undefined
-  // A turn stops on these until you answer; a background task's approval or a skill to
-  // learn waits without stopping anything.
+  // A turn stops on these until you answer; a background task's approval, a skill to
+  // learn, or a browser handoff waits without stopping anything.
   const blocking = own.some(entry => entry.taskId === undefined) || card || question
-  const waits = blocking || own.some(entry => entry.taskId !== undefined) || (team?.learning?.[id]?.length ?? 0) > 0
+  const browserHold = browserHolds?.[id]?.callId !== undefined
+  const waits = blocking || own.some(entry => entry.taskId !== undefined) || (team?.learning?.[id]?.length ?? 0) > 0 || browserHold
   // The computer's own word for what the Bot does (thinking, searching, waiting…).
   const said: unknown = team?.activity?.[id]
   const activity = typeof said === 'string' ? said : undefined

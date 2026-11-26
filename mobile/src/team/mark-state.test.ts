@@ -31,6 +31,14 @@ test('a skill to learn waits without stopping a running turn', () => {
   assert.equal(botMarkState(team({ learning }), reviewer), 'alert', 'with no turn running it asks for you')
 })
 
+test('a browser handoff with callId asks for you once idle, without overriding a running turn', () => {
+  const handoff = { reviewer: { callId: 'h1', reason: 'sign in' } }
+  assert.equal(botMarkState(team({ browserHolds: handoff }), reviewer), 'alert')
+  assert.equal(botMarkState(team({ browserHolds: handoff, work: { bots: { reviewer: {} } }, activity: { reviewer: 'working' } }), reviewer), 'working')
+  // A manual browser takeover (no callId) does not alert.
+  assert.equal(botMarkState(team({ browserHolds: { reviewer: { reason: 'manual' } } }), reviewer), 'idle')
+})
+
 test('a running Bot paused on a tool approval asks for you', () => {
   const state = team({ work: { bots: { reviewer: { tool: 'run_command' } }, approvals: [approval({})] }, activity: { reviewer: 'alert' } })
   assert.equal(botMarkState(state, reviewer), 'alert')
