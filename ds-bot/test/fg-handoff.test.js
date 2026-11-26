@@ -2160,3 +2160,165 @@ test('follow-up durability invariants: capacity eviction during save, failed no-
   assert.equal(env4.rt.state.pendingHandoffInputs, undefined, 'live flush=false must auto-schedule replay and drain once flush returns true')
   assert.equal(env4.agentMap.get(newSid4).followups.length, 1, 'already-admitted message must not duplicate on auto-replay')
 })
+
+test('round-1 review invariants: repeat cold lookup preserves durable, non-im scoping, concurrent op-1/op-2 serialization, and ENOENT fail-closed', async (t) => {
+  // 1) Repeat cold-session lookup preserves durable: true and exact cold sessionId (including cache hits),
+  //    and non-im requestIds reused across Bots stay scoped to each Bot's own ownerKey.
+  const env1 = await startEnv({
+    team: makeTeam({
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1 },
+        b: {
+          id: 'b',
+          name: 'Helper',
+          role: 'Dev',
+          sessionId: 'dm-b-cur',
+          segments: [{ sessionId: 'dm-b-cold', endedAt: 10 }],
+          createdAt: 2,
+        },
+      },
+    }),
+  })
+  t.after(env1.stop)
+  delete env1.ctx.sessionController.inspect
+  env1.agentMap.delete('dm-b-cold')
+  const query1 = {
+    inspectSession: async (sid, read) => {
+      if (sid === 'dm-b-cold') {
+        return read({
+          snapshotEvents: () => [
+            { type: 'user/message', seq: 1, data: { id: 'm-cold-repeat', content: [{ type: 'text', text: 'Cold' }], source: { kind: 'user', rpcId: 'im:telegram:c1:dm-u1:cold-repeat' } } },
+          ],
+        })
+      }
+      throw Object.assign(new Error('not found'), { code: 'SESSION_QUERY_SESSION_NOT_FOUND' })
+    },
+  }
+  const origGet1 = env1.ctx.get
+  env1.ctx.get = name => (name === 'sessionQuery' ? query1 : origGet1(name))
+  const cold1 = await env1.rt.findAdmittedForSend({ ref: 'a', requestId: 'im:telegram:c1:dm-u1:cold-repeat', callerSupplied: true })
+  assert.deepEqual(cold1, { admitted: true, sessionId: 'dm-b-cold', durable: true })
+  const cold2 = await env1.rt.findAdmittedForSend({ ref: 'a', requestId: 'im:telegram:c1:dm-u1:cold-repeat', callerSupplied: true })
+  assert.deepEqual(cold2, { admitted: true, sessionId: 'dm-b-cold', durable: true }, 'repeat cold lookup must retain durable: true and exact cold sessionId')
+
+  // Non-im requestId shared by Bot A and Bot B must stay scoped to each Bot's ownerKey.
+  env1.rt.noteAdmittedRpc('dm-a', 'req-shared')
+  env1.rt.noteAdmittedRpc('dm-b-cur', 'req-shared')
+  const foundB = await env1.rt.findAdmittedForSend({ ref: 'b', requestId: 'req-shared', callerSupplied: true })
+  assert.equal(foundB.admitted, true)
+  assert.equal(foundB.sessionId, 'dm-b-cur', 'non-im lookup on Bot B must never return Bot A sessionId')
+
+  // 2) Concurrent op-1 (no-op) + op-2 (move) pending-save retries:
+  //    (a) dual failure leaves state.completedMoveOps completely clean (no leaked uncommitted op-1);
+  //    (b) retrying op-1 first atomically persists BOTH op-1 (moved: false) AND op-2 (moved: true)!
+  let releaseForkA
+  let holdFirstFork = true
+  const env2 = await startEnv({
+    forkImpl: async (_opts, make) => {
+      if (holdFirstFork) {
+        holdFirstFork = false
+        return new Promise((resolve) => { releaseForkA = () => resolve({ sessionId: make() }) })
+      }
+      return { sessionId: make() }
+    },
+  })
+  t.after(env2.stop)
+  const dmA2 = env2.agentMap.get('dm-a')
+  dmA2.status = 'running'
+  await env2.emit('dm-a', 'turn/start', { turn: 1 })
+  const origSave2 = env2.rt.save
+  let failSaves2 = true
+  let saveCalls2 = 0
+  let releasePendingSave2
+  let pauseNextSave2 = false
+  env2.rt.save = async (opts = {}) => {
+    if (opts?.required) {
+      saveCalls2 += 1
+      if (pauseNextSave2) {
+        pauseNextSave2 = false
+        await new Promise((resolve) => { releasePendingSave2 = resolve })
+      }
+      if (failSaves2) throw new Error('disk offline')
+    }
+    return origSave2(opts)
+  }
+  // op-1 completes naturally mid-fork and its required save fails -> stored as pending no-op.
+  const pOp1 = env2.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-noop-1' })
+  await waitFor(() => typeof releaseForkA === 'function')
+  dmA2.status = 'idle'
+  await env2.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  releaseForkA()
+  await assert.rejects(() => pOp1, /disk offline/)
+  // Turn 2 starts and moves with op-2 whose required save ALSO fails -> both op-1 and op-2 are pending!
+  dmA2.status = 'running'
+  await env2.emit('dm-a', 'turn/start', { turn: 2 })
+  await assert.rejects(
+    () => env2.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-move-2' }),
+    /disk offline/,
+  )
+  // Now retry op-2 and op-1 CONCURRENTLY while disk is still offline -> must share ONE serialized batch and leak NOTHING!
+  pauseNextSave2 = true
+  const savesBeforeConcurrent = saveCalls2
+  const retryOp2 = env2.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-move-2' })
+  await waitFor(() => typeof releasePendingSave2 === 'function')
+  const retryOp1 = env2.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-noop-1' })
+  releasePendingSave2()
+  await assert.rejects(() => retryOp2, /disk offline/)
+  await assert.rejects(() => retryOp1, /disk offline/)
+  assert.equal(saveCalls2, savesBeforeConcurrent + 1, 'concurrent retries for same Bot must coalesce into a single serialized save')
+  assert.equal(env2.rt.state.completedMoveOps, undefined, 'dual failure must NOT leak uncommitted op-noop-1 into state.completedMoveOps')
+
+  // Now disk recovers and caller retries ONLY op-noop-1 -> MUST atomically persist op-move-2 alongside Move 2 state!
+  failSaves2 = false
+  const resOp1 = await env2.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-noop-1' })
+  assert.deepEqual(resOp1, { sessionId: 'dm-a', taskId: null, moved: false })
+  assert.equal(env2.rt.state.completedMoveOps?.['op-noop-1']?.moved, false)
+  assert.equal(env2.rt.state.completedMoveOps?.['op-move-2']?.moved, true, 'saving op-1 must atomically include active pending op-2 receipt')
+  assert.equal(env2.rt.state.completedMoveOps?.['op-move-2']?.sessionId, env2.rt.botOf('a').sessionId)
+
+  // 3) Bare ENOENT must fail closed (not treated as missing session); SessionPersistenceNotFoundError is missing.
+  const env3 = await startEnv({
+    team: makeTeam({
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a-enoent', createdAt: 1 },
+        b: { id: 'b', name: 'Helper', role: 'Dev', sessionId: 'dm-b-ok', createdAt: 2 },
+      },
+    }),
+  })
+  t.after(env3.stop)
+  delete env3.ctx.sessionController.inspect
+  env3.agentMap.delete('dm-a-enoent')
+  let errKind = 'enoent'
+  const query3 = {
+    inspectSession: async (sid) => {
+      if (sid === 'dm-a-enoent') {
+        if (errKind === 'enoent') throw Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
+        if (errKind === 'notfound') {
+          const e = new Error('missing session')
+          e.name = 'SessionPersistenceNotFoundError'
+          throw e
+        }
+        const e = new Error('session not found in corrupted index')
+        e.name = 'SessionPersistenceCorruptionError'
+        throw e
+      }
+      throw Object.assign(new Error('not found'), { code: 'SESSION_QUERY_SESSION_NOT_FOUND' })
+    },
+  }
+  const origGet3 = env3.ctx.get
+  env3.ctx.get = name => (name === 'sessionQuery' ? query3 : origGet3(name))
+  await assert.rejects(
+    () => env3.rt.sendUser({ sessionId: 'b', content: [{ type: 'text', text: 'Test' }], requestId: 'im:telegram:c1:dm-u1:enoent-1' }),
+    err => err?.code === 'ENOENT',
+    'bare ENOENT must fail closed',
+  )
+  errKind = 'corrupt-name'
+  await assert.rejects(
+    () => env3.rt.sendUser({ sessionId: 'b', content: [{ type: 'text', text: 'Test' }], requestId: 'im:telegram:c1:dm-u1:enoent-2' }),
+    err => err?.name === 'SessionPersistenceCorruptionError',
+    'SessionPersistenceCorruptionError without code must still fail closed',
+  )
+  errKind = 'notfound'
+  await env3.rt.sendUser({ sessionId: 'b', content: [{ type: 'text', text: 'Test' }], requestId: 'im:telegram:c1:dm-u1:enoent-3' })
+  assert.equal(env3.prompts.length, 1, 'SessionPersistenceNotFoundError must be treated as missing session')
+})

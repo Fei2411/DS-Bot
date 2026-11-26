@@ -4350,6 +4350,43 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   assert.deepEqual(flushedSessions, ['a'], 'confirmSessionFlushed must flush exact receiving session S1 ("a"), NEVER moved foreground S2')
   assert.equal(oneR.seenInbound?.includes(`${one.id}:dm-u1:unflushed-s1-1`), false, 'unflushed S1 must NOT persist seenInbound even though S2 flushes true')
   sRestart.ctx.sessionController.prompt = origPromptR
+
+  // 7) An unrelated Bot B with a corrupt cold archive must NOT block fresh `!card` or numbered card replies on Bot A!
+  sRestart.rt.botOf('b').segments = [{ sessionId: 'b-corrupt-cold', endedAt: 1 }]
+  sRestart.agents.delete('b-corrupt-cold')
+  const origGetR = sRestart.ctx.get
+  sRestart.ctx.get = (name) => {
+    if (name === 'sessionQuery') {
+      return {
+        inspectSession: async (sid) => {
+          if (sid === 'b-corrupt-cold') {
+            throw Object.assign(new Error('session b-corrupt-cold not found in surface'), { code: 'SESSION_QUERY_CORRUPT_SESSION' })
+          }
+          throw Object.assign(new Error('not found'), { code: 'SESSION_QUERY_SESSION_NOT_FOUND' })
+        },
+      }
+    }
+    return origGetR(name)
+  }
+  // Open a real question card on Bot A's current foreground ('a-moved-fg') and answer it with fresh "1".
+  sRestart.imTurn('a-moved-fg')
+  sRestart.rt.state.questions['a-moved-fg'] = { id: 'q-corrupt-peer', question: 'Confirm?', options: [{ label: 'Yes' }, { label: 'No' }] }
+  await sRestart.rt.save()
+  await sRestart.flush()
+  await dm(sRestart, 'u1', '1', { messageId: 'fresh-card-answer-1' })
+  assert.equal(sRestart.rt.state.questions['a-moved-fg'], undefined, 'unrelated corrupt cold archive on Bot B must NOT block numbered card answer on Bot A')
+  // Open a real view card on Bot A via show_view and answer it with reserved `!card V<n>` reply.
+  await sRestart.rt.teamTools.find(tool => tool.name === 'show_view').execute(
+    { title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name', value: 'Default' }] } },
+    { agent: { id: 'a-moved-fg' }, concludeTurn() {} },
+  )
+  await sRestart.flush()
+  const viewMsg = [...sRestart.fake.sent].reverse().find(entry => /!card\s+(V\d+)/i.test(entry.text ?? ''))
+  const viewCode = /!card\s+(V\d+)/i.exec(viewMsg?.text ?? '')?.[1]
+  assert.ok(viewCode, 'view card with !card code must be sent to IM')
+  await dm(sRestart, 'u1', `!card ${viewCode}\n1: Alice`, { messageId: 'fresh-view-card-1' })
+  assert.equal(sRestart.rt.state.views['a-moved-fg'], undefined, 'unrelated corrupt cold archive on Bot B must NOT block !card view reply on Bot A')
+  sRestart.ctx.get = origGetR
   s.rt.confirmSessionFlushed = origConfirm
 })
 

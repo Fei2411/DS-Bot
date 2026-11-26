@@ -1455,27 +1455,47 @@ export function install(rt) {
     const releaseInboundSeen = () => {
       if (inboundKey !== '') seenInboundIds.delete(inboundKey)
     }
-    try {
-      // If this platform message was already admitted into DSH (e.g. host crashed after DSH
-      // persisted the prompt but before `conn.seenInbound` was saved), suppress it BEFORE any
-      // card-answer handler so a redelivered ordinary message (like "1") never answers a newly
-      // opened question/view/approval card (#2077).
-      if (inboundKey !== '' && !/^\/(?:start|stop|background|bg|steer)(?:@\S+)?(?:\s|$)/.test(body)) {
-        const priorRequestId = `im:${conn.platform}:${inboundKey}`
-        const admitted = await rt.findAdmittedForSend?.({
-          ref: target?.botId ?? target?.roomId,
+    const checkPriorImAdmission = async ({ allowTargetOnlyFallback = false } = {}) => {
+      if (inboundKey === '' || typeof rt.findAdmittedForSend !== 'function') return false
+      const priorRequestId = `im:${conn.platform}:${inboundKey}`
+      const targetRef = target?.botId ?? target?.roomId
+      let admitted
+      try {
+        admitted = await rt.findAdmittedForSend({
+          ref: targetRef,
           requestId: priorRequestId,
           callerSupplied: true,
         })
-        if (admitted?.admitted === true) {
-          if (admitted.durable === true
-            || (admitted.sessionId !== undefined && await rt.confirmSessionFlushed?.(admitted.sessionId, priorRequestId) === true)) {
-            await persistInboundSeen()
-          }
-          return
-        }
+      } catch (error) {
+        // When an unrelated Bot's cold archive is unreadable, do not permanently brick card
+        // replies for this chat if this chat's own target history is readable and clean.
+        if (!allowTargetOnlyFallback || targetRef === undefined) throw error
+        admitted = await rt.findAdmittedForSend({
+          ref: targetRef,
+          requestId: priorRequestId,
+          callerSupplied: true,
+          targetOnly: true,
+        })
       }
-      if (await answerViewCode(conn, msg.chat, raw.trimStart(), msg.sender.id)) {
+      if (admitted?.admitted === true) {
+        if (admitted.durable === true
+          || (admitted.sessionId !== undefined && await rt.confirmSessionFlushed?.(admitted.sessionId, priorRequestId) === true)) {
+          await persistInboundSeen()
+        }
+        return true
+      }
+      return false
+    }
+    try {
+      const trimmedStart = raw.trimStart()
+      const isReservedCardCommand = /^[!/]card\b/i.test(trimmedStart)
+      // Reserved `!card` / `/card` commands are never admitted as ordinary prompts via `sendUser`,
+      // so let them reach `answerViewCode` directly without scanning unrelated cold histories.
+      // Only guard ambiguous legacy `V<n>` view replies before `answerViewCode`.
+      if (!isReservedCardCommand && /^V[1-9]\d*(?=\s|$)/i.test(trimmedStart)) {
+        if (await checkPriorImAdmission({ allowTargetOnlyFallback: true })) return
+      }
+      if (await answerViewCode(conn, msg.chat, trimmedStart, msg.sender.id)) {
         await persistInboundSeen()
         return
       }
@@ -1540,6 +1560,10 @@ export function install(rt) {
       if (NUMBERS.test(body)) {
         const picked = body.trim().split(/\s+/).map(Number)
         const held = newestOpenCard(conn, msg.chat.key)
+        // Before letting a bare numeric message answer an open card, suppress redelivered
+        // ordinary messages already admitted into DSH (even if `conn.seenInbound` was lost
+        // across restart) so a redelivered "1" never answers a newly opened card (#2077).
+        if (held !== undefined && await checkPriorImAdmission({ allowTargetOnlyFallback: true })) return
         // Anything that does not clearly answer the newest open card — a stale
         // source, an out-of-range pick, several picks on a single choice — is a
         // normal message for the Bot, never swallowed and never 'stale'.

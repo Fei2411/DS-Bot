@@ -98,8 +98,9 @@ export function isMissingSessionError(error) {
   if (typeof code === 'string' && code !== '') {
     return code === 'session/not-found'
       || code === 'SESSION_QUERY_SESSION_NOT_FOUND'
-      || code === 'ENOENT'
   }
+  if (error?.name === 'SessionPersistenceNotFoundError') return true
+  if (error?.name === 'SessionPersistenceCorruptionError') return false
   return /\bsession\b.*\bnot found\b|\bnot found\b.*\bsession\b/i.test(String(error?.message ?? ''))
 }
 
