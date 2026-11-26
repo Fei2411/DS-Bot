@@ -15,8 +15,13 @@ import { retryDelay, retryWait } from './retry.js'
 const API = 'https://api.sgroup.qq.com'
 const TOKEN_API = 'https://bots.qq.com'
 const TEXT_LIMIT = 2000
+const DIRECT_UPLOAD_LIMIT = 5 * 1024 * 1024
 // GROUP_AND_C2C covers C2C_MESSAGE_CREATE and GROUP_AT_MESSAGE_CREATE.
 const INTENTS = 1 << 25
+
+// Chunks QQ already took, by reply job: a retry of the same job (after a backoff
+// or from Try again) resumes after them instead of posting them a second time.
+const delivered = new WeakMap()
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
 
@@ -107,6 +112,8 @@ const getToken = async (fields, env) => {
 
 export default {
   id: 'qq',
+  // Checked before the reply text drops the image tag, so an oversized image leaves a notice.
+  imageMaxBytes: DIRECT_UPLOAD_LIMIT,
 
   async check(fields, env) {
     const { token } = await getToken(fields, env)
@@ -115,15 +122,20 @@ export default {
   },
 
   connect(fields, env, handlers) {
+    const MSG_SEQ_MAX = 2000
+    const LAST_MSG_ID_MAX = 500
+    const FATAL_CLOSE_CODES = new Set([4010, 4011, 4012, 4013, 4014])
     let stopped = false
     const stopping = new AbortController()
     let socket
     let token
     let expiresAt = 0
     let refreshTimer
+    let refreshAttempt = 0
     let heartbeatTimer
     let heartbeatAcked = true
     let reconnectTimer
+    let reconnectAttempt = 0
     let generation = 0
     let sequence
     let sessionId
@@ -132,6 +144,29 @@ export default {
     const msgSeq = new Map()
     const lastMsgId = new Map()
     const inOrder = createChatQueue()
+
+    const nextReply = (msgId) => {
+      if (!msgId) return {}
+      const seq = (msgSeq.get(msgId) ?? 0) + 1
+      msgSeq.delete(msgId)
+      msgSeq.set(msgId, seq)
+      if (msgSeq.size > MSG_SEQ_MAX) msgSeq.delete(msgSeq.keys().next().value)
+      return { msg_id: msgId, msg_seq: seq }
+    }
+
+    let terminal = false
+    const stopPermanently = (errorMessage) => {
+      terminal = true
+      clearTimeout(heartbeatTimer)
+      heartbeatTimer = undefined
+      clearTimeout(reconnectTimer)
+      reconnectTimer = undefined
+      clearTimeout(refreshTimer)
+      refreshTimer = undefined
+      sessionId = undefined
+      sequence = undefined
+      handlers.onStatus({ state: 'error', error: errorMessage })
+    }
 
     const send = packet => { if (socket?.readyState === 1) socket.send(JSON.stringify(packet)) }
     const heartbeat = () => send({ op: 1, d: sequence ?? null })
@@ -150,34 +185,56 @@ export default {
     }
 
     const refresh = () => {
-      const wait = Math.max(5_000, expiresAt - Date.now() - 60_000)
+      if (stopped || terminal) return
+      clearTimeout(refreshTimer)
+      const wait = refreshAttempt > 0 ? retryDelay(refreshAttempt) : Math.max(5_000, expiresAt - Date.now() - 60_000)
       refreshTimer = setTimeout(async () => {
-        if (stopped) return
+        if (stopped || terminal) return
         try {
           const next = await getToken(fields, env)
+          if (stopped || terminal) return
           token = next.token
           expiresAt = next.expiresAt
+          refreshAttempt = 0
         } catch (error) {
+          if (stopped || terminal) return
           env.log?.warn?.('ds-bot im: qq token refresh failed: %s', error?.message ?? error)
+          if (error?.permanent === true) {
+            terminal = true
+            clearTimeout(refreshTimer)
+            refreshTimer = undefined
+            handlers.onStatus({ state: 'error', error: error.message })
+            return
+          }
+          refreshAttempt += 1
         }
-        refresh()
+        if (!stopped && !terminal) refresh()
       }, wait)
       refreshTimer.unref?.()
     }
 
     const onDispatch = async (packet) => {
       if (packet.t === 'READY') {
+        reconnectAttempt = 0
+        openFailures = 0
         sessionId = packet.d?.session_id
         handlers.onStatus({ state: 'ready', account: { id: String(fields.appId).trim(), name: packet.d?.user?.username ? `@${packet.d.user.username}` : String(fields.appId).trim() } })
         return
       }
-      if (packet.t === 'RESUMED') { handlers.onStatus({ state: 'ready' }); return }
+      if (packet.t === 'RESUMED') {
+        reconnectAttempt = 0
+        openFailures = 0
+        handlers.onStatus({ state: 'ready' })
+        return
+      }
       const c2c = packet.t === 'C2C_MESSAGE_CREATE'
       const group = packet.t === 'GROUP_AT_MESSAGE_CREATE'
       if (!c2c && !group) return
       const d = packet.d ?? {}
       const key = String(c2c ? d.author?.user_openid ?? d.channel_id ?? '' : d.group_openid ?? d.channel_id ?? '')
+      lastMsgId.delete(key)
       lastMsgId.set(key, String(d.id ?? ''))
+      if (lastMsgId.size > LAST_MSG_ID_MAX) lastMsgId.delete(lastMsgId.keys().next().value)
       const sender = c2c ? d.author?.user_openid : d.author?.member_openid ?? d.author?.id
       await inOrder(key, async () => {
         if (stopped) return
@@ -193,11 +250,49 @@ export default {
       })
     }
 
+    const reconnect = async (gen, { resume, forceRefresh = false } = {}) => {
+      if (stopped || generation !== gen) return
+      const needsRefresh = forceRefresh || Date.now() >= expiresAt
+      if (needsRefresh) {
+        try {
+          const next = await getToken(fields, env)
+          if (stopped || generation !== gen) return
+          token = next.token
+          expiresAt = next.expiresAt
+          refreshAttempt = 0
+          refresh()
+        } catch (error) {
+          if (stopped || generation !== gen) return
+          if (error?.permanent === true) {
+            stopPermanently(error.message)
+            return
+          }
+          handlers.onStatus({ state: 'retrying', error: error.message })
+          clearTimeout(reconnectTimer)
+          reconnectTimer = setTimeout(() => {
+            if (!stopped && generation === gen) void reconnect(gen, { resume, forceRefresh: true })
+          }, retryDelay(reconnectAttempt++))
+          reconnectTimer.unref?.()
+          return
+        }
+      }
+      if (stopped || generation !== gen) return
+      open(resume && sessionId !== undefined, { refreshed: needsRefresh })
+    }
+
     let openFailures = 0
-    const open = (resume) => {
-      const gen = generation
+    const open = (resume, { refreshed = false } = {}) => {
+      if (stopped) return
+      const gen = ++generation
+      let authenticated = false
+      clearTimeout(heartbeatTimer)
+      const previous = socket
+      socket = undefined
+      try { previous?.close(1000, 'replaced') } catch { /* already gone */ }
+      let next
       try {
-        socket = new env.WebSocket(gatewayUrl)
+        next = new env.WebSocket(gatewayUrl)
+        socket = next
         openFailures = 0
       } catch (error) {
         // A socket that cannot be built yet is retried like a dropped one; the
@@ -205,12 +300,12 @@ export default {
         if (stopped || generation !== gen) return
         handlers.onStatus({ state: 'retrying', error: `QQ could not open a socket: ${error?.message ?? error}` })
         clearTimeout(reconnectTimer)
-        reconnectTimer = setTimeout(() => { if (!stopped) open(resume) }, retryDelay(openFailures))
+        reconnectTimer = setTimeout(() => { if (!stopped && generation === gen) void reconnect(gen, { resume }) }, retryDelay(openFailures))
         reconnectTimer.unref?.()
         openFailures += 1
         return
       }
-      socket.addEventListener('message', (event) => {
+      next.addEventListener('message', (event) => {
         if (stopped || generation !== gen) return
         let packet
         try { packet = JSON.parse(String(event.data)) } catch { return }
@@ -224,22 +319,44 @@ export default {
         }
         if (packet.op === 11) { heartbeatAcked = true; return }
         if (packet.op === 1) { heartbeat(); return }
-        if (packet.op === 7) { socket.close(4000, 'Reconnect requested'); return }
+        if (packet.op === 7) { next.close(4000, 'Reconnect requested'); return }
         if (packet.op === 9) {
           if (packet.d !== true) { sessionId = undefined; sequence = undefined }
-          socket.close(4000, 'Invalid session')
+          next.close(4000, 'Invalid session')
           return
         }
-        if (packet.op === 0) void onDispatch(packet).catch(error => env.log?.warn?.('ds-bot im: qq event failed: %s', error?.message ?? error))
+        if (packet.op === 0) {
+          if (packet.t === 'READY' || packet.t === 'RESUMED') authenticated = true
+          void onDispatch(packet).catch(error => env.log?.warn?.('ds-bot im: qq event failed: %s', error?.message ?? error))
+        }
       })
-      socket.addEventListener('close', () => {
+      next.addEventListener('close', (event) => {
         clearTimeout(heartbeatTimer)
         if (stopped || generation !== gen) return
+        const code = event?.code
+        if (FATAL_CLOSE_CODES.has(code)) {
+          stopPermanently(`QQ closed the gateway (${code}${event?.reason ? `: ${event.reason}` : ''})`)
+          return
+        }
+        if (code === 4004) {
+          sessionId = undefined
+          sequence = undefined
+          if (refreshed && !authenticated) {
+            stopPermanently(`QQ closed the gateway (${code}${event?.reason ? `: ${event.reason}` : ''})`)
+            return
+          }
+          handlers.onStatus({ state: 'connecting' })
+          clearTimeout(reconnectTimer)
+          reconnectTimer = setTimeout(() => { if (!stopped && generation === gen) void reconnect(gen, { resume: false, forceRefresh: true }) }, retryDelay(reconnectAttempt++))
+          reconnectTimer.unref?.()
+          return
+        }
         handlers.onStatus({ state: 'connecting' })
-        reconnectTimer = setTimeout(() => { if (!stopped) open(sessionId !== undefined) }, 2000)
+        clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(() => { if (!stopped && generation === gen) void reconnect(gen, { resume: sessionId !== undefined }) }, retryDelay(reconnectAttempt++))
         reconnectTimer.unref?.()
       })
-      socket.addEventListener('error', () => {})
+      next.addEventListener('error', () => {})
     }
 
     let gatewayUrl
@@ -251,9 +368,11 @@ export default {
       while (!stopped) {
         try {
           const got = await getToken(fields, env)
+          if (stopped) return
           token = got.token
           expiresAt = got.expiresAt
           const gateway = await api(env, token, '/gateway', { method: 'GET' })
+          if (stopped) return
           if (!gateway?.url) {
             // A 200 that names no gateway is the platform refusing this app, the
             // same as DingTalk's missing endpoint and Feishu's missing URL;
@@ -267,7 +386,7 @@ export default {
         } catch (error) {
           if (stopped) return
           if (error?.permanent === true) {
-            handlers.onStatus({ state: 'error', error: error.message })
+            stopPermanently(error.message)
             return
           }
           handlers.onStatus({ state: 'retrying', error: error.message })
@@ -281,15 +400,16 @@ export default {
     })()
 
     return {
-      send: async (chat, { text }) => {
-        const chunks = chunkMarkdown(toQqMarkdown(String(text ?? '')), TEXT_LIMIT)
+      send: async (chat, message) => {
+        const text = String(message.text ?? '')
+        const chunks = chunkMarkdown(toQqMarkdown(text), TEXT_LIMIT)
         const msgId = lastMsgId.get(chat.key)
         const base = chat.kind === 'direct' ? `/v2/users/${chat.key}/messages` : `/v2/groups/${chat.key}/messages`
-        let messageId
-        for (const chunk of chunks) {
-          const seq = (msgSeq.get(msgId) ?? 0) + 1
-          msgSeq.set(msgId, seq)
-          const reply = msgId ? { msg_id: msgId, msg_seq: seq } : {}
+        const done = delivered.get(message)?.text === text ? delivered.get(message) : undefined
+        let count = done?.count ?? 0
+        let messageId = done?.messageId
+        for (const chunk of chunks.slice(count)) {
+          const reply = nextReply(msgId)
           let sent
           try {
             sent = await api(env, token, base, {
@@ -306,20 +426,55 @@ export default {
             })
           }
           messageId = String(sent?.id ?? messageId ?? '')
+          count += 1
+          delivered.set(message, { text, count, messageId })
         }
+        delivered.delete(message)
         return { messageId }
+      },
+      sendImage: async (chat, image) => {
+        const bytes = Buffer.isBuffer(image?.data) ? image.data : Buffer.from(image?.data ?? [])
+        if (bytes.length === 0 || bytes.length > DIRECT_UPLOAD_LIMIT) {
+          throw Object.assign(new Error('QQ image must be non-empty and at most 5 MiB'), { permanent: true })
+        }
+        const msgId = lastMsgId.get(chat.key)
+        const base = chat.kind === 'direct' ? `/v2/users/${chat.key}` : `/v2/groups/${chat.key}`
+        const { file_info: fileInfo } = await api(env, token, `${base}/files`, {
+          method: 'POST',
+          body: { file_type: 1, file_name: image.name || 'image.png', file_data: bytes.toString('base64'), srv_send_msg: false },
+        })
+        if (typeof fileInfo !== 'string' || fileInfo === '') throw new Error('QQ image upload returned no file_info')
+        const sent = await api(env, token, `${base}/messages`, {
+          method: 'POST',
+          body: { msg_type: 7, media: { file_info: fileInfo }, ...nextReply(msgId) },
+        })
+        return { messageId: String(sent?.id ?? '') }
       },
       stop: () => {
         stopped = true
         stopping.abort()
         generation += 1
         clearTimeout(heartbeatTimer)
+        heartbeatTimer = undefined
         clearTimeout(reconnectTimer)
+        reconnectTimer = undefined
         clearTimeout(refreshTimer)
-        try { socket?.close(1000, 'stop') } catch { /* not open */ }
+        refreshTimer = undefined
+        msgSeq.clear()
+        lastMsgId.clear()
+        const previous = socket
+        socket = undefined
+        try { previous?.close(1000, 'stop') } catch { /* not open */ }
       },
     }
   },
+}
+
+const parseRetryAfter = (headers) => {
+  const raw = headers?.get?.('retry-after')?.trim()
+  if (!raw) return undefined
+  const seconds = Number(raw)
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined
 }
 
 async function api(env, token, path, { method = 'GET', body } = {}) {
@@ -329,16 +484,24 @@ async function api(env, token, path, { method = 'GET', body } = {}) {
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const json = await response.json().catch(() => ({}))
-  if (!response.ok || json.code !== undefined) {
+  const bizCode = [json.err_code, json.code].find(code => code !== undefined && Number(code) !== 0)
+  // Awaiting audit is accepted, not a refusal; retrying could duplicate delivery.
+  if ([304023, 304024].includes(Number(bizCode))) return json
+  if (!response.ok || bizCode !== undefined) {
     const reason = json.message ?? json.error ?? `QQ answered ${response.status}`
-    const error = new Error(String(reason))
+    const traceId = json.trace_id ?? response.headers.get('X-Tps-trace-ID')
+    const error = new Error(`${reason}${traceId ? ` (trace_id: ${traceId})` : ''}`)
     error.status = response.status
-    error.bizCode = json.code ?? json.err_code
+    error.bizCode = bizCode
     // A refusal outside the reply window or over quota is permanent; 4xx other
     // than auth problems too. 5xx and timeouts retry.
-    error.permanent = response.status >= 400 && response.status < 500 && response.status !== 429
+    error.permanent = response.ok && bizCode !== undefined
+      || response.status >= 400 && response.status < 500 && response.status !== 429
       || /reply.*window|quota|frequency|超过|过期/i.test(String(reason))
-    if (response.status === 429) error.retryAfter = Number(response.headers.get('retry-after'))
+    if (response.status === 429) {
+      const retryAfter = parseRetryAfter(response.headers)
+      if (retryAfter !== undefined) error.retryAfter = retryAfter
+    }
     throw error
   }
   return json

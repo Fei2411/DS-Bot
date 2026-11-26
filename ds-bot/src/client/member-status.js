@@ -171,14 +171,16 @@ export function ApprovalCard({ approval, bot, actions, showBot = false }) {
       .catch(error => actions.reportError(error, 'approval'))
       .finally(() => setBusy(false))
   }
+  const label = approval.taskTitle ? `${approval.taskTitle} · ${approval.tool}` : approval.tool
   return h('div', { className: 'bt-mw-card', role: 'group', 'aria-label': t('{name} is waiting for your approval', { name: bot.name }) },
-    showBot ? cardHead(bot, approval.at, approval.tool) : h('div', { className: 'bt-mw-tool' }, approval.tool),
+    showBot ? cardHead(bot, approval.at, label) : h('div', { className: 'bt-mw-tool' }, label),
     approval.detail?.text ? h('div', { className: 'bt-mw-text' }, approval.detail.text) : null,
     approval.reason ? h('div', { className: 'bt-mw-reason' }, approval.reason) : null,
+    approval.review ? h('div', { className: 'bt-mw-reason', role: 'status' }, approval.review.status === 'reviewing' ? t('Reviewing this action…') : approval.review.reason) : null,
     approval.detail?.code ? h('code', { className: 'bt-mw-code', title: approval.detail.code }, approval.detail.code) : null,
-    // Own-chat approvals are answerable for IM and the phone app; here the Bot's
-    // own DSH card stays the place to answer, so the row still opens that chat.
-    approval.answerable && approval.roomId !== undefined
+    // Answering here resolves the request and withdraws the Bot's own DSH card,
+    // so group, task and own-chat approvals all get buttons.
+    approval.answerable
       ? h('div', { className: 'bt-mw-actions' },
         h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('reject') }, t('Reject')),
         h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: () => answer('allow') }, t('Allow once')))
@@ -265,14 +267,15 @@ function approvalSummary(approvals) {
   return { bots, label }
 }
 
-// The approval row and expandable cards rendered inside the group's top header island.
-export function ApprovalIslandPod({ approvals, open, room, actions }) {
+// The approval row and expandable cards rendered inside the top header island
+// (for a group chat or a Bot with background-task approvals).
+export function ApprovalIslandPod({ approvals, open, room, targetId = room?.id, actions }) {
   if (!approvals || approvals.length === 0) return null
   const { bots, label } = approvalSummary(approvals)
   return h(Fragment, null,
     h('button', {
       type: 'button', className: 'bt-apv-bar', 'aria-expanded': open,
-      onClick: () => actions.toggleApproval?.(room.id),
+      onClick: () => actions.toggleApproval?.(targetId),
     },
     h('span', { className: 'bt-apv-dot', 'aria-hidden': true }),
     h('span', { className: 'bt-apv-label' }, label),
@@ -302,15 +305,14 @@ export const MEMBER_CSS = `
 .bt-mw-dock[data-leaving] .bt-mw-pill{animation:bt-mw-out .16s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
 .bt-mw-pill-in{display:inline-flex;align-items:center;gap:8px;flex:none;padding:0 13px 0 6px;white-space:nowrap}
 .bt-mw-faces{display:inline-flex;align-items:center;flex:none;line-height:0}
-.bt-mw-face{position:relative;display:inline-flex;flex:none;border-radius:50%;background:var(--bt-main);box-shadow:0 0 0 2px var(--bt-main);animation:bt-mw-seat .26s cubic-bezier(.34,1.56,.64,1) backwards}
+.bt-mw-face{position:relative;display:inline-flex;flex:none;border-radius:50%;corner-shape:round;background:var(--bt-main);box-shadow:0 0 0 2px var(--bt-main);animation:bt-mw-seat .26s cubic-bezier(.34,1.56,.64,1) backwards}
 .bt-mw-face+.bt-mw-face{margin-left:-5px}
-.bt-mw-face[data-ask]::after{content:"";position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-radius:50%;background:#e3a008;box-shadow:0 0 0 1.5px var(--bt-main)}
+.bt-mw-face[data-ask]::after{content:"";position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-star);box-shadow:0 0 0 1.5px var(--bt-main)}
 .bt-mw-label{display:inline-flex;align-items:center;gap:5px;min-width:0;max-width:min(420px,58vw);animation:bt-mw-swap .22s ease-out backwards}
 .bt-mw-label>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-mw-ask{color:#b7791f;flex:none}
+.bt-mw-ask{color:var(--bt-warn);flex:none}
 .bt-mw-dot{flex:none;color:var(--bt-ink-3)}
 .bt-mw-doing{flex:0 1 auto}
-body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 @keyframes bt-mw-in{from{transform:translateY(8px) scale(.94)}}
 @keyframes bt-mw-out{to{opacity:0;transform:translateY(6px) scale(.96);filter:var(--bt-fx-blur-3,blur(3px))}}
 @keyframes bt-mw-seat{from{opacity:0;scale:.6}}
@@ -322,7 +324,7 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 .bt-members-head>.bt-soft-sm{margin:-6px 0}
 .bt-members-head>.bt-soft-sm:disabled{opacity:.5;cursor:default}
 .bt-member{display:flex;flex-direction:column;border-radius:12px;animation:bt-rise .18s ease-out backwards}
-.bt-member-row{display:flex;align-items:center;gap:8px;min-height:48px;padding:0 8px;border-radius:12px;transition:background-color .12s ease}
+.bt-member-row{position:relative;display:flex;align-items:center;gap:8px;min-height:48px;padding:0 8px;border-radius:12px;transition:background-color .12s ease}
 .bt-member-row:hover{background:var(--bt-hover)}
 .bt-member-open{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:8px 0;border:0;background:none;color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer}
 .bt-member-open>.bt-mark{flex:none}
@@ -333,10 +335,10 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 .bt-member-state{display:flex;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap}
 .bt-member-what{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .bt-member-time{flex:none;margin-left:.3em;font-variant-numeric:tabular-nums}
-.bt-member-state.bt-mw-ask{color:#b7791f}
-body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
-.bt-member-stop{flex:none;height:26px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
-.bt-member-stop:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-member-state.bt-mw-ask{color:var(--bt-warn)}
+.bt-member-stop{flex:none;height:28px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;white-space:nowrap;cursor:pointer;touch-action:manipulation;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-member-stop:hover:not(:disabled){background:color-mix(in srgb,var(--bt-ink) 12%,var(--bt-main));color:var(--bt-ink)}
+.bt-member-stop:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-member-stop:active:not(:disabled){scale:.94}
 .bt-member-stop:disabled{opacity:.5;cursor:default}
 .bt-member-cards{display:flex;flex-direction:column;gap:6px;padding:2px 8px 8px 50px}
@@ -351,5 +353,5 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 .bt-mw-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
-@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}}
+@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-dock[data-leaving] .bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}.bt-member-stop{transition:opacity .12s ease,background-color .12s ease,color .12s ease}}
 `

@@ -199,7 +199,7 @@ test('Fast Path enforces quiet hours (defer + flush), coalescing, and hourly rat
   }
 })
 
-test('subscriptions route directly to background tasks (waking done tasks) and send stopped tasks to dead-letter with replay', async () => {
+test('subscriptions route directly to background tasks (waking completed tasks), watch tool binds task target, and stopped tasks go to dead-letter with replay', async () => {
   const env = setupTeam({
     w1: {
       id: 'w1',
@@ -208,21 +208,24 @@ test('subscriptions route directly to background tasks (waking done tasks) and s
       role: 'Engineer',
       instructions: '',
       createdAt: 2,
-      openParts: [
-        { sessionId: 'task-sess-1', segments: [], startedAt: 10, task: { id: 'k_abc123', title: 'Fix PR 42', from: 'w1', status: 'done', startedAt: 10 } },
+      tasks: [
+        { id: 'k_abc123', title: 'Fix PR 42', sessionId: 'task-sess-1', segments: [], from: 'w1', status: 'completed', startedAt: 10 },
       ],
     },
   })
   try {
     await env.rt.load()
-    const sub = env.rt.eventRouter.saveSubscription({
+    // Calling the `watch` tool from inside a background task session targets that task in bot.tasks.
+    const watchTool = env.rt.teamTools.find(t => t.name === 'watch')
+    const watchReply = await watchTool.execute({
       name: 'PR 42 task watch',
-      target: { kind: 'task', botId: 'w1', taskId: 'k_abc123' },
-      mode: 'drive',
-      match: { threadKey: 'github:org/repo#42' },
-    }, { isUser: true })
+      thread_key: 'github:org/repo#42',
+    }, { agent: { id: 'task-sess-1' } })
+    assert.match(watchReply, /background task k_abc123/)
+    const sub = env.rt.eventRouter.listSubscriptions({ isUser: true }).find(s => s.target.kind === 'task' && s.target.taskId === 'k_abc123')
+    assert.ok(sub, 'watch from a bot.tasks session creates a task-targeted subscription')
 
-    // Delivery bypasses foreground (w1) and wakes the done task segment directly.
+    // Delivery bypasses foreground (w1) and wakes the completed task segment directly.
     await env.rt.acceptEvent({
       source: { kind: 'github', id: 'gh1', name: 'GitHub', actor: 'reviewer' },
       trust: 'external',
@@ -233,10 +236,10 @@ test('subscriptions route directly to background tasks (waking done tasks) and s
     })
     assert.equal(env.delivered.length, 1)
     assert.equal(env.delivered[0].sessionId, 'task-sess-1')
-    assert.equal(env.rt.botOf('w1').openParts[0].task.status, 'running')
+    assert.equal(env.rt.botOf('w1').tasks[0].status, 'running')
 
     // A stopped task must never be resurrected; failed delivery lands in dead letters.
-    env.rt.botOf('w1').openParts[0].task.status = 'stopped'
+    env.rt.botOf('w1').tasks[0].status = 'stopped'
     const res = await env.rt.acceptEvent({
       source: { kind: 'github', id: 'gh1', name: 'GitHub', actor: 'reviewer' },
       trust: 'external',
@@ -249,8 +252,16 @@ test('subscriptions route directly to background tasks (waking done tasks) and s
     const dlq = env.rt.eventRouter.listDeadLetters()
     assert.equal(dlq.length, 1)
 
+    // Watchdog sweep auto-pauses orphan subscriptions pointing at a stopped bot.tasks entry.
+    const sweepRes = await env.rt.eventWatchdog.sweep()
+    assert.equal(sweepRes.orphans, 1)
+    const pausedSub = env.rt.eventRouter.listSubscriptions({ isUser: true }).find(s => s.id === sub.id)
+    assert.equal(pausedSub.enabled, false)
+    assert.match(pausedSub.pausedReason, /stopped/i)
+
     // Once retargeted/re-enabled, replay delivers the dead-letter event cleanly.
-    env.rt.botOf('w1').openParts[0].task.status = 'running'
+    env.rt.botOf('w1').tasks[0].status = 'running'
+    env.rt.eventRouter.toggleSubscription(sub.id, true, null, { isUser: true })
     const replayed = await env.rt.eventRouter.replayDeadLetter(dlq[0].id)
     assert.equal(replayed.outcome, 'delivered')
     assert.equal(env.rt.eventRouter.listDeadLetters().length, 0)
@@ -364,8 +375,10 @@ test('group_task changes emit Blackboard internal events and wake subscribed Bot
 
     const groupTaskTool = env.rt.teamTools.find(t => t.name === 'group_task')
     await groupTaskTool.execute({ action: 'open', goal: 'Audit event router' }, { agent: { id: 'g1-m1' } })
-    // Allow microtask/async internal event delivery to settle.
-    await new Promise(resolve => setTimeout(resolve, 30))
+    // Allow async internal event ledger flush + delivery to settle under load.
+    for (let i = 0; i < 40 && env.delivered.length === 0; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 25))
+    }
 
     assert.equal(env.delivered.length, 1)
     assert.equal(env.delivered[0].sessionId, 'w1')

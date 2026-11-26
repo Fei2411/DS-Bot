@@ -35,7 +35,7 @@ async function fakeQq() {
         res.end(JSON.stringify({ code: answer.error, message: answer.message ?? 'refused' }))
         return
       }
-      res.writeHead(200, { 'content-type': 'application/json' })
+      res.writeHead(answer.status ?? 200, { 'content-type': 'application/json', ...answer.headers })
       res.end(JSON.stringify(answer.result))
     })
   })
@@ -79,6 +79,50 @@ const until = async (fn, tries = 80) => {
   return undefined
 }
 
+test('QQ uploads local images and sends them as passive replies in direct and group chats (#2119)', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: msg => { messages.push(msg) }, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, { op: 0, t: 'C2C_MESSAGE_CREATE', s: 2, d: { id: 'dm', content: 'hi', author: { user_openid: 'u1' } } })
+  fake.push(ws, { op: 0, t: 'GROUP_AT_MESSAGE_CREATE', s: 3, d: { id: 'group', content: 'hi', group_openid: 'g1', author: { member_openid: 'u2' } } })
+  await until(() => messages.length === 2)
+
+  const image = { name: 'plot.png', mediaType: 'image/png', data: Buffer.from('89504e470d0a1a0a', 'hex') }
+  for (const [messageId, target] of [['dm', '/v2/users/u1'], ['group', '/v2/groups/g1']]) {
+    const { chat } = messages.find(msg => msg.messageId === messageId)
+    fake.replies[`${target}/files`] = { result: { file_info: `file-${messageId}` } }
+    fake.replies[`${target}/messages`] = { result: { id: `reply-${messageId}` } }
+    await handle.send(chat, { text: 'Here is the plot' })
+    assert.deepEqual(await handle.sendImage(chat, image), { messageId: `reply-${messageId}` })
+    await handle.send(chat, { text: 'Done' })
+    const calls = fake.calls.filter(call => call.path.startsWith(`${target}/`))
+    assert.deepEqual(calls.map(call => call.path), ['messages', 'files', 'messages', 'messages'].map(path => `${target}/${path}`))
+    assert.deepEqual(calls[1], {
+      method: 'POST', path: `${target}/files`, auth: 'QQBot qqtok',
+      params: { file_type: 1, file_name: 'plot.png', file_data: image.data.toString('base64'), srv_send_msg: false },
+    })
+    assert.deepEqual(calls[2].params, { msg_type: 7, media: { file_info: `file-${messageId}` }, msg_id: messageId, msg_seq: 2 })
+    assert.equal(calls[3].params.msg_seq, 3)
+  }
+})
+
+test('QQ rejects invalid image sizes and does not send without an upload token', async (t) => {
+  const fake = await fakeQq()
+  const handle = qq.connect(FIELDS, env(fake), { onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const chat = { key: 'g1', kind: 'group' }
+  for (const data of [Buffer.alloc(0), Buffer.alloc(5 * 1024 * 1024 + 1)]) {
+    await assert.rejects(() => handle.sendImage(chat, { data }), { permanent: true })
+  }
+  assert.deepEqual(fake.calls.filter(call => call.path.startsWith('/v2/')), [])
+  await assert.rejects(() => handle.sendImage(chat, { data: Buffer.from([1]) }), /file_info/)
+  assert.deepEqual(fake.calls.filter(call => call.path.startsWith('/v2/')).map(call => call.path), ['/v2/groups/g1/files'])
+})
+
 test('check gets an app access token and names the account', async () => {
   const fake = await fakeQq()
   const { account } = await qq.check(FIELDS, env(fake))
@@ -106,7 +150,7 @@ test('C2C is direct, a group @ is a mention, heartbeats are answered', async (t)
   assert.equal(messages[1].mentioned, true)
   // A heartbeat request from the server gets an op-1 reply.
   fake.push(ws, { op: 1, d: null })
-  await until(() => fake.packets.filter(packet => packet.op === 1).length === 2)
+  assert.ok(await until(() => fake.packets.filter(packet => packet.op === 1).length === 1), 'server heartbeat request gets an op-1 reply')
 })
 
 test('send replies passively with msg_id and a climbing msg_seq; a refusal is permanent', async (t) => {
@@ -129,8 +173,50 @@ test('send replies passively with msg_id and a climbing msg_seq; a refusal is pe
   assert.equal(posts[0].params.msg_seq, 1)
   assert.equal(posts[1].params.msg_seq, 2)
   // A refusal outside the reply window is a permanent error with the reason.
-  fake.replies['/v2/users/u1/messages'] = { error: 304023, message: 'reply time out' }
+  fake.replies['/v2/users/u1/messages'] = { error: 304027, message: 'reply time out' }
   await assert.rejects(() => handle.send({ key: 'u1', kind: 'direct' }, { text: 'late' }), error => error.permanent === true && /reply/.test(error.message))
+})
+
+test('2xx business refusals reject permanently with the QQ trace id', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: msg => messages.push(msg), onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, { op: 0, t: 'C2C_MESSAGE_CREATE', s: 2, d: { id: 'm1', content: 'hi', author: { user_openid: 'u1' } } })
+  await until(() => messages.length === 1)
+  for (const status of [200, 202]) {
+    for (const field of ['err_code', 'code']) {
+      await t.test(`${status} with ${field}`, async () => {
+        fake.replies['/v2/users/u1/messages'] = {
+          status,
+          headers: { 'X-Tps-trace-ID': 'header-trace' },
+          result: { [field]: 40034005, message: '回复消息msg_id已过期', ...(field === 'err_code' ? { trace_id: 'body-trace' } : {}) },
+        }
+        await assert.rejects(handle.send({ key: 'u1', kind: 'direct' }, { text: 'late' }), error => {
+          assert.equal(error.permanent, true)
+          assert.equal(error.bizCode, 40034005)
+          assert.match(error.message, /回复消息msg_id已过期/)
+          assert.ok(error.message.includes(field === 'err_code' ? 'body-trace' : 'header-trace'))
+          return true
+        })
+      })
+    }
+  }
+})
+
+test('zero business codes and pending audits count as sent', async (t) => {
+  const fake = await fakeQq()
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  for (const field of ['err_code', 'code']) {
+    for (const code of [0, 304023, 304024]) {
+      fake.replies['/v2/groups/g1/messages'] = { status: code === 0 ? 200 : 202, result: { [field]: code, id: 'accepted' } }
+      assert.deepEqual(await handle.send({ key: 'g1', kind: 'group' }, { text: 'hello' }), { messageId: 'accepted' })
+    }
+  }
+  assert.equal(fake.calls.filter(call => call.path === '/v2/groups/g1/messages').length, 6)
 })
 
 test('send converts tables and local images before the markdown message', async (t) => {
@@ -160,7 +246,7 @@ test('a platform that refuses markdown gets the same reply as plain text', async
   fake.push(ws, { op: 0, t: 'C2C_MESSAGE_CREATE', s: 2, d: { id: 'm1', content: 'hi', author: { user_openid: 'u1' } } })
   await until(() => messages.length === 1)
   fake.replies['/v2/users/u1/messages'] = (params) => (params.msg_type === 2
-    ? { error: 40034090, message: 'markdown not allowed' }
+    ? { result: { err_code: 40034090, message: 'markdown not allowed' } }
     : { result: { id: '930' } })
   await handle.send({ key: 'u1', kind: 'direct' }, { text: '**加粗**与 `代码`' })
   const posts = fake.calls.filter(call => call.path === '/v2/users/u1/messages')
@@ -168,6 +254,35 @@ test('a platform that refuses markdown gets the same reply as plain text', async
   assert.equal(posts[0].params.msg_type, 2)
   assert.equal(posts[1].params.msg_type, 0)
   assert.equal(posts[1].params.content, '加粗与 代码')
+})
+
+test('a retried reply resends only the chunks QQ did not take', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, { op: 0, t: 'C2C_MESSAGE_CREATE', s: 2, d: { id: 'm1', content: 'hi', author: { user_openid: 'u1' } } })
+  await until(() => messages.length === 1)
+  let refuse = true
+  fake.replies['/v2/users/u1/messages'] = (params) => {
+    if (params.markdown.content.startsWith('b') && refuse) {
+      refuse = false
+      return { error: 22009, message: 'msg limit exceed' }
+    }
+    return { result: { id: `id-${params.msg_seq}` } }
+  }
+  // The IM queue keeps the failed job and Try again hands the same one back.
+  const job = { text: `${'a'.repeat(1500)}\n\n${'b'.repeat(1500)}\n\n${'c'.repeat(1500)}` }
+  await assert.rejects(() => handle.send({ key: 'u1', kind: 'direct' }, job))
+  const sent = await handle.send({ key: 'u1', kind: 'direct' }, job)
+  const posts = fake.calls.filter(call => call.path === '/v2/users/u1/messages').map(call => call.params.markdown.content[0])
+  assert.deepEqual(posts, ['a', 'b', 'b', 'c'], 'the delivered first chunk is not posted again')
+  assert.equal(sent.messageId, 'id-4')
+  // A finished job starts over if it is ever sent again.
+  await handle.send({ key: 'u1', kind: 'direct' }, job)
+  assert.equal(fake.calls.filter(call => call.path === '/v2/users/u1/messages').length, 7)
 })
 
 test('a dropped socket reconnects and resumes', async (t) => {

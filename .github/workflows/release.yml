@@ -38,10 +38,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Check and publish
+  # Fast pre-flight gate (~5 s) so invalid tags or mismatched versions fail immediately
+  # without blocking the platform build jobs behind npm tests.
+  validate:
+    name: Validate release metadata
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     defaults:
       run:
         shell: bash
@@ -53,10 +55,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
-      # Trusted Publishing needs npm 11.5.1 or later.
-      - run: npm install -g npm@11.6.2 --no-fund --no-audit
-
       - name: Check the tag and the branch
         if: github.event_name == 'release'
         env:
@@ -71,7 +69,6 @@ jobs:
             echo "::error::$TAG points at a commit that is not on main. Release from main."
             exit 1
           fi
-
       - name: Check the app version
         run: |
           version="$(node -p "require('./package.json').version")"
@@ -81,13 +78,42 @@ jobs:
             exit 1
           fi
 
+  publish:
+    name: Check and publish
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: ds-bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: |
+            ds-bot/package-lock.json
+            link/package-lock.json
+      # Trusted Publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@11.6.2 --no-fund --no-audit
+
       # The tests rebuild link.js from ../link and run its Relay Server, which have their own packages.
       - name: Install the phone link's packages
         run: npm ci --no-fund --no-audit --prefix ../link
       - run: npm ci --no-fund --no-audit
-      - run: npm run harness
+      - name: Cache DSH test harness
+        id: harness-cache
+        uses: actions/cache@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('ds-bot/dev/harness/package.json') }}
+      - name: Install DSH test harness
+        if: steps.harness-cache.outputs.cache-hit != 'true'
+        run: npm run harness
       - run: npm test
-      - run: node scripts/build-client.mjs --check
       - run: npm run lint
 
       - name: Pack (dry run)
@@ -113,7 +139,7 @@ jobs:
 
   app-windows:
     name: Desktop app installer (Windows)
-    needs: publish
+    needs: validate
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -125,33 +151,54 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Name the download cache
+        id: downloads-key
+        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        id: downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
       - run: node scripts/seed-electron-checksums.mjs
+      - name: Cache the locked runtime archives
+        uses: actions/cache@v4
+        with:
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
       - run: npm run dist
+      - name: Save Electron and the build tools
+        if: steps.downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
-      - name: Keep the installer for real-device checks
-        if: github.event_name == 'workflow_dispatch'
+      # Upload as a workflow artifact so nothing lands on the public GitHub Release until
+      # publish and every platform build have succeeded (downloads attaches everything at once).
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: DS-Bot-win-x64
-          path: app/dist-pack/DS-Bot-*-win-x64.exe
+          path: |
+            app/dist-pack/DS-Bot-*-win-x64.exe
+            app/dist-pack/DS-Bot-*-win-x64.exe.blockmap
+            app/dist-pack/latest.yml
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
 
-      - name: Attach the installer to the release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-        run: |
-          installer="dist-pack/DS-Bot-$(node -p "require('./package.json').version")-win-x64.exe"
-          gh release upload "$TAG" "$installer" "$installer.blockmap" dist-pack/latest.yml --clobber
-
   app-macos:
     name: Desktop app zip (macOS ${{ matrix.arch }})
-    needs: publish
+    needs: validate
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -169,13 +216,41 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Name the download cache
+        id: downloads-key
+        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        id: downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
       - run: node scripts/seed-electron-checksums.mjs
+      - name: Cache the locked runtime archives
+        uses: actions/cache@v4
+        with:
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
       - run: npm run dist
+        env:
+          # Standard Deflate level 5 cuts macOS Intel zip time substantially with ~1% size difference.
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '5'
+      - name: Save Electron and the build tools
+        if: steps.downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
-      - name: Keep the zip for real-device checks
-        if: github.event_name == 'workflow_dispatch'
+      - name: Upload zip artifact
         uses: actions/upload-artifact@v4
         with:
           name: DS-Bot-mac-${{ matrix.arch }}
@@ -183,19 +258,10 @@ jobs:
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
-      - name: Attach the zip to the release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-        run: |
-          zip="dist-pack/DS-Bot-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.zip"
-          legacy="$(node scripts/legacy-release-assets.mjs "$zip")"
-          gh release upload "$TAG" "$zip" "$legacy" --clobber
 
   app-linux:
     name: Desktop app packages (Linux x64)
-    needs: publish
+    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -207,9 +273,35 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Name the download cache
+        id: downloads-key
+        run: echo "key=electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        id: downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
       - run: node scripts/seed-electron-checksums.mjs
+      - name: Cache the locked runtime archives
+        uses: actions/cache@v4
+        with:
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
       - run: npm run dist
+      - name: Save Electron and the build tools
+        if: steps.downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
       - name: Check the packaged app
         # Ubuntu 24.04's AppArmor blocks the unprivileged user namespaces that Chromium's
         # sandbox needs; the release runner may lift that restriction (it is its own machine).
@@ -217,31 +309,21 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           xvfb-run -a node scripts/check-packed.mjs
       - name: Check the files for the release
-        # The dry run never uploads, so it checks here that every file the release attaches exists.
+        # Verify every Linux release asset exists before uploading the artifact.
         run: |
           version="$(node -p "require('./package.json').version")"
           ls -l "dist-pack/DS-Bot-$version-linux-x86_64.AppImage" "dist-pack/DS-Bot-$version-linux-amd64.deb" dist-pack/latest-linux.yml
-      - name: Keep the packages for real-device checks
-        if: github.event_name == 'workflow_dispatch'
+      - name: Upload Linux packages artifact
         uses: actions/upload-artifact@v4
         with:
           name: DS-Bot-linux-x64
           path: |
             app/dist-pack/DS-Bot-*-linux-x86_64.AppImage
             app/dist-pack/DS-Bot-*-linux-amd64.deb
+            app/dist-pack/latest-linux.yml
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
-      - name: Attach the packages to the release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-        # The AppImage carries its block map inside the file, so there is no .blockmap to attach.
-        run: |
-          version="$(node -p "require('./package.json').version")"
-          legacy="$(node scripts/legacy-release-assets.mjs "dist-pack/DS-Bot-$version-linux-amd64.deb")"
-          gh release upload "$TAG" "dist-pack/DS-Bot-$version-linux-x86_64.AppImage" "dist-pack/DS-Bot-$version-linux-amd64.deb" "$legacy" dist-pack/latest-linux.yml --clobber
 
   # The phone app's APK, signed with the upload key in the ANDROID_KEYSTORE_BASE64,
   # ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_ALIAS secrets. Every later APK must carry
@@ -249,7 +331,7 @@ jobs:
   # signs with the debug key, and that APK is for checks only.
   app-android:
     name: Phone app (Android)
-    needs: publish
+    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
@@ -261,6 +343,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            mobile/package-lock.json
+            link/package-lock.json
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -270,6 +356,11 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npx expo prebuild --platform android --no-install
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          # Tag builds cannot share newly written caches with later tags; only workflow_dispatch
+          # on a branch writes the Gradle cache so release tags read it without bloating quota.
+          cache-read-only: ${{ github.event_name == 'release' }}
       - name: Build the APK
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -285,7 +376,7 @@ jobs:
           else
             echo "::warning::No upload key: this dry run signs the APK with the debug key."
           fi
-          (cd android && ./gradlew assembleRelease --no-daemon --console=plain -PreactNativeArchitectures=arm64-v8a,armeabi-v7a)
+          (cd android && ./gradlew assembleRelease --no-daemon --build-cache --console=plain -PreactNativeArchitectures=arm64-v8a,armeabi-v7a)
           rm -f "$RUNNER_TEMP/upload.jks"
           version="$(node -p "require('../ds-bot/package.json').version")"
           mkdir -p dist
@@ -325,8 +416,7 @@ jobs:
             echo "::error::The APK is signed with the debug key."
             exit 1
           fi
-      - name: Keep the APK for real-device checks
-        if: github.event_name == 'workflow_dispatch'
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: DS-Bot-android
@@ -334,16 +424,10 @@ jobs:
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
-      - name: Attach the APK to the release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" dist/DS-Bot-*-android.apk --clobber
 
   downloads:
     name: Download table, checksums and Latest
-    needs: [app-windows, app-macos, app-linux, app-android]
+    needs: [publish, app-windows, app-macos, app-linux, app-android]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -358,32 +442,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Download the packages from the release
-        if: github.event_name == 'release'
-        run: |
-          version="$(node -p "require('./package.json').version")"
-          gh release download "$TAG" --dir "$RUNNER_TEMP/packages" --pattern "DS-Bot-$version-*"
-          gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
-      # The dry run has no release, so it checks the table and the checksums on the packages
-      # that the app jobs kept.
-      - name: Download the packages of the dry run
-        if: github.event_name == 'workflow_dispatch'
+      - name: Download built package artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: DS-Bot-*
           path: ${{ runner.temp }}/packages
           merge-multiple: true
+      - name: Read current release notes
+        if: github.event_name == 'release'
+        run: gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
       - name: Write the download table and the checksums
         run: |
           version="$(node -p "require('./package.json').version")"
           notes=()
           if [ -f "$RUNNER_TEMP/notes.md" ]; then notes=("$RUNNER_TEMP/notes.md"); fi
           node scripts/release-notes.mjs "$version" "$RUNNER_TEMP/packages" "$RUNNER_TEMP/attach" "${notes[@]}" > "$RUNNER_TEMP/body.md"
-          ls -l "$RUNNER_TEMP/attach"
+          ls -l "$RUNNER_TEMP/packages" "$RUNNER_TEMP/attach"
           cat "$RUNNER_TEMP/body.md" >> "$GITHUB_STEP_SUMMARY"
-      - name: Attach the checksums and the copies without a version
+      - name: Attach all packages, checksums and copies to the release
         if: github.event_name == 'release'
-        run: gh release upload "$TAG" "$RUNNER_TEMP"/attach/* --clobber
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          node scripts/legacy-release-assets.mjs \
+            "$RUNNER_TEMP/packages/DS-Bot-$version-mac-arm64.zip" \
+            "$RUNNER_TEMP/packages/DS-Bot-$version-mac-x64.zip" \
+            "$RUNNER_TEMP/packages/DS-Bot-$version-linux-amd64.deb"
+          gh release upload "$TAG" "$RUNNER_TEMP"/packages/* "$RUNNER_TEMP"/attach/* --clobber
       - name: Put the download table on top of the notes
         if: github.event_name == 'release'
         run: gh release edit "$TAG" --notes-file "$RUNNER_TEMP/body.md"

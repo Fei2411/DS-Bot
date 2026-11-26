@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store'
+import * as SecureStore from './storage'
 import { deviceIdFor, generateKeyPair, randomToken, type DeviceIdentity, type PairingOffer } from '../../link/src/index.ts'
 
 export interface PhoneIdentity extends DeviceIdentity {
@@ -12,7 +12,6 @@ export type SavedComputer = Omit<PairingOffer, 'code'>
 
 const IDENTITY = 'dsbot.identity'
 const COMPUTER = 'dsbot.computer'
-// Keychain on iOS, Keystore-backed storage on Android. The keys never leave this phone, not even in a backup.
 const LOCAL = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }
 
 function validIdentity(value: unknown): value is PhoneIdentity {
@@ -97,6 +96,7 @@ export async function readPrefs(): Promise<Record<string, string>> {
   return prefsCache
 }
 let prefsCache: Record<string, string> | null = null
+export function peekPrefs(): Record<string, string> | null { return prefsCache }
 const prefListeners = new Set<() => void>()
 export function onPrefsChange(listener: () => void): () => void {
   prefListeners.add(listener)

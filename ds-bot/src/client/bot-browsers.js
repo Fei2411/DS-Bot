@@ -36,6 +36,7 @@ const EMPTY = { url: '', title: '', favicon: null, loading: false, canGoBack: fa
 export function createAppViewProxy(bridge, botId, tabId) {
   const listeners = new Map()
   const state = { url: '', title: '', loading: false, canGoBack: false, canGoForward: false }
+  let readyOnce = false
   const fire = (name, event = {}) => {
     for (const listener of listeners.get(name) ?? []) listener({ type: name, ...event })
   }
@@ -60,12 +61,26 @@ export function createAppViewProxy(bridge, botId, tabId) {
     reload() { return bridge.views.command(botId, tabId, 'reload') },
     stop() { return bridge.views.command(botId, tabId, 'stop') },
     focus() { return bridge.views.focus(botId, tabId) },
-    update(next) {
+    update(next, { silent = false } = {}) {
+      const wasLoading = state.loading
+      const prevUrl = state.url
+      const prevTitle = state.title
       Object.assign(state, next)
-      fire('did-navigate')
-      fire('did-stop-loading')
-      fire('page-title-updated')
-      if (!state.loading) fire('dom-ready')
+      if (silent) {
+        if (!state.loading && state.live !== false) readyOnce = true
+        return
+      }
+      if (!state.loading && !readyOnce) {
+        readyOnce = true
+        fire('dom-ready')
+        return
+      }
+      if (wasLoading && !state.loading) {
+        fire('did-stop-loading')
+        return
+      }
+      if (state.url !== prevUrl) fire('did-navigate')
+      else if (state.title !== prevTitle) fire('page-title-updated')
     },
   }
 }
@@ -100,6 +115,7 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
   const views = new Map()
   /** @type {Map<string, string>} tabId -> owning Bot id */
   const owner = new Map()
+  const previewing = new Set()
   // Per Bot: { ids: [tabId...], active: tabId | null }.
   const tabs = createSource({})
   // Per tab: { url, title, favicon, loading, canGoBack, canGoForward, error, live, readAt?, excerpt }
@@ -156,10 +172,21 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     }
     const entry = views.get(tabId)
     if (entry?.appView) {
+      const wasLoading = entry.element.isLoading()
+      const prevUrl = entry.element.getURL()
       entry.botAttached = change.botAttached === true
-      entry.ready = change.loading !== true
-      entry.element.update(change)
-      if (entry.ready) { observe(entry); void preview(tabId) }
+      entry.ready = change.live !== false && change.loading !== true
+      entry.element.update(change, { silent: true })
+      if (entry.ready) {
+        observe(entry, change)
+        const nextUrl = entry.element.getURL()
+        if (wasLoading || nextUrl !== prevUrl || entry.previewedUrl !== nextUrl) {
+          void preview(tabId)
+        }
+      } else {
+        publish(tabId, change)
+      }
+      return
     }
     publish(tabId, change)
   })
@@ -173,10 +200,12 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
   const persist = (botId) => {
     const state = tabs.getSnapshot()[botId]
     const snapshot = pages.getSnapshot()
-    save(botId, state && {
+    const next = state && {
       tabs: state.ids.map(id => ({ id, url: snapshot[id]?.url ?? '', title: snapshot[id]?.title ?? '' })),
       active: state.active,
-    })
+    }
+    if (JSON.stringify(saved[botId] ?? null) === JSON.stringify(next ?? null)) return
+    save(botId, next)
   }
 
   // Saved tabs come back as placeholders: they show in the strip and open their
@@ -196,21 +225,30 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     layer = doc.createElement('div')
     layer.className = 'bt-browser-layer'
     // Inline, not in BROWSER_CSS: Agent mode withdraws the Bot styles, and the
-    // webviews must stay out of the page flow then too.
-    Object.assign(layer.style, { position: 'fixed', inset: '0', zIndex: '41', pointerEvents: 'none' })
+    // webviews must stay out of the page flow then too. Keep the container 0x0 and
+    // neutral for app-region: DSH marks every `body > :not(#root)` as no-drag on
+    // macOS, and Chromium ignores pointer-events:none when subtracting no-drag boxes
+    // from the window drag region (#1571). Each child webview is position:fixed and
+    // owns its own panel rectangle.
+    Object.assign(layer.style, {
+      position: 'fixed', top: '0', left: '0', width: '0', height: '0',
+      zIndex: '41', pointerEvents: 'none', webkitAppRegion: 'initial',
+    })
     doc.body.append(layer)
     return layer
   }
 
   const place = (entry) => {
     const box = rect ?? { left: 0, top: 0, width: 800, height: 600 }
+    const onScreen = shown === entry.tabId && visible && Boolean(rect)
     if (entry.appView) {
-      void bridge.views.place(entry.tabId, box, shown === entry.tabId && visible && Boolean(rect))
+      void bridge.views.place(entry.tabId, box, onScreen)
       return
     }
     Object.assign(entry.element.style, {
       left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px`,
-      visibility: shown === entry.tabId && visible && rect ? 'visible' : 'hidden',
+      visibility: onScreen ? 'visible' : 'hidden',
+      pointerEvents: onScreen ? 'auto' : 'none',
     })
   }
 
@@ -218,18 +256,21 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
   // failed or empty read keeps the excerpt the tab already has.
   async function preview(tabId) {
     const entry = views.get(tabId)
-    if (entry === undefined || !entry.ready || !/^https?:/i.test(entry.element.getURL())) return false
+    const url = entry?.element.getURL() ?? ''
+    if (entry === undefined || !entry.ready || !/^https?:/i.test(url) || previewing.has(tabId)) return false
+    previewing.add(tabId)
     let timer
     const timeout = new Promise(resolve => { timer = setTimeout(() => resolve(''), PREVIEW_TIMEOUT_MS) })
     try {
       const excerpt = await Promise.race([entry.element.executeJavaScript(PREVIEW_SCRIPT), timeout])
       if (typeof excerpt !== 'string' || excerpt === '' || views.get(tabId) !== entry) return false
+      entry.previewedUrl = url
       publish(tabId, { excerpt })
       return true
-    } catch { return false } finally { clearTimeout(timer) }
+    } catch { return false } finally { clearTimeout(timer); previewing.delete(tabId) }
   }
 
-  const observe = (entry) => {
+  const observe = (entry, extra) => {
     const { element } = entry
     if (!entry.ready) return
     const url = element.getURL()
@@ -240,7 +281,7 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
       entry.fresh = false
     }
     const title = element.getTitle()
-    publish(entry.tabId, { url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: true })
+    publish(entry.tabId, { ...extra, url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: extra?.live ?? true })
     persist(entry.botId)
   }
 
@@ -325,7 +366,13 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
       const state = (await bridge.views.sync(botId)).find(view => view.tabId === tabId)
       if (state) {
         entry.botAttached = state.botAttached === true
-        element.update(state)
+        if (state.live === false) {
+          entry.ready = false
+          element.update(state, { silent: true })
+          publish(tabId, state)
+        } else {
+          element.update(state)
+        }
       }
     }
     return entry
@@ -532,7 +579,7 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
         const tabId = state.active
         const entry = tabId ? views.get(tabId) : undefined
         const page = tabId ? snapshot[tabId] : undefined
-        if (entry?.ready && page?.url) open[botId] = { url: page.url, title: page.title }
+        if (entry?.ready && page?.live !== false && page?.url) open[botId] = { url: page.url, title: page.title }
       }
       return open
     },
@@ -576,7 +623,9 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
   }
 }
 
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+// Longer than the host's idle wait, with time for a round trip before the
+// Desktop update inspection deadline. Older hosts may still hold polls longer.
+const POLL_TIMEOUT_MS = 8_000
 
 /**
  * Answers `read_browser` for this window: a long poll (`browser-wait`) reports which Bots
@@ -588,6 +637,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 export function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.randomUUID(), retryMs = 1000 }) {
   let stopped = false
   let poll
+  let stopBackoff
   let reported = ''
   // The host hands a request out again until the result lands; the job is cached
   // the moment it starts, so a resend during a slow read shares it, and a resend
@@ -613,21 +663,35 @@ export function serveBrowserReads({ browsers, post, clientId = globalThis.crypto
   const loop = async () => {
     let failures = 0
     while (!stopped) {
-      poll = new AbortController()
+      const current = poll = new AbortController()
       const open = browsers.openPages()
       reported = JSON.stringify(open)
+      let expired = false
+      const timeout = setTimeout(() => {
+        expired = true
+        current.abort()
+      }, POLL_TIMEOUT_MS)
       try {
-        const response = await post('browser-wait', { clientId, open }, poll.signal)
+        const response = await post('browser-wait', { clientId, open }, current.signal)
         browsers.setHolds?.(response?.holds)
         failures = 0
         const requests = Array.isArray(response) ? response : response?.requests
         for (const request of Array.isArray(requests) ? requests : []) void answer(request)
-      } catch {
+        continue
+      } catch (error) {
         if (stopped) return
-        if (poll.signal.aborted) continue
+        // Page changes can re-poll at once. A lock refusal or a timed-out
+        // request should still back off even if the signal was aborted.
+        if (current.signal.aborted && !expired && error?.code !== 'HTTP_503') continue
         failures += 1
-        await sleep(Math.min(30_000, retryMs * 2 ** Math.min(failures, 5)))
+      } finally {
+        clearTimeout(timeout)
       }
+      await new Promise(resolve => {
+        const timer = setTimeout(resolve, Math.min(30_000, retryMs * 2 ** Math.min(failures, 5)))
+        stopBackoff = () => { clearTimeout(timer); resolve() }
+      })
+      stopBackoff = undefined
     }
   }
   const offPages = browsers.pages.subscribe(() => {
@@ -638,5 +702,6 @@ export function serveBrowserReads({ browsers, post, clientId = globalThis.crypto
     stopped = true
     offPages()
     poll?.abort()
+    stopBackoff?.()
   }
 }

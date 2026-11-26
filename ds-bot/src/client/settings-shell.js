@@ -11,14 +11,16 @@ import { createPortal } from 'react-dom'
 import {
   Button, ConnectionIndicator, Modal, Tooltip,
   IconDownloadOutlineRegular, IconLoadingOutlineRegular,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+} from './dsh-primitives.js'
 import { SettingsDialog } from './settings.js'
+import { OverlayBoundary } from './overlay-boundary.js'
 import { Switch } from './bot-settings.js'
 import { NotificationsRow } from './notifications.js'
 import { GearIcon } from './icons.js'
 import { useLinger } from './motion.js'
 import { t } from './i18n.js'
 import { createConnectionFeedback } from './connection-feedback.js'
+import { settingsPreferences } from './settings-preferences.js'
 
 // The child slots of the seat, as ui-settings declares their types.
 export const SETTINGS_CHILDREN = {
@@ -202,6 +204,7 @@ export function SettingsShell(props) {
     useSections, useGeneralItems, useOnboardingSteps, useOnboardingRequest,
     useConnectionState, useDesktopUpdate, useSettingsShortcut,
     reconnect, openDesktopUpdate, openOnboarding, finishOnboarding, holdSeat,
+    preferences,
   } = props
   const settings = useUi(state => state.settings)
   const roster = useRoster(value => value)
@@ -235,7 +238,7 @@ export function SettingsShell(props) {
   // A layout effect, so the Settings dialog changes hands before the next paint.
   useLayoutEffect(() => holdSeat?.(), [])
   const open = settings !== null && settings !== undefined
-  const openSettings = () => actions.openSettings('general')
+  const openSettings = () => actions.openSettings('overview')
   return h(Fragment, null,
     h('div', { className: 'bt-settings-row', 'data-rail': wide ? undefined : '' },
       renderSlot('settings.launcher', {
@@ -258,10 +261,14 @@ export function SettingsShell(props) {
         onReconnect: reconnect,
       }),
       wide ? h(DesktopUpdatePill, { view: update, hidden: indicator !== undefined && !installing, onOpen: openDesktopUpdate }) : null),
-    kept ? createPortal(h(SettingsDialog, {
+    kept ? h(OverlayBoundary, {
+      name: 'settings', active: !leaving, notify: !leaving,
+      reset: `${kept.page}:${kept.id ?? ''}`,
+      onDismiss: () => actions.closeSettings?.(), actions,
+    }, createPortal(h(SettingsDialog, {
       page: kept.page, id: kept.id, roster, actions, useUpdate, leaving,
-      dsh: { sections, items, renderSlot },
-    }), document.body) : null,
+      dsh: { sections, items, renderSlot, preferences },
+    }), document.body)) : null,
     step !== undefined ? renderSlot('settings.onboarding', {
       stepId: step.id, explicit: requested !== undefined, complete: () => complete(step.id),
       openSection: (id) => { finishOnboarding(); actions.openSettings(...settingsPlace(id)) },
@@ -419,6 +426,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
     const base = face()
     return {
       ...base,
+      preferences: settingsPreferences(ctx),
       reconnect: () => ctx.get('connection')?.reconnect(),
       openDesktopUpdate: () => update.open(),
       openOnboarding,
@@ -471,7 +479,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
         resolve: ({ modal }) => {
           if (ui.getSnapshot().settings) return { status: 'handled', run: () => actions.closeSettings() }
           if (modal !== null && modal !== 'settings') return { status: 'blocked', reason: 'modal' }
-          return { status: 'handled', run: () => actions.openSettings('general') }
+          return { status: 'handled', run: () => actions.openSettings('overview') }
         },
       }), 'ds-bot: settings command')
     }),

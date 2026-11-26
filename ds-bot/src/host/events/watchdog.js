@@ -2,6 +2,7 @@
 // tasks, orphan subscriptions, paused/broken watchers, and dead-letter deliveries. Never
 // silently drops stuck work: surfaces actionable alerts in the unified Inbox and event log.
 import { randomBytes } from 'node:crypto'
+import { taskOfSession, threadOfPart } from '../threads.js'
 
 const DEFAULT_STALL_MS = 10 * 60_000
 const DEFAULT_POLL_MS = 60_000
@@ -57,6 +58,19 @@ export function createWatchdog(rt, { eventLedger, router, watchers, onPublish } 
     return ok
   }
 
+  function dismissAlertByKey(dedupeKey) {
+    if (!dedupeKey) return false
+    let removed = false
+    for (const [id, alert] of alerts) {
+      if (alert.dedupeKey === dedupeKey) {
+        alerts.delete(id)
+        removed = true
+      }
+    }
+    if (removed) onPublish?.()
+    return removed
+  }
+
   async function recordWatchdogEvent(eventType, summary, body, meta = {}, { privateBotId } = {}) {
     return eventLedger.recordEvent({
       source: { kind: 'watchdog', id: 'watchdog', name: 'Watchdog', actor: 'host', actorTrusted: true },
@@ -93,8 +107,12 @@ export function createWatchdog(rt, { eventLedger, router, watchers, onPublish } 
       const botId = rt.selfOf?.(sessionId) ?? rt.chatOwners?.get(sessionId)
       const roomId = rt.groupOwners?.get(sessionId)?.roomId ?? null
       const bot = botId ? rt.botOf(botId) : undefined
-      const taskPart = (bot?.openParts ?? []).find(p => p.sessionId === sessionId && p.task !== undefined)
-      const label = taskPart ? `Background task "${taskPart.task.title}" (${bot?.name ?? botId})` : (bot?.name ?? sessionId)
+      const task = taskOfSession(bot, sessionId)
+        ?? (() => {
+          const thread = threadOfPart(bot, sessionId)
+          return thread?.thread === 'task' ? bot?.tasks?.[thread.index] : undefined
+        })()
+      const label = task ? `Background task "${task.title}" (${bot?.name ?? botId})` : (bot?.name ?? sessionId)
       const minutes = Math.max(1, Math.round((nowMs - lastAt) / 60_000))
       const dedupeKey = `stalled:${sessionId}:${liveEntry.turn}`
       const existed = [...alerts.values()].some(a => a.dedupeKey === dedupeKey)
@@ -106,14 +124,14 @@ export function createWatchdog(rt, { eventLedger, router, watchers, onPublish } 
           sessionId,
           botId: bot?.id ?? null,
           roomId,
-          taskId: taskPart?.task?.id ?? null,
+          taskId: task?.id ?? null,
           title: `${label} appears stalled`,
           reason,
         })
         await recordWatchdogEvent('watchdog.stalled', `${label} stalled (${minutes}m)`, reason, {
           sessionId,
           botId: bot?.id,
-          taskId: taskPart?.task?.id,
+          taskId: task?.id,
           threadKey: `watchdog:stalled:${sessionId}`,
           dedupeKey,
         }, { privateBotId: bot?.private === true ? bot.id : undefined })
@@ -130,9 +148,9 @@ export function createWatchdog(rt, { eventLedger, router, watchers, onPublish } 
       else if (target.kind === 'room' && !rt.roomOf(target.roomId)) orphanReason = 'Target group chat was removed'
       else if (target.kind === 'task') {
         const bot = rt.botOf(target.botId)
-        const part = (bot?.openParts ?? []).find(p => p.task?.id === target.taskId)
-        if (!bot || !part) orphanReason = 'Background task no longer exists'
-        else if (part.task.status === 'stopped') orphanReason = 'Background task was stopped'
+        const task = (bot?.tasks ?? []).find(t => t.id === target.taskId)
+        if (!bot || !task) orphanReason = 'Background task no longer exists'
+        else if (task.status === 'stopped') orphanReason = 'Background task was stopped'
       }
       if (orphanReason) {
         router.toggleSubscription(sub.id, false, orphanReason, { isUser: true })
@@ -212,6 +230,7 @@ export function createWatchdog(rt, { eventLedger, router, watchers, onPublish } 
     clearProgress,
     addAlert,
     dismissAlert,
+    dismissAlertByKey,
     sweep,
     listAlerts,
     start,

@@ -5,6 +5,7 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { output } from '../tools.js'
+import { taskOfSession, threadOfPart } from '../threads.js'
 import { createEventLedger } from './ledger.js'
 import { createEventRouter } from './router.js'
 import { createWatchers } from './watchers.js'
@@ -58,9 +59,12 @@ export function install(rt) {
   })
 
   // Central intake for all external and internal events: dedupe -> persist -> route.
-  async function acceptEvent(eventInput, { watcher, directTarget, allowedTargets, privateBotId, nowMs } = {}) {
-    if (eventInput.dedupeKey && eventLedger.hasDedupeKey(eventInput.dedupeKey, { privateBotId })) {
-      return { deduplicated: true, eventId: null, deliveries: [] }
+  async function acceptEvent(eventInput, { watcher, directTarget, allowedTargets, canAccessTarget, privateBotId, nowMs } = {}) {
+    if (eventInput.dedupeKey) {
+      const existingId = eventLedger.findDedupeEventId(eventInput.dedupeKey, { privateBotId, nowMs })
+      if (existingId !== undefined) {
+        return { deduplicated: true, eventId: existingId, deliveries: [] }
+      }
     }
     const stored = await eventLedger.recordEvent(eventInput, { privateBotId })
 
@@ -69,6 +73,7 @@ export function install(rt) {
     const routed = await router.routeEvent(stored, {
       privateBotId,
       allowedTargets,
+      canAccessTarget,
       nowMs,
       recordUnmatched: false,
     })
@@ -118,6 +123,10 @@ export function install(rt) {
 
   watchers = createWatchers(rt, {
     onEvent: (ev, opts) => acceptEvent(ev, opts),
+    onResume: (watcherId) => {
+      router.resetRateLimit(`auto_${watcherId}`)
+      watchdog?.dismissAlertByKey?.(`rate_limit:auto_${watcherId}`)
+    },
     onAlert: async (alert) => {
       const privateBotId = alert.target?.kind === 'bot' && rt.botOf(alert.target.botId)?.private === true ? alert.target.botId : undefined
       await eventLedger.recordEvent({
@@ -174,9 +183,11 @@ export function install(rt) {
     if (roomId !== undefined) {
       items.push(...router.takeContextBuffer({ kind: 'room', roomId }))
     } else {
-      const taskPart = (bot.openParts ?? []).find(p => p.sessionId === sessionId && p.task !== undefined)
-      if (taskPart) {
-        items.push(...router.takeContextBuffer({ kind: 'task', botId: bot.id, taskId: taskPart.task.id }))
+      const task = taskOfSession(bot, sessionId)
+      const taskThread = task === undefined ? threadOfPart(bot, sessionId) : undefined
+      const taskId = task?.id ?? (taskThread?.thread === 'task' ? taskThread.taskId : undefined)
+      if (taskId !== undefined) {
+        items.push(...router.takeContextBuffer({ kind: 'task', botId: bot.id, taskId }))
       } else if (sessionId === rt.chatOf(bot.id)) {
         items.push(...router.takeContextBuffer({ kind: 'bot', botId: bot.id }))
       }
@@ -370,8 +381,11 @@ export function install(rt) {
       }
     }
     const bot = botId ? rt.botOf(botId) : undefined
-    const taskPart = (bot?.openParts ?? []).find(p => p.sessionId === resolvedSessionId && p.task !== undefined)
-    return { botId, roomId: undefined, sessionId: resolvedSessionId, taskId: taskPart?.task?.id, isGroup: false }
+    const taskOwner = rt.taskOwners?.get(resolvedSessionId)
+    const task = taskOfSession(bot, resolvedSessionId)
+    const taskThread = task === undefined ? threadOfPart(bot, resolvedSessionId) : undefined
+    const taskId = taskOwner?.taskId ?? task?.id ?? (taskThread?.thread === 'task' ? taskThread.taskId : undefined)
+    return { botId, roomId: undefined, sessionId: resolvedSessionId, taskId, isGroup: false }
   }
 
   rt.teamTools.push(defineTool({
@@ -711,6 +725,87 @@ export function install(rt) {
     }
   }
 
+  // Adapter for the External API gateway (`POST /v1/events` in src/host/api/routes.js):
+  // reuses the event-driven ledger and router with full idempotency, dryRun, and principal
+  // target-scope enforcement.
+  async function eventsIngest(payload = {}, auth = {}) {
+    if (rt.readOnly?.() !== undefined) throw Object.assign(new Error('Host is read-only'), { status: 503, code: 'bot/read-only' })
+    const principal = auth.principal
+    const sourceId = String(payload.sourceId ?? payload.source ?? `api:${auth.keyId ?? 'local'}`).trim().slice(0, 80)
+    const eventType = String(payload.eventType ?? payload.type ?? 'external.event').trim().slice(0, 120)
+    const summary = String(payload.summary ?? payload.title ?? '').trim().slice(0, 500)
+    const body = typeof payload.body === 'string'
+      ? payload.body
+      : (payload.payload !== undefined ? JSON.stringify(payload.payload) : String(payload.text ?? ''))
+    const targetBotId = typeof payload.botId === 'string' && payload.botId !== '' ? payload.botId : undefined
+    const targetRoomId = typeof payload.roomId === 'string' && payload.roomId !== '' ? payload.roomId : undefined
+    const privateBotId = targetBotId && rt.botOf(targetBotId)?.private === true ? targetBotId : undefined
+    const rawDedupe = payload.dedupeKey || payload.eventId
+    const dedupeKey = rawDedupe ? `api:${auth.keyId ?? 'local'}:${sourceId}:${String(rawDedupe).slice(0, 160)}` : ''
+    const dryRun = payload.dryRun === true
+
+    const canAccessTarget = principal
+      ? (target) => (target.kind === 'room'
+          ? principal.canAccessRoom?.(target.roomId) === true
+          : principal.canAccessBot?.(target.botId) === true)
+      : undefined
+
+    if (dedupeKey !== '') {
+      const existingId = eventLedger.findDedupeEventId(dedupeKey, { privateBotId })
+      if (existingId !== undefined) {
+        return { ledgerEventId: existingId, status: 'duplicate', matchedSubscriptions: [] }
+      }
+    }
+
+    const eventInput = {
+      source: {
+        kind: 'api',
+        id: sourceId,
+        name: String(payload.sourceName ?? auth.tokenName ?? sourceId).slice(0, 80),
+        actor: String(payload.actor ?? auth.tokenName ?? 'api').slice(0, 80),
+        actorTrusted: false,
+      },
+      trust: 'external',
+      threadKey: String(payload.threadKey ?? `api:${sourceId}`).slice(0, 200),
+      entityKey: String(payload.entityKey ?? payload.threadKey ?? payload.eventId ?? `api:${sourceId}`).slice(0, 200),
+      eventType,
+      dedupeKey,
+      summary: summary || body.slice(0, 120),
+      body,
+      meta: {
+        ...(payload.meta && typeof payload.meta === 'object' ? payload.meta : {}),
+        ...(payload.payload !== undefined ? { payload: payload.payload } : {}),
+        ...(targetBotId ? { targetBotId } : {}),
+        ...(targetRoomId ? { targetRoomId } : {}),
+        ...(dryRun ? { dryRun: true } : {}),
+      },
+    }
+
+    if (dryRun) {
+      const stored = await eventLedger.recordEvent(eventInput, { privateBotId })
+      const matchedSubscriptions = router.matchDryRun(stored, { privateBotId, canAccessTarget })
+      await eventLedger.recordDecision({ eventId: stored.id, outcome: 'dry_run', reason: 'dryRun requested' }, { privateBotId })
+      publishUpdate()
+      return { ledgerEventId: stored.id, status: 'dry_run', matchedSubscriptions }
+    }
+
+    const directTarget = targetBotId
+      ? { kind: 'bot', botId: targetBotId }
+      : targetRoomId
+        ? { kind: 'room', roomId: targetRoomId }
+        : undefined
+    const res = await acceptEvent(eventInput, {
+      directTarget,
+      canAccessTarget,
+      privateBotId,
+    })
+    return {
+      ledgerEventId: res.eventId,
+      status: res.deduplicated ? 'duplicate' : 'accepted',
+      matchedSubscriptions: res.deliveries.map(d => d.subId).filter(Boolean),
+    }
+  }
+
   Object.assign(rt, {
     eventLedger,
     eventRouter: router,
@@ -722,6 +817,7 @@ export function install(rt) {
     reconcileEventsLock: reconcileLock,
     acceptEvent,
     emitInternalEvent,
+    eventsIngest,
     ingestExternalEvent: (payload, auth) => push.ingestExternalEvent(payload, auth),
     inboxView,
     eventsSummaryView,

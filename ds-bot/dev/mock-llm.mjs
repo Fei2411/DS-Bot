@@ -114,12 +114,17 @@ function isSummary(body) {
 function decide(body) {
   const system = systemText(body.system) + '\n' + (body.messages ?? []).filter(m => m.role === 'system').map(m => textOf(m.content)).join('\n')
   const tools = new Set((body.tools ?? []).map(entry => entry.name))
-  // Clock snapshots and a group's memory snapshot are context, not a new scripted user command.
+  // Clock snapshots and conversation-layer memory snapshots/updates are context, not a new scripted user command.
   const messages = (body.messages ?? []).filter(m => m.role !== 'system').map(message => {
     if (message.role !== 'user') return message
-    const isClock = value => value.startsWith('Current time: ') || value.startsWith('Time sampled while preparing turn ') || value.startsWith('## Group memory, shared by the members of this group chat')
-    const content = typeof message.content === 'string' ? (isClock(message.content) ? '' : message.content)
-      : message.content.filter(block => block.type !== 'text' || !isClock(block.text))
+    const isContext = value => value.startsWith('Current time: ')
+      || value.startsWith('Time sampled while preparing turn ')
+      || value.startsWith('## Group memory, shared by the members of this group chat')
+      || value.startsWith('## Your memory (MEMORY.md)')
+      || value.startsWith('## Memory update')
+      || value.startsWith('## Possibly relevant memory')
+    const content = typeof message.content === 'string' ? (isContext(message.content) ? '' : message.content)
+      : message.content.filter(block => block.type !== 'text' || !isContext(block.text))
     return { ...message, content }
   }).filter(message => message.role !== 'user' || message.content.length > 0)
   const last = messages.at(-1)
@@ -205,6 +210,12 @@ function decide(body) {
       if (done < steps) return [text(filler(size * 1000, `步骤${done + 1}`)), tool('list_bots', {})]
       return [text(`长任务做完了，一共 ${done} 步。`)]
     }
+    // "慢活 N": runs list_bots first (marking toolCount >= 1) then waits N seconds before finishing.
+    const slowAsked = messages.map(m => (m.role === 'user' ? textOf(m.content).trim() : '')).filter(Boolean).at(-1) ?? ''
+    const slowJob = /^慢活\s+(\d+)/.exec(slowAsked)
+    if (slowJob && used?.name === 'list_bots') {
+      return Object.assign([text(`慢活已完成，耗时 ${slowJob[1]} 秒。`)], { delay: Number(slowJob[1]) * 1000 })
+    }
     // "看网页结构 [N]": answer with the first N lines (default 40) of what read_browser
     // returned, fenced so the chat shows the Markdown as text.
     const asked = messages.map(m => (m.role === 'user' ? textOf(m.content).trim() : '')).filter(Boolean).at(-1) ?? ''
@@ -235,9 +246,14 @@ function decide(body) {
       case 'group_relay': return [text('')]
       case 'create_bot': {
         const name = used.input.name
-        return [text(`${name} 已就位。`), tool('message_bot', { to: name, message: `用户刚让我建了你。请用三条要点回我：你打算先做什么、需要用户提供什么、第一周节奏。没有的写“尚未聊过”。` })]
+        return [text(`${name} 已就位。`), tool('delegate_work', { to: name, goal: `用户刚让我建了你。请用三条要点回我：你打算先做什么、需要用户提供什么、第一周节奏。没有的写“尚未聊过”。` })]
       }
-      case 'message_bot': return [text(used.input.reply_to === 'user' ? `去 ${used.input.to} 的对话框看它说吧。` : '我已经把需求转过去了，有结果我马上告诉你。')]
+      case 'message_bot':
+      case 'delegate_work': return [text((used.input.deliver_to ?? used.input.reply_to) === 'user' ? `去 ${used.input.to} 的对话框看它说吧。` : '我已经把需求转过去了，有结果我马上告诉你。')]
+      case 'note_bot': return [text(`已给 ${used.input.to} 留了静默备注。`)]
+      case 'cancel_work': return [text('已静默取消该任务。')]
+      case 'ask_back': return [text('已向派活方追问，等它答复。')]
+      case 'answer_work': return [text('[PASS]')]
       // The user's answer can ride in the same message as the card's tool result.
       case 'ask_user': if (textOf(last.content).trim() === '') return [text('')]
         break
@@ -295,18 +311,18 @@ function decide(body) {
   // note); only a fresh opener or "[Stopped by" ends it. A spliced "[Message
   // from X]" is taken into account there; it is answered in a turn of its own.
   const longOpener = messages.findLastIndex(m => m.role === 'user' && !isResults(m) && /^长任务\s*\d+/.test(textOf(m.content).trimStart()))
-  if (longOpener !== -1 && /^\[(?:Message|Reply) from /.test(userText)) {
+  if (longOpener !== -1 && /^\[(?:Message|Reply|Work(?:\s+#W\d+)?(?:\s+completed\s+by|\s+from)) /.test(userText)) {
     const task = /^长任务\s*(\d+)(?:\s+(\d+))?/.exec(textOf(messages[longOpener].content).trimStart())
     const steps = Number(task[1])
     const size = Number(task[2] ?? 4)
     const done = messages.slice(longOpener + 1).filter(isResults).length
     if (done < steps) {
-      const joined = /^\[Message from ([^\]·]+?)(?: · [^\]]*)?\]/.exec(userText)?.[1]
+      const joined = /^\[(?:Message|Work(?:\s+#W\d+)?) from ([^\]·]+?)(?: · [^\]]*)?\]/.exec(userText)?.[1]
       return [text(`${joined ? `（已按 ${joined} 的话调整）\n` : ''}${filler(size * 1000, `步骤${done}`)}`), tool('list_bots', {})]
     }
   }
   // "报错": the provider rejects the key, in the user's chat or in a message from a Bot.
-  if (/^报错$/.test(userText) || /^(?:\[Message from [^\]]*\]\n报错\n?)+$/.test(userText)) return 'auth'
+  if (/^报错$/.test(userText) || /^(?:\[(?:Message|Work(?:\s+#W\d+)?) from [^\]]*\]\n报错\n?)+$/.test(userText)) return 'auth'
   const lastCall = [...messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.content) && m.content.some(b => b.type === 'tool_use'))
   const lastAsk = lastCall?.content.find(b => b.type === 'tool_use' && b.name === 'ask_user')
   const answeredAsk = lastAsk && (lastAsk.input?.options ?? []).map(option => option?.label ?? option).find(label => userText.includes(label))
@@ -350,9 +366,18 @@ function decide(body) {
       .map(line => /^[^:\n]{1,40}: \D*?(\d+)/.exec(line)?.[1])
       .filter(Boolean).map(Number)
     const mentioner = /^\[Group chat [^\]]*· (\S+) mentioned you\]/.exec(userText)?.[1]
-    const peer = /^Members: the user, ([^,\n]+?)(?:,| and you)/m.exec(userText)?.[1]?.replace(/ \(admin\)$/, '')
+    const latestMembersLine = [...messages].reverse()
+      .filter(m => m.role === 'user')
+      .map(m => /^Members: .*/m.exec(textOf(m.content))?.[0])
+      .find(Boolean) ?? ''
+    const peer = /^Members: the user, ([^,\n]+?)(?:,| and you)/.exec(latestMembersLine)?.[1]?.replace(/ \(admin\)$/, '')
     const room = /^\[Group chat "([^"]+)"/.exec(userText)?.[1] ?? ''
-    const leads = /^Members: .* and you \(admin\)\./m.test(userText)
+    const leads = /^Members: .* and you \(admin\)\./.test(latestMembersLine)
+    if (userText.includes('route-contract:')) {
+      if (leads && userLine.includes('route-contract: start')) return [tool('delegate_work', { to: 'Writer', goal: 'route-contract: check the note from @Coder' })]
+      if (me === 'Writer' && block.includes('route-contract: check')) return [text('@Chief @Coder route-contract: the backup is ready')]
+      if (leads && block.includes('route-contract: the backup is ready')) return [text('@Writer route-contract: received, no reply needed')]
+    }
     let ask
     if ((ask = /把\s*(\S+?)\s*拉进群/.exec(userLine))) return [tool('update_group', { group: room, add_members: [ask[1]] })]
     if ((ask = /把\s*(\S+?)\s*踢出群/.exec(userLine))) return [tool('update_group', { group: room, remove_members: [ask[1]] })]
@@ -398,8 +423,8 @@ function decide(body) {
     if (steps?.[1] === me && mentioner && lookup) return [text('收到，我先看看目录。'), tool(lookup, { pattern: `${STEPPED_WORK}-1-${steps[2]}-*` })]
     if (/分步干完了/.test(block) && leads) return [text('收到，辛苦了。')]
     if (/^\S+: 干完了/.test(userLine) && leads) return [text('收到，辛苦了。')]
-    // Ping-pong: whoever is mentioned mentions back, to exercise the per-member cap.
-    if (/来回/.test(userLine)) return [text(mentioner ? `@${mentioner} 回你` : leads && peer ? `@${peer} 来回` : '[PASS]')]
+    // Ping-pong: whoever is mentioned mentions back, to exercise the loop guard.
+    if (/来回|回你/.test(block)) return [text(mentioner ? `@${mentioner} 回你` : leads && peer ? `@${peer} 来回` : '[PASS]')]
     if (mentioner) return [text('进度正常，今天能交。')]
     if (/安排/.test(userLine)) return [text(leads && peer ? `@${peer} 你先说说进度。` : '[PASS]')]
     // 调用 <tool> <json> in a group: the same generic trigger as in a Bot's own chat,
@@ -413,6 +438,8 @@ function decide(body) {
   }
   // Secret cards: ask for a key, and use it once the card says it is saved or allowed.
   if (userText.startsWith('[Secret card]')) return secretNote(userText, tools)
+  if (userText.startsWith('[Background task ·')) return [text(`后台任务已完成，共继承 ${messages.length} 条消息。`)]
+  if (userText.startsWith('[Background task report ·')) return [text(`已收到后台任务汇报：${userText.split('\n').slice(1).join(' ').slice(0, 120)}`)]
   // Multiline: a runtime-context or policy notice can share the user's message.
   const secretAsk = /^要密钥(?:[ \t]+([A-Za-z][\w]*))?/m.exec(userText)
   if (secretAsk && tools.has('request_secret')) {
@@ -431,9 +458,11 @@ function decide(body) {
     return [tool('update_group', { group: order[1], ...field })]
   }
   if ((order = /^删群\s*(\S+)$/.exec(userText))) return [tool('delete_group', { group: order[1] })]
-  if ((order = /^转告\s*(\S+?)\s*[:：]\s*([\s\S]+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2] })]
-  if ((order = /^插话\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2], when: 'now' })]
-  if ((order = /^排队\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2], when: 'queue' })]
+  if ((order = /^转告\s*(\S+?)\s*[:：]\s*([\s\S]+)$/.exec(userText))) return [tool('delegate_work', { to: order[1], goal: order[2] })]
+  if ((order = /^插话\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('delegate_work', { to: order[1], goal: order[2], when: 'now' })]
+  if ((order = /^排队\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('delegate_work', { to: order[1], goal: order[2], when: 'queue' })]
+  if ((order = /^留条\s*(\S+?)\s*[:：]\s*([\s\S]+)$/.exec(userText))) return [tool('note_bot', { to: order[1], note: order[2] })]
+  if ((order = /^撤单\s*(\S+?)(?:\s*[:：]\s*(.+))?$/.exec(userText))) return [tool('cancel_work', { target: order[1], ...(order[2] ? { reason: order[2] } : {}) })]
   if ((order = /^叫停\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('stop_bot', { bot: order[1], reason: order[2] })]
   // 调用 <tool> <json>: emit the named tool call verbatim — the generic way to
   // drive a tool the mock has no dedicated trigger for (e.g. the cua methods).
@@ -455,6 +484,7 @@ function decide(body) {
   if (userText.startsWith('写成文字')) return [text(WRITTEN_CALL)]
   // Context-line tests: grow the context, run a long multi-step turn, search history.
   if ((order = /^(?:长文|long)\s*(\d+)/.exec(userText))) return [text(filler(Number(order[1]) * 1000, '长文'))]
+  if ((order = /^慢活\s+(\d+)/.exec(userText)) && tools.has('list_bots')) return Object.assign([tool('list_bots', {})], { delay: 100 })
   if ((order = /^长任务\s*(\d+)(?:\s+(\d+))?/.exec(userText))) return [text(filler(Number(order[2] ?? 4) * 1000, '步骤0')), tool('list_bots', {})]
   if ((order = /^查记录\s*([^\n]+)/.exec(userText))) return [tool('read_own_chat', { query: order[1].trim() })]
   if ((order = /^查锚点\s*([^\n]+)/.exec(userText))) return [tool('read_own_chat', { around: order[1].trim() })]
@@ -465,32 +495,36 @@ function decide(body) {
     return [text(all.includes(order[1]) ? `上下文里有「${order[1]}」。` : `上下文里没有「${order[1]}」。`)]
   }
   let match
-  if ((match = /^\[Message from ([^\]·]+?) · the user sees your reply here\]/.exec(userText))) {
+  if (/^\[Work #W\d+ from [^\n]+\]\nroute-contract: check backup/.test(userText)) return [text('route-contract: backup complete')]
+  if ((match = /^\[Work #W\d+ completed by (.+?) · [^\n]+\]\nroute-contract: backup complete/.exec(userText))) {
+    return [tool('delegate_work', { to: match[1], goal: 'route-contract: acknowledgement' })]
+  }
+  if ((match = /^\[(?:Message|Work) from ([^\]·]+?) · the user sees your reply here\]/.exec(userText))) {
     const asked = userText.split('\n').slice(1).join(' ').trim().replace(/[。.!！?？]+$/u, '')
     return [text(`${match[1]} 转来一句话：「${asked}」。我先说打算：把手头已有的材料理一遍，列出还缺什么，再和你确认先后顺序；你确认之前我不会动手。`)]
   }
-  if ((match = /^\[Message from ([^\]·]+?)(?: · [^\]]*)?\]\n(?:转告\s*(\S+?)\s*[:：]\s*([\s\S]+)|慢慢做\s*(\d+))/.exec(userText))) {
-    if (match[2] && tools.has('message_bot')) return [tool('message_bot', { to: match[2], message: match[3].trim() })]
+  if ((match = /^\[(?:Message|Work(?:\s+#W\d+)?) from ([^\]·]+?)(?: · [^\]]*)?\]\n(?:转告\s*(\S+?)\s*[:：]\s*([\s\S]+)|慢慢做\s*(\d+))/.exec(userText))) {
+    if (match[2] && tools.has('delegate_work')) return [tool('delegate_work', { to: match[2], goal: match[3].trim() })]
     if (match[4]) return Object.assign([text(`给 ${match[1]} 的回复：做完了，用了 ${match[4]} 秒。`)], { delay: Number(match[4]) * 1000 })
   }
-  if ((match = /^\[Message from ([^\]·]+?)(?: · [^\]]*)?\]/.exec(userText))) {
+  if ((match = /^\[(?:Message|Work(?:\s+#W\d+)?) from ([^\]·]+?)(?: · [^\]]*)?\]/.exec(userText))) {
     return [text(`给 ${match[1]} 的回复：\n- 先做：把现有材料理一遍\n- 需要用户提供：目标和截止时间（尚未聊过）\n- 节奏：确认后每天同步一次`)]
   }
-  if ((match = /^\[Reply from ([^\]]+)\]\n.* could not answer your message: its model call failed \(([^)]+)\)/.exec(userText))) {
+  if ((match = /^\[(?:Reply from|Work(?:\s+#W\d+)? completed by) ([^\]·]+?)(?: · [^\n]*)?\]\n.* could not answer your message: its model call failed \(([^)]+)\)/.exec(userText))) {
     return [text(`${match[1]} 这次没能回答：它的模型调用出错了（${match[2]}）。可能是 API 密钥失效，请检查它用的模型设置。`)]
   }
-  if ((match = /^\[Reply from ([^\]·]+?) · for the work ([^\]]+?) asked you for/.exec(userText))) {
+  if ((match = /^\[(?:Reply from|Work(?:\s+#W\d+)? completed by) ([^\]·]+?) · [^[\]]*for the work ([^\]]+?) asked you for/.exec(userText))) {
     return [text(`${match[1]} 交回了，我把结果交给 ${match[2]}。`)]
   }
-  if ((match = /^\[Reply from ([^\]]+)\]/.exec(userText))) {
+  if ((match = /^\[(?:Reply from|Work(?:\s+#W\d+)? completed by) ([^\]·]+?)(?: · [^\n]*)?\]/.exec(userText))) {
     return [text(`${match[1]} 回话了：目标和截止时间都还没和你聊过，它没法凭空开工。`), tool('ask_user', { question: '下一步怎么走？', detail: '没有目标之前它只能空转。', options: ['现在告诉我目标', '先去跟它聊', '先搁着'] })]
   }
   if ((match = /(?:创建|创|建|新建|create)\s*(?:一个|个)?\s*(?:叫|名为)?\s*[「“"]?([^」”"\s，,。]+?)[」”"]?\s*(?:的)?\s*bot/i.exec(userText)) && isMain && tools.has('create_bot')) {
     const name = match[1].replace(/^(一个|个)/, '')
     return [text(`先建 ${name}，建好再让它报一下打算。`), tool('create_bot', { name, role: name.slice(-2), instructions: `负责${name}相关的一切工作：规划、执行、复盘。`, brief: userText })]
   }
-  if ((match = /让\s*([^\s，,。]+?)\s*在(?:它|他|她)?自己的(?:对话框|窗口)/.exec(userText)) && tools.has('message_bot')) {
-    return [text(`好，我让 ${match[1]} 在它自己的对话框里跟你说。`), tool('message_bot', { to: match[1], message: '用户想直接听你说说打算。', reply_to: 'user' })]
+  if ((match = /让\s*([^\s，,。]+?)\s*在(?:它|他|她)?自己的(?:对话框|窗口)/.exec(userText)) && tools.has('delegate_work')) {
+    return [text(`好，我让 ${match[1]} 在它自己的对话框里跟你说。`), tool('delegate_work', { to: match[1], goal: '用户想直接听你说说打算。', deliver_to: 'user' })]
   }
   if (/^\s*多选/.test(userText)) {
     return [tool('ask_user', {
@@ -601,6 +635,8 @@ function decide(body) {
   if (card && tools.has('ask_user')) {
     return [text(filler(Number(card[1] ?? 4) * 1000, '卡片前')), tool('ask_user', { question: '接下来先做哪个？', options: ['写正文', '改标题', '先停'] })]
   }
+  // A message that starts with 想想 thinks first, whatever the reminders after it say.
+  if (/^想想/.test(userText)) return [think('用户想让我认真想一下。先拆成三件事：目标、约束、下一步。'), text('想了一下，建议分三步走：先定目标，再看约束，最后定下一步。')]
   if (/团队|班底|team/i.test(userText) && tools.has('list_bots')) return [tool('list_bots', {})]
   if (/想想|思考|think/i.test(userText)) {
     return [think('用户想让我认真想一下。先拆成三件事：目标、约束、下一步。'), text('想了一下，建议分三步走：先定目标，再看约束，最后定下一步。')]

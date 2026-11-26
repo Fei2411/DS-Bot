@@ -111,7 +111,11 @@ export function TextSelectionAction({ sessionId, dismiss, readText, clearSelecti
       }, t('Annotate')))
   }
 
-  return h('section', { className: 'bt-annotation', 'aria-label': t('Annotate quote'), 'data-leaving': closing || undefined, onPointerDown: event => event.stopPropagation() },
+  return h('section', {
+    className: 'bt-annotation', 'aria-label': t('Annotate quote'), 'data-leaving': closing || undefined,
+    onPointerDown: event => event.stopPropagation(),
+    onKeyDown: (event) => { if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) { event.preventDefault(); event.stopPropagation(); close() } },
+  },
     h('label', { className: 'bt-annotation-label', htmlFor: 'bt-annotation-field' }, t('Annotation')),
     h('blockquote', { className: 'bt-annotation-quote' }, quoteText()),
     h('textarea', {
@@ -121,14 +125,15 @@ export function TextSelectionAction({ sessionId, dismiss, readText, clearSelecti
     }),
     h('div', { className: 'bt-annotation-actions' },
       h('button', { type: 'button', className: 'bt-annotation-add', disabled: sending || closing, onClick: add, title: t('Add quote and annotation to the composer · Enter') }, t('Add')),
-      h('button', { type: 'button', className: 'bt-annotation-send', disabled: sending || closing, onClick: () => void send(), title: t('Send quote and annotation · Ctrl+Enter') }, sending ? t('Sending…') : t('Send'))))
+      h('button', { type: 'button', className: 'bt-annotation-send', disabled: sending || closing, onClick: () => void send(), title: (() => { const label = t('Send quote and annotation · Ctrl+Enter'); return typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '') ? label.replace('Ctrl+Enter', '⌘↵') : label })() }, sending ? t('Sending…') : t('Send'))))
 }
 
 export const ANNOTATION_CSS = `
 .bt-selection-actions{display:inline-flex;align-items:stretch;overflow:hidden;border-radius:10px;background:var(--dsw-alias-button-floating-fill,var(--bt-card));border:1px solid var(--bt-line-2);box-shadow:var(--dsw-elevation-panel,var(--bt-glass-shadow));animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-annotation-veil .12s ease-out}
 .bt-selection-action{display:inline-flex;align-items:center;gap:5px;height:30px;border:0;border-radius:0;margin:0;padding:0 12px;background:transparent;color:var(--dsw-alias-label-primary,var(--bt-ink));font:500 13px/18px var(--bt-font);cursor:pointer;white-space:nowrap;touch-action:manipulation;transition:background-color .12s ease}
+.bt-selection-action:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-selection-action+.bt-selection-action{border-left:1px solid var(--bt-line)}
-.bt-selection-action:focus-visible,.bt-selection-action:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover));outline:none}
+.bt-selection-action:focus-visible,.bt-selection-action:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover))}
 .bt-quote-plain{corner-shape:round;background:var(--dsw-alias-button-floating-fill,var(--bt-card));--dsw-elevation-stroke-color:var(--dsw-alias-border-l3);box-shadow:var(--dsw-elevation-panel,var(--bt-glass-shadow));color:var(--dsw-alias-label-primary,var(--bt-ink));font:var(--dsw-font-xs-13,13px var(--bt-font));cursor:pointer;border:none;border-radius:999px;padding:5px 10px}
 .bt-quote-plain:focus-visible,.bt-quote-plain:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover))}
 .bt-annotation{display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 32px));box-sizing:border-box;padding:12px;background:var(--bt-card);border:.5px solid var(--bt-line-2);border-radius:12px;box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font:13px/18px var(--bt-font);animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-annotation-veil .14s ease-out}

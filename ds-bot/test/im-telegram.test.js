@@ -112,6 +112,121 @@ test('private text, group mention and photo become adapter messages', async () =
   } finally { api.close() }
 })
 
+test('Telegram removes only standalone addressing mentions and preserves emails and domains', async (t) => {
+  const api = await fakeApi()
+  const messages = []
+  const handle = telegram.connect({ token: 'TOKEN' }, env(api.api), {
+    onMessage: msg => messages.push(msg), onAction: () => {}, onStatus: () => {},
+  })
+  t.after(() => { handle.stop(); api.close() })
+  const cases = [
+    ['1 3 @fakebot', '1 3 '],
+    ['V3 1 3 @fakebot', 'V3 1 3 '],
+    ['/card@fakebot V3 1 3', '/card@fakebot V3 1 3'],
+    ['/CaRd@FAKEBOT V3 1 3', '/CaRd@FAKEBOT V3 1 3'],
+    ['@fakebot !card V3 1 3', '!card V3 1 3'],
+    ['!card V3 1 3 @fakebot', '!card V3 1 3 '],
+    ['/stop @fakebot', '/stop '],
+    ['@fakebot look', 'look'],
+    ['@fakebot email alice@fakebot.example', 'email alice@fakebot.example'],
+    ['@fakebot domain https://@fakebot.example/path', 'domain https://@fakebot.example/path'],
+    ['@fakebot domain docs.@fakebot', 'domain docs.@fakebot'],
+    ['@fakebot @fakebot-dev.example', '@fakebot-dev.example'],
+    ['@fakebot @@fakebot', '@@fakebot'],
+    ['@fakebot name@fakebot', 'name@fakebot'],
+    ['@fakebot @fakebot_extra', '@fakebot_extra'],
+  ]
+  for (const [index, [text]] of cases.entries()) {
+    api.updates.push({ update_id: index + 1, message: {
+      message_id: index + 1, chat: { id: -8, type: 'supergroup' }, from: { id: 9 }, text,
+    } })
+  }
+  await until(() => messages.length === cases.length)
+  assert.deepEqual(messages.map(msg => msg.text), cases.map(([, expected]) => expected))
+  assert.ok(messages.every(msg => msg.mentioned))
+})
+
+test('a multiline Telegram group mention answers a token form without losing field lines', async (t) => {
+  const api = await fakeApi()
+  const home = mkdtempSync(join(tmpdir(), 'dsb-tg-form-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1, mainBotIds: ['a'],
+    bots: { a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'a', createdAt: 1 } },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }))
+  const prompts = []
+  const followups = []
+  const ctx = fakeContext()
+  const agent = {
+    id: 'a', session: { id: 'a', requestHeader: () => undefined },
+    followup: message => followups.push(message), cancel() {},
+    inbox: { nextStep: [], nextTurn: [], remove: () => false }, async whenIdle() {},
+  }
+  Object.assign(ctx, {
+    llm: { listProviders: () => [] },
+    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async () => ({ id: 'w1' }), archiveSession: async () => {} },
+    sessionController: {
+      prompt: async request => { prompts.push(request); return { ok: true } },
+      resolveAgent: async () => ({ agent }), selectModel: async () => {},
+    },
+    sessions: { flush: async () => {} },
+  })
+  const rt = createRuntime(ctx, { home })
+  rt.config.im = { telegram: { api: api.api } }
+  t.after(async () => {
+    await ctx.dispose()
+    api.close()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  const conn = await rt.imEndpoint('im-add', { platform: 'telegram', botId: 'a', fields: { token: 'TOKEN' } })
+  const saved = rt.state.im.connections[conn.id]
+  saved.paired.push({ id: '9', name: 'Ann', at: 1 })
+  saved.chats['-8'] = { kind: 'group', target: { botId: 'a' }, at: 1 }
+  await rt.save()
+  await until(() => rt.imStatusView()[conn.id]?.state === 'ready')
+  const message = (id, text) => ({ update_id: id, message: {
+    message_id: id, chat: { id: -8, type: 'supergroup', title: 'Crew' },
+    from: { id: 9, first_name: 'Ann' }, text,
+    entities: [{ type: 'mention', offset: 0, length: 8 }],
+  } })
+  api.updates.push(message(100, '@fakebot show a form'))
+  await until(() => prompts.length === 1)
+  const emit = (type, data) => {
+    for (const listener of ctx.listeners.get('session/event') ?? []) {
+      if (listener.length >= 2) listener({ id: 'a' }, { type, data, time: Date.now() })
+    }
+  }
+  emit('turn/start', { turn: 1 })
+  emit('user/message', { source: { kind: 'user', rpcId: prompts[0].requestId }, content: [{ type: 'text', text: 'show a form' }] })
+  await rt.teamTools.find(tool => tool.name === 'show_view').execute({ view: {
+    type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }, { id: 'notes', label: 'Notes', multiline: true }],
+  } }, { agent, concludeTurn() {} })
+  const viewId = rt.state.views.a.id
+  const card = await until(() => api.calls.find(call => call.method === 'sendMessage' && /Card V\d+/.test(call.params.text)))
+  const code = /Card (V\d+)/.exec(card.params.text)[1]
+  api.updates.push(message(101, `@fakebot !CaRd ${code}\n1: Alice  Smith\tJr\n2: first  line\n  second\tline @fakebot\nlast\t `))
+  await until(() => followups.length === 1)
+  assert.equal(rt.state.views.a, undefined)
+  assert.equal(prompts.length, 1, 'the answer is consumed rather than relayed as ordinary chat')
+  assert.deepEqual(JSON.parse(followups[0].content[0].text).answers[0], {
+    id: viewId, action: 'details', values: { fields: { name: 'Alice  Smith\tJr', notes: 'first  line\n  second\tline @fakebot\nlast\t ' } },
+  })
+  await rt.teamTools.find(tool => tool.name === 'ask_user').execute({
+    question: 'Which letters?', options: [{ label: 'A' }, { label: 'B' }, { label: 'C' }], multiSelect: true,
+  }, { agent, concludeTurn() {} })
+  await until(() => api.calls.some(call => call.method === 'sendMessage' && call.params.text.includes('Which letters?')))
+  api.updates.push(message(102, '1 3 @fakebot'))
+  await until(() => followups.length === 2)
+  assert.equal(rt.state.questions.a, undefined)
+  assert.match(followups[1].content[0].text, /A/)
+  assert.match(followups[1].content[0].text, /C/)
+  let stopped = false
+  rt.stopChat = async botId => { assert.equal(botId, 'a'); stopped = true; return true }
+  api.updates.push(message(103, '/stop @fakebot'))
+  await until(() => stopped)
+  assert.equal(prompts.length, 1, 'trailing-mention answers and commands are not ordinary prompts')
+})
+
 test('callback_query answers the query and reports the action', async () => {
   const api = await fakeApi()
   const got = { actions: [] }

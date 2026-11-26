@@ -17,6 +17,7 @@ const OAPI = 'https://oapi.dingtalk.com'
 const TEXT_LIMIT = 5000
 const SOCKET_TIMEOUT = 30_000
 const IDLE_TIMEOUT = 10 * 60_000
+const SESSION_WEBHOOKS_MAX = 500
 
 const gatewayBase = env => String(env.config?.gateway ?? env.config?.api ?? GATEWAY).replace(/\/+$/, '')
 const oapiBase = env => String(env.config?.oapi ?? env.config?.api ?? OAPI).replace(/\/+$/, '')
@@ -128,7 +129,13 @@ export default {
       const mentioned = direct ? false : data.isInAtList === true
       const key = String(direct ? data.senderStaffId ?? data.senderId ?? '' : data.conversationId ?? '')
       if (data.sessionWebhook !== undefined) {
-        sessionWebhooks.set(key, { url: String(data.sessionWebhook), until: Date.now() + 20 * 60_000 })
+        const now = Date.now()
+        for (const [k, entry] of sessionWebhooks) {
+          if (entry.until <= now) sessionWebhooks.delete(k)
+        }
+        sessionWebhooks.delete(key)
+        sessionWebhooks.set(key, { url: String(data.sessionWebhook), until: now + 20 * 60_000 })
+        while (sessionWebhooks.size > SESSION_WEBHOOKS_MAX) sessionWebhooks.delete(sessionWebhooks.keys().next().value)
       }
       const sender = String(data.senderStaffId ?? data.senderId ?? '')
       const robotCode = String(data.robotCode || clientId)
@@ -185,7 +192,7 @@ export default {
           }
         }
         await handlers.onMessage({
-          chat: { key, kind: direct ? 'direct' : 'group', title: '' },
+          chat: { key, kind: direct ? 'direct' : 'group', title: direct ? '' : String(data.conversationTitle ?? '').trim() },
           sender: { id: sender, name: String(data.senderNick ?? sender) },
           text: texts.join('\n').trim(), images, files,
           mentioned, messageId: String(data.msgId ?? ''),
@@ -321,12 +328,44 @@ export default {
 
     return {
       send: async (chat, { text }) => markdown(chat, text),
+      sendImage: async (chat, image) => {
+        const bytes = Buffer.isBuffer(image?.data) ? image.data : Buffer.from(image?.data ?? [])
+        if (bytes.byteLength === 0) throw Object.assign(new Error('Empty image'), { permanent: true })
+        const form = new FormData()
+        form.append('media', new Blob([bytes], { type: image.mediaType || 'image/png' }), image.name || 'image.png')
+        const upResp = await env.fetch(`${oapiBase(env)}/media/upload?access_token=${encodeURIComponent(await ensureToken())}&type=image`, {
+          method: 'POST',
+          body: form,
+          signal: AbortSignal.timeout(30_000),
+        })
+        const upJson = await upResp.json().catch(() => ({}))
+        const mediaId = String(upJson?.media_id ?? '')
+        if (!upResp.ok || (upJson.errcode !== undefined && upJson.errcode !== 0) || mediaId === '') {
+          // Clear cached token on expired/invalid access_token codes so retry fetches a fresh one.
+          if ([40014, 42001].includes(Number(upJson.errcode))) { token = undefined; tokenExpiresAt = 0 }
+          const error = new Error(String(upJson.errmsg ?? `DingTalk image upload answered ${upResp.status}`))
+          error.status = upResp.status
+          if (upResp.status === 429) error.retryAfter = Number(upResp.headers.get('retry-after'))
+          error.permanent = upResp.status >= 400 && upResp.status < 500 && upResp.status !== 429
+          throw error
+        }
+        const msgParam = JSON.stringify({ photoURL: mediaId })
+        const answer = chat.kind === 'direct'
+          ? await robot(env, await ensureToken(), clientId, '/v1.0/robot/oToMessages/batchSend', {
+            robotCode: clientId, userIds: [chat.key], msgKey: 'sampleImageMsg', msgParam,
+          })
+          : await robot(env, await ensureToken(), clientId, '/v1.0/robot/groupMessages/send', {
+            robotCode: clientId, openConversationId: chat.key, msgKey: 'sampleImageMsg', msgParam,
+          })
+        return { messageId: String(answer?.processQueryKey ?? '') }
+      },
       stop: () => {
         stopped = true
         stopping.abort()
         generation += 1
         clearTimeout(reconnectTimer)
         clearSocketTimers()
+        sessionWebhooks.clear()
         const previous = socket
         socket = undefined
         try { previous?.close(1000, 'stop') } catch { /* not open */ }

@@ -193,12 +193,12 @@ async function bootBot(t, { provider, model, contextWindow, defaultMaxTokens, on
 }
 
 test('a post-compaction TokenMeter overestimate calibrated down by real usage does not block checkContext past lines.check', async (t) => {
-  // DeepSeek 1M window + 256K reserve -> check line capped at DEFAULT_CHECK_TOKENS (380,000), check/4 = 95,000.
+  // DeepSeek 1M window + 256K reserve -> usable 792,576, check line 634,060 (0.8 * usable), check/4 = 158,515.
   const usages = [
-    { inputTokens: 1105, cacheReadTokens: 185_000, outputTokens: 874 }, // T1
-    { inputTokens: 1105, cacheReadTokens: 390_000, outputTokens: 874 }, // T2 crosses 380K -> compact leaves ~337K overestimate
+    { inputTokens: 1105, cacheReadTokens: 310_000, outputTokens: 874 }, // T1
+    { inputTokens: 1105, cacheReadTokens: 645_000, outputTokens: 874 }, // T2 crosses 634K -> compact leaves ~585K overestimate
     { inputTokens: 1105, cacheReadTokens: 100_000, outputTokens: 874 }, // T3 real usage drops to ~102K
-    { inputTokens: 1105, cacheReadTokens: 390_000, outputTokens: 874 }, // T4 grows back past 380K (< 337K + 95K = 432K)
+    { inputTokens: 1105, cacheReadTokens: 645_000, outputTokens: 874 }, // T4 grows back past 634K (< 585K + 158K = 743K)
   ]
   const { rt, agents, calls, warnings, runTurn, tokenMeter, agent } = await bootBot(t, {
     provider: 'deepseek-official',
@@ -209,14 +209,14 @@ test('a post-compaction TokenMeter overestimate calibrated down by real usage do
     onTurn: step => ({ usage: usages[step - 1] }),
   })
 
-  // Large CJK turns make CHARS_PER_TOKEN=4 undercount removed content so immediate post-compact totalTokens stays ~337K.
+  // Large CJK turns make CHARS_PER_TOKEN=4 undercount removed content so immediate post-compact totalTokens stays ~585K.
   await runTurn('你'.repeat(200_000))
   await runTurn('好'.repeat(20_000))
   await until(() => calls.some(c => c.kind === 'checkpoint'), 'initial checkpoint')
   assert.equal(rt.chatOf('m1'), 'm1')
-  assert.ok(tokenMeter.measure(agent.session).totalTokens > 300_000)
+  assert.ok(tokenMeter.measure(agent.session).totalTokens > 500_000)
 
-  // Next turn reports true compacted usage (~102K), then conversation grows past 380K again.
+  // Next turn reports true compacted usage (~102K), then conversation grows past 634K again.
   await runTurn('continue after checkpoint')
   await until(() => tokenMeter.measure(agent.session).totalTokens < 150_000, 'recalibrated usage')
 

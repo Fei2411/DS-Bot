@@ -1,8 +1,8 @@
 import { createContext, useContext } from 'react'
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { t } from '../ui/i18n.ts'
 import { type as typeScale, useTheme } from '../ui/tokens.ts'
+export { confirmDanger } from './confirm-danger'
 
 // A page that slides up over the chat (Settings, Needs you, Create new Bot, Create
 // group chat). Its own safe-area provider measures the sheet: on iOS a page sheet
@@ -44,14 +44,6 @@ export function SheetHeader({ title, left, right }: { title: string; left?: Head
       </View>
     </View>
   )
-}
-
-// A destructive step asks once, in the system's own dialog.
-export function confirmDanger(title: string, action: string, onConfirm: () => void, message?: string) {
-  Alert.alert(title, message, [
-    { text: t('Cancel'), style: 'cancel' },
-    { text: action, style: 'destructive', onPress: onConfirm },
-  ])
 }
 
 const styles = StyleSheet.create({

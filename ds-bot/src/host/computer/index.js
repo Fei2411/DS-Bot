@@ -7,10 +7,10 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dshVersion } from '../diagnostics.js'
 import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
-import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_REFUSED } from './catalog.js'
+import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_LISTINGS, DRIVER_REFUSED } from './catalog.js'
 import { createLeases } from './leases.js'
 import { prepareComputerHelper } from './mac-helper.js'
-import { REPLY_KIND } from '../constants.js'
+import { REPLY_KIND, SOURCE_KIND } from '../constants.js'
 import { output } from '../tools.js'
 
 const REGISTRY_PACKAGE = '@deepseek-ai/dsh-computer-use'
@@ -84,6 +84,16 @@ export function install(rt) {
   const sessionDecisions = new Map()
   const shotMimes = new Map()
   const SHOT_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+  const SHOT_MIMES_MAX = 200
+  const CURSOR_WAIT_MS = 8_000
+  const recordShotMime = (id, mime) => {
+    if (id === undefined || id === null) return
+    shotMimes.delete(id)
+    shotMimes.set(id, mime)
+    while (shotMimes.size > SHOT_MIMES_MAX) shotMimes.delete(shotMimes.keys().next().value)
+  }
+  /** @type {Map<string, Map<string, Set<string>>>} sessionId -> windowKey -> Set<`token:${t}`> */
+  const windowTokens = new Map()
   /** @type {Map<string, {by:string, reason:string, note:string, callId?:string, surface:'computer'}>} */
   const holds = new Map()
   /** @type {Map<string, {botId:string, sessionId:string, appKey?:string, abort:AbortController}>} callId -> in-flight call */
@@ -154,6 +164,7 @@ export function install(rt) {
   async function ensureProvider() {
     ensuring ??= (async () => {
       await rt.load()
+      if (stopped) return
       if (!enabled()) {
         await unmountProvider()
         setProviderStatus({ state: 'off' })
@@ -169,6 +180,7 @@ export function install(rt) {
         if (service('computerUse') === undefined) {
           // Without the registry the provider is missing too; install both at once.
           const registry = await importPackage(REGISTRY_PACKAGE).catch(error => { throw missing(error, [REGISTRY_PACKAGE, name]) })
+          if (stopped || !enabled()) return
           registryFiber = ctx.plugin(registry)
           await registryFiber.await?.()
         }
@@ -179,6 +191,7 @@ export function install(rt) {
           return
         }
         const provider = await importPackage(name).catch(error => { throw missing(error, [name]) })
+        if (stopped || !enabled()) return
         const config = process.platform === 'darwin' ? { agentPreset: false } : {}
         const { DS_BOT_RUNTIME_DIR: runtimeDir, DS_BOT_COMPUTER_HELPER_HOME: home } = process.env
         if (process.platform === 'darwin' && runtimeDir && home) {
@@ -234,21 +247,26 @@ export function install(rt) {
   }
   const isBotAt = id => rt.botOf(rt.selfOf(id)) !== undefined && rt.isBotSession(id)
   const handoffDef = () => handoffTool
+  let selfToolOpDepth = 0
+  const runSelfToolOp = (op) => {
+    selfToolOpDepth++
+    try { return op() } finally { selfToolOpDepth-- }
+  }
   // Every agent gets one application record: 'allow' means the tools and the
   // provider guidance stay, 'deny' means both are masked and the section is
   // filtered out of the assembled prompt.
-  const liftHeld = (held) => {
+  const liftHeld = held => runSelfToolOp(() => {
     for (const lift of held.lifts.splice(0)) { try { lift() } catch {} }
     try { held.handoffLift?.() } catch {}
     held.handoffLift = undefined
     held.triedDeny.clear()
-  }
+  })
   const restrictComputerTools = (agent, held) => {
     for (const name of denyNames(agent)) {
       if (held.triedDeny.has(name)) continue
       held.triedDeny.add(name)
       try {
-        const lift = agent.ctx.tools?.restrict?.({ deny: [name] })
+        const lift = runSelfToolOp(() => agent.ctx.tools?.restrict?.({ deny: [name] }))
         if (typeof lift === 'function') held.lifts.push(lift)
       } catch {}
     }
@@ -276,7 +294,7 @@ export function install(rt) {
     if (want === 'allow') {
       const def = handoffDef()
       if (def !== undefined && typeof agent.ctx.tools?.register === 'function') {
-        try { held.handoffLift = agent.ctx.tools.register(def) } catch {}
+        try { held.handoffLift = runSelfToolOp(() => agent.ctx.tools.register(def)) } catch {}
       }
       // The provider sections stay for this agent; a filter set while it was
       // ineligible lifts with the lifts above. A scoped assemble listener only
@@ -297,6 +315,9 @@ export function install(rt) {
         if (typeof lift === 'function') held.lifts.push(lift)
       } catch {}
     }
+  }
+  const applyLiveComputer = (agent) => {
+    try { applyComputer(agent) } catch (error) { rt.warn('ds-bot: computer-use masking on %s failed: %s', agent?.session?.id, error) }
   }
   let refreshing = false
   let refreshQueued = false
@@ -322,14 +343,26 @@ export function install(rt) {
             byId.set(id, held.agent)
           }
         }
-        for (const agent of [...byId.values(), ...extra]) {
-          try { applyComputer(agent) } catch (error) { rt.warn('ds-bot: computer-use masking on %s failed: %s', agent?.session?.id, error) }
-        }
+        for (const agent of [...byId.values(), ...extra]) applyLiveComputer(agent)
       } while (refreshQueued && !stopped)
     } finally {
       refreshing = false
     }
   }
+  const runningAgents = new Set()
+  for (const agent of service('agents')?.list?.() ?? []) {
+    if (agent?.status === 'running') runningAgents.add(agent)
+  }
+  let refreshTimer
+  ctx.on('agent/status', ({ agent, status }) => {
+    if (stopped) return
+    if (status === 'running') {
+      runningAgents.add(agent)
+      if (refreshTimer !== undefined) applyLiveComputer(agent)
+    } else {
+      runningAgents.delete(agent)
+    }
+  })
   ctx.on('agent/created', async ({ agent }) => {
     try {
       await rt.load()
@@ -339,9 +372,22 @@ export function install(rt) {
     }
   })
   ctx.on('agent/disposed', ({ agent }) => {
+    runningAgents.delete(agent)
     if (agent !== undefined && agent !== null) disposedAgents.add(agent)
     const id = agent?.session?.id ?? agent?.id
     sessionApps.delete(id)
+    windowTokens.delete(id)
+    winGeo.delete(id)
+    if (typeof id === 'string') {
+      for (const key of sessionDecisions.keys()) {
+        if (key.endsWith(`:${id}`)) sessionDecisions.delete(key)
+      }
+      const prefix = `${id}|`
+      lastWindowOf.delete(id)
+      for (const key of lastWindowOf.keys()) {
+        if (key.startsWith(prefix)) lastWindowOf.delete(key)
+      }
+    }
     const held = applied.get(id)
     if (held?.agent === agent) {
       applied.delete(id)
@@ -349,7 +395,16 @@ export function install(rt) {
     }
   })
   ctx.on('tools/change', () => {
-    if (!stopped) refreshComputer()
+    if (stopped || selfToolOpDepth !== 0) return
+    if (refreshTimer === undefined) {
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined
+        if (!stopped) refreshComputer()
+      }, 50)
+      refreshTimer.unref?.()
+    }
+    // The loop admits each step's tools before prompt assembly.
+    for (const agent of runningAgents) applyLiveComputer(agent)
   })
   const offSaved = typeof rt.onSaved === 'function'
     ? rt.onSaved(() => { if (!stopped) refreshComputer() })
@@ -498,9 +553,25 @@ export function install(rt) {
     if (stateWindow !== undefined && stateApp !== undefined) apps.set(`window:${stateWindow}`, stateApp)
     if (stateApp !== undefined) {
       const elements = [body.elements, body.interactive_elements, body.targets, body.items].find(list => Array.isArray(list)) ?? []
-      for (const element of elements) {
-        const token = [element?.element_token, element?.token, element?.element_id, element?.elementId, element?.id, element?.ref, element?.handle].find(value => value !== undefined && value !== null)
-        if (token !== undefined) apps.set(`token:${token}`, stateApp)
+      if (call.method === 'get_window_state' || elements.length > 0) {
+        let byWin = windowTokens.get(sessionId)
+        if (byWin === undefined) windowTokens.set(sessionId, byWin = new Map())
+        const winKey = stateWindow !== undefined ? `window:${stateWindow}` : `app:${stateApp.key}`
+        const prevTokens = byWin.get(winKey)
+        if (prevTokens !== undefined) {
+          for (const oldKey of prevTokens) apps.delete(oldKey)
+        }
+        const nextTokens = new Set()
+        for (const element of elements) {
+          const token = [element?.element_token, element?.token, element?.element_id, element?.elementId, element?.id, element?.ref, element?.handle].find(value => value !== undefined && value !== null)
+          if (token !== undefined) {
+            const tokenKey = `token:${token}`
+            apps.set(tokenKey, stateApp)
+            nextTokens.add(tokenKey)
+          }
+        }
+        if (nextTokens.size > 0) byWin.set(winKey, nextTokens)
+        else byWin.delete(winKey)
       }
     }
   }
@@ -631,6 +702,32 @@ export function install(rt) {
     if (props === null || typeof props !== 'object' || !('session' in props)) return
     exec.arguments = { ...(exec.arguments ?? {}), session: driverSessionOf(botId) }
   }
+  // Driver sessions end after five idle minutes and ordinary calls never revive
+  // them (#1821): a Bot back after a pause starts the session its call will use,
+  // its own label or the shared implicit one, again first.
+  const DRIVER_SESSION_FRESH_MS = 4 * 60_000
+  const driverSessionSeen = new Map()
+  const driverSessionKey = (exec) => typeof exec.arguments?.session === 'string' ? exec.arguments.session : ''
+  const startDriverSession = async (exec, key) => {
+    driverSessionSeen.set(key, Date.now())
+    if (key !== '') driverCursorOff.delete(key)
+    try {
+      await ctx.tools?.get?.('cua_driver_native__start_session', exec.agent)?.execute(key === '' ? {} : { session: key }, exec)
+    } catch {}
+  }
+  const ensureDriverSession = async (exec, call) => {
+    if (call.method === 'start_session' || call.method === 'end_session') return
+    const key = driverSessionKey(exec)
+    const seen = driverSessionSeen.get(key)
+    if (seen !== undefined && Date.now() - seen < DRIVER_SESSION_FRESH_MS) {
+      driverSessionSeen.set(key, Date.now())
+      return
+    }
+    await startDriverSession(exec, key)
+  }
+  const SESSION_RESTARTED = 'The computer-use session had ended. DS Bot started it again; call the tool again.'
+  const isSessionEnded = (result) => result?.isError === true &&
+    /session has ended/i.test(String(result.error?.message ?? result.content?.map?.(part => part?.text).join(' ') ?? ''))
   const driverCursorOff = new Set()
   const ensureDriverCursorOff = async (exec, botId) => {
     const session = driverSessionOf(botId)
@@ -688,7 +785,8 @@ export function install(rt) {
   const askAppAccess = ({ botId, sessionId, callId, app, signal }) => new Promise((resolve) => {
     if (signal?.aborted) { resolve('deny'); return }
     const id = randomUUID()
-    const roomId = rt.groupOwners?.get(sessionId)?.roomId
+    const roomId = rt.groupOwners?.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId
+    const onAbort = () => { entry.resolve('deny') }
     const entry = {
       id, botId, sessionId, appName: app.name, at: Date.now(),
       ...(roomId !== undefined ? { roomId } : {}),
@@ -696,6 +794,7 @@ export function install(rt) {
       ...(callId !== undefined ? { callId } : {}),
       resolve: (answer) => {
         if (!pendingAsks.delete(id)) return
+        signal?.removeEventListener?.('abort', onAbort)
         const ctl = controlOf(botId)
         const moreForBot = [...pendingAsks.values()].some(item => item.botId === botId)
         if (ctl.waitingFor === 'app-access' && !moreForBot) ctl.waitingFor = undefined
@@ -710,7 +809,7 @@ export function install(rt) {
       ctl.waitingFor = 'app-access'
     }
     if (roomId !== undefined) rt.yieldRoomTurn?.(sessionId)
-    signal?.addEventListener?.('abort', () => { entry.resolve('deny') }, { once: true })
+    signal?.addEventListener?.('abort', onAbort, { once: true })
   })
   const answerAppAccess = (id, answer) => {
     const entry = pendingAsks.get(String(id ?? ''))
@@ -822,18 +921,24 @@ export function install(rt) {
       if (DRIVER_REFUSED.has(call.method)) {
         return { kind: 'deny', reason: `Bots may not use ${call.method}.` }
       }
-      injectDriverSession(exec, call, bot.id)
-      await ensureDriverCursorOff(exec, bot.id)
       if (app === undefined) {
+        if (call.method === 'get_desktop_state') {
+          return { kind: 'deny', reason: 'Bots cannot capture the whole desktop. Call get_window_state for a window from list_windows.' }
+        }
         if (!DRIVER_GLOBAL.has(call.method)) {
           return { kind: 'deny', reason: 'Name the window from list_windows first.' }
         }
+      } else if (app.unknown === true && DRIVER_LISTINGS.has(call.method)) {
+        // A listing filtered by a pid not seen yet is window metadata; its result records the app.
       } else if (app.unknown === true) {
         return { kind: 'deny', reason: `${bot.name} does not know ${app.name}. List the windows or apps first.` }
       } else {
         const verdict = await driverConsent(exec, bot, sessionId, app)
         if (verdict !== 'allow') return { kind: 'deny', reason: verdict }
       }
+      injectDriverSession(exec, call, bot.id)
+      await ensureDriverSession(exec, call)
+      await ensureDriverCursorOff(exec, bot.id)
     }
     if (call.kind !== 'observe' && app !== undefined) {
       const held = leases.holderOfApp(app.key)
@@ -887,6 +992,12 @@ export function install(rt) {
     const started = Date.now()
     try {
       const result = await next()
+      // DSH hands a failed tool body back as an error envelope, not an exception.
+      if (call.provider === 'cua-driver' && isSessionEnded(result)) {
+        await startDriverSession(exec, driverSessionKey(exec))
+        noteStep(botId, { time: started, callId: exec.callId, app: app?.name, action: call.method ?? exec.name, kind: call.kind, ok: false, error: SESSION_RESTARTED })
+        return { ...result, content: [{ type: 'text', text: `Error: ${SESSION_RESTARTED}` }], error: { message: SESSION_RESTARTED } }
+      }
       // Tool results arrive as an envelope { isError, content, value } — the
       // recorded app identity and screenshot attachment live in `value`.
       const payload = result !== null && typeof result === 'object' && result.isError !== true
@@ -916,7 +1027,7 @@ export function install(rt) {
         controlOf(botId).lastShot = shot
         // The real provider names the field mediaType; mimeType is the older name.
         const mime = shot.mimeType ?? shot.mediaType
-        if (typeof mime === 'string') shotMimes.set(shot.attachmentId ?? shot.id, mime)
+        if (typeof mime === 'string') recordShotMime(shot.attachmentId ?? shot.id, mime)
       }
       noteStep(botId, { time: started, callId: exec.callId, app: app?.name, action: call.method ?? exec.name, kind: call.kind, ok: true })
       return result
@@ -992,7 +1103,13 @@ export function install(rt) {
     const sessionId = rt.chatOf(botId)
     await rt.ensureCapabilities?.(sessionId)
     const agent = await rt.resolveAgent(sessionId)
-    agent.followup(createUserMessage({ content: [{ type: 'text', text: HANDBACK_TEXT }] }))
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: HANDBACK_TEXT }],
+      // Dedicated non-relay role: DSH v4 requires a producer-owned source kind,
+      // while `handoff` would mark the turn as a hidden exchange and `reply`
+      // would render as a clickable Bot-to-Bot relay event.
+      source: { kind: SOURCE_KIND, role: 'handback' },
+    }))
     await ctx.sessions.flush(agent.session)
     return true
   }
@@ -1014,6 +1131,7 @@ export function install(rt) {
       const bot = rt.botOf(rt.selfOf(sessionId))
       if (bot === undefined || !rt.isBotSession(sessionId)) return 'Only Bots on the team can hand the computer to the user.'
       if (!enabled() || levelOf(bot) === 'off') return 'Computer use is off for you.'
+      if (rt.taskOwners?.has(sessionId)) return 'Background tasks cannot hand the computer to the user. Report back to your own chat so it can ask the user to take over.'
       const callId = rt.chatOwners.get(sessionId) === bot.id && typeof exec.callId === 'string' ? exec.callId : undefined
       holds.set(bot.id, {
         id: randomUUID(),
@@ -1169,7 +1287,7 @@ export function install(rt) {
     }
     return true
   }
-  async function computerEndpoint(endpoint, body) {
+  async function computerEndpoint(endpoint, body, signal) {
     switch (endpoint) {
       case 'set-enabled':
         return setEnabled(body.enabled === true)
@@ -1179,21 +1297,28 @@ export function install(rt) {
         const fresh = () => [...cursors.values()].filter(event => event.seq > after)
         const now = () => ({ now: Date.now(), events: fresh() })
         if (fresh().length > 0) return now()
+        if (signal?.aborted) return { now: Date.now(), events: [] }
         return await new Promise(resolve => {
+          const finish = (value) => {
+            cursorWaiters.delete(waiter)
+            clearTimeout(timer)
+            signal?.removeEventListener?.('abort', onAbort)
+            resolve(value)
+          }
+          const onAbort = () => finish({ now: Date.now(), events: [] })
           const waiter = {
             wake: () => {
               if (fresh().length === 0) return
-              cursorWaiters.delete(waiter)
-              clearTimeout(timer)
-              resolve(now())
+              finish(now())
             },
             close: () => {
-              clearTimeout(timer)
-              resolve({ now: Date.now(), events: [] })
+              finish({ now: Date.now(), events: [] })
             },
           }
-          const timer = setTimeout(() => { cursorWaiters.delete(waiter); resolve({ now: Date.now(), events: [] }) }, 25000)
+          const timer = setTimeout(() => finish({ now: Date.now(), events: [] }), CURSOR_WAIT_MS)
+          timer.unref?.()
           cursorWaiters.add(waiter)
+          signal?.addEventListener?.('abort', onAbort, { once: true })
         })
       }
       case 'set-level':
@@ -1321,18 +1446,36 @@ export function install(rt) {
     }
   }
 
+  const offBotDelete = typeof rt.onBotDelete === 'function'
+    ? rt.onBotDelete((botId) => {
+      abortCalls(botId)
+      leases.releaseBot(botId)
+      for (const ask of pendingAsks.values()) if (ask.botId === botId) ask.resolve('deny')
+      control.delete(botId)
+      cursors.delete(botId)
+      holds.delete(botId)
+      driverSessionSeen.delete(driverSessionOf(botId))
+      driverCursorOff.delete(driverSessionOf(botId))
+      const prefix = `${botId}:`
+      for (const key of sessionDecisions.keys()) {
+        if (key.startsWith(prefix)) sessionDecisions.delete(key)
+      }
+    })
+    : undefined
+
   ctx.effect(() => () => {
     stopped = true
+    clearTimeout(refreshTimer)
+    refreshTimer = undefined
+    runningAgents.clear()
     offSaved?.()
+    offBotDelete?.()
     leases.dispose()
     rt.closeComputerWaiters()
     for (const { resolve } of pendingAsks.values()) resolve('deny')
     pendingAsks.clear()
     for (const { abort } of inFlight.values()) abort.abort(new Error('DS Bot stopped'))
-    for (const held of applied.values()) {
-      for (const lift of held.lifts) { try { lift() } catch {} }
-      try { held.handoffLift?.() } catch {}
-    }
+    for (const held of applied.values()) liftHeld(held)
     applied.clear()
     return teardownProvider()
   }, 'ds-bot: computer use')

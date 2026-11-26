@@ -696,15 +696,64 @@ test('P1: Pending deferred/coalesce queue survives restart via pending.json and 
     assert.ok(env.rt.eventRouter.listDeadLetters().some(d => d.eventId === evV2.id), 'virtual rate-limit must retain rejected delivery in dead-letters')
     assert.ok(env.rt.inboxView().items.some(i => i.kind === 'rate_limit'), 'virtual rate-limit must surface visible alert in Inbox')
 
+    // Resuming an auto-routed watcher after a rate-limit pause clears its virtual hourHits
+    // across both Settings (`watcher-toggle`) and `manage_watcher` resume paths so the next
+    // changed event within the same hour delivers instead of immediately re-pausing.
+    const watchDir = join(env.home, 'rate-limit-watch-dir')
+    mkdirSync(watchDir, { recursive: true })
+    const rlWatcher = await env.rt.eventWatchers.saveWatcher({
+      name: 'Rate-limited folder',
+      kind: 'folder',
+      target: { kind: 'bot', botId: 'm1' },
+      config: { path: watchDir },
+    }, { isUser: true })
+    await env.rt.eventWatchers.checkNow(rlWatcher.id) // baseline
+    const beforeRl = env.delivered.length
+    for (let i = 1; i <= 31; i += 1) {
+      writeFileSync(join(watchDir, `f-${i}.txt`), `v${i}`)
+      await env.rt.eventWatchers.checkNow(rlWatcher.id)
+    }
+    assert.equal(env.delivered.length - beforeRl, 30, 'auto-routed watcher delivers 30 events before hitting hourly cap')
+    assert.equal(env.rt.eventWatchers.listWatchers({ isUser: true }).find(w => w.id === rlWatcher.id)?.enabled, false, 'watcher pauses on event 31')
+
+    // Resume via Settings endpoint (`watcher-toggle`) within the same hour -> next change delivers.
+    await env.rt.eventsEndpoint('watcher-toggle', { id: rlWatcher.id, enabled: true })
+    writeFileSync(join(watchDir, 'f-32.txt'), 'v32')
+    await env.rt.eventWatchers.checkNow(rlWatcher.id)
+    assert.equal(env.delivered.length - beforeRl, 31, 'resumed watcher via Settings delivers immediately instead of re-pausing')
+    assert.equal(env.rt.eventWatchers.listWatchers({ isUser: true }).find(w => w.id === rlWatcher.id)?.enabled, true)
+
+    // Hit the cap again and resume via `manage_watcher` tool -> next change also delivers.
+    for (let i = 33; i <= 62; i += 1) {
+      writeFileSync(join(watchDir, `f-${i}.txt`), `v${i}`)
+      await env.rt.eventWatchers.checkNow(rlWatcher.id)
+    }
+    assert.equal(env.rt.eventWatchers.listWatchers({ isUser: true }).find(w => w.id === rlWatcher.id)?.enabled, false, 'watcher pauses again on next hourly cap')
+    const manageWatcherTool = env.rt.teamTools.find(t => t.name === 'manage_watcher')
+    await manageWatcherTool.execute({ action: 'resume', id: rlWatcher.id }, { agent: { id: 'm1' } })
+    writeFileSync(join(watchDir, 'f-63.txt'), 'v63')
+    await env.rt.eventWatchers.checkNow(rlWatcher.id)
+    assert.equal(env.rt.eventWatchers.listWatchers({ isUser: true }).find(w => w.id === rlWatcher.id)?.enabled, true, 'resumed watcher via manage_watcher stays enabled and delivers')
+
     // P1-3 & P1-5: mode: 'context' injects through the real agent/pre-step listener even when config.memory === false.
     const envNoMem = setupTeam({}, {}, { memory: false })
     try {
       await envNoMem.rt.load()
+      envNoMem.ensureAgent('m1-task-9').status = 'running'
+      envNoMem.rt.live.set('m1-task-9', { turn: 1, since: Date.now() })
+      envNoMem.rt.botOf('m1').tasks = [{ id: 'k_9', title: 'BG', sessionId: 'm1-task-9', segments: [], from: 'm1', status: 'running', startedAt: 1 }]
+      await envNoMem.rt.save()
       envNoMem.rt.eventRouter.saveSubscription({
         name: 'Context sub',
         target: { kind: 'bot', botId: 'm1' },
         mode: 'context',
         match: { threadKey: 'ctx:1' },
+      }, { isUser: true })
+      envNoMem.rt.eventRouter.saveSubscription({
+        name: 'Task context sub',
+        target: { kind: 'task', botId: 'm1', taskId: 'k_9' },
+        mode: 'context',
+        match: { threadKey: 'ctx:task' },
       }, { isUser: true })
       await envNoMem.rt.acceptEvent({
         source: { kind: 'github', id: 'gh', name: 'GitHub' },
@@ -712,9 +761,14 @@ test('P1: Pending deferred/coalesce queue survives restart via pending.json and 
         threadKey: 'ctx:1',
         summary: 'Minor doc typo PR',
       })
+      await envNoMem.rt.acceptEvent({
+        source: { kind: 'github', id: 'gh', name: 'GitHub' },
+        trust: 'external',
+        threadKey: 'ctx:task',
+        summary: 'Background task CI update',
+      })
       assert.equal(envNoMem.delivered.length, 0, 'context-only must not wake Bot')
-      // A background task session belonging to m1 must NOT steal foreground context buffered for m1.
-      envNoMem.rt.botOf('m1').openParts = [{ sessionId: 'm1-task-9', segments: [], startedAt: 1, task: { id: 'k_9', title: 'BG', from: 'm1', status: 'running', startedAt: 1 } }]
+      // Background task session receives ONLY its own task context (never steals foreground context).
       const preStepHooks = envNoMem.ctx.listeners.get('agent/pre-step') ?? []
       const eventPreStep = preStepHooks.find(fn => /takeEventContextMessage/.test(String(fn)))
       assert.ok(eventPreStep, 'events must register its own agent/pre-step listener independent of memory.js')
@@ -722,7 +776,9 @@ test('P1: Pending deferred/coalesce queue survives restart via pending.json and 
         { agent: envNoMem.ensureAgent('m1-task-9'), signal: AbortSignal.timeout(10_000) },
         async () => ({ kind: 'continue', messages: [{ role: 'user', content: [{ type: 'text', text: 'bg step' }] }] }),
       )
-      assert.equal(taskDecision.messages.length, 1, 'background task must not steal foreground context')
+      assert.equal(taskDecision.messages.length, 2, 'background task receives its own task context')
+      assert.match(taskDecision.messages[0].content[0].text, /Background task CI update/)
+      assert.doesNotMatch(taskDecision.messages[0].content[0].text, /Minor doc typo PR/, 'background task must not steal foreground context')
 
       const decision1 = await eventPreStep(
         { agent: envNoMem.ensureAgent('m1'), signal: AbortSignal.timeout(10_000) },
@@ -731,6 +787,7 @@ test('P1: Pending deferred/coalesce queue survives restart via pending.json and 
       assert.equal(decision1.messages.length, 2, 'agent/pre-step injects buffered context message')
       assert.equal(decision1.messages[0].source?.kind, 'ds-bot-event-context')
       assert.match(decision1.messages[0].content[0].text, /Minor doc typo PR/)
+      assert.doesNotMatch(decision1.messages[0].content[0].text, /Background task CI update/, 'foreground must not receive task-scoped context')
       assert.match(decision1.messages[0].content[0].text, /untrusted data/i)
 
       // Subsequent step sees empty buffer (drained once consumed).
@@ -809,6 +866,11 @@ test('P0-1, P0-10 & P2: WatchersTab Switch toggles on->off cleanly, TriggerCell 
     [...parseCommandArgs(`--input "D:\\data\\report.csv" --re "\\d+"`)],
     ['--input', 'D:\\data\\report.csv', '--re', '\\d+'],
     'parseCommandArgs must preserve Windows backslashes and regex escapes',
+  )
+  assert.deepEqual(
+    [...parseCommandArgs(`--input /tmp/report\\ data.csv --raw D:\\logs\\out.txt --q \\"hi\\"`)],
+    ['--input', '/tmp/report data.csv', '--raw', 'D:\\logs\\out.txt', '--q', '"hi"'],
+    'parseCommandArgs must support unquoted escaped spaces/quotes while keeping literal Windows backslashes',
   )
 
   // P0-1: Real Switch component inside WatchersTab renders aria-checked=true when push.enabled=true and passes { enabled: false } on click.

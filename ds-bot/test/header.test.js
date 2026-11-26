@@ -251,4 +251,68 @@ test('a group chat header mounts the approval bar in the top island and answers 
   }
   for (const clean of cleanups) { try { clean() } catch {} }
   assert.deepEqual(closedCalls, ['closeApproval'])
+
+  // A Bot's own chat header also mounts the approval island for background-task approvals (#783).
+  calls.length = 0
+  const taskWork = {
+    rooms: {},
+    approvals: [{ id: 'ap-task', botId: 'a', taskId: 'k_1', taskTitle: 'Deploy check', tool: 'bash', reason: 'Run deploy script', answerable: true, at: 100 }],
+  }
+  const renderBot = (uiState) => expand(HeaderPill({
+    sessionId: 'a',
+    useRoster: hook(groupRoster),
+    useSessions: hook({ byId: {} }),
+    useSessionStatus: hook(new Map()),
+    useSession: hook({}),
+    useActivity: hook({}),
+    useMemoryNews: hook({}),
+    useTurnClock: hook({}),
+    useUi: hook(uiState),
+    useLive: hook({}),
+    useWork: hook(taskWork),
+    useComputer: hook(emptyComputer),
+    actions,
+  }))
+  const botClosed = renderBot({ approvalOpen: null })
+  const botBars = findAll(botClosed, node => node.props?.className === 'bt-apv-bar')
+  assert.equal(botBars.length, 1)
+  botBars[0].props.onClick()
+  assert.deepEqual(calls, [['toggleApproval', 'a']])
+
+  calls.length = 0
+  const botOpened = renderBot({ approvalOpen: 'a' })
+  const botPanels = findAll(botOpened, node => node.props?.className === 'bt-apv-panel')
+  assert.equal(botPanels.length, 1)
+  const botBtns = findAll(botPanels[0], node => node.type === 'button')
+  botBtns.find(btn => (btn.children ?? []).join('') === 'Allow once').props.onClick()
+  botBtns.find(btn => (btn.children ?? []).join('') === 'Reject').props.onClick()
+  assert.deepEqual(calls, [
+    ['answerApproval', 'ap-task', 'allow'],
+    ['answerApproval', 'ap-task', 'reject'],
+  ])
+
+  // A foreground model-review request has no task id. It stays visible both without
+  // background work and alongside the active-task deck, without appearing in both.
+  taskWork.approvals = [
+    { id: 'ap-front', botId: 'a', sessionId: 'a', tool: 'bash', reason: 'Run check', answerable: true, at: 200 },
+    { id: 'ap-group', botId: 'a', sessionId: 'g', roomId: 'r1', tool: 'bash', reason: 'Group action', answerable: true, at: 210 },
+  ]
+  const foregroundOnly = renderBot({ approvalOpen: 'a' })
+  const foregroundPanels = findAll(foregroundOnly, node => node.props?.className === 'bt-apv-panel')
+  assert.equal(foregroundPanels.length, 1)
+  assert.equal(findAll(foregroundPanels[0], node => node.props?.className === 'bt-mw-card').length, 1, 'the group request stays out of the direct chat')
+  const foregroundButtons = findAll(foregroundPanels[0], node => node.type === 'button')
+  assert.ok(foregroundButtons.some(btn => (btn.children ?? []).join('') === 'Allow once'))
+
+  groupRoster.byId.a.tasks = [{ id: 'k_1', sessionId: 'task-a', title: 'Deploy check', status: 'running' }]
+  taskWork.approvals.push({ id: 'ap-task', botId: 'a', taskId: 'k_1', taskTitle: 'Deploy check', tool: 'bash', answerable: true, at: 100 })
+  const withBackground = renderBot({ approvalOpen: 'a' })
+  assert.equal(findAll(withBackground, node => node.props?.className === 'bt-apv-bar').length, 1)
+  const withBackgroundPanels = findAll(withBackground, node => node.props?.className === 'bt-apv-panel')
+  assert.equal(withBackgroundPanels.length, 1)
+  const labels = findAll(withBackgroundPanels[0], node => node.type === 'button').map(btn => (btn.children ?? []).join(''))
+  assert.ok(labels.includes('Allow once'))
+  assert.ok(labels.includes('Reject'))
+  const taskCards = findAll(withBackground, node => node.props?.className === 'bt-task-focus-card')
+  assert.ok(taskCards.every(card => !JSON.stringify(card).includes('ap-front')), 'the foreground request is not duplicated in the task deck')
 })

@@ -17,6 +17,13 @@ const savePrefs = (next) => {
 /** The switches as this window holds them; a change reaches every listener here. */
 const listeners = new Set()
 let current = prefsNow()
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== null && event.key !== NOTIFY_KEY) return
+    current = prefsNow()
+    for (const run of listeners) run()
+  })
+}
 export function useNotifyPrefs() {
   const [, bump] = useState(0)
   useEffect(() => {
@@ -42,19 +49,23 @@ export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, 
   const statuses = useSessionStatus(map => map)
   const viewing = useSessions(list => Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null)
   const previous = useRef(new Map())
+  const seeded = useRef(false)
+  const lastBadge = useRef(null)
   useEffect(() => {
     const shell = bridge()
-    shell?.onOpenSession?.((sessionId) => { actions.openSession?.(sessionId) })
-    return undefined
+    const off = shell?.onOpenSession?.((sessionId) => { actions.openSession?.(sessionId) })
+    return () => { if (typeof off === 'function') off() }
   }, [])
   useEffect(() => {
-    const prefs = prefsNow()
+    const prefs = current
     const open = document.hasFocus?.() !== false && document.visibilityState !== 'hidden'
     const rows = notificationRows({ statuses, roster, approvals: work.approvals })
     const next = new Map()
     for (const row of rows) {
       const { id, sessionId, name, group, status: after } = row
-      const before = previous.current.get(id)
+      // On first ready snapshot, record the baseline silently; afterwards, a newly created
+      // Bot or group chat starts from an empty baseline so its first reply/question notifies.
+      const before = previous.current.get(id) ?? (seeded.current ? {} : undefined)
       next.set(id, after)
       const kind = notifyKind({
         before, after,
@@ -67,8 +78,13 @@ export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, 
       if (kind === undefined) continue
       void shellNotify({ sessionId: id, ...noticeText({ title: name, kind }) })
     }
+    if (roster.ready !== false) seeded.current = true
     previous.current = next
-    bridge()?.setBadge?.(badgeOf(rows))
+    const badge = badgeOf(rows)
+    if (badge !== lastBadge.current) {
+      lastBadge.current = badge
+      bridge()?.setBadge?.(badge)
+    }
   }, [statuses, viewing, roster, work])
   return null
 }
@@ -95,7 +111,7 @@ export function NotificationsRow() {
 
 /** Whether this conversation is muted, for the context menu's label. */
 export function isMuted(id) {
-  return prefsNow().muted[id] === true
+  return current.muted[id] === true
 }
 export function toggleMuted(id) {
   return changeNotify({ mute: { id, on: !isMuted(id) } })

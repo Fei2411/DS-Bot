@@ -349,8 +349,8 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
     return true
   }
 
-  // Resolve a stable target into a concrete live Session ID. For `task` targets, inspects
-  // bot.openParts for a matching `part.task.id` (v0.3.9 async work compatibility).
+  // Resolve a stable target into a concrete live Session ID. For `task` targets, looks up
+  // the background task in `bot.tasks`.
   function resolveDeliveryTarget(sub) {
     const { target } = sub
     if (target.kind === 'room') {
@@ -361,17 +361,18 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
     const bot = rt.botOf(target.botId)
     if (!bot) throw new Error(`Bot ${target.botId} no longer exists`)
     if (target.kind === 'task') {
-      const part = (bot.openParts ?? []).find(p => p.task?.id === target.taskId)
-      if (!part) throw new Error(`Background task ${target.taskId} no longer exists`)
-      if (part.task.status === 'stopped') {
+      const task = (bot.tasks ?? []).find(t => t.id === target.taskId)
+      if (!task) throw new Error(`Background task ${target.taskId} no longer exists`)
+      if (task.status === 'stopped') {
         throw Object.assign(new Error(`Background task ${target.taskId} was stopped`), { taskStopped: true })
       }
+      if (!task.sessionId) throw new Error(`Background task ${target.taskId} session is unavailable`)
       return {
         kind: 'task',
         bot,
-        part,
-        sessionId: part.sessionId,
-        resumeDoneTask: part.task.status === 'done' && sub.mode === 'drive',
+        task,
+        sessionId: task.sessionId,
+        resumeDoneTask: (task.status === 'completed' || task.status === 'done') && sub.mode === 'drive',
       }
     }
     return { kind: 'bot', bot, sessionId: rt.chatOf(bot.id) }
@@ -453,7 +454,9 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
         steer: resolved.kind === 'task',
       })
       if (resolved.resumeDoneTask) {
-        resolved.part.task.status = 'running'
+        resolved.task.status = 'running'
+        resolved.task.updatedAt = Date.now()
+        delete resolved.task.endedAt
         await rt.save?.()
       }
       hits.push(now)
@@ -504,7 +507,7 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
     savePending()
   }
 
-  async function routeEvent(event, { privateBotId, allowedTargets, nowMs = Date.now(), recordUnmatched = true } = {}) {
+  async function routeEvent(event, { privateBotId, allowedTargets, canAccessTarget, nowMs = Date.now(), recordUnmatched = true } = {}) {
     const results = []
     const handledTargets = new Set()
     let matchedAny = false
@@ -520,8 +523,9 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
       // A private event only routes to its own private Bot; never leak across boundaries.
       if (privateBotId && sub.target.botId !== privateBotId) continue
       if (!privateBotId && isTargetPrivate(sub.target) && event.source?.privateBotId && event.source.privateBotId !== sub.target.botId) continue
-      // Token-scoped Push events may only route to targets explicitly authorized on the token.
+      // Token-scoped Push / External API events may only route to targets explicitly authorized on the token.
       if (!targetAllowed(sub.target, allowedTargets)) continue
+      if (typeof canAccessTarget === 'function' && !canAccessTarget(sub.target)) continue
 
       if (!matchesSubscription(sub, event)) {
         filteredCounts.set(sub.id, (filteredCounts.get(sub.id) ?? 0) + 1)
@@ -715,6 +719,24 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
     return items
   }
 
+  function matchDryRun(event, { privateBotId, allowedTargets, canAccessTarget, nowMs = Date.now() } = {}) {
+    const matched = []
+    for (const sub of subscriptions) {
+      if (!sub.enabled) continue
+      if (sub.mandate?.expiresAt && nowMs >= sub.mandate.expiresAt) continue
+      if (privateBotId && sub.target.botId !== privateBotId) continue
+      if (!privateBotId && isTargetPrivate(sub.target) && event.source?.privateBotId && event.source.privateBotId !== sub.target.botId) continue
+      if (!targetAllowed(sub.target, allowedTargets)) continue
+      if (typeof canAccessTarget === 'function' && !canAccessTarget(sub.target)) continue
+      if (matchesSubscription(sub, event)) matched.push(sub.id)
+    }
+    return matched
+  }
+
+  function resetRateLimit(subId) {
+    if (typeof subId === 'string' && subId !== '') hourHits.delete(subId)
+  }
+
   function dispose() {
     for (const entry of coalesceMap.values()) clearTimeout(entry.timer)
     coalesceMap.clear()
@@ -727,7 +749,9 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
     toggleSubscription,
     deleteSubscription,
     routeEvent,
+    matchDryRun,
     deliverToVirtual,
+    resetRateLimit,
     flushDeferred,
     recoverPending,
     replayDeadLetter,

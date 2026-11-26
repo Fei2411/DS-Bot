@@ -16,16 +16,17 @@ export const viewBottom = () => (window.visualViewport ? window.visualViewport.h
 
 // Re-renders whenever the visual viewport moves or resizes (keyboard opens, the
 // URL bar collapses), so anchored layers can re-read their anchor's rect.
-export function useViewport() {
+// `enabled` false listens to nothing, for a layer that is not open.
+export function useViewport(enabled = true) {
   const [tick, setTick] = useState(0)
   useEffect(() => {
     const viewport = window.visualViewport
-    if (!viewport) return undefined
+    if (!enabled || !viewport) return undefined
     const bump = () => setTick(value => value + 1)
     viewport.addEventListener('resize', bump)
     viewport.addEventListener('scroll', bump)
     return () => { viewport.removeEventListener('resize', bump); viewport.removeEventListener('scroll', bump) }
-  }, [])
+  }, [enabled])
   return tick
 }
 
@@ -115,31 +116,40 @@ function liveSprings(apply) {
       if (jump) { cancelAnimationFrame(frame); frame = 0; apply(current); return }
       if (!frame) { last = performance.now(); frame = requestAnimationFrame(step) }
     },
-    stop: () => cancelAnimationFrame(frame),
+    reset: () => { values.clear(); for (const key of Object.keys(current)) delete current[key]; cancelAnimationFrame(frame); frame = 0 },
+    stop: () => { cancelAnimationFrame(frame); frame = 0 },
   }
 }
 
 const CHOSEN = '[aria-pressed="true"],[aria-selected="true"],[aria-current="page"]'
 
-// One thumb for a row (or column) of choices that glides to the chosen one. Attach
-// `box` to the positioned container and `thumb` to an absolutely placed child; the
-// thumb appears in place with a new box, then springs on every change of `key`. The
+// One thumb for a row, column, or wrapped grid of choices that glides to the chosen one.
+// Attach `box` to the positioned container and `thumb` to an absolutely placed child;
+// the thumb appears in place with a new box, then springs on every change of `key`. The
 // box gets data-glide once the thumb is placed, so its CSS can drop the chosen item's
 // own fill. `selector` finds the chosen item; with none the thumb gets data-hidden.
+// `axis: 'both'` tracks full 2D geometry (x, y, width, height) for wrapping tracks.
 // `box` takes a ref the caller already holds for the container.
-export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEAD, trail = SPRING_TRAIL, box: given } = {}) {
+export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEAD, trail = SPRING_TRAIL, box: given, syncKey } = {}) {
   const ownBox = useRef(null)
   const box = given ?? ownBox
   const thumb = useRef(null)
   const own = useRef(null)
   if (own.current === null) {
     own.current = {
-      key: undefined, node: null, observer: null,
-      springs: liveSprings(({ start, end }) => {
+      key: undefined, syncKey: undefined, axis, node: null, observer: null,
+      springs: liveSprings((values) => {
         const knob = thumb.current
         if (!knob) return
-        knob.style.transform = axis === 'x' ? `translateX(${start}px)` : `translateY(${start}px)`
-        knob.style[axis === 'x' ? 'width' : 'height'] = `${Math.max(0, end - start)}px`
+        const currentAxis = own.current.axis
+        if (currentAxis === 'both') {
+          knob.style.transform = `translate3d(${values.x0}px,${values.y0}px,0)`
+          knob.style.width = `${Math.max(0, values.x1 - values.x0)}px`
+          knob.style.height = `${Math.max(0, values.y1 - values.y0)}px`
+          return
+        }
+        knob.style.transform = currentAxis === 'x' ? `translateX(${values.start}px)` : `translateY(${values.start}px)`
+        knob.style[currentAxis === 'x' ? 'width' : 'height'] = `${Math.max(0, values.end - values.start)}px`
       }),
     }
   }
@@ -149,13 +159,36 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
     const container = box.current
     const knob = thumb.current
     if (!container || !knob) return
+    const currentAxis = own.current.axis
     const chosen = container.querySelector(selector)
     if (!chosen) { knob.dataset.hidden = ''; return }
-    const start = axis === 'x' ? chosen.offsetLeft : chosen.offsetTop
-    const end = start + (axis === 'x' ? chosen.offsetWidth : chosen.offsetHeight)
     const { springs } = own.current
     const before = springs.target()
     const hidden = knob.dataset.hidden !== undefined
+    if (currentAxis === 'both') {
+      const x0 = chosen.offsetLeft
+      const x1 = x0 + chosen.offsetWidth
+      const y0 = chosen.offsetTop
+      const y1 = y0 + chosen.offsetHeight
+      if (jump && !hidden && before?.x0 === x0 && before?.x1 === x1 && before?.y0 === y0 && before?.y1 === y1 && container.dataset.glide !== undefined) return
+      delete knob.dataset.hidden
+      const forwardX = before === null || x0 >= before.x0
+      const forwardY = before === null || y0 >= before.y0
+      springs.set(
+        { x0, x1, y0, y1 },
+        {
+          x0: forwardX ? trail : lead,
+          x1: forwardX ? lead : trail,
+          y0: forwardY ? trail : lead,
+          y1: forwardY ? lead : trail,
+        },
+        jump || hidden || before === null || reducedMotion(),
+      )
+      container.dataset.glide = ''
+      return
+    }
+    const start = currentAxis === 'x' ? chosen.offsetLeft : chosen.offsetTop
+    const end = start + (currentAxis === 'x' ? chosen.offsetWidth : chosen.offsetHeight)
     if (jump && !hidden && before?.start === start && before?.end === end && container.dataset.glide !== undefined) return
     delete knob.dataset.hidden
     const forward = before === null || start >= before.start
@@ -165,25 +198,136 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
   useLayoutEffect(() => {
     const state = own.current
     const node = box.current
-    if (node === state.node && key === state.key) return
-    const fresh = node !== state.node
+    const axisChanged = axis !== state.axis
+    const syncChanged = syncKey !== state.syncKey
+    if (node === state.node && key === state.key && !axisChanged && !syncChanged) return
+    const keyChanged = key !== state.key
+    const fresh = node !== state.node || axisChanged || (!keyChanged && syncChanged)
     state.key = key
-    if (fresh) {
+    state.syncKey = syncKey
+    if (axisChanged) {
+      state.axis = axis
+      state.springs.reset()
+      if (thumb.current) {
+        thumb.current.style.transform = ''
+        thumb.current.style.width = ''
+        thumb.current.style.height = ''
+      }
+    }
+    if (node !== state.node) {
       state.observer?.disconnect()
+      if (!node) state.springs.stop()
       state.node = node
       state.observer = node && typeof ResizeObserver === 'function' ? new ResizeObserver(() => place(true)) : null
       state.observer?.observe(node)
     }
     place(fresh)
   })
-  useEffect(() => () => { own.current.observer?.disconnect(); own.current.springs.stop() }, [])
-  return { box, thumb }
+  useEffect(() => () => { own.current.observer?.disconnect(); own.current.observer = null; own.current.node = null; own.current.springs.stop() }, [])
+  return { box, thumb, sync: () => place(true) }
 }
 
-// Buttons side by side over one thumb that glides to the pressed one (aria-pressed).
+const segButtons = node => Array.from(node.children).filter(child => child.tagName === 'BUTTON' && !child.hidden)
+// Checks only the buttons' own geometry — never `node.scrollWidth` — because a gliding
+// `.bt-thumb` still positioned at an earlier wider layout would otherwise trigger a false
+// overflow when shrinking back down.
+function segOverflow(node, buttons) {
+  const style = typeof getComputedStyle === 'function' ? getComputedStyle(node) : null
+  const padLeft = parseFloat(style?.paddingLeft) || 0
+  const padRight = parseFloat(style?.paddingRight) || 0
+  const rightEdge = node.clientWidth - padRight + 1
+  return buttons.some(button => button.scrollWidth > button.clientWidth + 1
+    || button.offsetLeft < padLeft - 1
+    || button.offsetLeft + button.offsetWidth > rightEdge)
+}
+
+// Chooses the tightest balanced layout that keeps every button inside the track without
+// splitting words mid-word: single row when it fits, symmetric grid for even/6+ counts,
+// wrapped rows for odd counts, and a 1-column stack only when even cells are too narrow.
+export function fitSegmented(node) {
+  if (!node) return undefined
+  const buttons = segButtons(node)
+  if (buttons.length <= 1 || node.clientWidth === 0) {
+    delete node.dataset.layout
+    return undefined
+  }
+  // Reset synchronously before paint to test whether the natural single row fits again.
+  delete node.dataset.layout
+  if (!segOverflow(node, buttons)) return undefined
+  const count = buttons.length
+  const candidates = []
+  if (count >= 6 && count % 3 === 0) candidates.push('grid-3')
+  if (count === 2 || (count >= 4 && count % 2 === 0)) candidates.push('grid-2')
+  else if (count > 2) candidates.push('wrap')
+  candidates.push('stack')
+  for (const layout of candidates) {
+    node.dataset.layout = layout
+    if (!segOverflow(node, buttons)) return layout
+  }
+  return node.dataset.layout
+}
+
+// Buttons side by side (or in a responsive grid when narrow) over one thumb that glides
+// to the pressed one (aria-pressed).
 export function Segmented({ label, value, className, children }) {
-  const glide = useGlide(value)
-  return h('div', { ref: glide.box, className: className ? `bt-seg ${className}` : 'bt-seg', role: 'group', 'aria-label': label },
+  const box = useRef(null)
+  const fitRef = useRef({ sig: null, parentW: -1, rowW: -1, nodeW: -1, observer: null, node: null })
+  const syncThumb = useRef(null)
+
+  const reconcile = (force = false) => {
+    const node = box.current
+    if (!node) return
+    const state = fitRef.current
+    const buttons = segButtons(node)
+    const cs = typeof getComputedStyle === 'function' ? getComputedStyle(buttons[0] ?? node) : null
+    const font = cs ? `${cs.fontWeight}\u0000${cs.fontSize}\u0000${cs.fontFamily}` : ''
+    const sig = `${font}\u0000${buttons.map(button => button.textContent).join('\u0000')}`
+    const parent = node.parentElement
+    const row = typeof node.closest === 'function' ? node.closest('.bt-set-row') : null
+    const parentW = parent?.clientWidth ?? -1
+    const rowW = row?.clientWidth ?? -1
+    const nodeW = node.clientWidth
+    if (!force && sig === state.sig && parentW === state.parentW && rowW === state.rowW && nodeW === state.nodeW) return
+    fitSegmented(node)
+    state.sig = sig
+    state.parentW = parent?.clientWidth ?? -1
+    state.rowW = row?.clientWidth ?? -1
+    state.nodeW = node.clientWidth
+    syncThumb.current?.()
+  }
+
+  useLayoutEffect(() => {
+    const node = box.current
+    const state = fitRef.current
+    if (node !== state.node) {
+      state.observer?.disconnect()
+      state.node = node
+      state.sig = null
+      if (node && typeof ResizeObserver === 'function') {
+        const observer = new ResizeObserver(() => reconcile(false))
+        observer.observe(node)
+        if (node.parentElement) observer.observe(node.parentElement)
+        const row = typeof node.closest === 'function' ? node.closest('.bt-set-row') : null
+        if (row && row !== node.parentElement) observer.observe(row)
+        state.observer = observer
+      } else {
+        state.observer = null
+      }
+    }
+    reconcile(false)
+  })
+  useEffect(() => {
+    let alive = true
+    const fonts = typeof document !== 'undefined' ? document.fonts : null
+    if (fonts && fonts.status !== 'loaded' && fonts.ready) {
+      void fonts.ready.then(() => { if (alive) reconcile(true) }, () => {})
+    }
+    return () => { alive = false; fitRef.current.observer?.disconnect(); fitRef.current.observer = null; fitRef.current.node = null }
+  }, [])
+
+  const glide = useGlide(value, { axis: 'both', box })
+  syncThumb.current = glide.sync
+  return h('div', { ref: box, className: className ? `bt-seg ${className}` : 'bt-seg', role: 'group', 'aria-label': label },
     h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }), children)
 }
 
@@ -220,30 +364,48 @@ export function useFlip(list, key, selector, id = node => node.dataset.flip) {
 // mid-morph starts from the height on screen. The box clips its content meanwhile.
 // The resting height comes from a ResizeObserver: reading it on every render would lay
 // out the page once per render, the panel's whole first frame when it opens.
-export function useMorph(box, key) {
-  const last = useRef({ key, height: null, node: null, observer: null })
+export function useMorph(box, key, { width: morphWidth = false, curve = SPRING_SHAPE } = {}) {
+  const last = useRef({ key, height: null, width: null, node: null, observer: null })
   useLayoutEffect(() => {
     const node = box.current
     const state = last.current
     if (node !== state.node) {
       state.observer?.disconnect()
-      Object.assign(state, { key, height: null, node, observer: null })
+      Object.assign(state, {
+        key,
+        height: node ? node.offsetHeight : null,
+        width: node ? node.offsetWidth : null,
+        node,
+        observer: null,
+      })
       if (!node || typeof ResizeObserver !== 'function') return
       state.observer = new ResizeObserver(([entry]) => {
-        if (node.dataset.morph === undefined) state.height = entry.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight
+        if (node.dataset.morph === undefined) {
+          state.height = entry.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight
+          state.width = entry.borderBoxSize?.[0]?.inlineSize ?? node.offsetWidth
+        }
       })
       state.observer.observe(node)
       return
     }
     if (!node || key === state.key) return
     const running = node.getAnimations().filter(animation => animation.id === 'bt-morph')
-    const from = running.length ? node.offsetHeight : state.height
+    const fromH = running.length ? node.offsetHeight : state.height
+    const fromW = running.length ? node.offsetWidth : state.width
     for (const animation of running) animation.cancel()
-    const to = node.offsetHeight
-    Object.assign(state, { key, height: to })
-    if (from === null || Math.abs(from - to) < 1 || reducedEffects()) return
+    delete node.dataset.morph
+    const toH = node.offsetHeight
+    const toW = node.offsetWidth
+    Object.assign(state, { key, height: toH, width: toW })
+    const dh = fromH !== null && Math.abs(fromH - toH) >= 1
+    const dw = morphWidth && fromW !== null && Math.abs(fromW - toW) >= 1
+    if ((!dh && !dw) || reducedEffects()) return
+    const start = {}
+    const end = {}
+    if (dh) { start.height = `${fromH}px`; end.height = `${toH}px` }
+    if (dw) { start.width = `${fromW}px`; end.width = `${toW}px` }
     node.dataset.morph = ''
-    const animation = node.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: SPRING_SHAPE.duration, easing: SPRING_SHAPE.easing, id: 'bt-morph' })
+    const animation = node.animate([start, end], { duration: curve.duration, easing: curve.easing, id: 'bt-morph' })
     animation.onfinish = () => { delete node.dataset.morph }
     animation.oncancel = () => { if (!node.getAnimations().some(other => other.id === 'bt-morph' && other !== animation)) delete node.dataset.morph }
   })

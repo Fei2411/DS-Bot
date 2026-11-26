@@ -46,10 +46,12 @@ const PRELUDE = `'use strict';
   const setTimeout = (fn, ms, ...rest) => {
     const id = ++lastTimer
     timers.add(id)
-    call('wait', stringify([+ms || 0]), () => { if (timers.delete(id) && typeof fn === 'function') fn(...rest) }, () => {})
+    call('wait', stringify([+ms || 0, id]), () => { if (timers.delete(id) && typeof fn === 'function') fn(...rest) }, () => {})
     return id
   }
-  const clearTimeout = id => { timers.delete(id) }
+  const clearTimeout = id => {
+    if (timers.delete(id)) call('clearWait', stringify([id]), noop, noop)
+  }
   const noop = () => {}
   const console = { log: noop, info: noop, warn: noop, error: noop, debug: noop }
   const settle = value => {
@@ -69,6 +71,7 @@ const PRELUDE = `'use strict';
 })`
 
 const waiting = new Map()
+const activeTimers = new Map()
 let lastCall = 0
 let waitLimit = 0
 
@@ -90,8 +93,35 @@ const call = (name, args, resolve, reject) => {
     }
     if (name === 'wait') {
       let ms = 0
-      try { ms = Number(JSON.parse(args)[0]) } catch {}
-      setTimeout(() => invoke(resolve, null), Number.isFinite(ms) ? Math.min(Math.max(ms, 0), waitLimit) : 0)
+      let timerId
+      try {
+        const parsed = JSON.parse(args)
+        ms = Number(parsed?.[0])
+        if (Number.isInteger(parsed?.[1])) timerId = parsed[1]
+      } catch {}
+      const delay = Number.isFinite(ms) ? Math.min(Math.max(ms, 0), waitLimit) : 0
+      const handle = setTimeout(() => {
+        if (timerId !== undefined) activeTimers.delete(timerId)
+        invoke(resolve, null)
+      }, delay)
+      if (timerId !== undefined) {
+        const prev = activeTimers.get(timerId)
+        if (prev !== undefined) clearTimeout(prev)
+        activeTimers.set(timerId, handle)
+      }
+      return
+    }
+    if (name === 'clearWait') {
+      try {
+        const timerId = JSON.parse(args)?.[0]
+        if (Number.isInteger(timerId)) {
+          const handle = activeTimers.get(timerId)
+          if (handle !== undefined) {
+            clearTimeout(handle)
+            activeTimers.delete(timerId)
+          }
+        }
+      } catch {}
       return
     }
     const id = ++lastCall
@@ -103,6 +133,8 @@ const call = (name, args, resolve, reject) => {
 }
 
 const finish = (answer, error) => {
+  for (const handle of activeTimers.values()) clearTimeout(handle)
+  activeTimers.clear()
   const valid = (typeof answer === 'string' || answer === null) && (typeof error === 'string' || error === null)
   send(valid ? { type: 'done', answer, error } : { type: 'done', answer: null, error: 'Script produced an answer that is not text.' })
 }

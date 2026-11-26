@@ -221,7 +221,7 @@ function scanFolderSnapshot(dir) {
   return snapshot
 }
 
-export function createWatchers(rt, { onEvent, onAlert } = {}) {
+export function createWatchers(rt, { onEvent, onAlert, onResume } = {}) {
   const dir = join(rt.home, 'events')
   const sourcesPath = join(dir, 'sources.json')
   const runtimeDir = join(dir, 'runtime')
@@ -382,6 +382,7 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     if (existingIdx >= 0) sources[existingIdx] = record
     else sources.push(record)
     saveSources()
+    if (existing && !existing.enabled && record.enabled) onResume?.(record.id)
     reschedule(record)
     return { ...record, runtime: readRuntime(record.id) }
   }
@@ -402,6 +403,7 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
       rtState.lastError = null
       rtState.pausedReason = null
       saveRuntime(id, rtState)
+      onResume?.(watcher.id)
     }
     reschedule(watcher)
     return { ...watcher, runtime: readRuntime(id) }

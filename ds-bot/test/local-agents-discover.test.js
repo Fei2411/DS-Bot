@@ -5,6 +5,7 @@ import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { agentEnv, cleanEnv, findEngineExecutable, findExecutable, launchOf, refreshSearchDirs, spawnAgent } from '../src/host/local-agents/discover.js'
+import { ENGINES, signInFor } from '../src/host/local-agents/engines.js'
 
 test('Windows pi-acp resolves standalone Pi through PATH and PATHEXT (#1795)', () => {
   const exe = 'F:\\Pi\\pi.exe'
@@ -31,6 +32,22 @@ test('Windows lookup skips relative PATH directories', () => {
   assert.equal(find('pi'), 'C:\\tools\\pi.exe')
   assert.deepEqual(checked, ['C:\\tools\\pi.exe'])
   assert.equal(findExecutable('pi', { platform: 'win32', env: { PATH: '.;bin', PATHEXT: '.EXE' }, isFile: path => ['pi.exe', 'bin\\pi.exe'].includes(path) }), undefined)
+})
+
+test('Windows lookup deduplicates normalized PATH entries without folding case', () => {
+  const checked = []
+  const path = findExecutable('pi', {
+    platform: 'win32',
+    env: { Path: 'C:;C:\\;C:/;D:\\Tools;D:\\Tools;D:/Tools///;D:/tools///;D:\\alternate\\..\\Tools;late;E:\\Dev', PATHEXT: '.CMD;.EXE' },
+    isFile: candidate => { checked.push(candidate); return candidate === 'E:\\Dev\\pi.exe' },
+  })
+  assert.equal(path, 'E:\\Dev\\pi.exe')
+  assert.deepEqual(checked, [
+    'C:\\pi.cmd', 'C:\\pi.exe',
+    'D:\\Tools\\pi.cmd', 'D:\\Tools\\pi.exe',
+    'D:\\tools\\pi.cmd', 'D:\\tools\\pi.exe',
+    'E:\\Dev\\pi.cmd', 'E:\\Dev\\pi.exe',
+  ])
 })
 
 test('Windows lookup only returns executable or batch extensions', () => {
@@ -91,6 +108,33 @@ test('on Windows a pnpm shim starts its Node script', () => {
   const exe = 'C:\\Users\\me\\AppData\\Local\\pnpm\\opencode.cmd'
   assert.deepEqual(launchOf(exe, ['acp'], onWindows('pnpm-node.cmd', { find: () => 'C:\\nodejs\\node.exe' })),
     { file: 'C:\\nodejs\\node.exe', args: ['C:\\Users\\me\\AppData\\Local\\pnpm\\global\\5\\node_modules\\opencode-ai\\bin\\opencode', 'acp'] })
+})
+
+test('on Windows a Node batch launcher leaves extensionless entrypoint resolution to Node', () => {
+  const args = ['--config=C:\\config\\日本語.json']
+  assert.deepEqual(launchOf('C:\\tools\\agent.cmd', args, {
+    platform: 'win32',
+    readFile: () => '@node "%~dp0agent" %*\r\n',
+    exists: path => path === 'C:\\tools\\agent.js',
+    find: name => name === 'node' ? 'C:\\nodejs\\node.exe' : undefined,
+  }), { file: 'C:\\nodejs\\node.exe', args: ['C:\\tools\\agent', ...args] })
+})
+
+test('on Windows the Cursor CLI batch launcher runs through cmd.exe even with Node on PATH', () => {
+  const exe = 'C:\\Program Files\\Cursor\\cursor-agent.cmd'
+  const windows = {
+    platform: 'win32',
+    readFile: () => '@echo off\r\nset "SCRIPT_DIR=%~dp0"\r\npowershell.exe -NoProfile -File "%SCRIPT_DIR%\\cursor-agent.ps1" %*\r\n',
+    exists: path => path === 'C:\\Program Files\\Cursor\\cursor-agent.ps1',
+    find: name => name === 'node' ? 'C:\\nodejs\\node.exe' : undefined,
+  }
+  for (const arg of ['--version', 'status', 'acp']) {
+    assert.deepEqual(launchOf(exe, [arg], windows), {
+      file: process.env.ComSpec ?? 'cmd.exe',
+      args: ['/d', '/s', '/c', `""${exe}" ${arg}"`],
+      options: { windowsVerbatimArguments: true },
+    })
+  }
 })
 
 test('another batch file runs through cmd.exe only with plain arguments', () => {
@@ -178,6 +222,20 @@ test('findExecutable skips a directory matching the binary name (#1407) and find
 
   assert.equal(findExecutable('kilocode'), join(dirB, 'kilocode'))
   assert.equal(findEngineExecutable({ command: 'kilo', commands: ['kilo', 'kilocode'] }), join(dirB, 'kilocode'))
+})
+
+test('the Qoder engine finds the Qoder CN CLI under its own command names (#1849)', () => {
+  const qoder = ENGINES['local-qoder']
+  for (const name of ['qoderclicn', 'qodercn', 'qoder-cn']) {
+    const path = join('/opt/qoder-cn', name)
+    assert.equal(findEngineExecutable(qoder, command => (command === name ? path : undefined)), path, name)
+  }
+  assert.equal(findEngineExecutable(qoder, command => (command === 'qodercli' || command === 'qoderclicn' ? command : undefined)), 'qodercli')
+  assert.equal(signInFor(qoder, '/opt/qoder-cn/bin/qoderclicn'), 'qoderclicn')
+  assert.equal(signInFor(qoder, '/opt/qoder-cn/entry/qodercn'), 'qoderclicn')
+  assert.equal(signInFor(qoder, 'C:\\Users\\me\\bin\\qoder-cn.cmd'), 'qoderclicn')
+  assert.equal(signInFor(qoder, '/usr/local/bin/qodercli'), 'qodercli')
+  assert.equal(signInFor(qoder, undefined), 'qodercli')
 })
 
 test('cleanEnv strips DEEPSEEK_ variables along with agent tokens', () => {

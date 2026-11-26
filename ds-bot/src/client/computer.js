@@ -1,10 +1,13 @@
 import { createElement as h, useEffect, useId, useRef, useState } from 'react'
 import { CheckIcon } from './icons.js'
+import { BotAvatar } from './mark.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
 import { lookOf } from './characters.js'
+import { inkFill } from './inks.js'
 import { t } from './i18n.js'
+import { SelectMenu } from './select-menu.js'
 import { toolArgs } from './text.js'
 
 // -------------------------------------------------------------------------
@@ -22,10 +25,14 @@ const levelId = bot => LEVELS.some(([id]) => id === bot?.computer?.level) ? bot.
 
 export function LevelPicker({ bot, actions, run, disabled }) {
   const level = levelId(bot)
-  return h('select', {
-    className: 'bt-select bt-level-pick', 'aria-label': t('Computer use level'), value: level, disabled,
-    onChange: event => run(actions.computerSetLevel(bot.id, event.target.value)),
-  }, LEVELS.map(([id, label]) => h('option', { key: id, value: id }, t(label))))
+  return h(SelectMenu, {
+    className: 'bt-level-pick',
+    'aria-label': t('Computer use level'),
+    value: level,
+    disabled,
+    options: LEVELS.map(([id, label]) => ({ value: id, label: t(label) })),
+    onChange: next => run(actions.computerSetLevel(bot.id, next)),
+  })
 }
 
 const PROVIDER_TEXT = {
@@ -68,7 +75,7 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
       granted ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(Promise.resolve(actions.computerPermission(key)).then(refresh)) }, t('Grant')))
   }
   return [
-    h(Section, { key: 'switch' },
+    h(Section, { key: 'switch', tour: 'comp-switch' },
       h(Row, { label: t('Let Bots use the computer') },
         Switch === undefined ? null : h(Switch, { label: t('Let Bots use the computer'), on: computer.enabled === true, onChange: on => run(actions.computerSetEnabled(on)) }))),
     computer.enabled ? h(Section, { key: 'provider', title: t('Computer provider') },
@@ -77,10 +84,12 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
           ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.computerProviderRetry()) }, t('Retry')) : null),
       provider.state === 'missing' && provider.install?.command ? h(InstallRow, { install: provider.install, Row }) : null,
       computer.macos === true && provider.state === 'ready' ? [permRow('accessibility', 'Accessibility'), permRow('screenRecording', 'Screen Recording')] : null) : null,
-    h(Section, { key: 'bots', title: t('Bots') },
-      computer.enabled && !providerWorks(provider) ? h('p', { className: 'bt-set-hint' }, t('Bots get no computer tools until the provider is ready.')) : null,
-      roster.bots.map(bot => h(Row, { key: bot.id, label: bot.name },
-        h(LevelPicker, { bot, actions, run, disabled: !computer.enabled })))),
+    h(Section, { key: 'bots', title: t('Bots'), tour: 'comp-bots' },
+      computer.enabled && !providerWorks(provider) ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('Bots get no computer tools until the provider is ready.'))) : null,
+      roster.bots.map(bot => h(Row, {
+        key: bot.id,
+        label: h('span', { className: 'bt-comp-bot' }, h(BotAvatar, { bot, size: 22, badge: false, live: false }), h('span', null, bot.name)),
+      }, h(LevelPicker, { bot, actions, run, disabled: !computer.enabled })))),
   ]
 }
 
@@ -90,7 +99,10 @@ export function BotComputerCard({ bot, roster, actions, run, Card, Row }) {
   const apps = Object.entries(bot.computer?.apps ?? {})
   return h(Card, { title: t('Control') },
     !computer.enabled
-      ? h(Row, { label: t('Computer use') }, h('span', { className: 'bt-muted' }, t('Off in Settings → Computer use')))
+      ? h(Row, { label: t('Computer use'), hint: t('Off') },
+          actions.openSettings
+            ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('computer') }, t('Turn on'))
+            : null)
       : [
           h(Row, { key: 'level', label: t('Computer use'), hint: providerWorks(computer.provider ?? { state: 'loading' }) ? undefined : t('Bots get no computer tools until the provider is ready.') }, h(LevelPicker, { bot, actions, run })),
           apps.map(([key, app]) => h(Row, { key, label: app.name },
@@ -145,7 +157,7 @@ export function PendingAppAccess({ ask, actions, inline }) {
     void Promise.resolve(actions.computerAppAnswer(ask.id, choice)).catch((error) => {
       setClosed(false)
       actions.reportError?.(error, 'computer')
-    })
+    }).finally(() => { busyRef.current = false })
   }
   return h('div', {
     className: inline ? 'bt-q-inline' : 'bt-q-dock',
@@ -245,7 +257,7 @@ export function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }
   const answer = outcome => run(() => actions.computerHoldAnswer(bot.id, { callId: hold.callId ?? hold.id, outcome }), true)
   const takeOver = () => run(async () => {
     await actions.computerTakeover(bot.id)
-    actions.openDetails?.(sessionId, 'computer')
+    actions.showDetails?.(sessionId, 'computer')
   }, false)
   return h('div', {
     className: inline ? 'bt-q-inline' : 'bt-q-dock',
@@ -260,11 +272,11 @@ export function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }
           hold.note ? h('div', { className: 'bt-q-detail' }, hold.note) : null,
           taken ? h('div', { className: 'bt-handoff-state', role: 'status' },
             h('span', { className: 'bt-handoff-dot', 'aria-hidden': true }),
-            t('You control the computer')) : null))),
-    h('div', { className: 'bt-q-foot' },
-      h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('skip') }, t('Skip')),
-      taken ? null : h('button', { type: 'button', className: 'bt-q-btn', onClick: takeOver }, t('Take over')),
-      h('button', { type: 'button', className: 'bt-q-submit', onClick: () => answer('done') }, t("I'm done"))))
+            t('You control the computer')) : null)),
+      h('div', { className: 'bt-q-foot' },
+        h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('skip') }, t('Skip')),
+        taken ? null : h('button', { type: 'button', className: 'bt-q-btn', onClick: takeOver }, t('Take over')),
+        h('button', { type: 'button', className: 'bt-q-submit', onClick: () => answer('done') }, t("I'm done")))))
 }
 
 export function ComputerHandoffCall({ sessionId, callId, roster, actions, heldCards, hooks }) {
@@ -311,7 +323,7 @@ export function ComputerIndicator({ useComputer, useRoster, actions }) {
   const avatarOf = (id) => {
     const look = lookOf(botOf(id))
     if (typeof look.image === 'string' && look.image.startsWith('data:image/')) return h('img', { className: 'bt-cbar-ava', src: look.image, alt: '' })
-    return h('span', { className: 'bt-cbar-ava bt-cbar-ava-dot', style: { background: look.color } }, String(nameOf(id)).slice(0, 1))
+    return h('span', { className: 'bt-cbar-ava bt-cbar-ava-dot', style: { background: inkFill(look.color) } }, String(nameOf(id)).slice(0, 1))
   }
   const entries = [
     ...leases.map(entry => ({ key: `l:${entry.botId}`, botId: entry.botId, waiting: false, app: entry.kind === 'foreground' ? t('In the foreground') : entry.appName })),
@@ -335,6 +347,7 @@ export function ComputerIndicator({ useComputer, useRoster, actions }) {
 }
 
 export const COMPUTER_CSS = `
+.bt-comp-bot{display:inline-flex;align-items:center;gap:8px;min-width:0}
 .bt-level-pick{max-width:200px}
 .bt-perm-state{font-size:13px;color:var(--bt-ink-2);margin-right:8px}
 .bt-perm-state[data-on]{color:var(--bt-green)}
@@ -350,17 +363,18 @@ export const COMPUTER_CSS = `
 .bt-cview-step[data-ok=no]{color:var(--bt-danger)}
 .bt-cview-step-err{font-size:11px}
 .bt-cbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;max-width:min(760px,calc(100vw - 32px));padding:6px 12px;border-radius:999px;background:var(--bt-glass-bg);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-size:12.5px}
-.bt-cbar-live{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-danger);box-shadow:0 0 0 3px var(--bt-danger-glow)}
+.bt-cbar-live{flex:none;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-danger);box-shadow:0 0 0 3px var(--bt-danger-glow)}
 .bt-cbar-sep{flex:none;width:1px;height:14px;background:var(--bt-line);opacity:.7}
 .bt-cbar-entry{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-cbar-ava{flex:none;width:16px;height:16px;border-radius:50%;object-fit:cover}
-.bt-cbar-ava-dot{display:inline-flex;align-items:center;justify-content:center;color:var(--bt-mark-ink);font-size:9px;font-weight:600;line-height:1}
+.bt-cbar-ava{flex:none;width:16px;height:16px;border-radius:50%;corner-shape:round;object-fit:cover}
+.bt-cbar-ava-dot{display:inline-flex;align-items:center;justify-content:center;color:var(--bt-accent-ink);font-size:9px;font-weight:600;line-height:1}
 .bt-cbar-text{display:flex;align-items:baseline;gap:5px;min-width:0;overflow:hidden}
 .bt-cbar-name{flex:none;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-cbar-app{font-style:normal;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
-.bt-cbar-stop{flex:none;width:22px;height:22px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.bt-cbar-stop{flex:none;position:relative;width:22px;height:22px;border:0;border-radius:50%;corner-shape:round;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.bt-cbar-stop::after{content:"";position:absolute;inset:-4px}
 .bt-cbar-stopsq{width:8px;height:8px;border-radius:4px;background:currentColor}
-.bt-cbar-stop:hover{background:var(--bt-danger);color:var(--bt-mark-ink)}
+.bt-cbar-stop:hover{background:var(--bt-danger);color:var(--bt-accent-ink)}
 .bt-cbar-go,.bt-cbar-all{flex:none;border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;border:1px solid var(--bt-line-2)}
 .bt-cbar-go{background:var(--bt-accent-soft);color:var(--bt-accent);border-color:var(--bt-accent-soft)}
 .bt-cbar-all{background:var(--bt-danger-soft);color:var(--bt-danger);border-color:var(--bt-danger-soft)}

@@ -45,10 +45,10 @@ export function createEventLedger(rt) {
   const scopeOf = privateBotId => (privateBotId ? `priv:${privateBotId}` : 'shared')
   const cacheOf = (privateBotId, nowMs = Date.now()) => {
     const scope = scopeOf(privateBotId)
-    let set = dedupeCache.get(scope)
-    if (set === undefined) {
-      set = new Set()
-      dedupeCache.set(scope, set)
+    let map = dedupeCache.get(scope)
+    if (map === undefined) {
+      map = new Map()
+      dedupeCache.set(scope, map)
     }
     if (!warmed.has(scope)) {
       warmed.add(scope)
@@ -58,31 +58,35 @@ export function createEventLedger(rt) {
         const book = privateBotId ? privateBook(privateBotId, month) : sharedBook(month)
         for (const record of rt.ledger.records(book)) {
           if (record.recordKind === 'event' && typeof record.dedupeKey === 'string' && record.dedupeKey !== '') {
-            set.add(record.dedupeKey)
+            map.set(record.dedupeKey, record.id)
           }
         }
       }
-      while (set.size > DEDUPE_CACHE_MAX) {
-        const oldest = set.values().next().value
-        set.delete(oldest)
+      while (map.size > DEDUPE_CACHE_MAX) {
+        const oldest = map.keys().next().value
+        map.delete(oldest)
       }
     }
-    return set
+    return map
   }
 
-  const rememberDedupe = (privateBotId, dedupeKey, nowMs) => {
+  const rememberDedupe = (privateBotId, dedupeKey, eventId, nowMs) => {
     if (typeof dedupeKey !== 'string' || dedupeKey === '') return
-    const set = cacheOf(privateBotId, nowMs)
-    set.add(dedupeKey)
-    if (set.size > DEDUPE_CACHE_MAX) {
-      const oldest = set.values().next().value
-      set.delete(oldest)
+    const map = cacheOf(privateBotId, nowMs)
+    map.set(dedupeKey, eventId)
+    if (map.size > DEDUPE_CACHE_MAX) {
+      const oldest = map.keys().next().value
+      map.delete(oldest)
     }
+  }
+
+  function findDedupeEventId(dedupeKey, { privateBotId, nowMs } = {}) {
+    if (typeof dedupeKey !== 'string' || dedupeKey === '') return undefined
+    return cacheOf(privateBotId, nowMs).get(dedupeKey)
   }
 
   function hasDedupeKey(dedupeKey, { privateBotId, nowMs } = {}) {
-    if (typeof dedupeKey !== 'string' || dedupeKey === '') return false
-    return cacheOf(privateBotId, nowMs).has(dedupeKey)
+    return findDedupeEventId(dedupeKey, { privateBotId, nowMs }) !== undefined
   }
 
   async function recordEvent(input, { privateBotId } = {}) {
@@ -108,7 +112,7 @@ export function createEventLedger(rt) {
     }
     rt.ledger.append(book, record)
     await rt.ledger.written(book)
-    rememberDedupe(privateBotId, record.dedupeKey, time)
+    rememberDedupe(privateBotId, record.dedupeKey, record.id, time)
     return record
   }
 
@@ -228,6 +232,7 @@ export function createEventLedger(rt) {
 
   return {
     bookFor,
+    findDedupeEventId,
     hasDedupeKey,
     recordEvent,
     recordDecision,

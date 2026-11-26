@@ -12,6 +12,33 @@ const settle = async (rt) => { for (let index = 0; index < 200 && (await rt.upda
 const realFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = realFetch })
 
+test('startup update checks wait 90 seconds, but manual checks run immediately', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let listed = 0
+  let stop
+  const rt = {
+    ctx: {
+      get: name => name === 'pluginManager' ? { listBundles: async () => { listed++; return [] } } : undefined,
+      effect: execute => { stop = execute() },
+    },
+    config: {},
+    warn: () => {},
+  }
+  install(rt)
+  t.mock.timers.tick(89_999)
+  assert.equal(listed, 0)
+  t.mock.timers.tick(1)
+  await flush()
+  assert.equal(listed, 1)
+
+  install(rt)
+  await rt.updateCheck({ fresh: true })
+  assert.equal(listed, 2)
+  stop()
+  t.mock.timers.tick(90_000)
+  assert.equal(listed, 2)
+})
+
 // The update module alone, on a stub plugin manager and a scripted fetch.
 function start({ source, registries, answers = {}, result = { application: 'restart-required' }, remove = { application: 'applied' }, enable = { application: 'applied', changed: true }, config = {}, profileDir, home }) {
   const fetched = []
@@ -85,7 +112,7 @@ test('a registry install finds the newest version on the next registry and insta
   assert.equal(view.latest, '9.0.0')
   assert.equal(view.current, PKG.version)
   assert.equal(view.source, 'registry')
-  assert.equal(view.notesUrl, 'https://github.com/Fei2411/DS-Bot/releases')
+  assert.equal(view.notesUrl, 'https://github.com/Fei-Craft/DS-Bot/releases')
   assert.equal(rt.updateStart().phase, 'installing')
   await flush()
   assert.deepEqual(installs, [[`${PKG.name}@9.0.0`, { registry: 'https://registry.npmmirror.com/' }]])
@@ -166,10 +193,10 @@ test('in the desktop app, which updates as a whole, it never asks the network an
 })
 
 test('the star count comes from the repository, is kept for an hour, and survives a failed answer', async () => {
-  const repo = 'https://api.github.com/repos/Fei2411/DS-Bot'
+  const repo = 'https://api.github.com/repos/Fei-Craft/DS-Bot'
   const answers = { [repo]: new Error('offline') }
   const { rt, fetched } = start({ source: `${PKG.name}@^${PKG.version}`, answers })
-  assert.equal(rt.updateView().repoUrl, 'https://github.com/Fei2411/DS-Bot')
+  assert.equal(rt.updateView().repoUrl, 'https://github.com/Fei-Craft/DS-Bot')
   assert.equal(await rt.repoStars(), null)
   answers[repo] = { stargazers_count: 42 }
   assert.equal(await rt.repoStars(), 42)

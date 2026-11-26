@@ -29,10 +29,13 @@ function sectionMoveItems(entry, roster, actions) {
   ].filter(Boolean)
 }
 
+const useNullWork = () => 'null'
+
 export function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
-  useEscape(() => actions.closeMenu())
+  useEscape(() => actions.closeMenu(), !leaving)
   const ref = useRef(null)
   const trigger = useRef(typeof document === 'undefined' ? null : document.activeElement)
+  const [armedDelete, setArmedDelete] = useState(false)
   useEffect(() => {
     const onDown = (event) => { if (!(event.target instanceof Element) || !event.target.closest('.bt-menu')) actions.closeMenu() }
     const onKey = (event) => { stepMenuFocus(ref.current, event, trigger.current) }
@@ -47,18 +50,23 @@ export function ContextMenu({ menu, roster, actions, useWork, leaving = false })
     if (!box) return
     setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, viewBottom() - box.height - 8)) })
   }, [menu.x, menu.y, tick])
+  const isSpecial = menu.kind === 'agent' || menu.kind === 'agent-session' || menu.kind === 'section' || menu.kind === 'section-add'
+  const bot = isSpecial ? undefined : roster.byId[menu.id]
+  const room = isSpecial ? undefined : roster.roomsById[menu.id]
+  // Only a Bot that is waiting on a hand-off offers to give one up. Keep hook order unconditional.
+  const useReadWork = useWork ?? useNullWork
+  const waitsRaw = useReadWork(work => JSON.stringify(bot ? (work.waiting?.[bot.id] ?? null) : null))
+  const waits = useMemo(() => JSON.parse(waitsRaw), [waitsRaw])
   if (menu.kind === 'agent' || menu.kind === 'agent-session') return h(AgentMenu, { menu, roster, actions, leaving })
   if (menu.kind === 'section' || menu.kind === 'section-add') return h(SectionMenu, { menu, roster, actions, leaving })
-  const bot = roster.byId[menu.id]
-  const room = roster.roomsById[menu.id]
   const entry = bot ?? room
-  // Only a Bot that is waiting on a hand-off offers to give one up.
-  const waitsRaw = useWork && bot ? useWork(work => JSON.stringify(work.waiting?.[bot.id] ?? null)) : 'null'
-  const waits = useMemo(() => JSON.parse(waitsRaw), [waitsRaw])
   if (entry === undefined) return null
   const isMainBot = isMainOf(roster, menu.id)
   const isTile = roster.mainBotId === menu.id
   const mainCount = (roster.mainBotIds ?? []).length
+  const deleteLabel = armedDelete
+    ? t('Click again to delete')
+    : (room ? t('Delete group') : t('Delete'))
   const groups = [
     [
       isTile ? null : [entry.pinned ? t('Unpin') : t('Pin'), PinIcon, () => actions.setFlags(menu.id, { pinned: !entry.pinned })],
@@ -79,15 +87,20 @@ export function ContextMenu({ menu, roster, actions, useWork, leaving = false })
     bot ? (waits?.waits ?? []).map(item => [t('Give up waiting for {name}', { name: item.name ?? t('a Bot') }), SignOutIcon, () => actions.abandonWork(item.id)]) : [],
     [
       isMainBot ? null : [t('Hide from sidebar'), HideIcon, () => actions.setFlags(menu.id, { hidden: true })],
-      isMainBot ? null : [room ? t('Delete group') : t('Delete'), TrashIcon, () => (bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id)), true],
+      isMainBot ? null : [deleteLabel, TrashIcon, () => (bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id)), true, false, true],
     ],
   ].map(group => group.filter(Boolean)).filter(group => group.length > 0)
   return h('div', { ref, className: 'bt-menu', role: 'menu', 'aria-label': t('{name} actions', { name: bot?.name ?? room.name }), style: place, 'data-leaving': leaving || undefined },
     groups.map((group, index) => h(Fragment, { key: index },
       index > 0 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
-      group.map(([label, Icon, run, danger, checked]) => h('button', {
-        key: label, type: 'button', role: 'menuitem', className: danger ? 'bt-danger' : undefined,
-        onClick: () => { actions.closeMenu(); void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu')) },
+      group.map(([label, Icon, run, danger, checked, confirm]) => h('button', {
+        key: confirm ? 'delete' : label, type: 'button', role: 'menuitem', className: danger ? 'bt-danger' : undefined,
+        'data-confirm': confirm && armedDelete ? '' : undefined,
+        onClick: () => {
+          if (confirm && !armedDelete) { setArmedDelete(true); return }
+          actions.closeMenu()
+          void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu'))
+        },
       }, h(Icon), h('span', { className: 'bt-menu-label' }, label), checked ? h('span', { className: 'bt-menu-check' }, h(CheckIcon)) : null)))))
 }
 

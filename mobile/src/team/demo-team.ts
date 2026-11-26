@@ -206,5 +206,9 @@ export function demoData(): DemoData {
       ] },
     ],
   }
+  state.learning = { 'b-chief': [
+    { id: 'review-skill', botId: 'b-chief', name: 'project-review', description: 'Check the project before handover.', content: 'Run focused tests before handing over a change.' },
+    { id: 'review-agents', botId: 'b-chief', kind: 'agents', folder: '/project', edits: [{ op: 'add', text: 'Run focused tests before handover.' }] },
+  ] }
   return { state, chats }
 }

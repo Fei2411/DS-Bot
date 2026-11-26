@@ -33,6 +33,11 @@ export function parseCommandArgs(input) {
       } else {
         current += ch
       }
+    } else if (ch === '\\' && i + 1 < text.length && /[\s"']/.test(text[i + 1])) {
+      // Preserve unquoted escaping for whitespace and quotes (e.g. /tmp/report\ data.csv)
+      // while leaving ordinary backslashes literal for Windows paths and regexes.
+      current += text[++i]
+      inToken = true
     } else if (ch === '"' || ch === "'") {
       quote = ch
       inToken = true
