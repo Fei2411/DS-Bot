@@ -1,7 +1,7 @@
 // Reply feedback for Classic Agent sessions (thumbs up / down, optional category + note,
 // submit and retract) routed exclusively through DS Bot's `api/bot` (`engine-feedback-*`).
 // Never mounted in Bot chats or groups, which keep their own emoji reaction bar.
-import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
@@ -148,7 +148,10 @@ export function useSessionFeedback(sessionId, enabled) {
     return { ok: false, message: hostText(res?.error?.message ?? t('Could not remove feedback')) }
   }), [sessionId, enqueue])
 
-  return { available, items, pendingIds, submit, retract }
+  return useMemo(
+    () => ({ available, items, pendingIds, submit, retract }),
+    [available, items, pendingIds, submit, retract],
+  )
 }
 
 /**

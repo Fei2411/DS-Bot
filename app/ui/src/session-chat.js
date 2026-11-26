@@ -843,15 +843,16 @@ export function SessionTranscript({
       ? target => openSessionFile(typeof target === 'string' ? { path: target, isDir: true } : { ...target, isDir: true })
       : undefined), [actions, sessionId, openSessionFile])
 
-  // Build per-turn delivered file maps so inline code references to delivered files stay clickable.
+  // Build per-turn delivered file maps from committed `log.events` (not `rows`) so stream
+  // chunks keep identical Map references and never invalidate memoized committed rows.
   const turnFileMentions = useMemo(() => {
     const byTurn = new Map()
-    for (const row of rows) {
-      if (row.kind !== 'deliverables' || !Array.isArray(row.files)) continue
-      const key = row.turn ?? 'none'
+    for (const item of Array.isArray(log?.events) ? log.events : []) {
+      if (item?.type !== 'deliverables/presented' || !Array.isArray(item.data?.files)) continue
+      const key = item.data?.turn ?? 'none'
       let map = byTurn.get(key)
       if (!map) { map = new Map(); byTurn.set(key, map) }
-      for (const file of row.files) {
+      for (const file of item.data.files) {
         if (!file?.path) continue
         const entry = { path: file.path, display: file.path }
         map.set(file.path, entry)
@@ -860,10 +861,11 @@ export function SessionTranscript({
       }
     }
     return byTurn
-  }, [rows])
+  }, [log?.events])
 
   // Classic Agent reply feedback (strictly Classic sessions; Bot chats keep emoji reactions).
   const feedback = useSessionFeedback(sessionId, classic)
+  const { retract: retractFeedback, submit: submitFeedback } = feedback
   const [feedbackDraft, setFeedbackDraft] = useState(null)
   const [feedbackError, setFeedbackError] = useState('')
   useEffect(() => {
@@ -875,20 +877,20 @@ export function SessionTranscript({
     setFeedbackDraft({ messageId, rating })
   }, [])
   const handleRetractFeedback = useCallback(async (messageId) => {
-    const res = await feedback.retract(messageId)
+    const res = await retractFeedback(messageId)
     if (res?.ok) actions?.notice?.(t('Feedback removed'))
     else if (res?.message) actions?.notice?.(res.message)
-  }, [feedback, actions])
+  }, [retractFeedback, actions])
   const handleSubmitFeedback = useCallback(async ({ messageId, rating, category, note }) => {
     setFeedbackError('')
-    const res = await feedback.submit(messageId, { rating, category, note })
+    const res = await submitFeedback(messageId, { rating, category, note })
     if (res?.ok) {
       setFeedbackDraft(null)
       actions?.notice?.(t('Feedback submitted'))
     } else if (res?.message) {
       setFeedbackError(res.message)
     }
-  }, [feedback, actions])
+  }, [submitFeedback, actions])
 
   // `bot.parts` holds only earlier segments (host/channel.js), not current `bot.sessionId`.
   // Wait until the opening snapshot lands (`log.header !== null`) before mounting EarlierParts
