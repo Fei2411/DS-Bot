@@ -1726,6 +1726,20 @@ test('validateKillListDocument drops rules whose contentHashes are all invalid i
   assert.equal(evaluateKillEntry(doc, { id: 'dsh:empty-hashes', version: '1.0.0' }), null)
   assert.equal(evaluateKillEntry(doc, { id: 'dsh:non-array-hashes', version: '1.0.0' }), null)
   assert.ok(evaluateKillEntry(doc, { id: 'dsh:good-blanket', version: '1.0.0' }), 'explicit unconditional kills still work')
+
+  // Version-scoped rules that also include an empty or invalid contentHashes field keep
+  // their version revocation instead of being dropped.
+  const versioned = validateKillListDocument({
+    schemaVersion: 1,
+    issuedAt: new Date().toISOString(),
+    entries: [
+      { id: 'dsh:ver-empty-hashes', versions: '>=1.0.0 <2.0.0', contentHashes: [] },
+      { id: 'dsh:ver-bad-hashes', versions: '1.2.3', contentHashes: ['not-hex'] },
+    ],
+  })
+  assert.ok(evaluateKillEntry(versioned, { id: 'dsh:ver-empty-hashes', version: '1.5.0' }))
+  assert.equal(evaluateKillEntry(versioned, { id: 'dsh:ver-empty-hashes', version: '2.0.0' }), null)
+  assert.ok(evaluateKillEntry(versioned, { id: 'dsh:ver-bad-hashes', version: '1.2.3' }))
 })
 
 test('MCP consent invalidates when a header or env secret reference swaps to a different saved secret', async (t) => {
@@ -2049,4 +2063,105 @@ test('approving a drifted package-only non-slot bundle clears consentRequired so
   const disabled = await call('plugins-toggle', { id: 'dsh:plain-pkg', enabled: false })
   assert.equal(disabled.ok, true)
   assert.equal(bundles.get('plain-pkg').enabled, false)
+})
+
+test('approving an enforcement-stopped browser bundle after switching away does not re-enable it until Use', async (t) => {
+  const pkgDir = mkdtempSync(join(tmpdir(), 'ds-bot-enforce-switch-'))
+  writeFileSync(join(pkgDir, 'index.js'), 'export const rev = 1\n')
+  t.after(() => rmSync(pkgDir, { recursive: true, force: true, maxRetries: 5 }))
+
+  const bundles = new Map([
+    ['drifted-browser', { name: 'drifted-browser', version: '1.0.0', source: `link:${pkgDir}`, availability: 'profile', installed: true, enabled: false, removable: true }],
+  ])
+  const fakePm = {
+    async listBundles() { return [...bundles.values()] },
+    async setBundleEnabled(name, enabled) {
+      const b = bundles.get(name)
+      if (b) b.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+  }
+  const { rt, call, stop } = startRuntime({
+    services: { pluginManager: fakePm },
+    config: {
+      pluginFetch: async () => new Response(JSON.stringify({
+        schemaVersion: 1,
+        plugins: [
+          { id: 'browser:drifted', name: 'Drifted Browser', kind: 'dsh', slot: 'browser', category: 'browser', install: { packageName: 'drifted-browser', spec: `link:${pkgDir}` } },
+        ],
+      }), { status: 200 }),
+    },
+  })
+  t.after(stop)
+  await rt.load()
+
+  // Select browser, mutate files while selected, reconcile stops it via enforcement.
+  assert.equal((await call('plugins-slot-set', { slot: 'browser', id: 'browser:drifted' })).ok, true)
+  assert.equal(bundles.get('drifted-browser').enabled, true)
+  writeFileSync(join(pkgDir, 'index.js'), 'export const rev = 2\n')
+  await rt.plugins.reconcileAll()
+  assert.equal(bundles.get('drifted-browser').enabled, false, 'enforcement disables drifted browser')
+
+  // Switch away to built-in, then approve the old drifted browser without clicking Use.
+  assert.equal((await call('plugins-slot-set', { slot: 'browser', id: 'builtin:readonly' })).ok, true)
+  const approved = await call('plugins-consent', { id: 'browser:drifted' })
+  assert.equal(approved.ok, true)
+  assert.equal(bundles.get('drifted-browser').enabled, false, 'approving switched-away browser must not re-enable it via enforcement recovery')
+  assert.equal(rt.plugins.getSlotActiveId('browser'), 'builtin:readonly')
+
+  // Subsequent Use enables and activates it cleanly.
+  assert.equal((await call('plugins-slot-set', { slot: 'browser', id: 'browser:drifted' })).ok, true)
+  assert.equal(bundles.get('drifted-browser').enabled, true)
+  assert.equal(rt.plugins.getSlotActiveId('browser'), 'browser:drifted')
+})
+
+test('catalog refresh detects declared capability drift on standalone package-only DSH bundles', async (t) => {
+  const pkgDir = mkdtempSync(join(tmpdir(), 'ds-bot-dsh-cap-'))
+  writeFileSync(join(pkgDir, 'index.js'), 'export const ok = true\n')
+  t.after(() => rmSync(pkgDir, { recursive: true, force: true, maxRetries: 5 }))
+
+  let caps = ['entry', 'process', 'worker']
+  const bundles = new Map([
+    ['standalone-tool', { name: 'standalone-tool', version: '1.0.0', source: `link:${pkgDir}`, availability: 'profile', installed: true, enabled: false, removable: true }],
+  ])
+  const fakePm = {
+    async listBundles() { return [...bundles.values()] },
+    async installBundle() { return { changed: true, application: 'applied', bundle: 'standalone-tool' } },
+    async setBundleEnabled(name, enabled) {
+      const b = bundles.get(name)
+      if (b) b.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+  }
+  const { rt, call, stop } = startRuntime({
+    services: { pluginManager: fakePm },
+    config: {
+      pluginFetch: async () => new Response(JSON.stringify({
+        schemaVersion: 1,
+        plugins: [
+          {
+            id: 'tools:standalone',
+            name: 'Standalone Tool',
+            kind: 'dsh',
+            execution: 'trusted-worker',
+            capabilities: caps,
+            install: { packageName: 'standalone-tool', spec: `link:${pkgDir}` },
+          },
+        ],
+      }), { status: 200 }),
+    },
+  })
+  t.after(stop)
+  await rt.load()
+
+  assert.equal((await call('plugins-install', { id: 'tools:standalone' })).ok, true)
+  assert.equal(bundles.get('standalone-tool').enabled, true)
+
+  // Registry adds a declared capability with no kill-list change; refresh must reconcile and disable.
+  caps = ['entry', 'process', 'worker', 'gpu']
+  const refreshed = await call('plugins-catalog-refresh', {})
+  assert.equal(refreshed.ok, true)
+  const item = refreshed.value.plugins.find(p => p.id === 'tools:standalone')
+  assert.equal(item.consentRequired, true, 'catalog refresh must recheck package-only DSH bundles when capabilities change')
+  assert.equal(bundles.get('standalone-tool').enabled, false)
 })

@@ -1469,6 +1469,13 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       if (mount?.slotTargetId) ids.add(mount.slotTargetId)
       else if (mountKey.startsWith('plugin:')) ids.add(mountKey.slice('plugin:'.length))
     }
+    // Include installed non-system DSH bundles (matched by package name and aliases,
+    // mirroring `enforceBundleGateAlignment`) so catalog capability/tier/metadata drift
+    // on package-only bundles triggers reconciliation on refresh without hashing files.
+    for (const bundle of cachedBundles.values()) {
+      if (!bundle?.name || isSystemBundle(bundle, catalogEntries) || !isBundleAvailable(bundle)) continue
+      for (const key of consentKeysForBundle(bundle.name, catalogEntries)) ids.add(key)
+    }
     const items = [...ids].sort().map((id) => {
       const entry = findKnownEntry(id, catalogEntries)
       if (!entry) return [id, null]
@@ -1587,17 +1594,25 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         recordConsentBaseline(bareKey, bareState.fingerprint, 'baseline')
       }
       // Auto-re-enable only what enforcement itself disabled this session, once its
-      // bytes are covered by a valid approval again.
+      // bytes are covered by a valid approval again — and never for a slot-bound bundle
+      // the user has since switched away from.
       if (consented && enforcementDisabled.has(bundle.name) && bundle.enabled === false) {
-        try {
-          const res = await pm.setBundleEnabled(bundle.name, true)
-          if (res?.application === 'applied' || res?.application === 'restart-required' || res?.application === 'overridden') {
-            enforcementDisabled.delete(bundle.name)
-            clearBlockedStatusForKeys(keys)
+        const slotBoundKeys = keys.filter(k => Boolean(findKnownEntry(k, catalogEntries)?.slot || slotOfTarget(k)))
+        const slotAllowsAutoEnable = slotBoundKeys.length === 0
+          || slotBoundKeys.some(k => slotOfTarget(k) !== null)
+        if (!slotAllowsAutoEnable) {
+          enforcementDisabled.delete(bundle.name)
+        } else {
+          try {
+            const res = await pm.setBundleEnabled(bundle.name, true)
+            if (res?.application === 'applied' || res?.application === 'restart-required' || res?.application === 'overridden') {
+              enforcementDisabled.delete(bundle.name)
+              clearBlockedStatusForKeys(keys)
+            }
+            await refreshBundles()
+          } catch (error) {
+            rt.warn?.('ds-bot: could not re-enable approved plugin bundle %s: %s', bundle.name, error?.message ?? error)
           }
-          await refreshBundles()
-        } catch (error) {
-          rt.warn?.('ds-bot: could not re-enable approved plugin bundle %s: %s', bundle.name, error?.message ?? error)
         }
       }
     }
@@ -2224,6 +2239,11 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         ? resolveDshBundleForEntry(prevEntry)
         : (previousMount?.packageName ? cachedBundles.get(previousMount.packageName) : cachedBundles.get(previousTarget.replace(/^dsh:/, '')))
       const prevPkg = prevBundle?.name ?? previousMount?.packageName ?? prevEntry?.install?.packageName ?? prevEntry?.packageName
+      if (prevPkg && prevPkg !== nextDshPkg) {
+        // Switching away from a previously enforcement-stopped bundle clears its recovery
+        // marker so approving it later never re-enables it behind the new slot selection.
+        enforcementDisabled.delete(prevPkg)
+      }
       if (prevPkg && prevPkg !== nextDshPkg && enabledByUsBundles.has(prevPkg) && typeof pluginManager().setBundleEnabled === 'function') {
         try {
           const res = await pluginManager().setBundleEnabled(prevPkg, false)
@@ -2836,6 +2856,9 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     // plugin approved before clicking Use), approval verifies and stores the placement
     // consent without prematurely executing or switching to the bundle.
     const shouldEnableBundle = !intendedSlot || desiredSlotTarget(intendedSlot) === targetId
+    if (inputs.packageName && !shouldEnableBundle) {
+      enforcementDisabled.delete(inputs.packageName)
+    }
     if (inputs.packageName && shouldEnableBundle) {
       const pm = pluginManager()
       const bundle = cachedBundles.get(inputs.packageName)
