@@ -21427,7 +21427,8 @@ function scanThemeCss(text) {
           const rest = source.slice(j + 1);
           const hex = /^[0-9a-fA-F]{1,6}/.exec(rest);
           if (hex !== null) {
-            name += String.fromCodePoint(parseInt(hex[0], 16) || 65533);
+            const cp = parseInt(hex[0], 16);
+            name += String.fromCodePoint(cp === 0 || cp > 1114111 ? 65533 : cp);
             j += 1 + hex[0].length;
             if (source[j] === "\r" && source[j + 1] === "\n") j += 2;
             else if (isCssSpace(source[j])) j += 1;
@@ -21503,7 +21504,7 @@ function declarationItems(style) {
   }
   return names;
 }
-var URL_SHORTHANDS = ["background", "border-image", "-webkit-border-image", "list-style", "mask", "-webkit-mask", "-webkit-mask-box-image", "offset"];
+var URL_SHORTHANDS = ["background", "border-image", "-webkit-border-image", "list-style", "mask", "-webkit-mask", "-webkit-mask-box-image", "marker", "offset"];
 function cleanStyle(style) {
   if (!style || typeof style.getPropertyValue !== "function" || typeof style.removeProperty !== "function") return;
   for (const name of declarationItems(style)) {
@@ -21621,6 +21622,7 @@ function mountUserStylesheet(doc, css) {
     }
     return true;
   } catch {
+    if (entry) entry.text = void 0;
     try {
       entry?.sheet.replaceSync("");
     } catch {

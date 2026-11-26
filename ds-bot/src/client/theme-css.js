@@ -42,7 +42,7 @@ function declarationItems(style) {
 // shorthand whose value contains var() is kept as a pending substitution -- its longhands
 // then enumerate empty while the url() lives only in the shorthand's own value, which is
 // not enumerated at all, and the browser resolves the fallback at use time.
-const URL_SHORTHANDS = ['background', 'border-image', '-webkit-border-image', 'list-style', 'mask', '-webkit-mask', '-webkit-mask-box-image', 'offset']
+const URL_SHORTHANDS = ['background', 'border-image', '-webkit-border-image', 'list-style', 'mask', '-webkit-mask', '-webkit-mask-box-image', 'marker', 'offset']
 
 // Strip every declaration whose value can load a file. Custom properties are scanned
 // too: a url() stored in one reaches other properties through var() at use time.
@@ -207,7 +207,9 @@ export function mountUserStylesheet(doc, css) {
     }
     return true
   } catch {
-    // Whatever failed, nothing unsanitized may stay in the document: the sheet goes empty.
+    // Whatever failed, nothing unsanitized may stay in the document: the sheet goes empty
+    // and the cached source text resets so re-applying the previous valid stylesheet works.
+    if (entry) entry.text = undefined
     try { entry?.sheet.replaceSync('') } catch { /* a sheet this far gone holds nothing either way */ }
     return false
   }

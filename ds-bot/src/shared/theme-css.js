@@ -161,7 +161,8 @@ function scanThemeCss(text) {
           const rest = source.slice(j + 1)
           const hex = /^[0-9a-fA-F]{1,6}/.exec(rest)
           if (hex !== null) {
-            name += String.fromCodePoint(parseInt(hex[0], 16) || 0xfffd)
+            const cp = parseInt(hex[0], 16)
+            name += String.fromCodePoint(cp === 0 || cp > 0x10ffff ? 0xfffd : cp)
             j += 1 + hex[0].length
             // One whitespace after a hex escape belongs to the escape (a CRLF counts as one).
             if (source[j] === '\r' && source[j + 1] === '\n') j += 2

@@ -435,3 +435,25 @@ test('an unchanged stylesheet is not re-parsed or re-sanitized on every render',
   assert.equal(sheet().texts.length, 3)
 })
 
+test('out-of-range hex escapes clamp to U+FFFD without throwing or poisoning the sheet cache', () => {
+  const { doc, sheet } = fakeDocument()
+  assert.equal(themeCssWithoutImports('@\\ffffff foo; .a{color:red}').includes('.a{color:red}'), true)
+  assert.equal(mountUserStylesheet(doc, '.a{color:red}'), true)
+  assert.equal(sheet().cssRules.length, 1)
+  assert.equal(mountUserStylesheet(doc, '@\\ffffff foo; .b{color:blue}'), true)
+  assert.equal(mountUserStylesheet(doc, '.a{color:red}'), true)
+  assert.equal(sheet().cssRules.length, 1, 'recovering back to the prior valid stylesheet still applies')
+})
+
+test('a mount failure resets the cached text so re-applying the prior stylesheet recovers', () => {
+  const { doc, sheet } = fakeDocument()
+  assert.equal(mountUserStylesheet(doc, '.a{color:red}'), true)
+  assert.equal(sheet().cssRules.length, 1)
+  // Force sanitizeUserSheet to throw on a non-string input, simulating an unexpected failure.
+  assert.equal(mountUserStylesheet(doc, /** @type {any} */ ({ toString() { throw new Error('boom') } })), false)
+  assert.equal(sheet().cssRules.length, 0, 'failed mount empties the sheet fail-closed')
+  assert.equal(mountUserStylesheet(doc, '.a{color:red}'), true)
+  assert.equal(sheet().cssRules.length, 1, 're-applying the earlier valid stylesheet is not skipped by a stale cache')
+})
+
+
