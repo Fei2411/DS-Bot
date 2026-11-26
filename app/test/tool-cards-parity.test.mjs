@@ -20,6 +20,7 @@ const { outputFiles } = await build({
       export { buildSessionRows } from './app/ui/src/session-transcript.js'
       export { ToolCallCard } from './app/ui/src/tool-card.js'
       export { createSlotRegistry, TOOL_VIEW_SLOT } from './app/ui/src/slots.js'
+      export { installLocale } from './ds-bot/src/client/i18n.js'
       export { PartialArguments } from '@deepseek-ai/dsh-util-values'
     `,
     resolveDir: fileURLToPath(new URL('../..', import.meta.url)),
@@ -302,6 +303,69 @@ test('Office tools (office_render, office_convert, office.js CLI) render documen
     h.all(cliTree, n => n.type === 'button' && n.props?.className === 'dsb-tool-action')[0].props.onClick()
     assert.equal(opened.at(-1), '/ws/docs/final.docx')
     cliInst.unmount()
+
+    // 2b. DS Bot office.js real CLI contracts: `sheet` contact sheet (not Excel/Spreadsheet), `--slides`/`--cols`/`--width` value flags,
+    //     exit code 1 with `{ ok: true, data: { findings: [...] } }` as warning keeping Preview enabled, and `{ ok: false, error: { code, message } }`.
+    const sheetCli = parseOfficeCliCommand('node /opt/office.js sheet --cols 4 --width 320 frames/ -o contact.png --json')
+    assert.equal(sheetCli.subcommand, 'sheet')
+    assert.equal(sheetCli.inputPath, 'frames/')
+    assert.equal(sheetCli.outputPath, 'contact.png')
+    assert.equal(sheetCli.docKind, '')
+    const sheetInst = h.mount(ToolCallCard, {
+      registry,
+      cwd: '/ws',
+      openFile: p => opened.push(p),
+      block: h.makeBlock('bash', { command: 'node /opt/office.js sheet --cols 4 --width 320 frames/ -o contact.png --json' }, {
+        content: [{ type: 'text', text: JSON.stringify({ ok: true, data: { file: 'contact.png', pages: 4, width: 1280, height: 720 } }) }],
+      }),
+    })
+    const sheetText = h.textOf(sheetInst.render())
+    assert.match(sheetText, /Contact sheet/)
+    assert.doesNotMatch(sheetText, /Spreadsheet|Excel/)
+    assert.match(sheetText, /4 pages/)
+    sheetInst.unmount()
+
+    const layoutCli = parseOfficeCliCommand('node /opt/office.js pptx layout --slides 1,2 deck.pptx --json')
+    assert.equal(layoutCli.subcommand, 'pptx')
+    assert.equal(layoutCli.action, 'layout')
+    assert.equal(layoutCli.inputPath, 'deck.pptx')
+    const findingsInst = h.mount(ToolCallCard, {
+      registry,
+      cwd: '/ws',
+      openFile: p => opened.push(p),
+      block: h.makeBlock('bash', { command: 'node /opt/office.js pptx layout --slides 1,2 deck.pptx --json' }, {
+        isError: true,
+        content: [{ type: 'text', text: `${JSON.stringify({ ok: true, data: { findings: [{ part: 'ppt/slides/slide1.xml', message: 'Text overflow' }] } })}\n[exit code: 1]` }],
+      }),
+    })
+    const findingsTree = findingsInst.render()
+    const findingsCard = h.all(findingsTree, n => n.props?.className === 'dsb-tool')[0]
+    assert.equal(findingsCard.props['data-error'], undefined, 'exit code 1 with ok:true findings must not mark card as hard error')
+    const findingsTxt = h.textOf(findingsTree)
+    assert.match(findingsTxt, /1 issue/)
+    assert.doesNotMatch(findingsTxt, /exit 1/)
+    const findingsPreview = h.all(findingsTree, n => n.type === 'button' && n.props?.className === 'dsb-tool-action')[0]
+    assert.ok(findingsPreview, 'Preview button must stay enabled for ok:true findings exit 1')
+    findingsPreview.props.onClick()
+    assert.equal(opened.at(-1), '/ws/deck.pptx')
+    findingsInst.unmount()
+
+    const errCliInst = h.mount(ToolCallCard, {
+      registry,
+      cwd: '/ws',
+      openFile: p => opened.push(p),
+      block: h.makeBlock('bash', { command: 'node /opt/office.js docx read missing.docx --json' }, {
+        isError: true,
+        content: [{ type: 'text', text: `${JSON.stringify({ ok: false, error: { code: 'usage', message: 'no such file: missing.docx' } })}\n[exit code: 2]` }],
+      }),
+    })
+    const errCliTree = errCliInst.render()
+    assert.equal(h.all(errCliTree, n => n.props?.className === 'dsb-tool')[0].props['data-error'], true)
+    assert.equal(h.all(errCliTree, n => n.type === 'button' && n.props?.className === 'dsb-tool-action').length, 0)
+    // Open card to verify structured error message is extracted and displayed.
+    h.all(errCliTree, n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0].props.onClick()
+    assert.match(h.textOf(errCliInst.render()), /no such file: missing\.docx/)
+    errCliInst.unmount()
 
     // 3. Backgrounded office.js CLI command keeps live BackgroundJobPanel + Stop button instead of hiding behind OfficeCliCard.
     h.sandbox.__testCall = async (endpoint) => (endpoint === 'job-read'
@@ -653,20 +717,34 @@ test('Subagent card opens child session in viewer, and background job card strea
     jobDone = true
     for (const fn of feedListeners) fn('jobs', { sessionId: 'parent-1', jobId: 'job-live-2' })
     await tick()
-    const finishedText = h.textOf(outInst.render())
+    const finishedTree = outInst.render()
+    const finishedText = h.textOf(finishedTree)
     assert.match(finishedText, /Earlier output was dropped/)
     assert.match(finishedText, /Truncated/)
     assert.match(finishedText, /Build succeeded!/)
     assert.match(finishedText, /Completed/)
+    // Copy button writes ONLY raw retained process text without the localized gap notice.
+    const copyBtn = h.all(finishedTree, n => n.type === 'button' && n.props?.className?.includes('dsb-tool-copy'))[0]
+    assert.ok(copyBtn)
+    copyBtn.props.onClick()
+    await tick()
+    assert.equal(h.sandbox.__copied.at(-1), 'Compiling...\nBuild succeeded!\n')
+    assert.doesNotMatch(h.sandbox.__copied.at(-1), /Earlier output was dropped/)
     // Terminal status unsubscribes from feed.
     assert.equal(feedListeners.size, 0)
     outInst.unmount()
 
-    // 4. job_list with 1 job uses singular '1 job'.
-    h.sandbox.__testCall = async () => ({ jobs: [{ id: 'j-one', kind: 'bash', status: 'running', label: 'dev' }] })
+    // 4. job_list with 1 active job uses singular '1 job', updates live, and unsubscribes once finished.
+    let listLiveDone = false
+    const listFeedListeners = new Set()
+    const listFeed = { on: (fn) => { listFeedListeners.add(fn); return () => listFeedListeners.delete(fn) } }
+    h.sandbox.__testCall = async () => ({
+      jobs: [{ id: 'j-one', kind: 'bash', status: listLiveDone ? 'completed' : 'running', label: 'dev' }],
+    })
     const listInst = h.mount(ToolCallCard, {
       registry,
       sessionId: 'parent-1',
+      feed: listFeed,
       readOnly: false,
       block: h.makeBlock('job_list', {}, {
         content: [{ type: 'text', text: 'j-one [bash] running — dev' }],
@@ -675,7 +753,86 @@ test('Subagent card opens child session in viewer, and background job card strea
     listInst.render()
     await tick()
     assert.match(h.textOf(listInst.render()), /1 job/)
+    assert.equal(listFeedListeners.size, 1)
+    listLiveDone = true
+    for (const fn of listFeedListeners) fn('jobs', { sessionId: 'parent-1' })
+    await tick()
+    assert.match(h.textOf(listInst.render()), /Completed/)
+    assert.equal(listFeedListeners.size, 0, 'job_list must unsubscribe once no jobs remain active')
     listInst.unmount()
+
+    // 5. Historical completed job_list card neither fetches job-list nor subscribes to feed.
+    let histCalls = 0
+    const histFeedListeners = new Set()
+    const histFeed = { on: (fn) => { histFeedListeners.add(fn); return () => histFeedListeners.delete(fn) } }
+    h.sandbox.__testCall = async () => { histCalls += 1; return { jobs: [] } }
+    const histInst = h.mount(ToolCallCard, {
+      registry,
+      sessionId: 'parent-1',
+      feed: histFeed,
+      readOnly: false,
+      block: h.makeBlock('job_list', {}, {
+        content: [{ type: 'text', text: 'j-old [bash] completed — build' }],
+      }),
+    })
+    histInst.render()
+    await tick()
+    const histTxt = h.textOf(histInst.render())
+    assert.equal(histCalls, 0)
+    assert.equal(histFeedListeners.size, 0)
+    assert.match(histTxt, /j-old/)
+    assert.doesNotMatch(histTxt, /No jobs/)
+    histInst.unmount()
+
+    // 6. Active job_list card preserves non-empty historical snapshot when live job-list is empty (pruned/restarted),
+    //    hides stale Stop buttons, and unsubscribes from feed.
+    const prunedFeedListeners = new Set()
+    const prunedFeed = { on: (fn) => { prunedFeedListeners.add(fn); return () => prunedFeedListeners.delete(fn) } }
+    h.sandbox.__testCall = async () => ({ jobs: [] })
+    const prunedInst = h.mount(ToolCallCard, {
+      registry,
+      sessionId: 'parent-1',
+      feed: prunedFeed,
+      readOnly: false,
+      block: h.makeBlock('job_list', {}, {
+        content: [{ type: 'text', text: 'j-pruned [bash] running — server' }],
+      }),
+    })
+    prunedInst.render()
+    await tick()
+    const prunedTree = prunedInst.render()
+    assert.match(h.textOf(prunedTree), /j-pruned/)
+    assert.doesNotMatch(h.textOf(prunedTree), /No jobs/)
+    assert.equal(h.all(prunedTree, n => n.type === 'button' && n.props?.className === 'dsb-job-stop').length, 0)
+    assert.equal(prunedFeedListeners.size, 0)
+    prunedInst.unmount()
+
+    // 7. JobStopButton localizes host errors via hostText in non-English locales.
+    const { JobStopButton, installLocale } = h.exports
+    const dicts = new Map()
+    const disposeLocale = installLocale({
+      dicts,
+      getLocale: () => ({ active: 'zh' }),
+      register: (ns, lang, dict) => {
+        if (!dicts.has(ns)) dicts.set(ns, new Map())
+        dicts.get(ns).set(lang, dict)
+        return () => {}
+      },
+      bind: ns => key => dicts.get(ns)?.get('zh')?.[key] ?? key,
+    })
+    try {
+      h.sandbox.__testCall = async () => { throw new Error('Job not found') }
+      const stopErrInst = h.mount(JobStopButton, { sessionId: 'parent-1', jobId: 'j-missing' })
+      let stopTree = stopErrInst.render()
+      h.all(stopTree, n => n.type === 'button')[0].props.onClick() // arm
+      stopTree = stopErrInst.render()
+      h.all(stopTree, n => n.type === 'button')[0].props.onClick() // confirm -> fails
+      await tick()
+      assert.match(h.textOf(stopErrInst.render()), /未找到该后台任务/)
+      stopErrInst.unmount()
+    } finally {
+      disposeLocale()
+    }
   } finally {
     dispose()
   }

@@ -82,7 +82,7 @@ export function foregroundApprovalsOf(approvals, botId, sessionId = null) {
   }
   if (sessionId) {
     return approvals.filter(entry => entry
-      && entry.sessionId === sessionId
+      && (entry.sessionId === sessionId || entry.ownerSessionId === sessionId)
       && !entry.botId
       && !entry.taskId
       && !entry.roomId

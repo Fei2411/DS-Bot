@@ -408,3 +408,50 @@ test('group ApprovalCard and background TaskIslandPanel disclose group/bot scope
   assert.doesNotMatch(textOf(roPanel.render()), /Always allow/)
   roPanel.unmount()
 })
+
+test('foregroundApprovalsOf and ApprovalDock surface and answer Classic Agent subagent approvals via ownerSessionId', async () => {
+  const { exports: { ApprovalDock, foregroundApprovalsOf }, mount, all, textOf } = loadHarness()
+  const approvals = [
+    {
+      id: 'ap-sub-1',
+      sessionId: 'classic-sub-1',
+      ownerSessionId: 'classic-parent-1',
+      tool: 'write',
+      reason: 'Subagent requests write access',
+      detail: { code: '/tmp/work/out.md' },
+      answerable: true,
+    },
+    {
+      id: 'ap-other-sub',
+      sessionId: 'classic-sub-2',
+      ownerSessionId: 'classic-parent-2',
+      tool: 'bash',
+      reason: 'Other classic session approval',
+      answerable: true,
+    },
+  ]
+
+  const matched = foregroundApprovalsOf(approvals, undefined, 'classic-parent-1')
+  assert.deepEqual(matched.map(entry => entry.id), ['ap-sub-1'])
+
+  const calls = []
+  const inst = mount(ApprovalDock, {
+    botId: undefined,
+    sessionId: 'classic-parent-1',
+    useWork: sel => sel({ approvals }),
+    actions: { answerApproval: async (id, choice) => { calls.push({ id, choice }) } },
+    readOnly: false,
+  })
+  try {
+    const tree = inst.render()
+    const txt = textOf(tree)
+    assert.match(txt, /Subagent requests write access/)
+    assert.doesNotMatch(txt, /Other classic session approval/)
+    assert.doesNotMatch(txt, /Always allow/)
+    const allowBtn = all(tree, n => n.type === 'button' && textOf(n).includes('Allow once'))[0]
+    allowBtn.props.onClick()
+    assert.deepEqual(calls, [{ id: 'ap-sub-1', choice: 'allow' }])
+  } finally {
+    inst.unmount()
+  }
+})

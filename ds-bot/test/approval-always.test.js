@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join, parse } from 'node:path'
+import { dirname, join, parse } from 'node:path'
 import { test } from 'node:test'
 import { install as installApprovals } from '../src/host/approvals.js'
 import { install as installChannel } from '../src/host/channel.js'
@@ -291,6 +291,14 @@ test('extra-folder Always allow never walks up missing ancestors, refuses root/h
   assert.deepEqual(await env.rt.resolvableExtraDirs({ session: agent.session, botId: 'b1', name: 'write', args: { file_path: join(userHome, 'foo.txt') } }), [])
   await assert.rejects(() => env.rt.grantExtraDirs({ botId: 'b1', dirs: [userHome] }), { code: 'bot/refused' })
 
+  // Ancestor above homedir() (e.g. /Users, /home, C:\Users) is also refused even when DSH_HOME is isolated elsewhere.
+  const homeReal = realpathSync.native(userHome)
+  const homeAncestor = dirname(homeReal)
+  if (homeAncestor && homeAncestor !== homeReal) {
+    assert.deepEqual(await env.rt.resolvableExtraDirs({ session: agent.session, botId: 'b1', name: 'write', args: { file_path: join(homeAncestor, 'foo.txt') } }), [])
+    await assert.rejects(() => env.rt.grantExtraDirs({ botId: 'b1', dirs: [homeAncestor] }), { code: 'bot/refused' })
+  }
+
   // 3. Private folder clash receives `{ except: 'b1' }` and blocks Always allow.
   assert.deepEqual(await env.rt.resolvableExtraDirs({ session: agent.session, botId: 'b1', name: 'write', args: { file_path: join(privateDir, 'doc.md') } }), [])
   assert.deepEqual(env.clashCalls.at(-1)?.opts, { except: 'b1' })
@@ -513,4 +521,206 @@ test('Always allow is strictly withheld for bash, privacy approvals, private Bot
   assert.equal(fullEnv.rt.approvalsView()[0].alwaysAllow, undefined)
   fullEnv.rt.answerApproval(fullEnv.rt.approvalsView()[0].id, 'reject')
   assert.equal(await p6, 'rejected')
+})
+
+test('failed Always allow validation (MAX_EXTRA_DIRS filled, deleted saved folder, scope drift, or async cancel) never releases the tool or leaves a grant', async (t) => {
+  // 1. Filling MAX_EXTRA_DIRS to 8 while an approval is open rejects 'always' BEFORE settling,
+  // keeping the approval open and the tool blocked so the user can still Reject or Allow once.
+  const maxEnv = setup(t)
+  const slotDirs = Array.from({ length: MAX_EXTRA_DIRS }, (_, i) => {
+    const dir = join(maxEnv.root, `slot-${i}`)
+    mkdirSync(dir, { recursive: true })
+    return dir
+  })
+  maxEnv.bots.b1.extraDirs = slotDirs.slice(0, MAX_EXTRA_DIRS - 1)
+  const maxAgent = { id: 'b1', session: { id: 'b1', header: { id: 'b1', cwd: maxEnv.ws } } }
+  await maxEnv.firePreExecute({
+    agent: maxAgent,
+    callId: 'c-fill-max',
+    name: 'write',
+    arguments: { file_path: join(maxEnv.extraDir, 'report.md'), content: 'x', sandbox_permissions: 'danger-full-access' },
+  })
+  let maxSettled = false
+  const pMax = maxEnv.requestApproval({
+    agent: maxAgent,
+    toolName: 'write',
+    callId: 'c-fill-max',
+    reason: `${ESCALATION} write report`,
+  }).then(res => { maxSettled = true; return res })
+  await waitFor(() => maxEnv.rt.approvalsView()[0]?.alwaysAllow)
+  const maxId = maxEnv.rt.approvalsView()[0].id
+  // User adds an 8th folder in Settings while the approval is open.
+  maxEnv.bots.b1.extraDirs = [...slotDirs]
+  await assert.rejects(() => maxEnv.rt.answerApproval(maxId, 'always'), /at most 8 extra folders/)
+  await tick()
+  assert.equal(maxSettled, false, 'failed MAX_EXTRA_DIRS grant must NOT release the tool write')
+  assert.equal(maxEnv.rt.approvalsView().length, 1, 'approval must remain open after failed grant')
+  assert.equal(maxEnv.bots.b1.extraDirs.length, MAX_EXTRA_DIRS)
+  assert.equal(maxEnv.saved, 0)
+  // User can still explicitly reject the still-open approval.
+  maxEnv.rt.answerApproval(maxId, 'reject')
+  assert.equal(await pMax, 'rejected')
+
+  // 2. Deleted/renamed saved folder in existing holder.extraDirs:
+  //    (a) If deleted after approval opens, Always allow fails cleanly BEFORE settling, keeping the approval answerable.
+  const staleEnv = setup(t)
+  const savedDir = join(staleEnv.root, 'saved-notes')
+  mkdirSync(savedDir, { recursive: true })
+  staleEnv.bots.b1.extraDirs = [savedDir]
+  const staleAgent = { id: 'b1', session: { id: 'b1', header: { id: 'b1', cwd: staleEnv.ws } } }
+  await staleEnv.firePreExecute({
+    agent: staleAgent,
+    callId: 'c-stale-1',
+    name: 'write',
+    arguments: { file_path: join(staleEnv.extraDir, 'out.md'), content: 'x', sandbox_permissions: 'danger-full-access' },
+  })
+  let staleSettled = false
+  const pStale = staleEnv.requestApproval({
+    agent: staleAgent,
+    toolName: 'write',
+    callId: 'c-stale-1',
+    reason: `${ESCALATION} write out`,
+  }).then(res => { staleSettled = true; return res })
+  await waitFor(() => staleEnv.rt.approvalsView()[0]?.alwaysAllow)
+  const staleId = staleEnv.rt.approvalsView()[0].id
+  rmSync(savedDir, { recursive: true, force: true })
+  await assert.rejects(() => staleEnv.rt.answerApproval(staleId, 'always'), /There is no folder at/)
+  await tick()
+  assert.equal(staleSettled, false, 'failed stale-folder grant must NOT release the tool write')
+  assert.equal(staleEnv.rt.approvalsView().length, 1)
+  assert.deepEqual(staleEnv.bots.b1.extraDirs, [savedDir])
+  assert.equal(staleEnv.saved, 0)
+  // User can still choose Allow once after the failed Always allow.
+  staleEnv.rt.answerApproval(staleId, 'allow')
+  assert.equal(await pStale, 'allowed-once')
+  //    (b) If already missing before open, resolvableExtraDirs consistently withholds Always allow.
+  assert.deepEqual(await staleEnv.rt.resolvableExtraDirs({
+    session: staleAgent.session,
+    botId: 'b1',
+    name: 'write',
+    args: { file_path: join(staleEnv.extraDir, 'out2.md') },
+  }), [])
+
+  // 3. room.workDir toggled between approval open and click (Bot <-> Group scope TOCTOU) refuses BEFORE settling.
+  const scopeEnv = setup(t, { withRoom: true })
+  // (a) Starts Bot-scoped (room.workDir undefined), then room.workDir is set before click.
+  scopeEnv.rooms.r1.workDir = undefined
+  const groupAgent = { id: 'g-b1', session: { id: 'g-b1', header: { id: 'g-b1', cwd: scopeEnv.ws } } }
+  await scopeEnv.firePreExecute({
+    agent: groupAgent,
+    callId: 'c-scope-1',
+    name: 'write',
+    arguments: { file_path: join(scopeEnv.extraDir, 'a.md'), content: 'x', sandbox_permissions: 'danger-full-access' },
+  })
+  let scope1Settled = false
+  const pScope1 = scopeEnv.requestApproval({
+    agent: groupAgent,
+    toolName: 'write',
+    callId: 'c-scope-1',
+    reason: `${ESCALATION} write a`,
+  }).then(res => { scope1Settled = true; return res })
+  const scope1Always = await waitFor(() => scopeEnv.rt.approvalsView()[0]?.alwaysAllow)
+  assert.equal(scope1Always.scope, 'bot')
+  const scope1Id = scopeEnv.rt.approvalsView()[0].id
+  scopeEnv.rooms.r1.workDir = scopeEnv.ws
+  await assert.rejects(() => scopeEnv.rt.answerApproval(scope1Id, 'always'), { code: 'bot/refused' })
+  await tick()
+  assert.equal(scope1Settled, false)
+  assert.equal(scopeEnv.rooms.r1.extraDirs, undefined)
+  assert.equal(scopeEnv.bots.b1.extraDirs, undefined)
+  scopeEnv.rt.answerApproval(scope1Id, 'reject')
+  assert.equal(await pScope1, 'rejected')
+
+  // (b) Starts Group-scoped (room.workDir set), then room.workDir is cleared before click.
+  await scopeEnv.firePreExecute({
+    agent: groupAgent,
+    callId: 'c-scope-2',
+    name: 'write',
+    arguments: { file_path: join(scopeEnv.extraDir, 'b.md'), content: 'x', sandbox_permissions: 'danger-full-access' },
+  })
+  let scope2Settled = false
+  const pScope2 = scopeEnv.requestApproval({
+    agent: groupAgent,
+    toolName: 'write',
+    callId: 'c-scope-2',
+    reason: `${ESCALATION} write b`,
+  }).then(res => { scope2Settled = true; return res })
+  const scope2Always = await waitFor(() => scopeEnv.rt.approvalsView()[0]?.alwaysAllow)
+  assert.equal(scope2Always.scope, 'group')
+  const scope2Id = scopeEnv.rt.approvalsView()[0].id
+  scopeEnv.rooms.r1.workDir = undefined
+  await assert.rejects(() => scopeEnv.rt.answerApproval(scope2Id, 'always'), { code: 'bot/refused' })
+  await tick()
+  assert.equal(scope2Settled, false)
+  assert.equal(scopeEnv.rooms.r1.extraDirs, undefined)
+  assert.equal(scopeEnv.bots.b1.extraDirs, undefined)
+  scopeEnv.rt.answerApproval(scope2Id, 'reject')
+  assert.equal(await pScope2, 'rejected')
+
+  // 4. Cancellation during async Phase 1 validation never settles as allowed and never commits extraDirs.
+  const asyncEnv = setup(t)
+  let releaseLoad
+  const loadGate = new Promise(resolve => { releaseLoad = resolve })
+  const origLoad = asyncEnv.rt.load
+  asyncEnv.rt.load = async () => { await loadGate; return origLoad() }
+  const asyncAgent = { id: 'b1', session: { id: 'b1', header: { id: 'b1', cwd: asyncEnv.ws } } }
+  await asyncEnv.firePreExecute({
+    agent: asyncAgent,
+    callId: 'c-async-cancel',
+    name: 'write',
+    arguments: { file_path: join(asyncEnv.extraDir, 'c.md'), content: 'x', sandbox_permissions: 'danger-full-access' },
+  })
+  const pAsync = asyncEnv.requestApproval({
+    agent: asyncAgent,
+    toolName: 'write',
+    callId: 'c-async-cancel',
+    reason: `${ESCALATION} write c`,
+  })
+  await waitFor(() => asyncEnv.rt.approvalsView()[0]?.alwaysAllow)
+  const asyncId = asyncEnv.rt.approvalsView()[0].id
+  const alwaysPending = asyncEnv.rt.answerApproval(asyncId, 'always')
+  // Competing click while Phase 1 validation is in flight is rejected synchronously.
+  assert.throws(() => asyncEnv.rt.answerApproval(asyncId, 'allow'), { code: 'bot/stale' })
+  // Session cancellation fires while Phase 1 validation is awaiting load().
+  asyncEnv.rt.cancelApprovals('b1')
+  releaseLoad()
+  await assert.rejects(() => alwaysPending, { code: 'bot/stale' })
+  assert.equal(await pAsync, 'cancelled')
+  assert.equal(asyncEnv.bots.b1.extraDirs, undefined)
+  assert.equal(asyncEnv.saved, 0)
+})
+
+test('Classic Agent subagent approval exposes ownerSessionId without botId or alwaysAllow and stays answerable', async (t) => {
+  const env = setup(t)
+  const classicParent = { id: 'classic-1', session: { id: 'classic-1', header: { id: 'classic-1', cwd: env.ws } } }
+  const classicChild = { id: 'classic-sub-1', session: { id: 'classic-sub-1', header: { id: 'classic-sub-1', cwd: env.ws, origin: 'subagent', parentSession: 'classic-1' } } }
+  env.rt.agentOf = id => (id === 'classic-1' ? { id: 'agent-1', sessionId: 'classic-1' } : undefined)
+  env.rt.resolveAgent = async id => (id === 'classic-1' ? classicParent : undefined)
+  // Keep DSH fallback waiter open (matching real gateway approval waiter) until answered or cancelled.
+  env.rt.ctx.on('approval/request', req => new Promise((resolve) => {
+    req.signal?.addEventListener('abort', () => resolve('cancelled'), { once: true })
+  }))
+
+  await env.firePreExecute({
+    agent: classicChild,
+    callId: 'c-classic-sub',
+    name: 'write',
+    arguments: { file_path: join(env.extraDir, 'sub.md'), content: 'x', sandbox_permissions: 'danger-full-access' },
+  })
+  const promise = env.requestApproval({
+    agent: classicChild,
+    toolName: 'write',
+    callId: 'c-classic-sub',
+    reason: `${ESCALATION} subagent write`,
+  })
+  const entry = await waitFor(() => env.rt.approvalsView()[0])
+  assert.equal(entry.sessionId, 'classic-sub-1')
+  assert.equal(entry.ownerSessionId, 'classic-1')
+  assert.equal(entry.botId, undefined)
+  assert.equal(entry.alwaysAllow, undefined)
+  assert.equal(entry.answerable, true)
+
+  const res = await env.callApi('approval-answer', { id: entry.id, choice: 'allow' })
+  assert.equal(res.ok, true)
+  assert.equal(await promise, 'allowed-once')
 })

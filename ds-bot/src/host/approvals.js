@@ -56,7 +56,7 @@ export function install(rt) {
       try { listener(kind, data) } catch (error) { rt.warn('ds-bot: approval listener failed: %s', error) }
     }
   }
-  const view = ({ answer, cancelReview, isAborted, ownerSessionId, lineageSessionIds, persistAlways, answering, privacy: _, ...entry }) => {
+  const view = ({ answer, cancelReview, isAborted, ownerSessionId, lineageSessionIds, prepareAlways, answering, privacy: _, ...entry }) => {
     const taskSessionId = rt.taskOwners?.has(entry.sessionId) ? entry.sessionId : ownerSessionId ?? entry.sessionId
     const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(taskSessionId) : undefined
     const liveEntry = liveTask === undefined ? undefined : rt.taskBySession?.(taskSessionId)?.task
@@ -64,6 +64,7 @@ export function install(rt) {
     const liveRoomId = entry.roomId === undefined ? (liveTask?.roomId ?? liveEntry?.roomId) : undefined
     return {
       ...entry,
+      ...(ownerSessionId !== undefined && ownerSessionId !== entry.sessionId ? { ownerSessionId } : {}),
       ...(liveRoomId !== undefined ? { roomId: liveRoomId } : {}),
       ...(liveTask ? { taskId: liveTask.taskId, ...(liveTitle ? { taskTitle: liveTitle } : {}) } : {}),
       answerable: answer !== undefined,
@@ -291,13 +292,14 @@ export function install(rt) {
           if (!pending.has(id) || entry.answering || !Array.isArray(dirs) || dirs.length === 0) return
           const scopeRoom = owner.roomId ? rt.roomOf(owner.roomId) : undefined
           const groupScoped = scopeRoom?.workDir !== undefined
+          const scope = groupScoped ? 'group' : 'bot'
           entry.alwaysAllow = {
             kind: 'extra-dir',
             dirs,
-            scope: groupScoped ? 'group' : 'bot',
+            scope,
             ...(groupScoped && scopeRoom?.name ? { scopeName: scopeRoom.name } : {}),
           }
-          entry.persistAlways = () => rt.grantExtraDirs({ botId: owner.botId, roomId: owner.roomId, dirs })
+          entry.prepareAlways = () => rt.prepareGrantExtraDirs({ botId: owner.botId, roomId: owner.roomId, dirs, scope })
           changed(entry)
         }).catch(() => {})
       }
@@ -349,24 +351,46 @@ export function install(rt) {
     const entry = pending.get(String(id ?? ''))
     if (!entry?.answer) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
     if (choice === 'always') {
-      if (!entry.alwaysAllow || typeof entry.persistAlways !== 'function') {
+      if (!entry.alwaysAllow || typeof entry.prepareAlways !== 'function') {
         throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
       }
       if (entry.answering) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
-      // Cancel any in-flight automatic review synchronously and settle the approval atomically
-      // before persisting `extraDirs`, so a concurrent reject, cancel, or timeout can never leave
-      // behind a lasting grant for an approval that did not settle as allowed.
+      // Two-phase validate -> settle -> commit: reserve the approval and cancel automatic
+      // review synchronously while keeping the tool blocked until Phase 1 validation succeeds.
+      // If validation fails, release the reservation so the approval stays open and answerable.
+      // Only once validation passes and the entry is still live and unaborted do we settle
+      // `allowed-once` synchronously and commit the pre-validated grant.
       entry.cancelReview()
       if (entry.isAborted?.()) {
         entry.answer('cancelled')
         throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
       }
       entry.answering = true
-      const settled = entry.answer('allowed-once')
-      if (!settled) {
-        throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
-      }
-      return Promise.resolve().then(() => entry.persistAlways())
+      return (async () => {
+        let prepared
+        try {
+          prepared = await entry.prepareAlways()
+        } catch (error) {
+          if (pending.has(id)) {
+            entry.answering = false
+            if (entry.isAborted?.()) entry.answer('cancelled')
+          }
+          throw error
+        }
+        if (!pending.has(id) || entry.isAborted?.()) {
+          if (pending.has(id)) entry.answer('cancelled')
+          throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+        }
+        if (typeof prepared?.verifySync === 'function' && !prepared.verifySync()) {
+          entry.answering = false
+          throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+        }
+        const settled = entry.answer('allowed-once')
+        if (!settled) {
+          throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+        }
+        return await prepared.commit()
+      })()
     }
     if (!Object.hasOwn(OUTCOMES, choice)) throw Object.assign(new Error('Choose allow or reject'), { code: 'bot/invalid' })
     if (entry.answering) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })

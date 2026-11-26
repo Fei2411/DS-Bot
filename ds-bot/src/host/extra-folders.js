@@ -142,25 +142,29 @@ export function install(rt) {
     text: context => sectionFor(context?.agent?.id),
   }), 'ds-bot: extra folders section')
 
-  const samePath = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b)
+  const normCase = path => (process.platform === 'win32' ? path.toLowerCase() : path)
+  const containsPath = (inner, outer) => within(normCase(inner), normCase(outer))
 
-  // Permanent "Always allow" grants must never target a filesystem root (e.g. /, C:\, D:\)
-  // or the user's home directory, even when DSH_HOME is isolated elsewhere.
+  // Permanent "Always allow" grants must never target a filesystem root (e.g. /, C:\, D:\),
+  // the user's home directory, or any ancestor above homedir() (e.g. /Users, /home, C:\Users),
+  // even when DSH_HOME is isolated outside $HOME.
   async function isRootOrHome(realDir) {
     if (typeof realDir !== 'string' || realDir === '' || dirname(realDir) === realDir) return true
     const home = await rt.real(homedir())
-    if (samePath(realDir, home)) return true
+    if (containsPath(home, realDir)) return true
     return false
   }
 
   // Resolves the minimal existing parent directories named by the request that would need to be
   // added to extraDirs so future calls of this file tool on the same target(s) proceed without
-  // re-asking. Never walks upward past a non-existent directory, and rejects roots, homedir,
-  // guarded data folders, private clashes, private Bots, local agents, and > MAX_EXTRA_DIRS.
+  // re-asking. Never walks upward past a non-existent directory, and rejects roots, homedir and
+  // its ancestors, guarded data folders, private clashes, stale saved entries, private Bots,
+  // local agents, and > MAX_EXTRA_DIRS.
   async function resolvableExtraDirs({ session, botId, roomId, name, args }) {
     const bot = rt.botOf(botId)
     if (bot === undefined || bot.private === true || onLocalAgent(bot)) return []
     const room = rt.roomOf(roomId)
+    if (roomId !== undefined && room === undefined) return []
     const targets = targetsOf(name, args)
     if (targets.length === 0) return []
     const policy = ctx.get?.('sandboxPolicy')?.resolve?.({ session })
@@ -170,6 +174,11 @@ export function install(rt) {
     if (typeof fs?.resolve !== 'function' || typeof fs.processPath !== 'function' || typeof fs.processPathFromHostPath !== 'function') return []
     const holderIsRoom = room?.workDir !== undefined
     const clashOpts = holderIsRoom ? {} : { except: botId }
+    const holder = holderIsRoom ? room : bot
+    const baseList = Array.isArray(holder.extraDirs) ? holder.extraDirs : []
+    for (const dir of baseList) {
+      if (!(await rt.isFolder(dir))) return []
+    }
     const currentExtras = extraDirsOf({ botId, roomId })
     const existingDirs = [policy.workspaceRoot ?? session?.header?.cwd, ...currentExtras].filter(Boolean)
     const roots = (await Promise.all(existingDirs.map(async dir => (await rt.isFolder(dir) ? rt.real(dir) : undefined)))).filter(Boolean)
@@ -186,49 +195,73 @@ export function install(rt) {
       if (!needed.includes(realDir)) needed.push(realDir)
     }
     if (needed.length === 0) return []
-    const holder = holderIsRoom ? room : bot
-    const baseList = Array.isArray(holder.extraDirs) ? holder.extraDirs : []
     const combined = [...new Set([...baseList, ...needed])]
     if (combined.length > MAX_EXTRA_DIRS) return []
     return needed
   }
 
-  // Persists extra directories granted via "Always allow" onto the owning room (when the room
-  // pins its own working folder) or Bot, enforcing the exact same root/home, folder, and privacy guards.
-  async function grantExtraDirs({ botId, roomId, dirs }) {
+  const refused = () => Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+
+  // Phase 1 of "Always allow": validates bot/room eligibility, scope match (preventing TOCTOU
+  // if `room.workDir` was toggled while the approval was open), incoming & existing folders,
+  // MAX_EXTRA_DIRS, root/home/ancestor guards, and privacy clashes without mutating
+  // `holder.extraDirs` or saving state. Call `verifySync()` + `commit()` only after settling.
+  async function prepareGrantExtraDirs({ botId, roomId, dirs, scope } = {}) {
     await rt.load()
     const bot = rt.botOf(botId)
-    if (bot === undefined || bot.private === true || onLocalAgent(bot)) {
-      throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
-    }
+    if (bot === undefined || bot.private === true || onLocalAgent(bot)) throw refused()
     const room = rt.roomOf(roomId)
+    if (roomId !== undefined && room === undefined) throw refused()
     const holderIsRoom = room?.workDir !== undefined
+    if (scope !== undefined && holderIsRoom !== (scope === 'group')) throw refused()
     const holder = holderIsRoom ? room : bot
     const clashOpts = holderIsRoom ? {} : { except: botId }
     const incoming = Array.isArray(dirs) ? dirs : []
+    if (incoming.length === 0) throw refused()
     for (const raw of incoming) {
-      if (!(await rt.isFolder(raw))) {
-        throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
-      }
+      if (!(await rt.isFolder(raw))) throw refused()
       const realDir = await rt.real(raw)
-      if (await isRootOrHome(realDir) || await rt.guarded(realDir)) {
-        throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
-      }
-      if (await rt.privateClash?.(realDir, clashOpts)) {
-        throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
-      }
+      if (await isRootOrHome(realDir) || await rt.guarded(realDir)) throw refused()
+      if (await rt.privateClash?.(realDir, clashOpts)) throw refused()
     }
-    const current = Array.isArray(holder.extraDirs) ? holder.extraDirs : []
+    const current = Array.isArray(holder.extraDirs) ? [...holder.extraDirs] : []
     const cleaned = await cleanExtraDirs([...current, ...incoming])
     for (const dir of cleaned) {
-      if (await rt.privateClash?.(dir, clashOpts)) {
-        throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
-      }
+      if (await rt.privateClash?.(dir, clashOpts)) throw refused()
     }
-    holder.extraDirs = cleaned
-    await rt.save()
-    return cleaned
+    const snapshot = JSON.stringify(current)
+    const verifySync = () => {
+      const latestBot = rt.botOf(botId)
+      if (latestBot === undefined || latestBot.private === true || onLocalAgent(latestBot)) return false
+      const latestRoom = rt.roomOf(roomId)
+      if (roomId !== undefined && latestRoom === undefined) return false
+      const latestIsRoom = latestRoom?.workDir !== undefined
+      if (latestIsRoom !== holderIsRoom) return false
+      const latestHolder = latestIsRoom ? latestRoom : latestBot
+      if (latestHolder !== holder) return false
+      const latestCurrent = Array.isArray(latestHolder.extraDirs) ? latestHolder.extraDirs : []
+      return JSON.stringify(latestCurrent) === snapshot
+    }
+    const commit = async () => {
+      const prev = holder.extraDirs
+      holder.extraDirs = cleaned
+      try {
+        await rt.save()
+      } catch (error) {
+        holder.extraDirs = prev
+        throw error
+      }
+      return cleaned
+    }
+    return { cleaned, verifySync, commit }
   }
 
-  Object.assign(rt, { extraDirsOf, extraDirsOfSession, cleanExtraDirs, approveExtraDirs, onLocalAgent, resolvableExtraDirs, grantExtraDirs })
+  // Persists extra directories granted via "Always allow" onto the owning room (when the room
+  // pins its own working folder) or Bot, enforcing the exact same root/home, folder, and privacy guards.
+  async function grantExtraDirs(options) {
+    const prepared = await prepareGrantExtraDirs(options)
+    return prepared.commit()
+  }
+
+  Object.assign(rt, { extraDirsOf, extraDirsOfSession, cleanExtraDirs, approveExtraDirs, onLocalAgent, resolvableExtraDirs, prepareGrantExtraDirs, grantExtraDirs })
 }

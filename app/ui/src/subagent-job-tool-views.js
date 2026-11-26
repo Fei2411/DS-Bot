@@ -4,7 +4,7 @@
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { CheckIcon, CopyIcon, PeopleIcon, StopIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
-import { t } from '../../../ds-bot/src/client/i18n.js'
+import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 import { writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { elapsedLabel } from '../../../ds-bot/src/client/text.js'
 import { CodeSection, clipLongText, formatArgs, formatResult, formatToolDuration } from './tool-card.js'
@@ -352,7 +352,7 @@ export function JobStopButton({ sessionId, jobId, disabled = false, onStopped })
       onStopped?.()
     } catch (failure) {
       setStage('idle')
-      setError(failure?.message ? String(failure.message) : t('Could not stop job'))
+      setError(failure?.message ? hostText(String(failure.message)) : t('Could not stop job'))
     }
   }
 
@@ -376,7 +376,7 @@ export function JobStopButton({ sessionId, jobId, disabled = false, onStopped })
  */
 export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, initialStatus = '', onStatusChange, onUnavailable }) {
   const [job, setJob] = useState(null)
-  const [output, setOutput] = useState('')
+  const [segments, setSegments] = useState([])
   const [lossy, setLossy] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -419,19 +419,17 @@ export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, i
       const fallbackDelta = typeof res?.text === 'string' ? res.text : (typeof res?.output === 'string' ? res.output : '')
       const hasChunkText = chunks !== null && chunks.some(chunk => typeof chunk?.text === 'string' && chunk.text !== '')
       if (hasChunkGap || hasChunkText || fallbackDelta !== '') {
-        setOutput((prev) => {
+        setSegments((prev) => {
+          const added = []
           if (chunks !== null && (hasChunkGap || hasChunkText)) {
-            let out = prev
             for (const chunk of chunks) {
-              if (chunk?.gapBefore === true) {
-                if (out !== '' && !out.endsWith('\n')) out += '\n'
-                out += `… ${t('Earlier output was dropped')} …\n`
-              }
-              if (typeof chunk?.text === 'string') out += chunk.text
+              if (chunk?.gapBefore === true) added.push({ gap: true })
+              if (typeof chunk?.text === 'string' && chunk.text !== '') added.push({ text: chunk.text })
             }
-            return out
+          } else if (fallbackDelta !== '') {
+            added.push({ text: fallbackDelta })
           }
-          return prev + fallbackDelta
+          return added.length > 0 ? [...prev, ...added] : prev
         })
       }
       const nextCursor = Number.isInteger(res?.next) ? res.next : res?.nextOffset
@@ -460,7 +458,7 @@ export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, i
 
   useEffect(() => {
     offsetRef.current = 0
-    setOutput('')
+    setSegments([])
     setJob(null)
     setLossy(false)
     setUnavailable(false)
@@ -500,18 +498,37 @@ export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, i
   const elapsed = Number.isFinite(job?.startedAt)
     ? elapsedLabel(Math.max(0, (Number.isFinite(endedAt) ? endedAt : now) - job.startedAt))
     : ''
-  const clipped = useMemo(() => clipLongText(output), [output])
-  const shownOutput = expanded || !clipped.folded ? output : clipped.shown
+  // Keep raw retained process text separate from rendered gap markers so Copy exports
+  // exact job output without leaking localized UI prose into logs or JSONL streams.
+  const rawOutput = useMemo(
+    () => segments.map(seg => seg.text ?? '').join(''),
+    [segments],
+  )
+  const displayOutput = useMemo(() => {
+    let out = ''
+    for (const seg of segments) {
+      if (seg.gap) {
+        if (out !== '' && !out.endsWith('\n')) out += '\n'
+        out += `… ${t('Earlier output was dropped')} …\n`
+      } else if (seg.text) {
+        out += seg.text
+      }
+    }
+    return out
+  }, [segments])
+  const clipped = useMemo(() => clipLongText(displayOutput), [displayOutput])
+  const shownOutput = expanded || !clipped.folded ? displayOutput : clipped.shown
 
   const copy = () => {
-    void writeClipboard(output).then((ok) => {
+    if (rawOutput === '') return
+    void writeClipboard(rawOutput).then((ok) => {
       if (!ok) return
       setCopied(true)
       setTimeout(() => setCopied(false), 1000)
     })
   }
 
-  if (unavailable && !job && output === '') return null
+  if (unavailable && !job && displayOutput === '') return null
 
   return h('div', { className: 'dsb-job-panel', 'data-status': status },
     h('div', { className: 'dsb-job-head' },
@@ -523,16 +540,16 @@ export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, i
         ? h(JobStopButton, { sessionId, jobId, onStopped: () => { void refresh() } })
         : null),
     job?.detail ? h('div', { className: 'dsb-job-detail' }, job.detail) : null,
-    output !== '' ? h('div', { className: 'dsb-tool-sec' },
+    displayOutput !== '' ? h('div', { className: 'dsb-tool-sec' },
       h('div', { className: 'dsb-tool-sec-head' },
         h('span', { className: 'dsb-tool-sec-label' }, active ? t('Live output') : t('Output')),
-        h('button', {
+        rawOutput !== '' ? h('button', {
           type: 'button',
           className: 'bt-mini dsb-tool-copy',
           'aria-label': copied ? t('Copied') : t('Copy'),
           title: copied ? t('Copied') : t('Copy'),
           onClick: copy,
-        }, copied ? h(CheckIcon) : h(CopyIcon))),
+        }, copied ? h(CheckIcon) : h(CopyIcon)) : null),
       h('pre', { className: 'dsb-tool-pre' }, h('code', null, shownOutput)),
       clipped.folded ? h('button', {
         type: 'button',
@@ -542,12 +559,15 @@ export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, i
       }, expanded ? t('Show less') : t('Show all ({count} lines)', { count: clipped.lines })) : null) : null)
 }
 
+const isActiveJob = item => item?.status === 'running' || item?.status === 'stopping'
+
 /**
  * Tool card for `job_list`, `job_output`, and `job_kill`.
  */
 export function JobToolView({ toolName, block, phase, useDisclosure, sessionId, feed, readOnly }) {
   const disclosure = useDisclosure(toolName === 'job_list')
   const [liveJobs, setLiveJobs] = useState(null)
+  const [listUnavailable, setListUnavailable] = useState(false)
   const [liveOutputStatus, setLiveOutputStatus] = useState('')
   const [liveUnavailable, setLiveUnavailable] = useState(false)
   const isError = phase === 'result' && block?.isError === true
@@ -572,18 +592,33 @@ export function JobToolView({ toolName, block, phase, useDisclosure, sessionId, 
     if (!sessionId || toolName !== 'job_list') return
     try {
       const res = await call('job-list', { sessionId })
-      if (Array.isArray(res?.jobs)) setLiveJobs(res.jobs)
-    } catch { /* fallback to snapshot list */ }
-  }, [sessionId, toolName])
+      if (!Array.isArray(res?.jobs)) return
+      if (res.jobs.length === 0 && parsedList.length > 0) {
+        // Keep the historical snapshot intact once live jobs have been pruned or after restart.
+        setListUnavailable(true)
+        return
+      }
+      setLiveJobs(res.jobs)
+    } catch (error) {
+      if (error?.code === 'bot/not-found' || error?.code === 'bot/refused') setListUnavailable(true)
+    }
+  }, [sessionId, toolName, parsedList.length])
+
+  const snapshotListActive = toolName === 'job_list' && phase === 'result' && parsedList.some(isActiveJob)
+  const watchJobList = snapshotListActive
+    && Boolean(sessionId)
+    && disclosure.expanded
+    && !listUnavailable
+    && (liveJobs === null || liveJobs.some(isActiveJob))
 
   useEffect(() => {
-    if (toolName !== 'job_list' || !sessionId || !disclosure.expanded) return undefined
+    if (!watchJobList) return undefined
     void refreshList()
     if (!feed) return undefined
     return feed.on((event, data) => {
       if (event === 'jobs' && (!data?.sessionId || data.sessionId === sessionId)) void refreshList()
     })
-  }, [toolName, sessionId, disclosure.expanded, feed, refreshList])
+  }, [watchJobList, sessionId, feed, refreshList])
 
   const snapshotInProgress = parsedOutput?.status === 'running' || parsedOutput?.status === 'stopping'
   const effectiveOutputStatus = liveOutputStatus || parsedOutput?.status || ''
@@ -622,8 +657,10 @@ export function JobToolView({ toolName, block, phase, useDisclosure, sessionId, 
     return () => { alive = false; off?.() }
   }, [watchCollapsedStatus, sessionId, jobId, feed])
 
-  const shownList = liveJobs ?? parsedList
-  const activeCount = shownList.filter(item => item.status === 'running' || item.status === 'stopping').length
+  const shownList = Array.isArray(liveJobs) && (liveJobs.length > 0 || parsedList.length === 0)
+    ? liveJobs
+    : parsedList
+  const activeCount = shownList.filter(isActiveJob).length
 
   const badges = []
   if (toolName === 'job_list' && phase === 'result') {
@@ -678,7 +715,7 @@ export function JobToolView({ toolName, block, phase, useDisclosure, sessionId, 
       h('span', { className: 'dsb-job-id' }, item.id),
       h('span', { className: 'dsb-tool-pill', 'data-tone': jobStatusTone(item.status) }, t(JOB_STATUS_LABELS[item.status] ?? item.status)),
       h('span', { className: 'dsb-job-label', title: item.label }, item.label),
-      item.status === 'running' && !readOnly && sessionId
+      item.status === 'running' && !readOnly && !listUnavailable && sessionId
         ? h(JobStopButton, { sessionId, jobId: item.id, onStopped: () => { void refreshList() } })
         : null))) : null,
   showLivePanel ? h(BackgroundJobPanel, { sessionId, jobId, feed, readOnly, initialStatus: parsedOutput?.status || effectiveOutputStatus, onStatusChange: setLiveOutputStatus, onUnavailable: setLiveUnavailable }) : null,

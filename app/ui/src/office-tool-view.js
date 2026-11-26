@@ -37,7 +37,7 @@ const CLI_OP_LABELS = {
   docx: 'Word document',
   pptx: 'Presentation',
   xlsx: 'Spreadsheet',
-  sheet: 'Spreadsheet',
+  sheet: 'Contact sheet',
   check: 'Check document',
   pack: 'Pack document',
   unpack: 'Unpack document',
@@ -186,8 +186,8 @@ export function parseOfficeCliCommand(command) {
     if (tok.startsWith('--output=')) { outputPath = tok.slice(9); continue }
     if (tok === '--in-place') { inPlace = true; continue }
     if (tok.startsWith('-')) {
-      // Skip value for known value flags.
-      if (['--sheet', '--range', '--slide', '--format', '--dpi', '--pages', '--json-file', '--spec', '--against', '--ops', '--order'].includes(tok)) i += 1
+      // Skip value for known value flags (matching ds-bot/src/office/cli.js options).
+      if (['--sheet', '--range', '--slides', '--slide', '--cols', '--width', '--format', '--dpi', '--pages', '--json-file', '--spec', '--against', '--ops', '--order'].includes(tok)) i += 1
       continue
     }
     if (!action && ['docx', 'pptx', 'xlsx'].includes(subcommand) && !tok.includes('.') && !tok.includes('/') && !tok.includes('\\')) {
@@ -198,7 +198,7 @@ export function parseOfficeCliCommand(command) {
   }
   const docPath = positionals.find(p => /\.(docx|xlsx|pptx|pdf|odt|ods|odp)$/i.test(p)) ?? positionals[0] ?? ''
   const targetPath = outputPath || docPath
-  const docKind = officeKindOf(targetPath) || (subcommand === 'docx' ? 'Word' : subcommand === 'pptx' ? 'PowerPoint' : (subcommand === 'xlsx' || subcommand === 'sheet') ? 'Excel' : '')
+  const docKind = officeKindOf(targetPath) || (subcommand === 'docx' ? 'Word' : subcommand === 'pptx' ? 'PowerPoint' : subcommand === 'xlsx' ? 'Excel' : '')
   return {
     subcommand,
     action,
@@ -226,9 +226,12 @@ export function parseOfficeCliOutput(text) {
           : Number.isInteger(data.paragraphs) ? { kind: 'paragraphs', value: data.paragraphs }
             : Number.isInteger(data.pages) ? { kind: 'pages', value: data.pages }
               : null
+    const errorMessage = typeof parsed.error === 'string'
+      ? parsed.error
+      : (typeof parsed.error?.message === 'string' ? parsed.error.message : '')
     return {
       ok: parsed.ok !== false,
-      error: typeof parsed.error === 'string' ? parsed.error : '',
+      error: errorMessage,
       outPath,
       findings,
       count,
@@ -382,9 +385,21 @@ export function OfficeCliCard({ parsedCli, command, block, cwd, workdir = '', ph
   const exitParsed = useMemo(() => (phase === 'result' ? parseExitStatus(rawResult) : null), [phase, rawResult])
   const bodyText = exitParsed ? exitParsed.body : ''
   const cliOut = useMemo(() => (phase === 'result' ? parseOfficeCliOutput(bodyText) : null), [phase, bodyText])
+  // `office.js check` and `pptx layout` exit with code 1 when findings remain while
+  // reporting `{ ok: true, data: { findings: [...] } }`; treat that as a warning with
+  // findings and keep Preview enabled instead of flagging the command as a hard error.
+  const findingsExit = exitParsed !== null
+    && !('signal' in exitParsed)
+    && exitParsed.exitCode === 1
+    && cliOut?.ok === true
+    && typeof cliOut.findings === 'number'
+    && cliOut.findings > 0
   const nonZero = exitParsed !== null && ('signal' in exitParsed || exitParsed.exitCode !== 0)
-  const isError = phase === 'result' && (block?.isError === true || nonZero || cliOut?.ok === false)
-  const errLine = errorLineOf(block, block?.isError === true) || (cliOut?.ok === false ? cliOut.error : '')
+  const isError = phase === 'result' && (
+    cliOut?.ok === false
+    || (!findingsExit && (block?.isError === true || nonZero))
+  )
+  const errLine = (!findingsExit ? errorLineOf(block, block?.isError === true) : '') || (cliOut?.ok === false ? cliOut.error : '')
 
   const previewPath = officePreviewTarget(parsedCli.inputPath, cliOut?.outPath || parsedCli.outputPath, cwd, workdir)
   const displayPath = shortPath(previewPath || parsedCli.inputPath, cwd)
@@ -405,7 +420,7 @@ export function OfficeCliCard({ parsedCli, command, block, cwd, workdir = '', ph
   }
   if (exitParsed && 'signal' in exitParsed) {
     badges.push(h('span', { key: 'sig', className: 'dsb-tool-pill', 'data-tone': 'danger' }, t('signal {signal}', { signal: exitParsed.signal })))
-  } else if (exitParsed && exitParsed.exitCode !== 0) {
+  } else if (exitParsed && exitParsed.exitCode !== 0 && !findingsExit) {
     badges.push(h('span', { key: 'exit', className: 'dsb-tool-pill', 'data-tone': 'danger' }, t('exit {code}', { code: exitParsed.exitCode })))
   }
 
