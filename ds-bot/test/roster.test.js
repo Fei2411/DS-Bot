@@ -1849,63 +1849,30 @@ test('buffered silent notes survive missing-Session recovery onto the fresh Sess
     },
     rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
   }
-  let failFlush = true
-  let flushes = 0
-  const { call, stop, injected } = start(team, {
+  const { call, stop } = start(team, {
     models: ['deepseek-v4-flash'],
     lost: new Set(['gone-session']),
-    flush: async () => {
-      flushes += 1
-      if (failFlush) {
-        failFlush = false
-        throw new Error('transient flush error')
-      }
-    },
   })
   t.after(stop)
   await call('state', {})
+  await rt.adoptLiveWork()
 
-  // Persisted silent note restored onto the missing Session stays buffered while owned.
-  const note = {
-    id: 'silent-note-1',
-    content: [{ type: 'text', text: '[Note from Peer · FYI only, no reply needed]\nKeep this note across recovery.' }],
-    source: { kind: 'ds-bot', role: 'note', exchangeId: 'ex-silent-1' },
-  }
-  await rt.restoreSilentNotes({ 'gone-session': [{ message: note }] })
-  assert.equal(injected.length, 0)
+  // Silent note dispatched while Session is missing persists durably in SQLite `fg:chief` inbox.
+  await rt.dispatchNote('fg:chief', '[Note from Peer · FYI only, no reply needed]\nKeep this note across recovery.', {
+    idempotencyKey: 'ex-silent-1',
+    dedupKey: 'ex-silent-1',
+  })
+  assert.equal(rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note').length, 1)
 
-  // First flush fails during `recover-session`, leaving `state.switching['gone-session']`
-  // with `missing: true` for `handOnHeld` retry; no note is dropped.
+  // Missing-Session recovery rebinds `fg:chief` to the fresh Session and keeps the unread silent note intact!
   const recovered = await call('recover-session', { botId: 'chief' })
   assert.equal(recovered.ok, true)
   const freshId = recovered.value.sessionId
   assert.notEqual(freshId, 'gone-session')
-  assert.equal(rt.state.switching['gone-session']?.missing, true)
-  assert.equal(flushes, 1)
-
-  // Retry path (`handOnHeld`) flushes the migrated silent note onto the fresh Session
-  // without duplicating it and clears the recovery record.
-  await rt.heldBack()
-  assert.equal(flushes, 2)
-  const delivered = injected.filter(entry => entry.sessionId === freshId && entry.message?.source?.exchangeId === 'ex-silent-1')
-  assert.equal(delivered.length, 1)
-  assert.equal(rt.state.switching['gone-session'], undefined)
-
-  // Direct recovery path (when flush succeeds immediately) also moves silent notes
-  // before dropping the lost Session from `chatOwners`.
-  const direct = start(team, {
-    models: ['deepseek-v4-flash'],
-    lost: new Set(['gone-session']),
-  })
-  t.after(direct.stop)
-  await direct.call('state', {})
-  await rt.restoreSilentNotes({ 'gone-session': [{ message: note }] })
-  const directRecovered = await direct.call('recover-session', { botId: 'chief' })
-  assert.equal(directRecovered.ok, true)
-  assert.deepEqual(
-    direct.injected.filter(entry => entry.sessionId === directRecovered.value.sessionId).map(entry => entry.message?.source?.exchangeId),
-    ['ex-silent-1'],
-  )
+  assert.equal(rt.coordDb.getForegroundWork('chief')?.sessionId, freshId)
+  const notesAfter = rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note')
+  assert.equal(notesAfter.length, 1)
+  assert.equal(notesAfter[0].dedupKey, 'ex-silent-1')
   assert.equal(rt.state.switching['gone-session'], undefined)
 })
 
@@ -1978,10 +1945,7 @@ test('persisted silent notes survive missing-Session recovery when recovery runs
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-race-'))
   t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
 
-  t.mock.timers.enable({ apis: ['setTimeout'] })
-  t.after(() => t.mock.timers.reset())
-
-  // Boot with the silent note ONLY persisted on disk under `gone-session` (not in memory).
+  // Boot with legacy silent note persisted on disk under `gone-session`.
   const first = start(team, {
     home,
     keepHome: true,
@@ -1992,33 +1956,23 @@ test('persisted silent notes survive missing-Session recovery when recovery runs
   t.after(first.stop)
 
   await first.call('state', {})
-  assert.equal(first.injected.length, 0, 'startup replay timer has not fired yet')
+  await first.rt.adoptLiveWork()
 
-  // Trigger missing-Session recovery BEFORE the 3s startup replay timer fires.
+  // Recover missing Session -> `fg:chief` rebounds to `freshId` while preserving the migrated SQLite note once.
   const recovered = await first.call('recover-session', { botId: 'chief' })
   assert.equal(recovered.ok, true)
   const freshId = recovered.value.sessionId
   assert.notEqual(freshId, 'gone-session')
-  assert.deepEqual(
-    first.injected.filter(entry => entry.sessionId === freshId).map(entry => entry.message?.source?.exchangeId),
-    ['ex-startup-race-1'],
-  )
+  assert.equal(first.rt.coordDb.getForegroundWork('chief')?.sessionId, freshId)
+  const notes = first.rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note')
+  assert.equal(notes.length, 1)
+  assert.match(notes[0].bodyPreview, /Do not lose me before startup replay\./)
   assert.equal(first.rt.state.switching['gone-session'], undefined)
 
-  // Now let startup replay (`resumeAll` -> `restoreSilentNotes`) and `heldBack` fire:
-  // the note must not be dropped or duplicated.
-  t.mock.timers.tick(3500)
-  await first.rt.flushInflight?.()
-  t.mock.timers.reset()
-  await settle()
-  assert.deepEqual(
-    first.injected.filter(entry => entry.sessionId === freshId).map(entry => entry.message?.source?.exchangeId),
-    ['ex-startup-race-1'],
-  )
+  // Acknowledge the note on `freshId`; a subsequent restart must not replay or duplicate it.
+  first.rt.coordDb.ackInboxSeq('fg:chief', notes[0].seq)
   await first.stop()
 
-  // A subsequent restart on the same home must not replay the already-delivered note.
-  t.mock.timers.enable({ apis: ['setTimeout'] })
   const second = start(undefined, {
     home,
     keepHome: true,
@@ -2027,13 +1981,11 @@ test('persisted silent notes survive missing-Session recovery when recovery runs
   })
   t.after(second.stop)
   await second.call('state', {})
-  t.mock.timers.tick(3500)
-  t.mock.timers.reset()
-  await settle()
-  assert.equal(second.injected.length, 0)
+  await second.rt.adoptLiveWork()
+  assert.equal(second.rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note').length, 0)
 })
 
-test('missing-Session recovery commits replacement ownership before removing silent notes across crash boundaries', async (t) => {
+test('missing-Session recovery commits replacement ownership before rebinding silent notes across crash boundaries', async (t) => {
   const note = {
     id: 'silent-crash-window-1',
     content: [{ type: 'text', text: '[Note from Peer · FYI only, no reply needed]\nSurvive any crash boundary.' }],
@@ -2052,8 +2004,8 @@ test('missing-Session recovery commits replacement ownership before removing sil
     rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
   })
 
-  // 1) Failure/crash BEFORE `rt.save()` commits: persisted silent notes must stay under
-  //    `gone-session` (never deleted or moved onto an unowned replacement Session).
+  // 1) Failure/crash BEFORE `rt.save()` commits: `state.json` and `fg:chief` keep `gone-session`
+  //    and the durable silent note stays intact in SQLite (never rebound to an uncommitted Session).
   const homeBeforeSave = mkdtempSync(join(tmpdir(), 'ds-bot-roster-crash-before-'))
   const statePathBeforeSave = join(homeBeforeSave, 'state.json')
   const origRename = fsp.rename
@@ -2079,18 +2031,17 @@ test('missing-Session recovery commits replacement ownership before removing sil
     lost: new Set(['gone-session']),
   })
   await beforeCrash.call('state', {})
+  await beforeCrash.rt.adoptLiveWork()
   failStateRename = true
   const failedRecover = await beforeCrash.call('recover-session', { botId: 'chief' })
   assert.equal(failedRecover.ok, false)
-  assert.equal(beforeCrash.injected.length, 0, 'no silent note may flush to an uncommitted replacement Session')
-  await beforeCrash.rt.flushInflight?.()
   const stateStillOld = JSON.parse(readFileSync(statePathBeforeSave, 'utf8'))
   assert.equal(stateStillOld.bots.chief.sessionId, 'gone-session')
-  const inflightStillOld = JSON.parse(readFileSync(join(homeBeforeSave, 'inflight.json'), 'utf8'))
-  assert.equal(inflightStillOld.silent?.['gone-session']?.length, 1)
+  assert.equal(beforeCrash.rt.coordDb.getForegroundWork('chief')?.sessionId, 'gone-session')
+  assert.equal(beforeCrash.rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note').length, 1)
   await beforeCrash.stop()
 
-  // Restart after pre-save crash: `gone-session` is still owned, and recovery delivers the note once.
+  // Restart after pre-save crash: `state.json` commits `freshId` BEFORE `rebindSession` runs.
   failStateRename = false
   const afterPreSaveCrash = start(undefined, {
     home: homeBeforeSave,
@@ -2100,24 +2051,24 @@ test('missing-Session recovery commits replacement ownership before removing sil
   })
   t.after(afterPreSaveCrash.stop)
   await afterPreSaveCrash.call('state', {})
-  let diskStateAtMove
-  const origMove = afterPreSaveCrash.rt.moveSilentNotes
-  afterPreSaveCrash.rt.moveSilentNotes = (...args) => {
-    diskStateAtMove = JSON.parse(readFileSync(statePathBeforeSave, 'utf8'))
-    return origMove(...args)
+  await afterPreSaveCrash.rt.adoptLiveWork()
+  let diskStateAtRebind
+  const origRebind = afterPreSaveCrash.rt.coordDb.rebindSession.bind(afterPreSaveCrash.rt.coordDb)
+  afterPreSaveCrash.rt.coordDb.rebindSession = (...args) => {
+    diskStateAtRebind = JSON.parse(readFileSync(statePathBeforeSave, 'utf8'))
+    return origRebind(...args)
   }
   const recoveredAfterRestart = await afterPreSaveCrash.call('recover-session', { botId: 'chief' })
   assert.equal(recoveredAfterRestart.ok, true)
   const freshAfterRestart = recoveredAfterRestart.value.sessionId
-  assert.equal(diskStateAtMove?.bots?.chief?.sessionId, freshAfterRestart, 'state.json must own freshId before moveSilentNotes runs')
-  assert.equal(diskStateAtMove?.switching?.['gone-session']?.missing, true, 'state.json must persist recovery lineage before moveSilentNotes runs')
-  assert.deepEqual(
-    afterPreSaveCrash.injected.filter(entry => entry.sessionId === freshAfterRestart).map(entry => entry.message?.source?.exchangeId),
-    ['ex-crash-window-1'],
-  )
+  assert.equal(diskStateAtRebind?.bots?.chief?.sessionId, freshAfterRestart, 'state.json must own freshId before coordDb.rebindSession runs')
+  assert.equal(diskStateAtRebind?.switching?.['gone-session']?.missing, true, 'state.json must persist recovery lineage before rebinding')
+  assert.equal(afterPreSaveCrash.rt.coordDb.getForegroundWork('chief')?.sessionId, freshAfterRestart)
+  assert.equal(afterPreSaveCrash.rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note').length, 1)
 
   // 2) Crash AFTER `rt.save()` committed `fresh-committed` + `state.switching['gone-session']`,
-  //    BEFORE `moveSilentNotes` removed `gone-session`'s persisted silent note.
+  //    BEFORE legacy `inflight.silent['gone-session']` was migrated: startup maps `gone-session`
+  //    via `switching` onto `fg:chief` (`fresh-committed`) without dropping or duplicating!
   const postSaveTeam = {
     ...makeTeam(),
     bots: {
@@ -2129,12 +2080,8 @@ test('missing-Session recovery commits replacement ownership before removing sil
     },
     switching: { 'gone-session': { botId: 'chief', missing: true } },
   }
-
-  // 2a) Restart where startup replay (`resumeAll` -> `restoreSilentNotes`) runs first:
   const homePostSaveReplay = mkdtempSync(join(tmpdir(), 'ds-bot-roster-crash-after-a-'))
   t.after(() => rmSync(homePostSaveReplay, { recursive: true, force: true, maxRetries: 5 }))
-  t.mock.timers.enable({ apis: ['setTimeout'] })
-  t.after(() => t.mock.timers.reset())
   const restartA = start(postSaveTeam, {
     home: homePostSaveReplay,
     keepHome: true,
@@ -2144,40 +2091,9 @@ test('missing-Session recovery commits replacement ownership before removing sil
   })
   t.after(restartA.stop)
   await restartA.call('state', {})
-  t.mock.timers.tick(3500)
-  t.mock.timers.reset()
-  await until(() => restartA.injected.some(entry => entry.sessionId === 'fresh-committed'))
-  await settle()
-  assert.deepEqual(
-    restartA.injected.filter(entry => entry.sessionId === 'fresh-committed').map(entry => entry.message?.source?.exchangeId),
-    ['ex-crash-window-1'],
-  )
-  assert.equal(restartA.rt.state.switching['gone-session'], undefined)
-
-  // 2b) Restart where `handOnHeld` runs BEFORE the 3s startup replay timer fires (e.g. schedules attach early):
-  const homePostSaveHeld = mkdtempSync(join(tmpdir(), 'ds-bot-roster-crash-after-b-'))
-  t.after(() => rmSync(homePostSaveHeld, { recursive: true, force: true, maxRetries: 5 }))
-  t.mock.timers.enable({ apis: ['setTimeout'] })
-  const restartB = start(postSaveTeam, {
-    home: homePostSaveHeld,
-    keepHome: true,
-    inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
-    models: ['deepseek-v4-flash'],
-    lost: new Set(['gone-session']),
-  })
-  t.after(restartB.stop)
-  await restartB.call('state', {})
-  await restartB.rt.heldBack()
-  assert.deepEqual(
-    restartB.injected.filter(entry => entry.sessionId === 'fresh-committed').map(entry => entry.message?.source?.exchangeId),
-    ['ex-crash-window-1'],
-  )
-  assert.equal(restartB.rt.state.switching['gone-session'], undefined)
-  t.mock.timers.tick(3500)
-  t.mock.timers.reset()
-  await settle()
-  assert.deepEqual(
-    restartB.injected.filter(entry => entry.sessionId === 'fresh-committed').map(entry => entry.message?.source?.exchangeId),
-    ['ex-crash-window-1'],
-  )
+  await restartA.rt.adoptLiveWork()
+  assert.equal(restartA.rt.coordDb.getForegroundWork('chief')?.sessionId, 'fresh-committed')
+  const migratedNotes = restartA.rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note')
+  assert.equal(migratedNotes.length, 1)
+  assert.match(migratedNotes[0].bodyPreview, /Survive any crash boundary\./)
 })

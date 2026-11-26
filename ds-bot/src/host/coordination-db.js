@@ -2562,6 +2562,15 @@ export function openCoordinationDb({
         })
         trackWork(fgRes)
         for (const sid of fgSet) sessionToWorkId.set(sid, fgRes.work.workId)
+      }
+      for (const [sid, sw] of Object.entries(legacyState?.switching && typeof legacyState.switching === 'object' ? legacyState.switching : {})) {
+        if (typeof sid === 'string' && sid !== '' && typeof sw?.botId === 'string' && sw.botId !== '' && !sessionToWorkId.has(sid)) {
+          sessionToWorkId.set(sid, `fg:${sw.botId}`)
+        }
+      }
+      for (const [key, bot] of Object.entries(bots)) {
+        if (!bot || typeof bot !== 'object') continue
+        const botId = typeof bot.id === 'string' && bot.id !== '' ? bot.id : key
 
         for (const task of Array.isArray(bot.tasks) ? bot.tasks : []) {
           if (!task || typeof task !== 'object' || typeof task.id !== 'string' || task.id === '') continue
@@ -2634,10 +2643,16 @@ export function openCoordinationDb({
         }
         const workId = `handoff:${id}`
         const bot = bots[ownerBot]
+        const hasPendingSubwork = lw.state === 'need_input'
+          || (Array.isArray(lw.open) && lw.open.length > 0)
+          || (Array.isArray(lw.results) && lw.results.length > 0)
         const status = lw.state === 'paused'
           ? 'paused'
-          : 'waiting'
-        const resolvedSessionId = lw.toSession ?? (lw.room ? undefined : (bot?.sessionId ?? (bot ? ownerBot : undefined)))
+          : hasPendingSubwork
+            ? 'waiting'
+            : 'queued'
+        const resolvedSessionId = lw.toSession
+          ?? (hasPendingSubwork && !lw.room ? (bot?.sessionId ?? (bot ? ownerBot : undefined)) : undefined)
         const res = createWork({
           workId,
           workRef: typeof lw.ref === 'string' ? lw.ref : undefined,

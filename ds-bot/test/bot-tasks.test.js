@@ -679,9 +679,12 @@ test('turn/end state machine ignores disposed, switched/blocked, HANDOFF_ACK, ru
   assert.equal(task.status, 'waiting_work')
   assert.equal(env.deliveries.filter(d => d.role === 'task-report').length, 0)
 
-  // 6. Once outgoing work closes, the final turn completes and reports once.
+  // 6. Once outgoing work closes, the final turn consumes the wake and completes once.
   env.rt.closeWork('w-out-1', 'Helper', 'looks good')
+  await waitFor(() => (env.agentMap.get(newSid)?.followups?.length ?? 0) >= 1)
+  const wakeMsg = env.agentMap.get(newSid).followups.at(-1)
   await env.emit(newSid, 'turn/start', { turn: 4 })
+  await env.emit(newSid, 'user/message', { turn: 4, content: wakeMsg.content, source: wakeMsg.source })
   await env.emit(newSid, 'assistant/message', { turn: 4, message: { role: 'assistant', content: [{ type: 'text', text: 'Final verified answer.' }] } })
   await env.emit(newSid, 'turn/end', { turn: 4, reason: { kind: 'completed' } })
   await waitFor(() => env.deliveries.some(d => d.role === 'task-report'))
