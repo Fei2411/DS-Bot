@@ -636,7 +636,7 @@ export function install(rt) {
     }
   }
 
-  /** @type {Map<string, {sig: string, window: string, texts: string[]}>} */
+  /** @type {Map<string, {sig: string, window: string, entries: Array<{text: string, mergedInto?: string}>}>} */
   const droppedCache = new Map()
   const signatureOf = (path) => {
     try {
@@ -679,9 +679,38 @@ export function install(rt) {
       if (text !== '') entries.push({ text, mergedInto })
     }
     if (kind === 'retired') {
+      // `scanned` is newest-first. Track forward merge edges (`sourceId -> into`)
+      // from newer batches so older merge constituents resolve transitively to the
+      // current survivor ID across repeated merges. Non-merge retirements and
+      // expirations place a `null` tombstone so lineage never crosses a retirement.
+      const nextTarget = new Map()
+      const resolveTarget = (id) => {
+        let cur = id
+        const seen = new Set()
+        while (nextTarget.has(cur)) {
+          if (seen.has(cur)) return undefined
+          seen.add(cur)
+          const next = nextTarget.get(cur)
+          if (next === null) return undefined
+          cur = next
+        }
+        return cur
+      }
       for (const row of scanned) {
-        if (fresh(row) && row.why !== 'ended') {
-          note(row.line, row.why === 'merged' && typeof row.into === 'string' ? row.into : undefined)
+        if (!fresh(row)) continue
+        const raw = typeof row.line === 'string' ? row.line : undefined
+        const parsed = raw === undefined ? undefined : splitMeta(String(raw).replace(/^\s*[-*]\s+/, ''))
+        const sourceId = parsed !== undefined && parsed.text !== '' ? entryId(parsed) : undefined
+        if (row.why === 'ended') {
+          if (sourceId !== undefined) nextTarget.set(sourceId, null)
+          continue
+        }
+        if (row.why === 'merged' && typeof row.into === 'string' && row.into !== '') {
+          note(raw, resolveTarget(row.into))
+          if (sourceId !== undefined && sourceId !== row.into) nextTarget.set(sourceId, row.into)
+        } else {
+          note(raw, undefined)
+          if (sourceId !== undefined) nextTarget.set(sourceId, null)
         }
       }
     } else {
@@ -725,15 +754,14 @@ export function install(rt) {
 
   // The removed or retired entry `text` would silently bring back, or undefined
   // when nothing this close left within the window. Journal removals and explicit
-  // retirements are always guarded; only a tidy merge constituent linked by its
-  // recorded `into` id to a live input entry that still carries it is exempted so
+  // retirements are always guarded; only a tidy merge constituent whose transitive
+  // merge lineage leads to a live input entry that still carries it is exempted so
   // routine corrections on a merged memory are not self-blocked.
-  function readdGuarded(scope, text, { mergedIds, priorTexts } = {}) {
-    const ids = mergedIds === undefined ? undefined : new Set(mergedIds)
-    const live = priorTexts === undefined ? [] : Array.isArray(priorTexts) ? priorTexts : [priorTexts]
+  function readdGuarded(scope, text, { liveInputs } = {}) {
+    const inputs = Array.isArray(liveInputs) ? liveInputs : []
     for (const dropped of droppedEntries(scope)) {
       if (!readdMatch(text, dropped.text)) continue
-      if (ids !== undefined && dropped.mergedInto !== undefined && ids.has(dropped.mergedInto) && live.some(prior => readdMatch(prior, dropped.text))) continue
+      if (dropped.mergedInto !== undefined && inputs.some(input => input.id === dropped.mergedInto && readdMatch(input.text, dropped.text))) continue
       return dropped.text
     }
     return undefined
@@ -1094,7 +1122,7 @@ export function install(rt) {
       // that merely goes back and forth between two live versions never matches,
       // because the guard only reads removals, never a replace's before-line.
       if (actor?.id !== 'user') {
-        const dropped = readdGuarded(scope, text, { mergedIds: [entryId(old)], priorTexts: [old.text] })
+        const dropped = readdGuarded(scope, text, { liveInputs: [{ id: entryId(old), text: old.text }] })
         if (dropped !== undefined) throw readdRefusal(dropped)
       }
       const hasUntil = Object.hasOwn(meta, 'until')

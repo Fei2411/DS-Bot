@@ -612,3 +612,49 @@ test('editing a merged memory allows routine corrections without tripping on its
   )
 })
 
+test('repeated tidy merges that keep different survivor IDs still allow routine corrections while blocking dropped constituents and explicit retirements', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memsec-'))
+  const dir = join(home, 'memory', 'bots', 'b2')
+  mkdirSync(dir, { recursive: true })
+  const filler = Array.from({ length: 12 }, (_, at) => `- Unrelated note ${at + 1} [id: f${String(at).padStart(3, '0')}; added: 2026-10-01]`)
+  writeFileSync(join(dir, 'MEMORY.md'), `# Memory\n\n- Atlas runs on Node 24 [id: a001; added: 2026-10-01]\n- Atlas deploys from main [id: b001; added: 2026-10-01]\n- Atlas deploys on weekdays [id: c001; added: 2026-10-01]\n- Atlas alerts route to pager duty [id: d001; added: 2026-10-01]\n- Atlas legacy cron runs midnight [id: e001; added: 2026-10-01]\n${filler.join('\n')}\n\n## Index\n`)
+  // Tidy 1 merges [a001, b001] -> survivor a001 (preserving "Atlas deploys from main"),
+  // and explicitly retires e001.
+  // Tidy 2 merges [c001, a001] -> survivor c001 (keeping a DIFFERENT ID, preserving "Atlas deploys from main" and dropping "runs on Node 24").
+  const replies = [
+    JSON.stringify({ changes: [
+      { op: 'merge', entries: [1, 2], text: 'Atlas runs on Node 24 and deploys from main' },
+      { op: 'retire', entry: 5, why: 'replaced by queue' },
+    ] }),
+    JSON.stringify({ changes: [
+      { op: 'merge', entries: [2, 1], text: 'Atlas deploys from main on weekdays' },
+    ] }),
+  ]
+  const { call, rt, tool, read, stop } = start({ home, replies, config: { memoryReview: false } })
+  t.after(() => stop())
+  await call('state', {})
+  await rt.tidyMemoryNow('bot:b2')
+  // Allow a second tidy pass on the same day.
+  writeFileSync(join(dir, 'tidied.json'), JSON.stringify({ day: '2020-01-01', time: '2020-01-01T00:00:00.000Z' }))
+  await rt.tidyMemoryNow('bot:b2')
+
+  const live = parseMemory(read('bots', 'b2', 'MEMORY.md')).entries
+  assert.ok(live.some(entry => entry.meta.id === 'c001' && entry.text === 'Atlas deploys from main on weekdays'), JSON.stringify(live))
+
+  // Routine edit on c001 retains "Atlas deploys from main" (archived under into: a001 -> c001) and adds deployment time: allowed.
+  assert.match(await tool('bot_remember', { replace: 'c001', text: 'Atlas deploys from main on weekdays at 10am' }, 'b2'), /^Updated in your memory/)
+  assert.ok(parseMemory(read('bots', 'b2', 'MEMORY.md')).entries.some(entry => entry.meta.id === 'c001' && entry.text === 'Atlas deploys from main on weekdays at 10am'))
+
+  // Reintroducing a constituent fact that merge 2 dropped ("Atlas runs on Node 24") is still blocked.
+  await assert.rejects(
+    tool('bot_remember', { replace: 'c001', text: 'Atlas runs on Node 24 and deploys from main on weekdays at 10am' }, 'b2'),
+    { code: 'memory/recent-removal' },
+  )
+
+  // Reintroducing an explicitly retired entry ("Atlas legacy cron runs midnight") is still blocked.
+  await assert.rejects(
+    tool('bot_remember', { replace: 'c001', text: 'Atlas deploys from main and Atlas legacy cron runs midnight' }, 'b2'),
+    { code: 'memory/recent-removal' },
+  )
+})
+
