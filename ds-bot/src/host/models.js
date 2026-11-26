@@ -155,7 +155,8 @@ export function install(rt) {
     const { agent, turn, step, signal, failure } = payload
     const code = failureCode(failure)
     if (code !== 'MALFORMED_RESPONSE' || signal?.aborted || !rt.isBotSession(agent.id)) return decided
-    // Newer DSH lets a retry policy name MALFORMED_RESPONSE, so dsh-llm-retry may retry first.
+    // A retry policy may name MALFORMED_RESPONSE (DSH 0.2.2-rc.5 offers it as a choice), so
+    // dsh-llm-retry may retry first.
     if (decided !== undefined) {
       if (decided.kind === 'retry') askOneTool(agent, signal, failure)
       return decided
