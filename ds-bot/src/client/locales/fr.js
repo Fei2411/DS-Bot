@@ -2460,7 +2460,7 @@ export const FR = {
   "No matching fonts": "Aucune police correspondante",
   "Use \"{font}\"": "Utiliser « {font} »",
   "Built-in engine": "Moteur intégré",
-  // The inbox (#782).
+  // The inbox.
   "Inbox": "Boîte de réception",
   "Inbox, {count} waiting for you": "Boîte de réception, {count} en attente de vous",
   "Your call": "À vous de décider",

@@ -1,4 +1,4 @@
-// The inbox (#782): everything across the team that waits on the user, in one list.
+// The inbox: everything across the team that waits on the user, in one list.
 // It is derived from the state that already holds each thing — approvals, cards,
 // requests, holds, blocked Bots, paused work, proposals — and adds no record of its
 // own. Every surface reads this one list: the sidebar's counts and marks, the inbox

@@ -2313,7 +2313,7 @@ const ZH = {
   "No matching fonts": "没有匹配的字体",
   "Use \"{font}\"": "使用「{font}」",
   "Built-in engine": "内置引擎",
-  // The inbox (#782).
+  // The inbox.
   "Inbox": "收件箱",
   "Inbox, {count} waiting for you": "收件箱，{count} 件等你处理",
   "Your call": "等你决定",

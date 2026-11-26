@@ -884,26 +884,25 @@ export function TeamSidebar(props) {
         h('span', { className: 'bt-brand' }, h(BrandName)),
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
+        h(InboxEntry, { roster, open: inboxOpen, actions: rowActions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)))
     : h('div', { className: 'bt-rail-top' },
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)),
-        h(InboxEntry, { roster, open: inboxOpen, rail: true, actions: rowActions }),
         main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The foot stands in for the shell's hidden footer: the account avatar, and on
-  // the rail the new-chat button above it.
+  // the rail the inbox and new-chat buttons above it.
   const foot = wideContent
     ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), h(PluginsButton, { actions }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
+        h(InboxEntry, { roster, open: inboxOpen, rail: true, actions: rowActions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h(AccountLauncher, { seat: false, actions }),
         h(PluginsButton, { actions }))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
-    // Always in the same place, so the list under it does not move.
-    wideContent ? h(InboxEntry, { roster, open: inboxOpen, actions: rowActions }) : null,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
     h('div', {
       ref: listRef, className: 'bt-list', role: 'region', 'aria-label': t('Bot list'),

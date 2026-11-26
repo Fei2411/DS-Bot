@@ -2489,7 +2489,7 @@ export const KO = {
   "No matching fonts": "일치하는 글꼴 없음",
   "Use \"{font}\"": "\"{font}\" 사용",
   "Built-in engine": "내장 엔진",
-  // The inbox (#782).
+  // The inbox.
   "Inbox": "받은편지함",
   "Inbox, {count} waiting for you": "받은편지함, 확인 대기 {count}건",
   "Your call": "결정 필요",

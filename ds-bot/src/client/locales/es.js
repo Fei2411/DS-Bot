@@ -2489,7 +2489,7 @@ export const ES = {
   "No matching fonts": "No hay fuentes coincidentes",
   "Use \"{font}\"": "Usar «{font}»",
   "Built-in engine": "Motor integrado",
-  // The inbox (#782).
+  // The inbox.
   "Inbox": "Bandeja de entrada",
   "Inbox, {count} waiting for you": "Bandeja de entrada, {count} esperándote",
   "Your call": "Te toca decidir",

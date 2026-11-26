@@ -2587,7 +2587,7 @@ var JA = {
   "No matching fonts": "一致するフォントがありません",
   'Use "{font}"': "「{font}」を使用",
   "Built-in engine": "内蔵エンジン",
-  // The inbox (#782).
+  // The inbox.
   "Inbox": "受信トレイ",
   "Inbox, {count} waiting for you": "受信トレイ、対応待ち {count} 件",
   "Your call": "あなたの判断",
@@ -5845,7 +5845,7 @@ var KO = {
   "No matching fonts": "일치하는 글꼴 없음",
   'Use "{font}"': '"{font}" 사용',
   "Built-in engine": "내장 엔진",
-  // The inbox (#782).
+  // The inbox.
   "Inbox": "받은편지함",
   "Inbox, {count} waiting for you": "받은편지함, 확인 대기 {count}건",
   "Your call": "결정 필요",
@@ -9104,7 +9104,7 @@ var ES = {
   "No matching fonts": "No hay fuentes coincidentes",
   'Use "{font}"': "Usar «{font}»",
   "Built-in engine": "Motor integrado",
-  // The inbox (#782).
+  // The inbox.
   "Inbox": "Bandeja de entrada",
   "Inbox, {count} waiting for you": "Bandeja de entrada, {count} esperándote",
   "Your call": "Te toca decidir",
@@ -12319,7 +12319,7 @@ var FR = {
   "No matching fonts": "Aucune police correspondante",
   'Use "{font}"': "Utiliser « {font} »",
   "Built-in engine": "Moteur intégré",
-  // The inbox (#782).
+  // The inbox.
   "Inbox": "Boîte de réception",
   "Inbox, {count} waiting for you": "Boîte de réception, {count} en attente de vous",
   "Your call": "À vous de décider",
@@ -15577,7 +15577,7 @@ var DE = {
   "No matching fonts": "Keine passenden Schriften",
   'Use "{font}"': "„{font}“ verwenden",
   "Built-in engine": "Integrierte Engine",
-  // The inbox (#782).
+  // The inbox.
   "Inbox": "Posteingang",
   "Inbox, {count} waiting for you": "Posteingang, {count} warten auf dich",
   "Your call": "Deine Entscheidung",
@@ -18649,7 +18649,7 @@ var ZH = {
   "No matching fonts": "没有匹配的字体",
   'Use "{font}"': "使用「{font}」",
   "Built-in engine": "内置引擎",
-  // The inbox (#782).
+  // The inbox.
   "Inbox": "收件箱",
   "Inbox, {count} waiting for you": "收件箱，{count} 件等你处理",
   "Your call": "等你决定",
@@ -40505,35 +40505,20 @@ function InboxEntry({ roster, open, rail, actions }) {
   const count = roster?.inbox?.count ?? 0;
   const label = count > 0 ? t("Inbox, {count} waiting for you", { count }) : t("Inbox");
   const toggle = () => open ? actions.closeInbox?.() : actions.openInbox?.();
-  if (rail) {
-    return (0, import_react43.createElement)(
-      "button",
-      {
-        type: "button",
-        className: "bt-ib-rail",
-        "aria-label": label,
-        title: label,
-        "aria-current": open ? "page" : void 0,
-        "data-has": count > 0 || void 0,
-        onClick: toggle
-      },
-      (0, import_react43.createElement)(InboxIcon, { size: 22 }),
-      count > 0 ? (0, import_react43.createElement)("span", { className: "bt-ib-rail-count", "aria-hidden": true }, count > 99 ? "99+" : String(count)) : null
-    );
-  }
   return (0, import_react43.createElement)(
     "button",
     {
       type: "button",
-      className: "bt-ib-entry",
+      className: "bt-round bt-ib-trigger",
       "aria-label": label,
+      title: label,
       "aria-current": open ? "page" : void 0,
       "data-has": count > 0 || void 0,
+      "data-rail": rail || void 0,
       onClick: toggle
     },
-    (0, import_react43.createElement)("span", { className: "bt-ib-entry-ico" }, (0, import_react43.createElement)(InboxIcon, { size: 18 })),
-    (0, import_react43.createElement)("span", { className: "bt-ib-entry-name" }, t("Inbox")),
-    count > 0 ? (0, import_react43.createElement)("span", { className: "bt-ib-count", "aria-hidden": true }, count > 99 ? "99+" : String(count)) : null
+    (0, import_react43.createElement)(InboxIcon, { size: 16 }),
+    count > 0 ? (0, import_react43.createElement)("span", { className: "bt-ib-badge", "aria-hidden": true }, count > 99 ? "99+" : String(count)) : null
   );
 }
 var quickOf = (item, actions) => {
@@ -40568,7 +40553,7 @@ function ItemCard({ item, bot, roster, actions, hooks, run: run2 }) {
     }
     case "connector": {
       const request = (roster.connectorRequests?.[item.botId] ?? []).find((entry) => entry.id === item.ref);
-      return request && bot ? (0, import_react43.createElement)(ConnectorCard, { sessionId: request.sessionId ?? currentPart(bot), bot, request, actions, inline: true }) : null;
+      return request && bot ? (0, import_react43.createElement)(ConnectorCard, { sessionId: request.sessionId ?? currentPart(bot), bot, request, roster, actions, inline: true }) : null;
     }
     case "mail": {
       const request = (roster.mailRequests?.[item.botId] ?? []).find((entry) => entry.id === item.ref);
@@ -40620,6 +40605,7 @@ function Row2({ item, gone, open, toggle, roster, actions, hooks, rowRef }) {
   const bot = item.botId === void 0 ? void 0 : roster.byId?.[item.botId];
   const room2 = item.roomId === void 0 ? void 0 : roster.roomsById?.[item.roomId];
   const who = [bot?.name, room2?.name].filter(Boolean).join(" · ");
+  const summary = inboxSummary(item, t, (id) => roster.byId?.[id]?.name);
   const quick = !open && !gone ? quickOf(item, actions) : null;
   const run2 = (promise) => {
     void Promise.resolve(promise).catch((error) => actions.reportError?.(error, "inbox"));
@@ -40640,27 +40626,39 @@ function Row2({ item, gone, open, toggle, roster, actions, hooks, rowRef }) {
           disabled: gone,
           onClick: () => toggle(item.id)
         },
-        bot && !(item.kind === "room-paused" || item.kind === "goal") ? (0, import_react43.createElement)(BotAvatar, { bot, size: 28, badge: false, live: false }) : room2 ? (0, import_react43.createElement)(RoomAvatar, { room: room2, roster, size: 28 }) : (0, import_react43.createElement)("span", { className: "bt-ib-noface" }),
+        bot && !(item.kind === "room-paused" || item.kind === "goal") ? (0, import_react43.createElement)(BotAvatar, { bot, size: 36, badge: false, live: false }) : room2 ? (0, import_react43.createElement)(RoomAvatar, { room: room2, roster, size: 36 }) : (0, import_react43.createElement)("span", { className: "bt-ib-noface" }),
         (0, import_react43.createElement)(
           "span",
           { className: "bt-ib-copy" },
+          (0, import_react43.createElement)("span", { className: "bt-ib-title" }, summary || who),
           (0, import_react43.createElement)(
             "span",
-            { className: "bt-ib-who" },
-            (0, import_react43.createElement)("span", { className: "bt-ib-name" }, who),
-            (0, import_react43.createElement)("span", { className: "bt-tag", "data-group": item.group }, t(inboxTag(item)))
-          ),
-          (0, import_react43.createElement)("span", { className: "bt-ib-text" }, inboxSummary(item, t, (id) => roster.byId?.[id]?.name))
-        ),
-        gone ? (0, import_react43.createElement)("span", { className: "bt-ib-ok" }, (0, import_react43.createElement)(CheckIcon), t("Handled")) : item.at > 0 ? (0, import_react43.createElement)(Elapsed, { at: item.at, className: "bt-ib-time", dot: false }) : null,
-        gone ? null : (0, import_react43.createElement)("span", { className: "bt-ib-chev", "aria-hidden": true }, (0, import_react43.createElement)(ChevronDownIcon))
+            { className: "bt-ib-meta" },
+            who ? (0, import_react43.createElement)("span", { className: "bt-ib-name" }, who) : null,
+            who ? (0, import_react43.createElement)("span", { className: "bt-ib-sep", "aria-hidden": true }, "·") : null,
+            (0, import_react43.createElement)("span", { className: "bt-ib-kind", "data-group": item.group }, t(inboxTag(item))),
+            !gone && item.at > 0 ? (0, import_react43.createElement)("span", { className: "bt-ib-sep", "aria-hidden": true }, "·") : null,
+            !gone && item.at > 0 ? (0, import_react43.createElement)(Elapsed, { at: item.at, className: "bt-ib-time", dot: false }) : null
+          )
+        )
       ),
-      quick ? (0, import_react43.createElement)("span", { className: "bt-ib-quick" }, quick.map(([label, answer], index) => (0, import_react43.createElement)("button", {
-        key: label,
-        type: "button",
-        className: index === quick.length - 1 ? "bt-send bt-ib-btn" : "bt-soft bt-soft-sm",
-        onClick: () => run2(answer())
-      }, t(label)))) : null
+      (0, import_react43.createElement)(
+        "span",
+        { className: "bt-ib-tail" },
+        gone ? (0, import_react43.createElement)("span", { className: "bt-ib-ok" }, (0, import_react43.createElement)(CheckIcon), t("Handled")) : quick ? (0, import_react43.createElement)("span", { className: "bt-ib-quick" }, quick.map(([label, answer], index) => (0, import_react43.createElement)("button", {
+          key: label,
+          type: "button",
+          className: index === quick.length - 1 ? "bt-send bt-ib-btn" : "bt-soft bt-soft-sm",
+          onClick: () => run2(answer())
+        }, t(label)))) : null,
+        gone ? null : (0, import_react43.createElement)("button", {
+          type: "button",
+          className: "bt-ib-chev",
+          tabIndex: -1,
+          "aria-hidden": true,
+          onClick: () => toggle(item.id)
+        }, (0, import_react43.createElement)(ChevronDownIcon))
+      )
     ),
     open && !gone ? (0, import_react43.createElement)(
       "div",
@@ -40669,7 +40667,12 @@ function Row2({ item, gone, open, toggle, roster, actions, hooks, rowRef }) {
       HERE.has(item.kind) ? (0, import_react43.createElement)(
         "div",
         { className: "bt-ib-acts" },
-        (0, import_react43.createElement)("button", { type: "button", className: "bt-ib-link", onClick: () => openItem(item, actions) }, t("Open in chat"))
+        (0, import_react43.createElement)(
+          "button",
+          { type: "button", className: "bt-ib-link", onClick: () => openItem(item, actions) },
+          t("Open in chat"),
+          (0, import_react43.createElement)(ChevronRightIcon)
+        )
       ) : null
     ) : null
   );
@@ -40708,7 +40711,12 @@ function useLeaving(items) {
   return gone;
 }
 function Empty({ text }) {
-  return (0, import_react43.createElement)("div", { className: "bt-ib-empty" }, (0, import_react43.createElement)(InboxIcon, { size: 28 }), (0, import_react43.createElement)("span", null, text));
+  return (0, import_react43.createElement)(
+    "div",
+    { className: "bt-ib-empty" },
+    (0, import_react43.createElement)("span", { className: "bt-ib-empty-mark", "aria-hidden": true }, (0, import_react43.createElement)(InboxIcon, { size: 22 })),
+    (0, import_react43.createElement)("span", { className: "bt-ib-empty-text" }, text)
+  );
 }
 function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSessionStatus, useBotCompletions, useBrowserHolds, useBrowserTabs, useBrowserPages }) {
   const [tab, setTab] = (0, import_react43.useState)("wait");
@@ -40765,24 +40773,66 @@ function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSession
     (0, import_react43.createElement)(
       "div",
       { className: "bt-ib-page", role: "region", "aria-label": t("Inbox"), onKeyDown: onKey },
-      (0, import_react43.createElement)("header", { className: "bt-ib-top", "data-window-drag": true }, (0, import_react43.createElement)(
-        "div",
-        { className: "bt-ib-top-in" },
-        (0, import_react43.createElement)("h1", null, t("Inbox")),
+      (0, import_react43.createElement)(
+        "header",
+        { className: "bt-ib-top", "data-window-drag": true },
         (0, import_react43.createElement)(
-          Segmented,
-          { label: t("Inbox"), value: tab, className: "bt-ib-seg" },
-          (0, import_react43.createElement)("button", { type: "button", "aria-pressed": tab === "wait", onClick: () => setTab("wait") }, count > 0 ? `${t("Waiting for you")} ${count}` : t("Waiting for you")),
-          (0, import_react43.createElement)("button", { type: "button", "aria-pressed": tab === "replies", onClick: () => setTab("replies") }, replies.length > 0 ? `${t("New replies")} ${replies.length}` : t("New replies"))
-        ),
-        (0, import_react43.createElement)("span", { className: "bt-ib-gap" }),
-        tab === "wait" && sources.length > 1 ? (0, import_react43.createElement)(
-          "select",
-          { className: "bt-select bt-ib-who-pick", value: who, "aria-label": t("Filter by Bot or group chat"), onChange: (event) => setWho(event.target.value) },
-          (0, import_react43.createElement)("option", { value: "all" }, t("All")),
-          sources.map((id) => (0, import_react43.createElement)("option", { key: id, value: id }, nameOf2(id)))
-        ) : null
-      )),
+          "div",
+          { className: "bt-ib-top-in" },
+          (0, import_react43.createElement)(
+            "div",
+            { className: "bt-ib-bar" },
+            (0, import_react43.createElement)("h1", null, t("Inbox")),
+            (0, import_react43.createElement)("button", { type: "button", className: "bt-icon-btn bt-ib-close", "aria-label": t("Close"), title: t("Close"), onClick: () => actions.closeInbox?.() }, (0, import_react43.createElement)(CloseIcon))
+          ),
+          (0, import_react43.createElement)(
+            "div",
+            { className: "bt-ib-controls" },
+            (0, import_react43.createElement)(
+              Segmented,
+              { label: t("Inbox"), value: tab, className: "bt-ib-seg" },
+              (0, import_react43.createElement)(
+                "button",
+                { type: "button", "aria-pressed": tab === "wait", onClick: () => setTab("wait") },
+                t("Waiting for you"),
+                count > 0 ? (0, import_react43.createElement)("span", { className: "bt-ib-tab-n" }, String(count)) : null
+              ),
+              (0, import_react43.createElement)(
+                "button",
+                { type: "button", "aria-pressed": tab === "replies", onClick: () => setTab("replies") },
+                t("New replies"),
+                replies.length > 0 ? (0, import_react43.createElement)("span", { className: "bt-ib-tab-n" }, String(replies.length)) : null
+              )
+            ),
+            tab === "wait" && sources.length > 1 ? (0, import_react43.createElement)(
+              "div",
+              { className: "bt-ib-pills", role: "group", "aria-label": t("Filter by Bot or group chat") },
+              (0, import_react43.createElement)("button", {
+                type: "button",
+                className: "bt-ib-pill",
+                "aria-pressed": who === "all",
+                onClick: () => setWho("all")
+              }, t("All")),
+              sources.map((id) => {
+                const sourceBot = roster.byId?.[id];
+                const sourceRoom = roster.roomsById?.[id];
+                return (0, import_react43.createElement)(
+                  "button",
+                  {
+                    key: id,
+                    type: "button",
+                    className: "bt-ib-pill",
+                    "aria-pressed": who === id,
+                    onClick: () => setWho((current2) => current2 === id ? "all" : id)
+                  },
+                  sourceBot ? (0, import_react43.createElement)(BotAvatar, { bot: sourceBot, size: 16, badge: false, live: false }) : sourceRoom ? (0, import_react43.createElement)(RoomAvatar, { room: sourceRoom, roster, size: 16 }) : null,
+                  (0, import_react43.createElement)("span", null, nameOf2(id))
+                );
+              })
+            ) : null
+          )
+        )
+      ),
       (0, import_react43.createElement)(
         "div",
         { ref: list, className: "bt-ib-scroll" },
@@ -40793,8 +40843,14 @@ function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSession
           return (0, import_react43.createElement)(
             "section",
             { key: group, className: "bt-ib-sec", "data-flip": `sec-${group}` },
-            (0, import_react43.createElement)("h3", null, t(title), left > 0 ? (0, import_react43.createElement)("span", null, String(left)) : null),
-            (0, import_react43.createElement)("div", { className: "bt-set-card" }, rows2.map((item) => (0, import_react43.createElement)(Row2, {
+            (0, import_react43.createElement)(
+              "h3",
+              null,
+              (0, import_react43.createElement)("span", { className: "bt-ib-dot", "data-group": group, "aria-hidden": true }),
+              t(title),
+              left > 0 ? (0, import_react43.createElement)("span", { className: "bt-ib-sec-n" }, String(left)) : null
+            ),
+            (0, import_react43.createElement)("div", { className: "bt-ib-list" }, rows2.map((item) => (0, import_react43.createElement)(Row2, {
               key: item.id,
               item,
               gone: gone.has(item.id),
@@ -40809,7 +40865,7 @@ function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSession
               }
             })))
           );
-        }) : replies.length === 0 ? (0, import_react43.createElement)(Empty, { text: t("No new replies") }) : (0, import_react43.createElement)("div", { className: "bt-set-card bt-ib-replies" }, replies.map((entry) => (0, import_react43.createElement)(
+        }) : replies.length === 0 ? (0, import_react43.createElement)(Empty, { text: t("No new replies") }) : (0, import_react43.createElement)("div", { className: "bt-ib-list bt-ib-replies" }, replies.map((entry) => (0, import_react43.createElement)(
           "div",
           { key: entry.id, className: "bt-ib-row", "data-flip": `reply-${entry.id}` },
           (0, import_react43.createElement)(
@@ -40825,14 +40881,24 @@ function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSession
                   actions.openSession(entry.id);
                 }
               },
-              entry.bot ? (0, import_react43.createElement)(BotAvatar, { bot: entry.bot, size: 28, badge: false, live: false }) : (0, import_react43.createElement)(RoomAvatar, { room: entry.room, roster, size: 28 }),
+              entry.bot ? (0, import_react43.createElement)(BotAvatar, { bot: entry.bot, size: 36, badge: false, live: false }) : (0, import_react43.createElement)(RoomAvatar, { room: entry.room, roster, size: 36 }),
               (0, import_react43.createElement)(
                 "span",
                 { className: "bt-ib-copy" },
-                (0, import_react43.createElement)("span", { className: "bt-ib-who" }, (0, import_react43.createElement)("span", { className: "bt-ib-name" }, (entry.bot ?? entry.room).name)),
-                entry.preview ? (0, import_react43.createElement)("span", { className: "bt-ib-text bt-ib-text-2" }, entry.preview) : null
-              ),
-              entry.at > 0 ? (0, import_react43.createElement)(Elapsed, { at: entry.at, className: "bt-ib-time", dot: false }) : null
+                (0, import_react43.createElement)(
+                  "span",
+                  { className: "bt-ib-reply-top" },
+                  (0, import_react43.createElement)("span", { className: "bt-ib-unread-dot", "aria-hidden": true }),
+                  (0, import_react43.createElement)("span", { className: "bt-ib-name" }, (entry.bot ?? entry.room).name)
+                ),
+                entry.preview ? (0, import_react43.createElement)("span", { className: "bt-ib-preview" }, entry.preview) : null
+              )
+            ),
+            (0, import_react43.createElement)(
+              "span",
+              { className: "bt-ib-tail" },
+              entry.at > 0 ? (0, import_react43.createElement)(Elapsed, { at: entry.at, className: "bt-ib-time", dot: false }) : null,
+              (0, import_react43.createElement)("span", { className: "bt-ib-go", "aria-hidden": true }, (0, import_react43.createElement)(ChevronRightIcon))
             )
           )
         )))
@@ -40841,62 +40907,78 @@ function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSession
   );
 }
 var INBOX_CSS = `
-.bt-ib-entry{display:flex;align-items:center;gap:8px;flex:none;height:40px;margin:6px 0 2px;padding:0 10px 0 8px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:14px;line-height:20px;text-align:left;cursor:pointer;transition:background-color .12s ease,color .12s ease}
-.bt-ib-entry:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-ib-entry[aria-current]{background:var(--bt-active);color:var(--bt-ink)}
-.bt-ib-entry[data-has]{color:var(--bt-ink)}
-.bt-ib-entry:focus-visible,.bt-ib-rail:focus-visible,.bt-ib-sum:focus-visible,.bt-ib-link:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
-.bt-ib-entry-ico{display:flex;align-items:center;justify-content:center;width:36px;flex:none}
-.bt-ib-entry-name{flex:1;min-width:0}
-.bt-ib-count{min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:999px;background:color-mix(in srgb,var(--bt-star) 22%,transparent);color:var(--bt-warn);font-size:11px;line-height:20px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums}
-.bt-ib-rail{position:relative;display:flex;align-items:center;justify-content:center;width:56px;height:56px;flex:none;border:0;border-radius:16px;background:transparent;color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s ease,color .12s ease}
-.bt-ib-rail:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-ib-rail[aria-current]{background:var(--bt-active);color:var(--bt-ink)}
-.bt-ib-rail-count{position:absolute;top:6px;right:6px;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:999px;corner-shape:round;background:color-mix(in srgb,var(--bt-star) 22%,var(--bt-sidebar));color:var(--bt-warn);font-size:10px;line-height:16px;font-weight:600;font-variant-numeric:tabular-nums;box-shadow:0 0 0 1.5px var(--bt-sidebar)}
+.bt-ib-trigger{position:relative}
+.bt-ib-trigger[data-has]{color:var(--bt-ink)}
+.bt-side-top .bt-ib-trigger[aria-current=page],.bt-leftcol-foot-rail .bt-ib-trigger[aria-current=page]{background:var(--bt-active);color:var(--bt-ink)}
+.bt-ib-badge{position:absolute;top:-1px;right:-2px;min-width:15px;height:15px;padding:0 4px;box-sizing:border-box;border-radius:999px;corner-shape:round;background:var(--bt-warn);color:var(--bt-main);font-size:10px;line-height:15px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums;box-shadow:0 0 0 1.5px var(--bt-sidebar);pointer-events:none}
+.bt-ib-trigger[data-rail] .bt-ib-badge{top:-3px;right:-3px;min-width:16px;height:16px;line-height:16px}
 .bt-ib-pane{z-index:44}
 .bt-ib-page{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bt-main);color:var(--bt-ink);font-family:var(--bt-font)}
-.bt-ib-top{height:56px;padding:6px 28px 0;flex:none;box-sizing:border-box}
-.bt-ib-top-in{display:flex;align-items:center;gap:12px;height:100%;max-width:820px;margin:0 auto}
-.bt-ib-top h1{margin:0;font-size:15px;line-height:20px;font-weight:600}
+.bt-ib-top{padding:28px 32px 14px;flex:none;box-sizing:border-box}
+.bt-ib-top-in{display:flex;flex-direction:column;gap:14px;max-width:720px;margin:0 auto}
+.bt-ib-bar{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.bt-ib-bar h1{margin:0;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.02em}
+.bt-ib-close{flex:none;color:var(--bt-ink-2)}
+.bt-ib-controls{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .bt-ib-seg{flex:none}
-.bt-ib-seg button{height:28px;padding:0 12px;font-size:13px;white-space:nowrap;font-variant-numeric:tabular-nums}
-.bt-ib-gap{flex:1}
-.bt-ib-who-pick{width:auto;min-width:120px;max-width:220px;height:30px}
-.bt-ib-scroll{flex:1;min-height:0;overflow:auto;padding:8px 28px 28px;display:flex;flex-direction:column;gap:20px}
-.bt-ib-scroll>*{width:100%;max-width:820px;margin:0 auto;box-sizing:border-box}
-.bt-ib-sec h3{display:flex;gap:6px;margin:0 0 8px 4px;font-size:13px;line-height:18px;font-weight:600;color:var(--bt-ink-2)}
-.bt-ib-sec h3 span{color:var(--bt-ink-3);font-weight:500;font-variant-numeric:tabular-nums}
-.bt-ib-row{position:relative}
-.bt-ib-row+.bt-ib-row{border-top:1px solid var(--bt-line)}
-.bt-ib-row[data-gone]{opacity:.6;transition:opacity .16s ease}
-.bt-ib-head{position:relative;display:flex;align-items:center}
-.bt-ib-sum{flex:1;min-width:0;display:flex;align-items:center;gap:10px;min-height:56px;padding:9px 12px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease}
-.bt-ib-sum:hover:not(:disabled){background:var(--bt-hover)}
+.bt-ib-seg button{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;font-size:13px;white-space:nowrap}
+.bt-ib-tab-n{font-size:11px;line-height:16px;font-weight:600;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
+.bt-ib-seg button[aria-pressed=true] .bt-ib-tab-n{color:var(--bt-ink-2)}
+.bt-ib-pills{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.bt-ib-pill{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border:1px solid var(--bt-line);border-radius:999px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background-color .12s ease,border-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-ib-pill:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-ib-pill:active{transform:scale(.96)}
+.bt-ib-pill[aria-pressed=true]{background:var(--bt-active);border-color:transparent;color:var(--bt-ink)}
+.bt-ib-pill:focus-visible,.bt-ib-sum:focus-visible,.bt-ib-link:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
+.bt-ib-scroll{flex:1;min-height:0;overflow:auto;padding:8px 32px 36px;display:flex;flex-direction:column;gap:24px}
+.bt-ib-scroll>*{width:100%;max-width:720px;margin:0 auto;box-sizing:border-box}
+.bt-ib-sec h3{display:flex;align-items:center;gap:7px;margin:0 0 10px 2px;font-size:12px;line-height:16px;font-weight:600;color:var(--bt-ink-2)}
+.bt-ib-dot{width:6px;height:6px;border-radius:50%;corner-shape:round;flex:none;background:var(--bt-ink-3)}
+.bt-ib-dot[data-group=decide]{background:var(--bt-star)}
+.bt-ib-dot[data-group=fix]{background:var(--bt-danger)}
+.bt-ib-dot[data-group=suggest]{background:var(--bt-accent)}
+.bt-ib-sec-n{color:var(--bt-ink-3);font-weight:500;font-variant-numeric:tabular-nums}
+.bt-ib-list{display:flex;flex-direction:column;gap:8px}
+.bt-ib-row{position:relative;border-radius:12px;background:var(--bt-card);border:1px solid var(--bt-line);box-shadow:var(--bt-card-shadow);overflow:clip;transition:border-color .12s ease,background-color .12s ease,opacity .16s ease}
+.bt-ib-row:hover:not([data-gone]):not([data-open]){border-color:var(--bt-line-2)}
+.bt-ib-row[data-open]{border-color:color-mix(in srgb,var(--bt-accent) 32%,var(--bt-line-2))}
+.bt-ib-row[data-gone]{opacity:.55}
+.bt-ib-head{display:flex;align-items:center;gap:8px;padding-right:12px}
+.bt-ib-sum{flex:1;min-width:0;display:flex;align-items:center;gap:12px;min-height:62px;padding:12px 4px 12px 14px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .bt-ib-sum:disabled{cursor:default}
-.bt-ib-row[data-open] .bt-ib-sum:hover{background:transparent}
-.bt-ib-noface{width:28px;height:28px;flex:none}
-.bt-ib-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
-.bt-ib-who{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px;line-height:18px;font-weight:500}
+.bt-ib-noface{width:36px;height:36px;flex:none}
+.bt-ib-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.bt-ib-title{font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-ib-meta{display:flex;align-items:center;gap:6px;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
 .bt-ib-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-ib-who .bt-tag[data-group=decide]{background:color-mix(in srgb,var(--bt-star) 16%,transparent);color:var(--bt-warn)}
-.bt-ib-who .bt-tag[data-group=fix]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}
-.bt-ib-text{font-size:13px;line-height:18px;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-ib-text-2{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.bt-ib-time{flex:none;font-size:11px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
-.bt-ib-chev{flex:none;display:flex;color:var(--bt-ink-3);transition:rotate .2s ease}
-.bt-ib-row[data-open] .bt-ib-chev{rotate:180deg}
-.bt-ib-ok{flex:none;display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:16px;color:var(--bt-green);font-weight:500}
-.bt-ib-ok svg{width:14px;height:14px}
-.bt-ib-quick{position:absolute;right:12px;top:50%;translate:0 -50%;display:flex;gap:6px;padding-left:24px;background:linear-gradient(90deg,transparent,var(--bt-card) 20px);opacity:0;pointer-events:none;transition:opacity .12s ease}
-.bt-ib-head:hover .bt-ib-quick,.bt-ib-head:focus-within .bt-ib-quick{opacity:1;pointer-events:auto}
-.bt-ib-head:hover .bt-ib-quick{background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--bt-card),var(--bt-hover)) 20px)}
+.bt-ib-sep{flex:none;color:var(--bt-ink-3)}
+.bt-ib-kind{flex:none;font-weight:500;color:var(--bt-ink-2)}
+.bt-ib-kind[data-group=decide]{color:var(--bt-warn)}
+.bt-ib-kind[data-group=fix]{color:var(--bt-danger)}
+.bt-ib-kind[data-group=suggest]{color:var(--bt-accent)}
+.bt-ib-time{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
+.bt-ib-tail{flex:none;display:flex;align-items:center;gap:6px}
+.bt-ib-quick{display:flex;align-items:center;gap:6px}
 .bt-ib-btn{height:28px;padding:0 12px;font-size:12px;font-weight:500}
-.bt-ib-detail{display:flex;flex-direction:column;gap:8px;padding:0 12px 12px 50px;animation:bt-veil-in .2s ease-out backwards}
+.bt-ib-chev{flex:none;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease,rotate ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-ib-chev:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-ib-row[data-open] .bt-ib-chev{rotate:180deg;color:var(--bt-ink-2)}
+.bt-ib-ok{flex:none;display:inline-flex;align-items:center;gap:4px;padding-right:4px;font-size:12px;line-height:16px;color:var(--bt-green);font-weight:500}
+.bt-ib-ok svg{width:14px;height:14px}
+.bt-ib-detail{display:flex;flex-direction:column;gap:10px;padding:14px 16px 14px 62px;border-top:1px solid var(--bt-line);background:color-mix(in srgb,var(--bt-main) 55%,var(--bt-card));animation:bt-veil-in .2s ease-out backwards}
 .bt-ib-detail .bt-q-inline,.bt-ib-detail .bt-mw-card{margin:0}
-.bt-ib-acts{display:flex;align-items:center;gap:6px}
-.bt-ib-link{padding:0;border:0;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer;text-decoration:underline;text-decoration-color:var(--bt-line-2);text-underline-offset:3px}
-.bt-ib-link:hover{color:var(--bt-ink)}
-.bt-ib-empty{display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:120px!important;font-size:13px;line-height:18px;color:var(--bt-ink-3)}
+.bt-ib-acts{display:flex;align-items:center;justify-content:flex-end;gap:6px}
+.bt-ib-link{display:inline-flex;align-items:center;gap:3px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-ib-link:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-ib-reply-top{display:flex;align-items:center;gap:7px;min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink)}
+.bt-ib-unread-dot{width:6px;height:6px;border-radius:50%;corner-shape:round;flex:none;background:var(--bt-accent)}
+.bt-ib-preview{font-size:13px;line-height:18px;color:var(--bt-ink-2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.bt-ib-go{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;color:var(--bt-ink-3);transition:translate ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},color .12s ease}
+.bt-ib-row:hover .bt-ib-go{translate:2px 0;color:var(--bt-ink-2)}
+.bt-ib-empty{display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:108px!important;text-align:center}
+.bt-ib-empty-mark{width:48px;height:48px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink-3)}
+.bt-ib-empty-text{font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink-2)}
+@media (prefers-reduced-motion:reduce){.bt-ib-pill,.bt-ib-chev,.bt-ib-go,.bt-ib-detail{animation:none;transition:none}}
 `;
 
 // src/client/sidebar.js
@@ -41780,6 +41862,7 @@ function TeamSidebar(props) {
     (0, import_react44.createElement)("span", { className: "bt-brand" }, (0, import_react44.createElement)(BrandName)),
     (0, import_react44.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
     (0, import_react44.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Search"), title: t("Search"), onClick: () => actions.openPalette() }, (0, import_react44.createElement)(SearchIcon)),
+    (0, import_react44.createElement)(InboxEntry, { roster, open: inboxOpen, actions: rowActions }),
     (0, import_react44.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react44.createElement)(PlusIcon)),
     (0, import_react44.createElement)("button", { type: "button", className: "bt-round bt-side-collapse", "aria-label": t("Collapse sidebar"), title: t("Collapse sidebar"), onClick: onToggle }, (0, import_react44.createElement)(SidebarIcon))
   ) : (0, import_react44.createElement)(
@@ -41787,13 +41870,13 @@ function TeamSidebar(props) {
     { className: "bt-rail-top" },
     (0, import_react44.createElement)(UpdateButton, { useUpdate: props.useUpdate, actions }),
     (0, import_react44.createElement)("button", { type: "button", className: "bt-round bt-side-collapse", "aria-label": t("Collapse sidebar"), title: t("Collapse sidebar"), onClick: onToggle }, (0, import_react44.createElement)(SidebarIcon)),
-    (0, import_react44.createElement)(InboxEntry, { roster, open: inboxOpen, rail: true, actions: rowActions }),
     main ? (0, import_react44.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? (0, import_react44.createElement)(BootFailed, { actions }) : (0, import_react44.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")),
     (0, import_react44.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
   const foot = wideContent ? (0, import_react44.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react44.createElement)(AccountLauncher, { seat: false, actions }), (0, import_react44.createElement)(PluginsButton, { actions })) : (0, import_react44.createElement)(
     "div",
     { className: "bt-leftcol-foot bt-leftcol-foot-rail" },
+    (0, import_react44.createElement)(InboxEntry, { roster, open: inboxOpen, rail: true, actions: rowActions }),
     (0, import_react44.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react44.createElement)(PlusIcon)),
     (0, import_react44.createElement)(AccountLauncher, { seat: false, actions }),
     (0, import_react44.createElement)(PluginsButton, { actions })
@@ -41802,8 +41885,6 @@ function TeamSidebar(props) {
     "div",
     { className: wideContent ? "bt-side" : "bt-side bt-rail", onKeyDown: typeToSearch },
     top,
-    // Always in the same place, so the list under it does not move.
-    wideContent ? (0, import_react44.createElement)(InboxEntry, { roster, open: inboxOpen, actions: rowActions }) : null,
     wideContent && roster.readOnly ? (0, import_react44.createElement)("div", { className: "bt-hint bt-read-only", role: "status" }, hostText(roster.readOnly)) : null,
     (0, import_react44.createElement)(
       "div",

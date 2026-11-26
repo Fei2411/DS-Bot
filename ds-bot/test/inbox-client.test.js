@@ -101,16 +101,16 @@ test('the page shows the host\'s list in its three groups, the longest wait firs
     'room-paused:desk', 'paused:work-1', 'blocked:coder',
   ])
   const line = id => textOf(all(rowOf(tree, id), node => hasClass(node, 'bt-ib-copy'))[0])
-  // Who, what kind, and one line of what: a group card names the member and the group.
-  assert.equal(line('question:q-group'), 'Writer · DeskQuestionWhich branch?')
-  assert.equal(line('secret:sec-1'), 'WriterSecretAsks for the secret XHS_COOKIE')
-  assert.equal(line('mail:mail-1'), 'ChiefEmailWants to send “Weekly report” to team@example.com')
-  assert.equal(line('room-paused:desk'), 'DeskPausedPaused after 40 relays')
-  assert.equal(line('paused:work-1'), 'ChiefPausedHand-off to Writer paused · Which version is this for?')
-  assert.equal(line('blocked:coder'), 'CoderStoppedThe model failed (RATE_LIMIT 429)')
-  // The tabs count what waits; the filter lists every Bot and group something waits in.
-  assert.deepEqual(all(tree, node => node.type === 'button' && node.props['aria-pressed'] !== undefined).map(textOf), ['Waiting for you 9', 'New replies'])
-  assert.deepEqual(all(tree, node => node.type === 'option').map(textOf), ['All', 'Chief', 'Writer', 'Desk', 'Coder'])
+  // Summary first, then who and kind: a group card names the member and the group.
+  assert.equal(line('question:q-group'), 'Which branch?Writer · Desk·Question')
+  assert.equal(line('secret:sec-1'), 'Asks for the secret XHS_COOKIEWriter·Secret')
+  assert.equal(line('mail:mail-1'), 'Wants to send “Weekly report” to team@example.comChief·Email')
+  assert.equal(line('room-paused:desk'), 'Paused after 40 relaysDesk·Paused')
+  assert.equal(line('paused:work-1'), 'Hand-off to Writer paused · Which version is this for?Chief·Paused')
+  assert.equal(line('blocked:coder'), 'The model failed (RATE_LIMIT 429)Coder·Stopped')
+  // The tabs count what waits; the filter pills list every Bot and group something waits in.
+  assert.deepEqual(all(tree, node => node.type === 'button' && node.props['aria-pressed'] !== undefined && !hasClass(node, 'bt-ib-pill')).map(textOf), ['Waiting for you9', 'New replies'])
+  assert.deepEqual(all(tree, node => hasClass(node, 'bt-ib-pill')).map(textOf), ['All', 'Chief', 'Writer', 'Desk', 'Coder'])
 })
 
 test('a row opens into the chat\'s own card; answering it there settles it in the host', async (t) => {
@@ -156,7 +156,7 @@ test('an approval is answered from its row without opening it', async (t) => {
   let tree = draw()
   const approval = rows(tree).find(row => row.props['data-flip'].startsWith('approval:'))
   assert.ok(approval, 'the approval is listed')
-  assert.match(textOf(approval), /WriterApproval/)
+  assert.match(textOf(approval), /Writer·Approval/)
   button(approval, 'Allow once').props.onClick()
   for (let tries = 0; rt.inboxView().items.some(item => item.kind === 'approval'); tries += 1) {
     assert.ok(tries < 100, 'the host settled the approval')
@@ -191,12 +191,12 @@ test('the sidebar entry counts what waits and opens or closes the page', async (
   const draw = (count, open, rail = false) => harness.render(harness.React.createElement(InboxEntry, { roster: { inbox: { count, counts: {}, items: [] } }, open, rail, actions }))
   let entry = draw(0, false)
   assert.equal(entry.props['aria-label'], 'Inbox')
-  assert.equal(all(entry, node => hasClass(node, 'bt-ib-count')).length, 0)
+  assert.equal(all(entry, node => hasClass(node, 'bt-ib-badge')).length, 0)
   entry = draw(3, false)
   assert.equal(entry.props['aria-label'], 'Inbox, 3 waiting for you')
-  assert.equal(textOf(all(entry, node => hasClass(node, 'bt-ib-count'))[0]), '3')
+  assert.equal(textOf(all(entry, node => hasClass(node, 'bt-ib-badge'))[0]), '3')
   entry.props.onClick()
   draw(3, true).props.onClick()
   assert.deepEqual(calls, ['open', 'close'])
-  assert.equal(textOf(all(draw(120, false, true), node => hasClass(node, 'bt-ib-rail-count'))[0]), '99+')
+  assert.equal(textOf(all(draw(120, false, true), node => hasClass(node, 'bt-ib-badge'))[0]), '99+')
 })

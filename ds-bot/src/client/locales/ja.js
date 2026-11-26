@@ -2460,7 +2460,7 @@ export const JA = {
   "No matching fonts": "一致するフォントがありません",
   "Use \"{font}\"": "「{font}」を使用",
   "Built-in engine": "内蔵エンジン",
-  // The inbox (#782).
+  // The inbox.
   "Inbox": "受信トレイ",
   "Inbox, {count} waiting for you": "受信トレイ、対応待ち {count} 件",
   "Your call": "あなたの判断",
