@@ -299,14 +299,17 @@ export default {
         if (!response.ok) throw errorOf(body, response.status)
         return { messageId: String(body?.id ?? '') }
       },
-      edit: async (chat, messageId, { text, buttons }) => {
+      edit: async (chat, messageId, { text, buttons, sentLength }) => {
         const components = buttons?.length > 0
           ? [{ type: 1, components: buttons.slice(0, 5).map(button => ({ type: 2, style: 1, label: button.label.slice(0, 80), custom_id: button.data })) }]
           : []
         // Discord renders Markdown in `content`, so an edit that goes through `toPlain`
         // silently drops every emphasis, code fence and link the message had: a streamed
         // reply looked formatted while it was being sent and plain once it was edited.
-        const body = chunkMarkdown(String(text ?? ''), TEXT_LIMIT, { unit: 'utf16' })[0] ?? ''
+        // `send` spreads a long reply over several messages and returns the last one, so
+        // the edit has to write that last chunk: the head of the reply belongs to the
+        // first message and put it back in the last one, over that message's own tail.
+        const body = editedBody(text, sentLength)
         await rest(`/channels/${chat.key}/messages/${messageId}`, { method: 'PATCH', body: { content: body, components } })
       },
       typing: async (chat) => rest(`/channels/${chat.key}/typing`).then(() => {}, () => {}),
@@ -331,3 +334,43 @@ async function request(env, fields, path) {
   if (!response.ok) throw errorOf(body, response.status)
   return body
 }
+
+// The body an edit has to write. `send` spreads a long reply over several messages and
+// answers with the last one, so the edit belongs to that message's own chunk. A settled
+// card arrives as the card plus `\n— <answer>`: cutting the combined text again moves
+// every boundary, and a card already near the limit comes out as the answer alone. Cut
+// the part that was already sent, then append what came after it, giving up the tail of
+// the card only when the answer needs the room.
+function editedBody(text, sentLength) {
+  const whole = String(text ?? '')
+  if (sentLength === undefined || sentLength >= whole.length) return chunkMarkdown(whole, TEXT_LIMIT, { unit: 'utf16' }).at(-1) ?? ''
+  const sent = whole.slice(0, Math.max(0, sentLength))
+  const tail = whole.slice(Math.max(0, sentLength))
+  // Discord caps a message at 2,000 UTF-16 units, so the room this answer leaves and the
+  // trim of the card's last chunk are measured in units, not code points: `Array.from`
+  // counted an astral character in the answer as one, which made the update two units
+  // longer than the card it replaced. Discord rejects that PATCH, the old card stays on
+  // screen with its buttons, and the dispatcher has already marked it edited.
+  const room = TEXT_LIMIT - tail.length
+  if (room <= 0) return unitsFromEnd(tail, TEXT_LIMIT)
+  const head = chunkMarkdown(sent, TEXT_LIMIT, { unit: 'utf16' }).at(-1) ?? ''
+  return unitsFromStart(head, room) + tail
+}
+
+// The first `count` UTF-16 units of `text`, never ending on the high half of an astral
+// character: a unit offset can land between the two surrogates of one character.
+function unitsFromStart(text, count) {
+  if (text.length <= count) return text
+  const at = count > 0 && isHighSurrogate(text.charCodeAt(count - 1)) ? count - 1 : count
+  return text.slice(0, at)
+}
+
+// The last `count` UTF-16 units of `text`, for the same reason from the other end.
+function unitsFromEnd(text, count) {
+  if (text.length <= count) return text
+  const from = text.length - count
+  return text.slice(isLowSurrogate(text.charCodeAt(from)) ? from + 1 : from)
+}
+
+const isHighSurrogate = code => code >= 0xd800 && code <= 0xdbff
+const isLowSurrogate = code => code >= 0xdc00 && code <= 0xdfff

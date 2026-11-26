@@ -734,3 +734,42 @@ test('post skips an unreadable embedded image without dropping text and supports
   assert.equal(mediaNoName.files[0].name, 'video-om_media_noname.mp4')
   assert.deepEqual(Buffer.from(mediaNoName.files[0].data), mp4)
 })
+
+test('edit rewrites the chunk the message holds, not the head of the reply', async (t) => {
+  // `send` spreads a long reply over several messages and returns the last one. Slicing
+  // the whole reply to the limit in `edit` wrote the head of it into that last message,
+  // over the tail `send` had put there.
+  const fake = await fakeFeishu()
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  await until(() => fake.calls.some(call => call.path === '/open-apis/bot/v3/info'))
+  const text = Array.from({ length: 160 }, (_, index) => `line ${index} ${'z'.repeat(40)}`).join('\n')
+  assert.ok(text.length > 4000, `fixture is ${text.length} characters`)
+  const { messageId } = await handle.send({ key: 'oc_1', kind: 'direct' }, { text })
+  const posts = fake.calls.filter(call => call.path.startsWith('/open-apis/im/v1/messages?'))
+  assert.ok(posts.length > 1, 'the reply spans several messages')
+  await handle.edit({ key: 'oc_1', kind: 'direct' }, messageId, { text, sentLength: text.length })
+  const patch = fake.calls.find(call => call.method === 'PATCH' && call.path === `/open-apis/im/v1/messages/${messageId}`)
+  assert.ok(patch, 'message PATCH called')
+  assert.ok(patch.params.content.includes('line 159 '), 'the tail of the reply is what the edit shows')
+  assert.ok(!patch.params.content.includes('line 0 '), 'the head of the reply stays in the first message')
+})
+
+test('edit keeps the card when an answer pushes it past the limit', async (t) => {
+  // Settling a card edits with the card plus `\n— <answer>`. Slicing that combined text
+  // again moved the boundaries: a card that nearly filled the message came back as the
+  // answer alone, so the card the user answered disappeared from the chat.
+  const fake = await fakeFeishu()
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  await until(() => fake.calls.some(call => call.path === '/open-apis/bot/v3/info'))
+  const card = `Which branch?\n${'z'.repeat(3985)}`
+  assert.equal(card.length, 3999, 'the card nearly fills the message')
+  await handle.edit({ key: 'oc_1', kind: 'direct' }, 'om_9', { text: `${card}\n— Yes`, sentLength: card.length })
+  const patch = fake.calls.find(call => call.method === 'PATCH' && call.path === '/open-apis/im/v1/messages/om_9')
+  assert.ok(patch, 'message PATCH called')
+  assert.ok(patch.params.content.includes('Which branch?'), 'the card keeps its body')
+  assert.ok(patch.params.content.includes('— Yes'), 'the answer still shows')
+})
