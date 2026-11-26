@@ -3355,6 +3355,8 @@ export function install(rt) {
         registerQueuedReport(room, sender, postExtra, { imOrigin, tainted: imOrigin !== undefined && tainted })
       }
       let said
+      // A kind line is drawn by say(); a post is drawn below, once its write landed.
+      let drawn = true
       let line = ''
       if (postExtra.failed !== undefined) {
         // A failed model call is in the log already (noteFailure); the round names it.
@@ -3364,22 +3366,31 @@ export function install(rt) {
         said = say(room, { who: sender.name, botId: sender.id, kind, text: '', ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }) })
       } else {
         line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
-        said = say(room, { who: sender.name, botId: sender.id, text: line, ...(postExtra.route ? { route: postExtra.route } : {}), ...(files.length > 0 ? { files } : {}), ...(presented.length > 0 ? { presented } : {}), ...(postExtra.claims === undefined ? {} : { claims: postExtra.claims }), ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }), ...(postExtra.late !== true && postExtra.progress !== true ? { openingPost: true } : {}) })
+        // A post reaches the room only once the book has it: rowsView merges the tail of
+        // room.log into the rows, so a post drawn before its write and refused by it would
+        // show as a message that was sent.
+        said = appendLine(room, { who: sender.name, botId: sender.id, text: line, ...(postExtra.route ? { route: postExtra.route } : {}), ...(files.length > 0 ? { files } : {}), ...(presented.length > 0 ? { presented } : {}), ...(postExtra.claims === undefined ? {} : { claims: postExtra.claims }), ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }), ...(postExtra.late !== true && postExtra.progress !== true ? { openingPost: true } : {}) })
+        drawn = false
       }
-      // The line is drawn already; the book may not have it. The write say() queued is taken
-      // here, before any await, so a record written later cannot stand in for this one.
+      // The write the line queued is taken here, before any await, so a record written
+      // later cannot stand in for this one.
       const landed = said === undefined ? undefined : rt.ledger.written(bookOf(room.id))
       // A line the book did not keep calls nobody: the caller hears the rejection (and
-      // closes its batch), the room hears the notice `say` sent.
+      // closes its batch), the room hears a warning of its own.
       if (landed !== undefined) {
         await landed.catch((error) => {
           // The receipt was queued before the write; a line the book did not keep has no
           // delivery to report, so its receipt goes with it.
           if (postExtra.reportId !== undefined) dropRoomReport(postExtra.reportId)
           rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
+          // say() sends this warning for the lines it drew; a post it did not draw says it
+          // here, so the warning stays a line of its own.
+          if (!drawn) say(room, { who: 'DS Bot', kind: 'notice', reason: 'unsaved', text: `The last line may not have been saved: ${error?.message ?? error}` })
           throw new Error(`the last line said may not have been saved: ${error?.message ?? error}`)
         })
       }
+      // On the book now, so the room draws it: a post the book refused is never drawn.
+      if (!drawn && said !== undefined) drawLine(room, said)
       // On the book now, so the batch result is a fact about a seq the book took: recording it
       // before the write remembered a seq the book never had.
       if (postExtra.batch !== undefined && (line !== '' || presented.length > 0) && said !== undefined) recordResult(postExtra.batch, sender.name, said.seq)

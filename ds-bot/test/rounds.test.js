@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -8,6 +8,7 @@ import { afterRound } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { ROOM_IDLE_RELAY_LIMIT } from '../src/host/constants.js'
 import { isIdleRelayText, lineText } from '../src/host/groups.js'
+import { bookFile } from '../src/host/ledger.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 
 // A fake team of two Bots in one group; member answers are played back through the
@@ -2544,6 +2545,53 @@ test('a Bot post the book refused records no result in its batch', { skip: proce
   await running
 })
 
+// #2066 review (Devin at 63f83141): the active-round Bot post is drawn as a normal
+// message before its own write lands, and rowsView's tail merge then shows a post the
+// book refused in the rows clients fetch. A refused post is drawn nowhere, the warning
+// keeps its own line, and a retry that lands draws the post exactly once.
+test('a Bot post the book refused in a running round is not drawn in the rows', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-refused-post-rows').catch(() => undefined)
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const live = await waitFor(() => {
+    const round = [...rt.roomProgress.values()].find(entry => entry.roomId === room.id && entry.nudge !== undefined)
+    return round === undefined ? undefined : rt.roomOf(room.id)
+  })
+  assert.ok(live)
+  const sender = rt.botOf(room.members[0])
+  const wrote = 'a Bot post the book refuses'
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  // The rows from here on: the refused post and its warning are the first lines after
+  // this seq, so the assertions do not depend on where the relay anchor sits.
+  const from = rt.roomOf(room.id).seq + 1
+  let refusal
+  chmodSync(book, 0o444)
+  try {
+    // The caller holds the promise: the round harness swallows a rejection from a post
+    // it drove, so only a directly awaited call can assert it.
+    await rt.postToRoom(live, sender, wrote, { progress: true }).catch((error) => { refusal = error })
+    assert.match(String(refusal?.message), /may not have been saved/, 'the caller hears the line was not saved')
+    const refused = rt.groupRows(room.id, from)
+    assert.equal(refused.filter(row => row.text === wrote).length, 0,
+      'a post the book refused is not drawn as a normal message')
+    assert.equal(refused.filter(row => row.text?.includes('may not have been saved')).length, 1,
+      'the warning still shows on its own line')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  // A retry that lands must not add a second copy of a post that was never drawn.
+  await rt.postToRoom(live, sender, wrote, { progress: true })
+  const retried = rt.groupRows(room.id, from).filter(row => row.text === wrote)
+  assert.equal(retried.length, 1, 'the retry that lands is drawn exactly once')
+  rt.stopRoomRound?.(room.id)
+  await new Promise(resolve => setTimeout(resolve, 40))
+  await running
+})
+
 // #2066 review (klarkxy 6052137086): the round can close while the Bot post waits for
 // its own write. callIn then pushes the named member into a round whose nudge is gone,
 // and nobody is woken. The member belongs to the round that follows.
@@ -2563,18 +2611,21 @@ test('a Bot post held on its write belongs to the round that follows, not the ro
     [batchKey]: { key: batchKey, roomId: room.id, by: sender.id, pending: [], done: [], doneIds: [], results: [], worked: false, answered: false, at: Date.now() },
   }
   const posted = '@Writer a post held on its write'
-  // Hold the line's own write: call 1 is say()'s watcher, call 2 is the awaited `landed`.
-  let written = 0
+  // Hold the line's own write: the post is appended before written() is taken, so the
+  // last record on the book names the call to hold.
+  let gated = false
   let release
   const gate = new Promise(resolve => { release = resolve })
   const realWritten = rt.ledger.written
   rt.ledger.written = (book) => {
-    written += 1
-    if (written === 2) return gate.then(() => 'held write resolved')
+    if (!gated && rt.ledger.records(book).at(-1)?.text === posted) {
+      gated = true
+      return gate.then(() => 'held write resolved')
+    }
     return realWritten(book)
   }
   const posting = rt.postToRoom(rt.roomOf(room.id), sender, posted, { batch: batchKey })
-  await waitFor(() => written >= 2)
+  await waitFor(() => gated ? true : undefined)
   await answer(first.sessionId, first.message.source.exchangeId, 'done', 1)
   const second = await turnFor(sent, first)
   assert.ok(second, 'the other member is still called after the first answers')
@@ -2609,17 +2660,17 @@ test('two Bot posts held on their writes at once start one round, not an empty s
   assert.ok(round)
   const senderA = rt.botOf(room.members[0])
   const senderB = rt.botOf(room.members[1])
-  let written = 0
+  const heldTexts = new Set(['@Writer A held', '@Chief B held'])
   const releases = []
   const realWritten = rt.ledger.written
   rt.ledger.written = (book) => {
-    written += 1
-    if (written === 2 || written === 4) return new Promise(resolve => releases.push(resolve))
+    const text = rt.ledger.records(book).at(-1)?.text
+    if (text !== undefined && heldTexts.delete(text)) return new Promise(resolve => releases.push(resolve))
     return realWritten(book)
   }
   const pa = rt.postToRoom(rt.roomOf(room.id), senderA, '@Writer A held', { progress: true })
   const pb = rt.postToRoom(rt.roomOf(room.id), senderB, '@Chief B held', { progress: true })
-  assert.ok(await waitFor(() => written >= 4 ? true : undefined), 'both landed writes are held')
+  assert.ok(await waitFor(() => heldTexts.size === 0 ? true : undefined), 'both landed writes are held')
   await answer(first.sessionId, first.message.source.exchangeId, 'done', 1)
   const second = await turnFor(sent, first)
   assert.ok(second, 'the other member is called')
@@ -2658,13 +2709,17 @@ test('a stop that lands while a held post resolves its agent starts no round', a
   const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
   assert.ok(round)
   const sender = rt.botOf(room.members[0])
-  let written = 0
+  const heldPost = '@Writer held then stopped'
+  let gated = false
   let releaseWrite
   const writeGate = new Promise(resolve => { releaseWrite = resolve })
   const realWritten = rt.ledger.written
-  rt.ledger.written = (book) => { written += 1; if (written === 2) return writeGate; return realWritten(book) }
-  const posting = rt.postToRoom(rt.roomOf(room.id), sender, '@Writer held then stopped', { progress: true })
-  assert.ok(await waitFor(() => written >= 2 ? true : undefined), 'the landed write is held')
+  rt.ledger.written = (book) => {
+    if (!gated && rt.ledger.records(book).at(-1)?.text === heldPost) { gated = true; return writeGate }
+    return realWritten(book)
+  }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, heldPost, { progress: true })
+  assert.ok(await waitFor(() => gated ? true : undefined), 'the landed write is held')
   await answer(first.sessionId, first.message.source.exchangeId, 'done', 1)
   const second = await turnFor(sent, first)
   assert.ok(second)
@@ -2708,13 +2763,17 @@ test('a Bot post held on its write when the room is stopped is not queued and wa
   const deliveries = []
   const realDeliver = rt.deliver
   rt.deliver = async (args) => { if (args?.role === 'report') deliveries.push(args); return realDeliver(args) }
-  let written = 0
+  const stoppedPost = '@Writer held for the stop'
+  let gated = false
   let release
   const gate = new Promise(resolve => { release = resolve })
   const realWritten = rt.ledger.written
-  rt.ledger.written = (book) => { written += 1; if (written === 2) return gate; return realWritten(book) }
-  const posting = rt.postToRoom(rt.roomOf(room.id), sender, '@Writer held for the stop', { reportBack: true, batch: batchKey, batchEnd: true })
-  assert.ok(await waitFor(() => written >= 2 ? true : undefined), 'the landed write is held')
+  rt.ledger.written = (book) => {
+    if (!gated && rt.ledger.records(book).at(-1)?.text === stoppedPost) { gated = true; return gate }
+    return realWritten(book)
+  }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, stoppedPost, { reportBack: true, batch: batchKey, batchEnd: true })
+  assert.ok(await waitFor(() => gated ? true : undefined), 'the landed write is held')
   await rt.stopRoomWork(room.id)
   const beforeRelease = sent.length
   release()
@@ -2763,13 +2822,16 @@ test('a stopped post without a report id is not replayed by the next message', a
   assert.ok(round)
   const sender = rt.botOf(room.members[0])
   const held = '@Writer held for the stop'
-  let written = 0
+  let gated = false
   let release
   const gate = new Promise(resolve => { release = resolve })
   const realWritten = rt.ledger.written
-  rt.ledger.written = (book) => { written += 1; if (written === 2) return gate; return realWritten(book) }
+  rt.ledger.written = (book) => {
+    if (!gated && rt.ledger.records(book).at(-1)?.text === held) { gated = true; return gate }
+    return realWritten(book)
+  }
   const posting = rt.postToRoom(rt.roomOf(room.id), sender, held, { progress: true })
-  assert.ok(await waitFor(() => written >= 2 ? true : undefined), 'the landed write is held')
+  assert.ok(await waitFor(() => gated ? true : undefined), 'the landed write is held')
   await rt.stopRoomWork(room.id)
   release()
   await posting
@@ -2804,13 +2866,17 @@ test('a held post whose state cannot be saved is reported delivered, not posted 
   const first = await turnFor(sent)
   assert.ok(first)
   const sender = rt.botOf(room.members[0])
-  let written = 0
+  const heldSave = '@Writer held for a failed save'
+  let gated = false
   let release
   const gate = new Promise(resolve => { release = resolve })
   const realWritten = rt.ledger.written
-  rt.ledger.written = (book) => { written += 1; if (written === 2) return gate; return realWritten(book) }
-  const posting = rt.postToRoom(rt.roomOf(room.id), sender, '@Writer held for a failed save', { reportBack: true })
-  assert.ok(await waitFor(() => written >= 2 ? true : undefined), 'the landed write is held')
+  rt.ledger.written = (book) => {
+    if (!gated && rt.ledger.records(book).at(-1)?.text === heldSave) { gated = true; return gate }
+    return realWritten(book)
+  }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, heldSave, { reportBack: true })
+  assert.ok(await waitFor(() => gated ? true : undefined), 'the landed write is held')
   await rt.stopRoomWork(room.id)
   const realSave = rt.save
   let saveCalls = 0
