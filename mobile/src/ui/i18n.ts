@@ -31,6 +31,8 @@ const MOBILE_ZH: Record<string, string> = {
   'Tools': '工具调用',
   'Steps': '步数', 'Context used': '上下文占用',
   'Retry': '重试',
+  'Poke': '戳一戳',
+  'Pet': '摸一摸',
   'Add photos': '添加照片', 'Not sent. Tap to retry': '未发出，点按重试', 'Latest messages': '最新消息', 'Forget {name}?': '忘记 {name}？', 'Clear diagnostics?': '清空诊断记录？',
   'Pick at least two Bots. The admin leads the group.': '至少选两个 Bot，管理员带领这个群。', 'Reconnecting…': '正在重新连接…',
   'A photo did not arrive. Send it again.': '有张照片没传到，请重新发送。', 'This is not a photo DS Bot can send': '这不是 DS Bot 能发送的照片',

@@ -28450,10 +28450,19 @@ function installMotionRest({ doc = document, win = window, restMs = REST_MS, now
   };
 }
 
-// src/client/avatar/live.js
+// src/client/avatar/stage.js
 var DOZE_MS = 15e4;
 var MARGIN = 0.3;
 var CONFETTI_INKS = ["rose", "sky", "yellow", "green", "violet"];
+var FLAT_ORIGIN = "50% 92%";
+function flatPose(frame3) {
+  const sy = 1 - Math.max(-0.4, Math.min(0.4, frame3.sq));
+  const s = 1 + frame3.scale;
+  const turn = Math.max(0.15, Math.abs(Math.cos(frame3.yaw * Math.PI / 180)));
+  return { x: frame3.x, y: frame3.y, roll: frame3.roll * 0.6, sx: s * turn / sy, sy: s * sy };
+}
+
+// src/client/avatar/live.js
 var marks = /* @__PURE__ */ new Set();
 var frame = 0;
 var timer = 0;
@@ -28693,10 +28702,8 @@ function buildSoon(mark2) {
   idleSoon(work);
 }
 function flatTransform(frame3) {
-  const sy = 1 - Math.max(-0.4, Math.min(0.4, frame3.sq));
-  const s = 1 + frame3.scale;
-  const turn = Math.max(0.15, Math.abs(Math.cos(frame3.yaw * Math.PI / 180)));
-  return `translate(${frame3.x.toFixed(2)}%,${frame3.y.toFixed(2)}%) rotate(${(frame3.roll * 0.6).toFixed(2)}deg) scale(${(s * turn / sy).toFixed(4)},${(s * sy).toFixed(4)})`;
+  const { x, y, roll, sx, sy } = flatPose(frame3);
+  return `translate(${x.toFixed(2)}%,${y.toFixed(2)}%) rotate(${roll.toFixed(2)}deg) scale(${sx.toFixed(4)},${sy.toFixed(4)})`;
 }
 var LiveMark = class {
   // host: the mark's element. `look` { shape, color }, `def` its shape (characters.js).
@@ -28733,7 +28740,7 @@ var LiveMark = class {
     if (!ctx) this.rig = null;
     if (!this.rig) {
       this.flat = this.host.firstElementChild;
-      if (this.flat) this.flat.style.transformOrigin = "50% 92%";
+      if (this.flat) this.flat.style.transformOrigin = FLAT_ORIGIN;
       this.dirty = true;
       kick();
       return;
@@ -28883,6 +28890,12 @@ var LiveMark = class {
   }
 };
 
+// src/client/mark-states.js
+var MARK_STATES = ["idle", "thinking", "searching", "working", "sending", "orbit", "waiting", "background", "alert", "failed", "done", "replied"];
+var BETWEEN = /* @__PURE__ */ new Set(["waiting", "background", "failed", "replied"]);
+var botState = (running, activity, alert, { failed = false, background = false, replied = false } = {}) => running ? MARK_STATES.includes(activity) && !BETWEEN.has(activity) ? activity : "working" : alert ? "alert" : failed ? "failed" : activity === "waiting" ? "waiting" : background ? "background" : replied ? "replied" : "idle";
+var toolState = (name) => /^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
+
 // src/client/memo.js
 var React = __toESM(require("react"), 1);
 function memo(component, compare, displayName) {
@@ -28908,10 +28921,7 @@ function useRosterPick(useRoster, fields) {
 
 // src/client/mark.js
 var import_react2 = require("react");
-var STATES2 = ["idle", "thinking", "searching", "working", "sending", "orbit", "waiting", "background", "alert", "failed", "done", "replied"];
-var BETWEEN = /* @__PURE__ */ new Set(["waiting", "background", "failed", "replied"]);
 var RUNNING = /* @__PURE__ */ new Set(["thinking", "searching", "working", "sending", "orbit", "done"]);
-var botState = (running, activity, alert, { failed = false, background = false, replied = false } = {}) => running ? STATES2.includes(activity) && !BETWEEN.has(activity) ? activity : "working" : alert ? "alert" : failed ? "failed" : activity === "waiting" ? "waiting" : background ? "background" : replied ? "replied" : "idle";
 var latestTurnOf = (list, part) => {
   const outline2 = turnOutlineOf(list, part);
   return Array.isArray(outline2) && outline2.length > 0 ? outline2.at(-1).turn : void 0;
@@ -28957,7 +28967,6 @@ function dmMarkState({ running = false, doing, failed = false, background = fals
   const dmDoing = blockingAlert ? "alert" : doing === "alert" ? void 0 : doing;
   return botState(running, dmDoing, alert, { failed, background, replied });
 }
-var toolState = (name) => /^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
 var PET_ZONE = ":is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster),.bt-pet-zone";
 function useLive(ref, { look, image, size, state, live, gaze, pokeable, seed }) {
   const awake = (0, import_react2.useRef)(false);
@@ -28995,7 +29004,7 @@ var BotMark = memo(function BotMark2({ bot, look: given, size = 36, state = "idl
   if (maskId.current === "") maskId.current = `bt-mark-${nextMarkSerial()}`;
   const [broken, setBroken] = (0, import_react2.useState)("");
   const image = look.image && look.image !== broken ? look.image : void 0;
-  const markState = STATES2.includes(state) ? state : "idle";
+  const markState = MARK_STATES.includes(state) ? state : "idle";
   useLive(ref, { look, image, size, state: markState, live, gaze, pokeable, seed: fnv1a(String(bot?.id ?? look.shape)) });
   const common = {
     ref,

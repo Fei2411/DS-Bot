@@ -15,6 +15,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import { useTeam } from '../team/context.tsx'
 import { memorySummaryText } from '../team/memory.ts'
 import { avatarPhoto } from '../team/avatar-photo.ts'
+import { botMarkState } from '../team/mark-state.ts'
 import { t, timeLabel, weekdayShort } from '../ui/i18n.ts'
 import { roomTitle } from '../ui/phrases.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
@@ -229,7 +230,7 @@ export function BotDetails({ route, navigation }: any) {
       </View>
       <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }}>
         <View style={{ alignItems: 'center', paddingTop: 4 }}>
-          <Avatar bot={bot} dark={dark} size={64} ring={p.main} main={main} />
+          <Avatar bot={bot} dark={dark} size={64} ring={p.main} main={main} state={botMarkState(team, bot)} live pokeable />
           <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18 }]}>{bot.name}</Text>
           {bot.role ? <Text style={[typeScale.caption, { color: p.ink3, marginTop: 2 }]}>{bot.role}</Text> : null}
         </View>
@@ -433,7 +434,7 @@ export function BotEdit({ route, navigation }: any) {
       <BackRow title={t('Settings')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={{ alignItems: 'center', paddingTop: 12 }}>
-          <Avatar bot={bot} dark={dark} size={56} ring={p.main} />
+          <Avatar bot={bot} dark={dark} size={56} ring={p.main} live />
         </View>
         {error || photoError ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error || photoError}</Text> : null}
         <Section label={t('Profile')}>
