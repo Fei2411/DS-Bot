@@ -76,12 +76,38 @@ let state: AppUpdateState = {
 
 let lastEtag: string | undefined
 let bootChecked = false
-let downloadCancelled = false
+let checkGen = 0
+let activeCheckGen = 0
+let downloadGen = 0
 const listeners = new Set<() => void>()
 
 function emit(patch: Partial<AppUpdateState>): void {
   state = { ...state, ...patch }
   listeners.forEach(fn => fn())
+}
+
+/** Resets module-level store state (for deterministic unit tests). */
+export function resetAppUpdateStoreForTest(overrides: Partial<AppUpdateState> = {}): void {
+  lastEtag = undefined
+  bootChecked = false
+  checkGen = 0
+  activeCheckGen = 0
+  downloadGen = 0
+  state = {
+    supported: Platform.OS === 'android' && isAndroidUpdaterAvailable(),
+    currentVersion: currentAppVersion(),
+    phase: 'idle',
+    release: null,
+    cached: null,
+    bytesWritten: 0,
+    totalBytes: 0,
+    progress: -1,
+    canInstall: true,
+    waitingForPermission: false,
+    error: null,
+    checkedAt: null,
+    ...overrides,
+  }
 }
 
 function parseSnapshot(raw: string | undefined, appVersion: string, mirror: string): PersistedUpdateSnapshot | null {
@@ -128,15 +154,17 @@ export async function refreshInstallPermission(): Promise<boolean> {
   return allowed
 }
 
-async function hydrateFromSnapshot(snapshot: PersistedUpdateSnapshot): Promise<void> {
+async function hydrateFromSnapshot(snapshot: PersistedUpdateSnapshot, gen: number): Promise<void> {
   if (snapshot.etag) lastEtag = snapshot.etag
   if (snapshot.status === 'up-to-date' || snapshot.release === null) {
     void cleanupUpdateCache(null)
+    if (gen !== checkGen) return
     emit({ phase: 'up-to-date', release: null, cached: null, checkedAt: snapshot.checkedAt, error: null })
     return
   }
   const canInstall = await canInstallPackages().catch(() => false)
   const cached = await getCachedApk(snapshot.release.apkName, snapshot.release.sha256).catch(() => null)
+  if (gen !== checkGen) return
   emit({
     phase: cached !== null ? 'ready' : 'available',
     release: snapshot.release,
@@ -152,27 +180,35 @@ async function hydrateFromSnapshot(snapshot: PersistedUpdateSnapshot): Promise<v
 
 export async function checkForAppUpdate(options: { manual?: boolean } = {}): Promise<void> {
   if (!state.supported) return
-  if (state.phase === 'checking' || state.phase === 'downloading') return
-  const prefs = await readPrefs()
-  const customMirror = prefs.updateMirror ?? ''
-  const snapshot = parseSnapshot(prefs.updateSnapshot, state.currentVersion, customMirror)
-  const now = Date.now()
-
-  if (options.manual !== true) {
-    // Always restore any persisted update result (including already-downloaded APK) on cold start.
-    if (snapshot !== null && state.phase === 'idle') {
-      await hydrateFromSnapshot(snapshot)
-    } else if (prefs.updateCacheVersion && prefs.updateCacheVersion !== state.currentVersion) {
-      // Clear leftover APK immediately after upgrading to a newer installed version.
-      void cleanupUpdateCache(null)
-      void writePrefs({ updateCacheVersion: state.currentVersion }).catch(() => {})
-    }
-    if (prefs.autoUpdate === 'off') return
-    if (snapshot !== null && now - snapshot.checkedAt < AUTO_CHECK_INTERVAL_MS) return
+  if (activeCheckGen !== 0 || state.phase === 'checking' || state.phase === 'downloading' || state.phase === 'installing') return
+  const gen = ++checkGen
+  activeCheckGen = gen
+  if (options.manual === true) {
+    // Flip phase synchronously before any await so rapid double-taps cannot start concurrent checks.
+    emit({ phase: 'checking', error: null })
   }
-
-  emit({ phase: 'checking', error: null })
   try {
+    const prefs = await readPrefs()
+    if (gen !== checkGen) return
+    const customMirror = prefs.updateMirror ?? ''
+    const snapshot = parseSnapshot(prefs.updateSnapshot, state.currentVersion, customMirror)
+    const now = Date.now()
+
+    if (options.manual !== true) {
+      // Always restore any persisted update result (including already-downloaded APK) on cold start.
+      if (snapshot !== null && state.phase === 'idle') {
+        await hydrateFromSnapshot(snapshot, gen)
+        if (gen !== checkGen) return
+      } else if (prefs.updateCacheVersion && prefs.updateCacheVersion !== state.currentVersion) {
+        // Clear leftover APK immediately after upgrading to a newer installed version.
+        void cleanupUpdateCache(null)
+        void writePrefs({ updateCacheVersion: state.currentVersion }).catch(() => {})
+      }
+      if (prefs.autoUpdate === 'off') return
+      if (snapshot !== null && now - snapshot.checkedAt < AUTO_CHECK_INTERVAL_MS) return
+      emit({ phase: 'checking', error: null })
+    }
+
     const allowLoopbackHttp = typeof __DEV__ !== 'undefined' && __DEV__ === true
     const result = await checkAndroidUpdate({
       currentVersion: state.currentVersion,
@@ -180,6 +216,7 @@ export async function checkForAppUpdate(options: { manual?: boolean } = {}): Pro
       etag: options.manual === true ? undefined : lastEtag,
       allowLoopbackHttp,
     })
+    if (gen !== checkGen) return
     const checkedAt = Date.now()
 
     if (result.status === 'unchanged') {
@@ -201,6 +238,7 @@ export async function checkForAppUpdate(options: { manual?: boolean } = {}): Pro
 
     const canInstall = await canInstallPackages().catch(() => false)
     const cached = await getCachedApk(result.release.apkName, result.release.sha256).catch(() => null)
+    if (gen !== checkGen) return
     void writePrefs({ updateCacheVersion: state.currentVersion }).catch(() => {})
     persistSnapshot({ appVersion: state.currentVersion, mirror: customMirror, checkedAt, status: 'available', release: result.release, etag: lastEtag })
     emit({
@@ -215,43 +253,45 @@ export async function checkForAppUpdate(options: { manual?: boolean } = {}): Pro
       progress: cached !== null ? 1 : -1,
     })
   } catch (failure) {
+    if (gen !== checkGen) return
     const message = failure instanceof Error ? failure.message : String(failure)
     emit({ phase: 'error', error: message, checkedAt: Date.now() })
+  } finally {
+    if (activeCheckGen === gen) activeCheckGen = 0
   }
 }
 
 export async function downloadAppUpdate(): Promise<void> {
   if (!state.supported || state.release === null) return
-  if (state.phase === 'downloading') return
+  if (state.phase === 'downloading' || state.phase === 'installing') return
   const release = state.release
+  const gen = ++downloadGen
+  // Transition synchronously before any await so rapid double-taps cannot launch duplicate downloads.
+  emit({ phase: 'downloading', bytesWritten: 0, totalBytes: release.size, progress: 0, error: null })
+
   const cached = await getCachedApk(release.apkName, release.sha256).catch(() => null)
+  if (gen !== downloadGen) return
   if (cached !== null) {
     const canInstall = await canInstallPackages().catch(() => false)
+    if (gen !== downloadGen) return
     emit({ phase: 'ready', cached, canInstall, progress: 1, bytesWritten: cached.size, totalBytes: cached.size, error: null })
     return
   }
 
-  downloadCancelled = false
-  emit({ phase: 'downloading', bytesWritten: 0, totalBytes: release.size, progress: 0, error: null })
   const unsub = onUpdateDownloadProgress((p) => {
-    if (state.phase !== 'downloading' || downloadCancelled) return
+    if (gen !== downloadGen || state.phase !== 'downloading') return
     emit({ bytesWritten: p.bytesWritten, totalBytes: p.totalBytes || release.size, progress: p.progress })
   })
 
   try {
     let lastError: unknown = null
     for (const url of release.downloadUrls) {
-      if (downloadCancelled) {
-        emit({ phase: 'available', bytesWritten: 0, progress: -1, error: null })
-        return
-      }
+      if (gen !== downloadGen) return
       try {
         const downloaded = await downloadApk(url, release.apkName, release.sha256, release.size)
-        if (downloadCancelled) {
-          emit({ phase: 'available', bytesWritten: 0, progress: -1, error: null })
-          return
-        }
+        if (gen !== downloadGen) return
         const canInstall = await canInstallPackages().catch(() => false)
+        if (gen !== downloadGen) return
         emit({
           phase: 'ready',
           cached: downloaded,
@@ -263,18 +303,16 @@ export async function downloadAppUpdate(): Promise<void> {
         })
         return
       } catch (err) {
+        if (gen !== downloadGen) return
         const code = (err as { code?: string } | null)?.code
-        if (downloadCancelled || code === 'CANCELLED') {
+        if (code === 'CANCELLED') {
           emit({ phase: 'available', bytesWritten: 0, progress: -1, error: null })
           return
         }
         lastError = err
       }
     }
-    if (downloadCancelled) {
-      emit({ phase: 'available', bytesWritten: 0, progress: -1, error: null })
-      return
-    }
+    if (gen !== downloadGen) return
     const message = lastError instanceof Error ? lastError.message : String(lastError ?? 'Download failed')
     emit({ phase: 'error', error: message })
   } finally {
@@ -284,11 +322,11 @@ export async function downloadAppUpdate(): Promise<void> {
 
 export async function cancelAppUpdateDownload(): Promise<void> {
   if (!state.supported) return
-  downloadCancelled = true
-  await cancelApkDownload()
+  downloadGen += 1
   if (state.phase === 'downloading') {
     emit({ phase: state.release !== null ? 'available' : 'idle', bytesWritten: 0, progress: -1, error: null })
   }
+  await cancelApkDownload()
 }
 
 export async function installDownloadedUpdate(): Promise<void> {
@@ -322,10 +360,12 @@ export async function saveUpdateMirror(raw: string): Promise<{ ok: boolean; valu
   const allowLoopbackHttp = typeof __DEV__ !== 'undefined' && __DEV__ === true
   const normalized = normalizeMirrorBase(raw, { allowLoopbackHttp })
   if (normalized === null) return { ok: false }
+  // Invalidate any in-flight update check so stale mirror/GitHub results cannot overwrite this change.
+  checkGen += 1
+  activeCheckGen = 0
   await writePrefs({ updateMirror: normalized })
   lastEtag = undefined
   persistSnapshot(null)
-  // Invalidate any previously resolved release URLs so the next download uses the updated mirror.
   if (state.phase !== 'downloading' && state.phase !== 'installing') {
     emit({ phase: 'idle', release: null, cached: null, error: null, checkedAt: null, bytesWritten: 0, totalBytes: 0, progress: -1 })
   }

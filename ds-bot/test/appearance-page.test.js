@@ -35,6 +35,7 @@ function find(tree, match) {
   return find(tree.children ?? [], match)
 }
 const byLabel = (tree, label) => find(tree, node => node.props?.['aria-label'] === label)
+const textOfNode = node => (typeof node === 'string' || typeof node === 'number' ? String(node) : Array.isArray(node) ? node.map(textOfNode).join('') : (node?.children ?? []).map(textOfNode).join(''))
 const kindButton = (tree, kind) => find(tree, node => node.props?.['data-kind'] === kind)
 
 function withDocument(t) {
@@ -357,4 +358,110 @@ test('triggerColorMorph sets and clears data-bt-color-morph and respects effects
   delete body.dataset.btEffects
   assert.equal(triggerColorMorph(20, { body }, { matchMedia: () => ({ matches: true }) }), false)
   assert.equal(attrs.has('data-bt-color-morph'), false)
+})
+
+test('Derive from 2 colors rebuilds the mode palette through the same save path as a color edit', async (t) => {
+  withDocument(t)
+  const { harness, ColorsSection } = await load()
+  const colors = { bg: '#fafafa', sidebar: '#f0f0f0', bubble: '#eeeeee', card: '#ffffff', text: '#111111', user: '#222222', userText: '#ffffff', accent: '#4d6bfe' }
+  const themes = { 'my-dawn': { label: 'Dawn', light: colors, dark: colors, own: true } }
+  const sent = []
+  const actions = { setPrefs: (change) => { sent.push(change); return Promise.resolve() } }
+  const draw = () => harness.render(harness.React.createElement(ColorsSection, { prefs: { theme: 'my-dawn', themes }, actions, run: p => p, Section, Row, Choice }))
+  let tree = draw()
+  const canvasWell = find(tree, node => node.props?.['data-derive'] === 'canvas')
+  const accentWell = find(tree, node => node.props?.['data-derive'] === 'accent')
+  assert.ok(canvasWell && accentWell, 'the derive row shows a canvas and an accent well')
+  assert.equal(canvasWell.props.value, '#fafafa', 'prefilled with the current background')
+  const deriveButton = find(tree, node => node.type === 'button' && textOfNode(node) === 'Derive')
+  assert.ok(deriveButton, 'the derive button is there')
+  canvasWell.props.onChange({ target: { value: '#101418' } })
+  accentWell.props.onChange({ target: { value: '#ff8a2e' } })
+  tree = draw()
+  find(tree, node => node.type === 'button' && textOfNode(node) === 'Derive').props.onClick()
+  await sleep(5)
+  assert.equal(sent.length, 1)
+  const saved = sent[0].themes['my-dawn']
+  assert.equal(sent[0].accent, null, 'the team accent gives way to the derived one')
+  assert.equal(saved.light.bg, '#101418', 'the canvas is taken over exactly')
+  assert.equal(saved.light.accent, '#ff8a2e')
+  assert.equal(saved.light.user, '#ff8a2e')
+  assert.equal(saved.light.sidebar === '#101418', false, 'surfaces step off the canvas')
+  assert.equal(saved.base, undefined)
+  assert.equal(saved.light.base, undefined, 'a derived palette starts without move-basics anchors')
+  // Only the edited mode is derived; the other one is untouched.
+  assert.deepEqual(saved.dark, colors)
+  harness.unmount()
+})
+
+test('theme import accepts both ds-bot theme files and VS Code themes', async (t) => {
+  withDocument(t)
+  globalThis.FileReader = class {
+    readAsText(file) { queueMicrotask(() => { this.result = file.text; this.onload() }) }
+    readAsDataURL() { queueMicrotask(() => { this.result = 'data:,'; this.onload() }) }
+  }
+  const { harness, AppearancePage } = await load()
+  const sent = []
+  const actions = { setPrefs: (change) => { sent.push(change); return Promise.resolve() } }
+  const roster = { bots: [], byId: {}, mainBotIds: [], prefs: { theme: 'deepseek' } }
+  const errors = []
+  const run = p => p.catch(error => errors.push(error))
+  const draw = () => harness.render(harness.React.createElement(AppearancePage, {
+    roster, actions, run, Section, Row, Choice, Switch: () => null, ownWindow: false,
+  }))
+  const tree = draw()
+  const picker = find(tree, node => node.type === 'input' && node.props?.type === 'file' && node.props?.accept === 'application/json,.json,.jsonc')
+  assert.ok(picker, 'the import file input is there')
+
+  // A VS Code theme imports as a theme of your own, without touching the appearance.
+  picker.props.onChange({ target: { files: [{ text: '{ "name": "One Dark Pro", "type": "dark", "colors": { "editor.background": "#282c34", "editor.foreground": "#abb2bf" } }' }], value: 'x' } })
+  await sleep(10)
+  assert.equal(sent.length, 1)
+  const vscode = sent[0]
+  assert.match(Object.keys(vscode.themes)[0], /^my-/)
+  const vscodeTheme = Object.values(vscode.themes)[0]
+  assert.equal(vscodeTheme.label, 'One Dark Pro')
+  assert.equal(vscodeTheme.dark.bg, '#282c34')
+  assert.equal(vscodeTheme.dark.text, '#abb2bf')
+  assert.ok(/^#[0-9a-f]{6}$/.test(vscodeTheme.light.bg), 'the light side is derived')
+  assert.equal(vscode.appearance, undefined, 'a VS Code theme carries no appearance: the teams stays as it is')
+  assert.equal(vscode.accent, null)
+
+  // A ds-bot theme file imports as before, with its appearance along.
+  const colors = { bg: '#fafafa', sidebar: '#f0f0f0', bubble: '#eeeeee', card: '#ffffff', text: '#111111', user: '#222222', userText: '#ffffff', accent: '#4d6bfe' }
+  const file = { format: 'ds-bot-theme', version: 1, theme: { label: 'Dusk', light: colors, dark: colors }, appearance: { radius: 40 } }
+  picker.props.onChange({ target: { files: [{ text: JSON.stringify(file) }], value: 'x' } })
+  await sleep(10)
+  assert.equal(sent.length, 2)
+  const dsbot = sent[1]
+  assert.equal(Object.values(dsbot.themes)[0].label, 'Dusk')
+  assert.equal(dsbot.appearance.radius, 40, 'the file appearance is applied')
+  assert.equal(dsbot.appearance.density, null, 'fields the file leaves out go back to default')
+
+  // Neither kind: the friendly refusal surfaces, and nothing is saved.
+  picker.props.onChange({ target: { files: [{ text: 'definitely not json' }], value: 'x' } })
+  await sleep(10)
+  assert.equal(sent.length, 2)
+  assert.equal(errors.length, 1)
+  assert.match(errors[0].message, /not a DS Bot theme/)
+  harness.unmount()
+})
+
+test('the derive wells resync when the palette changes under them', async (t) => {
+  withDocument(t)
+  const { harness, ColorsSection } = await load()
+  const dawn = { bg: '#fafafa', sidebar: '#f0f0f0', bubble: '#eeeeee', card: '#ffffff', text: '#111111', user: '#222222', userText: '#ffffff', accent: '#4d6bfe' }
+  const dusk = { bg: '#101010', sidebar: '#181818', bubble: '#262626', card: '#1c1c1c', text: '#f0f0f0', user: '#f0f0f0', userText: '#101010', accent: '#5b7bff' }
+  let prefs = { theme: 'my-dawn', themes: { 'my-dawn': { label: 'Dawn', light: dawn, dark: dawn, own: true }, 'my-dusk': { label: 'Dusk', light: dusk, dark: dusk, own: true } } }
+  const actions = { setPrefs: () => Promise.resolve() }
+  const draw = () => harness.render(harness.React.createElement(ColorsSection, { prefs, actions, run: p => p, Section, Row, Choice }))
+  let tree = draw()
+  assert.equal(find(tree, node => node.props?.['data-derive'] === 'canvas').props.value, '#fafafa')
+  // Another theme is picked: the wells follow its palette without remounting the section.
+  prefs = { ...prefs, theme: 'my-dusk' }
+  tree = draw()
+  tree = draw() // the resync effect commits after the first draw, so the state shows on the next
+  assert.equal(find(tree, node => node.props?.['data-derive'] === 'canvas').props.value, '#101010')
+  assert.equal(find(tree, node => node.props?.['data-derive'] === 'accent').props.value, '#5b7bff')
+  harness.unmount()
 })

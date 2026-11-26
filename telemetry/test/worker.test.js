@@ -48,7 +48,7 @@ function makeError(overrides = {}) {
     error_name: 'TypeError',
     error_code: 'ENOENT',
     where: 'turns',
-    stack_frames: ['runTurn @ ds-bot/src/host/turns.js:412:15'],
+    stack_frames: ['ds-bot/src/host/turns.js:412:15'],
     fingerprint: '0123456789abcdef',
     count: 2,
     ...overrides,
@@ -85,17 +85,23 @@ test('rejects unknown fields on both daily and error payloads', () => {
   assert.equal(validatePayload(makeError({ message: 'ENOENT /Users/<user>/secret.pdf' }), NOW).ok, false)
 })
 
-test('rejects absolute paths and traversal in stack frames', () => {
+test('rejects absolute paths, function names, non-source files, and traversal in stack frames', () => {
   assert.equal(validatePayload(makeError({ stack_frames: ['/Users/<user>/ds-bot/src/host/turns.js:10:1'] }), NOW).ok, false)
   assert.equal(validatePayload(makeError({ stack_frames: ['C:\\Users\\<user>\\ds-bot\\src\\host\\turns.js:10:1'] }), NOW).ok, false)
   assert.equal(validatePayload(makeError({ stack_frames: ['ds-bot/../secrets.json:1:1'] }), NOW).ok, false)
+  assert.equal(validatePayload(makeError({ stack_frames: ['secretFn @ ds-bot/src/host/turns.js:10:1'] }), NOW).ok, false)
+  assert.equal(validatePayload(makeError({ stack_frames: ['ds-bot/src/host/secret.pdf:1:1'] }), NOW).ok, false)
 })
 
-test('rejects unknown providers, features, where values, or out-of-range days', () => {
+test('rejects unknown providers, features, error names, error codes, where values, or out-of-range days', () => {
   assert.equal(validatePayload(makeDaily({ providers_used: ['my-private-llm.corp'] }), NOW).ok, false)
   assert.equal(validatePayload(makeDaily({ features_active: ['private-plugin-name'] }), NOW).ok, false)
   assert.equal(validatePayload(makeDaily({ day: '2026-10-01' }), NOW).ok, false)
   assert.equal(validatePayload(makeError({ where: 'secretgroupname' }), NOW).ok, false)
+  assert.equal(validatePayload(makeError({ error_name: 'ArbitraryCustomError' }), NOW).ok, false)
+  assert.equal(validatePayload(makeError({ error_code: 'LEAKED_IDENTIFIER' }), NOW).ok, false)
+  assert.equal(validatePayload(makeError({ error_code: 'HTTP_502' }), NOW).ok, true)
+  assert.equal(validatePayload(makeError({ error_code: 'bot/refused' }), NOW).ok, true)
 })
 
 test('handleRequest stores daily and error payloads without touching client IP headers', async () => {

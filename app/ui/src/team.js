@@ -814,6 +814,19 @@ export function createTeam() {
         if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id)
         ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
       },
+      toggleBrowser: (id) => {
+        const snap = roster.getSnapshot()
+        if (snap.browser === false) return
+        const bot = snap.byId?.[id]
+        if (!bot) return
+        const state = ui.getSnapshot()
+        const detailsBotId = state.details ? (snap.byId?.[state.details]?.id ?? state.details) : null
+        if (state.details && state.view === 'browser' && detailsBotId === bot.id) {
+          actions.closePanel()
+          return
+        }
+        actions.openBrowser(bot.id)
+      },
       // `+` on the strip or the drawer's new-tab card: a blank tab in the browser view.
       browserNewTab: (id) => {
         const bot = roster.getSnapshot().byId[id]
@@ -903,9 +916,10 @@ export function createTeam() {
       setStatus(part, { running: doing !== undefined })
       actions.noteLive(part, 'tool', doing?.tool ? { label: workPhrase(doing), state: toolState(doing.tool) } : null)
     }
+    const activeRooms = new Set(snap.activeRooms ?? [])
     for (const room of r.rooms ?? []) {
       const part = currentPart(room)
-      const busy = (rooms[room.id]?.length ?? 0) > 0
+      const busy = activeRooms.has(room.id) || (rooms[room.id]?.length ?? 0) > 0
       setStatus(part, { running: busy })
     }
     const turns = snap.turns ?? {}
@@ -1246,5 +1260,13 @@ export function createTeam() {
     }
     return hook
   }
-  return { actions, hooks, sessionHook, chat, start }
+  const snapshots = {
+    roster: () => roster.getSnapshot(),
+    sessions: () => sessions.getSnapshot(),
+    ui: () => ui.getSnapshot(),
+    shown: () => shown.getSnapshot(),
+    surface: () => surface.getSnapshot(),
+    status: () => status.getSnapshot(),
+  }
+  return { actions, hooks, snapshots, sessionHook, chat, start }
 }

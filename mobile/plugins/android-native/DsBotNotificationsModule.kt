@@ -78,16 +78,6 @@ class DsBotNotificationsModule(reactContext: ReactApplicationContext) : ReactCon
   }
 
   @ReactMethod
-  fun setUiActive(active: Boolean, promise: Promise) {
-    DsBotNotifyHelper.uiMounted = active
-    DsBotNotifyHelper.uiForeground = active
-    if (active) {
-      DsBotHeadlessRunner.stopKeepalive(reactApplicationContext)
-    }
-    promise.resolve(true)
-  }
-
-  @ReactMethod
   fun notify(payload: ReadableMap, promise: Promise) {
     try {
       val tag = payload.getString("tag") ?: "dsbot"
@@ -122,12 +112,6 @@ class DsBotNotificationsModule(reactContext: ReactApplicationContext) : ReactCon
   }
 
   @ReactMethod
-  fun cancelAll(promise: Promise) {
-    DsBotNotifyHelper.cancelAllNotices(reactApplicationContext)
-    promise.resolve(true)
-  }
-
-  @ReactMethod
   fun openChannelSettings(channel: String?, promise: Promise) {
     try {
       val ctx = reactApplicationContext
@@ -155,11 +139,6 @@ class DsBotNotificationsModule(reactContext: ReactApplicationContext) : ReactCon
     } catch (error: Exception) {
       promise.reject("SETTINGS_FAILED", error)
     }
-  }
-
-  @ReactMethod
-  fun isIgnoringBatteryOptimizations(promise: Promise) {
-    promise.resolve(isIgnoringBattery())
   }
 
   private fun isIgnoringBattery(): Boolean {
@@ -267,18 +246,6 @@ class DsBotNotificationsModule(reactContext: ReactApplicationContext) : ReactCon
       result.add(pkg to label)
     }
     return result
-  }
-
-  @ReactMethod
-  fun listUnifiedPushDistributors(promise: Promise) {
-    val arr = Arguments.createArray()
-    for ((pkg, label) in queryDistributors()) {
-      arr.pushMap(Arguments.createMap().apply {
-        putString("packageName", pkg)
-        putString("label", label)
-      })
-    }
-    promise.resolve(arr)
   }
 
   @ReactMethod

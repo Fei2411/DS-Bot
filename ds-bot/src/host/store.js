@@ -35,8 +35,8 @@ export function segmentNoteFile(sessionId) {
 export function install(rt) {
   const { ctx, home, statePath } = rt
 
-  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, plugins: { slots: {}, enabled: {}, offFor: {}, custom: {}, snapshots: {}, sources: [], knownPrefixes: {} }, exchanges: [], exchangeTurns: {}, works: {}, closedWorks: {}, pairLoops: {}, workSeq: 0, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
+  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, contextParts:Record<string,any>, revision:number}} */
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, plugins: { slots: {}, enabled: {}, offFor: {}, custom: {}, snapshots: {}, sources: [], knownPrefixes: {} }, exchanges: [], exchangeTurns: {}, works: {}, closedWorks: {}, pairLoops: {}, workSeq: 0, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, contextParts: {}, revision: 0 }
   let loaded = null
   let storeReady = false
   let writing = Promise.resolve()
@@ -307,6 +307,7 @@ export function install(rt) {
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
     if (!Array.isArray(state.exchanges)) state.exchanges = []
     state.prefs ??= {}
+    if (state.contextParts === null || typeof state.contextParts !== 'object' || Array.isArray(state.contextParts)) state.contextParts = {}
     // Teams saved before the DSH Agent existed carry no `agents`; corrupt values reset.
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}
     // `computer` is the computer-use switch; absent or corrupt means off.
@@ -359,6 +360,24 @@ export function install(rt) {
       }
       if (bot.color !== currentColor(bot.color)) {
         bot.color = currentColor(bot.color)
+        migrated = true
+      }
+      // `bot.agentPreset` is a preset id; a corrupt value is dropped so the Bot falls
+      // back to the standard default rather than failing every Session.
+      if (bot.agentPreset !== undefined && (typeof bot.agentPreset !== 'string' || bot.agentPreset.trim() === '')) {
+        delete bot.agentPreset
+        migrated = true
+      }
+      // `bot.agentPresetDefault` marks a pick the user cleared to the default; it only
+      // means anything without an explicit id, and anything but true is corrupt.
+      if (bot.agentPresetDefault !== undefined && (bot.agentPresetDefault !== true || typeof bot.agentPreset === 'string')) {
+        delete bot.agentPresetDefault
+        migrated = true
+      }
+      if (bot.agentPresetDefaultPending !== undefined && (bot.agentPresetDefault !== true
+        || !Array.isArray(bot.agentPresetDefaultPending)
+        || bot.agentPresetDefaultPending.some(id => typeof id !== 'string' || id === ''))) {
+        delete bot.agentPresetDefaultPending
         migrated = true
       }
       // `bot.computer` holds the computer-use level and Always-grant apps; corrupt values reset.

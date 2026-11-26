@@ -232,6 +232,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     cancelWork: (id, reason) => after(call('cancel-work', { id, ...(reason ? { reason } : {}) })),
     resumeRoomPause: roomId => after(call('resume-room-pause', { roomId })),
     refreshModels: () => after(call('models')).catch(() => {}),
+    // The Agent presets of the profile: the directory the Agent preset picker shows.
+    presets: () => call('presets'),
     // One local agent's models: the first look starts its CLI, later ones read what it said.
     agentModels: route => after(call('local-agent-models', { route })).catch(() => {}),
     efforts: ref => call('efforts', { ref }),
@@ -249,6 +251,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     removeProvider: provider => after(call('provider-remove', { provider })),
     // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
     resume: botId => after(call('resume', { botId })),
+    // Escape hatch when continuous context overflow prevents auto-switching.
+    newPart: (botId, sessionId) => after(call('new-part', { botId, ...(sessionId ? { sessionId } : {}) })),
     folders: () => call('folders'),
     folderPick: () => call('folder-pick'),
     folderList: path => call('folder-list', { path: path ?? '' }),
@@ -398,6 +402,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     pluginsToggle: (id, enabled) => after(call('plugins-toggle', { id, enabled })),
     pluginsRemove: id => after(call('plugins-remove', { id })),
     pluginsUpdate: (id, version) => after(call('plugins-update', { id, ...(version ? { version } : {}) })),
+    pluginsConsent: id => after(call('plugins-consent', { id })),
     pluginsSlotSet: (slot, id) => after(call('plugins-slot-set', { slot, id })),
     pluginsBotToggle: (id, botId, enabled) => after(call('plugins-bot-toggle', { id, botId, enabled })),
     pluginsCustomSave: body => after(call('plugins-custom-save', body)),

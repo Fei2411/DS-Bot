@@ -247,21 +247,26 @@ export function install(rt) {
   }
   const isBotAt = id => rt.botOf(rt.selfOf(id)) !== undefined && rt.isBotSession(id)
   const handoffDef = () => handoffTool
+  let selfToolOpDepth = 0
+  const runSelfToolOp = (op) => {
+    selfToolOpDepth++
+    try { return op() } finally { selfToolOpDepth-- }
+  }
   // Every agent gets one application record: 'allow' means the tools and the
   // provider guidance stay, 'deny' means both are masked and the section is
   // filtered out of the assembled prompt.
-  const liftHeld = (held) => {
+  const liftHeld = held => runSelfToolOp(() => {
     for (const lift of held.lifts.splice(0)) { try { lift() } catch {} }
     try { held.handoffLift?.() } catch {}
     held.handoffLift = undefined
     held.triedDeny.clear()
-  }
+  })
   const restrictComputerTools = (agent, held) => {
     for (const name of denyNames(agent)) {
       if (held.triedDeny.has(name)) continue
       held.triedDeny.add(name)
       try {
-        const lift = agent.ctx.tools?.restrict?.({ deny: [name] })
+        const lift = runSelfToolOp(() => agent.ctx.tools?.restrict?.({ deny: [name] }))
         if (typeof lift === 'function') held.lifts.push(lift)
       } catch {}
     }
@@ -289,7 +294,7 @@ export function install(rt) {
     if (want === 'allow') {
       const def = handoffDef()
       if (def !== undefined && typeof agent.ctx.tools?.register === 'function') {
-        try { held.handoffLift = agent.ctx.tools.register(def) } catch {}
+        try { held.handoffLift = runSelfToolOp(() => agent.ctx.tools.register(def)) } catch {}
       }
       // The provider sections stay for this agent; a filter set while it was
       // ineligible lifts with the lifts above. A scoped assemble listener only
@@ -310,6 +315,9 @@ export function install(rt) {
         if (typeof lift === 'function') held.lifts.push(lift)
       } catch {}
     }
+  }
+  const applyLiveComputer = (agent) => {
+    try { applyComputer(agent) } catch (error) { rt.warn('ds-bot: computer-use masking on %s failed: %s', agent?.session?.id, error) }
   }
   let refreshing = false
   let refreshQueued = false
@@ -335,14 +343,26 @@ export function install(rt) {
             byId.set(id, held.agent)
           }
         }
-        for (const agent of [...byId.values(), ...extra]) {
-          try { applyComputer(agent) } catch (error) { rt.warn('ds-bot: computer-use masking on %s failed: %s', agent?.session?.id, error) }
-        }
+        for (const agent of [...byId.values(), ...extra]) applyLiveComputer(agent)
       } while (refreshQueued && !stopped)
     } finally {
       refreshing = false
     }
   }
+  const runningAgents = new Set()
+  for (const agent of service('agents')?.list?.() ?? []) {
+    if (agent?.status === 'running') runningAgents.add(agent)
+  }
+  let refreshTimer
+  ctx.on('agent/status', ({ agent, status }) => {
+    if (stopped) return
+    if (status === 'running') {
+      runningAgents.add(agent)
+      if (refreshTimer !== undefined) applyLiveComputer(agent)
+    } else {
+      runningAgents.delete(agent)
+    }
+  })
   ctx.on('agent/created', async ({ agent }) => {
     try {
       await rt.load()
@@ -352,6 +372,7 @@ export function install(rt) {
     }
   })
   ctx.on('agent/disposed', ({ agent }) => {
+    runningAgents.delete(agent)
     if (agent !== undefined && agent !== null) disposedAgents.add(agent)
     const id = agent?.session?.id ?? agent?.id
     sessionApps.delete(id)
@@ -374,7 +395,16 @@ export function install(rt) {
     }
   })
   ctx.on('tools/change', () => {
-    if (!stopped) refreshComputer()
+    if (stopped || selfToolOpDepth !== 0) return
+    if (refreshTimer === undefined) {
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined
+        if (!stopped) refreshComputer()
+      }, 50)
+      refreshTimer.unref?.()
+    }
+    // The loop admits each step's tools before prompt assembly.
+    for (const agent of runningAgents) applyLiveComputer(agent)
   })
   const offSaved = typeof rt.onSaved === 'function'
     ? rt.onSaved(() => { if (!stopped) refreshComputer() })
@@ -1435,6 +1465,9 @@ export function install(rt) {
 
   ctx.effect(() => () => {
     stopped = true
+    clearTimeout(refreshTimer)
+    refreshTimer = undefined
+    runningAgents.clear()
     offSaved?.()
     offBotDelete?.()
     leases.dispose()
@@ -1442,10 +1475,7 @@ export function install(rt) {
     for (const { resolve } of pendingAsks.values()) resolve('deny')
     pendingAsks.clear()
     for (const { abort } of inFlight.values()) abort.abort(new Error('DS Bot stopped'))
-    for (const held of applied.values()) {
-      for (const lift of held.lifts) { try { lift() } catch {} }
-      try { held.handoffLift?.() } catch {}
-    }
+    for (const held of applied.values()) liftHeld(held)
     applied.clear()
     return teardownProvider()
   }, 'ds-bot: computer use')

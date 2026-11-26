@@ -1,10 +1,12 @@
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { paintCss } from './inks.js'
-import { CHARACTERS, PICKER_SHAPES, PICKER_COLUMNS, CHARACTER_COLORS, SHAPES, hasShape, shapeOf, bodyOf, maskBox, holes, nextMarkSerial } from './characters.js'
+import { CHARACTERS, PICKER_SHAPES, CHARACTER_COLORS, SHAPES, hasShape, shapeOf, bodyOf, maskBox, holes, nextMarkSerial } from './characters.js'
 import { isMainOf } from './sources.js'
 import { PencilIcon, ChevronRightIcon } from './icons.js'
 import { lookOf, BotMark } from './mark.js'
 import { ModelMenu, modelOf } from './model-menu.js'
+import { AgentPresetMenu, useAgentPresets } from './agent-preset-menu.js'
+import { presetHint, presetUpdate } from './agent-preset.js'
 import { RunModeCard } from './agent-cards.js'
 import { ExtraFolders, FolderMenu } from './folder-menu.js'
 import { BotSchedules } from './schedules.js'
@@ -111,17 +113,15 @@ function ShapeRing({ shape, size }) {
   return h('svg', { className: 'bt-ring', viewBox: `0 0 ${def.size} ${def.size}`, 'aria-hidden': true, dangerouslySetInnerHTML: { __html: markup } })
 }
 
-// Every character shape, six to a row, then the color swatches.
+// Every character shape, five to a row (four on narrow screens), then the color swatches.
 export function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
-  const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter(id => !Object.hasOwn(CHARACTERS, id))]
-  if (!shapes.includes(look.shape)) shapes.push(look.shape)
-  const rows = []
-  for (let index = 0; index < shapes.length; index += PICKER_COLUMNS) rows.push(shapes.slice(index, index + PICKER_COLUMNS))
+  const builtIn = new Set(PICKER_SHAPES)
+  const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter(id => !builtIn.has(id) && (!Object.hasOwn(CHARACTERS, id) || typeof SHAPES[id]?.body === 'function'))]
   return h(Fragment, null,
-    h('div', { className: 'bt-shapes', role: 'group', 'aria-label': t('Character shape') }, rows.map((row, index) => h('div', { key: index, className: 'bt-shape-row' }, row.map(id => h('button', {
+    h('div', { className: 'bt-shapes', role: 'group', 'aria-label': t('Character shape') }, shapes.map(id => h('button', {
       key: id, type: 'button', className: 'bt-shape', 'aria-label': t(shapeOf(id).label), title: t(shapeOf(id).label), 'aria-pressed': !hasPhoto && look.shape === id,
       onClick: () => onShape(id),
-    }, h(ShapeRing, { shape: id, size: 36 }), h(BotMark, { look: { shape: id, color: look.color }, size: 36 })))))),
+    }, h(ShapeRing, { shape: id, size: 36 }), h(BotMark, { look: { shape: id, color: look.color }, size: 36 })))),
     h('div', { className: 'bt-colors', role: 'group', 'aria-label': t('Character color') }, CHARACTER_COLORS.map(color => h('button', {
       key: color, type: 'button', className: 'bt-color', 'aria-label': t(capitalize(color)), title: t(capitalize(color)), 'aria-pressed': look.color === color,
       onClick: () => onColor(color),
@@ -166,7 +166,7 @@ export function AvatarEditor({ bot, room, actions, run, onClose, leaving = false
     return () => window.removeEventListener('paste', onPaste)
   }, [tab, bot, room])
   const hasPhoto = Boolean(look.image)
-  const glide = useGlide(tab)
+  const glide = useGlide(tab, { syncKey: `${t('Bot')}:${t('Upload')}:${t('Library')}` })
   return h('div', { ref, className: 'bt-avedit', role: 'dialog', 'aria-label': t('Avatar editor'), 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-avedit-top' },
       h('div', { ref: glide.box, role: 'tablist', 'aria-label': t('Avatar source'), className: 'bt-avedit-tabs' },
@@ -218,6 +218,8 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const [editing, setEditing] = useState(false)
   const [editorShown, editorLeaving] = useLinger(editing, 120)
   const [confirming, setConfirming] = useState(false)
+  const { presets, error: presetError, refresh: refreshPresets } = useAgentPresets(actions)
+  const [savingPreset, setSavingPreset] = useState(false)
   const closeEditor = useCallback(() => setEditing(false), [])
   useEffect(() => {
     if (!confirming) return undefined
@@ -231,6 +233,14 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const privateHint = t('Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.')
   const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : bot.extraDirs?.length ? t('Remove its extra folders first.') : privateHint
   const save = patch => run(actions.updateBot(bot.id, patch))
+  // The Agent preset saves on its own, and the picker waits for it: two preset
+  // saves in a row could land out of order.
+  const savePreset = (id) => {
+    const next = presetUpdate(id, bot.agentPreset)
+    if (next === undefined || savingPreset) return
+    setSavingPreset(true)
+    void Promise.resolve(run(actions.updateBot(bot.id, { agentPreset: next }))).finally(() => setSavingPreset(false))
+  }
   const duplicate = () => run(actions.duplicateBot(bot.id).then(copy => actions.openSession(copy.id)))
   const remove = () => { if (confirming) void run(actions.deleteBot(bot.id)); else setConfirming(true) }
   const modelNote = modelHint(bot, roster)
@@ -253,6 +263,13 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Model')), modelNote ? h('span', { className: 'bt-set-hint' }, modelNote) : null),
         h(ModelMenu, { bot, roster, actions, run }))),
+    !bot.engine ? h(Card, { title: t('Agent preset') },
+      h('div', { className: 'bt-set-row bt-bs-row' },
+        h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Agent preset')), h('span', { className: 'bt-set-hint' }, presetHint(bot, presets, presetError))),
+        h(AgentPresetMenu, {
+          value: bot.agentPreset, presets, error: presetError, onRefresh: refreshPresets,
+          disabled: savingPreset, onPick: savePreset,
+        }))) : null,
     h(Card, { title: t('Working folder') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
@@ -306,17 +323,18 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
 }
 
 export const BOT_SETTINGS_CSS = `
-.bt-bs{display:flex;flex-direction:column;gap:22px}
+.bt-bs{display:flex;flex-direction:column;gap:22px;container-type:inline-size}
 .bt-bs-hero{display:flex;align-items:center;gap:14px;padding:2px 4px}
 .bt-bs-who{display:flex;flex-direction:column;min-width:0;gap:2px}
 .bt-bs-name{font-size:17px;line-height:24px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-bs-sub{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
-.bt-bs .bt-avedit{left:0;transform:none;width:min(284px,calc(100vw - 32px))}
+.bt-bs .bt-avedit{left:-4px;transform:none;width:min(304px,100cqi,calc(100vw - 32px))}
 .bt-bs-row{min-height:48px}
 label.bt-bs-row{cursor:text}
 .bt-bs-row>.bt-set-copy{flex:1 1 auto}
 .bt-bs-label{font-size:13px;line-height:18px;font-weight:500}
 .bt-bs-row .bt-model-trigger{flex:none;max-width:58%}
+.bt-bs-row .bt-sel{flex:0 1 auto;min-width:0;max-width:58%}
 .bt-bs-input{flex:0 1 220px;width:0;min-width:96px;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:.5px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-bs-input:hover{background:var(--bt-hover)}
 .bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent);text-align:left}
