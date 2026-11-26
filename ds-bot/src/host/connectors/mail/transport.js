@@ -420,6 +420,7 @@ const decodeHtmlEntities = (text) => text.replace(/&(?:#x([0-9a-f]+)|#(\d+)|([a-
 const htmlToText = (html) => decodeHtmlEntities(
   stripHtmlBlock(stripHtmlBlock(String(html ?? ''), 'style'), 'script')
     .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:td|th)\s*>/gi, '\t')
     .replace(/<\/(?:p|div|li|tr|h[1-6]|blockquote)>/gi, '\n')
     .replace(/<[^>]+>/g, ''),
 )

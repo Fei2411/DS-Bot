@@ -4,7 +4,7 @@
 // rt.config.mail.connect injects fakes in tests.
 import { randomUUID } from 'node:crypto'
 import { basename, join, resolve, sep } from 'node:path'
-import { realpathSync, statSync } from 'node:fs'
+import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { PRESETS, presetOf, mailSecretName } from './presets.js'
 import { connectImap, connectGmail } from './transport.js'
@@ -45,10 +45,21 @@ function allAddressesAllowed(to, cc, bcc, allowed) {
 export function install(rt, host) {
   const { state } = rt
   const sessions = new Map()
+  const sessionGen = new Map()
   const connecting = new Map()
   const adding = new Map()
   const refreshing = new Map()
   let googleDiscovery
+
+  const invalidateSession = async (id) => {
+    sessionGen.set(id, (sessionGen.get(id) ?? 0) + 1)
+    connecting.delete(id)
+    const old = sessions.get(id)
+    if (old !== undefined) {
+      sessions.delete(id)
+      await old.close?.().catch(() => {})
+    }
+  }
 
   const accounts = () => state.connectors?.mail?.accounts ?? {}
   const accountList = () => Object.values(accounts())
@@ -65,31 +76,43 @@ export function install(rt, host) {
   })
   const googleReady = () => Boolean(googleClient().id && googleClient().secret)
 
-  async function openImap(account, password) {
+  async function openImap(account, password, expectedGen) {
     const factory = rt.config.mail?.connect ?? connectImap
     let session
     session = await factory(account, { password, onGone: () => {
       if (sessions.get(account.id) === session) sessions.delete(account.id)
     } })
     if (session.usable === false) throw new Error('The mail connection closed during verification')
+    if (expectedGen !== undefined && (sessionGen.get(account.id) ?? 0) !== expectedGen) {
+      await session.close?.().catch(() => {})
+      return undefined
+    }
     sessions.set(account.id, session)
     return session
   }
 
   async function connect(account) {
     const key = account.id
+    const wantKind = account.auth === 'google' ? 'gmail' : 'imap'
     const live = sessions.get(key)
-    if (live !== undefined && live.usable !== false) return live
+    if (live !== undefined && live.usable !== false && (live.kind === undefined || live.kind === wantKind)) return live
     if (live !== undefined) {
       sessions.delete(key)
       await live.close?.()
     }
-    if (connecting.has(key)) return connecting.get(key)
+    const gen = sessionGen.get(key) ?? 0
+    const inflight = connecting.get(key)
+    if (inflight !== undefined && inflight.gen === gen) return inflight.promise
     const make = async () => {
       if (account.auth === 'google') {
         const tokenName = mailSecretName(account.address, 'TOKEN')
         if (typeof rt.resolveExternalForBot === 'function') {
           await rt.resolveExternalForBot(undefined, { names: [tokenName] }).catch(() => {})
+        }
+        if ((sessionGen.get(key) ?? 0) !== gen) {
+          const latest = accounts()[key]
+          if (latest !== undefined) return connect(latest)
+          throw new Error('The mail account is gone')
         }
         const token = () => rt.secretValue(tokenName)
         const session = connectGmail(account, { token, fetch: rt.config.mail?.fetch, refresh: () => refreshGoogle(accounts()[key] ?? account) })
@@ -100,15 +123,29 @@ export function install(rt, host) {
       if (typeof rt.resolveExternalForBot === 'function') {
         await rt.resolveExternalForBot(undefined, { names: [passwordName] }).catch(() => {})
       }
+      if ((sessionGen.get(key) ?? 0) !== gen) {
+        const latest = accounts()[key]
+        if (latest !== undefined) return connect(latest)
+        throw new Error('The mail account is gone')
+      }
       const password = rt.secretValue(passwordName)
       if (password === undefined) throw new Error(`The password for ${account.address} is not saved`)
-      return openImap(account, password)
+      const session = await openImap(account, password, gen)
+      if (session === undefined) {
+        const latest = accounts()[key]
+        if (latest !== undefined) return connect(latest)
+        throw new Error('The mail account is gone')
+      }
+      return session
     }
-    const pending = make()
-    connecting.set(key, pending)
+    const entry = { gen, promise: null }
+    entry.promise = make()
+    connecting.set(key, entry)
     try {
-      return await pending
-    } finally { connecting.delete(key) }
+      return await entry.promise
+    } finally {
+      if (connecting.get(key) === entry) connecting.delete(key)
+    }
   }
 
   async function resolveGoogleDiscovery() {
@@ -205,6 +242,19 @@ export function install(rt, host) {
   const workDir = (exec) => {
     try { return rt.sessionFolder?.(exec.agent?.session ?? exec.agent) } catch { return undefined }
   }
+
+  const insideRoot = (root, inside) => {
+    const prefix = root.endsWith(sep) ? root : root + sep
+    return inside !== root && inside.startsWith(prefix)
+  }
+
+  const resolveAttachments = (dir, names) => (names ?? []).map((name) => {
+    if (dir === undefined) throw new Error(`Attachment ${name} is outside the working folder`)
+    const root = realpathSync(dir)
+    const inside = realpathSync(resolve(root, name))
+    if (!insideRoot(root, inside)) throw new Error(`Attachment ${name} is outside the working folder`)
+    return { filename: name, content: readFileSync(inside) }
+  })
 
   const toolExec = async (exec, args, run) => {
     await rt.load()
@@ -331,8 +381,9 @@ export function install(rt, host) {
         const bad = (args.attachments ?? []).map(String).filter(name => name !== '').filter((name) => {
           if (dir === undefined) return true
           try {
-            const inside = realpathSync(resolve(dir, name))
-            return inside !== realpathSync(dir) && !inside.startsWith(realpathSync(dir) + sep)
+            const root = realpathSync(dir)
+            const inside = realpathSync(resolve(root, name))
+            return !insideRoot(root, inside)
           } catch { return true }
         })
         if (bad.length > 0) return `Attachments must be files in your working folder: ${bad.join(', ')} is not.`
@@ -358,7 +409,7 @@ export function install(rt, host) {
         )
         if (skipDraft) {
           const session = await connect(account)
-          const attachments = (request.attachments ?? []).map(name => ({ filename: name, path: realpathSync(resolve(dir ?? '', name)) }))
+          const attachments = resolveAttachments(dir, request.attachments)
           await session.send({ to: request.to, cc: request.cc || undefined, bcc: request.bcc || undefined, subject: request.subject, text: request.body, attachments, ...(request.replyTo ? { inReplyTo: request.replyTo } : {}) })
           request.status = 'sent'
           request.settledAt = Date.now()
@@ -512,9 +563,7 @@ export function install(rt, host) {
       delete rest[account.id]
       state.connectors = { ...state.connectors, mail: { ...state.connectors.mail, accounts: rest } }
       await rt.save()
-      const session = sessions.get(account.id)
-      sessions.delete(account.id)
-      await session?.close?.().catch(() => {})
+      await invalidateSession(account.id)
       dropGooglePending(account.address)
       syncTools()
       return mailView()
@@ -559,11 +608,7 @@ export function install(rt, host) {
       }
       try {
         const session = await connect(account)
-        const attachments = (request.attachments ?? []).map((name) => {
-          const inside = realpathSync(resolve(request.dir ?? '', name))
-          if (request.dir === undefined || inside !== realpathSync(request.dir) && !inside.startsWith(realpathSync(request.dir) + sep)) throw new Error(`Attachment ${name} is outside the working folder`)
-          return { filename: name, path: inside }
-        })
+        const attachments = resolveAttachments(request.dir, request.attachments)
         await session.send({ to: request.to, cc: request.cc || undefined, bcc: request.bcc || undefined, subject: request.subject, text: request.body, attachments, ...(request.replyTo ? { inReplyTo: request.replyTo } : {}) })
         request.status = 'sent'; request.settledAt = Date.now()
         await rt.save()
@@ -710,20 +755,16 @@ export function install(rt, host) {
     const existing = accountOf(email)
     const id = existing?.id ?? `g${randomUUID().slice(0, 8)}`
     const account = { id, address: email, provider: 'gmail', auth: 'google', createdAt: existing?.createdAt ?? Date.now() }
-    const oldSession = sessions.get(id)
-    if (oldSession !== undefined) {
-      sessions.delete(id)
-      await oldSession.close?.().catch(() => {})
-    }
     await host.secrets.writeSecret(mailSecretName(email, 'TOKEN'), tokens.access_token, `Mailbox ${email}`)
     if (typeof tokens.refresh_token === 'string' && tokens.refresh_token !== '') {
       await host.secrets.writeSecret(mailSecretName(email, 'REFRESH'), tokens.refresh_token, `Mailbox ${email}`)
     }
     state.connectors = { ...(state.connectors ?? {}), mail: { ...state.connectors?.mail, accounts: { ...accounts(), [id]: account } } }
+    await invalidateSession(id)
     await rt.save()
     if (existing?.auth === 'password') {
-      const shared = accountList().some(other => other.id !== id && other.address === email && other.auth === 'password')
       const passName = mailSecretName(email, 'PASSWORD')
+      const shared = accountList().some(other => other.id !== id && other.auth === 'password' && mailSecretName(other.address, 'PASSWORD') === passName)
       if (!shared && rt.secretValue(passName) !== undefined) await rt.secretEndpoint?.('secret-delete', { name: passName }).catch(() => {})
     }
     syncTools()

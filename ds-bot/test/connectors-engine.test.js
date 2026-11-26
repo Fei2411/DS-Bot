@@ -1215,6 +1215,147 @@ test('Google sign-in requests offline consent, trusts userinfo email, merges re-
   await assert.rejects(() => roMail.endpoint('mail-sign-in-code', { input: 'C' }), /Read-only window/)
 })
 
+test('Google upgrade invalidates concurrent IMAP sessions and keeps PASSWORD secret shared by colliding key', async (t) => {
+  const oldId = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+  const oldSecret = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = 'google-test'
+  process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = 'google-test-secret'
+  t.after(() => {
+    if (oldId === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = oldId
+    if (oldSecret === undefined) delete process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
+    else process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET = oldSecret
+  })
+  const { install } = await import('../src/host/connectors/mail/index.js')
+  const secrets = new Map()
+  const deletedSecrets = []
+  const collidingA = 'jane.doe@example.com'
+  const collidingB = 'jane-doe@example.com'
+  const sharedPassKey = mailSecretName(collidingA, 'PASSWORD')
+  assert.equal(sharedPassKey, mailSecretName(collidingB, 'PASSWORD'))
+  secrets.set(sharedPassKey, 'app-pass-shared')
+
+  let closedImap = 0
+  let releaseWriteSecret
+  const writeStarted = Promise.withResolvers()
+  const rt = {
+    state: {
+      connectors: {
+        mail: {
+          accounts: {
+            m1: { id: 'm1', address: collidingA, provider: 'gmail', auth: 'password', imap: { host: 'imap.example.com', port: 993, secure: true }, smtp: { host: 'smtp.example.com', port: 465, secure: true } },
+            m2: { id: 'm2', address: collidingB, provider: 'gmail', auth: 'password', imap: { host: 'imap.example.com', port: 993, secure: true }, smtp: { host: 'smtp.example.com', port: 465, secure: true } },
+          },
+        },
+      },
+    },
+    readOnly: () => undefined,
+    loadSecrets: async () => {},
+    save: async () => {},
+    warn: () => {},
+    secretValue: key => secrets.get(key),
+    secretEndpoint: async (ep, body) => { if (ep === 'secret-delete') { deletedSecrets.push(body.name); secrets.delete(body.name) } },
+    addTeamTool: () => {},
+    removeTeamTool: () => {},
+    config: {
+      mail: {
+        connect: async () => ({
+          kind: 'imap',
+          usable: true,
+          async close() { closedImap += 1 },
+        }),
+        fetch: async (url) => {
+          const u = String(url)
+          if (u.includes('oauth-authorization-server')) return json(AS)
+          if (u === 'https://as.test/token') return json({ access_token: 'tok-g', refresh_token: 'ref-g', token_type: 'Bearer' })
+          if (u.includes('userinfo')) return json({ email: collidingA })
+          return notFound()
+        },
+      },
+    },
+  }
+  const mail = install(rt, {
+    secrets: {
+      writeSecret: async (name, value) => {
+        if (name === mailSecretName(collidingA, 'TOKEN')) {
+          writeStarted.resolve()
+          await releaseWriteSecret
+        }
+        secrets.set(name, value)
+      },
+    },
+    reason: e => String(e),
+  })
+  t.after(() => mail.dispose())
+
+  const begin = await mail.endpoint('mail-account-add', { address: collidingA, google: true })
+  const authUrl = new URL(begin.pending[0].url)
+  let unlockWrite
+  releaseWriteSecret = new Promise(resolve => { unlockWrite = resolve })
+  const upgradeP = mail.endpoint('mail-sign-in-code', {
+    address: collidingA,
+    input: `${authUrl.searchParams.get('redirect_uri')}?code=C1&state=${authUrl.searchParams.get('state')}`,
+  })
+  await writeStarted.promise
+  // Simulate a Bot opening an IMAP connection while googleCode is writing credentials.
+  const midSession = await mail.connect(rt.state.connectors.mail.accounts.m1)
+  assert.equal(midSession.kind, 'imap')
+  unlockWrite()
+  await upgradeP
+
+  assert.equal(closedImap, 1, 'IMAP session cached during upgrade must be evicted and closed')
+  const afterSession = await mail.connect(rt.state.connectors.mail.accounts.m1)
+  assert.equal(afterSession.kind, 'gmail', 'subsequent connect must use Gmail transport, not stale IMAP')
+  assert.deepEqual(deletedSecrets, [], 'shared PASSWORD vault key used by another colliding mailbox must not be deleted')
+  assert.equal(secrets.get(sharedPassKey), 'app-pass-shared')
+})
+
+test('mail_send auto-send re-validates attachments after connect and blocks symlink escape', async (t) => {
+  const { symlinkSync } = await import('node:fs')
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-mail-work-'))
+  const outsideDir = mkdtempSync(join(tmpdir(), 'dsb-mail-out-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+  })
+  const subDir = join(workDir, 'sub')
+  mkdirSync(subDir)
+  writeFileSync(join(subDir, 'ok.txt'), 'safe content')
+  writeFileSync(join(outsideDir, 'ok.txt'), 'outside secret')
+
+  const home = teamHome({
+    connectors: {
+      mail: {
+        accounts: { m1: { id: 'm1', address: addressAt('qq.com'), provider: 'qq', auth: 'password', imap: { host: 'imap.qq.com', port: 993, secure: true }, smtp: { host: 'smtp.qq.com', port: 465, secure: true } } },
+        noDraftFor: ['m1'],
+      },
+    },
+  })
+  const ctx = fakeContext()
+  let sent = 0
+  const rt = createRuntime(ctx, {
+    home, github: false,
+    mail: {
+      connect: async () => {
+        // Swap sub/ to a directory junction/symlink pointing outside workDir during connect().
+        rmSync(subDir, { recursive: true, force: true })
+        symlinkSync(outsideDir, subDir, 'junction')
+        return { kind: 'imap', usable: true, async close() {}, async send() { sent += 1 } }
+      },
+    },
+  })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.secretEndpoint('secret-set', { name: mailSecretName(addressAt('qq.com'), 'PASSWORD'), value: 'PASS', label: 'test' })
+  rt.sessionFolder = () => workDir
+  const send = rt.teamTools.find(d => d.name === 'mail_send')
+  await assert.rejects(
+    () => send.execute({ to: 'a@b.test', subject: 'S', body: 'B', attachments: ['sub/ok.txt'] }, { agent: { id: 'm1' }, callId: 'c1', concludeTurn: () => {} }),
+    /outside the working folder/,
+  )
+  assert.equal(sent, 0, 'escaped attachment must never be sent')
+})
+
 test('gmail transport: search, read (plain + html edge cases), draft, send with attachments, modify, trash, and one refresh on 401', async (t) => {
   const calls = []
   let refreshes = 0
@@ -1226,7 +1367,7 @@ test('gmail transport: search, read (plain + html edge cases), draft, send with 
   const attPath2 = join(dir, '会议纪要.txt')
   writeFileSync(attPath1, 'hello attachment payload')
   writeFileSync(attPath2, 'second attachment content')
-  const htmlOnly = '<html><head><style/> <style>.a{color:red}</style><script src="x.js"/><script>alert(1)</script></head><body><p>İstanbul &amp;#65; &#x27;ok&#x27;</p><div>Line 2<br/>Line 3</div></body></html>'
+  const htmlOnly = '<html><head><style/> <style>.a{color:red}</style><script src="x.js"/><script>alert(1)</script></head><body><p>İstanbul &amp;#65; &#x27;ok&#x27;</p><table><tr><td>7</td><td>12</td></tr></table><div>Line 2<br/>Line 3</div></body></html>'
   const fakeFetch = async (url, init) => {
     const u = String(url?.url ?? url)
     calls.push(u)
@@ -1270,7 +1411,7 @@ test('gmail transport: search, read (plain + html edge cases), draft, send with 
   assert.equal(rows.length, 1)
   assert.equal((await gmail.read({ uid: '1' })).messages[0].text, 'hi')
   const msg2 = (await gmail.read({ uid: '2' })).messages[0]
-  assert.equal(msg2.text, "İstanbul &#65; 'ok'\nLine 2\nLine 3")
+  assert.equal(msg2.text, "İstanbul &#65; 'ok'\n7\t12\nLine 2\nLine 3")
   assert.deepEqual(msg2.attachments.map(a => a.filename), ['note.txt'])
   assert.ok((await gmail.draft({ to: 'a@b', subject: 'd', text: 'x' })).folder)
   await gmail.send({ to: 'a@b', subject: 's', text: 'body text', attachments: null })
