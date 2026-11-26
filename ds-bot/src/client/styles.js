@@ -1414,7 +1414,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
 .bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-seg{position:relative;display:inline-flex;gap:2px;padding:2px;max-width:100%;border-radius:10px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line);box-sizing:border-box}
+.bt-seg{position:relative;display:inline-flex;gap:2px;padding:2px;min-width:0;max-width:100%;border-radius:10px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line);box-sizing:border-box}
 .bt-motion-seg,.bt-look-seg{width:auto;min-width:216px;max-width:100%}
 /* A range input: the track fills with the accent up to the thumb (--bt-fill). */
 .bt-range{display:flex;align-items:center;gap:10px;width:216px;max-width:100%}
@@ -1438,7 +1438,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-seg[data-layout=grid-3]{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
 .bt-seg[data-layout=stack]{display:grid;grid-template-columns:minmax(0,1fr)}
 .bt-seg[data-layout=wrap]{display:flex;flex-wrap:wrap}
-.bt-seg[data-layout] button{flex:1 1 auto;min-width:0;height:auto;min-height:30px;padding:5px 8px;line-height:18px;white-space:normal;display:inline-flex;align-items:center;justify-content:center;text-align:center}
+.bt-seg[data-layout] button{flex:1 1 auto;min-width:0;height:auto;min-height:30px;padding:5px 8px;line-height:18px;white-space:normal;display:inline-flex;align-items:center;justify-content:safe center;text-align:center}
 .bt-seg[data-layout=stack] button{overflow-wrap:anywhere}
 @keyframes bt-rise{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
 

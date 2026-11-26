@@ -21617,6 +21617,7 @@ function liveSprings(apply2) {
     },
     reset: () => {
       values.clear();
+      for (const key of Object.keys(current2)) delete current2[key];
       cancelAnimationFrame(frame2);
       frame2 = 0;
     },
@@ -21715,6 +21716,7 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
     }
     if (node !== state.node) {
       state.observer?.disconnect();
+      if (!node) state.springs.stop();
       state.node = node;
       state.observer = node && typeof ResizeObserver === "function" ? new ResizeObserver(() => place(true)) : null;
       state.observer?.observe(node);
@@ -21723,15 +21725,19 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
   });
   (0, import_react.useEffect)(() => () => {
     own.current.observer?.disconnect();
+    own.current.observer = null;
+    own.current.node = null;
     own.current.springs.stop();
   }, []);
   return { box, thumb, sync: () => place(true) };
 }
-var segButtons = (node) => Array.from(node.children).filter((child) => child.tagName === "BUTTON");
+var segButtons = (node) => Array.from(node.children).filter((child) => child.tagName === "BUTTON" && !child.hidden);
 function segOverflow(node, buttons) {
-  const padRight = typeof getComputedStyle === "function" ? parseFloat(getComputedStyle(node).paddingRight) || 0 : 0;
+  const style = typeof getComputedStyle === "function" ? getComputedStyle(node) : null;
+  const padLeft = parseFloat(style?.paddingLeft) || 0;
+  const padRight = parseFloat(style?.paddingRight) || 0;
   const rightEdge = node.clientWidth - padRight + 1;
-  return buttons.some((button) => button.scrollWidth > button.clientWidth + 1 || button.offsetLeft + button.offsetWidth > rightEdge);
+  return buttons.some((button) => button.scrollWidth > button.clientWidth + 1 || button.offsetLeft < padLeft - 1 || button.offsetLeft + button.offsetWidth > rightEdge);
 }
 function fitSegmented(node) {
   if (!node) return void 0;
@@ -21763,7 +21769,8 @@ function Segmented({ label, value, className, children }) {
     if (!node) return;
     const state = fitRef.current;
     const buttons = segButtons(node);
-    const sig = buttons.map((button) => button.textContent).join("\0");
+    const font = typeof getComputedStyle === "function" ? getComputedStyle(buttons[0] ?? node).font ?? "" : "";
+    const sig = `${font}\0${buttons.map((button) => button.textContent).join("\0")}`;
     const parent = node.parentElement;
     const row = typeof node.closest === "function" ? node.closest(".bt-set-row") : null;
     const parentW = parent?.clientWidth ?? -1;
@@ -21809,6 +21816,8 @@ function Segmented({ label, value, className, children }) {
     return () => {
       alive = false;
       fitRef.current.observer?.disconnect();
+      fitRef.current.observer = null;
+      fitRef.current.node = null;
     };
   }, []);
   const glide2 = useGlide(value, { axis: "both", box });
@@ -23389,7 +23398,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
 .bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-seg{position:relative;display:inline-flex;gap:2px;padding:2px;max-width:100%;border-radius:10px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line);box-sizing:border-box}
+.bt-seg{position:relative;display:inline-flex;gap:2px;padding:2px;min-width:0;max-width:100%;border-radius:10px;background:var(--bt-seg-track);box-shadow:inset 0 0 0 .5px var(--bt-line);box-sizing:border-box}
 .bt-motion-seg,.bt-look-seg{width:auto;min-width:216px;max-width:100%}
 /* A range input: the track fills with the accent up to the thumb (--bt-fill). */
 .bt-range{display:flex;align-items:center;gap:10px;width:216px;max-width:100%}
@@ -23413,7 +23422,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
 .bt-seg[data-layout=grid-3]{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
 .bt-seg[data-layout=stack]{display:grid;grid-template-columns:minmax(0,1fr)}
 .bt-seg[data-layout=wrap]{display:flex;flex-wrap:wrap}
-.bt-seg[data-layout] button{flex:1 1 auto;min-width:0;height:auto;min-height:30px;padding:5px 8px;line-height:18px;white-space:normal;display:inline-flex;align-items:center;justify-content:center;text-align:center}
+.bt-seg[data-layout] button{flex:1 1 auto;min-width:0;height:auto;min-height:30px;padding:5px 8px;line-height:18px;white-space:normal;display:inline-flex;align-items:center;justify-content:safe center;text-align:center}
 .bt-seg[data-layout=stack] button{overflow-wrap:anywhere}
 @keyframes bt-rise{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
 
@@ -35219,12 +35228,12 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
   );
 }
 var BOT_SETTINGS_CSS = `
-.bt-bs{display:flex;flex-direction:column;gap:22px}
+.bt-bs{display:flex;flex-direction:column;gap:22px;container-type:inline-size}
 .bt-bs-hero{display:flex;align-items:center;gap:14px;padding:2px 4px}
 .bt-bs-who{display:flex;flex-direction:column;min-width:0;gap:2px}
 .bt-bs-name{font-size:17px;line-height:24px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-bs-sub{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
-.bt-bs .bt-avedit{left:0;transform:none;width:min(304px,calc(100vw - 32px))}
+.bt-bs .bt-avedit{left:-4px;transform:none;width:min(304px,100cqi,calc(100vw - 32px))}
 .bt-bs-row{min-height:48px}
 label.bt-bs-row{cursor:text}
 .bt-bs-row>.bt-set-copy{flex:1 1 auto}
@@ -46901,7 +46910,8 @@ var SERVICES_CSS = `
 .bt-svc-line{padding:10px 16px}
 .bt-svc-line .bt-svc-state{white-space:normal;align-items:flex-start}
 .bt-svc-line .bt-svc-dot{margin-top:4.5px}
-.bt-svc-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.bt-svc-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;min-width:0;max-width:100%}
+@container (max-width:440px){.bt-svc-actions{justify-content:flex-start}}
 .bt-svc-note{font-size:12px;line-height:16px;color:var(--bt-ink-2)}
 .bt-svc :focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 `;
@@ -51349,7 +51359,7 @@ var PROVIDERS_CSS = `
 .bt-provider-models{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .bt-provider-models .bt-tag{max-width:220px}
 .bt-provider-add{gap:12px;animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
-.bt-provider-add .bt-seg{align-self:flex-start}
+.bt-provider-add .bt-seg:not([data-layout]){align-self:flex-start}
 .bt-provider-add .bt-seg:not([data-layout]) button{padding:0 14px}
 .bt-provider-add .bt-seg button:disabled{opacity:.45;cursor:default}
 .bt-provider-form{display:flex;flex-direction:column;gap:10px}
@@ -59908,7 +59918,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     ...bot && roster.computer?.enabled === true ? ["computer"] : []
   ];
   const activeTab = tabs.includes(tab) ? tab : "details";
-  const glide2 = useGlide(`${activeTab}:${tabs.join(",")}`, { axis: "both", syncKey: tabs.map((key) => t(TAB_LABELS[key])).join(",") });
+  const glide2 = useGlide(`${activeTab}:${tabs.join(",")}`, { axis: "both", syncKey: `${tabs.map((key) => t(TAB_LABELS[key])).join(",")}:${activeTaskCount}` });
   const last = (0, import_react87.useRef)({ view, tab: activeTab, move: void 0 });
   if (last.current.view !== view) last.current = { view, tab: activeTab, move: view === "settings" ? "in" : "out" };
   else if (last.current.tab !== activeTab) last.current = { view, tab: activeTab, move: "tab" };

@@ -116,7 +116,7 @@ function liveSprings(apply) {
       if (jump) { cancelAnimationFrame(frame); frame = 0; apply(current); return }
       if (!frame) { last = performance.now(); frame = requestAnimationFrame(step) }
     },
-    reset: () => { values.clear(); cancelAnimationFrame(frame); frame = 0 },
+    reset: () => { values.clear(); for (const key of Object.keys(current)) delete current[key]; cancelAnimationFrame(frame); frame = 0 },
     stop: () => cancelAnimationFrame(frame),
   }
 }
@@ -216,24 +216,28 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
     }
     if (node !== state.node) {
       state.observer?.disconnect()
+      if (!node) state.springs.stop()
       state.node = node
       state.observer = node && typeof ResizeObserver === 'function' ? new ResizeObserver(() => place(true)) : null
       state.observer?.observe(node)
     }
     place(fresh)
   })
-  useEffect(() => () => { own.current.observer?.disconnect(); own.current.springs.stop() }, [])
+  useEffect(() => () => { own.current.observer?.disconnect(); own.current.observer = null; own.current.node = null; own.current.springs.stop() }, [])
   return { box, thumb, sync: () => place(true) }
 }
 
-const segButtons = node => Array.from(node.children).filter(child => child.tagName === 'BUTTON')
+const segButtons = node => Array.from(node.children).filter(child => child.tagName === 'BUTTON' && !child.hidden)
 // Checks only the buttons' own geometry — never `node.scrollWidth` — because a gliding
 // `.bt-thumb` still positioned at an earlier wider layout would otherwise trigger a false
 // overflow when shrinking back down.
 function segOverflow(node, buttons) {
-  const padRight = typeof getComputedStyle === 'function' ? (parseFloat(getComputedStyle(node).paddingRight) || 0) : 0
+  const style = typeof getComputedStyle === 'function' ? getComputedStyle(node) : null
+  const padLeft = parseFloat(style?.paddingLeft) || 0
+  const padRight = parseFloat(style?.paddingRight) || 0
   const rightEdge = node.clientWidth - padRight + 1
   return buttons.some(button => button.scrollWidth > button.clientWidth + 1
+    || button.offsetLeft < padLeft - 1
     || button.offsetLeft + button.offsetWidth > rightEdge)
 }
 
@@ -275,7 +279,8 @@ export function Segmented({ label, value, className, children }) {
     if (!node) return
     const state = fitRef.current
     const buttons = segButtons(node)
-    const sig = buttons.map(button => button.textContent).join('\u0000')
+    const font = typeof getComputedStyle === 'function' ? (getComputedStyle(buttons[0] ?? node).font ?? '') : ''
+    const sig = `${font}\u0000${buttons.map(button => button.textContent).join('\u0000')}`
     const parent = node.parentElement
     const row = typeof node.closest === 'function' ? node.closest('.bt-set-row') : null
     const parentW = parent?.clientWidth ?? -1
@@ -316,7 +321,7 @@ export function Segmented({ label, value, className, children }) {
     if (fonts && fonts.status !== 'loaded' && fonts.ready) {
       void fonts.ready.then(() => { if (alive) reconcile(true) }, () => {})
     }
-    return () => { alive = false; fitRef.current.observer?.disconnect() }
+    return () => { alive = false; fitRef.current.observer?.disconnect(); fitRef.current.observer = null; fitRef.current.node = null }
   }, [])
 
   const glide = useGlide(value, { axis: 'both', box })

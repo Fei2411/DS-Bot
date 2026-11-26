@@ -402,21 +402,23 @@ test('fitSegmented picks single row, grid-2, grid-3, wrap or stack from button g
   assert.equal(fitSegmented(narrow.node), 'stack')
 })
 
-test('useGlide axis=both tracks 2D thumb rect and snaps on syncKey without springing', () => {
+test('useGlide axis=both tracks 2D thumb rect, snaps on syncKey, recovers from data-hidden, and resets cleanly on axis switch', () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>')
   const { window } = dom
   const { document } = window
   window.matchMedia = () => ({ matches: false })
   let rafCount = 0
+  let clock = 0
+  const queued = new Map()
   const refs = []
   let refIdx = 0
   let layoutFn = null
   const { exports: client } = loadClient(
     {
       window, document,
-      requestAnimationFrame: () => { rafCount += 1; return rafCount },
-      cancelAnimationFrame() {},
-      performance: { now: () => 0 },
+      requestAnimationFrame: (fn) => { const id = ++rafCount; queued.set(id, fn); return id },
+      cancelAnimationFrame: (id) => { queued.delete(id) },
+      performance: { now: () => clock },
     },
     {
       useRef: (init) => { const idx = refIdx++; if (!(idx in refs)) refs[idx] = { current: init }; return refs[idx] },
@@ -439,9 +441,9 @@ test('useGlide axis=both tracks 2D thumb rect and snaps on syncKey without sprin
   }
   box.append(thumb, b0, b1)
 
-  const runRender = (key, syncKey) => {
+  const runRender = (key, syncKey, axis = 'both') => {
     refIdx = 0
-    const res = client.useGlide(key, { axis: 'both', box: { current: box }, syncKey })
+    const res = client.useGlide(key, { axis, box: { current: box }, syncKey })
     res.thumb.current = thumb
     layoutFn()
     return res
@@ -460,11 +462,36 @@ test('useGlide axis=both tracks 2D thumb rect and snaps on syncKey without sprin
   assert.equal(thumb.style.width, '96px')
   assert.equal(rafCount, 0)
 
-  // Selection change to row 2 (key changes to 'b'): starts 2D spring animation.
+  // Selection change to row 2 (key changes to 'b'): starts 2D spring and settles on b1.
   b0.setAttribute('aria-pressed', 'false')
   b1.setAttribute('aria-pressed', 'true')
   runRender('b', 'zh')
   assert.equal(rafCount, 1)
+  for (let step = 0; step < 60 && queued.size > 0; step += 1) {
+    clock += 16
+    const fns = [...queued.values()]
+    queued.clear()
+    for (const fn of fns) fn(clock)
+  }
+  assert.equal(thumb.style.transform, 'translate3d(124px,34px,0)')
+  assert.equal(thumb.style.width, '120px')
+  assert.equal(thumb.style.height, '30px')
+
+  // Missing chosen sets data-hidden; reappearing snaps cleanly without springing.
+  b1.setAttribute('aria-pressed', 'false')
+  runRender('none', 'zh')
+  assert.notEqual(thumb.dataset.hidden, undefined)
+  const beforeRecover = rafCount
+  b0.setAttribute('aria-pressed', 'true')
+  runRender('a', 'zh')
+  assert.equal(thumb.dataset.hidden, undefined)
+  assert.equal(rafCount, beforeRecover)
+  assert.equal(thumb.style.transform, 'translate3d(2px,2px,0)')
+
+  // Switching axis from 'both' -> 'x' resets stale 2D keys cleanly.
+  runRender('a', 'zh', 'x')
+  assert.equal(thumb.style.transform, 'translateX(2px)')
+  assert.equal(thumb.style.height, '')
 })
 
 test('SHELL_CSS uses container queries on narrow cards and responsive Segmented layouts', () => {
@@ -473,5 +500,6 @@ test('SHELL_CSS uses container queries on narrow cards and responsive Segmented 
   assert.match(SHELL_CSS, /@container \(max-width:440px\)\{/)
   assert.match(SHELL_CSS, /\.bt-seg\[data-layout=grid-2\]\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/)
   assert.match(SHELL_CSS, /\.bt-seg\[data-layout=grid-3\]\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)\}/)
+  assert.match(SHELL_CSS, /\.bt-seg\[data-layout\] button\{[^}]*justify-content:safe center/)
   assert.doesNotMatch(SHELL_CSS, /\.bt-seg\.bt-permissions button\{/)
 })
