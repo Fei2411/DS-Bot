@@ -831,7 +831,13 @@ export function install(rt) {
       if (job.roomId === undefined) merged[job.botId] = 'thinking'
       else merged[job.botId ?? job.roomId] ??= 'thinking'
     }
-    for (const approval of rt.approvalsView?.() ?? []) if (approval.botId) merged[approval.botId] = 'alert'
+    // Only answerable foreground DM approvals alert the Bot's own mascot; group approvals
+    // live on the group row/island (#1623) and background task approvals live in the task deck.
+    for (const approval of rt.approvalsView?.() ?? []) {
+      if (approval.botId && approval.roomId === undefined && approval.taskId === undefined && approval.answerable !== false) {
+        merged[approval.botId] = 'alert'
+      }
+    }
     // Waiting for work it handed on shows only while no turn of the Bot runs.
     for (const botId of Object.keys(rt.waitingView?.() ?? {})) merged[botId] ??= 'waiting'
     return merged
