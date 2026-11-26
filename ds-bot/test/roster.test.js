@@ -32,9 +32,10 @@ function keyed(ctx, stored, records) {
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
 // With `keys`, the models' route takes an API key and these are the ones set.
 let rt
-function start(team, { models = [], reasoning = {}, archiveError, keys, selection, lock, lost = new Set(), listed, schedules, flush } = {}) {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
+function start(team, { home: existingHome, keepHome = false, inflight, models = [], reasoning = {}, archiveError, keys, selection, lock, lost = new Set(), listed, schedules, flush } = {}) {
+  const home = existingHome ?? mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  if (inflight !== undefined) writeFileSync(join(home, 'inflight.json'), JSON.stringify(inflight))
   // A lock another dsh holds, written before this host loads the team.
   if (lock !== undefined) writeFileSync(join(home, 'state.lock'), JSON.stringify(lock))
   const services = {}
@@ -129,9 +130,9 @@ function start(team, { models = [], reasoning = {}, archiveError, keys, selectio
   }
   const stop = async () => {
     await ctx.dispose()
-    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+    if (!keepHome) rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { call, stop, home, sent, injected, selected, attempts, ctx, archived, warnings, records }
+  return { call, stop, home, rt, sent, injected, selected, attempts, ctx, archived, warnings, records }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -1954,4 +1955,229 @@ test('kickoff greeting is preserved while a Bot Session is missing and sent afte
   t.after(healedRun.stop)
   await healedRun.call('state', {})
   await until(() => healedRun.sent.some(entry => entry.sessionId === 'gone-session' && entry.message?.source?.role === 'kickoff'))
+})
+
+test('persisted silent notes survive missing-Session recovery when recovery runs before startup replay', async (t) => {
+  const note = {
+    id: 'silent-startup-race-1',
+    content: [{ type: 'text', text: '[Note from Peer · FYI only, no reply needed]\nDo not lose me before startup replay.' }],
+    source: { kind: 'ds-bot', role: 'note', exchangeId: 'ex-startup-race-1' },
+  }
+  const team = {
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  }
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-race-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  t.after(() => t.mock.timers.reset())
+
+  // Boot with the silent note ONLY persisted on disk under `gone-session` (not in memory).
+  const first = start(team, {
+    home,
+    keepHome: true,
+    inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(first.stop)
+
+  await first.call('state', {})
+  assert.equal(first.injected.length, 0, 'startup replay timer has not fired yet')
+
+  // Trigger missing-Session recovery BEFORE the 3s startup replay timer fires.
+  const recovered = await first.call('recover-session', { botId: 'chief' })
+  assert.equal(recovered.ok, true)
+  const freshId = recovered.value.sessionId
+  assert.notEqual(freshId, 'gone-session')
+  assert.deepEqual(
+    first.injected.filter(entry => entry.sessionId === freshId).map(entry => entry.message?.source?.exchangeId),
+    ['ex-startup-race-1'],
+  )
+  assert.equal(first.rt.state.switching['gone-session'], undefined)
+
+  // Now let startup replay (`resumeAll` -> `restoreSilentNotes`) and `heldBack` fire:
+  // the note must not be dropped or duplicated.
+  t.mock.timers.tick(3500)
+  await first.rt.flushInflight?.()
+  t.mock.timers.reset()
+  await settle()
+  assert.deepEqual(
+    first.injected.filter(entry => entry.sessionId === freshId).map(entry => entry.message?.source?.exchangeId),
+    ['ex-startup-race-1'],
+  )
+  await first.stop()
+
+  // A subsequent restart on the same home must not replay the already-delivered note.
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const second = start(undefined, {
+    home,
+    keepHome: true,
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(second.stop)
+  await second.call('state', {})
+  t.mock.timers.tick(3500)
+  t.mock.timers.reset()
+  await settle()
+  assert.equal(second.injected.length, 0)
+})
+
+test('missing-Session recovery commits replacement ownership before removing silent notes across crash boundaries', async (t) => {
+  const note = {
+    id: 'silent-crash-window-1',
+    content: [{ type: 'text', text: '[Note from Peer · FYI only, no reply needed]\nSurvive any crash boundary.' }],
+    source: { kind: 'ds-bot', role: 'note', exchangeId: 'ex-crash-window-1' },
+  }
+  const makeTeam = () => ({
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: {
+      chief: {
+        id: 'chief', name: 'Chief', role: '', instructions: '', createdAt: 1, sessionId: 'gone-session',
+        sessionMissing: 'gone-session',
+        model: 'deepseek/deepseek-v4-flash', appliedModel: 'deepseek/deepseek-v4-flash',
+      },
+    },
+    rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
+  })
+
+  // 1) Failure/crash BEFORE `rt.save()` commits: persisted silent notes must stay under
+  //    `gone-session` (never deleted or moved onto an unowned replacement Session).
+  const homeBeforeSave = mkdtempSync(join(tmpdir(), 'ds-bot-roster-crash-before-'))
+  const statePathBeforeSave = join(homeBeforeSave, 'state.json')
+  const origRename = fsp.rename
+  let failStateRename = false
+  fsp.rename = async (from, to) => {
+    if (failStateRename && to === statePathBeforeSave) {
+      throw Object.assign(new Error('simulated crash before state.json commit'), { code: 'EIO' })
+    }
+    return origRename(from, to)
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.rename = origRename
+    syncBuiltinESMExports()
+    rmSync(homeBeforeSave, { recursive: true, force: true, maxRetries: 5 })
+  })
+
+  const beforeCrash = start(makeTeam(), {
+    home: homeBeforeSave,
+    keepHome: true,
+    inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  await beforeCrash.call('state', {})
+  failStateRename = true
+  const failedRecover = await beforeCrash.call('recover-session', { botId: 'chief' })
+  assert.equal(failedRecover.ok, false)
+  assert.equal(beforeCrash.injected.length, 0, 'no silent note may flush to an uncommitted replacement Session')
+  await beforeCrash.rt.flushInflight?.()
+  const stateStillOld = JSON.parse(readFileSync(statePathBeforeSave, 'utf8'))
+  assert.equal(stateStillOld.bots.chief.sessionId, 'gone-session')
+  const inflightStillOld = JSON.parse(readFileSync(join(homeBeforeSave, 'inflight.json'), 'utf8'))
+  assert.equal(inflightStillOld.silent?.['gone-session']?.length, 1)
+  await beforeCrash.stop()
+
+  // Restart after pre-save crash: `gone-session` is still owned, and recovery delivers the note once.
+  failStateRename = false
+  const afterPreSaveCrash = start(undefined, {
+    home: homeBeforeSave,
+    keepHome: true,
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(afterPreSaveCrash.stop)
+  await afterPreSaveCrash.call('state', {})
+  let diskStateAtMove
+  const origMove = afterPreSaveCrash.rt.moveSilentNotes
+  afterPreSaveCrash.rt.moveSilentNotes = (...args) => {
+    diskStateAtMove = JSON.parse(readFileSync(statePathBeforeSave, 'utf8'))
+    return origMove(...args)
+  }
+  const recoveredAfterRestart = await afterPreSaveCrash.call('recover-session', { botId: 'chief' })
+  assert.equal(recoveredAfterRestart.ok, true)
+  const freshAfterRestart = recoveredAfterRestart.value.sessionId
+  assert.equal(diskStateAtMove?.bots?.chief?.sessionId, freshAfterRestart, 'state.json must own freshId before moveSilentNotes runs')
+  assert.equal(diskStateAtMove?.switching?.['gone-session']?.missing, true, 'state.json must persist recovery lineage before moveSilentNotes runs')
+  assert.deepEqual(
+    afterPreSaveCrash.injected.filter(entry => entry.sessionId === freshAfterRestart).map(entry => entry.message?.source?.exchangeId),
+    ['ex-crash-window-1'],
+  )
+
+  // 2) Crash AFTER `rt.save()` committed `fresh-committed` + `state.switching['gone-session']`,
+  //    BEFORE `moveSilentNotes` removed `gone-session`'s persisted silent note.
+  const postSaveTeam = {
+    ...makeTeam(),
+    bots: {
+      chief: {
+        ...makeTeam().bots.chief,
+        sessionId: 'fresh-committed',
+        sessionMissing: undefined,
+      },
+    },
+    switching: { 'gone-session': { botId: 'chief', missing: true } },
+  }
+
+  // 2a) Restart where startup replay (`resumeAll` -> `restoreSilentNotes`) runs first:
+  const homePostSaveReplay = mkdtempSync(join(tmpdir(), 'ds-bot-roster-crash-after-a-'))
+  t.after(() => rmSync(homePostSaveReplay, { recursive: true, force: true, maxRetries: 5 }))
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  t.after(() => t.mock.timers.reset())
+  const restartA = start(postSaveTeam, {
+    home: homePostSaveReplay,
+    keepHome: true,
+    inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(restartA.stop)
+  await restartA.call('state', {})
+  t.mock.timers.tick(3500)
+  t.mock.timers.reset()
+  await until(() => restartA.injected.some(entry => entry.sessionId === 'fresh-committed'))
+  await settle()
+  assert.deepEqual(
+    restartA.injected.filter(entry => entry.sessionId === 'fresh-committed').map(entry => entry.message?.source?.exchangeId),
+    ['ex-crash-window-1'],
+  )
+  assert.equal(restartA.rt.state.switching['gone-session'], undefined)
+
+  // 2b) Restart where `handOnHeld` runs BEFORE the 3s startup replay timer fires (e.g. schedules attach early):
+  const homePostSaveHeld = mkdtempSync(join(tmpdir(), 'ds-bot-roster-crash-after-b-'))
+  t.after(() => rmSync(homePostSaveHeld, { recursive: true, force: true, maxRetries: 5 }))
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const restartB = start(postSaveTeam, {
+    home: homePostSaveHeld,
+    keepHome: true,
+    inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
+    models: ['deepseek-v4-flash'],
+    lost: new Set(['gone-session']),
+  })
+  t.after(restartB.stop)
+  await restartB.call('state', {})
+  await restartB.rt.heldBack()
+  assert.deepEqual(
+    restartB.injected.filter(entry => entry.sessionId === 'fresh-committed').map(entry => entry.message?.source?.exchangeId),
+    ['ex-crash-window-1'],
+  )
+  assert.equal(restartB.rt.state.switching['gone-session'], undefined)
+  t.mock.timers.tick(3500)
+  t.mock.timers.reset()
+  await settle()
+  assert.deepEqual(
+    restartB.injected.filter(entry => entry.sessionId === 'fresh-committed').map(entry => entry.message?.source?.exchangeId),
+    ['ex-crash-window-1'],
+  )
 })

@@ -2458,7 +2458,7 @@ export function install(rt) {
             continue
           }
           if (owner.missing === true) {
-            if (target !== undefined) {
+            if (target !== undefined && rt.botOf(owner.botId) !== undefined) {
               await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
               await rt.moveSchedules?.(sessionId, target, {
                 resolveTarget: () => threadTargetOf(sessionId, owner),
@@ -4411,15 +4411,12 @@ export function install(rt) {
         delete bot.failures[lostId]
         if (Object.keys(bot.failures).length === 0) delete bot.failures
       }
-      rt.chatOwners.set(freshId, bot.id)
-      // Re-key buffered silent notes before dropping `lostId` from `chatOwners` so an
-      // in-flight `flushSilentNotes(lostId)` cannot orphan or discard them.
-      const silentMove = rt.moveSilentNotes?.(lostId, freshId, { awaitFlush: true, rethrow: true })
-      silentMove?.catch(() => {})
-      rt.chatOwners.delete(lostId)
-      // Record a pending silent-note/schedule move until it succeeds, so a failure here
-      // retries through `handOnHeld` without creating another replacement Session.
+      // Record durable recovery lineage before dropping `lostId` from `chatOwners` and
+      // before `rt.save()`, so an in-flight `flushSilentNotes(lostId)` cannot discard
+      // buffered notes and a crash after `rt.save()` still resolves `lostId -> freshId`.
       state.switching[lostId] = { botId: bot.id, missing: true }
+      rt.chatOwners.set(freshId, bot.id)
+      rt.chatOwners.delete(lostId)
       if (state.questions?.[lostId] !== undefined) {
         rt.closeCard?.(lostId, state.questions[lostId], 'dismissed')
         delete state.questions[lostId]
@@ -4434,9 +4431,12 @@ export function install(rt) {
       rt.forgetSessionTurn?.(lostId)
       rt.forgetSessionModel?.(lostId)
       rt.forgetSessionChanges?.(lostId)
-      await rt.save()
+      // Commit replacement ownership and `state.switching[lostId]` to disk BEFORE
+      // moving or removing silent notes from `lostId`, so a crash before `rt.save()`
+      // never strands persisted silent notes under an unowned `freshId`.
+      await rt.save({ required: true })
       try {
-        await silentMove
+        await rt.moveSilentNotes?.(lostId, freshId, { awaitFlush: true, rethrow: true })
         await rt.moveSchedules?.(lostId, freshId, { resolveTarget: () => rt.chatOf(bot.id) })
         delete state.switching[lostId]
         await rt.save()
