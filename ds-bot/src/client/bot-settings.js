@@ -5,6 +5,8 @@ import { isMainOf } from './sources.js'
 import { PencilIcon, ChevronRightIcon } from './icons.js'
 import { lookOf, BotMark } from './mark.js'
 import { ModelMenu, modelOf } from './model-menu.js'
+import { AgentPresetMenu, useAgentPresets } from './agent-preset-menu.js'
+import { presetHint, presetUpdate } from './agent-preset.js'
 import { RunModeCard } from './agent-cards.js'
 import { ExtraFolders, FolderMenu } from './folder-menu.js'
 import { BotSchedules } from './schedules.js'
@@ -216,6 +218,8 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const [editing, setEditing] = useState(false)
   const [editorShown, editorLeaving] = useLinger(editing, 120)
   const [confirming, setConfirming] = useState(false)
+  const { presets, error: presetError, refresh: refreshPresets } = useAgentPresets(actions)
+  const [savingPreset, setSavingPreset] = useState(false)
   const closeEditor = useCallback(() => setEditing(false), [])
   useEffect(() => {
     if (!confirming) return undefined
@@ -229,6 +233,14 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const privateHint = t('Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.')
   const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : bot.extraDirs?.length ? t('Remove its extra folders first.') : privateHint
   const save = patch => run(actions.updateBot(bot.id, patch))
+  // The Agent preset saves on its own, and the picker waits for it: two preset
+  // saves in a row could land out of order.
+  const savePreset = (id) => {
+    const next = presetUpdate(id, bot.agentPreset)
+    if (next === undefined || savingPreset) return
+    setSavingPreset(true)
+    void Promise.resolve(run(actions.updateBot(bot.id, { agentPreset: next }))).finally(() => setSavingPreset(false))
+  }
   const duplicate = () => run(actions.duplicateBot(bot.id).then(copy => actions.openSession(copy.id)))
   const remove = () => { if (confirming) void run(actions.deleteBot(bot.id)); else setConfirming(true) }
   const modelNote = modelHint(bot, roster)
@@ -251,6 +263,13 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Model')), modelNote ? h('span', { className: 'bt-set-hint' }, modelNote) : null),
         h(ModelMenu, { bot, roster, actions, run }))),
+    !bot.engine ? h(Card, { title: t('Agent preset') },
+      h('div', { className: 'bt-set-row bt-bs-row' },
+        h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Agent preset')), h('span', { className: 'bt-set-hint' }, presetHint(bot, presets, presetError))),
+        h(AgentPresetMenu, {
+          value: bot.agentPreset, presets, error: presetError, onRefresh: refreshPresets,
+          disabled: savingPreset, onPick: savePreset,
+        }))) : null,
     h(Card, { title: t('Working folder') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
