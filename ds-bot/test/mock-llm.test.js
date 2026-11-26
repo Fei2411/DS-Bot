@@ -92,3 +92,26 @@ test('a Bot message hands work on with 转告 and takes its time with 慢慢做'
   const back = await call(url, [{ role: 'user', content: '[Reply from Coder · for the work Chief asked you for; your answer goes to Chief once everything you handed on is back]\n做完了' }], tools)
   assert.deepEqual([back.text, back.tools], ['Coder 交回了，我把结果交给 Chief。', []])
 })
+
+test('mock-llm strips conversation-layer memory blocks and reads latest group Members line across turns', async (t) => {
+  const url = await startMock(t)
+
+  // Conversation-layer own/team memory snapshot merged ahead of a user command must not trigger list_bots.
+  const greeting = await call(url, [{
+    role: 'user',
+    content: [
+      { type: 'text', text: '## Your memory (MEMORY.md)\n(nothing saved yet)\n\n## Team memory, shared by every Bot (team/MEMORY.md)\n(nothing saved yet)' },
+      { type: 'text', text: '[Bot team setup]\nGreet the user.' },
+    ],
+  }], ['list_bots'])
+  assert.equal(greeting.tools.length, 0)
+  assert.match(greeting.text, /Where should I start\?/)
+
+  // On turn 2 of a group session where unchanged Members boilerplate is omitted, admin role still resolves from turn 1.
+  const groupAdmin = await call(url, [
+    { role: 'user', content: '[Group chat "Dev"]\nMembers: the user, Writer, Coder and you (admin).\n\nThis round so far:\nUser: 大家好' },
+    { role: 'assistant', content: '大家好！' },
+    { role: 'user', content: '[Group chat "Dev"]\n\nThis round so far:\nUser: 记住 产物放 out 目录' },
+  ], ['bot_remember', 'list_bots'])
+  assert.deepEqual(groupAdmin.tools.map(used => used.name), ['bot_remember'])
+})
