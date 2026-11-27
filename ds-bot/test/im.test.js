@@ -507,8 +507,13 @@ test('only the last messages sent to a chat are kept for quoting', async (t) => 
     s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: `Report ${at}` }] } })
   }
   await s.flush()
-  await delay(1_200)
-  const kept = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')).sent['dm-u1']
+  const runtimePath = join(s.home, 'im', `${conn.id}.json`)
+  const kept = await waitFor(() => {
+    try {
+      const list = JSON.parse(readFileSync(runtimePath, 'utf8')).sent?.['dm-u1']
+      return list?.some(entry => entry.text === 'Report 20') ? list : undefined
+    } catch { return undefined }
+  }, { label: 'sent store persisted with newest Report 20' })
   assert.equal(kept.length, 20)
   assert.ok(!kept.some(entry => entry.text === 'Report 0'), 'the oldest is dropped')
   assert.ok(kept.some(entry => entry.text === 'Report 20'), 'the newest stays')
@@ -692,11 +697,13 @@ test('a settled card leaves the runtime file once its source is gone; an open on
   s.imTurn('a')
   s.rt.state.questions.a = { id: 'q1', question: 'Pick', options: [{ label: 'x' }, { label: 'y' }] }
   await s.rt.save()
-  await waitFor(() => s.fake.sent.some(m => m.text?.includes('Pick')), { label: 'q1 card sent' })
+  await s.rt.imWhenIdle()
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: 'q:q1:0', messageId: 1 })
+  await s.rt.imWhenIdle()
+  assert.ok(s.fake.edited.length >= 1, 'settled card is edited before cleanup')
   s.rt.state.questions.a = { id: 'q2', question: 'Still open', options: [{ label: 'x' }] }
   await s.rt.save()
-  await waitFor(() => s.fake.sent.some(m => m.text?.includes('Still open')), { label: 'q2 card sent' })
+  await s.rt.imWhenIdle()
   const runtimePath = join(s.home, 'im', `${conn.id}.json`)
   const runtime = await waitFor(() => {
     try {

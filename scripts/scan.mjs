@@ -95,6 +95,7 @@ for (const file of files) {
   }
   // The scanner and an allowed local pattern file name the patterns they look for.
   if (file === SELF || (file === '.scan-extra' && scanExtraAllowed)) continue
+  const isScanExtraFile = /(^|\/)\.scan-extra$/.test(file)
   const data = readFileSync(join(root, file))
   if (data.includes(0)) continue
   const lines = data.toString('utf8').split('\n')
@@ -109,7 +110,7 @@ for (const file of files) {
       rule.re.lastIndex = 0
       for (const match of line.matchAll(rule.re)) {
         if (rule.secret && PLACEHOLDER.test(match[0])) continue
-        const shown = rule.redact
+        const shown = (rule.redact || isScanExtraFile)
           ? `<redacted> (${match[0].length} chars)`
           : rule.secret
             ? `${match[0].slice(0, 6)}… (${match[0].length} chars)`
@@ -207,10 +208,29 @@ function report() {
   process.exit(byLevel(MUST).length > 0 ? 1 : 0)
 }
 
+function redactExtraInSlice(line, start, end) {
+  if (!extra) return line.slice(start, end)
+  extra.lastIndex = 0
+  let out = ''
+  let cursor = start
+  for (const m of line.matchAll(extra)) {
+    if (m[0].length === 0) continue
+    const mStart = m.index
+    const mEnd = mStart + m[0].length
+    if (mEnd <= start) continue
+    if (mStart >= end) break
+    if (mStart > cursor) out += line.slice(cursor, mStart)
+    out += '<redacted>'
+    cursor = Math.max(cursor, Math.min(mEnd, end))
+  }
+  if (cursor < end) out += line.slice(cursor, end)
+  return out
+}
+
 function snippet(line, at, length) {
   const start = Math.max(0, at - 40)
   const end = Math.min(line.length, at + length + 40)
-  return `${start > 0 ? '…' : ''}${line.slice(start, end).trim()}${end < line.length ? '…' : ''}`
+  return `${start > 0 ? '…' : ''}${redactExtraInSlice(line, start, end).trim()}${end < line.length ? '…' : ''}`
 }
 
 function walk(dir) {
