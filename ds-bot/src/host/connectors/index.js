@@ -764,7 +764,7 @@ export function install(rt) {
 
   const connectorsView = () => ({
     connectors: entries().filter(entry => entry.id !== 'mail').map(rowFor),
-    mail: rt.mailView?.() ?? { accounts: [], google: false },
+    mail: rt.mailView?.() ?? { accounts: [], google: false, offFor: [] },
   })
 
   const HTTP_SECRET_REF_ERROR = 'One-time secret-ref handles can only be consumed by Bot host tools (such as save_capability), not via HTTP endpoints.'
