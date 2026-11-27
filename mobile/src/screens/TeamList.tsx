@@ -3,14 +3,14 @@ import { Pressable, StyleSheet, Text, View, SectionList, type NativeScrollEvent,
 import type { Agent, Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
 import { roomHasPending } from '../nav/pending.ts'
-import { botMarkState } from '../team/mark-state.ts'
+import { botMarkState, botPreviewKind } from '../team/mark-state.ts'
 import { isUnread, seenVersion, subscribeSeen } from '../team/seen.ts'
 import { getLang, t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { MarksShown } from '../ui/avatar/LiveMark.tsx'
 import { FishLogo, PinMarkIcon } from '../ui/icons.tsx'
-import { roomTitle, runningActivityOf, workPhrase } from '../ui/phrases.ts'
+import { roomTitle, workPhrase, type WorkDetail } from '../ui/phrases.ts'
 import { teamListEmptyMessage } from '../nav/team-list-empty.ts'
 import { cleanPreview } from './chat/settled.ts'
 
@@ -49,10 +49,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   const lang = getLang()
   const mainList = bots.filter(bot => mains.has(bot.id) && bot.hidden !== true && (needle === '' || (bot.name ?? '').toLowerCase().includes(needle)))
   const agentList = (Array.isArray(team?.agents) ? team.agents : []).filter(agent => needle === '' || agentName(agent).toLowerCase().includes(needle))
-  const workBots = team?.work?.bots ?? {}
   const workRooms = team?.work?.rooms ?? {}
-  const waiting = team?.work?.waiting ?? {}
-  const questions = team?.questions ?? {}
   const approvals = (Array.isArray(team?.work?.approvals) ? team.work.approvals : []).filter(a => a?.answerable !== false)
 
   const entries = useMemo(() => {
@@ -70,19 +67,15 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   const emptyMessage = teamListEmptyMessage(team !== null, needle, mainList.length + agentList.length + entries.length)
 
   const preview = (bot: Bot): string | undefined => {
-    const sessionId = bot.sessionId ?? bot.id
-    if (questions[sessionId] !== undefined || team?.views?.[sessionId] !== undefined) return t('Waiting for your answer')
-    if (approvals.some(a => a?.roomId === undefined && a?.botId === bot.id) || Object.values(team?.computerLive?.asks ?? {}).some(ask => ask?.roomId === undefined && ask?.botId === bot.id)) return t('Waiting for your approval')
-    const doing = runningActivityOf(workBots[bot.id], team?.activity?.[bot.id])
-    if (doing !== undefined) return `${workPhrase(doing)}…`
-    const groupWork = Object.entries(workRooms).find(([, list]) => Array.isArray(list) && list.some(e => e?.botId === bot.id))
-    const workingEntry = groupWork?.[1]?.find(e => e?.botId === bot.id)
-    if (groupWork && workingEntry !== undefined) {
-      const room = team?.rooms?.find(r => r.id === groupWork[0])
-      return `${room !== undefined ? roomTitle(room) : t('a group chat')} · ${workPhrase(workingEntry)}…`
+    const line = botPreviewKind(team, bot)
+    if (line.kind === 'answer') return t('Waiting for your answer')
+    if (line.kind === 'approval') return t('Waiting for your approval')
+    if (line.kind === 'doing') return `${workPhrase(line.doing as WorkDetail | string | undefined)}…`
+    if (line.kind === 'group' && line.groupEntry !== undefined) {
+      const room = team?.rooms?.find(r => r.id === line.roomId)
+      return `${room !== undefined ? roomTitle(room) : t('a group chat')} · ${workPhrase(line.groupEntry)}…`
     }
-    const waits = waiting[bot.id]
-    if (waits !== undefined && (waits.bots?.length || waits.rooms?.length)) return t('Waiting for your answer')
+    if (line.kind === 'waiting') return t('Waiting for your answer')
     return cleanPreview(bot.preview) ?? bot.role
   }
   const roomPreview = (room: Room): string | undefined => {

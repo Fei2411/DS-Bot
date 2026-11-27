@@ -20,4 +20,4 @@ export const avatarBadge = (state, { main = false, admin = false, badge = true }
   !badge ? null : state === 'alert' ? 'alert' : RUNNING_STATES.has(state) ? 'working' : admin ? 'admin' : main ? 'main' : null
 )
 export const isBrowserHandoff = hold => hold?.callId !== undefined
-export const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.fromBot === true || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))
+export const isComputerHandoff = hold => hold != null && (hold.by === 'bot' || hold.fromBot === true || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== '' && hold.reason !== 'takeover'))

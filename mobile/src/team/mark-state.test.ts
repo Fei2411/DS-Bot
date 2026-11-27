@@ -4,9 +4,10 @@
 // approvalsView), and the cases are the desktop's own (test/sidebar-approval-status.test.js).
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { isComputerHandoff } from '../../../ds-bot/src/client/mark-states.js'
 import type { Bot, TeamState } from '../connection.ts'
 import { runningActivityOf, workPhrase } from '../ui/phrases.ts'
-import { botMarkState, botRunning, isTopBlockInView, workMarkState } from './mark-state.ts'
+import { botMarkState, botPreviewKind, botRunning, isTopBlockInView, shouldCelebrateSettle, workMarkState } from './mark-state.ts'
 
 const reviewer = { id: 'reviewer', name: 'Reviewer', sessionId: 'reviewer-p2' } as Bot
 const team = (extra: Record<string, unknown>) => ({ bots: [reviewer], ...extra }) as unknown as TeamState
@@ -135,4 +136,42 @@ test('isTopBlockInView tracks whether the details avatar scrolled out of the vie
   assert.equal(isTopBlockInView(119, 120), true)
   assert.equal(isTopBlockInView(120, 120), false)
   assert.equal(isTopBlockInView(200, 120), false)
+})
+
+test('isComputerHandoff handles null and empty reason strings safely, matching host inbox', () => {
+  assert.equal(isComputerHandoff(undefined), false)
+  assert.equal(isComputerHandoff(null), false)
+  assert.equal(isComputerHandoff({ by: 'user', reason: '' }), false)
+  assert.equal(isComputerHandoff({ by: 'user', reason: 'takeover' }), false)
+  assert.equal(isComputerHandoff({ by: 'user', reason: 'sign in' }), true)
+  assert.equal(isComputerHandoff({ by: 'bot', reason: '' }), true)
+  assert.equal(botMarkState(team({ computerLive: { holds: { reviewer: null } } }), reviewer), 'idle')
+  assert.equal(botMarkState(team({ computerLive: { holds: { reviewer: { by: 'user', reason: '' } } } }), reviewer), 'idle')
+})
+
+test('botPreviewKind keeps foreground work above deferred background approvals', () => {
+  const bgApproval = approval({ taskId: 't1' })
+  // Running foreground turn + background approval -> preview shows foreground work, not approval.
+  const busy = team({ work: { bots: { reviewer: { tool: 'run_command', said: 'Building' } }, approvals: [bgApproval] }, activity: { reviewer: 'working' } })
+  assert.equal(botPreviewKind(busy, reviewer).kind, 'doing')
+  // Group work + background approval -> preview shows group work.
+  const groupBusy = team({ work: { rooms: { g1: [{ botId: 'reviewer', tool: 'write_file' }] }, approvals: [bgApproval] } })
+  assert.equal(botPreviewKind(groupBusy, reviewer).kind, 'group')
+  // Idle + background approval -> preview falls back to approval.
+  const idleBg = team({ work: { approvals: [bgApproval] } })
+  assert.equal(botPreviewKind(idleBg, reviewer).kind, 'approval')
+  // Foreground approval still overrides a running turn.
+  const fgApproval = team({ work: { bots: { reviewer: { tool: 'run_command' } }, approvals: [approval({})] } })
+  assert.equal(botPreviewKind(fgApproval, reviewer).kind, 'approval')
+})
+
+test('shouldCelebrateSettle matches desktop useSettled transitions', () => {
+  assert.equal(shouldCelebrateSettle('working', 'idle'), true)
+  assert.equal(shouldCelebrateSettle('working', 'replied'), true)
+  assert.equal(shouldCelebrateSettle('thinking', 'replied'), true)
+  assert.equal(shouldCelebrateSettle('replied', 'idle'), false)
+  assert.equal(shouldCelebrateSettle('idle', 'replied'), false)
+  assert.equal(shouldCelebrateSettle('failed', 'idle'), false)
+  assert.equal(shouldCelebrateSettle('alert', 'idle'), false)
+  assert.equal(shouldCelebrateSettle('working', 'failed'), false)
 })

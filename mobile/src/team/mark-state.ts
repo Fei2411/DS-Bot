@@ -62,3 +62,38 @@ export const workMarkState = (doing: { tool?: string; switching?: boolean } | st
 
 // Whether a block anchored at the top of a scroll view is still at least partially visible.
 export const isTopBlockInView = (scrollY: number, blockBottom: number): boolean => blockBottom <= 0 || scrollY < blockBottom
+
+// Desktop useSettled transition rules (mark.js): leaving work into idle/replied celebrates once;
+// leaving alert/failed or switching between idle and replied does not.
+const AFTER_WORK = new Set(['idle', 'replied'])
+const NOT_WORK = new Set(['alert', 'failed'])
+export const isAfterWorkState = (state: string): boolean => AFTER_WORK.has(state)
+export const shouldCelebrateSettle = (prevState: string, nextState: string): boolean => (
+  AFTER_WORK.has(nextState) && !AFTER_WORK.has(prevState) && !NOT_WORK.has(prevState)
+)
+
+// Preview priority for one Bot row (mirroring desktop sidebar.js BotRow):
+// foreground blocking questions/approvals > foreground running turn > group work >
+// deferred background approvals > waiting on handed-off work > fallback preview/role.
+export function botPreviewKind(team: TeamState | null, bot: Bot): { kind: 'answer' | 'approval' | 'doing' | 'group' | 'waiting' | 'idle'; doing?: unknown; roomId?: string; groupEntry?: { tool?: string; said?: string; note?: string; target?: string } } {
+  const sessionId = bot.sessionId ?? bot.id
+  if (team?.questions?.[sessionId] !== undefined || team?.views?.[sessionId] !== undefined) return { kind: 'answer' }
+  const approvals = (Array.isArray(team?.work?.approvals) ? team.work.approvals : []).filter(a => a?.answerable !== false && a?.roomId === undefined && a?.botId === bot.id)
+  const fgComputer = Object.values(team?.computerLive?.asks ?? {}).some(ask => ask?.roomId === undefined && ask?.botId === bot.id)
+  if (approvals.some(a => a.taskId === undefined) || fgComputer) return { kind: 'approval' }
+  const workBot = team?.work?.bots?.[bot.id]
+  const activity = team?.activity?.[bot.id]
+  const activeWord = typeof activity === 'string' && RUNNING_STATES.has(activity) && activity !== 'done' ? activity : undefined
+  if (workBot !== undefined || activeWord !== undefined) return { kind: 'doing', doing: workBot ?? activeWord }
+  const workRooms = team?.work?.rooms ?? {}
+  for (const [roomId, list] of Object.entries(workRooms)) {
+    const entry = Array.isArray(list) ? list.find(e => e?.botId === bot.id) : undefined
+    if (entry !== undefined) return { kind: 'group', roomId, groupEntry: entry }
+  }
+  const hasBgApproval = approvals.some(a => a.taskId !== undefined)
+    || (bot.tasks ?? []).some(task => task && !task.roomId && task.status === 'waiting_approval')
+  if (hasBgApproval) return { kind: 'approval' }
+  const waits = team?.work?.waiting?.[bot.id]
+  if (waits !== undefined && (waits.bots?.length || waits.rooms?.length)) return { kind: 'waiting' }
+  return { kind: 'idle' }
+}

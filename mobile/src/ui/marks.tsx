@@ -8,6 +8,7 @@ import type { Bot, Room } from '../connection.ts'
 import { LiveMark } from './avatar/LiveMark.tsx'
 import { badgeOf } from './badge.ts'
 import { MainStarIcon } from './icons.tsx'
+import { isAfterWorkState, shouldCelebrateSettle } from '../team/mark-state.ts'
 
 // The Bot's own mascot, drawn by the same generator as the desktop mark
 // (ds-bot/src/client/characters.js). CSS ink variables resolve to the mode's color.
@@ -82,17 +83,15 @@ export function BotMark({ bot, dark, size = 36, ...motion }: { bot: unknown; dar
 // Marks settle with a short hop when a run finishes, matching the desktop (mark.js useSettled):
 // idle and an unread reply count as one so opening the chat does not cut the hop short,
 // and leaving alert/failed does not celebrate.
-const AFTER_WORK = new Set(['idle', 'replied'])
-const NOT_WORK = new Set(['alert', 'failed'])
 function useSettled(state: string, id: string | undefined): boolean {
-  const after = AFTER_WORK.has(state)
+  const after = isAfterWorkState(state)
   const prev = useRef({ state, id })
   const [settled, setSettled] = useState(false)
   useEffect(() => {
     const was = prev.current
     prev.current = { state, id }
     if (was.id !== id || !after) { setSettled(false); return undefined }
-    if (AFTER_WORK.has(was.state) || NOT_WORK.has(was.state)) return undefined
+    if (!shouldCelebrateSettle(was.state, state)) return undefined
     setSettled(true)
     const timer = setTimeout(() => setSettled(false), 1800)
     return () => clearTimeout(timer)

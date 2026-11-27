@@ -241,7 +241,7 @@ export function BotDetails({ route, navigation }: any) {
         <View style={{ flex: 1 }} />
         <RoundButton label={t('Edit Bot')} onPress={() => navigation.navigate('BotEdit', { botId: bot.id })}><GearIcon size={18} color={p.ink2} /></RoundButton>
       </View>
-      <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }} onScroll={onScroll} scrollEventThrottle={100}>
+      <ScrollView key={bot.id} contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }} onScroll={onScroll} scrollEventThrottle={100}>
         <View style={{ alignItems: 'center', paddingTop: 4 }} onLayout={event => { avatarBottom.current = event.nativeEvent.layout.y + event.nativeEvent.layout.height; syncAvatarInView() }}>
           <MarksShown.Provider value={shown && avatarInView}>
             <Avatar bot={bot} dark={dark} size={64} ring={p.main} state={botMarkState(team, bot)} badge={false} live pokeable />

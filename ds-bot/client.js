@@ -30004,7 +30004,7 @@ var botState = (running, activity, alert, { failed = false, background = false, 
 var toolState = (name) => /^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
 var avatarBadge = (state, { main = false, admin = false, badge = true } = {}) => !badge ? null : state === "alert" ? "alert" : RUNNING_STATES.has(state) ? "working" : admin ? "admin" : main ? "main" : null;
 var isBrowserHandoff = (hold) => hold?.callId !== void 0;
-var isComputerHandoff = (hold) => hold !== void 0 && (hold.by === "bot" || hold.fromBot === true || hold.callId !== void 0 || typeof hold.reason === "string" && hold.reason !== "takeover");
+var isComputerHandoff = (hold) => hold != null && (hold.by === "bot" || hold.fromBot === true || hold.callId !== void 0 || typeof hold.reason === "string" && hold.reason !== "" && hold.reason !== "takeover");
 
 // src/client/memo.js
 var React = __toESM(require("react"), 1);
