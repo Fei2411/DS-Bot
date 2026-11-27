@@ -357,22 +357,26 @@ export function install(rt) {
     if (!hasLegacyCutoff) await writeRuntime(id)
     return held
   }
+  let runtimeWritesClosed = false
   const scheduleWrite = (id) => {
+    if (stopped || runtimeWritesClosed) return
     const held = runtimes.get(id)
     if (held === undefined || held.timer !== undefined) return
     held.timer = setTimeout(() => {
       held.timer = undefined
+      if (runtimeWritesClosed) return
       void writeRuntime(id).catch(error => rt.warn('ds-bot: im runtime %s not saved: %s', id, error))
     }, RUNTIME_SAVE_MS)
     held.timer.unref?.()
   }
   const writeRuntime = (id) => {
     const held = runtimes.get(id)
-    if (held === undefined || rt.readOnly() !== undefined) return Promise.resolve()
+    if (held === undefined || runtimeWritesClosed || rt.readOnly() !== undefined) return Promise.resolve()
     held.write = (held.write ?? Promise.resolve()).catch(() => {}).then(() => persistRuntime(id, held))
     return held.write
   }
   const persistRuntime = async (id, held) => {
+    if (runtimeWritesClosed) return
     await mkdir(imDir, { recursive: true })
     const temp = join(imDir, `${id}.${process.pid}.tmp`)
     // `sent` only exists for platforms that can quote (weixin): a runtime file
@@ -2623,18 +2627,19 @@ export function install(rt) {
       })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error)))
       return
     }
-    if (kind !== 'settled') return
-    void (async () => {
+    if (kind !== 'settled' || stopped) return
+    void trackOutbound((async () => {
       for (const conn of Object.values(connections())) {
         await settleCard(conn.id, `a:${data.id}`, data.outcome === 'allowed-once' ? text('allow') : data.outcome === 'rejected' ? text('reject') : text('answered'))
         await settledEdits(conn)
       }
-    })().catch(() => {})
+    })().catch(() => {}))
   })
 
   rt.onSaved(() => {
-    void diffCards().then(settleGone).catch(() => {})
-    void sync().catch(() => {})
+    if (stopped) return
+    void trackOutbound(diffCards().then(settleGone).catch(() => {}))
+    void trackOutbound(sync().catch(() => {}))
   })
 
   let interval
@@ -2649,8 +2654,14 @@ export function install(rt) {
       clearInterval(interval)
       resumedOrigins.clear()
       return Promise.all([...runners.keys()].map(stop)).then(async () => {
-        for (const held of runtimes.values()) if (held.timer !== undefined) clearTimeout(held.timer)
-        await Promise.all([...runtimes.keys()].map(writeRuntime)).catch(() => {})
+        for (const held of runtimes.values()) {
+          if (held.timer !== undefined) {
+            clearTimeout(held.timer)
+            held.timer = undefined
+          }
+        }
+        await Promise.allSettled([...runtimes.keys()].map(writeRuntime))
+        runtimeWritesClosed = true
       })
     }
   }, 'ds-bot: im')

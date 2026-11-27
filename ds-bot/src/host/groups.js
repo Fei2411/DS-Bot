@@ -2477,7 +2477,10 @@ export function install(rt) {
     presented.clear()
     explicitCallsByExchange.clear()
     pendingDirectRelays.clear()
+    laterPosts.clear()
+    const active = [...roundRuns.values()].flatMap(runs => [...runs])
     for (const round of rt.roomProgress.values()) round.abort?.abort()
+    return Promise.allSettled(active).then(() => rt.ledger?.flush?.())
   }, 'ds-bot: group rounds')
 
   // DSH's present tool records the files a member delivers in the member's own group
