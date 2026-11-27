@@ -175,6 +175,8 @@ export function ShortcutsPage({ roster, actions, Section, Row, store = shortcuts
       { id: 'fixed:mention', label: t('Mention a Bot'), caps: ['@'] },
       { id: 'fixed:commands', label: t('Commands'), caps: ['/'] },
       { id: 'fixed:stop-esc', label: t('Stop generating'), caps: ['Esc', 'Esc'] },
+      { id: 'fixed:approval-allow', label: t('Allow approval (card focused)'), caps: ['Enter'] },
+      { id: 'fixed:approval-reject', label: t('Reject approval (card focused)'), caps: ['Esc'] },
       { id: 'fixed:escape', label: t('Close dialog or menu'), caps: ['Esc'] },
     ]
     if (!wanted) return all

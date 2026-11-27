@@ -30,6 +30,7 @@ import { ApprovalDock } from './approval-dock.js'
 import { AgentEmptyHero } from './classic-sidebar.js'
 import { ComposerMenu, activeComposerTrigger, applyTriggerText, buildComposerMenuItems } from './composer-menus.js'
 import { SessionTranscript, UserAttachments, useSessionFollow } from './session-chat.js'
+import { SubagentLineageBar, SubagentReadOnlyBar } from './subagent-viewer.js'
 import { UserMessageText } from './user-text.js'
 
 // The chat follows its end while the user is this close to it.
@@ -973,6 +974,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
 
   const [pending, setPending] = useState([])
   const [dragging, setDragging] = useState(false)
+  const [subagentStack, setSubagentStack] = useState([])
   const sendGen = useRef(0)
   const dragDepth = useRef(0)
   const addFilesRef = useRef(undefined)
@@ -986,6 +988,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     sendGen.current += 1
     keep.current = null
     follow.current = true
+    setSubagentStack([])
     setPending((list) => {
       for (const entry of list) {
         entry.removed = true
@@ -1033,13 +1036,41 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     }], initial)
   }, [clearPendingUsers])
 
+  const viewingSubagent = !isRoom && subagentStack.length > 0 ? subagentStack.at(-1) : null
+  const viewedSessionId = viewingSubagent ? viewingSubagent.sessionId : activeSessionId
+  const subagentAncestors = useMemo(() => {
+    if (!viewingSubagent || subagentStack.length <= 1 || !activeSessionId) return undefined
+    return [
+      { sessionId: activeSessionId },
+      ...subagentStack.slice(0, -1).map(item => ({ sessionId: item.sessionId, ...(item.mode ? { mode: item.mode } : {}) })),
+    ]
+  }, [viewingSubagent, subagentStack, activeSessionId])
+  const openSubagent = useCallback((entry) => {
+    if (!entry?.sessionId || !entry?.parentSessionId) return
+    follow.current = true
+    keep.current = null
+    setSubagentStack(prev => (prev.at(-1)?.sessionId === entry.sessionId ? prev : [...prev, entry]))
+  }, [])
+  const popSubagent = useCallback(() => {
+    follow.current = true
+    keep.current = null
+    setSubagentStack(prev => prev.slice(0, -1))
+  }, [])
+  const selectSubagentDepth = useCallback((depth) => {
+    follow.current = true
+    keep.current = null
+    setSubagentStack(prev => prev.slice(0, Math.max(0, depth)))
+  }, [])
+
   const roomChat = useRoomChat(room?.id, sessionId, feed, keep, clearPendingUsers)
   const dmChat = useSessionFollow({
-    sessionId: activeSessionId,
-    enabled: !isRoom && Boolean(activeSessionId),
+    sessionId: viewedSessionId,
+    parent: viewingSubagent?.parentSessionId,
+    mode: viewingSubagent?.mode,
+    enabled: !isRoom && Boolean(viewedSessionId),
     feed,
     readOnly: Boolean(roster.readOnly),
-    onUserMessage: onSessionUser,
+    onUserMessage: viewingSubagent ? undefined : onSessionUser,
     keep,
   })
 
@@ -1255,8 +1286,15 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   },
   dragging ? h('div', { className: 'dsb-dropzone', 'aria-hidden': true },
     h('div', { className: 'dsb-dropzone-card' }, t('Drop files to attach'))) : null,
-  h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', 'data-empty-hero': showAgentHero ? '' : undefined, onScroll },
-    showAgentHero ? h(AgentEmptyHero, { cwd: heroCwd, actions, readOnly }) : null,
+  viewingSubagent ? h(SubagentLineageBar, {
+    stack: subagentStack,
+    rootLabel: name || t('Parent session'),
+    running: dmChat.log.writing !== null,
+    onBack: popSubagent,
+    onSelectDepth: selectSubagentDepth,
+  }) : null,
+  h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', 'data-empty-hero': !viewingSubagent && showAgentHero ? '' : undefined, onScroll },
+    !viewingSubagent && showAgentHero ? h(AgentEmptyHero, { cwd: heroCwd, actions, readOnly }) : null,
     h('div', { className: 'dsb-column' },
       earlier ? h('div', { className: 'bt-earlier-top' }, earlier) : null,
       sessionNotice,
@@ -1266,11 +1304,17 @@ export function Chat({ sessionId, team, registry, classic = false }) {
           ? h(MemoChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments, renderUserText: renderRoomUserText })
           : h(SessionTranscript, {
             log: dmChat.log,
-            sessionId: activeSessionId,
+            sessionId: viewedSessionId,
+            parent: viewingSubagent?.parentSessionId,
+            mode: viewingSubagent?.mode,
+            ancestors: subagentAncestors,
             bot,
             roster,
             actions,
             classic: isClassic,
+            feed,
+            readOnly: readOnly || Boolean(viewingSubagent),
+            onOpenSubagent: openSubagent,
             useUi: hooks.useUi,
             useRoster: hooks.useRoster,
             useWork,
@@ -1284,37 +1328,39 @@ export function Chat({ sessionId, team, registry, classic = false }) {
             hasMore: dmChat.hasMore,
             registry,
           }),
-        h(PendingUserRows, { items: pending, sessionId: activeSessionId, classic: isClassic }),
+        !viewingSubagent ? h(PendingUserRows, { items: pending, sessionId: activeSessionId, classic: isClassic }) : null,
         // The Bot views' activity row (from the header pill) draws itself in here.
-        h('div', { 'data-chat-running': '' })))),
+        !viewingSubagent ? h('div', { 'data-chat-running': '' }) : null))),
   h('div', { className: 'dsb-composer-root' },
-    h(MemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }),
-    h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }),
-    h(QuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }),
-    !isRoom ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom ? h(SecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom ? h(ConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom ? h(MailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
-    !isRoom ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
-    !isRoom ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
-    !isRoom ? h(ApprovalDock, { botId: bot?.id, sessionId: activeSessionId, useWork, actions, readOnly }) : null,
-    !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(BtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
-    !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
-    h(Composer, {
-      sessionId: activeSessionId,
-      disabled: locked,
-      running,
-      placeholder: waiting ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
-      onSend: send,
-      onStop,
-      addFilesRef,
-      actions,
-      feed,
-      useUi: hooks.useUi,
-      useRoster: hooks.useRoster,
-      useWork,
-      useSessions: hooks.useSessions,
-      useRescuedDrafts: hooks.useRescuedDrafts,
-    })))
+    !viewingSubagent ? h(MemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }) : null,
+    !viewingSubagent ? h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    !viewingSubagent ? h(QuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(SecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(ConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(MailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
+    !isRoom && !viewingSubagent ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+    !isRoom && !viewingSubagent ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+    !isRoom && !viewingSubagent ? h(ApprovalDock, { botId: bot?.id, sessionId: activeSessionId, useWork, actions, readOnly }) : null,
+    !isRoom && !viewingSubagent && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(BtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    !isRoom && !viewingSubagent && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    viewingSubagent
+      ? h(SubagentReadOnlyBar, { onBack: popSubagent })
+      : h(Composer, {
+        sessionId: activeSessionId,
+        disabled: locked,
+        running,
+        placeholder: waiting ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
+        onSend: send,
+        onStop,
+        addFilesRef,
+        actions,
+        feed,
+        useUi: hooks.useUi,
+        useRoster: hooks.useRoster,
+        useWork,
+        useSessions: hooks.useSessions,
+        useRescuedDrafts: hooks.useRescuedDrafts,
+      })))
 }

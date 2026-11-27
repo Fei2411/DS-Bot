@@ -5,7 +5,6 @@
 // (via `tool.call.toolview` -> `WidgetCell` for `show_view` / `GenericToolCard`),
 // compaction markers, Bot/schedule events, and failed turns (`FailureCell`).
 import { createElement as h, Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { BtwTurnTail } from '../../../ds-bot/src/client/btw.js'
 import { Bubbles, EarlierParts, PartLine, ThinkingRow, ToolCell, isBotTool } from '../../../ds-bot/src/client/cells.js'
@@ -13,7 +12,7 @@ import { ChangesCard } from '../../../ds-bot/src/client/changes-card.js'
 import { MarkdownText, fileExtension, fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { SaveFileAction } from '../../../ds-bot/src/client/file-save.js'
 import { FOLD_HUGE, useFold } from '../../../ds-bot/src/client/fold.js'
-import { CheckIcon, ChevronRightIcon, CloseIcon, CopyIcon, FileIcon, ImageIcon } from '../../../ds-bot/src/client/icons.js'
+import { CheckIcon, ChevronRightIcon, CopyIcon, FileIcon, ImageIcon } from '../../../ds-bot/src/client/icons.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { LearningTurnTail } from '../../../ds-bot/src/client/learning-card.js'
 import { BotMark, RoomAvatar } from '../../../ds-bot/src/client/mark.js'
@@ -26,10 +25,13 @@ import { FailureCell, failureText } from '../../../ds-bot/src/client/turn-error.
 import { ViaTag, contentParts, mentionableBots } from '../../../ds-bot/src/client/user-message.js'
 import { AnsweredReply } from '../../../ds-bot/src/client/widget-cell.js'
 import { openSessionFollow } from './api.js'
+import { ComputerToolView, isComputerToolName } from './browser-computer-tool-views.js'
 import { ClassicFeedbackActions, ClassicFeedbackDialog, useSessionFeedback } from './classic-feedback.js'
+import { ImageLightbox } from './image-lightbox.js'
 import { getAppLocale } from './locale.js'
 import { buildSessionRowParts, extractTurnFacts } from './session-transcript.js'
 import { CHAT_NODE_SLOT, SlotOutlet, slots as defaultSlots } from './slots.js'
+import { resolveSubagentCatalog } from './subagent-job-tool-views.js'
 import { UserMessageText, copyableUserText } from './user-text.js'
 
 const NO_LOCALE = () => {}
@@ -69,8 +71,9 @@ function rememberImage(key, value) {
   }
 }
 
-function loadAttachmentImage(sessionId, attachmentId) {
-  const key = `${sessionId}:${attachmentId}`
+function loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors, preview = true } = {}) {
+  const ancKey = Array.isArray(ancestors) && ancestors.length > 0 ? ancestors.map(a => a.sessionId).join('>') : ''
+  const key = `${sessionId}:${parent ?? ''}:${mode ?? ''}:${ancKey}:${attachmentId}:${preview ? 'p' : 'f'}`
   if (imageCache.has(key)) {
     const cached = imageCache.get(key)
     rememberImage(key, cached)
@@ -78,7 +81,15 @@ function loadAttachmentImage(sessionId, attachmentId) {
   }
   const existing = imageInflight.get(key)
   if (existing) return existing
-  const promise = Promise.resolve(call('image', { sessionId, attachmentId, preview: true }))
+  const params = {
+    sessionId,
+    attachmentId,
+    preview,
+    ...(parent ? { parent } : {}),
+    ...(mode ? { mode } : {}),
+    ...(Array.isArray(ancestors) && ancestors.length > 0 ? { ancestors } : {}),
+  }
+  const promise = Promise.resolve(call('image', params))
     .then((res) => {
       const src = res?.mime && res?.data ? `data:${res.mime};base64,${res.data}` : null
       if (src) rememberImage(key, src)
@@ -135,7 +146,7 @@ function reasoningStartFrom(log, existing, now) {
  * Follows one Bot's current Session via `api/bot/session` and pages older records
  * via `session-page`, keeping `SessionLog` in sync across reconnects and read-only updates.
  */
-export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMessage, keep, openFollow = openSessionFollow }) {
+export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readOnly, onUserMessage, keep, openFollow = openSessionFollow }) {
   const [state, setState] = useState(() => ({
     log: emptyLog(),
     thinkingAt: {},
@@ -169,7 +180,13 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null, historyReloaded: false })
     if (!enabled || !sessionId) return undefined
 
-    const handle = openFollowRef.current({ sessionId, max: PAGE_SIZE, after: () => (resyncRef.current ? undefined : logRef.current.cursor) }, (event, data) => {
+    const handle = openFollowRef.current({
+      sessionId,
+      ...(parent ? { parent } : {}),
+      ...(mode ? { mode } : {}),
+      max: PAGE_SIZE,
+      after: () => (resyncRef.current ? undefined : logRef.current.cursor),
+    }, (event, data) => {
       if (genRef.current !== myGen) return
       if (event === 'frame') {
         const resyncing = data?.type === 'snapshot' && resyncRef.current
@@ -231,7 +248,7 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
       handle.close()
       if (followRef.current === handle) followRef.current = null
     }
-  }, [sessionId, enabled])
+  }, [sessionId, parent, mode, enabled])
 
   // Read-only windows only receive the opening snapshot from DSH (host/session-follow.js):
   // reopen when the team live feed reports a revision or reconnects.
@@ -240,7 +257,7 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     return feed.on((event) => {
       if (readOnly && (event === 'revision' || event === 'hello')) followRef.current?.reopen()
     })
-  }, [enabled, sessionId, feed, readOnly])
+  }, [enabled, sessionId, parent, mode, feed, readOnly])
 
   const loadEarlier = useCallback(async (scroller) => {
     if (!enabled || !sessionId || pagingRef.current) return
@@ -250,7 +267,13 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     pagingRef.current = true
     setState(current => ({ ...current, paging: true, pageFailed: false }))
     try {
-      const page = await call('session-page', { sessionId, beforeSeq, maxMessages: PAGE_SIZE })
+      const page = await call('session-page', {
+        sessionId,
+        ...(parent ? { parent } : {}),
+        ...(mode ? { mode } : {}),
+        beforeSeq,
+        maxMessages: PAGE_SIZE,
+      })
       if (genRef.current !== myGen) return
       const next = addPage(logRef.current, page)
       if (next !== logRef.current) {
@@ -268,7 +291,7 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     } finally {
       if (genRef.current === myGen) pagingRef.current = false
     }
-  }, [enabled, sessionId, keep])
+  }, [enabled, sessionId, parent, mode, keep])
 
   const retry = useCallback(() => {
     setState(current => ({ ...current, loading: true, failed: false, terminalError: null }))
@@ -308,65 +331,38 @@ function CopyTextButton({ text, className = 'bt-tool' }) {
   }, copied ? h(CheckIcon) : h(CopyIcon))
 }
 
-function UserImageThumb({ sessionId, attachment }) {
+function UserImageThumb({ sessionId, parent, mode, ancestors, attachment }) {
   const name = attachment?.name || t('Image')
   const direct = attachment?.previewUrl ?? null
   const attachmentId = attachment?.attachmentId
-  const cached = !direct && sessionId && attachmentId ? imageCache.get(`${sessionId}:${attachmentId}`) ?? null : null
+  const ancKey = Array.isArray(ancestors) && ancestors.length > 0 ? ancestors.map(a => a.sessionId).join('>') : ''
+  const cacheKey = `${sessionId}:${parent ?? ''}:${mode ?? ''}:${ancKey}:${attachmentId}:p`
+  const cached = !direct && sessionId && attachmentId ? imageCache.get(cacheKey) ?? null : null
   const [loaded, setLoaded] = useState(cached)
   const [zoomed, setZoomed] = useState(false)
-  const closeBtn = useRef(null)
   const src = direct ?? loaded
 
   useEffect(() => {
     if (direct || !sessionId || !attachmentId) return undefined
-    const key = `${sessionId}:${attachmentId}`
-    if (imageCache.has(key)) {
-      setLoaded(imageCache.get(key))
+    if (imageCache.has(cacheKey)) {
+      setLoaded(imageCache.get(cacheKey))
       return undefined
     }
     let alive = true
-    void loadAttachmentImage(sessionId, attachmentId).then((url) => {
+    void loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors, preview: true }).then((url) => {
       if (alive && url) setLoaded(url)
     })
     return () => { alive = false }
-  }, [direct, sessionId, attachmentId])
-
-  useEffect(() => {
-    if (!zoomed) return undefined
-    closeBtn.current?.focus?.()
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation()
-        setZoomed(false)
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [zoomed])
+  }, [direct, sessionId, parent, mode, ancestors, attachmentId, cacheKey])
 
   if (!src) {
     return h('span', { className: 'bt-ufile', title: name },
       h('span', { className: 'dsb-ufile-icon', 'aria-hidden': true }, h(ImageIcon)),
       h('span', { className: 'bt-ufile-text' }, h('span', { className: 'bt-ufile-name' }, name)))
   }
-  const lightbox = zoomed ? h('div', {
-    className: 'dsb-lightbox',
-    role: 'dialog',
-    'aria-modal': true,
-    'aria-label': name,
-    onClick: (event) => { if (event.target === event.currentTarget) setZoomed(false) },
-  },
-  h('button', {
-    ref: closeBtn,
-    type: 'button',
-    className: 'dsb-lightbox-close',
-    'aria-label': t('Close'),
-    title: t('Close'),
-    onClick: () => setZoomed(false),
-  }, h(CloseIcon)),
-  h('img', { className: 'dsb-lightbox-img', src, alt: name })) : null
-  const portalTarget = typeof document !== 'undefined' && document?.body ? document.body : null
+  const loadFull = !direct && sessionId && attachmentId
+    ? () => loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors, preview: false })
+    : undefined
   return h(Fragment, null,
     h('button', {
       type: 'button',
@@ -375,15 +371,15 @@ function UserImageThumb({ sessionId, attachment }) {
       'aria-label': name,
       onClick: () => setZoomed(true),
     }, h('img', { className: 'dsb-uimg', src, alt: name, loading: 'lazy' })),
-    lightbox && portalTarget ? createPortal(lightbox, portalTarget) : lightbox)
+    h(ImageLightbox, { open: zoomed, src, loadFull, alt: name, onClose: () => setZoomed(false) }))
 }
 
-export function UserAttachments({ attachments, sessionId }) {
+export function UserAttachments({ attachments, sessionId, parent, mode, ancestors }) {
   if (!attachments || attachments.length === 0) return null
   return h('div', { className: 'bt-uattach' }, attachments.map((block, index) => {
     const file = block.attachment ?? {}
     if (block.type === 'image') {
-      return h(UserImageThumb, { key: file.attachmentId ?? file.previewUrl ?? index, sessionId, attachment: file })
+      return h(UserImageThumb, { key: file.attachmentId ?? file.previewUrl ?? index, sessionId, parent, mode, ancestors, attachment: file })
     }
     const meta = [fileExtension(file.name)?.toUpperCase().slice(0, 8), fileSizeText(file.bytes)].filter(Boolean).join(' · ')
     const fallbackName = file.name || t('File')
@@ -400,7 +396,7 @@ export function UserAttachments({ attachments, sessionId }) {
 // session-transcript.js), so a memoized row renders once and the stream never re-renders
 // the history behind it. Roster, actions, bot, hooks and thinkingAt keep their object
 // identity across stream chunks, which is what the memo relies on.
-const UserRow = memo(function UserRow({ row, sessionId, roster, actions, classic = false, onOpenFile, onRevealFolder }) {
+const UserRow = memo(function UserRow({ row, sessionId, parent, mode, ancestors, roster, actions, classic = false, onOpenFile, onRevealFolder }) {
   const { shown, folded, control } = useFold(row.text ?? '', { markdown: false })
   const container = useRef(null)
   const [toolsOpen, setToolsOpen] = useState(false)
@@ -455,7 +451,7 @@ const UserRow = memo(function UserRow({ row, sessionId, roster, actions, classic
       'data-open': toolsOpen || undefined,
     },
     h('div', { className: 'dsb-dsh-user-stack' },
-      h(UserAttachments, { attachments: row.attachments, sessionId }),
+      h(UserAttachments, { attachments: row.attachments, sessionId, parent, mode, ancestors }),
       row.text !== '' ? h('div', {
         className: 'dsb-dsh-user-bubble',
         title: timeTitle,
@@ -471,7 +467,7 @@ const UserRow = memo(function UserRow({ row, sessionId, roster, actions, classic
   }
   return h('div', { ref: container, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
-      h(UserAttachments, { attachments: row.attachments, sessionId }),
+      h(UserAttachments, { attachments: row.attachments, sessionId, parent, mode, ancestors }),
       row.text !== '' ? h('div', { className: 'bt-ubody', title: timeTitle, 'data-folded': folded || undefined, 'data-text-interaction-source': '', onClick: tapTools },
         control ? h('div', { className: 'bt-fold-body' }, body) : body,
         control) : null,
@@ -537,7 +533,7 @@ function SpeakerHead({ bot, time }) {
 }
 
 const AssistantRow = memo(function AssistantRow({
-  row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic = false,
+  row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic = false, readOnly = false,
   onOpenFile, onRevealFolder, fileMentions,
   feedbackAvailable = false, feedbackItem = null, feedbackPending = false, onSelectFeedback, onRetractFeedback,
 }) {
@@ -600,7 +596,7 @@ const AssistantRow = memo(function AssistantRow({
           messageId: row.messageId,
           item: feedbackItem,
           pending: feedbackPending,
-          readOnly: Boolean(roster?.readOnly),
+          readOnly: Boolean(readOnly || roster?.readOnly),
           onSelect: onSelectFeedback,
           onRetract: onRetractFeedback,
         }) : null,
@@ -657,10 +653,18 @@ const TurnErrorRow = memo(function TurnErrorRow({ row, bot, sessionId, useRoster
 // row itself renders, so a committed tool card renders once per roster or language change
 // and never per stream chunk. `lang` rides along because the cards carry translated copy.
 const SessionToolRow = memo(function SessionToolRow({
-  row, showSpeaker, flat, bot, cwd, sessionId, actions, registry, lang,
+  row, showSpeaker, flat, bot, cwd, sessionId, roster, actions, registry, lang,
+  loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
   useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
 }) {
+  const toolHooks = useMemo(
+    () => ({ useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer }),
+    [useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer],
+  )
   const renderToolFallback = (ownerProps) => {
+    if (isComputerToolName(ownerProps.toolName)) {
+      return h(ComputerToolView, ownerProps)
+    }
     if (typeof isBotTool === 'function' && isBotTool(ownerProps.toolName)) {
       if (ownerProps.toolName === 'show_view' && ownerProps.phase === 'preparing') {
         return h(GenericToolCard, ownerProps)
@@ -692,6 +696,16 @@ const SessionToolRow = memo(function SessionToolRow({
       entry: row,
       cwd,
       openFile: actions?.openFile,
+      loadImage,
+      sessionId,
+      botId: bot?.id,
+      roster,
+      actions,
+      feed,
+      readOnly,
+      hooks: toolHooks,
+      subagentCatalog,
+      onOpenSubagent,
       registry,
       fallback: renderToolFallback,
     }))
@@ -787,6 +801,7 @@ function renderTranscriptRows({
   selfId, cwd, showThinking, flat,
   openSessionFile, revealSessionFolder, turnFileMentions, feedback,
   onSelectFeedback, onRetractFeedback, renderEarlierUserText,
+  parent, mode, ancestors, safeRoster, loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
 }) {
   const seenTurnSpeaker = new Set(initialSpeakers)
   let prevTime
@@ -818,21 +833,25 @@ function renderTranscriptRows({
 
     const renderDefault = () => {
       switch (row.kind) {
-        case 'user': return h(UserRow, { row, sessionId, roster, actions, lang, classic, onOpenFile: openSessionFile, onRevealFolder: revealSessionFolder })
+        case 'user': return h(UserRow, { row, sessionId, parent, mode, ancestors, roster, actions, lang, classic, onOpenFile: openSessionFile, onRevealFolder: revealSessionFolder })
         case 'answer': return h(AnsweredReply, { node: { data: row.data } })
-        case 'assistant': return h(AssistantRow, {
-          row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic,
-          onOpenFile: openSessionFile,
-          onRevealFolder: revealSessionFolder,
-          fileMentions: turnFileMentions.get(row.turn ?? 'none'),
-          feedbackAvailable: classic && feedback.available,
-          feedbackItem: classic && row.messageId ? (feedback.items.get(row.messageId) ?? null) : null,
-          feedbackPending: classic && row.messageId ? feedback.pendingIds.has(row.messageId) : false,
-          onSelectFeedback,
-          onRetractFeedback,
-        })
+        case 'assistant': {
+          const feedbackEnabled = Boolean(classic && !readOnly && !parent)
+          return h(AssistantRow, {
+            row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic, readOnly,
+            onOpenFile: openSessionFile,
+            onRevealFolder: revealSessionFolder,
+            fileMentions: turnFileMentions.get(row.turn ?? 'none'),
+            feedbackAvailable: feedbackEnabled && feedback.available,
+            feedbackItem: feedbackEnabled && row.messageId ? (feedback.items.get(row.messageId) ?? null) : null,
+            feedbackPending: feedbackEnabled && row.messageId ? feedback.pendingIds.has(row.messageId) : false,
+            onSelectFeedback,
+            onRetractFeedback,
+          })
+        }
         case 'tool': return h(SessionToolRow, {
-          row, showSpeaker, flat, bot, cwd, sessionId, actions, registry, lang,
+          row, showSpeaker, flat, bot, cwd, sessionId, roster: safeRoster, actions, registry, lang,
+          loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
           useRoster: resolvedUseRoster, useUi: resolvedUseUi, useWork: resolvedUseWork,
           useHeldCards: resolvedUseHeldCards, useBrowserHolds: resolvedUseBrowserHolds,
           useBrowserTabs: resolvedUseBrowserTabs, useBrowserPages: resolvedUseBrowserPages,
@@ -865,7 +884,7 @@ function renderTranscriptRows({
 }
 
 export function SessionTranscript({
-  log, sessionId, bot, roster, actions, classic = false,
+  log, sessionId, parent, mode, ancestors, bot, roster, actions, classic = false, feed, readOnly = false, onOpenSubagent,
   useUi, useRoster, useWork, useTurnClock, useHeldCards,
   useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
   thinkingAt, hasMore = false, registry = defaultSlots,
@@ -874,6 +893,11 @@ export function SessionTranscript({
   // a switch re-renders them in the new language, and a stream chunk never changes it.
   const lang = useUiLanguage()
   const rowParts = useMemo(() => buildSessionRowParts(log, { roster, sessionId }), [log, roster, sessionId])
+  const subagentCatalog = useMemo(() => resolveSubagentCatalog(log), [log])
+  const loadImage = useCallback(
+    (attachmentId, options) => loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors, preview: options?.preview ?? true }),
+    [sessionId, parent, mode, ancestors],
+  )
   const turnFacts = useMemo(() => extractTurnFacts(log?.events, { roster, sessionId }), [log?.events, roster, sessionId])
   const turnSig = useMemo(() => turnFactsSignature(turnFacts), [turnFacts])
   const turnFactsRef = useRef(turnFacts)
@@ -967,15 +991,16 @@ export function SessionTranscript({
     return byTurn
   }, [log?.events])
 
-  // Classic Agent reply feedback (strictly Classic sessions; Bot chats keep emoji reactions).
-  const feedback = useSessionFeedback(sessionId, classic)
+  // Classic Agent reply feedback (strictly top-level Classic sessions; read-only child subagent views never show rating controls).
+  const feedbackEnabled = Boolean(classic && !readOnly && !parent)
+  const feedback = useSessionFeedback(sessionId, feedbackEnabled)
   const { retract: retractFeedback, submit: submitFeedback } = feedback
   const [feedbackDraft, setFeedbackDraft] = useState(null)
   const [feedbackError, setFeedbackError] = useState('')
   useEffect(() => {
     setFeedbackDraft(null)
     setFeedbackError('')
-  }, [sessionId, classic])
+  }, [sessionId, feedbackEnabled])
   const handleSelectFeedback = useCallback((messageId, rating) => {
     setFeedbackError('')
     setFeedbackDraft({ messageId, rating })
@@ -1031,6 +1056,7 @@ export function SessionTranscript({
     selfId, cwd, showThinking, flat,
     openSessionFile, revealSessionFolder, turnFileMentions, feedback,
     onSelectFeedback: handleSelectFeedback, onRetractFeedback: handleRetractFeedback, renderEarlierUserText,
+    parent, mode, ancestors, safeRoster, loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
   }
 
   // Committed and live rows must be siblings in one keyed list: a live tool call that
@@ -1050,13 +1076,14 @@ export function SessionTranscript({
     selfId, cwd, showThinking, flat,
     openSessionFile, revealSessionFolder, turnFileMentions, feedback,
     handleSelectFeedback, handleRetractFeedback, renderEarlierUserText,
+    parent, mode, ancestors, safeRoster, loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
   ])
   const liveElements = rowParts.live.length === 0
     ? []
     : renderTranscriptRows({ ...rowProps, rows: rowParts.live, initialSpeakers: committedSpeakers })
   const projected = [...committedElements, ...liveElements]
 
-  const feedbackDialog = classic ? h(ClassicFeedbackDialog, {
+  const feedbackDialog = feedbackEnabled ? h(ClassicFeedbackDialog, {
     key: 'classic-feedback-dialog',
     draft: feedbackDraft,
     current: feedbackDraft ? (feedback.items.get(feedbackDraft.messageId) ?? null) : null,
