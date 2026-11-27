@@ -455,6 +455,19 @@ test('chunkMarkdown keeps the indentation that starts a chunk', () => {
   assert.deepEqual(list, [intro, '   - nested a\n   - nested b'])
 })
 
+test('chunkMarkdown drops a CRLF blank run at a cut without eating the next indent', () => {
+  // The cut landed on the first CRLF of a long blank run. Only LF runs were stripped, so
+  // the next chunk started with CRLFs alone and the transport posted a blank message.
+  const intro = 'x'.repeat(1990)
+  const chunks = chunkMarkdown(intro + '\r\n'.repeat(1011) + 'next', 2000)
+  assert.equal(chunks.length, 2)
+  assert.deepEqual(chunks, [intro, 'next'])
+  for (const chunk of chunks) assert.ok(chunk.trim().length > 0, 'a chunk must carry content')
+  // An indented line after a CRLF run keeps its four spaces.
+  const nested = chunkMarkdown(intro + '\r\n'.repeat(1011) + '    next', 2000)
+  assert.deepEqual(nested, [intro, '    next'])
+})
+
 test('chunkMarkdown never cuts an emoji in half', () => {
   // `limit` is counted in code points but the cut index was used as a UTF-16 offset, so
   // every astral character before it moved the cut one unit early -- onto the middle of
