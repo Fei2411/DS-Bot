@@ -14,6 +14,7 @@ import { call } from './api.js'
 import { BLUR, contrast, DENSITIES, DIM, FONT_SIZE, fontStack, LINE_HEIGHT, MAX_BACKGROUND_BYTES, MAX_CSS, MAX_FONT, READABLE, readAppearance, readThemeFile, SURFACE, themeFile, utf8Length } from '../shared/appearance.js'
 import { Segmented, useLinger } from './motion.js'
 import { registerPopupOwner } from './popup-ownership.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { measureSelectPlace } from './select-menu.js'
 import { hostText, t } from './i18n.js'
 
@@ -451,14 +452,6 @@ export function FontField({ label, value, kind = 'ui', save, fonts = [], load })
       if (!menu.current?.contains?.(event.target)) close()
     }
     const onKey = (event) => {
-      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) {
-        event.preventDefault()
-        event.stopPropagation()
-        event.stopImmediatePropagation?.()
-        close()
-        button.current?.focus?.({ preventScroll: true })
-        return
-      }
       if (event.key === 'Tab') {
         close()
       }
@@ -479,6 +472,10 @@ export function FontField({ label, value, kind = 'ui', save, fonts = [], load })
       window.removeEventListener('keydown', onKey, true)
     }
   }, [isOpen])
+  useEscape(() => {
+    close()
+    button.current?.focus?.({ preventScroll: true })
+  }, isOpen, { priority: ESCAPE_PRIORITY.MENU })
 
   useLayoutEffect(() => {
     if (!isOpen) return

@@ -2609,6 +2609,7 @@ var JA = {
   "Mention a Bot": "Bot をメンション",
   "Empty file": "空のファイル",
   "Showing first {count} rows": "先頭 {count} 行を表示",
+  "Preview truncated for size": "サイズ制限のためプレビューを省略しました",
   "Converted from {ext}": "{ext} から変換済み",
   "Preview unavailable in this environment": "この環境ではプレビューできません",
   "Scripts and external or local resources are blocked in this preview": "このプレビューではスクリプトと外部またはローカルのリソースがブロックされています",
@@ -2783,6 +2784,42 @@ var JA = {
   "No matching fonts": "一致するフォントがありません",
   'Use "{font}"': "「{font}」を使用",
   "Built-in engine": "内蔵エンジン",
+  "No newline at end of file": "ファイル末尾に改行がありません",
+  "Binary": "バイナリ",
+  "Large": "大容量",
+  "Failed to read file": "ファイルを読み込めませんでした",
+  "Feedback changed elsewhere. Try again.": "フィードバックが別の場所で変更されました。もう一度お試しください。",
+  "Could not submit feedback": "フィードバックを送信できませんでした",
+  "Could not remove feedback": "フィードバックを取り消せませんでした",
+  "Remove positive feedback": "高評価を取り消す",
+  "Good response": "良い回答",
+  "Remove negative feedback": "低評価を取り消す",
+  "Poor response": "改善が必要な回答",
+  "Add an optional note…": "補足メモを追加（任意）…",
+  "Feedback note": "フィードバックのメモ",
+  "Note is too long": "メモが長すぎます",
+  "Submitting…": "送信中…",
+  "Task result": "タスク結果",
+  "Instruction following": "指示の遵守",
+  "Interaction": "操作性",
+  "Stability": "安定性",
+  "Cost & speed": "コストと速度",
+  "Safety & permissions": "安全性と権限",
+  "Column {n}": "列 {n}",
+  "Reveal folder {path}": "フォルダ {path} をツリーで表示",
+  "Open file {path}": "ファイル {path} を開く",
+  "Note is too long (max {bytes} bytes)": "メモが長すぎます（最大 {bytes} バイト）",
+  "Feedback note cannot be blank": "フィードバックメモを空白にすることはできません",
+  "This message can no longer receive feedback": "このメッセージにはフィードバックを送信できません",
+  "This session is no longer available": "このセッションは利用できません",
+  "This window is read-only": "このウィンドウは読み取り専用です",
+  "Message feedback is unavailable": "メッセージフィードバックは利用できません",
+  "Path is outside the workspace folder: {path}": "パスはワークスペースフォルダの外にあります：{path}",
+  "Could not open folder": "フォルダを開けませんでした",
+  "Stopped because you signed out of DeepSeek.": "DeepSeek からサインアウトしたため停止しました。",
+  "The DSH process exited before this turn finished.": "このターンが完了する前に DSH プロセスが終了しました。",
+  "Hide secret": "シークレットを隠す",
+  "Reveal secret": "シークレットを表示",
   "Loading image…": "画像を読み込み中…",
   "Image unavailable": "画像を表示できません",
   "Click to enlarge": "クリックして拡大",
@@ -2911,42 +2948,41 @@ var JA = {
   "A job id is needed": "ジョブ ID が必要です",
   "This window is read-only. Close the other DS Bot window to make changes here.": "このウィンドウは読み取り専用です。変更するには他の DS Bot ウィンドウを閉じてください。",
   "Contact sheet": "コンタクトシート",
-  "No newline at end of file": "ファイル末尾に改行がありません",
-  "Binary": "バイナリ",
-  "Large": "大容量",
-  "Failed to read file": "ファイルを読み込めませんでした",
-  "Feedback changed elsewhere. Try again.": "フィードバックが別の場所で変更されました。もう一度お試しください。",
-  "Could not submit feedback": "フィードバックを送信できませんでした",
-  "Could not remove feedback": "フィードバックを取り消せませんでした",
-  "Remove positive feedback": "高評価を取り消す",
-  "Good response": "良い回答",
-  "Remove negative feedback": "低評価を取り消す",
-  "Poor response": "改善が必要な回答",
-  "Add an optional note…": "補足メモを追加（任意）…",
-  "Feedback note": "フィードバックのメモ",
-  "Note is too long": "メモが長すぎます",
-  "Submitting…": "送信中…",
-  "Task result": "タスク結果",
-  "Instruction following": "指示の遵守",
-  "Interaction": "操作性",
-  "Stability": "安定性",
-  "Cost & speed": "コストと速度",
-  "Safety & permissions": "安全性と権限",
-  "Column {n}": "列 {n}",
-  "Reveal folder {path}": "フォルダ {path} をツリーで表示",
-  "Open file {path}": "ファイル {path} を開く",
-  "Note is too long (max {bytes} bytes)": "メモが長すぎます（最大 {bytes} バイト）",
-  "Feedback note cannot be blank": "フィードバックメモを空白にすることはできません",
-  "This message can no longer receive feedback": "このメッセージにはフィードバックを送信できません",
-  "This session is no longer available": "このセッションは利用できません",
-  "This window is read-only": "このウィンドウは読み取り専用です",
-  "Message feedback is unavailable": "メッセージフィードバックは利用できません",
-  "Path is outside the workspace folder: {path}": "パスはワークスペースフォルダの外にあります：{path}",
-  "Could not open folder": "フォルダを開けませんでした",
-  "Stopped because you signed out of DeepSeek.": "DeepSeek からサインアウトしたため停止しました。",
-  "The DSH process exited before this turn finished.": "このターンが完了する前に DSH プロセスが終了しました。",
-  "Hide secret": "シークレットを隠す",
-  "Reveal secret": "シークレットを表示",
+  "Allow agents to choose models for subagents": "エージェントがサブエージェントのモデルを選択することを許可",
+  "Automatic": "自動",
+  "Click a cell to inspect": "セルをクリックして内容を表示",
+  "Copy path": "パスをコピー",
+  "Copy relative path": "相対パスをコピー",
+  "Could not load models.": "モデルを読み込めませんでした。",
+  "DeepSeek Fetch API": "DeepSeek 取得 API",
+  "DeepSeek Messages search": "DeepSeek Messages 検索",
+  "DeepSeek Search API": "DeepSeek 検索 API",
+  "Direct HTTP": "直接 HTTP",
+  "Empty sheet": "空のシート",
+  "Enter a valid number": "有効な数値を入力してください",
+  "Enter a whole number": "整数を入力してください",
+  "Fetch billing": "取得の課金方式",
+  "Limits": "上限",
+  "Must be at least {min}": "{min} 以上にしてください",
+  "Must be at most {max}": "{max} 以下にしてください",
+  "No models available.": "利用可能なモデルがありません。",
+  "Open a page beside your session. Enter an address above to get started.": "セッションの横にページを開きます。上にアドレスを入力して開始してください。",
+  "Open in default app": "既定のアプリで開く",
+  "Path copied": "パスをコピーしました",
+  "Relative path copied": "相対パスをコピーしました",
+  "Saved": "保存済み",
+  "Search billing": "検索の課金方式",
+  "Search requests per second": "1 秒あたりの検索リクエスト数",
+  "Select at least one model before saving.": "保存する前に少なくとも 1 つのモデルを選択してください。",
+  "Sheets": "シート",
+  "Show in folder": "フォルダーに表示",
+  "Showing first {shown} of {total} columns": "{total} 列中先頭 {shown} 列を表示",
+  "Showing first {shown} of {total} rows": "{total} 行中先頭 {shown} 行を表示",
+  "Showing first {shown} of {total} sheets": "{total} シート中先頭 {shown} シートを表示",
+  "Some model providers could not be loaded.": "一部のモデルプロバイダーを読み込めませんでした。",
+  "Toggle browser": "ブラウザーを開閉",
+  "Waiting": "待機中",
+  "Window plugins": "ウィンドウプラグイン",
   // The inbox.
   "Inbox": "受信トレイ",
   "Inbox, {count} waiting for you": "受信トレイ、対応待ち {count} 件",
@@ -6238,6 +6274,7 @@ var KO = {
   "Mention a Bot": "Bot 멘션",
   "Empty file": "빈 파일",
   "Showing first {count} rows": "처음 {count}행 표시",
+  "Preview truncated for size": "크기 제한으로 미리 보기가 일부 생략되었습니다",
   "Converted from {ext}": "{ext}에서 변환됨",
   "Preview unavailable in this environment": "이 환경에서는 미리 보기를 사용할 수 없습니다",
   "Scripts and external or local resources are blocked in this preview": "이 미리 보기에서는 스크립트와 외부 또는 로컬 리소스가 차단됩니다",
@@ -6412,6 +6449,42 @@ var KO = {
   "No matching fonts": "일치하는 글꼴 없음",
   'Use "{font}"': '"{font}" 사용',
   "Built-in engine": "내장 엔진",
+  "No newline at end of file": "파일 끝에 줄바꿈이 없습니다",
+  "Binary": "바이너리",
+  "Large": "대용량",
+  "Failed to read file": "파일을 읽지 못했습니다",
+  "Feedback changed elsewhere. Try again.": "피드백이 다른 곳에서 변경되었습니다. 다시 시도하세요.",
+  "Could not submit feedback": "피드백을 제출할 수 없습니다",
+  "Could not remove feedback": "피드백을 삭제할 수 없습니다",
+  "Remove positive feedback": "긍정 피드백 취소",
+  "Good response": "좋은 응답",
+  "Remove negative feedback": "부정 피드백 취소",
+  "Poor response": "아쉬운 응답",
+  "Add an optional note…": "추가 메모 입력(선택)…",
+  "Feedback note": "피드백 메모",
+  "Note is too long": "메모가 너무 깁니다",
+  "Submitting…": "제출 중…",
+  "Task result": "작업 결과",
+  "Instruction following": "지시 준수",
+  "Interaction": "상호작용",
+  "Stability": "안정성",
+  "Cost & speed": "비용 및 속도",
+  "Safety & permissions": "보안 및 권한",
+  "Column {n}": "열 {n}",
+  "Reveal folder {path}": "파일 트리에서 폴더 {path} 표시",
+  "Open file {path}": "파일 {path} 열기",
+  "Note is too long (max {bytes} bytes)": "메모가 너무 깁니다(최대 {bytes}바이트)",
+  "Feedback note cannot be blank": "피드백 메모는 공백일 수 없습니다",
+  "This message can no longer receive feedback": "이 메시지에는 피드백을 보낼 수 없습니다",
+  "This session is no longer available": "이 세션은 더 이상 사용할 수 없습니다",
+  "This window is read-only": "이 창은 읽기 전용입니다",
+  "Message feedback is unavailable": "메시지 피드백을 사용할 수 없습니다",
+  "Path is outside the workspace folder: {path}": "경로가 작업 폴더 밖에 있습니다: {path}",
+  "Could not open folder": "폴더를 열 수 없습니다",
+  "Stopped because you signed out of DeepSeek.": "DeepSeek에서 로그아웃하여 중지되었습니다.",
+  "The DSH process exited before this turn finished.": "이 턴이 끝나기 전에 DSH 프로세스가 종료되었습니다.",
+  "Hide secret": "비밀 값 숨기기",
+  "Reveal secret": "비밀 값 표시",
   "Loading image…": "이미지 불러오는 중…",
   "Image unavailable": "이미지를 표시할 수 없음",
   "Click to enlarge": "클릭하여 확대",
@@ -6540,42 +6613,41 @@ var KO = {
   "A job id is needed": "작업 ID가 필요합니다",
   "This window is read-only. Close the other DS Bot window to make changes here.": "이 창은 읽기 전용입니다. 여기에서 변경하려면 다른 DS Bot 창을 닫으세요.",
   "Contact sheet": "미리보기 시트",
-  "No newline at end of file": "파일 끝에 줄바꿈이 없습니다",
-  "Binary": "바이너리",
-  "Large": "대용량",
-  "Failed to read file": "파일을 읽지 못했습니다",
-  "Feedback changed elsewhere. Try again.": "피드백이 다른 곳에서 변경되었습니다. 다시 시도하세요.",
-  "Could not submit feedback": "피드백을 제출할 수 없습니다",
-  "Could not remove feedback": "피드백을 삭제할 수 없습니다",
-  "Remove positive feedback": "긍정 피드백 취소",
-  "Good response": "좋은 응답",
-  "Remove negative feedback": "부정 피드백 취소",
-  "Poor response": "아쉬운 응답",
-  "Add an optional note…": "추가 메모 입력(선택)…",
-  "Feedback note": "피드백 메모",
-  "Note is too long": "메모가 너무 깁니다",
-  "Submitting…": "제출 중…",
-  "Task result": "작업 결과",
-  "Instruction following": "지시 준수",
-  "Interaction": "상호작용",
-  "Stability": "안정성",
-  "Cost & speed": "비용 및 속도",
-  "Safety & permissions": "보안 및 권한",
-  "Column {n}": "열 {n}",
-  "Reveal folder {path}": "파일 트리에서 폴더 {path} 표시",
-  "Open file {path}": "파일 {path} 열기",
-  "Note is too long (max {bytes} bytes)": "메모가 너무 깁니다(최대 {bytes}바이트)",
-  "Feedback note cannot be blank": "피드백 메모는 공백일 수 없습니다",
-  "This message can no longer receive feedback": "이 메시지에는 피드백을 보낼 수 없습니다",
-  "This session is no longer available": "이 세션은 더 이상 사용할 수 없습니다",
-  "This window is read-only": "이 창은 읽기 전용입니다",
-  "Message feedback is unavailable": "메시지 피드백을 사용할 수 없습니다",
-  "Path is outside the workspace folder: {path}": "경로가 작업 폴더 밖에 있습니다: {path}",
-  "Could not open folder": "폴더를 열 수 없습니다",
-  "Stopped because you signed out of DeepSeek.": "DeepSeek에서 로그아웃하여 중지되었습니다.",
-  "The DSH process exited before this turn finished.": "이 턴이 끝나기 전에 DSH 프로세스가 종료되었습니다.",
-  "Hide secret": "비밀 값 숨기기",
-  "Reveal secret": "비밀 값 표시",
+  "Allow agents to choose models for subagents": "에이전트가 서브에이전트 모델을 선택하도록 허용",
+  "Automatic": "자동",
+  "Click a cell to inspect": "셀을 클릭하여 내용 확인",
+  "Copy path": "경로 복사",
+  "Copy relative path": "상대 경로 복사",
+  "Could not load models.": "모델을 불러올 수 없습니다.",
+  "DeepSeek Fetch API": "DeepSeek 가져오기 API",
+  "DeepSeek Messages search": "DeepSeek Messages 검색",
+  "DeepSeek Search API": "DeepSeek 검색 API",
+  "Direct HTTP": "직접 HTTP",
+  "Empty sheet": "빈 시트",
+  "Enter a valid number": "유효한 숫자를 입력하세요",
+  "Enter a whole number": "정수를 입력하세요",
+  "Fetch billing": "가져오기 과금 방식",
+  "Limits": "한도",
+  "Must be at least {min}": "{min} 이상이어야 합니다",
+  "Must be at most {max}": "{max} 이하여야 합니다",
+  "No models available.": "사용 가능한 모델이 없습니다.",
+  "Open a page beside your session. Enter an address above to get started.": "세션 옆에 웹페이지를 엽니다. 시작하려면 위에 주소를 입력하세요.",
+  "Open in default app": "기본 앱으로 열기",
+  "Path copied": "경로를 복사했습니다",
+  "Relative path copied": "상대 경로를 복사했습니다",
+  "Saved": "저장됨",
+  "Search billing": "검색 과금 방식",
+  "Search requests per second": "초당 검색 요청 수",
+  "Select at least one model before saving.": "저장하기 전에 최소 하나의 모델을 선택하세요.",
+  "Sheets": "시트",
+  "Show in folder": "폴더에서 보기",
+  "Showing first {shown} of {total} columns": "전체 {total}열 중 처음 {shown}열 표시",
+  "Showing first {shown} of {total} rows": "전체 {total}행 중 처음 {shown}행 표시",
+  "Showing first {shown} of {total} sheets": "전체 {total}개 시트 중 처음 {shown}개 표시",
+  "Some model providers could not be loaded.": "일부 모델 공급자를 불러오지 못했습니다.",
+  "Toggle browser": "브라우저 열기/닫기",
+  "Waiting": "대기 중",
+  "Window plugins": "창 플러그인",
   // The inbox.
   "Inbox": "받은편지함",
   "Inbox, {count} waiting for you": "받은편지함, 확인 대기 {count}건",
@@ -9868,6 +9940,7 @@ var ES = {
   "Mention a Bot": "Mencionar un Bot",
   "Empty file": "Archivo vacío",
   "Showing first {count} rows": "Mostrando las primeras {count} filas",
+  "Preview truncated for size": "Vista previa truncada por tamaño",
   "Converted from {ext}": "Convertido de {ext}",
   "Preview unavailable in this environment": "Vista previa no disponible en este entorno",
   "Scripts and external or local resources are blocked in this preview": "Los scripts y los recursos externos o locales están bloqueados en esta vista previa",
@@ -10042,6 +10115,42 @@ var ES = {
   "No matching fonts": "No hay fuentes coincidentes",
   'Use "{font}"': "Usar «{font}»",
   "Built-in engine": "Motor integrado",
+  "No newline at end of file": "Sin salto de línea al final del archivo",
+  "Binary": "Binario",
+  "Large": "Grande",
+  "Failed to read file": "No se pudo leer el archivo",
+  "Feedback changed elsewhere. Try again.": "Los comentarios cambiaron en otro lugar. Inténtalo de nuevo.",
+  "Could not submit feedback": "No se pudieron enviar los comentarios",
+  "Could not remove feedback": "No se pudieron retirar los comentarios",
+  "Remove positive feedback": "Quitar valoración positiva",
+  "Good response": "Buena respuesta",
+  "Remove negative feedback": "Quitar valoración negativa",
+  "Poor response": "Respuesta mejorable",
+  "Add an optional note…": "Añadir una nota opcional…",
+  "Feedback note": "Nota de comentarios",
+  "Note is too long": "La nota es demasiado larga",
+  "Submitting…": "Enviando…",
+  "Task result": "Resultado de la tarea",
+  "Instruction following": "Seguimiento de instrucciones",
+  "Interaction": "Interacción",
+  "Stability": "Estabilidad",
+  "Cost & speed": "Costo y velocidad",
+  "Safety & permissions": "Seguridad y permisos",
+  "Column {n}": "Columna {n}",
+  "Reveal folder {path}": "Mostrar la carpeta {path}",
+  "Open file {path}": "Abrir el archivo {path}",
+  "Note is too long (max {bytes} bytes)": "La nota es demasiado larga (máx. {bytes} bytes)",
+  "Feedback note cannot be blank": "La nota de comentarios no puede estar en blanco",
+  "This message can no longer receive feedback": "Este mensaje ya no puede recibir comentarios",
+  "This session is no longer available": "Esta sesión ya no está disponible",
+  "This window is read-only": "Esta ventana es de solo lectura",
+  "Message feedback is unavailable": "Los comentarios sobre mensajes no están disponibles",
+  "Path is outside the workspace folder: {path}": "La ruta está fuera de la carpeta de trabajo: {path}",
+  "Could not open folder": "No se pudo abrir la carpeta",
+  "Stopped because you signed out of DeepSeek.": "Se detuvo porque cerraste sesión en DeepSeek.",
+  "The DSH process exited before this turn finished.": "El proceso DSH finalizó antes de que terminara este turno.",
+  "Hide secret": "Ocultar secreto",
+  "Reveal secret": "Mostrar secreto",
   "Loading image…": "Cargando imagen…",
   "Image unavailable": "Imagen no disponible",
   "Click to enlarge": "Haz clic para ampliar",
@@ -10170,42 +10279,41 @@ var ES = {
   "A job id is needed": "Se necesita un ID de tarea",
   "This window is read-only. Close the other DS Bot window to make changes here.": "Esta ventana es de solo lectura. Cierra la otra ventana de DS Bot para hacer cambios aquí.",
   "Contact sheet": "Hoja de contactos",
-  "No newline at end of file": "Sin salto de línea al final del archivo",
-  "Binary": "Binario",
-  "Large": "Grande",
-  "Failed to read file": "No se pudo leer el archivo",
-  "Feedback changed elsewhere. Try again.": "Los comentarios cambiaron en otro lugar. Inténtalo de nuevo.",
-  "Could not submit feedback": "No se pudieron enviar los comentarios",
-  "Could not remove feedback": "No se pudieron retirar los comentarios",
-  "Remove positive feedback": "Quitar valoración positiva",
-  "Good response": "Buena respuesta",
-  "Remove negative feedback": "Quitar valoración negativa",
-  "Poor response": "Respuesta mejorable",
-  "Add an optional note…": "Añadir una nota opcional…",
-  "Feedback note": "Nota de comentarios",
-  "Note is too long": "La nota es demasiado larga",
-  "Submitting…": "Enviando…",
-  "Task result": "Resultado de la tarea",
-  "Instruction following": "Seguimiento de instrucciones",
-  "Interaction": "Interacción",
-  "Stability": "Estabilidad",
-  "Cost & speed": "Costo y velocidad",
-  "Safety & permissions": "Seguridad y permisos",
-  "Column {n}": "Columna {n}",
-  "Reveal folder {path}": "Mostrar la carpeta {path}",
-  "Open file {path}": "Abrir el archivo {path}",
-  "Note is too long (max {bytes} bytes)": "La nota es demasiado larga (máx. {bytes} bytes)",
-  "Feedback note cannot be blank": "La nota de comentarios no puede estar en blanco",
-  "This message can no longer receive feedback": "Este mensaje ya no puede recibir comentarios",
-  "This session is no longer available": "Esta sesión ya no está disponible",
-  "This window is read-only": "Esta ventana es de solo lectura",
-  "Message feedback is unavailable": "Los comentarios sobre mensajes no están disponibles",
-  "Path is outside the workspace folder: {path}": "La ruta está fuera de la carpeta de trabajo: {path}",
-  "Could not open folder": "No se pudo abrir la carpeta",
-  "Stopped because you signed out of DeepSeek.": "Se detuvo porque cerraste sesión en DeepSeek.",
-  "The DSH process exited before this turn finished.": "El proceso DSH finalizó antes de que terminara este turno.",
-  "Hide secret": "Ocultar secreto",
-  "Reveal secret": "Mostrar secreto",
+  "Allow agents to choose models for subagents": "Permitir que los agentes elijan modelos para subagentes",
+  "Automatic": "Automático",
+  "Click a cell to inspect": "Haz clic en una celda para inspeccionarla",
+  "Copy path": "Copiar ruta",
+  "Copy relative path": "Copiar ruta relativa",
+  "Could not load models.": "No se pudieron cargar los modelos.",
+  "DeepSeek Fetch API": "API de obtención de DeepSeek",
+  "DeepSeek Messages search": "Búsqueda de mensajes de DeepSeek",
+  "DeepSeek Search API": "API de búsqueda de DeepSeek",
+  "Direct HTTP": "HTTP directo",
+  "Empty sheet": "Hoja vacía",
+  "Enter a valid number": "Introduce un número válido",
+  "Enter a whole number": "Introduce un número entero",
+  "Fetch billing": "Facturación de obtención",
+  "Limits": "Límites",
+  "Must be at least {min}": "Debe ser al menos {min}",
+  "Must be at most {max}": "Debe ser como máximo {max}",
+  "No models available.": "No hay modelos disponibles.",
+  "Open a page beside your session. Enter an address above to get started.": "Abre una página junto a tu sesión. Escribe una dirección arriba para empezar.",
+  "Open in default app": "Abrir en la app predeterminada",
+  "Path copied": "Ruta copiada",
+  "Relative path copied": "Ruta relativa copiada",
+  "Saved": "Guardado",
+  "Search billing": "Facturación de búsqueda",
+  "Search requests per second": "Solicitudes de búsqueda por segundo",
+  "Select at least one model before saving.": "Selecciona al menos un modelo antes de guardar.",
+  "Sheets": "Hojas",
+  "Show in folder": "Mostrar en carpeta",
+  "Showing first {shown} of {total} columns": "Mostrando las primeras {shown} de {total} columnas",
+  "Showing first {shown} of {total} rows": "Mostrando las primeras {shown} de {total} filas",
+  "Showing first {shown} of {total} sheets": "Mostrando las primeras {shown} de {total} hojas",
+  "Some model providers could not be loaded.": "No se pudieron cargar algunos proveedores de modelos.",
+  "Toggle browser": "Mostrar/ocultar navegador",
+  "Waiting": "En espera",
+  "Window plugins": "Complementos de ventana",
   // The inbox.
   "Inbox": "Bandeja de entrada",
   "Inbox, {count} waiting for you": "Bandeja de entrada, {count} esperándote",
@@ -13454,6 +13562,7 @@ var FR = {
   "Mention a Bot": "Mentionner un Bot",
   "Empty file": "Fichier vide",
   "Showing first {count} rows": "Affichage des {count} premières lignes",
+  "Preview truncated for size": "Aperçu tronqué en raison de la taille",
   "Converted from {ext}": "Converti depuis {ext}",
   "Preview unavailable in this environment": "Aperçu indisponible dans cet environnement",
   "Scripts and external or local resources are blocked in this preview": "Les scripts et les ressources externes ou locales sont bloqués dans cet aperçu",
@@ -13628,6 +13737,42 @@ var FR = {
   "No matching fonts": "Aucune police correspondante",
   'Use "{font}"': "Utiliser « {font} »",
   "Built-in engine": "Moteur intégré",
+  "No newline at end of file": "Aucune nouvelle ligne en fin de fichier",
+  "Binary": "Binaire",
+  "Large": "Volumineux",
+  "Failed to read file": "Impossible de lire le fichier",
+  "Feedback changed elsewhere. Try again.": "L’avis a été modifié ailleurs. Réessayez.",
+  "Could not submit feedback": "Impossible d’envoyer l’avis",
+  "Could not remove feedback": "Impossible de retirer l’avis",
+  "Remove positive feedback": "Retirer l’avis positif",
+  "Good response": "Bonne réponse",
+  "Remove negative feedback": "Retirer l’avis négatif",
+  "Poor response": "Réponse à améliorer",
+  "Add an optional note…": "Ajouter une note facultative…",
+  "Feedback note": "Note d’avis",
+  "Note is too long": "La note est trop longue",
+  "Submitting…": "Envoi en cours…",
+  "Task result": "Résultat de la tâche",
+  "Instruction following": "Respect des consignes",
+  "Interaction": "Interaction",
+  "Stability": "Stabilité",
+  "Cost & speed": "Coût et rapidité",
+  "Safety & permissions": "Sécurité et autorisations",
+  "Column {n}": "Colonne {n}",
+  "Reveal folder {path}": "Afficher le dossier {path}",
+  "Open file {path}": "Ouvrir le fichier {path}",
+  "Note is too long (max {bytes} bytes)": "La note est trop longue (max. {bytes} octets)",
+  "Feedback note cannot be blank": "La note d’avis ne peut pas être vide",
+  "This message can no longer receive feedback": "Ce message ne peut plus recevoir d’avis",
+  "This session is no longer available": "Cette session n’est plus disponible",
+  "This window is read-only": "Cette fenêtre est en lecture seule",
+  "Message feedback is unavailable": "L’avis sur les messages n’est pas disponible",
+  "Path is outside the workspace folder: {path}": "Le chemin est en dehors du dossier de travail : {path}",
+  "Could not open folder": "Impossible d’ouvrir le dossier",
+  "Stopped because you signed out of DeepSeek.": "Arrêté car vous vous êtes déconnecté de DeepSeek.",
+  "The DSH process exited before this turn finished.": "Le processus DSH s’est arrêté avant la fin de ce tour.",
+  "Hide secret": "Masquer le secret",
+  "Reveal secret": "Afficher le secret",
   "Loading image…": "Chargement de l’image…",
   "Image unavailable": "Image indisponible",
   "Click to enlarge": "Cliquer pour agrandir",
@@ -13756,42 +13901,41 @@ var FR = {
   "A job id is needed": "Un identifiant de tâche est requis",
   "This window is read-only. Close the other DS Bot window to make changes here.": "Cette fenêtre est en lecture seule. Fermez l’autre fenêtre DS Bot pour effectuer des modifications ici.",
   "Contact sheet": "Planche-contact",
-  "No newline at end of file": "Aucune nouvelle ligne en fin de fichier",
-  "Binary": "Binaire",
-  "Large": "Volumineux",
-  "Failed to read file": "Impossible de lire le fichier",
-  "Feedback changed elsewhere. Try again.": "L’avis a été modifié ailleurs. Réessayez.",
-  "Could not submit feedback": "Impossible d’envoyer l’avis",
-  "Could not remove feedback": "Impossible de retirer l’avis",
-  "Remove positive feedback": "Retirer l’avis positif",
-  "Good response": "Bonne réponse",
-  "Remove negative feedback": "Retirer l’avis négatif",
-  "Poor response": "Réponse à améliorer",
-  "Add an optional note…": "Ajouter une note facultative…",
-  "Feedback note": "Note d’avis",
-  "Note is too long": "La note est trop longue",
-  "Submitting…": "Envoi en cours…",
-  "Task result": "Résultat de la tâche",
-  "Instruction following": "Respect des consignes",
-  "Interaction": "Interaction",
-  "Stability": "Stabilité",
-  "Cost & speed": "Coût et rapidité",
-  "Safety & permissions": "Sécurité et autorisations",
-  "Column {n}": "Colonne {n}",
-  "Reveal folder {path}": "Afficher le dossier {path}",
-  "Open file {path}": "Ouvrir le fichier {path}",
-  "Note is too long (max {bytes} bytes)": "La note est trop longue (max. {bytes} octets)",
-  "Feedback note cannot be blank": "La note d’avis ne peut pas être vide",
-  "This message can no longer receive feedback": "Ce message ne peut plus recevoir d’avis",
-  "This session is no longer available": "Cette session n’est plus disponible",
-  "This window is read-only": "Cette fenêtre est en lecture seule",
-  "Message feedback is unavailable": "L’avis sur les messages n’est pas disponible",
-  "Path is outside the workspace folder: {path}": "Le chemin est en dehors du dossier de travail : {path}",
-  "Could not open folder": "Impossible d’ouvrir le dossier",
-  "Stopped because you signed out of DeepSeek.": "Arrêté car vous vous êtes déconnecté de DeepSeek.",
-  "The DSH process exited before this turn finished.": "Le processus DSH s’est arrêté avant la fin de ce tour.",
-  "Hide secret": "Masquer le secret",
-  "Reveal secret": "Afficher le secret",
+  "Allow agents to choose models for subagents": "Autoriser les agents à choisir des modèles pour les sous-agents",
+  "Automatic": "Automatique",
+  "Click a cell to inspect": "Cliquer sur une cellule pour l’inspecter",
+  "Copy path": "Copier le chemin",
+  "Copy relative path": "Copier le chemin relatif",
+  "Could not load models.": "Impossible de charger les modèles.",
+  "DeepSeek Fetch API": "API de récupération DeepSeek",
+  "DeepSeek Messages search": "Recherche DeepSeek Messages",
+  "DeepSeek Search API": "API de recherche DeepSeek",
+  "Direct HTTP": "HTTP direct",
+  "Empty sheet": "Feuille vide",
+  "Enter a valid number": "Saisissez un nombre valide",
+  "Enter a whole number": "Saisissez un nombre entier",
+  "Fetch billing": "Facturation de récupération",
+  "Limits": "Limites",
+  "Must be at least {min}": "Doit être au moins {min}",
+  "Must be at most {max}": "Doit être au plus {max}",
+  "No models available.": "Aucun modèle disponible.",
+  "Open a page beside your session. Enter an address above to get started.": "Ouvrez une page à côté de votre session. Saisissez une adresse ci-dessus pour commencer.",
+  "Open in default app": "Ouvrir dans l’application par défaut",
+  "Path copied": "Chemin copié",
+  "Relative path copied": "Chemin relatif copié",
+  "Saved": "Enregistré",
+  "Search billing": "Facturation de recherche",
+  "Search requests per second": "Requêtes de recherche par seconde",
+  "Select at least one model before saving.": "Sélectionnez au moins un modèle avant d’enregistrer.",
+  "Sheets": "Feuilles",
+  "Show in folder": "Afficher dans le dossier",
+  "Showing first {shown} of {total} columns": "Affichage des {shown} premières colonnes sur {total}",
+  "Showing first {shown} of {total} rows": "Affichage des {shown} premières lignes sur {total}",
+  "Showing first {shown} of {total} sheets": "Affichage des {shown} premières feuilles sur {total}",
+  "Some model providers could not be loaded.": "Certains fournisseurs de modèles n’ont pas pu être chargés.",
+  "Toggle browser": "Afficher/masquer le navigateur",
+  "Waiting": "En attente",
+  "Window plugins": "Extensions de fenêtre",
   // The inbox.
   "Inbox": "Boîte de réception",
   "Inbox, {count} waiting for you": "Boîte de réception, {count} en attente de vous",
@@ -17083,6 +17227,7 @@ var DE = {
   "Mention a Bot": "Bot erwähnen",
   "Empty file": "Leere Datei",
   "Showing first {count} rows": "Erste {count} Zeilen werden angezeigt",
+  "Preview truncated for size": "Vorschau aus Größengründen gekürzt",
   "Converted from {ext}": "Aus {ext} konvertiert",
   "Preview unavailable in this environment": "Vorschau in dieser Umgebung nicht verfügbar",
   "Scripts and external or local resources are blocked in this preview": "Skripte sowie externe oder lokale Ressourcen sind in dieser Vorschau blockiert",
@@ -17257,6 +17402,42 @@ var DE = {
   "No matching fonts": "Keine passenden Schriften",
   'Use "{font}"': "„{font}“ verwenden",
   "Built-in engine": "Integrierte Engine",
+  "No newline at end of file": "Kein Zeilenumbruch am Dateiende",
+  "Binary": "Binär",
+  "Large": "Groß",
+  "Failed to read file": "Datei konnte nicht gelesen werden",
+  "Feedback changed elsewhere. Try again.": "Das Feedback wurde anderswo geändert. Bitte erneut versuchen.",
+  "Could not submit feedback": "Feedback konnte nicht gesendet werden",
+  "Could not remove feedback": "Feedback konnte nicht entfernt werden",
+  "Remove positive feedback": "Positives Feedback entfernen",
+  "Good response": "Gute Antwort",
+  "Remove negative feedback": "Negatives Feedback entfernen",
+  "Poor response": "Verbesserungswürdige Antwort",
+  "Add an optional note…": "Optionale Notiz hinzufügen…",
+  "Feedback note": "Feedback-Notiz",
+  "Note is too long": "Notiz ist zu lang",
+  "Submitting…": "Wird gesendet…",
+  "Task result": "Aufgabenergebnis",
+  "Instruction following": "Anweisungsbefolgung",
+  "Interaction": "Interaktion",
+  "Stability": "Stabilität",
+  "Cost & speed": "Kosten & Geschwindigkeit",
+  "Safety & permissions": "Sicherheit & Berechtigungen",
+  "Column {n}": "Spalte {n}",
+  "Reveal folder {path}": "Ordner {path} anzeigen",
+  "Open file {path}": "Datei {path} öffnen",
+  "Note is too long (max {bytes} bytes)": "Notiz ist zu lang (max. {bytes} Bytes)",
+  "Feedback note cannot be blank": "Feedback-Notiz darf nicht leer sein",
+  "This message can no longer receive feedback": "Diese Nachricht kann kein Feedback mehr erhalten",
+  "This session is no longer available": "Diese Sitzung ist nicht mehr verfügbar",
+  "This window is read-only": "Dieses Fenster ist schreibgeschützt",
+  "Message feedback is unavailable": "Nachrichten-Feedback ist nicht verfügbar",
+  "Path is outside the workspace folder: {path}": "Pfad liegt außerhalb des Arbeitsordners: {path}",
+  "Could not open folder": "Ordner konnte nicht geöffnet werden",
+  "Stopped because you signed out of DeepSeek.": "Gestoppt, da du dich bei DeepSeek abgemeldet hast.",
+  "The DSH process exited before this turn finished.": "Der DSH-Prozess wurde vor Abschluss dieser Runde beendet.",
+  "Hide secret": "Geheimnis verbergen",
+  "Reveal secret": "Geheimnis anzeigen",
   "Loading image…": "Bild wird geladen…",
   "Image unavailable": "Bild nicht verfügbar",
   "Click to enlarge": "Zum Vergrößern klicken",
@@ -17385,42 +17566,41 @@ var DE = {
   "A job id is needed": "Eine Aufgaben-ID ist erforderlich",
   "This window is read-only. Close the other DS Bot window to make changes here.": "Dieses Fenster ist schreibgeschützt. Schließe das andere DS Bot-Fenster, um hier Änderungen vorzunehmen.",
   "Contact sheet": "Kontaktbogen",
-  "No newline at end of file": "Kein Zeilenumbruch am Dateiende",
-  "Binary": "Binär",
-  "Large": "Groß",
-  "Failed to read file": "Datei konnte nicht gelesen werden",
-  "Feedback changed elsewhere. Try again.": "Das Feedback wurde anderswo geändert. Bitte erneut versuchen.",
-  "Could not submit feedback": "Feedback konnte nicht gesendet werden",
-  "Could not remove feedback": "Feedback konnte nicht entfernt werden",
-  "Remove positive feedback": "Positives Feedback entfernen",
-  "Good response": "Gute Antwort",
-  "Remove negative feedback": "Negatives Feedback entfernen",
-  "Poor response": "Verbesserungswürdige Antwort",
-  "Add an optional note…": "Optionale Notiz hinzufügen…",
-  "Feedback note": "Feedback-Notiz",
-  "Note is too long": "Notiz ist zu lang",
-  "Submitting…": "Wird gesendet…",
-  "Task result": "Aufgabenergebnis",
-  "Instruction following": "Anweisungsbefolgung",
-  "Interaction": "Interaktion",
-  "Stability": "Stabilität",
-  "Cost & speed": "Kosten & Geschwindigkeit",
-  "Safety & permissions": "Sicherheit & Berechtigungen",
-  "Column {n}": "Spalte {n}",
-  "Reveal folder {path}": "Ordner {path} anzeigen",
-  "Open file {path}": "Datei {path} öffnen",
-  "Note is too long (max {bytes} bytes)": "Notiz ist zu lang (max. {bytes} Bytes)",
-  "Feedback note cannot be blank": "Feedback-Notiz darf nicht leer sein",
-  "This message can no longer receive feedback": "Diese Nachricht kann kein Feedback mehr erhalten",
-  "This session is no longer available": "Diese Sitzung ist nicht mehr verfügbar",
-  "This window is read-only": "Dieses Fenster ist schreibgeschützt",
-  "Message feedback is unavailable": "Nachrichten-Feedback ist nicht verfügbar",
-  "Path is outside the workspace folder: {path}": "Pfad liegt außerhalb des Arbeitsordners: {path}",
-  "Could not open folder": "Ordner konnte nicht geöffnet werden",
-  "Stopped because you signed out of DeepSeek.": "Gestoppt, da du dich bei DeepSeek abgemeldet hast.",
-  "The DSH process exited before this turn finished.": "Der DSH-Prozess wurde vor Abschluss dieser Runde beendet.",
-  "Hide secret": "Geheimnis verbergen",
-  "Reveal secret": "Geheimnis anzeigen",
+  "Allow agents to choose models for subagents": "Agenten die Modellauswahl für Subagenten erlauben",
+  "Automatic": "Automatisch",
+  "Click a cell to inspect": "Zelle anklicken, um Inhalt anzuzeigen",
+  "Copy path": "Pfad kopieren",
+  "Copy relative path": "Relativen Pfad kopieren",
+  "Could not load models.": "Modelle konnten nicht geladen werden.",
+  "DeepSeek Fetch API": "DeepSeek-Abruf-API",
+  "DeepSeek Messages search": "DeepSeek-Messages-Suche",
+  "DeepSeek Search API": "DeepSeek-Such-API",
+  "Direct HTTP": "Direktes HTTP",
+  "Empty sheet": "Leeres Tabellenblatt",
+  "Enter a valid number": "Gültige Zahl eingeben",
+  "Enter a whole number": "Ganze Zahl eingeben",
+  "Fetch billing": "Abrechnung für Abrufe",
+  "Limits": "Grenzen",
+  "Must be at least {min}": "Mindestens {min}",
+  "Must be at most {max}": "Höchstens {max}",
+  "No models available.": "Keine Modelle verfügbar.",
+  "Open a page beside your session. Enter an address above to get started.": "Öffne eine Seite neben deiner Sitzung. Gib oben eine Adresse ein, um zu beginnen.",
+  "Open in default app": "Mit Standard-App öffnen",
+  "Path copied": "Pfad kopiert",
+  "Relative path copied": "Relativer Pfad kopiert",
+  "Saved": "Gespeichert",
+  "Search billing": "Abrechnung für Suche",
+  "Search requests per second": "Suchanfragen pro Sekunde",
+  "Select at least one model before saving.": "Wähle vor dem Speichern mindestens ein Modell aus.",
+  "Sheets": "Tabellenblätter",
+  "Show in folder": "Im Ordner anzeigen",
+  "Showing first {shown} of {total} columns": "Erste {shown} von {total} Spalten angezeigt",
+  "Showing first {shown} of {total} rows": "Erste {shown} von {total} Zeilen angezeigt",
+  "Showing first {shown} of {total} sheets": "Erste {shown} von {total} Blättern angezeigt",
+  "Some model providers could not be loaded.": "Einige Modellanbieter konnten nicht geladen werden.",
+  "Toggle browser": "Browser ein-/ausblenden",
+  "Waiting": "Wartend",
+  "Window plugins": "Fenster-Plugins",
   // The inbox.
   "Inbox": "Posteingang",
   "Inbox, {count} waiting for you": "Posteingang, {count} warten auf dich",
@@ -18881,6 +19061,10 @@ var ZH = {
   "Every message of this Bot runs on it.": "这个 Bot 的每条消息都用它。",
   "Applies from the next message.": "从下一条消息开始生效。",
   // Agent preset: the harness preset a Bot's own sessions run on.
+  "What's new in v{version}": "v{version} 更新内容",
+  "Got it": "知道了",
+  "Full changelog": "完整更新日志",
+  "No release notes for this version yet.": "当前版本暂无更新说明。",
   "Agent preset": "Agent 预设",
   "Agent preset: {preset}": "Agent 预设：{preset}",
   "Default (Standard)": "默认（标准）",
@@ -19897,10 +20081,6 @@ var ZH = {
   Links: "链接",
   "Source code": "源代码",
   "Release notes": "发布说明",
-  "What's new in v{version}": "v{version} 更新内容",
-  "Got it": "知道了",
-  "Full changelog": "完整更新日志",
-  "No release notes for this version yet.": "当前版本暂无更新说明。",
   Open: "打开",
   // Feedback and errors
   Feedback: "反馈",
@@ -20514,6 +20694,7 @@ var ZH = {
   "Mention a Bot": "提及 Bot",
   "Empty file": "空文件",
   "Showing first {count} rows": "仅显示前 {count} 行",
+  "Preview truncated for size": "因体积过大，预览已截断",
   "Converted from {ext}": "已从 {ext} 转换",
   "Preview unavailable in this environment": "当前环境暂不支持预览",
   "Scripts and external or local resources are blocked in this preview": "此预览已阻止脚本以及外部或本地资源",
@@ -20688,6 +20869,42 @@ var ZH = {
   "No matching fonts": "没有匹配的字体",
   'Use "{font}"': "使用「{font}」",
   "Built-in engine": "内置引擎",
+  "No newline at end of file": "文件末尾无换行符",
+  "Binary": "二进制",
+  "Large": "大文件",
+  "Failed to read file": "读取文件失败",
+  "Feedback changed elsewhere. Try again.": "反馈已在别处更新，请重试。",
+  "Could not submit feedback": "无法提交反馈",
+  "Could not remove feedback": "无法撤回反馈",
+  "Remove positive feedback": "撤回好评",
+  "Good response": "回答有帮助",
+  "Remove negative feedback": "撤回差评",
+  "Poor response": "回答待改进",
+  "Add an optional note…": "补充说明（可选）…",
+  "Feedback note": "反馈说明",
+  "Note is too long": "说明内容过长",
+  "Submitting…": "正在提交…",
+  "Task result": "任务结果",
+  "Instruction following": "指令遵循",
+  "Interaction": "交互体验",
+  "Stability": "服务稳定",
+  "Cost & speed": "耗时与消耗",
+  "Safety & permissions": "安全与权限",
+  "Column {n}": "第 {n} 列",
+  "Reveal folder {path}": "在文件树中定位文件夹 {path}",
+  "Open file {path}": "打开文件 {path}",
+  "Note is too long (max {bytes} bytes)": "说明过长（最多 {bytes} 字节）",
+  "Feedback note cannot be blank": "反馈说明不能为空白",
+  "This message can no longer receive feedback": "这条消息无法提交反馈",
+  "This session is no longer available": "该会话已不可用",
+  "This window is read-only": "当前窗口为只读",
+  "Message feedback is unavailable": "消息反馈功能不可用",
+  "Path is outside the workspace folder: {path}": "路径不在当前工作文件夹内：{path}",
+  "Could not open folder": "无法打开文件夹",
+  "Stopped because you signed out of DeepSeek.": "因为你已退出 DeepSeek 账号，回复已停止。",
+  "The DSH process exited before this turn finished.": "本轮完成前 DSH 进程已退出。",
+  "Hide secret": "隐藏敏感内容",
+  "Reveal secret": "显示敏感内容",
   "Loading image…": "正在加载图片…",
   "Image unavailable": "无法加载图片",
   "Click to enlarge": "点击查看大图",
@@ -20816,42 +21033,6 @@ var ZH = {
   "A job id is needed": "缺少后台任务 ID",
   "This window is read-only. Close the other DS Bot window to make changes here.": "当前窗口为只读模式。关闭另一个 DS Bot 窗口后即可在此操作。",
   "Contact sheet": "缩略图总览",
-  "No newline at end of file": "文件末尾无换行符",
-  "Binary": "二进制",
-  "Large": "大文件",
-  "Failed to read file": "读取文件失败",
-  "Feedback changed elsewhere. Try again.": "反馈已在别处更新，请重试。",
-  "Could not submit feedback": "无法提交反馈",
-  "Could not remove feedback": "无法撤回反馈",
-  "Remove positive feedback": "撤回好评",
-  "Good response": "回答有帮助",
-  "Remove negative feedback": "撤回差评",
-  "Poor response": "回答待改进",
-  "Add an optional note…": "补充说明（可选）…",
-  "Feedback note": "反馈说明",
-  "Note is too long": "说明内容过长",
-  "Submitting…": "正在提交…",
-  "Task result": "任务结果",
-  "Instruction following": "指令遵循",
-  "Interaction": "交互体验",
-  "Stability": "服务稳定",
-  "Cost & speed": "耗时与消耗",
-  "Safety & permissions": "安全与权限",
-  "Column {n}": "第 {n} 列",
-  "Reveal folder {path}": "在文件树中定位文件夹 {path}",
-  "Open file {path}": "打开文件 {path}",
-  "Note is too long (max {bytes} bytes)": "说明过长（最多 {bytes} 字节）",
-  "Feedback note cannot be blank": "反馈说明不能为空白",
-  "This message can no longer receive feedback": "这条消息无法提交反馈",
-  "This session is no longer available": "该会话已不可用",
-  "This window is read-only": "当前窗口为只读",
-  "Message feedback is unavailable": "消息反馈功能不可用",
-  "Path is outside the workspace folder: {path}": "路径不在当前工作文件夹内：{path}",
-  "Could not open folder": "无法打开文件夹",
-  "Stopped because you signed out of DeepSeek.": "因为你已退出 DeepSeek 账号，回复已停止。",
-  "The DSH process exited before this turn finished.": "本轮完成前 DSH 进程已退出。",
-  "Hide secret": "隐藏敏感内容",
-  "Reveal secret": "显示敏感内容",
   // The inbox.
   "Inbox": "收件箱",
   "Inbox, {count} waiting for you": "收件箱，{count} 件等你处理",
@@ -21196,7 +21377,42 @@ var HOST_ZH = {
   "Help needed on the computer": "需要你在电脑上帮忙",
   "You control the computer": "你在操控电脑",
   "{name} · foreground": "{name} · 前台",
-  "{name} waits for the computer": "{name} 等你停手"
+  "{name} waits for the computer": "{name} 等你停手",
+  "Allow agents to choose models for subagents": "允许 Agent 为子代理选择模型",
+  "Automatic": "自动",
+  "Click a cell to inspect": "点击单元格查看内容",
+  "Copy path": "复制路径",
+  "Copy relative path": "复制相对路径",
+  "Could not load models.": "无法加载模型列表。",
+  "DeepSeek Fetch API": "DeepSeek 网页抓取 API",
+  "DeepSeek Messages search": "DeepSeek Messages 搜索",
+  "DeepSeek Search API": "DeepSeek 搜索 API",
+  "Direct HTTP": "直接 HTTP",
+  "Empty sheet": "空工作表",
+  "Enter a valid number": "请输入有效数字",
+  "Enter a whole number": "请输入整数",
+  "Fetch billing": "抓取计费方式",
+  "Limits": "上限",
+  "Must be at least {min}": "不能小于 {min}",
+  "Must be at most {max}": "不能大于 {max}",
+  "No models available.": "当前没有可用模型。",
+  "Open a page beside your session. Enter an address above to get started.": "在会话旁打开网页。在上方输入网址开始浏览。",
+  "Open in default app": "用默认应用打开",
+  "Path copied": "已复制路径",
+  "Relative path copied": "已复制相对路径",
+  "Saved": "已保存",
+  "Search billing": "搜索计费方式",
+  "Search requests per second": "每秒搜索请求数",
+  "Select at least one model before saving.": "保存前请至少选择一个模型。",
+  "Sheets": "工作表",
+  "Show in folder": "在文件夹中显示",
+  "Showing first {shown} of {total} columns": "仅显示前 {shown} / {total} 列",
+  "Showing first {shown} of {total} rows": "仅显示前 {shown} / {total} 行",
+  "Showing first {shown} of {total} sheets": "仅显示前 {shown} / {total} 个工作表",
+  "Some model providers could not be loaded.": "部分模型提供方未能加载。",
+  "Toggle browser": "打开/关闭浏览器",
+  "Waiting": "等待中",
+  "Window plugins": "窗口界面插件"
 };
 Object.assign(ZH, HOST_ZH);
 var ZH_TW = convertDict(ZH);
@@ -26722,7 +26938,7 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 }
 [data-composer-card]>[class*="_row"]{display:contents!important}
 [data-composer-card] [class*="_tools"]{order:1!important;flex:none!important;align-self:flex-end!important;margin:0!important}
-[data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important}
+[data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important;box-sizing:border-box}
 [data-composer-card] [class*="_trailing"]{order:3!important;flex:none!important;align-self:flex-end!important;margin:0!important}
 /* The slot anchor is display:contents, so the rail inside it is the flex item. */
 [data-composer-card]>[data-slot="conversation.input.attachments"]>[class*="_rail"]{order:0!important;flex:0 0 100%!important;margin:0!important;padding:2px 8px 6px!important}
@@ -26838,6 +27054,10 @@ div:has(> nav [class*="_marks"]){display:none!important}
    the edge. This covers the group's chat flow, not only DS Bot's own panels. */
 @media (max-width:640px){
 .bt-msg,.bt-astack[data-lead]>.bt-msg{max-width:100%}
+.bt-msg{position:relative}
+.bt-msg-line{position:static}
+.bt-tools{top:100%;bottom:auto;left:auto;right:4px;margin-left:0;margin-top:2px;border-radius:999px;padding:2px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
+.bt-tools::after{top:-6px;bottom:auto;left:0;right:0;width:auto;height:8px}
 .bt-bubble,[data-chat-flow] [class*="_bubble"]{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 .bt-group-msg,.bt-group-name{max-width:100%}
 .bt-q{width:100%;max-width:none;padding:12px 14px;border-radius:16px}
@@ -31235,8 +31455,227 @@ var CHANGES_CSS = `
 @media (max-width:640px){.bt-changes{margin-left:0}}
 `;
 
+// src/client/popup-ownership.js
+var owners = /* @__PURE__ */ new Map();
+function registerPopupOwner(owner, popup) {
+  owners.set(popup, owner);
+  return () => {
+    owners.delete(popup);
+  };
+}
+function ownedPopups(roots) {
+  const allowed2 = [...roots];
+  for (let index = 0; index < allowed2.length; index += 1) {
+    for (const [popup, owner] of owners) {
+      const element = popup.current;
+      if (element?.isConnected && !element.hasAttribute("data-leaving") && allowed2[index].contains(owner.current) && !allowed2.some((root) => root.contains(element))) allowed2.push(element);
+    }
+  }
+  return allowed2.slice(roots.length);
+}
+
 // src/client/overlay-hooks.js
 var import_react6 = require("react");
+var useSafeLayoutEffect = typeof window !== "undefined" && typeof document !== "undefined" && typeof import_react6.useLayoutEffect === "function" ? import_react6.useLayoutEffect : import_react6.useEffect;
+var inertLocks = /* @__PURE__ */ new WeakMap();
+function acquireInert(element) {
+  if (!element || typeof element !== "object") return;
+  const existing = inertLocks.get(element);
+  if (existing) {
+    existing.count += 1;
+    element.inert = true;
+    return;
+  }
+  inertLocks.set(element, { count: 1, initial: Boolean(element.inert) });
+  element.inert = true;
+}
+function releaseInert(element) {
+  if (!element || typeof element !== "object") return;
+  const existing = inertLocks.get(element);
+  if (!existing) return;
+  existing.count -= 1;
+  if (existing.count <= 0) {
+    inertLocks.delete(element);
+    element.inert = existing.initial;
+  }
+}
+var FOCUSABLE_SELECTOR = "button,input,select,textarea,a[href],[tabindex],[contenteditable],summary,audio[controls],video[controls]";
+function isElementFocusable(element, doc, requireRects) {
+  if (!element || typeof element.focus !== "function") return false;
+  if (element.tabIndex < 0) return false;
+  if (typeof element.matches === "function" && element.matches(":disabled")) return false;
+  if (element.disabled === true || element.hidden === true) return false;
+  if (typeof element.closest === "function" && (element.closest("[inert]") || element.closest("[hidden]"))) return false;
+  const style = doc?.defaultView?.getComputedStyle?.(element);
+  if (style && (style.display === "none" || style.visibility === "hidden")) return false;
+  if (requireRects && typeof element.getClientRects === "function" && element.getClientRects().length === 0) return false;
+  return true;
+}
+function collectFocusableControls(roots, doc) {
+  const seen = /* @__PURE__ */ new Set();
+  const controls = [];
+  for (const root of roots) {
+    if (!root || typeof root.querySelectorAll !== "function") continue;
+    const requireRects = typeof root.getClientRects === "function" && root.getClientRects().length > 0;
+    const candidates = [root, ...root.querySelectorAll(FOCUSABLE_SELECTOR)];
+    for (const element of candidates) {
+      if (seen.has(element)) continue;
+      if (!isElementFocusable(element, doc, requireRects)) continue;
+      seen.add(element);
+      controls.push(element);
+    }
+  }
+  return controls;
+}
+function activeModalsIn(doc) {
+  if (!doc || typeof doc.querySelectorAll !== "function") return [];
+  return [...doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')].filter((modal) => !(typeof modal.closest === "function" && modal.closest("[data-leaving]")));
+}
+function hasHigherModalThan(container, doc) {
+  const modals = activeModalsIn(doc);
+  if (modals.length === 0) return false;
+  let selfIdx = -1;
+  for (let i = 0; i < modals.length; i += 1) {
+    const modal = modals[i];
+    if (modal === container || typeof container.contains === "function" && container.contains(modal)) {
+      selfIdx = i;
+    }
+  }
+  if (selfIdx < 0) return modals.length > 0;
+  for (let i = selfIdx + 1; i < modals.length; i += 1) {
+    const modal = modals[i];
+    if (modal === container || typeof container.contains === "function" && container.contains(modal)) continue;
+    return true;
+  }
+  return false;
+}
+function useModalFocusTrap(containerRef, active = true, { initialFocusRef } = {}) {
+  useSafeLayoutEffect(() => {
+    if (!active) return void 0;
+    const container = containerRef?.current ?? null;
+    const doc = container?.ownerDocument ?? (typeof document === "undefined" ? null : document);
+    if (!doc) return void 0;
+    const returnFocus = doc.activeElement;
+    const restorePreviousFocus = () => {
+      const activeEl = doc.activeElement;
+      const insideClosing = Boolean(container && typeof container.contains === "function" && container.contains(activeEl));
+      const shouldRestore = !activeEl || activeEl === doc.body || activeEl === doc.documentElement || insideClosing;
+      if (!shouldRestore || !returnFocus || returnFocus.isConnected === false || typeof returnFocus.focus !== "function") return;
+      if (returnFocus.closest?.("[inert]")) return;
+      const remainingModals = activeModalsIn(doc).filter((m) => m !== container && !(container && typeof container.contains === "function" && container.contains(m)));
+      if (remainingModals.length === 0 || remainingModals.some((m) => typeof m.contains === "function" && m.contains(returnFocus))) {
+        returnFocus.focus({ preventScroll: true });
+      }
+    };
+    if (!container || !doc.body || typeof doc.addEventListener !== "function") {
+      initialFocusRef?.current?.focus?.({ preventScroll: true });
+      return restorePreviousFocus;
+    }
+    const held = /* @__PURE__ */ new Set();
+    let allowedRoots = [container];
+    let disposed = false;
+    const releaseAll = () => {
+      for (const el of held) releaseInert(el);
+      held.clear();
+    };
+    const isolateBody = (roots) => {
+      const nextHeld = /* @__PURE__ */ new Set();
+      const walk2 = (element) => {
+        if (!element || roots.includes(element)) return;
+        if (roots.some((root) => typeof element.contains === "function" && element.contains(root))) {
+          for (const child of element.children ?? []) walk2(child);
+        } else {
+          nextHeld.add(element);
+        }
+      };
+      walk2(doc.body);
+      for (const el of nextHeld) {
+        if (!held.has(el)) {
+          acquireInert(el);
+          held.add(el);
+        }
+      }
+      for (const el of held) {
+        if (!nextHeld.has(el)) {
+          releaseInert(el);
+          held.delete(el);
+        }
+      }
+    };
+    const focusInside = () => {
+      const preferred = initialFocusRef?.current;
+      if (preferred && container.contains(preferred) && !preferred.closest?.("[inert]")) {
+        preferred.focus?.({ preventScroll: true });
+        return;
+      }
+      const controls = collectFocusableControls(allowedRoots, doc);
+      (controls[0] ?? container).focus?.({ preventScroll: true });
+    };
+    const isAllowed = (element) => Boolean(element) && allowedRoots.some((root) => root.contains(element));
+    const sync = () => {
+      if (disposed) return;
+      if (hasHigherModalThan(container, doc)) {
+        releaseAll();
+        allowedRoots = [container];
+        return;
+      }
+      allowedRoots = [container, ...ownedPopups([container])];
+      isolateBody(allowedRoots);
+      if (!isAllowed(doc.activeElement)) focusInside();
+    };
+    const onFocusIn = () => {
+      queueMicrotask(() => {
+        if (!disposed) sync();
+      });
+    };
+    const onKeyDown = (event) => {
+      if (event.key !== "Tab") return;
+      if (hasHigherModalThan(container, doc)) return;
+      sync();
+      const controls = collectFocusableControls(allowedRoots, doc);
+      event.preventDefault();
+      event.stopPropagation();
+      if (controls.length === 0) {
+        container.focus?.({ preventScroll: true });
+        return;
+      }
+      const current2 = controls.indexOf(doc.activeElement);
+      const nextIndex = current2 < 0 ? event.shiftKey ? controls.length - 1 : 0 : (current2 + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+      controls[nextIndex]?.focus?.({ preventScroll: true });
+    };
+    sync();
+    let observer2 = null;
+    if (typeof MutationObserver === "function") {
+      observer2 = new MutationObserver(sync);
+      observer2.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-leaving", "aria-modal", "role"] });
+    }
+    doc.addEventListener("focusin", onFocusIn, true);
+    doc.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      disposed = true;
+      observer2?.disconnect();
+      doc.removeEventListener("focusin", onFocusIn, true);
+      doc.removeEventListener("keydown", onKeyDown, true);
+      releaseAll();
+      restorePreviousFocus();
+    };
+  }, [active, containerRef, initialFocusRef]);
+}
+var ESCAPE_PRIORITY = {
+  PANEL: -1,
+  DRAWER: 0,
+  DIALOG: 0,
+  TOUR: 5,
+  PALETTE: 10,
+  INLINE_ACTION: 12,
+  MENU: 15,
+  SHORTCUTS: 20,
+  MODAL_CHILD: 30,
+  SELECT_MENU: 35,
+  LIGHTBOX: 40,
+  RECORDING: 100
+};
+var CAPTURE_ESCAPE_MIN_PRIORITY = ESCAPE_PRIORITY.INLINE_ACTION;
 var escapeLayers = [];
 function hasEscapeLayer() {
   return escapeLayers.length > 0;
@@ -31246,6 +31685,7 @@ function settingsOwnsKeyboard(dialog, doc = typeof document === "undefined" ? nu
   if (!doc || typeof doc.querySelectorAll !== "function") return true;
   for (const modal of doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')) {
     if (modal === dialog) continue;
+    if (dialog && typeof dialog.contains === "function" && dialog.contains(modal)) continue;
     if (typeof modal.closest === "function" && modal.closest("[data-leaving]")) continue;
     return false;
   }
@@ -31258,9 +31698,46 @@ var topEscapeLayer = () => {
   }
   return top;
 };
-var onEscapeKey = (event) => {
-  if (event.defaultPrevented || event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
-  topEscapeLayer()?.ref.current();
+function topEscapePriority() {
+  const top = topEscapeLayer();
+  return top === null ? -Infinity : top.priority;
+}
+var isEscapeEvent = (event) => !event.defaultPrevented && event.key === "Escape" && !event.isComposing && event.keyCode !== 229;
+var onCaptureEscapeKey = (event) => {
+  if (!isEscapeEvent(event)) return;
+  const top = topEscapeLayer();
+  if (!top || top.priority < CAPTURE_ESCAPE_MIN_PRIORITY) return;
+  event.preventDefault?.();
+  event.stopPropagation?.();
+  top.ref.current();
+};
+var onBubbleEscapeKey = (event) => {
+  if (!isEscapeEvent(event)) return;
+  const top = topEscapeLayer();
+  if (!top) return;
+  event.preventDefault?.();
+  event.stopPropagation?.();
+  top.ref.current();
+};
+var listening = false;
+var captureTarget = null;
+var attachEscapeListeners = () => {
+  if (listening) return;
+  listening = true;
+  captureTarget = typeof document !== "undefined" && typeof document.addEventListener === "function" ? document : null;
+  if (captureTarget) captureTarget.addEventListener("keydown", onCaptureEscapeKey, true);
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("keydown", onBubbleEscapeKey, false);
+  }
+};
+var detachEscapeListeners = () => {
+  if (!listening) return;
+  listening = false;
+  if (captureTarget) captureTarget.removeEventListener("keydown", onCaptureEscapeKey, true);
+  captureTarget = null;
+  if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+    window.removeEventListener("keydown", onBubbleEscapeKey, false);
+  }
 };
 function useEscape(onClose, active = true, { priority = 0 } = {}) {
   const ref = (0, import_react6.useRef)(onClose);
@@ -31268,12 +31745,12 @@ function useEscape(onClose, active = true, { priority = 0 } = {}) {
   (0, import_react6.useEffect)(() => {
     if (!active) return void 0;
     const layer = { ref, priority };
-    if (escapeLayers.length === 0) window.addEventListener("keydown", onEscapeKey);
+    if (escapeLayers.length === 0) attachEscapeListeners();
     escapeLayers.push(layer);
     return () => {
       const index = escapeLayers.indexOf(layer);
       if (index !== -1) escapeLayers.splice(index, 1);
-      if (escapeLayers.length === 0) window.removeEventListener("keydown", onEscapeKey);
+      if (escapeLayers.length === 0) detachEscapeListeners();
     };
   }, [active, priority]);
 }
@@ -31861,7 +32338,7 @@ var keyCards = /* @__PURE__ */ (() => {
 function useOptionKeys(count, onPick, ownRef) {
   const pick2 = (0, import_react9.useRef)(onPick);
   pick2.current = onPick;
-  const listening = (0, import_react9.useSyncExternalStore)(keyCards.subscribe, keyCards.getSnapshot);
+  const listening2 = (0, import_react9.useSyncExternalStore)(keyCards.subscribe, keyCards.getSnapshot);
   (0, import_react9.useEffect)(() => {
     if (count === 0) return void 0;
     keyCards.set((value) => value + 1);
@@ -31885,7 +32362,7 @@ function useOptionKeys(count, onPick, ownRef) {
       keyCards.set((value) => value - 1);
     };
   }, [count, ownRef]);
-  return count > 0 && listening <= 1;
+  return count > 0 && listening2 <= 1;
 }
 
 // node_modules/deep-view/src/core/formula.js
@@ -35096,25 +35573,6 @@ var HANDOFF_CSS = `
 .bt-handoff .bt-q-foot{flex-wrap:wrap}
 `;
 
-// src/client/popup-ownership.js
-var owners = /* @__PURE__ */ new Map();
-function registerPopupOwner(owner, popup) {
-  owners.set(popup, owner);
-  return () => {
-    owners.delete(popup);
-  };
-}
-function ownedPopups(roots) {
-  const allowed2 = [...roots];
-  for (let index = 0; index < allowed2.length; index += 1) {
-    for (const [popup, owner] of owners) {
-      const element = popup.current;
-      if (element?.isConnected && !element.hasAttribute("data-leaving") && allowed2[index].contains(owner.current) && !allowed2.some((root) => root.contains(element))) allowed2.push(element);
-    }
-  }
-  return allowed2.slice(roots.length);
-}
-
 // src/client/select-menu.js
 var import_react17 = require("react");
 var import_react_dom = require("react-dom");
@@ -35332,6 +35790,10 @@ function SelectMenu({
   (0, import_react17.useEffect)(() => {
     if (isDisabled && isOpen) close();
   }, [isDisabled, isOpen]);
+  useEscape(() => {
+    close();
+    button.current?.focus?.({ preventScroll: true });
+  }, isOpen, { priority: ESCAPE_PRIORITY.SELECT_MENU });
   (0, import_react17.useEffect)(() => {
     if (!isOpen || typeof window === "undefined") return void 0;
     const onResize = () => setResizeTick((count) => count + 1);
@@ -35345,14 +35807,6 @@ function SelectMenu({
       if (!menu.current?.contains(event.target)) close();
     };
     const onKey = (event) => {
-      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation?.();
-        close();
-        button.current?.focus?.({ preventScroll: true });
-        return;
-      }
       if (event.key === "Tab") {
         button.current?.focus?.({ preventScroll: true });
         close();
@@ -37669,12 +38123,7 @@ function useAnchoredMenu(minWidth = 240, align = "right") {
       close();
     };
     const onKey = (event) => {
-      if (stepMenuFocus(menu.current, event, button.current)) return;
-      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
-        event.stopPropagation();
-        close();
-        button.current?.focus();
-      }
+      stepMenuFocus(menu.current, event, button.current);
     };
     const onScroll = (event) => {
       if (!menu.current?.contains(event.target)) close();
@@ -37688,6 +38137,10 @@ function useAnchoredMenu(minWidth = 240, align = "right") {
       window.removeEventListener("scroll", onScroll, true);
     };
   }, [place]);
+  useEscape(() => {
+    close();
+    button.current?.focus();
+  }, place !== null, { priority: ESCAPE_PRIORITY.MENU });
   const open = () => setAnchor({});
   (0, import_react22.useLayoutEffect)(() => {
     if (anchor === null || !button.current) return;
@@ -37713,12 +38166,7 @@ function useInlineMenu() {
       if (!root.current?.contains(event.target)) close();
     };
     const onKey = (event) => {
-      if (stepMenuFocus(menu.current, event, button.current)) return;
-      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
-        event.stopPropagation();
-        close();
-        button.current?.focus();
-      }
+      stepMenuFocus(menu.current, event, button.current);
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey, true);
@@ -37727,6 +38175,10 @@ function useInlineMenu() {
       window.removeEventListener("keydown", onKey, true);
     };
   }, [isOpen]);
+  useEscape(() => {
+    close();
+    button.current?.focus();
+  }, isOpen, { priority: ESCAPE_PRIORITY.MENU });
   return { isOpen, root, button, menu, open: () => setOpen(true), close };
 }
 function Collapse({ open, children }) {
@@ -39784,12 +40236,7 @@ function useMenuDismiss(open, menuRef, triggerRef, close) {
       close();
     };
     const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event, triggerRef.current)) return;
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        close();
-        triggerRef.current?.focus();
-      }
+      stepMenuFocus(menuRef.current, event, triggerRef.current);
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey, true);
@@ -39798,6 +40245,10 @@ function useMenuDismiss(open, menuRef, triggerRef, close) {
       window.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
+  useEscape(() => {
+    close();
+    triggerRef.current?.focus();
+  }, open, { priority: ESCAPE_PRIORITY.MENU });
 }
 function useMemoryCount(id, actions) {
   const [count, setCount] = (0, import_react29.useState)(counts.get(id) ?? null);
@@ -41054,14 +41505,6 @@ function FontField({ label, value, kind = "ui", save, fonts = [], load }) {
       if (!menu.current?.contains?.(event.target)) close();
     };
     const onKey = (event) => {
-      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation?.();
-        close();
-        button.current?.focus?.({ preventScroll: true });
-        return;
-      }
       if (event.key === "Tab") {
         close();
       }
@@ -41082,6 +41525,10 @@ function FontField({ label, value, kind = "ui", save, fonts = [], load }) {
       window.removeEventListener("keydown", onKey, true);
     };
   }, [isOpen]);
+  useEscape(() => {
+    close();
+    button.current?.focus?.({ preventScroll: true });
+  }, isOpen, { priority: ESCAPE_PRIORITY.MENU });
   (0, import_react30.useLayoutEffect)(() => {
     if (!isOpen) return;
     if (button.current) {
@@ -41722,19 +42169,12 @@ function AvatarEditor({ bot, room: room2, actions, run: run2, onClose, leaving =
       if (!(event.target instanceof Element) || ref.current?.contains(event.target) || event.target.closest(".bt-avatar-trigger")) return;
       onClose();
     };
-    const onKey = (event) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        onClose();
-      }
-    };
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey, true);
     };
   }, [onClose]);
+  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.MENU });
   (0, import_react32.useEffect)(() => {
     if (tab !== "upload") return void 0;
     const onPaste = (event) => {
@@ -44512,21 +44952,14 @@ function useDismiss(open, close, refs) {
       if (refs.some((ref) => ref.current?.contains(event.target))) return;
       close();
     };
-    const onKey = (event) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        close();
-      }
-    };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("touchstart", onDown);
-    window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("touchstart", onDown);
-      window.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
+  useEscape(close, open, { priority: ESCAPE_PRIORITY.MENU });
 }
 function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
   const [panel, setPanel] = (0, import_react39.useState)(null);
@@ -49728,10 +50161,11 @@ function TeamSidebar(props) {
     ),
     foot
   );
+  const hideTitleToggle = props.hideTitleToggle === true;
   return (0, import_react47.createElement)(
     import_react47.Fragment,
     null,
-    (0, import_react47.createElement)(TitleToggle, { hidden: mode === "hidden", mode, onToggle }),
+    hideTitleToggle ? null : (0, import_react47.createElement)(TitleToggle, { hidden: mode === "hidden", mode, onToggle }),
     shown === "hidden" ? null : (0, import_react47.createElement)(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content)
   );
 }
@@ -49743,24 +50177,19 @@ function UpdateButton({ useUpdate, actions }) {
   const [error, setError] = (0, import_react47.useState)("");
   const [dshError, setDshError] = (0, import_react47.useState)("");
   const button = (0, import_react47.useRef)(null);
+  useEscape(() => {
+    setOpen(false);
+    button.current?.focus();
+  }, open, { priority: ESCAPE_PRIORITY.MENU });
   (0, import_react47.useEffect)(() => {
     if (!open) return void 0;
     const onDown = (event) => {
       if (event.target instanceof Element && (event.target.closest(".bt-update-pop") || button.current?.contains(event.target))) return;
       setOpen(false);
     };
-    const onKey = (event) => {
-      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
-        event.stopPropagation();
-        setOpen(false);
-        button.current?.focus();
-      }
-    };
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
   const phase = update?.phase ?? "idle";
@@ -49881,6 +50310,10 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
   (0, import_react47.useEffect)(() => {
     if (settingsOpen) setOpen(false);
   }, [settingsOpen]);
+  useEscape(() => {
+    setOpen(false);
+    button.current?.focus();
+  }, open, { priority: ESCAPE_PRIORITY.MENU });
   (0, import_react47.useEffect)(() => {
     if (!open) return void 0;
     const onDown = (event) => {
@@ -49888,12 +50321,7 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
       setOpen(false);
     };
     const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event, button.current)) return;
-      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
-        event.stopPropagation();
-        setOpen(false);
-        button.current?.focus();
-      }
+      stepMenuFocus(menuRef.current, event, button.current);
     };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey, true);
@@ -51608,20 +52036,12 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
       const inside = [box.current, near.current, ...ownedPopups([box.current].filter(Boolean))];
       if (!inside.some((node) => node?.contains(event.target))) onClose();
     };
-    const onKey = (event) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (ownedPopups([box.current].filter(Boolean)).length > 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      onClose();
-    };
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey, true);
     };
   }, []);
+  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.MENU });
   const [low, high] = anchor ? [anchor, hover ?? anchor].sort() : span ? [span.from, span.to] : [null, null];
   const press = (key) => {
     if (!anchor) {
@@ -60829,7 +61249,7 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     if (!active) return;
     setStepState((prev2) => ({ key: tourKey, index: Math.max(0, (prev2.key === tourKey ? prev2.index : 0) - 1) }));
   }, [active, tourKey]);
-  useEscape(dismiss, active, { priority: 1 });
+  useEscape(dismiss, active, { priority: ESCAPE_PRIORITY.TOUR });
   (0, import_react71.useLayoutEffect)(() => {
     if (!active) return void 0;
     const dialog = dialogRef?.current ?? layerRef.current?.closest?.(".bt-settings");
@@ -60837,30 +61257,47 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     const card = cardRef.current;
     const layer = layerRef.current;
     if (!doc?.body || !card || !layer) return void 0;
-    const inert = /* @__PURE__ */ new Map();
+    const held = /* @__PURE__ */ new Set();
     let interactive = [card];
     let disposed = false;
     const restore = () => {
-      for (const [element, previous] of inert) element.inert = previous;
-      inert.clear();
+      for (const element of held) releaseInert(element);
+      held.clear();
     };
+    const externalModalOpen = () => !settingsOwnsKeyboard(dialog, doc);
     const allowed2 = (element) => interactive.some((root) => root.contains(element));
     const sync = () => {
-      restore();
+      if (externalModalOpen()) {
+        restore();
+        interactive = [card];
+        return;
+      }
       const target = !step.page || step.page === currentPage ? resolveStep(dialog, step).targetEl : null;
       interactive = [target, card].filter(Boolean);
       interactive.push(...ownedPopups(interactive));
       const roots = [layer, ...interactive];
+      const nextHeld = /* @__PURE__ */ new Set();
       const isolate = (element) => {
         if (roots.includes(element)) return;
         if (roots.some((root) => element.contains(root))) {
           for (const child of element.children) isolate(child);
         } else {
-          inert.set(element, element.inert);
-          element.inert = true;
+          nextHeld.add(element);
         }
       };
       isolate(doc.body);
+      for (const element of nextHeld) {
+        if (!held.has(element)) {
+          acquireInert(element);
+          held.add(element);
+        }
+      }
+      for (const element of held) {
+        if (!nextHeld.has(element)) {
+          releaseInert(element);
+          held.delete(element);
+        }
+      }
       if (!allowed2(doc.activeElement)) card.focus({ preventScroll: true });
     };
     const onFocus = () => {
@@ -60870,6 +61307,7 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     };
     const onTab = (event) => {
       if (event.key !== "Tab") return;
+      if (externalModalOpen()) return;
       sync();
       const selector = "button,input,select,textarea,a[href],[tabindex],[contenteditable],summary,audio[controls],video[controls]";
       const controls = interactive.flatMap((root) => [root, ...root.querySelectorAll(selector)]).filter((element) => element.tabIndex >= 0 && !element.matches(":disabled") && !element.closest("[inert]") && element.getClientRects().length > 0 && doc.defaultView.getComputedStyle(element).visibility === "visible");
@@ -60896,6 +61334,8 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     if (!active || typeof window === "undefined") return void 0;
     const onKeyDown = (event) => {
       if (event.defaultPrevented || isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return;
+      const dialog = dialogRef?.current ?? layerRef.current?.closest?.(".bt-settings");
+      if (!settingsOwnsKeyboard(dialog, dialog?.ownerDocument)) return;
       const tag = event.target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || event.target?.isContentEditable) return;
       if (event.key === "ArrowRight") {
@@ -60908,7 +61348,7 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active, next, prev]);
+  }, [active, next, prev, dialogRef]);
   (0, import_react71.useEffect)(() => {
     if (!active || !step?.page || step.page === currentPageRef.current) return;
     onNavigateRef.current(step.page);
@@ -61362,14 +61802,14 @@ var SHORTCUT_DEFS = [
   // Panels
   { id: "sidebar", group: "panels", label: "Toggle sidebar", defaultBinding: b("Backslash", { mod: true }) },
   { id: "right-panel", group: "panels", label: "Toggle right panel", defaultBinding: b("Backslash", { mod: true, shift: true }) },
-  { id: "browser", group: "panels", label: "Toggle Bot browser", defaultBinding: b("KeyB", { mod: true }), requiresBrowser: true },
+  { id: "browser", group: "panels", label: "Toggle Bot browser", classicLabel: "Toggle browser", defaultBinding: b("KeyB", { mod: true }), requiresBrowser: true },
   { id: "terminal", group: "panels", label: "Open terminal", defaultBinding: b("Backquote", { ctrl: true }), allowInTerminal: true },
-  { id: "details", group: "panels", label: "Toggle details", defaultBinding: b("KeyD", { mod: true, shift: true }) },
-  { id: "memory", group: "panels", label: "Open memory", defaultBinding: b("KeyE", { mod: true, shift: true }), allowInModal: ["memory"] },
+  { id: "details", group: "panels", label: "Toggle details", defaultBinding: b("KeyD", { mod: true, shift: true }), requiresDetails: true },
+  { id: "memory", group: "panels", label: "Open memory", defaultBinding: b("KeyE", { mod: true, shift: true }), requiresMemory: true, allowInModal: ["memory"] },
   // Conversation
   { id: "new-chat", group: "conversation", label: "New chat", defaultBinding: b("KeyN", { mod: true }), allowInModal: ["settings"] },
   { id: "focus-composer", group: "conversation", label: "Focus message input", defaultBinding: b("KeyL", { mod: true }) },
-  { id: "group-search", group: "conversation", label: "Search in group", defaultBinding: b("KeyF", { mod: true, shift: true }), allowInModal: ["groupSearch"] },
+  { id: "group-search", group: "conversation", label: "Search in group", defaultBinding: b("KeyF", { mod: true, shift: true }), requiresGroupSearch: true, allowInModal: ["groupSearch"] },
   { id: "stop-turn", group: "conversation", label: "Stop generating", defaultBinding: b("Period", { mod: true }) },
   // Application
   { id: "settings", group: "application", label: "Settings", defaultBinding: b("Comma", { mod: true }), allowInModal: ["settings", "shortcuts", "palette"] },
@@ -61554,11 +61994,21 @@ function formatBindingAria(binding, mac = isMacPlatform()) {
   parts.push(codeLabel(binding.code));
   return parts.join("+");
 }
-function isCommandAvailable(def, { hasSurface = true, hasBrowser = true, hasInbox = true } = {}) {
+function isCommandAvailable(def, {
+  hasSurface = true,
+  hasBrowser = true,
+  hasInbox = true,
+  hasDetails = true,
+  hasMemory = true,
+  hasGroupSearch = true
+} = {}) {
   if (!def) return false;
   if (def.requiresSurface && !hasSurface) return false;
   if (def.requiresBrowser && !hasBrowser) return false;
   if (def.requiresInbox && !hasInbox) return false;
+  if (def.requiresDetails && !hasDetails) return false;
+  if (def.requiresMemory && !hasMemory) return false;
+  if (def.requiresGroupSearch && !hasGroupSearch) return false;
   return true;
 }
 function isAltGraph(event) {
@@ -61896,16 +62346,21 @@ function KeyCaps({ caps, className = "" }) {
     caps.map((cap, index) => (0, import_react73.createElement)("kbd", { key: `${cap}-${index}`, className: "bt-kbd" }, cap))
   );
 }
-function labelForDef(def) {
-  return def.labelVars ? t(def.label, def.labelVars) : t(def.label);
+function labelForDef(def, classic = false) {
+  const key = classic && def.classicLabel ? def.classicLabel : def.label;
+  return def.labelVars ? t(key, def.labelVars) : t(key);
 }
-function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = shortcutsStore }) {
+function ShortcutsPage({ roster, actions, surfaceMode = "bot", Section: Section2, Row: Row4, store = shortcutsStore }) {
   const overrides = useShortcutOverrides(store);
   const mac = isMacPlatform();
+  const classic = surfaceMode === "agent";
   const enterToSend = sendsOnEnter(roster?.prefs);
   const hasSurface = typeof actions?.setSurface === "function";
   const hasBrowser = typeof actions?.openBrowser === "function" && roster?.browser !== false;
-  const hasInbox = typeof actions?.openInbox === "function";
+  const hasInbox = !classic && typeof actions?.openInbox === "function";
+  const hasDetails = !classic;
+  const hasMemory = !classic;
+  const hasGroupSearch = !classic;
   const [query, setQuery] = (0, import_react73.useState)("");
   const [recordingId, setRecordingId] = (0, import_react73.useState)(null);
   const [notice, setNotice] = (0, import_react73.useState)(null);
@@ -61991,18 +62446,19 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
       window.removeEventListener("mousedown", onMouseDown, true);
     };
   }, [recordingId, mac, store]);
-  useEscape(() => setNotice(null), Boolean(notice && !recordingId), { priority: 100 });
+  useEscape(() => setNotice(null), Boolean(notice && !recordingId), { priority: ESCAPE_PRIORITY.RECORDING });
   const wanted = query.trim().toLowerCase();
   const visibleDefs = (0, import_react73.useMemo)(() => {
-    const capabilities = { hasSurface, hasBrowser, hasInbox };
+    const capabilities = { hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch };
     return SHORTCUT_DEFS.filter((def) => {
       if (!isCommandAvailable(def, capabilities)) return false;
       if (!wanted) return true;
-      const label = labelForDef(def).toLowerCase();
+      const label = labelForDef(def, classic).toLowerCase();
+      const rawLabel = (classic && def.classicLabel ? def.classicLabel : def.label).toLowerCase();
       const caps = formatBindingCaps(effectiveBinding(def.id, overrides), mac).join(" ").toLowerCase();
-      return label.includes(wanted) || def.label.toLowerCase().includes(wanted) || caps.includes(wanted);
+      return label.includes(wanted) || rawLabel.includes(wanted) || caps.includes(wanted);
     });
-  }, [hasSurface, hasBrowser, hasInbox, wanted, overrides, mac]);
+  }, [hasSurface, hasBrowser, hasInbox, hasDetails, hasMemory, hasGroupSearch, classic, wanted, overrides, mac]);
   const grouped3 = (0, import_react73.useMemo)(() => {
     const byGroup = /* @__PURE__ */ new Map();
     for (const group of SHORTCUT_GROUPS) byGroup.set(group.id, []);
@@ -62018,7 +62474,7 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
     const all = [
       { id: "fixed:send", label: t("Send message"), caps: enterToSend ? ["Enter"] : [modCap, "Enter"] },
       { id: "fixed:newline", label: t("New line"), caps: enterToSend ? [shiftCap, "Enter"] : ["Enter"] },
-      { id: "fixed:mention", label: t("Mention a Bot"), caps: ["@"] },
+      ...classic ? [] : [{ id: "fixed:mention", label: t("Mention a Bot"), caps: ["@"] }],
       { id: "fixed:commands", label: t("Commands"), caps: ["/"] },
       { id: "fixed:stop-esc", label: t("Stop generating"), caps: ["Esc", "Esc"] },
       { id: "fixed:approval-allow", label: t("Allow approval (card focused)"), caps: ["Enter"] },
@@ -62027,7 +62483,7 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
     ];
     if (!wanted) return all;
     return all.filter((row) => row.label.toLowerCase().includes(wanted) || row.caps.join(" ").toLowerCase().includes(wanted));
-  }, [enterToSend, modCap, shiftCap, wanted]);
+  }, [enterToSend, modCap, shiftCap, classic, wanted]);
   const startRecording = (id) => {
     if (recordingId === id) {
       setRecordingId(null);
@@ -62104,7 +62560,7 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
         const customized = Object.prototype.hasOwnProperty.call(overrides, def.id);
         const isRecording = recordingId === def.id;
         const rowNotice = notice?.id === def.id ? notice : null;
-        const label = labelForDef(def);
+        const label = labelForDef(def, classic);
         return (0, import_react73.createElement)(
           "div",
           { key: def.id, className: "bt-sc-item", "data-shortcut-row": def.id },
@@ -62146,7 +62602,7 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
             (0, import_react73.createElement)(
               "span",
               { className: "bt-sc-alert-text" },
-              t("Already used by {name}", { name: labelForDef(rowNotice.conflict) })
+              t("Already used by {name}", { name: labelForDef(rowNotice.conflict, classic) })
             ),
             (0, import_react73.createElement)(
               "div",
@@ -62394,6 +62850,7 @@ function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface,
       hit.meta && hit.meta !== hit.title ? (0, import_react74.createElement)("span", { className: "bt-set-search-meta" }, hit.meta) : null
     ));
   });
+  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.PALETTE });
   return (0, import_react74.createElement)(
     "div",
     { className: "bt-set-palette-layer" },
@@ -62426,6 +62883,7 @@ function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface,
               return;
             }
             if (event.key === "Escape") {
+              if (topEscapePriority() > ESCAPE_PRIORITY.PALETTE) return;
               event.preventDefault();
               event.stopPropagation();
               event.nativeEvent?.stopPropagation?.();
@@ -63403,7 +63861,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
       case "general":
         return (0, import_react76.createElement)(GeneralPage, { roster, actions, run: run2, dsh, openAdvanced: advancedToken });
       case "shortcuts":
-        return (0, import_react76.createElement)(ShortcutsPage, { roster, actions, Section: SetSection, Row: SetRow });
+        return (0, import_react76.createElement)(ShortcutsPage, { roster, actions, surfaceMode: dsh?.surfaceMode ?? "bot", Section: SetSection, Row: SetRow });
       case "models":
         return (0, import_react76.createElement)(ProvidersPage, { actions, run: run2, roster, Section: SetSection, advanced: hasSection(dsh, "models") ? () => actions.openSettings("models", "advanced") : null });
       case "local-agents":
@@ -65984,7 +66442,7 @@ function dictationLimitMs(catalog) {
   return Math.max(1e3, Math.floor((Math.min(byDuration, byBytes) - 0.5) * 1e3));
 }
 function useDictation(onText) {
-  const [listening, setListening] = (0, import_react82.useState)(false);
+  const [listening2, setListening] = (0, import_react82.useState)(false);
   const [note, setNote] = (0, import_react82.useState)("");
   const recognition = (0, import_react82.useRef)(null);
   const latest = (0, import_react82.useRef)(onText);
@@ -66039,7 +66497,7 @@ function useDictation(onText) {
     }
   };
   const stop = () => recognition.current?.stop();
-  return { listening, note, start, stop };
+  return { listening: listening2, note, start, stop };
 }
 function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster, voiceChat = true, disabled = false }) {
   const enterToSend = useRoster((state) => sendsOnEnter(state.prefs));
@@ -66208,7 +66666,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster, voi
   }, [quote?.token]);
   if (sessionId === void 0) return null;
   const pluginMic = typeof actions.hasPluginMic === "function" ? actions.hasPluginMic() : actions.speech() !== void 0;
-  const listening = dictation.listening || hostListening;
+  const listening2 = dictation.listening || hostListening;
   const note = hostNote || dictation.note;
   return (0, import_react82.createElement)(
     import_react82.Fragment,
@@ -66217,9 +66675,9 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster, voi
       ref: voiceChat ? void 0 : composerRoot,
       type: "button",
       className: "bt-mic",
-      "aria-label": listening ? t("Stop dictation") : t("Dictate"),
-      "aria-pressed": listening,
-      title: listening ? t("Stop dictation") : t("Dictate"),
+      "aria-label": listening2 ? t("Stop dictation") : t("Dictate"),
+      "aria-pressed": listening2,
+      title: listening2 ? t("Stop dictation") : t("Dictate"),
       disabled: disabled || hostBusy,
       onMouseDown: keepComposerFocus,
       onClick: toggleMic
@@ -69224,7 +69682,7 @@ function sectionMoveItems(entry, roster, actions) {
 }
 var useNullWork2 = () => "null";
 function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
-  useEscape(() => actions.closeMenu(), !leaving);
+  useEscape(() => actions.closeMenu(), !leaving, { priority: ESCAPE_PRIORITY.MENU });
   const ref = (0, import_react92.useRef)(null);
   const trigger = (0, import_react92.useRef)(typeof document === "undefined" ? null : document.activeElement);
   const [armedDelete, setArmedDelete] = (0, import_react92.useState)(false);
@@ -70342,7 +70800,9 @@ var savedWidth = () => {
 var widthRange = (view, room2) => view === "browser" || view === "workspace" ? [MIN_WIDTH, room2 - MIN_CHAT] : [DETAILS_WIDTH, Math.min(DETAILS_MAX, room2 - MIN_CHAT)];
 var fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, high)));
 var attrValue = (value) => String(value ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-var shortAddress = (url) => String(url ?? "").replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
+var isBlankUrl = (url) => !url || url === "about:blank" || String(url).startsWith("about:blank#");
+var visibleUrl = (url) => isBlankUrl(url) ? "" : String(url);
+var shortAddress = (url) => visibleUrl(url).replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
 var tabLabel = (page) => page.title || shortAddress(page.url) || t("New tab");
 function PanelMenu({ items, className, "aria-label": label, icon: TriggerIcon = PlusTabIcon }) {
   const [open, setOpen] = (0, import_react95.useState)(false);
@@ -70353,7 +70813,7 @@ function PanelMenu({ items, className, "aria-label": label, icon: TriggerIcon = 
   useEscape(() => {
     setOpen(false);
     button.current?.focus();
-  }, open);
+  }, open, { priority: ESCAPE_PRIORITY.MENU });
   (0, import_react95.useLayoutEffect)(() => {
     const el = wrap2.current;
     const menu = pop.current;
@@ -70454,7 +70914,8 @@ var measureTabSpot = (box, node, isStickyBot) => {
   const left = isStickyBot ? 0 : node.offsetLeft;
   return { left, right: box.offsetWidth - left - node.offsetWidth, boxWidth: box.offsetWidth };
 };
-function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side: side2, task, workspace, hasSubjectDetails = true, canBrowse, reading, onView, actions, useBrowserPages }) {
+function PanelStrip({ bot, roomSubject, subject, browserOwner, view, ids, active, sides, side: side2, task, workspace, hasSubjectDetails = true, canBrowse, reading, onView, actions, useBrowserPages }) {
+  const browserId = browserOwner ?? bot?.id ?? subject;
   const pages = useBrowserPages((map) => map);
   const wsTabs = workspace?.tabs ?? [];
   const wsActive = workspace?.active ?? null;
@@ -70572,7 +71033,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side:
     canSide: Boolean(bot),
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true
-  }).map((key) => menuItemFor(key, actions, subject));
+  }).map((key) => menuItemFor(key, actions, key === "browser" || key === "new-tab" ? browserId : subject));
   return (0, import_react95.createElement)(
     "div",
     { className: "bt-ptabs", role: "tablist", "data-window-drag": true, "aria-label": t("Panel tabs") },
@@ -70611,15 +71072,15 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side:
               role: "tab",
               "aria-selected": on,
               className: "bt-ptab bt-ptab-btn",
-              title: page.url || t("New tab"),
+              title: visibleUrl(page.url) || t("New tab"),
               onClick: () => {
-                actions.browserActivate(bot.id, tabId);
+                actions.browserActivate(browserId, tabId);
                 onView("browser");
               },
               onAuxClick: (event) => {
                 if (event.button === 1) {
                   event.preventDefault();
-                  void actions.browserCloseTab(bot.id, tabId);
+                  void actions.browserCloseTab(browserId, tabId);
                 }
               }
             },
@@ -70632,7 +71093,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side:
             "aria-label": t("Close tab"),
             title: t("Close tab"),
             onClick: () => {
-              void actions.browserCloseTab(bot.id, tabId);
+              void actions.browserCloseTab(browserId, tabId);
             }
           }, "×")
         );
@@ -70791,14 +71252,16 @@ function shouldCheckBrowserCover(records) {
     return hasOverlayNode(record.addedNodes) || hasOverlayNode(record.removedNodes);
   });
 }
-function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+  const browserId = ownerId ?? bot?.id ?? "";
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
+  const pageUrl = visibleUrl(page.url);
   const frame3 = (0, import_react95.useRef)(null);
   const input = (0, import_react95.useRef)(null);
   const importBoxRef = (0, import_react95.useRef)(null);
   const [draft, setDraft] = (0, import_react95.useState)(null);
   const [covered, setCovered] = (0, import_react95.useState)(false);
-  const imports = actions.browserImport;
+  const imports = bot ? actions.browserImport : void 0;
   const {
     flow,
     sources,
@@ -70820,15 +71283,15 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     openPermission
   } = useCookieImportFlow({
     imports,
-    botId: bot.id,
-    pageUrl: page.url,
+    botId: bot?.id ?? "",
+    pageUrl,
     resetKey: tabId,
     idleFlow: null,
     onReload: () => actions.browserCommand(tabId, "reload")
   });
   const importStageKey = flow === null ? null : flow === "menu" ? "menu" : flow.stage;
   useMorph(importBoxRef, importStageKey);
-  const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null;
+  const showGuest = landed && !leaving && !covered && Boolean(pageUrl) && !page.error && flow === null;
   (0, import_react95.useEffect)(() => {
     let raf = 0;
     const update = () => {
@@ -70880,7 +71343,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   }, [tabId, showGuest, leaving]);
   (0, import_react95.useEffect)(() => {
     setDraft(null);
-    if (landed && !page.url) input.current?.focus();
+    if (landed && !pageUrl) input.current?.focus();
   }, [tabId, landed]);
   const go = (event) => {
     event.preventDefault();
@@ -70896,12 +71359,13 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   useEscape(() => {
     setDraft(null);
     input.current?.blur();
-  }, editing);
-  const secure = /^https:/i.test(page.url);
+  }, editing, { priority: ESCAPE_PRIORITY.INLINE_ACTION });
+  const secure = /^https:/i.test(pageUrl);
+  const viewLabel = bot ? t("{name}'s browser", { name: bot.name }) : t("Browser");
   return (0, import_react95.createElement)(
     "div",
-    { className: "bt-panel-view bt-panel-browser", "aria-label": t("{name}'s browser", { name: bot.name }) },
-    actions.browserTakeover ? (0, import_react95.createElement)(
+    { className: "bt-panel-view bt-panel-browser", "aria-label": viewLabel },
+    bot && actions.browserTakeover ? (0, import_react95.createElement)(
       "div",
       { className: "bt-browser-takeover", "data-held": hold?.by === "user" || void 0 },
       (0, import_react95.createElement)("span", null, hold?.by === "user" ? t("You control this browser") : hold?.by === "bot" ? t("The Bot handed this browser to you: {reason}", { reason: hold.reason }) : t("The Bot controls this browser")),
@@ -70920,7 +71384,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       (0, import_react95.createElement)("button", {
         type: "button",
         className: "bt-icon-btn",
-        disabled: !page.url,
+        disabled: !pageUrl,
         "aria-label": page.loading ? t("Stop") : t("Reload"),
         title: page.loading ? t("Stop") : t("Reload"),
         onClick: () => actions.browserCommand(tabId, page.loading ? "stop" : "reload")
@@ -70936,9 +71400,9 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
           autoComplete: "off",
           "aria-label": t("Address"),
           placeholder: t("Search or enter address"),
-          value: editing ? draft : shortAddress(page.url),
+          value: editing ? draft : shortAddress(pageUrl),
           onFocus: (event) => {
-            setDraft(page.url);
+            setDraft(pageUrl);
             const target = event.target;
             requestAnimationFrame(() => target.select());
           },
@@ -70946,6 +71410,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
           onChange: (event) => setDraft(event.target.value),
           onKeyDown: (event) => {
             if (event.key === "Escape" && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+              if (event.defaultPrevented || topEscapePriority() > ESCAPE_PRIORITY.INLINE_ACTION) return;
               event.preventDefault?.();
               event.stopPropagation?.();
               event.nativeEvent?.stopPropagation?.();
@@ -70960,7 +71425,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
         className: "bt-icon-btn",
         "aria-label": t("New browser tab"),
         title: t("New browser tab"),
-        onClick: () => actions.browserNewTab(bot.id)
+        onClick: () => actions.browserNewTab(browserId)
       }, (0, import_react95.createElement)(PlusTabIcon)),
       imports ? (0, import_react95.createElement)("button", {
         type: "button",
@@ -71027,16 +71492,16 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
         { className: "bt-browser-empty" },
         (0, import_react95.createElement)("div", { className: "bt-browser-empty-title" }, t("This page didn’t load")),
         (0, import_react95.createElement)("div", { className: "bt-browser-empty-text" }, t(page.error)),
-        page.url ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => {
-          void actions.browserNavigate(tabId, page.url);
+        pageUrl ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => {
+          void actions.browserNavigate(tabId, pageUrl);
         } }, t("Try again")) : null
-      ) : flow === null && !page.url ? (0, import_react95.createElement)(
+      ) : flow === null && !pageUrl ? (0, import_react95.createElement)(
         "div",
         { className: "bt-browser-empty" },
-        (0, import_react95.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }),
-        (0, import_react95.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
-        (0, import_react95.createElement)("div", { className: "bt-browser-empty-text" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
-        imports ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
+        bot ? (0, import_react95.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }) : (0, import_react95.createElement)("span", { className: "bt-browser-empty-icon", "aria-hidden": true }, (0, import_react95.createElement)(GlobeIcon2)),
+        (0, import_react95.createElement)("div", { className: "bt-browser-empty-title" }, bot ? t("{name}'s browser", { name: bot.name }) : t("Browser")),
+        (0, import_react95.createElement)("div", { className: "bt-browser-empty-text" }, bot ? t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name }) : t("Open a page beside your session. Enter an address above to get started.")),
+        bot && imports ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
       ) : null
     )
   );
@@ -71049,13 +71514,14 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   const wsTabs = workspace?.tabs ?? [];
   const hasWs = wsTabs.length > 0;
   const activeWsTab = wsTabs.find((tab) => tab.id === workspace?.active);
-  const canBrowse = Boolean(bot && roster.browser === true && actions.browserShow);
+  const browserOwner = bot ? bot.id : !hasSubjectDetails && workspace?.browserId ? workspace.browserId : null;
+  const canBrowse = Boolean(browserOwner && roster.browser === true && actions.browserShow);
   const sideChats = bot ? sideChatsOf(roster, bot.id) : [];
   const sideChat = sideChats.find((chat) => chat?.id === pane.side);
   const taskBot = pane.task?.botId ? roster.byId?.[pane.task.botId] : void 0;
   const taskEntry = taskBot && pane.task?.taskId ? (taskBot.tasks ?? []).find((item) => item?.id === pane.task.taskId) : void 0;
   const view = pane.view === "browser" && canBrowse ? "browser" : pane.view === "side" && sideChat !== void 0 ? "side" : pane.view === "task" && taskEntry !== void 0 ? "task" : pane.view === "workspace" && (hasWs || leaving) ? "workspace" : hasSubjectDetails ? "details" : hasWs ? "workspace" : "details";
-  const tabState = useBrowserTabs((map) => bot ? map[bot.id] ?? EMPTY_TABS2 : EMPTY_TABS2);
+  const tabState = useBrowserTabs((map) => browserOwner ? map[browserOwner] ?? EMPTY_TABS2 : EMPTY_TABS2);
   const active = tabState.active;
   const page = useBrowserPages((pages) => (active ? pages[active] : null) ?? EMPTY_PAGE);
   const hold = useBrowserHolds?.((map) => bot ? map[bot.id] ?? null : null) ?? null;
@@ -71093,7 +71559,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     if (switched) chatRoom.hold(false);
   }, [view, panelWidth, leaving, overlay]);
   const dragCleanup = (0, import_react95.useRef)(null);
-  useEscape(() => actions.closeOverlay(), !leaving, { priority: -1 });
+  useEscape(() => actions.closeOverlay(), !leaving, { priority: ESCAPE_PRIORITY.PANEL });
   (0, import_react95.useEffect)(() => () => {
     dragCleanup.current?.();
     chatRoom.setRight(null);
@@ -71119,13 +71585,15 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     return () => clearTimeout(timer2);
   }, []);
   (0, import_react95.useEffect)(() => {
-    if (canBrowse) actions.browserEnsure(bot.id);
-  }, [bot?.id, canBrowse]);
+    if (canBrowse && browserOwner) actions.browserEnsure(browserOwner);
+  }, [browserOwner, canBrowse]);
   (0, import_react95.useEffect)(() => {
     if (view === "browser" && (active === null || !tabState.ids.includes(active))) {
-      actions.setPanelView(workspace !== void 0 && hasWs ? "workspace" : "details");
+      if (workspace !== void 0 && hasWs) actions.setPanelView("workspace");
+      else if (hasSubjectDetails) actions.setPanelView("details");
+      else actions.closePanel?.();
     }
-  }, [view, active, tabState.ids.length, workspace, hasWs]);
+  }, [view, active, tabState.ids.length, workspace, hasWs, hasSubjectDetails]);
   (0, import_react95.useEffect)(() => {
     if (pane.view === "side" && sideChat === void 0) actions.setPanelView("details");
   }, [pane.view, sideChat]);
@@ -71134,14 +71602,16 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   }, [pane.view, taskEntry]);
   (0, import_react95.useEffect)(() => {
     if (leaving) return;
-    if (workspace !== void 0 && !hasSubjectDetails && !hasWs) {
+    const hasBrowser = canBrowse && (pane.view === "browser" || tabState.ids.length > 0);
+    if (workspace !== void 0 && !hasSubjectDetails && !hasWs && !hasBrowser) {
       actions.closePanel?.();
       return;
     }
     if (pane.view !== "workspace" || hasWs) return;
-    if (hasSubjectDetails) actions.setPanelView("details");
+    if (canBrowse && tabState.ids.length > 0) actions.setPanelView("browser");
+    else if (hasSubjectDetails) actions.setPanelView("details");
     else actions.closePanel?.();
-  }, [leaving, workspace, pane.view, hasWs, hasSubjectDetails]);
+  }, [leaving, workspace, pane.view, hasWs, hasSubjectDetails, canBrowse, tabState.ids.length]);
   (0, import_react95.useEffect)(() => {
     if (view !== "browser" || leaving) void actions.browserShow?.(null);
   }, [view, leaving]);
@@ -71288,14 +71758,14 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     grip.addEventListener("pointermove", onMove);
     for (const name of ends) grip.addEventListener(name, onEnd);
   };
-  const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length, taskEntry !== void 0, wsTabs.length) || workspace !== void 0 && (!hasSubjectDetails || leaving && pane.view === "workspace");
+  const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length, taskEntry !== void 0, wsTabs.length) || workspace !== void 0 && (!hasSubjectDetails || leaving && (pane.view === "workspace" || pane.view === "browser"));
   return (0, import_react95.createElement)(
     "aside",
     {
       ref: root,
       className: "bt-panel",
       "data-view": view,
-      "aria-label": view === "browser" && bot ? t("{name}'s browser", { name: bot.name }) : view === "side" ? t("Side chat") : view === "task" && taskEntry ? taskEntry.title : view === "workspace" ? activeWsTab?.label || t("Workspace") : t("Conversation details"),
+      "aria-label": view === "browser" ? bot ? t("{name}'s browser", { name: bot.name }) : t("Browser") : view === "side" ? t("Side chat") : view === "task" && taskEntry ? taskEntry.title : view === "workspace" ? activeWsTab?.label || t("Workspace") : t("Conversation details"),
       "data-leaving": leaving || void 0,
       "aria-hidden": leaving || void 0,
       "data-settling": settling || void 0,
@@ -71315,6 +71785,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       bot,
       roomSubject,
       subject: pane.id,
+      browserOwner,
       view,
       ids: tabState.ids,
       active,
@@ -71334,7 +71805,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       { key: "workspace", className: "bt-panel-view bt-panel-workspace", hidden: view !== "workspace" },
       workspace.render(workspace.active, view === "workspace")
     ) : null,
-    view === "workspace" ? !hasWs ? (0, import_react95.createElement)("div", { key: "workspace-empty", className: "bt-panel-view bt-panel-workspace" }) : null : view === "browser" && bot ? (0, import_react95.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react95.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react95.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : hasSubjectDetails || workspace === void 0 ? (0, import_react95.createElement)(
+    view === "workspace" ? !hasWs ? (0, import_react95.createElement)("div", { key: "workspace-empty", className: "bt-panel-view bt-panel-workspace" }) : null : view === "browser" && browserOwner ? (0, import_react95.createElement)(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react95.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react95.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : hasSubjectDetails || workspace === void 0 ? (0, import_react95.createElement)(
       "div",
       { key: `details:${subjectId}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
       (0, import_react95.createElement)(DetailsDrawer, {
@@ -71583,6 +72054,8 @@ var BROWSER_CSS = `
 .bt-import-plain:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-import-plain:disabled{opacity:.4;cursor:default}
 @media (prefers-reduced-motion:reduce){.bt-import-card,.bt-import-stage,.bt-import-cb svg,.bt-import-status-badge,.bt-import-skel-ico,.bt-import-skel-bar{animation:none!important}.bt-import-item,.bt-import-mini,.bt-import-primary,.bt-import-plain,.bt-import-chev,.bt-import-disc-chev{transition:none!important}}
+.bt-browser-empty-icon{width:44px;height:44px;border-radius:12px;background:var(--bt-hover);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center}
+.bt-browser-empty-icon svg{width:22px;height:22px}
 /* A viewport too narrow to leave the conversation its room: the panel covers it,
    and its close controls get a touch-sized target. */
 .bt-panel[data-overlay]{width:100vw}
@@ -72384,6 +72857,8 @@ var PREVIEW_SCRIPT = `(() => {
   return text.replace(/\\s+/g, ' ').trim().slice(0, 200)
 })()`;
 var EMPTY3 = { url: "", title: "", favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, live: false, excerpt: "" };
+var CLASSIC_BROWSER_OWNER = "classic";
+var normalizeGuestUrl = (url) => !url || url === "about:blank" || String(url).startsWith("about:blank#") ? "" : String(url);
 function createAppViewProxy(bridge2, botId, tabId) {
   const listeners3 = /* @__PURE__ */ new Map();
   const state = { url: "", title: "", loading: false, canGoBack: false, canGoForward: false };
@@ -72532,29 +73007,30 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
         if (own.ids.includes(tabId)) return snapshot;
         return { ...snapshot, [botId]: { ids: [...own.ids, tabId], active: tabId } };
       });
-      publish2(tabId, { url: change.url ?? "", title: change.title ?? "", live: true });
+      publish2(tabId, { url: normalizeGuestUrl(change.url), title: change.title ?? "", live: true });
       persist(botId);
       void open(tabId);
     }
+    const cleanChange = "url" in change ? { ...change, url: normalizeGuestUrl(change.url) } : change;
     const entry = views.get(tabId);
     if (entry?.appView) {
       const wasLoading = entry.element.isLoading();
       const prevUrl = entry.element.getURL();
-      entry.botAttached = change.botAttached === true;
-      entry.ready = change.live !== false && change.loading !== true;
-      entry.element.update(change, { silent: true });
+      entry.botAttached = cleanChange.botAttached === true;
+      entry.ready = cleanChange.live !== false && cleanChange.loading !== true;
+      entry.element.update(cleanChange, { silent: true });
       if (entry.ready) {
-        observe(entry, change);
+        observe(entry, cleanChange);
         const nextUrl = entry.element.getURL();
         if (wasLoading || nextUrl !== prevUrl || entry.previewedUrl !== nextUrl) {
           void preview(tabId);
         }
       } else {
-        publish2(tabId, change);
+        publish2(tabId, cleanChange);
       }
       return;
     }
-    publish2(tabId, change);
+    publish2(tabId, cleanChange);
   });
   const savedTab = (botId, tabId) => saved[botId]?.tabs?.find((entry) => entry.id === tabId);
   const publish2 = (tabId, patch) => pages.set((state) => {
@@ -72641,14 +73117,16 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
   const observe = (entry, extra) => {
     const { element } = entry;
     if (!entry.ready) return;
-    const url = element.getURL();
-    if (url.startsWith("about:blank#")) return;
+    const rawUrl = element.getURL();
+    if (rawUrl === "about:blank" || rawUrl.startsWith("about:blank#")) return;
+    const url = normalizeGuestUrl(rawUrl);
     if (entry.fresh) {
       element.clearHistory();
       entry.fresh = false;
     }
     const title = element.getTitle();
-    publish2(entry.tabId, { ...extra, url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: extra?.live ?? true });
+    const safeExtra = extra && "url" in extra ? { ...extra, url: normalizeGuestUrl(extra.url) } : extra;
+    publish2(entry.tabId, { ...safeExtra, url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: extra?.live ?? true });
     persist(entry.botId);
   };
   async function create(tabId) {
@@ -72726,13 +73204,14 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
     if (guest.appView) {
       const state = (await bridge2.views.sync(botId)).find((view) => view.tabId === tabId);
       if (state) {
-        entry.botAttached = state.botAttached === true;
-        if (state.live === false) {
+        const cleanState = "url" in state ? { ...state, url: normalizeGuestUrl(state.url) } : state;
+        entry.botAttached = cleanState.botAttached === true;
+        if (cleanState.live === false) {
           entry.ready = false;
-          element.update(state, { silent: true });
-          publish2(tabId, state);
+          element.update(cleanState, { silent: true });
+          publish2(tabId, cleanState);
         } else {
-          element.update(state);
+          element.update(cleanState);
         }
       }
     }
@@ -72838,6 +73317,10 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
     visible = tabId !== null && box !== null;
     for (const entry2 of views.values()) place(entry2);
     if (tabId === null) return;
+    if (box === null && !views.has(tabId)) {
+      const knownUrl = normalizeGuestUrl(pages.getSnapshot()[tabId]?.url || savedTab(owner.get(tabId), tabId)?.url);
+      if (!knownUrl) return;
+    }
     const entry = await open(tabId);
     if (entry === void 0 || shown !== tabId) return;
     entry.usedAt = Date.now();
@@ -72916,10 +73399,12 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
       const open2 = {};
       const snapshot = pages.getSnapshot();
       for (const [botId, state] of Object.entries(tabs.getSnapshot())) {
+        if (botId === CLASSIC_BROWSER_OWNER) continue;
         const tabId = state.active;
         const entry = tabId ? views.get(tabId) : void 0;
         const page = tabId ? snapshot[tabId] : void 0;
-        if (entry?.ready && page?.live !== false && page?.url) open2[botId] = { url: page.url, title: page.title };
+        const url = normalizeGuestUrl(page?.url);
+        if (entry?.ready && page?.live !== false && url) open2[botId] = { url, title: page.title };
       }
       return open2;
     },

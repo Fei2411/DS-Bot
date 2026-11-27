@@ -17,6 +17,7 @@ import { useMemoryCount } from './memory-panel.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useGlide, useLinger } from './motion.js'
 import { ChatBackgroundSection } from './appearance-page.js'
 import { t } from './i18n.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { ApprovalSettings } from './approval-settings.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
@@ -151,11 +152,10 @@ export function AvatarEditor({ bot, room, actions, run, onClose, leaving = false
       if (!(event.target instanceof Element) || ref.current?.contains(event.target) || event.target.closest('.bt-avatar-trigger')) return
       onClose()
     }
-    const onKey = (event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }
     window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
+    return () => { window.removeEventListener('mousedown', onDown) }
   }, [onClose])
+  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.MENU })
   useEffect(() => {
     if (tab !== 'upload') return undefined
     const onPaste = (event) => {

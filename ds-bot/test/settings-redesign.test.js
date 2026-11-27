@@ -107,6 +107,13 @@ function makeStatefulReact() {
   }
 
   const runEffects = () => {
+    for (const [key, cleanup] of [...activeCleanups.entries()]) {
+      if (!effects.has(key)) {
+        cleanup()
+        activeCleanups.delete(key)
+        prevDeps.delete(key)
+      }
+    }
     for (const [key, { fn, deps }] of effects.entries()) {
       if (!depsChanged(prevDeps.get(key), deps)) continue
       activeCleanups.get(key)?.()

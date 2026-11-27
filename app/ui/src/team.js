@@ -28,6 +28,7 @@ const CATCH_UP_MS = 15_000
 const READ_AGAIN = new Set(['hello', 'revision', 'live'])
 const NO_WORK = { bots: {}, approvals: [] }
 const EMPTY_PENDING = Object.freeze([])
+export const CLASSIC_BROWSER_OWNER = 'classic'
 
 // A selection from a source. The value is kept per snapshot and selector, so React reads
 // one value until the source changes.
@@ -540,14 +541,29 @@ export function createTeam() {
       if (!sessionId) return
       const switched = sessionId !== shown.getSnapshot()
       lastAgentSession = sessionId
+      const hasClassicBrowser = Boolean(
+        roster.getSnapshot().browser === true
+        && browsers
+        && (browsers.tabs.getSnapshot()[CLASSIC_BROWSER_OWNER]?.ids?.length ?? 0) > 0,
+      )
       show(sessionId)
       ui.set((state) => {
         const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
-        const keepPanel = Boolean(state.details && rp !== null && rp.tabs.length > 0)
+        const hasWorkspace = rp !== null && rp.tabs.length > 0
+        const keepBrowser = Boolean(state.details && state.view === 'browser' && hasClassicBrowser)
+        const keepWorkspace = Boolean(state.details && hasWorkspace)
+        const keepPanel = keepBrowser || keepWorkspace
         return {
           ...state,
           ...(keepPanel
-            ? { details: sessionId, view: 'workspace', renaming: false, tab: null, side: null, task: null }
+            ? {
+                details: sessionId,
+                view: keepBrowser ? 'browser' : 'workspace',
+                renaming: false,
+                tab: null,
+                side: null,
+                task: null,
+              }
             : { details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false }),
           newChat: null,
           exchange: null,
@@ -556,7 +572,7 @@ export function createTeam() {
           groupSearch: null,
           shortcuts: false,
           inbox: false,
-          rightPanel: keepPanel ? rp : null,
+          rightPanel: keepWorkspace ? rp : null,
         }
       })
     },
@@ -824,6 +840,20 @@ export function createTeam() {
             tab: null,
           }
         }
+        if (surface.getSnapshot().mode === 'agent'
+          && snap.browser === true
+          && browsers
+          && (browsers.tabs.getSnapshot()[CLASSIC_BROWSER_OWNER]?.ids?.length ?? 0) > 0) {
+          return {
+            ...state,
+            rightPanel: null,
+            view: 'browser',
+            renaming: false,
+            tab: null,
+            side: null,
+            task: null,
+          }
+        }
         return {
           ...state,
           details: null,
@@ -897,44 +927,56 @@ export function createTeam() {
   }
 
   // Without the Desktop bridge these stay undefined, and no browser control renders.
+  // Classic mode shares the same browser view plumbing under a dedicated owner key.
+  const resolveBrowserOwner = (id) => {
+    const snap = roster.getSnapshot()
+    const bot = id ? snap.byId?.[id] : undefined
+    if (bot) return { ownerId: bot.id, detailsId: id, isClassic: false }
+    if (id === CLASSIC_BROWSER_OWNER || surface.getSnapshot().mode === 'agent') {
+      return { ownerId: CLASSIC_BROWSER_OWNER, detailsId: shown.getSnapshot() || CLASSIC_BROWSER_OWNER, isClassic: true }
+    }
+    return null
+  }
   if (browsers) {
     Object.assign(actions, {
-      // The globe / `+ -> Browser` trigger: the Bot's active tab in the browser view, or a new tab.
+      // The globe / `+ -> Browser` trigger: the active browser tab (Bot or Classic), or a new tab.
       openBrowser: (id) => {
-        const bot = roster.getSnapshot().byId[id]
-        if (!bot) return
-        browsers.ensureTabs(bot.id)
-        if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        const target = resolveBrowserOwner(id)
+        if (!target) return
+        browsers.ensureTabs(target.ownerId)
+        if (browsers.tabs.getSnapshot()[target.ownerId]?.active == null) browsers.openTab(target.ownerId)
+        ui.set(state => ({ ...state, inbox: false, details: target.detailsId, view: 'browser', renaming: false, tab: null, panelYield: true }))
       },
       toggleBrowser: (id) => {
         const snap = roster.getSnapshot()
         if (snap.browser === false) return
-        const bot = snap.byId?.[id]
-        if (!bot) return
+        const target = resolveBrowserOwner(id)
+        if (!target) return
         const state = ui.getSnapshot()
-        const detailsBotId = state.details ? (snap.byId?.[state.details]?.id ?? state.details) : null
-        if (state.details && state.view === 'browser' && detailsBotId === bot.id) {
+        const sameOwner = target.isClassic
+          ? (!snap.byId?.[state.details] && !snap.roomsById?.[state.details])
+          : ((snap.byId?.[state.details]?.id ?? state.details) === target.ownerId)
+        if (state.details && state.view === 'browser' && sameOwner) {
           actions.closePanel()
           return
         }
-        actions.openBrowser(bot.id)
+        actions.openBrowser(target.isClassic ? CLASSIC_BROWSER_OWNER : target.ownerId)
       },
       // `+` on the strip or the drawer's new-tab card: a blank tab in the browser view.
       browserNewTab: (id) => {
-        const bot = roster.getSnapshot().byId[id]
-        if (!bot) return null
-        browsers.ensureTabs(bot.id)
-        const tabId = browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        const target = resolveBrowserOwner(id)
+        if (!target) return null
+        browsers.ensureTabs(target.ownerId)
+        const tabId = browsers.openTab(target.ownerId)
+        ui.set(state => ({ ...state, inbox: false, details: target.detailsId, view: 'browser', renaming: false, tab: null, panelYield: true }))
         return tabId
       },
       // A drawer card: its tab active, the panel on the browser view.
       browserPick: (id, tabId) => {
-        const bot = roster.getSnapshot().byId[id]
-        if (!bot) return
-        browsers.activate(bot.id, tabId)
-        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        const target = resolveBrowserOwner(id)
+        if (!target) return
+        browsers.activate(target.ownerId, tabId)
+        ui.set(state => ({ ...state, inbox: false, details: target.detailsId, view: 'browser', renaming: false, tab: null, panelYield: true }))
       },
       browserEnsure: botId => browsers.ensureTabs(botId),
       browserCloseTab: async (botId, tabId) => {
@@ -946,11 +988,13 @@ export function createTeam() {
           if (!state.details || state.view !== 'browser') return state
           const subjectBot = snap.byId?.[state.details]
           if (subjectBot && subjectBot.id !== botId) return state
+          if (!subjectBot && botId !== CLASSIC_BROWSER_OWNER) return state
           const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
           if (hasWorkspace) return { ...state, view: 'workspace', renaming: false, tab: null }
           const hasSide = Boolean(subjectBot && state.side && (snap.sideChats?.[subjectBot.id] ?? []).some(chat => chat?.id === state.side))
           if (hasSide) return { ...state, view: 'side', renaming: false, tab: null }
-          return { ...state, view: 'details', renaming: false, tab: null }
+          if (subjectBot || snap.roomsById?.[state.details]) return { ...state, view: 'details', renaming: false, tab: null }
+          return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
         })
       },
       browserActivate: (botId, tabId) => browsers.activate(botId, tabId),
@@ -1156,7 +1200,8 @@ export function createTeam() {
         if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call })
         if (!on && stopReads) { stopReads(); stopReads = null }
         // A Bot deleted here or in another window takes its guests and saved tabs along.
-        void browsers.retain(snapshot.bots.map(bot => bot.id)).catch(() => {})
+        // Keep the shared Classic browser owner alive across roster updates.
+        void browsers.retain([...snapshot.bots.map(bot => bot.id), CLASSIC_BROWSER_OWNER]).catch(() => {})
         // A panel open on a deleted subject or unavailable browser falls back cleanly to
         // workspace (if open), details (if subject still exists), or closes completely.
         ui.set((state) => {
@@ -1164,8 +1209,9 @@ export function createTeam() {
           const hasBot = Boolean(snapshot.byId[state.details])
           const hasRoom = Boolean(snapshot.roomsById?.[state.details])
           const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
+          const isClassicBrowser = !hasBot && !hasRoom && surface.getSnapshot().mode === 'agent'
           if (state.view === 'browser') {
-            if (on && hasBot) return state
+            if (on && (hasBot || isClassicBrowser)) return state
             if (hasWorkspace) return { ...state, view: 'workspace' }
             if (hasBot || hasRoom) return { ...state, view: 'details' }
             return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }

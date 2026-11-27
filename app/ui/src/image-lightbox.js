@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom'
 import { fileSizeText } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { CloseIcon, ImageIcon } from '../../../ds-bot/src/client/icons.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
-import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 
 /**
  * Full-screen image viewer portaled to `document.body`, dismissed via Esc, backdrop click, or close button.
@@ -16,23 +16,7 @@ export function ImageLightbox({ open, src, loadFull, alt, caption, onClose }) {
   const closeBtn = useRef(null)
   const returnFocus = useRef(null)
 
-  // Keep `hasEscapeLayer()` true while the lightbox is open and register `onClose`,
-  // while the capture-phase listener intercepts Escape first so it closes only the lightbox.
-  useEscape(onClose, open, { priority: 60 })
-
-  useEffect(() => {
-    if (!open || typeof window === 'undefined') return undefined
-    const onKey = (event) => {
-      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
-      if (event.key === 'Escape') {
-        event.preventDefault?.()
-        event.stopPropagation?.()
-        onClose?.()
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [open, onClose])
+  useEscape(() => onClose?.(), open, { priority: ESCAPE_PRIORITY.LIGHTBOX })
 
   useEffect(() => {
     if (open) {

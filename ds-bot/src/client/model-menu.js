@@ -8,6 +8,7 @@ import { SPRING_POP, SPRING_SHAPE, SPRING_TAP, spring, stepMenuFocus, useLinger,
 import { hostText, t } from './i18n.js'
 import { isLocalRoute, modelsFor, routeOf } from './agent-routes.js'
 import { registerPopupOwner } from './popup-ownership.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { lruGet, lruSet } from './memo.js'
 
 const MENU_EXIT_MS = 120
@@ -351,8 +352,7 @@ export function useAnchoredMenu(minWidth = 240, align = 'right') {
       close()
     }
     const onKey = (event) => {
-      if (stepMenuFocus(menu.current, event, button.current)) return
-      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); close(); button.current?.focus() }
+      stepMenuFocus(menu.current, event, button.current)
     }
     const onScroll = (event) => { if (!menu.current?.contains(event.target)) close() }
     window.addEventListener('mousedown', onDown)
@@ -364,6 +364,7 @@ export function useAnchoredMenu(minWidth = 240, align = 'right') {
       window.removeEventListener('scroll', onScroll, true)
     }
   }, [place])
+  useEscape(() => { close(); button.current?.focus() }, place !== null, { priority: ESCAPE_PRIORITY.MENU })
   const open = () => setAnchor({})
   // Re-reads the trigger's rect whenever the visible viewport moves: the menu
   // tracks its anchor through the on-screen keyboard, not past it.
@@ -394,8 +395,7 @@ export function useInlineMenu() {
     if (!isOpen) return undefined
     const onDown = (event) => { if (!root.current?.contains(event.target)) close() }
     const onKey = (event) => {
-      if (stepMenuFocus(menu.current, event, button.current)) return
-      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); close(); button.current?.focus() }
+      stepMenuFocus(menu.current, event, button.current)
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
@@ -404,6 +404,7 @@ export function useInlineMenu() {
       window.removeEventListener('keydown', onKey, true)
     }
   }, [isOpen])
+  useEscape(() => { close(); button.current?.focus() }, isOpen, { priority: ESCAPE_PRIORITY.MENU })
   return { isOpen, root, button, menu, open: () => setOpen(true), close }
 }
 
