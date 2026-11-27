@@ -6,12 +6,13 @@ import * as Haptics from 'expo-haptics'
 import { t, clockLabel, messageClock } from '../../ui/i18n.ts'
 import { CheckIcon } from '../../ui/icons.tsx'
 import { Avatar } from '../../ui/marks.tsx'
-import type { Bot } from '../../connection.ts'
+import type { Bot, ShownView } from '../../connection.ts'
 import { imPlatform } from '../../../../ds-bot/src/shared/im-platforms.js'
 import { inkColor, radius, type as typeScale, useTheme, type Palette } from '../../ui/tokens.ts'
 import { Markdown, hasBlockContent } from './markdown.tsx'
 import { useTeam } from '../../team/context.tsx'
 import { ViewCard } from './view.tsx'
+import { viewHasControls } from './inline-views.ts'
 import { handoffTitleOf, relayReplyText, roundEventText, settledQuestionPicks, stripLongNote, type RelayReplyData, type SettledQuestionData } from './settled.ts'
 import { viewAnswerText } from 'deep-view/core'
 
@@ -44,6 +45,8 @@ export interface ChatItem {
   whole?: { file?: FileRef; length?: number }
   length?: number
   title?: string
+  callId?: string
+  pending?: boolean
   view?: unknown
   views?: { id: string; title: string; view: unknown }[]
   closed?: string
@@ -69,7 +72,11 @@ export interface ChatItem {
 export function keysOf(items: ChatItem[]): string[] {
   const seen = new Map<string, number>()
   return items.map(item => {
-    const base = item.localId !== undefined ? `local-${item.localId}` : `${item.kind}-${item.seq ?? item.time ?? (item.kind === 'steps' ? `t${item.turn ?? ''}` : '')}`
+    const base = item.localId !== undefined
+      ? `local-${item.localId}`
+      : item.kind === 'view' && (item.id !== undefined || item.callId !== undefined)
+        ? `view-${item.id ?? item.callId}`
+        : `${item.kind}-${item.seq ?? item.time ?? (item.kind === 'steps' ? `t${item.turn ?? ''}` : '')}`
     const count = seen.get(base) ?? 0
     seen.set(base, count + 1)
     return count === 0 ? base : `${base}#${count}`
@@ -86,7 +93,7 @@ const dataUri = (value: unknown) => `data:${(value as { mime?: string })?.mime ?
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
-export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onSaveFile, onRetry, stamp, author, admin }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; onLongPress?: (text: string) => void; onOpenFile?: (file: FileRef) => void; onSaveFile?: (file: FileRef) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
+export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onSaveFile, onRetry, stamp, author, admin, pendingView, onViewSettled }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; pendingView?: { sessionId: string; view: ShownView }; onViewSettled?: () => void; onLongPress?: (text: string) => void; onOpenFile?: (file: FileRef) => void; onSaveFile?: (file: FileRef) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
   const { dark } = useTheme()
   const rowSessionId = item.sessionId ?? sessionId
   const authorBotId = item.botId ?? author?.id
@@ -176,11 +183,28 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
     )
   }
   if (item.kind === 'view') {
-    return item.view !== undefined
-      ? <ViewCard sessionId={rowSessionId ?? ''} title={item.title} root={item.view} p={p} readOnly />
-      : <View style={[styles.settledCard, { backgroundColor: p.card, borderColor: p.line }]}>
-          <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{item.title ?? 'View'}</Text>
-        </View>
+    if (pendingView !== undefined) {
+      return (
+        <ViewCard
+          sessionId={pendingView.sessionId}
+          id={pendingView.view.id}
+          title={pendingView.view.title ?? item.title}
+          root={pendingView.view.view ?? item.view}
+          p={p}
+          onSettled={onViewSettled}
+        />
+      )
+    }
+    if (item.pending === true) return null
+    if (item.view !== undefined) {
+      const hasControls = viewHasControls(item.view)
+      return <ViewCard sessionId={rowSessionId ?? ''} title={item.title} root={item.view} p={p} readOnly={!hasControls} displayOnly={hasControls} unframed={!hasControls} />
+    }
+    return (
+      <View style={[styles.settledCard, { backgroundColor: p.card, borderColor: p.line }]}>
+        <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{item.title ?? 'View'}</Text>
+      </View>
+    )
   }
   if (item.kind === 'answer') {
     let handoff = item.handoff
