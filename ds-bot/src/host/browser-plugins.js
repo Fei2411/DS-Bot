@@ -266,6 +266,7 @@ export function install(rt) {
     category: 'browser',
     slot: 'browser',
     supportsGrants: false,
+    controlsPane: false,
     toolPrefixes: ['read_browser'],
     locales: {
       zh: {
@@ -290,6 +291,7 @@ export function install(rt) {
       category: 'browser',
       slot: 'browser',
       supportsGrants: true,
+      controlsPane: true,
       toolPrefixes: defs.map(t => t.name),
       locales: meta.locales,
       mount(host) {
@@ -309,6 +311,7 @@ export function install(rt) {
       category: 'browser',
       slot: 'browser',
       supportsGrants: true,
+      controlsPane: true,
       toolPrefixes: defs.map(t => t.name),
       mount(host) {
         return mountToolsWithHost(host, { toolDefs: defs })

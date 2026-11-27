@@ -1141,3 +1141,137 @@ test('saveCustomPlugin avoids MCP name collisions and installPlugin with customM
   assert.equal(egoItem.slot, 'browser')
   assert.deepEqual(egoItem.toolPrefixes, ['custom_ego_'])
 })
+
+test('browser slot reports controlsPane, windowMode, and activeName accurately across built-in, external DSH, and native providers', async (t) => {
+  const bundles = [
+    {
+      name: 'dsh-ego-browser',
+      official: false,
+      availability: 'profile',
+      version: '1.2.0',
+      enabled: true,
+      installed: true,
+      optional: false,
+      removable: true,
+      updatable: true,
+      rows: [],
+      overrides: [],
+    },
+  ]
+  const fakePm = {
+    listBundles: async () => bundles.map(b => ({ ...b })),
+    setBundleEnabled: async (name, enabled) => {
+      const target = bundles.find(b => b.name === name)
+      if (target) target.enabled = enabled
+      return { application: 'applied' }
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  // 1. Default readonly: controlsPane false, windowMode readonly
+  let summary = rt.pluginsSummary()
+  assert.equal(summary.slots.browser.active, 'builtin:readonly')
+  assert.equal(summary.slots.browser.controlsPane, false)
+  assert.equal(summary.slots.browser.windowMode, 'readonly')
+  assert.equal(summary.slots.browser.activeName, 'Read-only Browser')
+
+  // 2. Built-in Playwright (Refs): controlsPane true, windowMode pane
+  const refsRes = await call('plugins-slot-set', { slot: 'browser', id: 'builtin:refs' })
+  assert.equal(refsRes.ok, true)
+  assert.equal(refsRes.value.slots.browser.controlsPane, true)
+  assert.equal(refsRes.value.slots.browser.windowMode, 'pane')
+  assert.equal(refsRes.value.slots.browser.activeName, 'Playwright (Refs)')
+  summary = rt.pluginsSummary()
+  assert.equal(summary.slots.browser.controlsPane, true)
+  assert.equal(summary.slots.browser.windowMode, 'pane')
+
+  // 3. External DSH plugin (Ego Lite): controlsPane false, windowMode external
+  const egoRes = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:dsh-ego-browser' })
+  assert.equal(egoRes.ok, true)
+  assert.equal(egoRes.value.slots.browser.controlsPane, false)
+  assert.equal(egoRes.value.slots.browser.windowMode, 'external')
+  assert.equal(egoRes.value.slots.browser.activeName, 'Ego Lite Browser')
+  const egoEntry = egoRes.value.plugins.find(p => p.id === 'dsh:dsh-ego-browser')
+  assert.equal(egoEntry.controlsPane, false)
+  assert.equal(egoEntry.windowMode, 'external')
+  summary = rt.pluginsSummary()
+  assert.equal(summary.slots.browser.controlsPane, false)
+  assert.equal(summary.slots.browser.windowMode, 'external')
+  assert.equal(summary.slots.browser.activeName, 'Ego Lite Browser')
+
+  // 4. Native provider with custom mount (no controlsPane) vs toolDefs (defaults to controlsPane: true)
+  const extProvider = defineBrowserProvider({
+    id: 'provider:ext-browser',
+    name: 'External Custom',
+    mount: () => ({ dispose() {} }),
+  })
+  const paneProvider = defineBrowserProvider({
+    id: 'provider:pane-browser',
+    name: 'Pane Custom',
+    toolDefs: [{ name: 'pane_open', description: 'Open', inputSchema: { type: 'object', properties: {} }, run: async () => 'ok' }],
+  })
+  assert.equal(extProvider.controlsPane, false)
+  assert.equal(paneProvider.controlsPane, true)
+  rt.plugins.registerNative(extProvider)
+  rt.plugins.registerNative(paneProvider)
+
+  const extPRes = await call('plugins-slot-set', { slot: 'browser', id: 'provider:ext-browser' })
+  assert.equal(extPRes.ok, true)
+  assert.equal(extPRes.value.slots.browser.controlsPane, false)
+  assert.equal(extPRes.value.slots.browser.windowMode, 'external')
+
+  const panePRes = await call('plugins-slot-set', { slot: 'browser', id: 'provider:pane-browser' })
+  assert.equal(panePRes.ok, true)
+  assert.equal(panePRes.value.slots.browser.controlsPane, true)
+  assert.equal(panePRes.value.slots.browser.windowMode, 'pane')
+
+  // 5. defineBrowserProvider with BOTH toolDefs and custom mount does not auto-claim controlsPane/supportsGrants.
+  const customMountWithTools = defineBrowserProvider({
+    id: 'provider:custom-mount-tools',
+    name: 'Custom Mount With Tools',
+    toolDefs: [{ name: 'cm_go', description: 'Go', inputSchema: { type: 'object', properties: {} }, run: async () => 'ok' }],
+    mount: () => ({ dispose() {} }),
+  })
+  assert.equal(customMountWithTools.controlsPane, false)
+  assert.equal(customMountWithTools.supportsGrants, false)
+  const explicitPaneCustomMount = defineBrowserProvider({
+    id: 'provider:explicit-pane-mount',
+    name: 'Explicit Pane Mount',
+    controlsPane: true,
+    toolDefs: [{ name: 'ep_go', description: 'Go', inputSchema: { type: 'object', properties: {} }, run: async () => 'ok' }],
+    mount: () => ({ dispose() {} }),
+  })
+  assert.equal(explicitPaneCustomMount.controlsPane, true)
+
+  // 6. Unavailable external plugin falls back to builtin:readonly with readonly surface metadata.
+  const missingRes = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:not-installed-browser' })
+  assert.equal(missingRes.ok, true)
+  assert.equal(missingRes.value.slots.browser.desired, 'dsh:not-installed-browser')
+  assert.equal(missingRes.value.slots.browser.active, 'builtin:readonly')
+  assert.equal(missingRes.value.slots.browser.controlsPane, false)
+  assert.equal(missingRes.value.slots.browser.windowMode, 'readonly')
+  assert.equal(missingRes.value.slots.browser.activeName, 'Read-only Browser')
+
+  // 7. Custom rename on Ego Lite is preserved in activeName with customName: true; nativeFromBundle upgrades controlsPane.
+  await call('plugins-custom-save', { kind: 'dsh', name: 'My Ego', spec: 'dsh-ego-browser', packageName: 'dsh-ego-browser', slot: 'browser', toolPrefixes: 'ego_' })
+  const renamedEgo = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:dsh-ego-browser' })
+  assert.equal(renamedEgo.ok, true)
+  assert.equal(renamedEgo.value.slots.browser.activeName, 'My Ego')
+  assert.equal(renamedEgo.value.slots.browser.customName, true)
+  assert.equal(renamedEgo.value.slots.browser.windowMode, 'external')
+
+  rt.plugins.registerNative(defineBrowserProvider({
+    id: 'provider:ego-pane-upgrade',
+    name: 'Ego Pane Upgrade',
+    packageName: 'dsh-ego-browser',
+    toolDefs: [{ name: 'ego_pane_open', description: 'Open', inputSchema: { type: 'object', properties: {} }, run: async () => 'ok' }],
+  }))
+  const upgraded = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:dsh-ego-browser' })
+  assert.equal(upgraded.ok, true)
+  assert.equal(upgraded.value.slots.browser.controlsPane, true)
+  assert.equal(upgraded.value.slots.browser.windowMode, 'pane')
+  assert.equal(upgraded.value.slots.browser.activeName, 'My Ego')
+  assert.equal(upgraded.value.slots.browser.customName, true)
+})

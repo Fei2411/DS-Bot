@@ -5,6 +5,7 @@
 // Marks render in calm grayscale when inactive and bloom into full color on
 // activation, matching Connectors (connectors-page.js).
 import { createElement as h } from 'react'
+import { isExternalBrowserPlugin } from './browser-plugin-mode.js'
 
 const svg = (...kids) => h('svg', { width: 22, height: 22, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true }, ...kids)
 
@@ -139,40 +140,46 @@ export function PluginMark({ plugin }) {
 const BROWSER_META = {
   'builtin:readonly': {
     url: 'browser://readonly',
-    traits: ['Read current page', 'Zero writes'],
+    traits: ['Sidebar browser', 'Read current page', 'Zero writes'],
   },
   'builtin:refs': {
     url: 'browser://playwright/refs',
-    traits: ['Click & forms', 'Element refs', 'Screenshots'],
+    traits: ['Sidebar browser', 'Click & forms', 'Element refs'],
   },
   'builtin:script': {
     url: 'browser://playwright/script',
-    traits: ['JS scripts', 'Batch steps', 'Fast'],
+    traits: ['Sidebar browser', 'JS scripts', 'Batch steps'],
   },
   'builtin:task': {
     url: 'browser://playwright/task',
-    traits: ['Multi-step', 'Autonomous'],
+    traits: ['Sidebar browser', 'Multi-step', 'Autonomous'],
   },
   'dsh:dsh-ego-browser': {
     url: 'browser://ego-lite',
-    traits: ['Shared login', 'Real Chromium', 'Human + AI'],
+    traits: ['External window', 'Requires Ego Lite app', 'Real Chromium'],
   },
   'mcp:playwright-mcp': {
     url: 'browser://playwright-mcp',
-    traits: ['Accessibility tree', 'Standard MCP'],
+    traits: ['External window', 'Accessibility tree', 'Standard MCP'],
   },
   'mcp:chrome-devtools-mcp': {
     url: 'browser://chrome-devtools',
-    traits: ['DOM & console', 'Network debug', 'CDP'],
+    traits: ['External window', 'DOM & console', 'CDP'],
   },
 }
 
 export function browserMetaFor(plugin) {
   if (!plugin) return { url: 'browser://none', traits: [] }
-  if (BROWSER_META[plugin.id]) return BROWSER_META[plugin.id]
+  const isExternal = isExternalBrowserPlugin(plugin)
+  const surfaceTrait = isExternal ? 'External window' : 'Sidebar browser'
+  const known = BROWSER_META[plugin.id]
+  if (known) {
+    const rest = known.traits.filter(tr => tr !== 'External window' && tr !== 'Sidebar browser')
+    return { url: known.url, traits: [surfaceTrait, ...rest] }
+  }
   const slug = String(plugin.id || 'custom').replace(/^(builtin|dsh|mcp|provider):/, '').replace(/[^a-z0-9._-]+/gi, '-').toLowerCase()
   return {
     url: `browser://${slug || 'custom'}`,
-    traits: plugin.kind === 'mcp' ? ['Standard MCP', 'Browser slot'] : ['Browser slot'],
+    traits: plugin.kind === 'mcp' ? [surfaceTrait, 'Standard MCP'] : [surfaceTrait, 'Browser slot'],
   }
 }

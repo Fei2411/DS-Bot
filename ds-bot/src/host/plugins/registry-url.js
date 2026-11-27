@@ -14,7 +14,7 @@ export const BUNDLED_PLUGIN_CATALOG = [
   {
     id: 'dsh:dsh-ego-browser',
     name: 'Ego Lite Browser',
-    description: 'External DSH browser automation plugin powered by Ego Lite (human + AI shared Chromium).',
+    description: 'Controls the standalone Ego Lite app on this computer (opens in an external window, not in DS Bot\'s sidebar).',
     author: 'Community',
     category: 'browser',
     slot: 'browser',
@@ -34,14 +34,14 @@ export const BUNDLED_PLUGIN_CATALOG = [
     locales: {
       zh: {
         name: 'Ego Lite 浏览器',
-        description: '基于 Ego Lite 的外部 DSH 浏览器插件，支持人机共用 Chromium 会话。',
+        description: '操控本机独立安装的 Ego Lite 应用（在外部窗口打开，不显示在 DS Bot 侧边栏）。',
       },
     },
   },
   {
     id: 'mcp:playwright-mcp',
     name: 'Playwright MCP',
-    description: 'Official Playwright MCP server (@playwright/mcp) for structured accessibility-tree browser control.',
+    description: 'Official Playwright MCP server (@playwright/mcp). Runs in a separate browser window outside DS Bot\'s sidebar.',
     author: 'Microsoft',
     category: 'browser',
     slot: 'browser',
@@ -63,14 +63,14 @@ export const BUNDLED_PLUGIN_CATALOG = [
     locales: {
       zh: {
         name: 'Playwright MCP',
-        description: '官方 Playwright MCP 服务（@playwright/mcp），基于可访问性树操控浏览器。',
+        description: '官方 Playwright MCP 服务（@playwright/mcp），在独立外部浏览器窗口运行，不显示在 DS Bot 侧边栏。',
       },
     },
   },
   {
     id: 'mcp:chrome-devtools-mcp',
     name: 'Chrome DevTools MCP',
-    description: 'Chrome DevTools Protocol MCP server (chrome-devtools-mcp) for browser inspection, debugging, and automation.',
+    description: 'Chrome DevTools Protocol MCP server (chrome-devtools-mcp). Controls an external Chrome window outside DS Bot\'s sidebar.',
     author: 'ChromeDevTools',
     category: 'browser',
     slot: 'browser',
@@ -92,7 +92,7 @@ export const BUNDLED_PLUGIN_CATALOG = [
     locales: {
       zh: {
         name: 'Chrome DevTools MCP',
-        description: '基于 Chrome DevTools 协议的浏览器 MCP 服务，支持调试、性能分析与页面操控。',
+        description: '基于 Chrome DevTools 协议的浏览器 MCP 服务，操控外部 Chrome 窗口，不显示在 DS Bot 侧边栏。',
       },
     },
   },
