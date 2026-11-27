@@ -26900,15 +26900,21 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 .bt-typing-bg-wrap{flex:none;display:inline-grid;grid-template-columns:0fr;margin-left:-12px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .06s,margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .06s}
 .bt-typing-bg-in{min-width:0;overflow:hidden;display:inline-flex;align-items:center;padding:4px 0;margin:-4px 0}
 .bt-typing-bg{flex:none;display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 7px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:400;white-space:nowrap;cursor:pointer;opacity:0;filter:var(--bt-fx-blur-5,blur(5px));transform:translate(-10px,4px) scale(.92);transform-origin:0 50%;pointer-events:none;transition:opacity .16s ease,filter .16s ease,transform .18s ease,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
-.bt-typing:is(:hover,:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting])>.bt-typing-bg-wrap{grid-template-columns:1fr;margin-left:-4px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
-.bt-typing:is(:hover,:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting]) .bt-typing-bg{opacity:1;filter:none;transform:none;pointer-events:auto;transition:opacity .26s ease-out .04s,filter .28s ease-out .04s,transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .03s,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
-.bt-typing:is(:hover,:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting]) .bt-typing-bg:disabled{opacity:.55;cursor:default}
+.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting])>.bt-typing-bg-wrap{grid-template-columns:1fr;margin-left:-4px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting]) .bt-typing-bg{opacity:1;filter:none;transform:none;pointer-events:auto;transition:opacity .26s ease-out .04s,filter .28s ease-out .04s,transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .03s,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting]) .bt-typing-bg:disabled{opacity:.55;cursor:default}
 .bt-typing:focus-within .bt-typing-bg-in{overflow:visible}
 .bt-typing-bg:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
 .bt-typing-bg:active:not(:disabled){background:var(--bt-active);scale:.96}
 .bt-typing-bg:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-typing-bg-ico{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;opacity:.75;transform:translateX(-3px);transition:opacity .14s ease,transform ${SPRING_POP.duration}ms ${SPRING_POP.easing} .05s}
-.bt-typing:is(:hover,:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting]) .bt-typing-bg-ico{transform:none}
+.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting]) .bt-typing-bg-ico{transform:none}
+@media (hover:hover){
+.bt-typing:hover:not([data-exiting])>.bt-typing-bg-wrap{grid-template-columns:1fr;margin-left:-4px;transition:grid-template-columns ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-typing:hover:not([data-exiting]) .bt-typing-bg{opacity:1;filter:none;transform:none;pointer-events:auto;transition:opacity .26s ease-out .04s,filter .28s ease-out .04s,transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} .03s,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-typing:hover:not([data-exiting]) .bt-typing-bg:disabled{opacity:.55;cursor:default}
+.bt-typing:hover:not([data-exiting]) .bt-typing-bg-ico{transform:none}
+}
 .bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico{opacity:1;transform:translateX(1.5px);transition:opacity .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
 .bt-typing-bg-ico>svg{width:13px;height:13px}
 @keyframes bt-typing-in{from{opacity:0;transform:scale(.9)}}

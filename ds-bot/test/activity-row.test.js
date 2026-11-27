@@ -201,16 +201,20 @@ test('activity-row background action stays hidden and borderless at rest, with v
   const rowRule = rules.find(rule => rule.selectorText === '.bt-typing')
   const bgRule = rules.find(rule => rule.selectorText === '.bt-typing-bg')
   const wrapRule = rules.find(rule => rule.selectorText === '.bt-typing-bg-wrap')
-  const revealSel = '.bt-typing:is(:hover,:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting])'
+  const revealSel = '.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting])'
   const revealWrapRule = rules.find(rule => rule.selectorText === `${revealSel}>.bt-typing-bg-wrap`)
   const revealBgRule = rules.find(rule => rule.selectorText === `${revealSel} .bt-typing-bg`)
   const revealDisabledRule = rules.find(rule => rule.selectorText === `${revealSel} .bt-typing-bg:disabled`)
+  const hoverBlock = rules.find(rule => rule.conditionText?.replace(/\s+/g, '') === '(hover:hover)'
+    && [...rule.cssRules].some(inner => inner.selectorText?.includes('.bt-typing:hover:not([data-exiting])')))
   const reducedBlock = rules.find(rule => rule.conditionText?.replace(/\s+/g, '') === '(prefers-reduced-motion:reduce)'
     && [...rule.cssRules].some(inner => inner.selectorText?.includes('.bt-typing-bg')))
   const offTransformRule = rules.find(rule => rule.selectorText?.includes('body[data-bt-effects=off]')
     && rule.selectorText.includes('.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico'))
   const offScaleRule = rules.find(rule => rule.selectorText === 'body[data-bt-effects=off] .bt-typing-bg:active:not(:disabled)')
-  assert.ok(rowRule && bgRule && wrapRule && revealWrapRule && revealBgRule && revealDisabledRule && reducedBlock && offTransformRule && offScaleRule)
+  assert.ok(rowRule && bgRule && wrapRule && revealWrapRule && revealBgRule && revealDisabledRule && hoverBlock && reducedBlock && offTransformRule && offScaleRule)
+  // Unconditional reveal must not include :hover so touch sticky-hover cannot block tap dismissal.
+  assert.equal(rules.some(r => r.selectorText?.includes('.bt-typing') && r.selectorText.includes(':hover') && r.selectorText.includes('.bt-typing-bg-wrap')), false)
   assert.equal(rowRule.style.getPropertyValue('box-sizing'), 'border-box')
   assert.equal(bgRule.style.getPropertyValue('border-width') || bgRule.style.getPropertyValue('border'), '0px')
   assert.equal(bgRule.style.getPropertyValue('opacity'), '0')
@@ -220,6 +224,10 @@ test('activity-row background action stays hidden and borderless at rest, with v
   assert.equal(revealBgRule.style.getPropertyValue('opacity'), '1')
   assert.equal(revealBgRule.style.getPropertyValue('pointer-events'), 'auto')
   assert.equal(Number(revealDisabledRule.style.getPropertyValue('opacity')), 0.55)
+  const hoverInner = [...hoverBlock.cssRules]
+  assert.ok(hoverInner.some(r => r.selectorText === '.bt-typing:hover:not([data-exiting])>.bt-typing-bg-wrap' && r.style.getPropertyValue('grid-template-columns') === '1fr'))
+  assert.ok(hoverInner.some(r => r.selectorText === '.bt-typing:hover:not([data-exiting]) .bt-typing-bg' && r.style.getPropertyValue('opacity') === '1' && r.style.getPropertyValue('pointer-events') === 'auto'))
+  assert.ok(hoverInner.some(r => r.selectorText === '.bt-typing:hover:not([data-exiting]) .bt-typing-bg:disabled' && Number(r.style.getPropertyValue('opacity')) === 0.55))
   const reducedInner = [...reducedBlock.cssRules]
   assert.ok(reducedInner.some(r => r.selectorText?.includes('.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico') && r.style.getPropertyValue('transform') === 'none'))
   assert.ok(reducedInner.some(r => r.selectorText === '.bt-typing-bg:active:not(:disabled)' && r.style.getPropertyValue('scale') === 'none'))
@@ -320,7 +328,7 @@ test('ActivityIndicator renders wrapped background button, sets data-bg-busy on 
     tree = render(React.createElement(ActivityIndicator, props), attachRef)
     assert.equal(findNode(tree, n => n.props?.className === 'bt-typing').props['data-bg-open'], undefined)
 
-    // Touch device: tapping mark does not toggle, tapping text toggles open, outside pointerdown dismisses.
+    // Touch device: tapping mark does not toggle; tapping text toggles open and a second tap closes + removes listener.
     isTouch = true
     row.props.onClick({ target: { closest: sel => (sel.includes('.bt-typing-mark') ? {} : null) } })
     tree = render(React.createElement(ActivityIndicator, props), attachRef)
@@ -329,10 +337,22 @@ test('ActivityIndicator renders wrapped background button, sets data-bg-busy on 
     row.props.onClick({ target: { closest: () => null } })
     tree = render(React.createElement(ActivityIndicator, props), attachRef)
     assert.equal(findNode(tree, n => n.props?.className === 'bt-typing').props['data-bg-open'], '')
-    assert.ok(listeners.has('pointerdown'))
+    assert.equal(listeners.has('pointerdown'), true)
+
+    // Second tap on the row toggles closed and detaches pointerdown listener.
+    findNode(tree, n => n.props?.className === 'bt-typing').props.onClick({ target: { closest: () => null } })
+    tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    assert.equal(findNode(tree, n => n.props?.className === 'bt-typing').props['data-bg-open'], undefined)
+    assert.equal(listeners.has('pointerdown'), false)
+
+    // Reopen and verify outside pointerdown also dismisses and detaches listener.
+    findNode(tree, n => n.props?.className === 'bt-typing').props.onClick({ target: { closest: () => null } })
+    tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    assert.equal(listeners.has('pointerdown'), true)
     listeners.get('pointerdown')({ target: fakeOutsideEl })
     tree = render(React.createElement(ActivityIndicator, props), attachRef)
     assert.equal(findNode(tree, n => n.props?.className === 'bt-typing').props['data-bg-open'], undefined)
+    assert.equal(listeners.has('pointerdown'), false)
 
     // Clicking the button moves to background, clears data-bg-open, sets data-bg-busy + disabled.
     findNode(tree, n => n.props?.className === 'bt-typing').props.onClick({ target: { closest: () => null } })
