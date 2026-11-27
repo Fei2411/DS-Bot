@@ -1,14 +1,18 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
-import { rm } from 'node:fs/promises'
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative as relativePath, resolve, sep } from 'node:path'
 import { WebSocketServer } from 'ws'
-import { allowedNavigation, requestAllowed } from './bot-browser.mjs'
+import { allowedNavigation } from './bot-browser.mjs'
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 const PLAYWRIGHT_ARTIFACT_PREFIX = 'playwright-artifacts-'
+const MAX_LIVE_VIEWS = 6
+const IDLE_EVICT_MS = 15 * 60_000
+const MAX_TABS_PER_BOT = 12
+const PERSIST_DEBOUNCE_MS = 400
 const rectOf = (rect, zoom = 1) => ({
   x: Math.max(0, Math.round((rect?.left ?? 0) * zoom)),
   y: Math.max(0, Math.round((rect?.top ?? 0) * zoom)),
@@ -35,12 +39,15 @@ export class BotViews {
   #origin
   #devTools
   #views = new Map()
+  // Evicted tabs kept alive in the UI tab strip and lazily recreated when shown or operated on.
+  #dormant = new Map()
   #tokens = new Map()
   #clients = new Map()
   #server
   #wss
   #address
   #onChange
+  #onInputShortcut
   #downloadPaths = new Map()
   #downloadRoots = new Map()
   #statePath
@@ -48,17 +55,39 @@ export class BotViews {
   #active = new Map()
   #held = new Set()
   #covered = false
+  #windowHidden = false
+  #systemPaused = false
   // The tabs whose view waits for a window to belong to.
   #waiting = new Set()
+  #maxLiveViews
+  #idleMs
+  #maxTabsPerBot
+  #persistDebounceMs
+  #useSeq = 0
+  #idleTimer = null
+  #persistTimer = null
+  #persistChain = Promise.resolve()
+  #persistGen = 0
+  #lastPersistedJson = null
+  #disposed = false
 
-  constructor({ window, WebContentsView, guests, origin, devTools = false, onChange = () => {}, statePath }) {
+  constructor({
+    window, WebContentsView, guests, origin, devTools = false, onChange = () => {}, onInputShortcut = () => false, statePath,
+    maxLiveViews = MAX_LIVE_VIEWS, idleMs = IDLE_EVICT_MS, maxTabsPerBot = MAX_TABS_PER_BOT,
+    persistDebounceMs = PERSIST_DEBOUNCE_MS,
+  }) {
     this.#window = window
     this.#WebContentsView = WebContentsView
     this.#guests = guests
     this.#origin = origin
     this.#devTools = devTools
     this.#onChange = onChange
+    this.#onInputShortcut = onInputShortcut
     this.#statePath = statePath
+    this.#maxLiveViews = maxLiveViews
+    this.#idleMs = idleMs
+    this.#maxTabsPerBot = maxTabsPerBot
+    this.#persistDebounceMs = persistDebounceMs
     if (statePath !== undefined) {
       try {
         const stored = JSON.parse(readFileSync(statePath, 'utf8'))
@@ -82,7 +111,8 @@ export class BotViews {
           }
           if (Object.keys(bots).length !== Object.keys(stored.bots).length) changed = true
           this.#saved = bots
-          if (changed) this.#persist()
+          if (changed) this.#persistSync()
+          else this.#lastPersistedJson = this.#serializeState()
         }
       } catch {}
     }
@@ -102,14 +132,26 @@ export class BotViews {
     this.#wss.on('connection', (client, _request, botId) => this.#connect(client, botId))
     this.#server.listen(0, '127.0.0.1')
     this.#server.on('listening', () => { this.#address = this.#server.address() })
+    if (Number.isFinite(this.#idleMs) && this.#idleMs > 0) {
+      const interval = Math.min(Math.max(Math.floor(this.#idleMs / 3), 50), 60_000)
+      this.#idleTimer = setInterval(() => this.#evictIdle(), interval)
+      this.#idleTimer.unref?.()
+    }
   }
 
-  create(botId, { url = 'about:blank', createdByBot = false, openerId, tabId: requestedTabId } = {}) {
+  create(botId, { url = 'about:blank', createdByBot = false, openerId, tabId: requestedTabId, activate = true } = {}) {
     const tabId = requestedTabId ?? randomUUID()
     const existing = this.#views.get(tabId)
     if (existing) {
       if (existing.botId !== botId) throw new Error('Browser tab belongs to another Bot')
+      this.#touch(existing)
       return existing
+    }
+    const dormant = this.#dormant.get(tabId)
+    const wasDormant = dormant !== undefined
+    if (dormant) {
+      if (dormant.botId !== botId) throw new Error('Browser tab belongs to another Bot')
+      this.#dormant.delete(tabId)
     }
     const { partition } = this.#guests.storageFor(`bot:${botId}`)
     const view = new this.#WebContentsView({
@@ -119,7 +161,18 @@ export class BotViews {
         webviewTag: false, plugins: false, navigateOnDragDrop: false, disableDialogs: true, devTools: this.#devTools,
       },
     })
-    const entry = { tabId, botId, view, createdByBot, openerId, sessions: new Map(), sessionMaps: new Map(), downloads: new Map(), downloadPath: this.#downloadPaths.get(botId), mainFrameId: undefined }
+    const entry = {
+      tabId, botId, view, createdByBot, openerId, shown: false,
+      favicon: dormant?.favicon ?? null,
+      fallbackUrl: url || dormant?.url || 'about:blank',
+      fallbackTitle: dormant?.title ?? '',
+      sessions: new Map(), sessionMaps: new Map(), downloads: new Map(),
+      downloadPath: this.#downloadPaths.get(botId), mainFrameId: undefined,
+      debuggerWired: false, debuggerAttached: false,
+      initialLoading: false, rawInitialLoad: Promise.resolve(), initialLoad: Promise.resolve(),
+      busy: 0,
+      lastUsedAt: Date.now(), lastUsedSeq: ++this.#useSeq,
+    }
     this.#views.set(tabId, entry)
     const owner = this.#window()
     if (owner !== undefined && owner !== null) owner.contentView.addChildView(view)
@@ -128,20 +181,24 @@ export class BotViews {
     view.setBounds(rectOf(null))
     view.setVisible(false)
     const contents = view.webContents
+    contents.setAudioMuted?.(true)
     const clients = this.#clients.get(botId) ?? []
     for (const client of clients) {
       if (client.discover) this.#send(client.socket, { method: 'Target.targetCreated', params: { targetInfo: this.#targetInfo(entry) } })
       if (client.autoAttach) client.attach(entry)
     }
-    contents.on('did-navigate', () => this.#publish(entry))
+    contents.on('did-navigate', () => {
+      if (contents.getURL()) entry.fallbackTitle = ''
+      this.#publish(entry)
+    })
     contents.on('did-navigate-in-page', () => this.#publish(entry))
     contents.on('page-title-updated', () => this.#publish(entry))
     contents.on('page-favicon-updated', (_event, favicons) => { entry.favicon = favicons?.[0] ?? null; this.#publish(entry) })
     contents.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
-      if (isMainFrame && code !== -3) { entry.error = description; this.#publish(entry) }
+      if (isMainFrame && code !== -3) { entry.initialLoading = false; entry.error = description; this.#publish(entry) }
     })
     contents.on('did-start-loading', () => this.#publish(entry))
-    contents.on('did-stop-loading', () => this.#publish(entry))
+    contents.on('did-stop-loading', () => { entry.initialLoading = false; this.#publish(entry) })
     contents.on('did-start-navigation', event => {
       if (event.isMainFrame && !event.isSameDocument) {
         entry.error = null
@@ -154,28 +211,35 @@ export class BotViews {
       if (event.isMainFrame && !allowedNavigation(event.url, this.#origin())) event.preventDefault()
     })
     contents.setWindowOpenHandler(({ url: target, postBody }) => {
-      if (postBody === undefined && allowedNavigation(target, this.#origin())) {
+      if (this.#views.get(tabId) === entry && postBody === undefined && allowedNavigation(target, this.#origin()) && this.#botTabCount(botId) < this.#maxTabsPerBot) {
         const popup = this.create(botId, { url: target, createdByBot: entry.sessions.size > 0, openerId: tabId })
         this.#publish(popup)
       }
       return { action: 'deny' }
     })
     contents.on('will-attach-webview', event => event.preventDefault())
+    contents.on('before-input-event', (event, input) => {
+      if (this.#onInputShortcut(input) === true) event.preventDefault()
+    })
     contents.on('login', (event, _details, _auth, callback) => { event.preventDefault(); callback() })
     this.#guests.setDownloadHandler(`bot:${botId}`, (event, item, source) => {
       const target = [...this.#views.values()].find(value => value.botId === botId && value.view.webContents === source)
       if (!target) { event.preventDefault(); return }
       this.#download(target, event, item)
     })
-    this.#installDebugger(entry)
-    this.#active.set(botId, tabId)
+    if (activate) this.#active.set(botId, tabId)
+    entry.initialLoading = wasDormant && url !== 'about:blank'
+    let rawLoad
+    try { rawLoad = Promise.resolve(contents.loadURL(url)) } catch (error) { rawLoad = Promise.reject(error) }
+    entry.rawInitialLoad = rawLoad
+    entry.initialLoad = rawLoad.then(
+      () => { entry.initialLoading = false },
+      () => { entry.initialLoading = false },
+    )
     this.#remember(entry)
+    this.#onChange({ type: wasDormant ? 'changed' : 'created', ...this.#state(entry) })
     this.#persist()
-    this.#onChange({ type: 'created', ...this.#state(entry) })
-    const loading = contents.loadURL(url)
-    this.#remember(entry)
-    this.#persist()
-    void loading.catch(() => {})
+    this.#evictOverflow(tabId)
     return entry
   }
 
@@ -252,43 +316,89 @@ export class BotViews {
   }
 
   place(tabId, rect, visible = rect !== null) {
-    const entry = this.#views.get(tabId)
-    if (!entry) return false
+    let entry = this.#views.get(tabId)
+    if (!entry) {
+      const dormant = this.#dormant.get(tabId)
+      if (!dormant) return false
+      if (visible !== true) return true
+      const url = allowedNavigation(dormant.url, this.#origin()) ? dormant.url : 'about:blank'
+      entry = this.create(dormant.botId, { tabId, url, createdByBot: dormant.createdByBot })
+    }
     // The renderer reports CSS pixels; native view bounds are window DIPs.
     if (rect !== null) entry.view.setBounds(rectOf(rect, this.#window()?.webContents.getZoomFactor() ?? 1))
     entry.shown = visible === true
-    entry.view.setVisible(entry.shown && !this.#covered)
+    this.#applyVisibility(entry)
     if (visible === true) {
-      this.#active.set(entry.botId, tabId)
-      this.#remember(entry)
-      this.#persist()
+      this.#touch(entry)
+      if (this.#active.get(entry.botId) !== tabId) {
+        this.#active.set(entry.botId, tabId)
+        this.#remember(entry)
+        this.#persist()
+      }
     }
     return true
   }
 
   async operate(botId, action, payload = {}) {
-    const entry = this.#owned(botId, payload.tabId)
-    const contents = entry.view.webContents
-    switch (action) {
-      case 'navigate': {
-        const url = String(payload.url)
-        if (!allowedNavigation(url, this.#origin())) throw new Error('This address is not allowed')
-        return contents.loadURL(url)
+    if (action === 'close') return this.close(botId, payload.tabId)
+    let entry = this.#views.get(payload.tabId)
+    let resurrected = false
+    if (!entry) {
+      const dormant = this.#dormant.get(payload.tabId)
+      if (dormant && dormant.botId === botId) {
+        if (action === 'navigate') {
+          const url = String(payload.url)
+          if (!allowedNavigation(url, this.#origin())) throw new Error('This address is not allowed')
+          entry = this.create(botId, { tabId: dormant.tabId, url, createdByBot: dormant.createdByBot, activate: false })
+          this.#touch(entry)
+          entry.busy += 1
+          try {
+            return await entry.rawInitialLoad
+          } finally {
+            entry.busy = Math.max(0, entry.busy - 1)
+          }
+        }
+        const url = allowedNavigation(dormant.url, this.#origin()) ? dormant.url : 'about:blank'
+        entry = this.create(botId, { tabId: dormant.tabId, url, createdByBot: dormant.createdByBot, activate: false })
+        resurrected = true
+        if (action === 'command' && payload.command === 'reload') return true
       }
-      case 'command':
-        if (payload.command === 'back' && contents.canGoBack()) contents.goBack()
-        else if (payload.command === 'forward' && contents.canGoForward()) contents.goForward()
-        else if (payload.command === 'reload') contents.reload()
-        else if (payload.command === 'stop') contents.stop()
-        return true
-      case 'focus': contents.focus(); return true
-      case 'read': return contents.executeJavaScript(String(payload.script))
-      case 'close': return this.close(botId, payload.tabId)
-      default: throw new Error('Unknown browser view operation')
+    }
+    entry = this.#owned(botId, payload.tabId)
+    this.#touch(entry)
+    entry.busy += 1
+    try {
+      if (resurrected && action === 'read') await entry.initialLoad
+      const contents = entry.view.webContents
+      switch (action) {
+        case 'navigate': {
+          const url = String(payload.url)
+          if (!allowedNavigation(url, this.#origin())) throw new Error('This address is not allowed')
+          return await contents.loadURL(url)
+        }
+        case 'command':
+          if (payload.command === 'back' && contents.canGoBack()) contents.goBack()
+          else if (payload.command === 'forward' && contents.canGoForward()) contents.goForward()
+          else if (payload.command === 'reload') contents.reload()
+          else if (payload.command === 'stop') contents.stop()
+          return true
+        case 'focus': contents.focus(); return true
+        case 'read': return await contents.executeJavaScript(String(payload.script))
+        default: throw new Error('Unknown browser view operation')
+      }
+    } finally {
+      entry.busy = Math.max(0, entry.busy - 1)
     }
   }
 
   async close(botId, tabId) {
+    const dormant = this.#dormant.get(tabId)
+    if (!this.#views.has(tabId) && dormant && dormant.botId === botId) {
+      this.#dormant.delete(tabId)
+      this.#dropSaved(botId, tabId)
+      this.#onChange({ type: 'closed', botId, tabId })
+      return true
+    }
     const entry = this.#owned(botId, tabId)
     for (const [socket, sessionId] of entry.sessions) {
       this.#send(socket, { method: 'Target.detachedFromTarget', params: { sessionId, targetId: tabId } })
@@ -296,23 +406,41 @@ export class BotViews {
         this.#send(socket, { method: 'Target.targetDestroyed', params: { targetId: tabId } })
       }
     }
+    for (const { item } of entry.downloads.values()) { try { item.cancel?.() } catch {} }
+    entry.downloads.clear()
     this.#views.delete(tabId)
+    this.#waiting.delete(tabId)
+    this.#dormant.delete(tabId)
     this.#dropSaved(botId, tabId)
     // The view leaves the window too: only closing its contents would keep the child view.
     this.#window()?.contentView.removeChildView(entry.view)
-    entry.view.webContents.close()
     entry.sessions.clear()
     entry.sessionMaps.clear()
+    this.#releaseDebugger(entry)
+    if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close({ waitForBeforeUnload: false })
     this.#onChange({ type: 'closed', botId, tabId })
     return true
   }
 
   async forget(botId) {
     for (const entry of [...this.#views.values()]) if (entry.botId === botId) await this.close(botId, entry.tabId)
+    for (const [tabId, dormant] of [...this.#dormant]) {
+      if (dormant.botId === botId) {
+        this.#dormant.delete(tabId)
+        this.#onChange({ type: 'closed', botId, tabId })
+      }
+    }
+    const clients = [...(this.#clients.get(botId) ?? [])]
+    for (const client of clients) {
+      try { client.socket.close() } catch {}
+      try { client.socket.terminate?.() } catch {}
+    }
+    this.#clients.delete(botId)
     for (const [token, id] of this.#tokens) if (id === botId) this.#tokens.delete(token)
     this.#downloadPaths.delete(botId)
     this.#downloadRoots.delete(botId)
     this.#held.delete(botId)
+    this.#active.delete(botId)
     delete this.#saved[botId]
     this.#persist()
   }
@@ -328,6 +456,7 @@ export class BotViews {
       for (const entry of this.#views.values()) if (entry.botId === botId) entry.downloadPath = undefined
     }
     if (!this.#address) await new Promise(resolve => this.#server.once('listening', resolve))
+    for (const entry of this.#views.values()) if (entry.botId === botId) this.#touch(entry)
     if (this.sync(botId).length === 0) {
       const saved = this.#saved[botId]
       const restored = saved?.tabs?.find(tab => tab.tabId === saved.active) ?? saved?.tabs?.[0]
@@ -346,10 +475,20 @@ export class BotViews {
    * @param {boolean} covered
    */
   cover(covered) {
-    this.#covered = covered
-    for (const entry of this.#views.values()) {
-      if (!entry.view.webContents.isDestroyed()) entry.view.setVisible(entry.shown === true && !covered)
-    }
+    this.#covered = covered === true
+    this.#syncVisibility()
+  }
+
+  /** The host window is hidden to the tray or minimized: hide and mute views without losing card cover state. */
+  setWindowHidden(hidden) {
+    this.#windowHidden = hidden === true
+    this.#syncVisibility()
+  }
+
+  /** The machine suspended or locked: hide and mute views without disturbing window or card flags. */
+  setSystemPaused(paused) {
+    this.#systemPaused = paused === true
+    this.#syncVisibility()
   }
 
   sync(botId) {
@@ -363,6 +502,10 @@ export class BotViews {
   release() {
     for (const [tabId, entry] of [...this.#views]) {
       if (!entry.view.webContents.isDestroyed()) { this.#waiting.add(tabId); continue }
+      for (const { item } of entry.downloads.values()) { try { item.cancel?.() } catch {} }
+      entry.downloads.clear()
+      entry.sessions.clear()
+      entry.sessionMaps.clear()
       this.#views.delete(tabId)
       this.#waiting.delete(tabId)
       if (this.#active.get(entry.botId) === tabId) this.#active.delete(entry.botId)
@@ -382,15 +525,34 @@ export class BotViews {
       }
       window.contentView.addChildView(entry.view)
       this.#waiting.delete(tabId)
+      this.#applyVisibility(entry)
     }
   }
 
   dispose() {
-    this.#persist()
-    for (const entry of this.#views.values()) entry.view.webContents.close()
+    this.#disposed = true
+    if (this.#idleTimer !== null) { clearInterval(this.#idleTimer); this.#idleTimer = null }
+    if (this.#persistTimer !== null) { clearTimeout(this.#persistTimer); this.#persistTimer = null }
+    this.#persistSync()
+    for (const entry of this.#views.values()) {
+      for (const { item } of entry.downloads.values()) { try { item.cancel?.() } catch {} }
+      entry.downloads.clear()
+      entry.sessions.clear()
+      entry.sessionMaps.clear()
+      this.#releaseDebugger(entry)
+      if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close({ waitForBeforeUnload: false })
+    }
+    for (const clients of this.#clients.values()) {
+      for (const client of clients) {
+        try { client.socket.close() } catch {}
+        try { client.socket.terminate?.() } catch {}
+      }
+    }
     this.#views.clear()
+    this.#dormant.clear()
     this.#waiting.clear()
     this.#tokens.clear()
+    this.#clients.clear()
     this.#wss.close()
     this.#server.close()
   }
@@ -414,17 +576,106 @@ export class BotViews {
     return true
   }
 
+  #touch(entry) {
+    entry.lastUsedAt = Date.now()
+    entry.lastUsedSeq = ++this.#useSeq
+  }
+
+  #botTabCount(botId) {
+    let count = 0
+    for (const entry of this.#views.values()) if (entry.botId === botId) count += 1
+    for (const entry of this.#dormant.values()) if (entry.botId === botId) count += 1
+    return count
+  }
+
+  #applyVisibility(entry) {
+    const contents = entry.view.webContents
+    if (contents.isDestroyed()) return
+    const visibleNow = entry.shown === true && !this.#covered && !this.#windowHidden && !this.#systemPaused
+    entry.view.setVisible(visibleNow)
+    contents.setAudioMuted?.(!visibleNow)
+  }
+
+  #syncVisibility() {
+    for (const entry of this.#views.values()) this.#applyVisibility(entry)
+  }
+
+  #evictable(entry) {
+    return entry.shown !== true && entry.busy === 0 && entry.sessions.size === 0 && entry.downloads.size === 0
+  }
+
+  #evictEntry(entry) {
+    if (!this.#views.has(entry.tabId) || !this.#evictable(entry)) return
+    const destroyed = entry.view.webContents.isDestroyed()
+    const state = destroyed
+      ? {
+        botId: entry.botId, tabId: entry.tabId, createdByBot: entry.createdByBot,
+        url: this.#saved[entry.botId]?.tabs?.find(tab => tab.tabId === entry.tabId)?.url ?? entry.fallbackUrl ?? 'about:blank',
+        title: this.#saved[entry.botId]?.tabs?.find(tab => tab.tabId === entry.tabId)?.title ?? entry.fallbackTitle ?? '',
+        loading: false, canGoBack: false, canGoForward: false,
+        favicon: entry.favicon ?? null, error: entry.error ?? null, live: false, botAttached: false,
+      }
+      : this.#state(entry)
+    if (!destroyed) this.#remember(entry)
+    for (const client of this.#clients.get(entry.botId) ?? []) {
+      if (client.discover) this.#send(client.socket, { method: 'Target.targetDestroyed', params: { targetId: entry.tabId } })
+    }
+    this.#dormant.set(entry.tabId, {
+      botId: entry.botId, tabId: entry.tabId, url: state.url, title: state.title,
+      createdByBot: entry.createdByBot, favicon: state.favicon,
+    })
+    this.#views.delete(entry.tabId)
+    this.#waiting.delete(entry.tabId)
+    this.#window()?.contentView.removeChildView(entry.view)
+    this.#releaseDebugger(entry)
+    if (!destroyed) entry.view.webContents.close({ waitForBeforeUnload: false })
+  }
+
+  #evictOverflow(keepTabId) {
+    if (!Number.isFinite(this.#maxLiveViews) || this.#maxLiveViews <= 0) return
+    while (this.#views.size > this.#maxLiveViews) {
+      let oldest = null
+      for (const entry of this.#views.values()) {
+        if (entry.tabId === keepTabId || !this.#evictable(entry)) continue
+        if (oldest === null || entry.lastUsedAt < oldest.lastUsedAt
+          || (entry.lastUsedAt === oldest.lastUsedAt && entry.lastUsedSeq < oldest.lastUsedSeq)) {
+          oldest = entry
+        }
+      }
+      if (oldest === null) break
+      this.#evictEntry(oldest)
+    }
+  }
+
+  #evictIdle() {
+    if (this.#disposed || !Number.isFinite(this.#idleMs) || this.#idleMs <= 0) return
+    const cutoff = Date.now() - this.#idleMs
+    for (const entry of [...this.#views.values()]) {
+      if (this.#evictable(entry) && entry.lastUsedAt <= cutoff) this.#evictEntry(entry)
+    }
+  }
+
   #owned(botId, tabId) {
     const entry = this.#views.get(tabId)
     if (!entry || entry.botId !== botId) throw new Error('Browser tab does not belong to this Bot')
     return entry
   }
 
+  #urlOf(entry) {
+    const current = entry.view.webContents.getURL()
+    return current || entry.fallbackUrl || 'about:blank'
+  }
+
+  #titleOf(entry) {
+    const current = entry.view.webContents.getTitle()
+    return current || entry.fallbackTitle || ''
+  }
+
   #state(entry) {
     const contents = entry.view.webContents
     return {
       botId: entry.botId, tabId: entry.tabId, createdByBot: entry.createdByBot,
-      url: contents.getURL(), title: contents.getTitle(), loading: contents.isLoading(),
+      url: this.#urlOf(entry), title: this.#titleOf(entry), loading: contents.isLoading() || entry.initialLoading === true,
       canGoBack: contents.canGoBack(), canGoForward: contents.canGoForward(),
       favicon: entry.favicon ?? null, error: entry.error ?? null, live: true,
       botAttached: entry.sessions.size > 0,
@@ -432,17 +683,16 @@ export class BotViews {
   }
 
   #publish(entry) {
-    if (!entry.view.webContents.isDestroyed()) {
-      this.#remember(entry)
-      this.#persist()
-      this.#onChange({ type: 'changed', ...this.#state(entry) })
-    }
+    if (this.#views.get(entry.tabId) !== entry || entry.view.webContents.isDestroyed()) return
+    this.#remember(entry)
+    this.#persist()
+    this.#onChange({ type: 'changed', ...this.#state(entry) })
   }
 
   #remember(entry) {
     const previous = this.#saved[entry.botId] ?? { tabs: [], active: null }
     const tabs = previous.tabs.filter(tab => tab.tabId !== entry.tabId)
-    tabs.push({ tabId: entry.tabId, url: entry.view.webContents.getURL(), title: entry.view.webContents.getTitle() })
+    tabs.push({ tabId: entry.tabId, url: this.#urlOf(entry), title: this.#titleOf(entry) })
     this.#saved[entry.botId] = { tabs, active: this.#active.get(entry.botId) ?? previous.active ?? entry.tabId }
   }
 
@@ -462,24 +712,104 @@ export class BotViews {
     this.#persist()
   }
 
+  #serializeState() {
+    return JSON.stringify({ version: 1, bots: this.#saved })
+  }
+
   #persist() {
+    if (this.#statePath === undefined || this.#disposed) return
+    if (this.#persistTimer !== null) return
+    this.#persistTimer = setTimeout(() => {
+      this.#persistTimer = null
+      this.#enqueuePersist()
+    }, this.#persistDebounceMs)
+    this.#persistTimer.unref?.()
+  }
+
+  #enqueuePersist() {
+    if (this.#statePath === undefined || this.#disposed) return
+    const snapshot = this.#serializeState()
+    if (snapshot === this.#lastPersistedJson) return
+    this.#persistChain = this.#persistChain.then(async () => {
+      if (this.#disposed || this.#statePath === undefined) return
+      const gen = this.#persistGen
+      const latest = this.#serializeState()
+      if (latest === this.#lastPersistedJson) return
+      const temporary = `${this.#statePath}.${process.pid}.${randomUUID()}.tmp`
+      try {
+        await mkdir(dirname(this.#statePath), { recursive: true })
+        await writeFile(temporary, latest)
+        if (this.#disposed || gen !== this.#persistGen) {
+          await rm(temporary, { force: true }).catch(() => {})
+          return
+        }
+        await rename(temporary, this.#statePath)
+        this.#lastPersistedJson = latest
+      } catch {
+        await rm(temporary, { force: true }).catch(() => {})
+      }
+    })
+  }
+
+  #persistSync() {
+    this.#persistGen += 1
+    if (this.#persistTimer !== null) {
+      clearTimeout(this.#persistTimer)
+      this.#persistTimer = null
+    }
     if (this.#statePath === undefined) return
+    const latest = this.#serializeState()
+    if (latest === this.#lastPersistedJson) return
     const temporary = `${this.#statePath}.${process.pid}.${randomUUID()}.tmp`
     try {
       mkdirSync(dirname(this.#statePath), { recursive: true })
-      writeFileSync(temporary, JSON.stringify({ version: 1, bots: this.#saved }))
+      writeFileSync(temporary, latest)
       renameSync(temporary, this.#statePath)
+      this.#lastPersistedJson = latest
     } catch {
       try { unlinkSync(temporary) } catch {}
     }
   }
 
-  #installDebugger(entry) {
-    const debuggerApi = entry.view.webContents.debugger
-    debuggerApi.attach('1.3')
-    debuggerApi.on('message', (_event, method, params, childSessionId) => {
-      this.#sendToSessions(entry, { method, params: this.#framePayload(entry, method, params) }, childSessionId)
-    })
+  #ensureDebugger(entry) {
+    const contents = entry.view.webContents
+    if (contents.isDestroyed()) return
+    const debuggerApi = contents.debugger
+    if (!entry.debuggerWired) {
+      entry.debuggerWired = true
+      debuggerApi.on('message', (_event, method, params, childSessionId) => {
+        if (entry.sessions.size === 0) return
+        if (method === 'Target.detachedFromTarget' && params?.sessionId) {
+          for (const sessionMap of entry.sessionMaps.values()) sessionMap.delete(params.sessionId)
+        }
+        this.#sendToSessions(entry, { method, params: this.#framePayload(entry, method, params) }, childSessionId)
+      })
+      debuggerApi.on('detach', () => {
+        entry.debuggerAttached = false
+        entry.mainFrameId = undefined
+      })
+    }
+    const attached = typeof debuggerApi.isAttached === 'function' ? debuggerApi.isAttached() : entry.debuggerAttached
+    if (!attached) {
+      debuggerApi.attach('1.3')
+    }
+    entry.debuggerAttached = true
+  }
+
+  #releaseDebugger(entry) {
+    if (entry.sessions.size > 0) return
+    const contents = entry.view.webContents
+    if (contents.isDestroyed()) {
+      entry.debuggerAttached = false
+      entry.mainFrameId = undefined
+      return
+    }
+    const debuggerApi = contents.debugger
+    if (entry.debuggerAttached || debuggerApi.isAttached?.() === true) {
+      try { debuggerApi.detach?.() } catch {}
+    }
+    entry.debuggerAttached = false
+    entry.mainFrameId = undefined
   }
 
   #frameId(entry, frameId) {
@@ -533,6 +863,8 @@ export class BotViews {
     const attach = entry => {
       const existing = entry.sessions.get(socket)
       if (existing) return existing
+      this.#touch(entry)
+      this.#ensureDebugger(entry)
       const sessionId = randomUUID()
       sessions.set(sessionId, { entry, nativeId: undefined })
       entry.sessions.set(socket, sessionId)
@@ -592,13 +924,29 @@ export class BotViews {
           reply({ targetId: entry.tabId }); return
         }
         if (method === 'Target.closeTarget') { await this.close(botId, params.targetId); reply({ success: true }); return }
-        if (method === 'Target.activateTarget') { this.#owned(botId, params.targetId).view.webContents.focus(); reply({}); return }
+        if (method === 'Target.activateTarget') {
+          const entry = this.#owned(botId, params.targetId)
+          this.#touch(entry)
+          entry.view.webContents.focus()
+          reply({}); return
+        }
         if (method === 'Target.detachFromTarget') {
           const route = sessions.get(params.sessionId)
-          if (route?.nativeId) await route.entry.view.webContents.debugger.sendCommand('Target.detachFromTarget', { sessionId: route.nativeId })
-          route?.entry.sessions.delete(socket)
-          route?.entry.sessionMaps.delete(socket)
-          sessions.delete(params.sessionId); reply({}); return
+          if (route) {
+            if (route.nativeId) {
+              await route.entry.view.webContents.debugger.sendCommand('Target.detachFromTarget', { sessionId: route.nativeId }).catch(() => {})
+              sessions.delete(params.sessionId)
+            } else {
+              route.entry.sessions.delete(socket)
+              route.entry.sessionMaps.delete(socket)
+              for (const [sid, candidate] of [...sessions]) {
+                if (candidate.entry === route.entry) sessions.delete(sid)
+              }
+              this.#releaseDebugger(route.entry)
+              if (!route.entry.view.webContents.isDestroyed()) this.#onChange({ type: 'changed', ...this.#state(route.entry) })
+            }
+          }
+          reply({}); return
         }
         if (method === 'Target.getTargetInfo') {
           const entry = params.targetId
@@ -611,6 +959,8 @@ export class BotViews {
         if (sessionId) {
           const route = sessions.get(sessionId)
           if (!route) throw new Error('Unknown target session')
+          this.#touch(route.entry)
+          this.#ensureDebugger(route.entry)
           const nativeParams = { ...params }
           if (nativeParams.frameId === route.entry.tabId) nativeParams.frameId = route.entry.mainFrameId
           const result = await route.entry.view.webContents.debugger.sendCommand(method, nativeParams, route.nativeId)
@@ -624,9 +974,12 @@ export class BotViews {
     })
     socket.on('close', () => {
       for (const entry of targets()) {
-        entry.sessions.delete(socket)
+        const had = entry.sessions.delete(socket)
         entry.sessionMaps.delete(socket)
-        this.#onChange({ type: 'changed', ...this.#state(entry) })
+        if (had) {
+          this.#releaseDebugger(entry)
+          if (!entry.view.webContents.isDestroyed()) this.#onChange({ type: 'changed', ...this.#state(entry) })
+        }
       }
       sessions.clear()
       clients.delete(clientState)

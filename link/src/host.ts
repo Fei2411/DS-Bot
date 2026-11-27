@@ -8,6 +8,7 @@ import {
   decodeMessage,
   encodeControlFrame,
   encodeMessage,
+  utf8ByteLength,
   type ConnectIncomingPayload,
   type ControlFrame,
   type ControlFrameByteLimits,
@@ -42,6 +43,7 @@ export interface HostLinkOptions {
   handle(method: string, params: unknown, request: HostRequest): Promise<unknown>
   createSocket?: (url: string) => WebSocket
   maxTunnels?: number
+  handshakeTimeoutMs?: number
   retryMs?: readonly [number, number]
   onStatus?: (status: HostLinkStatus) => void
   /** How many phones hold a ready tunnel, fired on each change. */
@@ -62,6 +64,7 @@ interface Tunnel {
   lastCounter: number
   sendTail: Promise<void>
   calls: Map<string, AbortController>
+  handshakeTimer?: ReturnType<typeof setTimeout>
   // Unsettled emit() sends; a phone too far behind gets dropped and reconnects.
   emitPending?: number
 }
@@ -70,6 +73,7 @@ const RELAY_CAPABILITY = 'transport.relay'
 const MAX_CALLS_PER_TUNNEL = 32
 const MAX_EMIT_PENDING = 64
 const SERVER_SILENCE_MS = 75_000
+const HANDSHAKE_TIMEOUT_MS = 15_000
 
 class TunnelError extends Error {
   readonly code: string
@@ -132,8 +136,12 @@ export class HostLink {
       const left = timeoutMs - (Date.now() - started)
       if (left <= 0) throw new Error('The computer did not reach the Server in time.')
       await new Promise<void>(resolve => {
+        const done = (): void => {
+          clearTimeout(timer)
+          this.statusWaiters.delete(done)
+          resolve()
+        }
         const timer = setTimeout(done, left)
-        function done(): void { clearTimeout(timer); resolve() }
         this.statusWaiters.add(done)
       })
     }
@@ -150,14 +158,17 @@ export class HostLink {
   }
 
   /** Tells every connected phone that something changed. */
-  emit(event: string, data: unknown): void {
-    const message = encodeMessage(createMessage('event', { event, data }))
+  emit(event: string, data: unknown, forDevice?: (deviceId: string) => unknown): void {
+    let shared: Uint8Array | undefined
     for (const tunnel of this.tunnels.values()) {
       if (tunnel.stage !== 'ready') continue
       if ((tunnel.emitPending ?? 0) >= MAX_EMIT_PENDING) {
         this.dropTunnel(tunnel, 'SEND_FAILED')
         continue
       }
+      const message = forDevice === undefined
+        ? (shared ??= encodeMessage(createMessage('event', { event, data })))
+        : encodeMessage(createMessage('event', { event, data: forDevice(tunnel.deviceId) }))
       tunnel.emitPending = (tunnel.emitPending ?? 0) + 1
       void this.sendSecure(tunnel, message)
         .catch(() => this.dropTunnel(tunnel, 'SEND_FAILED'))
@@ -239,6 +250,10 @@ export class HostLink {
       }
       const end = (): void => {
         clearInterval(watchdog)
+        socket.onopen = null
+        socket.onmessage = null
+        socket.onerror = null
+        socket.onclose = null
         if (this.socket === socket) this.socket = undefined
         if (this.endAttempt === end) this.endAttempt = undefined
         resolve(accepted)
@@ -300,7 +315,7 @@ export class HostLink {
     if (this.tunnels.size >= (this.options.maxTunnels ?? 16)) { reject('HOST_BUSY'); return }
     if (!this.options.admits(clientDeviceId!, clientIdentityKey!)) { reject('NOT_PAIRED'); return }
     const { identity } = this.options
-    this.tunnels.set(connectionId, {
+    const tunnel: Tunnel = {
       connectionId,
       deviceId: clientDeviceId!,
       identityKey: clientIdentityKey!,
@@ -318,7 +333,16 @@ export class HostLink {
       lastCounter: -1,
       sendTail: Promise.resolve(),
       calls: new Map(),
-    })
+    }
+    const handshakeTimeoutMs = this.options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS
+    if (Number.isFinite(handshakeTimeoutMs) && handshakeTimeoutMs > 0) {
+      tunnel.handshakeTimer = setTimeout(() => {
+        tunnel.handshakeTimer = undefined
+        if (tunnel.stage !== 'ready') this.dropTunnel(tunnel, 'HANDSHAKE_TIMEOUT')
+      }, handshakeTimeoutMs)
+      ;(tunnel.handshakeTimer as { unref?: () => void }).unref?.()
+    }
+    this.tunnels.set(connectionId, tunnel)
     this.sendControl('connect.accepted', { connectionId })
   }
 
@@ -333,6 +357,10 @@ export class HostLink {
       if (this.tunnels.get(tunnel.connectionId) !== tunnel) return
       if (!allowed) throw new TunnelError('NOT_PAIRED', 'The phone is not paired.')
       const reply = tunnel.noise.writeHandshake(encodeHandshakeHello(this.options.name === undefined ? {} : { name: this.options.name }))
+      if (tunnel.handshakeTimer !== undefined) {
+        clearTimeout(tunnel.handshakeTimer)
+        tunnel.handshakeTimer = undefined
+      }
       tunnel.stage = 'ready'
       this.options.onReadyCount?.(this.connectedDevices().length)
       this.sendControl('secure.handshake', {
@@ -397,7 +425,10 @@ export class HostLink {
           counter: tunnel.counter,
           ciphertext: toBase64Url(ciphertext),
         } satisfies RelayPayload), this.limits)
-        await waitForRelayCapacity(socket, new TextEncoder().encode(frame).byteLength)
+        await waitForRelayCapacity(socket, utf8ByteLength(frame))
+        if (this.tunnels.get(tunnel.connectionId) !== tunnel || this.socket !== socket || socket.readyState !== 1) {
+          throw new Error('The tunnel closed.')
+        }
         socket.send(frame)
         tunnel.counter += 1
       }
@@ -408,6 +439,10 @@ export class HostLink {
 
   private dropTunnel(tunnel: Tunnel, code: string | undefined): void {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel) return
+    if (tunnel.handshakeTimer !== undefined) {
+      clearTimeout(tunnel.handshakeTimer)
+      tunnel.handshakeTimer = undefined
+    }
     this.tunnels.delete(tunnel.connectionId)
     if (tunnel.stage === 'ready') this.options.onReadyCount?.(this.connectedDevices().length)
     for (const controller of tunnel.calls.values()) controller.abort(new Error('The phone link closed.'))

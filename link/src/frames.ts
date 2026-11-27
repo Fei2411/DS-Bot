@@ -12,6 +12,15 @@ const SECURE_FRAGMENT_MAGIC = new Uint8Array([0x44, 0x53, 0x42, 0x46]) // DSBF
 const SECURE_FRAGMENT_VERSION = 1
 const SECURE_FRAGMENT_HEADER_BYTES = 17
 const MAX_IN_FLIGHT_SECURE_MESSAGES = 8
+export const SECURE_ASSEMBLY_TTL_MS = 30_000
+
+const textEncoder = new TextEncoder()
+const textDecoder = new TextDecoder()
+const fatalTextDecoder = new TextDecoder('utf-8', { fatal: true })
+
+export function utf8ByteLength(value: string): number {
+  return typeof Buffer !== 'undefined' ? Buffer.byteLength(value, 'utf8') : textEncoder.encode(value).byteLength
+}
 
 export const controlFrameTypes = [
   'hello',
@@ -165,25 +174,25 @@ export function createRpcRequest<TParams>(method: string, params: TParams, id?: 
 
 export function encodeControlFrame(frame: ControlFrame, limits: ControlFrameByteLimits = {}): string {
   const encoded = JSON.stringify(parseControlFrame(frame))
-  assertControlFrameSize(new TextEncoder().encode(encoded).byteLength, frame.type, limits)
+  assertControlFrameSize(utf8ByteLength(encoded), frame.type, limits)
   return encoded
 }
 
 export function decodeControlFrame(data: Uint8Array | string, limits: ControlFrameByteLimits = {}): ControlFrame {
-  const encoded = typeof data === 'string' ? new TextEncoder().encode(data) : data
-  if (encoded.byteLength > MAX_RELAY_FRAME_BYTES) throw new Error('Control frame exceeds the Relay frame limit.')
-  const text = typeof data === 'string' ? data : new TextDecoder('utf-8', { fatal: true }).decode(data)
+  const byteLength = typeof data === 'string' ? utf8ByteLength(data) : data.byteLength
+  if (byteLength > MAX_RELAY_FRAME_BYTES) throw new Error('Control frame exceeds the Relay frame limit.')
+  const text = typeof data === 'string' ? data : fatalTextDecoder.decode(data)
   const frame = parseControlFrame(JSON.parse(text))
-  assertControlFrameSize(encoded.byteLength, frame.type, limits)
+  assertControlFrameSize(byteLength, frame.type, limits)
   return frame
 }
 
 export function encodeMessage(message: RemoteMessage): Uint8Array {
-  return new TextEncoder().encode(JSON.stringify(message))
+  return textEncoder.encode(JSON.stringify(message))
 }
 
 export function decodeMessage(data: Uint8Array | string): RemoteMessage {
-  const text = typeof data === 'string' ? data : new TextDecoder().decode(data)
+  const text = typeof data === 'string' ? data : textDecoder.decode(data)
   const value: unknown = JSON.parse(text)
   if (!isEnvelope(value) || !(messageTypes as readonly string[]).includes(value.type)) {
     throw new Error('Remote message is invalid.')
@@ -212,7 +221,13 @@ interface FragmentAssembly {
   total: number
   totalBytes: number
   receivedBytes: number
+  updatedAt: number
   chunks: Uint8Array[]
+}
+
+export interface SecureMessageCodecOptions {
+  assemblyTtlMs?: number
+  now?: () => number
 }
 
 /**
@@ -222,6 +237,13 @@ interface FragmentAssembly {
 export class SecureMessageCodec {
   private nextMessageId = 1
   private readonly assemblies = new Map<number, FragmentAssembly>()
+  private readonly assemblyTtlMs: number
+  private readonly now: () => number
+
+  constructor(options: SecureMessageCodecOptions = {}) {
+    this.assemblyTtlMs = options.assemblyTtlMs ?? SECURE_ASSEMBLY_TTL_MS
+    this.now = options.now ?? (() => Date.now())
+  }
 
   encode(message: Uint8Array): Uint8Array[] {
     if (message.byteLength > MAX_SECURE_MESSAGE_BYTES) throw new Error('Secure message exceeds the reassembly limit.')
@@ -249,6 +271,8 @@ export class SecureMessageCodec {
   }
 
   decode(frame: Uint8Array): Uint8Array | undefined {
+    const currentTime = this.now()
+    if (this.assemblies.size > 0) this.sweepExpired(currentTime)
     if (!isSecureFragment(frame)) return frame
     if (frame.byteLength < SECURE_FRAGMENT_HEADER_BYTES || frame[4] !== SECURE_FRAGMENT_VERSION) {
       throw new Error('Secure fragment header is invalid.')
@@ -272,7 +296,7 @@ export class SecureMessageCodec {
       if (index !== 0 || this.assemblies.size >= MAX_IN_FLIGHT_SECURE_MESSAGES) {
         throw new Error('Secure fragment sequence is invalid.')
       }
-      assembly = { total, totalBytes, receivedBytes: 0, chunks: [] }
+      assembly = { total, totalBytes, receivedBytes: 0, updatedAt: currentTime, chunks: [] }
       this.assemblies.set(messageId, assembly)
     }
     if (assembly.total !== total || assembly.totalBytes !== totalBytes || index !== assembly.chunks.length) {
@@ -281,6 +305,7 @@ export class SecureMessageCodec {
     }
     assembly.chunks.push(Uint8Array.from(chunk))
     assembly.receivedBytes += chunk.byteLength
+    assembly.updatedAt = currentTime
     if (assembly.chunks.length < total) return undefined
     this.assemblies.delete(messageId)
     if (assembly.receivedBytes !== totalBytes) throw new Error('Secure message length is invalid.')
@@ -291,6 +316,13 @@ export class SecureMessageCodec {
       offset += part.byteLength
     }
     return message
+  }
+
+  private sweepExpired(now: number): void {
+    if (!Number.isFinite(this.assemblyTtlMs) || this.assemblyTtlMs <= 0) return
+    for (const [messageId, assembly] of this.assemblies) {
+      if (now - assembly.updatedAt > this.assemblyTtlMs) this.assemblies.delete(messageId)
+    }
   }
 
   reset(): void {

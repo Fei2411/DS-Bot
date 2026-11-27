@@ -3,7 +3,7 @@
 // "new" sheet. Every write goes through the same endpoints the desktop calls.
 import { Children, Fragment, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
-import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import { openChat } from '../nav/open-chat.ts'
@@ -11,25 +11,30 @@ import * as Crypto from 'expo-crypto'
 import { listComputers, removeComputer, type StoredComputer } from '../store.ts'
 import { ComputersCtx } from '../nav/computers.ts'
 import * as ImagePicker from 'expo-image-picker'
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import { useTeam } from '../team/context.tsx'
 import { memorySummaryText } from '../team/memory.ts'
+import { avatarPhoto } from '../team/avatar-photo.ts'
+import { botMarkState, isTopBlockInView } from '../team/mark-state.ts'
+import { MarksShown } from '../ui/avatar/LiveMark.tsx'
 import { t, timeLabel, weekdayShort } from '../ui/i18n.ts'
+import { roomTitle } from '../ui/phrases.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
+import { lookOf, PICKER_SHAPES } from '../../../ds-bot/src/client/characters.js'
 import { Avatar, COLOR_PAINT, RoomAvatar } from '../ui/marks.tsx'
 import { inkColor, radius, shadow, type as typeScale, useTheme, type Palette } from '../ui/tokens.ts'
 import type { Bot, Room, TeamState } from '../connection.ts'
 import { capabilityStatusText } from '../team/capabilities.ts'
 import { ModelMenu, ModelPicker } from './model-menu.tsx'
 
-export const SHAPES = ['acorn', 'berry', 'bunny', 'gem', 'gumdrop', 'kitty', 'moon', 'peanut', 'star', 'wave']
+export const SHAPES = PICKER_SHAPES
 export const COLORS = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta', 'gray', 'aurora']
 
 export const pickPhoto = async (): Promise<string | null> => {
-  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8, base64: true })
+  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 })
   const asset = result.canceled ? null : result.assets?.[0]
-  if (!asset?.base64) return null
-  const mime = asset.mimeType ?? 'image/jpeg'
-  return `data:${mime};base64,${asset.base64}`
+  if (!asset) return null
+  return avatarPhoto(asset, (uri, actions) => manipulateAsync(uri, actions, { compress: 0.8, format: SaveFormat.JPEG, base64: true }))
 }
 
 const botOf = (team: TeamState | null, id: string) => team?.bots?.find(b => b.id === id)
@@ -210,9 +215,21 @@ export function BotDetails({ route, navigation }: any) {
   const { p, dark } = useTheme()
   const { team } = useTeam()
   const { run, error } = useWrite(navigation)
+  const shown = useContext(MarksShown)
+  const avatarBottom = useRef(0)
+  const scrollY = useRef(0)
+  const [avatarInView, setAvatarInView] = useState(true)
+  const syncAvatarInView = () => setAvatarInView(isTopBlockInView(scrollY.current, avatarBottom.current))
+  const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollY.current = event.nativeEvent.contentOffset.y
+    syncAvatarInView()
+  }
   const bot = botOf(team, route.params?.botId ?? '')
+  useEffect(() => {
+    scrollY.current = 0
+    setAvatarInView(true)
+  }, [bot?.id])
   if (bot === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
-  const main = isMain(team, bot.id)
   const permissions = (team as { permissions?: { options?: { value: string; name: string }[]; defaultPreset?: string } } | null)?.permissions
   // The desktop's details pane (details-drawer.js): who it is, then model,
   // permission, folder, instructions, memory, usage and scheduled tasks. Its gear
@@ -224,9 +241,13 @@ export function BotDetails({ route, navigation }: any) {
         <View style={{ flex: 1 }} />
         <RoundButton label={t('Edit Bot')} onPress={() => navigation.navigate('BotEdit', { botId: bot.id })}><GearIcon size={18} color={p.ink2} /></RoundButton>
       </View>
-      <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }}>
-        <View style={{ alignItems: 'center', paddingTop: 4 }}>
-          <Avatar bot={bot} dark={dark} size={64} ring={p.main} main={main} />
+      <ScrollView key={bot.id} contentContainerStyle={{ paddingTop: 4, paddingBottom: 40, paddingHorizontal: 18 }} onScroll={onScroll} scrollEventThrottle={100}>
+        <View style={{ alignItems: 'center' }} onLayout={event => { avatarBottom.current = event.nativeEvent.layout.y + event.nativeEvent.layout.height; syncAvatarInView() }}>
+          <MarksShown.Provider value={shown && avatarInView}>
+            <Avatar bot={bot} dark={dark} size={64} ring={p.main} state={botMarkState(team, bot)} badge={false} live pokeable />
+          </MarksShown.Provider>
+        </View>
+        <View style={{ alignItems: 'center' }}>
           <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18 }]}>{bot.name}</Text>
           {bot.role ? <Text style={[typeScale.caption, { color: p.ink3, marginTop: 2 }]}>{bot.role}</Text> : null}
         </View>
@@ -409,21 +430,30 @@ export function BotEdit({ route, navigation }: any) {
   const { p, dark } = useTheme()
   const { team } = useTeam()
   const { run, error } = useWrite(navigation)
+  const [photoError, setPhotoError] = useState('')
   const open = useOpenWhenListed(navigation)
   const bot = botOf(team, route.params?.botId ?? '')
   if (bot === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const save = (patch: Record<string, unknown>) => void run('update-bot', { id: bot.id, ...patch })
-  const shape = bot.avatar?.shape ?? 'star'
-  const color = bot.color ?? 'blue'
+  const upload = async () => {
+    setPhotoError('')
+    try {
+      const image = await pickPhoto()
+      if (image !== null) save({ avatar: { ...bot.avatar, image } })
+    } catch (err) { setPhotoError(err instanceof Error ? err.message : String(err)) }
+  }
+  const look = lookOf(bot)
+  const shape = look.shape
+  const color = look.color
   const main = isMain(team, bot.id)
   return (
     <Screen title={bot.name}>
       <BackRow title={t('Settings')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={{ alignItems: 'center', paddingTop: 12 }}>
-          <Avatar bot={bot} dark={dark} size={56} ring={p.main} />
+          <Avatar bot={bot} dark={dark} size={56} ring={p.main} live />
         </View>
-        {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        {error || photoError ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error || photoError}</Text> : null}
         <Section label={t('Profile')}>
           <Field label={t('Name')} value={bot.name} placeholder="Bob" onSave={name => { if (name) save({ name }) }} />
           <Field label={t('Label')} value={bot.role} placeholder={t('Research, admin…')} onSave={role => save({ role })} />
@@ -437,7 +467,7 @@ export function BotEdit({ route, navigation }: any) {
             draw={(id, size) => <View style={{ width: size * 0.52, height: size * 0.52, borderRadius: size, backgroundColor: COLOR_PAINT[id] ?? inkColor(id, dark) }} />} />
         </Section>
         <Section label={t('Photo')}>
-          <Row label={t('Upload photo')} onPress={() => { void pickPhoto().then(image => { if (image !== null) save({ avatar: { ...bot.avatar, image } }) }) }} />
+          <Row label={t('Upload photo')} onPress={() => { void upload() }} />
           {bot.avatar?.image ? <Row label={t('Remove photo')} onPress={() => save({ avatar: { shape: bot.avatar?.shape } })} /> : null}
         </Section>
         <Section label={t('Model')}>
@@ -556,8 +586,9 @@ export function GroupDetails({ route, navigation }: any) {
   const admin = botOf(team, room.admin ?? '')
   const mode = admin !== undefined ? (room.mode ?? 'admin') : 'everyone'
   const notice = (room as { notice?: string }).notice
+  const title = roomTitle(room)
   return (
-    <Screen title={room.name}>
+    <Screen title={title}>
       <View style={[styles.detailTop, { paddingTop: 8 }]}>
         <RoundButton label={t('Back')} onPress={() => navigation.goBack()}><ChevronLeftIcon color={p.ink2} /></RoundButton>
         <View style={{ flex: 1 }} />
@@ -566,7 +597,7 @@ export function GroupDetails({ route, navigation }: any) {
       <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }}>
         <View style={{ alignItems: 'center', paddingTop: 4 }}>
           <RoomAvatar room={room} bots={bots} dark={dark} size={56} ring={p.main} />
-          <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18, textAlign: 'center' }]}>{room.name}</Text>
+          <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18, textAlign: 'center' }]}>{title}</Text>
           <Text style={[typeScale.caption, { color: p.ink3, marginTop: 2 }]}>{[t('{count} members', { count: members.length }), admin ? t('Admin {name}', { name: admin.name }) : t('No admin')].join(' · ')}</Text>
         </View>
         {notice
@@ -592,7 +623,7 @@ export function GroupDetails({ route, navigation }: any) {
         {team?.memory === false ? null : (
           <>
             <DetailTitle text={t('Memory')} />
-            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Memory', { id: room.id, name: room.name, group: true })}
+            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Memory', { id: room.id, name: title, group: true })}
               style={[styles.dropdown, { backgroundColor: p.card, borderColor: p.line }]}>
               <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{t('Memory')}</Text>
               <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Manage')}</Text>
@@ -607,21 +638,41 @@ export function GroupDetails({ route, navigation }: any) {
 
 export function GroupSettings({ route, navigation }: any) {
   const { p, dark } = useTheme()
-  const { team } = useTeam()
+  const { team, hello } = useTeam()
   const { run, error } = useWrite(navigation)
+  const [photoError, setPhotoError] = useState('')
   const room = roomOf(team, route.params?.roomId ?? '')
   if (room === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const bots = team?.bots ?? []
+  const canSetAvatar = hello?.capabilities?.includes('room-avatars') === true
   const members = new Set(room.members ?? [])
   const update = (patch: Record<string, unknown>) => void run('update-room', { id: room.id, ...patch })
+  const upload = async () => {
+    if (!canSetAvatar) return
+    setPhotoError('')
+    try {
+      const image = await pickPhoto()
+      if (image !== null) update({ avatar: { image } })
+    } catch (failure) {
+      setPhotoError(failure instanceof Error ? failure.message : String(failure))
+    }
+  }
   const mode = room.admin !== undefined && bots.some(b => b.id === room.admin) ? (room.mode ?? 'admin') : 'everyone'
+  const title = roomTitle(room)
   return (
-    <Screen title={room.name}>
+    <Screen title={title}>
       <BackRow title={t('Group settings')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        {error || photoError ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error || photoError}</Text> : null}
+        <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Edit group avatar')} disabled={!canSetAvatar} accessibilityState={{ disabled: !canSetAvatar }} onPress={() => { void upload() }}>
+            <RoomAvatar room={room} bots={bots} dark={dark} size={72} ring={p.main} />
+          </Pressable>
+        </View>
         <Section label={t('Profile')}>
           <Field label={t('Name')} value={room.named === true ? room.name : ''} placeholder={t('Name after members')} onSave={name => update({ name })} />
+          {canSetAvatar ? <Row label={t('Upload photo')} onPress={() => { void upload() }} /> : null}
+          {canSetAvatar && (room.avatar?.image || room.avatar?.imageRef) ? <Row label={t('Remove photo')} onPress={() => update({ avatar: null })} /> : null}
           <Field label={t('Notice')} value={room.notice} multiline placeholder={t('Shared instructions every member reads before speaking…')} onSave={notice => update({ notice })} />
         </Section>
         <Section label={t('Who answers')}>
@@ -666,7 +717,7 @@ export function GroupSettings({ route, navigation }: any) {
           })}
         </Section>
         <Section label={t('Danger')}>
-          <DangerRow label={t('Delete group')} confirm={t('Delete {name}?', { name: room.name })} onConfirm={() => void run('delete-room', { id: room.id }, () => openChat(navigation))} />
+          <DangerRow label={t('Delete group')} confirm={t('Delete {name}?', { name: title })} onConfirm={() => void run('delete-room', { id: room.id }, () => openChat(navigation))} />
         </Section>
       </ScrollView>
     </Screen>

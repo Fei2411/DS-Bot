@@ -55,4 +55,17 @@ describe('the tray', () => {
     app.tray.dispose()
     assert.equal(app.trays[0].destroyed, true)
   })
+
+  test('identical setComputer updates do not rebuild the native menu', () => {
+    const app = harness()
+    assert.equal(app.menus.length, 1)
+    app.tray.setComputer([])
+    assert.equal(app.menus.length, 1, 'empty -> empty skips menu rebuild')
+    app.tray.setComputer([{ label: 'River · Notes', botId: 'w1' }])
+    assert.equal(app.menus.length, 2)
+    app.tray.setComputer([{ label: 'River · Notes', botId: 'w1' }])
+    assert.equal(app.menus.length, 2, 'identical entries skip menu rebuild')
+    app.tray.setComputer([{ label: 'River · Safari', botId: 'w1' }])
+    assert.equal(app.menus.length, 3, 'changed entries rebuild menu')
+  })
 })

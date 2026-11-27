@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -9,6 +9,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { loopTurn } from './relay-rows.js'
 
 // #976: a plugin update replaces the files under a running dsh and loads the plugin
 // again in place. The process keeps its turns and child agents; the plugin's maps do
@@ -34,7 +35,7 @@ const team = () => ({
 
 const settle = async (check, ms = 2000) => {
   const until = Date.now() + ms
-  while (!check() && Date.now() < until) await new Promise(resolve => setImmediate(resolve))
+  while (!check() && Date.now() < until) await loopTurn()
   assert.ok(check(), 'condition not reached')
 }
 // A group post resolves its Agent in another turn of the loop, so waiting with
@@ -109,6 +110,130 @@ const freshHome = () => {
   writeFileSync(join(home, 'state.json'), JSON.stringify(team()))
   return home
 }
+
+test('a real DSH transport failure drains the pending inbox without another send', async (t) => {
+  const root = new Context()
+  const entered = Promise.withResolvers()
+  const fail = Promise.withResolvers()
+  const home = freshHome()
+  const dsh = dshSide()
+  let plugin
+  t.after(async () => {
+    fail.resolve()
+    await root.fiber.dispose()
+    await plugin?.ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  await mountAgentLoopTestDependencies(root)
+  let calls = 0
+  class Adapter extends LlmAdapter {
+    async resolveModel(provider, id) { return { provider, id, name: id, inputModalities: ['text'], context: { contextWindow: 100000 } } }
+    async *stream() {
+      if (++calls === 2) {
+        entered.resolve()
+        await fail.promise
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'TRANSPORT', message: 'Connection error.' } } }
+      } else {
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      }
+    }
+  }
+  root.llm.registerAdapter(['queue-test'], new Adapter())
+  await mountAgentLoopTestHarness(root)
+  const agent = await root.agentLoop.create(SessionId('b'), { provider: 'queue-test', model: 'test' })
+  dsh.agentMap.set('b', agent)
+  dsh.services.agents = root.agents
+  plugin = await loadPlugin(dsh, home)
+  await plugin.rt.load()
+  root.on('session/event', (session, event) => {
+    for (const listener of plugin.ctx.listeners.get('session/event') ?? []) {
+      if (listener.length >= 2) listener(session, event)
+    }
+  })
+  for (const name of ['agent/status', 'agent/inbox/discarded']) {
+    root.on(name, payload => plugin.ctx.emit(name, payload))
+  }
+  const userMessage = text => createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] })
+  const steer = userMessage('Spliced before the failure')
+  const followup = userMessage('Queued after the steer')
+  const opening = userMessage('Start the work')
+  const off = root.on('agent/turn-stopping', () => {
+    off()
+    agent.steer(steer)
+  })
+  agent.followup(opening)
+  await entered.promise
+  agent.followup(followup)
+  await plugin.rt.deliver({ fromId: 'a', toId: 'b', role: 'reply', exchangeId: 'reply', text: 'Work from Chief' })
+  await plugin.rt.deliver({ toId: 'b', role: 'task-report', exchangeId: 'report', text: 'Task finished' })
+  const queued = () => {
+    try { return JSON.parse(readFileSync(join(home, 'inflight.json'), 'utf8')).queued.b ?? [] } catch { return undefined }
+  }
+  await settle(() => queued()?.length === 2)
+  fail.resolve()
+  await agent.whenIdle()
+  assert.equal(agent.inbox.nextTurn.length, 0, 'the pending inbox should drain after the failed turn')
+  const events = agent.session.snapshotEvents()
+  assert.deepEqual(events.filter(event => event.type === 'turn/end').map(event => event.data.reason.kind), ['error', 'completed', 'completed', 'completed'])
+  assert.equal(events.find(event => event.type === 'turn/end').data.reason.error.code, 'TRANSPORT')
+  const messages = events.filter(event => event.type === 'user/message')
+  assert.deepEqual(messages.filter(event => event.data.source.kind === 'user').map(event => event.data.id), [opening.id, steer.id, followup.id])
+  assert.deepEqual(messages.flatMap(event => event.data.source.exchangeId ?? []), ['reply', 'report'])
+  assert.deepEqual(plugin.rt.unreadOf('b'), [])
+  await settle(() => queued()?.length === 0)
+})
+
+test('a pending subagent settlement wakes the parent after a transport failure', async (t) => {
+  const root = new Context()
+  const entered = Promise.withResolvers()
+  const fail = Promise.withResolvers()
+  const home = freshHome()
+  const dsh = dshSide()
+  let plugin
+  t.after(async () => {
+    fail.resolve()
+    await root.fiber.dispose()
+    await plugin?.ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  await mountAgentLoopTestDependencies(root)
+  let calls = 0
+  class Adapter extends LlmAdapter {
+    async resolveModel(provider, id) { return { provider, id, name: id, inputModalities: ['text'], context: { contextWindow: 100000 } } }
+    async *stream() {
+      if (++calls === 1) {
+        entered.resolve()
+        await fail.promise
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'TRANSPORT', message: 'Connection error.' } } }
+      } else {
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      }
+    }
+  }
+  root.llm.registerAdapter(['queue-test'], new Adapter())
+  await mountAgentLoopTestHarness(root)
+  const agent = await root.agentLoop.create(SessionId('b'), { provider: 'queue-test', model: 'test' })
+  dsh.agentMap.set('b', agent)
+  dsh.services.agents = root.agents
+  plugin = await loadPlugin(dsh, home)
+  await plugin.rt.load()
+  root.on('agent/status', payload => plugin.ctx.emit('agent/status', payload))
+  agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Start the work' }] }))
+  await entered.promise
+  const result = createUserMessage({
+    source: { kind: 'subagent-settled', form: 'notice', senderSessionId: 'child', summary: 'Child finished' },
+    content: [{ type: 'text', text: 'Child finished' }],
+  })
+  agent.steer(result)
+  assert.deepEqual(agent.inbox.nextTurn, [])
+  assert.deepEqual(agent.inbox.nextStep.map(message => message.id), [result.id])
+  fail.resolve()
+  await agent.whenIdle()
+  const events = agent.session.snapshotEvents()
+  assert.deepEqual(events.filter(event => event.type === 'turn/end').map(event => event.data.reason.kind), ['error', 'completed'])
+  assert.equal(events.filter(event => event.type === 'user/message' && event.data.id === result.id).length, 1)
+  assert.deepEqual(agent.inbox.nextStep, [])
+})
 // The plugin stops before its data goes, so nothing it still writes lands in a folder
 // that is being removed.
 const cleanup = (t, home, ctx) => t.after(async () => {
@@ -244,9 +369,9 @@ test('a plugin loaded again gives a live Bot Session its tools before its next r
     },
     on: () => () => {},
   }
-  const served = ['read', 'subagent', 'workflow', 'message_bot', 'bot_remember', 'bot_recall', 'request_secret']
+  const served = ['read', 'subagent', 'workflow', 'delegate_work', 'bot_remember', 'bot_recall', 'request_secret']
   const first = await loadPlugin(dsh, home, { served })
-  await settle(() => registered.includes('message_bot'))
+  await settle(() => registered.includes('delegate_work'))
   await first.ctx.dispose()
   // The reload lifts the old scope with the old runtime; loading again puts the same
   // scope back, before any request of the running turn assembles.
@@ -254,7 +379,7 @@ test('a plugin loaded again gives a live Bot Session its tools before its next r
   denied.length = 0
   const second = await loadPlugin(dsh, home, { served })
   cleanup(t, home, second.ctx)
-  await settle(() => registered.includes('message_bot'))
+  await settle(() => registered.includes('delegate_work'))
   for (const name of ['bot_remember', 'bot_recall', 'request_secret']) assert.equal(registered.includes(name), true, name)
   // The delegation tools a Bot Session must not use stay masked.
   assert.equal(denied.includes('subagent'), true)
@@ -283,7 +408,7 @@ test('Bot memory tools coexist with another plugin memory tools in a Bot Session
   }
   const { ctx, rt } = await loadPlugin(dsh, home)
   cleanup(t, home, ctx)
-  await settle(() => registered.has('message_bot'))
+  await settle(() => registered.has('delegate_work'))
   rt.syncScopedTools()
   for (const name of ['bot_remember', 'bot_forget', 'bot_recall']) {
     assert.equal(typeof registered.get(name)?.execute, 'function', name)

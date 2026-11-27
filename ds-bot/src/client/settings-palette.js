@@ -5,19 +5,21 @@ import { IconSettingsOutlineMedium } from './dsh-primitives.js'
 import { modelLine, modelName } from './bot-models-page.js'
 import { isLocalRoute } from './agent-routes.js'
 import { isImeComposing } from './enter-key.js'
+import { ESCAPE_PRIORITY, topEscapePriority, useEscape } from './overlay-hooks.js'
 import { t } from './i18n.js'
 
 // Every page, part, and key control, with English and Chinese keywords.
 export const SEARCH_ENTRIES = [
   { id: 'overview', label: 'Overview', group: 'Overview', page: 'overview', icon: 'overview', keywords: 'home status summary 概览 首页 状态' },
-  { id: 'general', label: 'General', group: 'General', page: 'general', icon: 'general', keywords: 'basics language workspace 语言 工作区 默认模型' },
+  { id: 'general', label: 'General', group: 'General', page: 'general', icon: 'general', keywords: 'basics language workspace 语言 工作区' },
   { id: 'default-model', label: 'Default model', group: 'General', page: 'general', icon: 'general', keywords: 'new bots model 默认模型' },
   { id: 'enter-send', label: 'Enter sends message', group: 'General', page: 'general', icon: 'general', keywords: 'input keyboard enter 回车 发送' },
   { id: 'locations', label: 'Locations', group: 'General', page: 'general', icon: 'general', keywords: 'team workspace data location folder path 目录 位置 文件夹 总工作区 数据位置' },
   { id: 'memory', label: 'Memory', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, keywords: 'bring up related memory group bot team memory size recall limits 记忆 上限 召回 自动召回' },
   { id: 'background', label: 'Background work', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, keywords: 'background commands after seconds timeout 后台 命令 超时 秒' },
-  { id: 'mode', label: 'Classic Agent mode', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, requiresSurface: true, keywords: 'bot mode agent mode surface 经典模式 切换' },
-  { id: 'appearance', label: 'Appearance', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'theme accent color dark light font size 主题 强调色 颜色 深色 浅色 字体 字号' },
+  { id: 'mode', label: 'Classic Agent mode', group: 'General', page: 'general', icon: 'general', requiresSurface: true, keywords: 'bot mode agent mode surface 经典模式 切换' },
+  { id: 'shortcuts', label: 'Keyboard shortcuts', group: 'General', page: 'shortcuts', icon: 'shortcuts', keywords: 'shortcut hotkey keybind keyboard browser inbox switch bot mode 快捷键 热键 按键 绑定 浏览器 经典模式 收件箱 切换' },
+  { id: 'appearance', label: 'Appearance', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'theme accent color dark light font size background material mica vibrancy corners density stylesheet css 主题 强调色 颜色 深色 浅色 字体 字号 背景 材质 窗口材质 圆角 密度 样式表' },
   { id: 'layout', label: 'Message layout', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'bubble flat text bubble width text width show thinking 气泡 平铺 宽度 气泡宽度 正文宽度 显示思考过程 思考' },
   { id: 'motion', label: 'Motion', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'interface motion bot animation quiet normal lively full reduced 界面动效 动画 安静 正常 活泼' },
   { id: 'models', label: 'Providers', group: 'Models', page: 'models', icon: 'models', keywords: 'api key openai anthropic gemini deepseek 模型 服务商 密钥' },
@@ -30,23 +32,53 @@ export const SEARCH_ENTRIES = [
   { id: 'connectors', label: 'Connectors', group: 'Connect', page: 'connectors', icon: 'connectors', keywords: 'github mail email notion figma linear slack 连接器 邮箱 应用' },
   { id: 'im', label: 'IM', group: 'Connect', page: 'im', icon: 'im', keywords: 'wechat weixin feishu dingtalk wecom qq telegram discord slack 微信 飞书 钉钉 企微 聊天软件' },
   { id: 'phone', label: 'Phone', group: 'Connect', page: 'phone', icon: 'phone', keywords: 'mobile app qr relay android ios remote 手机 二维码 远控 配对' },
-  { id: 'mcp', label: 'MCP access', group: 'Connect', page: 'mcp', icon: 'mcp', keywords: 'token port client external agent mcp 端口 令牌' },
+  { id: 'api', label: 'API', group: 'Connect', page: 'api', icon: 'api', keywords: 'token port client external agent mcp api 端口 令牌' },
   { id: 'computer', label: 'Computer use', group: 'Tools', page: 'computer', icon: 'computer', keywords: 'screen accessibility mouse keyboard desktop 电脑操控 屏幕 辅助功能' },
-  { id: 'browser', label: 'Browser', group: 'Tools', page: 'browser', icon: 'browser', keywords: 'grants site web interactive 浏览器 权限 网站' },
+  { id: 'browser', label: 'Browser', group: 'Tools', page: 'browser', icon: 'browser', keywords: 'grants site web interactive cookies import login 浏览器 权限 网站 导入 登录' },
   { id: 'capabilities', label: 'Capabilities', group: 'Tools', page: 'capabilities', icon: 'capabilities', keywords: 'shared mcp skill pack 能力 技能 包' },
   { id: 'secrets', label: 'Secrets', group: 'Tools', page: 'secrets', icon: 'secrets', keywords: 'encrypt passphrase password keys 密钥 加密 口令' },
+  { id: 'plugins', label: 'Plugins', group: 'Plugins', page: 'plugins', icon: 'plugins', keywords: 'plugin extension browser ego playwright mcp registry catalog web search shell bash agent loop 插件 扩展 浏览器 市场 仓库 网页搜索 命令执行 运行' },
   { id: 'usage', label: 'Usage', group: 'Usage', page: 'usage', icon: 'usage', keywords: 'tokens cost stats chart 用量 统计 消耗' },
-  { id: 'about', label: 'About DS Bot', group: 'About DS Bot', page: 'about', icon: 'about', keywords: 'version update release github guide walkthrough 关于 版本 更新 引导' },
+  { id: 'about', label: 'About DS Bot', group: 'About DS Bot', page: 'about', icon: 'about', keywords: 'version update auto-update automatic release github guide walkthrough 关于 版本 更新 自动更新 引导' },
+  { id: 'privacy', label: 'Privacy', group: 'About DS Bot', page: 'privacy', icon: 'privacy', keywords: 'telemetry analytics usage crash bug error log dsh session log opt out 隐私 遥测 统计 崩溃 错误 日志 数据 关闭' },
   { id: 'feedback', label: 'Feedback', group: 'About DS Bot', page: 'feedback', icon: 'feedback', keywords: 'bug error log diagnostics issue 反馈 报错 日志 诊断' },
 ]
 
+const DSH_KEYWORDS = {
+  account: 'account profile login sign in sync 账户 账号 登录 个人资料',
+  plugins: 'plugins web search shell bash agent loop extension 插件 网页搜索 命令执行 运行 扩展',
+  'agent-presets': 'agent presets persona prompt template 预设 角色 提示词 模板',
+  'archived-sessions': 'archived sessions history chats archive 归档 会话 历史 聊天',
+}
+const QUICK_IDS = ['general', 'appearance', 'models', 'bots', 'plugins', 'connectors', 'usage']
 const matches = (haystack, tokens) => tokens.every(token => haystack.includes(token))
+const scoreSetting = (entry, raw, tokens) => {
+  const titles = [entry.title, entry.label].filter(Boolean).map(text => text.toLowerCase())
+  const metas = [entry.meta, entry.group].filter(Boolean).map(text => text.toLowerCase())
+  if (titles.some(title => title === raw)) return 4
+  if (titles.some(title => title.startsWith(raw))) return 3
+  if (titles.some(title => tokens.every(token => title.includes(token)))) return 2
+  if (tokens.some(token => titles.some(title => title.includes(token)) || metas.some(meta => meta.includes(token)))) return 1
+  return 0
+}
 const PER_KIND = 6
 
-// The hits for one query, in the order the list shows them: settings, Bots, group chats,
-// then models with the batch switch beside each one.
+function quickHits({ roster, pageAvailable = () => true, hasSurface = false }) {
+  const settings = QUICK_IDS
+    .map(id => SEARCH_ENTRIES.find(entry => entry.id === id))
+    .filter(entry => entry && pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface))
+    .map(entry => ({ ...entry, kind: 'setting', title: t(entry.label), meta: t(entry.group) }))
+  const bots = (roster.bots ?? []).slice(0, 4).map(bot => ({
+    id: `bot:${bot.id}`, kind: 'bot', bot, title: bot.name, meta: modelLine(bot, roster), page: 'bots', target: bot.id,
+  }))
+  return [...settings, ...bots]
+}
+
+// The hits for one query, in the order the list shows them: settings (title hits before
+// keyword-only hits), Bots, group chats, then models with the batch switch beside each one.
 export function searchHits(query, { roster, extra = [], pageAvailable = () => true, hasSurface = false }) {
-  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const raw = query.trim().toLowerCase()
+  const tokens = raw.split(/\s+/).filter(Boolean)
   if (tokens.length === 0) return []
   const settings = [
     ...SEARCH_ENTRIES.filter(entry => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface)).map(entry => ({
@@ -58,9 +90,10 @@ export function searchHits(query, { roster, extra = [], pageAvailable = () => tr
     })),
     ...extra.map(row => ({
       id: `dsh:${row.id}`, kind: 'setting', title: row.label, meta: t('Engine'), page: 'dsh', dshId: row.id, dshRow: row,
-      haystack: `${row.label} ${row.id} dsh engine ${t('Engine')}`.toLowerCase(),
+      haystack: `${row.label} ${row.id} dsh engine ${t('Engine')} ${DSH_KEYWORDS[row.id] ?? ''}`.toLowerCase(),
     })),
   ].filter(entry => matches(entry.haystack, tokens))
+    .sort((a, b) => scoreSetting(b, raw, tokens) - scoreSetting(a, raw, tokens))
   const bots = (roster.bots ?? []).map(bot => ({
     id: `bot:${bot.id}`, kind: 'bot', bot, title: bot.name, meta: modelLine(bot, roster), page: 'bots', target: bot.id,
     haystack: `${bot.name} ${bot.role ?? ''} ${bot.model ?? bot.appliedModel ?? ''}`.toLowerCase(),
@@ -101,7 +134,11 @@ export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasS
     const opener = document.activeElement
     return () => { if (opener && typeof opener.focus === 'function' && opener.isConnected !== false) opener.focus({ preventScroll: true }) }
   }, [])
-  const hits = useMemo(() => searchHits(query, { roster, extra, pageAvailable, hasSurface }), [query, roster, extra, hasSurface])
+  const empty = query.trim() === ''
+  const hits = useMemo(
+    () => (empty ? quickHits({ roster, pageAvailable, hasSurface }) : searchHits(query, { roster, extra, pageAvailable, hasSurface })),
+    [empty, query, roster, extra, hasSurface],
+  )
   useEffect(() => { setIndex(0) }, [query])
   useEffect(() => { inputRef.current?.focus?.({ preventScroll: true }) }, [])
   useEffect(() => {
@@ -140,6 +177,7 @@ export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasS
     h('span', { className: 'bt-set-search-title' }, hit.title),
     hit.meta && hit.meta !== hit.title ? h('span', { className: 'bt-set-search-meta' }, hit.meta) : null))
   })
+  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.PALETTE })
   return h('div', { className: 'bt-set-palette-layer' },
     h('div', { className: 'bt-set-palette-scrim', onMouseDown: onClose }),
     h('div', { className: 'bt-set-palette', role: 'dialog', 'aria-label': t('Search settings') },
@@ -163,6 +201,7 @@ export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasS
             if (isImeComposing(event)) return
             if (event.key === 'Tab') { event.preventDefault(); return }
             if (event.key === 'Escape') {
+              if (topEscapePriority() > ESCAPE_PRIORITY.PALETTE) return
               event.preventDefault()
               event.stopPropagation()
               event.nativeEvent?.stopPropagation?.()
@@ -175,10 +214,11 @@ export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasS
             else if (event.key === 'Enter') { event.preventDefault(); pick(hits[index] ?? hits[0]) }
           },
         }),
-        h('kbd', { className: 'bt-set-kbd' }, 'esc')),
-      query.trim() === '' ? null
-        : h('div', { ref: listRef, id: 'bt-set-hits', className: 'bt-set-search-list', role: 'listbox', 'aria-label': t('Search settings') },
-            hits.length === 0 ? h('div', { className: 'bt-set-search-empty' }, t('No matching settings')) : rows)))
+        h('kbd', { className: 'bt-set-kbd' }, 'Esc')),
+      hits.length > 0 || !empty
+        ? h('div', { ref: listRef, id: 'bt-set-hits', className: 'bt-set-search-list', role: 'listbox', 'aria-label': t('Search settings') },
+            hits.length === 0 ? h('div', { className: 'bt-set-search-empty' }, t('No matching settings')) : rows)
+        : null))
 }
 
 export const isMac = () => typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform ?? navigator.userAgent ?? '')

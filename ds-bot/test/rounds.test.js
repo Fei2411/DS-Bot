@@ -96,9 +96,12 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
     .execute({}, { agent: { id: roomId, inbox: inboxOf(roomId) }, callId, signal })
     .then(async value => JSON.stringify(await afterRound(rt, roomId, value)))
   // The Bot's answer to its group turn: a delivery source plus the reply text.
-  const answer = async (sessionId, exchangeId, text, turn) => {
+  const answer = async (sessionId, exchangeId, text, turn, { workTool, during } = {}) => {
     await emit(sessionId, { type: 'turn/start', data: { turn } })
-    await emit(sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+    const message = sent.find(entry => entry.message.source?.exchangeId === exchangeId)?.message
+    await emit(sessionId, { type: 'user/message', data: message ?? { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+    if (workTool !== undefined) await emit(sessionId, { type: 'tool/call', data: { callId: `tc-${turn}`, name: workTool, arguments: '{}' } })
+    await during?.()
     await emit(sessionId, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } })
     await emit(sessionId, { type: 'turn/end', data: { reason: { kind: 'stop' } } })
   }
@@ -459,7 +462,7 @@ test('a relative file link a member writes reaches the group, and another Bot, a
   const chief = rt.state.mainBotIds[0]
   const writer = rt.state.rooms[room.id].members.find(id => id !== chief)
   sent.length = 0
-  await rt.teamTools.find(d => d.name === 'message_bot').execute({ to: rt.botOf(writer).name, message: 'Read [notes](notes.md#L3)', when: 'queue' }, {
+  await rt.teamTools.find(d => d.name === 'delegate_work').execute({ to: rt.botOf(writer).name, goal: 'Read [notes](notes.md#L3)', when: 'queue' }, {
     agent: { id: first.sessionId, session: { id: first.sessionId, header: { cwd: folder } }, inbox: { nextStep: [], nextTurn: [] } }, callId: 'c1',
   })
   const delivered = await waitFor(() => sent.find(entry => entry.sessionId === room.id && entry.message.source?.role === 'post'))
@@ -696,7 +699,7 @@ test('a long post goes to the group as a file, and reaches the member with its p
   const room = await team(call, sent)
   const chief = rt.state.mainBotIds[0]
   const long = `${Array.from({ length: 400 }, (_, at) => `第 ${at + 1} 行：${'报告内容。'.repeat(10)}`).join('\n')}\n结尾`
-  const posted = await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message: long }, { agent: { id: rt.chatOf(chief) } })
+  const posted = await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', intent: 'request', message: long }, { agent: { id: rt.chatOf(chief) } })
   assert.match(posted, /^Posted in "R1"/)
   const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
   const file = post.message.content.find(block => block.type === 'file')?.attachment
@@ -734,12 +737,16 @@ test('members call each other for as long as they call, and a user @ mid-round s
   await emit(room.id, userMessage('Start'))
   const running = relay(room.id, 'relay')
 
-  // Twenty calls back and forth, far past the old default of three per member.
+  // Twenty working calls back and forth, far past the old default of three per member.
   const spoken = []
   let turn = await turnFor(sent)
   for (let step = 0; step < 20; step += 1) {
     spoken.push(turn)
-    await answer(turn.sessionId, turn.message.source.exchangeId, `${step % 2 === 0 ? '@Writer' : '@Chief'} volley ${step + 1}`, step + 1)
+    const followUp = turn.message.source.resultRef
+    const during = followUp ? () => rt.teamTools.find(d => d.name === 'delegate_work').execute({
+      to: 'Writer', goal: `check item ${step + 1}`, follow_up_to: followUp,
+    }, { agent: { id: turn.sessionId } }) : undefined
+    await answer(turn.sessionId, turn.message.source.exchangeId, `${step % 2 === 0 ? '@Writer' : '@Chief'} volley ${step + 1}`, step + 1, { workTool: 'read', during })
     turn = await turnFor(sent, ...spoken)
   }
   const writerSession = rt.state.rooms[room.id].sessions[writer.id]
@@ -1056,60 +1063,27 @@ test('a plain message in a group where everyone answers still goes one member at
   assert.deepEqual(result.replies.map(reply => reply.text), ['one', 'two', 'three'])
 })
 
-// #853: a status post that calls nobody ("暂无待办", "待命", "静候下一步") is an idle step
-// too. The count belongs to the room, not to one round, so a group that keeps answering
-// its own status posts stops instead of posting them forever. The real case: 59 turns of
-// status text with no tool call and no new user content in one group session.
-test('a group stops answering its own status posts once the idle steps reach the limit', async (t) => {
+test('a notice has no audience to wake, including for a Main Bot in everyone mode', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
   t.after(stop)
   const room = await team(call, sent)
   const chief = rt.state.mainBotIds[0]
-  const writer = Object.values(rt.state.bots).find(bot => bot.name === 'Writer')
   const state = () => rt.state.rooms[room.id]
-  const posted = async (message, callId) => {
+  const posted = async (message, callId, intent) => {
     sent.length = 0
-    await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message }, { agent: { id: rt.chatOf(chief) } })
+    await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message, ...(intent ? { intent } : {}) }, { agent: { id: rt.chatOf(chief) } })
     const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
     await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
     return { round: relay(room.id, callId) }
   }
 
-  // One status post and the status answer it gets count once: the step is the answer,
-  // the post that opened the round is not a step of its own.
-  for (let step = 1; step <= 5; step += 1) {
-    const { round: running } = await posted('暂无待办，静候下一步', `relay-${step}`)
-    const turn = await turnFor(sent)
-    assert.ok(turn, `round ${step} answers the post`)
-    await answer(turn.sessionId, turn.message.source.exchangeId, '待命', step)
-    await running
-    assert.equal(state().idleRelays, step, 'one step, whatever the round took to say')
-    assert.equal(state().idlePaused, undefined, 'not paused before the limit')
+  await call('update-room', { id: room.id, mode: 'everyone' })
+  for (const [body, intent] of [['Unrecognized prose', undefined], ['@all @Writer keep this for tomorrow', 'notice']]) {
+    const { round } = await posted(body, body, intent)
+    await round
+    assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0)
+    assert.equal(state().log.find(line => line.text === body)?.route.kind, 'note')
   }
-
-  // The sixth idle step is where the group stops: the round runs, and the answer that
-  // takes the count to the limit pauses the room with one notice.
-  const { round: sixth } = await posted('待命', 'relay-6')
-  const turning = await turnFor(sent)
-  assert.ok(turning, 'the round the sixth step counts in still runs')
-  await answer(turning.sessionId, turning.message.source.exchangeId, '收到，静候下一步', 6)
-  await sixth
-  assert.equal(state().idleRelays, ROOM_IDLE_RELAY_LIMIT)
-  assert.ok(state().idlePaused, 'the room is paused')
-  const notices = state().log.filter(line => line.kind === 'notice' && line.reason === 'paused')
-  assert.equal(notices.length, 1, 'the group hears about it once')
-  assert.match(lineText(notices[0]), /6 status updates with no new work/)
-  assert.match(lineText(notices[0]), /the last from Writer/)
-  assert.match(lineText(notices[0]), /until the user writes here/)
-
-  // A paused room answers no status post of its own, and says nothing more about it.
-  const { round: seventh } = await posted('暂无待办', 'relay-7')
-  await settle()
-  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0, 'no turn starts on its own')
-  assert.equal(JSON.parse(await seventh).replies.filter(reply => reply.kind === 'paused').length <= 1, true)
-  assert.equal(state().log.filter(line => line.kind === 'notice').length, 1, 'no second notice')
-
-  // The user's message opens the round and lifts the pause.
   await emit(room.id, userMessage('@Chief 我们接着做'))
   const resumed = relay(room.id, 'relay-8')
   const answered = []
@@ -1122,7 +1096,7 @@ test('a group stops answering its own status posts once the idle steps reach the
   }
   const sessions = answered.map(turn => turn.sessionId)
   assert.ok(sessions.includes(state().sessions[chief]), 'the user reaches the admin')
-  assert.ok(sessions.includes(state().sessions[writer.id]), 'the held call runs after the user writes')
+  assert.equal(sessions.length, 1, 'no notice left a parked call')
   assert.equal(state().idlePaused, undefined)
   assert.equal(state().idleRelays, undefined)
   await resumed
@@ -1167,7 +1141,8 @@ test('a paused group holds idle calls, lets new work through, and only the user 
   // A member's idle @ call while paused is held, not dropped: it waits for the user.
   const { round: asking } = await posted('@Writer 再核对一遍', 'relay-2')
   const again = await turnFor(sent)
-  await answer(again.sessionId, again.message.source.exchangeId, '@Chief 待命', 2)
+  await rt.postToRoom(state(), writer, '@Chief 待命', { mentions: { ids: [chief], all: false } })
+  await answer(again.sessionId, again.message.source.exchangeId, '[PASS]', 2)
   await asking
   const held = (state().paused ?? []).map(entry => [entry.name, entry.idle])
   assert.deepEqual(held, [['Chief', true]], 'the idle call waits in the park list')
@@ -1692,4 +1667,331 @@ test('a stopped notice during a round closing drain still logs into the draining
   const stoppedRows = rt.roomOf(room.id).log.filter(line => line.kind === 'stopped' && line.botId === writer.id)
   assert.equal(stoppedRows.length, 1, 'stopped notice logs into the draining round without waiting for another message')
   assert.equal(sent.filter(entry => entry.sessionId === room.id && entry.message.source.role === 'post').length, 0)
+})
+
+test('roomPrompt explicitly tells a member how many earlier unread group messages were omitted', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const live = rt.roomOf(room.id)
+  const writer = Object.values(rt.state.bots).find(bot => bot.name === 'Writer')
+
+  // Seed 30 unseen earlier messages for Writer before the current round.
+  ;(live.seen ??= {})[writer.id] = 0
+  live.log = Array.from({ length: 30 }, (_, index) => ({
+    seq: index + 1,
+    who: 'User',
+    text: `Earlier group note ${index + 1}`,
+    time: 1000 + index,
+  }))
+  live.seq = 30
+
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer summarize everything we missed'))
+  const running = relay(room.id, 'relay-omitted')
+  const turn = await turnFor(sent)
+  assert.ok(turn)
+  const promptText = turn.message.content[0].text
+  // 30 earlier unread + 1 current = 31 total unseen; ROOM_DELTA_MAX=24 drops 7, then ROOM_EARLIER_MAX=8 drops 15 more -> 22 omitted!
+  assert.match(promptText, /\(22 earlier unread group messages not shown here; use read_group_chat to read them\.\)/)
+  await answer(turn.sessionId, turn.message.source.exchangeId, 'Got it, checking read_group_chat.', 1)
+  await running
+
+  // First-look member (`seen[id] === undefined`) uses ROOM_FIRST_LOOK (12) consistently with unseenLines/unreadCount.
+  delete live.seen[writer.id]
+  live.log = Array.from({ length: 20 }, (_, index) => ({
+    seq: index + 1,
+    who: 'User',
+    text: `First look msg ${index + 1}`,
+    time: 2000 + index,
+  }))
+  live.seq = 20
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer check first look'))
+  const running2 = relay(room.id, 'relay-first-look')
+  const turn2 = await turnFor(sent)
+  assert.ok(turn2)
+  // 20 earlier + 1 current = 21 total; ROOM_FIRST_LOOK=12 drops 9, then ROOM_EARLIER_MAX=8 drops 3 of the 11 earlier -> 12 omitted!
+  assert.match(turn2.message.content[0].text, /\(12 earlier unread group messages not shown here; use read_group_chat to read them\.\)/)
+  await answer(turn2.sessionId, turn2.message.source.exchangeId, 'Checked.', 2)
+  await running2
+})
+
+test('waitingLines preserves strict FIFO across nextStep, nextTurn, images, and non-user posts', async (t) => {
+  const { call, emit, userMessage, compose, relay, inboxOf, answer, stop, sent } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay-fifo')
+  const first = await turnFor(sent)
+  assert.ok(first)
+
+  // 1) A steered image in nextStep must block draining a plain-text message queued in nextTurn.
+  await compose(room.id, [{ type: 'text', text: 'image in steer' }, { type: 'image', data: 'AAAA', mediaType: 'image/png' }], 'steer')
+  await compose(room.id, 'plain text in nextTurn', 'queue')
+  await answer(first.sessionId, first.message.source.exchangeId, 'chief done', 1)
+
+  const second = await turnFor(sent, first)
+  assert.ok(second)
+  assert.doesNotMatch(second.message.content[0].text, /plain text in nextTurn/, 'nextTurn text must not jump ahead of nextStep image')
+  assert.equal(inboxOf(room.id).nextStep.length, 1)
+  assert.equal(inboxOf(room.id).nextTurn.length, 1)
+
+  // 2) Clear nextStep image, place a non-user post ahead of a plain-text user message in nextTurn -> user message must not jump ahead.
+  inboxOf(room.id).nextStep.length = 0
+  inboxOf(room.id).nextTurn.unshift({ id: randomUUID(), role: 'user', source: { kind: 'bot', role: 'post', senderName: 'Chief' }, content: [{ type: 'text', text: '[Group post from Chief]\nqueued bot post' }] })
+  await answer(second.sessionId, second.message.source.exchangeId, 'writer done', 2)
+  const result = JSON.parse(await running)
+  assert.equal(result.replies.some(reply => reply.text?.includes('plain text in nextTurn')), false, 'user message behind a non-user post must wait in FIFO order')
+  assert.equal(inboxOf(room.id).nextTurn.length, 2)
+})
+
+test('removing or deleting a speaking member immediately resolves its round waiter, cleans cards, and lets the round continue', async (t) => {
+  for (const action of ['remove', 'delete']) {
+    const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+    t.after(stop)
+    const chief = (await call('state', {})).value.mainBotId
+    const writer = (await call('create-bot', { name: 'Writer' })).value
+    const tester = (await call('create-bot', { name: 'Tester' })).value
+    const room = (await call('create-room', { name: `R-${action}`, members: [chief, writer.id, tester.id] })).value
+    await call('update-room', { id: room.id, mode: 'everyone' })
+    sent.length = 0
+
+    await emit(room.id, userMessage('Count off'))
+    const running = relay(room.id, `relay-${action}`)
+    const chiefTurn = await turnFor(sent)
+    assert.ok(chiefTurn)
+    await answer(chiefTurn.sessionId, chiefTurn.message.source.exchangeId, 'Chief 1', 1)
+
+    // Writer is now speaking in ordered everyone mode (Tester is blocked behind Writer).
+    const writerTurn = await turnFor(sent, chiefTurn)
+    assert.ok(writerTurn)
+    const writerSid = writerTurn.sessionId
+    rt.state.questions[writerSid] = { id: 'q-stale', question: 'Stale?' }
+    ;(rt.state.views ??= {})[writerSid] = { id: 'v-stale', title: 'Stale' }
+    ;(rt.state.closedCards ??= {})[writerSid] = [{ id: 'c-stale' }]
+
+    // Remove or delete Writer mid-turn: waiter must settle immediately without 4-minute timeout!
+    if (action === 'remove') await rt.updateRoom(room.id, { members: [chief, tester.id] })
+    else await rt.deleteBot(writer.id)
+
+    assert.equal(rt.state.questions[writerSid], undefined, 'stale question card must be cleaned on dropGroupSession')
+    assert.equal(rt.state.views[writerSid], undefined, 'stale view card must be cleaned on dropGroupSession')
+    assert.equal(rt.state.closedCards[writerSid], undefined, 'stale closedCards must be cleaned on dropGroupSession')
+
+    // Tester must immediately get its turn right after Writer leaves, with no bogus 'missed' notice!
+    const testerTurn = await turnFor(sent, chiefTurn, writerTurn)
+    assert.ok(testerTurn, `Tester must immediately proceed after Writer is ${action}d`)
+    assert.match(testerTurn.message.content[0].text, /Writer \(left the group\)/)
+    await answer(testerTurn.sessionId, testerTurn.message.source.exchangeId, 'Tester 3', 2)
+
+    const result = JSON.parse(await running)
+    assert.equal(result.replies.some(reply => reply.kind === 'missed'), false, 'left member must never emit a missed timeout notice')
+    assert.deepEqual(rt.state.roomBatches ?? {}, {})
+    assert.equal(rt.roomWaiters.size, 0)
+  }
+})
+
+// #975: DSH's present tool records a member's files in its own group Session, which the
+// group chat does not show. They ride as structured `presented` entries on the ledger row
+// (keeping bubble text clean), reach other members' prompts and report-back via lineText,
+// survive member part switches, and support files-only [PASS] replies.
+test('files a member presents in its group turn ride the ledger cleanly and survive part switches', async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const present = (sessionId, seq, turn, files) => emit(sessionId, { seq, type: 'deliverables/presented', data: { turn, callId: `present-${turn}`, files } })
+  const turnWith = async (sessionId, exchangeId, text, turn, files, { seq = 10 + turn, switchTo } = {}) => {
+    await emit(sessionId, { type: 'turn/start', data: { turn } })
+    await emit(sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+    if (files.length > 0) {
+      await emit(sessionId, { type: 'tool/call', data: { callId: `present-${turn}`, name: 'present', arguments: '{}' } })
+      await present(sessionId, seq, turn, files)
+      await emit(sessionId, { type: 'tool/result', data: { callId: `present-${turn}` } })
+    }
+    const endSid = switchTo ?? sessionId
+    if (switchTo !== undefined) {
+      const owner = rt.groupOwners.get(sessionId)
+      rt.groupOwners.set(switchTo, owner)
+      rt.roomOf(room.id).sessions[owner.botId] = switchTo
+      await emit(switchTo, { type: 'turn/start', data: { turn } })
+      await emit(switchTo, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId }, content: [{ type: 'text', text: 'continued' }] } })
+    }
+    await emit(endSid, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } })
+    await emit(endSid, { type: 'turn/end', data: { reason: { kind: 'completed' } } })
+  }
+
+  await emit(room.id, userMessage('Write the report'))
+  const running = relay(room.id, 'relay-present')
+  const first = await turnFor(sent)
+  const switchedSid = `${first.sessionId}-part2`
+  await turnWith(first.sessionId, first.message.source.exchangeId, 'The report is ready.', 1, [
+    { path: '/work/report.docx', description: 'First draft' },
+    { path: '/work/report.docx', description: 'Final report' },
+    { path: '' },
+  ], { seq: 11, switchTo: switchedSid })
+  const second = await turnFor(sent, first)
+  // Other members read the presented file in the prompt via lineText.
+  assert.match(second.message.content[0].text, /The report is ready\.\n\[Presented file \/work\/report\.docx: Final report\]/)
+  await turnWith(second.sessionId, second.message.source.exchangeId, '[PASS]', 2, [{ path: '/work/notes.md' }], { seq: 22 })
+  const result = JSON.parse(await running)
+  assert.deepEqual(result.replies.map(reply => [reply.text, reply.presented]), [
+    ['The report is ready.', [{ path: '/work/report.docx', description: 'Final report', sessionId: first.sessionId, seq: 11, index: 1 }]],
+    ['', [{ path: '/work/notes.md', sessionId: second.sessionId, seq: 22, index: 0 }]],
+  ])
+  // Ledger record keeps bubble text clean (never concatenates [Presented file ...] into record.text).
+  const ledgerLines = rt.roomOf(room.id).log.filter(line => line.botId !== undefined)
+  assert.equal(ledgerLines[0].text, 'The report is ready.')
+  assert.equal(ledgerLines[1].text, '')
+  assert.equal(lineText(ledgerLines[1]), `${ledgerLines[1].who}: [Presented file /work/notes.md]`)
+  // Sidebar room preview falls back to presented filename(s) instead of trailing colon on files-only replies.
+  const stateView = await call('state')
+  assert.equal(stateView.value.rooms.find(entry => entry.id === room.id)?.preview, `${ledgerLines[1].who}：notes.md`)
+
+  // Consumed once: the member's next turn carries none.
+  sent.length = 0
+  await emit(room.id, userMessage('Thanks'))
+  const again = relay(room.id, 'relay-present-2')
+  const next = await turnFor(sent)
+  await turnWith(next.sessionId, next.message.source.exchangeId, 'You are welcome.', 3, [])
+  const last = await turnFor(sent, next)
+  await turnWith(last.sessionId, last.message.source.exchangeId, 'Sure.', 4, [])
+  const later = JSON.parse(await again)
+  assert.deepEqual(later.replies.map(reply => reply.presented), [undefined, undefined])
+})
+
+test('pending presented files are cleared on failed, aborted, stopped, removed-member, and deleted-group paths', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+
+  // Round 1: first member presents a file, then its turn fails.
+  await emit(room.id, userMessage('Try first'))
+  const r1 = relay(room.id, 'relay-fail')
+  const first = await turnFor(sent)
+  await emit(first.sessionId, { type: 'turn/start', data: { turn: 1 } })
+  await emit(first.sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId: first.message.source.exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+  await emit(first.sessionId, { seq: 5, type: 'deliverables/presented', data: { turn: 1, callId: 'p1', files: [{ path: '/work/stale-fail.pdf' }] } })
+  await emit(first.sessionId, { type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'NETWORK', message: 'boom' } } } })
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, 'Got it.', 1)
+  await r1
+
+  // Round 2: first member replies normally — must NOT leak stale-fail.pdf.
+  sent.length = 0
+  await emit(room.id, userMessage('Next message'))
+  const r2 = relay(room.id, 'relay-clean')
+  const first2 = await turnFor(sent)
+  await answer(first2.sessionId, first2.message.source.exchangeId, 'Clean reply.', 2)
+  const second2 = await turnFor(sent, first2)
+  // Second member presents a file then is aborted.
+  await emit(second2.sessionId, { type: 'turn/start', data: { turn: 2 } })
+  await emit(second2.sessionId, { type: 'user/message', data: { source: { kind: 'bot', role: 'room', exchangeId: second2.message.source.exchangeId }, content: [{ type: 'text', text: 'your turn' }] } })
+  await emit(second2.sessionId, { seq: 6, type: 'deliverables/presented', data: { turn: 2, callId: 'p2', files: [{ path: '/work/stale-abort.pdf' }] } })
+  await emit(second2.sessionId, { type: 'turn/end', data: { reason: { kind: 'aborted' } } })
+  const res2 = JSON.parse(await r2)
+  assert.deepEqual(res2.replies.map(reply => [reply.text, reply.presented]), [['Clean reply.', undefined]])
+
+  // Round 3: second member replies normally — must NOT leak stale-abort.pdf.
+  sent.length = 0
+  await emit(room.id, userMessage('After abort'))
+  const r3 = relay(room.id, 'relay-clean-2')
+  const first3 = await turnFor(sent)
+  await answer(first3.sessionId, first3.message.source.exchangeId, 'Ok 1', 3)
+  const second3 = await turnFor(sent, first3)
+  await answer(second3.sessionId, second3.message.source.exchangeId, 'Ok 2', 3)
+  const res3 = JSON.parse(await r3)
+  assert.deepEqual(res3.replies.map(reply => reply.presented), [undefined, undefined])
+
+  // dropGroupLines clears pending presented files for the whole room.
+  await emit(first.sessionId, { seq: 9, type: 'deliverables/presented', data: { turn: 4, callId: 'p3', files: [{ path: '/work/dropped.pdf' }] } })
+  rt.dropGroupLines(room.id)
+  sent.length = 0
+  await rt.lateRoomReply(first.sessionId, { role: 'room', roomId: room.id }, '[PASS]')
+  assert.equal(sent.some(entry => entry.sessionId === room.id && entry.message.source?.role === 'post'), false)
+})
+
+test('lateRoomReply attaches presented files once and never duplicates on pass-with-files when done=true', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay-late')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'On it.', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, 'Me too.', 2)
+  await running
+
+  // 1) Normal late reply with presented file.
+  sent.length = 0
+  await emit(first.sessionId, { seq: 30, type: 'deliverables/presented', data: { turn: 3, callId: 'c1', files: [{ path: '/work/plan.pdf', description: 'Plan' }] } })
+  await rt.lateRoomReply(first.sessionId, { role: 'room', roomId: room.id }, 'Here is the plan.')
+  const posts1 = sent.filter(entry => entry.sessionId === room.id && entry.message.source?.role === 'post')
+  assert.equal(posts1.length, 1)
+  assert.deepEqual(posts1[0].message.source.presented, [{ path: '/work/plan.pdf', description: 'Plan', sessionId: first.sessionId, seq: 30, index: 0 }])
+
+  // 2) Pass with presented files AND shown=true + askedBy (where done would be true):
+  // must emit strictly ONE post carrying the file cards and askedBy, never two!
+  const callerId = rt.groupOwners.get(second.sessionId).botId
+  sent.length = 0
+  await emit(first.sessionId, { seq: 31, type: 'deliverables/presented', data: { turn: 4, callId: 'c2', files: [{ path: '/work/deck.pptx' }] } })
+  await rt.lateRoomReply(first.sessionId, { role: 'room', roomId: room.id, askedBy: callerId }, '[PASS]', { shown: true })
+  const posts2 = sent.filter(entry => entry.sessionId === room.id && entry.message.source?.role === 'post')
+  assert.equal(posts2.length, 1, 'pass-with-files when done=true must not post twice')
+  assert.equal(posts2[0].message.source.done, undefined)
+  assert.equal(posts2[0].message.source.askedBy, callerId)
+  assert.deepEqual(posts2[0].message.source.presented, [{ path: '/work/deck.pptx', sessionId: first.sessionId, seq: 31, index: 0 }])
+})
+
+test('group presented files filter out protected data directory paths', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Check'))
+  const running = relay(room.id, 'relay-guard')
+  const first = await turnFor(sent)
+  const secretPath = join(rt.home, 'state.json')
+  await emit(first.sessionId, { seq: 40, type: 'deliverables/presented', data: { turn: 1, callId: 'p-sec', files: [{ path: secretPath }, { path: '/work/ok.pdf' }] } })
+  await answer(first.sessionId, first.message.source.exchangeId, 'Done.', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 1)
+  const result = JSON.parse(await running)
+  assert.deepEqual(result.replies[0].presented, [{ path: '/work/ok.pdf', sessionId: first.sessionId, seq: 40, index: 1 }])
+})
+
+test('in-round pass-with-files reports admin goal tasks and late [PASS] with @mention does not wake another member', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const [adminId, memberId] = room.members
+  rt.state.rooms[room.id].admin = adminId
+  rt.state.rooms[room.id].mode = 'admin'
+  const reported = []
+  rt.goalTaskReported = (roomId, botId) => reported.push([roomId, botId])
+
+  await emit(room.id, userMessage('Deliver the file'))
+  const running = relay(room.id, 'relay-goal-pass')
+  const first = await turnFor(sent)
+  const memberName = rt.botOf(memberId).name
+  await answer(first.sessionId, first.message.source.exchangeId, `@${memberName} please send the report.`, 1)
+  const second = await turnFor(sent, first)
+  await emit(second.sessionId, { seq: 50, type: 'deliverables/presented', data: { turn: 1, callId: 'p-goal', files: [{ path: '/work/report.pdf', description: 'Report' }] } })
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 1)
+  const third = await turnFor(sent, first, second)
+  await answer(third.sessionId, third.message.source.exchangeId, 'Thanks, received.', 2)
+  await running
+  assert.deepEqual(reported, [[room.id, memberId]], 'in-round pass with presented files must call goalTaskReported')
+
+  // Late reply with `[PASS] @<other>` + files must NOT parse `@<other>` as a request route.
+  const adminName = rt.botOf(adminId).name
+  sent.length = 0
+  await emit(second.sessionId, { seq: 51, type: 'deliverables/presented', data: { turn: 2, callId: 'p-late-pass', files: [{ path: '/work/final.pdf' }] } })
+  await rt.lateRoomReply(second.sessionId, { role: 'room', roomId: room.id, askedBy: adminId }, `[PASS] @${memberName} @${adminName}`)
+  const posts = sent.filter(entry => entry.sessionId === room.id && entry.message.source?.role === 'post')
+  assert.equal(posts.length, 1)
+  assert.equal(posts[0].message.source.route?.kind, 'result', 'late pass-with-files routes back to askedBy, not as a request')
+  assert.deepEqual(posts[0].message.source.route?.to, [adminId])
+  assert.deepEqual(posts[0].message.source.presented, [{ path: '/work/final.pdf', sessionId: second.sessionId, seq: 51, index: 0 }])
 })

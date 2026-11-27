@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { afterRound } from './relay-rows.js'
+import { afterRound, loopTurn, waitForRound } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { ROOM_REPLY_TIMEOUT_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
@@ -80,10 +80,10 @@ async function start() {
   return { agentOf, emit, tool, call, askApproval, stop, archived, rt }
 }
 
-// Waits on real I/O (state writes) without timers, which some tests mock.
+// Yields a real event-loop turn via loopTurn() (setInterval) while tests mock setTimeout.
 const settle = async (check) => {
   const until = Date.now() + 3000
-  while (!check() && Date.now() < until) await new Promise(resolve => setImmediate(resolve))
+  while (!check() && Date.now() < until) await loopTurn()
   assert.ok(check(), 'condition not reached')
 }
 const text = message => message.content.map(block => block.text ?? '').join('\n')
@@ -93,13 +93,17 @@ async function openTurn(t, { agentOf, emit, tool }) {
   let result
   const stop = new AbortController()
   t.after(() => stop.abort())
-  void tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then(async (value) => { result = await afterRound(rt, 'r1', value) })
+  const done = tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal })
+    .then(async (value) => (result = await afterRound(rt, 'r1', value)))
+  done.catch(() => {})
   await settle(() => agentOf('gb').calls.length === 1)
   const message = agentOf('gb').calls[0]
   agentOf('gb').inbox.nextTurn.length = 0
   emit('gb', 'turn/start', { turn: 1 })
   emit('gb', 'user/message', { content: message.content, source: message.source })
   const read = () => result
+  read.done = done
+  read.wait = ms => waitForRound(done, ms)
   read.stop = () => rt.stopRoomRound('r1')
   return read
 }
@@ -111,16 +115,24 @@ test('a group Session\'s approval waits in the team view, frees the round, and t
   host.emit('gb', 'tool/call', { callId: 'k1', name: 'pwsh', arguments: JSON.stringify({ command: 'Copy-Item a.md E:/docs', description: 'Copy the doc' }) })
   const outcome = host.askApproval('gb', { callId: 'k1' })
 
-  await settle(() => result() !== undefined)
+  await result.wait()
   assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['approval', 'Writer']])
 
   const { value } = await host.call('state', {})
-  assert.equal(value.activity.b, 'alert')
+  // Group approvals live on the group row/island (#1623), not on the member's own DM mascot.
+  assert.equal(value.activity.b, 'working')
   const [approval] = value.work.approvals
   assert.deepEqual([approval.botId, approval.roomId, approval.tool, approval.answerable], ['b', 'r1', 'pwsh', true])
   assert.deepEqual(approval.detail, { text: 'Copy the doc', code: 'Copy-Item a.md E:/docs' })
   assert.equal(value.work.bots.b.roomId, 'r1')
   assert.equal(value.work.bots.b.tool, 'pwsh')
+
+  // A foreground DM turn keeps its own activity even while a group approval waits.
+  host.emit('b', 'turn/start', { turn: 1 })
+  host.emit('b', 'tool/call', { callId: 'dm-1', name: 'web_search', arguments: '{}' })
+  assert.equal((await host.call('state', {})).value.activity.b, 'searching')
+  host.emit('b', 'tool/result', { callId: 'dm-1' })
+  host.emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
   assert.equal((await host.call('approval-answer', { id: approval.id, choice: 'allow' })).ok, true)
   assert.equal(await outcome, 'allowed-once')
@@ -141,7 +153,9 @@ test('an own chat\'s approval races DSH\'s card and is listed while it waits', a
   t.after(host.stop)
   let release
   const outcome = host.askApproval('a', {}, () => new Promise((resolve) => { release = resolve }))
-  const [approval] = (await host.call('state', {})).value.work.approvals
+  const state = (await host.call('state', {})).value
+  assert.equal(state.activity.a, 'alert')
+  const [approval] = state.work.approvals
   assert.deepEqual([approval.botId, approval.roomId, approval.answerable], ['a', undefined, true])
   assert.equal((await host.call('approval-answer', { id: approval.id, choice: 'allow' })).ok, true)
   assert.equal(await outcome, 'allowed-once')
@@ -179,7 +193,7 @@ test('a member still going keeps its turn; one quiet for the whole wait is misse
   assert.equal(result(), undefined)
 
   t.mock.timers.tick(1000)
-  await settle(() => result() !== undefined)
+  await result.wait()
   assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['missed', 'Writer']])
 
   host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: '[PASS]' }] } })
@@ -196,7 +210,7 @@ test('stopping a round stops the member turn it started, and that turn posts not
   t.after(host.stop)
   const result = await openTurn(t, host)
   result.stop()
-  await settle(() => result() !== undefined)
+  await result.wait()
   await settle(() => host.agentOf('gb').cancelled.length === 1)
   assert.equal(host.agentOf('gb').cancelled[0].reason, 'ds-bot/stopped')
   // The turn may end with text before the stop lands.
@@ -212,10 +226,13 @@ test('stopping a round withdraws a member turn that has not started', async (t) 
   let result
   const stop = new AbortController()
   t.after(() => stop.abort())
-  void host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then(async (value) => { result = await afterRound(rt, 'r1', value) })
+  const done = host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal })
+    .then(async (value) => (result = await afterRound(rt, 'r1', value)))
+  done.catch(() => {})
   await settle(() => host.agentOf('gb').calls.length === 1)
   rt.stopRoomRound('r1')
-  await settle(() => result !== undefined)
+  await waitForRound(done)
+  assert.notEqual(result, undefined)
   await settle(() => host.agentOf('gb').inbox.nextTurn.length === 0)
   assert.deepEqual(host.agentOf('gb').cancelled, [])
 })
@@ -231,20 +248,33 @@ test('deleting a group cancels its members\' waiting approvals and stops their S
   assert.deepEqual(host.archived.find(([id]) => id === 'gb'), ['gb', { stopActivity: true }])
 })
 
-test('a report back names the members still waiting for an approval', async (t) => {
+test('a report back waits through a member approval and delivers the final reply once allowed', async (t) => {
   const host = await start()
   t.after(host.stop)
-  const posted = await host.tool('post_to_group', { group: 'Ops', message: 'Copy the doc', report_back: true }, 'a')
+  const posted = await host.tool('post_to_group', { group: 'Ops', intent: 'request', message: 'Copy the doc' }, 'a')
   assert.match(posted, /^Posted in "Ops"/)
-  const post = host.agentOf('r1').calls[0]
+  const post = host.agentOf('r1').calls.shift()
   host.emit('r1', 'user/message', { content: post.content, source: post.source })
   const result = await openTurn(t, host)
-  void host.askApproval('gb')
-  await settle(() => result() !== undefined)
+  const outcome = host.askApproval('gb')
+  await result.wait()
+  for (let i = 0; i < 10; i += 1) await new Promise(resolve => setImmediate(resolve))
+  // Still waiting for approval: no premature report yet.
+  assert.equal(host.agentOf('a').calls.length, 0)
+  const [approval] = (await host.call('state', {})).value.work.approvals
+  await host.call('approval-answer', { id: approval.id, choice: 'allow' })
+  await outcome
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: 'Copied the doc.' }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const late = host.agentOf('r1').calls.shift()
+  host.emit('r1', 'user/message', { content: late.content, source: late.source })
+  await afterRound(rt, 'r1', await host.tool('group_relay', {}, 'r1', { callId: 'c2', signal: new AbortController().signal }))
   await settle(() => host.agentOf('a').calls.length === 1)
   const report = text(host.agentOf('a').calls[0])
-  assert.match(report, /Nobody replied to your post\./)
-  assert.match(report, /Waiting for the user's approval: Writer\./)
+  assert.match(report, /Replies to your post \(oldest first\):/)
+  assert.match(report, /Writer: Copied the doc\./)
+  assert.deepEqual(rt.state.roomReports ?? {}, {})
 })
 
 test('a member that fails after the round moved on shows the failure in the group, and nobody answers it', async (t) => {
@@ -252,7 +282,7 @@ test('a member that fails after the round moved on shows the failure in the grou
   t.after(host.stop)
   const result = await openTurn(t, host)
   const outcome = host.askApproval('gb')
-  await settle(() => result() !== undefined)
+  await result.wait()
   const [approval] = (await host.call('state', {})).value.work.approvals
   await host.call('approval-answer', { id: approval.id, choice: 'allow' })
   await outcome
@@ -309,13 +339,37 @@ test('an approval asked inside a PTC program shows what that call does', async (
   program(host.emit, 'gb', 'k1')
   dispatch(host.emit, 'gb', 'k1', 1, 'pwsh', { command: 'Copy-Item a.md E:/docs', description: 'Copy the doc' })
   void host.askApproval('gb', { callId: 'k1:ptc:1' })
-  await settle(() => result() !== undefined)
+  await result.wait()
   const { value } = await host.call('state', {})
   const [approval] = value.work.approvals
   assert.deepEqual(approval.detail, { text: 'Copy the doc', code: 'Copy-Item a.md E:/docs' })
   assert.equal(value.work.bots.b.tool, 'pwsh')
 })
 
+test('activityView ignores unanswerable approvals so foreground DM activity stays intact', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  const original = host.rt.approvalsView
+  host.rt.approvalsView = () => [
+    ...original(),
+    { id: 'u1', botId: 'a', answerable: false },
+    { id: 'u2', botId: 'b', roomId: 'r1', answerable: true },
+  ]
+  host.emit('a', 'turn/start', { turn: 1 })
+  host.emit('a', 'tool/call', { callId: 'c1', name: 'bash', arguments: '{}' })
+  assert.equal(host.rt.activityView().a, 'working')
+  assert.equal(host.rt.activityView().b, undefined)
+})
+
+test('Bots cannot change permission modes and an invalid approval model leaves preferences unchanged', async t => {
+  const host = await start()
+  t.after(host.stop)
+  await assert.rejects(host.rt.updateBot('a', { permission: 'review' }, 'a'), /Only the user/)
+  await assert.rejects(host.rt.updateRoom('r1', { permission: 'review' }, 'a'), /Only the user/)
+  const result = await host.call('set-prefs', { approvalModel: 'local-codex-cli/default' })
+  assert.equal(result.ok, false)
+  assert.equal(host.rt.state.prefs.approvalModel, undefined)
+})
 
 test('a local CLI member streams live work, keeps the round alive, frees it after the grace and counts its tools', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
@@ -354,7 +408,7 @@ test('a local CLI member streams live work, keeps the round alive, frees it afte
   assert.equal(host.rt.liveOf('gb').toolCount, 2)
 
   t.mock.timers.tick(1)
-  await settle(() => result() !== undefined)
+  await result.wait()
   assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
 
   // Suspending or finishing the CLI stream clears its action, while toolCount keeps
@@ -401,7 +455,7 @@ test('a dsbot/ path inside a local CLI command is the CLI\'s own work', async (t
   assert.equal(host.rt.liveOf('gb').toolCount, 1)
   assert.deepEqual([state.activity.b, state.work.bots.b.tool, state.work.bots.b.note], ['searching', 'read', 'ls /home/user/dsbot/work'])
   t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
-  await settle(() => result() !== undefined)
+  await result.wait()
   assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
 })
 
@@ -448,7 +502,7 @@ test('recorded Devin ACP team MCP sequence stays team work and starts no grace; 
   assert.equal(host.rt.liveOf('gb').toolCount, 1)
   assert.equal(host.rt.liveOf('gb').localDoing?.note, 'Calling message_bot from github')
   t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
-  await settle(() => result() !== undefined)
+  await result.wait()
   assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
 })
 
@@ -503,6 +557,6 @@ test('recorded Cursor ACP anonymous MCP placeholder defers counting until provid
   assert.equal(host.rt.liveOf('gb').toolCount, 1)
   assert.equal(host.rt.liveOf('gb').localDoing?.note, 'github: message_bot')
   t.mock.timers.tick(ROOM_WORK_GRACE_MS + 10)
-  await settle(() => result() !== undefined)
+  await result.wait()
   assert.deepEqual(result().replies.map(reply => [reply.kind, reply.name]), [['working', 'Writer']])
 })

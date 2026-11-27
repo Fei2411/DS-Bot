@@ -14,7 +14,7 @@
 
 取舍：
 
-- **传输与 Remote 方法。** 本地 / LAN / SSH 仍走 `POST api/bot` 和 `GET api/bot/feed`，使用 DSH 会话 cookie 鉴权，和桌面应用的窗口一样。当客户端只能经由转发 DSH Typert Gateway Remote 方法的链路到达主机时，插件额外以源码模式注册两个 Gateway Remote 方法复用同一通道与事件流（纯 JS 插件不带 Typert 生成器）：`dsBot/call { endpoint, payload }` 返回与 `POST api/bot` 相同的 `{ ok, value | error }`（和手机配对链路一样，拒绝仅限电脑本机执行的 `phone-*` 配对管理与 `folder-pick` 原生弹窗，`bot/refused`），`dsBot/feed {}` 以流的形式推送 `{ event, data }`（首条为 `hello`）。代价：若中继自身带有接口允许列表（如 `ds-harness-remote`），需同时放行 `dsBot/call` 与 `dsBot/feed`，见「已知限制」。
+- **传输与 Remote 方法。** 本地 / LAN / SSH 仍走 `POST api/bot` 和 `GET api/bot/feed`，使用 DSH 会话 cookie 鉴权，和桌面应用的窗口一样。当客户端只能经由转发 DSH Typert Gateway Remote 方法的链路到达主机时，插件额外以源码模式注册两个 Gateway Remote 方法复用同一通道与事件流（纯 JS 插件不带 Typert 生成器）：`dsBot/call { endpoint, payload }` 返回与 `POST api/bot` 相同的 `{ ok, value | error }`（和手机配对链路一样，拒绝仅限电脑本机执行的 `phone-*` 配对管理、`folder-pick` 原生弹窗与 `session-*` 会话日志，`bot/refused`），`dsBot/feed {}` 以流的形式推送 `{ event, data }`（首条为 `hello`）。代价：若中继自身带有接口允许列表（如 `ds-harness-remote`），需同时放行 `dsBot/call` 与 `dsBot/feed`，见「已知限制」。
 - **显示用的条目，不是原始事件。** 群聊和 Bot 私聊都给「谁、说了什么、什么时候」的条目，客户端不需要懂 DSH 的会话事件和 DS Bot 的内部来源标记。
 - **提醒放内存。** 提醒只是「回来时补上」的索引，不是记录本身；真正的内容还在会话和 `state.json` 里。所以不落盘，重启后从头计数（`boot` 变了），客户端重新读一遍团队即可。
 
@@ -36,8 +36,11 @@
 
 - `state` 照旧。加 `avatars: 'ref'` 时，每张照片换成 `avatar.imageRef`（照片内容的 SHA-256 前 16 位），其他不变。
 - 手机经 link 的 `bot` 调用（`{ endpoint, payload }`）可以再带一个 `state` 字段，内容就是发给 `state` 接口的请求体：写入成功且团队版本变了时，回包里多一个 `state`，等于当场问一遍 `state` 的回答。读取、版本没变的写入、失败的写入都不带。
-- `avatar`：`{ botId }` → `{ botId, ref, image }`，没有照片时 `ref` 和 `image` 都是 `null`。客户端按 `ref` 缓存，`ref` 变了再取。
+- `avatar`：`{ botId }` → `{ botId, ref, image }`；有 `room-avatars` 能力时，也可用 `{ roomId }` → `{ roomId, ref, image }`。没有照片时 `ref` 和 `image` 都是 `null`。客户端按 `ref` 缓存，`ref` 变了再取。
 - 角色形象（`avatar.shape`）和默认颜色照旧由客户端按 Bot id 算（`characters.js` 的 `defaultColor`）。
+- `create-room` / `update-room` 接受可选的 `avatar: { image }`，在群记录和 `state.rooms[]` 返回。图片须为 PNG、JPEG、WebP 或 GIF 的 base64 data URL（最多 160,000 字符）；省略不改，传 `null` 恢复成员头像拼图。
+- 主 Bot 用同一个 `update-bot` 改名或换头像：`{ id: state.mainBotId, name?, avatar? }`。Bot id 和主 Bot 角色不变。
+- 新的 Bot 照片与群头像使用同一图片校验；创建本地 Agent Bot 或确认切换到本地 Agent 时，只额外接受目标引擎的固定徽标。原 Bot 已存的旧版照片会保留，直到用户更换或移除；不符合当前规则的旧版照片不会复制到新 Bot。
 
 ### 私聊
 
@@ -66,15 +69,21 @@
   - `message`：Bot 在自己的私聊里说了话（Bot 之间的隐藏回合和换段时的固定回复不算）。
   - `group`：成员在群里发言。
   - `done`：成员做完了派给它的活。
-  - `question`、`view`：Bot 的私聊里有提问卡、视图卡在等用户。
+  - `question`、`view`、`secret`、`connector`、`handoff`、`learning`：Bot 有提问卡、视图卡、密钥请求、连接器登录、浏览器接管或学习提议在等用户。
   - `approval`：Bot 在等用户批准（在群里时带群）。
-- 每条：`{ seq, kind, botId, name, roomId?, title?, sessionId?, text, time }`。`name` 是 Bot 现在的名字，`title` 是群名，`text` 最多 300 字、压成一行。
+- 每条：`{ seq, kind, botId, name, roomId?, title?, sessionId?, text, time }`。`name` 是 Bot 现在的名字，`title` 是群名，`text` 压成一行；超过 300 个 UTF-16 码元时保留前 300 个并加 `…`，不是总长最多 300 字。
 - `notices`：`{ boot?, since? }` → `{ boot, seq, reset, notices }`。`boot` 不一致（重启过）或者 `since` 之后的提醒已经被挤掉时，`reset` 为真，客户端重读团队。内存里最多留 200 条。
 - 提醒只说「有事」，不记已读。已读和通知怎么弹由客户端决定。
+- 离线推送登记（仅原生手机 App，能力标识 `push-register`，浏览器端拒绝）：
+  - `push-register`：`{ kind: 'unifiedpush', endpoint }`（仅允许指向公网地址的 `https://`）→ `{ registered: true, kind: 'unifiedpush' }`。
+  - `push-unregister`：`{}` → `{ registered: false }`。
+  - 手机离线且登记了推送时，宿主使用手机与宿主双方的 X25519 密钥（`es || ss` 认证密钥协商 + HKDF-SHA256 + ChaCha20-Poly1305）将提醒密封为 `{ v: 1, h, p }` 密文信封发往 UnifiedPush 端点；收到 `404`/`410` 时自动清理失效登记。
 
 ### 直播（feed）
 
+- HTTP SSE 每条连接最多保持 6 秒后正常结束，客户端重连从 `hello` 补齐，以便桌面更新锁及时排空请求；Remote 订阅不受此时限影响。
 - `hello` 多带 `api`、`boot`、`seq`，重连后客户端先用 `notices` 补上。
+- HTTP 连接和 Remote 订阅的 `hello` 后重放进行中回复的 `stream` start 与已累积文本；客户端在 `hello` 清空旧预览，再由重放重建。
 - 新事件 `notice`：一条提醒，内容同上。
 - 新事件 `room`：`{ roomId }`，群里有了新的一行、一轮开始或结束，150 毫秒内的合并成一条。客户端重新读这个群的第一页。
 - `dsBot/feed` 流每次订阅先送一条 `hello`，随后转发所有实时事件；插件卸载重载或单条订阅积压满 512 条未消费事件时当即结束订阅（不排空旧积压），由客户端重连后用 `hello` 与 `notices` 补齐。
@@ -94,18 +103,15 @@
 ## 不做什么
 
 - 不把已读状态存在服务端：每台设备各看各的。
-- 不推送到手机系统（FCM 之类）：客户端连着时才收得到，后台靠客户端自己的保活。
+- 不向中转服务器或第三方推送服务发送明文消息内容：离线推送只发端到端加密信封。
 - 不给群聊单独算用量：成员在群里的用量记在成员自己名下。
 - 不改网页版和桌面应用用的接口和事件。
 
 ## 已知限制
 
 - 若远程中继（如 `ds-harness-remote`）维护自身的 Remote 接口允许列表，需该中继允许列表包含 `dsBot/call` 与 `dsBot/feed` 后才能通过中继使用；SSH 隧道、局域网直连和本机不受此限制。
-- 旧群（PTC 预设下建的）一轮跑在 `run_code` 里，`room-chat` 认不出这种轮次的发言。
+- `room-chat` 直接从 DS Bot 消息账本读取发言（不再依赖工具调用结果拆解）；旧 PTC 群的轮次同样由 DS Bot 在后台运行。
 - 提醒不落盘：DSH 重启前没送到的提醒就丢了，客户端只能重读团队。
-
-## 变更
-
 
 ## File download chunks
 
@@ -119,3 +125,8 @@ New clients request one chunk at a time. Android and iOS write each chunk throug
 Expo file handle before requesting the next; the browser collects Blob parts. There
 is no total-file limit for chunk clients. Older clients that omit `offset` retain
 the existing whole-file response and its 16 MiB compatibility limit.
+
+## 变更
+
+- 2026-11-23：补齐 `secret`、`connector`、`handoff`、`learning` 提醒种类与手机端 `push-register` / `push-unregister` 端到端密封离线推送。
+- 2026-11-22：明确提醒摘要按 JavaScript 字符串长度截取并另加省略号，标记已解决的旧 PTC 群轮次识别限制，对照 dev 代码校正。

@@ -3,6 +3,7 @@ const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const { test } = require('node:test')
 const { applyArchs, sign } = require('./android-release-signing.js')
+const { patchMainApplication, patchManifest, REQUIRED_PERMISSIONS, KOTLIN_FILES } = require('./android-native.js')
 const { versionCode } = require('../app.config.js')
 
 // app/build.gradle as `expo prebuild` of Expo 58 writes it.
@@ -37,19 +38,22 @@ test('versionCode grows with the version, and a pre-release stays below its rele
   assert.throws(() => versionCode('0.3'), /cannot make/)
 })
 
-test('applyArchs preserves debug architectures while enabling uncompressed 16KB packaging', () => {
+test('applyArchs preserves debug architectures while enabling uncompressed 16KB packaging and Gradle tuning', () => {
   const existing = [
     { type: 'property', key: 'reactNativeArchitectures', value: 'armeabi-v7a,arm64-v8a,x86,x86_64' },
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'true' },
+    { type: 'property', key: 'org.gradle.jvmargs', value: '-Xmx2048m -XX:MaxMetaspaceSize=512m' },
   ]
   assert.deepEqual(applyArchs(existing), [
     { type: 'property', key: 'reactNativeArchitectures', value: 'armeabi-v7a,arm64-v8a,x86,x86_64' },
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
+    { type: 'property', key: 'org.gradle.jvmargs', value: '-Xmx4096m -XX:MaxMetaspaceSize=1024m' },
     { type: 'property', key: 'android.experimental.disableCompileSdkChecks', value: 'true' },
   ])
   assert.deepEqual(applyArchs([]), [
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
     { type: 'property', key: 'android.experimental.disableCompileSdkChecks', value: 'true' },
+    { type: 'property', key: 'org.gradle.jvmargs', value: '-Xmx4096m -XX:MaxMetaspaceSize=1024m' },
   ])
 })
 
@@ -61,4 +65,47 @@ test('Android config pins compileSdkVersion <= targetSdkVersion (36) and declare
   assert.equal(buildProps?.android?.targetSdkVersion, 36)
   assert.equal(buildProps?.android?.compileSdkVersion, 36)
   assert.ok(buildProps.android.compileSdkVersion <= buildProps.android.targetSdkVersion)
+  assert.match(buildProps.android.extraProguardRules, /io\.github\.fei2411\.dsbot\.system\.\*\*/)
+})
+
+test('android-native plugin patches MainApplication and AndroidManifest idempotently', () => {
+  const sampleMain = [
+    'package io.github.fei2411.dsbot',
+    '',
+    'import com.facebook.react.PackageList',
+    '',
+    'class MainApplication {',
+    '  val packages = PackageList(this).packages.apply {',
+    '  }',
+    '}',
+    '',
+  ].join('\n')
+  const patched = patchMainApplication(sampleMain)
+  assert.match(patched, /import io\.github\.fei2411\.dsbot\.system\.DsBotAndroidPackage/)
+  assert.match(patched, /add\(DsBotAndroidPackage\(\)\)/)
+  assert.equal(patchMainApplication(patched), patched)
+  assert.throws(() => patchMainApplication('class Broken {}'), /package declaration/)
+
+  const manifest = {
+    manifest: {
+      'uses-permission': [{ $: { 'android:name': 'android.permission.POST_NOTIFICATIONS' } }],
+      application: [{ $: { 'android:name': '.MainApplication' } }],
+    },
+  }
+  const patchedManifest = patchManifest(manifest)
+  const perms = patchedManifest.manifest['uses-permission'].map(item => item.$['android:name'])
+  for (const perm of REQUIRED_PERMISSIONS) assert.ok(perms.includes(perm), `missing ${perm}`)
+  const app = patchedManifest.manifest.application[0]
+  assert.equal(app.provider.length, 1)
+  assert.equal(app.provider[0].$['android:authorities'], '${applicationId}.dsbot.apkprovider')
+  assert.equal(app.service.length, 2)
+  assert.equal(app.service[0].$['android:foregroundServiceType'], 'remoteMessaging')
+  assert.equal(app.receiver.length, 2)
+  assert.equal(app.receiver[0].$['android:exported'], 'true')
+  // Re-running patchManifest does not duplicate entries.
+  const again = patchManifest(patchedManifest)
+  assert.equal(again.manifest.application[0].provider.length, 1)
+  assert.equal(again.manifest.application[0].service.length, 2)
+  assert.equal(again.manifest.application[0].receiver.length, 2)
+  assert.ok(KOTLIN_FILES.length >= 10)
 })

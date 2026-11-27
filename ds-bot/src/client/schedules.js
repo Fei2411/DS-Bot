@@ -1,10 +1,11 @@
 // Scheduled tasks: Settings → Scheduled tasks, a Bot's card in its settings, and the
 // line in its details panel. DSH runs the tasks (see src/host/schedules.js); a task
 // sends its prompt to the Bot's chat when it is due.
-import { createElement as h, Fragment, useEffect, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { BotAvatar, RoomAvatar } from './mark.js'
 import { ClockIcon, PauseIcon, PlusIcon, ResumeIcon, TrashIcon } from './icons.js'
-import { Segmented } from './motion.js'
+import { Segmented, reducedMotion } from './motion.js'
+import { SelectMenu } from './select-menu.js'
 import { dateLocale, hostText, t } from './i18n.js'
 
 const POLL_MS = 30_000
@@ -21,13 +22,34 @@ export function useSchedules(actions) {
   useEffect(() => {
     listeners.add(setView)
     let stopped = false
+    let inFlight = false
     let timer
-    const load = () => actions.schedules?.()
-      .then((next) => { if (!stopped) publish(next) })
-      .catch(() => {})
-      .finally(() => { if (!stopped) timer = setTimeout(load, POLL_MS) })
+    const schedule = () => {
+      clearTimeout(timer)
+      if (stopped || (typeof document !== 'undefined' && document.hidden)) return
+      timer = setTimeout(load, POLL_MS)
+    }
+    const load = () => {
+      if (stopped || inFlight) return
+      if (typeof document !== 'undefined' && document.hidden) return
+      inFlight = true
+      Promise.resolve(actions.schedules?.())
+        .then((next) => { if (!stopped && next !== undefined) publish(next) })
+        .catch(() => {})
+        .finally(() => { inFlight = false; schedule() })
+    }
+    const onVisibility = () => {
+      if (document.hidden) clearTimeout(timer)
+      else if (!stopped) load()
+    }
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
     load()
-    return () => { stopped = true; clearTimeout(timer); listeners.delete(setView) }
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility)
+      listeners.delete(setView)
+    }
   }, [])
   return view
 }
@@ -157,6 +179,8 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
   const [unit, setUnit] = useState('hours')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const formRef = useRef(null)
+  useEffect(() => { formRef.current?.scrollIntoView?.({ block: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' }) }, [])
   const validAt = kind !== 'at' || (at !== '' && Number.isFinite(Date.parse(at)))
   const validDays = kind !== 'weekly' || weekdays.length > 0
   const validEvery = kind !== 'every' || (Number.isFinite(Number(count)) && Number(count) >= 1)
@@ -185,12 +209,19 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
       .then(onDone, (failure) => { setError(hostText(failure?.message ?? String(failure))); setBusy(false) })
   }
   const toggleDay = day => setWeekdays(days => (days.includes(day) ? days.filter(item => item !== day) : [...days, day].sort()))
-  return h('form', { className: 'bt-set-card bt-task-form', onSubmit: submit },
-    h('label', { className: 'bt-set-row bt-bs-row' },
+  return h('form', { ref: formRef, className: 'bt-set-card bt-task-form', onSubmit: submit },
+    h('div', { className: 'bt-set-row bt-bs-row' },
       h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Send to'))),
-      h('select', { className: 'bt-select bt-task-bot', value: target, onChange: event => setTarget(event.target.value) },
-        h('optgroup', { label: t('Bots') }, roster.bots.map(bot => h('option', { key: bot.id, value: bot.id }, bot.name))),
-        roster.rooms.length > 0 ? h('optgroup', { label: t('Group chats') }, roster.rooms.map(room => h('option', { key: room.id, value: room.id }, room.name))) : null)),
+      h(SelectMenu, {
+        className: 'bt-task-bot',
+        'aria-label': t('Send to'),
+        value: target,
+        options: [
+          { group: t('Bots'), options: roster.bots.map(bot => ({ value: bot.id, label: bot.name })) },
+          ...(roster.rooms.length > 0 ? [{ group: t('Group chats'), options: roster.rooms.map(room => ({ value: room.id, label: room.name })) }] : []),
+        ],
+        onChange: setTarget,
+      })),
     h('label', { className: 'bt-set-row bt-bs-row' },
       h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Name'))),
       h('input', { className: 'bt-bs-input', value: title, maxLength: 120, placeholder: t('Morning briefing'), autoFocus: true, onChange: event => setTitle(event.target.value) })),
@@ -209,8 +240,13 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
         kind === 'every' ? h(Fragment, null,
           h('span', { className: 'bt-task-every' }, t('Every')),
           h('input', { className: 'bt-input bt-task-count', type: 'number', min: 1, value: count, 'aria-label': t('How many'), onChange: event => setCount(event.target.value) }),
-          h('select', { className: 'bt-select bt-task-unit', value: unit, 'aria-label': t('Unit'), onChange: event => setUnit(event.target.value) },
-            UNITS.map(([id, , label]) => h('option', { key: id, value: id }, t(label))))) : null)),
+          h(SelectMenu, {
+            className: 'bt-task-unit',
+            'aria-label': t('Unit'),
+            value: unit,
+            options: UNITS.map(([id, , label]) => ({ value: id, label: t(label) })),
+            onChange: setUnit,
+          })) : null)),
     error ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-danger bt-set-hint' }, error)) : null,
     h('div', { className: 'bt-set-row bt-task-foot' },
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onCancel }, t('Cancel')),
@@ -252,7 +288,7 @@ export function SchedulesPage({ roster, actions, start }) {
     adding ? h(TaskForm, { key: 'form', roster, actions, start: owner ?? (filter ? undefined : start), onDone: shown, onCancel: () => setAdding(false) }) : null,
     byChat.length === 0
       ? (!adding ? h('section', { key: 'none', className: 'bt-set-section' },
-          h('div', { className: 'bt-la-sec-head' }, h('h3', null, t('Scheduled tasks')), addBar),
+          h('div', { className: 'bt-la-sec-head' }, h('h3', null, t('Scheduled tasks · {count}', { count: 0 })), addBar),
           h('div', { className: 'bt-set-card' }, h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No scheduled tasks yet.'))))) : null)
       : byChat.map(([id, avatar, name, tasks], index) => h('section', { key: id, className: 'bt-set-section' },
           index === 0
@@ -309,7 +345,7 @@ export const SCHEDULE_CSS = `
 .bt-task-head{display:flex;align-items:center;gap:6px}
 .bt-task-form{animation:bt-q-in .4s cubic-bezier(.22,1,.36,1),bt-veil-in .2s ease-out}
 .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px}
-.bt-task-bot{width:auto;min-width:160px;max-width:58%}
+.bt-task-bot{width:auto;min-width:220px;max-width:58%}
 .bt-task-when{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding-top:4px}
 .bt-task-when .bt-input{width:auto;height:34px}
 .bt-task-time{min-width:116px}

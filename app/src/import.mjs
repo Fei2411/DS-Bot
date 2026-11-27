@@ -34,11 +34,13 @@ export function userDshHome(env = process.env) {
 
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'))
 
-/** Every Session the team names: each Bot's and group's parts, the group conversations and each group's own Session. */
+/** Every Session the team names: each Bot's chat and tasks' parts, the group conversations and each group's own Session. */
 export function sessionIdsOf(team) {
   const ids = segments => segments.map(part => part?.sessionId)
   return [...new Set([
-    ...Object.values(team.bots ?? {}).flatMap(bot => [bot.id, bot.sessionId, ...ids(bot.segments ?? [])]),
+    ...Object.values(team.bots ?? {}).flatMap(bot => [bot.id, bot.sessionId, ...ids(bot.segments ?? []),
+      ...(Array.isArray(bot.tasks) ? bot.tasks : []).flatMap(task => [task?.sessionId, ...ids(Array.isArray(task?.segments) ? task.segments : [])]),
+    ]),
     // A group keeps the earlier parts per member: { [botId]: segments }. The group's own
     // Session, the one it relays in, has the group's id.
     ...Object.values(team.rooms ?? {}).flatMap(room => [room.id, ...Object.values(room.sessions ?? {}), ...ids(Object.values(room.segments ?? {}).flat())]),
@@ -107,17 +109,57 @@ function pidAlive(pid) {
 }
 
 // sessions/<group>/<id>/: the group is the folder the Session works in.
-function sessionDirs(from, ids) {
+export function sessionDirs(from, ids) {
   const root = join(from, 'sessions')
   const groups = existsSync(root) ? readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name) : []
+  const minIndexIds = 32
+  const findGroup = process.platform !== 'win32' && ids.length >= minIndexIds && ids.length * groups.length >= 512
+    ? sessionFinder(root, groups, ids.length === minIndexIds)
+    : id => groups.find(name => existsSync(join(root, name, id)))
   const found = []
   const missing = []
   for (const id of ids) {
-    const group = groups.find(name => existsSync(join(root, name, id)))
+    const group = findGroup(id)
     if (group === undefined) missing.push(id)
     else found.push({ id, group })
   }
   return { found, missing }
+}
+
+function sessionFinder(root, groups, probeFirst) {
+  const indexes = []
+  const paths = []
+  // At the indexing threshold, a single group's native probes can be cheaper than a listing.
+  const first = probeFirst ? join(root, groups[0]) : undefined
+  const start = probeFirst ? 1 : 0
+  return (id) => {
+    if (first !== undefined && existsSync(join(first, id))) return groups[0]
+    const key = id !== '' && id !== '.' && id !== '..' && !/[^\x01-\x7f]|[/\\]/u.test(id) ? id.toLowerCase() : undefined
+    for (let i = start; i < groups.length; i++) {
+      const path = paths[i] ??= join(root, groups[i])
+      if (key !== undefined) {
+        if (indexes[i] === undefined) indexes[i] = sessionIndex(path)
+        if (indexes[i] !== null && !indexes[i].has(key)) continue
+      }
+      if (existsSync(join(path, id))) return groups[i]
+    }
+  }
+}
+
+function sessionIndex(path) {
+  let names
+  try {
+    names = readdirSync(path)
+  } catch {
+    return null
+  }
+  const index = new Set()
+  for (const name of names) {
+    // Native lookup can fold non-ASCII names differently on each filesystem.
+    if (/[^\x00-\x7f]/u.test(name)) return null
+    index.add(name.toLowerCase())
+  }
+  return index
 }
 
 // fs.cp that tells `seen` the size of each file it is about to copy.
@@ -136,11 +178,38 @@ function cpSeen(source, target, { filter = () => true, seen, ...options }) {
 }
 
 async function copySessionDirs(from, to, sessions, signal, seen, each = () => {}) {
-  for (const [index, { id, group }] of sessions.entries()) {
-    signal?.throwIfAborted()
-    await cpSeen(join(from, 'sessions', group, id), join(to, 'sessions', group, id), { recursive: true, seen })
-    each(index + 1, sessions.length)
+  // Keep the original order if two IDs could address the same path or nest inside each other.
+  const names = new Set()
+  const distinct = sessions.every(({ id }) => {
+    const name = id.toLowerCase()
+    if (!/^[A-Za-z0-9_-]+$/u.test(id) || names.has(name)) return false
+    names.add(name)
+    return true
+  })
+  let next = 0
+  let done = 0
+  let failure
+  const reportBytes = seen === undefined || signal === undefined ? seen : (size) => {
+    if (!signal.aborted) seen(size)
   }
+  const worker = async () => {
+    while (failure === undefined && next < sessions.length) {
+      const index = next++
+      const { id, group } = sessions[index]
+      try {
+        signal?.throwIfAborted()
+        await cpSeen(join(from, 'sessions', group, id), join(to, 'sessions', group, id), { recursive: true, seen: reportBytes })
+        if (signal?.aborted) return
+        each(++done, sessions.length)
+      } catch (error) {
+        if (failure === undefined || index < failure.index) failure = { index, error }
+      }
+    }
+  }
+  // The caller can remove the destination as soon as this returns or throws.
+  await Promise.all(Array.from({ length: Math.min(distinct ? 4 : 1, sessions.length) }, worker))
+  if (failure !== undefined) throw failure.error
+  signal?.throwIfAborted()
 }
 
 async function moveSessionDirs(stage, to, sessions, signal) {
@@ -154,7 +223,7 @@ async function moveSessionDirs(stage, to, sessions, signal) {
 }
 
 /**
- * Copy the team's Sessions into the DSH home `to`, as they lie in `from`; an abort stops it between Sessions.
+ * Copy the team's Sessions into the DSH home `to`, as they lie in `from`; an abort lets active copies finish before rejecting.
  * @param {string} from @param {any} team @param {string} to @param {AbortSignal} [signal]
  * @param {(done: number, total: number) => void} [onProgress] after each Session
  * @returns {Promise<string[]>} their ids
@@ -314,10 +383,10 @@ async function writeModelRows(to, rows) {
  * Everything but the keys, the model settings and the workspace files is put together in a
  * folder beside the data and moved in at the end. A copy that stops or fails removes that
  * folder; one that was killed leaves it behind, and the next copy removes it.
- * @param {{ from: string, to: string, workspace: string, profile?: string, dsh?: string, signal?: AbortSignal,
+ * @param {{ from: string, to: string, workspace: string, profile?: string, dsh?: string, currentVersion?: string, signal?: AbortSignal,
  *   leaveRegenerable?: boolean, skipWork?: boolean, onProgress?: (bytes: number) => void }} options
  */
-export async function importTeam({ from, to, workspace, profile, dsh, signal, leaveRegenerable = false, skipWork = false, onProgress }) {
+export async function importTeam({ from, to, workspace, profile, dsh, currentVersion, signal, leaveRegenerable = false, skipWork = false, onProgress }) {
   const found = findTeam(from)
   if (found === undefined) throw new Error(`There is no Bot team in ${from}`)
   const present = existsSync(join(to, 'bot', 'state.json')) ? readJson(join(to, 'bot', 'state.json')) : undefined
@@ -329,13 +398,13 @@ export async function importTeam({ from, to, workspace, profile, dsh, signal, le
   try {
     let bytes = 0
     const seen = (size) => { bytes += size; onProgress?.(bytes) }
-    return await copyThroughStage({ found, from, to, workspace, profile, dsh, signal, stage, leaveRegenerable, skipWork, seen })
+    return await copyThroughStage({ found, from, to, workspace, profile, dsh, currentVersion, signal, stage, leaveRegenerable, skipWork, seen })
   } finally {
     await rm(stage, { recursive: true, force: true, maxRetries: 5 }).catch((error) => { console.error(error) })
   }
 }
 
-async function copyThroughStage({ found, from, to, workspace, profile, dsh, signal, stage, leaveRegenerable, skipWork, seen }) {
+async function copyThroughStage({ found, from, to, workspace, profile, dsh, currentVersion, signal, stage, leaveRegenerable, skipWork, seen }) {
   const oldBot = join(from, 'bot')
   signal?.throwIfAborted()
   await cpSeen(oldBot, join(stage, 'bot'), { recursive: true, seen, filter: path => !LEFT_BEHIND.has(relative(oldBot, path).split(/[\\/]/u)[0]) })
@@ -344,6 +413,11 @@ async function copyThroughStage({ found, from, to, workspace, profile, dsh, sign
   // to a fresh part, so they would go on working in the old team folder in the user's DSH home.
   delete team.workspaceId
   team.agents = {}
+  // First-time import into the desktop app is not an in-place upgrade; seed the current app
+  // version on the staged copy so the first launch does not pop an unexpected "What's new" dialog.
+  if (typeof currentVersion === 'string' && currentVersion.trim() !== '') {
+    team.lastSeenVersion = currentVersion.trim()
+  }
   await writeFile(join(stage, 'bot', 'state.json'), JSON.stringify(team, null, 2))
   const { found: sessions, missing } = sessionDirs(from, sessionIdsOf(found.team))
   signal?.throwIfAborted()

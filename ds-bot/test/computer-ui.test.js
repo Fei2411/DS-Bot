@@ -103,7 +103,7 @@ test('the settings page draws the switch, the provider line and one level picker
 })
 
 test('a missing provider package shows the install command and says the levels wait (#1050)', () => {
-  const install = { packages: ['@deepseek-ai/dsh-computer-use@0.2.2-rc.1'], command: 'pnpm --dir "/p" add @deepseek-ai/dsh-computer-use@0.2.2-rc.1' }
+  const install = { packages: ['@deepseek-ai/dsh-computer-use@0.2.2-rc.5'], command: 'pnpm --dir "/p" add @deepseek-ai/dsh-computer-use@0.2.2-rc.5' }
   const roster = { bots: [{ id: 'w1', name: 'Writer' }], computer: { enabled: true, provider: { state: 'missing', message: 'x is not installed in this DSH.', install } } }
   const Row = props => ({ type: 'row', props })
   const tree = render('ComputerPage', {
@@ -136,6 +136,28 @@ test('the control card shows the level picker and the Always apps with Revoke', 
   function h3(children) { return { type: 'row', props: { children } } }
   assert.ok(texts(tree).includes('Revoke'))
   assert.ok(texts(tree).includes('Notes'))
+})
+
+test('the control card links to Computer use settings when disabled', () => {
+  const bot = { id: 'w1', name: 'Writer' }
+  const opened = []
+  const tree = render('BotComputerCard', {
+    bot, roster: { computer: { enabled: false } },
+    actions: { openSettings: page => opened.push(page) }, run: p => p,
+    Card: ({ children }) => ({ type: 'card', props: { children } }),
+    Row: ({ label, hint, children }) => ({ type: 'row', props: { label, hint, children } }),
+  })
+  const findBtn = (node) => {
+    if (Array.isArray(node)) { for (const c of node) { const hit = findBtn(c); if (hit) return hit } return null }
+    if (!node || typeof node !== 'object') return null
+    if (node.type === 'button') return node
+    return findBtn(node.props?.children)
+  }
+  const btn = findBtn(tree)
+  assert.ok(btn, 'Turn on button renders when computer use is off')
+  assert.deepEqual(texts(btn), ['Turn on'])
+  btn.props.onClick()
+  assert.deepEqual(opened, ['computer'])
 })
 
 test('the computer view shows the state, steps and the action buttons', () => {
@@ -194,7 +216,7 @@ test('the computer settings page sits inside the scroll container', () => {
   assert.match(code, /case 'computer': return h\(ComputerPage/)
   const scroll = code.indexOf("className: 'bt-settings-scroll bt-settings-page bt-settings-parts'")
   assert.ok(scroll > 0)
-  assert.ok(code.indexOf('partPage(key)', scroll) > scroll)
+  assert.ok(code.indexOf('partPage(shown)', scroll) > scroll)
 })
 
 // The computer styles register in their own effect, like the other style packs.

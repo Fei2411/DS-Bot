@@ -1,0 +1,190 @@
+/* Composer parity & Classic Agent controls, questions, plan review, queue dock, and failed-send recovery.
+   Uses strictly --bt-* tokens and allowed radii so light, dark, built-in themes, and custom backgrounds stay harmonious. */
+
+/* Classic two-row composer layout: spacious input on top, calm control strip below. */
+.dsb-classic-chat [data-composer-card]{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:4px!important;padding:10px 12px 8px!important;min-height:84px!important}
+.dsb-classic-chat [data-composer-card] .dsb-attach-rail{order:0;padding:0 2px 4px}
+.dsb-classic-chat [data-composer-card] .dsb-composer-input{order:1;flex:0 0 auto;width:100%;padding:0 4px;box-sizing:border-box}
+.dsb-classic-chat [data-composer-card] .dsb-composer-input textarea{min-height:30px;padding:2px 0}
+.dsb-classic-footer{order:2;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;max-width:100%;padding-top:2px;box-sizing:border-box}
+.dsb-classic-footer-left{display:flex;align-items:center;gap:4px;min-width:0;flex:1 1 0;overflow:hidden}
+.dsb-classic-chat [data-composer-card] .dsb-composer-tools{order:0;align-self:center;flex:none}
+.dsb-classic-chat [data-composer-card] .dsb-composer-trailing{order:0;align-self:center;gap:6px;flex:none}
+.dsb-classic-chat [data-composer-card] .bt-mic{width:32px;height:32px;border-radius:50%}
+
+/* Classic composer toolbar controls: model + thinking, permission preset, active plan mode chip. */
+.dsb-classic-controls{display:flex;align-items:center;flex-wrap:wrap;gap:4px;min-width:0;flex:1 1 0;padding:2px 0}
+.dsb-classic-controls .bt-model-trigger-compact,.dsb-ctl-btn{display:inline-flex;align-items:center;gap:5px;height:30px;max-width:100%;min-width:0;padding:0 8px 0 9px;border:0;border-radius:8px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12.5px;line-height:18px;font-weight:500;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease,color .12s ease}
+.dsb-classic-controls .bt-model-trigger-compact:hover:not(:disabled),.dsb-ctl-btn:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
+.dsb-classic-controls .bt-model-trigger-compact[aria-expanded=true],.dsb-ctl-btn[aria-expanded=true]{background:var(--bt-active);color:var(--bt-ink)}
+.dsb-classic-controls .bt-model-trigger-compact:focus-visible,.dsb-ctl-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-1px}
+.dsb-classic-controls .bt-model-trigger-compact:disabled,.dsb-ctl-btn:disabled{opacity:.48;cursor:default}
+.dsb-classic-controls .bt-model-trigger-compact{flex:0 1 auto;max-width:240px}
+.dsb-classic-controls .bt-model-trigger-compact .bt-model-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;line-height:18px;font-weight:500;color:inherit}
+.dsb-classic-controls .bt-model-compact-effort{flex:none;padding:1px 6px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-3);font-size:11px;line-height:15px;font-weight:500;white-space:nowrap}
+.dsb-classic-controls .bt-model-trigger-compact:hover .bt-model-compact-effort{color:var(--bt-ink-2)}
+.dsb-classic-controls .bt-model-caret{flex:none;opacity:.65}
+.dsb-ctl-ico{flex:none;display:inline-flex;align-items:center;justify-content:center;color:currentColor}
+.dsb-ctl-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsb-perm-btn{flex:0 1 auto;max-width:160px}
+.dsb-perm-btn[data-danger]{color:var(--bt-danger)}
+.dsb-perm-btn[data-danger]:hover:not(:disabled){background:var(--bt-danger-soft);color:var(--bt-danger)}
+.dsb-perm-btn[data-auto]{color:var(--bt-accent)}
+.dsb-perm-btn[data-auto]:hover:not(:disabled){background:color-mix(in srgb,var(--bt-accent) 11%,transparent);color:var(--bt-accent)}
+
+/* Permission menu rows. */
+.dsb-perm-menu{padding:6px;display:flex;flex-direction:column;gap:2px}
+.dsb-perm-row{display:flex;align-items:flex-start;gap:10px;width:100%;padding:8px 10px;border:0;border-radius:10px;background:none;color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color .1s ease}
+.dsb-perm-row:hover,.dsb-perm-row:focus-visible{background:var(--bt-hover)}
+.dsb-perm-row:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.dsb-perm-row[data-danger] .dsb-perm-row-ico{color:var(--bt-danger)}
+.dsb-perm-row-ico{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-top:1px;color:var(--bt-ink-2)}
+.dsb-perm-row-text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.dsb-perm-row-head{display:flex;align-items:center;gap:6px;min-width:0}
+.dsb-perm-row-desc{font-size:11.5px;line-height:16px;color:var(--bt-ink-3);white-space:normal}
+.dsb-perm-badge{flex:none;padding:1px 6px;border-radius:999px;background:color-mix(in srgb,var(--bt-accent) 12%,transparent);color:var(--bt-accent);font-size:10.5px;line-height:14px;font-weight:500}
+
+/* Plan mode indicator chip inside the classic composer footer (28px minimum hit target on dismiss). */
+.dsb-plan-chip{flex:0 1 auto;min-width:0;max-width:100%;display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 2px 0 9px;border-radius:999px;background:color-mix(in srgb,var(--bt-accent) 12%,transparent);color:var(--bt-accent);font-size:12px;line-height:16px;font-weight:500;box-sizing:border-box}
+.dsb-plan-chip[data-pending]{opacity:.72;padding-right:9px}
+.dsb-plan-chip-ico{display:inline-flex;align-items:center;flex:none}
+.dsb-plan-chip-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsb-plan-chip-x{flex:none;display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:currentColor;cursor:pointer;transition:background-color .12s ease}
+.dsb-plan-chip-x:hover:not(:disabled){background:color-mix(in srgb,var(--bt-accent) 18%,transparent)}
+.dsb-plan-chip-x:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.dsb-plan-chip-x svg{width:12px;height:12px}
+
+/* Risk confirmation modal for elevated permission presets (dark-safe scrim + standard rise/sink motion). */
+.dsb-risk-layer{position:fixed;inset:0;z-index:82;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.44);animation:bt-veil-in .18s ease-out}
+.dsb-risk-layer[data-leaving]{opacity:0;transition:opacity .16s ease-in;pointer-events:none}
+.dsb-risk-dialog{width:min(420px,100%);display:flex;flex-direction:column;gap:12px;padding:18px 20px;border-radius:16px;border:.5px solid var(--bt-line-2);background:var(--bt-card);box-shadow:var(--bt-dialog-shadow);color:var(--bt-ink);box-sizing:border-box;animation:bt-dialog-rise .24s ease-out,bt-veil-in .2s ease-out}
+.dsb-risk-layer[data-leaving] .dsb-risk-dialog{animation:bt-dialog-sink .16s ease-in forwards}
+.dsb-risk-head{display:flex;align-items:center;gap:10px}
+.dsb-risk-ico{flex:none;width:30px;height:30px;border-radius:10px;display:inline-grid;place-items:center;background:color-mix(in srgb,var(--bt-accent) 12%,transparent);color:var(--bt-accent)}
+.dsb-risk-dialog[data-danger] .dsb-risk-ico{background:var(--bt-danger-soft);color:var(--bt-danger)}
+.dsb-risk-title{margin:0;font-size:15px;line-height:20px;font-weight:600;color:var(--bt-ink)}
+.dsb-risk-body{margin:0;font-size:13px;line-height:19px;color:var(--bt-ink-2)}
+.dsb-risk-check{display:flex;align-items:center;gap:8px;font-size:13px;line-height:18px;color:var(--bt-ink);cursor:pointer;user-select:none}
+.dsb-risk-check input{accent-color:var(--bt-accent);width:15px;height:15px;margin:0}
+.dsb-risk-error{margin:0;font-size:12px;line-height:16px;color:var(--bt-danger)}
+.dsb-risk-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-top:4px}
+.dsb-risk-danger-btn{background:var(--bt-danger)!important;color:var(--bt-accent-ink,#fff)!important}
+
+/* Classic DSH question card & plan review card (extending .bt-q.bt-q-raised).
+   Widths track the composer in both Bot mode (992px) and Classic mode (780px). */
+.dsb-cq,.dsb-plan-review,.dsb-cq-mini{order:0!important;width:100%!important;max-width:min(992px,100%)!important;margin:0 auto 6px!important}
+.dsb-classic-chat :is(.dsb-cq,.dsb-plan-review,.dsb-cq-mini,.dsb-approval-dock){max-width:min(780px,100%)!important}
+.dsb-cq-pager{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.dsb-cq-step{font-size:11.5px;line-height:16px;font-weight:500;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
+.dsb-cq-nav{display:inline-flex;align-items:center;gap:2px}
+.dsb-cq-nav-btn{width:28px;height:28px;padding:0;border:0;border-radius:8px;display:inline-grid;place-items:center;background:none;color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.dsb-cq-nav-btn:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
+.dsb-cq-nav-btn:disabled{opacity:.35;cursor:default}
+.dsb-cq-nav-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.dsb-cq-head-acts{display:inline-flex;align-items:center;gap:4px;flex:none}
+.dsb-cq-timer{display:inline-flex;align-items:center;height:22px;padding:0 7px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-3);font-size:11px;line-height:16px;font-weight:500;font-variant-numeric:tabular-nums}
+.dsb-cq-opt-head{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.dsb-cq-rec{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:999px;background:color-mix(in srgb,var(--bt-accent) 12%,transparent);color:var(--bt-accent);font-size:11px;line-height:16px;font-weight:500}
+.dsb-cq-free{display:flex;padding:8px 10px;margin:4px 4px 2px;border-radius:10px;border:.5px solid var(--bt-line-2);background:var(--bt-main);cursor:text}
+.dsb-cq-free:focus-within{border-color:var(--bt-accent)}
+.dsb-cq-error{margin:0 16px 8px;font-size:12px;line-height:16px;color:var(--bt-danger)}
+.dsb-cq-foot{align-items:center;justify-content:space-between;padding:4px 12px 10px 16px!important}
+.dsb-cq-foot-acts{margin-left:auto;display:inline-flex;align-items:center;gap:8px}
+.dsb-cq-mini{padding:10px 14px!important}
+.dsb-cq-mini-bar{display:flex;align-items:center;gap:10px;min-width:0}
+.dsb-cq-mini-title{flex:1 1 auto;min-width:0;font-size:13.5px;line-height:18px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dsb-cq-mini-btn{height:28px;padding:0 12px;font-size:12.5px}
+
+/* Plan review card above composer. */
+.dsb-plan-review-head{display:flex;align-items:center;gap:10px;padding:12px 14px 10px 16px;border-bottom:.5px solid var(--bt-line)}
+.dsb-plan-review-ico{flex:none;width:28px;height:28px;border-radius:8px;display:inline-grid;place-items:center;background:color-mix(in srgb,var(--bt-accent) 12%,transparent);color:var(--bt-accent)}
+.dsb-plan-review-titles{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dsb-plan-review-title{margin:0;font-size:14.5px;line-height:20px;font-weight:600;color:var(--bt-ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsb-plan-review-tools{flex:none;display:inline-flex;align-items:center;gap:4px}
+.dsb-plan-review-body{padding:12px 16px;max-height:240px;overflow-y:auto;font-size:13.5px;line-height:20px;color:var(--bt-ink);box-sizing:border-box}
+.dsb-plan-review-body[data-expanded]{max-height:52vh}
+.dsb-plan-feedback{padding:8px 14px 4px}
+.dsb-plan-feedback-input{width:100%;min-height:56px;max-height:140px;padding:8px 10px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;line-height:19px;resize:vertical;box-sizing:border-box;outline:none}
+.dsb-plan-feedback-input:focus{border-color:var(--bt-accent)}
+.dsb-plan-review-foot{padding:8px 14px 12px!important}
+
+/* Shared plan status pill & transcript Plan Card. */
+.dsb-plan-badge{flex:none;display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font-size:11px;line-height:18px;font-weight:500;white-space:nowrap}
+.dsb-plan-badge[data-tone=pending]{background:color-mix(in srgb,var(--bt-accent) 12%,transparent);color:var(--bt-accent)}
+.dsb-plan-badge[data-tone=ok]{background:color-mix(in srgb,var(--bt-green) 14%,transparent);color:color-mix(in srgb,var(--bt-green) 76%,var(--bt-ink))}
+.dsb-plan-badge[data-tone=warn]{background:color-mix(in srgb,var(--bt-warn) 14%,transparent);color:var(--bt-warn)}
+.dsb-plan-badge[data-tone=error]{background:var(--bt-danger-soft);color:var(--bt-danger)}
+
+.dsb-plan-card{margin:4px 0;border-radius:12px;background:var(--bt-card);box-shadow:inset 0 0 0 1px var(--bt-line);overflow:hidden;box-sizing:border-box}
+.dsb-plan-card-bar{display:flex;align-items:center;min-width:0}
+.dsb-plan-card-head{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;min-height:40px;padding:8px 8px 8px 12px;border:0;background:none;color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer;transition:background-color .12s ease}
+.dsb-plan-card-head:hover{background:var(--bt-hover)}
+.dsb-plan-card-head:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.dsb-plan-card-ico{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;background:color-mix(in srgb,var(--bt-accent) 11%,transparent);color:var(--bt-accent)}
+.dsb-plan-card-title{flex:1 1 auto;min-width:0;font-size:13.5px;line-height:19px;font-weight:600;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dsb-plan-card-tools{flex:none;display:inline-flex;align-items:center;gap:2px;padding-right:6px}
+.dsb-plan-card-tool{flex:none;width:28px;height:28px;padding:0;border:0;border-radius:8px;display:inline-grid;place-items:center;background:none;color:var(--bt-ink-3);cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.dsb-plan-card-tool:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.dsb-plan-card-tool:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.dsb-plan-card-body{padding:12px 14px;border-top:.5px solid var(--bt-line);font-size:13.5px;line-height:20px;color:var(--bt-ink);max-height:420px;overflow-y:auto}
+.dsb-plan-card-note{padding:8px 14px;border-top:.5px solid var(--bt-line);background:color-mix(in srgb,var(--bt-warn) 8%,transparent);font-size:12.5px;line-height:18px;color:var(--bt-ink-2)}
+.dsb-plan-card-note[data-tone=error]{background:var(--bt-danger-soft);color:var(--bt-danger)}
+
+/* Desktop Queue Dock alignment for both Bot and Classic composers. */
+.dsb-queue-dock{width:100%!important;max-width:min(992px,100%)!important;margin:0 auto 8px!important;padding:0!important}
+.dsb-queue-dock.dsb-queue-classic{max-width:min(780px,100%)!important}
+.dsb-queue-dock .bt-queue-panel{border-radius:16px;border-bottom:1px solid var(--bt-line);background:var(--bt-card)}
+.dsb-queue-dock .bt-queue-panel:before{display:none}
+.dsb-queue-actions{gap:4px!important}
+
+/* Failed-send recovery bar above composer (preserves text & attachments while user keeps typing). */
+.dsb-failed-list{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.dsb-failed-row{display:flex;align-items:center;gap:10px;padding:8px 10px 8px 12px;border-radius:12px;background:var(--bt-card);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bt-danger) 32%,var(--bt-line));box-sizing:border-box}
+.dsb-failed-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-danger)}
+.dsb-failed-copy{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}
+.dsb-failed-top{display:flex;align-items:center;gap:6px;min-width:0}
+.dsb-failed-preview{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:18px;font-weight:500;color:var(--bt-ink)}
+.dsb-failed-att{flex:none;padding:1px 6px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font-size:11px;line-height:15px}
+.dsb-failed-err{font-size:12px;line-height:16px;color:var(--bt-danger);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsb-failed-acts{flex:none;display:inline-flex;align-items:center;gap:4px}
+.dsb-failed-btn{height:28px;padding:0 10px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;line-height:16px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background-color .12s ease}
+.dsb-failed-btn:hover:not(:disabled){background:var(--bt-active)}
+.dsb-failed-btn:disabled{opacity:.45;cursor:default}
+.dsb-failed-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
+.dsb-failed-x{width:28px;height:28px;padding:0;border:0;border-radius:50%;display:inline-grid;place-items:center;background:none;color:var(--bt-ink-3);cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.dsb-failed-x:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
+.dsb-failed-x:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.dsb-failed-x svg{width:13px;height:13px}
+
+/* Calm inline status notice for Classic host slash-command output (28px dismiss hit target). */
+.dsb-composer-notice{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:6px 8px 6px 12px;border-radius:10px;background:var(--bt-card);box-shadow:inset 0 0 0 1px var(--bt-line);font-size:12.5px;line-height:18px;color:var(--bt-ink-2);box-sizing:border-box}
+.dsb-composer-notice-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsb-composer-notice-x{flex:none;width:28px;height:28px;padding:0;border:0;border-radius:50%;display:inline-grid;place-items:center;background:none;color:var(--bt-ink-3);cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.dsb-composer-notice-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.dsb-composer-notice-x:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.dsb-composer-notice-x svg{width:12px;height:12px}
+
+/* Section headings in `/` and `@` composer menus (Commands, Skills, Files). */
+.dsb-cmenu-sec{padding:6px 10px 3px;font-size:11px;line-height:15px;font-weight:600;color:var(--bt-ink-3);letter-spacing:.01em;user-select:none}
+.dsb-cmenu-sec:not(:first-child){margin-top:4px;padding-top:7px;border-top:.5px solid var(--bt-line)}
+
+/* Narrow window polish (verified at 508px with model + effort + Full access + Plan mode + mic + stop + send). */
+@media (max-width:600px){
+  .dsb-classic-footer{align-items:flex-end;gap:6px}
+  .dsb-classic-footer-left{align-items:flex-end;gap:4px}
+  .dsb-classic-controls{row-gap:4px;column-gap:2px}
+  .dsb-classic-chat [data-composer-card] .dsb-composer-tools{order:0;margin-top:0;align-self:flex-end}
+  .dsb-classic-chat [data-composer-card] .dsb-composer-trailing{order:0;margin-top:0;margin-left:0;align-self:flex-end}
+  .dsb-classic-controls .bt-model-trigger-compact{max-width:154px;padding:0 6px 0 7px}
+  .dsb-classic-controls .bt-model-compact-effort{display:none}
+  .dsb-perm-btn{max-width:118px;padding:0 6px 0 7px}
+  .dsb-plan-chip{max-width:140px}
+  .dsb-plan-chip-text{max-width:80px}
+  .dsb-failed-row{flex-wrap:wrap;gap:8px}
+  .dsb-failed-acts{margin-left:auto}
+}
+
+body[data-bt-effects=off] :is(.dsb-ctl-btn,.dsb-perm-row,.dsb-plan-chip-x,.dsb-cq-nav-btn,.dsb-plan-card-head,.dsb-plan-card-tool,.dsb-failed-btn,.dsb-failed-x,.dsb-composer-notice-x,.dsb-risk-layer,.dsb-risk-dialog){transition:none;animation:none}
+@media (prefers-reduced-motion:reduce){
+  .dsb-ctl-btn,.dsb-perm-row,.dsb-plan-chip-x,.dsb-cq-nav-btn,.dsb-plan-card-head,.dsb-plan-card-tool,.dsb-failed-btn,.dsb-failed-x,.dsb-composer-notice-x,.dsb-risk-layer,.dsb-risk-dialog{transition:none;animation:none}
+}

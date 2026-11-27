@@ -7,6 +7,7 @@ import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightI
 import { SPRING_TAP, spring, useMorph } from './motion.js'
 import { sendsOnEnter } from './enter-key.js'
 import { relativeShort } from './text.js'
+import { alwaysAllowScopeLabel, cleanApprovalReason } from './approval-helpers.js'
 import { hostText, mdLabels, t } from './i18n.js'
 
 // -------------------------------------------------------------------------
@@ -249,11 +250,17 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
   const setDraftFor = (key, updater) => setDrafts(prev => ({ ...prev, [key]: typeof updater === 'function' ? updater(prev[key] ?? '') : updater }))
   const approvalItem = item.kind === 'approval' ? item.approvalItem : null
   const isApproval = approvalItem !== null
+  const readOnly = Boolean(roster?.readOnly)
+  const toolApproval = isApproval && approvalItem.kind === 'tool' ? approvalItem.approval : null
+  const canAlways = Boolean(toolApproval?.alwaysAllow) && !readOnly
+  const approvalReason = toolApproval ? cleanApprovalReason(toolApproval, item.title) : ''
+  const approvalScope = canAlways ? alwaysAllowScopeLabel(toolApproval.alwaysAllow) : ''
   const taskActive = task !== undefined && isActiveTask(task)
   const panelSubject = room?.sessionId ?? room?.id ?? bot?.sessionId ?? bot?.id ?? targetId
 
   const answerApproval = (choice) => {
-    if (busy || !approvalItem) return
+    if (busy || readOnly || !approvalItem) return
+    if (approvalItem.kind === 'tool' && choice === 'always' && !canAlways) return
     setBusy(true)
     setError('')
     const promise = approvalItem.kind === 'computer-app'
@@ -326,12 +333,13 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
 
         isApproval && approvalItem.kind === 'tool'
           ? h(Fragment, null,
-              approvalItem.approval.reason ? h('div', { className: 'bt-btask-reason' }, approvalItem.approval.reason) : null,
+              approvalReason ? h('div', { className: 'bt-btask-reason' }, approvalReason) : null,
               approvalItem.approval.detail?.code
                 ? h('div', { className: 'bt-btask-cmd' },
                     approvalItem.approval.tool ? h('span', { className: 'bt-btask-cmd-tool' }, approvalItem.approval.tool) : null,
                     h('code', { className: 'bt-btask-cmd-code', title: approvalItem.approval.detail.code }, approvalItem.approval.detail.code))
-                : null)
+                : null,
+              approvalScope ? h('div', { className: 'bt-btask-scope' }, approvalScope) : null)
           : null,
 
         !isApproval && task
@@ -384,8 +392,11 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
               h('button', { type: 'button', className: 'bt-btask-btn is-primary', disabled: busy, onClick: () => answerApproval('always') }, t('Always')))
           : isApproval
             ? h(Fragment, null,
-                h('button', { type: 'button', className: 'bt-btask-btn', disabled: busy, onClick: () => answerApproval('reject') }, t('Reject')),
-                h('button', { type: 'button', className: 'bt-btask-btn is-primary', disabled: busy, onClick: () => answerApproval('allow') }, t('Allow once')))
+                h('button', { type: 'button', className: 'bt-btask-btn', disabled: busy || readOnly, onClick: () => answerApproval('reject') }, t('Reject')),
+                h('button', { type: 'button', className: 'bt-btask-btn is-primary', disabled: busy || readOnly, onClick: () => answerApproval('allow') }, t('Allow once')),
+                canAlways
+                  ? h('button', { type: 'button', className: 'bt-btask-btn', disabled: busy || readOnly, onClick: () => answerApproval('always') }, t('Always allow'))
+                  : null)
             : taskActive
               ? h('button', { type: 'button', className: 'bt-btask-btn is-danger', disabled: busy, onClick: stopFocusedTask }, t('Stop'))
               : null)))
@@ -406,6 +417,8 @@ export function TaskReaderView({ bot, task, actions }) {
   const actionsRef = useRef(actions)
   actionsRef.current = actions
   const reqGenRef = useRef(0)
+  const inFlightRef = useRef(false)
+  const pendingReloadRef = useRef(false)
   const mountedRef = useRef(true)
   const botId = bot?.id
   const taskId = task?.id
@@ -416,25 +429,50 @@ export function TaskReaderView({ bot, task, actions }) {
     return () => { mountedRef.current = false }
   }, [])
 
-  const loadLatest = useCallback(async (quiet = false, gen = reqGenRef.current) => {
+  const loadLatest = useCallback(async (quiet = false, gen = reqGenRef.current, { force = false } = {}) => {
     const readTask = actionsRef.current?.readTask
     if (!botId || !taskId || typeof readTask !== 'function') return
+    if (quiet && inFlightRef.current) {
+      if (force) pendingReloadRef.current = true
+      return
+    }
+    inFlightRef.current = true
     if (!quiet) setLoading(true)
     try {
-      const next = await readTask(botId, taskId, undefined, showSteps)
-      if (!mountedRef.current || gen !== reqGenRef.current) return
-      setPage(next)
-      setError('')
-    } catch (err) {
-      if (!mountedRef.current || gen !== reqGenRef.current) return
-      setError(hostText(err?.message ?? String(err)))
+      let keepGoing = true
+      let isQuiet = quiet
+      while (keepGoing) {
+        keepGoing = false
+        try {
+          const next = await readTask(botId, taskId, undefined, showSteps)
+          if (!mountedRef.current || gen !== reqGenRef.current) return
+          setPage(next)
+          setError('')
+        } catch (err) {
+          if (!mountedRef.current || gen !== reqGenRef.current) return
+          setError(hostText(err?.message ?? String(err)))
+        }
+        if (mountedRef.current && !isQuiet && gen === reqGenRef.current) {
+          setLoading(false)
+          isQuiet = true
+        }
+        if (mountedRef.current && gen === reqGenRef.current && pendingReloadRef.current) {
+          pendingReloadRef.current = false
+          keepGoing = true
+        }
+      }
     } finally {
-      if (mountedRef.current && !quiet && gen === reqGenRef.current) setLoading(false)
+      if (gen === reqGenRef.current) {
+        inFlightRef.current = false
+        if (mountedRef.current && !quiet) setLoading(false)
+      }
     }
   }, [botId, taskId, showSteps])
 
   useEffect(() => {
     reqGenRef.current += 1
+    inFlightRef.current = false
+    pendingReloadRef.current = false
     const gen = reqGenRef.current
     setOlder([])
     setOlderCursor({ active: false, cursor: null })
@@ -446,12 +484,26 @@ export function TaskReaderView({ bot, task, actions }) {
   useEffect(() => {
     if (active) {
       wasActiveRef.current = true
-      const timer = setInterval(() => { void loadLatest(true, reqGenRef.current) }, 2500)
-      return () => clearInterval(timer)
+      let timer = 0
+      const start = () => {
+        clearInterval(timer)
+        if (typeof document !== 'undefined' && document.hidden) return
+        timer = setInterval(() => { void loadLatest(true, reqGenRef.current) }, 2500)
+      }
+      const onVisibility = () => {
+        if (document.hidden) { clearInterval(timer); timer = 0 }
+        else { void loadLatest(true, reqGenRef.current, { force: true }); start() }
+      }
+      start()
+      if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
+      return () => {
+        clearInterval(timer)
+        if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility)
+      }
     }
     if (wasActiveRef.current) {
       wasActiveRef.current = false
-      void loadLatest(true, reqGenRef.current)
+      void loadLatest(true, reqGenRef.current, { force: true })
     }
     return undefined
   }, [active, loadLatest])
@@ -480,7 +532,7 @@ export function TaskReaderView({ bot, task, actions }) {
     if (stopping || !botId || !taskId) return
     setStopping(true)
     void Promise.resolve(actionsRef.current?.stopTask?.(botId, taskId))
-      .then(() => loadLatest(true, reqGenRef.current))
+      .then(() => loadLatest(true, reqGenRef.current, { force: true }))
       .catch((err) => { if (mountedRef.current) setError(hostText(err?.message ?? String(err))) })
       .finally(() => { if (mountedRef.current) setStopping(false) })
   }
@@ -692,6 +744,7 @@ export const TASKS_CSS = `
 
 .bt-btask-title{font-size:15px;line-height:21px;font-weight:600;letter-spacing:-.012em;color:var(--bt-ink);overflow-wrap:anywhere}
 .bt-btask-reason{font-size:12.5px;line-height:18px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-btask-scope{padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-accent) 8%,transparent);font-size:12px;line-height:17px;color:var(--bt-ink-2);overflow-wrap:anywhere}
 
 /* Clean inset monospace command strip (zero card-in-card clutter) */
 .bt-btask-cmd{display:flex;align-items:baseline;gap:8px;padding:8px 11px;border-radius:10px;background:var(--bt-island-well);border:.5px solid var(--bt-line);overflow-x:auto}

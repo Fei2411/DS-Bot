@@ -44,7 +44,7 @@ test('the table lists Windows first, then macOS, Linux and Android, and says whi
   const block = downloadBlock({ version: '0.2.3', sizes })
   const rows = block.split('\n').filter(line => line.startsWith('| ') && !line.startsWith('| System'))
   assert.equal(rows.length, 6)
-  assert.match(rows[0], /^\| \*\*Windows 10\/11 \(64-bit \/ 64 位\)\*\*<br>Double-click to install \/ 双击安装 \| \[DS-Bot-0\.2\.3-win-x64\.exe\]\(https:\/\/github\.com\/Fei2411\/DS-Bot\/releases\/download\/v0\.2\.3\/DS-Bot-0\.2\.3-win-x64\.exe\) \| 100 MB \|$/u)
+  assert.match(rows[0], /^\| \*\*Windows 10\/11 \(64-bit \/ 64 位\)\*\*<br>Double-click to install \/ 双击安装 \| \[DS-Bot-0\.2\.3-win-x64\.exe\]\(https:\/\/github\.com\/Fei-Craft\/DS-Bot\/releases\/download\/v0\.2\.3\/DS-Bot-0\.2\.3-win-x64\.exe\) \| 100 MB \|$/u)
   assert.match(rows[1], /^\| macOS, Apple chip .*mac-arm64\.zip.*\| 200 MB \|$/u)
   assert.match(rows[2], /^\| macOS, Intel .*mac-x64\.zip.*\| 300 MB \|$/u)
   assert.match(rows[3], /^\| Linux, AppImage .*linux-x86_64\.AppImage.*\| 400 MB \|$/u)
@@ -52,7 +52,7 @@ test('the table lists Windows first, then macOS, Linux and Android, and says whi
   assert.match(rows[5], /^\| Android \(phone app \/ 手机 App\) .*android\.apk.*\| 600 MB \|$/u)
   assert.match(block, /^## Download \/ 下载$/mu)
   assert.match(block, /The `\.blockmap`, `latest\*\.yml` and `ds-bot-\*\.tgz` files and the source code archives are for updates and the plugin/u)
-  assert.match(block, /\[SHA256SUMS\.txt\]\(https:\/\/github\.com\/Fei2411\/DS-Bot\/releases\/download\/v0\.2\.3\/SHA256SUMS\.txt\)/u)
+  assert.match(block, /\[SHA256SUMS\.txt\]\(https:\/\/github\.com\/Fei-Craft\/DS-Bot\/releases\/download\/v0\.2\.3\/SHA256SUMS\.txt\)/u)
   assert.doesNotMatch(block, /Mirror/u)
 })
 
@@ -60,7 +60,7 @@ test('a mirror comes before GitHub, and a fork links to its own releases', () =>
   const sizes = Object.fromEntries(names('0.2.3').map(name => [name, MB]))
   const block = downloadBlock({ version: '0.2.3', sizes, repo: 'someone/DS-Bot', mirror: 'https://mirror.example/ds-bot/v0.2.3/' })
   assert.match(block, /\| DS-Bot-0\.2\.3-win-x64\.exe: \[Mirror \/ 国内镜像\]\(https:\/\/mirror\.example\/ds-bot\/v0\.2\.3\/DS-Bot-0\.2\.3-win-x64\.exe\) · \[GitHub\]\(https:\/\/github\.com\/someone\/DS-Bot\/releases\/download\/v0\.2\.3\/DS-Bot-0\.2\.3-win-x64\.exe\) \|/u)
-  assert.doesNotMatch(block, /Fei2411/u)
+  assert.doesNotMatch(block, /Fei-Craft/u)
 })
 
 test('SHA256SUMS.txt lists each package under both of its names, in the format sha256sum checks', () => {
@@ -108,7 +108,7 @@ test('the script hashes and copies the packages and prints the notes', (t) => {
   assert.equal(run.status, 0, run.stderr)
   assert.ok(run.stdout.startsWith('<!-- downloads -->\n## Download / 下载\n'))
   assert.ok(run.stdout.endsWith('<!-- /downloads -->\n\n- Fixed it\n'))
-  assert.match(run.stdout, /\/Fei2411\/DS-Bot\/releases\/download\/v0\.2\.3\/DS-Bot-0\.2\.3-win-x64\.exe/u)
+  assert.match(run.stdout, /\/Fei-Craft\/DS-Bot\/releases\/download\/v0\.2\.3\/DS-Bot-0\.2\.3-win-x64\.exe/u)
   assert.deepEqual(readdirSync(to).sort(), [...PACKAGES.map(copyName), 'SHA256SUMS.txt'].sort())
   const sums = readFileSync(join(to, 'SHA256SUMS.txt'), 'utf8')
   for (const entry of PACKAGES) {
@@ -151,16 +151,17 @@ test('the release becomes Latest last, after every build and publish job', () =>
   // No app build job may attach assets directly to the GitHub release before publish succeeds.
   for (const [other, cfg] of Object.entries(workflow.jobs)) {
     if (other === name || other === 'publish') continue
-    assert.doesNotMatch(runs(cfg), /gh release upload/u, `${other} must not upload directly to the release before publish passes`)
+    assert.doesNotMatch(runs(cfg), /gh release upload|release-upload\.mjs/u, `${other} must not upload directly to the release before publish passes`)
   }
   assert.match(job.steps.at(-1).run, /^gh release edit "\$TAG" --latest$/u)
   assert.match(runs(job), /node scripts\/release-notes\.mjs /u)
+  assert.match(runs(job), /node scripts\/release-upload\.mjs /u)
 })
 
 test('both READMEs link the latest release and do not hard-code release version numbers', () => {
   for (const file of ['../../README.md', '../../README.zh.md']) {
     const text = read(file)
-    assert.match(text, /\(https:\/\/github\.com\/Fei2411\/DS-Bot\/releases\/latest\)/u, file)
+    assert.match(text, /\(https:\/\/github\.com\/Fei-Craft\/DS-Bot\/releases\/latest\)/u, file)
     assert.doesNotMatch(text, /ds-bot-\d+\.\d+\.\d+\.tgz|DS-Bot#v\d/u, file)
   }
 })

@@ -5,11 +5,13 @@
 // into hicolor/<size>x<size>/apps/ for the Linux menu and taskbar.
 // Usage: npm run icon. It runs itself again inside Electron, which turns the SVG into PNGs.
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { characterMarkup, MASK_ID } from '../../ds-bot/src/client/characters.js'
+import { mockKeychainArgs } from '../src/legacy.mjs'
 
 const here = fileURLToPath(import.meta.url)
 const assets = join(dirname(here), '..', 'assets')
@@ -131,6 +133,9 @@ if (process.versions.electron) {
   ]
   // Not awaited at the top: Electron is ready only after the main module has run.
   const { app } = await import('electron')
+  if (process.platform === 'darwin' && !app.commandLine.hasSwitch('use-mock-keychain')) {
+    app.commandLine.appendSwitch('use-mock-keychain')
+  }
   app.whenReady().then(() => renderInElectron(jobs)).then(([large, ...rest]) => {
     const small = rest.slice(0, ICO_SIZES.length)
     const hicolorPngs = rest.slice(-HICOLOR_SIZES.length)
@@ -156,7 +161,13 @@ if (process.versions.electron) {
   // A terminal inside an Electron-based editor may set ELECTRON_RUN_AS_NODE, which would keep Electron plain Node.
   const { ELECTRON_RUN_AS_NODE: _runAsNode, ...env } = process.env
   const electron = createRequire(import.meta.url)('electron')
-  const run = spawnSync(electron, [here], { stdio: 'inherit', env })
-  if (run.status !== 0) process.exit(run.status ?? 1)
+  const work = mkdtempSync(join(tmpdir(), 'ds-bot-icon-'))
+  let status
+  try {
+    status = spawnSync(electron, [here, ...mockKeychainArgs(), `--user-data-dir=${work}`], { stdio: 'inherit', env }).status
+  } finally {
+    rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 })
+  }
+  if (status !== 0) process.exit(status ?? 1)
   console.log('icon: wrote assets/icon.svg, assets/icon.png, assets/icon.ico, the tray marks and the per-size icons in assets/icons/')
 }

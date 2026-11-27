@@ -1,15 +1,22 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import fs from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { homedir, hostname, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session } from '@deepseek-ai/dsh-session'
+import { Context } from '@deepseek-ai/cordis'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { createRuntime } from '../index.js'
 import { SOURCE_KIND, TEXT_KEPT } from '../src/host/constants.js'
 import { dshHomeOf } from '../src/host/folders.js'
 import { escapeRegExp } from '../src/host/text.js'
 import { fakeApproval, fakeContext } from './fake-ctx.js'
+
+const { parsePatch } = await import('@deepseek-ai/dsh-fs-patch').catch(() => ({}))
+const patchApproval = typeof parsePatch === 'function' ? 'allowed-once' : 'rejected'
 
 let rt
 
@@ -35,12 +42,12 @@ const TEAM = {
 // starts in the team workspace unless it is made with a cwd. `services` are what
 // ctx.get finds, such as the sandbox policy and approvals.
 // `locked`: another dsh holds the team, so this one only shows it.
-async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, locked = false, root: rootDir } = {}) {
+async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, locked = false, root: rootDir, home: customHome } = {}) {
   // The native realpath, as fs/promises uses: on Windows the JS one keeps 8.3 short names.
   const root = rootDir ?? realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-work-dir-')))
   mkdirSync(root, { recursive: true })
   const dsh = join(root, 'dsh')
-  const home = join(dsh, 'bot')
+  const home = customHome ?? join(dsh, 'bot')
   const team = join(home, 'workspace')
   const project = join(root, 'project')
   for (const dir of [team, project]) mkdirSync(dir, { recursive: true })
@@ -49,7 +56,9 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
   const previousHome = process.env.DSH_HOME
   process.env.DSH_HOME = dsh
 
-  const ctx = fakeContext({ services })
+  const fsHost = new Context()
+  await fsHost.plugin(LocalFileSystem, { cwd: team })
+  const ctx = fakeContext({ services: { fs: fsHost.get('fs'), ...services } })
   const created = []
   const archived = []
   const cwds = new Map()
@@ -122,16 +131,25 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
     await until(() => agentOf(state().bots[botId].sessionId).session.header.cwd === dir)
     await settle()
   }
+  const links = new Set()
+  const linkDirectory = (target, path) => {
+    symlinkSync(target, path, 'junction')
+    links.add(path)
+  }
   const stop = async () => {
     // The writes still running finish before their folder goes.
     await ctx.dispose()
+    await fsHost.fiber.dispose()
     if (previousHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousHome
+    for (const path of links) {
+      if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) unlinkSync(path)
+    }
     rmSync(root, { recursive: true, force: true, maxRetries: 5 })
   }
   // Loading once fills the Session-owner indexes.
   await tool('list_bots', {}, 'a')
-  return { ctx, root, dsh, home, team, project, created, archived, agentOf, call, tool, preStep, state, workingIn, stop }
+  return { ctx, root, dsh, home, team, project, created, archived, agentOf, call, tool, preStep, state, workingIn, linkDirectory, stop }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -412,10 +430,19 @@ test('the folder menu lists DSH projects and the folders Bots use, but not the t
   await call('update-room', { id: 'r1', workDir: other })
   assert.deepEqual((await call('folders', {})).value, {
     team,
+    data: join(root, 'dsh'),
     picker: null,
     folders: [{ path: project, title: 'project' }, { path: other, title: 'other' }],
   })
   assert.equal((await call('folder-pick', {})).error.message, 'This DeepSeek Harness has no folder chooser')
+})
+
+test('folders reports custom config.home when isolated from DSH_HOME', async (t) => {
+  const customHome = mkdtempSync(join(tmpdir(), 'ds-bot-custom-home-'))
+  t.after(() => rmSync(customHome, { recursive: true, force: true, maxRetries: 5 }))
+  const { call, stop } = await start({ home: customHome })
+  t.after(stop)
+  assert.equal((await call('folders', {})).value.data, customHome)
 })
 
 test('the folder menu browses through the DSH folder picker', async (t) => {
@@ -802,15 +829,28 @@ test('a switch that starts mid-turn still rejects its step, the only way DSH end
 })
 
 test('the team workspace holds no DeepSeek Harness data, apart from the plugin\'s own default', async (t) => {
-  const { root, dsh, home, team, state, call, stop } = await start()
+  const { root, dsh, home, team, state, call, linkDirectory, stop } = await start()
   t.after(stop)
+  const remove = fs.rmSync
+  // Model Windows rejecting recursive removal of a junction back into its own parent.
+  const patch = t.mock.method(fs, 'rmSync', (path, options) => {
+    if (path === team && options?.recursive && lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      throw Object.assign(new Error('Cannot recursively remove a directory junction'), { code: 'UNKNOWN' })
+    }
+    return remove(path, options)
+  })
+  syncBuiltinESMExports()
+  t.after(() => {
+    patch.mock.restore()
+    syncBuiltinESMExports()
+  })
   const error = async path => (await call('team-workspace', { path })).error?.message
   assert.match(await error(join(dsh, 'inside')), /holds DeepSeek Harness data/)
   assert.match(await error(root), /holds DeepSeek Harness data/)
   assert.match(await error('relative'), /full path/)
   assert.equal(existsSync(join(dsh, 'inside')), false)
   // A folder to be made under a link into the data is refused before anything is made.
-  symlinkSync(dsh, join(root, 'dsh-link'), process.platform === 'win32' ? 'junction' : 'dir')
+  linkDirectory(dsh, join(root, 'dsh-link'))
   assert.match(await error(join(root, 'dsh-link', 'new')), /holds DeepSeek Harness data/)
   assert.equal(existsSync(join(dsh, 'new')), false)
   assert.equal(state().workspaceId, 'w1')
@@ -820,11 +860,11 @@ test('the team workspace holds no DeepSeek Harness data, apart from the plugin\'
   // The default replaced by a link into the data, to all of it or a part, is refused.
   await call('team-workspace', { path: join(root, 'moved') })
   rmSync(team, { recursive: true, force: true })
-  symlinkSync(home, team, process.platform === 'win32' ? 'junction' : 'dir')
+  linkDirectory(home, team)
   assert.match(await error(team), /holds DeepSeek Harness data/)
-  rmSync(team, { recursive: true, force: true })
+  unlinkSync(team)
   mkdirSync(join(dsh, 'profiles'))
-  symlinkSync(join(dsh, 'profiles'), team, process.platform === 'win32' ? 'junction' : 'dir')
+  linkDirectory(join(dsh, 'profiles'), team)
   assert.match(await error(team), /holds DeepSeek Harness data/)
   assert.equal(state().workspaceId, 'w-new')
 })
@@ -851,7 +891,7 @@ test('a team workspace that holds the data still keeps Bots out of it', async (t
   // Nor can a photo be read out of the data root into the team.
   writeFileSync(join(dsh, 'profiles', 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
   const pic = join(dsh, 'profiles', 'pic.png')
-  assert.equal(await tool('update_bot', { avatar: pic }, 'b'), `Could not update the Bot: ${pic} is in DeepSeek Harness data, so it cannot be a Bot's photo. Pass an image from another folder.`)
+  assert.equal(await tool('update_bot', { avatar: pic }, 'b'), `Could not update the Bot: ${pic} is in DeepSeek Harness data, so it cannot be used as a photo. Pass an image from another folder.`)
 })
 
 // #508: the exception covers a workspace lying inside a data root, not one equal to
@@ -874,7 +914,7 @@ test('a team workspace that is a data root still keeps Bots out of it', async (t
     }
     writeFileSync(join(env.dsh, 'profiles', 'pic.png'), PNG)
     const pic = join(env.dsh, 'profiles', 'pic.png')
-    assert.equal(await env.tool('update_bot', { avatar: pic }, 'b'), `Could not update the Bot: ${pic} is in DeepSeek Harness data, so it cannot be a Bot's photo. Pass an image from another folder.`)
+    assert.equal(await env.tool('update_bot', { avatar: pic }, 'b'), `Could not update the Bot: ${pic} is in DeepSeek Harness data, so it cannot be used as a photo. Pass an image from another folder.`)
   }
 })
 
@@ -1079,10 +1119,10 @@ test('the folder is checked as DSH gets it, spaces and all', { skip: process.pla
 test('a Bot changes back to the team workspace when the team workspace is known by a link', async (t) => {
   const { service } = folderService()
   const { requests, services } = approvalServices('rejected')
-  const { ctx, call, agentOf, root, team, project, state, stop } = await start({ services: { ...services, workingDirectory: service } })
+  const { ctx, call, agentOf, root, team, project, state, linkDirectory, stop } = await start({ services: { ...services, workingDirectory: service } })
   t.after(stop)
   const link = join(root, 'team-link')
-  symlinkSync(team, link, 'junction')
+  linkDirectory(team, link)
   ctx.workspaceRegistry.get('w1').path = link
   mkdirSync(join(team, 'site'))
   // The team workspace widens nothing, so nobody is asked, also for a folder inside it.
@@ -1548,6 +1588,565 @@ test('a group Session that cannot be opened still saves the folder', async (t) =
   assert.equal(env.state().rooms.r1.workDir, env.project)
   assert.equal(env.state().rooms.r1.id, 'r1')
   assert.equal((await env.call('state', {})).ok, true)
+})
+
+// Extra folders (#1297). The file tools' escalations run through the hooks as DSH chains
+// them: tools/execute in registration order, approval/request prepended, so the last
+// registered answers first.
+const chain = (listeners, last) => listeners.reduceRight((next, listener) => arg => listener(arg, () => next(arg)), last)
+const writeCall = ({ ctx, agentOf }, sessionId, { name = 'write', args, reason = 'escalate sandbox to danger-full-access: extra folder' } = {}) => {
+  const exec = { name, arguments: { ...args, sandbox_permissions: 'danger-full-access', justification: 'extra folder' }, callId: `call-${name}`, agent: agentOf(sessionId) }
+  const ask = chain([...ctx.listeners.get('approval/request')].reverse(), request => ctx.get('approval').request(request))
+  return chain(ctx.listeners.get('tools/execute'), () => ask({ agent: exec.agent, toolName: name, callId: exec.callId, reason }))(exec)
+}
+// A group Session's approval waits for an answer in the group: this one gives it.
+const groupAsks = async (call) => {
+  const outcome = call()
+  await until(() => rt.approvalsView().length === 1)
+  rt.answerApproval(rt.approvalsView()[0].id, 'reject')
+  return outcome
+}
+
+test('a Bot keeps a list of extra folders, saved as real paths', async (t) => {
+  const { call, state, dsh, root, project, team, stop } = await start()
+  t.after(stop)
+  const other = join(root, 'other')
+  mkdirSync(other)
+  const saved = await call('update-bot', { id: 'b', extraDirs: [project, `"${project}/"`, other, team] })
+  assert.deepEqual(saved.value.extraDirs, [project, other, team])
+  assert.deepEqual(state().bots.b.extraDirs, [project, other, team])
+  // Its own chat stays where it was: a new extra folder needs no fresh part.
+  assert.equal(state().bots.b.workDir, undefined)
+  assert.equal((await call('update-bot', { id: 'b', extraDirs: [dsh] })).error?.message, `${dsh} holds DeepSeek Harness data, so Bots cannot work there`)
+  assert.equal((await call('update-bot', { id: 'b', extraDirs: ['project'] })).error?.message, 'Give the full path of the folder, not project')
+  const many = Array.from({ length: 9 }, (_, index) => join(root, `p${index}`))
+  for (const dir of many) mkdirSync(dir)
+  assert.equal((await call('update-bot', { id: 'b', extraDirs: many })).error?.message, 'A Bot or a group can have at most 8 extra folders')
+  assert.deepEqual(state().bots.b.extraDirs, [project, other, team])
+  assert.equal((await call('update-bot', { id: 'b', extraDirs: [] })).value.extraDirs, undefined)
+  assert.equal(state().bots.b.extraDirs, undefined)
+})
+
+test('a file tool writes in an extra folder without asking the user', async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const team = await start({ services })
+  t.after(team.stop)
+  const { call, root, project } = team
+  await call('update-bot', { id: 'b', extraDirs: [project] })
+  assert.equal(await writeCall(team, 'b', { args: { file_path: join(project, 'notes.md'), content: 'x' } }), 'allowed-once')
+  assert.equal(await writeCall(team, 'b', { name: 'edit', args: { file_path: join(project, 'deep', 'a.md'), old_string: 'a', new_string: 'b' } }), 'allowed-once')
+  // A patch may change the Session's own folder and the extra folder together.
+  const patch = `*** Begin Patch\n*** Add File: here.md\n+x\n*** Update File: ${join(project, 'notes.md')}\n*** Move to: ${join(project, 'moved.md')}\n@@\n-a\n+b\n*** End Patch`
+  assert.equal(await writeCall(team, 'b', { name: 'apply_patch', args: { input: patch } }), patchApproval)
+  const patchRequests = patchApproval === 'rejected' ? 1 : 0
+  assert.equal(requests.length, patchRequests)
+  // Anywhere else, and for any shell command, the user still decides.
+  mkdirSync(join(root, 'elsewhere'))
+  assert.equal(await writeCall(team, 'b', { args: { file_path: join(root, 'elsewhere', 'x.md'), content: 'x' } }), 'rejected')
+  assert.equal(await writeCall(team, 'b', { args: { file_path: `${project}/../elsewhere/x.md`, content: 'x' } }), 'rejected')
+  assert.equal(await writeCall(team, 'b', { name: 'apply_patch', args: { input: `*** Begin Patch\n*** Add File: ${join(project, 'a.md')}\n+x\n*** Add File: ${join(root, 'elsewhere', 'b.md')}\n+x\n*** End Patch` } }), 'rejected')
+  assert.equal(await writeCall(team, 'b', { name: 'bash', args: { command: `echo x > ${join(project, 'x.md')}` } }), 'rejected')
+  // The Main Bot has no extra folders.
+  assert.equal(await writeCall(team, 'a', { args: { file_path: join(project, 'x.md'), content: 'x' } }), 'rejected')
+  assert.equal(requests.length, 5 + patchRequests)
+})
+
+test('patch approvals inspect indented headers and move destinations as DSH parses them', async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const team = await start({ services })
+  t.after(team.stop)
+  await team.call('update-bot', { id: 'b', extraDirs: [team.project] })
+  const outside = join(team.root, 'elsewhere', 'x.md')
+  const inside = join(team.project, 'x.md')
+  const cases = [
+    `*** Add File: ${inside}\n+x\n  *** Add File: ${outside}\n+x`,
+    `*** Add File: ${inside}\n+x\n\t*** Delete File: ${outside}`,
+    `*** Add File: ${inside}\n+x\n  *** Update File: ${outside}\n@@\n-a\n+b`,
+    `*** Update File: ${inside}\n*** Move to: ${outside}\n@@\n-a\n+b`,
+  ]
+  for (const body of cases) {
+    const input = `*** Begin Patch\n${body}\n*** End Patch`
+    if (typeof parsePatch === 'function') assert.ok(parsePatch(input).some(operation => operation.path === outside || operation.moveTo === outside))
+    assert.equal(await writeCall(team, 'b', { name: 'apply_patch', args: { input } }), 'rejected')
+  }
+  assert.equal(requests.length, cases.length)
+  const input = `*** Begin Patch\n  *** Add File: ${inside}\n+x\n*** End Patch`
+  assert.equal(await writeCall(team, 'b', { name: 'apply_patch', args: { input } }), patchApproval)
+  assert.equal(requests.length, cases.length + (patchApproval === 'rejected' ? 1 : 0))
+})
+
+test('home-prefixed file targets are checked in the filesystem execution path', async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const env = await start({ services })
+  t.after(env.stop)
+  await env.call('update-bot', { id: 'b', extraDirs: [env.project] })
+  const paths = ['~/ds-bot-extra-folder-check.txt']
+  if (process.platform === 'win32') paths.push('~\\ds-bot-extra-folder-check.txt')
+  let expectedRequests = 0
+  for (const file_path of paths) {
+    const fs = env.ctx.get('fs')
+    const target = await fs.resolve(file_path, { cwd: env.team })
+    // DSH 0.2.0 keeps ~ literal; later hosts expand it. Check the path that host will write.
+    const expanded = fs.processPath(target) === join(homedir(), 'ds-bot-extra-folder-check.txt')
+    if (!expanded) assert.equal(fs.processPath(target), join(env.team, file_path))
+    const outcome = expanded ? 'rejected' : 'allowed-once'
+    assert.equal(await writeCall(env, 'b', { args: { file_path, content: 'x' } }), outcome)
+    assert.equal(await writeCall(env, 'b', { name: 'edit', args: { file_path, old_string: 'a', new_string: 'b' } }), outcome)
+    const input = `*** Begin Patch\n*** Add File: ${file_path}\n+x\n*** End Patch`
+    const patchOutcome = expanded ? 'rejected' : patchApproval
+    assert.equal(await writeCall(env, 'b', { name: 'apply_patch', args: { input } }), patchOutcome)
+    expectedRequests += (expanded ? 2 : 0) + (patchOutcome === 'rejected' ? 1 : 0)
+  }
+  assert.equal(requests.length, expectedRequests)
+})
+
+test('physical parent traversal through a symlink is checked outside the workspace', { skip: process.platform === 'win32' }, async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const env = await start({ services })
+  t.after(env.stop)
+  await env.call('update-bot', { id: 'b', extraDirs: [env.project] })
+  const outside = join(env.root, 'outside')
+  mkdirSync(join(outside, 'nested'), { recursive: true })
+  symlinkSync(join(outside, 'nested'), join(env.team, 'escape'), 'dir')
+  const file_path = 'escape/../x.md'
+  const fs = env.ctx.get('fs')
+  assert.equal(fs.processPath(await fs.resolve(file_path, { cwd: env.team })), join(outside, 'x.md'))
+  assert.equal(await writeCall(env, 'b', { args: { file_path, content: 'x' } }), 'rejected')
+  assert.equal(requests.length, 1)
+})
+
+test('extra-folder escalations ask when filesystem path APIs are unavailable', async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const env = await start({ services })
+  t.after(env.stop)
+  await env.call('update-bot', { id: 'b', extraDirs: [env.project] })
+  const fs = env.ctx.get('fs')
+  for (const method of ['resolve', 'processPath', 'processPathFromHostPath']) {
+    const saved = fs[method]
+    try {
+      fs[method] = undefined
+      assert.equal(await writeCall(env, 'b', { args: { file_path: join(env.project, 'x.md'), content: 'x' } }), 'rejected')
+    } finally {
+      fs[method] = saved
+    }
+  }
+  assert.equal(requests.length, 3)
+})
+
+test('a read-only Session does not write in its extra folders', async (t) => {
+  const { requests, services } = approvalServices('rejected', { mode: 'read-only' })
+  const team = await start({ services })
+  t.after(team.stop)
+  await team.call('update-bot', { id: 'b', extraDirs: [team.project] })
+  const reason = 'escalate sandbox to workspace-write: extra folder'
+  assert.equal(await writeCall(team, 'b', { args: { file_path: join(team.project, 'x.md'), content: 'x' }, reason }), 'rejected')
+  assert.equal(await writeCall(team, 'b', { args: { file_path: join(team.project, 'x.md'), content: 'x' } }), 'rejected')
+  assert.equal(requests.length, 2)
+})
+
+test('in a group, members add the group\'s extra folders to their own, unless the group has a folder', async (t) => {
+  const { services } = approvalServices('rejected')
+  const team = await start({ services })
+  t.after(team.stop)
+  const { call, root, project } = team
+  const shared = join(root, 'shared')
+  mkdirSync(shared)
+  await call('update-bot', { id: 'b', extraDirs: [project] })
+  assert.deepEqual((await call('update-room', { id: 'r1', extraDirs: [shared] })).value.changes, [`every member also works in ${shared} here`])
+  assert.equal(await writeCall(team, 'gb', { args: { file_path: join(project, 'x.md'), content: 'x' } }), 'allowed-once')
+  assert.equal(await writeCall(team, 'gb', { args: { file_path: join(shared, 'x.md'), content: 'x' } }), 'allowed-once')
+  // The Bot's own chat does not get the group's.
+  assert.equal(await writeCall(team, 'b', { args: { file_path: join(shared, 'x.md'), content: 'x' } }), 'rejected')
+  // With a folder of its own, the group holds its members to its folders.
+  const away = join(root, 'away')
+  mkdirSync(away)
+  await call('update-room', { id: 'r1', workDir: away })
+  assert.equal(await groupAsks(() => writeCall(team, 'gb', { args: { file_path: join(project, 'x.md'), content: 'x' } })), 'rejected')
+  assert.equal(await writeCall(team, 'gb', { args: { file_path: join(shared, 'x.md'), content: 'x' } }), 'allowed-once')
+  assert.deepEqual((await call('update-room', { id: 'r1', extraDirs: [] })).value.changes, ['removed the extra folders'])
+})
+
+test('group background tasks keep the group extra-folder scope', async (t) => {
+  const { services } = approvalServices('rejected')
+  const env = await start({ services })
+  t.after(env.stop)
+  const { call, root, project } = env
+  const shared = join(root, 'shared')
+  const away = join(root, 'away')
+  mkdirSync(shared)
+  mkdirSync(away)
+  await call('update-bot', { id: 'b', extraDirs: [project] })
+  await call('update-room', { id: 'r1', extraDirs: [shared] })
+
+  const sessionId = 'group-task-b'
+  const ownTask = () => {
+    rt.chatOwners.set(sessionId, 'b')
+    rt.taskOwners.set(sessionId, { botId: 'b', taskId: 'task-1', roomId: 'r1' })
+  }
+  ownTask()
+  assert.deepEqual(rt.extraDirsOfSession(sessionId), [project, shared])
+
+  await call('update-room', { id: 'r1', workDir: away })
+  ownTask()
+  assert.deepEqual(rt.extraDirsOfSession(sessionId), [shared])
+  assert.equal(await writeCall(env, sessionId, { args: { file_path: join(shared, 'x.md'), content: 'x' } }), 'allowed-once')
+})
+
+test('a Bot sets its extra folders with the user\'s approval, and its prompt lists them', async (t) => {
+  const { requests, services } = approvalServices('allowed-once')
+  const { tool, state, ctx, project, root, stop } = await start({ services })
+  t.after(stop)
+  const other = join(root, 'other')
+  mkdirSync(other)
+  assert.equal(await tool('update_bot', { extra_dirs: [project, other] }, 'b'), `Updated Writer. You also work in ${project}, ${other}.`)
+  assert.equal(requests.length, 2)
+  // A folder it already had is not asked about again.
+  assert.equal(await tool('update_bot', { extra_dirs: [project] }, 'b'), `Updated Writer. You also work in ${project}.`)
+  assert.equal(requests.length, 2)
+  const section = ctx.sections.get('bot-extra-folders')
+  const text = section.text({ agent: { id: 'b' } })
+  assert.ok(text.startsWith('## Your extra folders\n'), text)
+  assert.equal(text.includes('apply_patch escalations still ask the user'), patchApproval === 'rejected')
+  assert.ok(text.includes(`\n- ${project}\n`), text)
+  assert.equal(section.text({ agent: { id: 'a' } }), '')
+  // Only a Main Bot sets a group's.
+  assert.equal(await tool('update_group', { group: 'Ops', extra_dirs: [other] }, 'b'), 'Only a Main Bot can set the folder of "Ops".')
+  assert.equal(await tool('update_group', { group: 'Ops', extra_dirs: [other] }, 'a'), `Updated "Ops": every member also works in ${other} here.`)
+  assert.deepEqual(state().rooms.r1.extraDirs, [other])
+  assert.equal(await tool('update_bot', { extra_dirs: [] }, 'b'), 'Updated Writer. You have no extra folders now.')
+})
+
+test('a Bot that joins a group with extra folders needs the user\'s approval to work there', async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const { call, tool, project, root, state, stop } = await start({ services })
+  t.after(stop)
+  const other = join(root, 'other')
+  mkdirSync(other)
+  assert.equal((await call('update-room', { id: 'r1', extraDirs: [project] })).ok, true)
+  assert.equal((await call('create-bot', { name: 'Coder' })).ok, true)
+  // The group admin may add members, and the group has no folder of its own to ask about.
+  assert.equal(await tool('update_group', { group: 'Ops', add_members: ['Coder'] }, 'b'), `Could not update "Ops": ${notAllowed(project)}`)
+  assert.deepEqual(state().rooms.r1.members, ['a', 'b'])
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].reason, `Let Coder work in ${project}? Files there can then be changed.`)
+  // A folder set in the same change is asked about once, for every member.
+  assert.equal(await tool('update_group', { group: 'Ops', add_members: ['Coder'], extra_dirs: [other] }, 'a'), `Could not update "Ops": ${notAllowed(other)}`)
+  assert.equal(requests.length, 2)
+  assert.equal(requests[1].reason, `Let every member of "Ops" work in ${other}? Files there can then be changed.`)
+  // Members already there are not asked again.
+  assert.equal(await tool('update_group', { group: 'Ops', add_members: ['Writer'], notice: 'Ship it' }, 'a'), 'Updated "Ops": updated the notice.')
+  assert.equal(requests.length, 2)
+})
+
+const folderPresets = (defaultPreset = 'danger-full-access') => ({
+  catalog: () => ({ options: [], defaultPreset }),
+  resolve: name => ({ sandbox: name === 'bounded' ? 'workspace-write' : name, approval: 'ask' }),
+  set: () => {},
+})
+
+test('Bot folder grants include future inheriting Sessions', async (t) => {
+  for (const mode of ['danger-full-access', 'read-only']) {
+    for (const source of ['bot', 'group']) {
+      for (const change of ['extra_dirs', 'work_dir', 'working_directory']) {
+        await t.test(`${mode}, ${source} preset, ${change}`, async (t) => {
+          const { requests, services } = approvalServices('rejected', { mode })
+          const { service } = folderService()
+          const saved = structuredClone(TEAM)
+          saved.rooms.r1.sessions = {}
+          if (source === 'bot') saved.bots.b.permission = 'bounded'
+          else saved.rooms.r1.permission = 'bounded'
+          const env = await start({ services: { ...services, permissionPresets: folderPresets(mode), workingDirectory: service }, team: saved })
+          t.after(env.stop)
+          const before = env.state()
+          if (change === 'working_directory') {
+            env.agentOf('b').status = 'running'
+            assert.deepEqual(await changeDirectory(env.ctx, service, env.agentOf('b'), env.project), { error: notAllowed(env.project), ran: false })
+          } else {
+            const patch = { [change]: change === 'extra_dirs' ? [env.project] : env.project }
+            assert.equal(await env.tool('update_bot', { bot: 'Writer', ...patch }, 'a'), `Could not update the Bot: ${notAllowed(env.project)}`)
+          }
+          assert.equal(requests.length, 1)
+          assert.deepEqual(env.state(), before)
+          assert.equal(env.created.length, 0)
+        })
+      }
+    }
+  }
+})
+
+test('group membership and folder resets check inherited Bot folders', async (t) => {
+  for (const change of ['join', 'clear']) {
+    for (const field of ['workDir', 'extraDirs']) {
+      await t.test(`${change}, ${field}`, async (t) => {
+        const { requests, services } = approvalServices('rejected', { mode: 'danger-full-access' })
+        const saved = structuredClone(TEAM)
+        saved.rooms.r1.sessions = {}
+        saved.rooms.r1.permission = 'bounded'
+        saved.rooms.r1.admin = 'a'
+        if (change === 'join') saved.rooms.r1.members = ['a']
+        const env = await start({ services: { ...services, permissionPresets: folderPresets() }, team: saved })
+        t.after(env.stop)
+        const other = join(env.root, 'other')
+        mkdirSync(other)
+        rt.botOf('b')[field] = field === 'extraDirs' ? [other] : other
+        if (change === 'clear') rt.roomOf('r1').workDir = env.project
+        await rt.save()
+        const before = env.state()
+        const patch = change === 'join' ? { add_members: ['Writer'] } : { work_dir: '' }
+        assert.equal(await env.tool('update_group', { group: 'Ops', ...patch }, 'a'), `Could not update "Ops": ${notAllowed(other)}`)
+        assert.equal(requests.length, 1)
+        assert.deepEqual(env.state(), before)
+        assert.equal(env.created.length, 0)
+      })
+    }
+  }
+})
+
+test('an explicit Full-access Bot is not blocked by a workspace-write default', async (t) => {
+  for (const change of ['extra_dirs', 'work_dir']) {
+    await t.test(change, async (t) => {
+      const { requests, services } = approvalServices('rejected', { mode: 'danger-full-access' })
+      const saved = structuredClone(TEAM)
+      saved.bots.b.permission = 'danger-full-access'
+      const env = await start({ services: { ...services, permissionPresets: folderPresets('workspace-write') }, team: saved })
+      t.after(env.stop)
+      const patch = change === 'extra_dirs' ? { extra_dirs: [env.project] } : { work_dir: env.project }
+      assert.match(await env.tool('update_bot', { ...patch }, 'b'), /^Updated Writer/)
+      assert.equal(requests.length, 0)
+      if (change === 'extra_dirs') assert.deepEqual(env.state().bots.b.extraDirs, [env.project])
+      else await env.workingIn('b', env.project)
+    })
+  }
+})
+
+test('new Bot folders use the configured default preset, not only the deployment sandbox', async (t) => {
+  const { requests, services } = approvalServices('rejected', { mode: 'danger-full-access' })
+  const env = await start({ services: { ...services, permissionPresets: folderPresets('bounded') } })
+  t.after(env.stop)
+  assert.equal(await env.tool('create_bot', { name: 'Coder', role: 'Code', instructions: 'Code', work_dir: env.project }, 'a'), `Could not create the Bot: ${notAllowed(env.project)}`)
+  assert.equal(requests.length, 1)
+  assert.deepEqual(Object.keys(env.state().bots), ['a', 'b'])
+  assert.equal(env.created.length, 0)
+})
+
+test('working_directory in a group checks the preset of future parts', async (t) => {
+  const { requests, services } = approvalServices('rejected', { mode: 'danger-full-access' })
+  const { service } = folderService()
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.permission = 'bounded'
+  const env = await start({ services: { ...services, permissionPresets: folderPresets(), workingDirectory: service }, team: saved })
+  t.after(env.stop)
+  assert.deepEqual(await changeDirectory(env.ctx, service, env.agentOf('gb'), env.project), { error: notAllowed(env.project), ran: false })
+  assert.equal(requests.length, 1)
+  assert.equal(env.state().rooms.r1.memberDirs, undefined)
+})
+
+test('Bot folder grants follow the actual directory inheritance rules', async (t) => {
+  for (const scenario of ['group cwd', 'member cwd', 'member cwd extras', 'full access', 'approved']) {
+    await t.test(scenario, async (t) => {
+      const { requests, services } = approvalServices(scenario === 'approved' ? 'allowed-once' : 'rejected', { mode: 'danger-full-access' })
+      const saved = structuredClone(TEAM)
+      saved.rooms.r1.permission = scenario === 'full access' ? 'danger-full-access' : 'bounded'
+      const env = await start({ services: { ...services, permissionPresets: folderPresets() }, team: saved })
+      t.after(env.stop)
+      const other = join(env.root, 'other')
+      mkdirSync(other)
+      if (scenario === 'group cwd') rt.roomOf('r1').workDir = env.project
+      if (scenario.startsWith('member cwd')) rt.roomOf('r1').memberDirs = { b: env.project }
+      await rt.save()
+      const patch = scenario === 'member cwd' ? { work_dir: other } : { extra_dirs: [other] }
+      const result = await env.tool('update_bot', { bot: 'Writer', ...patch }, 'a')
+      if (scenario === 'member cwd extras') {
+        assert.equal(result, `Could not update the Bot: ${notAllowed(other)}`)
+        assert.equal(requests.length, 1)
+        assert.equal(env.state().bots.b.extraDirs, undefined)
+      } else {
+        assert.match(result, /^Updated Writer/)
+        assert.equal(requests.length, scenario === 'approved' ? 1 : 0)
+        if (scenario === 'member cwd') {
+          await env.workingIn('b', other)
+          assert.equal(rt.workDirOf({ botId: 'b', roomId: 'r1' }), env.project)
+        } else {
+          assert.deepEqual(rt.extraDirsOfSession('b'), [other])
+          assert.deepEqual(rt.extraDirsOfSession('gb'), scenario === 'group cwd' ? [] : [other])
+        }
+      }
+    })
+  }
+})
+
+test('joining a group asks once for each newly inherited Bot folder', async (t) => {
+  const { requests, services } = approvalServices('allowed-once', { mode: 'danger-full-access' })
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.members = ['a']
+  saved.rooms.r1.admin = 'a'
+  saved.rooms.r1.sessions = {}
+  saved.rooms.r1.permission = 'bounded'
+  const env = await start({ services: { ...services, permissionPresets: folderPresets() }, team: saved })
+  t.after(env.stop)
+  const other = join(env.root, 'other')
+  mkdirSync(other)
+  rt.botOf('b').workDir = env.project
+  rt.botOf('b').extraDirs = [other]
+  await rt.save()
+  assert.match(await env.tool('update_group', { group: 'Ops', add_members: ['Writer'] }, 'a'), /^Updated "Ops"/)
+  assert.deepEqual(requests.map(request => request.reason), [
+    `Let Writer work in ${env.project}? Files there can then be changed.`,
+    `Let Writer work in ${other}? Files there can then be changed.`,
+  ])
+  assert.equal(rt.workDirOf({ botId: 'b', roomId: 'r1' }), env.project)
+  assert.deepEqual(rt.extraDirsOf({ botId: 'b', roomId: 'r1' }), [other])
+})
+
+test('creating a group keeps member folder grants and adds no group override', async (t) => {
+  const { requests, services } = approvalServices('rejected', { mode: 'danger-full-access' })
+  const env = await start({ services: { ...services, permissionPresets: folderPresets() } })
+  t.after(env.stop)
+  rt.botOf('b').workDir = env.project
+  rt.botOf('b').extraDirs = [env.project]
+  await rt.save()
+  assert.match(await env.tool('create_group', { name: 'New group', members: ['Writer'] }, 'a'), /^Created group/)
+  const room = Object.values(env.state().rooms).find(room => room.name === 'New group')
+  assert.equal(room.permission, undefined)
+  assert.equal(room.workDir, undefined)
+  assert.equal(room.extraDirs, undefined)
+  assert.equal(rt.workDirOf({ botId: 'b', roomId: room.id }), env.project)
+  assert.deepEqual(rt.extraDirsOf({ botId: 'b', roomId: room.id }), [env.project])
+  assert.deepEqual(rt.extraDirsOfSession(room.id), [])
+  assert.equal(requests.length, 0)
+})
+
+test('group folder grants check permissions before member Sessions exist', async (t) => {
+  for (const mode of ['danger-full-access', 'read-only']) {
+    for (const source of ['group', 'member']) {
+      for (const change of ['extra_dirs', 'work_dir', 'join']) {
+        await t.test(`${mode}, ${source} preset, ${change}`, async (t) => {
+          const { requests, services } = approvalServices('rejected', { mode })
+          const permissionPresets = {
+            catalog: () => ({ options: [], defaultPreset: mode }),
+            resolve: name => ({ sandbox: name === 'bounded' ? 'workspace-write' : name, approval: 'ask' }),
+            set: () => {},
+          }
+          const saved = structuredClone(TEAM)
+          saved.rooms.r1.sessions = {}
+          saved.rooms.r1.admin = 'a'
+          if (source === 'group') saved.rooms.r1.permission = 'bounded'
+          else saved.bots.b.permission = 'bounded'
+          if (change === 'join') saved.rooms.r1.members = ['a']
+          const env = await start({ services: { ...services, permissionPresets }, team: saved })
+          t.after(env.stop)
+          if (change === 'join') await env.call('update-room', { id: 'r1', extraDirs: [env.project] })
+          const before = env.state().rooms.r1
+          const patch = change === 'join' ? { add_members: ['Writer'] } : { [change]: change === 'extra_dirs' ? [env.project] : env.project }
+          assert.equal(await env.tool('update_group', { group: 'Ops', ...patch }, 'a'), `Could not update "Ops": ${notAllowed(env.project)}`)
+          assert.equal(requests.length, 1)
+          assert.deepEqual(env.state().rooms.r1, before)
+          assert.equal(env.created.length, 0)
+        })
+      }
+    }
+  }
+})
+
+test('group folder grants follow the group preset before the member preset', async (t) => {
+  for (const mode of ['read-only', 'danger-full-access']) {
+    await t.test(mode, async (t) => {
+      const { requests, services } = approvalServices('rejected', { mode: 'danger-full-access' })
+      const permissionPresets = {
+        catalog: () => ({ options: [], defaultPreset: 'danger-full-access' }),
+        resolve: name => ({ sandbox: name === 'bounded' ? 'workspace-write' : name, approval: 'ask' }),
+        set: () => {},
+      }
+      const saved = structuredClone(TEAM)
+      saved.rooms.r1.sessions = {}
+      saved.rooms.r1.permission = mode
+      saved.bots.b.permission = 'bounded'
+      const env = await start({ services: { ...services, permissionPresets }, team: saved })
+      t.after(env.stop)
+      assert.match(await env.tool('update_group', { group: 'Ops', extra_dirs: [env.project] }, 'a'), /^Updated "Ops"/)
+      assert.equal(requests.length, 0)
+      assert.deepEqual(env.state().rooms.r1.extraDirs, [env.project])
+    })
+  }
+})
+
+test('an unavailable preset service still asks before a group folder grant', async (t) => {
+  const { requests, services } = approvalServices('allowed-once')
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.sessions = {}
+  saved.rooms.r1.permission = 'bounded'
+  const env = await start({ services, team: saved })
+  t.after(env.stop)
+  assert.match(await env.tool('update_group', { group: 'Ops', extra_dirs: [env.project] }, 'a'), /^Updated "Ops"/)
+  assert.equal(requests.length, 1)
+  assert.deepEqual(env.state().rooms.r1.extraDirs, [env.project])
+})
+
+test('joining with an unchanged extra folder list still asks for approval', async (t) => {
+  const { requests, services } = approvalServices('rejected')
+  const env = await start({ services })
+  t.after(env.stop)
+  await env.call('update-room', { id: 'r1', extraDirs: [env.project] })
+  await env.call('create-bot', { name: 'Coder' })
+  assert.equal(await env.tool('update_group', { group: 'Ops', add_members: ['Coder'], extra_dirs: [env.project] }, 'a'), `Could not update "Ops": ${notAllowed(env.project)}`)
+  assert.deepEqual(env.state().rooms.r1.members, ['a', 'b'])
+  assert.deepEqual(env.state().rooms.r1.extraDirs, [env.project])
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].reason, `Let Coder work in ${env.project}? Files there can then be changed.`)
+})
+
+test('joining with kept and new extra folders asks once for each grant', async (t) => {
+  const { requests, services } = approvalServices('allowed-once')
+  const env = await start({ services })
+  t.after(env.stop)
+  const other = join(env.root, 'other')
+  mkdirSync(other)
+  await env.call('update-room', { id: 'r1', extraDirs: [env.project] })
+  const coder = (await env.call('create-bot', { name: 'Coder' })).value
+  assert.match(await env.tool('update_group', { group: 'Ops', add_members: ['Coder'], extra_dirs: [env.project, other] }, 'a'), /^Updated "Ops"/)
+  assert.ok(env.state().rooms.r1.members.includes(coder.id))
+  assert.deepEqual(env.state().rooms.r1.extraDirs, [env.project, other])
+  assert.deepEqual(requests.map(request => request.reason), [
+    `Let every member of "Ops" work in ${other}? Files there can then be changed.`,
+    `Let Coder work in ${env.project}? Files there can then be changed.`,
+  ])
+})
+
+test('working_directory into an extra folder only moves the conversation', async (t) => {
+  const team = await start()
+  t.after(team.stop)
+  await team.call('update-bot', { id: 'b', extraDirs: [team.project] })
+  const exec = { name: 'working_directory', arguments: { cd: team.project }, callId: 'cd', agent: team.agentOf('b') }
+  assert.deepEqual(await chain(team.ctx.listeners.get('tools/execute'), async () => ({ ok: true }))(exec), { ok: true })
+  assert.equal(team.state().bots.b.workDir, undefined)
+  assert.deepEqual(team.state().bots.b.extraDirs, [team.project])
+})
+
+test('a private Bot works in its own folder only', async (t) => {
+  const { call, state, project, root, stop } = await start()
+  t.after(stop)
+  const own = join(root, 'own')
+  mkdirSync(own)
+  await call('update-bot', { id: 'b', workDir: own, extraDirs: [project] })
+  assert.equal((await call('update-bot', { id: 'b', private: true })).error?.message, 'Writer works in extra folders, and a private Bot works in its own folder only. Remove its extra folders first')
+  assert.equal(state().bots.b.private, undefined)
+})
+
+test('a Bot on a local agent has no extra folders', async (t) => {
+  const { services } = approvalServices('rejected')
+  const team = await start({ services })
+  t.after(team.stop)
+  await team.call('update-bot', { id: 'b', extraDirs: [team.project] })
+  rt.engineOfBot = bot => (bot?.id === 'b' ? 'codex' : 'model')
+  // The CLI changes files itself, so nothing is approved on its behalf and the prompt is silent.
+  assert.equal(team.ctx.sections.get('bot-extra-folders').text({ agent: { id: 'b' } }), '')
+  assert.equal(await writeCall(team, 'b', { args: { file_path: join(team.project, 'x.md'), content: 'x' } }), 'rejected')
+  await team.call('update-room', { id: 'r1', extraDirs: [team.project] })
+  assert.equal(team.ctx.sections.get('bot-extra-folders').text({ agent: { id: 'gb' } }), '')
+  assert.equal(await groupAsks(() => writeCall(team, 'gb', { args: { file_path: join(team.project, 'x.md'), content: 'x' } })), 'rejected')
+  assert.equal((await team.call('update-bot', { id: 'b', extraDirs: [team.project] })).error?.message, 'Writer runs on a local agent, which keeps its own file permissions, so it has no extra folders')
+  assert.equal((await team.call('update-bot', { id: 'b', extraDirs: [] })).ok, true)
+  assert.equal(team.state().bots.b.extraDirs, undefined)
 })
 
 // Preset, sandbox, and approval services matching DSH's preset table: Full access pairs

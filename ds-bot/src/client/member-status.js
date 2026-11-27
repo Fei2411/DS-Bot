@@ -4,6 +4,7 @@ import { inkText } from './inks.js'
 import { ChevronDownIcon } from './icons.js'
 import { Elapsed, Shimmer, workPhrase } from './cells.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useLinger } from './motion.js'
+import { alwaysAllowScopeLabel, cleanApprovalReason } from './approval-helpers.js'
 import { t } from './i18n.js'
 
 // -------------------------------------------------------------------------
@@ -163,26 +164,37 @@ const cardHead = (bot, at, label) => h('div', { className: 'bt-mw-head' },
   label ? h('span', { className: 'bt-mw-tool' }, label) : null,
   typeof at === 'number' ? h(Elapsed, { at, className: 'bt-mw-time' }) : null)
 
-export function ApprovalCard({ approval, bot, actions, showBot = false }) {
+export function ApprovalCard({ approval, bot, actions, showBot = false, readOnly = false }) {
   const [busy, setBusy] = useState(false)
+  const canAlways = Boolean(approval.alwaysAllow) && !readOnly
   const answer = (choice) => {
+    if (busy || readOnly) return
+    if (choice === 'always' && !canAlways) return
     setBusy(true)
     void Promise.resolve(actions.answerApproval(approval.id, choice))
       .catch(error => actions.reportError(error, 'approval'))
       .finally(() => setBusy(false))
   }
   const label = approval.taskTitle ? `${approval.taskTitle} · ${approval.tool}` : approval.tool
+  const detailText = typeof approval.detail?.text === 'string' && approval.detail.text.trim() !== '' ? approval.detail.text : ''
+  const reason = cleanApprovalReason(approval, detailText)
+  const scopeText = canAlways ? alwaysAllowScopeLabel(approval.alwaysAllow) : ''
   return h('div', { className: 'bt-mw-card', role: 'group', 'aria-label': t('{name} is waiting for your approval', { name: bot.name }) },
     showBot ? cardHead(bot, approval.at, label) : h('div', { className: 'bt-mw-tool' }, label),
-    approval.detail?.text ? h('div', { className: 'bt-mw-text' }, approval.detail.text) : null,
-    approval.reason ? h('div', { className: 'bt-mw-reason' }, approval.reason) : null,
+    detailText ? h('div', { className: 'bt-mw-text' }, detailText) : null,
+    reason ? h('div', { className: 'bt-mw-reason' }, reason) : null,
+    approval.review ? h('div', { className: 'bt-mw-reason', role: 'status' }, approval.review.status === 'reviewing' ? t('Reviewing this action…') : approval.review.reason) : null,
     approval.detail?.code ? h('code', { className: 'bt-mw-code', title: approval.detail.code }, approval.detail.code) : null,
-    // Group and background-task approvals are answered directly through DS Bot;
-    // foreground own-chat approvals still use DSH's own inline card.
-    approval.answerable && (approval.roomId !== undefined || approval.taskId !== undefined)
+    scopeText ? h('div', { className: 'bt-mw-scope' }, scopeText) : null,
+    // Answering here resolves the request and withdraws the Bot's own DSH card,
+    // so group, task and own-chat approvals all get buttons.
+    approval.answerable
       ? h('div', { className: 'bt-mw-actions' },
-        h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('reject') }, t('Reject')),
-        h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: () => answer('allow') }, t('Allow once')))
+        h('button', { type: 'button', className: 'bt-q-btn', disabled: busy || readOnly, onClick: () => answer('reject') }, t('Reject')),
+        h('button', { type: 'button', className: 'bt-q-submit', disabled: busy || readOnly, onClick: () => answer('allow') }, t('Allow once')),
+        canAlways
+          ? h('button', { type: 'button', className: 'bt-q-btn', disabled: busy || readOnly, onClick: () => answer('always') }, t('Always allow'))
+          : null)
       : h('div', { className: 'bt-mw-actions' },
         h('button', { type: 'button', className: 'bt-q-btn', onClick: () => actions.openSession(bot.id) }, t("Open {name}'s chat", { name: bot.name }))))
 }
@@ -244,10 +256,10 @@ export function StopRoomWork({ room, entries, actions }) {
   return h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: stopping, 'aria-label': label, title: label, onClick: stop }, t('Stop all'))
 }
 
-export function MemberApprovals({ entry, bot, actions }) {
+export function MemberApprovals({ entry, bot, actions, readOnly = false }) {
   if (entry?.state !== 'ask') return null
   return h('div', { className: 'bt-member-cards' },
-    (entry.approvals ?? []).map(approval => h(ApprovalCard, { key: `t:${approval.id}`, approval, bot, actions })),
+    (entry.approvals ?? []).map(approval => h(ApprovalCard, { key: `t:${approval.id}`, approval, bot, actions, readOnly })),
     (entry.computerAsks ?? []).map(ask => h(ComputerAppApprovalCard, { key: `c:${ask.id}`, ask, bot, actions })))
 }
 
@@ -268,7 +280,7 @@ function approvalSummary(approvals) {
 
 // The approval row and expandable cards rendered inside the top header island
 // (for a group chat or a Bot with background-task approvals).
-export function ApprovalIslandPod({ approvals, open, room, targetId = room?.id, actions }) {
+export function ApprovalIslandPod({ approvals, open, room, targetId = room?.id, actions, readOnly = false }) {
   if (!approvals || approvals.length === 0) return null
   const { bots, label } = approvalSummary(approvals)
   return h(Fragment, null,
@@ -287,7 +299,7 @@ export function ApprovalIslandPod({ approvals, open, room, targetId = room?.id, 
     open ? h('div', { className: 'bt-apv-panel', role: 'region', 'aria-label': t('Waiting for your approval') },
       approvals.map(item => (item.kind === 'computer-app'
         ? h(ComputerAppApprovalCard, { key: `c:${item.id}`, ask: item.ask, bot: item.bot, actions, showBot: true })
-        : h(ApprovalCard, { key: `t:${item.id}`, approval: item.approval, bot: item.bot, actions, showBot: true })))) : null)
+        : h(ApprovalCard, { key: `t:${item.id}`, approval: item.approval, bot: item.bot, actions, showBot: true, readOnly })))) : null)
 }
 
 export function useMemberWork(room, useWork, useComputer) {
@@ -349,6 +361,7 @@ export const MEMBER_CSS = `
 .bt-mw-text{color:var(--bt-ink);overflow-wrap:anywhere}
 .bt-mw-reason{overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .bt-mw-code{display:block;padding:4px 8px;border-radius:6px;background:var(--bt-main);font:11px/16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-mw-scope{padding:5px 8px;border-radius:8px;background:color-mix(in srgb,var(--bt-accent) 8%,transparent);font-size:11.5px;line-height:16px;color:var(--bt-ink-2);overflow-wrap:anywhere}
 .bt-mw-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}

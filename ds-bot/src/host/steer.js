@@ -10,6 +10,7 @@
 //  - a running model call is cancelled (hook reason) and the steer is moved to
 //    the front of next-turn, so a fresh turn claims it at once.
 import { isAbsolute, resolve } from 'node:path'
+import { symbols as cordisSymbols } from '@deepseek-ai/cordis'
 import { boundContextSummary, createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { BACKGROUND_WAIT_MS, STEER_CUT } from './constants.js'
@@ -77,10 +78,23 @@ export function install(rt) {
         activeWaitReads: new Map(),
         activeKills: new Map(),
         cutting: false,
+        folding: false,
+        cutAnchorId: undefined,
+        pendingSteerRpcs: new Map(),
+        pendingSteerIds: new Map(),
       }
       state.set(id, entry)
     }
     return entry
+  }
+
+  const isActiveForeground = (id, agent = liveAgent(id)) => {
+    if (id === undefined || rt.readOnly?.() !== undefined || !privateOf(id)) return false
+    if (rt.taskOwners?.has(id)) return false
+    const botId = rt.chatOwners.get(id)
+    if (botId === undefined || (typeof rt.chatOf === 'function' && rt.chatOf(botId) !== id)) return false
+    if (agent !== undefined && liveAgent(id) !== agent) return false
+    return true
   }
 
   // How long a Bot's own chat waits for a shell call before it goes on as a background
@@ -114,31 +128,183 @@ export function install(rt) {
     && (event.data.inserted ?? []).some(message => message?.source?.kind === 'user')
   const wake = (set, value) => { const waiters = [...set]; set.clear(); for (const fn of waiters) fn(value) }
 
-  // A user steer into a private chat must cut a running model call. The check runs
-  // off the event that queued it, never inside the append that emitted the event.
-  const maybeCut = (id, checkedHandoff = false) => {
+  // A user steer into a private chat must cut a running model call, but never
+  // before the step's claimed messages are committed to session history (which
+  // happens right before `agent/assistant-stream` `start`). The check runs off
+  // the event that queued it, never inside the append that emitted the event.
+  const maybeCut = (id) => {
     const entry = rt.live.get(id)
     const agent = liveAgent(id)
-    if (!privateOf(id) || rt.readOnly?.() !== undefined || entry === undefined || agent === undefined) return
-    if (rt.taskOwners?.has(id) || rt.isHandingOff?.(id) || (!checkedHandoff && rt.shouldMoveForeground?.(rt.botOf(rt.chatOwners.get(id)), id))) return
-    if ([...(rt.switchJobs?.() ?? [])].some(job => job?.botId === rt.chatOwners.get(id) && job.roomId === undefined)) return
+    if (entry === undefined || agent === undefined || !isActiveForeground(id, agent)) return
+    if (rt.isLocalCliSession?.(id)) return
+    const botId = rt.chatOwners.get(id)
+    const activeInfo = entry.info ?? entry.claimed?.find(item => item?.silent !== true)
+    if (rt.isHiddenBotWorkTurn?.(botId, activeInfo)) return
+    if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) return
+    if (rt.waitsForApproval?.(id)) return
+    if ([...(rt.switchJobs?.() ?? [])].some(job => job?.botId === botId && job.roomId === undefined)) return
     const track = stateOf(id)
-    if (track.phase !== 'model' || track.cutting) return
+    if (track.phase !== 'model' || track.cutting || track.folding) return
     if (entry.turn === undefined || (entry.calls?.size ?? 0) > 0 || agent.status !== 'running') return
     const nextStep = agent.inbox?.nextStep ?? []
     const last = [...nextStep].reverse().find(message => message?.source?.kind === 'user')
     if (last === undefined) return
-    track.cutting = true
-    rt.markSteerCut(id)
-    agent.inbox.remove(last.id)
-    agent.cancel({ kind: 'hook', reason: STEER_CUT }, { keepInbox: true })
-    agent.send(last, 'next-turn', true)
-    if (agent.inbox.nextTurn[0]?.id !== last.id) {
-      agent.inbox.remove(last.id)
-      agent.inbox.prepend('next-turn', last)
+    track.folding = true
+    try {
+      if (!agent.inbox.remove(last.id)) return
+      track.cutting = true
+      track.cutAnchorId = last.id
+      rt.markSteerCut(id)
+      agent.cancel({ kind: 'hook', reason: STEER_CUT }, { keepInbox: true })
+      agent.send(last, 'next-turn', true)
+      if (agent.inbox.nextTurn[0]?.id !== last.id && agent.inbox.remove(last.id)) {
+        agent.inbox.prepend('next-turn', last)
+      }
+    } finally {
+      track.folding = false
     }
   }
-  const scheduleCut = (id, checkedHandoff = false) => { queueMicrotask(() => maybeCut(id, checkedHandoff)) }
+  const scheduleCut = (id) => { queueMicrotask(() => maybeCut(id)) }
+
+  // Promotes a user steer that arrived while a STEER_CUT abort was still
+  // winding down (where DSH's `wakingAfterAbort` appends it to the tail of
+  // `next-turn`) into the active cut batch so the incoming turn claims every
+  // steered message together in exact FIFO order ahead of unsteered queued rows.
+  const foldIntoCutBatch = (id, messageId) => {
+    const track = state.get(id)
+    const agent = liveAgent(id)
+    if (track === undefined || !track.cutting || track.cutAnchorId === undefined || track.folding || agent === undefined) return
+    if (!isActiveForeground(id, agent) || rt.isLocalCliSession?.(id)) return
+    const botId = rt.chatOwners.get(id)
+    if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) return
+    const nextTurn = agent.inbox?.nextTurn ?? []
+    const incoming = nextTurn.find(message => message?.id === messageId && message?.source?.kind === 'user')
+    if (incoming === undefined) return
+    // Re-steering the active cut anchor via updateQueue moves it to the tail of
+    // next-turn during `wakingAfterAbort`; keep it pinned at index 0.
+    if (messageId === track.cutAnchorId) {
+      if (nextTurn[0]?.id === messageId) return
+      track.folding = true
+      try {
+        if (agent.inbox.remove(incoming.id)) agent.inbox.prepend('next-turn', incoming)
+      } finally {
+        track.folding = false
+      }
+      return
+    }
+    const anchor = nextTurn[0]?.id === track.cutAnchorId ? nextTurn[0] : undefined
+    const previousAnchorId = track.cutAnchorId
+    track.folding = true
+    try {
+      if (!agent.inbox.remove(incoming.id)) return
+      if (anchor !== undefined) {
+        if (!agent.inbox.remove(anchor.id)) {
+          agent.inbox.append('next-turn', incoming)
+          return
+        }
+        agent.inbox.append('next-step', anchor)
+      }
+      track.cutAnchorId = incoming.id
+      agent.inbox.prepend('next-turn', incoming)
+    } catch (error) {
+      track.cutAnchorId = previousAnchorId
+      throw error
+    } finally {
+      track.folding = false
+    }
+  }
+
+  const DEFAULT_STEER_KINDS = new Set(['user'])
+  // Steers queued messages in one atomic host step so promoting several queued
+  // rows at once never races between per-row RPCs, never reorders messages
+  // behind other queued items, and never cascade-cuts turns.
+  const steerQueued = (id, ids, { kinds = DEFAULT_STEER_KINDS } = {}) => {
+    const agent = liveAgent(id)
+    if (agent === undefined || !isActiveForeground(id, agent) || agent.status !== 'running') return { steered: 0 }
+    const botId = rt.chatOwners.get(id)
+    if (Array.isArray(ids) && ids.length === 0) return { steered: 0 }
+    const nextTurn = agent.inbox?.nextTurn ?? []
+    const wanted = Array.isArray(ids) ? new Set(ids) : undefined
+    const selected = nextTurn.filter(message => kinds.has(message?.source?.kind)
+      && (wanted === undefined || wanted.has(message.id)))
+    if (selected.length === 0) return { steered: 0 }
+    if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) {
+      // Let the caller fall back to per-row steering so `bot-tasks.js`
+      // foreground handoff isolates user input from hidden peer-Bot work.
+      return { steered: 0, fallback: true }
+    }
+    const entry = rt.live.get(id)
+    const activeInfo = entry?.info ?? entry?.claimed?.find(item => item?.silent !== true)
+    if (rt.isHiddenBotWorkTurn?.(botId, activeInfo)) return { steered: 0 }
+    const track = stateOf(id)
+    if (track.folding) return { steered: 0 }
+    if (track.cutting && track.cutAnchorId !== undefined) {
+      const anchor = nextTurn[0]?.id === track.cutAnchorId ? nextTurn[0] : undefined
+      const additions = selected.filter(message => message.id !== track.cutAnchorId)
+      if (additions.length === 0) return { steered: 0 }
+      const previousAnchorId = track.cutAnchorId
+      track.folding = true
+      try {
+        const removed = []
+        for (const message of additions) {
+          if (agent.inbox.remove(message.id)) removed.push(message)
+        }
+        if (removed.length === 0) return { steered: 0 }
+        if (anchor !== undefined && !agent.inbox.remove(anchor.id)) {
+          for (const message of removed) agent.inbox.append('next-turn', message)
+          return { steered: 0 }
+        }
+        const tail = removed.pop()
+        const toNextStep = anchor !== undefined ? [anchor, ...removed] : removed
+        if (toNextStep.length > 0) {
+          if (typeof agent.inbox.splice === 'function') {
+            agent.inbox.splice('next-step', agent.inbox.nextStep.length, 0, toNextStep)
+          } else {
+            for (const message of toNextStep) agent.inbox.append('next-step', message)
+          }
+        }
+        track.cutAnchorId = tail.id
+        agent.inbox.prepend('next-turn', tail)
+        return { steered: removed.length + 1 }
+      } catch (error) {
+        track.cutAnchorId = previousAnchorId
+        throw error
+      } finally {
+        track.folding = false
+      }
+    }
+    track.folding = true
+    try {
+      const removed = []
+      for (const message of selected) {
+        if (agent.inbox.remove(message.id)) removed.push(message)
+      }
+      if (removed.length === 0) return { steered: 0 }
+      const tail = removed.pop()
+      if (removed.length > 0) {
+        if (typeof agent.inbox.splice === 'function') {
+          agent.inbox.splice('next-step', agent.inbox.nextStep.length, 0, removed)
+        } else {
+          for (const message of removed) agent.inbox.append('next-step', message)
+        }
+      }
+      if (typeof agent.steer === 'function') agent.steer(tail)
+      else if (typeof agent.send === 'function') agent.send(tail, 'next-step', true)
+      else agent.inbox.append('next-step', tail)
+      // If a non-cut abort was winding down (`wakingAfterAbort`), DSH placed `tail`
+      // at the end of `next-turn`: keep it at index 0 so the next turn claims the
+      // full steered batch `[...removed, tail]` ahead of any unsteered rows.
+      if ((agent.inbox.nextTurn ?? []).some(message => message?.id === tail.id)
+        && agent.inbox.nextTurn[0]?.id !== tail.id
+        && agent.inbox.remove(tail.id)) {
+        agent.inbox.prepend('next-turn', tail)
+      }
+      return { steered: removed.length + 1 }
+    } finally {
+      track.folding = false
+    }
+  }
+  rt.steerQueued = steerQueued
 
   // Renders one jobs.read() result the way tool-jobs' renderModelDelta does:
   // stdout and unlabeled chunks joined, then a [stderr] section, then a
@@ -507,25 +673,115 @@ export function install(rt) {
   }
   rt.refreshShellShadows = () => {}
 
+  // Track steer-mode prompt/updateQueue RPCs so steers arriving while a
+  // STEER_CUT abort is winding down (where DSH's `wakingAfterAbort` lands them
+  // in `next-turn`) fold into the active cut batch instead of queuing behind
+  // unsteered items. Patch the unwrapped Cordis service target (not its
+  // traceable proxy, which allocates a fresh shadow function on every read) so
+  // identity checks and cleanup restore the original method cleanly on unload.
+  const controller = ctx.sessionController
+  const controllerTarget = controller?.[cordisSymbols.original] ?? controller
+  if (controllerTarget !== undefined && (typeof controllerTarget.prompt === 'function' || typeof controllerTarget.updateQueue === 'function')) {
+    const hadOwnPrompt = Object.hasOwn(controllerTarget, 'prompt')
+    const hadOwnUpdateQueue = Object.hasOwn(controllerTarget, 'updateQueue')
+    const origPrompt = typeof controllerTarget.prompt === 'function' ? controllerTarget.prompt : undefined
+    const origUpdateQueue = typeof controllerTarget.updateQueue === 'function' ? controllerTarget.updateQueue : undefined
+    const incMap = (map, key) => map.set(key, (map.get(key) ?? 0) + 1)
+    const decMap = (map, key) => {
+      const next = (map.get(key) ?? 0) - 1
+      if (next > 0) map.set(key, next)
+      else map.delete(key)
+    }
+    const trackable = (id) => {
+      if (id === undefined || rt.readOnly?.() !== undefined || !privateOf(id) || rt.taskOwners?.has(id) || rt.isLocalCliSession?.(id)) return false
+      const botId = rt.chatOwners.get(id)
+      return botId !== undefined && (typeof rt.chatOf !== 'function' || rt.chatOf(botId) === id)
+    }
+    const wrappedPrompt = origPrompt === undefined ? undefined : async function (request, ...rest) {
+      const id = request?.sessionId
+      const rpcId = request?.mode === 'steer' && typeof request?.requestId === 'string' && request.requestId !== '' && trackable(id) ? request.requestId : undefined
+      const track = rpcId === undefined ? undefined : stateOf(id)
+      if (rpcId !== undefined) incMap(track.pendingSteerRpcs, rpcId)
+      try {
+        return await origPrompt.call(this, request, ...rest)
+      } finally {
+        if (rpcId !== undefined) decMap(track.pendingSteerRpcs, rpcId)
+      }
+    }
+    const wrappedUpdateQueue = origUpdateQueue === undefined ? undefined : async function (request, ...rest) {
+      const id = request?.sessionId
+      const itemId = request?.action?.kind === 'steer' && typeof request?.itemId === 'string' && request.itemId !== '' && trackable(id) ? request.itemId : undefined
+      const track = itemId === undefined ? undefined : stateOf(id)
+      if (itemId !== undefined) incMap(track.pendingSteerIds, itemId)
+      try {
+        return await origUpdateQueue.call(this, request, ...rest)
+      } finally {
+        if (itemId !== undefined) decMap(track.pendingSteerIds, itemId)
+      }
+    }
+    ctx.effect(() => {
+      if (wrappedPrompt !== undefined) controllerTarget.prompt = wrappedPrompt
+      if (wrappedUpdateQueue !== undefined) controllerTarget.updateQueue = wrappedUpdateQueue
+      return () => {
+        if (wrappedPrompt !== undefined && controllerTarget.prompt === wrappedPrompt) {
+          if (hadOwnPrompt) controllerTarget.prompt = origPrompt
+          else delete controllerTarget.prompt
+        }
+        if (wrappedUpdateQueue !== undefined && controllerTarget.updateQueue === wrappedUpdateQueue) {
+          if (hadOwnUpdateQueue) controllerTarget.updateQueue = origUpdateQueue
+          else delete controllerTarget.updateQueue
+        }
+      }
+    }, 'ds-bot: steer cut tracking')
+  }
+
+  ctx.on('agent/inbox/inserted', ({ agent, message } = {}) => {
+    const id = agent?.id ?? agent?.session?.id
+    if (id === undefined || !isActiveForeground(id, agent) || rt.isLocalCliSession?.(id) || message?.source?.kind !== 'user') return
+    const botId = rt.chatOwners.get(id)
+    if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) return
+    const track = state.get(id)
+    if (track === undefined || !track.cutting || track.cutAnchorId === undefined || track.folding) return
+    if (message.id === track.cutAnchorId && agent.inbox?.nextTurn?.[0]?.id === message.id) return
+    const matched = (track.pendingSteerIds.get(message.id) ?? 0) > 0
+      || (message.source.rpcId !== undefined && (track.pendingSteerRpcs.get(message.source.rpcId) ?? 0) > 0)
+    if (!matched) return
+    if ((agent.inbox?.nextTurn ?? []).some(item => item?.id === message.id)) {
+      foldIntoCutBatch(id, message.id)
+    }
+  })
+
+  // DSH commits every claimed `user/message` before calling `live.start()`, so
+  // entering `model` phase here guarantees a STEER_CUT never aborts `prepareRequest`
+  // and swallows claimed messages.
+  ctx.on('agent/assistant-stream', ({ agent, frame } = {}) => {
+    if (frame?.type !== 'start') return
+    const id = agent?.id ?? agent?.session?.id
+    if (id === undefined || !privateOf(id) || liveAgent(id) !== agent) return
+    const track = stateOf(id)
+    track.phase = 'model'
+    if ((agent?.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) scheduleCut(id)
+  })
+
   ctx.on('session/event', (session, event) => {
     const id = session?.id
     if (id === undefined || !privateOf(id)) return
     const track = stateOf(id)
     switch (event.type) {
-      case 'step/start': {
-        track.phase = 'model'
-        const agent = liveAgent(id)
-        if ((agent?.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) scheduleCut(id)
+      case 'step/start':
+        track.phase = 'prepare'
         break
-      }
       case 'assistant/message':
         track.phase = 'tools'
         break
       case 'step/end':
+        track.phase = 'boundary'
+        break
       case 'turn/start':
       case 'turn/end':
         track.phase = 'boundary'
         track.cutting = false
+        track.cutAnchorId = undefined
         break
       case 'job/registered': {
         const callId = event.data?.toolCall?.callId
@@ -594,9 +850,9 @@ export function install(rt) {
       }
       case 'agent/inbox/spliced':
         if (isUserSteer(event)) {
-          if (rt.taskOwners?.has(id) || rt.shouldMoveForeground?.(rt.botOf(rt.chatOwners.get(id)), id)) break
+          if (rt.taskOwners?.has(id) || rt.isHandingOff?.(id) || rt.isLocalCliSession?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(rt.chatOwners.get(id)), id)) break
           wake(track.steerWaiters, true)
-          scheduleCut(id, true)
+          scheduleCut(id)
         }
         break
     }

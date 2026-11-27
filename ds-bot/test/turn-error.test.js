@@ -108,6 +108,7 @@ function cell({ code, message = '', turn = 3, blocked, model = models[0].ref, la
   const ops = account ? { hooks: { account: { subscribe: () => () => {}, getSnapshot: () => ({ view: account }) } } } : {}
   const actions = {
     resume: async (id) => { calls.push(['resume', id]); if (actions.failResume) throw new Error(actions.failResume) },
+    newPart: async (id, sid) => { calls.push(['newPart', id, sid]); if (actions.failNewPart) throw new Error(actions.failNewPart) },
     updateBot: async (id, patch) => { calls.push(['updateBot', id, { ...patch }]); if (actions.failUpdate) throw new Error(actions.failUpdate) },
     signIn: () => calls.push(['signIn']),
     canSignIn: () => signIn,
@@ -359,7 +360,6 @@ test('connection, rate and server failures retry; other codes keep a short line,
     ['TIMEOUT', 'Could not reach the model service.'],
     ['RATE_LIMIT', 'Too many requests. Wait a moment, then try again.'],
     ['SERVER', 'The model service failed.'],
-    ['CONTEXT_WINDOW_EXCEEDED', 'The conversation is too long for the model'],
     ['SOMETHING_NEW', 'This turn failed.'],
     [undefined, 'This turn failed.'],
   ]
@@ -372,8 +372,81 @@ test('connection, rate and server failures retry; other codes keep a short line,
   }
 })
 
+test('CONTEXT_WINDOW_EXCEEDED offers Start a new part as primary recovery action, handles busy/error state, and localizes in Chinese', async () => {
+  const side = cell({ code: 'CONTEXT_WINDOW_EXCEEDED', message: 'Prompt is too long' })
+  const tree = side.render()
+  assert.equal(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), 'This conversation no longer fits in the context window. Start a new part to continue.')
+  const list = side.buttons(tree)
+  assert.deepEqual(labels(list), ['Start a new part', 'Pick another model', 'Retry'])
+  assert.equal(list[0].primary, true)
+  assert.equal(list.filter(entry => entry.primary).length, 1)
+
+  // Clicking Start a new part calls actions.newPart(bot.id, sessionId) and disables the button.
+  list[0].node.props.onClick()
+  await tick()
+  const afterClick = side.buttons(side.render())
+  assert.equal(afterClick[0].label, 'Starting a new part…')
+  assert.equal(afterClick[0].node.props.disabled, true)
+  assert.deepEqual(side.calls, [['newPart', 'chief', 'chief-part']])
+
+  // A failed newPart shows the error and re-enables the button.
+  const failing = cell({ code: 'CONTEXT_WINDOW_EXCEEDED' })
+  failing.actions.failNewPart = 'Wait for the current turn to finish before starting a new part'
+  failing.buttons(failing.render())[0].node.props.onClick()
+  await tick()
+  const errTree = failing.render()
+  assert.match(textOf(walk(errTree, node => node.props?.className === 'bt-fail-error')[0]), /Wait for the current turn/)
+  assert.equal(failing.buttons(errTree)[0].node.props.disabled, false)
+
+  // Localized Chinese copy.
+  const dicts = new Map()
+  const off = installLocale({
+    register: (ns, locale, dict) => { dicts.set(`${ns}:${locale}`, dict); return () => dicts.delete(`${ns}:${locale}`) },
+    bind: ns => (key, params) => {
+      const text = dicts.get(`${ns}:zh`)?.[key] ?? key
+      return params ? text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match)) : text
+    },
+    getLocale: () => ({ active: 'zh' }),
+  })
+  try {
+    const zhSide = cell({ code: 'CONTEXT_WINDOW_EXCEEDED' })
+    const zhTree = zhSide.render()
+    assert.equal(textOf(walk(zhTree, node => node.props?.className === 'bt-fail-text')[0]), '这段对话已超出上下文窗口。换到新的一段即可继续。')
+    assert.equal(labels(zhSide.buttons(zhTree))[0], '换到新的一段')
+  } finally {
+    off()
+  }
+})
+
+test('NO_ADAPTER explains the missing model service, offers Pick another model, and localizes in Chinese', () => {
+  const side = cell({ code: 'NO_ADAPTER', message: 'no adapter registered for provider "gone"' })
+  const tree = side.render()
+  assert.equal(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), 'The model service this Bot is set to no longer exists')
+  const list = side.buttons(tree)
+  assert.deepEqual(labels(list), ['Pick another model', 'Retry'])
+  assert.equal(list[0].primary, true)
+
+  const dicts = new Map()
+  const off = installLocale({
+    register: (ns, locale, dict) => { dicts.set(`${ns}:${locale}`, dict); return () => dicts.delete(`${ns}:${locale}`) },
+    bind: ns => (key, params) => {
+      const text = dicts.get(`${ns}:zh`)?.[key] ?? key
+      return params ? text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match)) : text
+    },
+    getLocale: () => ({ active: 'zh' }),
+  })
+  try {
+    const zhSide = cell({ code: 'NO_ADAPTER' })
+    const zhTree = zhSide.render()
+    assert.equal(textOf(walk(zhTree, node => node.props?.className === 'bt-fail-text')[0]), '这个 Bot 使用的模型服务已不存在')
+    assert.equal(labels(zhSide.buttons(zhTree))[0], '换个模型')
+  } finally {
+    off()
+  }
+})
+
 test('every failure code a Bot chat can show offers at least one button', () => {
-  for (const code of ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'INTERRUPTED', 'INVALID_REQUEST', 'OTHER']) {
+  for (const code of ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'NO_ADAPTER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'LOCAL_AGENT_SESSION_LOST', 'INVALID_REQUEST', 'OTHER']) {
     for (const blocked of [undefined, { code, at: 1 }]) {
       const side = cell({ code, blocked })
       assert.ok(labels(side.buttons(side.render())).length > 0, `${code} ${blocked ? 'blocked' : 'free'}`)
@@ -453,6 +526,13 @@ test('a content audit keeps its own copy and facts, and offers no key action', (
   ])
 })
 
+test('a streaming content refusal (DSH 0.2.2-rc.4 CONTENT_REFUSED) explains the refusal and offers no key action', () => {
+  assert.equal(failureText('CONTENT_REFUSED', { provider: 'DeepSeek' }), 'DeepSeek refused this request under its content safety policy. Edit the input or start a new chat.')
+  assert.equal(failureText('CONTENT_REFUSED', { provider: 'DeepSeek', status: 400 }), 'DeepSeek refused this request under its content safety policy (400). Edit the input or start a new chat.')
+  assert.deepEqual(Array.from(fixesFor('CONTENT_REFUSED', { canSignIn: true, official: true })), [])
+  assert.equal(retryShown('CONTENT_REFUSED', undefined), true)
+})
+
 test('the host correction reaches the card for the failed turn', () => {
   const body = 'upstream 403: content_policy_violation: 内容审计命中风险规则'
   const side = cell({
@@ -488,7 +568,7 @@ test('in a Chinese interface every repair card state reads in Chinese, outside T
     return shown(node.props?.children)
   }
   try {
-    const codes = ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'MODEL_SWITCH_COMPACTION_FAILED', 'CONTENT_POLICY', 'OTHER']
+    const codes = ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'NO_ADAPTER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'MODEL_SWITCH_COMPACTION_FAILED', 'CONTENT_POLICY', 'CONTENT_REFUSED', 'OTHER']
     const account = { status: 'credential-stored', links: { topUpUrl: 'https://platform.example/top_up' }, attempt: null }
     for (const code of codes) {
       for (const blocked of [undefined, { code, status: 401, requestId: 'req-1', provider: 'deepseek-official', at: 1 }]) {

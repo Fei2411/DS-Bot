@@ -17,6 +17,13 @@ const savePrefs = (next) => {
 /** The switches as this window holds them; a change reaches every listener here. */
 const listeners = new Set()
 let current = prefsNow()
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== null && event.key !== NOTIFY_KEY) return
+    current = prefsNow()
+    for (const run of listeners) run()
+  })
+}
 export function useNotifyPrefs() {
   const [, bump] = useState(0)
   useEffect(() => {
@@ -34,24 +41,24 @@ export function changeNotify(change) {
 
 /**
  * Watch every conversation's status and say what the user cannot see: a reply finishing
- * in a chat that is not on screen, or a card starting to wait on them.
+ * in a chat that is not on screen, or something in the inbox starting to wait on them.
  */
-export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, useWork, actions }) {
-  const work = useWork(value => value)
+export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, actions }) {
   const roster = useRoster(value => value)
   const statuses = useSessionStatus(map => map)
   const viewing = useSessions(list => Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null)
   const previous = useRef(new Map())
   const seeded = useRef(false)
+  const lastBadge = useRef(null)
   useEffect(() => {
     const shell = bridge()
-    shell?.onOpenSession?.((sessionId) => { actions.openSession?.(sessionId) })
-    return undefined
+    const off = shell?.onOpenSession?.((sessionId) => { actions.openSession?.(sessionId) })
+    return () => { if (typeof off === 'function') off() }
   }, [])
   useEffect(() => {
-    const prefs = prefsNow()
+    const prefs = current
     const open = document.hasFocus?.() !== false && document.visibilityState !== 'hidden'
-    const rows = notificationRows({ statuses, roster, approvals: work.approvals })
+    const rows = notificationRows({ statuses, roster })
     const next = new Map()
     for (const row of rows) {
       const { id, sessionId, name, group, status: after } = row
@@ -72,8 +79,12 @@ export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, 
     }
     if (roster.ready !== false) seeded.current = true
     previous.current = next
-    bridge()?.setBadge?.(badgeOf(rows))
-  }, [statuses, viewing, roster, work])
+    const badge = badgeOf(rows)
+    if (badge !== lastBadge.current) {
+      lastBadge.current = badge
+      bridge()?.setBadge?.(badge)
+    }
+  }, [statuses, viewing, roster])
   return null
 }
 
@@ -99,7 +110,7 @@ export function NotificationsRow() {
 
 /** Whether this conversation is muted, for the context menu's label. */
 export function isMuted(id) {
-  return prefsNow().muted[id] === true
+  return current.muted[id] === true
 }
 export function toggleMuted(id) {
   return changeNotify({ mute: { id, on: !isMuted(id) } })

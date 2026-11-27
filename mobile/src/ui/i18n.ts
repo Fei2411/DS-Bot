@@ -4,9 +4,9 @@ import { DICTIONARY } from '../../../ds-bot/src/client/i18n.js'
 // Chinese entries here; the English source stays the key, as on the desktop.
 const ZH = DICTIONARY.zh as Record<string, string>
 // Words the desktop uses in another sense (its "New" badge, "Light" motion, the
-// browser's "Back", the "Not parsed" meaning of "Unknown"); the phone's own meaning
-// wins for these.
-const MOBILE_SENSE = new Set(['New', 'Light', 'Back', 'Unknown'])
+// browser's "Back", the "Not parsed" meaning of "Unknown", OAuth "Verified");
+// the phone's own meaning wins for these.
+const MOBILE_SENSE = new Set(['New', 'Light', 'Back', 'Unknown', 'Verified'])
 
 const MOBILE_ZH: Record<string, string> = {
   "This is the phone app's code. In Settings → Phone on the computer, use Open in a browser or Copy browser link.": '这是手机 App 的配对码。请在电脑的设置 → 手机中选择“在浏览器中打开”或“复制浏览器链接”。',
@@ -18,6 +18,9 @@ const MOBILE_ZH: Record<string, string> = {
   'On the computer, open DS Bot, go to Settings → Phone and copy the pairing link. Paste it here.': '在电脑上打开 DS Bot，进入设置 → 手机，复制配对链接并粘贴到这里。',
   'Pick a folder from Folders.': '请从“文件夹”中选择一个文件夹。',
   'Asks for the secret {name}': '请求密钥 {name}',
+  'Wants to send an email': '想发送一封邮件',
+  'Computer handoff': '电脑交接',
+  'Send email': '发送邮件',
   '{bot} asks for the secret {name}': '{bot} 请求密钥 {name}',
   'Pair with your computer': '与电脑配对',
   'On the computer, open DS Bot, go to Settings → Phone and show a QR code. Then scan it here.': '在电脑上打开 DS Bot，进入设置 → 手机，出示二维码，然后在这里扫描。',
@@ -28,6 +31,8 @@ const MOBILE_ZH: Record<string, string> = {
   'Tools': '工具调用',
   'Steps': '步数', 'Context used': '上下文占用',
   'Retry': '重试',
+  'Poke': '戳一戳',
+  'Pet': '摸一摸',
   'Add photos': '添加照片', 'Not sent. Tap to retry': '未发出，点按重试', 'Latest messages': '最新消息', 'Forget {name}?': '忘记 {name}？', 'Clear diagnostics?': '清空诊断记录？',
   'Pick at least two Bots. The admin leads the group.': '至少选两个 Bot，管理员带领这个群。', 'Reconnecting…': '正在重新连接…',
   'A photo did not arrive. Send it again.': '有张照片没传到，请重新发送。', 'This is not a photo DS Bot can send': '这不是 DS Bot 能发送的照片',
@@ -152,6 +157,45 @@ const MOBILE_ZH: Record<string, string> = {
   'Phone': '手机', 'Computers': '电脑', 'Language': '语言',
   'Follow system': '跟随系统', 'System': '跟随系统', 'Light': '浅色', 'Dark': '深色',
   'In-app banners': '应用内横幅', 'Notifications': '通知',
+  'App update': '应用更新', 'Current version': '当前版本',
+  'Not checked yet': '尚未检查', '{version} available': '有新版本 {version}',
+  'Downloading {pct}%': '正在下载 {pct}%', 'Downloading…': '正在下载…',
+  'Ready to install': '已就绪，可安装', 'Opening installer…': '正在打开安装器…',
+  'Update failed': '更新失败', 'Verified': '已校验', 'Cancel download': '取消下载',
+  'Install {version}': '安装 {version}', 'Allow installing updates': '允许安装应用更新',
+  'Download {version} ({size})': '下载 {version}（{size}）', 'Download {version}': '下载 {version}',
+  'Preferences': '偏好设置', 'Auto-check for updates': '自动检查更新',
+  'Download mirror': '下载镜像', 'Default': '默认',
+  'Mirror address must start with https://': '镜像地址必须以 https:// 开头',
+  'Reset': '恢复默认', 'Check again': '重新检查', 'Open release page': '打开发布页',
+  'System permission': '系统权限', 'System notifications': '系统通知',
+  'Allowed': '已允许', 'Off': '关闭', 'On': '开启',
+  'Needs you channel': '“等你处理”通知通道', 'Replies channel': '“回复与完成”通知通道',
+  'Alerts': '提醒类型', 'Replies & completions': '回复与任务完成',
+  'Group messages': '群聊消息', 'Show message preview': '显示消息预览',
+  'Background delivery': '后台与离线送达', 'Background mode': '后台模式',
+  'Periodic': '定时同步', 'Instant': '实时保活', 'Unrestricted battery': '电池无限制',
+  'Offline push (UnifiedPush)': '离线推送（UnifiedPush）',
+  'Active': '已启用', 'Failed': '失败', 'Not installed': '未安装分发器',
+  'Selected': '已选', 'Turn off offline push': '关闭离线推送',
+  'Update DS Bot on the computer to enable offline push.': '请先更新电脑上的 DS Bot 以开启离线推送。',
+  'Send test notification': '发送测试通知', 'Sent': '已发送', 'Blocked': '已拦截',
+  'Notifications are working on this phone.': '这台手机的通知已正常工作。',
+  'Connected to {name}': '已连接到 {name}', 'Background notifications active': '后台实时通知已开启',
+  'Needs approval: {text}': '等待批准：{text}', 'Needs your approval': '等待你的批准',
+  'Question: {text}': '提问：{text}', 'Waiting for your answer': '等待你的回答',
+  'Card: {text}': '卡片：{text}', 'Waiting for your response': '等待你处理卡片',
+  '{bot} is waiting for your reply: {title}': '{bot} 等你回复：{title}',
+  '{bot} is waiting for your reply': '{bot} 等你回复',
+  'Waiting for a secret': '等待填写密钥', 'Needs connector: {name}': '需要连接：{name}',
+  'Needs connector sign-in': '需要登录连接器', 'Browser handoff: {text}': '请接手浏览器：{text}',
+  'Learning proposal: {text}': '学习提议：{text}', 'New learning proposal': '有新的学习提议',
+  'New group message': '有新的群消息',
+  'Downloaded APK SHA-256 verification failed': '下载的 APK 校验 SHA-256 失败',
+  'Not enough free storage space for the update': '手机剩余存储空间不足，无法下载更新',
+  'Release does not provide a verified SHA-256 checksum for the Android APK.': '该版本未提供有效的 Android APK SHA-256 校验值。',
+  'Release checksum mismatch between SHA256SUMS.txt and release metadata.': '版本校验文件 SHA256SUMS.txt 与发布元数据不一致。',
+  'Enter sends message': '回车发送消息', 'Follow computer': '跟随电脑', 'Always send': '总是发送', 'Always newline': '总是换行',
   'Model providers': '模型服务商', 'Secrets': '密钥', 'Connectors': '连接器',
   'Capabilities': '能力', 'Location': '位置', 'Updates & diagnostics': '更新和诊断',
   'About': '关于',
@@ -260,6 +304,19 @@ const MOBILE_ZH: Record<string, string> = {
   'Scheduled task': '定时任务',
   'Jump to latest': '回到底部',
   'New messages below': '下方有新消息',
+  'Pending sync': '待同步到电脑',
+  'Only HTTPS update URLs are allowed': '更新地址必须使用 https://',
+  'Update source redirected to an insecure address': '更新源跳转到了不安全的地址',
+  'Cached APK failed SHA-256 verification': '已缓存的安装包 SHA-256 校验失败',
+  'Release checksum file is missing the Android APK digest.': '发布校验文件缺少安卓安装包摘要',
+  'Update package exceeds maximum allowed size': '更新包超过允许的大小上限',
+  'Download failed': '下载失败',
+  'Could not resolve the latest release version.': '无法获取最新版本信息。',
+  'No valid download URL found for the Android APK.': '未找到有效的安卓安装包下载地址。',
+  'Invalid releases response.': '版本信息格式无效。',
+  'APK file is not in the update cache': '安装包不在更新缓存目录中',
+  'An update download is already in progress': '已有更新正在下载中',
+  'Invalid relay server address': '中转服务器地址无效',
 }
 
 const systemZh = (): boolean => {

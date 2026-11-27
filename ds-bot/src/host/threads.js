@@ -60,6 +60,50 @@ export function threadCurrentOfPart(bot, sessionId) {
   return isActiveTask(task) ? task.sessionId : undefined
 }
 
+// Logical return/delivery address decoupled from any single DSH Session id.
+// A closed task or deleted group resolves to undefined — never to the Bot's private chat.
+export function returnAddress(bot, part, roomId) {
+  if (roomId) return { roomId }
+  const thread = threadOfPart(bot, part)
+  if (thread?.thread === 'task') return { taskId: thread.taskId }
+  if (part && retiredTaskSessionIds(bot).includes(part)) return { retired: true }
+  return { foreground: true }
+}
+
+export function addressedSession(rt, toId, address) {
+  const bot = rt.botOf(toId)
+  if (!bot || !address || typeof address !== 'object') return undefined
+  if (address.retired === true) return undefined
+  if (address.roomId) {
+    const room = rt.roomOf(address.roomId)
+    return room?.members.includes(toId) ? room.sessions?.[toId] : undefined
+  }
+  if (address.taskId) {
+    return bot.tasks?.find(task => task.id === address.taskId && isActiveTask(task))?.sessionId
+  }
+  return address.foreground ? (rt.chatOf?.(toId) ?? currentSession(bot)) : undefined
+}
+
+export function sessionRoomId(state, botId, sessionId) {
+  if (typeof sessionId !== 'string' || sessionId === '' || typeof botId !== 'string' || botId === '') return undefined
+  for (const room of Object.values(state?.rooms ?? {})) {
+    if (room?.sessions?.[botId] === sessionId) return room.id
+    if ((room?.segments?.[botId] ?? []).some(segment => segment?.sessionId === sessionId)) return room.id
+  }
+  return undefined
+}
+
+export function isMissingSessionError(error) {
+  const code = error?.code
+  if (typeof code === 'string' && code !== '') {
+    return code === 'session/not-found'
+      || code === 'SESSION_QUERY_SESSION_NOT_FOUND'
+  }
+  if (error?.name === 'SessionPersistenceNotFoundError') return true
+  if (error?.name === 'SessionPersistenceCorruptionError') return false
+  return /\bsession\b.*\bnot found\b|\bnot found\b.*\bsession\b/i.test(String(error?.message ?? ''))
+}
+
 // A fresh part replaces a thread's current one; the part it replaces joins that thread's
 // own earlier parts. Returns false for a session that belongs to no thread.
 export function pushThreadPart(bot, sessionId, freshId, segment) {
@@ -78,9 +122,12 @@ export function pushThreadPart(bot, sessionId, freshId, segment) {
 }
 
 // Every session this Bot keeps outside its current thread, for cleanup, memory and usage.
-export const openSessions = bot => (bot?.tasks ?? [])
-  .flatMap(task => [task.sessionId, ...(task.segments ?? []).map(segment => segment.sessionId)])
-  .filter(Boolean)
+export const taskSessionIds = task => [...new Set([task?.sessionId, ...(task?.segments ?? []).map(segment => segment?.sessionId)]
+  .filter(id => typeof id === 'string' && id !== ''))]
+
+export const openSessions = bot => (bot?.tasks ?? []).flatMap(taskSessionIds)
+
+export const retiredTaskSessionIds = bot => Array.isArray(bot.retiredTaskSessions) ? bot.retiredTaskSessions : []
 
 // A part that just moved on records a successor only when it belongs to a task thread:
 // the foreground chat keeps its current part in `bot.sessionId`.

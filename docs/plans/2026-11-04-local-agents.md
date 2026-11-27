@@ -29,25 +29,36 @@ and model changes all work the same way.
   service failed to load. Refs saved under the unprefixed names move to the
   prefixed ones when the team loads. An old `opencode/...` ref moves only for a
   Bot that ran on the local CLI or on its "CLI default"; otherwise it stays on
-  DSH's OpenCode provider.
+  DSH's OpenCode provider. A CLI added after the prefix (such as `qoder`,
+  `antigravity` or `mistral-vibe`) was never saved unprefixed, so its name is
+  always a provider's. The move runs once per team: a ref saved
+  after it under an unprefixed CLI name belongs to a provider of that name and
+  stays.
 - A route's models are what its CLI reports, plus a "CLI default" entry.
 - Every DS Bot Session maps to one CLI session. A Bot's own chat and each of
   its group sessions are separate CLI sessions, so no content crosses between
   them. Like any other Bot, an abot has one continuous conversation — no
   session list or manual session switching.
 - The CLI gets only new input since the last handed message: the user, other
-  Bots, and tool results for calls it made. On a new or lost CLI session, the
-  DS Bot system prompt plus a bounded recent window of the history is sent as
-  the first prompt. The system prompt is sent as appended instructions — never
-  over the CLI's own — and is re-sent, marked as an update, only when it
-  changes.
+  Bots, and tool results for calls it made. Context-only messages (clock ticks,
+  memory snapshots/updates, silent notices) are classified by one shared module
+  (`context-messages.js`) and staged without waking an idle CLI. On a fresh CLI
+  session, team instructions are delivered once over the engine's native channel
+  (developer config for Codex, `--append-system-prompt-file` / `--append-system-prompt`
+  for Claude Code, prompt header for ACP — never duplicated in the replay header
+  for Codex/Claude, and with DSH-only built-in tool prompt sections stripped).
+  If a saved CLI session can no longer be resumed, DS Bot escalates it to a
+  formal `runtime-lost` part switch with the unified deterministic handoff
+  package (`context-pack.js`) instead of silently replaying inside the same part.
 - The DS Bot team tools the Bot's role allows are offered to the CLI over a
   loopback MCP server (one random port and bearer token per CLI session; a bad
-  token is refused). When the CLI calls one, the call leaves the stream as a
-  normal assistant tool call so DSH runs it — logged, with approvals and the
-  usual presentation — and its result answers the suspended CLI call on the
-  next step. Calls that arrive while one runs are queued and go out on the next
-  step.
+  token is refused). The MCP server advertises `tools.listChanged: true`,
+  streams `notifications/tools/list_changed` over authenticated `GET /mcp` SSE
+  (including through `mcp-stdio.js`) when the Bot's active tool set changes, and
+  batches concurrent `tools/call` requests into one DSH step. When the CLI calls
+  a team tool, the call leaves the stream as a normal assistant tool call so DSH
+  runs it — logged, with approvals and the usual presentation — and its result
+  answers the suspended CLI call on the next step.
 - The CLI's own work — its thoughts, plans, and tool calls — shows as the
   Bot's thinking rows, one compact line per action. Its final answer is the
   message text. Usage it reports is recorded.
@@ -77,9 +88,9 @@ and model changes all work the same way.
   per agent, and the custom agents with add, edit, and remove. A custom agent
   has a name, a command, and arguments; the command must be a bare name, an
   absolute path, or `~/…`, and no shell is used.
-- Each engine has an original badge shown small beside the Bot's name in the
-  sidebar, the chat header, and its details. A new abot's avatar defaults to
-  its badge; the user can still pick a character.
+- Each built-in engine uses its own product logo, with a glyph fallback, shown
+  small beside the Bot's name in the sidebar, the chat header, and its details.
+  A new abot's avatar defaults to its badge; the user can still pick a character.
 
 ## Context (decided 2026-11-14, #1593)
 
@@ -88,20 +99,24 @@ whole record for `read_own_chat` and is never condensed. DS Bot applies the
 rules of [context and memory](2026-10-09-context-and-memory.md) to the CLI
 session:
 
-- Size and window are what the CLI reports: ACP `usage_update` (`used`,
-  `size`), Codex `thread/tokenUsage/updated` (`last.totalTokens`,
+- Size and window are resolved through `ContextRuntime` from what the CLI
+  reports (`workingTokens` vs DSH's persistent `logTokens`): ACP `usage_update`
+  (`used`, `size`), Codex `thread/tokenUsage/updated` (`last.totalTokens`,
   `modelContextWindow`), Claude Code's per-response usage and
-  `modelUsage[].contextWindow`. The lines follow that window as for any model.
-  A CLI that reports nothing is not checked, and its context stays the CLI's
-  own business.
+  `modelUsage[].contextWindow`. The lines follow that window with no hardcoded
+  380k cap (only an explicit `checkTokens` config caps it). A CLI that reports
+  nothing is not checked, and its context stays the CLI's own business.
 - At the end of a turn past the check line, the context steward decides once:
   condense in place, or move to a fresh part. The CLI also condenses on its own
-  near its window, which may lie below the check line; each time it did, the
-  steward decides as well, and the compactions so far count as the part's
-  checkpoints, so a fresh part grows likelier as they add up.
+  near its window, which may lie below the check line; each compaction bumps the
+  part's persisted `epoch` so fresh memory snapshots and group boilerplate are
+  re-injected cleanly, and counts toward the part's persisted compaction count.
 - Inside a running turn DS Bot cannot step in between the CLI's model calls:
   the CLI's own compaction covers it, and a CLI that reports its context is past
-  its window fails the turn as an overflow, which moves the part on.
+  its window fails the turn as an overflow (classified after rate-limit/auth
+  checks so TPM limits never trigger a part switch), which moves the part on.
+  When repeated overflows cannot make room automatically, the chat offers a
+  visible recovery action to start a clean part.
 - The steward runs on what the conversation runs on, as for any Bot: the Bot's
   own CLI and model answer it, in a one-off session with no team tools and
   read-only access.
@@ -114,12 +129,19 @@ session:
   prompt.
 - The handoff note is written by the old CLI session while the Bot is idle, as
   one more prompt the conversation never sees: it has the whole working context
-  and its own cache. The note has the sections every note has. A CLI that
-  cannot write one still moves on, with the deterministic package and the last
-  note it wrote; asking for the note already told the CLI the conversation moves
-  on.
+  and its own cache. Note failures distinguish requests that never reached the
+  CLI (busy, suspended bridge, process exit, resume lost — stays in the part
+  with 1/5/15m backoff) from requests that reached the CLI and failed (moves on
+  with the deterministic package and the last note it wrote).
 - The fresh part opens a new CLI session with the handoff package, like any
-  part.
+  part. Stale `state.localAgents.sessions` records are removed on part archival,
+  Bot deletion, group leave/delete, and periodic pruning.
+- Running foreground turns on a local CLI can move to the background: the old
+  Session keeps its running CLI session in `bot.tasks[]` while the new
+  foreground opens a fresh CLI session seeded with the fallback context summary.
+  Background `task_start` uses native CLI session `fork` (Codex `thread/fork`,
+  Claude `--resume --fork-session`) when detected as supported by the installed
+  CLI version, falling back cleanly to a fresh session + summary otherwise.
 
 ## Run mode
 
@@ -201,3 +223,8 @@ handling, so they do not mix in one model list.
 - The sign-in state comes from each CLI's own status command or credential
   file. A CLI that has neither, or whose check does not answer in time, shows
   unknown; unknown does not stop the user from picking it.
+
+## Changes
+
+- 2026-11-25: Unified local-agent context management under `ContextRuntime` and `context-pack.js`: formal `runtime-lost` part switches, reached-vs-unreached handoff note backoff, `epoch` post-compaction memory/instruction redelivery, instruction dedup, MCP `list_changed` SSE + parallel call batching, local CLI foreground-to-background move, capability-detected Codex/Claude session `fork`, and `state.localAgents.sessions` lifecycle cleanup.
+- 2026-11-22: Correct the engine badge description to product logos with fallback glyphs (#1009), corrected against the dev code.

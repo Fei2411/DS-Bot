@@ -3,7 +3,8 @@
 // concise action cue telling the user where to click. Runs once automatically on first
 // open, can be replayed from About DS Bot, and every section has its own focused guide.
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useEscape } from './overlay-hooks.js'
+import { CloseIcon } from './icons.js'
+import { ESCAPE_PRIORITY, acquireInert, releaseInert, settingsOwnsKeyboard, useEscape } from './overlay-hooks.js'
 import { isImeComposing } from './enter-key.js'
 import { t } from './i18n.js'
 import { ownedPopups } from './popup-ownership.js'
@@ -91,9 +92,9 @@ const SECTION_TOURS = {
     { target: 'phone-pair', title: 'Pair a phone', cue: 'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.' },
     { target: 'phone-server', title: 'Server', cue: 'Click "Edit" here only if you host your own relay server.' },
   ],
-  mcp: [
-    { target: 'mcp-switch', title: 'MCP access', cue: 'Turn on this switch so other local agents can reach your Bots.' },
-    { target: 'mcp-add', title: 'Add a client', cue: 'Enter a client name, click "Create token", then pick allowed Bots below.' },
+  api: [
+    { target: 'api-switch', title: 'Enable local API server', cue: 'Turn on this switch so other local agents can reach your Bots.' },
+    { target: 'api-add', title: 'Access tokens', cue: 'Click "New token", then choose the allowed targets and scopes before creating it.' },
   ],
   computer: [
     { target: 'comp-switch', title: 'Computer use', cue: 'Turn on this switch and grant system permissions when prompted.' },
@@ -288,8 +289,8 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     setStepState(prev => ({ key: tourKey, index: Math.max(0, (prev.key === tourKey ? prev.index : 0) - 1) }))
   }, [active, tourKey])
 
-  // Priority 1 catches Escape before SettingsDialog closes.
-  useEscape(dismiss, active, { priority: 1 })
+  // Tour sits above SettingsDialog (0) and below dialogs/sheets opened on top of Settings.
+  useEscape(dismiss, active, { priority: ESCAPE_PRIORITY.TOUR })
 
   useLayoutEffect(() => {
     if (!active) return undefined
@@ -298,30 +299,49 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     const card = cardRef.current
     const layer = layerRef.current
     if (!doc?.body || !card || !layer) return undefined
-    const inert = new Map()
+    const held = new Set()
     let interactive = [card]
     let disposed = false
     const restore = () => {
-      for (const [element, previous] of inert) element.inert = previous
-      inert.clear()
+      for (const element of held) releaseInert(element)
+      held.clear()
     }
+    const externalModalOpen = () => !settingsOwnsKeyboard(dialog, doc)
     const allowed = element => interactive.some(root => root.contains(element))
     const sync = () => {
-      restore()
+      // Yield inertness and focus-trapping while a higher-layer modal (such as
+      // ShortcutsDialog, PresetConfigModal, or a DSH modal) is mounted above Settings.
+      if (externalModalOpen()) {
+        restore()
+        interactive = [card]
+        return
+      }
       const target = !step.page || step.page === currentPage ? resolveStep(dialog, step).targetEl : null
       interactive = [target, card].filter(Boolean)
       interactive.push(...ownedPopups(interactive))
       const roots = [layer, ...interactive]
+      const nextHeld = new Set()
       const isolate = element => {
         if (roots.includes(element)) return
         if (roots.some(root => element.contains(root))) {
           for (const child of element.children) isolate(child)
         } else {
-          inert.set(element, element.inert)
-          element.inert = true
+          nextHeld.add(element)
         }
       }
       isolate(doc.body)
+      for (const element of nextHeld) {
+        if (!held.has(element)) {
+          acquireInert(element)
+          held.add(element)
+        }
+      }
+      for (const element of held) {
+        if (!nextHeld.has(element)) {
+          releaseInert(element)
+          held.delete(element)
+        }
+      }
       if (!allowed(doc.activeElement)) card.focus({ preventScroll: true })
     }
     const onFocus = () => {
@@ -330,6 +350,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     }
     const onTab = event => {
       if (event.key !== 'Tab') return
+      if (externalModalOpen()) return
       sync()
       const selector = 'button,input,select,textarea,a[href],[tabindex],[contenteditable],summary,audio[controls],video[controls]'
       const controls = interactive.flatMap(root => [root, ...root.querySelectorAll(selector)])
@@ -358,6 +379,8 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     if (!active || typeof window === 'undefined') return undefined
     const onKeyDown = (event) => {
       if (event.defaultPrevented || isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return
+      const dialog = dialogRef?.current ?? layerRef.current?.closest?.('.bt-settings')
+      if (!settingsOwnsKeyboard(dialog, dialog?.ownerDocument)) return
       const tag = event.target?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return
       if (event.key === 'ArrowRight') { event.preventDefault(); next() }
@@ -365,7 +388,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [active, next, prev])
+  }, [active, next, prev, dialogRef])
 
   // Cross-page tour steps switch pages only when entering a step.
   useEffect(() => {
@@ -471,7 +494,9 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
   },
   h('div', { className: 'bt-tour-head' },
     h('span', { className: 'bt-tour-title' }, t(shownStep.title)),
-    steps.length > 1 ? h('span', { className: 'bt-tour-count' }, `${index + 1} / ${steps.length}`) : null),
+    h('div', { className: 'bt-tour-head-end' },
+      steps.length > 1 ? h('span', { className: 'bt-tour-count' }, `${index + 1} / ${steps.length}`) : null,
+      h('button', { type: 'button', className: 'bt-tour-close', 'aria-label': t('Close'), title: t('Close'), onClick: dismiss }, h(CloseIcon)))),
   h('p', { className: 'bt-tour-cue' }, t(shownStep.cue)),
   h('div', { className: 'bt-tour-foot' },
     h('button', { type: 'button', className: 'bt-tour-skip', onClick: dismiss }, t('Skip')),

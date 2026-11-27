@@ -6,19 +6,40 @@
 //   2. macOS direct Keychain + SQLite snapshot: decrypts Chromium v10 cookies in-process
 //      (including Chrome 130+ meta v24 domain-hash prefixes) without launching or closing the
 //      source browser — works for Chrome, Edge, Brave, Arc, Vivaldi, Opera, Chromium, etc.
-//   3. Clone + self-decrypt over CDP pipe (Linux, older Windows v10, fallback): copies Local State
+//   4. Linux Chromium v10 direct decryption (peanuts / empty password) without launching a browser.
+//   5. Clone + self-decrypt over CDP pipe (Linux v11, older Windows v10, fallback): snapshots Local State
 //      and the profile's Cookies db into a throwaway user-data-dir and launches the source binary
 //      with --profile-directory so it decrypts its own store.
-//   4. Firefox & Zen: cookies.sqlite is plain sqlite, read directly from a temp copy.
+//   6. Firefox & Zen: cookies.sqlite is plain sqlite, snapshotted atomically via VACUUM INTO.
+//   7. macOS Safari: native Cookies.binarycookies parser + multi-profile discovery (SafariTabs.db).
 import { spawn, execFile } from 'node:child_process'
 import { createDecipheriv, createHash, pbkdf2Sync } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
-import { copyFile, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
+import { copyFile, mkdtemp, open, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import { createConnection } from 'node:net'
 import { DatabaseSync } from 'node:sqlite'
 import { homedir, platform, tmpdir } from 'node:os'
-import { basename, dirname, join, relative, win32 } from 'node:path'
+import { basename, dirname, join, posix, relative, win32 } from 'node:path'
 import WebSocket from 'ws'
+import {
+  checkSafariAccess,
+  countBinaryCookies,
+  harvestSafari,
+  parseBinaryCookies,
+  SAFARI_FULL_DISK_ACCESS_URL,
+  safariContainerLibrary,
+  safariProfiles,
+} from './safari-cookies.mjs'
+
+export {
+  checkSafariAccess,
+  countBinaryCookies,
+  harvestSafari,
+  parseBinaryCookies,
+  SAFARI_FULL_DISK_ACCESS_URL,
+  safariContainerLibrary,
+  safariProfiles,
+}
 
 const WEBKIT_EPOCH_OFFSET = 11644473600 // seconds between 1601-01-01 and 1970-01-01
 const LIVE_CONNECT_TIMEOUT_MS = 60_000  // allow time for Chrome's "Allow remote debugging?" dialog
@@ -42,6 +63,7 @@ const KIND_ORDER = [
   'chrome', 'chrome-beta', 'chrome-canary', 'chrome-dev',
   'edge', 'edge-beta',
   'brave', 'arc', 'vivaldi', 'opera', 'opera-gx', 'chromium',
+  'safari',
   'firefox', 'zen',
 ]
 
@@ -58,6 +80,7 @@ const BROWSER_META = {
   opera: { name: 'Opera', engine: 'chromium', inspectUrl: 'opera://inspect/#remote-debugging', keychain: ['Opera Safe Storage'], flat: true },
   'opera-gx': { name: 'Opera GX', engine: 'chromium', inspectUrl: 'opera://inspect/#remote-debugging', keychain: ['Opera Safe Storage'], flat: true },
   chromium: { name: 'Chromium', engine: 'chromium', inspectUrl: 'chrome://inspect/#remote-debugging', keychain: ['Chromium Safe Storage'] },
+  safari: { name: 'Safari', engine: 'safari', inspectUrl: null, keychain: [] },
   firefox: { name: 'Firefox', engine: 'firefox', inspectUrl: null, keychain: [] },
   zen: { name: 'Zen', engine: 'firefox', inspectUrl: null, keychain: [] },
 }
@@ -208,63 +231,77 @@ async function asyncWindowsArcRoots(local) {
   } catch { return [] }
 }
 
-async function userDataRoots() {
-  const local = process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local')
-  const roaming = process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming')
-  const home = homedir()
-  if (platform() === 'win32') {
+export async function userDataRoots({ platformOverride, homeOverride, envOverride } = {}) {
+  const plat = platformOverride ?? platform()
+  const pathJoin = plat === 'win32' ? win32.join : posix.join
+  const home = homeOverride ?? homedir()
+  const env = envOverride ?? process.env
+  const local = env.LOCALAPPDATA ?? pathJoin(home, 'AppData', 'Local')
+  const roaming = env.APPDATA ?? pathJoin(home, 'AppData', 'Roaming')
+  if (plat === 'win32') {
     return {
-      chrome: [join(local, 'Google', 'Chrome', 'User Data')],
-      'chrome-beta': [join(local, 'Google', 'Chrome Beta', 'User Data')],
-      'chrome-canary': [join(local, 'Google', 'Chrome SxS', 'User Data')],
-      'chrome-dev': [join(local, 'Google', 'Chrome Dev', 'User Data')],
-      edge: [join(local, 'Microsoft', 'Edge', 'User Data')],
-      'edge-beta': [join(local, 'Microsoft', 'Edge Beta', 'User Data')],
-      brave: [join(local, 'BraveSoftware', 'Brave-Browser', 'User Data')],
+      chrome: [pathJoin(local, 'Google', 'Chrome', 'User Data')],
+      'chrome-beta': [pathJoin(local, 'Google', 'Chrome Beta', 'User Data')],
+      'chrome-canary': [pathJoin(local, 'Google', 'Chrome SxS', 'User Data')],
+      'chrome-dev': [pathJoin(local, 'Google', 'Chrome Dev', 'User Data')],
+      edge: [pathJoin(local, 'Microsoft', 'Edge', 'User Data')],
+      'edge-beta': [pathJoin(local, 'Microsoft', 'Edge Beta', 'User Data')],
+      brave: [pathJoin(local, 'BraveSoftware', 'Brave-Browser', 'User Data')],
       arc: await asyncWindowsArcRoots(local),
-      vivaldi: [join(local, 'Vivaldi', 'User Data')],
-      opera: [join(roaming, 'Opera Software', 'Opera Stable')],
-      'opera-gx': [join(roaming, 'Opera Software', 'Opera GX Stable')],
-      chromium: [join(local, 'Chromium', 'User Data')],
-      firefox: [join(roaming, 'Mozilla', 'Firefox')],
-      zen: [join(roaming, 'zen')],
+      vivaldi: [pathJoin(local, 'Vivaldi', 'User Data')],
+      opera: [pathJoin(roaming, 'Opera Software', 'Opera Stable')],
+      'opera-gx': [pathJoin(roaming, 'Opera Software', 'Opera GX Stable')],
+      chromium: [pathJoin(local, 'Chromium', 'User Data')],
+      safari: [],
+      firefox: [pathJoin(roaming, 'Mozilla', 'Firefox')],
+      zen: [pathJoin(roaming, 'zen')],
     }
   }
-  if (platform() === 'darwin') {
-    const appSupport = join(home, 'Library', 'Application Support')
+  if (plat === 'darwin') {
+    const appSupport = pathJoin(home, 'Library', 'Application Support')
     return {
-      chrome: [join(appSupport, 'Google', 'Chrome')],
-      'chrome-beta': [join(appSupport, 'Google', 'Chrome Beta')],
-      'chrome-canary': [join(appSupport, 'Google', 'Chrome Canary')],
-      'chrome-dev': [join(appSupport, 'Google', 'Chrome Dev')],
-      edge: [join(appSupport, 'Microsoft Edge')],
-      'edge-beta': [join(appSupport, 'Microsoft Edge Beta')],
-      brave: [join(appSupport, 'BraveSoftware', 'Brave-Browser')],
-      arc: [join(appSupport, 'Arc', 'User Data')],
-      vivaldi: [join(appSupport, 'Vivaldi')],
-      opera: [join(appSupport, 'com.operasoftware.Opera')],
-      'opera-gx': [join(appSupport, 'com.operasoftware.OperaGX')],
-      chromium: [join(appSupport, 'Chromium')],
-      firefox: [join(appSupport, 'Firefox')],
-      zen: [join(appSupport, 'zen')],
+      chrome: [pathJoin(appSupport, 'Google', 'Chrome')],
+      'chrome-beta': [pathJoin(appSupport, 'Google', 'Chrome Beta')],
+      'chrome-canary': [pathJoin(appSupport, 'Google', 'Chrome Canary')],
+      'chrome-dev': [pathJoin(appSupport, 'Google', 'Chrome Dev')],
+      edge: [pathJoin(appSupport, 'Microsoft Edge')],
+      'edge-beta': [pathJoin(appSupport, 'Microsoft Edge Beta')],
+      brave: [pathJoin(appSupport, 'BraveSoftware', 'Brave-Browser')],
+      arc: [pathJoin(appSupport, 'Arc', 'User Data')],
+      vivaldi: [pathJoin(appSupport, 'Vivaldi')],
+      opera: [pathJoin(appSupport, 'com.operasoftware.Opera')],
+      'opera-gx': [pathJoin(appSupport, 'com.operasoftware.OperaGX')],
+      chromium: [pathJoin(appSupport, 'Chromium')],
+      safari: [pathJoin(home, 'Library', 'Containers', 'com.apple.Safari', 'Data', 'Library')],
+      firefox: [pathJoin(appSupport, 'Firefox')],
+      zen: [pathJoin(appSupport, 'zen')],
     }
   }
-  const config = process.env.XDG_CONFIG_HOME ?? join(home, '.config')
+  const config = env.XDG_CONFIG_HOME ?? pathJoin(home, '.config')
   return {
-    chrome: [join(config, 'google-chrome')],
-    'chrome-beta': [join(config, 'google-chrome-beta')],
+    chrome: [pathJoin(config, 'google-chrome')],
+    'chrome-beta': [pathJoin(config, 'google-chrome-beta')],
     'chrome-canary': [],
-    'chrome-dev': [join(config, 'google-chrome-unstable')],
-    edge: [join(config, 'microsoft-edge')],
-    'edge-beta': [join(config, 'microsoft-edge-beta')],
-    brave: [join(config, 'BraveSoftware', 'Brave-Browser')],
+    'chrome-dev': [pathJoin(config, 'google-chrome-unstable')],
+    edge: [pathJoin(config, 'microsoft-edge')],
+    'edge-beta': [pathJoin(config, 'microsoft-edge-beta')],
+    brave: [pathJoin(config, 'BraveSoftware', 'Brave-Browser')],
     arc: [],
-    vivaldi: [join(config, 'vivaldi')],
-    opera: [join(config, 'opera')],
+    vivaldi: [pathJoin(config, 'vivaldi')],
+    opera: [pathJoin(config, 'opera')],
     'opera-gx': [],
-    chromium: [join(config, 'chromium')],
-    firefox: [join(home, '.mozilla', 'firefox')],
-    zen: [join(home, '.zen')],
+    chromium: [pathJoin(config, 'chromium')],
+    safari: [],
+    firefox: [
+      pathJoin(home, '.mozilla', 'firefox'),
+      pathJoin(home, 'snap', 'firefox', 'common', '.mozilla', 'firefox'),
+      pathJoin(home, '.var', 'app', 'org.mozilla.firefox', '.mozilla', 'firefox'),
+    ],
+    zen: [
+      pathJoin(home, '.zen'),
+      pathJoin(home, '.var', 'app', 'app.zen_browser.zen', '.zen'),
+      pathJoin(home, 'snap', 'zen-browser', 'common', '.zen'),
+    ],
   }
 }
 
@@ -400,6 +437,25 @@ export async function checkSourceLiveDebug(source, { probePort = isLoopbackPortO
   return Boolean(await probePort(active.port, { signal }))
 }
 
+/** Lightweight readiness probe for one source: DevTools loopback check (Chromium) or FDA access check (Safari). */
+export async function probeSource(source, opts = {}) {
+  if (!source) return { liveDebugReady: false, permissionGranted: false }
+  if (source.engine === 'safari') {
+    const access = await checkSafariAccess({
+      home: opts.home,
+      containerLib: source.userDataDir || undefined,
+    })
+    return {
+      liveDebugReady: false,
+      permissionGranted: access.accessible || access.containerReadable === true,
+    }
+  }
+  return {
+    liveDebugReady: await checkSourceLiveDebug(source, opts),
+    permissionGranted: true,
+  }
+}
+
 /** True when Local State declares a Windows App-Bound Encryption key (readable even while locked). */
 export function hasAppBoundKey(userDataDir) {
   if (!userDataDir) return false
@@ -407,13 +463,36 @@ export function hasAppBoundKey(userDataDir) {
   return typeof localState?.os_crypt?.app_bound_encrypted_key === 'string' && localState.os_crypt.app_bound_encrypted_key.length > 0
 }
 
+const SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'ascii')
+
+function hasTable(db, name) {
+  return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name))
+}
+
+/** Fast, non-blocking cookie row count for profile selection UI. Never throws; returns null when locked/unreadable. */
+export function countSqliteCookies(dbPath, tableName) {
+  if (!dbPath || (tableName !== 'cookies' && tableName !== 'moz_cookies')) return null
+  let db
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true })
+    db.exec('PRAGMA busy_timeout = 100')
+    if (!hasTable(db, tableName)) return 0
+    const row = db.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get()
+    return typeof row?.count === 'number' ? row.count : Number(row?.count) || 0
+  } catch {
+    return null
+  } finally {
+    try { db?.close() } catch { /* ignore */ }
+  }
+}
+
 /**
  * Every importable profile on this machine.
- * → [{ id, kind, name, label, engine:'chromium'|'firefox', userDataDir, profilePath, profileDir,
- *      profileName, email, cookieDb, hasCookies, exe, exeVersion, inspectUrl, liveDebugReady,
- *      keychainServices, flat }]
+ * → [{ id, kind, name, label, engine:'chromium'|'firefox'|'safari', userDataDir, profilePath, profileDir,
+ *      profileName, email, cookieDb, cookieFile, hasCookies, cookieCount, needsPermission, exe, exeVersion,
+ *      inspectUrl, liveDebugReady, keychainServices, flat }]
  */
-export async function listSources({ probePort = isLoopbackPortOpen, freshExes = false } = {}) {
+export async function listSources({ probePort = isLoopbackPortOpen, freshExes = false, safariEnumerator = safariProfiles } = {}) {
   const exes = await findBrowserExes({ fresh: freshExes })
   const roots = await userDataRoots()
   const isMac = platform() === 'darwin'
@@ -422,6 +501,27 @@ export async function listSources({ probePort = isLoopbackPortOpen, freshExes = 
   for (const kind of KIND_ORDER) {
     const meta = BROWSER_META[kind]
     if (!meta) continue
+    if (meta.engine === 'safari') {
+      if (!isMac) continue
+      const safariRoot = roots.safari?.[0] ?? safariContainerLibrary()
+      for (const p of await safariEnumerator({ containerLib: safariRoot })) {
+        const id = `safari:${p.dir}`
+        if (seenIds.has(id)) continue
+        seenIds.add(id)
+        sources.push({
+          id, kind: 'safari', engine: 'safari', name: meta.name,
+          label: p.displayName ? `${meta.name} — ${p.displayName}` : meta.name,
+          userDataDir: safariRoot, profilePath: p.cookieFile ? dirname(p.cookieFile) : safariRoot,
+          profileDir: p.dir, profileName: p.name, email: null,
+          cookieDb: p.cookieFile, cookieFile: p.cookieFile,
+          hasCookies: p.hasCookies, cookieCount: p.cookieCount ?? null,
+          needsPermission: p.needsPermission === true,
+          exe: null, exeVersion: null,
+          inspectUrl: null, liveDebugReady: false, keychainServices: [], flat: false,
+        })
+      }
+      continue
+    }
     const exe = exes.get(kind)
     for (const root of roots[kind] ?? []) {
       if (meta.engine === 'firefox') {
@@ -430,10 +530,12 @@ export async function listSources({ probePort = isLoopbackPortOpen, freshExes = 
           const id = `${kind}:${p.path}`
           if (seenIds.has(id)) continue
           seenIds.add(id)
+          const cookieDb = join(p.path, 'cookies.sqlite')
           sources.push({
             id, kind, engine: 'firefox', name: meta.name, label: `${meta.name} — ${p.name}`,
             userDataDir: root, profilePath: p.path, profileDir: basename(p.path), profileName: p.name, email: null,
-            cookieDb: join(p.path, 'cookies.sqlite'), hasCookies: true,
+            cookieDb, hasCookies: true, cookieCount: countSqliteCookies(cookieDb, 'moz_cookies'),
+            needsPermission: false,
             exe: exe?.exe ?? null, exeVersion: exe?.version ?? null,
             inspectUrl: null, liveDebugReady: false, keychainServices: [], flat: false,
           })
@@ -442,9 +544,10 @@ export async function listSources({ probePort = isLoopbackPortOpen, freshExes = 
       }
       const activePort = readDevToolsActivePort(root)
       const liveDebugReady = activePort !== null && Boolean(await probePort(activePort.port))
-      // Chromium on macOS can decrypt via Keychain without launching the binary; on Windows,
-      // MSIX installs like Arc can still enter the guided remote-debugging flow without a resolved exe.
-      const canHarvest = Boolean(exe) || liveDebugReady || (isMac && meta.keychain.length > 0) || (platform() === 'win32' && kind === 'arc')
+      // Chromium on macOS can decrypt via Keychain without launching the binary; on Linux, v10
+      // cookies can be decrypted directly in JS; on Windows, MSIX installs like Arc can still
+      // enter the guided remote-debugging flow without a resolved exe.
+      const canHarvest = Boolean(exe) || liveDebugReady || (isMac && meta.keychain.length > 0) || platform() === 'linux' || (platform() === 'win32' && kind === 'arc')
       if (!canHarvest) continue
       for (const p of await chromiumProfiles(root, { flat: meta.flat === true })) {
         if (!p.hasCookies) continue
@@ -457,7 +560,8 @@ export async function listSources({ probePort = isLoopbackPortOpen, freshExes = 
           id, kind, engine: 'chromium', name: meta.name,
           label: p.name && p.name !== meta.name ? `${meta.name} — ${p.name}` : meta.name,
           userDataDir: root, profilePath, profileDir: p.dir, profileName: p.name, email: p.email,
-          cookieDb: p.cookieDb, hasCookies: p.hasCookies,
+          cookieDb: p.cookieDb, hasCookies: p.hasCookies, cookieCount: countSqliteCookies(p.cookieDb, 'cookies'),
+          needsPermission: false,
           exe: exe?.exe ?? null, exeVersion: exe?.version ?? null,
           inspectUrl: meta.inspectUrl, liveDebugReady,
           keychainServices: meta.keychain, flat: meta.flat === true,
@@ -471,6 +575,16 @@ export async function listSources({ probePort = isLoopbackPortOpen, freshExes = 
 // ------------------------------------------------------------------ the clone layout
 
 const LOCKED = (error) => error?.code === 'EBUSY' || error?.code === 'EPERM'
+const SQLITE_LOCKED = (error) => LOCKED(error)
+  || error?.errcode === 5
+  || error?.errcode === 6
+  || /database is locked|database table is locked/i.test(String(error?.message ?? ''))
+
+async function removeSqliteFamily(dbPath) {
+  for (const suffix of ['', '-journal', '-wal', '-shm']) {
+    await rm(`${dbPath}${suffix}`, { force: true }).catch(() => {})
+  }
+}
 
 function resolveSourceLayout(source) {
   const flat = source.flat === true
@@ -482,28 +596,74 @@ function resolveSourceLayout(source) {
   return { userDataDir, profileDir, relCookieDir }
 }
 
-/** Copy the files a harvest needs into workDir. Throws {code:'locked'} when the source is running. */
-export async function cloneCookieStore(source, workDir, { needLocalState = true } = {}) {
-  const jobs = []
-  if (source.engine === 'firefox') {
-    for (const f of ['cookies.sqlite', 'cookies.sqlite-wal', 'cookies.sqlite-shm']) {
-      jobs.push({ from: join(source.profilePath, f), to: join(workDir, f), required: f === 'cookies.sqlite' })
+async function isSqliteFile(filePath) {
+  let fh
+  try {
+    fh = await open(filePath, 'r')
+    const head = Buffer.alloc(SQLITE_HEADER.length)
+    const { bytesRead } = await fh.read(head, 0, SQLITE_HEADER.length, 0)
+    return bytesRead === SQLITE_HEADER.length && head.equals(SQLITE_HEADER)
+  } catch (error) {
+    if (LOCKED(error)) { const e = new Error('the source browser is running'); e.code = 'locked'; throw e }
+    throw error
+  } finally {
+    await fh?.close().catch(() => {})
+  }
+}
+
+/**
+ * Atomically export a live SQLite database (including active WAL frames) into a single
+ * self-contained file using SQLite's read-only VACUUM INTO.
+ * Throws {code:'locked'} when SQLite reports an exclusive/busy lock rather than falling back
+ * to a torn multi-file copy. Returns false only for non-SQLite inputs or non-lock open errors
+ * (such as read-only source directories unable to create -shm).
+ */
+export async function snapshotSqliteDatabase(fromPath, toPath, { busyTimeoutMs = 2000 } = {}) {
+  if (!(await isSqliteFile(fromPath))) return false
+  mkdirSync(dirname(toPath), { recursive: true })
+  await removeSqliteFamily(toPath)
+  let db
+  try {
+    db = new DatabaseSync(fromPath, { readOnly: true })
+    db.exec(`PRAGMA busy_timeout = ${Math.max(0, Math.floor(busyTimeoutMs))}`)
+    db.prepare('VACUUM INTO ?').run(toPath)
+    return true
+  } catch (error) {
+    await removeSqliteFamily(toPath)
+    if (SQLITE_LOCKED(error)) {
+      const e = new Error('the source browser is running')
+      e.code = 'locked'
+      throw e
     }
+    return false
+  } finally {
+    try { db?.close() } catch { /* ignore */ }
+  }
+}
+
+/** Snapshot the files a harvest needs into workDir. Throws {code:'locked'} when the source is running. */
+export async function cloneCookieStore(source, workDir, { needLocalState = true, skipCookieDb = false, busyTimeoutMs } = {}) {
+  const copied = []
+  const copyJobs = []
+  let dbFrom
+  let dbTo
+
+  if (source.engine === 'firefox') {
+    dbFrom = join(source.profilePath, 'cookies.sqlite')
+    dbTo = join(workDir, 'cookies.sqlite')
   } else {
     const { userDataDir, relCookieDir } = resolveSourceLayout(source)
     if (needLocalState) {
-      jobs.push({ from: join(userDataDir, 'Local State'), to: join(workDir, 'Local State'), required: true })
+      copyJobs.push({ from: join(userDataDir, 'Local State'), to: join(workDir, 'Local State'), required: true })
     }
     const dbName = source.cookieDb ? basename(source.cookieDb) : 'Cookies'
     const fromDir = source.cookieDb ? dirname(source.cookieDb) : join(source.profilePath, 'Network')
     const toDir = join(workDir, relCookieDir)
-    for (const suffix of ['', '-journal', '-wal', '-shm']) {
-      const file = `${dbName}${suffix}`
-      jobs.push({ from: join(fromDir, file), to: join(toDir, file), required: suffix === '' })
-    }
+    dbFrom = join(fromDir, dbName)
+    dbTo = join(toDir, dbName)
   }
-  const copied = []
-  for (const job of jobs) {
+
+  for (const job of copyJobs) {
     try {
       mkdirSync(dirname(job.to), { recursive: true })
       await copyFile(job.from, job.to)
@@ -512,6 +672,37 @@ export async function cloneCookieStore(source, workDir, { needLocalState = true 
       if (LOCKED(error)) { const e = new Error('the source browser is running'); e.code = 'locked'; throw e }
       if (!job.required && error?.code === 'ENOENT') continue
       if (job.required) throw error
+    }
+  }
+
+  if (skipCookieDb) return copied
+
+  // Prefer an atomic SQLite VACUUM INTO snapshot over multi-file copy so an active browser
+  // WAL checkpoint can never leave half-copied pages in workDir.
+  const snapshotted = await snapshotSqliteDatabase(dbFrom, dbTo, busyTimeoutMs !== undefined ? { busyTimeoutMs } : undefined)
+  if (snapshotted) {
+    copied.push(dbFrom)
+    return copied
+  }
+
+  // Clear any prior destination db + sidecars before copying so a vanished source -wal
+  // cannot leave behind a stale workDir -wal on retry.
+  await removeSqliteFamily(dbTo)
+  const sidecars = source.engine === 'firefox'
+    ? ['', '-wal', '-shm']
+    : ['', '-journal', '-wal', '-shm']
+  for (const suffix of sidecars) {
+    const from = `${dbFrom}${suffix}`
+    const to = `${dbTo}${suffix}`
+    const required = suffix === ''
+    try {
+      mkdirSync(dirname(to), { recursive: true })
+      await copyFile(from, to)
+      copied.push(from)
+    } catch (error) {
+      if (LOCKED(error)) { const e = new Error('the source browser is running'); e.code = 'locked'; throw e }
+      if (!required && error?.code === 'ENOENT') continue
+      if (required) throw error
     }
   }
   return copied
@@ -742,6 +933,7 @@ function readCookieSignatureFromDb(dbPath) {
   let db
   try {
     db = new DatabaseSync(dbPath, { readOnly: true })
+    if (!hasTable(db, 'cookies')) return null
     const cols = new Set(db.prepare('PRAGMA table_info(cookies)').all().map((r) => r.name))
     const hasExpiresUtc = cols.has('expires_utc')
     const hasExpiresFlag = cols.has('has_expires')
@@ -956,25 +1148,90 @@ export function deriveMacChromiumKey(password) {
   return pbkdf2Sync(Buffer.from(String(password), 'utf8'), 'saltysalt', 1003, 16, 'sha1')
 }
 
-/** Decrypt a single Chromium macOS v10 cookie blob (stripping the v24+ SHA-256 domain prefix when present). */
+/** Derive Chromium's Linux v10 AES-128-CBC cookie key (1 PBKDF2 iteration, default password "peanuts"). */
+export function deriveLinuxChromiumKey(password = 'peanuts') {
+  return pbkdf2Sync(Buffer.from(String(password), 'utf8'), 'saltysalt', 1, 16, 'sha1')
+}
+
+const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+// Chromium 131 ParsedCookie::IsValidCookieValue rejects HttpUtil::IsControlChar (0x00–0x1F, 0x7F) and ';'.
+const INVALID_PRE24_COOKIE_VALUE = /[\x00-\x1f;\x7f]/
+
+/** Decrypt a single Chromium v10 cookie blob (enforcing v24+ SHA-256 domain digest and valid UTF-8 cookie bytes). */
 export function decryptChromiumV10(encrypted, key, { hostKey = '', stripDomainHash = false } = {}) {
   const buf = Buffer.isBuffer(encrypted) ? encrypted : Buffer.from(encrypted ?? [])
   if (buf.length <= 3 || buf[0] !== 0x76 || buf[1] !== 0x31 || buf[2] !== 0x30) return null
   const iv = Buffer.alloc(16, 0x20)
   const decipher = createDecipheriv('aes-128-cbc', key, iv)
   let plain = Buffer.concat([decipher.update(buf.subarray(3)), decipher.final()])
-  if (stripDomainHash && plain.length >= 32) {
+  if (stripDomainHash) {
+    if (plain.length < 32) return null
     const digest = createHash('sha256').update(String(hostKey), 'utf8').digest()
-    if (plain.subarray(0, 32).equals(digest)) plain = plain.subarray(32)
+    if (!plain.subarray(0, 32).equals(digest)) return null
+    plain = plain.subarray(32)
   }
-  return plain.toString('utf8')
+  let text
+  try {
+    text = UTF8_DECODER.decode(plain)
+  } catch {
+    return null
+  }
+  // Reject bytes Chromium's cookie value validator forbids, filtering accidental PKCS#7 collisions under a wrong pre-v24 key.
+  if (!stripDomainHash && INVALID_PRE24_COOKIE_VALUE.test(text)) return null
+  return text
 }
 
 const DB_SAMESITE = { 0: 'None', 1: 'Lax', 2: 'Strict' }
 
-function readChromiumSqliteCookiesDetailed(dbPath, { key, now = Date.now() / 1000 } = {}) {
+function chromiumCookieIdentity(cookie) {
+  const domain = String(cookie?.domain ?? '').toLowerCase()
+  const name = String(cookie?.name ?? '')
+  const path = cookie?.path || '/'
+  const secure = cookie?.secure ? '1' : '0'
+  const topSite = cookie?.partitionKey?.topLevelSite ? String(cookie.partitionKey.topLevelSite) : ''
+  const crossSite = topSite ? (cookie.partitionKey.hasCrossSiteAncestor === false ? '0' : '1') : ''
+  const opaque = cookie?.partitionKeyOpaque === true ? '1' : '0'
+  return `${domain}\0${name}\0${path}\0${secure}\0${topSite}\0${crossSite}\0${opaque}`
+}
+
+function applyAmbiguousFilter(result, ambiguousEntries) {
+  if (!ambiguousEntries || ambiguousEntries.length === 0) return result
+  const blocked = new Set(ambiguousEntries.map((entry) => entry.key))
+  const cookies = (result.cookies ?? []).filter((cookie) => !blocked.has(chromiumCookieIdentity(cookie)))
+  const skipped = [...(result.skipped ?? []), ...ambiguousEntries.map((entry) => entry.skipped)]
+  return { ...result, cookies, skipped }
+}
+
+function decryptWithCandidateKeys(encrypted, keys, opts, { rejectAmbiguous = false } = {}) {
+  let matched = null
+  let matchedIndex = -1
+  let matchCount = 0
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i]
+    if (!key) continue
+    try {
+      const decrypted = decryptChromiumV10(encrypted, key, opts)
+      if (decrypted !== null) {
+        if (!rejectAmbiguous) return { value: decrypted, ambiguous: false, keyIndex: i }
+        if (matched !== null && matched !== decrypted) {
+          return { value: null, ambiguous: true, keyIndex: -1 }
+        }
+        matched = decrypted
+        matchedIndex = i
+        matchCount += 1
+      }
+    } catch { /* try next candidate key */ }
+  }
+  return { value: matched, ambiguous: false, keyIndex: matchCount === 1 ? matchedIndex : -1 }
+}
+
+function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous = false, now = Date.now() / 1000 } = {}) {
+  const candidateKeys = Array.isArray(keys) ? keys.filter(Boolean) : (key ? [key] : [])
   const db = new DatabaseSync(dbPath, { readOnly: true })
   try {
+    if (!hasTable(db, 'cookies')) {
+      return { cookies: [], origins: [], skipped: [], dbVersion: 0, decryptedCount: 0, decryptFailedCount: 0, ambiguousCount: 0, ambiguousEntries: [], usedKeyCount: 0, unsupportedEncryptionCount: 0 }
+    }
     let dbVersion = 0
     try {
       const meta = db.prepare("SELECT value FROM meta WHERE key = 'version'").get()
@@ -994,8 +1251,12 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, now = Date.now() / 100
     const rows = db.prepare(`SELECT ${select.join(', ')} FROM cookies`).all()
     const cookies = []
     const skipped = []
+    const ambiguousEntries = []
     let decryptedCount = 0
     let decryptFailedCount = 0
+    let ambiguousCount = 0
+    let unsupportedEncryptionCount = 0
+    const usedKeyIndices = new Set()
     rows.forEach((row, index) => {
       const where = `entry ${index + 1}`
       let expires
@@ -1006,6 +1267,14 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, now = Date.now() / 100
           return
         }
       }
+      const partitionKey = typeof row.top_frame_site_key === 'string' && row.top_frame_site_key
+        ? {
+            topLevelSite: row.top_frame_site_key,
+            hasCrossSiteAncestor: row.has_cross_site_ancestor === null || row.has_cross_site_ancestor === undefined
+              ? true
+              : Boolean(row.has_cross_site_ancestor),
+          }
+        : undefined
       let value = typeof row.value === 'string' ? row.value : ''
       const enc = row.encrypted_value ? Buffer.from(row.encrypted_value) : null
       if (enc && enc.length > 0) {
@@ -1015,26 +1284,47 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, now = Date.now() / 100
           return
         }
         if (prefix === 'v10') {
-          if (!key) {
+          if (candidateKeys.length === 0) {
             decryptFailedCount += 1
             skipped.push({ where, name: row.name, domain: row.host_key, code: 'decrypt-failed', reason: 'could not decrypt cookie value' })
             return
           }
-          try {
-            const decrypted = decryptChromiumV10(enc, key, { hostKey: row.host_key, stripDomainHash })
-            if (decrypted === null) {
-              decryptFailedCount += 1
-              skipped.push({ where, name: row.name, domain: row.host_key, code: 'decrypt-failed', reason: 'could not decrypt cookie value' })
-              return
+          const outcome = decryptWithCandidateKeys(
+            enc,
+            candidateKeys,
+            { hostKey: row.host_key, stripDomainHash },
+            { rejectAmbiguous: rejectAmbiguous && !stripDomainHash },
+          )
+          if (outcome.value === null) {
+            decryptFailedCount += 1
+            const skipEntry = {
+              where,
+              name: row.name,
+              domain: row.host_key,
+              code: 'decrypt-failed',
+              reason: outcome.ambiguous ? 'could not determine cookie decryption key unambiguously' : 'could not decrypt cookie value',
             }
-            value = decrypted
-            decryptedCount += 1
-          } catch {
-            decryptFailedCount += 1
-            skipped.push({ where, name: row.name, domain: row.host_key, code: 'decrypt-failed', reason: 'could not decrypt cookie value' })
+            if (outcome.ambiguous) {
+              ambiguousCount += 1
+              ambiguousEntries.push({
+                key: chromiumCookieIdentity({
+                  domain: row.host_key,
+                  name: row.name,
+                  path: row.path || '/',
+                  secure: Boolean(row.is_secure),
+                  partitionKey,
+                }),
+                skipped: skipEntry,
+              })
+            }
+            skipped.push(skipEntry)
             return
           }
+          value = outcome.value
+          decryptedCount += 1
+          if (outcome.keyIndex >= 0) usedKeyIndices.add(outcome.keyIndex)
         } else {
+          unsupportedEncryptionCount += 1
           skipped.push({ where, name: row.name, domain: row.host_key, code: 'unsupported-encryption', reason: 'unsupported cookie encryption format' })
           return
         }
@@ -1046,18 +1336,59 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, now = Date.now() / 100
       const ss = DB_SAMESITE[row.samesite]
       if (ss && (ss !== 'None' || cookie.secure)) cookie.sameSite = ss
       if (expires !== undefined) cookie.expires = expires
-      if (typeof row.top_frame_site_key === 'string' && row.top_frame_site_key) {
-        const hasCrossSite = row.has_cross_site_ancestor === null || row.has_cross_site_ancestor === undefined
-          ? true
-          : Boolean(row.has_cross_site_ancestor)
-        cookie.partitionKey = { topLevelSite: row.top_frame_site_key, hasCrossSiteAncestor: hasCrossSite }
-      }
+      if (partitionKey) cookie.partitionKey = partitionKey
       cookies.push(cookie)
     })
-    return { cookies, origins: [], skipped, decryptedCount, decryptFailedCount }
+    return {
+      cookies,
+      origins: [],
+      skipped,
+      dbVersion,
+      decryptedCount,
+      decryptFailedCount,
+      ambiguousCount,
+      ambiguousEntries,
+      usedKeyCount: usedKeyIndices.size,
+      unsupportedEncryptionCount,
+    }
   } finally {
     db.close()
   }
+}
+
+/**
+ * Pure JS Linux Chromium v10 decryption trying both "peanuts" and empty password.
+ * On v24+ stores, the SHA-256 domain digest authenticates each row unambiguously across mixed keys.
+ * On pre-v24 stores (no MAC), tests both keys per row so any row that validly decodes to different
+ * values under both keys is flagged as ambiguous and skipped rather than guessed (Chromium itself
+ * tries "peanuts" first without a MAC, so CDP fallback cannot disambiguate those rows either).
+ * Delegates to clone + CDP pipe when source.exe is available and the store has v11/keyring rows,
+ * mixed pre-v24 keys, or all non-ambiguous v10 rows failed; reports any detected ambiguous rows via
+ * `onAmbiguous` so the caller filters them out of CDP results and keeps their skipped reasons.
+ */
+export async function harvestLinuxChromiumV10(source, workDir, { signal, now, onAmbiguous } = {}) {
+  throwIfAborted(signal)
+  const { relCookieDir } = resolveSourceLayout(source)
+  const dbName = source.cookieDb ? basename(source.cookieDb) : 'Cookies'
+  const clonedDb = join(workDir, relCookieDir, dbName)
+  const peanutsKey = deriveLinuxChromiumKey('peanuts')
+  const emptyKey = deriveLinuxChromiumKey('')
+
+  const detailed = readChromiumSqliteCookiesDetailed(clonedDb, {
+    keys: [peanutsKey, emptyKey],
+    rejectAmbiguous: true,
+    now,
+  })
+  if (typeof onAmbiguous === 'function' && detailed.ambiguousEntries.length > 0) {
+    onAmbiguous(detailed.ambiguousEntries)
+  }
+  if (source.exe) {
+    const nonAmbiguousFailed = detailed.decryptFailedCount - detailed.ambiguousCount
+    if (detailed.unsupportedEncryptionCount > 0) return null
+    if (detailed.dbVersion < 24 && detailed.usedKeyCount > 1) return null
+    if (nonAmbiguousFailed > 0 && detailed.decryptedCount === 0) return null
+  }
+  return { cookies: detailed.cookies, origins: detailed.origins, skipped: detailed.skipped }
 }
 
 /** Read and decrypt a Chromium Cookies SQLite snapshot using a macOS AES-128-CBC key. */
@@ -1211,35 +1542,99 @@ function cdpCookie(c) {
   }
   if (c.sameSite === 'Strict' || c.sameSite === 'Lax' || (c.sameSite === 'None' && cookie.secure)) cookie.sameSite = c.sameSite
   if (!c.session && typeof c.expires === 'number' && c.expires > 0) cookie.expires = c.expires
-  if (c.partitionKey && typeof c.partitionKey === 'object' && typeof c.partitionKey.topLevelSite === 'string') {
+  if (c.partitionKey && typeof c.partitionKey === 'object' && typeof c.partitionKey.topLevelSite === 'string' && c.partitionKey.topLevelSite) {
     cookie.partitionKey = { topLevelSite: c.partitionKey.topLevelSite, hasCrossSiteAncestor: Boolean(c.partitionKey.hasCrossSiteAncestor) }
+  } else if (typeof c.partitionKey === 'string' && c.partitionKey) {
+    cookie.partitionKey = { topLevelSite: c.partitionKey, hasCrossSiteAncestor: true }
   }
+  if (c.partitionKeyOpaque === true) cookie.partitionKeyOpaque = true
   return cookie
 }
 
 // ------------------------------------------------------------------ Strategy 4: Firefox & Zen
 
-/** Firefox / Zen: cookies.sqlite is plain — read the copied db directly. */
-function harvestFirefox(workDir, now = Date.now() / 1000) {
-  const db = new DatabaseSync(join(workDir, 'cookies.sqlite'), { readOnly: true })
+// Mozilla nsICookie SameSite enum: 0=NONE, 1=LAX, 2=STRICT, 3=UNSET.
+const FIREFOX_SAMESITE = { 0: 'None', 1: 'Lax', 2: 'Strict' }
+
+function parseOriginAttributes(suffix) {
+  const body = suffix.startsWith('^') ? suffix.slice(1) : suffix
+  const attrs = new Map()
+  for (const pair of body.split('&')) {
+    if (!pair) continue
+    const eq = pair.indexOf('=')
+    if (eq === -1) attrs.set(pair, '')
+    else attrs.set(pair.slice(0, eq), pair.slice(eq + 1))
+  }
+  return attrs
+}
+
+/** Read cookies from a Firefox / Zen cookies.sqlite snapshot, adapting to schema 15+ (no rawSameSite) and 16+ (ms expiry). */
+export function readFirefoxSqliteCookies(dbPath, { now = Date.now() / 1000 } = {}) {
+  const db = new DatabaseSync(dbPath, { readOnly: true })
   try {
-    const rows = db.prepare('SELECT host, name, value, path, isHttpOnly, isSecure, expiry, sameSite, rawSameSite, originAttributes FROM moz_cookies').all()
+    if (!hasTable(db, 'moz_cookies')) return { cookies: [], origins: [], skipped: [] }
+    const schemaVersion = Number(db.prepare('PRAGMA user_version').get()?.user_version) || 0
+    const cols = new Set(db.prepare('PRAGMA table_info(moz_cookies)').all().map((r) => r.name))
+    const hasRawSameSite = cols.has('rawSameSite')
+    const select = [
+      'host', 'name', 'value', 'path',
+      cols.has('isHttpOnly') ? 'isHttpOnly' : '0 AS isHttpOnly',
+      cols.has('isSecure') ? 'isSecure' : '0 AS isSecure',
+      cols.has('expiry') ? 'expiry' : 'NULL AS expiry',
+      cols.has('sameSite') ? 'sameSite' : 'NULL AS sameSite',
+      hasRawSameSite ? 'rawSameSite' : 'NULL AS rawSameSite',
+      cols.has('originAttributes') ? 'originAttributes' : "'' AS originAttributes",
+    ]
+    const rows = db.prepare(`SELECT ${select.join(', ')} FROM moz_cookies`).all()
     const cookies = []
     const skipped = []
     rows.forEach((row, index) => {
-      if (row.expiry <= now) { skipped.push({ where: `entry ${index + 1}`, name: row.name, domain: row.host, code: 'expired', reason: 'already expired' }); return }
-      // nsICookie: SAMESITE_UNSET 0, LAX 1, STRICT 2, NONE 3 (sameSite column, rawSameSite as fallback)
-      const ss = { 1: 'Lax', 2: 'Strict', 3: 'None' }[row.sameSite ?? row.rawSameSite] ?? undefined
-      const cookie = { name: row.name, value: row.value ?? '', domain: row.host, path: row.path || '/', secure: !!row.isSecure, httpOnly: !!row.isHttpOnly, expires: row.expiry }
-      if (ss && (ss !== 'None' || cookie.secure)) cookie.sameSite = ss
-      if (row.originAttributes && row.originAttributes !== '') {
-        skipped.push({ where: `entry ${index + 1}`, name: row.name, domain: row.host, code: 'container', reason: `a Firefox container cookie (${row.originAttributes}); importing it flat would mix it into the default context` })
+      const where = `entry ${index + 1}`
+      let expires
+      if (typeof row.expiry === 'number' && Number.isFinite(row.expiry) && row.expiry > 0) {
+        // Firefox schema 16+ stores expiry in milliseconds instead of seconds.
+        const expirySec = (schemaVersion >= 16 || row.expiry >= 1e11) ? row.expiry / 1000 : row.expiry
+        if (expirySec <= now) {
+          skipped.push({ where, name: row.name, domain: row.host, code: 'expired', reason: 'already expired' })
+          return
+        }
+        expires = expirySec
+      }
+      if (typeof row.originAttributes === 'string' && row.originAttributes !== '') {
+        const attrs = parseOriginAttributes(row.originAttributes)
+        const hasPartition = attrs.has('partitionKey')
+        const hasUserContext = attrs.has('userContextId') && attrs.get('userContextId') !== '0'
+        skipped.push(hasPartition && !hasUserContext
+          ? { where, name: row.name, domain: row.host, code: 'partitioned', reason: 'partitioned cookie (cannot keep third-party isolation when imported)' }
+          : { where, name: row.name, domain: row.host, code: 'container', reason: `a Firefox container cookie (${row.originAttributes}); importing it flat would mix it into the default context` })
         return
       }
+      // In Gecko schema <= 14 with laxByDefault, an omitted SameSite attribute was stored as
+      // sameSite=1 (Lax) with rawSameSite=0; schema 15 migration maps that back to UNSET.
+      const isLegacyUnset = hasRawSameSite && row.sameSite === 1 && row.rawSameSite === 0
+      const rawSs = isLegacyUnset ? 3 : (row.sameSite ?? row.rawSameSite)
+      const ss = FIREFOX_SAMESITE[rawSs]
+      const cookie = {
+        name: row.name,
+        value: row.value ?? '',
+        domain: row.host,
+        path: row.path || '/',
+        secure: Boolean(row.isSecure),
+        httpOnly: Boolean(row.isHttpOnly),
+      }
+      if (expires !== undefined) cookie.expires = expires
+      if (ss && (ss !== 'None' || cookie.secure)) cookie.sameSite = ss
       cookies.push(cookie)
     })
     return { cookies, origins: [], skipped }
-  } finally { db.close() }
+  } finally {
+    db.close()
+  }
+}
+
+/** Firefox / Zen: cookies.sqlite is plain — read the snapshotted db directly. */
+function harvestFirefox(workDir, now = Date.now() / 1000) {
+  return readFirefoxSqliteCookies(join(workDir, 'cookies.sqlite'), { now })
 }
 
 function withTimeout(p, ms, label, signal) {
@@ -1282,6 +1677,7 @@ export function appBoundRows(dbPath) {
   let db
   try { db = new DatabaseSync(dbPath, { readOnly: true }) } catch { return null }
   try {
+    if (!hasTable(db, 'cookies')) return { locked: [], readable: 0 }
     const rows = db.prepare('SELECT name, host_key AS domain, hex(substr(encrypted_value, 1, 3)) AS prefix FROM cookies').all()
     const locked = []
     let readable = 0
@@ -1321,14 +1717,44 @@ export async function harvestCookies(source, workDir, opts = {}) {
 
 /**
  * The whole live import:
+ *   0. macOS Safari native Cookies.binarycookies (surfaces Full Disk Access guidance on EPERM)
  *   1. Live DevToolsActivePort CDP (if enabled in the running Chromium browser — works on Windows v20!)
  *   2. macOS direct Keychain + SQLite decryption (no browser launch or close)
- *   3. Windows pre-check for App-Bound Encryption before ever asking to close the browser
- *   4. Clone → (close & relaunch on Windows when needed for non-v20/Firefox) → harvest
+ *   3. Linux pure-JS v10 ("peanuts") decryption before falling back to browser pipe
+ *   4. Windows pre-check for App-Bound Encryption before ever asking to close the browser
+ *   5. Snapshot → (close & relaunch on Windows when needed for non-v20/Firefox) → harvest
  */
-export async function importFromBrowser(source, { close = false, platformOverride, liveHarvester, macHarvester, cloneHarvester, cloner = cloneCookieStore, browserCloser = closeBrowser, browserRelauncher = relaunchBrowser, signal } = {}) {
+function browserLockedError() {
+  const err = new Error('This browser cookie database is locked; quit the browser and try again.')
+  err.code = 'browser-locked'
+  return err
+}
+
+export async function importFromBrowser(source, { close = false, platformOverride, liveHarvester, macHarvester, linuxHarvester, safariHarvester, cloneHarvester, cloner = cloneCookieStore, browserCloser = closeBrowser, browserRelauncher = relaunchBrowser, signal } = {}) {
   throwIfAborted(signal)
   const currentPlatform = platformOverride ?? platform()
+
+  // 0. macOS Safari: native Cookies.binarycookies parser, no browser close needed.
+  if (source.engine === 'safari') {
+    try {
+      const result = await (safariHarvester ?? harvestSafari)(source, { signal })
+      return { running: false, restarted: false, method: 'safari-binarycookies', result }
+    } catch (error) {
+      if (error?.code === 'import-cancelled' || signal?.aborted) throw abortError()
+      if (error?.code === 'safari-permission') {
+        return {
+          running: false,
+          restarted: false,
+          needsFullDiskAccess: true,
+          browserName: source.name,
+          label: source.label,
+          kind: source.kind,
+        }
+      }
+      throw error
+    }
+  }
+
   const { userDataDir } = resolveSourceLayout(source)
 
   // 1. Live remote-debugging connection (zero restart, decrypts Windows v20 natively).
@@ -1347,10 +1773,17 @@ export async function importFromBrowser(source, { close = false, platformOverrid
   throwIfAborted(signal)
   const work = await cloneWorkDir()
   let closed = false
+  let cookieDbCloned = false
   try {
     // 2. macOS direct Keychain decryption (never closes or launches the browser).
     if (source.engine === 'chromium' && currentPlatform === 'darwin' && (source.keychainServices?.length ?? 0) > 0) {
-      await cloner(source, work.dir, { needLocalState: false })
+      try {
+        await cloner(source, work.dir, { needLocalState: false })
+        cookieDbCloned = true
+      } catch (error) {
+        if (error?.code === 'locked') throw browserLockedError()
+        throw error
+      }
       throwIfAborted(signal)
       const macResult = await (macHarvester ?? harvestMacChromium)(source, work.dir, { signal })
       throwIfAborted(signal)
@@ -1365,13 +1798,36 @@ export async function importFromBrowser(source, { close = false, platformOverrid
       }
     }
 
+    // 3. Linux pure-JS v10 decryption ("peanuts" / empty password) without launching Chromium.
+    let linuxAmbiguous = []
+    if (source.engine === 'chromium' && currentPlatform === 'linux') {
+      try {
+        await cloner(source, work.dir, { needLocalState: false })
+        cookieDbCloned = true
+      } catch (error) {
+        if (error?.code === 'locked') throw browserLockedError()
+        throw error
+      }
+      throwIfAborted(signal)
+      const linuxResult = await (linuxHarvester ?? harvestLinuxChromiumV10)(source, work.dir, {
+        signal,
+        onAmbiguous: (entries) => { linuxAmbiguous = entries },
+      })
+      throwIfAborted(signal)
+      if (linuxResult !== null) {
+        return { running: false, restarted: false, method: 'linux-v10', result: linuxResult }
+      }
+    }
+
     throwIfAborted(signal)
-    // 3. Clone store (handling Windows exclusive lock without needlessly killing v20 browsers).
+    // 4. Snapshot store (reusing the SQLite snapshot from step 2/3 so ambiguity detection and CDP
+    //    always read the exact same immutable database state; only copies Local State on fallback).
     try {
-      await cloner(source, work.dir)
+      await (cookieDbCloned ? cloner(source, work.dir, { needLocalState: true, skipCookieDb: true }) : cloner(source, work.dir))
     } catch (error) {
       if (error?.code !== 'locked') throw error
-      if (source.engine === 'chromium' && currentPlatform === 'win32' && hasAppBoundKey(userDataDir)) {
+      if (currentPlatform !== 'win32') throw browserLockedError()
+      if (source.engine === 'chromium' && hasAppBoundKey(userDataDir)) {
         return {
           running: true,
           needsRemoteDebugging: true,
@@ -1394,7 +1850,8 @@ export async function importFromBrowser(source, { close = false, platformOverrid
     throwIfAborted(signal)
     // 4. Harvest from the clone; turn Windows all-v20 into guided remote-debugging setup.
     try {
-      const result = await (cloneHarvester ?? harvestCloned)(source, work.dir, { signal })
+      const rawResult = await (cloneHarvester ?? harvestCloned)(source, work.dir, { signal })
+      const result = linuxAmbiguous.length > 0 ? applyAmbiguousFilter(rawResult, linuxAmbiguous) : rawResult
       return { running: false, restarted: closed, method: source.engine === 'firefox' ? 'firefox-sqlite' : 'clone-cdp', result }
     } catch (error) {
       if (error?.code === 'import-cancelled' || signal?.aborted) throw abortError()

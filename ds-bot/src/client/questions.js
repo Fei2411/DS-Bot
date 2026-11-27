@@ -1,64 +1,28 @@
-import { createElement as h, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { createElement as h, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { keyLetter, useOptionKeys } from 'deep-view/react'
 import { ChevronDownIcon, CloseIcon, CheckIcon } from './icons.js'
 import { CellEmpty } from './cell-empty.js'
 import { sendsOnEnter } from './enter-key.js'
 import { t } from './i18n.js'
 import { useDockHold } from './card-hold.js'
+import { blockingQuestionId } from './question-draft.js'
 import { SPRING_SHAPE, reducedEffects, reducedMotion, useMorph } from './motion.js'
-import { createSource, heldCardKey } from './sources.js'
+import { heldCardKey } from './sources.js'
 
 // -------------------------------------------------------------------------
 // Question cards. `ask_user` cards sit in the transcript and never block the Bot;
 // typing in the composer instead answers them. The blocking ask_user_question tool
 // keeps the shell's composer takeover and gains an own-answer field.
+// Option letter shortcuts share deep-view's single card registry so a Question card
+// and a show_view options card never both claim the same bare letter key.
 
-export const keyLetter = index => String.fromCharCode(65 + index)
+export { keyLetter, useOptionKeys }
 const optionsOf = question => (question?.options ?? []).map(option => (typeof option === 'string' ? { label: option } : option))
-const isTypingTarget = node => node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement
-  || node instanceof HTMLSelectElement || (node instanceof HTMLElement && node.isContentEditable)
-
-// A bare letter picks that option and the letter after the last one
-// jumps to the custom answer; never while typing or while a dialog is open.
-// The listener is document-wide, so two open cards with letter keys would both
-// answer the same key: each card registers here and the keys fire only while it
-// is the sole registered card. The count also drives the key hints.
-const optionKeyCards = createSource(0)
-export function useOptionKeys(count, onPick, ownRef) {
-  const pick = useRef(onPick)
-  pick.current = onPick
-  const listening = useSyncExternalStore(optionKeyCards.subscribe, optionKeyCards.getSnapshot)
-  useEffect(() => {
-    if (count === 0) return undefined
-    optionKeyCards.set(value => value + 1)
-    const onKey = (event) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.key.length !== 1) return
-      if (isTypingTarget(event.target) || isTypingTarget(document.activeElement)) return
-      if (document.querySelector('[role="dialog"], [aria-modal="true"]') !== null) return
-      if (optionKeyCards.getSnapshot() !== 1) return
-      const index = event.key.toUpperCase().charCodeAt(0) - 65
-      if (index >= 0 && index < count) {
-        event.preventDefault()
-        pick.current(index)
-      } else if (index === count && ownRef.current) {
-        event.preventDefault()
-        ownRef.current.focus()
-      }
-    }
-    document.addEventListener('keydown', onKey, true)
-    return () => {
-      document.removeEventListener('keydown', onKey, true)
-      optionKeyCards.set(value => value - 1)
-    }
-  }, [count, ownRef])
-  // Before the effect runs the card is not counted yet; read that as alone so a
-  // lone card's hints never flicker on mount.
-  return count > 0 && listening <= 1
-}
 
 // A question shows two ways: as a bubble in the transcript, and raised when it
 // sits in the dock above the composer.
-function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false, ownAnswer = false, raised = false, enterToSend = true }) {
-  const [own, setOwn] = useState('')
+function QuestionView({ question, onAnswer, onDismiss, onInteract, onOwnChange, initialOwn = '', busy = false, ownAnswer = false, raised = false, enterToSend = true }) {
+  const [own, setOwn] = useState(initialOwn)
   const [picked, setPicked] = useState([])
   const ownRef = useRef(null)
   const titleId = useId()
@@ -86,7 +50,14 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
     ref: ownRef, rows: 1, value: own, readOnly: busy, autoComplete: 'off', spellCheck: false, className: 'bt-q-input',
     'aria-label': t('Your own answer'), placeholder: t('Type your own answer'),
     'aria-keyshortcuts': hints ? ownLetter?.toLowerCase() : undefined,
-    onChange: (event) => { if (!busy) { onInteract?.(); setOwn(event.target.value) } },
+    onChange: (event) => {
+      if (!busy) {
+        onInteract?.()
+        const value = event.target.value
+        setOwn(value)
+        onOwnChange?.(value)
+      }
+    },
     onKeyDown: (event) => {
       if (event.key !== 'Enter' || !enterToSend || event.shiftKey || event.nativeEvent?.isComposing || event.keyCode === 229) return
       event.preventDefault()
@@ -319,23 +290,54 @@ export function SettledQuestion({ question, answer, closed }) {
     : null) : null)
 }
 
-export function QuestionCard({ matched }) {
+export function QuestionCard({ sessionId, matched, actions }) {
   const pending = matched
+  const requestId = blockingQuestionId(pending)
+  const effectiveSessionId = sessionId ?? pending.sessionId
   const questions = pending.questions ?? []
   const [index, setIndex] = useState(0)
   const [answers, setAnswers] = useState([])
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  const isStillOpen = typeof pending.getSnapshot === 'function' ? () => pending.getSnapshot()?.closed === false : undefined
   const question = questions[index]
   if (question === undefined) return null
+  const subId = question.id ?? String(index)
+  const initialOwn = actions?.readQuestionDraft?.('blocking', requestId, subId) ?? ''
+  const onOwnChange = (text) => {
+    if (effectiveSessionId) actions?.noteQuestionDraft?.({ kind: 'blocking', id: requestId, subId, sessionId: effectiveSessionId, text, isStillOpen })
+  }
+  const runSettle = (outcome, run) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    actions?.beginQuestionSettle?.('blocking', requestId, outcome)
+    void Promise.resolve().then(run).then(
+      () => actions?.finishQuestionSettle?.('blocking', requestId, true),
+      () => actions?.finishQuestionSettle?.('blocking', requestId, false),
+    ).finally(() => {
+      busyRef.current = false
+      setBusy(false)
+    })
+  }
   const onAnswer = (answer) => {
+    if (busyRef.current) return
     const next = [...answers, { id: question.id, ...answer }]
     if (index + 1 < questions.length) {
+      // If the user switched to a preset option on this step, drop any abandoned
+      // custom text so a later interruption does not rescue discarded input.
+      if (effectiveSessionId) {
+        const keptCustom = typeof answer?.custom === 'string' ? answer.custom.trim() : ''
+        actions?.noteQuestionDraft?.({ kind: 'blocking', id: requestId, subId, sessionId: effectiveSessionId, text: keptCustom, isStillOpen })
+      }
       setAnswers(next)
       setIndex(index + 1)
       return
     }
-    pending.answer({ answers: next })
+    runSettle('answered', () => pending.answer({ answers: next }))
   }
-  return h(QuestionView, { key: index, question, onAnswer, onDismiss: () => pending.dismiss(), ownAnswer: true, raised: true })
+  const onDismiss = () => runSettle('dismissed', () => pending.dismiss())
+  return h(QuestionView, { key: `${requestId}:${index}`, question, initialOwn, onOwnChange, onAnswer, onDismiss, busy, ownAnswer: true, raised: true })
 }
 
 export function PendingQuestion({ sessionId, question, actions, inline, enterToSend = true, bare = false }) {
@@ -344,16 +346,22 @@ export function PendingQuestion({ sessionId, question, actions, inline, enterToS
   const busyRef = useRef(false)
   const boxRef = useRef(null)
   const hold = useDockHold(sessionId, 'question', question.id, actions, inline)
+  const initialOwn = actions?.readQuestionDraft?.('ask_user', question.id) ?? ''
   if (answered === question.id) return h(CellEmpty)
-  const run = (make, { settle = false, onFail } = {}) => {
+  const run = (make, { settle = false, outcome, onFail } = {}) => {
     if (busyRef.current) return
     hold()
     busyRef.current = true
     setBusy(true)
+    if (outcome) actions?.beginQuestionSettle?.('ask_user', question.id, outcome)
     // Keep QuestionView mounted until success: a failed request must not erase
     // the selected options, custom answer, or focused field. On dismiss, wait for
     // roster to swap to the folded settled card in place rather than collapsing to 0.
-    void Promise.resolve().then(make).then(() => { if (settle) setAnswered(question.id) }, () => {
+    void Promise.resolve().then(make).then(() => {
+      if (outcome) actions?.finishQuestionSettle?.('ask_user', question.id, true)
+      if (settle) setAnswered(question.id)
+    }, () => {
+      if (outcome) actions?.finishQuestionSettle?.('ask_user', question.id, false)
       onFail?.()
       setAnswered(null)
     }).finally(() => {
@@ -361,18 +369,22 @@ export function PendingQuestion({ sessionId, question, actions, inline, enterToS
       setBusy(false)
     })
   }
+  const onOwnChange = (text) => {
+    actions?.noteQuestionDraft?.({ kind: 'ask_user', id: question.id, sessionId, text })
+  }
   const onAnswer = (answer) => {
     if (busyRef.current) return
     const height = boxRef.current?.firstElementChild?.offsetHeight || boxRef.current?.offsetHeight
     if (inline) noteJustAnswered('question', question.id, height)
     run(() => actions.answerQuestion(sessionId, question.id, { selected: answer.selected ?? [], custom: answer.custom ?? '' }), {
       settle: true,
+      outcome: 'answered',
       onFail: () => clearJustAnswered('question', question.id),
     })
   }
-  const onDismiss = () => run(() => actions.dismissQuestion(sessionId))
+  const onDismiss = () => run(() => actions.dismissQuestion(sessionId), { outcome: 'dismissed' })
   return h('div', { ref: boxRef, className: bare ? 'bt-q-hold' : (inline ? 'bt-q-inline' : 'bt-q-dock') },
-    h(QuestionView, { key: question.id, question, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline, enterToSend }))
+    h(QuestionView, { key: question.id, question, initialOwn, onOwnChange, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline, enterToSend }))
 }
 
 // Inline ask_user call in the transcript: keeps a single wrapper across pending and

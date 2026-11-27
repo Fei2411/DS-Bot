@@ -3,13 +3,14 @@
 // releases/latest/download/ link can name.
 // Usage: node scripts/release-notes.mjs <version> <folder with the packages> <folder for the files to attach> [<current notes>]
 // It prints the notes with the table on top. MIRROR_BASE, when set, is a URL that holds the
-// packages under the same names; GITHUB_REPOSITORY names the repository (default Fei2411/DS-Bot).
+// packages under the same names; GITHUB_REPOSITORY names the repository (default Fei-Craft/DS-Bot).
 import { createHash } from 'node:crypto'
-import { copyFileSync, createReadStream, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { copyFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const REPO = 'Fei2411/DS-Bot'
+export const REPO = 'Fei-Craft/DS-Bot'
 // The order of the table: Windows first, where most downloads are; the phone app last.
 export const PACKAGES = [
   { file: 'win-x64.exe', system: '**Windows 10/11 (64-bit / 64 位)**', note: 'Double-click to install / 双击安装' },
@@ -111,12 +112,16 @@ async function main([version, from, to, notesFile]) {
   mkdirSync(to, { recursive: true })
   const sizes = {}
   const hashes = {}
-  for (const entry of PACKAGES) {
+  await Promise.all(PACKAGES.map(async (entry) => {
     const name = packageName(version, entry)
-    sizes[name] = statSync(join(from, name)).size
-    hashes[name] = await sha256(join(from, name))
-    copyFileSync(join(from, name), join(to, copyName(entry)))
-  }
+    const source = join(from, name)
+    sizes[name] = statSync(source).size
+    const [hash] = await Promise.all([
+      sha256(source),
+      copyFile(source, join(to, copyName(entry))),
+    ])
+    hashes[name] = hash
+  }))
   writeFileSync(join(to, SUMS), checksums(version, hashes))
   const block = downloadBlock({ version, sizes, repo: process.env.GITHUB_REPOSITORY || REPO, mirror: process.env.MIRROR_BASE || undefined })
   process.stdout.write(withDownloads(notesFile === undefined ? '' : readFileSync(notesFile, 'utf8'), block))

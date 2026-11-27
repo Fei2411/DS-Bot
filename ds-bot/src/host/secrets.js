@@ -8,12 +8,16 @@ import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { cleanPassphrase, decryptSecrets, encryptSecrets, isEncryptedSecretsFile, passphraseFromEnv } from './secrets-crypto.js'
+import { createSecretRefs, hashShellValue, shellFileKey } from './secret-refs.js'
+import { createDefaultProviderRegistry } from './secret-providers/registry.js'
+import { createSecretResolver } from './secret-providers/resolver.js'
 import { serviceOf } from './services.js'
 import { replaceFile } from './files.js'
 import { output } from './tools.js'
 
 export const SECRET_NAME = /^[A-Z][A-Z0-9_]{0,63}$/
 export const ENV_PREFIX = 'DSH_SECRET_'
+export const ENV_FILE_PREFIX = 'DSH_SECRET_FILE_'
 // A short value (a PIN, a short password) would also hit ordinary words if it were
 // replaced wherever it appears, so below WHOLE_VALUE it is replaced only where it
 // stands alone: no letter or digit right before or after it.
@@ -21,9 +25,13 @@ export const MIN_VALUE = 4
 export const WHOLE_VALUE = 8
 export const MAX_VALUE = 16384
 const MAX_REQUESTS = 20
+const MAX_EPHEMERAL_REDACTIONS = 256
 const USED_SAVE_MS = 5000
+const DELIVERIES = new Set(['vault', 'ref', 'file'])
+const SHELL_ENV_TOOLS = new Set(['bash', 'pwsh', 'terminal_open', 'terminal_send'])
 
 export const envName = name => `${ENV_PREFIX}${name}`
+export const envFileName = name => `${ENV_FILE_PREFIX}${name}`
 export const canUse = (secret, botId) => secret !== undefined && botId !== undefined
   && (secret.scope === 'all' || (Array.isArray(secret.scope) && secret.scope.includes(botId)))
 
@@ -36,31 +44,129 @@ export function normalizeName(raw) {
 // too keeps the sent URL equal to the text the redactor looks for.
 export const encodeUrlComponent = value => encodeURIComponent(value).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())
 
+const WORD_CHAR = /^[\p{L}\p{N}]$/u
+const prevCodePoint = (text, index) => {
+  if (index <= 0) return ''
+  const code = text.codePointAt(index - 1)
+  if (code >= 0xDC00 && code <= 0xDFFF && index >= 2) {
+    const pair = text.codePointAt(index - 2)
+    if (pair >= 0x10000) return String.fromCodePoint(pair)
+  }
+  return String.fromCodePoint(code)
+}
+const nextCodePoint = (text, index) => (index >= text.length ? '' : String.fromCodePoint(text.codePointAt(index)))
+const isWordChar = char => char !== '' && WORD_CHAR.test(char)
+
+const findNextMatch = (text, [needle, , short], from) => {
+  let at = from
+  while (at <= text.length - needle.length) {
+    const pos = text.indexOf(needle, at)
+    if (pos === -1) return -1
+    if (!short || (!isWordChar(prevCodePoint(text, pos)) && !isWordChar(nextCodePoint(text, pos + needle.length)))) {
+      return pos
+    }
+    at = pos + 1
+  }
+  return -1
+}
+
 // One function that replaces every known value in a string, longest first so a value
-// that contains another is replaced whole. JSON-escaped and URL-encoded forms are covered too.
+// that contains another is replaced whole. JSON-escaped, URL-encoded, CRLF/LF, and
+// space-folded multiline forms are covered too. Pure literal scanning avoids V8's
+// 32 KiB RegExp atom limit and keeps secret text out of SyntaxError messages.
 export function redactor(entries) {
   const pairs = []
+  const add = (seen, variant, label, short, priority) => {
+    if (variant.length < MIN_VALUE || seen.has(variant)) return
+    seen.add(variant)
+    pairs.push([variant, label, short, priority])
+  }
+  const addEncoded = (seen, raw, label, short, priority) => {
+    add(seen, raw, label, short, priority)
+    const escaped = JSON.stringify(raw).slice(1, -1)
+    if (escaped !== raw) add(seen, escaped, label, short, priority)
+    // encodeURIComponent throws on a lone surrogate; such a value cannot sit in a URL anyway.
+    const encoded = raw.isWellFormed() ? encodeUrlComponent(raw) : raw
+    if (encoded !== raw && encoded !== escaped) add(seen, encoded, label, short, priority)
+  }
   for (const { name, value } of entries) {
     if (typeof value !== 'string' || value.length < MIN_VALUE) continue
     const label = `[secret:${name}]`
-    const short = value.length < WHOLE_VALUE
-    pairs.push([value, label, short])
-    const escaped = JSON.stringify(value).slice(1, -1)
-    if (escaped !== value) pairs.push([escaped, label, short])
-    // encodeURIComponent throws on a lone surrogate; such a value cannot sit in a URL anyway.
-    const encoded = value.isWellFormed() ? encodeUrlComponent(value) : value
-    if (encoded !== value && encoded !== escaped) pairs.push([encoded, label, short])
+    const multiline = /[\r\n]/.test(value)
+    const lf = multiline ? value.replace(/\r\n?/g, '\n') : value
+    const short = lf.length < WHOLE_VALUE
+    const seen = new Set()
+    addEncoded(seen, value, label, short, 0)
+    // Cover trailing-newline-stripped and trimmed forms too (e.g. file-delivered
+    // secrets with leading whitespace and trailing `\n` when POSIX command
+    // substitution `$(cat "$file")` strips only trailing newlines).
+    const withoutTrailingNewlines = lf.replace(/\n+$/, '')
+    if (withoutTrailingNewlines !== lf && withoutTrailingNewlines.length >= MIN_VALUE) {
+      addEncoded(seen, withoutTrailingNewlines, label, withoutTrailingNewlines.length < WHOLE_VALUE, 0)
+    }
+    const trimmed = lf.trim()
+    if (trimmed !== lf && trimmed.length >= MIN_VALUE) {
+      addEncoded(seen, trimmed, label, trimmed.length < WHOLE_VALUE, 0)
+    }
+    if (multiline) {
+      const crlf = lf.replace(/\n/g, '\r\n')
+      addEncoded(seen, lf, label, short, 0)
+      addEncoded(seen, crlf, label, short, 0)
+      if (withoutTrailingNewlines !== lf && withoutTrailingNewlines.includes('\n') && withoutTrailingNewlines.length >= MIN_VALUE) {
+        addEncoded(seen, withoutTrailingNewlines.replace(/\n/g, '\r\n'), label, withoutTrailingNewlines.length < WHOLE_VALUE, 0)
+      }
+      // Unquoted shell expansion (`echo $DSH_SECRET_NAME`) and single-line logs fold
+      // line breaks into spaces; cover those when long enough not to hit ordinary prose.
+      const spaced = lf.replace(/\n/g, ' ')
+      if (spaced.length >= WHOLE_VALUE) addEncoded(seen, spaced, label, false, 1)
+      const collapsed = lf.replace(/\s+/g, ' ').trim()
+      if (collapsed.length >= WHOLE_VALUE) addEncoded(seen, collapsed, label, false, 1)
+    }
   }
-  pairs.sort((a, b) => b[0].length - a[0].length)
+  // Longest first; when two secrets share a variant of equal length, exact forms win over
+  // synthetic space-folded forms.
+  pairs.sort((a, b) => b[0].length - a[0].length || a[3] - b[3])
   if (pairs.length === 0) return text => text
-  // One pass, so a label already written is never matched again.
-  const labels = new Map()
-  for (const [value, label] of pairs) if (!labels.has(value)) labels.set(value, label)
-  const quote = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = new RegExp(pairs.map(([value, , short]) => (short ? `(?<![\\p{L}\\p{N}])${quote(value)}(?![\\p{L}\\p{N}])` : quote(value))).join('|'), 'gu')
+  const seenNeedles = new Set()
+  const unique = []
+  for (const [needle, label, short] of pairs) {
+    if (seenNeedles.has(needle)) continue
+    seenNeedles.add(needle)
+    unique.push([needle, label, short])
+  }
   return (text) => {
-    if (typeof text !== 'string' || !pairs.some(([value]) => text.includes(value))) return text
-    return text.replace(pattern, match => labels.get(match) ?? match)
+    if (typeof text !== 'string') return text
+    const hits = []
+    for (const entry of unique) {
+      if (text.includes(entry[0])) hits.push(entry)
+    }
+    if (hits.length === 0) return text
+    const positions = hits.map(entry => findNextMatch(text, entry, 0))
+    let out = ''
+    let cursor = 0
+    while (true) {
+      let bestIndex = -1
+      let bestPos = Infinity
+      for (let i = 0; i < hits.length; i += 1) {
+        const pos = positions[i]
+        // `hits` is ordered longest-first (and exact before folded), so `<` picks the
+        // earliest match and breaks ties by longest / highest priority.
+        if (pos !== -1 && pos < bestPos) {
+          bestPos = pos
+          bestIndex = i
+        }
+      }
+      if (bestIndex === -1) break
+      const [needle, label] = hits[bestIndex]
+      out += text.slice(cursor, bestPos) + label
+      cursor = bestPos + needle.length
+      for (let i = 0; i < hits.length; i += 1) {
+        if (positions[i] !== -1 && positions[i] < cursor) {
+          positions[i] = findNextMatch(text, hits[i], cursor)
+        }
+      }
+    }
+    return cursor === 0 ? text : out + text.slice(cursor)
   }
 }
 
@@ -68,23 +174,42 @@ export function redactor(entries) {
 export function redactDeep(value, redact) {
   if (typeof value === 'string') return redact(value)
   if (Array.isArray(value)) {
-    let changed = false
-    const next = value.map((item) => {
+    let next = null
+    for (let i = 0; i < value.length; i += 1) {
+      if (!(i in value)) continue
+      const item = value[i]
       const replaced = redactDeep(item, redact)
-      if (replaced !== item) changed = true
-      return replaced
-    })
-    return changed ? next : value
+      if (next !== null) {
+        next[i] = replaced
+      } else if (replaced !== item) {
+        next = []
+        next.length = value.length
+        for (let j = 0; j < i; j += 1) {
+          if (j in value) next[j] = value[j]
+        }
+        next[i] = replaced
+      }
+    }
+    return next ?? value
   }
   if (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-    let changed = false
-    const next = {}
-    for (const [key, item] of Object.entries(value)) {
+    let next = null
+    for (const key in value) {
+      if (!Object.hasOwn(value, key)) continue
+      const item = value[key]
       const replaced = redactDeep(item, redact)
-      if (replaced !== item) changed = true
-      next[key] = replaced
+      if (next !== null) {
+        next[key] = replaced
+      } else if (replaced !== item) {
+        next = {}
+        for (const prev in value) {
+          if (prev === key) break
+          if (Object.hasOwn(value, prev)) next[prev] = value[prev]
+        }
+        next[key] = replaced
+      }
     }
-    return changed ? next : value
+    return next ?? value
   }
   return value
 }
@@ -105,8 +230,132 @@ export function install(rt) {
   })
   const LOCKED = 'The secrets store is locked. Unlock it in Settings → Secrets, or start DS Bot with DS_BOT_SECRETS_PASSPHRASE_FILE set to a file that holds the passphrase.'
 
-  /** @type {Map<string, {name:string, value:string, purpose:string, scope:'all'|string[], requestedBy:string|null, createdAt:number, updatedAt:number, lastUsedAt?:number}>} */
+  /** @type {Map<string, {name:string, value?:string, kind?:'external', providerId?:string, reference?:string, purpose:string, scope:'all'|string[], requestedBy:string|null, createdAt:number, updatedAt:number, lastUsedAt?:number}>} */
   const secrets = new Map()
+  const providerRegistry = createDefaultProviderRegistry({
+    ...rt.config?.secretProviders,
+    onepassword: {
+      tempDir: join(home, 'secret-files', '_op'),
+      ...rt.config?.secretProviders?.onepassword,
+    },
+  })
+  const resolver = createSecretResolver({ registry: providerRegistry })
+  // Process-lifetime redaction memory for external secret values that may already have
+  // been injected into running MCP servers or shell subprocesses. Kept in memory only,
+  // deduplicated by value, never written to disk, and cleared when the host disposes.
+  /** @type {Map<string, string>} */
+  const retiredExternalRedactions = new Map()
+  /** @type {Map<string, { name: string, value: string, expiresAt: number }>} */
+  const ephemeralRedactions = new Map()
+  let hasRedactions = false
+  let hasExternalSecrets = false
+  const shellMode = () => (state.prefs?.secretShellMode === 'file' ? 'file' : 'env')
+  const providerConfigOf = (providerId) => state.prefs?.secretProviders?.[providerId] ?? {}
+  const resolvedValueOf = (secret) => {
+    if (secret === undefined) return undefined
+    if (secret.kind === 'external') {
+      const hit = resolver.getCached(secret.providerId, providerConfigOf(secret.providerId), secret.reference)
+      return hit?.ok ? hit.value : undefined
+    }
+    return secret.value
+  }
+  const retireExternalValue = (name, value) => {
+    if (typeof value === 'string' && value.length >= MIN_VALUE) {
+      retiredExternalRedactions.set(value, name)
+    }
+  }
+  const retireSecretValue = (secret) => {
+    if (secret?.kind !== 'external') return
+    const value = resolvedValueOf(secret)
+    if (value !== undefined) retireExternalValue(secret.name, value)
+  }
+  const retireCachedExternals = (providerId) => {
+    for (const secret of secrets.values()) {
+      if (secret.kind !== 'external') continue
+      if (providerId !== undefined && secret.providerId !== providerId) continue
+      retireSecretValue(secret)
+    }
+  }
+  const hasExternalRef = (providerId, reference, { exceptName } = {}) => {
+    for (const secret of secrets.values()) {
+      if (secret.kind === 'external' && secret.providerId === providerId && secret.reference === reference && secret.name !== exceptName) {
+        return true
+      }
+    }
+    return false
+  }
+  const invalidateRefIfUnused = (providerId, reference, options) => {
+    if (!hasExternalRef(providerId, reference, options)) {
+      resolver.invalidateRef(providerId, providerConfigOf(providerId), reference)
+    }
+  }
+  const pruneExpiredEphemeral = (current = Date.now()) => {
+    let removed = false
+    for (const [id, entry] of ephemeralRedactions.entries()) {
+      if (Number.isFinite(entry.expiresAt) && entry.expiresAt <= current) {
+        ephemeralRedactions.delete(id)
+        removed = true
+      }
+    }
+    return removed
+  }
+  const rebuildRedactor = () => {
+    pruneExpiredEphemeral()
+    const entries = []
+    hasExternalSecrets = false
+    for (const secret of secrets.values()) {
+      if (secret.kind === 'external') hasExternalSecrets = true
+      const value = resolvedValueOf(secret)
+      if (typeof value === 'string' && value.length >= MIN_VALUE) {
+        entries.push({ name: secret.name, value })
+      }
+    }
+    for (const [value, name] of retiredExternalRedactions.entries()) {
+      if (typeof value === 'string' && value.length >= MIN_VALUE) {
+        entries.push({ name, value })
+      }
+    }
+    for (const { name, value } of ephemeralRedactions.values()) {
+      if (typeof value === 'string' && value.length >= MIN_VALUE) {
+        entries.push({ name, value })
+      }
+    }
+    hasRedactions = entries.length > 0
+    redact = redactor(entries)
+    redactedMessages = new WeakMap()
+  }
+  const trackEphemeralPlaintext = (value, label, { id, expiresAt } = {}) => {
+    if (typeof value !== 'string' || value.length < MIN_VALUE) return
+    pruneExpiredEphemeral()
+    const name = String(label || 'TEMP')
+    const entryId = typeof id === 'string' && id !== '' ? id : `${name}:${randomUUID()}`
+    if (ephemeralRedactions.has(entryId)) ephemeralRedactions.delete(entryId)
+    ephemeralRedactions.set(entryId, {
+      name,
+      value,
+      expiresAt: Number.isFinite(expiresAt) ? expiresAt : Date.now() + 86_400_000,
+    })
+    while (ephemeralRedactions.size > MAX_EPHEMERAL_REDACTIONS) {
+      const oldest = ephemeralRedactions.keys().next().value
+      if (oldest === undefined) break
+      ephemeralRedactions.delete(oldest)
+    }
+    rebuildRedactor()
+  }
+  const secretRefs = createSecretRefs({
+    home,
+    getEncryption: () => ({ mode: store.mode, locked: store.locked, passphrase: store.passphrase }),
+    warn: (...args) => rt.warn(...args),
+    onPlaintext: trackEphemeralPlaintext,
+    onSweep: (current, removedIds = []) => {
+      let changedEphemeral = pruneExpiredEphemeral(current)
+      for (const id of removedIds) {
+        if (ephemeralRedactions.delete(id)) changedEphemeral = true
+      }
+      if (changedEphemeral) rebuildRedactor()
+    },
+  })
+
   let loaded = null
   let writing = Promise.resolve()
   let mutating = Promise.resolve()
@@ -122,8 +371,8 @@ export function install(rt) {
   let seenStamp = ''
   const fileStamp = () => {
     try {
-      const { ctimeMs, mtimeMs, size } = statSync(path)
-      return `${ctimeMs}:${mtimeMs}:${size}`
+      const { ino, ctimeMs, mtimeMs, size } = statSync(path)
+      return `${ino}:${ctimeMs}:${mtimeMs}:${size}`
     } catch {
       return ''
     }
@@ -137,9 +386,31 @@ export function install(rt) {
     })
   }
 
+  const pruneShellFiles = (excludeBotId = null) => {
+    if (shellMode() !== 'file') {
+      secretRefs.cleanupShellFiles()
+      return
+    }
+    const keepKeys = new Set()
+    const keepHashes = new Map()
+    const botIds = Object.keys(state.bots ?? {})
+    for (const secret of secrets.values()) {
+      const value = resolvedValueOf(secret)
+      if (typeof value !== 'string') continue
+      const valHash = hashShellValue(value)
+      for (const botId of botIds) {
+        if (botId === excludeBotId || !canUse(secret, botId)) continue
+        const key = shellFileKey(botId, secret.name)
+        keepKeys.add(key)
+        keepHashes.set(key, valHash)
+      }
+    }
+    secretRefs.cleanupShellFiles({ keepKeys, keepHashes })
+  }
+
   const notify = ({ declare = true } = {}) => {
-    redact = redactor([...secrets.values()])
-    redactedMessages = new WeakMap()
+    rebuildRedactor()
+    pruneShellFiles()
     if (declare) refreshEnv()
     else scheduleRefreshEnv()
     rt.secretsChanged?.()
@@ -158,25 +429,43 @@ export function install(rt) {
   // would lose every key in it. While `blocked` holds the reason nothing is written,
   // and each load reads the file again (a busy file may only be briefly unreadable).
   let blocked
+  const shouldReload = () => {
+    if (loaded === null || blocked !== undefined) return true
+    if (!loadedReadOnly && rt.readOnly() === undefined) return false
+    if (loadedReadOnly && rt.readOnly() === undefined && rt.hasLoaded?.() !== false) return true
+    return fileStamp() !== seenStamp
+  }
   const loadSecrets = () => {
-    if (loaded !== null && (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined)) loaded = null
+    if (loaded !== null && shouldReload()) loaded = null
     return loaded ??= readSecrets()
   }
   // The parsed body becomes the map. Only entries that name a key are kept.
   const fillSecrets = (parsed) => {
     secrets.clear()
     for (const entry of parsed.secrets) {
-      if (!SECRET_NAME.test(entry?.name ?? '') || typeof entry.value !== 'string') continue
-      secrets.set(entry.name, {
+      if (!SECRET_NAME.test(entry?.name ?? '')) continue
+      const common = {
         name: entry.name,
-        value: entry.value,
         purpose: typeof entry.purpose === 'string' ? entry.purpose : '',
         scope: entry.scope === 'all' ? 'all' : Array.isArray(entry.scope) ? entry.scope.filter(id => typeof id === 'string') : 'all',
         requestedBy: typeof entry.requestedBy === 'string' ? entry.requestedBy : null,
         createdAt: Number(entry.createdAt) || Date.now(),
         updatedAt: Number(entry.updatedAt) || Date.now(),
         ...(Number.isFinite(entry.lastUsedAt) ? { lastUsedAt: entry.lastUsedAt } : {}),
-      })
+      }
+      if (entry.kind === 'external' && typeof entry.providerId === 'string' && typeof entry.reference === 'string') {
+        secrets.set(entry.name, {
+          ...common,
+          kind: 'external',
+          providerId: entry.providerId,
+          reference: entry.reference,
+        })
+      } else if (typeof entry.value === 'string') {
+        secrets.set(entry.name, {
+          ...common,
+          value: entry.value,
+        })
+      }
     }
   }
   const setPlaintext = () => {
@@ -311,8 +600,21 @@ export function install(rt) {
     if (!loadedReadOnly) try { chmodSync(path, 0o600) } catch {}
     notify({ declare })
   }
+  let restoredFilesPromise = null
+  const ensureRestoredSecretFiles = () => {
+    if (restoredFilesPromise !== null) return restoredFilesPromise
+    const cleanExpired = !readOnlyNow()
+    restoredFilesPromise = secretRefs.restoreSecretFiles({ cleanExpired })
+      .catch(error => {
+        restoredFilesPromise = null
+        rt.warn('ds-bot: secret-files restore failed: %s', reason(error))
+        return 0
+      })
+    return restoredFilesPromise
+  }
   const readSecrets = async () => {
     readSecretsSync({ declare: true })
+    await ensureRestoredSecretFiles()
   }
 
   // Resolves once secrets.json holds the current map; rejects when the write failed.
@@ -335,6 +637,7 @@ export function install(rt) {
         await writeFile(temp, snapshot, { encoding: 'utf8', mode: 0o600 })
         await chmod(temp, 0o600)
         await replaceFile(temp, path)
+        seenStamp = fileStamp()
       } catch (error) {
         await unlink(temp).catch(() => {})
         throw error
@@ -350,7 +653,7 @@ export function install(rt) {
     usedTimer = setTimeout(() => {
       usedTimer = null
       if (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) return
-      void mutate(() => persist().then(() => rt.save())).catch(() => {})
+      void mutate(() => persist()).catch(() => {})
     }, USED_SAVE_MS)
     usedTimer.unref?.()
   }
@@ -382,7 +685,12 @@ export function install(rt) {
     const names = scope.map(id => rt.botOf(id)?.name).filter(Boolean)
     return names.length === 0 ? 'no Bot' : names.join(', ')
   }
-  const usage = name => `$${envName(name)} in bash, or $env:${envName(name)} in PowerShell`
+  const usage = (name) => {
+    if (shellMode() === 'file') {
+      return `the file path in $${envFileName(name)} in bash, or $env:${envFileName(name)} in PowerShell`
+    }
+    return `$${envName(name)} in bash, or $env:${envName(name)} in PowerShell`
+  }
 
   async function tell(botId, text) {
     if (rt.botOf(botId) === undefined) return
@@ -407,6 +715,7 @@ export function install(rt) {
     for (const [botId, list] of Object.entries(state.secretRequests ?? {})) {
       for (const request of list) {
         if (request.status !== 'pending' || request.name !== name || request === except) continue
+        if ((request.delivery ?? 'vault') !== 'vault') continue
         if (canUse(secret, botId)) {
           settle(botId, request, 'saved')
           notes.push([botId, savedNote(name, `The user saved ${name}, and you may use it now.`)])
@@ -426,10 +735,22 @@ export function install(rt) {
 
   const cleanValue = (raw) => {
     if (typeof raw !== 'string') throw new Error('Type the key first')
-    const value = raw.trim()
+    const value = raw.replace(/\r\n?/g, '\n').trim()
+    if (value.includes('\0')) throw new Error('A key cannot contain null bytes')
     if (value.length < MIN_VALUE) throw new Error(`A key must have at least ${MIN_VALUE} characters`)
     if (value.length > MAX_VALUE) throw new Error(`A key can have at most ${MAX_VALUE} characters`)
     return value
+  }
+  // Preserves exact bytes (including leading/trailing whitespace and trailing `\n`
+  // required by OpenSSH private keys) for `delivery: 'file'` temp files.
+  const cleanFileValue = (raw) => {
+    if (typeof raw !== 'string') throw new Error('Type the key first')
+    if (raw.includes('\0')) throw new Error('A key cannot contain null bytes')
+    const trimmedLen = raw.trim().length
+    if (trimmedLen === 0) throw new Error('Type the key first')
+    if (trimmedLen < MIN_VALUE) throw new Error(`A key must have at least ${MIN_VALUE} characters`)
+    if (raw.length > MAX_VALUE) throw new Error(`A key can have at most ${MAX_VALUE} characters`)
+    return raw
   }
   const cleanScope = (raw) => {
     if (raw === 'all') return 'all'
@@ -443,16 +764,128 @@ export function install(rt) {
     return found
   }
 
-  const secretView = secret => ({
-    name: secret.name,
-    purpose: secret.purpose,
-    scope: secret.scope,
-    requestedBy: secret.requestedBy,
-    createdAt: secret.createdAt,
-    updatedAt: secret.updatedAt,
-    ...(secret.lastUsedAt !== undefined ? { lastUsedAt: secret.lastUsedAt } : {}),
-  })
+  const cleanReference = (raw) => {
+    const reference = String(raw ?? '').trim()
+    const driver = providerRegistry.findForReference(reference)
+    if (driver === undefined) {
+      throw new Error('Enter a valid 1Password reference like op://vault/item/field')
+    }
+    return { providerId: driver.kind, reference }
+  }
+  const secretView = (secret) => {
+    const base = {
+      name: secret.name,
+      purpose: secret.purpose,
+      scope: secret.scope,
+      requestedBy: secret.requestedBy,
+      createdAt: secret.createdAt,
+      updatedAt: secret.updatedAt,
+      ...(secret.lastUsedAt !== undefined ? { lastUsedAt: secret.lastUsedAt } : {}),
+    }
+    if (secret.kind !== 'external') return base
+    const hit = resolver.getCached(secret.providerId, providerConfigOf(secret.providerId), secret.reference)
+    return {
+      ...base,
+      kind: 'external',
+      providerId: secret.providerId,
+      reference: secret.reference,
+      externalStatus: hit === undefined ? 'pending' : hit.ok ? 'ready' : 'error',
+      ...(hit && !hit.ok ? { externalError: String(hit.error?.message ?? 'Failed to resolve').slice(0, 200) } : {}),
+    }
+  }
   const secretsView = () => [...secrets.values()].sort((a, b) => a.name.localeCompare(b.name)).map(secretView)
+
+  const externalItemsForBot = (botId, names) => {
+    const nameSet = names === undefined ? null : (names instanceof Set ? names : new Set(names))
+    if (nameSet !== null && nameSet.size === 0) return []
+    const items = []
+    for (const secret of secrets.values()) {
+      if (secret.kind !== 'external') continue
+      if (nameSet !== null && !nameSet.has(secret.name)) continue
+      if (botId !== undefined && !canUse(secret, botId)) continue
+      items.push({
+        name: secret.name,
+        providerId: secret.providerId,
+        config: providerConfigOf(secret.providerId),
+        reference: secret.reference,
+      })
+    }
+    return items
+  }
+  const hasUncachedExternalForBot = (botId) => {
+    if (!hasExternalSecrets) return false
+    for (const secret of secrets.values()) {
+      if (secret.kind !== 'external') continue
+      if (botId !== undefined && !canUse(secret, botId)) continue
+      if (resolver.getCached(secret.providerId, providerConfigOf(secret.providerId), secret.reference) === undefined) return true
+    }
+    return false
+  }
+  async function resolveExternalForBot(botId, { signal, names } = {}) {
+    if (loaded === null) await loadSecrets()
+    if (!hasExternalSecrets) return { resolved: 0, failed: 0, errors: {} }
+    const items = externalItemsForBot(botId, names)
+    if (items.length === 0) return { resolved: 0, failed: 0, errors: {} }
+    const hadBefore = items.map(item => resolver.getCached(item.providerId, item.config, item.reference))
+    const results = await resolver.resolve(items, { signal })
+    let resolved = 0
+    let failed = 0
+    let changedAny = false
+    const errors = {}
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i]
+      const res = results.get(item.reference)
+      if (res?.ok) {
+        resolved += 1
+        retireExternalValue(item.name, res.value)
+        if (!hadBefore[i]?.ok || hadBefore[i].value !== res.value) changedAny = true
+      } else {
+        failed += 1
+        errors[item.name] = res?.error?.message ?? 'Failed to resolve external secret'
+        if (hadBefore[i] === undefined) changedAny = true
+      }
+    }
+    if (changedAny) {
+      rebuildRedactor()
+      scheduleRefreshEnv()
+    }
+    return { resolved, failed, errors }
+  }
+  function resolveUncachedExternalForBot(botId, signal) {
+    if (botId === undefined || !hasUncachedExternalForBot(botId)) return
+    return resolveExternalForBot(botId, { signal }).catch(error => {
+      if (!signal?.aborted) rt.warn('ds-bot: external secret resolution failed: %s', error?.message ?? 'error')
+    })
+  }
+  const botForSecretSession = sessionId => blocked === undefined && !store.locked ? rt.selfOf(sessionId) : undefined
+  async function prepareSecretEnvForSession(sessionId, signal) {
+    signal?.throwIfAborted()
+    if (rt.hasLoaded?.() === false) await rt.load()
+    if (shouldReload()) await loadSecrets()
+    let botId = botForSecretSession(sessionId)
+    if (botId === undefined && rt.readOnly() !== undefined) {
+      rt.syncReadOnly?.()
+      botId = botForSecretSession(sessionId)
+    }
+    if (rt.botOf(botId) !== undefined) await resolveUncachedExternalForBot(botId, signal)
+  }
+  const invalidateExternal = (providerId) => {
+    retireCachedExternals(providerId)
+    resolver.invalidate(providerId)
+    if (shellMode() === 'file') secretRefs.cleanupShellFiles()
+    rebuildRedactor()
+    scheduleRefreshEnv()
+  }
+  const onPrefsChanged = ({ shellModeChanged = false, providersChanged = false } = {}) => {
+    if (providersChanged) {
+      retireCachedExternals()
+      resolver.invalidate()
+    }
+    if (shellModeChanged || providersChanged) {
+      secretRefs.cleanupShellFiles()
+      changed()
+    }
+  }
 
   // The encrypted envelope on disk, for unlock and rollback. A plaintext file stays a
   // valid plaintext file; only the two explicit actions move between the modes.
@@ -498,10 +931,17 @@ export function install(rt) {
       store.source = 'user'
       store.locked = false
       store.reason = null
+      let persisted = false
       try {
         await persist()
+        persisted = true
+        await secretRefs.rekeyRefs({ fromPassphrase: null, toPassphrase: passphrase })
       } catch (error) {
+        if (persisted) {
+          await secretRefs.rekeyRefs({ fromPassphrase: passphrase, toPassphrase: null }).catch(() => {})
+        }
         Object.assign(store, previous)
+        if (persisted) await persist().catch(() => {})
         throw error
       }
       changed()
@@ -524,41 +964,105 @@ export function install(rt) {
       store.locked = false
       store.reason = null
       store.source = null
-      store.passphrase = null
+      // Keep the verified passphrase available while in-flight encrypted secret-refs are
+      // decrypted so concurrent consumeRef calls never hit SECRET_STORE_LOCKED.
+      store.passphrase = passphrase
+      let persisted = false
       try {
         await persist()
+        persisted = true
+        await secretRefs.rekeyRefs({ fromPassphrase: passphrase, toPassphrase: null })
       } catch (error) {
+        if (persisted) {
+          await secretRefs.rekeyRefs({ fromPassphrase: null, toPassphrase: passphrase }).catch(() => {})
+        }
         Object.assign(store, previous)
         secrets.clear()
         for (const secret of before) secrets.set(secret.name, secret)
+        if (persisted) await persist().catch(() => {})
         changed()
         throw error
       }
+      store.passphrase = null
       changed()
       await rt.save()
       return secretStoreStatus()
     },
     // From a card (requestId) or from the settings page (name).
     async 'secret-set'(body) {
-      const value = cleanValue(body.value)
       const now = Date.now()
       const notes = []
+      const hasRefInput = typeof body.reference === 'string' && body.reference.trim() !== ''
       if (body.requestId !== undefined) {
         const { botId, request } = pendingRequest(body.requestId)
+        const delivery = request.delivery ?? 'vault'
+        if (delivery === 'ref') {
+          const value = cleanValue(body.value)
+          const ref = await secretRefs.issueRef({
+            botId,
+            sessionId: request.sessionId ?? botId,
+            requestId: request.id,
+            field: request.name,
+            value,
+          })
+          settle(botId, request, 'saved')
+          await rt.save()
+          await tell(botId, `The user provided ${request.name} as a one-time secret reference: ${ref}. Pass this handle to a Bot host tool that accepts secret-ref handles (such as save_capability); it is deleted on first use and expires in 24 hours. You cannot see the value.`)
+          return { name: request.name, delivery: 'ref', status: 'saved' }
+        }
+        if (delivery === 'file') {
+          const value = cleanFileValue(body.value)
+          const { filePath, expiresAt } = await secretRefs.writeSecretFile({
+            botId,
+            sessionId: request.sessionId ?? botId,
+            name: request.name,
+            value,
+          })
+          settle(botId, request, 'saved')
+          await rt.save()
+          await tell(botId, `The user provided ${request.name} in a private temporary file (0600): ${filePath} (expires at ${new Date(expiresAt).toISOString()}). Read it from that path in your command and never print, echo, or log its contents.`)
+          return { name: request.name, delivery: 'file', expiresAt, status: 'saved' }
+        }
         const existing = secrets.get(request.name)
         let scope
         if (existing === undefined || request.kind === 'fill') scope = body.scope === 'bot' ? [botId] : 'all'
         else scope = existing.scope === 'all' ? 'all' : [...new Set([...existing.scope, botId])]
-        secrets.set(request.name, {
-          name: request.name,
-          value,
-          purpose: existing?.purpose || request.purpose,
-          scope,
-          requestedBy: existing?.requestedBy ?? botId,
-          createdAt: existing?.createdAt ?? now,
-          updatedAt: now,
-          ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
-        })
+        if (hasRefInput) {
+          const { providerId, reference } = cleanReference(body.reference)
+          retireSecretValue(existing)
+          secrets.set(request.name, {
+            name: request.name,
+            kind: 'external',
+            providerId,
+            reference,
+            purpose: existing?.purpose || request.purpose,
+            scope,
+            requestedBy: existing?.requestedBy ?? botId,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+            ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
+          })
+          if (existing?.kind === 'external' && (existing.providerId !== providerId || existing.reference !== reference)) {
+            invalidateRefIfUnused(existing.providerId, existing.reference)
+          }
+          invalidateRefIfUnused(providerId, reference, { exceptName: request.name })
+        } else {
+          const value = cleanValue(body.value)
+          retireSecretValue(existing)
+          secrets.set(request.name, {
+            name: request.name,
+            value,
+            purpose: existing?.purpose || request.purpose,
+            scope,
+            requestedBy: existing?.requestedBy ?? botId,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+            ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
+          })
+          if (existing?.kind === 'external') {
+            invalidateRefIfUnused(existing.providerId, existing.reference)
+          }
+        }
         settle(botId, request, 'saved')
         notes.push([botId, savedNote(request.name, `The user saved ${request.name} for ${scopeText(scope)}.`)])
         reconcile(request.name, notes, request)
@@ -568,22 +1072,57 @@ export function install(rt) {
       const name = normalizeName(body.name)
       if (!SECRET_NAME.test(name)) throw new Error('A name uses capitals, digits, and underscores, and starts with a letter')
       const existing = secrets.get(name)
-      secrets.set(name, {
-        name,
-        value,
-        purpose: typeof body.purpose === 'string' && body.purpose.trim() !== '' ? body.purpose.trim().slice(0, 300) : existing?.purpose ?? '',
-        scope: body.scope !== undefined ? cleanScope(body.scope) : existing?.scope ?? 'all',
-        requestedBy: existing?.requestedBy ?? null,
-        createdAt: existing?.createdAt ?? now,
-        updatedAt: now,
-        ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
-      })
+      if (hasRefInput) {
+        const { providerId, reference } = cleanReference(body.reference)
+        retireSecretValue(existing)
+        secrets.set(name, {
+          name,
+          kind: 'external',
+          providerId,
+          reference,
+          purpose: typeof body.purpose === 'string' && body.purpose.trim() !== '' ? body.purpose.trim().slice(0, 300) : existing?.purpose ?? '',
+          scope: body.scope !== undefined ? cleanScope(body.scope) : existing?.scope ?? 'all',
+          requestedBy: existing?.requestedBy ?? null,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+          ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
+        })
+        if (existing?.kind === 'external' && (existing.providerId !== providerId || existing.reference !== reference)) {
+          invalidateRefIfUnused(existing.providerId, existing.reference)
+        }
+        invalidateRefIfUnused(providerId, reference, { exceptName: name })
+      } else {
+        const value = cleanValue(body.value)
+        retireSecretValue(existing)
+        secrets.set(name, {
+          name,
+          value,
+          purpose: typeof body.purpose === 'string' && body.purpose.trim() !== '' ? body.purpose.trim().slice(0, 300) : existing?.purpose ?? '',
+          scope: body.scope !== undefined ? cleanScope(body.scope) : existing?.scope ?? 'all',
+          requestedBy: existing?.requestedBy ?? null,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+          ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
+        })
+        if (existing?.kind === 'external') {
+          invalidateRefIfUnused(existing.providerId, existing.reference)
+        }
+      }
       reconcile(name, notes)
       await commit(notes)
       return secretView(secrets.get(name))
     },
+    async 'secret-refresh-external'(body) {
+      const providerId = typeof body.providerId === 'string' && body.providerId !== '' ? body.providerId : undefined
+      invalidateExternal(providerId)
+      if (body.resolve === true) {
+        return resolveExternalForBot(undefined)
+      }
+      return { refreshed: true }
+    },
     async 'secret-allow'(body) {
       const { botId, request } = pendingRequest(body.requestId)
+      if ((request.delivery ?? 'vault') !== 'vault') throw new Error('This request cannot be answered with an existing key')
       const secret = secrets.get(request.name)
       if (secret === undefined) throw new Error(`${request.name} is not saved yet`)
       if (!canUse(secret, botId)) secret.scope = [...new Set([...secret.scope, botId])]
@@ -614,7 +1153,15 @@ export function install(rt) {
     },
     async 'secret-delete'(body) {
       const name = normalizeName(body.name)
-      if (!secrets.delete(name)) throw new Error('No such key')
+      const existing = secrets.get(name)
+      if (existing === undefined) throw new Error('No such key')
+      if (existing.kind === 'external') {
+        retireSecretValue(existing)
+      }
+      secrets.delete(name)
+      if (existing.kind === 'external') {
+        invalidateRefIfUnused(existing.providerId, existing.reference)
+      }
       const notes = []
       reconcile(name, notes)
       await commit(notes)
@@ -645,6 +1192,8 @@ export function install(rt) {
           touched = true
         }
       }
+      pruneShellFiles(botId)
+      await secretRefs.removeBotFiles(botId).catch(() => {})
       if (touched) {
         changed()
         await persist().catch(() => {})
@@ -664,10 +1213,12 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'request_secret',
-    description: 'Ask the user for a key, token, or password through a secure card in your own chat. The user types it into the card; you never see the value. It reaches your shell as an environment variable. When the key is already saved for you, this only tells you its variable. Showing a card ends your turn; a note arrives when the user saves or cancels.',
+    description: 'Ask the user for a key, token, or password through a secure card in your own chat. The user types it into the card; you never see the value. Default delivery ("vault") saves it to Secrets and exposes it to your shell. Use delivery="ref" for a one-time secret-ref handle (not saved to Secrets) to pass to Bot host tools that consume secret-ref handles (such as save_capability), or delivery="file" for a private 0600 temporary file deleted after 24 hours. Showing a card ends your turn; a note arrives when the user saves or cancels.',
     parameters: {
       name: { type: 'string', required: true, description: 'Key name in capitals, digits, and underscores, e.g. GITHUB_TOKEN' },
       purpose: { type: 'string', required: true, description: 'One short line for the user: what you need it for' },
+      delivery: { type: 'string', enum: ['vault', 'ref', 'file'], description: 'Delivery mode: vault (default), ref (one-time secret-ref handle), or file (private 0600 temporary file)' },
+      value: { type: 'string', description: 'Optional, only with delivery="file": save a secret the user already pasted into chat directly to a private 0600 temporary file without showing a card' },
     },
     output,
     async execute(args, exec) {
@@ -679,8 +1230,24 @@ export function install(rt) {
       if (bot === undefined) return 'Only Bots on the team can use request_secret.'
       const name = normalizeName(args.name)
       if (!SECRET_NAME.test(name)) return 'Name the key with capitals, digits, and underscores, starting with a letter (for example GITHUB_TOKEN).'
-      const secret = secrets.get(name)
-      if (canUse(secret, bot.id)) return `${name} is already saved and you may use it: ${usage(name)}. You cannot see the value; never print it.`
+      const delivery = args.delivery === undefined ? 'vault' : String(args.delivery)
+      if (!DELIVERIES.has(delivery)) return 'Delivery must be vault, ref, or file.'
+      if (typeof args.value === 'string' && args.value !== '') {
+        if (delivery !== 'file') return 'Direct value saving is only supported with delivery="file".'
+        const readOnly = rt.readOnly()
+        if (readOnly !== undefined) return `Cannot write a temporary secret file now. ${readOnly}`
+        let value
+        try { value = cleanFileValue(args.value) } catch (error) { return error.message }
+        const { filePath, expiresAt } = await secretRefs.savePastedFile({
+          botId: bot.id,
+          sessionId: id ?? bot.id,
+          name,
+          value,
+        })
+        return `Saved ${name} to a private temporary file (0600): ${filePath} (expires at ${new Date(expiresAt).toISOString()}). Read it from that path in your command and never print, echo, or log its contents.`
+      }
+      const secret = delivery === 'vault' ? secrets.get(name) : undefined
+      if (delivery === 'vault' && canUse(secret, bot.id)) return `${name} is already saved and you may use it: ${usage(name)}. You cannot see the value; never print it.`
       if (rt.taskOwners?.has(id)) return `Background tasks cannot show secret cards directly. End or report back to your own chat naming ${name} and why you need it, so your own chat can request it from the user.`
       if (rt.groupOwners.has(id)) return 'Secret cards only work in your own chat. Tell the group you will ask the user in your own chat, and call request_secret there.'
       if (!rt.chatOwners.has(id)) return 'Secret cards only work in your current own chat.'
@@ -701,6 +1268,7 @@ export function install(rt) {
         name,
         purpose: String(args.purpose ?? '').trim().slice(0, 300),
         kind: secret ? 'allow' : 'fill',
+        ...(delivery !== 'vault' ? { delivery } : {}),
         status: 'pending',
         askedAt: now,
       })
@@ -725,9 +1293,10 @@ export function install(rt) {
       const self = callerOf(exec)
       if (rt.botOf(self) === undefined) return 'Only Bots on the team can use list_secrets.'
       if (secrets.size === 0) return 'No keys are saved yet. Ask for one with request_secret.'
+      const varFor = name => (shellMode() === 'file' ? `$${envFileName(name)}` : `$${envName(name)}`)
       return [
         'Saved keys (values are never shown):',
-        ...secretsView().map(secret => `- ${secret.name}${secret.purpose ? ` — ${secret.purpose}` : ''} — for ${scopeText(secret.scope)} — ${canUse(secrets.get(secret.name), self) ? `you may use it as $${envName(secret.name)}` : 'you may not use it; ask with request_secret'}`),
+        ...secretsView().map(secret => `- ${secret.name}${secret.kind === 'external' ? ` (${providerRegistry.get(secret.providerId)?.label ?? secret.providerId})` : ''}${secret.purpose ? ` — ${secret.purpose}` : ''} — for ${scopeText(secret.scope)} — ${canUse(secrets.get(secret.name), self) ? `you may use it as ${varFor(secret.name)}` : 'you may not use it; ask with request_secret'}`),
       ].join('\n')
     },
   }))
@@ -737,8 +1306,11 @@ export function install(rt) {
   // result (its `content`, `meta`, and `additionalContexts` too), and the registry
   // re-renders a changed success result from its redacted value.
   ctx.on('tools/execute', async (exec, next) => {
+    if (hasExternalSecrets && SHELL_ENV_TOOLS.has(exec?.name)) {
+      await resolveUncachedExternalForBot(resolveBotId(exec))
+    }
     const result = await next()
-    if (secrets.size === 0 || result === null || typeof result !== 'object') return result
+    if (!hasRedactions || result === null || typeof result !== 'object') return result
     return redactDeep(result, redact)
   })
 
@@ -767,11 +1339,12 @@ export function install(rt) {
     })
   }
   ctx.on('llm/stream', (options, next) => {
-    if (secrets.size === 0 || rewritten.has(options.messages)) return next()
+    if (!hasRedactions || rewritten.has(options.messages)) return next()
     let messages = options.messages
     if (Array.isArray(messages)) {
-      let changed = false
-      const nextMessages = messages.map((message) => {
+      let nextMessages = null
+      for (let i = 0; i < messages.length; i += 1) {
+        const message = messages[i]
         const object = message !== null && typeof message === 'object'
         let replaced
         if (object && redactedMessages.has(message)) replaced = redactedMessages.get(message)
@@ -779,10 +1352,14 @@ export function install(rt) {
           replaced = redactDeep(message, redact)
           if (object && immutableData(message)) redactedMessages.set(message, freezeCopies(replaced))
         }
-        if (replaced !== message) changed = true
-        return replaced
-      })
-      if (changed) messages = nextMessages
+        if (nextMessages !== null) {
+          nextMessages[i] = replaced
+        } else if (replaced !== message) {
+          nextMessages = messages.slice(0, i)
+          nextMessages.push(replaced)
+        }
+      }
+      if (nextMessages !== null) messages = nextMessages
     } else messages = redactDeep(messages, redact)
     const system = redactDeep(options.system, redact)
     if (messages === options.messages && system === options.system) return next()
@@ -794,7 +1371,7 @@ export function install(rt) {
     return llm.stream({ ...options, messages: fresh, ...(system !== undefined ? { system } : {}) })
   })
 
-  function resolveEnv(execution, declaredKeys) {
+  function resolveEnv(botForSession, declaredKeys, command = '') {
     if (rt.hasLoaded?.() === false) void rt.load()
     if (loaded === null || loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) {
       if (loaded === null || fileStamp() !== seenStamp || (loadedReadOnly && rt.readOnly() === undefined && rt.hasLoaded?.() !== false)) {
@@ -802,20 +1379,31 @@ export function install(rt) {
         loaded = Promise.resolve()
       }
     }
-    let botId = resolveBotId(execution)
+    let botId = botForSession()
     if (botId === undefined && rt.readOnly() !== undefined) {
       rt.syncReadOnly?.()
-      botId = resolveBotId(execution)
+      botId = botForSession()
     }
     if (rt.botOf(botId) === undefined) return {}
-    const command = typeof execution.arguments?.command === 'string' ? execution.arguments.command : ''
+    const mode = shellMode()
     const values = {}
     let used = false
     for (const secret of secrets.values()) {
       if (!canUse(secret, botId)) continue
-      const key = envName(secret.name)
+      const secretVal = resolvedValueOf(secret)
+      if (typeof secretVal !== 'string') continue
+      const key = mode === 'file' ? envFileName(secret.name) : envName(secret.name)
       if (declaredKeys !== undefined && !declaredKeys.has(key)) continue
-      values[key] = secret.value
+      if (mode === 'file') {
+        try {
+          values[key] = secretRefs.ensureShellFileSync(botId, secret.name, secretVal)
+        } catch (error) {
+          rt.warn('ds-bot: could not write secret file for %s: %s', secret.name, reason(error))
+          continue
+        }
+      } else {
+        values[key] = secretVal
+      }
       if (command.includes(key)) {
         secret.lastUsedAt = Date.now()
         used = true
@@ -831,20 +1419,29 @@ export function install(rt) {
     let unregister = null
     let declared = ''
     refreshEnv = () => {
+      const mode = shellMode()
       const list = [...secrets.values()].sort((a, b) => a.name.localeCompare(b.name))
-      const key = list.map(secret => `${secret.name}\u0000${secret.purpose}`).join('\n')
+      const key = `${mode}\n${list.map(secret => `${secret.name}\u0000${secret.purpose}`).join('\n')}`
       if (key === declared) return
       unregister?.()
       unregister = null
       declared = key
       if (list.length === 0) return
-      const variables = Object.fromEntries(list.map(secret => [envName(secret.name), { description: `DS Bot secret ${secret.name}${secret.purpose ? `: ${secret.purpose}` : ''}` }]))
+      const variables = Object.fromEntries(list.map(secret => [
+        mode === 'file' ? envFileName(secret.name) : envName(secret.name),
+        {
+          description: mode === 'file'
+            ? `Path to 0600 file holding DS Bot secret ${secret.name}${secret.purpose ? `: ${secret.purpose}` : ''}`
+            : `DS Bot secret ${secret.name}${secret.purpose ? `: ${secret.purpose}` : ''}`,
+        },
+      ]))
       const declaredKeys = new Set(Object.keys(variables))
       try {
         unregister = sub.shellEnv.register({
           name: 'ds-bot-secrets',
           variables,
-          resolve: execution => resolveEnv(execution, declaredKeys),
+          resolve: execution => resolveEnv(() => resolveBotId(execution), declaredKeys,
+            typeof execution.arguments?.command === 'string' ? execution.arguments.command : ''),
         })
       } catch (error) {
         declared = ''
@@ -866,22 +1463,54 @@ export function install(rt) {
   }
 
   rt.onStoreSync = () => {
-    if (loaded === null || loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) void loadSecrets()
+    if (shouldReload()) void loadSecrets()
   }
 
   ctx.effect(() => {
-    void loadSecrets()
-    return () => { if (usedTimer !== null) clearTimeout(usedTimer) }
+    void loadSecrets().then(async () => {
+      await ensureRestoredSecretFiles()
+      if (rt.readOnly() === undefined) secretRefs.startSweeper()
+    })
+    return () => {
+      if (usedTimer !== null) clearTimeout(usedTimer)
+      retiredExternalRedactions.clear()
+      ephemeralRedactions.clear()
+      secretRefs.dispose()
+    }
   }, 'ds-bot: load secrets')
 
+  const secretsApi = {
+    issueRef: opts => secretRefs.issueRef(opts),
+    consumeRef: (ref, opts) => secretRefs.consumeRef(ref, opts),
+    consumeRefs: (refs, opts) => secretRefs.consumeRefs(refs, opts),
+    rekeyRefs: opts => secretRefs.rekeyRefs(opts),
+    writeSecretFile: opts => secretRefs.writeSecretFile(opts),
+    savePastedFile: opts => secretRefs.savePastedFile(opts),
+    activeShellFilePaths: () => secretRefs.activeShellFilePaths(),
+    restoreSecretFiles: opts => secretRefs.restoreSecretFiles(opts),
+    sweepExpiredRefs: opts => secretRefs.sweepExpiredRefs(opts),
+    sweepExpiredFiles: opts => secretRefs.sweepExpiredFiles(opts),
+    resolveExternalForBot,
+    invalidateExternal,
+    listProviders: () => providerRegistry.list(),
+    isExternalReference: value => providerRegistry.findForReference(value) !== undefined,
+    shellMode,
+    onPrefsChanged,
+  }
+
   Object.assign(rt, {
+    secrets: secretsApi,
     secretsView,
     secretStoreStatus,
-    secretValue: name => secrets.get(name)?.value,
+    secretValue: name => resolvedValueOf(secrets.get(name)),
     canUseSecret: (name, botId) => canUse(secrets.get(name), botId),
+    prepareSecretEnvForSession,
+    secretEnvForSession: sessionId => resolveEnv(() => botForSecretSession(sessionId)),
     secretEndpoint,
     forgetBotSecrets,
     loadSecrets,
+    resolveExternalForBot,
+    onSecretPrefsChanged: onPrefsChanged,
     redactSecrets: text => redact(text),
   })
 }

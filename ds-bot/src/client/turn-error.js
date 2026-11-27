@@ -4,6 +4,7 @@ import { CheckIcon, CopyIcon } from './icons.js'
 import { ModelKeyCard, manageModels } from './model-menu.js'
 import { knownFailure } from './diagnostics.js'
 import { hostText, t } from './i18n.js'
+import { useRosterPick } from './memo.js'
 
 // -------------------------------------------------------------------------
 // A failed turn in a Bot's chat: what went wrong and what the user can do about it,
@@ -35,6 +36,9 @@ export function failureText(code, { name, provider, status }) {
     case 'CONTENT_POLICY': return status === undefined
       ? t('{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.', { provider })
       : t('{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.', { provider, status })
+    case 'CONTENT_REFUSED': return status === undefined
+      ? t('{provider} refused this request under its content safety policy. Edit the input or start a new chat.', { provider })
+      : t('{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.', { provider, status })
     case 'QUOTA': return status === undefined
       ? t('{provider} is out of balance or quota.', { provider })
       : t('{provider} is out of balance or quota ({status}).', { provider, status })
@@ -47,6 +51,7 @@ export function failureText(code, { name, provider, status }) {
     case 'RATE_LIMIT': return t('Too many requests. Wait a moment, then try again.')
     case 'SERVER': return t('The model service failed.')
     case 'INTERRUPTED': return t('DeepSeek Harness stopped before this turn finished.')
+    case 'CONTEXT_WINDOW_EXCEEDED': return t('This conversation no longer fits in the context window. Start a new part to continue.')
     case 'MODEL_SWITCH_COMPACTION_FAILED': return t("The conversation could not be compacted for this model. Try again or choose another model.")
     default: return knownFailure(code) ?? t('This turn failed.')
   }
@@ -62,10 +67,13 @@ export function fixesFor(code, { canSignIn, official, topUp, onAccount = false }
     case 'MISSING_CREDENTIAL': return ['key', canSignIn ? 'sign-in' : null, 'model'].filter(Boolean)
     case 'INVALID_CREDENTIAL': return ['rekey', 'model']
     case 'AUTH': return ['rekey', canSignIn ? 'use-account' : null, 'model'].filter(Boolean)
-    // A content audit is about the input, not the credentials; no key action helps.
-    case 'CONTENT_POLICY': return []
+    // A content audit or refusal is about the input, not the credentials; no key action helps.
+    case 'CONTENT_POLICY':
+    case 'CONTENT_REFUSED': return []
     case 'QUOTA': return official ? ['top-up'] : []
     case 'ACCOUNT_QUOTA': return topUp ? ['top-up'] : []
+    case 'NO_ADAPTER': return ['model']
+    case 'CONTEXT_WINDOW_EXCEEDED': return ['new-part', 'model']
     case 'MODEL_SWITCH_COMPACTION_FAILED': return ['model', 'model-settings']
     default: return []
   }
@@ -80,6 +88,7 @@ const FIX_LABELS = {
   'sign-in': signedIn => (signedIn ? t('Use the DeepSeek account') : t('Sign in with a DeepSeek account')),
   'use-account': () => t('Use a DeepSeek account instead'),
   'sign-in-again': () => t('Sign in again'),
+  'new-part': () => t('Start a new part'),
   model: () => t('Pick another model'),
   'top-up': () => t('Top up ↗'),
 }
@@ -149,8 +158,10 @@ function TechnicalDetails({ facts }) {
     h('button', { type: 'button', className: 'bt-mini bt-fail-copy', onClick: copy }, copied ? h(CheckIcon) : h(CopyIcon), copied ? t('Copied') : t('Copy')))
 }
 
+const FAILURE_ROSTER_FIELDS = ['byId', 'models', 'defaultModel', 'exchangeTurns']
+
 export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
-  const roster = useRoster(value => value)
+  const roster = useRosterPick(useRoster, FAILURE_ROSTER_FIELDS)
   const failRow = node?.data ?? {}
   const bot = roster.byId?.[sessionId]
   // The host corrects a failure DSH classified from the status alone (a 403 content
@@ -165,6 +176,7 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
   const topUp = topUpOf(account)
   const [keying, setKeying] = useState(false)
   const [retry, setRetry] = useState('idle')
+  const [switching, setSwitching] = useState('idle')
   const [error, setError] = useState('')
   // A sign-in started here to leave a failing key route, with the model the Bot was on.
   const [joining, setJoining] = useState(null)
@@ -208,12 +220,19 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
     setJoining({ from: bot.model })
     actions.signIn()
   }
+  const startNewPart = () => {
+    setSwitching('busy')
+    setError('')
+    void Promise.resolve(actions.newPart(bot.id, sessionId))
+      .then(() => setSwitching('sent'), (failure) => { setSwitching('idle'); setError(hostText(failure?.message ?? String(failure))) })
+  }
   const runs = {
     key: keyHere ? () => setKeying(value => !value) : keyElsewhere,
     rekey: keyHere ? () => setKeying(value => !value) : keyElsewhere,
     'sign-in': viaAccount,
     'use-account': viaAccount,
     'sign-in-again': () => actions.signIn(),
+    'new-part': typeof actions.newPart === 'function' ? startNewPart : undefined,
     model: actions.showDetails ? () => actions.showDetails(sessionId) : undefined,
     'model-settings': manageModels(actions),
   }
@@ -234,6 +253,9 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
     const className = primary ? 'bt-send bt-fail-go' : 'bt-soft bt-soft-sm'
     if (fix === 'top-up') {
       return h('a', { key: fix, className: `${className} bt-fail-link`, href: data.code === 'ACCOUNT_QUOTA' ? topUp : TOP_UP_URL, target: '_blank', rel: 'noopener noreferrer' }, FIX_LABELS[fix]())
+    }
+    if (fix === 'new-part') {
+      return h('button', { key: fix, type: 'button', className, disabled: switching !== 'idle', onClick: startNewPart }, switching === 'idle' ? FIX_LABELS[fix]() : t('Starting a new part…'))
     }
     const toggles = keyHere && (fix === 'key' || fix === 'rekey')
     return h('button', { key: fix, type: 'button', className, 'aria-expanded': toggles ? keying : undefined, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn))

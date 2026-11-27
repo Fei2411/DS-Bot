@@ -36,7 +36,7 @@ description: 把浏览器 / Web 界面操作录成优化过的 GIF：优先用�
 
 遵循当前可用的浏览器控制工作流的设置、交互和清理说明。它暴露 `recordVideo` 时，在同一个受控 context 上开录像以捕获更多中间帧；否则在该工作流里用[截图采集](#截图采集)。录像是否可用不决定用哪个浏览器控制工作流。用户既有浏览器状态算显式的隔离例外。
 
-仅当浏览器控制不可用时，才在隔离的无头浏览器里用 Playwright 兜底，并在采集说明里声明用了兜底。本仓库没有声明 Playwright 依赖——从环境里已有的 Playwright 安装解析（如 agent 自带的 CLI / MCP），不要为了录屏往仓库加依赖，也不要打开用户的浏览器。
+仅当浏览器控制不可用时，才在隔离的无头浏览器里用 Playwright 兜底，并在采集说明里声明用了兜底。`ds-bot/` 声明了 `playwright-core`，`browser-plugins/` 声明了 `playwright`；从已安装的包或环境里的 Playwright 解析，并确认 Chromium 和录像需要的 ffmpeg 已就绪。不要为了录屏往仓库加依赖，也不要打开用户的浏览器。
 
 录制前确认 origin、构建产物或开发服务器、传输方式和模式开关。当生产默认打开自动化无法驱动的原生界面时，通过正常的应用配置选择官方可在浏览器操作的生产后端，并披露该替代。
 
@@ -49,7 +49,7 @@ description: 把浏览器 / Web 界面操作录成优化过的 GIF：优先用�
 视频通过所选浏览器控制工作流配置。独立 Playwright 兜底用：
 
 ```js
-import { chromium } from 'playwright'  // 从环境解析；本仓库不带这个依赖
+import { chromium } from 'playwright'  // 从 browser-plugins/ 或环境里的安装解析
 const browser = await chromium.launch()
 const size = { width: 1440, height: 900 }
 const context = await browser.newContext({

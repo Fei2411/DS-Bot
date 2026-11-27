@@ -152,7 +152,7 @@ test('a hand-typed Slack client signs the token request and the flow connects', 
 })
 
 test('reopening the form keeps the one callback address and the one listener', async (t) => {
-  const { rt, internals } = await setup(t)
+  const { rt, internals, saved } = await setup(t)
   await rt.connectorEndpoint('connector-connect', { id: 'slack' })
   const first = internals.pendings.get('slack')
   // The attempt that shows the client form already holds the listener, so the
@@ -175,7 +175,8 @@ test('reopening the form keeps the one callback address and the one listener', a
   back.searchParams.set('code', CODE)
   back.searchParams.set('state', third.expectedState)
   assert.equal((await fetch(back)).status, 200)
-  assert.ok(await within(() => rt.secretValue('CONNECTOR_SLACK_TOKEN') !== undefined))
+  assert.ok(await within(() => Number.isFinite(saved().connectedAt)), 'sign-in persisted the tokens and connection state')
+  assert.ok(rt.secretValue('CONNECTOR_SLACK_TOKEN') !== undefined)
 })
 
 test('ending a sign-in does not wait for a browser connection left open', async (t) => {

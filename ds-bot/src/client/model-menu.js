@@ -8,8 +8,11 @@ import { SPRING_POP, SPRING_SHAPE, SPRING_TAP, spring, stepMenuFocus, useLinger,
 import { hostText, t } from './i18n.js'
 import { isLocalRoute, modelsFor, routeOf } from './agent-routes.js'
 import { registerPopupOwner } from './popup-ownership.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
+import { lruGet, lruSet } from './memo.js'
 
 const MENU_EXIT_MS = 120
+const MAX_EFFORT_CACHE = 200
 
 // -------------------------------------------------------------------------
 // A Bot's model: the picker in its details panel and settings, and the message its
@@ -47,17 +50,17 @@ export function modelOf(bot, roster) {
 
 // The thinking levels of one model, `{efforts, defaultEffort?}` or undefined when it
 // has none. The catalog carries them for models Bots use; any other ref asks the host.
-const effortCache = new Map()
+export const effortCache = new Map()
 function useEfforts(served, ref, actions) {
   const [fetched, setFetched] = useState(undefined)
   useEffect(() => {
     setFetched(undefined)
     if (ref === undefined || served?.reasoning !== undefined || actions?.efforts === undefined) return undefined
     let live = true
-    if (effortCache.has(ref)) setFetched(effortCache.get(ref))
+    if (effortCache.has(ref)) setFetched(lruGet(effortCache, ref))
     else void Promise.resolve(actions.efforts(ref)).then((value) => {
       const reasoning = value?.efforts ? value : null
-      effortCache.set(ref, reasoning)
+      lruSet(effortCache, ref, reasoning, MAX_EFFORT_CACHE)
       if (live) setFetched(reasoning)
     }).catch(() => {})
     return () => { live = false }
@@ -333,14 +336,14 @@ export const Caret = () => h('svg', { className: 'bt-model-caret', width: 12, he
 
 // A menu that opens under its trigger, or above when the window has no room below. A
 // click outside, Escape, or a scroll outside it closes it.
-export function useAnchoredMenu(minWidth = 240) {
+export function useAnchoredMenu(minWidth = 240, align = 'right') {
   const [anchor, setAnchor] = useState(null)
   const [place, setPlace] = useState(null)
   const [shownPlace, leaving] = useLinger(place, MENU_EXIT_MS)
   const button = useRef(null)
   const menu = useRef(null)
   useLayoutEffect(() => registerPopupOwner(button, menu), [button, menu])
-  const tick = useViewport()
+  const tick = useViewport(anchor !== null || Boolean(shownPlace))
   const close = () => { setAnchor(null); setPlace(null) }
   useEffect(() => {
     if (place === null) return undefined
@@ -349,8 +352,7 @@ export function useAnchoredMenu(minWidth = 240) {
       close()
     }
     const onKey = (event) => {
-      if (stepMenuFocus(menu.current, event, button.current)) return
-      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); close(); button.current?.focus() }
+      stepMenuFocus(menu.current, event, button.current)
     }
     const onScroll = (event) => { if (!menu.current?.contains(event.target)) close() }
     window.addEventListener('mousedown', onDown)
@@ -362,6 +364,7 @@ export function useAnchoredMenu(minWidth = 240) {
       window.removeEventListener('scroll', onScroll, true)
     }
   }, [place])
+  useEscape(() => { close(); button.current?.focus() }, place !== null, { priority: ESCAPE_PRIORITY.MENU })
   const open = () => setAnchor({})
   // Re-reads the trigger's rect whenever the visible viewport moves: the menu
   // tracks its anchor through the on-screen keyboard, not past it.
@@ -369,12 +372,14 @@ export function useAnchoredMenu(minWidth = 240) {
     if (anchor === null || !button.current) return
     const rect = button.current.getBoundingClientRect()
     const width = Math.min(Math.max(minWidth, rect.width), window.innerWidth - 16)
-    const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
+    const rawLeft = align === 'left' ? rect.left : rect.right - width
+    const left = Math.max(8, Math.min(rawLeft, window.innerWidth - width - 8))
     const below = viewBottom() - rect.bottom
+    const originX = align === 'left' ? 'left' : 'right'
     setPlace(below >= 260 || below >= rect.top
-      ? { left, width, top: rect.bottom + 4, maxHeight: below - 16, '--bt-origin': 'top right' }
-      : { left, width, bottom: viewBottom() - rect.top + 4, maxHeight: rect.top - 16, '--bt-origin': 'bottom right' })
-  }, [anchor, tick, minWidth])
+      ? { left, width, top: rect.bottom + 4, maxHeight: below - 16, '--bt-origin': `top ${originX}` }
+      : { left, width, bottom: viewBottom() - rect.top + 4, maxHeight: rect.top - 16, '--bt-origin': `bottom ${originX}` })
+  }, [anchor, tick, minWidth, align])
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close }
 }
 
@@ -390,8 +395,7 @@ export function useInlineMenu() {
     if (!isOpen) return undefined
     const onDown = (event) => { if (!root.current?.contains(event.target)) close() }
     const onKey = (event) => {
-      if (stepMenuFocus(menu.current, event, button.current)) return
-      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); close(); button.current?.focus() }
+      stepMenuFocus(menu.current, event, button.current)
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
@@ -400,6 +404,7 @@ export function useInlineMenu() {
       window.removeEventListener('keydown', onKey, true)
     }
   }, [isOpen])
+  useEscape(() => { close(); button.current?.focus() }, isOpen, { priority: ESCAPE_PRIORITY.MENU })
   return { isOpen, root, button, menu, open: () => setOpen(true), close }
 }
 
@@ -474,10 +479,27 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
   }
 }
 
-const modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
+const modelTrigger = (picker, { wide, compact, disabled, button, isOpen, onClick }) => {
   const { shown, models, withEfforts, effortLabel, inherited } = picker
+  if (compact) {
+    const sub = withEfforts && effortLabel !== undefined ? effortLabel : null
+    return h('button', {
+      ref: button, type: 'button', className: 'bt-model-trigger bt-model-trigger-compact',
+      disabled,
+      'aria-haspopup': 'menu', 'aria-expanded': isOpen,
+      'aria-label': t('Model: {model}', { model: shown?.name ?? t('none') }),
+      title: shown ? (sub ? `${shown.name} · ${sub}` : shown.name) : t('Choose a model'),
+      'data-missing': shown !== undefined && !shown.served && models.length > 0 ? '' : undefined,
+      'data-empty': !shown || undefined,
+      onClick,
+    },
+    h('span', { className: 'bt-model-name' }, shown?.name ?? t('Choose a model')),
+    sub ? h('span', { className: 'bt-model-compact-effort' }, sub) : null,
+    h(Caret))
+  }
   return h('button', {
     ref: button, type: 'button', className: 'bt-model-trigger', 'data-wide': wide || undefined,
+    disabled,
     'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': t('Model: {model}', { model: shown?.name ?? t('none') }),
     'data-missing': shown !== undefined && !shown.served && models.length > 0 ? '' : undefined, onClick,
     'data-empty': !shown || undefined,
@@ -529,8 +551,8 @@ export function ModelMenu(props) {
 }
 
 // A Thinking section at the foot of the menu lists the levels of the shown model when it has them.
-function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true, fallbackModel }) {
-  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu(wide ? 260 : 240)
+function PopupModelMenu({ bot, roster, actions, run, wide = false, compact = false, disabled = false, align = 'right', onPick, onPickEffort, withEfforts = true, fallbackModel }) {
+  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu(wide ? 260 : 240, align)
   const picker = useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withEfforts, fallbackModel })
   const { manage, hasEfforts } = picker
   const hasModels = picker.models.length > 0
@@ -545,6 +567,7 @@ function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPic
     return () => observer.disconnect()
   }, [wide, button, picker.shown?.provider, picker.shown?.served, picker.effortLabel, withEfforts, hasModels])
   const toggle = () => {
+    if (disabled) return
     if (isOpen) { close(); return }
     picker.opened()
     open()
@@ -554,7 +577,7 @@ function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPic
     picker.choose(ref)
   }
   return h(Fragment, null,
-    modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
+    modelTrigger(picker, { wide, compact, disabled, button, isOpen, onClick: toggle }),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, 'data-wide': wide || undefined, role: 'menu', 'aria-label': modelMenuLabel(bot), style: shownPlace, 'data-leaving': leaving || undefined },
       modelSearch(picker, menu),
       modelScroll(picker, pick),
@@ -731,6 +754,7 @@ export const MODEL_CSS = `
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-trigger[data-missing] .bt-model-provider{color:var(--bt-danger)}
 .bt-model-trigger[data-wide]{display:flex;flex:0 1 auto;width:auto;min-width:min(200px,100%);max-width:min(340px,100%);height:34px;min-height:34px;box-sizing:border-box;padding:0 10px 0 12px;justify-content:space-between;border-radius:8px;border:.5px solid var(--bt-line-2);background:var(--bt-hover);font-size:13px;font-weight:450;outline:none}
+:is(.bt-drawer-model,.bt-field) .bt-model-trigger[data-wide]{width:100%;max-width:100%}
 .bt-model-trigger[data-wide]:hover,.bt-model-trigger[data-wide][aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger[data-wide]:focus-visible{outline:none;border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 .bt-model-trigger[data-wide] .bt-model-copy{flex-direction:row;align-items:center;gap:6px;flex:1}

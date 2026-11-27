@@ -32,10 +32,20 @@ const react = {
   createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
   useContext: ctx => ctx.value,
 }
+const clipboardWrites = []
 const load = (primitives) => {
   const module = { exports: {} }
   runInNewContext(bundle.outputFiles[0].text, {
     module, exports: module.exports,
+    navigator: {
+      clipboard: {
+        writeText: (value) => {
+          clipboardWrites.push(value)
+          return Promise.resolve()
+        },
+      },
+    },
+    setTimeout: () => 0,
     require: (name) => {
       const platform = { react, 'react-dom': { createPortal: node => node }, '@deepseek-ai/dsh-client-ui-primitives': primitives }
       if (!(name in platform)) throw new Error(`no platform module ${name}`)
@@ -44,7 +54,7 @@ const load = (primitives) => {
   })
   return module.exports
 }
-// The DSH the tests pin (0.2.2-rc.1) and every release since 0.2.1-alpha.3: no projection.
+// The DSH the tests pin (0.2.2-rc.5) and every release since 0.2.1-alpha.3: no projection.
 const current = load({ MarkdownText: () => null, UserTextRun: ({ text }) => text })
 // A release before 0.2.1-alpha.3, which projected user text itself.
 const older = load({ MarkdownText: () => null, projectUserText: text => [`projected:${text}`] })
@@ -223,4 +233,128 @@ test('an older DSH still draws the text through its projection, folded', () => {
   assert.match(words(tree), /projected:第 1 行/)
   assert.doesNotMatch(words(tree), /第 11 行/)
   assert.equal(find(tree, node => node.props?.['data-folded'] === true).length, 1)
+})
+
+test('API messages display via API · TokenName from apiVia and post-restart roster.api.tokens in both DSH modes', () => {
+  const expandVia = (mod, props) => {
+    at = 0
+    return expand(mod.UserMessageCell(props), ['UserText', 'ProjectedContent', 'HostContent', 'ViaTag'])
+  }
+  for (const [label, mod] of [['current', current], ['older', older]]) {
+    // 1. Live in-memory apiVia takes precedence over generic source.rpcId
+    fresh()
+    const liveRoster = {
+      ...roster,
+      apiVia: { room: { 7: 'Claude Code' } },
+      api: { tokens: [{ keyId: 'k1', name: 'Renamed Later' }] },
+    }
+    const live = hostProps([{ type: 'text', text: 'hi' }], {
+      data: { seq: 7, source: { kind: 'user', rpcId: 'api:k1:run_1' } },
+    })
+    let pickedValue
+    live.props.useRoster = (select) => {
+      pickedValue = select(liveRoster)
+      return pickedValue
+    }
+    const liveTree = expandVia(mod, live.props)
+    const liveVia = find(liveTree, node => node.props?.className === 'bt-uvia')
+    assert.equal(liveVia.length, 1, `${label}: live apiVia should render a via badge`)
+    assert.match(words(liveVia[0]), /Claude Code/, `${label}: live apiVia must not be shadowed by bare "api"`)
+    if (label === 'current') assert.equal(pickedValue, 'api:Claude Code', 'current mode selector must return primitive string for Object.is memoization')
+
+    // 2. Post-restart fallback: apiVia is empty, resolves token name via roster.api.tokens
+    fresh()
+    const restartRoster = {
+      ...roster,
+      apiVia: {},
+      api: { tokens: [{ keyId: 'k2', name: 'CI Pipeline' }] },
+    }
+    const restarted = hostProps([{ type: 'text', text: 'hi' }], {
+      data: { seq: 9, source: { kind: 'user', rpcId: 'api:k2:run_2' } },
+    })
+    restarted.props.useRoster = select => select(restartRoster)
+    const restartedTree = expandVia(mod, restarted.props)
+    const restartedVia = find(restartedTree, node => node.props?.className === 'bt-uvia')
+    assert.equal(restartedVia.length, 1, `${label}: post-restart fallback should render a via badge`)
+    assert.match(words(restartedVia[0]), /CI Pipeline/, `${label}: post-restart fallback should resolve token name from roster.api.tokens`)
+  }
+})
+
+test('plugin user-message Copy masks tokens, URL passwords, and PEM keys by default and follows reveal state', async () => {
+  const joinStr = (...parts) => parts.join('')
+  const token = joinStr('sk-', 'proj9876543210AbCdEfGhIjKlMnOpQr')
+  const urlPass = 'TopS3cretDbPass!'
+  const pemBegin = joinStr('-----BEGIN ', 'PRIVATE KEY-----')
+  const pemEnd = joinStr('-----END ', 'PRIVATE KEY-----')
+  const pemBody = 'MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSk'
+  const pem = `${pemBegin}\n${pemBody}\n${pemEnd}`
+  const text = `Use ${token} with https://admin:${urlPass}@db.example.com/app\n${pem}`
+
+  // 1. Current DSH (HostContent): CopyButton receives masked text and never writes raw secrets to clipboard.
+  fresh()
+  clipboardWrites.length = 0
+  const { props: currentProps } = hostProps([{ type: 'text', text }])
+  const currentTree = expand(
+    current.UserMessageCell(currentProps),
+    ['UserText', 'ProjectedContent', 'HostContent', 'CopyButton'],
+  )
+  const [currentCopyBtn] = find(currentTree, node => node.type === 'button' && node.props?.className === 'bt-tool')
+  assert.ok(currentCopyBtn, 'current mode renders Copy button')
+  currentCopyBtn.props.onClick()
+  assert.equal(clipboardWrites.length, 1)
+  const copiedCurrent = clipboardWrites[0]
+  assert.equal(copiedCurrent.includes(token), false, 'clipboard must never hold raw API token')
+  assert.equal(copiedCurrent.includes(urlPass), false, 'clipboard must never hold raw URL password')
+  assert.equal(copiedCurrent.includes(pemBody), false, 'clipboard must never hold raw PEM body')
+  assert.equal(copiedCurrent.includes('sk-proj9'), true, 'token prefix preserved')
+  assert.equal(copiedCurrent.includes('https://admin:'), true, 'URL scheme/user preserved')
+  assert.equal(copiedCurrent.includes('@db.example.com/app'), true, 'URL host/path preserved')
+  assert.equal(copiedCurrent.includes(pemBegin), true, 'PEM header preserved')
+
+  // 2. Folded long message in current DSH: Copy still masks secrets past the fold cut.
+  fresh()
+  clipboardWrites.length = 0
+  const foldedText = `${lines(20)}\n${text}`
+  const { props: foldedProps } = hostProps([{ type: 'text', text: foldedText }])
+  const foldedTree = expand(
+    current.UserMessageCell(foldedProps),
+    ['UserText', 'ProjectedContent', 'HostContent', 'CopyButton'],
+  )
+  const [foldedCopyBtn] = find(foldedTree, node => node.type === 'button' && node.props?.className === 'bt-tool')
+  foldedCopyBtn.props.onClick()
+  assert.equal(clipboardWrites[0].includes(token), false)
+  assert.equal(clipboardWrites[0].includes(urlPass), false)
+  assert.equal(clipboardWrites[0].includes(pemBody), false)
+
+  // 3. Legacy ProjectedContent mode: masks secrets in display & Copy, and revealing one secret updates only that secret in Copy.
+  fresh()
+  clipboardWrites.length = 0
+  const { props: olderProps } = hostProps([{ type: 'text', text }])
+  const renderOlder = () => {
+    at = 0
+    return expand(older.UserMessageCell(olderProps), ['UserText', 'ProjectedContent', 'HostContent', 'CopyButton'])
+  }
+  const maskedTree = renderOlder()
+  assert.equal(words(maskedTree).includes(token), false, 'older display masks token')
+  assert.equal(words(maskedTree).includes(urlPass), false, 'older display masks URL password')
+  assert.equal(words(maskedTree).includes(pemBody), false, 'older display masks PEM body')
+  const [olderCopyBefore] = find(maskedTree, node => node.type === 'button' && node.props?.className === 'bt-tool')
+  olderCopyBefore.props.onClick()
+  assert.equal(clipboardWrites[0].includes(token), false)
+  assert.equal(clipboardWrites[0].includes(urlPass), false)
+  assert.equal(clipboardWrites[0].includes(pemBody), false)
+
+  // Reveal only the first secret (the API token).
+  const toggles = find(maskedTree, node => node.type === 'button' && node.props?.className === 'dsb-secret-toggle')
+  assert.equal(toggles.length, 3, 'all 3 secrets have independent reveal toggles')
+  toggles[0].props.onClick({ stopPropagation() {} })
+  const revealedTree = renderOlder()
+  assert.equal(words(revealedTree).includes(token), true, 'revealed token displays verbatim')
+  assert.equal(words(revealedTree).includes(urlPass), false, 'unrevealed URL password stays masked')
+  assert.equal(words(revealedTree).includes(pemBody), false, 'unrevealed PEM stays masked')
+  const [olderCopyAfter] = find(revealedTree, node => node.type === 'button' && node.props?.className === 'bt-tool')
+  olderCopyAfter.props.onClick()
+  assert.equal(clipboardWrites[1].includes(token), true, 'Copy includes explicitly revealed token')
+  assert.equal(clipboardWrites[1].includes(urlPass), false, 'Copy keeps unrevealed URL password masked')
+  assert.equal(clipboardWrites[1].includes(pemBody), false, 'Copy keeps unrevealed PEM masked')
 })

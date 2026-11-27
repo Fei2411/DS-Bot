@@ -18,6 +18,9 @@ export function PeopleIcon() {
 export function ArrowUpIcon() {
   return h('svg', { width: 16, height: 16, viewBox: '0 0 20 20', 'aria-hidden': true }, h('path', { d: 'M10 16V4M5 9l5-5 5 5', stroke: 'currentColor', strokeWidth: 1.8, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round' }))
 }
+export function StopIcon() {
+  return h('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'currentColor', 'aria-hidden': true }, h('rect', { x: 5, y: 5, width: 10, height: 10, rx: 2 }))
+}
 export function MicIcon({ size = 16 }) {
   return h('svg', { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true },
     h('rect', { x: 7, y: 2.5, width: 6, height: 10, rx: 3, fill: 'currentColor', stroke: 'none' }),
@@ -89,10 +92,18 @@ export function PinMarkIcon() {
 export const UnreadIcon = lineIcon(['M10 3.5a4.5 4.5 0 0 0-4.5 4.5v3L4 13.5h12L14.5 11V8', 'M8.3 16a1.8 1.8 0 0 0 3.4 0', 'M15.5 3.2a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2z'])
 export const PencilIcon = lineIcon(['M9 4H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-3', 'M14.3 3.7a1.6 1.6 0 0 1 2.3 2.3L10.5 12l-3 .8.8-3z'])
 export const DiffIcon = lineIcon(['M5.5 3.5h5l4 4v9h-9z', 'M10.5 3.5V8h4', 'M7.5 11h5', 'M7.5 13.5h3'])
+export const FileIcon = lineIcon(['M5.5 3.5h5.5l3.5 3.5v9.5h-9z', 'M11 3.5V7h3.5'])
+export const ImageIcon = lineIcon(['M3.5 4.5h13A1.5 1.5 0 0 1 18 6v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 14V6a1.5 1.5 0 0 1 1.5-1.5z', 'M6.5 8.2a1.1 1.1 0 1 0 0 .01', 'M3 14l4.2-4.2 3.2 3.2 2.4-2.2 4.2 3.2'])
+export const ListCheckIcon = lineIcon(['M4 6l1.5 1.5L8 5', 'M10.5 6.25h5.5', 'M4 10.5l1.5 1.5L8 9.5', 'M10.5 10.75h5.5', 'M4.5 15h1.5', 'M10.5 15h5.5'])
+export const CodeIcon = lineIcon(['M7 6.5L3.5 10 7 13.5', 'M13 6.5L16.5 10 13 13.5', 'M11.2 4.5l-2.4 11'])
 export const InfoIcon = lineIcon(['M10 3.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13z', 'M10 9.25v4', 'M10 6.6h.01'])
+export const ShieldIcon = lineIcon(['M10 2.75l6 2.5v4.5c0 3.7-2.55 6.45-6 7.5-3.45-1.05-6-3.8-6-7.5v-4.5z', 'M7.5 10.25l1.75 1.75 3.25-3.5'])
 export const StarLineIcon = lineIcon(['M10 3l2.1 4.3 4.7.7-3.4 3.3.8 4.7L10 13.8 5.8 16l.8-4.7L3.2 8l4.7-.7z'])
 export const CopyIcon = lineIcon(['M8.5 7h6A1.5 1.5 0 0 1 16 8.5v6a1.5 1.5 0 0 1-1.5 1.5h-6A1.5 1.5 0 0 1 7 14.5v-6A1.5 1.5 0 0 1 8.5 7z', 'M4 12.5V5.5A1.5 1.5 0 0 1 5.5 4H13'])
+export const EyeIcon = lineIcon(['M2.5 10s2.8-4.75 7.5-4.75S17.5 10 17.5 10s-2.8 4.75-7.5 4.75S2.5 10 2.5 10z', 'M10 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4z'])
 export const HideIcon = lineIcon(['M3 3l14 14', 'M8.6 5.2A7.6 7.6 0 0 1 10 5c4.5 0 7 5 7 5a12.6 12.6 0 0 1-2 2.6M12.2 14.5A6.8 6.8 0 0 1 10 15c-4.5 0-7-5-7-5a12.4 12.4 0 0 1 3-3.4', 'M8.5 8.5a2 2 0 0 0 3 3'])
+export const ThumbUpIcon = lineIcon(['M6.5 9.25v7.25H4a1 1 0 0 1-1-1v-5.25a1 1 0 0 1 1-1z', 'M6.5 9.25l2.8-5.5a1.5 1.5 0 0 1 2.7 1.1l-.65 3.15h4.1a1.5 1.5 0 0 1 1.46 1.84l-1.12 4.75a1.5 1.5 0 0 1-1.46 1.16H6.5'])
+export const ThumbDownIcon = lineIcon(['M6.5 10.75V3.5H4a1 1 0 0 0-1 1v5.25a1 1 0 0 0 1 1z', 'M6.5 10.75l2.8 5.5a1.5 1.5 0 0 0 2.7-1.1l-.65-3.15h4.1a1.5 1.5 0 0 0 1.46-1.84l-1.12-4.75a1.5 1.5 0 0 0-1.46-1.16H6.5'])
 export const PauseIcon = lineIcon(['M7.5 5v10', 'M12.5 5v10'])
 export const ResumeIcon = lineIcon(['M7 4.8v10.4a.5.5 0 0 0 .77.42l8-5.2a.5.5 0 0 0 0-.84l-8-5.2A.5.5 0 0 0 7 4.8z'])
 export const TrashIcon = lineIcon(['M3.5 5.5h13', 'M8 5.5V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5', 'M5 5.5l.7 10A1.5 1.5 0 0 0 7.2 17h5.6a1.5 1.5 0 0 0 1.5-1.5l.7-10', 'M8.5 9v4.5M11.5 9v4.5'])
@@ -117,6 +128,7 @@ export const GoalIcon = lineIcon(['M15.1 8.8A6.5 6.5 0 1 1 11.2 4.9', 'M9 8a3 3 
 // Defined here, after the icons: SettingsDialog only reads them at render time.
 // Two speech bubbles, the back one peeking out: a group chat.
 export const ChatsIcon = lineIcon(['M3.5 5.5A1.5 1.5 0 0 1 5 4h7a1.5 1.5 0 0 1 1.5 1.5V10A1.5 1.5 0 0 1 12 11.5H8L5 14v-2.5A1.5 1.5 0 0 1 3.5 10z', 'M13.5 7.5H15A1.5 1.5 0 0 1 16.5 9v4.5A1.5 1.5 0 0 1 15 15v2l-2.5-2h-3A1.5 1.5 0 0 1 8 13.5V13'])
+export const ApiIcon = lineIcon(['M7 6.5L3.5 10 7 13.5', 'M13 6.5L16.5 10 13 13.5', 'M11 4.5L9 15.5'])
 // A phone with a speech bubble: an IM chat app talking to a Bot.
 export const ImIcon = lineIcon(['M6.5 3.5h7A1.5 1.5 0 0 1 15 5v10a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 5 15V5a1.5 1.5 0 0 1 1.5-1.5z', 'M8 15.8h4', 'M8 6.5h4A1 1 0 0 1 13 7.5v2a1 1 0 0 1-1 1h-2.5L8 12v-5.5A1 1 0 0 1 8 6.5z'])
 // Stacked lines with a running start: queued messages.
@@ -131,6 +143,8 @@ export const SendIcon = lineIcon(['M16.8 3.5L9.5 10.8', 'M16.8 3.5l-4.6 13-2.7-5
 export const CompassIcon = lineIcon(['M10 3.25a6.75 6.75 0 1 1 0 13.5 6.75 6.75 0 0 1 0-13.5z', 'M12.9 7.1l-1.7 4.1-4.1 1.7 1.7-4.1z'])
 // Swatch palette: Appearance settings (distinct from theme sliders and blocks).
 export const PaletteIcon = lineIcon(['M10 3.25a6.75 6.75 0 1 0 0 13.5h1.2a1.7 1.7 0 0 0 1.2-2.9 1.7 1.7 0 0 1 1.2-2.9h1.2a2.2 2.2 0 0 0 2.1-2.5A6.75 6.75 0 0 0 10 3.25z', 'M7.1 8.6h.01M9.5 6.6h.01M12.7 7.6h.01'])
+// Keyboard outline with key rows: Keyboard shortcuts settings.
+export const KeyboardIcon = lineIcon(['M3 6.5A1.5 1.5 0 0 1 4.5 5h11A1.5 1.5 0 0 1 17 6.5v7A1.5 1.5 0 0 1 15.5 15h-11A1.5 1.5 0 0 1 3 13.5z', 'M5.5 8.25h1M8.5 8.25h1M11.5 8.25h1M14 8.25h.5', 'M5.5 10.75h1M13.5 10.75h1M7.75 12.25h4.5'])
 // Puzzle piece: built-in plugins fallback (distinct from model sliders).
 export const PuzzleIcon = lineIcon(['M8 3.5a1.5 1.5 0 0 1 3 0v1.25h3.5a1 1 0 0 1 1 1v3.5h1.25a1.5 1.5 0 0 1 0 3H15.5v3.25a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1H8z'])
 export const SETTINGS_ICONS = { guide: CompassIcon, general: GearIcon, appearance: PaletteIcon, bots: PeopleIcon, groups: ChatsIcon, im: SendIcon, usage: GaugeIcon }

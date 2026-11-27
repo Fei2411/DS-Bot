@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { loopTurn } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { install } from '../src/host/tasks.js'
 import { fakeContext } from './fake-ctx.js'
@@ -232,7 +233,7 @@ test('finished tasks stay in the board history beyond two hundred deliveries', a
 
 const settle = async (check) => {
   const until = Date.now() + 3000
-  while (!check() && Date.now() < until) await new Promise(resolve => setImmediate(resolve))
+  while (!check() && Date.now() < until) await loopTurn()
   assert.ok(check(), 'condition not reached')
 }
 
@@ -311,4 +312,106 @@ test('a turn picked up after a restart that leaves a task untouched blocks it; o
   await host.tool({ action: 'complete', id: task('Write the draft').id, result: 'Draft delivered' }, 'gb')
   assert.equal(task('Write the draft').status, 'done')
   assert.equal(task('Write the draft').blocked, undefined)
+})
+
+test('explicit [PASS] turn with no work tools does not unblock a system-blocked group task', async (t) => {
+  const host = await start(t)
+  await host.tool({ action: 'open', goal: 'Write the draft' }, 'gb')
+  const task = () => Object.values(host.saved().rooms.r1.tasks).find(item => item.goal === 'Write the draft')
+
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'TRANSPORT', message: 'reset' } } })
+  await settle(() => task().status === 'blocked')
+
+  // Member replies only "[PASS]" without running any work tool: task must remain blocked.
+  host.emit('gb', 'turn/start', { turn: 2 })
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: '[PASS]' }] } })
+  host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await new Promise(resolve => setTimeout(resolve, 25))
+  assert.equal(task().status, 'blocked', 'explicit [PASS] with zero work tools must keep task blocked')
+  assert.equal(task().blocked?.cause, 'failed')
+
+  // A real reply clears the system block.
+  host.emit('gb', 'turn/start', { turn: 3 })
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: 'Resuming the draft now.' }] } })
+  host.emit('gb', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  await settle(() => task().status === 'active')
+  assert.equal(task().blocked, undefined)
+})
+
+test('removing a member or deleting a Bot cancels its open group tasks and task-note rejects non-member owners', async (t) => {
+  const host = await start(t)
+  // Add a third Bot so removing Writer keeps the group at >= 2 members.
+  host.rt.state.bots.c = { id: 'c', name: 'Tester', role: 'Test', sessionId: 'c', createdAt: 3 }
+  host.rt.state.rooms.r1.members.push('c')
+  host.rt.state.rooms.r1.sessions.c = 'gc'
+  host.rt.groupOwners.set('gc', { botId: 'c', roomId: 'r1' })
+
+  await host.tool({ action: 'open', goal: 'Writer open task' }, 'gb')
+  await host.tool({ action: 'open', goal: 'Chief open task' }, 'ga')
+  const taskOf = goal => Object.values(host.rt.state.rooms.r1.tasks).find(item => item.goal === goal)
+  const writerTaskId = taskOf('Writer open task').id
+
+  // Removing Writer cancels its open task while leaving Chief's intact.
+  await host.rt.updateRoom('r1', { members: ['a', 'c'] })
+  assert.equal(taskOf('Writer open task').status, 'cancelled')
+  assert.match(taskOf('Writer open task').reason, /removed/i)
+  assert.equal(taskOf('Chief open task').status, 'active')
+
+  // Even if a stale open task belonged to a non-member, task-note refuses it and sends no prompt.
+  host.rt.state.rooms.r1.tasks[writerTaskId].status = 'active'
+  const refused = await host.call('task-note', { roomId: 'r1', id: writerTaskId, text: 'ping' })
+  assert.equal(refused.ok, false)
+  assert.match(refused.error.message, /no longer in this group/i)
+  assert.equal(host.prompts.length, 0)
+
+  // Re-add Writer, open a new task, then delete Writer Bot -> cancels open task cleanly.
+  await host.rt.updateRoom('r1', { members: ['a', 'b', 'c'] })
+  host.rt.state.rooms.r1.sessions.b = 'gb'
+  host.rt.groupOwners.set('gb', { botId: 'b', roomId: 'r1' })
+  await host.tool({ action: 'open', goal: 'Task before deleteBot' }, 'gb')
+  await host.rt.deleteBot('b')
+  assert.equal(taskOf('Task before deleteBot').status, 'cancelled')
+  assert.match(taskOf('Task before deleteBot').reason, /deleted/i)
+})
+
+test('non-completed group background tasks (failed/stopped/interrupted) block the member\'s open group tasks', async (t) => {
+  const host = await start(t)
+  await host.tool({ action: 'open', goal: 'Deploy service' }, 'gb')
+  const task = () => Object.values(host.rt.state.rooms.r1.tasks).find(item => item.goal === 'Deploy service')
+
+  // Seed a running group background task owned by Writer ('b') in room 'r1' and fail it.
+  const writer = host.rt.botOf('b')
+  writer.tasks = [{
+    id: 'bt-1', title: 'Run migration', sessionId: 'bt-sess-1', status: 'running',
+    roomId: 'r1', fromPart: 'gb', startedAt: Date.now(), updatedAt: Date.now(),
+  }]
+  host.rt.taskOwners.set('bt-sess-1', { botId: 'b', taskId: 'bt-1', roomId: 'r1' })
+  host.emit('bt-sess-1', 'turn/start', { turn: 1 })
+  host.emit('bt-sess-1', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'API_ERROR', message: 'boom' } } })
+  await settle(() => task().status === 'blocked')
+  assert.equal(task().blocked?.cause, 'failed')
+  assert.equal(task().blocked?.code, 'TASK')
+
+  // Reset to active, then stop a second group background task -> blocks with cause: 'stopped'.
+  await host.tool({ action: 'update', id: task().id, status: 'active' }, 'gb')
+  writer.tasks.push({
+    id: 'bt-2', title: 'Build bundle', sessionId: 'bt-sess-2', status: 'running',
+    roomId: 'r1', fromPart: 'gb', startedAt: Date.now(), updatedAt: Date.now(),
+  })
+  host.rt.taskOwners.set('bt-sess-2', { botId: 'b', taskId: 'bt-2', roomId: 'r1' })
+  await host.rt.stopTask('b', 'bt-2', 'user cancelled')
+  await settle(() => task().status === 'blocked')
+  assert.equal(task().blocked?.cause, 'stopped')
+
+  // Reset to active, then reconcile an orphaned idle group task after restart -> blocks with cause: 'restarted'.
+  await host.tool({ action: 'update', id: task().id, status: 'active' }, 'gb')
+  writer.tasks.push({
+    id: 'bt-3', title: 'Nightly sync', sessionId: 'bt-sess-3', status: 'running',
+    roomId: 'r1', fromPart: 'gb', startedAt: Date.now(), updatedAt: Date.now(),
+  })
+  host.rt.taskOwners.set('bt-sess-3', { botId: 'b', taskId: 'bt-3', roomId: 'r1' })
+  await host.rt.reconcileTasksAfterRestart()
+  await settle(() => task().status === 'blocked')
+  assert.equal(task().blocked?.cause, 'restarted')
 })

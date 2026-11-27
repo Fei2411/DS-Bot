@@ -1,12 +1,19 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { SvgXml } from 'react-native-svg'
-import { characterMarkup, lookOf, MASK_ID, shapeOf } from '../../../ds-bot/src/client/characters.js'
+import { characterMarkup, fnv1a, lookOf, MASK_ID, shapeId, shapeOf } from '../../../ds-bot/src/client/characters.js'
 import { INKS } from '../../../ds-bot/src/client/inks.js'
+import { MARK_STATES } from '../../../ds-bot/src/client/mark-states.js'
 import type { Bot, Room } from '../connection.ts'
+import { LiveMark } from './avatar/LiveMark.tsx'
+import { badgeOf } from './badge.ts'
 import { MainStarIcon } from './icons.tsx'
+import { isAfterWorkState, shouldCelebrateSettle } from '../team/mark-state.ts'
 
 // The Bot's own mascot, drawn by the same generator as the desktop mark
 // (ds-bot/src/client/characters.js). CSS ink variables resolve to the mode's color.
+// A mark that moves (a state, life at rest, a touch) turns into a live mark
+// (avatar/LiveMark.tsx): the character's model moved by the desktop's avatar engine.
 
 let serial = 0
 
@@ -26,44 +33,102 @@ const lookSvg = (look: { shape: string; color: string; image?: string }, dark: b
   return svg.replace(/var\(--bt-ink-(\w+)\)/g, (_match, name: string) => (inks[name] ?? inks.gray)[dark ? 1 : 0])
 }
 
-export function Mark({ look, dark, size = 24 }: { look: { shape: string; color: string; image?: string }; dark: boolean; size?: number }) {
+type MarkLook = { shape: string; color: string; image?: string }
+export interface MotionProps {
+  // What the Bot is doing (mark-states.js): working, thinking, alert, done, and so on.
+  state?: string
+  // Comes alive at rest too, at the lively motion level (the list, the header, details).
+  live?: boolean
+  // A tap pokes it and a held touch pets it.
+  pokeable?: boolean
+}
+
+function FlatMark({ look, dark, size }: { look: MarkLook; dark: boolean; size: number }) {
+  const xml = useMemo(() => lookSvg(look, dark), [look.shape, look.color, dark])
   if (typeof look.image === 'string' && look.image.startsWith('data:')) {
     return <Image source={{ uri: look.image }} style={{ width: size, height: size, borderRadius: size / 2 }} />
   }
   return (
     <View style={{ width: size, height: size }}>
-      <SvgXml xml={lookSvg(look, dark)} width={size} height={size} />
+      <SvgXml xml={xml} width={size} height={size} />
     </View>
   )
 }
 
-export function BotMark({ bot, dark, size = 36 }: { bot: unknown; dark: boolean; size?: number }) {
-  return <Mark look={lookOf(bot)} dark={dark} size={size} />
+export function Mark({ look, dark, size = 24, seed, state = 'idle', live = false, pokeable = false, label }: { look: MarkLook; dark: boolean; size?: number; seed?: string; label?: string } & MotionProps) {
+  const markState = MARK_STATES.includes(state) ? state : 'idle'
+  // Made once the mark has something to show, and kept until it goes, so it plays its
+  // way back to rest instead of jumping there when the state ends.
+  const awake = useRef(false)
+  if (live || pokeable || markState !== 'idle') awake.current = true
+  const flat = <FlatMark look={look} dark={dark} size={size} />
+  if (!awake.current) return flat
+  const photo = typeof look.image === 'string' && look.image.startsWith('data:')
+  const id = shapeId(look.shape)
+  return (
+    <LiveMark look={photo ? { shape: 'image', color: look.color, image: look.image } : { shape: id, color: look.color }} def={photo ? undefined : shapeOf(look.shape)}
+      dark={dark} size={size} seed={fnv1a(seed ?? look.shape)} state={markState} live={live} pokeable={pokeable} label={label}>
+      {flat}
+    </LiveMark>
+  )
 }
 
-// Status badges per ui-standard 8.2, scaled to the row's 44px avatar: a working
+export function BotMark({ bot, dark, size = 36, ...motion }: { bot: unknown; dark: boolean; size?: number } & MotionProps) {
+  const entry = bot as { id?: unknown; name?: unknown } | null | undefined
+  const id = entry?.id
+  const label = typeof entry?.name === 'string' && entry.name !== '' ? entry.name : undefined
+  return <Mark look={lookOf(bot)} dark={dark} size={size} seed={id === undefined || id === '' ? undefined : String(id)} label={label} {...motion} />
+}
+
+// Marks settle with a short hop when a run finishes, matching the desktop (mark.js useSettled):
+// idle and an unread reply count as one so opening the chat does not cut the hop short,
+// and leaving alert/failed does not celebrate.
+function useSettled(state: string, id: string | undefined): boolean {
+  const after = isAfterWorkState(state)
+  const prev = useRef({ state, id })
+  const [settled, setSettled] = useState(false)
+  useEffect(() => {
+    const was = prev.current
+    prev.current = { state, id }
+    if (was.id !== id || !after) { setSettled(false); return undefined }
+    if (!shouldCelebrateSettle(was.state, state)) return undefined
+    setSettled(true)
+    const timer = setTimeout(() => setSettled(false), 1800)
+    return () => clearTimeout(timer)
+  }, [after, id])
+  useEffect(() => { if (!after) prev.current = { state, id } })
+  return settled
+}
+
+// Status badges per ui-standard section 8, scaled to the row's 44px avatar: a working
 // green dot (12px), a waiting accent "?" (12px), the Main Bot star at 36% of the
-// avatar, each ringed in the list's background color.
-export function Avatar({ bot, dark, size = 44, ring, working = false, waiting = false, main = false }: {
-  bot: Bot; dark: boolean; size?: number; ring: string; working?: boolean; waiting?: boolean; main?: boolean
-}) {
-  const star = Math.round(size * 0.36)
+// avatar within 14-22px like the desktop. Derived from the mark's state, one at a time
+// (badge.ts / mark-states.js avatarBadge). `badge={false}` hides all badges (header pill
+// and details panel). `ring` is the opaque color the badges are ringed in.
+export function Avatar({ bot, dark, size = 44, ring, working = false, waiting = false, main = false, badge = true, state, live = false, pokeable = false }: {
+  bot: Bot; dark: boolean; size?: number; ring: string; working?: boolean; waiting?: boolean; main?: boolean; badge?: boolean
+} & MotionProps) {
+  const star = Math.round(Math.min(22, Math.max(14, size * 0.36)))
   const dot = Math.round(size * 0.27)
+  const doing = state ?? (waiting ? 'alert' : working ? 'working' : 'idle')
+  const settled = useSettled(doing, bot?.id)
+  const badgeKind = badgeOf({ state: doing, main, badge })
   return (
     <View style={{ width: size, height: size }}>
-      <BotMark bot={bot} dark={dark} size={size} />
-      {waiting
+      <BotMark bot={bot} dark={dark} size={size} state={settled ? 'done' : doing} live={live} pokeable={pokeable} />
+      {badgeKind === 'alert'
         ? <View style={[styles.badge, { width: dot + 4, height: dot + 4, borderRadius: (dot + 4) / 2, backgroundColor: ring, bottom: -2, right: -2 }]}>
             <View style={[styles.badgeIn, { width: dot, height: dot, borderRadius: dot / 2, backgroundColor: '#4d6bfe' }]}>
               <Text style={[styles.q, { fontSize: dot * 0.66, lineHeight: dot }]}>?</Text>
             </View>
           </View>
-        : working
+        : badgeKind === 'working'
           ? <View style={[styles.badge, { width: dot + 4, height: dot + 4, borderRadius: (dot + 4) / 2, backgroundColor: ring, bottom: 0, right: 0 }]}>
               <View style={{ width: dot * 0.67, height: dot * 0.67, borderRadius: dot, backgroundColor: '#00c972', alignSelf: 'center', marginTop: dot * 0.165 }} />
             </View>
-          : null}
-      {main ? <View style={[styles.badge, { width: star + 3, height: star + 3, bottom: -2, right: -2, justifyContent: 'center', alignItems: 'center' }]}><MainStarIcon size={star} /></View> : null}
+          : badgeKind === 'main'
+            ? <View style={[styles.badge, { width: star + 3, height: star + 3, bottom: -2, right: -2, justifyContent: 'center', alignItems: 'center' }]}><MainStarIcon size={star} outline={ring} /></View>
+            : null}
     </View>
   )
 }
@@ -84,6 +149,9 @@ function clusterSeats(count: number, frame: number): [number, number, number][] 
 }
 
 export function RoomAvatar({ room, bots, dark, size = 44, ring }: { room: Room; bots: Bot[]; dark: boolean; size?: number; ring: string }) {
+  const [broken, setBroken] = useState('')
+  const image = room.avatar?.image
+  if (image && image !== broken) return <Image source={{ uri: image }} style={{ width: size, height: size, borderRadius: size / 2 }} onError={() => setBroken(image)} />
   const byId = new Map(bots.map(bot => [bot.id, bot]))
   const members = (room.members ?? []).map(id => byId.get(id)).filter((bot): bot is Bot => bot !== undefined)
   if (members.length === 0) {

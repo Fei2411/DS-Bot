@@ -1,7 +1,11 @@
 import { startRelayServer } from './server.ts'
 
 const env = process.env
-const number = (name: string): number | undefined => env[name] === undefined ? undefined : Number(env[name])
+const number = (name: string): number | undefined => {
+  if (env[name] === undefined || env[name] === '') return undefined
+  const parsed = Number(env[name])
+  return Number.isFinite(parsed) ? parsed : undefined
+}
 const ttlDays = number('DSBOT_LINK_DEVICE_TTL_DAYS')
 const mbPerHour = number('DSBOT_LINK_MAX_MB_PER_HOUR')
 

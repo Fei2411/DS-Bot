@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createSource } from '../src/client/sources.js'
-import { teamActions } from '../src/client/team-actions.js'
+import { sectionFoldWrites, teamActions } from '../src/client/team-actions.js'
 
 // The requests the actions send, and how many of them read the team again after.
 function bench() {
@@ -13,6 +13,69 @@ function bench() {
   const actions = teamActions({ call, after, partFor: id => id, roster: createSource({}), ui })
   return { actions, sent, ui, pulls: () => pulls }
 }
+
+test('rapid section folds save in order, keeping the latest intent visible until it settles', async () => {
+  const roster = createSource({ sections: [{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }], revision: 1 })
+  const ui = createSource({})
+  const writes = [Promise.withResolvers(), Promise.withResolvers()]
+  const sent = []
+  const foldWrites = sectionFoldWrites()
+  const actions = teamActions({
+    roster, ui,
+    call: (name, body) => { sent.push([name, body]); return writes[sent.length - 1].promise },
+    after: () => assert.fail('folding should not pull the roster again'),
+    foldWrites,
+  })
+  const first = actions.saveSection({ id: 'one', collapsed: true })
+  const second = actions.saveSection({ id: 'one', collapsed: false })
+  assert.deepEqual(ui.getSnapshot().sectionFolds, { one: false })
+  await Promise.resolve()
+  assert.deepEqual(sent, [['section-save', { id: 'one', collapsed: true, withRevision: true }]])
+
+  const latestSections = [{ id: 'one', name: 'Renamed' }, { id: 'two', name: 'Two', collapsed: true }]
+  roster.set({ sections: latestSections, revision: 2 })
+  writes[0].resolve({ section: { id: 'one', name: 'One', collapsed: true }, revision: 3 })
+  await first
+  assert.deepEqual(ui.getSnapshot().sectionFolds, { one: false })
+  assert.deepEqual(sent[1], ['section-save', { id: 'one', collapsed: false, withRevision: true }])
+  writes[1].reject(new Error('save failed'))
+  await assert.rejects(second, /save failed/)
+  assert.deepEqual(ui.getSnapshot().sectionFolds, {})
+  assert.deepEqual(roster.getSnapshot(), {
+    sections: [{ id: 'one', name: 'Renamed', collapsed: true }, latestSections[1]], revision: 2,
+  })
+  assert.deepEqual(foldWrites.reconcile(latestSections, 2), roster.getSnapshot().sections)
+  assert.equal(foldWrites.reconcile(latestSections, 3), latestSections)
+})
+
+test('section edits other than a standalone fold still refresh the roster', async () => {
+  const { actions, sent, pulls } = bench()
+  await actions.saveSection({})
+  await actions.saveSection({ id: 'one', name: 'Renamed', collapsed: true })
+  await actions.saveSection({ id: 'one', color: null })
+  assert.deepEqual(sent, [
+    ['section-save', {}],
+    ['section-save', { id: 'one', name: 'Renamed', collapsed: true }],
+    ['section-save', { id: 'one', color: null }],
+  ])
+  assert.equal(pulls(), 3)
+})
+
+test('ChatGPT uses only account endpoints, never provider keys or relay credentials', async () => {
+  const { actions, sent } = bench()
+  await actions.chatgpt()
+  await actions.chatgptSignIn({ consent: true })
+  await actions.chatgptCancel()
+  await actions.chatgptSignOut()
+  await actions.chatgptModels()
+  assert.deepEqual(sent, [
+    ['chatgpt', undefined],
+    ['chatgpt-sign-in', { consent: true }],
+    ['chatgpt-cancel', undefined],
+    ['chatgpt-sign-out', undefined],
+    ['chatgpt-models', undefined],
+  ])
+})
 
 test('every window reaches the host model providers, and key changes read the team again', async () => {
   const { actions, sent, pulls } = bench()

@@ -8,7 +8,9 @@ import { output } from './tools.js'
 
 // A waiting client counts as present; one that has not polled for this long is gone.
 const CLIENT_STALE_MS = 30_000
-const WAIT_MS = 20_000
+// Desktop's update task inspection waits 10 seconds for admitted HTTP requests.
+// Leave room for the request handler and the HTTP bridge to finish the response.
+const WAIT_MS = 6_000
 const READ_TIMEOUT_MS = 15_000
 // A request stays queued until its window answers and is handed out again after this
 // long: the window aborts a poll whenever its open pages change, and a request already
@@ -32,6 +34,11 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
   let holdVersion = 0
 
   const present = client => client.wake !== undefined || now() - client.seen < staleMs
+  const sweepClients = () => {
+    for (const [id, client] of clients) {
+      if (!present(client) && client.queue.length === 0) clients.delete(id)
+    }
+  }
   // The most recently seen window that shows this Bot's browser.
   const clientFor = (botId) => {
     let best
@@ -55,13 +62,15 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
   /**
    * One long poll from a window. Resolves with the read requests due for it, at once when
    * there are some, else when one arrives or a handed-out one is due again, or after
-   * `waitMs`. A newer poll from the same window ends the older one empty.
+   * `waitMs`. Disconnecting or replacing this poll ends it empty.
    */
-  function wait(clientId, open) {
+  function wait(clientId, open, signal) {
+    if (signal?.aborted) return Promise.resolve([])
     const client = clients.get(clientId) ?? { open: {}, seen: 0, queue: [], holdVersion: 0 }
     clients.set(clientId, client)
     client.open = open && typeof open === 'object' ? open : {}
     client.seen = now()
+    sweepClients()
     client.end?.()
     const ready = due(client)
     if (client.holdVersion !== holdVersion) {
@@ -74,6 +83,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
     return new Promise((resolve) => {
       const finish = (items) => {
         clearTimeout(timer)
+        signal?.removeEventListener('abort', end)
         if (client.end === end) client.wake = client.end = undefined
         client.seen = now()
         client.holdVersion = holdVersion
@@ -83,6 +93,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
       const timer = setTimeout(() => finish(due(client)), Math.min(waitMs, resend))
       client.wake = () => finish(due(client))
       client.end = end
+      signal?.addEventListener('abort', end, { once: true })
     })
   }
 
@@ -122,6 +133,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
 
   /** Which Bots have a browser page open in a present window, newest report first. */
   function openPages() {
+    sweepClients()
     const pages = {}
     for (const client of [...clients.values()].sort((a, b) => b.seen - a.seen)) {
       if (!present(client)) continue
@@ -132,7 +144,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
 
   function setHold(botId, hold) {
     if (hold === null) holds.delete(botId)
-    else holds.set(botId, { by: hold.by, reason: hold.reason, note: hold.note, ...(typeof hold.callId === 'string' ? { callId: hold.callId.slice(0, 200) } : {}), ...(typeof hold.sessionId === 'string' ? { sessionId: hold.sessionId.slice(0, 200) } : {}) })
+    else holds.set(botId, { by: hold.by, reason: hold.reason, note: hold.note, ...(typeof hold.callId === 'string' ? { callId: hold.callId.slice(0, 200), at: Number.isFinite(hold.at) ? hold.at : Date.now() } : {}), ...(typeof hold.sessionId === 'string' ? { sessionId: hold.sessionId.slice(0, 200) } : {}) })
     holdVersion += 1
     for (const client of clients.values()) client.wake?.()
     for (const listener of holdListeners) {
@@ -253,6 +265,9 @@ export function install(rt) {
   }
   const channel = createBrowserChannel()
   ctx.effect(() => () => channel.dispose(), 'ds-bot: browser channel')
+  rt.onBotDelete?.((botId) => {
+    if (channel.holdOf(botId) !== null) channel.setHold(botId, null)
+  })
 
   rt.teamTools.push(defineTool({
     name: 'read_browser',

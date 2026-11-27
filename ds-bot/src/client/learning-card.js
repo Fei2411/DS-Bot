@@ -57,7 +57,7 @@ function PendingLearningPanel({ proposals, actions, onFailure, onResolved, close
 
 // `proposal.outcome` set: an answered card, read-only and folded to one row (what
 // it was, how it ended, its name); the row opens the change.
-function ProposalCard({ proposal, initialError = '', onFailure, onResolved, actions }) {
+export function ProposalCard({ proposal, initialError = '', onFailure, onResolved, actions }) {
   const outcome = proposal.outcome
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(initialError)
@@ -249,7 +249,7 @@ export const LEARNING_CSS = `
 .bt-learning-minus{color:var(--bt-danger)}
 .bt-learning-state{flex:none;height:20px;padding:0 8px;border-radius:999px;font-size:11px;line-height:20px;font-weight:500;background:var(--bt-hover);color:var(--bt-ink-2)}
 .bt-learning-state-added{background:color-mix(in srgb,var(--bt-green) 13%,transparent);color:color-mix(in srgb,var(--bt-green) 70%,var(--bt-ink))}
-.bt-learning-code{padding:6px 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:20px;color:var(--bt-ink)}
+.bt-learning-code{padding:6px 0;font-family:var(--bt-mono);font-size:12px;line-height:20px;color:var(--bt-ink)}
 .bt-learning-shut{max-height:172px;overflow:hidden}
 .bt-learning-row{display:grid;grid-template-columns:36px 16px 1fr}
 .bt-learning-num{padding-right:6px;text-align:right;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;user-select:none}

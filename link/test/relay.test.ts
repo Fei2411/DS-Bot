@@ -459,3 +459,81 @@ test('the computer stops while its socket is still connecting', async () => {
   const stopped = await Promise.race([host.stop().then(() => true), new Promise(resolve => setTimeout(() => resolve(false), 1_000))])
   assert.equal(stopped, true)
 })
+
+test('HostLink waitOnline cleans up timed-out waiters, emit skips encoding with no ready tunnels, and incomplete handshakes time out', async () => {
+  const self = identity()
+  const sockets: FakeSocket[] = []
+  const host = new HostLink({
+    url: 'ws://unused',
+    identity: self,
+    accessToken: randomToken(),
+    name: 'Desk',
+    handshakeTimeoutMs: 40,
+    admits: () => true,
+    authorize: () => true,
+    handle: async () => null,
+    createSocket: () => { const s = new FakeSocket(); sockets.push(s); return s as unknown as WebSocket },
+  })
+
+  // 1. waitOnline() timeout removes its waiter from statusWaiters.
+  await assert.rejects(host.waitOnline(20), /did not reach the Server in time/)
+  const waiters = (host as unknown as { statusWaiters: Set<() => void> }).statusWaiters
+  assert.equal(waiters.size, 0, 'timed-out waitOnline waiter must be removed')
+
+  // 2. emit() skips JSON serialization / encoding when no tunnel is ready.
+  const origStringify = JSON.stringify
+  let stringifyCalls = 0
+  JSON.stringify = ((...args: [unknown, ...unknown[]]) => {
+    stringifyCalls += 1
+    return (origStringify as (...a: unknown[]) => string)(...args)
+  }) as typeof JSON.stringify
+  try {
+    host.emit('stream', { text: 'should not serialize' })
+  } finally {
+    JSON.stringify = origStringify
+  }
+  assert.equal(stringifyCalls, 0, 'emit() with zero ready tunnels must not serialize message')
+
+  // 3. Uncompleted incoming handshake times out with HANDSHAKE_TIMEOUT.
+  host.start()
+  const socket = sockets[0]!
+  socket.readyState = 1
+  socket.onopen?.()
+  socket.onmessage?.({
+    data: JSON.stringify(createControlFrame('hello.ack', {
+      protocol: PROTOCOL_VERSION, serverVersion: '1', connectionSessionId: 's1',
+      heartbeatIntervalMs: 30_000, maxControlFrameBytes: 65536, maxRelayFrameBytes: 1048576,
+      capabilities: ['transport.relay'],
+    })),
+  })
+  const peer = identity()
+  socket.onmessage?.({
+    data: JSON.stringify(createControlFrame('connect.incoming', {
+      connectionId: 'half-open-1', clientDeviceId: peer.deviceId, clientIdentityKey: peer.publicKey,
+    })),
+  })
+  await new Promise(resolve => setTimeout(resolve, 90))
+  const rejected = socket.sent
+    .map(raw => JSON.parse(String(raw)) as { type: string; payload: { connectionId?: string; code?: string } })
+    .find(frame => frame.type === 'connect.rejected' && frame.payload.connectionId === 'half-open-1')
+  assert.equal(rejected?.payload.code, 'HANDSHAKE_TIMEOUT')
+  await host.stop()
+})
+
+test('RelayTransport nulls out socket event handlers when ending a socket', async () => {
+  const socket = new FakeSocket()
+  const transport = new RelayTransport('ws://unused', {
+    deviceId: 'd-phone', identityKey: 'k', accessToken: 't', targetDeviceId: 'd-host',
+    createSocket: () => socket as unknown as WebSocket,
+  })
+  void transport.connect().catch(() => {})
+  socket.readyState = 1
+  socket.onopen?.()
+  ;(transport as unknown as { connectionId?: string }).connectionId = 'conn-null'
+  ;(transport as unknown as { finishConnection(): void }).finishConnection()
+  await transport.close()
+  assert.equal(socket.onopen, null)
+  assert.equal(socket.onmessage, null)
+  assert.equal(socket.onerror, null)
+  assert.equal(socket.onclose, null)
+})

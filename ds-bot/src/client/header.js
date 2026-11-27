@@ -2,13 +2,13 @@ import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useSt
 import { createPortal } from 'react-dom'
 import { currentPart, latestMemoryChange } from './text.js'
 import { ArrowUpIcon, CloseIcon, ArrowDownIcon, GoalIcon, MemoryIcon, SearchIcon } from './icons.js'
-import { botState, BotAvatar, RoomAvatar } from './mark.js'
+import { botPendingOf, dmMarkState, lastTurnFailed, latestTurnOf, useBotApprovals, useBotHandoff, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { ActivityIndicator } from './activity-row.js'
 import { clockLabel, newDividerIn, openingTurn, unseenSince } from './cells.js'
 import { GoalIsland, goalView } from './goal.js'
 import { ApprovalIslandPod, roomApprovals } from './member-status.js'
-import { TaskIslandPod, isActiveTask, tasksForChat } from './bot-tasks.js'
+import { TaskIslandPod, isActiveTask, taskCountsOf, tasksForChat } from './bot-tasks.js'
 import { viewBottom } from './motion.js'
 import { t } from './i18n.js'
 
@@ -47,7 +47,7 @@ function MemoryNotice({ shown }) {
     h('span', { className: 'bt-pill-mem-in', ref: inner }, h('span', { className: 'bt-pill-mem-ico' }, h(MemoryIcon)), label))
 }
 
-export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning }) {
+export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useBrowserHolds, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning }) {
   const roster = useRoster(value => value)
   const selectedView = useStore?.(state => state.view)
   const away = useConversationViews?.(views => views.some(view => view.id === selectedView && view.id !== 'chat')) === true
@@ -74,6 +74,21 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const owner = roster.byId[sessionId]?.id ?? sessionId
   const doing = useActivity(map => map[owner])
   const bot = roster.byId[sessionId]
+  const failed = lastTurnFailed(bot, useSessions(list => (bot ? latestTurnOf(list, currentPart(bot)) : undefined)))
+  const { fgApproval, bgApproval } = useBotApprovals(bot?.id, useWork, useComputer)
+  const handoff = useBotHandoff(bot?.id, useBrowserHolds, useComputer)
+  const botTaskCounts = bot ? taskCountsOf({ bot }) : { active: 0, waitingApproval: 0 }
+  const botMarkState = bot ? dmMarkState({
+    running,
+    doing,
+    failed,
+    background: botTaskCounts.active > 0,
+    waitingApproval: botTaskCounts.waitingApproval > 0,
+    fgApproval,
+    bgApproval,
+    handoff,
+    pending: botPendingOf(roster, bot),
+  }) : 'idle'
   const room = roster.roomsById[sessionId]
   const goal = room?.goal
   // Goal panels are keyed by the group, never by its current Session: `composeGoal` and
@@ -94,7 +109,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const workApprovalsKey = useWork?.(work => (room
     ? JSON.stringify((work.approvals ?? []).filter(entry => entry.roomId === room.id))
     : bot
-      ? JSON.stringify((work.approvals ?? []).filter(entry => entry.botId === bot.id && entry.taskId !== undefined && entry.answerable !== false))
+      ? JSON.stringify((work.approvals ?? []).filter(entry => entry.botId === bot.id && entry.roomId === undefined && entry.answerable === true))
       : '')) ?? '[]'
   const computerAsksKey = useComputer?.(comp => (room ? JSON.stringify(Object.values(comp?.asks ?? {}).filter(ask => ask.roomId === room.id)) : '')) ?? '[]'
   const approvals = room
@@ -104,7 +119,8 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
       : []
   const view = goal ? goalView(goal, { roster, roomWork }) : null
   const goalShown = room !== undefined && !away && goal !== undefined
-  const detailsOpen = useUi(state => state.details === sessionId)
+  const subjectId = bot?.id ?? room?.id ?? sessionId
+  const detailsOpen = useUi(state => Boolean(state.details) && (state.details === sessionId || (roster.byId[state.details]?.id ?? roster.roomsById[state.details]?.id ?? state.details) === subjectId))
   const name = bot?.name ?? room?.name ?? ''
   const useNews = useMemoryNews ?? noNews
   const memoryIds = bot ? [bot.id] : room ? [room.id, ...room.members] : []
@@ -134,9 +150,17 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const memoryNotice = !away && notice && changed !== null && roster.memory !== false
   const showGoal = room !== undefined && !away && (goal !== undefined || goalCompose)
   const showTasks = approvalTargetId !== undefined && !away && activeTasks.length > 0
-  // When active background tasks are shown, TaskIslandPod + TaskFocusOverlay already
-  // surface every pending approval for this chat in one unified deck (no double bars).
-  const showApprovals = approvalTargetId !== undefined && !away && approvals.length > 0 && !showTasks
+  const foregroundApprovals = bot && !room
+    ? approvals.filter(entry => entry.kind === 'tool' && entry.approval?.taskId === undefined)
+    : []
+  // A foreground request belongs to this chat, not to its background-task deck.
+  // Keep it actionable even while that deck also has active work to show.
+  const standaloneApprovals = foregroundApprovals.length > 0 ? foregroundApprovals : approvals
+  const taskApprovals = foregroundApprovals.length > 0
+    ? approvals.filter(entry => entry.kind !== 'tool' || entry.approval?.taskId !== undefined)
+    : approvals
+  // Background approvals live in the task deck when it is present, avoiding double bars.
+  const showApprovals = approvalTargetId !== undefined && !away && standaloneApprovals.length > 0 && (foregroundApprovals.length > 0 || !showTasks)
   const showIsland = showGoal || showApprovals || showTasks
   // Once the last approval is answered, reset approvalOpen so future approvals
   // appear as a compact bar rather than popping straight into a 560px panel.
@@ -160,7 +184,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     title: away ? name : undefined,
     onClick: () => (away ? selectView('chat') : memoryNotice ? actions.openMemory(changed) : actions.toggleDetails(sessionId)),
   },
-    bot ? h(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== undefined), badge: false })
+    bot ? h(BotAvatar, { bot, size: 24, state: botMarkState, badge: false })
       : room ? h(RoomAvatar, { room, roster, size: 24 }) : null,
     goalShown
       ? h('span', { className: 'bt-pill-swap' },
@@ -170,9 +194,9 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     goalShown && view?.number !== undefined ? h('span', { className: 'bt-pill-count' }, `${view.number}/${view.count}`) : null,
     h(MemoryNotice, { shown: memoryNotice }),
     h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoArrow)))
-  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals, open: approvalOpen, room, targetId: approvalTargetId, actions }) : null
-  const taskPod = showTasks ? h(TaskIslandPod, { bot, room, roster, tasks: chatTasks, approvals, open: taskDeckOpen, focusTaskId: taskDeckState?.taskId ?? null, targetId: approvalTargetId, actions }) : null
-  const taskWaiting = Math.max(activeTasks.filter(item => item.status === 'waiting_approval').length, approvals.length)
+  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals: standaloneApprovals, open: approvalOpen, room, targetId: approvalTargetId, actions, readOnly: Boolean(roster.readOnly) }) : null
+  const taskPod = showTasks ? h(TaskIslandPod, { bot, room, roster, tasks: chatTasks, approvals: taskApprovals, open: taskDeckOpen, focusTaskId: taskDeckState?.taskId ?? null, targetId: approvalTargetId, actions }) : null
+  const taskWaiting = Math.max(activeTasks.filter(item => item.status === 'waiting_approval').length, taskApprovals.length)
   const taskBadge = taskHoverReveal
     ? h('button', {
         type: 'button',
@@ -187,7 +211,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
       h('span', null, activeTasks.length))
     : null
   return h('div', { className: 'bt-head' },
-    showIsland ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: approvals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, roomWork, roster, actions, pill }) : pill,
+    showIsland ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: standaloneApprovals.length, taskPod, taskOpen: taskDeckOpen, taskCount: activeTasks.length, taskHoverReveal, taskBadge, roomWork, roster, actions, pill }) : pill,
     !away && PendingLearning ? h(PendingLearning, { key: sessionId, sessionId, useRoster, actions }) : null,
     h('span', { className: 'bt-sr', role: 'status' }, memoryNotice ? t('Memory updated') : ''),
     room !== undefined && !away
@@ -221,16 +245,25 @@ export function pinWatch() {
 // replies land while the user is scrolled up; "N new messages ↑" points at an unread
 // divider above the viewport until it has been seen. The shell shows Back to bottom
 // only while unpinned, so its presence is the pinned signal.
-function useTranscriptView() {
+export function useTranscriptView() {
   const [view, setView] = useState(null)
   useEffect(() => {
     let frame = 0
     let watched = null
+    let headerEl = null
     const unpinned = pinWatch()
-    const observer = new MutationObserver(() => schedule())
+    const inComposer = (record) => {
+      const target = record.target
+      const el = target?.nodeType === 1 ? target : target?.parentElement
+      return typeof el?.closest === 'function' && el.closest('[data-composer-card]') !== null
+    }
+    const observer = new MutationObserver((records) => {
+      if (records.length > 0 && records.every(inComposer)) return
+      schedule()
+    })
     const measure = () => {
       frame = 0
-      const scroller = document.querySelector('[data-conversation-scroll]')
+      const scroller = watched?.isConnected ? watched : document.querySelector('[data-conversation-scroll]')
       if (scroller !== watched) {
         observer.disconnect()
         watched = scroller
@@ -238,7 +271,8 @@ function useTranscriptView() {
       }
       if (!scroller) { setView(null); return }
       const box = scroller.getBoundingClientRect()
-      const headerBottom = document.querySelector('header[class*="_header"]')?.getBoundingClientRect().bottom ?? box.top + 50
+      const header = headerEl?.isConnected ? headerEl : (headerEl = document.querySelector('header[class*="_header"]'))
+      const headerBottom = header?.getBoundingClientRect().bottom ?? box.top + 50
       const sep = newDividerIn(scroller)
       let divider = null
       if (sep) {
@@ -256,7 +290,11 @@ function useTranscriptView() {
       setView(prev => (prev && Object.keys(next).every(key => prev[key] === next[key]) ? prev : next))
     }
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure) }
-    document.addEventListener('scroll', schedule, true)
+    const onScroll = (event) => {
+      if (watched?.isConnected && event.target !== watched) return
+      schedule()
+    }
+    document.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', schedule)
     window.visualViewport?.addEventListener('resize', schedule)
     window.visualViewport?.addEventListener('scroll', schedule)
@@ -264,7 +302,7 @@ function useTranscriptView() {
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
-      document.removeEventListener('scroll', schedule, true)
+      document.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', schedule)
       window.visualViewport?.removeEventListener('resize', schedule)
       window.visualViewport?.removeEventListener('scroll', schedule)

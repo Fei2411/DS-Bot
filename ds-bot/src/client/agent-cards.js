@@ -17,10 +17,26 @@ export function useLocalAgents(wanted) {
   const [scanning, setScanning] = useState(false)
   const load = (endpoint) => {
     setScanning(true)
-    return call(endpoint).then(setView).catch(() => setView({ detected: [], custom: [] })).finally(() => setScanning(false))
+    return call(endpoint).then(setView).catch(() => setView({ detected: [], profiles: [], custom: [] })).finally(() => setScanning(false))
   }
   useEffect(() => { if (wanted && view === null) void load('local-agents') }, [wanted])
-  const agents = view === null ? [] : [...view.detected, ...view.custom.filter(agent => agent.available !== false).map(agent => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))]
+  const profiles = (view?.profiles ?? [])
+    .filter(profile => profile.available !== false)
+    .map(profile => ({
+      route: profile.route,
+      baseRoute: profile.baseRoute,
+      profileId: profile.id,
+      name: profile.displayName ?? profile.name,
+      version: profile.version,
+      signIn: profile.signIn,
+      signedIn: profile.signedIn,
+      configDir: profile.configDir,
+    }))
+  const agents = view === null ? [] : [
+    ...view.detected,
+    ...profiles,
+    ...view.custom.filter(agent => agent.available !== false).map(agent => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null })),
+  ]
   return { agents, known: view !== null, scanning, refresh: () => load('local-agent-refresh') }
 }
 
@@ -86,15 +102,15 @@ export function CliList({ agents, known, scanning, refresh, selected, onPick, ac
   })))
 }
 
-export const RunModeSwitch = ({ mode, setMode }) => h(Segmented, { label: t('Runs on'), value: mode },
-  h('button', { type: 'button', 'aria-pressed': mode === 'model', onClick: () => setMode('model') }, t('DS Bot model')),
+export const RunModeSwitch = ({ mode, setMode }) => h(Segmented, { label: t('Engine'), value: mode },
+  h('button', { type: 'button', 'aria-pressed': mode === 'model', onClick: () => setMode('model') }, t('Built-in engine')),
   h('button', { type: 'button', 'aria-pressed': mode === 'local', onClick: () => setMode('local') }, t('Local agent')))
 
 export const ReadingModels = () => h('span', { className: 'bt-loading' },
   h('i', { className: 'bt-loading-spin', 'aria-hidden': true }), t('Reading models…'))
 
 // A Bot's settings: what it runs on now, and the one way to change it.
-export function RunModeCard({ bot, roster, actions, run, Card }) {
+export function RunModeCard({ bot, roster, actions, run, Card, children = null }) {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState('model')
   const [target, setTarget] = useState('')
@@ -114,12 +130,11 @@ export function RunModeCard({ bot, roster, actions, run, Card }) {
   const agent = agents.find(entry => entry.route === routeOf(target))
   const changing = target !== '' && (isLocalRoute(target) ? routeOf(target) !== bot.engine : bot.engine !== undefined)
   const confirm = () => run(actions.updateBot(bot.id, { model: target, changeEngine: true, ...avatarAfter(bot, target) })).then((done) => { if (done !== false) setOpen(false) })
-  return h(Card, { title: t('Runs on') },
+  return h(Card, { title: t('Engine') },
     h('div', { className: 'bt-set-row bt-bs-row' },
       h('span', { className: 'bt-set-copy' },
-        h('span', { className: 'bt-bs-label' }, bot.engine === undefined ? t('DS Bot model') : engineName, bot.engine === undefined ? null : h(AgentBadge, { engine: bot.engine })),
-        h('span', { className: 'bt-set-hint' }, bot.engine === undefined ? t('Answers with a model served by DS Bot, with DS Bot\'s tools.') : t('Answers through this CLI on your computer, with its own tools and sign-in.'))),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', 'aria-expanded': open, onClick: () => (open ? setOpen(false) : start()) }, open ? t('Cancel') : t('Change'))),
+        h('span', { className: 'bt-bs-label' }, bot.engine === undefined ? t('Built-in engine') : engineName, bot.engine === undefined ? null : h(AgentBadge, { engine: bot.engine }))),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', 'aria-expanded': open, onClick: () => (open ? setOpen(false) : start()) }, open ? t('Cancel') : t('Switch'))),
     open ? h('div', { className: 'bt-runmode' },
       h(RunModeSwitch, { mode, setMode: switchMode }),
       mode === 'local'
@@ -128,7 +143,7 @@ export function RunModeCard({ bot, roster, actions, run, Card }) {
       changing ? h('div', { className: 'bt-runmode-confirm', role: 'group', 'aria-label': t('Change what {name} runs on?', { name: bot.name }) },
         h('div', { className: 'bt-runmode-title' }, t('Change what {name} runs on?', { name: bot.name })),
         h('ul', { className: 'bt-runmode-notes' }, runModeNotes({ bot, roster, target, agent }).map(note => h('li', { key: note }, note))),
-        h('button', { type: 'button', className: 'bt-send', onClick: () => void confirm() }, t('Change and start a new part'))) : null) : null)
+        h('button', { type: 'button', className: 'bt-send', onClick: () => void confirm() }, t('Change and start a new part'))) : null) : children)
 }
 
 export const AGENT_CARDS_CSS = `

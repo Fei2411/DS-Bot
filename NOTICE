@@ -10,9 +10,15 @@ Third-party code in this repository
 DeepSeek Harness (https://github.com/deepseek-ai/deepseek-harness)
 MIT License, Copyright (c) 2026 DeepSeek
 
-  - mobile/src/ui/icons.tsx FishLogo draws DSH's official mark, the path of
-    FishLogo in @deepseek-ai/dsh-client-ui-primitives (owner: DeepSeek), to
-    name the DSH Agent in the phone app as the desktop sidebar does.
+  - ds-bot/test/fixtures/code-mode-tools.json captures the 23 model-facing
+    tool schemas from the headless benchmark. Canonical outputs in this test
+    fixture use a generic JSON schema; the captured parameter schemas and
+    descriptions are from DeepSeek Harness.
+  - mobile/src/ui/icons.tsx FishLogo, app/ui/src/primitives.js FishLogo, and
+    ds-bot/src/client/provider-logos.js DEEPSEEK_PATH draw DSH's official mark,
+    the path of FishLogo in @deepseek-ai/dsh-client-ui-primitives (owner: DeepSeek),
+    to name the DSH Agent and DeepSeek provider across the phone app, desktop
+    window, and model provider cards.
   - ds-bot/dev/desktop-linux/launch.mts follows the steps of
     apps/desktop/scripts/dev.ts in DeepSeek Harness and reuses a few of its
     lines (the release record and the Electron launch arguments). It is a
@@ -51,9 +57,10 @@ MIT License, Copyright (c) 2026 DeepSeek
   - app/engine/cordis.patch.yml follows the bundle patch of
     @deepseek-ai/dsh-web-app (packages/bundle/web-app/cordis.patch.yml): the
     transport and host-service rows and the agent-plane rows it turns off.
-    app/engine/preset-standard.patch.yml copies its standard preset
-    (presets/standard.patch.yml), including the plan-mode prompt text,
-    without the goal rows.
+    app/engine/preset-standard.patch.yml, app/engine/preset-ptc.patch.yml,
+    app/engine/preset-minimal.patch.yml, and app/engine/preset-cordis.patch.yml
+    copy its built-in presets (presets/{standard,ptc,minimal,cordis}.patch.yml),
+    including the plan-mode prompt text, without the goal rows.
   - .agents/skills/record-browser-gif/ comes from the skill of the same name
     in DeepSeek Harness (.agents/skills/record-browser-gif/): SKILL.md is
     adapted and translated for this repository; scripts/encode_gif.py and
@@ -218,9 +225,13 @@ it uses, listed below. The desktop app
 in app/ installs the pinned @deepseek-ai/* packages, Electron and pnpm from
 npm; they keep their own licenses. The build of its window (app/ui) bundles,
 from npm, React and React DOM (MIT, Copyright (c) Meta Platforms, Inc. and
-affiliates), and react-markdown and remark-gfm with the packages they use
+affiliates), react-markdown, remark-gfm, and remark-math with the packages they use
 (MIT, most of them Copyright (c) Titus Wormer; @ungap/structured-clone is ISC,
-Copyright (c) Andrea Giammarchi). Vite is a build tool only. The mobile app in
+Copyright (c) Andrea Giammarchi), highlight.js (BSD-3-Clause, Copyright (c) 2006
+Ivan Sagalaev and highlight.js contributors), KaTeX (MIT, Copyright (c) 2013-2020
+Khan Academy and other contributors), @xterm/xterm and @xterm/addon-fit (MIT,
+Copyright (c) The xterm.js authors), qrcode-generator (MIT, Copyright (c) 2009
+Kazuhiko Arase), and deep-view (Apache-2.0). Vite is a build tool only. The mobile app in
 mobile/ bundles, from npm, Expo and React Native (MIT, Copyright (c) 650
 Industries, Inc. and Meta Platforms, Inc. and affiliates). The phone link in
 link/, which the mobile app bundles and the Relay Server runs, uses from npm
@@ -268,3 +279,25 @@ GitHub Copilot (GitHub), Kimi (Moonshot AI), MiniMax (MiniMax), Mistral AI (Mist
 OpenAI (OpenAI). DS Bot is not affiliated with or endorsed by these owners.
 Vector marks from Simple Icons (https://simpleicons.org), CC0-1.0.
 Devin, OpenAI and Antigravity marks from the vendors' application icons.
+
+Plugin logos (ds-bot/src/client/plugin-marks.js)
+The browser plugin marks identify their respective projects. Each is a trademark
+of its owner: Playwright (Microsoft, official SVG mark from playwright.dev,
+Apache-2.0), Ego (CitroLabs, official geometric mark from citrolabs/ego-lite),
+and Chrome (Google). DS Bot is not affiliated with or endorsed by these owners.
+
+Browser logos (ds-bot/src/client/browser-marks.js)
+The browser marks identify browsers installed on the user's machine for cookie
+import. Each is a trademark of its owner: Chrome and Chromium (Google), Edge
+(Microsoft), Safari (Apple), Firefox (Mozilla), Brave (Brave Software), Arc
+(The Browser Company), Opera (Opera Norway), Vivaldi (Vivaldi Technologies),
+and Zen (Zen Browser). DS Bot is not affiliated with or endorsed by these owners.
+
+Reply fonts (ds-bot/assets/fonts/)
+Subsets made by ds-bot/scripts/build-fonts.py from the google/fonts
+repository (https://github.com/google/fonts), each under the SIL Open Font
+License 1.1; the license texts ship next to the fonts.
+  - Source Serif 4, Copyright 2014 The Source Serif 4 Project Authors
+    (https://github.com/adobe-fonts/source-serif).
+  - Noto Serif SC (Source Han Serif), Copyright 2012 Google Inc.
+The subsets are renamed DS Bot Serif Latin and DS Bot Serif SC.

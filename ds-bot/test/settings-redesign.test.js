@@ -107,6 +107,13 @@ function makeStatefulReact() {
   }
 
   const runEffects = () => {
+    for (const [key, cleanup] of [...activeCleanups.entries()]) {
+      if (!effects.has(key)) {
+        cleanup()
+        activeCleanups.delete(key)
+        prevDeps.delete(key)
+      }
+    }
     for (const [key, { fn, deps }] of effects.entries()) {
       if (!depsChanged(prevDeps.get(key), deps)) continue
       activeCleanups.get(key)?.()
@@ -213,7 +220,7 @@ const withGlobals = async (fn) => {
   }
 }
 
-test('SettingsDialog opens on Overview, lists 9 nav groups, and scrolls domain parts under anchors for every legacy deep link', async () => {
+test('SettingsDialog opens on Overview, lists 10 nav groups, and switches discrete domain tabs for every legacy deep link', async () => {
   const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
   await withGlobals(async () => {
     const harness = makeStatefulReact()
@@ -223,9 +230,12 @@ test('SettingsDialog opens on Overview, lists 9 nav groups, and scrolls domain p
     ))
     const { SettingsDialog } = mod.exports
 
+    const mainCalls = []
+    const opened = []
     const actions = {
-      openSettings() {},
+      openSettings(page, id) { opened.push([page, id ?? null]) },
       closeSettings() {},
+      setMain: (...args) => { mainCalls.push(args); return Promise.resolve() },
       providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
       deepseekServices: () => Promise.resolve(null),
       folders: () => Promise.resolve({ team: '/work' }),
@@ -235,10 +245,10 @@ test('SettingsDialog opens on Overview, lists 9 nav groups, and scrolls domain p
       setPrefs: () => Promise.resolve(),
     }
 
-    const renderPage = (page, id = null) => {
+    const renderPage = (page, id = null, extraProps = {}) => {
       harness.unmount()
       return harness.render(harness.React.createElement(SettingsDialog, {
-        page, id, roster: baseRoster, actions, useUpdate: sel => sel({ available: true }),
+        page, id, roster: baseRoster, actions, useUpdate: sel => sel({ available: true }), ...extraProps,
       }))
     }
 
@@ -247,7 +257,7 @@ test('SettingsDialog opens on Overview, lists 9 nav groups, and scrolls domain p
     assert.equal(textOf(findAll(home, n => n.type === 'h2')[0]), 'Overview')
     const nav = findAll(home, n => n.type === 'nav' && n.props?.className === 'bt-settings-nav')[0]
     const labels = findAll(nav, n => n.props?.className === 'bt-settings-label').map(textOf)
-    assert.deepEqual(labels, ['Overview', 'General', 'Appearance', 'Models', 'Team', 'Connect', 'Tools', 'Usage', 'About DS Bot'])
+    assert.deepEqual(labels, ['Overview', 'General', 'Appearance', 'Models', 'Team', 'Connect', 'Tools', 'Plugins', 'Usage', 'About DS Bot'])
     // Team shows its count; About shows an update when one is out.
     assert.equal(textOf(findAll(nav, n => n.props?.className === 'bt-settings-count')[0]), '2')
     assert.equal(textOf(findAll(nav, n => n.props?.className === 'bt-settings-chip')[0]), 'Update')
@@ -256,11 +266,18 @@ test('SettingsDialog opens on Overview, lists 9 nav groups, and scrolls domain p
     // The legacy `guide` landing resolves to Overview.
     assert.equal(textOf(findAll(renderPage('guide'), n => n.type === 'h2')[0]), 'Overview')
 
-    // Models lists its parts in the order providers → local agents → Bot models → DeepSeek services.
+    // Models lists its scroll-spy anchors in order providers → local agents → Bot models → DeepSeek services,
+    // rendering all parts inside the shared scrolling page with clean separators and zero duplicate headings.
     const models = renderPage('models')
     const anchorsOf = tree => findAll(tree, n => n.type === 'nav' && n.props?.className === 'bt-settings-anchors')[0]
     assert.deepEqual(findAll(anchorsOf(models), n => n.type === 'button').map(textOf), ['Providers', 'Local agents', 'Bot models', 'DeepSeek services'])
-    assert.deepEqual(findAll(models, n => n.type === 'section' && n.props?.['data-part']).map(n => n.props['data-part']), ['models', 'local-agents', 'bot-models', 'deepseek-services'])
+    assert.deepEqual(findAll(models, n => n.props?.className === 'bt-set-part').map(n => n.props['data-part']), ['models', 'local-agents', 'bot-models', 'deepseek-services'])
+    // Keyboard navigation on the anchor bar jumps smoothly between parts.
+    opened.length = 0
+    anchorsOf(models).props.onKeyDown({ key: 'ArrowRight', preventDefault() {} })
+    assert.deepEqual(opened, [['local-agents', null]])
+    anchorsOf(models).props.onKeyDown({ key: 'End', preventDefault() {} })
+    assert.deepEqual(opened.at(-1), ['deepseek-services', null])
 
     const routes = [
       ['models', 'Models', 'Providers'],
@@ -273,12 +290,12 @@ test('SettingsDialog opens on Overview, lists 9 nav groups, and scrolls domain p
       ['connectors', 'Connect', 'Connectors'],
       ['im', 'Connect', 'IM'],
       ['phone', 'Connect', 'Phone'],
-      ['mcp', 'Connect', 'MCP access'],
+      ['api', 'Connect', 'API'],
       ['computer', 'Tools', 'Computer use'],
       ['browser', 'Tools', 'Browser'],
       ['capabilities', 'Tools', 'Capabilities'],
       ['secrets', 'Tools', 'Secrets'],
-      ['about', 'About DS Bot', 'About DS Bot'],
+      ['about', 'About DS Bot', 'About'],
       ['feedback', 'About DS Bot', 'Feedback'],
     ]
     for (const [page, expectedGroup, expectedPart] of routes) {
@@ -286,20 +303,66 @@ test('SettingsDialog opens on Overview, lists 9 nav groups, and scrolls domain p
       const currentNav = findAll(tree, n => n.type === 'button' && n.props['aria-current'] === 'page')[0]
       assert.equal(textOf(findAll(currentNav, n => n.props?.className === 'bt-settings-label')[0]), expectedGroup, `page "${page}" should highlight nav group "${expectedGroup}"`)
       const anchors = anchorsOf(tree)
-      assert.ok(anchors, `page "${page}" should render the anchor row`)
+      assert.ok(anchors, `page "${page}" should render the anchor bar`)
       const active = findAll(anchors, n => n.type === 'button' && n.props['aria-current'] === 'location')[0]
-      assert.ok(textOf(active).startsWith(expectedPart), `page "${page}" should mark anchor "${expectedPart}", got "${textOf(active)}"`)
-      assert.equal(findAll(tree, n => n.type === 'section' && n.props?.['data-part'] === page).length, 1, `page "${page}" should render its part`)
+      assert.ok(textOf(active).startsWith(expectedPart), `page "${page}" should highlight anchor "${expectedPart}", got "${textOf(active)}"`)
+      const partSections = findAll(tree, n => n.props?.className === 'bt-set-part')
+      assert.ok(partSections.some(n => n.props['data-part'] === page), `page "${page}" should render its scrolling section`)
     }
+
+    // Team renders Bots, Group chats, and Scheduled tasks stacked without duplicate outer headings on Groups/Schedules.
+    const teamParts = findAll(renderPage('bots'), n => n.props?.className === 'bt-set-part')
+    assert.deepEqual(teamParts.map(n => n.props['data-part']), ['bots', 'groups', 'schedules'])
+    for (const part of teamParts) {
+      assert.equal(findAll(part, n => n.props?.className === 'bt-part-head').length, 0, `part "${part.props['data-part']}" uses its own heading without duplicate outer title`)
+    }
+
+    // Team → Bots renders multi-select Main Bots pills (not a single-select dropdown) and keeps >= 1 Main Bot.
+    const botsTree = renderPage('bots')
+    const mainPills = findAll(botsTree, n => n.type === 'button' && n.props?.className === 'bt-main-pill')
+    assert.equal(mainPills.length, 2)
+    assert.equal(mainPills[0].props['aria-pressed'], true)
+    assert.equal(mainPills[0].props.disabled, true, 'last remaining Main Bot cannot be unchecked')
+    assert.equal(mainPills[1].props['aria-pressed'], false)
+    assert.equal(mainPills[1].props.disabled, false)
+    mainPills[1].props.onClick()
+    assert.deepEqual(mainCalls, [['writer', true]])
+
+    // With 2 Main Bots, both can be toggled and Primary tile SelectMenu chooses the first sidebar tile.
+    const multiMainTree = renderPage('bots', null, { roster: { ...baseRoster, mainBotIds: ['chief', 'writer'] } })
+    const multiPills = findAll(multiMainTree, n => n.type === 'button' && n.props?.className === 'bt-main-pill')
+    assert.equal(multiPills[0].props.disabled, false)
+    assert.equal(multiPills[1].props.disabled, false)
+    const primaryPicker = findAll(multiMainTree, n => n.type === 'button' && n.props?.['aria-label'] === 'Primary tile')[0]
+    assert.ok(primaryPicker, 'Primary tile selector appears when multiple Main Bots are selected')
+    assert.equal(primaryPicker.props['data-value'], 'chief')
+
+    // Deep-linking `dsh` with `plugins:web-search` routes into `Plugins → Engine plugins` and forwards `subTarget: 'web-search'`.
+    const slotCalls = []
+    const dshStub = {
+      sections: [{ id: 'plugins', label: 'Plugins' }],
+      items: [],
+      renderSlot: (name, props, opts) => { slotCalls.push({ name, props, opts }); return null },
+    }
+    const plugTree = renderPage('dsh', 'plugins:web-search', { dsh: dshStub })
+    assert.equal(textOf(findAll(plugTree, n => n.type === 'h2')[0]), 'Engine plugins')
+    assert.equal(findAll(plugTree, n => n.type === 'button' && n.props?.['aria-label'] === 'Back to Plugins').length, 1)
+    const sectionCall = slotCalls.find(c => c.name === 'settings.section')
+    assert.equal(sectionCall.opts.only, 'plugins')
+    assert.equal(sectionCall.props.subTarget, 'web-search')
 
     // A drilled-down Bot hides the anchors and leads back to Bots.
     const botDetail = renderPage('bots', 'chief')
     assert.equal(anchorsOf(botDetail), undefined)
     assert.ok(findAll(botDetail, n => n.type === 'button' && n.props['aria-label'] === 'Back to Bots').length === 1)
-    // `bots/new` opens Team with the new-Bot form already open.
+    // `bots/new` drills into a dedicated New Bot subpage with a Back to Bots bar.
     const newBotButton = tree => findAll(tree, n => n.type === 'button' && n.props?.['data-tour'] === 'new-bot')
     assert.equal(newBotButton(renderPage('bots')).length, 1)
-    assert.equal(newBotButton(renderPage('bots', 'new')).length, 0, 'the form replaces its button')
+    const creatingTree = renderPage('bots', 'new')
+    assert.equal(anchorsOf(creatingTree), undefined, 'New Bot subpage hides Team anchors')
+    assert.equal(textOf(findAll(creatingTree, n => n.type === 'h2')[0]), 'New Bot')
+    assert.equal(findAll(creatingTree, n => n.type === 'button' && n.props['aria-label'] === 'Back to Bots').length, 1)
+    assert.equal(newBotButton(creatingTree).length, 0, 'the form replaces its button')
     harness.unmount()
   })
 })
@@ -328,7 +391,7 @@ test('Settings search opens as a palette from the rail or ⌘K, finds settings, 
     const draw = () => harness.render(harness.React.createElement(SettingsDialog, {
       page: currentPage, id: currentId, roster: baseRoster, actions, useUpdate: sel => sel({}),
     }))
-    const fire = event => { for (const fn of [...listeners]) fn({ isComposing: false, preventDefault() {}, stopPropagation() {}, ...event }) }
+    const fire = event => { for (const fn of Array.from(listeners)) fn({ isComposing: false, preventDefault() {}, stopPropagation() {}, ...event }) }
     // ⌘K on a Mac, Ctrl+K elsewhere; the other one is left to the text fields.
     const mac = /mac|iphone|ipad/i.test(globalThis.navigator?.platform ?? globalThis.navigator?.userAgent ?? '')
     const primary = mac ? { metaKey: true } : { ctrlKey: true }
@@ -340,10 +403,24 @@ test('Settings search opens as a palette from the rail or ⌘K, finds settings, 
     const type = (value) => { searchInput().props.onChange({ target: { value } }); tree = draw() }
     assert.equal(searchInput(), undefined, 'the palette stays closed until asked for')
 
-    // The rail's search button opens the palette.
+    // The rail's search button opens the palette with immediate quick-jump suggestions.
     findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-set-search')[0].props.onClick()
     tree = draw()
     assert.ok(searchInput())
+    assert.ok(hits().length > 0, 'empty query should show quick-jump pages and Bots')
+
+    // Title/group matches rank ahead of keyword-only hits ("model" ranks Default model / Bot models ahead of Providers / keywords).
+    type('model')
+    const modelTitles = hits().map(h => textOf(findAll(h, n => n.props?.className === 'bt-set-search-title')[0]))
+    assert.ok(modelTitles.indexOf('Default model') >= 0 && modelTitles.indexOf('Bot models') >= 0 && modelTitles.indexOf('Providers') >= 0)
+    assert.ok(modelTitles.indexOf('Default model') < modelTitles.indexOf('Providers'), 'title match must outrank group/keyword hit')
+    assert.ok(modelTitles.indexOf('Bot models') < modelTitles.indexOf('Providers'), 'title match must outrank group/keyword hit')
+
+    // Searching "模型" surfaces Default model / Providers / Bot models without irrelevant General ahead of them.
+    type('模型')
+    const zhModelTitles = hits().map(h => textOf(findAll(h, n => n.props?.className === 'bt-set-search-title')[0]))
+    assert.ok(zhModelTitles.includes('Default model') && zhModelTitles.includes('Providers') && zhModelTitles.includes('Bot models'))
+    assert.equal(zhModelTitles.includes('General'), false)
 
     // Chinese keywords reach IM.
     type('微信')
@@ -464,12 +541,15 @@ test('SettingsTour auto-runs once on first open, catches Escape before Settings,
       page: currentPage, id: null, roster: baseRoster, actions, useUpdate: sel => sel({}),
     }))
 
-    // First open: full walkthrough starts automatically.
+    // First open: full walkthrough starts automatically with a top-right Close (×) button.
     let tree = draw()
     let tourLayer = findAll(tree, n => n.props?.className === 'bt-tour-layer')[0]
     assert.ok(tourLayer, 'full walkthrough should auto-start on first open')
     assert.equal(tourLayer.props['data-tour-mode'], 'full')
     assert.equal(tourLayer.props['data-tour-step'], 'search')
+    const tourCloseBtn = findAll(tourLayer, n => n.type === 'button' && n.props?.className === 'bt-tour-close')[0]
+    assert.ok(tourCloseBtn, 'tour card must expose a crisp × close button')
+    assert.equal(tourCloseBtn.props['aria-label'], 'Close')
 
     // Next advances step and navigates to Models.
     const nextBtn = () => findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-send bt-soft-sm')[0]
@@ -481,7 +561,7 @@ test('SettingsTour auto-runs once on first open, catches Escape before Settings,
     assert.equal(tourLayer.props['data-tour-step'], 'provider-list')
 
     // Pressing Escape dismisses the walkthrough (priority 1) WITHOUT closing Settings and marks seen.
-    for (const fn of [...listeners]) fn({ key: 'Escape', isComposing: false, keyCode: 27, preventDefault() {}, stopPropagation() {} })
+    for (const fn of Array.from(listeners)) fn({ key: 'Escape', isComposing: false, keyCode: 27, preventDefault() {}, stopPropagation() {} })
     assert.equal(closed, 0, 'Escape while tour is active must not close Settings')
     assert.equal(store.get(TOUR_SEEN_KEY), '1', 'dismissing full tour persists seen flag')
     tree = draw()
@@ -530,7 +610,7 @@ test('SettingsTour auto-runs once on first open, catches Escape before Settings,
     // Every data-tour target referenced by settings-tour.js exists in client source.
     const clientDir = join(repoRoot, 'ds-bot/src/client')
     const allClientSource = readdirSync(clientDir).filter(f => f.endsWith('.js') && f !== 'settings-tour.js').map(f => readFileSync(join(clientDir, f), 'utf8')).join('\n')
-    const modes = ['full', 'general', 'appearance', 'models', 'bot-models', 'local-agents', 'deepseek-services', 'bots', 'groups', 'schedules', 'connectors', 'im', 'phone', 'mcp', 'computer', 'browser', 'capabilities', 'secrets', 'usage']
+    const modes = ['full', 'general', 'appearance', 'models', 'bot-models', 'local-agents', 'deepseek-services', 'bots', 'groups', 'schedules', 'connectors', 'im', 'phone', 'api', 'computer', 'browser', 'capabilities', 'secrets', 'usage']
     for (const mode of modes) {
       for (const step of stepsForTour(mode, { hasProviders: true, hasAdvancedModels: true })) {
         const present = allClientSource.includes(`'${step.target}'`) || allClientSource.includes(`"${step.target}"`)
@@ -542,7 +622,7 @@ test('SettingsTour auto-runs once on first open, catches Escape before Settings,
     const stylesSrc = readFileSync(join(clientDir, 'styles.js'), 'utf8')
     assert.ok(!stylesSrc.includes('\n.bt-set-row:first-child{'), 'unscoped .bt-set-row:first-child causes notched hover corners on wrapped rows')
     assert.ok(!stylesSrc.includes('\n.bt-set-row:last-child{'), 'unscoped .bt-set-row:last-child causes notched hover corners on wrapped rows')
-    assert.ok(stylesSrc.includes('.bt-set-card{flex-shrink:0;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column;overflow:clip}'))
+    assert.ok(stylesSrc.includes('.bt-set-card{flex-shrink:0;container-type:inline-size;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column;overflow:clip}'))
     assert.ok(stylesSrc.includes('button.bt-select{display:inline-flex;align-items:center;'))
     harness.unmount()
   })
@@ -753,12 +833,12 @@ test('SettingsTour scrolls off-screen targets into view before clipping, tracks 
       assert.equal(clipped.top, 82)
 
       // ArrowRight with Ctrl/Meta or inside an INPUT must NOT advance step; plain ArrowRight DOES advance.
-      for (const fn of [...listeners]) fn({ key: 'ArrowRight', ctrlKey: true, preventDefault() {} })
-      for (const fn of [...listeners]) fn({ key: 'ArrowRight', target: { tagName: 'INPUT' }, preventDefault() {} })
+      for (const fn of Array.from(listeners)) fn({ key: 'ArrowRight', ctrlKey: true, preventDefault() {} })
+      for (const fn of Array.from(listeners)) fn({ key: 'ArrowRight', target: { tagName: 'INPUT' }, preventDefault() {} })
       tree = renderTour()
       assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'default-model')
 
-      for (const fn of [...listeners]) fn({ key: 'ArrowRight', preventDefault() {} })
+      for (const fn of Array.from(listeners)) fn({ key: 'ArrowRight', preventDefault() {} })
       tree = renderTour()
       assert.equal(findAll(tree, n => n.props?.className === 'bt-tour-layer')[0].props['data-tour-step'], 'locations')
       harness.unmount()
@@ -862,7 +942,7 @@ test('PhonePage offers one-click Turn on & pair and collapses custom relay serve
     assert.match(textOf(pairTree), /Only use a Server you trust/)
     const download = findAll(pairTree, n => n.type === 'a' && textOf(n) === 'Download')
     assert.equal(download.length, 1)
-    assert.equal(download[0].props.href, 'https://github.com/Fei2411/DS-Bot/releases/latest')
+    assert.equal(download[0].props.href, 'https://github.com/Fei-Craft/DS-Bot/releases/latest')
     assert.equal(findAll(pairTree, n => n.props?.['aria-label'] === 'Pairing QR code').length, 1)
     harness.unmount()
   })
@@ -874,7 +954,7 @@ test('BrowserPage collapses Allow an action form behind Allow action toggle and 
     const harness = makeStatefulReact()
     const mod = { exports: {} }
     new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
-      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : harness.React
+      id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : id === 'react-dom' ? { createPortal: el => el } : harness.React
     ))
     const { BrowserPage } = mod.exports
 
@@ -892,18 +972,26 @@ test('BrowserPage collapses Allow an action form behind Allow action toggle and 
     toggleBtn().props.onClick()
     tree = draw()
     assert.equal(findAll(tree, n => n.type === 'form').length, 1)
+    assert.equal(findAll(tree, n => n.type === 'select').length, 0, 'BrowserPage must use custom SelectMenu, not raw <select>')
     assert.ok(findAll(tree, n => n.props?.className?.includes('bt-seg')).length >= 1, 'Duration should use Segmented')
 
     // Editing bot, site, actions, and duration then clicking Cancel must discard the draft on reopen.
-    findAll(tree, n => n.type === 'select')[0].props.onChange({ target: { value: 'writer' } })
+    const botPicker = () => findAll(tree, n => n.type === 'button' && n.props?.['aria-haspopup'] === 'listbox' && n.props?.['aria-label'] === 'Bot')[0]
+    assert.equal(botPicker().props['data-value'], 'chief')
+    botPicker().props.onClick({ detail: 1 })
+    tree = draw()
+    findAll(tree, n => n.type === 'button' && n.props?.role === 'option' && textOf(n) === 'Writer')[0].props.onClick()
     findAll(tree, n => n.type === 'input' && n.props?.className?.includes('bt-browser-site'))[0].props.onChange({ target: { value: 'example.com' } })
-    const checkboxes = findAll(tree, n => n.type === 'input' && n.props?.type === 'checkbox')
-    checkboxes[1].props.onChange({ target: { checked: true } })
+    assert.equal(findAll(tree, n => n.type === 'input' && n.props?.type === 'checkbox').length, 0, 'BrowserPage must use custom aria-pressed action pills, not native checkboxes')
+    const actionPills = () => findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-browser-action-choice')
+    assert.equal(actionPills().length, 4)
+    actionPills()[1].props.onClick()
     const permBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Permanent')[0]
     permBtn.props.onClick()
     tree = draw()
-    assert.equal(findAll(tree, n => n.type === 'select')[0].props.value, 'writer')
+    assert.equal(botPicker().props['data-value'], 'writer')
     assert.equal(findAll(tree, n => n.type === 'input' && n.props?.className?.includes('bt-browser-site'))[0].props.value, 'example.com')
+    assert.deepEqual(actionPills().map(b => b.props['aria-pressed']), [true, true, false, false])
     assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === 'Permanent')[0].props['aria-pressed'], true)
 
     findAll(tree, n => n.type === 'button' && textOf(n) === 'Cancel')[0].props.onClick()
@@ -912,10 +1000,9 @@ test('BrowserPage collapses Allow an action form behind Allow action toggle and 
 
     toggleBtn().props.onClick()
     tree = draw()
-    assert.equal(findAll(tree, n => n.type === 'select')[0].props.value, 'chief')
+    assert.equal(botPicker().props['data-value'], 'chief')
     assert.equal(findAll(tree, n => n.type === 'input' && n.props?.className?.includes('bt-browser-site'))[0].props.value, '')
-    const resetBoxes = findAll(tree, n => n.type === 'input' && n.props?.type === 'checkbox')
-    assert.deepEqual(resetBoxes.map(b => b.props.checked), [true, false, false, false])
+    assert.deepEqual(actionPills().map(b => b.props['aria-pressed']), [true, false, false, false])
     assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === '1 hour')[0].props['aria-pressed'], true)
     assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === 'Permanent')[0].props['aria-pressed'], false)
     harness.unmount()
@@ -1007,7 +1094,41 @@ test('Overview fixes a missing API key in place, marks the Bots it stops, and su
   })
 })
 
-test('a part keeps the request it opened with while the user moves to another part of its domain', async () => {
+test('General Locations shows Data location from folders() fallback when dsBotApp is absent', async () => {
+  const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
+  await withGlobals(async () => {
+    const prevApp = globalThis.dsBotApp
+    delete globalThis.dsBotApp
+    try {
+      const harness = makeStatefulReact()
+      const mod = { exports: {} }
+      new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+        id === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : id === 'react-dom' ? { createPortal: el => el } : harness.React
+      ))
+      const { SettingsDialog } = mod.exports
+      const actions = {
+        openSettings() {},
+        closeSettings() {},
+        folders: () => Promise.resolve({ team: '/tmp/team-ws', data: '/tmp/dsh-data' }),
+        setPrefs: () => Promise.resolve(),
+      }
+      const draw = () => harness.render(harness.React.createElement(SettingsDialog, {
+        page: 'general', id: null, roster: baseRoster, actions, useUpdate: sel => sel({}),
+      }))
+      draw()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      const tree = draw()
+      const text = textOf(tree)
+      assert.match(text, /Data location/)
+      assert.match(text, /\/tmp\/dsh-data/)
+      harness.unmount()
+    } finally {
+      if (prevApp !== undefined) globalThis.dsBotApp = prevApp
+    }
+  })
+})
+
+test('a part keeps the request it opened with while the user moves between anchors of its domain', async () => {
   const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
   await withGlobals(async () => {
     const harness = makeStatefulReact()
@@ -1025,19 +1146,26 @@ test('a part keeps the request it opened with while the user moves to another pa
       schedules: () => Promise.resolve({ available: true, tasks: [] }),
     }
     const draw = () => harness.render(harness.React.createElement(SettingsDialog, { page: route[0], id: route[1], roster: baseRoster, actions, useUpdate: sel => sel({}) }))
-    const newTaskButton = tree => findAll(findAll(tree, n => n.type === 'section' && n.props?.['data-part'] === 'schedules')[0], n => n.type === 'button' && n.props?.['data-tour'] === 'new-task')
+    const anchorBtn = (tree, label) => findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-anchor' && textOf(n) === label)[0]
+    const panel = (tree, key) => findAll(tree, n => n.props?.className === 'bt-set-part' && n.props?.['data-part'] === key)[0]
+    const newTaskButton = tree => findAll(panel(tree, 'schedules'), n => n.type === 'button' && n.props?.['data-tour'] === 'new-task')
     draw()
     await new Promise(resolve => setTimeout(resolve, 0))
     let tree = draw()
     assert.equal(newTaskButton(tree).length, 0, 'a new-task link opens the form')
-    // The Bots anchor routes to `bots` with no id; the half-filled form stays open.
-    route = ['bots', null]
+    // Moving to Bots anchor and back keeps the open request on the shared scrolling page.
+    anchorBtn(tree, 'Bots').props.onClick()
     tree = draw()
-    assert.equal(newTaskButton(tree).length, 0, 'moving to another part keeps the form')
-    // Another domain starts clean: back on Team without a request, the form is closed.
+    assert.ok(panel(tree, 'schedules'), 'all parts of Team stay mounted in the scrolling page')
+    anchorBtn(tree, 'Scheduled tasks').props.onClick()
+    tree = draw()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    tree = draw()
+    assert.equal(newTaskButton(tree).length, 0, 'returning via anchor keeps the open request')
+    // Another domain starts clean: back on Team → Scheduled tasks without a request, the form is closed.
     route = ['models', null]
     draw()
-    route = ['bots', null]
+    route = ['schedules', null]
     tree = draw()
     await new Promise(resolve => setTimeout(resolve, 0))
     tree = draw()
@@ -1064,31 +1192,35 @@ test('Scheduled tasks "Show all" clears a Bot filter, while an anchor round trip
       schedules: () => Promise.resolve({ available: true, tasks: [] }),
     }
     const draw = () => harness.render(harness.React.createElement(SettingsDialog, { page: route[0], id: route[1], roster: baseRoster, actions, useUpdate: sel => sel({}) }))
-    const part = tree => findAll(tree, n => n.type === 'section' && n.props?.['data-part'] === 'schedules')[0]
+    const part = tree => findAll(tree, n => n.props?.className === 'bt-set-part' && n.props?.['data-part'] === 'schedules')[0]
     const showAll = tree => findAll(part(tree), n => n.type === 'button' && textOf(n) === 'Show all')
     draw()
     await new Promise(resolve => setTimeout(resolve, 0))
     let tree = draw()
     assert.equal(showAll(tree).length, 1, "a Bot's link filters to that Bot")
 
-    // Anchor to Bots and back: still filtered.
+    // Move anchor to Bots and back: still filtered.
     findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-anchor' && textOf(n) === 'Bots')[0].props.onClick()
     tree = draw()
     findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-anchor' && textOf(n) === 'Scheduled tasks')[0].props.onClick()
+    tree = draw()
+    await new Promise(resolve => setTimeout(resolve, 0))
     tree = draw()
     assert.equal(showAll(tree).length, 1, 'an anchor round trip keeps the filter')
 
     // "Show all" routes to the part without an owner: every Bot's tasks.
     showAll(tree)[0].props.onClick()
     tree = draw()
+    await new Promise(resolve => setTimeout(resolve, 0))
     tree = draw()
     assert.equal(showAll(tree).length, 0, '"Show all" lifts the filter')
 
     // A new task after "Show all" targets a real Bot, not the filter string.
     findAll(part(tree), n => n.type === 'button' && n.props?.['data-tour'] === 'new-task')[0].props.onClick()
     tree = draw()
-    const target = findAll(part(tree), n => n.type === 'select' && n.props?.className === 'bt-select bt-task-bot')[0]
-    assert.equal(target.props.value, 'chief')
+    assert.equal(findAll(part(tree), n => n.type === 'select').length, 0)
+    const target = findAll(part(tree), n => n.type === 'button' && n.props?.['aria-haspopup'] === 'listbox' && n.props?.className?.includes('bt-task-bot'))[0]
+    assert.equal(target.props['data-value'], 'chief')
     harness.unmount()
   })
 })

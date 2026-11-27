@@ -10,7 +10,12 @@ import { unquote } from './text.js'
 
 const PICK_TIMEOUT_MS = 10 * 60_000
 
-export const within = (inner, outer) => inner === outer || inner.startsWith(outer.endsWith(sep) ? outer : outer + sep)
+const foldPath = path => (process.platform === 'win32' ? path.toLowerCase() : path)
+export const within = (inner, outer) => {
+  const a = foldPath(inner)
+  const b = foldPath(outer)
+  return a === b || a.startsWith(b.endsWith(sep) ? b : b + sep)
+}
 
 const expandHome = text => (text === '~' ? homedir() : /^~[\\/]/.test(text) ? join(homedir(), text.slice(2)) : text)
 
@@ -150,8 +155,9 @@ export function install(rt) {
 
   // Every place (its live Session, if made yet, and the preset its fresh part gets) that
   // would work in the folder being set. A group with its own folder or a member's own
-  // folder pick there does not inherit the Bot's folder.
-  const folderPlaces = ({ botId, room, botIds, places, sessions = [] }) => {
+  // folder pick there does not inherit the Bot's folder; extra folders still do, so
+  // their approval passes extra: true to keep such picks (matching extraDirsOf).
+  const folderPlaces = ({ botId, room, botIds, places, sessions = [], extra = false }) => {
     if (places !== undefined) return places
     if (botId !== undefined) {
       const bot = rt.botOf(botId)
@@ -160,7 +166,7 @@ export function install(rt) {
         ? [{ preset: bot?.permission }]
         : own.map(sessionId => ({ sessionId, preset: bot?.permission }))
       for (const entry of Object.values(state.rooms)) {
-        if (!entry.members.includes(botId) || entry.workDir !== undefined || Object.hasOwn(entry.memberDirs ?? {}, botId)) continue
+        if (!entry.members.includes(botId) || entry.workDir !== undefined || (!extra && Object.hasOwn(entry.memberDirs ?? {}, botId))) continue
         list.push({ sessionId: entry.sessions?.[botId], preset: entry.permission ?? bot?.permission })
       }
       return list
@@ -181,6 +187,8 @@ export function install(rt) {
     const policy = ctx.get?.('sandboxPolicy')
     if (path === undefined || (team !== undefined && within(path, team))) return
     const agent = exec.agent
+    const places = folderPlaces(options)
+    const sessions = [...new Set(places.map(place => place.sessionId).filter(Boolean))]
     if (policy !== undefined) {
       const presets = ctx.get?.('permissionPresets')
       if (agent?.session !== undefined && policy.resolve({ session: agent.session }).mode === 'danger-full-access') {
@@ -200,8 +208,6 @@ export function install(rt) {
           return 'workspace-write'
         }
       }
-      const places = folderPlaces(options)
-      const sessions = [...new Set(places.map(place => place.sessionId).filter(Boolean))]
       const agents = await Promise.all(sessions.map(id => rt.resolveAgent(id)))
       const modes = places.length === 0 ? [fallback] : [
         ...agents.map(entry => policy.resolve({ session: entry.session }).mode),
@@ -213,14 +219,14 @@ export function install(rt) {
     // the workspace asks like a bounded one would; when nobody can be asked it throws.
     const approval = ctx.get?.('approval')
     if (approval === undefined || agent?.session === undefined) throw new Error(`Working in ${path} needs the user's approval, and there is no way to ask for it here, so nothing changed. The user can make this change in the settings.`)
-    const outcome = await approval.request({
+    const outcome = await (rt.requestActionApproval ?? (request => approval.request(request)))({
       agent,
       toolName: exec.name,
       ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
       reason: `Let ${who.en} work in ${path}? Files there can then be changed.`,
       displayReason: { en: `Let ${who.en} work in ${path}? Files there can then be changed.`, zh: `允许${who.zh}在 ${path} 中工作吗？之后可以修改这个文件夹里的文件。` },
       ...(exec.signal ? { signal: exec.signal } : {}),
-    })
+    }, { kind: 'folder', path, sessions, who, arguments: exec.arguments, persistent: true })
     if (outcome === 'allowed-once') return
     // An approval policy that never asks answers 'rejected' as well.
     throw new Error(outcome === 'rejected' ? `Working in ${path} was not allowed, so nothing changed. The user can make this change in the settings.`
@@ -246,12 +252,16 @@ export function install(rt) {
           if (workspace.path !== team) known.set(workspace.path, workspace.title)
         }
         for (const entry of [...Object.values(state.bots), ...Object.values(state.rooms)]) {
-          if (entry.workDir && !known.has(entry.workDir)) known.set(entry.workDir, basename(entry.workDir) || entry.workDir)
+          for (const dir of [entry.workDir, ...(entry.extraDirs ?? [])]) {
+            if (dir && !known.has(dir)) known.set(dir, basename(dir) || dir)
+          }
         }
         const present = await Promise.all([...known].map(async ([path, title]) => (await isFolder(path) ? { path, title } : undefined)))
         const kind = picker()?.kind
+        const data = rt.dshHome && resolve(rt.home) === resolve(rt.dshHome, 'bot') ? rt.dshHome : rt.home
         return {
           team,
+          data,
           picker: kind === 'native' || kind === 'browse' ? kind : null,
           folders: present.filter(Boolean),
         }
@@ -272,5 +282,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, inData, setTeamWorkspace, approveFolder, folderEndpoint })
+  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, guarded, inData, setTeamWorkspace, approveFolder, folderEndpoint })
 }

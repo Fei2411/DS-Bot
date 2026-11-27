@@ -13,6 +13,7 @@ import {
   IconDownloadOutlineRegular, IconLoadingOutlineRegular,
 } from './dsh-primitives.js'
 import { SettingsDialog } from './settings.js'
+import { ReleaseNotesDialog } from './release-notes-dialog.js'
 import { OverlayBoundary } from './overlay-boundary.js'
 import { Switch } from './bot-settings.js'
 import { NotificationsRow } from './notifications.js'
@@ -207,7 +208,9 @@ export function SettingsShell(props) {
     preferences,
   } = props
   const settings = useUi(state => state.settings)
+  const releaseNotes = useUi(state => state.releaseNotes)
   const roster = useRoster(value => value)
+  const updateNotesUrl = useUpdate(value => value?.notesUrl ?? null)
   const sections = useSections(rows => rows)
   const items = useGeneralItems(rows => rows)
   const steps = useOnboardingSteps(rows => rows)
@@ -233,7 +236,8 @@ export function SettingsShell(props) {
   const indicator = useConnectionView(connection)
   const installing = update.presentation?.phase === 'installing'
   const [kept, leaving] = useLinger(settings, DIALOG_EXIT_MS)
-  const showing = Boolean(kept)
+  const [rnKept, rnLeaving] = useLinger(releaseNotes, DIALOG_EXIT_MS)
+  const showing = Boolean(kept || rnKept)
   useEffect(() => (showing ? actions.holdSettingsLook?.() : undefined), [showing])
   // A layout effect, so the Settings dialog changes hands before the next paint.
   useLayoutEffect(() => holdSeat?.(), [])
@@ -268,6 +272,17 @@ export function SettingsShell(props) {
     }, createPortal(h(SettingsDialog, {
       page: kept.page, id: kept.id, roster, actions, useUpdate, leaving,
       dsh: { sections, items, renderSlot, preferences },
+    }), document.body)) : null,
+    rnKept ? h(OverlayBoundary, {
+      name: 'release-notes', active: !rnLeaving, notify: !rnLeaving,
+      reset: `${rnKept.mode ?? 'manual'}:${rnKept.current ?? roster.releaseNotes?.current ?? ''}`,
+      onDismiss: () => actions.closeReleaseNotes?.(), actions,
+    }, createPortal(h(ReleaseNotesDialog, {
+      mode: rnKept.mode ?? 'manual',
+      current: rnKept.current ?? roster.releaseNotes?.current ?? null,
+      notesUrl: rnKept.notesUrl ?? updateNotesUrl,
+      leaving: rnLeaving,
+      onClose: () => actions.closeReleaseNotes?.(),
     }), document.body)) : null,
     step !== undefined ? renderSlot('settings.onboarding', {
       stepId: step.id, explicit: requested !== undefined, complete: () => complete(step.id),
@@ -477,6 +492,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
         regions: ['page', 'editable', 'terminal'],
         modals: ['settings'],
         resolve: ({ modal }) => {
+          if (ui.getSnapshot().releaseNotes) return { status: 'blocked', reason: 'modal' }
           if (ui.getSnapshot().settings) return { status: 'handled', run: () => actions.closeSettings() }
           if (modal !== null && modal !== 'settings') return { status: 'blocked', reason: 'modal' }
           return { status: 'handled', run: () => actions.openSettings('overview') }

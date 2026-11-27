@@ -10,6 +10,7 @@ import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { mockKeychainArgs } from '../src/legacy.mjs'
 
 const [out = 'shot.png', wait = '20'] = process.argv.slice(2)
 if (!process.env.DS_BOT_HOME || !process.env.DS_BOT_SHELL_DATA) {
@@ -21,7 +22,10 @@ const electron = createRequire(import.meta.url)('electron')
 const port = 9300 + Math.floor(Math.random() * 600)
 // A terminal inside an Electron-based editor may set ELECTRON_RUN_AS_NODE, which turns the app into plain Node.
 const { ELECTRON_RUN_AS_NODE: _runAsNode, ...env } = process.env
-const child = spawn(electron, [root, `--remote-debugging-port=${String(port)}`], { stdio: 'inherit', env })
+if (env.DS_BOT_TELEMETRY_DISABLED === undefined && env.DS_BOT_TELEMETRY_URL === undefined) {
+  env.DS_BOT_TELEMETRY_DISABLED = '1'
+}
+const child = spawn(electron, [root, ...mockKeychainArgs(), `--remote-debugging-port=${String(port)}`], { stdio: 'inherit', env })
 const exited = new Promise((done) => { child.once('exit', (code, signal) => { done({ code, signal }) }) })
 
 async function appPage(deadline) {

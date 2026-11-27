@@ -8,7 +8,7 @@ import { modelRefOf } from './bot-model-batch.js'
 import { nextText, useSchedules } from './schedules.js'
 import { platformOf } from './im-page.js'
 import { RANGES, compact, summarize } from './usage-data.js'
-import { allThemes, effectsOf, layoutOf } from './themes.js'
+import { effectsOf, layoutOf, themesOf } from './themes.js'
 import { isLocalRoute } from './agent-routes.js'
 import { t } from './i18n.js'
 
@@ -154,7 +154,7 @@ function Tiles({ roster, actions, icons, view, hasProviders, narrow }) {
   const tasks = (schedules?.tasks ?? []).filter(task => task.status === 'active')
   const soonest = [...tasks].sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt))[0]
 
-  const themes = allThemes()
+  const themes = themesOf(prefs)
   const theme = themes[prefs.theme] ?? themes.deepseek
   const peak = week ? Math.max(1, ...week.days) : 1
 
@@ -171,6 +171,9 @@ function Tiles({ roster, actions, icons, view, hasProviders, narrow }) {
     h(Tile, { icon: icons.capabilities, title: t('Tools'), onOpen: () => actions.openSettings('computer'), value: capabilities.length, unit: t('capabilities') },
       roster.browser ? h(Chip, null, t('Browser')) : null,
       roster.computer?.enabled ? h(Chip, null, t('Computer use')) : null,
+      (roster.plugins?.installedCount ?? 0) > 0
+        ? h(Chip, { tone: roster.plugins?.pendingRestart ? 'warn' : null }, t('Plugins'))
+        : null,
       secrets.length > 0 ? h(Chip, null, t('Secrets {count}', { count: secrets.length })) : null),
     h(Tile, {
       icon: icons.usage, title: t('Last 7 days'), onOpen: () => actions.openSettings('usage'),
@@ -183,7 +186,7 @@ function Tiles({ roster, actions, icons, view, hasProviders, narrow }) {
       soonest ? h('span', { className: 'bt-ov-meta' }, nextText(soonest)) : null),
     h(Tile, {
       icon: icons.appearance, title: t('Appearance'), onOpen: () => actions.openSettings('appearance'),
-      value: t(theme.label),
+      value: theme.own ? theme.label : t(theme.label),
       extra: h('span', { className: 'bt-ov-swatch', 'aria-hidden': true },
         h('span', { style: { background: theme.light.bg } }, h('i', { style: { background: theme.light.accent } })),
         h('span', { style: { background: theme.dark.bg } }, h('i', { style: { background: theme.dark.accent } }))),

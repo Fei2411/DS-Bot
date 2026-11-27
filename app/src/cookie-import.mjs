@@ -16,11 +16,64 @@ const SAME_SITE = { Strict: 'strict', Lax: 'lax', None: 'no_restriction' }
 
 const normalizeSite = (domain) => String(domain ?? '').replace(/^\.+/, '').toLowerCase()
 
+function canonicalHost(domain) {
+  const raw = normalizeSite(domain)
+  const bare = raw.replace(/^\[|\]$/g, '')
+  if (bare.includes(':')) {
+    try {
+      return new URL(`http://[${bare}]/`).hostname.replace(/^\[|\]$/g, '')
+    } catch {
+      return bare
+    }
+  }
+  return bare
+}
+
+function formatHostForUrl(host) {
+  const canonical = canonicalHost(host)
+  if (canonical.includes(':')) return `[${canonical}]`
+  return canonical
+}
+
+function isPartitionedCookie(cookie) {
+  if (cookie?.partitionKeyOpaque === true) return true
+  const pk = cookie?.partitionKey
+  if (!pk) return false
+  if (typeof pk === 'string') return pk.length > 0
+  if (typeof pk === 'object') return typeof pk.topLevelSite === 'string' && pk.topLevelSite.length > 0
+  return false
+}
+
+/**
+ * Electron's session.cookies.set does not accept CHIPS partitionKey; writing a partitioned
+ * cookie without its partitionKey would flatten it into the unpartitioned jar and break
+ * third-party isolation. Separate them into skipped entries before preview or apply.
+ */
+export function splitPartitionedCookies(cookies, existingSkipped = []) {
+  const unpartitioned = []
+  const skipped = [...(existingSkipped ?? [])]
+  ;(cookies ?? []).forEach((cookie, index) => {
+    if (isPartitionedCookie(cookie)) {
+      skipped.push({
+        where: `entry ${index + 1}`,
+        name: cookie.name,
+        domain: cookie.domain,
+        code: 'partitioned',
+        reason: 'partitioned cookie (cannot keep third-party isolation when imported)',
+      })
+      return
+    }
+    unpartitioned.push(cookie)
+  })
+  return { cookies: unpartitioned, skipped }
+}
+
 /** A normalized cookie → Electron's CookiesSetDetails. */
 export function toSetDetails(cookie, opts = {}) {
   const host = normalizeSite(cookie.domain)
+  const urlHost = formatHostForUrl(host)
   const details = {
-    url: `${cookie.secure ? 'https' : 'http'}://${host}${cookie.path || '/'}`,
+    url: `${cookie.secure ? 'https' : 'http'}://${urlHost}${cookie.path || '/'}`,
     name: cookie.name,
     value: cookie.value,
     path: cookie.path || '/',
@@ -44,22 +97,22 @@ export function toSetDetails(cookie, opts = {}) {
   return details
 }
 
-const keyOf = (c) => `${c.name}\u0000${normalizeSite(c.domain)}\u0000${c.path ?? '/'}`
+const keyOf = (c) => `${c.name}\u0000${canonicalHost(c.domain)}\u0000${c.path ?? '/'}`
 
 /** Keep only cookies whose site is in `sites` (or all when `sites` is omitted). */
 export function filterCookiesBySites(cookies, sites) {
   if (!Array.isArray(sites)) return cookies
-  const wanted = new Set(sites.map(normalizeSite).filter(Boolean))
-  return cookies.filter((cookie) => wanted.has(normalizeSite(cookie.domain)))
+  const wanted = new Set(sites.map(canonicalHost).filter(Boolean))
+  return cookies.filter((cookie) => wanted.has(canonicalHost(cookie.domain)))
 }
 
 /** Keep only localStorage origins whose hostname is in `sites` (or all when `sites` is omitted). */
 export function filterOriginsBySites(origins, sites) {
   if (!Array.isArray(origins)) return []
   if (!Array.isArray(sites)) return origins
-  const wanted = new Set(sites.map(normalizeSite).filter(Boolean))
+  const wanted = new Set(sites.map(canonicalHost).filter(Boolean))
   return origins.filter((item) => {
-    try { return wanted.has(new URL(item.origin).hostname.toLowerCase()) } catch { return false }
+    try { return wanted.has(canonicalHost(new URL(item.origin).hostname)) } catch { return false }
   })
 }
 
@@ -126,9 +179,10 @@ async function setCookieWithRetry(storage, cookie, opts) {
  * → { stored, dropped, failed, flushed } with value-free per-item detail.
  */
 export async function applyCookies(storage, cookies, opts = {}) {
-  const selected = filterCookiesBySites(cookies ?? [], opts.sites)
-  // Group entries sharing (name, domain, path) so partitioned/non-secure duplicates run
-  // sequentially before unpartitioned/secure ones rather than racing in parallel.
+  const { cookies: unpartitioned, skipped } = splitPartitionedCookies(cookies ?? [])
+  const selected = filterCookiesBySites(unpartitioned, opts.sites)
+  // Group entries sharing (name, domain, path) so non-secure duplicates run
+  // sequentially before secure ones rather than racing in parallel.
   const groups = new Map()
   selected.forEach((cookie, index) => {
     const key = keyOf(cookie)
@@ -138,12 +192,7 @@ export async function applyCookies(storage, cookies, opts = {}) {
   })
   for (const list of groups.values()) {
     if (list.length > 1) {
-      list.sort((a, b) => {
-        const aPart = a.cookie.partitionKey ? 0 : 1
-        const bPart = b.cookie.partitionKey ? 0 : 1
-        if (aPart !== bPart) return aPart - bPart
-        return (a.cookie.secure ? 1 : 0) - (b.cookie.secure ? 1 : 0)
-      })
+      list.sort((a, b) => (a.cookie.secure ? 1 : 0) - (b.cookie.secure ? 1 : 0))
     }
   }
   const failed = []
@@ -169,7 +218,7 @@ export async function applyCookies(storage, cookies, opts = {}) {
   })
   let flushed = false
   try { await storage.cookies.flushStore(); flushed = true } catch { /* the store flushes itself within 30 s */ }
-  return { stored: storedCount, dropped, failed, flushed }
+  return { stored: storedCount, dropped, failed, skipped, flushed }
 }
 
 /**
@@ -346,6 +395,8 @@ export async function seedOriginsInPartition(BrowserWindow, partition, origins, 
 
 /** What the page shows before and after an import — names, domains, paths and flags, never values. */
 export function previewOf(result, source) {
+  const prepared = splitPartitionedCookies(result.cookies ?? [], result.skipped ?? [])
+  const normalized = { ...result, cookies: prepared.cookies, skipped: prepared.skipped }
   const origins = (result.origins ?? []).filter((o) => Array.isArray(o?.localStorage) && o.localStorage.length > 0)
   const localStorageEntries = origins.reduce((sum, o) => sum + o.localStorage.length, 0)
   return {
@@ -353,13 +404,13 @@ export function previewOf(result, source) {
     format: result.format ?? null,
     flavor: result.flavor ?? null,
     entries: result.entries ?? 0,
-    cookies: (result.cookies ?? []).length,
+    cookies: prepared.cookies.length,
     origins: origins.length,
     localStorageEntries,
-    sites: summarizeBySite(result),
+    sites: summarizeBySite(normalized),
     warnings: groupBy(result.warnings ?? []),
-    skipped: (result.skipped ?? []).map((item) => ({ where: item.where, name: item.name, domain: item.domain, code: item.code, reason: item.reason })),
-    notes: notesOf(result, origins),
+    skipped: prepared.skipped.map((item) => ({ where: item.where, name: item.name, domain: item.domain, code: item.code, reason: item.reason })),
+    notes: notesOf(normalized, origins),
   }
 }
 
@@ -389,13 +440,15 @@ export class CookieImports {
   store(result, source) {
     this.sweep()
     while (this.#pending.size >= PENDING_MAX) this.#pending.delete(this.#pending.keys().next().value)
+    const prepared = splitPartitionedCookies(result.cookies ?? [], result.skipped ?? [])
+    const normalized = { ...result, cookies: prepared.cookies, skipped: prepared.skipped }
     const id = randomUUID()
     this.#pending.set(id, {
-      cookies: result.cookies ?? [],
+      cookies: prepared.cookies,
       origins: result.origins ?? [],
       expiresAt: Date.now() + PENDING_TTL_MS,
     })
-    return { id, preview: previewOf(result, source) }
+    return { id, preview: previewOf(normalized, source) }
   }
 
   /** The pending import, or null when it is gone or expired. Taking it leaves it for apply/drop. */
@@ -418,5 +471,80 @@ export class CookieImports {
   sweep() {
     const now = Date.now()
     for (const [id, entry] of this.#pending) if (entry.expiresAt < now) this.#pending.delete(id)
+  }
+}
+
+/**
+ * Consume a pending import once and apply it to one Bot key or a batch of Bot keys.
+ * Validates every key before consuming `store.take(id)` so malformed calls never drop pending cookies.
+ */
+export async function applyImportToTargets({ keyOrKeys, id, options, store, applyOne }) {
+  const isBatch = Array.isArray(keyOrKeys)
+  const rawKeys = isBatch ? keyOrKeys : [keyOrKeys]
+  const keys = []
+  const seenKeys = new Set()
+  for (const key of rawKeys) {
+    if (typeof key !== 'string' || !key.startsWith('bot:') || key.length > 4096 || key.slice(4).trim().length === 0) {
+      throw new Error('DS Bot: a Bot storage key is required')
+    }
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key)
+      keys.push(key)
+    }
+  }
+  if (keys.length === 0) throw new Error('DS Bot: a Bot storage key is required')
+  const pending = store.take(typeof id === 'string' ? id : '')
+  if (!pending) throw new Error('DS Bot: this import is no longer pending')
+  const sites = Array.isArray(options?.sites) ? options.sites.map(String) : undefined
+  const persistSession = options?.persistSession === true
+
+  if (!isBatch) return applyOne(keys[0], pending, { sites, persistSession })
+
+  const perBot = []
+  let firstError = null
+  let succeeded = 0
+  for (const key of keys) {
+    try {
+      perBot.push({ key, ...(await applyOne(key, pending, { sites, persistSession })) })
+      succeeded += 1
+    } catch (error) {
+      if (!firstError) firstError = error
+      perBot.push({
+        key,
+        stored: 0,
+        originsStored: 0,
+        entriesStored: 0,
+        dropped: [],
+        failed: [{ name: key.slice(4), reason: friendlyCookieError(error) }],
+        failedOrigins: [],
+      })
+    }
+  }
+  if (succeeded === 0 && firstError) throw firstError
+  if (perBot.length === 1) return { ...perBot[0], botCount: 1 }
+
+  const stored = perBot.reduce((max, r) => Math.max(max, r.stored ?? 0), 0)
+  const originsStored = perBot.reduce((max, r) => Math.max(max, r.originsStored ?? 0), 0)
+  const entriesStored = perBot.reduce((max, r) => Math.max(max, r.entriesStored ?? 0), 0)
+  const dedupBy = (items, keyOf) => {
+    const seen = new Set()
+    return items.filter((item) => {
+      const k = keyOf(item)
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+  }
+  const cookieItemKey = (item) => `${item?.domain ?? ''}\0${item?.path ?? ''}\0${item?.name ?? ''}\0${item?.reason ?? ''}`
+  const originItemKey = (item) => `${item?.origin ?? ''}\0${item?.reason ?? ''}`
+  return {
+    stored,
+    originsStored,
+    entriesStored,
+    dropped: dedupBy(perBot.flatMap((r) => r.dropped ?? []), cookieItemKey),
+    failed: dedupBy(perBot.flatMap((r) => r.failed ?? []), cookieItemKey),
+    failedOrigins: dedupBy(perBot.flatMap((r) => r.failedOrigins ?? []), originItemKey),
+    botCount: perBot.length,
+    bots: perBot,
   }
 }

@@ -8,6 +8,7 @@
 // A plain-JS plugin has no Typert generator, so the Gateway serves these methods from
 // their `@Remote` markers (its source mode): simple parameter names, JSON values.
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { computerOnlyError, unclassifiedRemoteError } from '../shared/remote-endpoints.js'
 
 export const RPC_NAMESPACE = 'dsBot'
 const RPC_ENDPOINTS = Object.freeze({ call: `${RPC_NAMESPACE}/call`, feed: `${RPC_NAMESPACE}/feed` })
@@ -136,6 +137,33 @@ export async function* feedEvents(subscribe, signal, stopSignal) {
   }
 }
 
+function stripRemoteLive(value) {
+  if (!value || typeof value !== 'object') return value
+  let next = value
+  if (Object.hasOwn(next, 'userQuestions') || Object.hasOwn(next, 'sessionQueues')) {
+    next = { ...next }
+    delete next.userQuestions
+    delete next.sessionQueues
+  }
+  if (next.phone && typeof next.phone === 'object' && Object.hasOwn(next.phone, 'pairing')) {
+    const phone = { ...next.phone }
+    delete phone.pairing
+    next = { ...next, phone }
+  }
+  if (Array.isArray(next.work?.approvals) && next.work.approvals.some(entry => entry && Object.hasOwn(entry, 'alwaysAllow'))) {
+    next = {
+      ...next,
+      work: {
+        ...next.work,
+        approvals: next.work.approvals.map(entry => (entry && Object.hasOwn(entry, 'alwaysAllow')
+          ? (({ alwaysAllow: _, ...rest }) => rest)(entry)
+          : entry)),
+      },
+    }
+  }
+  return next
+}
+
 export function createRemoteService(rt) {
   class DsBotRemote extends TypertRemoteService {
     constructor(ctx) {
@@ -147,20 +175,34 @@ export function createRemoteService(rt) {
     }
 
     // Simple identifier parameters with no defaults match DSH Gateway source-mode parsing.
-    // Computer-only actions (phone pairing and the native desktop folder dialog) stay local.
+    // Computer-only actions (phone pairing, the native desktop folder dialog, Session logs) stay local.
     async call(endpoint, payload, signal) {
       const name = typeof endpoint === 'string' ? endpoint : ''
-      if (name.startsWith('phone-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} } }
+      const denied = computerOnlyError(name) ?? unclassifiedRemoteError(name)
+      if (denied !== undefined) return { ok: false, error: denied }
+      if (name === 'image' && payload?.parent !== undefined && payload?.parent !== null && String(payload.parent).trim() !== '') {
+        return { ok: false, error: { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} } }
       }
-      if (name === 'folder-pick') {
-        return { ok: false, error: { code: 'bot/refused', message: 'Folders are chosen in a window on the computer', details: {} } }
+      if (name === 'approval-answer' && payload?.choice === 'always') {
+        return { ok: false, error: { code: 'bot/refused', message: 'Always allow is available on the computer', details: {} } }
       }
-      return plain(await rt.channelCall(name, payload ?? {}, signal))
+      const answer = plain(await rt.channelCall(name, payload ?? {}, signal, true))
+      if (name === 'state' && answer?.ok === true && answer.value && typeof answer.value === 'object') {
+        return { ...answer, value: stripRemoteLive(answer.value) }
+      }
+      if (name === 'folders' && answer?.ok === true && answer.value && typeof answer.value === 'object' && Object.hasOwn(answer.value, 'data')) {
+        const value = { ...answer.value }
+        delete value.data
+        return { ...answer, value }
+      }
+      return answer
     }
 
     feed(signal) {
-      return feedEvents(rt.subscribeFeed, signal, this[STOP])
+      return feedEvents((listener) => rt.subscribeFeed((event, data) => {
+        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs' || event === 'workspace-changed') return
+        listener(event, event === 'live' ? stripRemoteLive(data) : data)
+      }), signal, this[STOP])
     }
   }
   const initializers = [

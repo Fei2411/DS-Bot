@@ -367,7 +367,7 @@ test('serveBrowserReads answers a resend from the cache when the first submit fa
   const post = (endpoint, payload, signal) => {
     if (endpoint === 'browser-result') {
       results.push(payload)
-      if (offline) return Promise.reject(new Error('offline'))
+      if (offline) return Promise.reject(Object.assign(new Error('HTTP 503'), { code: 'HTTP_503' }))
       return Promise.resolve(true)
     }
     if (endpoint !== 'browser-wait') return Promise.resolve(true)
@@ -390,6 +390,79 @@ test('serveBrowserReads answers a resend from the cache when the first submit fa
   assert.deepEqual(results[1], results[0])
   assert.equal(results[1].ok, true)
   stop()
+})
+
+test('serveBrowserReads bounds a stalled poll and backs off before retrying', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const polls = []
+  const browsers = { pages: createSource(null), openPages: () => ({}) }
+  const stop = serveBrowserReads({
+    browsers, clientId: 'stalled',
+    post: (endpoint, payload, signal) => new Promise((resolve, reject) => {
+      polls.push(signal)
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+    }),
+  })
+  t.after(stop)
+  t.mock.timers.tick(7_999)
+  assert.equal(polls[0].aborted, false)
+  t.mock.timers.tick(1)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(polls[0].aborted, true)
+  t.mock.timers.tick(1_999)
+  assert.equal(polls.length, 1)
+  t.mock.timers.tick(1)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(polls.length, 2)
+})
+
+test('serveBrowserReads backs off on update-lock 503 even when the open pages change', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const pages = createSource({})
+  const calls = []
+  const locked = Object.assign(new Error('HTTP 503'), { code: 'HTTP_503' })
+  const stop = serveBrowserReads({
+    browsers: { pages, openPages: pages.getSnapshot }, clientId: 'locked',
+    post: async (endpoint, payload, signal) => {
+      calls.push(payload)
+      if (calls.length === 1) pages.set({ bot: { url: 'https://example.com/' } })
+      if (calls.length <= 2) throw locked
+      if (calls.length === 3) return { requests: [] }
+      return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+    },
+  })
+  t.after(stop)
+  const flush = () => new Promise(resolve => setImmediate(resolve))
+  await flush()
+  t.mock.timers.tick(1_999)
+  assert.equal(calls.length, 1)
+  t.mock.timers.tick(1)
+  await flush()
+  assert.equal(calls.length, 2)
+  t.mock.timers.tick(3_999)
+  assert.equal(calls.length, 2)
+  t.mock.timers.tick(1)
+  await flush()
+  assert.equal(calls.length, 4)
+  assert.deepEqual(calls[2], { clientId: 'locked', open: { bot: { url: 'https://example.com/' } } })
+})
+
+test('stopping browser reads cancels an update-lock backoff without another poll', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let polls = 0
+  const stop = serveBrowserReads({
+    browsers: { pages: createSource({}), openPages: () => ({}) }, clientId: 'stopping',
+    post: async () => {
+      polls += 1
+      throw Object.assign(new Error('HTTP 503'), { code: 'HTTP_503' })
+    },
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  stop()
+  await new Promise(resolve => setImmediate(resolve))
+  t.mock.timers.tick(30_000)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(polls, 1)
 })
 
 test('browserAddress opens hosts over https, local addresses over http, and searches the rest', () => {
@@ -432,4 +505,44 @@ test('bt-browser-layer stays 0x0 and app-region-neutral so it never blocks windo
   await browsers.show(null)
   assert.equal(view.style.visibility, 'hidden')
   assert.equal(view.style.pointerEvents, 'none')
+})
+
+test('Classic browser stays excluded from openPages() and blank tabs do not eagerly spawn an about:blank guest', async () => {
+  const created = []
+  const placed = []
+  const doc = { body: { append() {} }, createElement: () => ({ style: {}, isConnected: true, append() {}, remove() {} }) }
+  const bridge = {
+    views: {
+      subscribe: () => () => {},
+      async sync(botId) {
+        return created.filter(c => c.botId === botId).map(c => ({
+          tabId: c.tabId, url: c.url || 'about:blank', title: '', live: true, loading: false,
+        }))
+      },
+      async create(botId, tabId, url) { created.push({ botId, tabId, url }); return tabId },
+      async place(tabId, rect, visible) { placed.push({ tabId, rect, visible }) },
+      async navigate() {},
+      async command() {},
+      async focus() {},
+      async read() {},
+      async close() {},
+    },
+  }
+  const browsers = createBotBrowsers({ bridge, createSource, storage: fakeDesktop().storage, document: doc })
+  const classicTab = browsers.openTab('classic')
+  // Hiding / measuring a blank tab with box=null must NOT eagerly create a white about:blank guest.
+  await browsers.show(classicTab, null)
+  assert.equal(created.length, 0, 'blank tab with box=null must not eagerly spawn WebContentsView')
+  assert.equal(browsers.pages.getSnapshot()[classicTab].url, '')
+
+  // Even after navigating Classic to a real URL, openPages() excludes 'classic' so serveBrowserReads never churns.
+  await browsers.navigate(classicTab, 'https://example.com')
+  assert.deepEqual(browsers.openPages(), {}, 'classic browser owner must never appear in Bot openPages()')
+
+  // Bot tab with real URL DOES appear in openPages(), while a blank Bot tab synced as about:blank normalizes to ''.
+  const botBlank = browsers.openTab('b1')
+  await browsers.show(botBlank, BOX)
+  assert.equal(browsers.pages.getSnapshot()[botBlank].url, '', 'about:blank from appView sync normalizes to empty string')
+  assert.deepEqual(browsers.openPages(), {})
+  browsers.dispose()
 })

@@ -11,7 +11,7 @@ import { BotViews, isBotId } from '../src/bot-views.mjs'
 // symbolic link to the folder.
 const folderLink = process.platform === 'win32' ? 'junction' : 'dir'
 
-function fixture({ statePath, zoom = 1 } = {}) {
+function fixture({ statePath, zoom = 1, ...extra } = {}) {
   const changes = []
   const handlers = new Map()
   const views = []
@@ -20,9 +20,19 @@ function fixture({ statePath, zoom = 1 } = {}) {
       super()
       this.url = 'about:blank'
       this.loadedUrls = []
+      this.reloadCount = 0
+      this.closedCount = 0
+      this.closedOptions = []
+      this.audioMuted = undefined
       this.debugger = Object.assign(new EventEmitter(), {
-        attach() {},
+        attached: false,
+        attachCount: 0,
+        detachCount: 0,
+        isAttached() { return this.attached },
+        attach() { this.attached = true; this.attachCount += 1 },
+        detach() { this.attached = false; this.detachCount += 1 },
         async sendCommand(method) {
+          if (!this.attached) throw new Error('Debugger is not attached')
           if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'frame-a', url: 'https://example.com/' } } }
           return { method }
         },
@@ -34,10 +44,12 @@ function fixture({ statePath, zoom = 1 } = {}) {
     canGoBack() { return false }
     canGoForward() { return false }
     isDestroyed() { return false }
+    setAudioMuted(muted) { this.audioMuted = muted }
     async loadURL(url) { this.url = url; this.loadedUrls.push(url) }
+    reload() { this.reloadCount += 1 }
     async executeJavaScript(script) { return script }
     setWindowOpenHandler(handler) { this.windowOpenHandler = handler }
-    close() {}
+    close(options) { this.closedCount += 1; this.closedOptions.push(options) }
     focus() {}
   }
   class WebContentsView {
@@ -54,9 +66,10 @@ function fixture({ statePath, zoom = 1 } = {}) {
     setDownloadHandler(key, handler) { handlers.set(key, handler) },
   }
   const added = []
-  let window = { webContents: { getZoomFactor: () => zoom }, contentView: { addChildView(view) { added.push(view) }, removeChildView() {} } }
-  const manager = new BotViews({ window: () => window, WebContentsView, guests, origin: () => 'http://127.0.0.1:43117', statePath, onChange: change => changes.push(change) })
-  return { manager, handlers, views, changes, added, setWindow: (next) => { window = next }, setZoom: (value) => { zoom = value } }
+  const removed = []
+  let window = { webContents: { getZoomFactor: () => zoom }, contentView: { addChildView(view) { added.push(view) }, removeChildView(view) { removed.push(view) } } }
+  const manager = new BotViews({ window: () => window, WebContentsView, guests, origin: () => 'http://127.0.0.1:43117', statePath, onChange: change => changes.push(change), ...extra })
+  return { manager, handlers, views, changes, added, removed, setWindow: (next) => { window = next }, setZoom: (value) => { zoom = value } }
 }
 
 test('pane placement converts CSS pixels to window DIPs at the current page zoom', t => {
@@ -585,4 +598,331 @@ test('a view that is built without a window waits for one', async t => {
   manager.attach(next)
   assert.equal(added.length, 1, 'the view joins the window that comes')
   assert.equal(added[0], views[0], 'it is the same view')
+})
+
+test('CDP debugger attaches lazily on first WS attach, short-circuits idle messages, and detaches when last session leaves', async t => {
+  const { manager, views } = fixture()
+  t.after(() => manager.dispose())
+  const entry = manager.create('a', { tabId: 'T1' })
+  const dbg = views[0].webContents.debugger
+  assert.equal(dbg.attachCount, 0, 'create() must not eagerly attach CDP debugger')
+  assert.equal(dbg.attached, false)
+
+  const socket = await openSocket(await manager.endpoint('a'))
+  assert.equal(dbg.attachCount, 0, 'opening socket alone does not attach debugger before Target.attachToTarget')
+  const attached = await request(socket, 1, 'Target.attachToTarget', { targetId: entry.tabId, flatten: true })
+  assert.equal(dbg.attachCount, 1, 'first Target.attachToTarget attaches CDP debugger once')
+  assert.equal(dbg.attached, true)
+
+  // Detaching the root session detaches the debugger when no sessions remain.
+  await request(socket, 2, 'Target.detachFromTarget', { sessionId: attached.result.sessionId })
+  assert.equal(dbg.detachCount, 1, 'last session detach detaches CDP debugger')
+  assert.equal(dbg.attached, false)
+
+  // Debugger message with 0 sessions short-circuits before structuredClone (passing uncloneable function does not throw!).
+  assert.doesNotThrow(() => dbg.emit('message', {}, 'Runtime.consoleAPICalled', { bad: () => {} }))
+
+  // Re-attach then simulate external Electron debugger 'detach' -> next CDP command recovers by re-attaching.
+  const reattached = await request(socket, 3, 'Target.attachToTarget', { targetId: entry.tabId, flatten: true })
+  assert.equal(dbg.attachCount, 2)
+  dbg.attached = false
+  dbg.emit('detach', {}, 'target closed')
+  const recovered = await request(socket, 4, 'Page.getFrameTree', {}, reattached.result.sessionId)
+  assert.equal(recovered.error, undefined, 'CDP command after external detach must re-attach and succeed')
+  assert.equal(dbg.attachCount, 3, 'external detach triggers transparent re-attach on next command')
+
+  const done = closed(socket)
+  socket.close()
+  await done
+  const deadline = Date.now() + 2000
+  while (dbg.attached && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(dbg.detachCount, 2, 'closing WS client detaches CDP debugger')
+  assert.equal(dbg.attached, false)
+})
+
+test('BotViews debounces async persistence, skips bounds-only place() writes, and flushes synchronously on dispose', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'bot-views-debounce-'))
+  const statePath = join(dir, 'bot-views.json')
+  const { manager } = fixture({ statePath, persistDebounceMs: 40 })
+  t.after(() => {
+    manager.dispose()
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
+  manager.create('a', { tabId: 'T1', url: 'http://127.0.0.1:43118/one' })
+  // Immediately after create(), state file is NOT yet synchronously written.
+  assert.equal(existsSync(statePath), false, 'create() debounces persist instead of blocking with writeFileSync')
+  let before
+  const deadline = Date.now() + 2000
+  while (Date.now() < deadline) {
+    if (existsSync(statePath)) {
+      try {
+        before = JSON.parse(readFileSync(statePath, 'utf8'))
+        break
+      } catch {}
+    }
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.ok(before !== undefined, 'debounced async persist writes state')
+  assert.equal(before.bots.a.active, 'T1')
+
+  // Repeated bounds-only place() updates on already-active T1 must not rewrite disk.
+  writeFileSync(statePath, '{"sentinel":true}')
+  manager.place('T1', { left: 10, top: 10, width: 300, height: 200 }, true)
+  manager.place('T1', { left: 20, top: 20, width: 400, height: 300 }, true)
+  await new Promise(resolve => setTimeout(resolve, 120))
+  assert.equal(readFileSync(statePath, 'utf8'), '{"sentinel":true}', 'pure bounds updates do not trigger disk writes')
+
+  // Dispose flushes dirty state synchronously.
+  manager.create('a', { tabId: 'T2', url: 'http://127.0.0.1:43118/two' })
+  manager.dispose()
+  const after = JSON.parse(readFileSync(statePath, 'utf8'))
+  assert.equal(after.bots.a.active, 'T2', 'dispose() flushes synchronously')
+})
+
+test('BotViews enforces maxLiveViews LRU eviction safely with real createBotBrowsers, ownership isolation, and transparent read/reload', async t => {
+  const { createBotBrowsers } = await import('../../ds-bot/src/client/bot-browsers.js')
+  const { createSource } = await import('../../ds-bot/src/client/sources.js')
+  const listeners = new Set()
+  const { manager, views, changes } = fixture({
+    maxLiveViews: 2,
+    idleMs: 0,
+    onChange(event) { for (const fn of listeners) fn(event) },
+  })
+  t.after(() => manager.dispose())
+
+  const bridge = {
+    views: {
+      subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) },
+      async create(botId, tabId, url) { manager.create(botId, { tabId, url: url || 'about:blank' }) },
+      async place(tabId, rect, visible) { return manager.place(tabId, rect, visible) },
+      async navigate(botId, tabId, url) { return manager.operate(botId, 'navigate', { tabId, url }) },
+      async command(botId, tabId, command) { return manager.operate(botId, 'command', { tabId, command }) },
+      async focus(botId, tabId) { return manager.operate(botId, 'focus', { tabId }) },
+      async read(botId, tabId, script) { return manager.operate(botId, 'read', { tabId, script }) },
+      async close(botId, tabId) { return manager.close(botId, tabId) },
+      async sync(botId) { return manager.sync(botId) },
+    },
+  }
+  const storageMap = new Map()
+  const storage = { getItem: k => storageMap.get(k) ?? null, setItem: (k, v) => storageMap.set(k, String(v)) }
+  const browsers = createBotBrowsers({ bridge, createSource, storage, document: {} })
+  t.after(() => browsers.dispose())
+
+  const tab1 = browsers.openTab('a', 'http://127.0.0.1:43118/1')
+  await browsers.show(tab1, { left: 0, top: 0, width: 400, height: 300 }, true)
+  const tab2 = browsers.openTab('a', 'http://127.0.0.1:43118/2')
+  // Wait for tab2 creation without showing it (tab1 stays shown).
+  await new Promise(resolve => setImmediate(resolve))
+  await new Promise(resolve => setImmediate(resolve))
+  const tab3 = browsers.openTab('a', 'http://127.0.0.1:43118/3')
+  await new Promise(resolve => setImmediate(resolve))
+  await new Promise(resolve => setImmediate(resolve))
+
+  assert.equal(views[0].webContents.closedCount, 0, 'shown view T1 is never evicted')
+  assert.equal(views[1].webContents.closedCount, 1, 'LRU hidden view T2 is evicted')
+  assert.deepEqual(views[1].webContents.closedOptions[0], { waitForBeforeUnload: false })
+  assert.equal(changes.some(c => c.type === 'closed' && c.tabId === tab2), false, 'LRU eviction must NOT emit closed')
+  assert.equal(views.length, 3, 'silent eviction must not trigger client preview() to resurrect T2 immediately')
+
+  // Cross-Bot create() with a dormant tabId owned by Bot 'a' must throw.
+  assert.throws(() => manager.create('b', { tabId: tab2, url: 'http://127.0.0.1:43118/steal' }), /another Bot/)
+
+  // Hidden place() on dormant tab2 must NOT resurrect it.
+  assert.equal(manager.place(tab2, { left: 0, top: 0, width: 400, height: 300 }, false), true)
+  assert.equal(views.length, 3, 'hidden place() keeps dormant tab unloaded')
+
+  // Reload on dormant tab2 resurrects with loadURL once (no duplicate contents.reload()).
+  assert.equal(await manager.operate('a', 'command', { tabId: tab2, command: 'reload' }), true)
+  assert.equal(views.length, 4)
+  assert.equal(views[3].webContents.reloadCount, 0, 'dormant reload uses initial loadURL without duplicate reload()')
+
+  // Evict tab2 again by creating tab4, then read() on dormant tab2 resurrects and reads cleanly.
+  manager.create('a', { tabId: 'T4', url: 'http://127.0.0.1:43118/4' })
+  const readResult = await manager.operate('a', 'read', { tabId: tab2, script: 'document.title' })
+  assert.equal(readResult, 'document.title', 'operate(read) on dormant tab transparently resurrects and reads')
+
+  // Showing an evicted tab lazily recreates it with its saved URL.
+  assert.equal(manager.place(tab3, { left: 0, top: 0, width: 400, height: 300 }, true), true)
+})
+
+test('BotViews idle timer evicts idle hidden views, mutes hidden views, composes windowHidden/cover/systemPaused, caps popups, and cleans up on forget', async t => {
+  const { manager, views } = fixture({ idleMs: 40, maxTabsPerBot: 3 })
+  t.after(() => manager.dispose())
+  const entry = manager.create('a', { tabId: 'T1', url: 'http://127.0.0.1:43118/1' })
+  assert.equal(views[0].webContents.audioMuted, true, 'newly created hidden view starts muted')
+
+  manager.place('T1', { left: 0, top: 0, width: 400, height: 300 }, true)
+  assert.equal(views[0].visible, true)
+  assert.equal(views[0].webContents.audioMuted, false, 'shown view is unmuted')
+
+  // setWindowHidden and cover compose independently.
+  manager.setWindowHidden(true)
+  assert.equal(views[0].visible, false)
+  assert.equal(views[0].webContents.audioMuted, true, 'windowHidden mutes views')
+  manager.cover(true)
+  manager.cover(false)
+  assert.equal(views[0].visible, false, 'clearing cover while windowHidden keeps views hidden')
+  manager.setWindowHidden(false)
+  assert.equal(views[0].visible, true)
+  assert.equal(views[0].webContents.audioMuted, false)
+
+  manager.setSystemPaused(true)
+  assert.equal(views[0].visible, false)
+  assert.equal(views[0].webContents.audioMuted, true)
+  manager.setSystemPaused(false)
+  assert.equal(views[0].visible, true)
+
+  // Popup cap enforces maxTabsPerBot = 3.
+  for (let i = 0; i < 5; i += 1) {
+    entry.view.webContents.windowOpenHandler({ url: `http://127.0.0.1:43118/p${i}`, postBody: undefined })
+  }
+  assert.equal(manager.sync('a').length, 3, 'popups are capped at maxTabsPerBot')
+
+  // Idle timer evicts hidden idle tabs (T1 is shown, popups are hidden).
+  await new Promise(resolve => setTimeout(resolve, 120))
+  assert.equal(manager.sync('a').length, 1, 'hidden idle popups are evicted while shown T1 stays live')
+  assert.equal(manager.sync('a')[0].tabId, 'T1')
+
+  // forget(botId) terminates connected WS clients.
+  const socket = await openSocket(await manager.endpoint('a'))
+  const wsClosed = closed(socket)
+  await manager.forget('a')
+  await wsClosed
+  assert.equal(manager.sync('a').length, 0)
+})
+
+test('BotViews ignores did-stop-loading emitted during eviction/close and preserves URL/title across async dormant navigate', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'bot-views-r2-'))
+  const statePath = join(dir, 'bot-views.json')
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const changes = []
+  const views = []
+  let deferLoad = false
+  let finishDeferredLoad
+  class AsyncWebContents extends EventEmitter {
+    constructor() {
+      super()
+      this.url = ''
+      this.title = ''
+      this.loading = false
+      this.destroyed = false
+      this.debugger = Object.assign(new EventEmitter(), {
+        attached: false,
+        isAttached() { return this.attached },
+        attach() { this.attached = true },
+        detach() { this.attached = false },
+        async sendCommand() { return {} },
+      })
+    }
+    getURL() { return this.url }
+    getTitle() { return this.title }
+    isLoading() { return this.loading }
+    canGoBack() { return false }
+    canGoForward() { return false }
+    isDestroyed() { return this.destroyed }
+    setAudioMuted() {}
+    setWindowOpenHandler() {}
+    focus() {}
+    async executeJavaScript(script) { return `${this.url}:${script}` }
+    loadURL(url) {
+      if (!deferLoad) {
+        this.url = url
+        this.title = `Title(${url})`
+        return Promise.resolve()
+      }
+      this.loading = true
+      return new Promise((resolve, reject) => {
+        finishDeferredLoad = (err) => {
+          this.loading = false
+          if (err) { reject(err); return }
+          this.url = url
+          this.title = `Title(${url})`
+          this.emit('did-navigate')
+          this.emit('did-stop-loading')
+          resolve()
+        }
+      })
+    }
+    close() {
+      // Real Electron fires did-stop-loading before isDestroyed() flips true!
+      this.emit('did-stop-loading')
+      this.destroyed = true
+    }
+  }
+  class AsyncWebContentsView {
+    constructor() { this.webContents = new AsyncWebContents(); views.push(this) }
+    setBounds() {}
+    setVisible() {}
+  }
+  const win = {
+    contentView: { addChildView() {}, removeChildView() {} },
+    webContents: { getZoomFactor: () => 1 },
+  }
+  const manager = new BotViews({
+    window: () => win,
+    WebContentsView: AsyncWebContentsView,
+    guests: { storageFor: k => ({ partition: `persist:${k}` }), setDownloadHandler() {} },
+    origin: () => 'http://127.0.0.1:43117',
+    onChange: ev => changes.push(ev),
+    statePath,
+    maxLiveViews: 2,
+    idleMs: 0,
+    persistDebounceMs: 10,
+  })
+  t.after(() => manager.dispose())
+
+  manager.create('a', { tabId: 'T1', url: 'http://127.0.0.1:43118/1' })
+  manager.place('T1', { left: 0, top: 0, width: 400, height: 300 }, true)
+  manager.create('a', { tabId: 'T2', url: 'http://127.0.0.1:43118/2' })
+  views[1].webContents.emit('page-favicon-updated', {}, ['data:image/png;base64,AA=='])
+  const changesBeforeEvict = changes.length
+  // Creating T3 evicts T2; close() fires did-stop-loading which MUST be ignored by #publish.
+  manager.create('a', { tabId: 'T3', url: 'http://127.0.0.1:43118/3' })
+  assert.equal(changes.slice(changesBeforeEvict).some(c => c.tabId === 'T2'), false, 'evicted view did-stop-loading must not emit changed')
+
+  // Closing T3 whose close() emits did-stop-loading must NOT re-save T3 into #saved or emit post-close changed.
+  const beforeClose = changes.length
+  await manager.close('a', 'T3')
+  assert.equal(changes.slice(beforeClose).filter(c => c.tabId === 'T3').length, 1)
+  assert.equal(changes.at(-1).type, 'closed')
+  manager.dispose()
+  const persistedAfterClose = JSON.parse(readFileSync(statePath, 'utf8'))
+  assert.equal(persistedAfterClose.bots.a.tabs.some(tab => tab.tabId === 'T3'), false, 'closed tab must not be re-saved by did-stop-loading')
+
+  // Test async dormant resurrection + operate('navigate') awaiting rawInitialLoad and preserving metadata.
+  const changes2 = []
+  views.length = 0
+  const manager2 = new BotViews({
+    window: () => win,
+    WebContentsView: AsyncWebContentsView,
+    guests: { storageFor: k => ({ partition: `persist:${k}` }), setDownloadHandler() {} },
+    origin: () => 'http://127.0.0.1:43117',
+    onChange: ev => changes2.push(ev),
+    maxLiveViews: 2,
+    idleMs: 0,
+  })
+  t.after(() => manager2.dispose())
+  manager2.create('a', { tabId: 'T1', url: 'http://127.0.0.1:43118/1' })
+  manager2.place('T1', { left: 0, top: 0, width: 400, height: 300 }, true)
+  manager2.create('a', { tabId: 'T2', url: 'http://127.0.0.1:43118/2' })
+  views[1].webContents.emit('page-favicon-updated', {}, ['data:image/png;base64,BB=='])
+  manager2.create('a', { tabId: 'T3', url: 'http://127.0.0.1:43118/3' }) // evicts T2
+
+  deferLoad = true
+  let navResolved = false
+  const navPromise = manager2.operate('a', 'navigate', { tabId: 'T2', url: 'http://127.0.0.1:43118/2-new' }).then(() => { navResolved = true })
+  await new Promise(resolve => setImmediate(resolve))
+  const resurrectEvent = changes2.at(-1)
+  assert.equal(resurrectEvent.type, 'changed', 'resurrection emits changed rather than blank created')
+  assert.equal(resurrectEvent.url, 'http://127.0.0.1:43118/2-new', 'initial URL is preserved while loadURL is pending')
+  assert.equal(resurrectEvent.title, 'Title(http://127.0.0.1:43118/2)', 'saved title is preserved until navigation commits')
+  assert.equal(resurrectEvent.favicon, 'data:image/png;base64,BB==', 'saved favicon is preserved across dormancy')
+  assert.equal(resurrectEvent.loading, true, 'resurrection reports loading: true until loadURL finishes')
+  assert.equal(navResolved, false, 'dormant operate(navigate) awaits loadURL completion')
+  finishDeferredLoad()
+  await navPromise
+  assert.equal(navResolved, true)
+  assert.equal(await manager2.operate('a', 'read', { tabId: 'T2', script: 'ok' }), 'http://127.0.0.1:43118/2-new:ok')
 })

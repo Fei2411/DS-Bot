@@ -1,12 +1,14 @@
-import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { createElement as h, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
+import { memo } from './memo.js'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
-import { isMainOf } from './sources.js'
+import { isMainOf, sectionCollapsed } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
-import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+import { botState, lastTurnFailed, latestTurnOf, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+export { botPendingOf } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { SidebarTaskPill, taskCountsOf } from './bot-tasks.js'
 import { reducedMotion } from './activity-row.js'
@@ -18,7 +20,12 @@ import { showsDshRow } from './dsh-offer.js'
 import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
-import { useEscape } from './overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
+import { InboxEntry, waitLineOf, waitsOf } from './inbox.js'
+
+// Maximum retries to collapse DSH's own sidebar before stopping, so a shell that
+// stays uncollapsed never spins data-bt-collapsing and re-renders forever (#2050).
+export const MAX_COLLAPSE_RETRIES = 3
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -44,33 +51,10 @@ const nameIfCut = (event) => {
 const useFalse = () => false
 const useEmptyArrayJson = () => '[]'
 const useNullJson = () => 'null'
-const useEmptySectionWork = () => '0|0'
 
-// Whether an approval waits for the user: for a Bot, in its own chat; for a group,
-// from any of its members in that group (both DSH tool approvals and computer-use asks).
-const useApproval = (useWork, useComputer, matchApproval, matchAsk) => {
-  const useReadWork = useWork ?? useFalse
-  const useReadComputer = useComputer ?? useFalse
-  const tool = useReadWork(work => (work.approvals ?? []).some(matchApproval))
-  const app = useReadComputer(comp => Object.values(comp?.asks ?? {}).some(matchAsk))
-  return tool || app
-}
-
-const hasPendingRequest = list => Array.isArray(list) && list.some(entry => entry?.status === 'pending')
-
-// Pending user-action cards stored on the roster for one Bot's DM:
-// skill / AGENTS.md learning proposals, secret / connector / mail approvals,
-// and ask_user / show_view cards.
-export function botPendingOf(roster, bot) {
-  const id = bot.id
-  const part = currentPart(bot)
-  const learning = (roster?.learning?.[id]?.length ?? 0) > 0
-  const cardApproval = hasPendingRequest(roster?.secretRequests?.[id])
-    || hasPendingRequest(roster?.connectorRequests?.[id])
-    || hasPendingRequest(roster?.mailRequests?.[id])
-  const question = roster?.questions?.[part] !== undefined || roster?.views?.[part] !== undefined
-  return { learning, cardApproval, question }
-}
+// What waits for the user in a Bot's own chat or a group chat comes from the host's
+// one list (inbox.js), the same one the inbox page, the phone and the notifications
+// read: a group's cards mark the group's row, not the member's own chat (#1623).
 
 // Work running in group Sessions, as "botId|tool" keys so a row redraws only when it
 // changes: the groups one Bot works in, or the members at work in one group.
@@ -90,45 +74,63 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, onDragStart }) {
+const sameBotRow = (a, b) => a.bot === b.bot
+  && a.wide === b.wide
+  && a.marked === b.marked
+  && a.actions === b.actions
+  && a.onDragStart === b.onDragStart
+  && a.useSessions === b.useSessions
+  && a.useBotCompletions === b.useBotCompletions
+  && a.useSessionStatus === b.useSessionStatus
+  && a.useSessionRetainInfo === b.useSessionRetainInfo
+  && a.useActivity === b.useActivity
+  && a.useWork === b.useWork
+  && a.roster.mainBotId === b.roster.mainBotId
+  && a.roster.mainBotIds === b.roster.mainBotIds
+  && a.roster.byId === b.roster.byId
+  && a.roster.roomsById === b.roster.roomsById
+  && a.roster.exchangeTurns === b.roster.exchangeTurns
+  && a.roster.inbox === b.roster.inbox
+
+const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotCompletions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
+  const completionUnread = useBotCompletions(unread => unread[part] === true)
   const running = useSessionStatus(map => map.get(part)?.running === true)
   const active = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
-  const unread = useSessionStatus(map => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== undefined) || (marked && !active)
+  const pendingInteraction = useSessionStatus(map => map.get(part)?.pendingInteraction !== undefined)
+  const unread = pendingInteraction || completionUnread || (marked && !active)
+  const finished = completionUnread && !active
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
-  const fgApproval = useApproval(
-    useWork,
-    useComputer,
-    entry => entry.roomId === undefined && entry.botId === id && entry.taskId === undefined && entry.answerable !== false,
-    ask => ask.roomId === undefined && ask.botId === id,
-  )
-  const useReadBgWork = useWork ?? useFalse
-  const bgApproval = useReadBgWork(work => (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === id && entry.taskId !== undefined && entry.answerable !== false))
-  const pending = botPendingOf(roster, bot)
-  const blockingApproval = fgApproval || pending.cardApproval
-  const nonBlockingApproval = bgApproval || pending.learning
-  const approval = blockingApproval || nonBlockingApproval
-  const alert = approval || pending.question
+  // What stops this chat (an approval, a card, a hand-off) overrides what it is doing;
+  // a background task's approval, a proposal or a fix shows only while it is idle.
+  const asks = waitsOf(roster, { botId: id })
+  const alert = asks.any
   const doing = useActivity(map => map[id])
   // Work in a group runs in a Session of its own, so the Bot's chat stays idle meanwhile.
   const groups = useGroupWork(useWork, rooms => Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) }))))
   const away = !running && groups.length > 0
   // Group approvals live on the group's row and header island, not on the Bot's
-  // own DM avatar (#1623). Blocking DM approvals/questions override 'working' so
+  // own DM avatar (#1623). Blocking DM approvals/questions/handoffs override 'working' so
   // a running turn paused on a card still wears the alert mark; any remaining
   // 'alert' activity comes from a group, background-task, or unanswerable approval
   // and is stripped while the foreground turn runs.
-  const blockingAlert = blockingApproval || pending.question
-  const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
-  const state = botState(running || away, dmDoing, alert)
-  const waitLine = blockingApproval ? t('Waiting for your approval') : pending.question ? t('Waiting for your answer') : null
-  const deferredWaitLine = nonBlockingApproval ? t('Waiting for your approval') : null
+  const taskCounts = taskCountsOf({ bot })
+  const failed = lastTurnFailed(bot, useSessions(list => latestTurnOf(list, part)))
+  const dmDoing = asks.blocking ? 'alert' : doing === 'alert' ? undefined : doing
+  const markAlert = Boolean(asks.blocking) || (asks.deferred !== undefined && asks.deferred.kind !== 'blocked') || taskCounts.waitingApproval > 0
+  const state = botState(running || away, dmDoing, markAlert, {
+    failed,
+    background: taskCounts.active > 0,
+    replied: finished,
+  })
+  const waitLine = waitLineOf(asks.blocking)
+  const deferredWaitLine = waitLineOf(asks.deferred)
   // A Bot running in its own chat previews what it is doing, like a group's row.
-  const runningLine = running && doing && doing !== 'alert' ? doingLine(doing) : null
+  const runningLine = running && !asks.blocking ? doingLine(dmDoing ?? 'working') : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
   const useReadWaits = useWork ?? useNullJson
   const waitsRaw = useReadWaits(work => JSON.stringify(work.waiting?.[id] ?? null))
@@ -140,7 +142,6 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     actions.openMenu({ kind: 'bot', id, x: event.clientX, y: event.clientY })
   }
   const pinned = bot.pinned === true && !tile
-  const taskCounts = taskCountsOf({ bot })
   const openTasks = () => { actions.openSession(id); actions.openTaskDeck?.(id) }
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', taskCounts.active > 0 ? t('{count} background tasks running', { count: taskCounts.active }) : '', waitsFor, waitLine || deferredWaitLine || '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
   if (tile && wide) {
@@ -149,6 +150,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       'data-bot-id': id, title: waitLine || deferredWaitLine || preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
     },
     h(BotAvatar, { bot, size: 60, state, main: true }),
+    alert && !active && state !== 'alert' ? h('span', { className: 'bt-dot bt-dot-wait', 'aria-hidden': true }) : null,
     h('span', { className: 'bt-tile-name' }, bot.name),
     bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null,
     h(SidebarTaskPill, { active: taskCounts.active, waitingApproval: taskCounts.waitingApproval, onClick: openTasks })))
@@ -173,9 +175,21 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   wide && alert && !active ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
     : wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
       : !wide && !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
-}
+}, sameBotRow, 'BotRow')
 
-function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, useComputer, wide, marked, onDragStart }) {
+const sameRoomRow = (a, b) => a.room === b.room
+  && a.wide === b.wide
+  && a.marked === b.marked
+  && a.actions === b.actions
+  && a.onDragStart === b.onDragStart
+  && a.useSessions === b.useSessions
+  && a.useSessionStatus === b.useSessionStatus
+  && a.useSessionRetainInfo === b.useSessionRetainInfo
+  && a.useWork === b.useWork
+  && a.roster.byId === b.roster.byId
+  && a.roster.inbox === b.roster.inbox
+
+const RoomRow = memo(function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked, onDragStart }) {
   const id = room.id
   // The group's own Session is a chain of parts; the row shows the current one.
   const sessionId = room.sessionId ?? id
@@ -184,7 +198,10 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
   const active = useSessionRetainInfo(sessionId, info => (info?.retainedBy?.mainView ?? 0) > 0)
   const unread = useSessionStatus(map => map.get(sessionId)?.completionUnread === true) || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
-  const approval = useApproval(useWork, useComputer, entry => entry.roomId === id && entry.answerable !== false, ask => ask.roomId === id)
+  // Anything a member asked here, the group's goal, a relay pause.
+  const waits = waitsOf(roster, { roomId: id })
+  const approval = waits.any
+  const waitLine = waitLineOf(waits.blocking ?? waits.deferred)
   const members = useGroupWork(useWork, rooms => (rooms[id] ?? []).filter(entry => entry.botId !== undefined).map(entry => ({ id: entry.botId, ...doingOf(entry) })))
   const first = roster.byId[members[0]?.id]
   const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null
@@ -192,7 +209,7 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
   const pinned = room.pinned === true
   const taskCounts = taskCountsOf({ room, roster })
   const openTasks = () => { actions.openSession(id); actions.openTaskDeck?.(id) }
-  const label = [room.name, pinned ? t('Pinned') : '', members.length > 0 ? t('Working') : '', taskCounts.active > 0 ? t('{count} background tasks running', { count: taskCounts.active }) : '', approval ? t('Waiting for your approval') : ''].filter(Boolean).join(', ')
+  const label = [room.name, pinned ? t('Pinned') : '', members.length > 0 ? t('Working') : '', taskCounts.active > 0 ? t('{count} background tasks running', { count: taskCounts.active }) : '', waitLine ?? ''].filter(Boolean).join(', ')
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
     'data-room-id': id, title: wide ? undefined : room.name,
@@ -205,13 +222,13 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
   pinned && !wide ? h(PinMark) : null,
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, room.name), pinned ? h(PinMark) : null, h(SidebarTaskPill, { active: taskCounts.active, waitingApproval: taskCounts.waitingApproval, onClick: openTasks })),
-    approval ? h('span', { className: 'bt-row-preview bt-row-preview-wait' }, t('Waiting for your approval'))
+    approval ? h('span', { className: 'bt-row-preview bt-row-preview-wait' }, waitLine)
       : workingLine ? h('span', { className: 'bt-row-preview' }, workingLine)
         : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
   wide && approval && !active ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
     : wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
       : !wide && !active && (approval || unread) ? h('span', { className: `bt-dot${approval ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
-}
+}, sameRoomRow, 'RoomRow')
 
 const agentSessionTitle = session => (session.title === '' ? t('New session') : session.title)
 
@@ -330,8 +347,14 @@ function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
       : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart })
 }
 
+const entrySessionIds = entry => (
+  entry.kind === 'bot' ? [currentPart(entry.item)]
+    : entry.kind === 'room' ? [entry.item.sessionId ?? entry.item.id]
+      : entry.item.sessions ?? []
+)
+
 function SectionBlock({ section, entries, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
-  const { roster, actions, useSessions, useSessionStatus, useWork, useComputer, wide } = rowProps
+  const { roster, actions, useSessions, useBotCompletions, useSessionStatus, useWork, wide } = rowProps
   const input = useRef(null)
   useLayoutEffect(() => {
     if (!renaming) return
@@ -354,11 +377,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     }
     return list
   }, [visibleEntries, roster.byId])
-  const sessionIds = useMemo(() => entries.flatMap(entry => (
-    entry.kind === 'bot' ? [currentPart(entry.item)]
-      : entry.kind === 'room' ? [entry.item.sessionId ?? entry.item.id]
-        : entry.item.sessions ?? []
-  )), [entries])
+  const sessionIds = useMemo(() => entries.flatMap(entrySessionIds), [entries])
   const activeSession = useSessions(list => sessionIds.find(id => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? '')
   const activeEntry = useMemo(() => {
     if (activeSession === '') return undefined
@@ -368,41 +387,35 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
           : (entry.item.sessions ?? []).includes(activeSession)
     ))
   }, [entries, activeSession])
-  const statusBits = useSessionStatus(map => JSON.stringify(sessionIds.map(id => [
-    id,
-    map.get(id)?.running === true ? 1 : 0,
-    map.get(id)?.completionUnread === true || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
-  ])))
   const shownEntries = useMemo(() => entries.filter(entry => (
     !entry.item.hidden || entry === activeEntry || (entry.kind === 'bot' && isMainOf(roster, entry.item.id))
   )), [entries, activeEntry, roster])
-  const useReadSectionWork = useWork ?? useEmptySectionWork
-  const workBits = useReadSectionWork(work => {
+  const shownSessionIds = useMemo(() => shownEntries.flatMap(entrySessionIds), [shownEntries])
+  const shownBotParts = useMemo(
+    () => new Set(shownEntries.filter(entry => entry.kind === 'bot').map(entry => currentPart(entry.item))),
+    [shownEntries],
+  )
+  const statusBits = useSessionStatus(map => JSON.stringify(shownSessionIds.map(id => [
+    id,
+    map.get(id)?.running === true ? 1 : 0,
+    (!shownBotParts.has(id) && map.get(id)?.completionUnread === true) || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
+  ])))
+  const useReadSectionWork = useWork ?? useFalse
+  const hasRoomWork = useReadSectionWork((work) => {
     const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
     const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
-    const approval = (work.approvals ?? []).some(a => a.answerable !== false && ((a.roomId === undefined && botIds.has(a.botId)) || roomIds.has(a.roomId)))
-    const roomWorking = Object.entries(work.rooms ?? {}).some(([rId, list]) => (
+    return Object.entries(work.rooms ?? {}).some(([rId, list]) => (
       (roomIds.has(rId) && list.some(e => e.botId !== undefined)) || list.some(e => botIds.has(e.botId))
     ))
-    return `${approval ? 1 : 0}|${roomWorking ? 1 : 0}`
-  })
-  const useReadSectionComputer = useComputer ?? useFalse
-  const hasComputerAsk = useReadSectionComputer(comp => {
-    const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
-    const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
-    return Object.values(comp?.asks ?? {}).some(ask => (ask.roomId === undefined && botIds.has(ask.botId)) || roomIds.has(ask.roomId))
   })
   const parsedStatuses = JSON.parse(statusBits)
-  const [hasApproval, hasRoomWork] = workBits.split('|').map(v => v === '1')
-  const hasPendingCard = shownEntries.some((entry) => {
-    if (entry.kind !== 'bot') return false
-    const pending = botPendingOf(roster, entry.item)
-    return pending.learning || pending.cardApproval || pending.question
-  })
-  const hasAlert = hasPendingCard || hasApproval || hasComputerAsk
+  const hasAlert = shownEntries.some(entry => (entry.kind === 'bot' || entry.kind === 'room')
+    && waitsOf(roster, entry.kind === 'bot' ? { botId: entry.item.id } : { roomId: entry.item.id }).any)
   const hasWorking = hasRoomWork || parsedStatuses.some(([, run]) => run === 1)
-  const hasUnread = parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession)
-    || entries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
+  const useReadSectionBotCompletions = useBotCompletions ?? useFalse
+  const hasBotUnread = useReadSectionBotCompletions(unread => [...shownBotParts].some(id => id !== activeSession && unread[id] === true))
+  const hasUnread = hasBotUnread || parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession)
+    || shownEntries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
   const statusKind = hasAlert ? 'alert' : hasWorking ? 'working' : hasUnread ? 'unread' : null
   const toggle = () => {
     void Promise.resolve(actions.saveSection({ id: section.id, collapsed: !section.collapsed })).catch(error => actions.reportError(error, 'section'))
@@ -525,8 +538,8 @@ function useListGlide(listRef, layout, key) {
 // collapsed sidebar: the open column or the avatar rail push the conversation
 // over, the drawer floats above it. Its right edge drags the open width, and
 // down to the rail.
-function LeftColumn({ mode, width, onGrip, leaving, children }) {
-  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, 'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, style: { width: `${width}px` } },
+function LeftColumn({ mode, width, onGrip, leaving, entering, children }) {
+  return createPortal(h('div', { className: 'bt-leftcol', 'data-left': mode, 'data-entering': entering || undefined, 'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, style: { width: `${width}px` } },
     children,
     h('div', { className: 'bt-leftcol-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('Resize sidebar'), title: t('Resize sidebar'), onPointerDown: onGrip })), document.body)
 }
@@ -535,13 +548,13 @@ function LeftColumn({ mode, width, onGrip, leaving, children }) {
 // Windows title bar it takes the shell's own place in the title band; elsewhere
 // it shows only while the column is hidden, since the column's own top row
 // carries it otherwise.
-function TitleToggle({ hidden, onToggle }) {
+function TitleToggle({ hidden, mode, onToggle }) {
   if (typeof document === 'undefined') return null
   const titlebar = document.documentElement.hasAttribute('data-windows-titlebar')
   if (!titlebar && !hidden) return null
   const label = t(hidden ? 'Expand sidebar' : 'Collapse sidebar')
   return createPortal(h('button', {
-    type: 'button', className: titlebar ? 'bt-title-toggle' : 'bt-round bt-title-toggle', 'aria-label': label, title: label, onClick: onToggle,
+    type: 'button', className: titlebar ? 'bt-title-toggle' : 'bt-round bt-title-toggle', 'data-left': mode, 'aria-label': label, title: label, onClick: onToggle,
   }, h(SidebarIcon)), document.body)
 }
 
@@ -576,6 +589,8 @@ export function TeamSidebar(props) {
   const panelYield = useUi(value => value.panelYield === true)
   const bootFailed = useUi(value => value.bootFailed === true)
   const renameSection = useUi(value => value.renameSection)
+  const sectionFolds = useUi(value => value.sectionFolds)
+  const inboxOpen = useUi(value => value.inbox === true)
   props.useRegistry(value => value)
   const frameSnap = props.useFrame ? props.useFrame(value => value) : { viewport: typeof window === 'undefined' ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 }
   const pref = props.useSidebarPref ? props.useSidebarPref(value => value) : 'open'
@@ -584,12 +599,15 @@ export function TeamSidebar(props) {
     pref, drawer: leftDrawer,
     panel: details ? { view, yielded: panelYield } : null,
   })
-  // A drag of the column's edge shows where it would land, live.
+  // A drag of the column's edge shows where it would land, live; an explicit
+  // hide takes precedence so toggling the sidebar mid-drag aborts the drag.
   const [drag, setDrag] = useState(null)
-  const mode = drag?.left ?? layout.left
+  const mode = layout.left === 'hidden' ? 'hidden' : (drag?.left ?? layout.left)
   // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
   const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
   const shown = held ?? mode
+  const firstColumn = useRef(true)
+  useLayoutEffect(() => { if (shown === 'hidden') firstColumn.current = false }, [shown])
   const wideContent = shown !== 'rail'
   const updated = useSessions(list => {
     const stamps = {}
@@ -606,7 +624,13 @@ export function TeamSidebar(props) {
     ]
     return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
   }, [roster, updated])
-  const sections = roster.sections ?? []
+  const sections = useMemo(() => {
+    const sections = roster.sections ?? []
+    return sectionFolds ? sections.map(section => {
+      const collapsed = sectionCollapsed(section, sectionFolds)
+      return collapsed === section.collapsed ? section : { ...section, collapsed }
+    }) : sections
+  }, [roster.sections, sectionFolds])
   const sectionSet = useMemo(() => new Set(sections.map(sec => sec.id)), [sections])
   const ungrouped = useMemo(
     () => order.filter(entry => !entry.item.sectionId || !sectionSet.has(entry.item.sectionId)),
@@ -622,11 +646,11 @@ export function TeamSidebar(props) {
   useReportReady(roster.ready, roster)
   const [dragId, setDragId] = useState(null)
   const [dropTarget, setDropTarget] = useState(null)
-  const onDragStart = (event, id) => {
+  const onDragStart = useCallback((event, id) => {
     setDragId(id)
     event.dataTransfer?.setData?.('text/plain', id)
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-  }
+  }, [])
   const onDragOverSec = (event, secId) => {
     if (!dragId) return
     event.preventDefault()
@@ -643,11 +667,6 @@ export function TeamSidebar(props) {
       void Promise.resolve(actions.saveSection({ id: secId, collapsed: false })).catch(() => {})
     }
   }
-  const createNewSection = () => {
-    void Promise.resolve(actions.saveSection({}))
-      .then((sec) => { if (sec?.id) actions.beginSectionRename(sec.id) })
-      .catch(error => actions.reportError(error, 'section'))
-  }
 
   // Our column pushes the conversation over by what it takes beyond the shell's
   // collapsed track; a drawer floats over the rail's place, so it pushes as much
@@ -655,11 +674,27 @@ export function TeamSidebar(props) {
   const openWidth = drag?.width ?? frameSnap.sidebarWidth
   const ourWidth = shown === 'rail' ? RAIL_WIDTH : openWidth
   const pushed = mode === 'open' ? openWidth : mode === 'hidden' ? 0 : RAIL_WIDTH
+  const settleTimer = useRef(0)
+  const springTimer = useRef(0)
+  const activeDrag = useRef(null)
+  const dragRef = useRef(drag)
+  dragRef.current = drag
+  const collapsedWidthRef = useRef(frameSnap.collapsedWidth ?? 0)
+  collapsedWidthRef.current = frameSnap.collapsedWidth ?? 0
+  const modeRef = useRef(mode)
+  modeRef.current = mode
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return
+    const current = activeDrag.current
+    if (current !== null && (mode === 'hidden' || (current.settling && (mode !== current.landedMode || pushed !== current.landedPushed)))) {
+      current.cancel(false)
+    }
     chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)))
-  }, [pushed, frameSnap.collapsedWidth])
-  useEffect(() => () => { if (typeof document !== 'undefined') chatRoom.setLeft(null) }, [])
+  }, [mode, pushed, frameSnap.collapsedWidth])
+  useEffect(() => () => {
+    activeDrag.current?.cancel(false)
+    if (typeof document !== 'undefined') chatRoom.setLeft(null)
+  }, [])
 
   // The edge drag: live while the pointer moves, the column's new state on release.
   // Per frame the drag writes the column's own inline style and each conversation
@@ -668,13 +703,10 @@ export function TeamSidebar(props) {
   // when the drag crosses the rail's snap line, and the spring (`data-folding`)
   // rides that switch alone: it comes off when the switch settles, so a drag that
   // keeps going afterwards follows the cursor frame by frame again.
-  const settleTimer = useRef(0)
-  const springTimer = useRef(0)
   const startDrag = (event) => {
     if (event.button !== 0) return
     event.preventDefault()
-    clearTimeout(settleTimer.current)
-    clearTimeout(springTimer.current)
+    activeDrag.current?.cancel(false)
     const grip = event.currentTarget
     const column = grip.parentElement
     // A re-grab can land while a previous spring still stands: the new drag owns
@@ -685,7 +717,6 @@ export function TeamSidebar(props) {
     const columns = chatRoom.columns()
     for (const col of columns) col.style.setProperty('transition', 'none', 'important')
     const panes = [...document.querySelectorAll('.bt-pane')]
-    const offLeft = frameSnap.collapsedWidth ?? 0
     let last = null
     let liveLeft = mode
     let done = false
@@ -694,14 +725,16 @@ export function TeamSidebar(props) {
       column.style.width = `${width}px`
       column.style.setProperty('--bt-lc-w', `${width}px`)
       const occupied = at.left === 'open' ? width : RAIL_WIDTH
-      const push = Math.max(0, occupied - offLeft)
+      const push = Math.max(0, occupied - collapsedWidthRef.current)
       for (const col of columns) col.style.setProperty('margin-left', `${push}px`, 'important')
       for (const pane of panes) pane.style.left = `${occupied}px`
     }
     // A snap crossing arms the spring for the switch's glide; the timer takes it
-    // back off once the switch has had its duration.
+    // back off once the switch has had its duration, or immediately if the pointer
+    // keeps resizing the open column past its minimum width.
     let springUntil = 0
     const springOff = () => {
+      if (springTimer.current) { clearTimeout(springTimer.current); springTimer.current = 0 }
       springUntil = 0
       delete column.dataset.folding
       for (const col of columns) col.style.setProperty('transition', 'none', 'important')
@@ -710,33 +743,52 @@ export function TeamSidebar(props) {
       column.dataset.folding = ''
       for (const col of columns) col.style.setProperty('transition', `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, 'important')
       springUntil = performance.now() + SPRING_SHAPE.duration
-      clearTimeout(springTimer.current)
+      if (springTimer.current) clearTimeout(springTimer.current)
       springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration)
     }
     const track = (x) => {
+      const prev = last
       last = dragColumn(x, window.innerWidth)
       if (last.left !== liveLeft) {
         liveLeft = last.left
         if (!reducedMotion()) springOn()
         setDrag(last)
+      } else if (springUntil > 0 && prev !== null && last.left !== 'rail' && last.width !== prev.width) {
+        springOff()
       }
       write(last)
     }
     const onMove = (move) => track(move.clientX)
+    const ends = ['pointerup', 'pointercancel', 'lostpointercapture']
     // The rules and props take the landed geometry back over; while the fold's
     // spring still runs this waits it out so the landing does not snap. The
     // inline `width` stays: it is the landed geometry, and React writes its width
     // prop only when the value changes, so removing it would leave the edge at
     // its CSS fallback (57px on the rail).
-    const finish = () => {
-      clearTimeout(springTimer.current)
-      if (column.isConnected && last !== null) chatRoom.setLeft(Math.max(0, (last.left === 'open' ? last.width : RAIL_WIDTH) - offLeft))
-      for (const col of columns) { col.style.removeProperty('margin-left'); col.style.removeProperty('transition') }
-      column.style.removeProperty('--bt-lc-w')
-      delete column.dataset.folding
-      chatRoom.hold(false)
+    const dragState = {
+      settling: false,
+      landedMode: null,
+      landedPushed: null,
+      cancel(commitLanded) {
+        if (!done) {
+          done = true
+          grip.removeEventListener('pointermove', onMove)
+          for (const name of ends) grip.removeEventListener(name, onEnd)
+          if (dragRef.current !== null) setDrag(null)
+        }
+        if (settleTimer.current) { clearTimeout(settleTimer.current); settleTimer.current = 0 }
+        if (springTimer.current) { clearTimeout(springTimer.current); springTimer.current = 0 }
+        if (activeDrag.current === dragState) activeDrag.current = null
+        if (commitLanded && column.isConnected && !column.hasAttribute('data-leaving') && modeRef.current !== 'hidden' && dragState.landedPushed !== null) {
+          chatRoom.setLeft(Math.max(0, dragState.landedPushed - collapsedWidthRef.current))
+        }
+        for (const col of columns) { col.style.removeProperty('margin-left'); col.style.removeProperty('transition') }
+        column.style.removeProperty('--bt-lc-w')
+        delete column.dataset.folding
+        chatRoom.hold(false)
+      },
     }
-    const ends = ['pointerup', 'pointercancel', 'lostpointercapture']
+    activeDrag.current = dragState
     const onEnd = (end) => {
       if (done) return
       done = true
@@ -744,7 +796,7 @@ export function TeamSidebar(props) {
       grip.removeEventListener('pointermove', onMove)
       for (const name of ends) grip.removeEventListener(name, onEnd)
       setDrag(null)
-      if (last === null) { finish(); return }
+      if (last === null) { dragState.cancel(false); return }
       // The drag is the latest explicit gesture: it takes back a yielded panel's room.
       actions.setPanelYield?.(false)
       if (last.left === 'rail') { actions.setLeftDrawer?.(false); actions.setSidebarPref?.('rail') }
@@ -753,8 +805,11 @@ export function TeamSidebar(props) {
         actions.setSidebarPref?.('open')
         actions.setLeftDrawer?.(last.left === 'drawer')
       }
-      if (springUntil === 0) finish()
-      else settleTimer.current = setTimeout(finish, Math.max(0, springUntil - performance.now()) + 60)
+      dragState.settling = true
+      dragState.landedMode = last.left
+      dragState.landedPushed = last.left === 'open' ? last.width : RAIL_WIDTH
+      if (springUntil === 0) dragState.cancel(true)
+      else settleTimer.current = setTimeout(() => dragState.cancel(true), Math.max(0, springUntil - performance.now()) + 60)
     }
     grip.addEventListener('pointermove', onMove)
     for (const name of ends) grip.addEventListener(name, onEnd)
@@ -766,6 +821,8 @@ export function TeamSidebar(props) {
   // shell's auto-collapse line, which re-applies the shell's own rule.
   const dsh = useRef(null)
   const requested = useRef(false)
+  const collapseRetries = useRef(0)
+  const retryScope = useRef({ wide, collapsed: frameSnap.collapsed })
   // The request mark always lapses on its own: a re-render before the shell's
   // flip must not leave it set, or the user's next switch would read as ours.
   // A lapse checks the shell again, since our flip and another one landing in
@@ -790,6 +847,11 @@ export function TeamSidebar(props) {
   useEffect(() => () => quiet(false), [])
   useLayoutEffect(() => {
     if (typeof document === 'undefined' || typeof actions.toggleSidebar !== 'function') return undefined
+    const scope = retryScope.current
+    if (scope.wide !== wide || scope.collapsed !== frameSnap.collapsed) {
+      retryScope.current = { wide, collapsed: frameSnap.collapsed }
+      collapseRetries.current = 0
+    }
     const collapsed = dshCollapsed() ?? !wide
     const prev = dsh.current
     const viewport = window.innerWidth
@@ -800,8 +862,15 @@ export function TeamSidebar(props) {
         toggleRef.current()
       }
     }
-    if (collapsed) { clearTimeout(requestLapse.current); requested.current = false; quiet(false); return undefined }
-    if (requested.current) return undefined
+    if (collapsed) {
+      clearTimeout(requestLapse.current)
+      requested.current = false
+      collapseRetries.current = 0
+      quiet(false)
+      return undefined
+    }
+    if (requested.current || collapseRetries.current >= MAX_COLLAPSE_RETRIES) return undefined
+    collapseRetries.current += 1
     requested.current = true
     quiet(true)
     actions.toggleSidebar()
@@ -822,19 +891,28 @@ export function TeamSidebar(props) {
     return () => { window.removeEventListener('mousedown', onDown) }
   }, [mode])
 
-  const navigate = (open, id) => {
-    const result = open(id)
-    if (leftDrawer) actions.setLeftDrawer?.(false)
-    return result
-  }
-  const rowActions = {
-    ...actions,
-    openSession: id => navigate(actions.openSession, id),
-    openAgent: id => navigate(actions.openAgent, id),
-    openAgentSession: id => navigate(actions.openAgentSession, id),
-    newAgentSession: id => navigate(actions.newAgentSession, id),
-  }
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent }
+  const leftDrawerRef = useRef(leftDrawer)
+  leftDrawerRef.current = leftDrawer
+  const rowActions = useMemo(() => {
+    const navigate = (open, id) => {
+      const result = open(id)
+      if (leftDrawerRef.current) actions.setLeftDrawer?.(false)
+      return result
+    }
+    return {
+      ...actions,
+      openSession: id => navigate(actions.openSession, id),
+      openAgent: id => navigate(actions.openAgent, id),
+      openAgentSession: id => navigate(actions.openAgentSession, id),
+      newAgentSession: id => navigate(actions.newAgentSession, id),
+      openInbox: () => {
+        const result = actions.openInbox?.()
+        if (leftDrawerRef.current) actions.setLeftDrawer?.(false)
+        return result
+      },
+    }
+  }, [actions])
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, wide: wideContent }
   // Typing while the sidebar has focus starts a search.
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
@@ -866,8 +944,8 @@ export function TeamSidebar(props) {
     ? h('div', { className: 'bt-side-top' },
         h('span', { className: 'bt-brand' }, h(BrandName)),
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
-        h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New section'), title: t('New section'), onClick: createNewSection }, h(FolderIcon)),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
+        h(InboxEntry, { roster, open: inboxOpen, actions: rowActions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)))
     : h('div', { className: 'bt-rail-top' },
@@ -876,10 +954,11 @@ export function TeamSidebar(props) {
         main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The foot stands in for the shell's hidden footer: the account avatar, and on
-  // the rail the new-chat button above it.
+  // the rail the inbox and new-chat buttons above it.
   const foot = wideContent
     ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), h(PluginsButton, { actions }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
+        h(InboxEntry, { roster, open: inboxOpen, rail: true, actions: rowActions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h(AccountLauncher, { seat: false, actions }),
         h(PluginsButton, { actions }))
@@ -914,9 +993,10 @@ export function TeamSidebar(props) {
         onDropSec,
       }))),
     foot)
+  const hideTitleToggle = props.hideTitleToggle === true
   return h(Fragment, null,
-    h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
-    shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content))
+    hideTitleToggle ? null : h(TitleToggle, { hidden: mode === 'hidden', mode, onToggle }),
+    shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content))
 }
 
 // The update button at the sidebar's top right: a cloud while a newer DS Bot —
@@ -931,16 +1011,15 @@ function UpdateButton({ useUpdate, actions }) {
   const [error, setError] = useState('')
   const [dshError, setDshError] = useState('')
   const button = useRef(null)
+  useEscape(() => { setOpen(false); button.current?.focus() }, open, { priority: ESCAPE_PRIORITY.MENU })
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => {
       if (event.target instanceof Element && (event.target.closest('.bt-update-pop') || button.current?.contains(event.target))) return
       setOpen(false)
     }
-    const onKey = (event) => { if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); setOpen(false); button.current?.focus() } }
     window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
+    return () => { window.removeEventListener('mousedown', onDown) }
   }, [open])
   const phase = update?.phase ?? 'idle'
   const dsh = update?.dsh
@@ -948,7 +1027,7 @@ function UpdateButton({ useUpdate, actions }) {
   const dshRow = showsDshRow(dsh, update?.app)
   // Hooks first: an update that turns visible after the sidebar mounted would
   // otherwise add hooks on a later render and crash the slot.
-  const tick = useViewport()
+  const tick = useViewport(open)
   useLayoutEffect(() => {
     if (!open) return
     const rect = button.current?.getBoundingClientRect()
@@ -1054,6 +1133,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
   const button = useRef(null)
   const menuRef = useRef(null)
   useEffect(() => { if (settingsOpen) setOpen(false) }, [settingsOpen])
+  useEscape(() => { setOpen(false); button.current?.focus() }, open, { priority: ESCAPE_PRIORITY.MENU })
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => {
@@ -1061,8 +1141,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       setOpen(false)
     }
     const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event, button.current)) return
-      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); setOpen(false); button.current?.focus() }
+      stepMenuFocus(menuRef.current, event, button.current)
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
@@ -1103,7 +1182,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       setBusy(false)
     }
   }
-  const tick = useViewport()
+  const tick = useViewport(open)
   const anchor = () => {
     const rect = button.current?.getBoundingClientRect()
     if (rect) setBox({ left: rect.left, bottom: viewBottom() - rect.top + 5 })
@@ -1123,7 +1202,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       [t('Usage'), GaugeIcon, () => actions.openSettings('usage')],
       openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
-      [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
+      [t('Scheduled tasks'), ClockIcon, () => actions.selectPanel('schedules')],
       [t('Settings'), GearIcon, () => actions.openSettings('overview')],
     ].filter(Boolean),
     typeof actions.setSurface === 'function' ? [[t('Classic Agent mode'), SwitchIcon, () => actions.setSurface('agent')]] : null,
@@ -1193,8 +1272,8 @@ function mainAvatarPlace(roster) {
   return { x: box.left, y: box.top, width: box.width, height: box.height, viewportWidth: globalThis.innerWidth ?? view.clientWidth, viewportHeight: globalThis.innerHeight ?? view.clientHeight }
 }
 
-// The avatar's box where the team column comes to rest. The column also slides in as it first
-// draws (bt-leftcol-in, from off the left edge), and measured mid-slide the avatar would be
+// The avatar's box where the team column comes to rest. The column slides in when expanded
+// (bt-leftcol-in, from off the left edge), and measured mid-slide the avatar would be
 // outside the page and the whale would have nowhere to land; offsetLeft and offsetTop leave the
 // slide's transform out.
 function restingBox(mark) {
@@ -1248,6 +1327,44 @@ function glideOnto(mark, from) {
   setTimeout(land, timing.delay + GLIDE_MS + 500)
 }
 
+// Decides how the main view follows part switches and recovers from an empty/blank
+// view. Returning a primitive key lets `useLandOnMainBot` depend on the actual landing
+// target instead of re-firing on every unrelated roster poll.
+export function landingPlan({ mainView, roster, isAgentSession, last }) {
+  if (!roster.ready || !roster.mainBotId) return { kind: 'wait', key: 'wait', nextLast: last }
+  const [id, blank] = mainView.split('|')
+  const bot = id === '' ? undefined : roster.byId[id]
+  if (bot !== undefined) {
+    const target = currentPart(bot)
+    const nextLast = { kind: 'bot', id: bot.id, botId: bot.id, sessionId: id }
+    return target !== id
+      ? { kind: 'follow-bot', id: bot.id, key: `follow-bot:${bot.id}:${id}:${target}`, nextLast }
+      : { kind: 'stay', key: `stay-bot:${bot.id}:${id}`, nextLast }
+  }
+  const room = id === '' ? undefined : roster.roomsById[id]
+  if (room !== undefined) {
+    const target = room.sessionId ?? room.id
+    const nextLast = { kind: 'room', id: room.id, roomId: room.id, sessionId: id }
+    return target !== id
+      ? { kind: 'follow-room', id: room.id, key: `follow-room:${room.id}:${id}:${target}`, nextLast }
+      : { kind: 'stay', key: `stay-room:${room.id}:${id}`, nextLast }
+  }
+  // A DSH Agent Session, blank or not, is a real destination: it stays.
+  if (id !== '' && ((isAgentSession?.(id) ?? roster.agentOf[id] !== undefined) || blank !== '1')) {
+    return { kind: 'stay', key: `stay-other:${id}`, nextLast: null }
+  }
+  const lastOwner = last?.kind === 'room' ? roster.roomsById[last.id] : last ? roster.byId[last.botId ?? last.id] : undefined
+  const lastTarget = lastOwner === undefined ? '' : (last.kind === 'room' ? (lastOwner.sessionId ?? lastOwner.id) : currentPart(lastOwner))
+  return {
+    kind: 'home',
+    id: roster.mainBotId,
+    last,
+    delay: last ? 0 : 400,
+    key: `home:${roster.mainBotId}:${last?.id ?? ''}:${last?.sessionId ?? ''}:${lastTarget}`,
+    nextLast: last,
+  }
+}
+
 // Opens the Main Bot whenever the main view holds no Bot conversation, the way
 // The view always lands on a Bot rather than an empty New Session page.
 // When a Bot's chat moves on to a fresh part, the shell clears the view of the part
@@ -1257,33 +1374,26 @@ function useLandOnMainBot(roster, useSessions, actions) {
     const row = Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)
     return row ? `${row.id}|${row.blank ? 1 : 0}` : ''
   })
-  const lastBot = useRef(null)
+  const lastChat = useRef(null)
+  const plan = landingPlan({ mainView, roster, isAgentSession: actions.isAgentSession, last: lastChat.current })
+  const planRef = useRef(plan)
+  planRef.current = plan
   useEffect(() => {
-    if (!roster.ready || !roster.mainBotId) return undefined
-    const [id, blank] = mainView.split('|')
-    const bot = id === '' ? undefined : roster.byId[id]
-    if (bot !== undefined) {
-      lastBot.current = { botId: bot.id, sessionId: id }
-      if (currentPart(bot) !== id) actions.landOn(bot.id)
+    const current = planRef.current
+    lastChat.current = current.nextLast
+    if (current.kind === 'follow-bot') {
+      actions.landOn(current.id)
       return undefined
     }
-    // The group's own Session moves on like a Bot's chat does: the part it archived
-    // is cleared, and the view goes on in the fresh one.
-    const room = id === '' ? undefined : roster.roomsById[id]
-    if (room !== undefined) {
-      lastBot.current = null
-      if ((room.sessionId ?? room.id) !== id) actions.openSession(room.id)
+    if (current.kind === 'follow-room') {
+      actions.openSession(current.id)
       return undefined
     }
-    // A DSH Agent Session, blank or not, is a real destination: it stays.
-    if (id !== '' && ((actions.isAgentSession?.(id) ?? roster.agentOf[id] !== undefined) || blank !== '1')) {
-      lastBot.current = null
-      return undefined
-    }
-    const last = lastBot.current
-    const timer = setTimeout(() => actions.landOn(roster.mainBotId, last), last ? 0 : 400)
+    if (current.kind !== 'home') return undefined
+    const armedSeq = actions.navSeq?.()
+    const timer = setTimeout(() => actions.landOn(current.id, current.last, armedSeq), current.delay)
     return () => clearTimeout(timer)
-  }, [mainView, roster])
+  }, [plan.key])
 }
 
 // The Plugins icon beside the foot's account gear: it opens the shell's plugin
@@ -1388,7 +1498,7 @@ export const SIDEBAR_CSS = `
 
 /* The DSH Agent row and its expanding Session list. The black whale is the
    harness's own mark, so the row reads as "plain dsh" next to the Bot marks. */
-.bt-agent-ava{flex:none;width:36px;height:36px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink)}
+.bt-agent-ava{flex:none;width:36px;height:36px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;background:transparent;color:var(--bt-ink)}
 .bt-agent-ava.bt-run{animation:bt-agent-pulse 1.4s ease-in-out infinite}
 @keyframes bt-agent-pulse{0%,100%{opacity:1}50%{opacity:.55}}
 .bt-agent-sub{display:grid;grid-template-rows:0fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}

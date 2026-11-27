@@ -1,9 +1,14 @@
-import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { Platform } from 'react-native'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
-import { listComputers } from '../store.ts'
+import { listComputers, onPrefsChange, readPrefs } from '../store.ts'
 import * as SecureStore from '../storage'
 import type { TeamState } from '../connection.ts'
-import { offline, useTeamLink } from './link.ts'
+import { offline, useTeamLink, type TeamLinkHooks } from './link.ts'
+import { loadNoticeCursor, saveNoticeCursor } from './notice-cursor-store.ts'
+import { registerHostPushEndpoint, setForegroundLinkOnline, syncBackgroundConnectionSubtitle, syncPushEndpointWithHost, unregisterHostPushEndpoint } from './notification-bridge.ts'
+import { readNotifyPrefsFromRecord } from './notifications.ts'
+import { onUnifiedPushEvent } from './notifications-native'
 import { DEMO_HELLO, demoLink } from './demo.ts'
 
 export const DEMO = process.env.EXPO_PUBLIC_DSB_DEMO === '1'
@@ -24,7 +29,45 @@ const Ctx = createContext<TeamCtx>({ team: null, online: false, error: null, cal
 export const useTeam = () => useContext(Ctx)
 
 export function TeamProvider({ computer, identity, children }: { computer: SavedComputer; identity: PhoneIdentity; children: ReactNode }) {
-  const link = useTeamLink(computer, identity)
+  const keepAliveBg = useRef(false)
+  useEffect(() => {
+    if (Platform.OS !== 'android') return
+    const sync = () => void readPrefs().then(prefs => {
+      const parsed = readNotifyPrefsFromRecord(prefs)
+      keepAliveBg.current = parsed.enabled && parsed.bgMode === 'instant'
+    }).catch(() => {})
+    sync()
+    return onPrefsChange(sync)
+  }, [])
+  const hooks = useMemo<TeamLinkHooks>(() => ({
+    keepAliveInBackground: () => Platform.OS === 'web' || keepAliveBg.current,
+    onConnected: (hello, rawCall) => {
+      setForegroundLinkOnline(computer.hostDeviceId, true)
+      void syncBackgroundConnectionSubtitle(true, computer.name)
+      void syncPushEndpointWithHost(computer.hostDeviceId, rawCall, hello.capabilities)
+    },
+    onDisconnected: () => {
+      setForegroundLinkOnline(computer.hostDeviceId, false)
+      void syncBackgroundConnectionSubtitle(false, computer.name)
+    },
+    loadCursor: () => loadNoticeCursor(computer.hostDeviceId),
+    onCursor: (boot, seq) => {
+      void saveNoticeCursor(computer.hostDeviceId, boot, seq)
+    },
+  }), [computer.hostDeviceId, computer.name])
+  useEffect(() => () => setForegroundLinkOnline(computer.hostDeviceId, false), [computer.hostDeviceId])
+  const link = useTeamLink(computer, identity, hooks)
+  useEffect(() => {
+    if (Platform.OS !== 'android') return
+    return onUnifiedPushEvent(event => {
+      if (!link.online || !link.hello?.capabilities?.includes('push-register')) return
+      if (event.type === 'endpoint' && event.endpoint) {
+        void registerHostPushEndpoint(computer.hostDeviceId, link.call, event.endpoint)
+      } else if (event.type === 'unregistered') {
+        void unregisterHostPushEndpoint(computer.hostDeviceId, link.call)
+      }
+    })
+  }, [link.online, link.hello, link.call, computer.hostDeviceId])
   const value = useMemo<TeamCtx>(() => ({ team: link.team, online: link.online, linked: link.linked, error: link.error, call: link.call, refresh: link.refresh, computer, hello: link.hello, onFeed: link.onFeed }), [link.team, link.online, link.linked, link.error, link.call, link.refresh, link.hello, link.onFeed, computer])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

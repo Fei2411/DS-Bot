@@ -1,12 +1,16 @@
 import { Children, Fragment, useEffect, useRef, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
-import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import * as Clipboard from 'expo-clipboard'
 import { connectorActionOf, connectorRows, type ConnectorPending, type ConnectorRow } from '../team/connectors.ts'
 import { capabilityStatusFor, capabilityStatusText, unapprovedCapabilitiesFor } from '../team/capabilities.ts'
 import { useTeam } from '../team/context.tsx'
+import { useAppUpdate } from '../team/app-update-store.ts'
+import { currentAppVersion } from '../team/app-version.ts'
+import { openMobileReleaseNotes } from '../team/release-notes.ts'
+import { ReleaseNotesModal } from '../ui/ReleaseNotesModal.tsx'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
 import { radius, shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
@@ -660,37 +664,7 @@ export function Capabilities({ navigation }: any) {
   )
 }
 
-export function TeamUsage({ navigation }: any) {
-  const { call } = useTeam()
-  // The computer's usage view (usage.js): hourly rows of
-  // [hour, owner, model, kind, input, cacheRead, cacheWrite, output, calls].
-  const [view, setView] = useState<{ owners?: { name: string; kind: string; deleted?: boolean }[]; models?: { name: string }[]; rows?: number[][] } | null>(null)
-  useEffect(() => {
-    void call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).then(v => setView(v as typeof view)).catch(() => {})
-  }, [])
-  const rows = (view?.rows ?? []) as unknown as [string, number, number, string, number, number, number, number, number][]
-  const sum = (pick: (row: typeof rows[number]) => boolean) => rows.filter(pick).reduce((total, row) => ({ input: total.input + row[4] + row[5] + row[6], output: total.output + row[7] }), { input: 0, output: 0 })
-  const all = sum(() => true)
-  const fmt = (n: number) => n.toLocaleString()
-  const owners = (view?.owners ?? []).map((owner, index) => ({ owner, total: sum(row => row[1] === index) })).filter(entry => entry.total.input + entry.total.output > 0)
-  const models = (view?.models ?? []).map((model, index) => ({ model, total: sum(row => row[2] === index) })).filter(entry => entry.total.input + entry.total.output > 0)
-  return (
-    <Screen><Back title={t('Usage')} onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        <Section label={t('Usage')}>
-          <Row label={t('Tokens in')} value={view === null ? '—' : fmt(all.input)} />
-          <Row label={t('Tokens out')} value={view === null ? '—' : fmt(all.output)} />
-        </Section>
-        <Section label={t('Bots')}>
-          {owners.map(({ owner, total }, index) => <Row key={index} label={owner.name} value={fmt(total.input + total.output)} />)}
-        </Section>
-        <Section label={t('Models')}>
-          {models.map(({ model, total }, index) => <Row key={index} label={model.name} value={fmt(total.input + total.output)} />)}
-        </Section>
-      </ScrollView>
-    </Screen>
-  )
-}
+export { TeamUsage } from './usage.tsx'
 
 export function Location({ navigation }: any) {
   const { call, team } = useTeam()
@@ -786,8 +760,8 @@ export function Updates({ navigation }: any) {
 }
 
 export function About({ navigation }: any) {
-  const { p } = useTheme()
   const { call, computer } = useTeam()
+  const appUpdate = useAppUpdate()
   // The state carries no versions; the update check knows both.
   const [versions, setVersions] = useState<{ update?: { current?: string }; current?: string; dsh?: { current?: string } | null } | null>(null)
   useEffect(() => {
@@ -795,21 +769,30 @@ export function About({ navigation }: any) {
   }, [])
   const version = versions?.update?.current ?? versions?.current ?? '—'
   const dsh = versions?.dsh?.current
-  const appVersion = require('expo-constants').default.expoConfig?.version ?? require('expo-constants').default.manifest?.version ?? '—'
+  const appVersion = currentAppVersion()
+  const appLabel = Platform.OS === 'android' && appUpdate.hasUpdate && appUpdate.release
+    ? `${appVersion} → ${appUpdate.release.version}`
+    : appVersion
   return (
     <Screen><Back title={t('About')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <Section label={t('About')}>
           <Row label={t('DS Bot')} value={version} />
           {dsh !== undefined ? <Row label={t('DSH')} value={dsh} /> : null}
-          <Row label={t('Phone app')} value={appVersion} />
+          <Row
+            label={t('Phone app')}
+            value={appLabel}
+            onPress={Platform.OS === 'android' ? () => navigation.navigate('AppUpdate') : undefined}
+          />
+          <Row label={t('Release notes')} onPress={() => openMobileReleaseNotes({ current: appVersion })} />
           <Row label={t('Computer')} value={computer?.name ?? '—'} />
         </Section>
         <Section label={t('Licenses')}>
-          <Row label={t('DS Bot')} hint={t('Apache License 2.0')} onPress={() => void Linking.openURL('https://github.com/Fei2411/DS-Bot/blob/main/LICENSE')} />
-          <Row label={t('Repository')} hint="github.com/Fei2411/DS-Bot" onPress={() => void Linking.openURL('https://github.com/Fei2411/DS-Bot')} />
+          <Row label={t('DS Bot')} hint={t('Apache License 2.0')} onPress={() => void Linking.openURL('https://github.com/Fei-Craft/DS-Bot/blob/main/LICENSE')} />
+          <Row label={t('Repository')} hint="github.com/Fei-Craft/DS-Bot" onPress={() => void Linking.openURL('https://github.com/Fei-Craft/DS-Bot')} />
         </Section>
       </ScrollView>
+      <ReleaseNotesModal host="manual" />
     </Screen>
   )
 }

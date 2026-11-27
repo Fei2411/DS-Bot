@@ -37,11 +37,15 @@ export function ownAppRow(ownApp) {
   if (ownApp === null || typeof ownApp !== 'object') return null
   const version = typeof ownApp.version === 'string' ? ownApp.version : ''
   switch (ownApp.phase) {
+    case 'idle': return { hint: ownApp.autoUpdate === false ? t('Automatic updates are off.') : null, button: 'check' }
     case 'checking': return { hint: t('Checking for updates…'), button: null }
     case 'current': return { hint: t('Up to date'), button: 'check' }
     case 'downloading': return { hint: t('Downloading {version}…', { version }), button: null }
-    case 'downloaded': return { hint: t('{version} is ready; it installs when you restart', { version }), button: 'restart' }
-    case 'available': return { hint: t('{version} is available', { version }), button: 'open' }
+    case 'downloaded': return {
+      hint: ownApp.autoInstall === false ? t('{version} is ready', { version }) : t('{version} is ready; it installs when you restart', { version }),
+      button: 'restart',
+    }
+    case 'available': return { hint: t('{version} is available', { version }), button: ownApp.canDownload === true ? 'download' : 'open' }
     case 'failed': return { hint: t('Could not check for updates.'), button: 'check' }
     default: return null
   }
@@ -58,7 +62,7 @@ function dshHint(dsh, shown) {
 
 const linkProps = href => ({ className: 'bt-soft bt-soft-sm bt-about-link', href, target: '_blank', rel: 'noopener noreferrer' })
 
-export function AboutPage({ useUpdate, actions, run, Section, Row, onStartTour = null }) {
+export function AboutPage({ useUpdate, actions, run, Section, Row, Switch = null, onStartTour = null, inlineFeedback = false }) {
   const update = useUpdate(value => value) ?? {}
   const [checking, setChecking] = useState(false)
   const [stars, setStars] = useState(null)
@@ -91,9 +95,11 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, onStartTour =
     ? h('button', { type: 'button', className: 'bt-fb-primary', onClick: () => run(actions.installOwnApp()) }, t('Restart to update'))
     : ownRow?.button === 'check'
       ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.checkOwnApp()) }, t('Check for updates'))
-      : ownRow?.button === 'open'
-        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.openOwnApp()) }, t('Download'))
-        : null
+      : ownRow?.button === 'download'
+        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.downloadOwnApp()) }, t('Download'))
+        : ownRow?.button === 'open'
+          ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.openOwnApp()) }, t('Download'))
+          : null
   const botControl = ownRow !== null ? ownControl
     : phase === 'installed' || phase === 'updated' || update.source === 'app' ? null
     : update.available || phase === 'installing'
@@ -110,7 +116,7 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, onStartTour =
   const repo = update.repoUrl
   return [
     h('div', { key: 'hero', className: 'bt-about-hero' },
-      h('span', { className: 'bt-about-mark' }, h(BotMark, { look: MAIN_LOOK, bot: { id: 'about' }, size: 52, state: markState, live: true, gaze: true, pokeable: true })),
+      h('span', { className: 'bt-about-mark bt-pet-zone' }, h(BotMark, { look: MAIN_LOOK, bot: { id: 'about' }, size: 52, state: markState, live: true, gaze: true, pokeable: true })),
       h('div', { className: 'bt-about-copy' },
         h('span', { className: 'bt-about-name' }, 'DS Bot'),
         update.current ? h('span', { className: 'bt-about-version' }, t('Version {version}', { version: update.current })) : null),
@@ -123,22 +129,24 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, onStartTour =
     repo ? h('p', { key: 'ask', className: 'bt-about-ask' }, t('If DS Bot helps you, a star on GitHub helps more people find it.')) : null,
     h(Section, { key: 'updates', title: t('Updates') },
       h(Row, { label: 'DS Bot', hint: ownRow?.hint ?? botHint(update) }, botControl, update.available && update.notesUrl ? h('a', linkProps(update.notesUrl), t("What's new")) : null),
+      ownRow !== null && Switch && typeof update.ownApp?.autoUpdate === 'boolean'
+        ? h(Row, { label: t('Automatic updates') },
+            h(Switch, { label: t('Automatic updates'), on: update.ownApp.autoUpdate, onChange: on => run(actions.setOwnAppAutoUpdate(on)) }))
+        : null,
       dsh?.current ? h(Row, { label: 'DeepSeek Harness', hint: dshHint(dsh, dshShown) }, dshControl) : null),
     h(Section, { key: 'links', title: t('Links') },
       onStartTour ? h(Row, { label: t('Settings guide') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: onStartTour }, h(CompassIcon), t('Start'))) : null,
       repo ? h(Row, { label: t('Source code'), hint: repo.replace(/^https:\/\//, '') }, h('a', linkProps(repo), h(GitHubMark), t('Open'))) : null,
-      update.notesUrl ? h(Row, { label: t('Release notes') }, h('a', linkProps(update.notesUrl), t('Open'))) : null,
-      h(Row, { label: t('Report a problem') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('feedback') }, t('Open')))),
+      typeof actions.openReleaseNotes === 'function'
+        ? h(Row, { label: t('Release notes') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openReleaseNotes({ current: update.current ?? null, notesUrl: update.notesUrl ?? null }) }, t('Open')))
+        : update.notesUrl ? h(Row, { label: t('Release notes') }, h('a', linkProps(update.notesUrl), t('Open'))) : null,
+      inlineFeedback ? null : h(Row, { label: t('Report a problem') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('feedback') }, t('Open')))),
   ]
 }
 
 export const ABOUT_CSS = `
 .bt-about-hero{display:flex;align-items:center;gap:14px;padding:16px;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow)}
 .bt-about-mark{flex:none;display:inline-flex;position:relative}
-.bt-about-mark::before{content:'';position:absolute;inset:-20%;border-radius:50%}
-body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle]:not(.bt-mark-poke) .bt-b{rotate:8deg;translate:5% -1%;animation:bt-nuzzle .78s ease-in-out .32s infinite}
-body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle] .bt-eye{scale:1 0;animation:none}
-body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle] .bt-eye-happy{opacity:1;transition-delay:.1s}
 .bt-about-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .bt-about-name{font-size:16px;line-height:22px;font-weight:600}
 .bt-about-version{font-size:12px;line-height:16px;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}

@@ -1,13 +1,19 @@
-import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import * as ui from './dsh-primitives.js'
+import { fileChunks } from '../shared/file-chunks.js'
+import { presentedFileName } from '../shared/group-replies.js'
 import { imPlatform } from '../shared/im-platforms.js'
 import { mentionSpans } from '../shared/mentions.js'
+import { detectSecrets, maskSecrets, projectSecretsToSlice } from '../shared/secret-mask.js'
+import { call } from './api.js'
 import { BotMark } from './mark.js'
-import { CheckIcon, CopyIcon } from './icons.js'
+import { CheckIcon, CopyIcon, EyeIcon, FileIcon, HideIcon } from './icons.js'
 import { dateLocale, t } from './i18n.js'
 import { noHover } from './motion.js'
 import { clockLabel, messageClock } from './text.js'
 import { useFold } from './fold.js'
+
+const EMPTY_REVEALED_SECRETS = new Set()
 
 // -------------------------------------------------------------------------
 // The user's own messages. DS Bot owns the row (fold, time, IM tag, copy, steering
@@ -105,19 +111,56 @@ export function userTextParts(text, bots, referenceLabels = []) {
   return parts
 }
 
-function UserText({ text, bots, referenceLabels, skillNames, references, actions }) {
+function renderProjectedSegment(text, keyPrefix, bots, referenceLabels, skillNames, references, actions) {
   return userTextParts(text, bots, referenceLabels).map((part, index) => (part.bot
-    ? h('button', { key: index, type: 'button', className: 'bt-umention', title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
+    ? h('button', { key: `${keyPrefix}:${index}`, type: 'button', className: 'bt-umention', title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
       h(BotMark, { bot: part.bot, size: 16 }), part.label)
-    : h(Fragment, { key: index }, ui.projectUserText(part.text, referenceLabels, skillNames, 'skill', references))))
+    : h(Fragment, { key: `${keyPrefix}:${index}` }, ui.projectUserText(part.text, referenceLabels, skillNames, 'skill', references))))
+}
+
+function UserText({ text, fullText, fullSecrets, revealedSecrets, onToggleSecret, bots, referenceLabels, skillNames, references, actions }) {
+  const secretSpans = fullSecrets && fullSecrets.length > 0
+    ? projectSecretsToSlice(fullText ?? text, text, fullSecrets)
+    : []
+  if (secretSpans.length === 0) {
+    return renderProjectedSegment(text, 'p', bots, referenceLabels, skillNames, references, actions)
+  }
+  const nodes = []
+  let cursor = 0
+  for (let i = 0; i < secretSpans.length; i += 1) {
+    const span = secretSpans[i]
+    if (span.start > cursor) {
+      nodes.push(...renderProjectedSegment(text.slice(cursor, span.start), `t${i}`, bots, referenceLabels, skillNames, references, actions))
+    }
+    const isOpen = Boolean(revealedSecrets?.has(span.key))
+    const label = isOpen ? t('Hide secret') : t('Reveal secret')
+    nodes.push(h('span', {
+      key: `s:${span.key}:${i}`,
+      className: `dsb-secret${isOpen ? ' is-revealed' : ''}`,
+      'data-secret-masked': isOpen ? undefined : '',
+    },
+    h('span', { className: 'dsb-secret-val' }, isOpen ? span.raw : span.masked),
+    h('button', {
+      type: 'button',
+      className: 'dsb-secret-toggle',
+      'aria-pressed': isOpen,
+      'aria-label': label,
+      title: label,
+      onClick: (event) => { event?.stopPropagation?.(); onToggleSecret?.(span.key) },
+    }, isOpen ? h(HideIcon) : h(EyeIcon))))
+    cursor = span.end
+  }
+  if (cursor < text.length) {
+    nodes.push(...renderProjectedSegment(text.slice(cursor), 'end', bots, referenceLabels, skillNames, references, actions))
+  }
+  return nodes
 }
 
 // A Bot mention in a bubble DSH draws itself (DSH 0.2.2-rc.1 and later draw user text by
 // rules; see user-text-rule.js). Only a Bot this chat can call is drawn as one: the rule
 // matches every Bot of the team, so any other name stays the text it was typed as.
 export function BotMention({ node, raw, interactive, sessionId, useRoster, actions }) {
-  const roster = useRoster(value => value)
-  const bot = mentionableBots(roster, sessionId).find(item => item.id === node.data.botId)
+  const bot = useRoster(roster => mentionableBots(roster, sessionId).find(item => item.id === node.data.botId))
   if (!bot) return raw
   const mark = h(BotMark, { bot, size: 16 })
   return interactive
@@ -139,26 +182,104 @@ function Attachments({ attachments, renderMessageImages }) {
   }))
 }
 
+async function savePresentedFile(target) {
+  const parts = []
+  let saved
+  for await (const part of fileChunks(call, target)) { parts.push(part.data); saved = part }
+  const url = URL.createObjectURL(new Blob(parts, { type: saved.mime }))
+  const link = Object.assign(document.createElement('a'), { href: url, download: saved.name })
+  document.body.append(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
+// The files a Bot presented in a group, as cards like the files the user sends (#975).
+// A card opens its file in the side panel when an opener is available; on web or when
+// opening fails and a presented locator exists, it falls back to downloading the bytes.
+export function PresentedFiles({ files, openFile, actions }) {
+  if (!files?.length) return null
+  return h('div', { className: 'bt-pfiles' }, files.map((file) => {
+    const name = file.name || presentedFileName(file.path)
+    const meta = file.description ?? ui.fileExtension?.(name)?.toUpperCase().slice(0, 8)
+    const icon = ui.FileTypeIcon
+      ? h(ui.FileTypeIcon, { key: 'icon', path: name, className: 'bt-ufile-icon' })
+      : h('span', { key: 'icon', className: 'bt-ufile-icon bt-pfile-ico', 'aria-hidden': true }, h(FileIcon))
+    const body = [
+      icon,
+      h('span', { key: 'text', className: 'bt-ufile-text' },
+        h('span', { className: 'bt-ufile-name' }, name),
+        meta ? h('span', { className: 'bt-ufile-meta' }, meta) : null),
+    ]
+    const target = typeof file.sessionId === 'string' && file.sessionId !== '' && Number.isInteger(file.seq) && Number.isInteger(file.index)
+      ? { sessionId: file.sessionId, seq: file.seq, index: file.index }
+      : null
+    const canOpen = typeof openFile === 'function' || typeof actions?.openFile === 'function'
+    if (!canOpen && target === null) return h('span', { key: file.path, className: 'bt-ufile', title: file.path }, body)
+    const open = () => {
+      const fallback = target !== null ? () => savePresentedFile(target) : undefined
+      const attempt = typeof openFile === 'function'
+        ? Promise.resolve().then(() => openFile(file.path))
+        : typeof actions?.openFile === 'function'
+          ? Promise.resolve().then(() => actions.openFile(file.sessionId
+            ? { path: file.path, sessionId: file.sessionId, ...(fallback ? { onUnavailable: fallback } : {}) }
+            : (fallback ? { path: file.path, onUnavailable: fallback } : file.path)))
+          : savePresentedFile(target)
+      void attempt
+        .catch(() => (canOpen && target !== null ? savePresentedFile(target) : Promise.reject(new Error())))
+        .catch(() => { actions?.notice?.(t('Could not save this file')) })
+    }
+    return h('button', { key: file.path, type: 'button', className: 'bt-ufile bt-pfile', title: file.path, 'aria-label': t('Open {name}', { name }), onClick: open }, body)
+  }))
+}
+
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
-    void navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1000) })
+    void navigator.clipboard?.writeText(text)?.then(() => { setCopied(true); setTimeout(() => setCopied(false), 1000) })
   }
   return h('button', { type: 'button', className: 'bt-tool', 'aria-label': copied ? t('Copied') : t('Copy'), title: copied ? t('Copied') : t('Copy'), onClick: copy }, copied ? h(CheckIcon) : h(CopyIcon))
 }
 
 const clock = time => (typeof time === 'number' ? new Date(time).toLocaleTimeString(dateLocale(), { hour: 'numeric', minute: '2-digit' }) : undefined)
 
-// A message that came in over IM names its platform: "via Telegram" by the time.
-export const viaOf = source => (typeof source?.rpcId === 'string' && source.rpcId.startsWith('im:') ? source.rpcId.split(':')[1] : undefined)
-export const ViaTag = ({ via }) => h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: t(imPlatform(via)?.name ?? via) }))
+// A message that came in over IM or the local API names its source: "via Telegram" or "via API · <Token>".
+export const viaOf = (source, roster) => {
+  const rpcId = source?.rpcId
+  if (typeof rpcId !== 'string') return undefined
+  if (rpcId.startsWith('im:')) return rpcId.split(':')[1]
+  if (rpcId.startsWith('api:')) {
+    const keyId = rpcId.split(':')[1]
+    const tokenName = roster?.api?.tokens?.find(item => item.keyId === keyId)?.name
+    return tokenName ? `api:${tokenName}` : 'api'
+  }
+  return undefined
+}
+export const ViaTag = ({ via }) => {
+  if (via === 'api') return h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: 'API' }))
+  if (typeof via === 'string' && via.startsWith('api:')) {
+    return h('span', { className: 'bt-uvia' }, t('via API · {name}', { name: via.slice(4) }))
+  }
+  return h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: t(imPlatform(via)?.name ?? via) }))
+}
 
 // Before DSH 0.2.1-alpha.3: DS Bot draws the attachments, the text and the other blocks.
-function ProjectedContent({ data, text, shown, folded, control, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
+function ProjectedContent({ data, text, shown, folded, control, fullSecrets, revealedSecrets, onToggleSecret, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
   const { attachments, rest } = contentParts(data.content)
   const referenceLabels = data.referenceLabels ?? []
   const references = openFile && openSkill ? { openFile, openSkill } : undefined
-  const body = h(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions })
+  const body = h(UserText, {
+    text: shown,
+    fullText: text,
+    fullSecrets,
+    revealedSecrets,
+    onToggleSecret,
+    bots: mentionableBots(roster, sessionId),
+    referenceLabels,
+    skillNames: data.skillNames ?? [],
+    references,
+    actions,
+  })
   return h(Fragment, null,
     attachments.length > 0 ? h(Attachments, { attachments, renderMessageImages }) : null,
     text !== '' || rest.length > 0 ? h('div', { className: 'bt-ubody', title: clock(data.time), 'data-folded': folded || undefined, 'data-text-interaction-source': text !== '' ? '' : undefined, onClick },
@@ -188,16 +309,49 @@ function HostContent({ data, prepared, shown, folded, control, loadImage, render
     referenceLabels.length > 0 ? h('div', { className: 'bt-urefs' }, t('Referenced {labels}', { labels: referenceLabels.join(t(', ')) })) : null)
 }
 
+const USER_ROSTER_FIELDS = ['bots', 'byId', 'roomsById', 'imVia', 'apiVia', 'api']
+
 // A sent message, or one that joined a running turn ("steering").
 export function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill, loadImage, renderFactorySlot }) {
-  const roster = useRoster(value => value)
   const data = node.data ?? {}
+  const prev = useRef(null)
+  const picked = useRoster((value) => {
+    if (!projects) {
+      const apiName = value.apiVia?.[sessionId]?.[data.seq]
+      return (apiName ? `api:${apiName}` : undefined) ?? viaOf(data.source, value) ?? value.imVia?.[sessionId]?.[data.seq]
+    }
+    const last = prev.current
+    if (last !== null && value !== null && value !== undefined && USER_ROSTER_FIELDS.every(key => last[key] === value[key])) return last
+    prev.current = value
+    return value
+  })
+  const roster = projects ? picked : null
+  const apiName = projects ? roster.apiVia?.[sessionId]?.[data.seq] : undefined
   const prepared = projects ? undefined : hostContent(data.content, data)
   const text = prepared?.text ?? contentParts(data.content).text
   const steering = node.kind === 'steering'
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : undefined
-  const via = viaOf(data.source) ?? roster.imVia?.[sessionId]?.[data.seq]
+  const via = projects
+    ? ((apiName ? `api:${apiName}` : undefined) ?? viaOf(data.source, roster) ?? roster.imVia?.[sessionId]?.[data.seq])
+    : picked
   const { shown, folded, control } = useFold(text, { markdown: false })
+  const fullSecrets = useMemo(() => detectSecrets(text), [text])
+  const [revealedSecrets, setRevealedSecrets] = useState(EMPTY_REVEALED_SECRETS)
+  useEffect(() => {
+    setRevealedSecrets(prev => (prev.size === 0 ? prev : EMPTY_REVEALED_SECRETS))
+  }, [text])
+  const toggleSecret = (key) => {
+    setRevealedSecrets((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const copyText = useMemo(
+    () => (fullSecrets.length > 0 ? maskSecrets(text, revealedSecrets) : text),
+    [text, fullSecrets, revealedSecrets],
+  )
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its copy tool, a tap elsewhere closes it.
   const [toolsOpen, setToolsOpen] = useState(false)
@@ -216,16 +370,16 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
   return h('div', { ref: row, className: 'bt-umsg', 'data-steering': steering || undefined },
     h('div', { className: 'bt-ustack' },
       prepared === undefined
-        ? h(ProjectedContent, { ...fold, roster, sessionId, actions, renderMessageImages, openFile, openSkill })
+        ? h(ProjectedContent, { ...fold, fullSecrets, revealedSecrets, onToggleSecret: toggleSecret, roster, sessionId, actions, renderMessageImages, openFile, openSkill })
         : h(HostContent, { ...fold, prepared, loadImage, renderFactorySlot }),
       (sentAt || via) ? h('div', { className: 'bt-utime', title: clockLabel(data.time) }, ...(via ? [h(ViaTag, { key: 'via', via })] : []), sentAt) : null),
-    text === '' ? null : h('div', { className: 'bt-utools', 'data-open': toolsOpen || undefined }, h(CopyButton, { text })))
+    text === '' ? null : h('div', { className: 'bt-utools', 'data-open': toolsOpen || undefined }, h(CopyButton, { text: copyText })))
 }
 
 export const USER_MESSAGE_CSS = `
 .bt-umsg{display:flex;flex-direction:row-reverse;align-items:center;justify-content:flex-start;gap:4px}
 .bt-ustack{min-width:0;max-width:calc(var(--bt-msg-w) * 100%);display:flex;flex-direction:column;align-items:flex-end;gap:8px}
-.bt-ubody{max-width:100%;box-sizing:border-box;background:var(--bt-user);color:var(--bt-user-ink);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);white-space:pre-wrap;word-break:break-word;text-wrap:pretty;text-autospace:normal}
+.bt-ubody{max-width:100%;box-sizing:border-box;background:var(--bt-user);color:var(--bt-user-ink);border-radius:12px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);white-space:pre-wrap;word-break:break-word;text-wrap:pretty;text-autospace:normal}
 .bt-ubody a{color:inherit}
 /* The host's content stack sits in DS Bot's: the width follows --bt-msg-w (the user's
    message width) through .bt-ustack, not the host's own cap. The fold control goes
@@ -239,13 +393,30 @@ export const USER_MESSAGE_CSS = `
 .bt-umention[data-static]:hover{text-decoration:none}
 .bt-umention>:first-child{flex:none}
 .bt-uattach{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;max-width:100%}
-.bt-ufile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;min-height:64px;padding:8px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card)}
+.bt-ufile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;min-height:64px;padding:8px 12px;border-radius:12px;border:.5px solid var(--bt-line-2);background:var(--bt-card)}
 .bt-ufile-icon{flex:none;width:28px;height:28px}
 .bt-ufile-text{display:flex;flex-direction:column;min-width:0}
 .bt-ufile-name{font-size:14px;line-height:22px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-ufile-meta{font-size:12px;line-height:15px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-pfiles{display:flex;flex-wrap:wrap;gap:8px;max-width:100%}
+.bt-pfiles-row{display:flex;align-items:flex-end;gap:8px;max-width:100%}
+.bt-pfiles-row>.bt-lead{margin-bottom:3px}
+body:not([data-bt-layout=flat]) .bt-group-msg>.bt-pfiles{margin-left:30px}
+.bt-pfile{font:inherit;color:inherit;text-align:start;cursor:pointer;transition:background-color .12s ease}
+.bt-pfile:hover{background:var(--bt-hover)}
+.bt-pfile:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-pfile-ico{display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-pfile-ico svg{width:15px;height:15px}
 .bt-urefs{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
 .bt-uvia{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink-3);font-size:11px;line-height:16px;vertical-align:1px}
 .bt-utools{display:flex;flex:none;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
 .bt-umsg:hover .bt-utools,.bt-umsg:focus-within .bt-utools{opacity:1;visibility:visible}
+.dsb-secret{display:inline;border-radius:4px;padding:1px 4px;background:color-mix(in srgb,currentColor 10%,transparent);box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.dsb-secret.is-revealed{background:color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+.dsb-secret-val{font-family:var(--bt-mono,ui-monospace,"SF Mono",Menlo,Consolas,monospace);font-size:.92em;overflow-wrap:anywhere;word-break:break-word}
+.dsb-secret-toggle{position:relative;display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:20px;height:20px;margin-left:3px;padding:0;border:0;border-radius:6px;background:none;color:inherit;opacity:.78;cursor:pointer}
+.dsb-secret-toggle::after{content:"";position:absolute;inset:-4px}
+.dsb-secret-toggle:hover{background:color-mix(in srgb,currentColor 14%,transparent);opacity:1}
+.dsb-secret-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px;opacity:1}
+.dsb-secret-toggle svg{width:13px;height:13px}
 `
