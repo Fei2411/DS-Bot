@@ -196,7 +196,7 @@ export function install(rt) {
   // only with the provider, which also drops the catalog cache.
   const reasoningCache = new Map()
   let syncedKey
-  const dropCatalog = () => { catalogCache = { at: 0, value: [] } }
+  const dropCatalog = () => { catalogCache = { at: 0, value: [] }; reasoningCache.clear() }
   // A key set or a sign-in may be the user's fix for a Bot's failed turn (turns.js); a
   // key removed or a sign-out is not. A provider added or removed changes whether a
   // Session's selection names a real adapter, so the team's models are applied again:

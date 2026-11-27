@@ -57,7 +57,11 @@ export function install(rt, { env = process.env, request = appChatGPTRequest, ip
       }
       if (previous) await write(models)
       if (refreshModels || status.state === 'connected') models = await call('chatgpt:models')
-      if (!previous && models.length) await write(models)
+      // Seed the route with bare ids/names so saveProviderModels writes the normalized
+      // pi-ai fields (input, contextWindow, reasoningEfforts) without leaving extra keys.
+      if (!previous && models.length) {
+        await write(models.map(({ id, name }) => ({ id, ...(typeof name === 'string' && name.trim() !== '' ? { name: name.trim() } : {}) })))
+      }
       if (models.length) await rt.saveProviderModels({ provider: CHATGPT_PROVIDER, models })
       return models
     }

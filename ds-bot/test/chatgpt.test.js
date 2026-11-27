@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import { createServer } from 'node:http'
 import { test } from 'node:test'
+import { Context } from '@deepseek-ai/cordis'
+import * as dshLlm from '@deepseek-ai/dsh-llm'
+import * as dshPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { install as installChatGPT, appChatGPTRequest } from '../src/host/chatgpt.js'
+import { install as installModels } from '../src/host/models.js'
 import { install as installProviders } from '../src/host/providers.js'
 import { install as installChannel } from '../src/host/channel.js'
 
@@ -160,4 +165,146 @@ test('IPC requests correlate replies and use fixed errors rather than remote dia
   ipc.send = () => { throw new Error('synthetic-secret') }
   await assert.rejects(appChatGPTRequest('chatgpt:status', {}, ipc), /Check the connection status/)
   assert.equal(ipc.listenerCount('message'), 0)
+})
+
+test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai resolution and send reasoning.effort on requests', async t => {
+  const requests = []
+  const upstream = createServer(async (req, res) => {
+    const chunks = []
+    for await (const chunk of req) chunks.push(chunk)
+    requests.push(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.end([
+      `data: ${JSON.stringify({ type: 'response.completed', response: { id: 'resp_1', status: 'completed', output: [{ type: 'message', id: 'msg_1', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: 'ok', annotations: [] }] }], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } })}`,
+      '',
+      '',
+    ].join('\n'))
+  })
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve))
+  t.after(async () => { upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve)) })
+  const baseURL = `http://127.0.0.1:${upstream.address().port}/v1`
+
+  const ctx = new Context()
+  t.after(() => ctx.fiber.dispose())
+  ctx.plugin(dshLlm.LlmRuntime)
+  const keys = { OPENAI_CHATGPT_API_KEY: 'fake-relay-key' }
+  const routes = {
+    'openai-chatgpt': {
+      displayName: 'ChatGPT (plan)', api: 'openai-responses', baseURL,
+      apiKeyEnv: 'OPENAI_CHATGPT_API_KEY', models: [{ id: 'gpt-5.4', name: 'GPT-5.4' }],
+      compat: { supportsDeveloperRole: true },
+    },
+  }
+  let revision = 0
+  const piAiFiber = ctx.plugin(dshPiAi, { providers: structuredClone(routes) })
+  ctx.provide('credentials', {
+    resolve: async ref => (ref in keys ? { value: keys[ref] } : undefined),
+    set: async (ref, value) => { keys[ref] = value },
+    unset: async ref => { delete keys[ref] },
+    describe: async ref => ({ configured: !!keys[ref], writable: true }),
+  })
+  ctx.provide('settings', {
+    configure: () => () => {},
+    describe: () => [{ ns: 'llm-pi-ai', revision, value: { providers: structuredClone(routes) }, user: { providers: structuredClone(routes) } }],
+    mutate: async (ns, ops, expected) => {
+      assert.equal(ns, 'llm-pi-ai')
+      assert.equal(expected, revision)
+      const candidate = structuredClone(routes)
+      for (const op of ops) {
+        if (op.path.length === 2) candidate[op.path[1]] = structuredClone(op.value)
+        else candidate[op.path[1]][op.path[2]] = structuredClone(op.value)
+      }
+      dshPiAi.Config({ providers: structuredClone(candidate) })
+      await piAiFiber.update({ providers: structuredClone(candidate) })
+      for (const key of Object.keys(routes)) delete routes[key]
+      Object.assign(routes, candidate)
+      revision++
+    },
+  })
+  ctx.provide('connection', { fetch: { register: () => () => {} } })
+  await new Promise(resolve => setImmediate(resolve))
+
+  const ipc = new EventEmitter()
+  const rt = {
+    ctx, state: { bots: { b1: { id: 'b1', model: 'openai-chatgpt/gpt-5.4' } }, rooms: {}, prefs: {} },
+    refresh: async () => {}, load: async () => {}, readOnly: () => undefined, phoneServe() {}, warn() {},
+  }
+  installModels(rt)
+  installProviders(rt)
+  let servedModels = [{ id: 'gpt-5.4', name: 'GPT-5.4' }]
+  const request = async (method) => {
+    if (method === 'chatgpt:status') return { state: 'connected', account: { email: 'person@example.test' } }
+    if (method === 'chatgpt:route') return { baseURL, secret: 'fake-relay-key' }
+    if (method === 'chatgpt:models') return servedModels
+    throw new Error('Unexpected request')
+  }
+  installChatGPT(rt, { env: { DS_BOT_APP: '1' }, ipc, request })
+  await new Promise(resolve => setImmediate(resolve))
+  await new Promise(resolve => setImmediate(resolve))
+
+  // Before reasoning metadata is present, reasoningOf caches undefined.
+  assert.equal(await rt.reasoningOf('openai-chatgpt/gpt-5.4'), undefined)
+
+  // Refresh with supported reasoning efforts from ChatGPT sign-in.
+  servedModels = [
+    {
+      id: 'gpt-5.4', name: 'GPT-5.4', contextWindow: 272000, inputModalities: ['text', 'image'],
+      reasoningEfforts: { off: 'none', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' },
+    },
+    {
+      id: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', contextWindow: 272000, inputModalities: ['text', 'image'],
+      reasoningEfforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
+    },
+    { id: 'gpt-4o', name: 'GPT-4o', reasoningEfforts: false },
+  ]
+  const refreshed = await rt.chatgptModels()
+  assert.equal(refreshed.length, 3)
+  assert.equal(routes['openai-chatgpt'].models[0].inputModalities, undefined)
+  assert.deepEqual(routes['openai-chatgpt'].models[0].input, ['text', 'image'])
+
+  // dropCatalog() cleared reasoningCache, so efforts are immediately available.
+  assert.deepEqual((await rt.reasoningOf('openai-chatgpt/gpt-5.4')).efforts.map(e => e.id), ['off', 'low', 'medium', 'high', 'xhigh'])
+  assert.deepEqual((await rt.reasoningOf('openai-chatgpt/gpt-6.2-sol')).efforts.map(e => e.id), ['low', 'medium', 'high', 'xhigh', 'max'])
+  assert.equal(await rt.reasoningOf('openai-chatgpt/gpt-4o'), undefined)
+  assert.equal(await rt.resolveEffort('openai-chatgpt/gpt-5.4', 'xhigh'), 'xhigh')
+  assert.equal(await rt.desiredEffort({ effort: 'max' }, 'openai-chatgpt/gpt-6.2-sol'), 'max')
+  assert.equal(await rt.desiredEffort({ effort: 'off' }, 'openai-chatgpt/gpt-6.2-sol'), undefined)
+  const catalog = await rt.catalog({ fresh: true })
+  const used = catalog.find(entry => entry.ref === 'openai-chatgpt/gpt-5.4')
+  assert.deepEqual(used.reasoning.efforts.map(e => e.id), ['off', 'low', 'medium', 'high', 'xhigh'])
+
+  // Real request through DSH LlmService + PiAiAdapter sends reasoning.effort over openai-responses.
+  const chunks = []
+  for await (const chunk of ctx.llm.stream({
+    provider: 'openai-chatgpt',
+    model: 'gpt-6.2-sol',
+    reasoningEffort: 'xhigh',
+    messages: [dshLlm.createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })],
+  })) chunks.push(chunk)
+  assert.ok(chunks.some(chunk => chunk.type === 'finish'))
+  assert.equal(requests.length, 1)
+  assert.deepEqual(requests[0].reasoning, { effort: 'xhigh', summary: 'auto' })
+  assert.deepEqual(requests[0].include, ['reasoning.encrypted_content'])
+})
+
+test('first ChatGPT sign-in writes clean pi-ai model entries and falls back to enabled openai route when efforts are omitted', async t => {
+  const f = await fixture(t, {
+    status: { state: 'signed-out' },
+    models: [
+      { id: 'gpt-5.4', name: 'GPT-5.4', contextWindow: 272000, inputModalities: ['text', 'image'] },
+    ],
+  })
+  f.rt.ctx.llm.listProviders = () => [{ id: 'openai', name: 'OpenAI' }]
+  f.rt.ctx.llm.resolveModelInfo = async (provider, model) => (provider === 'openai' && model === 'gpt-5.4'
+    ? { reasoning: { efforts: [{ id: 'off', name: 'Off' }, { id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } }
+    : undefined)
+  await f.start()
+  assert.equal((await f.post('chatgpt-sign-in')).value.state, 'connected')
+  assert.deepEqual(f.routes['openai-chatgpt'].models, [{
+    id: 'gpt-5.4',
+    name: 'GPT-5.4',
+    contextWindow: 272000,
+    input: ['text', 'image'],
+    reasoningEfforts: { off: 'none', low: 'low', high: 'high' },
+  }])
 })

@@ -37869,7 +37869,7 @@ function modelOf(bot, roster) {
   return { ref, name: served === void 0 ? rest.join("/") : nameOf(served), provider: served?.providerName ?? provider, served: served !== void 0 };
 }
 var effortCache = /* @__PURE__ */ new Map();
-function useEfforts(served, ref, actions) {
+function useEfforts(served, ref, actions, version = 0) {
   const [fetched, setFetched] = (0, import_react22.useState)(void 0);
   (0, import_react22.useEffect)(() => {
     setFetched(void 0);
@@ -37885,7 +37885,7 @@ function useEfforts(served, ref, actions) {
     return () => {
       live = false;
     };
-  }, [ref, served?.reasoning !== void 0, actions]);
+  }, [ref, served?.reasoning !== void 0, actions, version]);
   return served?.reasoning ?? fetched;
 }
 function effortStops(reasoning) {
@@ -38275,12 +38275,12 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
   const shown = modelOf({ ...bot, model: current2 }, roster);
   const local = isLocalRoute(current2);
   const served = servedOf(roster, current2);
-  const reasoning = useEfforts(served, withEfforts ? current2 : void 0, actions);
+  const [opening, setOpening] = (0, import_react22.useState)(0);
+  const [query, setQuery] = (0, import_react22.useState)("");
+  const reasoning = useEfforts(served, withEfforts ? current2 : void 0, actions, opening);
   const picked = reasoning?.efforts?.some((effort) => effort.id === bot.effort) ? bot.effort : void 0;
   const currentEffort = picked ?? reasoning?.defaultEffort;
   const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
-  const [opening, setOpening] = (0, import_react22.useState)(0);
-  const [query, setQuery] = (0, import_react22.useState)("");
   const models2 = modelsFor(roster.models, current2);
   return {
     bot,
@@ -38303,7 +38303,12 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     // DSH settings can change the list at any time, so opening asks again.
     opened: () => {
       if (local) readModels(routeOf(current2));
-      else void actions?.refreshModels?.();
+      else {
+        for (const [key, value] of effortCache) {
+          if (!value?.efforts?.length) effortCache.delete(key);
+        }
+        void actions?.refreshModels?.();
+      }
       setQuery("");
       setOpening((count) => count + 1);
     },

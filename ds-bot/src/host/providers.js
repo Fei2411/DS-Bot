@@ -85,6 +85,34 @@ function lookupKnownModel(known, rawId) {
   return known.get(id) ?? known.get(bare) ?? (bare.startsWith('kimi-') ? known.get(bare.slice(5)) : known.get(`kimi-${bare}`))
 }
 
+const THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+
+// DSH's llm-pi-ai schema accepts `false` (explicit non-reasoning) or a dict of
+// pi-ai thinking levels with at least one level beyond `off`.
+function normalizeReasoningEfforts(raw) {
+  if (raw === false) return false
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const mapped = {}
+  for (const [level, wire] of Object.entries(raw)) {
+    if (!THINKING_LEVELS.has(level)) continue
+    if (wire === null && level === 'off') mapped.off = null
+    else if (typeof wire === 'string' && wire.trim() !== '') mapped[level] = wire.trim()
+  }
+  return Object.keys(mapped).some(level => level !== 'off') ? mapped : undefined
+}
+
+function openaiReasoningEfforts(info) {
+  const efforts = info?.reasoning?.efforts
+  if (!Array.isArray(efforts) || efforts.length === 0) return undefined
+  const mapped = {}
+  for (const effort of efforts) {
+    const id = typeof effort?.id === 'string' ? effort.id : ''
+    if (!THINKING_LEVELS.has(id)) continue
+    mapped[id] = id === 'off' ? 'none' : id
+  }
+  return normalizeReasoningEfforts(mapped)
+}
+
 // A model as the route stores it: what discovery told about it, under pi-ai's names,
 // with any missing capacity or modalities filled from a known catalog model of the same id.
 function modelEntry(model, known) {
@@ -100,12 +128,14 @@ function modelEntry(model, known) {
       ? model.input
       : match?.inputModalities
   const input = Array.isArray(rawInput) ? rawInput.filter(kind => typeof kind === 'string') : []
+  const reasoningEfforts = normalizeReasoningEfforts(model?.reasoningEfforts)
   return {
     id,
     ...(typeof model?.name === 'string' && model.name.trim() !== '' ? { name: model.name.trim() } : {}),
     ...(contextWindow ? { contextWindow } : {}),
     ...(maxTokens ? { maxTokens } : {}),
     ...(input.length > 0 ? { input } : {}),
+    ...(reasoningEfforts !== undefined ? { reasoningEfforts } : {}),
   }
 }
 
@@ -405,14 +435,22 @@ export function install(rt) {
     const current = new Map((Array.isArray(profile?.models) ? profile.models : [])
       .map(model => [typeof model === 'string' ? model : model?.id, model])
       .filter(([id]) => typeof id === 'string' && id !== ''))
-    const models = list.map((model) => {
+    const hasOpenAI = provider === CHATGPT_PROVIDER
+      && typeof ctx.llm.resolveModelInfo === 'function'
+      && (ctx.llm.listProviders?.() ?? []).some(item => item.id === 'openai')
+    const models = await Promise.all(list.map(async (model) => {
       const id = typeof model === 'string' ? model.trim() : model?.id?.trim()
       const old = current.get(id)
       const saved = typeof old === 'string' ? { id: old } : old
       const incoming = typeof model === 'string' ? { id: model } : model
-      const next = modelEntry({ ...saved, ...incoming }, known)
+      let fallbackEfforts
+      if (hasOpenAI && incoming.reasoningEfforts === undefined && saved?.reasoningEfforts === undefined && id) {
+        const info = await ctx.llm.resolveModelInfo('openai', id).catch(() => undefined)
+        fallbackEfforts = openaiReasoningEfforts(info)
+      }
+      const next = modelEntry({ ...saved, ...incoming, ...(fallbackEfforts !== undefined ? { reasoningEfforts: fallbackEfforts } : {}) }, known)
       return { ...saved, ...next }
-    })
+    }))
     if (new Set(models.map(model => model.id)).size !== models.length) throw invalid('Two models have the same id')
     await settings.mutate(PI_AI, [{ op: 'set', path: [...entry.settingsPath, 'models'], value: models }], section?.revision)
     rt.dropCatalog()

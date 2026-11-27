@@ -392,3 +392,24 @@ test('retained models keep explicit metadata before catalog defaults fill absent
   assert.deepEqual(models[0].input, ['text'])
   assert.equal(models[0].name, 'My Model')
 })
+
+test('saving models normalizes incoming reasoningEfforts and accepts explicit false to clear reasoning', async () => {
+  const user = { providers: { relay: { api: 'openai-responses', baseURL: 'https://relay.example/v1', models: [
+    { id: 'r1', reasoningEfforts: { low: 'low', high: 'high' } },
+  ] } } }
+  const { rt, writes } = dsh({ user })
+  const view = await rt.providersView()
+  await rt.saveProviderModels({
+    provider: 'relay', revision: view.revision,
+    models: [
+      { id: 'r1', reasoningEfforts: false },
+      { id: 'r2', reasoningEfforts: { off: 'none', low: 'low', high: 'high', ultra: 'ultra' } },
+      { id: 'r3', reasoningEfforts: { off: 'none' } },
+    ],
+  })
+  const models = writes.at(-1)[1][0].value
+  assert.equal(models[0].reasoningEfforts, false)
+  assert.deepEqual(models[1].reasoningEfforts, { off: 'none', low: 'low', high: 'high' })
+  assert.equal(models[2].reasoningEfforts, undefined)
+  assert.doesNotThrow(() => PiAiConfig({ providers: { relay: { api: 'openai-responses', baseURL: 'https://relay.example/v1', models } } }))
+})

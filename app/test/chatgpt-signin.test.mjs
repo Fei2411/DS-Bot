@@ -277,6 +277,42 @@ test('lists only visible models in server order and handles an empty list', asyn
   const f = await fixture(t)
   await f.login()
   assert.deepEqual(await f.client.listModels(), [{ id: 'z-model', name: 'Z' }, { id: 'a-model', name: 'A' }])
+  f.behavior.models = [
+    {
+      slug: 'gpt-reasoning', display_name: 'GPT Reasoning', visibility: 'list',
+      context_window: 272000, input_modalities: ['text', 'image', 'audio', 'image'],
+      supported_reasoning_levels: [
+        { effort: 'none', description: 'No reasoning' },
+        { effort: 'low', description: 'Fast' },
+        { effort: 'medium' },
+        { effort: 'high' },
+        { effort: 'xhigh' },
+        { effort: 'max' },
+        { effort: 'ultra' },
+      ],
+    },
+    {
+      slug: 'gpt-always-reason', display_name: 'GPT Always Reason', visibility: 'list',
+      supported_reasoning_levels: ['low', 'high'],
+    },
+    {
+      slug: 'gpt-non-reasoning', display_name: 'GPT Chat', visibility: 'list',
+      supported_reasoning_levels: [],
+    },
+    {
+      slug: 'gpt-none-only', display_name: 'GPT None Only', visibility: 'list',
+      supported_reasoning_levels: [{ effort: 'none' }],
+    },
+  ]
+  assert.deepEqual(await f.client.listModels(), [
+    {
+      id: 'gpt-reasoning', name: 'GPT Reasoning', contextWindow: 272000, inputModalities: ['text', 'image'],
+      reasoningEfforts: { off: 'none', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
+    },
+    { id: 'gpt-always-reason', name: 'GPT Always Reason', reasoningEfforts: { low: 'low', high: 'high' } },
+    { id: 'gpt-non-reasoning', name: 'GPT Chat', reasoningEfforts: false },
+    { id: 'gpt-none-only', name: 'GPT None Only', reasoningEfforts: false },
+  ])
   f.behavior.models = []
   assert.deepEqual(await f.client.listModels(), [])
   f.behavior.redirect = '/models'
