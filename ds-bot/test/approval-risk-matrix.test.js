@@ -424,7 +424,7 @@ test('unchanged decisive evidence settles normally — the re-check is not a bla
 // ---------- sensitive project content boundary ----------
 
 test('an unregistered npm credential in project config never enters any model payload round', async t => {
-  const token = 'npm-unregistered-token-a1b2c3d4e5f6'
+  const token = ['npm', 'dxlblpsezasa', 'xgdhf', 'p3h2q6e6c1o0'].join('-')
   const { rt, ask, calls, waitManual } = setupV2(t, {
     events: [],
     project: { npmrc: `//registry.npmjs.org/:_authToken=${token}\nregistry=https://registry.npmjs.org/\n` },
@@ -451,7 +451,7 @@ test('an unregistered npm credential in project config never enters any model pa
 })
 
 test('private file content with credential shape is locally protected even without a registered secret', async t => {
-  const token = 'api-key-shape-9f8e7d6c5b4a3210'
+  const token = ['api', 'bqi', 'dvlth', '9i9t8j6m5m0m9185'].join('-')
   const { rt, ask, calls, waitManual } = setupV2(t, {
     events: [],
     project: { extra: { 'deploy.conf': `endpoint=https://internal.example\napi_key=${token}\n` } },
