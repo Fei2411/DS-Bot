@@ -298,6 +298,57 @@ test('a language switch during streaming re-renders history once and streaming k
   view.unmount()
 })
 
+
+test('a live expanded focused tool card keeps its DOM node and disclosure when its row commits', () => {
+  resetRenderCounts()
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  const ev = (seq, time, type, data) => ({ type: 'event', event: { seq, time, type, data } })
+  let log = applyFrame(emptyLog(), {
+    type: 'snapshot',
+    header: { id: sessionId, cwd: '/tmp/bench' },
+    cursor: 2,
+    hasMore: false,
+    records: [
+      ev(1, T0, 'turn/start', { turn: 1 }),
+      ev(2, T0 + 1, 'user/message', { turn: 1, source: { kind: 'user' }, content: [{ type: 'text', text: 'run ls' }] }),
+    ],
+    assistantStream: { revision: 0 },
+  }).log
+  const stream = (frame) => {
+    log = applyFrame(log, { type: 'assistant-stream', frame }).log
+    if (frame.type === 'chunk' && frame.chunk?.type === 'finish') return
+  }
+  stream({ type: 'start', attemptId: 'tool-live', revision: 1, turn: 1, step: 1, startedAfterSeq: 2 })
+  stream({ type: 'chunk', attemptId: 'tool-live', revision: 2, index: 0, time: T0 + 10, chunk: { type: 'block-start', index: 0, blockType: 'tool-call' } })
+  stream({ type: 'chunk', attemptId: 'tool-live', revision: 3, index: 1, time: T0 + 11, chunk: { type: 'tool-call-delta', index: 0, id: 'call-live', name: 'bash', argumentsDelta: '{"command":"ls -la"' } })
+  const render = () => act(() => root.render(h(SessionTranscript, {
+    log, sessionId, roster, actions, classic: false, bot,
+  })))
+  render()
+  const head = container.querySelector('.dsb-tool-head')
+  assert.ok(head, 'live preparing tool card rendered')
+  act(() => { head.dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true })) })
+  assert.equal(head.getAttribute('aria-expanded'), 'true', 'tool card expanded before commit')
+  head.focus()
+  assert.equal(document.activeElement, head)
+
+  log = applyFrame(log, ev(3, T0 + 20, 'assistant/message', {
+    turn: 1,
+    step: 1,
+    message: { content: [{ type: 'tool-call', id: 'call-live', name: 'bash', arguments: '{"command":"ls -la"}' }] },
+  })).log
+  render()
+  const afterHead = container.querySelector('.dsb-tool-head')
+  assert.equal(afterHead, head, 'the same DOM node survives the live-to-committed move')
+  assert.equal(container.contains(head), true)
+  assert.equal(head.getAttribute('aria-expanded'), 'true', 'disclosure state survives the commit')
+  assert.equal(document.activeElement, head, 'focus survives the commit')
+  act(() => root.unmount())
+  container.remove()
+})
+
 test('a stream chunk never rewrites the turn clock: the noting effect skips when events are unchanged', () => {
   const notes = []
   const container = document.createElement('div')

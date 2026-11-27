@@ -28,7 +28,7 @@ import { AnsweredReply } from '../../../ds-bot/src/client/widget-cell.js'
 import { openSessionFollow } from './api.js'
 import { ClassicFeedbackActions, ClassicFeedbackDialog, useSessionFeedback } from './classic-feedback.js'
 import { getAppLocale } from './locale.js'
-import { buildSessionRows, extractTurnFacts } from './session-transcript.js'
+import { buildSessionRowParts, extractTurnFacts } from './session-transcript.js'
 import { CHAT_NODE_SLOT, SlotOutlet, slots as defaultSlots } from './slots.js'
 import { UserMessageText, copyableUserText } from './user-text.js'
 
@@ -144,12 +144,14 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     failed: false,
     pageFailed: false,
     terminalError: null,
+    historyReloaded: false,
   }))
   const logRef = useRef(emptyLog())
   const followRef = useRef(null)
   const genRef = useRef(0)
   const pagingRef = useRef(false)
   const openedRef = useRef(false)
+  const resyncRef = useRef(false)
   const seenUserSeqsRef = useRef(new Set())
   const onUserRef = useRef(onUserMessage)
   onUserRef.current = onUserMessage
@@ -160,16 +162,19 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     const myGen = ++genRef.current
     pagingRef.current = false
     openedRef.current = false
+    resyncRef.current = false
     seenUserSeqsRef.current = new Set()
     const fresh = emptyLog()
     logRef.current = fresh
-    setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null })
+    setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null, historyReloaded: false })
     if (!enabled || !sessionId) return undefined
 
-    const handle = openFollowRef.current({ sessionId, max: PAGE_SIZE }, (event, data) => {
+    const handle = openFollowRef.current({ sessionId, max: PAGE_SIZE, after: () => (resyncRef.current ? undefined : logRef.current.cursor) }, (event, data) => {
       if (genRef.current !== myGen) return
       if (event === 'frame') {
-        const next = applyFrame(logRef.current, data)
+        const resyncing = data?.type === 'snapshot' && resyncRef.current
+        const next = applyFrame(resyncing ? emptyLog() : logRef.current, data)
+        if (resyncing) resyncRef.current = false
         logRef.current = next.log
         // Notify new user messages so optimistic pending bubbles clear one-for-one without
         // matching historical duplicates or dropping messages on a gap-reopen frame.
@@ -198,10 +203,18 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
           loading: false,
           failed: false,
           terminalError: null,
+          historyReloaded: current.historyReloaded || resyncing,
         }))
         if (next.reopen) followRef.current?.reopen()
       } else if (event === 'error') {
-        const terminal = data?.code === 'bot/not-found' || data?.code === 'bot/refused' || data?.code === 'bot/invalid'
+        if (data?.code === 'bot/stale' && !resyncRef.current) {
+          // The durable log no longer reaches this window's cursor. Reopen once without
+          // `after`; the fresh opening replaces the rows instead of looping on that cursor.
+          resyncRef.current = true
+          followRef.current?.reopen()
+          return
+        }
+        const terminal = data?.code === 'bot/not-found' || data?.code === 'bot/refused' || data?.code === 'bot/invalid' || data?.code === 'bot/stale'
         setState(current => ({
           ...current,
           loading: false,
@@ -269,6 +282,7 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     failed: state.failed,
     pageFailed: state.pageFailed,
     terminalError: state.terminalError,
+    historyReloaded: state.historyReloaded,
     hasMore: pageBefore(state.log) !== undefined,
     thinkingAt: state.thinkingAt,
     loadEarlier,
@@ -761,6 +775,95 @@ const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actio
     h(LearningTurnTail, { turn: row.turnInfo, sessionId, useRoster, actions }))
 })
 
+
+const EMPTY_SPEAKERS = new Set()
+
+function renderTranscriptRows({
+  rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts,
+  sessionId, bot, roster, actions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
+  useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
+  resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
+  resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
+  selfId, cwd, showThinking, flat,
+  openSessionFile, revealSessionFolder, turnFileMentions, feedback,
+  onSelectFeedback, onRetractFeedback, renderEarlierUserText,
+}) {
+  const seenTurnSpeaker = new Set(initialSpeakers)
+  let prevTime
+
+  return rows.flatMap((row) => {
+    if (row.kind === 'part-start') {
+      prevTime = undefined
+      return [canLoadEarlierParts
+        ? h(EarlierParts, { key: row.key, sessionId, roster, actions, renderUserText: renderEarlierUserText })
+        : h(PartLine, { key: row.key, time: row.time })]
+    }
+
+    // Track whether a flat-layout turn still needs its opening Bot avatar+name line.
+    let showSpeaker = false
+    if (row.kind === 'assistant') {
+      const visible = row.texts.length > 0 || row.activity.length > 0 || (showThinking && row.reasoning !== '')
+      if (!visible) return []
+    }
+    if (row.kind === 'assistant' || row.kind === 'tool') {
+      const turnKey = row.turn ?? row.key
+      if (!seenTurnSpeaker.has(turnKey)) {
+        seenTurnSpeaker.add(turnKey)
+        showSpeaker = true
+      }
+    }
+
+    const pause = !classic && Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
+    if (Number.isFinite(row.time)) prevTime = row.time
+
+    const renderDefault = () => {
+      switch (row.kind) {
+        case 'user': return h(UserRow, { row, sessionId, roster, actions, lang, classic, onOpenFile: openSessionFile, onRevealFolder: revealSessionFolder })
+        case 'answer': return h(AnsweredReply, { node: { data: row.data } })
+        case 'assistant': return h(AssistantRow, {
+          row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic,
+          onOpenFile: openSessionFile,
+          onRevealFolder: revealSessionFolder,
+          fileMentions: turnFileMentions.get(row.turn ?? 'none'),
+          feedbackAvailable: classic && feedback.available,
+          feedbackItem: classic && row.messageId ? (feedback.items.get(row.messageId) ?? null) : null,
+          feedbackPending: classic && row.messageId ? feedback.pendingIds.has(row.messageId) : false,
+          onSelectFeedback,
+          onRetractFeedback,
+        })
+        case 'tool': return h(SessionToolRow, {
+          row, showSpeaker, flat, bot, cwd, sessionId, actions, registry, lang,
+          useRoster: resolvedUseRoster, useUi: resolvedUseUi, useWork: resolvedUseWork,
+          useHeldCards: resolvedUseHeldCards, useBrowserHolds: resolvedUseBrowserHolds,
+          useBrowserTabs: resolvedUseBrowserTabs, useBrowserPages: resolvedUseBrowserPages,
+          useComputer: resolvedUseComputer,
+        })
+        case 'compaction': return h(CompactionRow, { row, lang })
+        case 'event': return h(SessionEventRow, { row, selfId, roster, actions, lang })
+        case 'deliverables': return h(DeliverablesRow, { row, sessionId, onOpenFile: openSessionFile, lang })
+        case 'changes': return h(SessionChangesRow, { row, sessionId, actions, lang })
+        case 'turn-error': return h(TurnErrorRow, { row, bot, sessionId, useRoster, useTurnClock, actions, lang })
+        case 'turn-tail': return h(TurnTailRow, { row, sessionId, useRoster: resolvedUseRoster, actions, lang })
+        default: return null
+      }
+    }
+
+    const node = h(SlotOutlet, {
+      key: row.key,
+      registry,
+      name: CHAT_NODE_SLOT,
+      slotKey: row.kind,
+      resetKey: row.key,
+      props: { row, sessionId, bot, roster, actions, useUi },
+      fallback: renderDefault,
+    })
+
+    return pause
+      ? [h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)), node]
+      : [node]
+  })
+}
+
 export function SessionTranscript({
   log, sessionId, bot, roster, actions, classic = false,
   useUi, useRoster, useWork, useTurnClock, useHeldCards,
@@ -770,9 +873,9 @@ export function SessionTranscript({
   // The memoized rows read `t()` at render time, so the language travels as a prop:
   // a switch re-renders them in the new language, and a stream chunk never changes it.
   const lang = useUiLanguage()
-  const rows = useMemo(() => buildSessionRows(log, { roster, sessionId }), [log, roster, sessionId])
+  const rowParts = useMemo(() => buildSessionRowParts(log, { roster, sessionId }), [log, roster, sessionId])
   const turnFacts = useMemo(() => extractTurnFacts(log?.events, { roster, sessionId }), [log?.events, roster, sessionId])
-  const turnSig = turnFactsSignature(turnFacts)
+  const turnSig = useMemo(() => turnFactsSignature(turnFacts), [turnFacts])
   const turnFactsRef = useRef(turnFacts)
   turnFactsRef.current = turnFacts
   const safeRoster = useMemo(() => ({
@@ -818,19 +921,19 @@ export function SessionTranscript({
       if (event.type === 'turn/start') actions.noteTurnTime(sessionId, turn, 'first', event.time)
       else if (event.type === 'turn/end') actions.noteTurnTime(sessionId, turn, 'end', event.time)
     }
-    for (const row of rows) {
+    for (const row of rowParts.committed) {
       if (Number.isInteger(row.turn) && Number.isFinite(row.time)) {
         actions.noteTurnTime(sessionId, row.turn, 'first', row.time)
       }
     }
-  }, [log?.events, rows, sessionId, actions])
+  }, [log?.events, rowParts.committed, sessionId, actions])
 
   const selfId = bot?.id ?? sessionId
   const cwd = log?.header?.cwd
   const showThinking = thinkingShown(roster.prefs)
   const flat = layoutOf(roster.prefs) === 'flat'
   const canLoadEarlierParts = typeof actions?.earlier === 'function'
-  const hasPartStart = rows.some(row => row.kind === 'part-start')
+  const hasPartStart = useMemo(() => rowParts.committed.some(row => row.kind === 'part-start'), [rowParts.committed])
   const openSessionFile = useMemo(() => (typeof actions?.openFile === 'function'
     ? target => actions.openFile(typeof target === 'string'
       ? { path: target, sessionId }
@@ -910,80 +1013,48 @@ export function SessionTranscript({
   // Wait until the opening snapshot lands (`log.header !== null`) before mounting EarlierParts
   // so we never issue wasted RPCs while loading or duplicate a snapshot's `part-start`.
   const showTopEarlierParts = log?.header !== null && !hasMore && !hasPartStart && canLoadEarlierParts && (bot?.parts?.length ?? 0) > 0
-  const seenTurnSpeaker = new Set()
-  let prevTime
-
-  const projected = rows.flatMap((row) => {
-    if (row.kind === 'part-start') {
-      prevTime = undefined
-      return [canLoadEarlierParts
-        ? h(EarlierParts, { key: row.key, sessionId, roster, actions, renderUserText: renderEarlierUserText })
-        : h(PartLine, { key: row.key, time: row.time })]
+  const committedSpeakers = useMemo(() => {
+    const speakers = new Set()
+    for (const row of rowParts.committed) {
+      if (row.kind === 'assistant') {
+        if (row.texts.length === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
+      } else if (row.kind !== 'tool') continue
+      speakers.add(row.turn ?? row.key)
     }
+    return speakers
+  }, [rowParts.committed, showThinking])
+  const rowProps = {
+    canLoadEarlierParts, sessionId, bot, roster, actions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
+    useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
+    resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
+    resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
+    selfId, cwd, showThinking, flat,
+    openSessionFile, revealSessionFolder, turnFileMentions, feedback,
+    onSelectFeedback: handleSelectFeedback, onRetractFeedback: handleRetractFeedback, renderEarlierUserText,
+  }
 
-    // Track whether a flat-layout turn still needs its opening Bot avatar+name line.
-    let showSpeaker = false
-    if (row.kind === 'assistant') {
-      const visible = row.texts.length > 0 || row.activity.length > 0 || (showThinking && row.reasoning !== '')
-      if (!visible) return []
-    }
-    if (row.kind === 'assistant' || row.kind === 'tool') {
-      const turnKey = row.turn ?? row.key
-      if (!seenTurnSpeaker.has(turnKey)) {
-        seenTurnSpeaker.add(turnKey)
-        showSpeaker = true
-      }
-    }
-
-    const pause = !classic && Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
-    if (Number.isFinite(row.time)) prevTime = row.time
-
-    const renderDefault = () => {
-      switch (row.kind) {
-        case 'user': return h(UserRow, { row, sessionId, roster, actions, lang, classic, onOpenFile: openSessionFile, onRevealFolder: revealSessionFolder })
-        case 'answer': return h(AnsweredReply, { node: { data: row.data } })
-        case 'assistant': return h(AssistantRow, {
-          row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic,
-          onOpenFile: openSessionFile,
-          onRevealFolder: revealSessionFolder,
-          fileMentions: turnFileMentions.get(row.turn ?? 'none'),
-          feedbackAvailable: classic && feedback.available,
-          feedbackItem: classic && row.messageId ? (feedback.items.get(row.messageId) ?? null) : null,
-          feedbackPending: classic && row.messageId ? feedback.pendingIds.has(row.messageId) : false,
-          onSelectFeedback: handleSelectFeedback,
-          onRetractFeedback: handleRetractFeedback,
-        })
-        case 'tool': return h(SessionToolRow, {
-          row, showSpeaker, flat, bot, cwd, sessionId, actions, registry, lang,
-          useRoster: resolvedUseRoster, useUi: resolvedUseUi, useWork: resolvedUseWork,
-          useHeldCards: resolvedUseHeldCards, useBrowserHolds: resolvedUseBrowserHolds,
-          useBrowserTabs: resolvedUseBrowserTabs, useBrowserPages: resolvedUseBrowserPages,
-          useComputer: resolvedUseComputer,
-        })
-        case 'compaction': return h(CompactionRow, { row, lang })
-        case 'event': return h(SessionEventRow, { row, selfId, roster, actions, lang })
-        case 'deliverables': return h(DeliverablesRow, { row, sessionId, onOpenFile: openSessionFile, lang })
-        case 'changes': return h(SessionChangesRow, { row, sessionId, actions, lang })
-        case 'turn-error': return h(TurnErrorRow, { row, bot, sessionId, useRoster, useTurnClock, actions, lang })
-        case 'turn-tail': return h(TurnTailRow, { row, sessionId, useRoster: resolvedUseRoster, actions, lang })
-        default: return null
-      }
-    }
-
-    const node = h(SlotOutlet, {
-      key: row.key,
-      registry,
-      name: CHAT_NODE_SLOT,
-      slotKey: row.kind,
-      resetKey: row.key,
-      props: { row, sessionId, bot, roster, actions, useUi },
-      fallback: renderDefault,
-    })
-
-    return pause
-      ? [h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)), node]
-      : [node]
-  })
+  // Committed and live rows must be siblings in one keyed list: a live tool call that
+  // commits keeps the same component instance instead of unmounting into another subtree.
+  // The committed elements are memoized without `thinkingAt`, so stream chunks and
+  // reasoning clocks never repaint finished history.
+  const committedElements = useMemo(() => renderTranscriptRows({
+    ...rowProps,
+    thinkingAt: undefined,
+    rows: rowParts.committed,
+  }), [
+    rowParts.committed, canLoadEarlierParts, sessionId, bot, roster, actions, classic,
+    useUi, useRoster, useTurnClock, useWork, useHeldCards,
+    useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, registry, lang,
+    resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
+    resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
+    selfId, cwd, showThinking, flat,
+    openSessionFile, revealSessionFolder, turnFileMentions, feedback,
+    handleSelectFeedback, handleRetractFeedback, renderEarlierUserText,
+  ])
+  const liveElements = rowParts.live.length === 0
+    ? []
+    : renderTranscriptRows({ ...rowProps, rows: rowParts.live, initialSpeakers: committedSpeakers })
+  const projected = [...committedElements, ...liveElements]
 
   const feedbackDialog = classic ? h(ClassicFeedbackDialog, {
     key: 'classic-feedback-dialog',

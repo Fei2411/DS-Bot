@@ -47,7 +47,7 @@ class FakeWebContentsView {
 const { outputFiles } = await build({
   stdin: {
     contents: `
-      export { ShortcutsDialog, matchGlobalShortcut } from './ui/src/shortcuts.js'
+      export { ShortcutsDialog, matchGlobalShortcut, resolveActiveModal } from './ui/src/shortcuts.js'
       export { ShortcutsPage } from '../ds-bot/src/client/shortcuts-page.js'
       export { createShortcutStore } from '../ds-bot/src/client/shortcuts-model.js'
       export { settingsOwnsKeyboard } from '../ds-bot/src/client/overlay-hooks.js'
@@ -382,4 +382,19 @@ test('settingsOwnsKeyboard blocks Settings ⌘K while ShortcutsDialog is mounted
   assert.equal(settingsOwnsKeyboard(settingsNode, { querySelectorAll: () => [settingsNode, shortcutsNode] }), false)
   assert.equal(settingsOwnsKeyboard(settingsNode, { querySelectorAll: () => [settingsNode, leavingNode] }), true)
   assert.equal(settingsOwnsKeyboard({ isConnected: false }, { querySelectorAll: () => [settingsNode] }), false)
+})
+
+test('resolveActiveModal ranks releaseNotes above settings so shortcuts do not leak through to Settings', () => {
+  const { exports } = loadUi()
+  const { resolveActiveModal, matchGlobalShortcut } = exports
+  const uiSnap = { settings: { page: 'about' }, releaseNotes: { mode: 'manual', current: '0.3.10' } }
+  assert.equal(resolveActiveModal(uiSnap, null), 'dialog')
+  assert.equal(resolveActiveModal({ settings: { page: 'about' }, releaseNotes: null }, null), 'settings')
+
+  // Cmd+, (settings toggle) must be blocked when releaseNotes is open over Settings.
+  const hit = matchGlobalShortcut(
+    { metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, code: 'Comma', key: ',', defaultPrevented: false, isComposing: false },
+    { settingsOpen: true, modal: resolveActiveModal(uiSnap, null), capabilities: { surface: true, browser: true, inbox: true } },
+  )
+  assert.equal(hit, null)
 })

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { memo } from './memo.js'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
-import { isMainOf } from './sources.js'
+import { isMainOf, sectionCollapsed } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
@@ -589,6 +589,7 @@ export function TeamSidebar(props) {
   const panelYield = useUi(value => value.panelYield === true)
   const bootFailed = useUi(value => value.bootFailed === true)
   const renameSection = useUi(value => value.renameSection)
+  const sectionFolds = useUi(value => value.sectionFolds)
   const inboxOpen = useUi(value => value.inbox === true)
   props.useRegistry(value => value)
   const frameSnap = props.useFrame ? props.useFrame(value => value) : { viewport: typeof window === 'undefined' ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 }
@@ -623,7 +624,13 @@ export function TeamSidebar(props) {
     ]
     return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
   }, [roster, updated])
-  const sections = roster.sections ?? []
+  const sections = useMemo(() => {
+    const sections = roster.sections ?? []
+    return sectionFolds ? sections.map(section => {
+      const collapsed = sectionCollapsed(section, sectionFolds)
+      return collapsed === section.collapsed ? section : { ...section, collapsed }
+    }) : sections
+  }, [roster.sections, sectionFolds])
   const sectionSet = useMemo(() => new Set(sections.map(sec => sec.id)), [sections])
   const ungrouped = useMemo(
     () => order.filter(entry => !entry.item.sectionId || !sectionSet.has(entry.item.sectionId)),

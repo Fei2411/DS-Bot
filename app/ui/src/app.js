@@ -18,7 +18,7 @@ import { AgentEmptyHero, ClassicHeader, ClassicSidebar } from './classic-sidebar
 import { useDshSettingsBridge } from './engine-settings-bridge.js'
 import { getAppLocale } from './locale.js'
 import { WorkspacePaneBody, buildWorkspaceTabs } from './right-panel.js'
-import { ShortcutsDialog, matchGlobalShortcut, setLiveShortcutContext } from './shortcuts.js'
+import { ShortcutsDialog, matchGlobalShortcut, resolveActiveModal, setLiveShortcutContext } from './shortcuts.js'
 import { SHORTCUT_BY_ID, isCommandAvailable, isShortcutRecording, shortcutsStore, visibleClassicSessions, visibleSidebarTargets } from '../../../ds-bot/src/client/shortcuts-model.js'
 import { RIGHT_PANE_TAB_SLOT, SHELL_OVERLAY_SLOT, SlotErrorBoundary, slots, useSlotEntries } from './slots.js'
 import { createTeam } from './team.js'
@@ -400,7 +400,7 @@ export function App() {
         }
         return
       }
-      const targets = visibleSidebarTargets(rosterSnap, sessionsSnap.byId, shownId)
+      const targets = visibleSidebarTargets(rosterSnap, sessionsSnap.byId, shownId, uiSnap.sectionFolds)
       if (targets.length === 0) return
       let target = null
       if (slot >= 0) {
@@ -421,18 +421,8 @@ export function App() {
     }
   }, [team, actions])
 
-  // Priority follows actual modal z-index stacking (75 shortcuts > 70 palette/groupSearch > 61 memory > 60 settings > dialogs > inbox).
-  const activeModalOf = useCallback((uiSnap) => {
-    if (uiSnap.shortcuts) return 'shortcuts'
-    if (uiSnap.palette) return 'palette'
-    if (uiSnap.groupSearch) return 'groupSearch'
-    if (uiSnap.memory) return 'memory'
-    if (uiSnap.settings) return 'settings'
-    if (uiSnap.newChat || uiSnap.exchange || uiSnap.voice || uiSnap.signIn) return 'dialog'
-    if (uiSnap.inbox) return 'inbox'
-    if (typeof document !== 'undefined' && document.querySelector('[aria-modal="true"]')) return 'dialog'
-    return null
-  }, [])
+  // Priority follows actual modal z-index stacking (75 shortcuts > 70 palette/groupSearch > 66 releaseNotes > 61 memory > 60 settings > dialogs > inbox).
+  const activeModalOf = useCallback(resolveActiveModal, [])
 
   const runShortcutRef = useRef(runShortcut)
   runShortcutRef.current = runShortcut
@@ -503,6 +493,7 @@ export function App() {
   useTheme(prefs, chat, actions, registryVersion)
   const closeOverlays = (error) => {
     actions.closeSettings()
+    actions.closeReleaseNotes?.()
     actions.closeMemory()
     actions.closeMenu()
     actions.closePanel()
