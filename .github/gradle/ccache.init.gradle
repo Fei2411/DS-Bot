@@ -1,0 +1,20 @@
+// Enable ccache for all CMake-based Android native builds in CI (root + RN/Expo subprojects).
+// Do not gate on externalNativeBuild.cmake.path: React Native's Gradle plugin sets that path
+// inside its own finalizeDsl callback, and modules without CMake ignore these default arguments.
+def ccacheBin = System.getenv('CCACHE_BIN')
+if (ccacheBin != null && !ccacheBin.isEmpty() && new File(ccacheBin).canExecute()) {
+    def cFlag = '-DCMAKE_C_COMPILER_LAUNCHER=' + ccacheBin
+    def cxxFlag = '-DCMAKE_CXX_COMPILER_LAUNCHER=' + ccacheBin
+    allprojects { project ->
+        ['com.android.application', 'com.android.library'].each { pluginId ->
+            project.plugins.withId(pluginId) {
+                project.extensions.findByName('androidComponents')?.finalizeDsl { ext ->
+                    def args = ext.defaultConfig?.externalNativeBuild?.cmake?.arguments
+                    if (args == null) return
+                    if (!args.any { it.startsWith('-DCMAKE_C_COMPILER_LAUNCHER=') }) args.add(cFlag)
+                    if (!args.any { it.startsWith('-DCMAKE_CXX_COMPILER_LAUNCHER=') }) args.add(cxxFlag)
+                }
+            }
+        }
+    }
+}

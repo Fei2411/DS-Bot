@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { test } from 'node:test'
@@ -405,19 +405,24 @@ test('bundled skill references stay readable under a data root with a private Bo
 test('a link into the folder of a private Bot is closed too', async (t) => {
   const { run, project, diary, stop } = await start()
   t.after(stop)
+  const link = join(project, 'link')
   try {
-    symlinkSync(diary, join(project, 'link'), 'junction')
+    symlinkSync(diary, link, 'junction')
   } catch {
     t.skip('no links here')
     return
   }
-  const result = await run('read', { file_path: join(project, 'link', 'notes.txt') }, 'b')
-  assert.equal(result.ran, false)
-  assert.match(result.error, CLOSED)
-  // The file does not exist yet: the link above it still has to be resolved.
-  const created = await run('write', { file_path: join(project, 'link', 'new.txt'), content: 'x' }, 'b')
-  assert.equal(created.ran, false)
-  assert.match(created.error, CLOSED)
+  try {
+    const result = await run('read', { file_path: join(project, 'link', 'notes.txt') }, 'b')
+    assert.equal(result.ran, false)
+    assert.match(result.error, CLOSED)
+    // The file does not exist yet: the link above it still has to be resolved.
+    const created = await run('write', { file_path: join(project, 'link', 'new.txt'), content: 'x' }, 'b')
+    assert.equal(created.ran, false)
+    assert.match(created.error, CLOSED)
+  } finally {
+    unlinkSync(link)
+  }
 })
 
 test('the private Bot reads its own and the team\'s files; a Session it starts speaks for it', async (t) => {

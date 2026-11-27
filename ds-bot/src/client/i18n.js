@@ -1650,6 +1650,10 @@ const ZH = {
   Links: '链接',
   'Source code': '源代码',
   'Release notes': '发布说明',
+  "What's new in v{version}": 'v{version} 更新内容',
+  'Got it': '知道了',
+  'Full changelog': '完整更新日志',
+  'No release notes for this version yet.': '当前版本暂无更新说明。',
   Open: '打开',
   // Feedback and errors
   Feedback: '反馈',

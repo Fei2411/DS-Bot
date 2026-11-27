@@ -1,6 +1,10 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  "What's new in v{version}": 'Neu in v{version}',
+  'Got it': 'Verstanden',
+  'Full changelog': 'Vollständiges Änderungsprotokoll',
+  'No release notes for this version yet.': 'Für diese Version gibt es noch keine Versionshinweise.',
   'Agent preset': 'Agent-Voreinstellung',
   'Agent preset: {preset}': 'Agent-Voreinstellung: {preset}',
   'Default (Standard)': 'Standard (Standardprofil)',

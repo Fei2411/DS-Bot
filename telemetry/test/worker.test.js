@@ -102,6 +102,8 @@ test('rejects unknown providers, features, error names, error codes, where value
   assert.equal(validatePayload(makeError({ error_code: 'LEAKED_IDENTIFIER' }), NOW).ok, false)
   assert.equal(validatePayload(makeError({ error_code: 'HTTP_502' }), NOW).ok, true)
   assert.equal(validatePayload(makeError({ error_code: 'bot/refused' }), NOW).ok, true)
+  assert.equal(validatePayload(makeError({ error_code: 'SERVER' }), NOW).ok, true)
+  assert.equal(validatePayload(makeError({ error_code: 'gateway/internal' }), NOW).ok, true)
 })
 
 test('handleRequest stores daily and error payloads without touching client IP headers', async () => {

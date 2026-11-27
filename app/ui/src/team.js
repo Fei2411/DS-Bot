@@ -16,7 +16,7 @@ import { createSource, EMPTY_ROSTER, indexRoster } from '../../../ds-bot/src/cli
 import { requestPreparation } from '../../../ds-bot/src/client/speech.js'
 import { STORAGE, migrateStorage } from '../../../ds-bot/src/client/storage.js'
 import { readMode, writeMode } from '../../../ds-bot/src/client/surface.js'
-import { teamActions } from '../../../ds-bot/src/client/team-actions.js'
+import { sectionFoldWrites, teamActions } from '../../../ds-bot/src/client/team-actions.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { registry } from '../../../ds-bot/src/client/themes.js'
 import { openFeed } from './api.js'
@@ -63,7 +63,7 @@ export function createTeam() {
   const seenStore = sharedMap(STORAGE.seen)
   let seenAt = seenStore.read()
   const roster = createSource(EMPTY_ROSTER)
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, releaseNotes: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
   const activity = createSource({})
   const work = createSource(NO_WORK)
   const memoryNews = createSource({})
@@ -229,6 +229,7 @@ export function createTeam() {
   // Reads can overlap (the feed and a finished action); an older answer never wins.
   let pulls = 0
   let applied = 0
+  const foldWrites = sectionFoldWrites()
   let liveKey
   const pull = async () => {
     const order = ++pulls
@@ -263,13 +264,15 @@ export function createTeam() {
     if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
     if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) changed.plugins = value.plugins
     if (value.speech !== undefined && Boolean(value.speech) !== Boolean(current.speech)) changed.speech = Boolean(value.speech)
+    if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(current.telemetryPrompt)) changed.telemetryPrompt = Boolean(value.telemetryPrompt)
+    if (value.releaseNotes !== undefined && JSON.stringify(value.releaseNotes) !== JSON.stringify(current.releaseNotes ?? null)) changed.releaseNotes = value.releaseNotes
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
       if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
       return
     }
     // In a window with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
-    const indexed = indexRoster(value)
+    const indexed = indexRoster({ ...value, sections: foldWrites.reconcile(value.sections, value.revision) })
     if (current.ready) {
       const gone = [
         ...Object.keys(current.byId ?? {}).filter(id => indexed.byId[id] === undefined),
@@ -318,7 +321,7 @@ export function createTeam() {
   }
 
   const questionDrafts = createQuestionDrafts()
-  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, questionDrafts })
+  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, questionDrafts, foldWrites })
   const speechCall = (endpoint, payload, signal) => call(endpoint, payload, signal).then(
     value => ({ ok: true, value }),
     error => ({ ok: false, error: { code: error?.code ?? 'speech/error', message: error?.message ?? String(error) } }),
@@ -442,6 +445,7 @@ export function createTeam() {
         palette: null,
         groupSearch: null,
         settings: null,
+        releaseNotes: null,
         shortcuts: false,
       }))
       writeMode(nextMode)

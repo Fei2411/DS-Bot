@@ -7,9 +7,12 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { DefaultTheme, NavigationContainer, type NavigationState } from '@react-navigation/native'
 import { setLang } from './src/ui/i18n.ts'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { listComputers, loadComputer, loadIdentity, onPrefsChange, readPrefs, setActiveComputer, type PhoneIdentity, type SavedComputer } from './src/store.ts'
+import { listComputers, loadComputer, loadIdentityWithMeta, onPrefsChange, readPrefs, setActiveComputer, type PhoneIdentity, type SavedComputer } from './src/store.ts'
 import { ComputersCtx, type ComputerActions } from './src/nav/computers.ts'
 import { startAppUpdateMonitor } from './src/team/app-update-store.ts'
+import { currentAppVersion } from './src/team/app-version.ts'
+import { checkMobileReleaseNotes, openMobileReleaseNotes, seedFreshInstallReleaseNotes } from './src/team/release-notes.ts'
+import { ReleaseNotesModal } from './src/ui/ReleaseNotesModal.tsx'
 import { stopHeadlessKeepalive } from './src/team/background-task.ts'
 import { errorText } from './src/team/link.ts'
 import { applyBackgroundDeliveryPrefs } from './src/team/notification-bridge.ts'
@@ -89,6 +92,7 @@ function ThemedShell({ lang, openLink, onOpenLinkHandled }: { lang?: string; ope
       <NavigationContainer key={lang} theme={navTheme} initialState={navState.current} onStateChange={state => { navState.current = state }}>
         <ErrorBoundary>
           <ShellB openLink={openLink} onOpenLinkHandled={onOpenLinkHandled} />
+          <ReleaseNotesModal host="auto" />
         </ErrorBoundary>
       </NavigationContainer>
     </ThemeContext.Provider>
@@ -106,12 +110,14 @@ function Linked({ computer, identity, lang, openLink, onOpenLinkHandled }: { com
 function Boot({ lang }: { lang?: string }) {
   const { p } = useTheme()
   const [identity, setIdentity] = useState<PhoneIdentity | null>(null)
+  const [hadExistingIdentity, setHadExistingIdentity] = useState<boolean | null>(null)
   const [computer, setComputer] = useState<SavedComputer | null | undefined>(undefined)
   const [bootError, setBootError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [offer, setOffer] = useState<string | null>(null)
   const [openLink, setOpenLink] = useState<OpenChatLink | null>(null)
   const [seenReady, setSeenReady] = useState(false)
+  const releaseNotesCheckedRef = useRef(false)
   const uiReadyRef = useRef<Promise<unknown>>(Promise.resolve())
 
   useEffect(() => {
@@ -159,12 +165,20 @@ function Boot({ lang }: { lang?: string }) {
 
     if (!DEMO) {
       Promise.all([
-        loadIdentity(),
+        loadIdentityWithMeta(),
         Platform.OS === 'web' ? Promise.resolve(null) : Linking.getInitialURL().catch(() => null),
       ])
-        .then(async ([nextIdentity, initialUrl]) => {
+        .then(async ([identityMeta, initialUrl]) => {
           if (!active) return
-          setIdentity(nextIdentity)
+          setIdentity(identityMeta.identity)
+          setHadExistingIdentity(identityMeta.existed)
+          // Fresh installs silently record the current version right away so quitting on
+          // the pairing screen does not turn the next launch into a false upgrade. Existing
+          // installs wait until ThemedShell (hosting ReleaseNotesModal) is mounted before
+          // claiming lastSeenVersion so an unpaired launch never swallows the popup.
+          if (!identityMeta.existed) {
+            void seedFreshInstallReleaseNotes({ currentVersion: currentAppVersion() })
+          }
           const handledHost = initialUrl ? await applyDeepLink(initialUrl) : false
           if (!active) return
           if (!handledHost || !parseOpenChatUrl(initialUrl)?.hostId) {
@@ -189,6 +203,22 @@ function Boot({ lang }: { lang?: string }) {
       if (Platform.OS === 'android') void setNativeUiState(false, false)
     }
   }, [])
+
+  const shellMounted = !DEMO && identity !== null && hadExistingIdentity !== null && computer !== null && computer !== undefined && !adding && lang !== undefined && seenReady
+  useEffect(() => {
+    if (!shellMounted || releaseNotesCheckedRef.current) return
+    releaseNotesCheckedRef.current = true
+    let active = true
+    void checkMobileReleaseNotes({
+      currentVersion: currentAppVersion(),
+      hadExistingIdentity,
+    }).then((result) => {
+      if (active && result.show) {
+        openMobileReleaseNotes({ mode: 'auto', current: result.current })
+      }
+    }).catch(() => {})
+    return () => { active = false }
+  }, [shellMounted, hadExistingIdentity])
 
   useEffect(() => {
     if (Platform.OS !== 'android') return

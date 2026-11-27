@@ -151,10 +151,11 @@ test('the release becomes Latest last, after every build and publish job', () =>
   // No app build job may attach assets directly to the GitHub release before publish succeeds.
   for (const [other, cfg] of Object.entries(workflow.jobs)) {
     if (other === name || other === 'publish') continue
-    assert.doesNotMatch(runs(cfg), /gh release upload/u, `${other} must not upload directly to the release before publish passes`)
+    assert.doesNotMatch(runs(cfg), /gh release upload|release-upload\.mjs/u, `${other} must not upload directly to the release before publish passes`)
   }
   assert.match(job.steps.at(-1).run, /^gh release edit "\$TAG" --latest$/u)
   assert.match(runs(job), /node scripts\/release-notes\.mjs /u)
+  assert.match(runs(job), /node scripts\/release-upload\.mjs /u)
 })
 
 test('both READMEs link the latest release and do not hard-code release version numbers', () => {
