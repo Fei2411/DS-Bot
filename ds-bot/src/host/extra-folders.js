@@ -6,32 +6,12 @@
 // command still asks the user.
 import { within } from './folders.js'
 import { unquote } from './text.js'
-
-// Older DSH releases have no public patch parser; those calls keep the user's approval.
-const { parsePatch } = await import('@deepseek-ai/dsh-fs-patch').catch(() => ({}))
+import { fileTargetsOf as targetsOf, patchParserAvailable } from './native-targets.js'
 
 export const MAX_EXTRA_DIRS = 8
 
-// The file tools that change files, and how each names what it changes.
-const PATH_ARGS = { write: 'file_path', edit: 'file_path' }
 // The reason dsh-sandbox gives an escalation, up to the model's justification.
 const ESCALATION = 'escalate sandbox to danger-full-access:'
-
-const targetsOf = (name, args) => {
-  if (Object.hasOwn(PATH_ARGS, name)) {
-    const path = args?.[PATH_ARGS[name]]
-    return typeof path === 'string' && path.trim() !== '' ? [path] : []
-  }
-  if (name === 'apply_patch' && typeof args?.input === 'string' && typeof parsePatch === 'function') {
-    // Match DSH's syntax exactly: indented headers can name more files too.
-    try {
-      return parsePatch(args.input).flatMap(operation => operation.moveTo === undefined ? [operation.path] : [operation.path, operation.moveTo])
-    } catch {
-      return []
-    }
-  }
-  return []
-}
 
 export function install(rt) {
   const { ctx } = rt
@@ -123,13 +103,13 @@ export function install(rt) {
   const sectionFor = (sessionId) => {
     const extras = extraDirsOfSession(sessionId)
     if (extras.length === 0) return ''
-    const fileTools = typeof parsePatch === 'function' ? 'write, edit or apply_patch' : 'write or edit'
+    const fileTools = patchParserAvailable ? 'write, edit or apply_patch' : 'write or edit'
     return [
       '## Your extra folders',
       `Besides your working folder, you also work in ${extras.length === 1 ? 'this folder' : 'these folders'}:`,
       ...extras.map(dir => `- ${dir}`),
       `Use full paths for files there. When the sandbox denies a ${fileTools} there, retry that exact call once with sandbox_permissions "danger-full-access" and a justification: DS Bot approves it for these folders without asking the user. A shell command that changes files there asks the user, so change those files with the file tools. working_directory can take this conversation into one of these folders.`,
-      ...(typeof parsePatch === 'function' ? [] : ['This DSH version has no public patch parser, so apply_patch escalations still ask the user.']),
+      ...(patchParserAvailable ? [] : ['This DSH version has no public patch parser, so apply_patch escalations still ask the user.']),
     ].join('\n')
   }
 

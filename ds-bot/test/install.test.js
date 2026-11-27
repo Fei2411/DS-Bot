@@ -37,11 +37,17 @@ test('approval context reads full group messages through the ledger interface', 
   const room = { id: 'r', name: 'Ops', members: [], sessions: {}, log: [], seq: 0 }
   rt.state.rooms.r = room
   const text = 'Report context. '.repeat(200) + 'Send only to Alice.'
-  rt.logRoom(room, { who: 'User', text })
+  // The write path carries the original message's identity: the review binds
+  // the ledger line to its source event, never to lookalike text.
+  rt.logRoom(room, { who: 'User', text, messageId: 'm-1', eventSeq: 41, eventSession: rt.sessionOfRoom(room) })
   rt.resolveAgent = async id => ({ session: { id }, inbox: { nextStep: [], nextTurn: [] } })
-  rt.eventsBackwards = async function* () { yield { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } } }
+  rt.eventsBackwards = async function* () {
+    yield { type: 'user/message', seq: 41, data: { id: 'm-1', source: { kind: 'user' }, content: [{ type: 'text', text }] } }
+  }
   const context = await reviewContext(rt, { roomId: 'r' })
-  assert.deepEqual(context, [{ source: 'user', text }])
+  assert.deepEqual(context.filter(line => line.source !== 'snapshot'), [
+    { source: 'user', text, id: 'u41' },
+  ])
 })
 
 // Listeners run in registration order; the team tools are not in this list
