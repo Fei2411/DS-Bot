@@ -121,8 +121,8 @@ export function install(rt) {
   const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
   const publicCards = cards => Object.fromEntries(Object.entries(cards ?? {}).map(([sessionId, { imOrigin, ...card }]) => [sessionId, card]))
   const botTailOf = (botId) => {
-    const partId = rt.chatOf(botId)
-    const tail = rt.chatTail(partId)
+    const partId = rt.chatOf?.(botId) ?? botId
+    const tail = rt.chatTail?.(partId)
     const liveTurn = rt.latestTurnOf?.(partId)
     const latestTurn = tail?.latestTurn !== undefined && liveTurn !== undefined
       ? Math.max(tail.latestTurn, liveTurn)
