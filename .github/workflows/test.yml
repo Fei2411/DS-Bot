@@ -195,7 +195,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ds-bot/dev/harness/node_modules
-          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node${{ matrix.node }}-${{ hashFiles('ds-bot/dev/harness/package.json') }}
+          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node${{ matrix.node }}-${{ hashFiles('ds-bot/dev/harness/package.json', 'ds-bot/dev/harness/package-lock.json') }}
       - name: Install DSH test harness
         if: steps.harness-cache.outputs.cache-hit != 'true'
         run: npm run harness
@@ -205,7 +205,16 @@ jobs:
         with:
           path: ds-bot/dev/harness/node_modules
           key: ${{ steps.harness-cache.outputs.cache-primary-key }}
-      - run: npm test
+      - name: Run unit tests
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            # Windows file locking plus several concurrent test-file processes make the same
+            # local asynchronous chains take several times longer; two at a time removes the
+            # contention instead of hiding it behind longer assertions.
+            npm run test:windows
+          else
+            npm test
+          fi
       - name: Lint
         if: matrix.lint
         run: npm run lint
@@ -257,7 +266,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ds-bot/dev/harness/node_modules
-          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('ds-bot/dev/harness/package.json') }}
+          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('ds-bot/dev/harness/package.json', 'ds-bot/dev/harness/package-lock.json') }}
       - name: Install DSH test harness
         if: steps.harness-cache.outputs.cache-hit != 'true'
         run: npm run harness

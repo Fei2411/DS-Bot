@@ -109,7 +109,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ds-bot/dev/harness/node_modules
-          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('ds-bot/dev/harness/package.json') }}
+          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('ds-bot/dev/harness/package.json', 'ds-bot/dev/harness/package-lock.json') }}
       - name: Install DSH test harness
         if: steps.harness-cache.outputs.cache-hit != 'true'
         run: npm run harness

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { Context } from '@deepseek-ai/cordis'
 import { LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -11,6 +11,22 @@ import { createRuntime } from '../index.js'
 import { RESUME_DELAY_MS } from '../src/host/resume.js'
 import { SOURCE_KIND } from '../src/host/constants.js'
 import { fakeContext } from './fake-ctx.js'
+
+// Node's t.after hooks run in FIFO order, so per-test rmSync registered before
+// mountRealDsh/attachRuntime would delete the temp folder while DSH and SQLite
+// are still open. Clean temp folders once all test-level disposals finish.
+const tempDirs = []
+after(() => {
+  for (const dir of tempDirs.splice(0)) {
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }) } catch {}
+  }
+})
+const tempBase = (prefix) => {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tempDirs.push(dir)
+  return dir
+}
+const REPLAY_WAIT_MS = RESUME_DELAY_MS + 15_000
 
 const sleepUntil = async (fn, ms = 5000, label = 'condition not met') => {
   const until = Date.now() + ms
@@ -108,8 +124,7 @@ function attachRuntime(t, dsh, home, base, { nextWorkerId = 'bg-a' } = {}) {
 }
 
 test('coordination.sqlite replays a committed task_report obligation without inflight.json', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-report-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-report-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam({
@@ -166,7 +181,7 @@ test('coordination.sqlite replays a committed task_report obligation without inf
   await sleepUntil(
     () => host2.rt.coordination.listPendingObligations().length === 0
       && dsh2.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.role === 'task-report'),
-    RESUME_DELAY_MS + 4000,
+    REPLAY_WAIT_MS,
     'task_report obligation should replay and settle',
   )
   const fg2 = dsh2.root.agents.get('dm-a')
@@ -177,8 +192,7 @@ test('coordination.sqlite replays a committed task_report obligation without inf
 })
 
 test('coordination.sqlite cold-evidence verification prevents double consumption and redundant resume', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-evidence-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-evidence-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam()))
@@ -213,7 +227,12 @@ test('coordination.sqlite cold-evidence verification prevents double consumption
   await dsh2.open('dm-a')
   const host2 = attachRuntime(t, dsh2, home, base)
   await host2.rt.load()
-  await delay(RESUME_DELAY_MS + 400)
+  await sleepUntil(
+    () => host2.rt.unreadOf('dm-a').length === 0
+      && Object.keys(host2.rt.coordination.loadInitialState().turns).length === 0,
+    REPLAY_WAIT_MS,
+    'cold-evidence check should clear stale delivery and turn without replaying',
+  )
   const fg2 = dsh2.root.agents.get('dm-a')
   await fg2.whenIdle()
 
@@ -225,8 +244,7 @@ test('coordination.sqlite cold-evidence verification prevents double consumption
 })
 
 test('logical address never redirects a closed task delivery to the Bot foreground chat', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-closed-task-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-closed-task-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam({
@@ -266,7 +284,12 @@ test('logical address never redirects a closed task delivery to the Bot foregrou
   await dsh2.open('dm-a')
   const host2 = attachRuntime(t, dsh2, home, base)
   await host2.rt.load()
-  await delay(RESUME_DELAY_MS + 400)
+  await sleepUntil(
+    () => host2.rt.unreadOf('bg-dead').length === 0
+      && Object.keys(host2.rt.coordination.loadInitialState().queued).length === 0,
+    REPLAY_WAIT_MS,
+    'closed task delivery should be discarded on replay instead of redirected',
+  )
   const fg2 = dsh2.root.agents.get('dm-a')
   await fg2.whenIdle()
   assert.equal(fg2.session.snapshotEvents().filter(e => e.type === 'user/message' && e.data?.source?.role === 'task').length, 0)
@@ -274,8 +297,7 @@ test('logical address never redirects a closed task delivery to the Bot foregrou
 })
 
 test('work-notes persist in SQLite, reject third-party Bots, and inject on next step without interrupting', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-worknotes-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-worknotes-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam()))
@@ -332,7 +354,11 @@ test('work-notes persist in SQLite, reject third-party Bots, and inject on next 
 
 test('dead group session stops infinite model selection retry (#2265)', async (t) => {
   const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-2265-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  let ctx
+  t.after(async () => {
+    await ctx?.dispose()
+    rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam({
@@ -357,13 +383,12 @@ test('dead group session stops infinite model selection retry (#2265)', async (t
     },
     resolveAgent: async () => ({ error: { code: 'session/not-found', message: 'not found' } }),
   }
-  const ctx = fakeContext({
+  ctx = fakeContext({
     services: { llm, sessionController },
   })
   ctx.llm = llm
   ctx.sessionController = sessionController
   const rt = createRuntime(ctx, { home })
-  t.after(async () => { await ctx.dispose() })
   await rt.load()
 
   await rt.syncRoomSessions?.()
@@ -373,8 +398,7 @@ test('dead group session stops infinite model selection retry (#2265)', async (t
 })
 
 test('unconfirmed tool/call without tool/result is held as TURN_UNVERIFIED instead of auto-resuming', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-unconfirmed-tool-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-unconfirmed-tool-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam()))
@@ -431,8 +455,7 @@ test('unconfirmed tool/call without tool/result is held as TURN_UNVERIFIED inste
 })
 
 test('read-only host never creates or mutates coordination.sqlite', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-readonly-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-readonly-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam()))
@@ -449,8 +472,7 @@ test('read-only host never creates or mutates coordination.sqlite', async (t) =>
 })
 
 test('crash between SQLite commitTaskTerminal and state.json save reconciles task as completed, not interrupted', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-task-marker-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-task-marker-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   const statePath = join(home, 'state.json')
@@ -508,8 +530,10 @@ test('crash between SQLite commitTaskTerminal and state.json save reconciles tas
   await host2.rt.load()
   await sleepUntil(() => {
     const fg = dsh2.root.agents.get('dm-a')
-    return fg.session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === exchangeId)
-  }, RESUME_DELAY_MS + 4000, 'task completion report should replay once')
+    return host2.rt.coordination.listPendingObligations().length === 0
+      && host2.rt.coordination.listTerminalMarkers().length === 0
+      && fg.session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === exchangeId)
+  }, REPLAY_WAIT_MS, 'task completion report should replay once')
   await delay(300)
   const fg2 = dsh2.root.agents.get('dm-a')
   await fg2.whenIdle()
@@ -521,8 +545,7 @@ test('crash between SQLite commitTaskTerminal and state.json save reconciles tas
 })
 
 test('crash between SQLite room_report commit and state.json save does not duplicate group report', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-room-marker-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-room-marker-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   const statePath = join(home, 'state.json')
@@ -598,15 +621,17 @@ test('crash between SQLite room_report commit and state.json save does not dupli
   await host2.rt.load()
   await sleepUntil(() => {
     const fg = dsh2.root.agents.get('dm-a')
-    return fg.session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === exchangeId)
-  }, RESUME_DELAY_MS + 4000, 'room report obligation should replay once')
+    return host2.rt.coordination.listPendingObligations().length === 0
+      && host2.rt.coordination.listTerminalMarkers().length === 0
+      && fg.session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === exchangeId)
+  }, REPLAY_WAIT_MS, 'room report obligation should replay once')
   await delay(300)
   const fg2 = dsh2.root.agents.get('dm-a')
   await fg2.whenIdle()
   const dmB2 = dsh2.root.agents.get('dm-b')
   await sleepUntil(() => {
     return dmB2.session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.role === 'reply' && e.data?.source?.replyTo === 'parent-1')
-  }, 3000, 'parent work should finish and return answer to asking Bot')
+  }, 10_000, 'parent work should finish and return answer to asking Bot')
   await dmB2.whenIdle()
   const reports = fg2.session.snapshotEvents().filter(e => e.type === 'user/message' && e.data?.source?.role === 'report')
   assert.equal(reports.length, 1, 'stale roomReports watcher must be reconciled before settleRoomReports')
@@ -619,8 +644,7 @@ test('crash between SQLite room_report commit and state.json save does not dupli
 })
 
 test('closed destination falls back to foreground for completed replies and room_report obligations', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-fallback-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-fallback-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam({
@@ -679,14 +703,13 @@ test('closed destination falls back to foreground for completed replies and room
     const evs = dsh2.root.agents.get('dm-a').session.snapshotEvents()
     return evs.some(e => e.type === 'user/message' && e.data?.source?.exchangeId === 'reply:w-closed')
       && evs.some(e => e.type === 'user/message' && e.data?.source?.exchangeId === 'group-report:rr-closed')
-  }, RESUME_DELAY_MS + 4000, 'both completed results should fall back to foreground and pass delivery admission')
+  }, REPLAY_WAIT_MS, 'both completed results should fall back to foreground and pass delivery admission')
   await dsh2.root.agents.get('dm-a').whenIdle()
 })
 
 test('work-notes disambiguate dual group assignments and inject only into matching batchKey', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-dual-batch-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-dual-batch-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam({
@@ -740,8 +763,7 @@ test('work-notes disambiguate dual group assignments and inject only into matchi
 })
 
 test('legacy group report without logical address replays to original private chat, not source group', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-legacy-report-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-legacy-report-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam({
@@ -777,7 +799,7 @@ test('legacy group report without logical address replays to original private ch
   await host.rt.load()
   await sleepUntil(() => {
     return dsh.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === 'group-report:legacy-1')
-  }, RESUME_DELAY_MS + 4000, 'legacy group report should replay in dm-a')
+  }, REPLAY_WAIT_MS, 'legacy group report should replay in dm-a')
   await dsh.root.agents.get('dm-a').whenIdle()
   assert.equal(
     dsh.root.agents.get('rm-a').session.snapshotEvents().filter(e => e.type === 'user/message' && e.data?.source?.exchangeId === 'group-report:legacy-1').length,
@@ -787,8 +809,7 @@ test('legacy group report without logical address replays to original private ch
 })
 
 test('hot rollback journal left by crash is rolled back after lock acquisition and replays committed report', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-hot-journal-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-hot-journal-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam({
@@ -879,7 +900,7 @@ test('hot rollback journal left by crash is rolled back after lock acquisition a
     () => host2.rt.coordination.listPendingObligations().length === 0
       && dsh2.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === exchangeId)
       && dsh2.root.agents.get('dm-b').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.resumed === true),
-    RESUME_DELAY_MS + 4000,
+    REPLAY_WAIT_MS,
     'both active turn and committed task_report behind a hot journal must recover after lock acquisition',
   )
   const fg2 = dsh2.root.agents.get('dm-a')
@@ -891,8 +912,7 @@ test('hot rollback journal left by crash is rolled back after lock acquisition a
 })
 
 test('live turn started on another Bot during delayed WAL startup recovery never gets a spurious restart prompt', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-live-wal-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-live-wal-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam()))
@@ -922,7 +942,7 @@ test('live turn started on another Bot during delayed WAL startup recovery never
 
   await sleepUntil(
     () => dsh2.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.resumed === true),
-    RESUME_DELAY_MS + 4000,
+    REPLAY_WAIT_MS,
     'pre-restart interrupted turn on dm-a should resume',
   )
   await dsh2.root.agents.get('dm-a').whenIdle()
@@ -932,8 +952,7 @@ test('live turn started on another Bot during delayed WAL startup recovery never
 })
 
 test('hot journal recovery with stale _coordGen mirror and live startup delivery preserves committed SQLite deliveries', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-hot-stale-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-hot-stale-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam()))
@@ -1024,7 +1043,7 @@ test('hot journal recovery with stale _coordGen mirror and live startup delivery
 
   await sleepUntil(
     () => dsh2.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === committedEx),
-    RESUME_DELAY_MS + 4000,
+    REPLAY_WAIT_MS,
     'committed SQLite delivery must survive hot journal recovery even with stale mirror and live startup delivery',
   )
   await dsh2.root.agents.get('dm-a').whenIdle()
@@ -1037,8 +1056,7 @@ test('hot journal recovery with stale _coordGen mirror and live startup delivery
 })
 
 test('bot-handoff crash after commitTaskTerminal replays peer_result obligation and closes work once', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-peer-result-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-peer-result-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   const team = seedTeam()
@@ -1112,7 +1130,7 @@ test('bot-handoff crash after commitTaskTerminal replays peer_result obligation 
   await sleepUntil(
     () => host2.rt.coordination.listPendingObligations().length === 0
       && dsh2.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === replyExchangeId),
-    RESUME_DELAY_MS + 4000,
+    REPLAY_WAIT_MS,
     'peer_result obligation should replay to asking Bot and reconcile task/work state',
   )
   await dsh2.root.agents.get('dm-a').whenIdle()
@@ -1125,8 +1143,7 @@ test('bot-handoff crash after commitTaskTerminal replays peer_result obligation 
 })
 
 test('incomplete SQLite schema does not crash startup and completes initialization after lock', async (t) => {
-  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-partial-schema-'))
-  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const base = tempBase('ds-bot-coord-partial-schema-')
   const home = join(base, 'bot')
   mkdirSync(home, { recursive: true })
   writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam()))
