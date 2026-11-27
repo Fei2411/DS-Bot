@@ -4,6 +4,7 @@
 // (preparing -> start -> result, keeping DSH's ToolCallBlock & PartialArguments contracts),
 // compaction checkpoints, Bot/schedule events, and failed turns.
 import { PartialArguments } from '@deepseek-ai/dsh-util-values'
+import { t } from '../../../ds-bot/src/client/i18n.js'
 import { transcriptOf, writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { contentText, isHiddenTurn, reminderPrompts, stripToolCallTags } from '../../../ds-bot/src/client/text.js'
 import { contentParts, viaOf } from '../../../ds-bot/src/client/user-message.js'
@@ -180,10 +181,10 @@ function turnEndFailure(reason) {
   if (!reason || typeof reason !== 'object') return undefined
   if (reason.kind === 'error') return reason.error ?? {}
   if (reason.kind === 'aborted' && reason.reason?.kind === 'hook' && reason.reason?.reason === 'deepseek-account/signed-out') {
-    return { code: 'ACCOUNT_SIGNED_OUT', message: 'Stopped because you signed out of DeepSeek.' }
+    return { code: 'ACCOUNT_SIGNED_OUT', message: t('Stopped because you signed out of DeepSeek.') }
   }
   if (reason.kind === 'interrupted') {
-    return { code: 'INTERRUPTED', message: 'The DSH process exited before this turn finished.' }
+    return { code: 'INTERRUPTED', message: t('The DSH process exited before this turn finished.') }
   }
   return undefined
 }
@@ -509,6 +510,7 @@ function buildCommittedRows(events, roster, sessionId) {
           kind: 'assistant',
           key: `assistant:${item.seq}`,
           seq: item.seq,
+          messageId: typeof item.data?.message?.id === 'string' && item.data.message.id !== '' ? item.data.message.id : undefined,
           time: item.time,
           turn,
           step,

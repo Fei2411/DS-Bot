@@ -1,4 +1,5 @@
 import { createElement as h, Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { maskSecrets } from '../shared/secret-mask.js'
 import { t } from './i18n.js'
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, PaperclipIcon, PencilIcon, QueueIcon, TrashIcon } from './icons.js'
 
@@ -63,7 +64,7 @@ function QueueThumb({ attachment, loadImage, label }) {
 // factory renders it when the shell provides one.
 function Preview({ text, renderFactorySlot }) {
   const rendered = renderFactorySlot?.('conversation.user.text', { text, facts: QUEUE_TEXT_FACTS, interactive: false, ellipsis: true })
-  return h('span', { className: 'bt-queue-preview' }, rendered ?? text)
+  return h('span', { className: 'bt-queue-preview' }, rendered ?? maskSecrets(text))
 }
 
 function EditField({ text, onChange, onSave, onCancel }) {

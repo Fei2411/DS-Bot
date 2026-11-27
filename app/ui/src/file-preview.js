@@ -5,6 +5,7 @@ import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
 import { fileSizeText, MarkdownText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CheckIcon, CopyIcon, DownloadIcon, FileIcon } from '../../../ds-bot/src/client/icons.js'
+import { renderTokenList, useHighlightedLines } from './code-highlight.js'
 import { prepareHtmlPreview } from './html-preview.js'
 
 const MAX_TABLE_ROWS = 500
@@ -114,13 +115,33 @@ function useBlobUrl(base64, mime) {
   return url
 }
 
-function CodeLines({ text }) {
-  const lines = useMemo(() => String(text ?? '').split(/\r?\n/), [text])
+function CodeLines({ text, language = '', targetLine = null }) {
+  const source = String(text ?? '')
+  const lines = useMemo(() => source.split(/\r?\n/), [source])
+  const highlighted = useHighlightedLines(source, language)
+  const targetRef = useRef(null)
+
+  useEffect(() => {
+    if (Number.isInteger(targetLine) && targetLine > 0) {
+      targetRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    }
+  }, [targetLine, source])
+
   return h('div', { className: 'dsb-pv-code-wrap' },
-    h('table', { className: 'dsb-pv-code' },
-      h('tbody', null, lines.map((line, idx) => h('tr', { key: idx },
-        h('td', { className: 'dsb-pv-ln', 'aria-hidden': true }, idx + 1),
-        h('td', { className: 'dsb-pv-line' }, line || '\u00a0'))))))
+    h('table', { className: highlighted ? 'dsb-pv-code hljs' : 'dsb-pv-code' },
+      h('tbody', null, lines.map((line, idx) => {
+        const lineNum = idx + 1
+        const isTarget = targetLine === lineNum
+        const tokens = highlighted?.[idx]
+        const content = tokens && tokens.length > 0 ? renderTokenList(tokens, `l${idx}`) : (line || '\u00a0')
+        return h('tr', {
+          key: idx,
+          ref: isTarget ? targetRef : undefined,
+          'data-target-line': isTarget ? '' : undefined,
+        },
+        h('td', { className: 'dsb-pv-ln', 'aria-hidden': true }, lineNum),
+        h('td', { className: 'dsb-pv-line' }, content))
+      }))))
 }
 
 function TablePreview({ text, delimiter }) {
@@ -133,7 +154,7 @@ function TablePreview({ text, delimiter }) {
     h('table', { className: 'dsb-pv-table' },
       h('thead', null, h('tr', null,
         h('th', { className: 'dsb-pv-rn', 'aria-hidden': true }, '#'),
-        headers.map((col, idx) => h('th', { key: idx }, col || `Col ${idx + 1}`)))),
+        headers.map((col, idx) => h('th', { key: idx }, col || t('Column {n}', { n: idx + 1 }))))),
       h('tbody', null, rows.map((cells, rIdx) => h('tr', { key: rIdx },
         h('td', { className: 'dsb-pv-rn' }, rIdx + 1),
         headers.map((_, cIdx) => h('td', { key: cIdx }, cells[cIdx] ?? '')))))),
@@ -175,16 +196,16 @@ export function HtmlPreviewFrame({ html, title }) {
 /**
  * Multi-format workspace file preview component.
  */
-export function FilePreview({ file, loading, error, onRetry }) {
+export function FilePreview({ file, line = null, loading, error, onRetry }) {
   const [mode, setMode] = useState('preview')
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef(0)
   const htmlPreview = useMemo(() => (file?.kind === 'html' ? prepareHtmlPreview(file.text) : null), [file?.kind, file?.text])
 
   useEffect(() => {
-    setMode('preview')
+    setMode(Number.isInteger(line) && line > 0 && (file?.kind === 'markdown' || file?.kind === 'html' || file?.kind === 'table' || file?.kind === 'svg') ? 'source' : 'preview')
     setCopied(false)
-  }, [file?.path, file?.kind])
+  }, [file?.path, file?.kind, line])
   useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current) }, [])
 
   if (loading) {
@@ -246,26 +267,26 @@ export function FilePreview({ file, loading, error, onRetry }) {
     file.kind === 'html' && mode === 'preview' && htmlPreview?.blocked === true ? h(HtmlPreviewNotice) : null,
     h('div', { className: 'dsb-pv-body' },
       file.kind === 'markdown'
-        ? (mode === 'source' ? h(CodeLines, { text: file.text }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
+        ? (mode === 'source' ? h(CodeLines, { text: file.text, language: 'markdown', targetLine: line }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
           text: file.text,
           labels: { code: { copyLabel: t('Copy'), copiedLabel: t('Copied') } },
         })))
         : file.kind === 'table'
-          ? (mode === 'source' ? h(CodeLines, { text: file.text }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
+          ? (mode === 'source' ? h(CodeLines, { text: file.text, targetLine: line }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
           : file.kind === 'html'
             ? (mode === 'source'
-                ? h(CodeLines, { text: file.text })
+                ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line })
                 : htmlPreview === null
                   ? h('div', { className: 'dsb-pv-html-wrap' }, h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment')))
                   : h(HtmlPreviewFrame, { html: htmlPreview.html, title: file.name }))
             : file.kind === 'svg'
-              ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text }) : h(ImagePreview, { file }))
+              ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line }) : h(ImagePreview, { file }))
               : file.kind === 'image'
                 ? h(ImagePreview, { file })
                 : file.kind === 'pdf'
                   ? h(PdfPreview, { file })
                   : file.kind === 'code' || file.kind === 'text'
-                    ? h(CodeLines, { text: file.text })
+                    ? h(CodeLines, { text: file.text, language: file.language || '', targetLine: line })
                     : h('div', { className: 'dsb-pv-fallback' },
                       h('span', { className: 'dsb-pv-fallback-ico', 'aria-hidden': true }, h(FileIcon)),
                       h('strong', null, file.name),
