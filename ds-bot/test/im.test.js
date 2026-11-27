@@ -616,8 +616,14 @@ test('the sent store is bounded across chats so the runtime file cannot grow wit
     }
   }
   await s.flush()
-  await delay(600)
-  const runtime = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  const runtimePath = join(s.home, 'im', `${conn.id}.json`)
+  const runtime = await waitFor(() => {
+    try {
+      const parsed = JSON.parse(readFileSync(runtimePath, 'utf8'))
+      const lists = Object.values(parsed.sent ?? {})
+      return lists.some(list => list.some(entry => entry.text.startsWith('Report 11-19'))) ? parsed : undefined
+    } catch { return undefined }
+  }, { label: 'bounded sent store persisted with newest message' })
   const size = JSON.stringify(runtime.sent).length
   assert.ok(size <= 200_000, `sent store stays bounded (${size} bytes)`)
   const lists = Object.values(runtime.sent)
@@ -686,13 +692,18 @@ test('a settled card leaves the runtime file once its source is gone; an open on
   s.imTurn('a')
   s.rt.state.questions.a = { id: 'q1', question: 'Pick', options: [{ label: 'x' }, { label: 'y' }] }
   await s.rt.save()
-  await s.flush()
+  await waitFor(() => s.fake.sent.some(m => m.text?.includes('Pick')), { label: 'q1 card sent' })
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: 'q:q1:0', messageId: 1 })
   s.rt.state.questions.a = { id: 'q2', question: 'Still open', options: [{ label: 'x' }] }
   await s.rt.save()
-  await s.flush()
-  await delay(600)
-  const runtime = JSON.parse((await import('node:fs')).readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  await waitFor(() => s.fake.sent.some(m => m.text?.includes('Still open')), { label: 'q2 card sent' })
+  const runtimePath = join(s.home, 'im', `${conn.id}.json`)
+  const runtime = await waitFor(() => {
+    try {
+      const parsed = JSON.parse(readFileSync(runtimePath, 'utf8'))
+      return parsed.cards?.['q:q1'] === undefined && parsed.cards?.['q:q2'] !== undefined ? parsed : undefined
+    } catch { return undefined }
+  }, { label: 'runtime file persisted with q1 dropped and q2 kept' })
   assert.ok(runtime.cards['q:q1'] === undefined, 'settled and edited card is dropped')
   assert.ok(runtime.cards['q:q2'] !== undefined, 'open card stays')
 })
@@ -3258,13 +3269,18 @@ test('a retrying send shows a retrying status before the budget runs out', async
   await dm(s, 'u1', 'hi')
   s.imTurn('a')
   s.fake.sent.length = 0
-  s.fake.fails.push(Object.assign(new Error('Feishu answered 502'), { status: 502, retryAfter: 0.2 }))
+  s.fake.fails.push(Object.assign(new Error('Feishu answered 502'), { status: 502, retryAfter: 0.35 }))
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'slow' }] } })
-  await delay(60)
-  const status = s.rt.imStatusView()[conn.id]
+  const status = await waitFor(() => {
+    const cur = s.rt.imStatusView()[conn.id]
+    return cur?.state === 'retrying' ? cur : undefined
+  }, { label: 'retrying status appears' })
   assert.equal(status.state, 'retrying')
   assert.match(status.error, /502/)
-  await delay(220)
+  await waitFor(
+    () => s.fake.sent.filter(job => job.text === 'slow').length === 2 && s.rt.imStatusView()[conn.id]?.state === 'ready',
+    { label: 'retry succeeds and status returns to ready' },
+  )
   assert.equal(s.fake.sent.filter(job => job.text === 'slow').length, 2)
   assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
 })

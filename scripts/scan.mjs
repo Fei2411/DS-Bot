@@ -58,7 +58,7 @@ const TEXT_RULES = [
   { id: 'personal-path', level: MUST, re: /\/home\/(?!<|user\b|runner\b|node\b)[a-z_][a-z0-9_-]*\/|\/Users\/(?!<|Shared\b)[A-Za-z][\w.-]*\/|[A-Za-z]:\\Users\\(?!<|Public\b)[^\\\s`"'<>]+/g },
   { id: 'personal-email', level: MUST, re: /\b[\w.+-]+@(qq|163|126|gmail|outlook|hotmail|foxmail|icloud|yahoo)\.(com|cn)\b/gi },
   { id: 'other-email', level: KEEP, re: /\b[\w.+-]+@(?!(\d|example\.|users\.noreply\.github\.com|localhost|(qq|163|126|gmail|outlook|hotmail|foxmail|icloud|yahoo)\.))[\w-]+\.[a-z]{2,}\b/gi },
-  ...(extra ? [{ id: 'extra-pattern', level: MUST, re: extra, legacyOk: true }] : []),
+  ...(extra ? [{ id: 'extra-pattern', level: MUST, re: extra, redact: true, legacyOk: true }] : []),
   // Only original material: no vendor brands in the look, no third-party logos.
   { id: 'vendor-look-identifier', level: MUST, re: /\b(KIMI|MINIMAX|STEPFUN|QWEN|MIMO|ZAI|ZHIPU|GLM|DEEPSEEK)_(BODY|WAVE|STAR|MARK|LOGO|INK|INKS|COLOR|COLORS)\b|\bLAB_(INKS|COLORS)\b/g, legacyOk: true },
   { id: 'vendor-in-look-file', level: MUST, re: new RegExp(VENDORS.source, 'gi'), files: LOOK_FILES, legacyOk: true },
@@ -109,7 +109,11 @@ for (const file of files) {
       rule.re.lastIndex = 0
       for (const match of line.matchAll(rule.re)) {
         if (rule.secret && PLACEHOLDER.test(match[0])) continue
-        const shown = rule.secret ? `${match[0].slice(0, 6)}… (${match[0].length} chars)` : snippet(line, match.index, match[0].length)
+        const shown = rule.redact
+          ? `<redacted> (${match[0].length} chars)`
+          : rule.secret
+            ? `${match[0].slice(0, 6)}… (${match[0].length} chars)`
+            : snippet(line, match.index, match[0].length)
         add(rule.level, rule.id, file, index + 1, shown, rule.summary)
       }
     }

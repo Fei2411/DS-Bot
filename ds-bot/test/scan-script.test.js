@@ -175,3 +175,28 @@ test('scan.mjs fails closed on a rogue .scan-extra in a nested checkout subdirec
   assert.ok(subIds.includes('forbidden-file'), `expected forbidden-file for sub/.scan-extra, got ${JSON.stringify(subIds)}`)
   assert.ok(subIds.includes('secret-github'), `expected secret-github for sub/.scan-extra, got ${JSON.stringify(subIds)}`)
 })
+
+test('scan.mjs redacts extra-pattern matches in both stdout and JSON reports (including staged .scan-extra)', () => {
+  const { repo } = initMinimalGitRepo()
+  const marker = 'PrivateScanMarkerAlpha99'
+  writeFileSync(join(repo, '.scan-extra'), `${marker}\n`)
+  writeFileSync(join(repo, 'notes.txt'), `accidental leak of ${marker} here\n`)
+
+  // 1. Untracked .scan-extra + leaking file: catches extra-pattern without printing the marker.
+  const leaked = runScan(join(repo, 'scripts', 'scan.mjs'), repo)
+  assert.equal(leaked.status, 1)
+  const noteIds = mustFixIds(leaked.findings, 'notes.txt')
+  assert.ok(noteIds.includes('extra-pattern'), `expected extra-pattern on notes.txt, got ${JSON.stringify(noteIds)}`)
+  assert.ok(!leaked.stdout.includes(marker), 'stdout must never echo private extra-pattern marker')
+  assert.ok(!JSON.stringify(leaked.findings).includes(marker), 'JSON report must never echo private extra-pattern marker')
+
+  // 2. Staged .scan-extra: flagged as forbidden-file and still never prints private markers.
+  rmSync(join(repo, 'notes.txt'))
+  git(repo, ['add', '-f', '.scan-extra'])
+  const staged = runScan(join(repo, 'scripts', 'scan.mjs'), repo)
+  assert.equal(staged.status, 1)
+  const extraIds = mustFixIds(staged.findings, '.scan-extra')
+  assert.ok(extraIds.includes('forbidden-file'), `expected forbidden-file on staged .scan-extra, got ${JSON.stringify(extraIds)}`)
+  assert.ok(!staged.stdout.includes(marker), 'stdout must never echo private marker from staged .scan-extra')
+  assert.ok(!JSON.stringify(staged.findings).includes(marker), 'JSON report must never echo private marker from staged .scan-extra')
+})
