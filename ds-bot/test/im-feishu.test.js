@@ -773,3 +773,26 @@ test('edit keeps the card when an answer pushes it past the limit', async (t) =>
   assert.ok(patch.params.content.includes('Which branch?'), 'the card keeps its body')
   assert.ok(patch.params.content.includes('— Yes'), 'the answer still shows')
 })
+
+test('a fenced near-limit card does not swallow the answer', async (t) => {
+  // The Feishu edit path counts code points, but the same trim removed the closing
+  // fence of a card ending in a code block, so the answer rendered as code.
+  const fake = await fakeFeishu()
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  await until(() => fake.calls.some(call => call.path === '/open-apis/bot/v3/info'))
+  const fenced = '\n```js\nflag = "**FLAGS**"\n```'
+  const prefix = 'Which branch?\n'
+  const card = prefix + 'z'.repeat(3999 - prefix.length - fenced.length) + fenced
+  assert.equal(Array.from(card).length, 3999, 'the card nearly fills the message')
+  await handle.edit({ key: 'oc_1', kind: 'direct' }, 'om_10', { text: `${card}\n— Yes`, sentLength: card.length })
+  const patch = fake.calls.find(call => call.method === 'PATCH' && call.path === '/open-apis/im/v1/messages/om_10')
+  assert.ok(patch, 'message PATCH called')
+  const body = JSON.parse(patch.params.content).body.elements[0].content
+  assert.ok(Array.from(body).length <= 4000, `PATCH is ${Array.from(body).length} characters`)
+  assert.ok(body.includes('Which branch?'), 'the question stays')
+  assert.ok(body.endsWith('\n— Yes'), 'the answer stays outside the code block')
+  assert.ok(!/```/.test(body.slice(0, -'\n— Yes'.length)), 'no half-open fence is left behind')
+  assert.ok(!body.includes('"**FLAG"'), 'the code line is not cut mid-literal')
+})

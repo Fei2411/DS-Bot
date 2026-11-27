@@ -680,5 +680,32 @@ function editedBody(text, sentLength) {
   const room = TEXT_LIMIT - Array.from(tail).length
   if (room <= 0) return Array.from(tail).slice(-TEXT_LIMIT).join('')
   const head = chunkMarkdown(sent, TEXT_LIMIT).at(-1) ?? ''
-  return Array.from(head).slice(0, room).join('') + tail
+  let kept = Array.from(head).slice(0, room).join('')
+  // Trimming the settled chunk to make room for the answer can remove the closing fence
+  // of a card that ends in a code block, swallowing the answer into the fence and
+  // truncating the code line. Drop the whole fenced block instead of leaving it open.
+  const openAt = openFenceStart(kept)
+  if (openAt !== null) kept = Array.from(head.slice(0, openAt).trimEnd()).slice(0, room).join('')
+  return kept + tail
+}
+
+// Offset of the last fence still open at the end of `text`, or null when all are closed.
+function openFenceStart(text) {
+  let open = null
+  let start = null
+  let offset = 0
+  for (const line of text.split('\n')) {
+    const fence = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(line)
+    if (fence) {
+      if (!open) {
+        open = fence[2]
+        start = offset
+      } else if (fence[2][0] === open[0] && fence[2].length >= open.length && fence[3].trim() === '') {
+        open = null
+        start = null
+      }
+    }
+    offset += line.length + 1
+  }
+  return start
 }

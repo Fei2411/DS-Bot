@@ -354,7 +354,36 @@ function editedBody(text, sentLength) {
   const room = TEXT_LIMIT - tail.length
   if (room <= 0) return unitsFromEnd(tail, TEXT_LIMIT)
   const head = chunkMarkdown(sent, TEXT_LIMIT, { unit: 'utf16' }).at(-1) ?? ''
-  return unitsFromStart(head, room) + tail
+  let kept = unitsFromStart(head, room)
+  // Reserving room for the answer by trimming the end of an already-sent chunk can cut
+  // away the closing fence of a card that ends in a code block. The answer then lands
+  // inside an unclosed fence and the code line itself is truncated. Drop the whole
+  // fenced block instead: the question and the answer stay readable as prose.
+  const openAt = openFenceStart(kept)
+  if (openAt !== null) kept = unitsFromStart(head.slice(0, openAt).trimEnd(), room)
+  return kept + tail
+}
+
+// Offset of the last fence that is still open at the end of `text`, or null when every
+// fenced block is closed. A closing fence repeats the marker with no info string.
+function openFenceStart(text) {
+  let open = null
+  let start = null
+  let offset = 0
+  for (const line of text.split('\n')) {
+    const fence = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(line)
+    if (fence) {
+      if (!open) {
+        open = fence[2]
+        start = offset
+      } else if (fence[2][0] === open[0] && fence[2].length >= open.length && fence[3].trim() === '') {
+        open = null
+        start = null
+      }
+    }
+    offset += line.length + 1
+  }
+  return start
 }
 
 // The first `count` UTF-16 units of `text`, never ending on the high half of an astral

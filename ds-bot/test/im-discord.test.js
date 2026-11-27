@@ -286,3 +286,25 @@ test('a settled card near the limit keeps its body', async (t) => {
   assert.ok(patch.params.content.endsWith('— Yes'), 'the answer still shows')
   assert.ok(patch.params.content.length <= 2000, `PATCH is ${patch.params.content.length} units`)
 })
+
+test('a fenced near-limit card does not swallow the answer', async (t) => {
+  // Reserving room for the answer by trimming the settled chunk cut off the closing
+  // fence and part of the code line: the answer rendered inside an unclosed code block.
+  const fake = await fakeDiscord()
+  const handle = discord.connect({ token: 'tok' }, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const fenced = '\n```js\nflag = "**FLAGS**"\n```'
+  const prefix = 'Which branch?\n'
+  const card = prefix + 'z'.repeat(1999 - prefix.length - fenced.length) + fenced
+  assert.equal(card.length, 1999, 'the card nearly fills the message')
+  await handle.edit({ key: 'dm1', kind: 'direct' }, '78', { text: `${card}\n— Yes`, sentLength: card.length })
+  const patch = fake.calls.find(call => call.method === 'PATCH' && /messages\/78$/.test(call.path))
+  assert.ok(patch, 'PATCH called')
+  const body = patch.params.content
+  assert.ok(body.length <= 2000, `PATCH is ${body.length} units`)
+  assert.ok(body.includes('Which branch?'), 'the question stays')
+  assert.ok(body.endsWith('\n— Yes'), 'the answer stays outside the code block')
+  assert.ok(!/```/.test(body.slice(0, -'\n— Yes'.length)), 'no half-open fence is left behind')
+  assert.ok(!body.includes('"**FLAG"'), 'the code line is not cut mid-literal')
+})
