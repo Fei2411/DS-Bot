@@ -1139,3 +1139,75 @@ test('real DSH ReactLoopAgent: background tasks prune task-blocked tools (team +
   assert.equal(chiefSteps[0].includes('post_to_group'), false, 'Step 1 has 0 groups so post_to_group is pruned')
   assert.equal(chiefSteps[1].includes('post_to_group'), true, 'Step 2 immediately unlocks post_to_group after create_group succeeds')
 })
+
+test('connector offFor unmounts and restores Agent-scoped team tools (mail_*) across live toggle, assemble, creation, addTeamTool, and removeTeamTool', async (t) => {
+  const host = start()
+  t.after(() => {
+    for (const name of ['mail_search', 'mail_send', 'mail_read']) rt.removeTeamTool(name)
+    host.stop()
+  })
+  await host.call('state', {})
+  await host.agentCreated('a')
+  await host.agentCreated('b')
+
+  const makeTool = (name) => ({
+    name,
+    description: `${name} test tool`,
+    parameters: { type: 'object', properties: {} },
+    output: { schema: { type: 'string' }, render: () => [] },
+    async execute() { return 'ok' },
+  })
+  rt.addTeamTool(makeTool('mail_search'))
+  rt.addTeamTool(makeTool('mail_send'))
+  assert.equal(scopedNames(host, 'a').includes('mail_search'), true)
+  assert.equal(scopedNames(host, 'a').includes('mail_send'), true)
+  assert.equal(scopedNames(host, 'b').includes('mail_search'), true)
+
+  // Turn off mail for Bot a only (also with a global MCP tool denied at the same time).
+  host.ctx.tools.schemas = (agent) => [
+    ...scopedNames(host, agent.id).map(name => ({ name })),
+    { name: 'mcp__notion__search' },
+  ]
+  rt.connectorOffFor = (botId) => botId === 'a' ? ['mail_', 'mcp__notion__'] : []
+  rt.reapplyToolMasks()
+
+  // Bot a's scoped mail_* tools are unmounted directly; global MCP tool uses restrict(); Bot b keeps mail_*.
+  assert.equal(scopedNames(host, 'a').includes('mail_search'), false)
+  assert.equal(scopedNames(host, 'a').includes('mail_send'), false)
+  assert.equal(scopedNames(host, 'b').includes('mail_search'), true)
+  assert.equal(scopedNames(host, 'b').includes('mail_send'), true)
+  assert.equal(host.restricted.some(entry => entry.sessionId === 'a' && entry.deny.includes('mcp__notion__search')), true)
+  assert.equal(host.restricted.some(entry => entry.sessionId === 'a' && entry.deny.some(n => n.startsWith('mail_'))), false)
+
+  // Subsequent hideBotUnusedTools (system-prompt/assemble) must NOT re-register hidden mail_* tools.
+  rt.hideBotUnusedTools(host.agentOf('a'))
+  assert.equal(scopedNames(host, 'a').includes('mail_search'), false)
+  assert.equal(scopedNames(host, 'a').includes('mail_send'), false)
+
+  // A mail tool added while mail is off for Bot a skips Bot a, registers on Bot b, and joins Bot a once re-enabled.
+  rt.addTeamTool(makeTool('mail_read'))
+  assert.equal(scopedNames(host, 'a').includes('mail_read'), false)
+  assert.equal(scopedNames(host, 'b').includes('mail_read'), true)
+
+  // Removing a hidden mail tool clears it so turning mail back on does not re-register a removed tool.
+  rt.removeTeamTool('mail_send')
+
+  // Re-enabling mail for Bot a restores the remaining mail tools and lifts the MCP mask.
+  rt.connectorOffFor = () => []
+  rt.reapplyToolMasks()
+  assert.equal(scopedNames(host, 'a').includes('mail_search'), true)
+  assert.equal(scopedNames(host, 'a').includes('mail_read'), true)
+  assert.equal(scopedNames(host, 'a').includes('mail_send'), false)
+  assert.equal(host.restricted.some(entry => entry.sessionId === 'a' && entry.deny.includes('mcp__notion__search')), false)
+
+  // A freshly created Agent whose Bot already has mail off never receives mail_* on creation,
+  // and receives them immediately when mail is turned back on.
+  rt.connectorOffFor = (botId) => botId === 'b' ? ['mail_'] : []
+  await host.agentCreated('b')
+  assert.equal(scopedNames(host, 'b').includes('mail_search'), false)
+  assert.equal(scopedNames(host, 'b').includes('mail_read'), false)
+  rt.connectorOffFor = () => []
+  rt.reapplyToolMasks()
+  assert.equal(scopedNames(host, 'b').includes('mail_search'), true)
+  assert.equal(scopedNames(host, 'b').includes('mail_read'), true)
+})

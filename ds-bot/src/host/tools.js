@@ -1872,6 +1872,8 @@ export function install(rt) {
     // join that scope. Register what it is missing, so the next request is whole.
     const botId = owns ? rt.selfOf(id) : undefined
     const scopedDenied = botId ? (rt.pluginDeniedRules?.(botId)?.scopedDenied ?? new Set()) : new Set()
+    const connectorOffPrefixes = botId ? (rt.connectorOffFor?.(botId) ?? []) : []
+    const connectorDenied = name => connectorOffPrefixes.some(prefix => prefix && name.startsWith(prefix))
     const hiddenScoped = relayOnly ? null : hiddenTeamToolsFor(id)
     const scopeKey = relayOnly ? 'relay' : scopeKeyOf(id)
     if (held?.tools === true) {
@@ -1886,6 +1888,10 @@ export function install(rt) {
         if (!relayOnly && hiddenScoped.has(def.name)) continue
         if (!relayOnly && scopedDenied.has(def.name)) {
           ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
+          continue
+        }
+        if (!relayOnly && connectorDenied(def.name)) {
+          ;(held.connectorHiddenScoped ??= new Set()).add(def.name)
           continue
         }
         if (held.added?.has(def.name) === true) continue
@@ -1909,7 +1915,7 @@ export function install(rt) {
           rt.warn('ds-bot: team tool %s not added to %s: %s', def.name, id, error)
         }
       }
-      if ([...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])].some(def => (!relayOnly || def.name === 'group_relay') && (relayOnly || !hiddenScoped.has(def.name)) && !scopedDenied.has(def.name) && !held.added?.has(def.name))) {
+      if ([...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])].some(def => (!relayOnly || def.name === 'group_relay') && (relayOnly || !hiddenScoped.has(def.name)) && !scopedDenied.has(def.name) && (relayOnly || !connectorDenied(def.name)) && !held.added?.has(def.name))) {
         retryBotTools(agent, held)
       } else {
         clearTimeout(held.retryTimer)
@@ -1933,6 +1939,10 @@ export function install(rt) {
       if (!relayOnly && hiddenScoped.has(def.name)) continue
       if (!relayOnly && scopedDenied.has(def.name)) {
         ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
+        continue
+      }
+      if (!relayOnly && connectorDenied(def.name)) {
+        ;(held.connectorHiddenScoped ??= new Set()).add(def.name)
         continue
       }
       try {
@@ -1968,6 +1978,12 @@ export function install(rt) {
     }
   }
 
+  const isConnectorDeniedTool = (botId, name) => {
+    if (!botId) return false
+    const prefixes = rt.connectorOffFor?.(botId) ?? []
+    return prefixes.some(prefix => prefix && name.startsWith(prefix))
+  }
+
   // Tools joined after the first scoping (mail tools appear when the first
   // account is added) register into every held Agent and are offered once.
   const addTeamTool = (def) => {
@@ -1979,6 +1995,10 @@ export function install(rt) {
       const botId = rt.selfOf(id)
       if (botId && rt.pluginDeniedRules?.(botId)?.scopedDenied?.has(def.name)) {
         ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
+        continue
+      }
+      if (botId && isConnectorDeniedTool(botId, def.name)) {
+        ;(held.connectorHiddenScoped ??= new Set()).add(def.name)
         continue
       }
       try {
@@ -2012,50 +2032,101 @@ export function install(rt) {
       held.toolLifts?.delete(name)
       held.added?.delete(name)
       held.unlisted.delete(name)
+      held.connectorHiddenScoped?.delete(name)
+      held.pluginHiddenScoped?.delete(name)
     }
   }
 
-  // Per-Bot connector switches (state.connectors[id].offFor): deny the served
-  // tools matching each off connector's prefix. Re-applied on tools/change.
+  // Per-Bot connector switches (state.connectors[id].offFor): unmount matching
+  // Agent-scoped team tools (e.g. `mail_*`, since DSH's `restrict()` masks
+  // inherited global tools only) and deny inherited global connector tools.
+  // Re-applied on tools/change with re-entrancy protection.
+  const maskingConnectors = new WeakSet()
   const maskConnectorTools = (agent, held) => {
-    if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
-    const botId = rt.selfOf(agent.session?.id)
-    const prefixes = rt.connectorOffFor?.(botId) ?? []
-    // Taking the served schemas is the expensive part: every schema is walked when the
-    // tool scope is taken, and most Bots have no connector off.
-    if (prefixes.length === 0 && (held.connectorLifts?.length ?? 0) === 0 && (held.connectorDenied?.size ?? 0) === 0) return
-    // schemas(agent) omits tools our current mask already hid. Keep those names
-    // while computing the next mask, or the next tools/change would lift it.
-    const served = new Set([...ctx.tools.schemas(agent).map(schema => schema.name), ...(held.connectorDenied ?? [])])
-    // One restrict() per connector: one per tool would take the scope once for each.
-    // A tool two prefixes match is denied once, by the first prefix that names it.
-    const deny = new Set()
-    const groups = []
-    for (const prefix of prefixes) {
-      const names = [...served].filter(name => !deny.has(name) && name.startsWith(prefix))
-      if (names.length === 0) continue
-      groups.push(names)
-      for (const name of names) deny.add(name)
-    }
-    const before = held.connectorDenied ?? new Set()
-    if (deny.size === before.size && [...deny].every(name => before.has(name))) return
-    for (const lift of held.connectorLifts ?? []) { try { lift() } catch { /* already lifted */ } }
-    held.connectorLifts = []
-    held.connectorDenied = deny
-    for (const names of groups) {
-      try {
-        const lift = agent.ctx.tools.restrict({ deny: names })
-        if (typeof lift === 'function') held.connectorLifts.push(lift)
-      } catch {
-        // A name in the Agent's own scope fails the whole list (restrict() masks
-        // inherited tools only), so mask the rest one at a time.
-        for (const name of names) {
-          try {
-            const lift = agent.ctx.tools.restrict({ deny: [name] })
-            if (typeof lift === 'function') held.connectorLifts.push(lift)
-          } catch { /* a scoped name cannot be restricted; connectors are global */ }
+    if (maskingConnectors.has(agent)) return
+    maskingConnectors.add(agent)
+    try {
+      const botId = rt.selfOf(agent.session?.id)
+      const prefixes = rt.connectorOffFor?.(botId) ?? []
+
+      // 1. Sync Agent-scoped team tools matching off connector prefixes (e.g. mail_*).
+      if ((prefixes.length > 0 || (held.connectorHiddenScoped?.size ?? 0) > 0)
+        && held.tools === true && !held.relay && typeof agent.ctx?.tools?.register === 'function') {
+        const hiddenScoped = (held.connectorHiddenScoped ??= new Set())
+        const hiddenTeam = hiddenTeamToolsFor(agent.session?.id)
+        const pluginScopedDenied = botId ? (rt.pluginDeniedRules?.(botId)?.scopedDenied ?? new Set()) : new Set()
+        for (const def of rt.teamTools) {
+          const shouldHide = prefixes.some(prefix => prefix && def.name.startsWith(prefix))
+          if (shouldHide) {
+            hiddenScoped.add(def.name)
+            if (held.toolLifts?.has(def.name) === true || held.added?.has(def.name) === true) {
+              disposeScopedTool(held, def.name)
+            }
+          } else if (hiddenScoped.has(def.name)) {
+            hiddenScoped.delete(def.name)
+            if (!hiddenTeam.has(def.name) && !pluginScopedDenied.has(def.name) && !held.added?.has(def.name)) {
+              try {
+                const dispose = agent.ctx.tools.register(def)
+                if (typeof dispose === 'function') {
+                  held.disposers.push(dispose)
+                  ;(held.toolLifts ??= new Map()).set(def.name, dispose)
+                }
+                ;(held.added ??= new Set()).add(def.name)
+                held.unlisted?.add(def.name)
+              } catch { /* ignore if unavailable */ }
+            }
+          }
         }
       }
+
+      // 2. Mask inherited global connector tools via `agent.ctx.tools.restrict()`.
+      if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
+      // Taking the served schemas is the expensive part: every schema is walked when the
+      // tool scope is taken, and most Bots have no connector off.
+      if (prefixes.length === 0 && (held.connectorLifts?.length ?? 0) === 0 && (held.connectorDenied?.size ?? 0) === 0) return
+      // schemas(agent) omits tools our current mask already hid. Keep those names
+      // while computing the next mask, or the next tools/change would lift it.
+      const served = new Set([...ctx.tools.schemas(agent).map(schema => schema.name), ...(held.connectorDenied ?? [])])
+      // One restrict() per connector: one per tool would take the scope once for each.
+      // A tool two prefixes match is denied once, by the first prefix that names it.
+      const deny = new Set()
+      const groups = []
+      for (const prefix of prefixes) {
+        if (!prefix) continue
+        const names = [...served].filter(name => !deny.has(name) && !held.added?.has(name) && name.startsWith(prefix))
+        if (names.length === 0) continue
+        groups.push(names)
+        for (const name of names) deny.add(name)
+      }
+      const before = held.connectorDenied ?? new Set()
+      if (deny.size === before.size && [...deny].every(name => before.has(name))) return
+      // Clear state BEFORE invoking old lifts so synchronous `tools/change` cannot lose new lifts.
+      const prevLifts = held.connectorLifts ?? []
+      held.connectorLifts = []
+      held.connectorDenied = new Set()
+      for (const lift of prevLifts) { try { lift() } catch { /* already lifted */ } }
+      if (deny.size === 0) return
+      const applied = new Set()
+      for (const names of groups) {
+        try {
+          const lift = agent.ctx.tools.restrict({ deny: names })
+          if (typeof lift === 'function') held.connectorLifts.push(lift)
+          for (const name of names) applied.add(name)
+        } catch {
+          // A name in the Agent's own scope fails the whole list (restrict() masks
+          // inherited tools only), so mask the rest one at a time.
+          for (const name of names) {
+            try {
+              const lift = agent.ctx.tools.restrict({ deny: [name] })
+              if (typeof lift === 'function') held.connectorLifts.push(lift)
+              applied.add(name)
+            } catch { /* a scoped name cannot be restricted via inherited deny */ }
+          }
+        }
+      }
+      held.connectorDenied = applied
+    } finally {
+      maskingConnectors.delete(agent)
     }
   }
   // Plugin masks:
@@ -2093,7 +2164,7 @@ export function install(rt) {
             }
           } else if (hiddenScoped.has(def.name)) {
             hiddenScoped.delete(def.name)
-            if (!hiddenTeam.has(def.name) && !held.added?.has(def.name)) {
+            if (!hiddenTeam.has(def.name) && !isConnectorDeniedTool(botId, def.name) && !held.added?.has(def.name)) {
               try {
                 const dispose = agent.ctx.tools.register(def)
                 if (typeof dispose === 'function') {
