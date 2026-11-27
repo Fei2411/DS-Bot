@@ -1082,6 +1082,107 @@ export function install(rt) {
         if (sid !== undefined) groupOwners.set(sid, { botId, roomId })
       }
     }
+    // Part lineage: every fresh part is recorded in `state.partOwners` as soon as it
+    // exists, before the record writeback it belongs to lands. When that writeback is
+    // lost (a crash in the window, or an older state overwriting this file), the part
+    // is orphaned otherwise: nothing maps it to its Bot, its owner scope reads as a
+    // non-main Bot, and a Main Bot loses its management tools (#2361). Lineage entries
+    // fill the gaps here: a redundant one (the record already owns the part, or the
+    // part is an archived segment) is dropped; one that names a valid live target the
+    // record no longer reaches heals the record. A part of an unfinished switch is
+    // never healed over: `state.switching` rules where it belongs at the restart pass.
+    const lineage = state.partOwners
+    if (lineage !== null && typeof lineage === 'object' && !Array.isArray(lineage)) {
+      const switchingBotIds = new Set(
+        Object.values(state.switching ?? {})
+          .map(owner => owner?.botId)
+          .filter(botId => typeof botId === 'string' && botId !== ''),
+      )
+      // An archived part is never a live one: every path that abandons a fresh part
+      // archives it, so the archive flag is what keeps an abandoned part from being
+      // healed back into the record once its switch marker is gone.
+      let archivedParts
+      try {
+        archivedParts = new Set(ctx.workspaceRegistry?.archivedSessionIds ?? [])
+      } catch {
+        archivedParts = new Set()
+      }
+      const ordered = Object.entries(lineage)
+        .sort(([, a], [, b]) => (b?.at ?? 0) - (a?.at ?? 0))
+      for (const [sid, entry] of ordered) {
+        const sessionId = sessionIdOf(sid)
+        const botId = sessionIdOf(entry?.botId)
+        const bot = botOf(botId)
+        const roomId = sessionIdOf(entry?.roomId)
+        const room = roomOf(roomId)
+        if (sessionId === undefined || bot === undefined || (roomId !== undefined && room === undefined)) {
+          delete lineage[sessionId ?? sid]
+          continue
+        }
+        if (roomId !== undefined) {
+          // A group member part: the member session record is the writeback, and the
+          // part is only ever live while the Bot stays a member.
+          const memberSid = sessionIdOf(room.sessions?.[botId])
+          const inSegments = (room.segments?.[botId] ?? []).some(segment => sessionIdOf(segment?.sessionId) === sessionId)
+          if (memberSid === sessionId || inSegments || !room.members.includes(botId)) {
+            delete lineage[sid]
+            continue
+          }
+          if (!room.members.includes(botId)) continue
+          if (memberSid === undefined && !switchingBotIds.has(botId) && !archivedParts.has(sessionId)) {
+            room.sessions ??= {}
+            room.sessions[botId] = sessionId
+            groupOwners.set(sessionId, { botId, roomId })
+          }
+          continue
+        }
+        const taskId = sessionIdOf(entry?.taskId)
+        if (taskId !== undefined) {
+          const task = (bot.tasks ?? []).find(item => item?.id === taskId)
+          const inSegments = (task?.segments ?? []).some(segment => sessionIdOf(segment?.sessionId) === sessionId)
+          if (task === undefined || task.sessionId === sessionId || inSegments) {
+            delete lineage[sid]
+            continue
+          }
+          if (isActiveTask(task) && !switchingBotIds.has(botId) && sessionIdOf(task.sessionId) === undefined && !archivedParts.has(sessionId)) {
+            task.sessionId = sessionId
+            taskOwners.set(sessionId, { botId, taskId })
+            chatOwners.set(sessionId, botId)
+          }
+          continue
+        }
+        // A foreground-chat part.
+        const currentSid = chatOf(botId)
+        const inSegments = (bot.segments ?? []).some(segment => sessionIdOf(segment?.sessionId) === sessionId)
+        if (currentSid === sessionId || inSegments) {
+          delete lineage[sid]
+          continue
+        }
+        if (chatOwners.has(sessionId) || groupOwners.has(sessionId)) continue
+        if (switchingBotIds.has(botId)) continue
+        if (sessionIdOf(bot.sessionId) === undefined && !archivedParts.has(sessionId)) {
+          // The writeback never landed at all: the record fell back to the Bot id,
+          // which is this conversation's first part. The lineage part is its current
+          // one — heal the record so every part resolves to the Bot again.
+          bot.sessionId = sessionId
+          chatOwners.delete(botId)
+          chatOwners.set(sessionId, botId)
+          continue
+        }
+        // A lineage part the record already left (the writeback names another part) is
+        // an earlier part of that thread: its history belongs to the Bot either way.
+        if (!pastOwners.has(sessionId) && !chatOwners.has(sessionId) && !groupOwners.has(sessionId)) {
+          pastOwners.set(sessionId, { botId, ...(roomId !== undefined ? { roomId } : {}) })
+        }
+      }
+      // Lineage is small by construction (one entry per part ever created); entries
+      // are dropped as they go redundant, but a hard cap keeps a corrupt file bounded.
+      const keys = Object.keys(lineage)
+      if (keys.length > 1000) {
+        for (const key of keys.sort((a, b) => (lineage[a]?.at ?? 0) - (lineage[b]?.at ?? 0)).slice(0, keys.length - 1000)) delete lineage[key]
+      }
+      if (keys.length === 0 || Object.keys(lineage).length === 0) delete state.partOwners
+    }
     // The agents module owns the DSH Agent session index, and tools.js re-syncs
     // the scoped tools with this ownership (drops Sessions that left, scopes
     // live Agents that joined); both install after this.
@@ -1193,8 +1294,32 @@ export function install(rt) {
     }
   }
 
+  // Every fresh part records who it was made for the moment it exists, before the
+  // writeback of the Bot/task/group record it belongs to. A save that loses the
+  // writeback (crash window, or an older state overwriting the file) leaves the part
+  // orphaned otherwise; the lineage entry is what `indexSessions` heals ownership
+  // from (#2361). Deleting a redundant or stale entry is `indexSessions`' job; a
+  // part abandoned before its writeback deletes its entry at once.
+  const notePartOwner = (sessionId, owner) => {
+    const sid = sessionIdOf(sessionId)
+    const botId = sessionIdOf(owner?.botId)
+    if (sid === undefined || botId === undefined) return
+    state.partOwners ??= {}
+    state.partOwners[sid] = {
+      botId,
+      ...(sessionIdOf(owner?.taskId) !== undefined ? { taskId: owner.taskId } : {}),
+      ...(sessionIdOf(owner?.roomId) !== undefined ? { roomId: owner.roomId } : {}),
+      at: Date.now(),
+    }
+  }
+  const dropPartOwner = (sessionId) => {
+    const sid = sessionIdOf(sessionId)
+    if (sid !== undefined && state.partOwners !== undefined) delete state.partOwners[sid]
+  }
+
   Object.assign(rt, {
     state, load, save, refresh, readOnly, hasLoaded, hasExistingTeamData, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, closeCard,
+    notePartOwner, dropPartOwner,
     readSegmentNote, writeSegmentNote, deleteSegmentNotes,
     teamWriteAccess,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession, isTeamSession,

@@ -3183,6 +3183,18 @@ export function install(rt) {
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
     const presetAtCreation = bot?.agentPreset
     const freshId = await rt.createSession(effectiveRoom === undefined ? name : bot === undefined ? effectiveRoom.name : `${name} · ${effectiveRoom.name}`, { dir, bot })
+    // Record the part's owner before anything else can interrupt the switch: the
+    // writeback into the Bot/group record lands several awaits later, and a crash or
+    // overwrite in that window must not orphan the part (#2361). The save makes the
+    // lineage durable before the writeback's own save runs.
+    if (bot !== undefined) {
+      rt.notePartOwner?.(freshId, {
+        botId: bot.id,
+        ...(thread?.thread === 'task' ? { taskId: thread.taskId } : {}),
+        ...(room !== undefined ? { roomId: room.id } : {}),
+      })
+      await rt.save().catch(error => rt.warn('ds-bot: part lineage for %s not saved: %s', name, error))
+    }
     // The group's own Session never asks the model, so selectRoomSession picks an
     // image-capable route when available; the earlier part's route may no longer be served (#1310).
     if (bot === undefined) await rt.selectRoomSession(freshId, room)
@@ -3201,6 +3213,7 @@ export function install(rt) {
       return gone || current !== agent.id
     }
     if (isGoneOrStale()) {
+      rt.dropPartOwner?.(freshId)
       await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', name, error))
       return
@@ -3212,6 +3225,7 @@ export function install(rt) {
       persistedNote = await rt.writeSegmentNote(agent.id, noteBody)
       if (isGoneOrStale()) {
         if (persistedNote) void rt.deleteSegmentNotes?.([agent.id])
+        rt.dropPartOwner?.(freshId)
         await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
           .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', name, error))
         return
@@ -4633,12 +4647,14 @@ export function install(rt) {
     if (sessionId === undefined) {
       sessionId = await rt.createSession(`${bot.name} · ${task.title}`, { dir, bot })
     }
+    rt.notePartOwner?.(sessionId, { botId: bot.id, taskId: task.id })
     const sourceAgent = ctx.get('agents')?.get(fromSessionId)
     const picked = await freshRoute(bot, sourceAgent?.session)
     if (picked !== undefined) await selectRoute({ name: bot.name }, sessionId, picked)
     await rt.applyPermission(bot, sessionId, room)
       .catch(error => rt.warn('ds-bot: permission for task %s of %s not applied: %s', task.id, bot.name, error))
     if (rt.botOf(bot.id) !== bot || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))) {
+      rt.dropPartOwner?.(sessionId)
       await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
       throw Object.assign(new Error(room !== undefined ? 'Bot is no longer in this group' : 'Bot no longer exists'), { code: 'bot/not-found' })
@@ -4739,11 +4755,13 @@ export function install(rt) {
     if (sessionId === undefined) {
       sessionId = await rt.createSession(bot.name, { dir, bot })
     }
+    rt.notePartOwner?.(sessionId, { botId: bot.id })
     const picked = await freshRoute(bot, sourceAgent?.session)
     if (picked !== undefined) await selectRoute({ name: bot.name }, sessionId, picked)
     await rt.applyPermission(bot, sessionId, undefined)
       .catch(error => rt.warn('ds-bot: permission for foreground part of %s not applied: %s', bot.name, error))
     if (rt.botOf(bot.id) !== bot) {
+      rt.dropPartOwner?.(sessionId)
       await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: unused foreground part of %s not archived: %s', bot.name, error))
       throw Object.assign(new Error('Bot no longer exists'), { code: 'bot/not-found' })
@@ -4889,11 +4907,13 @@ export function install(rt) {
       const dir = rt.workDirOf({ botId: bot.id })
       const presetAtCreation = bot.agentPreset
       const freshId = await rt.createSession(bot.name, { dir, bot })
+      rt.notePartOwner?.(freshId, { botId: bot.id })
       const picked = await freshRoute(bot, undefined)
       if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
       await rt.applyPermission(bot, freshId, undefined)
         .catch(error => rt.warn('ds-bot: permission for the new part of %s not applied: %s', bot.name, error))
       if (readOnly() || rt.botOf(bot.id) !== bot || rt.chatOf(bot.id) !== lostId) {
+        rt.dropPartOwner?.(freshId)
         await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
           .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', bot.name, error))
         return { sessionId: rt.chatOf(bot.id), recovered: false }
