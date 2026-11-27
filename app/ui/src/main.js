@@ -45,19 +45,26 @@ import { WIDGET_CSS } from '../../../ds-bot/src/client/widget-cell.js'
 import { createLocale, setAppLocaleService } from './locale.js'
 import { App } from './app.js'
 import { registerBuiltinToolViews } from './builtin-tool-views.js'
+import { registerClassicPlanView } from './classic-plan-view.js'
 import { registerEngineSettingsPlugin } from './engine-settings-bridge.js'
+import { registerMathStyleLoader } from './math-render.js'
 import { paintMode } from './mode.js'
 import { pluginRuntime } from './plugin-runtime.js'
 import { slots } from './slots.js'
 import './app.css'
+import './composer-classic.css'
+import './message-parity.css'
+
+registerMathStyleLoader(() => import('katex/dist/katex.min.css'))
 
 const appLocale = createLocale(navigator.language)
 setAppLocaleService(appLocale)
 installLocale(appLocale)
 installMotionRest()
 pluginRuntime.provide('slots', slots)
-pluginRuntime.use({ id: 'ds-bot.builtin-tool-views', name: 'Built-in tool views' }, () => registerBuiltinToolViews(slots))
-registerEngineSettingsPlugin(pluginRuntime)
+pluginRuntime.use({ id: 'ds-bot.builtin-tool-views', name: 'Built-in tool views', pages: ['chat'] }, () => registerBuiltinToolViews(slots))
+pluginRuntime.use({ id: 'ds-bot.classic-plan-view', name: 'Classic plan card', pages: ['chat'] }, () => registerClassicPlanView(slots))
+registerEngineSettingsPlugin(pluginRuntime, { pages: ['settings'] })
 globalThis.dsBotPlugins = pluginRuntime
 document.documentElement.lang = appLocale.getLocale().active
 // macOS puts the window buttons at the band's left end, over the sidebar (app.css).

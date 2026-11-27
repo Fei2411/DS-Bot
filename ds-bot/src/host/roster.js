@@ -1115,6 +1115,7 @@ export function install(rt) {
       delete state.questions[sid]
       if (state.views !== undefined) delete state.views[sid]
       if (state.closedCards !== undefined) delete state.closedCards[sid]
+      if (state.closedCardSeqs !== undefined) delete state.closedCardSeqs[sid]
       delete state.exchangeTurns[sid]
       rt.forgetSessionParts?.(sid)
       rt.forgetSessionTurn?.(sid)
@@ -1272,6 +1273,7 @@ export function install(rt) {
         delete state.questions[part]
         if (state.views !== undefined) delete state.views[part]
         if (state.closedCards !== undefined) delete state.closedCards[part]
+        if (state.closedCardSeqs !== undefined) delete state.closedCardSeqs[part]
         delete state.exchangeTurns[part]
         delete state.switching[part]
         rt.forgetSessionChanges?.(part)

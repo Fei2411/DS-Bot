@@ -1094,7 +1094,9 @@ test('a stale-session prompt arriving during the foreground commit waits for a d
   assert.equal(admitted().length, 0)
 
   blocked.mock.restore()
-  await settle(() => admitted().length === 1 && journal(rig).length === 0, 4500, 'the stale-session prompt should replay after writes recover')
+  // Retry backoff doubles (1s -> 2s -> 4s) if a timer fires while writes are blocked;
+  // allow enough time for the backed-off replay timer plus the real agent turn.
+  await settle(() => admitted().length === 1 && journal(rig).length === 0, 10_000, 'the stale-session prompt should replay after writes recover')
   assert.equal(diskForeground(), 'fork-1')
   assert.equal(admitted().length, 1)
 })

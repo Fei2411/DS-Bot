@@ -1791,7 +1791,7 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 }
 [data-composer-card]>[class*="_row"]{display:contents!important}
 [data-composer-card] [class*="_tools"]{order:1!important;flex:none!important;align-self:flex-end!important;margin:0!important}
-[data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important}
+[data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important;box-sizing:border-box}
 [data-composer-card] [class*="_trailing"]{order:3!important;flex:none!important;align-self:flex-end!important;margin:0!important}
 /* The slot anchor is display:contents, so the rail inside it is the flex item. */
 [data-composer-card]>[data-slot="conversation.input.attachments"]>[class*="_rail"]{order:0!important;flex:0 0 100%!important;margin:0!important;padding:2px 8px 6px!important}
@@ -1907,6 +1907,10 @@ div:has(> nav [class*="_marks"]){display:none!important}
    the edge. This covers the group's chat flow, not only DS Bot's own panels. */
 @media (max-width:640px){
 .bt-msg,.bt-astack[data-lead]>.bt-msg{max-width:100%}
+.bt-msg{position:relative}
+.bt-msg-line{position:static}
+.bt-tools{top:100%;bottom:auto;left:auto;right:4px;margin-left:0;margin-top:2px;border-radius:999px;padding:2px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
+.bt-tools::after{top:-6px;bottom:auto;left:0;right:0;width:auto;height:8px}
 .bt-bubble,[data-chat-flow] [class*="_bubble"]{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 .bt-group-msg,.bt-group-name{max-width:100%}
 .bt-q{width:100%;max-width:none;padding:12px 14px;border-radius:16px}

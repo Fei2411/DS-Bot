@@ -41,15 +41,15 @@ export const SHORTCUT_DEFS = [
   // Panels
   { id: 'sidebar', group: 'panels', label: 'Toggle sidebar', defaultBinding: b('Backslash', { mod: true }) },
   { id: 'right-panel', group: 'panels', label: 'Toggle right panel', defaultBinding: b('Backslash', { mod: true, shift: true }) },
-  { id: 'browser', group: 'panels', label: 'Toggle Bot browser', defaultBinding: b('KeyB', { mod: true }), requiresBrowser: true },
+  { id: 'browser', group: 'panels', label: 'Toggle Bot browser', classicLabel: 'Toggle browser', defaultBinding: b('KeyB', { mod: true }), requiresBrowser: true },
   { id: 'terminal', group: 'panels', label: 'Open terminal', defaultBinding: b('Backquote', { ctrl: true }), allowInTerminal: true },
-  { id: 'details', group: 'panels', label: 'Toggle details', defaultBinding: b('KeyD', { mod: true, shift: true }) },
-  { id: 'memory', group: 'panels', label: 'Open memory', defaultBinding: b('KeyE', { mod: true, shift: true }), allowInModal: ['memory'] },
+  { id: 'details', group: 'panels', label: 'Toggle details', defaultBinding: b('KeyD', { mod: true, shift: true }), requiresDetails: true },
+  { id: 'memory', group: 'panels', label: 'Open memory', defaultBinding: b('KeyE', { mod: true, shift: true }), requiresMemory: true, allowInModal: ['memory'] },
 
   // Conversation
   { id: 'new-chat', group: 'conversation', label: 'New chat', defaultBinding: b('KeyN', { mod: true }), allowInModal: ['settings'] },
   { id: 'focus-composer', group: 'conversation', label: 'Focus message input', defaultBinding: b('KeyL', { mod: true }) },
-  { id: 'group-search', group: 'conversation', label: 'Search in group', defaultBinding: b('KeyF', { mod: true, shift: true }), allowInModal: ['groupSearch'] },
+  { id: 'group-search', group: 'conversation', label: 'Search in group', defaultBinding: b('KeyF', { mod: true, shift: true }), requiresGroupSearch: true, allowInModal: ['groupSearch'] },
   { id: 'stop-turn', group: 'conversation', label: 'Stop generating', defaultBinding: b('Period', { mod: true }) },
 
   // Application
@@ -252,11 +252,21 @@ export function formatBindingAria(binding, mac = isMacPlatform()) {
   return parts.join('+')
 }
 
-export function isCommandAvailable(def, { hasSurface = true, hasBrowser = true, hasInbox = true } = {}) {
+export function isCommandAvailable(def, {
+  hasSurface = true,
+  hasBrowser = true,
+  hasInbox = true,
+  hasDetails = true,
+  hasMemory = true,
+  hasGroupSearch = true,
+} = {}) {
   if (!def) return false
   if (def.requiresSurface && !hasSurface) return false
   if (def.requiresBrowser && !hasBrowser) return false
   if (def.requiresInbox && !hasInbox) return false
+  if (def.requiresDetails && !hasDetails) return false
+  if (def.requiresMemory && !hasMemory) return false
+  if (def.requiresGroupSearch && !hasGroupSearch) return false
   return true
 }
 

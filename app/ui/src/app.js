@@ -6,7 +6,7 @@ import { HeaderPill } from '../../../ds-bot/src/client/header.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { SidebarIcon } from '../../../ds-bot/src/client/icons.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
-import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { BotReturn, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
 import { allThemes, effectsOf, flatWidthOf, layoutOf, themeCss, themesOf, widthOf } from '../../../ds-bot/src/client/themes.js'
 import { appearanceCss, onSafeAppearance, pictureUrl, safeAppearance, watchSafeAppearance } from '../../../ds-bot/src/client/appearance.js'
@@ -17,11 +17,15 @@ import { Chat } from './chat.js'
 import { AgentEmptyHero, ClassicHeader, ClassicSidebar } from './classic-sidebar.js'
 import { useDshSettingsBridge } from './engine-settings-bridge.js'
 import { getAppLocale } from './locale.js'
+import { pluginRuntime, usePluginPage } from './plugin-runtime.js'
 import { WorkspacePaneBody, buildWorkspaceTabs } from './right-panel.js'
 import { ShortcutsDialog, matchGlobalShortcut, resolveActiveModal, setLiveShortcutContext } from './shortcuts.js'
 import { SHORTCUT_BY_ID, isCommandAvailable, isShortcutRecording, shortcutsStore, visibleClassicSessions, visibleSidebarTargets } from '../../../ds-bot/src/client/shortcuts-model.js'
-import { RIGHT_PANE_TAB_SLOT, SHELL_OVERLAY_SLOT, SlotErrorBoundary, slots, useSlotEntries } from './slots.js'
+import { RIGHT_PANE_TAB_SLOT, ShellOverlayHost, slots, useSlotEntries } from './slots.js'
+export { ShellOverlayHost }
 import { createTeam } from './team.js'
+
+const CLASSIC_BROWSER_OWNER = 'classic'
 
 // The team's theme, accent and appearance. The window owns fonts, sizes, window material
 // and light or dark here; in DSH those are DSH's settings (docs/plans/2026-11-21-appearance.md).
@@ -88,16 +92,6 @@ class Contain extends Component {
   render() { return this.state.failed ? null : this.props.children }
 }
 
-function ShellOverlayHost({ registry = slots, views }) {
-  const entries = useSlotEntries(registry, SHELL_OVERLAY_SLOT)
-  if (entries.length === 0) return null
-  return h(Fragment, null, entries.map((entry, idx) => h(SlotErrorBoundary, {
-    key: entry.id ?? entry.key ?? idx,
-    slotName: `${SHELL_OVERLAY_SLOT}:${entry.id ?? idx}`,
-    resetKey: entry.id ?? entry.key ?? idx,
-  }, h(entry.component, views))))
-}
-
 function makeTeamUiHook(useUi, isNarrow, drawerOpen) {
   let lastState = null
   let lastPatched = null
@@ -140,10 +134,15 @@ export function App() {
   const shortcutsOpen = hooks.useUi(state => state.shortcuts === true)
   const settingsOpen = hooks.useUi(state => Boolean(state.settings))
   const paletteOpen = hooks.useUi(state => Boolean(state.palette))
+  const panelOpen = hooks.useUi(state => Boolean(state.details))
   const rightPanel = hooks.useUi(state => state.rightPanel)
   const readOnly = hooks.useRoster(value => Boolean(value.readOnly))
   const rosterReady = hooks.useRoster(value => Boolean(value.ready))
   const registryVersion = hooks.useRegistry(value => value)
+  // Activate page-scoped UI plugins lazily as their pages open.
+  usePluginPage('chat', Boolean(shown), pluginRuntime)
+  usePluginPage('settings', settingsOpen, pluginRuntime)
+  usePluginPage('right-panel', panelOpen || Boolean(rightPanel), pluginRuntime)
   // TeamSidebar calls dsBotApp.ready(place) in Bot mode; if the window boots directly into
   // Classic Agent mode (where TeamSidebar is unmounted), signal ready once the team arrives.
   useEffect(() => {
@@ -181,7 +180,7 @@ export function App() {
     : Math.min(sidebarWidth, Math.max(264, viewportWidth - 420))
   useEffect(() => { setDrawerOpen(false) }, [shown, surfaceMode])
   useEffect(() => { if (!isNarrow) setDrawerOpen(false) }, [isNarrow])
-  useEscape(() => setDrawerOpen(false), drawerOpen)
+  useEscape(() => setDrawerOpen(false), drawerOpen, { priority: ESCAPE_PRIORITY.DRAWER })
   const teamSidebarActions = useMemo(() => ({
     ...actions,
     toggleSidebar: undefined,
@@ -235,11 +234,17 @@ export function App() {
   const browserEnabled = hooks.useRoster(value => value.browser !== false)
   const isNarrowRef = useRef(isNarrow)
   isNarrowRef.current = isNarrow
-  const capabilitiesOf = useCallback((rosterSnap, mode = 'bot') => ({
-    hasSurface: typeof actions.setSurface === 'function',
-    hasBrowser: mode !== 'agent' && (typeof actions.toggleBrowser === 'function' || typeof actions.openBrowser === 'function') && rosterSnap?.browser !== false,
-    hasInbox: mode !== 'agent' && typeof actions.openInbox === 'function',
-  }), [actions])
+  const capabilitiesOf = useCallback((rosterSnap, mode = 'bot') => {
+    const classic = mode === 'agent'
+    return {
+      hasSurface: typeof actions.setSurface === 'function',
+      hasBrowser: (typeof actions.toggleBrowser === 'function' || typeof actions.openBrowser === 'function') && rosterSnap?.browser !== false,
+      hasInbox: !classic && typeof actions.openInbox === 'function',
+      hasDetails: !classic,
+      hasMemory: !classic,
+      hasGroupSearch: !classic,
+    }
+  }, [actions])
 
   const runShortcut = useCallback((hit) => {
     if (!hit) return
@@ -307,20 +312,21 @@ export function App() {
       return
     }
     if (hit === 'browser') {
-      if (mode !== 'bot' || rosterSnap.browser === false) return
-      const currentBot = shownId ? rosterSnap.byId?.[shownId] : null
-      const botId = currentBot?.id ?? rosterSnap.mainBotId ?? rosterSnap.bots?.[0]?.id
+      if (rosterSnap.browser === false) return
+      const targetId = mode === 'agent'
+        ? CLASSIC_BROWSER_OWNER
+        : ((shownId ? rosterSnap.byId?.[shownId]?.id : null) ?? rosterSnap.mainBotId ?? rosterSnap.bots?.[0]?.id)
       if (typeof actions.toggleBrowser === 'function') {
-        if (botId) actions.toggleBrowser(botId)
+        if (targetId) actions.toggleBrowser(targetId)
         return
       }
       if (typeof actions.openBrowser !== 'function') return
       const detailsBotId = uiSnap.details ? (rosterSnap.byId?.[uiSnap.details]?.id ?? uiSnap.details) : null
-      if (uiSnap.details && uiSnap.view === 'browser' && (!botId || detailsBotId === botId)) {
+      if (uiSnap.details && uiSnap.view === 'browser' && (mode === 'agent' || !targetId || detailsBotId === targetId)) {
         actions.closePanel()
         return
       }
-      if (botId) actions.openBrowser(botId)
+      if (targetId) actions.openBrowser(targetId)
       return
     }
     if (hit === 'right-panel') {
@@ -516,6 +522,7 @@ export function App() {
   const workspace = useMemo(() => ({
     tabs: workspaceTabs,
     active: rightPanel?.tab ?? null,
+    browserId: inClassicMode && browserEnabled && typeof actions.browserShow === 'function' ? CLASSIC_BROWSER_OWNER : null,
     onSelect: tabId => actions.setRightPanelTab(tabId),
     onCloseTab: tabId => actions.closeWorkspaceTab(tabId),
     render: (_activeTabId, visible) => h(Contain, { onError: closeWorkspace },
@@ -527,7 +534,8 @@ export function App() {
         readOnly,
         visible,
       })),
-  }), [workspaceTabs, rightPanel, actions, closeWorkspace, shown, team, readOnly])
+  }), [workspaceTabs, rightPanel, inClassicMode, browserEnabled, actions, closeWorkspace, shown, team, readOnly])
+  const dialogCaps = capabilitiesOf({ browser: browserEnabled }, surfaceMode)
   // Key the conversation by stable Bot/room id so segment rollovers preserve unsent drafts.
   const chatKey = chat?.id ?? shown
   return h('div', {
@@ -563,14 +571,15 @@ export function App() {
       useFrame: useOwnFrame,
       useSidebarPref: useOwnSidebarPref,
       wide: effectivePref === 'open',
+      hideTitleToggle: isNarrow,
     }),
   // The unified right panel makes room by giving the shell's `_centerCol` column a right margin.
   h('main', { className: 'dsb-main dsb_centerCol', 'data-classic': shownAgent ? '' : undefined },
     h('div', { className: 'dsb-band' }),
-    h('button', {
-      type: 'button', className: 'dsb-mobile-menu', 'aria-label': t('Expand sidebar'), 'aria-expanded': drawerOpen,
+    isNarrow ? h('button', {
+      type: 'button', className: 'dsb-mobile-menu', 'aria-label': t(drawerOpen ? 'Collapse sidebar' : 'Expand sidebar'), 'aria-expanded': drawerOpen,
       onClick: () => setDrawerOpen(open => !open),
-    }, h(SidebarIcon)),
+    }, h(SidebarIcon)) : null,
     shown ? h(Fragment, { key: chatKey },
       h('div', { className: shownAgent ? 'dsb-head dsb-head-classic' : 'dsb-head' },
         shownAgent
@@ -592,9 +601,8 @@ export function App() {
     h(ShortcutsDialog, {
       open: shortcutsOpen,
       enterToSend: sendsOnEnter(prefs),
-      hasSurface: typeof actions.setSurface === 'function',
-      hasBrowser: typeof actions.openBrowser === 'function' && browserEnabled,
-      hasInbox: typeof actions.openInbox === 'function',
+      classic: inClassicMode,
+      ...dialogCaps,
       onCustomize: () => actions.openSettings('shortcuts'),
       onClose: actions.closeShortcuts,
     }),

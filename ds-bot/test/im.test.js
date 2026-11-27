@@ -507,8 +507,13 @@ test('only the last messages sent to a chat are kept for quoting', async (t) => 
     s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: `Report ${at}` }] } })
   }
   await s.flush()
-  await delay(1_200)
-  const kept = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')).sent['dm-u1']
+  const runtimePath = join(s.home, 'im', `${conn.id}.json`)
+  const kept = await waitFor(() => {
+    try {
+      const list = JSON.parse(readFileSync(runtimePath, 'utf8')).sent?.['dm-u1']
+      return list?.some(entry => entry.text === 'Report 20') ? list : undefined
+    } catch { return undefined }
+  }, { label: 'sent store persisted with newest Report 20' })
   assert.equal(kept.length, 20)
   assert.ok(!kept.some(entry => entry.text === 'Report 0'), 'the oldest is dropped')
   assert.ok(kept.some(entry => entry.text === 'Report 20'), 'the newest stays')
@@ -616,8 +621,14 @@ test('the sent store is bounded across chats so the runtime file cannot grow wit
     }
   }
   await s.flush()
-  await delay(600)
-  const runtime = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  const runtimePath = join(s.home, 'im', `${conn.id}.json`)
+  const runtime = await waitFor(() => {
+    try {
+      const parsed = JSON.parse(readFileSync(runtimePath, 'utf8'))
+      const lists = Object.values(parsed.sent ?? {})
+      return lists.some(list => list.some(entry => entry.text.startsWith('Report 11-19'))) ? parsed : undefined
+    } catch { return undefined }
+  }, { label: 'bounded sent store persisted with newest message' })
   const size = JSON.stringify(runtime.sent).length
   assert.ok(size <= 200_000, `sent store stays bounded (${size} bytes)`)
   const lists = Object.values(runtime.sent)
@@ -686,13 +697,20 @@ test('a settled card leaves the runtime file once its source is gone; an open on
   s.imTurn('a')
   s.rt.state.questions.a = { id: 'q1', question: 'Pick', options: [{ label: 'x' }, { label: 'y' }] }
   await s.rt.save()
-  await s.flush()
+  await s.rt.imWhenIdle()
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: 'q:q1:0', messageId: 1 })
+  await s.rt.imWhenIdle()
+  assert.ok(s.fake.edited.length >= 1, 'settled card is edited before cleanup')
   s.rt.state.questions.a = { id: 'q2', question: 'Still open', options: [{ label: 'x' }] }
   await s.rt.save()
-  await s.flush()
-  await delay(600)
-  const runtime = JSON.parse((await import('node:fs')).readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  await s.rt.imWhenIdle()
+  const runtimePath = join(s.home, 'im', `${conn.id}.json`)
+  const runtime = await waitFor(() => {
+    try {
+      const parsed = JSON.parse(readFileSync(runtimePath, 'utf8'))
+      return parsed.cards?.['q:q1'] === undefined && parsed.cards?.['q:q2'] !== undefined ? parsed : undefined
+    } catch { return undefined }
+  }, { label: 'runtime file persisted with q1 dropped and q2 kept' })
   assert.ok(runtime.cards['q:q1'] === undefined, 'settled and edited card is dropped')
   assert.ok(runtime.cards['q:q2'] !== undefined, 'open card stays')
 })
@@ -3236,19 +3254,16 @@ test('a send that keeps answering 5xx keeps an exhausted send for manual retry w
   const fail = () => Object.assign(new Error('Feishu answered 502'), { status: 502, retryAfter: 0.005 })
   s.fake.fails.push(fail(), fail(), fail(), fail())
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'first' }] } })
-  await delay(120)
+  await waitFor(() => s.rt.imStatusView()[conn.id].state === 'error', { label: 'the first message pauses after four attempts' })
   assert.equal(s.fake.sent.filter(job => job.text === 'first').length, 4, 'the first message pauses after four attempts')
   const status = s.rt.imStatusView()[conn.id]
   assert.equal(status.state, 'error')
   assert.match(status.error, /Send failed after 4 attempts: Feishu answered 502/)
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'second' }] } })
-  await delay(40)
-  assert.equal(s.fake.sent.filter(job => job.text === 'second').length, 1, 'the next message is not held behind the failed one')
+  await waitFor(() => s.fake.sent.filter(job => job.text === 'second').length === 1, { label: 'the next message is not held behind the failed one' })
   assert.equal(s.rt.imStatusView()[conn.id].state, 'error', 'a later success cannot hide an undelivered message')
   await s.rt.imEndpoint('im-retry', { id: conn.id })
-  await delay(40)
-  assert.equal(s.fake.sent.filter(job => job.text === 'first').length, 5)
-  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+  await waitFor(() => s.fake.sent.filter(job => job.text === 'first').length === 5 && s.rt.imStatusView()[conn.id].state === 'ready', { label: 'manual retry delivers the retained first message' })
 })
 
 test('a retrying send shows a retrying status before the budget runs out', async (t) => {
@@ -3261,13 +3276,18 @@ test('a retrying send shows a retrying status before the budget runs out', async
   await dm(s, 'u1', 'hi')
   s.imTurn('a')
   s.fake.sent.length = 0
-  s.fake.fails.push(Object.assign(new Error('Feishu answered 502'), { status: 502, retryAfter: 0.2 }))
+  s.fake.fails.push(Object.assign(new Error('Feishu answered 502'), { status: 502, retryAfter: 0.35 }))
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'slow' }] } })
-  await delay(60)
-  const status = s.rt.imStatusView()[conn.id]
+  const status = await waitFor(() => {
+    const cur = s.rt.imStatusView()[conn.id]
+    return cur?.state === 'retrying' ? cur : undefined
+  }, { label: 'retrying status appears' })
   assert.equal(status.state, 'retrying')
   assert.match(status.error, /502/)
-  await delay(220)
+  await waitFor(
+    () => s.fake.sent.filter(job => job.text === 'slow').length === 2 && s.rt.imStatusView()[conn.id]?.state === 'ready',
+    { label: 'retry succeeds and status returns to ready' },
+  )
   assert.equal(s.fake.sent.filter(job => job.text === 'slow').length, 2)
   assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
 })
@@ -3330,7 +3350,7 @@ test('an approval card whose send exhausts retries is retained and re-delivered 
     { agent: { id: 'a' }, toolName: 'bash', reason: 'run it', signal: original.signal },
     () => new Promise(() => {}),
   )
-  await delay(140)
+  await waitFor(() => s.rt.imStatusView()[conn.id].state === 'error', { label: 'the approval card pauses after four attempts' })
   assert.equal(s.fake.sent.filter(job => /bash/.test(job.text)).length, 4)
 
   // Try again resumes the original card and its pending delivery callback.
@@ -4170,7 +4190,7 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
   })
   s.emitEvent('a-new', 'assistant/message', { message: { content: [{ type: 'text', text: 'quick foreground answer' }] } })
   s.emitEvent('a-new', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await s.flush()
+  await waitFor(() => s.fake.sent.some(entry => entry.text === 'quick foreground answer'), { label: 'foreground answer must reach IM' })
 
   assert.deepEqual(
     s.fake.sent.map(entry => [entry.chat.key, entry.text]),
@@ -4187,7 +4207,7 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
   })
   s.emitEvent('a-new', 'assistant/message', { message: { content: [{ type: 'text', text: 'Your background job finished!' }] } })
   s.emitEvent('a-new', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await s.flush()
+  await waitFor(() => s.fake.sent.some(entry => entry.text === 'Your background job finished!'), { label: 'task-report reply must reach IM' })
 
   assert.deepEqual(
     s.fake.sent.map(entry => [entry.chat.key, entry.text]),
@@ -4270,8 +4290,7 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   s.fake.sent.length = 0
   s.rt.state.questions[s.rt.chatOf('a')] = { id: 'q-after-1', question: 'Pick one', options: [{ label: 'Alpha' }, { label: 'Beta' }] }
   await s.rt.save()
-  await s.flush()
-  assert.ok(s.fake.sent.some(entry => entry.text?.includes('Pick one')), 'question card must actually be registered and sent to IM')
+  await waitFor(() => s.fake.sent.some(entry => entry.text?.includes('Pick one')), { label: 'question card must actually be registered and sent to IM' })
   // Simulate crash/restart before `conn.seenInbound` was persisted: strip seenInbound AND record
   // `numReqId` in DSH's persisted session events on a fresh runtime sharing the same home!
   one.seenInbound = one.seenInbound.filter(k => k !== `${one.id}:dm-u1:num-msg-1`)
@@ -4372,7 +4391,7 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   sRestart.imTurn('a-moved-fg')
   sRestart.rt.state.questions['a-moved-fg'] = { id: 'q-corrupt-peer', question: 'Confirm?', options: [{ label: 'Yes' }, { label: 'No' }] }
   await sRestart.rt.save()
-  await sRestart.flush()
+  await waitFor(() => sRestart.fake.sent.some(entry => entry.text?.includes('Confirm?')), { label: 'question card must be sent to IM before answering' })
   await dm(sRestart, 'u1', '1', { messageId: 'fresh-card-answer-1' })
   assert.equal(sRestart.rt.state.questions['a-moved-fg'], undefined, 'unrelated corrupt cold archive on Bot B must NOT block numbered card answer on Bot A')
   // Open a real view card on Bot A via show_view and answer it with reserved `!card V<n>` reply.
@@ -4380,10 +4399,9 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
     { title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name', value: 'Default' }] } },
     { agent: { id: 'a-moved-fg' }, concludeTurn() {} },
   )
-  await sRestart.flush()
-  const viewMsg = [...sRestart.fake.sent].reverse().find(entry => /!card\s+(V\d+)/i.test(entry.text ?? ''))
-  const viewCode = /!card\s+(V\d+)/i.exec(viewMsg?.text ?? '')?.[1]
-  assert.ok(viewCode, 'view card with !card code must be sent to IM')
+  const viewMsg = await waitFor(() => [...sRestart.fake.sent].reverse().find(entry => /!card\s+(V\d+)/i.test(entry.text ?? '')), { label: 'view card with !card code must be sent to IM' })
+  const viewCode = /!card\s+(V\d+)/i.exec(viewMsg.text ?? '')?.[1]
+  assert.ok(viewCode)
   await dm(sRestart, 'u1', `!card ${viewCode}\n1: Alice`, { messageId: 'fresh-view-card-1' })
   assert.equal(sRestart.rt.state.views['a-moved-fg'], undefined, 'unrelated corrupt cold archive on Bot B must NOT block !card view reply on Bot A')
 
@@ -4394,7 +4412,7 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   assert.ok(oneR.chats['dm-u1'].pastTargets?.includes('b'), 'rebinding must record former target in chat.pastTargets')
   sRestart.rt.state.questions['a-moved-fg'] = { id: 'q-rebound-corrupt', question: 'Confirm rebound?', options: [{ label: 'Yes' }, { label: 'No' }] }
   await sRestart.rt.save()
-  await sRestart.flush()
+  await waitFor(() => sRestart.fake.sent.some(entry => entry.text?.includes('Confirm rebound?')), { label: 'rebound question card must be sent to IM' })
   const promptsBeforeCorruptRebound = sRestart.prompts.length
   await dm(sRestart, 'u1', '1', { messageId: 'maybe-rebound-redelivery-1' })
   assert.equal(sRestart.rt.state.questions['a-moved-fg']?.id, 'q-rebound-corrupt', 'question card must remain unanswered when former binding history is corrupt')
@@ -4410,7 +4428,7 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   assert.ok(oneR.pastBotIds?.includes('b'), 'im-update changing conn.botId must record former default Bot in conn.pastBotIds')
   sRestart.rt.state.questions['a-moved-fg'] = { id: 'q-implicit-rebound-corrupt', question: 'Confirm implicit?', options: [{ label: 'Yes' }, { label: 'No' }] }
   await sRestart.rt.save()
-  await sRestart.flush()
+  await waitFor(() => sRestart.fake.sent.some(entry => entry.text?.includes('Confirm implicit?')), { label: 'implicit rebound question card must be sent to IM' })
   await dm(sRestart, 'u1', '1', { messageId: 'maybe-implicit-rebound-1' })
   assert.equal(sRestart.rt.state.questions['a-moved-fg']?.id, 'q-implicit-rebound-corrupt', 'implicit direct-chat rebind via conn.botId must fail closed when former default Bot is corrupt')
   delete sRestart.rt.state.questions['a-moved-fg']

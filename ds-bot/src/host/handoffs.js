@@ -96,6 +96,14 @@ export function install(rt) {
   const keptName = file => (typeof file === 'string' && /^[A-Za-z0-9_-]+\.txt$/.test(file) ? file : undefined)
   const writes = () => rt.readOnly?.() === undefined
   let savedWrites = 0
+  let startupSweepDone = typeof ctx?.effect !== 'function'
+  // Files written by this process before the one-shot startup orphan sweep finishes
+  // belong to live dropResults() bookkeeping, not to a prior crashed host.
+  const createdBeforeStartupSweep = new Set()
+  const finishStartupSweep = () => {
+    startupSweepDone = true
+    createdBeforeStartupSweep.clear()
+  }
   const tracksSaved = typeof rt.onSaved === 'function'
   if (tracksSaved) rt.onSaved(() => { savedWrites += 1 })
 
@@ -110,6 +118,7 @@ export function install(rt) {
       mkdirSync(resultsDir, { recursive: true })
       writeFileSync(temp, text, 'utf8')
       renameSync(temp, path)
+      if (!startupSweepDone) createdBeforeStartupSweep.add(name)
       return name
     } catch (error) {
       rt.warn('ds-bot: result of work %s not kept whole: %s', id, error)
@@ -160,18 +169,22 @@ export function install(rt) {
 
   // Startup async sweep for orphan `handoff-results/*.txt` files left behind by a crash.
   async function pruneOrphanResultFiles() {
-    if (!writes()) return
-    let entries
     try {
-      entries = await readdir(resultsDir)
-    } catch {
-      return
-    }
-    const referenced = referencedInWorks(works())
-    for (const file of entries) {
-      const name = keptName(file)
-      if (name === undefined || referenced.has(name)) continue
-      await rm(resultPath(name), { force: true }).catch(() => {})
+      if (!writes()) return
+      let entries
+      try {
+        entries = await readdir(resultsDir)
+      } catch {
+        return
+      }
+      const referenced = referencedInWorks(works())
+      for (const file of entries) {
+        const name = keptName(file)
+        if (name === undefined || referenced.has(name) || createdBeforeStartupSweep.has(name)) continue
+        await rm(resultPath(name), { force: true }).catch(() => {})
+      }
+    } finally {
+      finishStartupSweep()
     }
   }
 
@@ -946,9 +959,11 @@ export function install(rt) {
           return pruneOrphanResultFiles()
         })
         .catch(error => rt.warn('ds-bot: lost waits not settled: %s', error))
+        .finally(finishStartupSweep)
     }, 0)
     return () => {
       clearTimeout(timer)
+      finishStartupSweep()
       offAdopted?.()
       whole.clear()
     }

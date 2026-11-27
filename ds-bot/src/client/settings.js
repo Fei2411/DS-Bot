@@ -673,7 +673,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const partPage = (key) => {
     switch (key) {
       case 'general': return h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken })
-      case 'shortcuts': return h(ShortcutsPage, { roster, actions, Section: SetSection, Row: SetRow })
+      case 'shortcuts': return h(ShortcutsPage, { roster, actions, surfaceMode: dsh?.surfaceMode ?? 'bot', Section: SetSection, Row: SetRow })
       case 'models': return h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null })
       case 'local-agents': return h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow })
       // A preset opens the page afresh each time search offers it.

@@ -12,6 +12,7 @@ const fixture = JSON.parse(readFileSync(
 
 const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
 const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
+const deepViewReact = fileURLToPath(import.meta.resolve('deep-view/react'))
 const stubs = {
   'cells.js': `
     export const Bubbles = ({ texts, streaming, msgKey }) => ({ type: 'bubbles', props: { texts, streaming, msgKey, children: texts } })
@@ -84,6 +85,7 @@ const { outputFiles } = await build({
     setup(bundler) {
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-llm\/assistant-stream$/ }, () => ({ path: assistantStream }))
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-util-values$/ }, () => ({ path: utilValues }))
+      bundler.onResolve({ filter: /^deep-view\/react$/ }, () => ({ path: deepViewReact }))
       bundler.onResolve({ filter: /(src\/client\/(cells|widget-cell|model-menu|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
         const name = args.path.split('/').pop()
         return { path: name === 'dsh-primitives.js' ? 'primitives.js' : name, namespace: 'session-chat-stub' }
@@ -227,7 +229,7 @@ const {
   openSessionFollow,
   createSlotRegistry, TOOL_VIEW_SLOT,
   buildSessionRows, makeToolArgs, argSummary, clipLongText, ToolCallCard,
-  SessionTranscript, Chat, createTeam,
+  SessionTranscript, useSessionFollow, Chat, createTeam,
 } = module.exports
 
 const resolveType = type => (type && typeof type === 'object' && type.$$typeof === MEMO_TYPE ? type.type : type)
@@ -552,8 +554,9 @@ test('openSessionFollow handles split CRLF frames, reader cancel on end, backoff
   recordedTimers.length = 0
   const events = []
   let reopenedOnTerminal = false
+  let cursor = -1
   let handle
-  handle = openSessionFollow({ sessionId: 'b1', max: 20 }, (event, data) => {
+  handle = openSessionFollow({ sessionId: 'b1', max: 20, after: () => cursor }, (event, data) => {
     events.push([event, data])
     // Verify reopen() called synchronously inside a terminal HTTP error callback is NOT swallowed.
     if (event === 'error' && data?.code === 'bot/not-found' && !reopenedOnTerminal) {
@@ -574,6 +577,7 @@ test('openSessionFollow handles split CRLF frames, reader cancel on end, backoff
     await tick()
     assert.equal(events[0][0], 'frame')
     assert.equal(events[0][1].type, 'snapshot')
+    cursor = 7
 
     // Non-terminal SSE error followed by stream close must NOT reset backoff to 500ms on next drop.
     const firstStream = fetchCtrl.latest()
@@ -587,6 +591,7 @@ test('openSessionFollow handles split CRLF frames, reader cancel on end, backoff
     await tick()
     await tick()
     assert.equal(fetchCtrl.calls.length, 2)
+    assert.match(fetchCtrl.calls[1].url, /after=7/, 'a reconnect carries the cursor held when it starts')
 
     // Attempt 2: HTTP 200 SSE returns non-terminal `bot/internal` error without any `frame`, then closes -> backoff 500ms.
     recordedTimers.length = 0
@@ -619,6 +624,71 @@ test('openSessionFollow handles split CRLF frames, reader cancel on end, backoff
     assert.equal(terminalCount, 2, 'reopen() inside terminal error callback must restart once, then stay stopped')
   } finally {
     handle.close()
+    fetchCtrl.reset()
+  }
+})
+
+
+test('useSessionFollow resyncs once without the stale cursor and replaces rows with fresh history', async () => {
+  fetchCtrl.reset()
+  let view
+  const Probe = () => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true })
+    return null
+  }
+  const inst = mount(Probe, {})
+  try {
+    inst.render()
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1)
+    const staleEvent = { type: 'user/message', seq: 10, time: 100, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'stale row' }] } }
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 10, hasMore: true,
+      records: [{ type: 'event', event: staleEvent }], assistantStream: { revision: 0 },
+    })
+    await tick()
+    await tick()
+    inst.render()
+    assert.equal(view.log.cursor, 10)
+    assert.equal(view.historyReloaded, false)
+
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'history no longer reaches cursor' })
+    await tick()
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 2, 'stale triggers exactly one intentional resync')
+    assert.equal(fetchCtrl.calls[1].url.includes('after='), false, 'resync never reuses the stale cursor')
+    assert.equal(view.terminalError, null)
+
+    // If even the no-cursor resync is refused as stale, it becomes terminal instead of looping.
+    const before = fetchCtrl.calls.length
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'still stale' })
+    await tick()
+    await tick()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(fetchCtrl.calls.length, before, 'a repeated stale during resync does not loop')
+    inst.render()
+    assert.equal(view.terminalError?.code, 'bot/stale')
+
+    // A later manual retry still resyncs without a cursor; the fresh opening replaces rows.
+    view.retry()
+    await tick()
+    await tick()
+    assert.equal(fetchCtrl.calls.length, before + 1)
+    assert.equal(fetchCtrl.calls.at(-1).url.includes('after='), false)
+    const freshEvents = [3, 4, 5].map(seq => ({ type: 'assistant/message', seq, time: seq, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: `fresh ${seq}` }] } } }))
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 5, hasMore: true,
+      records: freshEvents.map(event => ({ type: 'event', event })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    await tick()
+    inst.render()
+    assert.equal(view.log.cursor, 5)
+    assert.deepEqual(plain(view.log.events.map(event => event.seq)), [3, 4, 5])
+    assert.equal(view.historyReloaded, true)
+    assert.equal(view.terminalError, null)
+  } finally {
+    inst.unmount()
     fetchCtrl.reset()
   }
 })
@@ -932,20 +1002,24 @@ test('SessionTranscript routes DS Bot tools (including inside PTC run_code) via 
     const botCells = all(tree, n => n.type === 'bot-tool-cell' && n.props?.toolName === 'ask_user')
     assert.equal(botCells.length, 1)
 
-    // Lightbox opens via createPortal(..., document.body), stops Escape propagation, and closes cleanly.
+    // Lightbox opens via createPortal(..., document.body), registers on shared Escape stack, and closes cleanly.
     portalTargets.length = 0
-    let escapeHandler = null
-    sandbox.window.addEventListener = (ev, fn, opts) => { if (ev === 'keydown' && (opts === true || opts?.capture)) escapeHandler = fn }
-    sandbox.window.removeEventListener = (ev, fn) => { if (ev === 'keydown' && fn === escapeHandler) escapeHandler = null }
+    const keydownHandlers = new Set()
+    sandbox.window.addEventListener = (ev, fn) => { if (ev === 'keydown') keydownHandlers.add(fn) }
+    sandbox.window.removeEventListener = (ev, fn) => { if (ev === 'keydown') keydownHandlers.delete(fn) }
     const imgBtn = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-uimg-btn')[0]
     imgBtn.props.onClick()
     await tick()
     const openTree = inst.render()
     assert.equal(all(openTree, n => n.props?.className === 'dsb-lightbox').length, 1)
     assert.equal(portalTargets.includes(sandbox.document.body), true, 'Lightbox must portal to document.body')
-    assert.equal(typeof escapeHandler, 'function', 'Lightbox listens for Escape in capture phase')
+    assert.equal(keydownHandlers.size, 1, 'Lightbox registers on shared useEscape stack')
+    let prevented = false
     let stopped = false
-    escapeHandler({ key: 'Escape', stopPropagation() { stopped = true } })
+    for (const fn of [...keydownHandlers]) {
+      fn({ key: 'Escape', defaultPrevented: false, preventDefault() { prevented = true }, stopPropagation() { stopped = true } })
+    }
+    assert.equal(prevented, true)
     assert.equal(stopped, true)
     assert.equal(all(inst.render(), n => n.props?.className === 'dsb-lightbox').length, 0)
   } finally {

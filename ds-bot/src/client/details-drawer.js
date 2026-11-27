@@ -183,7 +183,7 @@ function MemberRow({ member, entry, room, roster, actions }) {
             room.admin === member.id ? h('span', { className: 'bt-tag' }, t('Admin')) : null),
           h(MemberState, { entry, bot: member, room, roster }))),
       h(StopMemberWork, { entry, bot: member, room, actions })),
-    h(MemberApprovals, { entry, bot: member, actions }))
+    h(MemberApprovals, { entry, bot: member, actions, readOnly: Boolean(roster?.readOnly) }))
 }
 
 // A group's overview: what members read, who is in it, who answers, and what it

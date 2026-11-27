@@ -203,6 +203,8 @@ export function parseAnsiSpans(raw) {
 
 const trimTail = text => (text.length > MAX_CLIENT_BUFFER ? text.slice(text.length - MAX_CLIENT_BUFFER) : text)
 
+const trimmedOutputMarker = () => `\r\n\x1b[2m[${t('Earlier output was trimmed')}]\x1b[0m\r\n`
+
 const isMacPlatform = () => (typeof navigator !== 'undefined'
   && /mac|iphone|ipad|ipod/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? navigator.userAgent ?? ''))
 
@@ -598,6 +600,11 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   const pendingExitRef = useRef(new Map())
   const knownIdsRef = useRef(new Set())
   const closedIdsRef = useRef(new Set())
+  const positionsRef = useRef(new Map())
+  const syncRunningRef = useRef(false)
+  const syncAgainRef = useRef(false)
+  const syncPromiseRef = useRef(null)
+  const syncRef = useRef(null)
   const { terms, activeId } = state
 
   useEffect(() => {
@@ -654,6 +661,131 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
     return () => box.removeEventListener('wheel', onWheel)
   }, [])
 
+  const writeOutput = useCallback((id, chunk) => {
+    if (!chunk || closedIdsRef.current.has(id)) return
+    const writer = writersRef.current.get(id)
+    if (writer) writer.write(chunk)
+    else {
+      const map = pendingOutputRef.current
+      if (!map.has(id) && map.size >= MAX_PENDING_EVENT_IDS) {
+        const oldest = map.keys().next().value
+        if (oldest !== undefined) map.delete(oldest)
+      }
+      map.set(id, trimTail((map.get(id) ?? '') + chunk))
+    }
+  }, [])
+
+  const requestSync = useCallback(() => {
+    if (syncRunningRef.current) syncAgainRef.current = true
+    else void syncRef.current?.()
+  }, [])
+
+  // Write only the parts after the position this window holds. A part that does not
+  // follow on means the feed dropped something; the catch-up read owns the repair.
+  const noteParts = useCallback((id, parts, truncated = false) => {
+    if (!Array.isArray(parts)) return
+    let marker = truncated
+    for (const part of parts) {
+      if (!Number.isSafeInteger(part?.seq) || typeof part.text !== 'string') continue
+      const held = positionsRef.current.get(id) ?? 0
+      if (part.seq <= held) continue
+      if (part.seq !== held + 1) {
+        if (truncated) marker = true
+        else {
+          requestSync()
+          break
+        }
+      }
+      if (marker) {
+        writeOutput(id, trimmedOutputMarker())
+        marker = false
+      }
+      writeOutput(id, part.text)
+      positionsRef.current.set(id, part.seq)
+    }
+  }, [requestSync, writeOutput])
+
+  const applySyncList = useCallback((list) => {
+    const items = Array.isArray(list) ? list.filter(item => item && item.id && !closedIdsRef.current.has(item.id)) : []
+    const exitStates = new Map()
+    for (const item of items) {
+      if (Array.isArray(item.parts)) noteParts(item.id, item.parts, item.truncated === true)
+      else if (typeof item.snapshot === 'string' && (positionsRef.current.get(item.id) ?? 0) === 0) {
+        if ((item.start ?? 1) > 1) writeOutput(item.id, trimmedOutputMarker())
+        writeOutput(item.id, trimTail(item.snapshot))
+      }
+      if (Number.isSafeInteger(item.end) && (positionsRef.current.get(item.id) ?? 0) < item.end && !Array.isArray(item.parts)) {
+        positionsRef.current.set(item.id, item.end)
+      }
+      const pendingExit = pendingExitRef.current.get(item.id)
+      pendingExitRef.current.delete(item.id)
+      knownIdsRef.current.add(item.id)
+      exitStates.set(item.id, {
+        exited: item.exited === true || pendingExit?.exited === true,
+        exitCode: item.exitCode ?? pendingExit?.exitCode ?? null,
+      })
+    }
+    setState((current) => {
+      const liveCurrent = current.terms.filter(item => !closedIdsRef.current.has(item.id))
+      const byId = new Map(liveCurrent.map(item => [item.id, item]))
+      const fresh = []
+      for (const item of items) {
+        const exitState = exitStates.get(item.id) ?? { exited: false, exitCode: null }
+        const next = {
+          id: item.id,
+          cwd: item.cwd,
+          title: item.title,
+          pty: item.pty !== false,
+          exited: exitState.exited,
+          exitCode: exitState.exitCode,
+          initialSnapshot: '',
+        }
+        if (byId.has(item.id)) byId.set(item.id, { ...byId.get(item.id), ...next, initialSnapshot: byId.get(item.id).initialSnapshot ?? '' })
+        else fresh.push(next)
+      }
+      const kept = liveCurrent.map(item => byId.get(item.id) ?? item)
+      const nextTerms = [...kept, ...fresh]
+      const keepActive = current.activeId && !closedIdsRef.current.has(current.activeId) && nextTerms.some(item => item.id === current.activeId)
+      return { terms: nextTerms, activeId: keepActive ? current.activeId : (nextTerms[0]?.id ?? null) }
+    })
+    return items.length
+  }, [noteParts, writeOutput])
+
+  const syncTerminals = useCallback(async () => {
+    if (readOnly) return null
+    if (syncPromiseRef.current) {
+      syncAgainRef.current = true
+      return syncPromiseRef.current
+    }
+    const run = (async () => {
+      syncRunningRef.current = true
+      let count = 0
+      let ok = false
+      try {
+        do {
+          syncAgainRef.current = false
+          const positions = Object.fromEntries(positionsRef.current)
+          const list = await call('terminal-list', { positions })
+          if (!mountedRef.current) return count
+          count = Math.max(count, applySyncList(list))
+          ok = true
+        } while (syncAgainRef.current)
+      } catch {
+        // The next feed hello tries again; terminal output itself never replaces what is held.
+      } finally {
+        syncRunningRef.current = false
+      }
+      return ok ? count : null
+    })()
+    syncPromiseRef.current = run
+    try {
+      return await run
+    } finally {
+      if (syncPromiseRef.current === run) syncPromiseRef.current = null
+    }
+  }, [readOnly, applySyncList])
+  syncRef.current = syncTerminals
+
   const openNew = useCallback(async () => {
     if (readOnly) return
     openedOnceRef.current = true
@@ -668,6 +800,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
       const pendingExit = pendingExitRef.current.get(created.id)
       pendingExitRef.current.delete(created.id)
       knownIdsRef.current.add(created.id)
+      if ((pendingExit?.end ?? 0) > (positionsRef.current.get(created.id) ?? 0)) requestSync()
       setState((current) => {
         if (current.terms.some(item => item.id === created.id)) {
           return { ...current, activeId: created.id }
@@ -693,52 +826,16 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   }, [sessionId, readOnly])
   openNewRef.current = openNew
 
-  // Load existing live terminals once on mount, skipping any synchronously closed ids and
-  // merging cleanly so a concurrent `terminal-open` is never overwritten.
+  // Load existing live terminals once on mount. The same positional sync repairs every
+  // later feed reconnect; output already collected for not-yet-mounted xterms is stashed.
   useEffect(() => {
     if (readOnly) return undefined
     let alive = true
-    void call('terminal-list', {})
-      .then((list) => {
-        if (!alive || !Array.isArray(list)) return
-        const mapped = list
-          .filter(item => item && item.id && !closedIdsRef.current.has(item.id))
-          .map((item) => {
-            const pendingExit = pendingExitRef.current.get(item.id)
-            pendingExitRef.current.delete(item.id)
-            knownIdsRef.current.add(item.id)
-            return {
-              id: item.id,
-              cwd: item.cwd,
-              title: item.title,
-              pty: item.pty !== false,
-              exited: item.exited === true || pendingExit?.exited === true,
-              exitCode: item.exitCode ?? pendingExit?.exitCode ?? null,
-              initialSnapshot: trimTail(String(item.snapshot ?? '')),
-            }
-          })
-        setState((current) => {
-          const liveCurrent = current.terms.filter(item => !closedIdsRef.current.has(item.id))
-          const existing = new Set(liveCurrent.map(item => item.id))
-          const missing = mapped.filter(item => !existing.has(item.id))
-          const nextTerms = liveCurrent.length === 0
-            ? mapped
-            : (missing.length === 0 ? liveCurrent : [...missing, ...liveCurrent])
-          const keepActive = current.activeId
-            && !closedIdsRef.current.has(current.activeId)
-            && nextTerms.some(item => item.id === current.activeId)
-          return {
-            terms: nextTerms,
-            activeId: keepActive ? current.activeId : (nextTerms[0]?.id ?? null),
-          }
-        })
-        if (mapped.length > 0) {
-          openedOnceRef.current = true
-        } else if (!openedOnceRef.current && !autoOpenNonceRef.current) {
-          void openNewRef.current?.()
-        }
-      })
-      .catch(() => {})
+    void syncRef.current?.().then((count) => {
+      if (!alive || count === null) return
+      if (count > 0) openedOnceRef.current = true
+      else if (!openedOnceRef.current && !autoOpenNonceRef.current) void openNewRef.current?.()
+    })
     return () => { alive = false }
   }, [readOnly])
 
@@ -753,33 +850,29 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   // Subscribe to live terminal output and exit events on the shared local SSE feed.
   useEffect(() => {
     if (!feed) return undefined
-    const stashOutput = (id, chunk) => {
-      const map = pendingOutputRef.current
-      if (!map.has(id) && map.size >= MAX_PENDING_EVENT_IDS) {
-        const oldest = map.keys().next().value
-        if (oldest !== undefined) map.delete(oldest)
-      }
-      map.set(id, trimTail((map.get(id) ?? '') + chunk))
-    }
-    const stashExit = (id, code) => {
+    const stashExit = (id, code, end) => {
       const map = pendingExitRef.current
       if (!map.has(id) && map.size >= MAX_PENDING_EVENT_IDS) {
         const oldest = map.keys().next().value
         if (oldest !== undefined) map.delete(oldest)
       }
-      map.set(id, { exited: true, exitCode: code ?? null })
+      map.set(id, { exited: true, exitCode: code ?? null, end: Number.isSafeInteger(end) ? end : 0 })
     }
     return feed.on((event, data) => {
+      if (event === 'hello') {
+        void syncRef.current?.()
+        return
+      }
       if (!data?.id || closedIdsRef.current.has(data.id)) return
       if (event === 'terminal' && typeof data.chunk === 'string') {
-        const writer = writersRef.current.get(data.id)
-        if (writer) writer.write(data.chunk)
-        else stashOutput(data.id, data.chunk)
+        if (Array.isArray(data.parts)) noteParts(data.id, data.parts)
+        else writeOutput(data.id, data.chunk)
       } else if (event === 'terminal-exit') {
         if (!knownIdsRef.current.has(data.id)) {
-          stashExit(data.id, data.code)
+          stashExit(data.id, data.code, data.end)
           return
         }
+        if (Number.isSafeInteger(data.end) && data.end > (positionsRef.current.get(data.id) ?? 0)) requestSync()
         setState(current => ({
           ...current,
           terms: current.terms.map(item => (item.id === data.id
@@ -788,7 +881,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
         }))
       }
     })
-  }, [feed])
+  }, [feed, noteParts, requestSync, writeOutput])
 
   const sendInput = useCallback(async (id, data) => {
     if (readOnly || closedIdsRef.current.has(id)) return
@@ -815,6 +908,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
     knownIdsRef.current.delete(id)
     pendingOutputRef.current.delete(id)
     pendingExitRef.current.delete(id)
+    positionsRef.current.delete(id)
     const writer = writersRef.current.get(id)
     writersRef.current.delete(id)
     writer?.dispose?.()

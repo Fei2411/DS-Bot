@@ -712,12 +712,16 @@ test('a preview puts transparent pixels over white', () => {
   assert.ok(preview.data[0] > 240 && preview.data[1] > 240 && preview.data[2] > 240)
 })
 
-test('state rows carry lastAt and preview from the Bot own chat', async () => {
+test('state rows carry lastAt, lastBotAt, latestTurn and preview from the Bot own chat', async () => {
   const { call, emit, history, stop } = start()
   const { chief } = await team(call)
   const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
-  history[sessionId] = [user(1, 'Ship the list first', 1000)]
+  history[sessionId] = [
+    { type: 'turn/start', seq: 1, time: 990, data: { turn: 1 } },
+    user(2, 'Ship the list first', 1000),
+  ]
   await emit(sessionId, history[sessionId][0])
+  await emit(sessionId, history[sessionId][1])
   let row
   for (let at = 0; at < 200 && row === undefined; at += 1) {
     const bot = (await call('state', {})).value.bots.find(candidate => candidate.id === chief)
@@ -726,7 +730,93 @@ test('state rows carry lastAt and preview from the Bot own chat', async () => {
   }
   assert(row !== undefined)
   assert.equal(row.lastAt, 1000)
+  assert.equal(row.lastBotAt, undefined)
+  assert.equal(row.latestTurn, 1)
   assert.equal(row.preview, 'Ship the list first')
+
+  // A real Bot reply advances both lastAt and lastBotAt — AND rides on unchanged-revision live polls.
+  const revBeforeReply = (await call('state', {})).value
+  const botReply = { type: 'assistant/message', seq: 3, time: 1100, data: { turn: 1, message: { content: [{ type: 'text', text: 'Done.' }] } } }
+  history[sessionId].push(botReply)
+  await emit(sessionId, botReply)
+  const sameRevAfterReply = (await call('state', { since: revBeforeReply.revision, live: revBeforeReply.liveKey })).value
+  assert.equal(sameRevAfterReply.unchanged, true)
+  assert.notEqual(sameRevAfterReply.liveKey, revBeforeReply.liveKey)
+  assert.equal(sameRevAfterReply.botTails?.[chief]?.lastAt, 1100)
+  assert.equal(sameRevAfterReply.botTails?.[chief]?.lastBotAt, 1100)
+  assert.equal(sameRevAfterReply.botTails?.[chief]?.preview, 'Done.')
+  const afterReply = (await call('state', {})).value.bots.find(candidate => candidate.id === chief)
+  assert.equal(afterReply.lastAt, 1100)
+  assert.equal(afterReply.lastBotAt, 1100)
+
+  // A subsequent user message + stopped retry advances lastAt and latestTurn without advancing lastBotAt,
+  // and reaches the phone on an unchanged-revision poll via botTails.
+  const retryStart = { type: 'turn/start', seq: 4, time: 1200, data: { turn: 2 } }
+  const nextUser = user(5, 'Try again', 1205)
+  const retryStop = { type: 'turn/end', seq: 6, time: 1210, data: { turn: 2, reason: { kind: 'stopped' } } }
+  history[sessionId].push(retryStart, nextUser, retryStop)
+  await emit(sessionId, retryStart)
+  await emit(sessionId, nextUser)
+  await emit(sessionId, retryStop)
+  const sameRevAfterStop = (await call('state', { since: sameRevAfterReply.revision, live: sameRevAfterReply.liveKey })).value
+  assert.equal(sameRevAfterStop.unchanged, true)
+  assert.equal(sameRevAfterStop.botTails?.[chief]?.lastAt, 1205)
+  assert.equal(sameRevAfterStop.botTails?.[chief]?.lastBotAt, 1100)
+  assert.equal(sameRevAfterStop.botTails?.[chief]?.latestTurn, 2)
+  const afterStop = (await call('state', {})).value.bots.find(candidate => candidate.id === chief)
+  assert.equal(afterStop.lastAt, 1205)
+  assert.equal(afterStop.lastBotAt, 1100)
+  assert.equal(afterStop.latestTurn, 2)
+  await stop()
+})
+
+test('cold chatTail recovers latestTurn across a 60-event page split after restart', async () => {
+  const { call, history, rt, stop } = start()
+  const created = (await call('create-bot', { name: 'RetryBot' })).value
+  const sessionId = rt.chatOf(created.id)
+  // Simulate a stopped retry whose turn/start sits on page 2 while 65 subsequent events
+  // (including a user message on page 1) fill the newest 60-event page without turn/start.
+  history[sessionId] = [
+    { type: 'turn/start', seq: 1, time: 1000, data: { turn: 2 } },
+    ...Array.from({ length: 65 }, (_, index) => ({
+      type: 'tool/call',
+      seq: index + 2,
+      time: 1001 + index,
+      data: { name: 'read_file', callId: `c${index}`, arguments: '{}' },
+    })),
+    user(67, 'Retry prompt on newest page', 2000),
+  ]
+  // Trigger a cold fillTail without emitting any live turn/start in this process.
+  let row
+  for (let at = 0; at < 200 && row === undefined; at += 1) {
+    const bot = (await call('state', {})).value.bots.find(candidate => candidate.id === created.id)
+    if (bot?.preview === 'Retry prompt on newest page') row = bot
+    else await settle()
+  }
+  assert(row !== undefined)
+  assert.equal(row.lastAt, 2000)
+  assert.equal(row.lastBotAt, undefined)
+  assert.equal(row.latestTurn, 2)
+  await stop()
+})
+
+test('cold chatTail reads latestTurn from sessionController.projections when available', async () => {
+  const { call, ctx, history, rt, stop } = start()
+  const created = (await call('create-bot', { name: 'ProjBot' })).value
+  const sessionId = rt.chatOf(created.id)
+  history[sessionId] = [user(500, 'Deep turn prompt', 3000)]
+  ctx.sessionController.projections = async ({ sessionId: sid }) => (
+    sid === sessionId ? { asOfSeq: 500, values: { turnOutline: [{ turn: 7, seq: 1, prompt: 'hi', response: '' }] } } : null
+  )
+  let row
+  for (let at = 0; at < 200 && row === undefined; at += 1) {
+    const bot = (await call('state', {})).value.bots.find(candidate => candidate.id === created.id)
+    if (bot?.preview === 'Deep turn prompt') row = bot
+    else await settle()
+  }
+  assert(row !== undefined)
+  assert.equal(row.lastAt, 3000)
+  assert.equal(row.latestTurn, 7)
   await stop()
 })
 

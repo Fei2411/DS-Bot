@@ -37,7 +37,7 @@ export function install(rt) {
   const { ctx, home, statePath } = rt
 
   /** @type {{version:1, lastSeenVersion?:string, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, contextParts:Record<string,any>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, plugins: { slots: {}, enabled: {}, offFor: {}, custom: {}, snapshots: {}, sources: [], knownPrefixes: {} }, exchanges: [], exchangeTurns: {}, works: {}, closedWorks: {}, pairLoops: {}, workSeq: 0, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, contextParts: {}, revision: 0 }
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, plugins: { slots: {}, enabled: {}, offFor: {}, custom: {}, snapshots: {}, sources: [], knownPrefixes: {} }, exchanges: [], exchangeTurns: {}, works: {}, closedWorks: {}, pairLoops: {}, workSeq: 0, requests: {}, questions: {}, views: {}, closedCards: {}, closedCardSeqs: {}, prefs: {}, switching: {}, contextParts: {}, revision: 0 }
   let loaded = null
   let storeReady = false
   let hadPersistedTeam = false
@@ -561,6 +561,7 @@ export function install(rt) {
     }
     if (state.views === null || typeof state.views !== 'object' || Array.isArray(state.views)) state.views = {}
     if (state.closedCards === null || typeof state.closedCards !== 'object' || Array.isArray(state.closedCards)) state.closedCards = {}
+    if (state.closedCardSeqs === null || typeof state.closedCardSeqs !== 'object' || Array.isArray(state.closedCardSeqs)) state.closedCardSeqs = {}
     // LEGACY: v0.3.2 kept closed dock views here, pinning them above the composer.
     if ('closedViews' in state) {
       delete state.closedViews
@@ -1093,6 +1094,17 @@ export function install(rt) {
   const selfOf = id => chatOwners.get(id) ?? groupOwners.get(id)?.botId ?? pastOwners.get(id)?.botId
   // A Session where the Bot speaks now, as opposed to an archived segment.
   const isBotSession = id => chatOwners.has(id) || groupOwners.has(id)
+  // Any Session owned by the team (current or archived): Bot chats, active or settled tasks,
+  // hidden group member Sessions, group room Sessions, and earlier segments/parts of any of them.
+  const isTeamSession = id => typeof id === 'string' && id !== '' && (
+    chatOwners.has(id)
+    || taskOwners.has(id)
+    || groupOwners.has(id)
+    || roomOwners.has(id)
+    || pastOwners.has(id)
+    || botOf(id) !== undefined
+    || roomOf(id) !== undefined
+  )
   const roomsOf = botId => (botId === undefined ? [] : Object.values(state.rooms).filter(room => Array.isArray(room?.members) && room.members.includes(botId)))
   const groupSessionsOf = botId => Object.values(state.rooms).map(room => room.sessions?.[botId]).filter(Boolean)
   const dropGroupSession = (room, botId) => {
@@ -1121,6 +1133,7 @@ export function install(rt) {
     if (state.questions !== undefined) delete state.questions[sessionId]
     if (state.views !== undefined) delete state.views[sessionId]
     if (state.closedCards !== undefined) delete state.closedCards[sessionId]
+    if (state.closedCardSeqs !== undefined) delete state.closedCardSeqs[sessionId]
     groupOwners.delete(sessionId)
     rt.cancelApprovals?.(sessionId)
     rt.renewMemory?.(sessionId)
@@ -1174,13 +1187,17 @@ export function install(rt) {
     if (typeof card?.callId !== 'string') return
     const target = typeof card.callSessionId === 'string' ? card.callSessionId : sessionId
     state.closedCards[target] = { ...own(state.closedCards, target), [card.callId]: outcome }
+    if (typeof card.callSeq === 'number' && Number.isInteger(card.callSeq)) {
+      state.closedCardSeqs ??= {}
+      state.closedCardSeqs[target] = { ...own(state.closedCardSeqs, target), [`${card.callId}@${card.callSeq}`]: outcome }
+    }
   }
 
   Object.assign(rt, {
     state, load, save, refresh, readOnly, hasLoaded, hasExistingTeamData, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, closeCard,
     readSegmentNote, writeSegmentNote, deleteSegmentNotes,
     teamWriteAccess,
-    botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
+    botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession, isTeamSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, roomsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })
