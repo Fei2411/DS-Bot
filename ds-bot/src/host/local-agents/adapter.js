@@ -62,6 +62,12 @@ const NO_TOOLS = 'Tools are not available for this request. Answer with text onl
 // loopback MCP server (a runtime that defers them must search/activate first),
 // and scheduled tasks belong to that server alone — the CLI's native scheduler,
 // cron or reminder tools act outside the user's team and invisibly to it.
+// Scope: ACP prompt assembly only. ACP has no dedicated system channel, so the
+// rules ride inside its first prompt with the team instructions. Codex and
+// Claude carry instructions over their own native channels (developer config,
+// --append-system-prompt-file), and those channels must pass the team's words
+// through verbatim — appending anything there both duplicates content already
+// inside the replay/delta prompts and rewrites what the team actually said.
 const LOCAL_BRIDGE_RULES = [
   '',
   '## Working inside DS Bot',
@@ -957,7 +963,11 @@ export class LocalAgentAdapter extends LlmAdapter {
     let freshMemory
     let memoryRefreshed = false
     let appliedMemory = { system: rawSystem, note: '' }
-    let system = withBridgeRules(rawSystem)
+    // The bridge rules join only the instructions an ACP session will read inside
+    // its own prompt: every other kind passes the team's words verbatim through
+    // its native channel, and the hash below always describes what that channel sent.
+    const withScope = text => (live.spec.kind === 'acp' ? withBridgeRules(text) : text)
+    let system = withScope(rawSystem)
     let promptHash = system === '' ? undefined : createHash('sha256').update(system).digest('hex')
     let instructions = system === '' ? undefined : system
     const refreshMemory = () => {
@@ -966,7 +976,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       freshMemory = this.deps.freshMemoryView?.(sessionId)
       if (freshMemory === undefined) return
       appliedMemory = applyFreshMemory(rawSystem, freshMemory)
-      system = withBridgeRules(appliedMemory.system)
+      system = withScope(appliedMemory.system)
       instructions = system === '' ? undefined : system
       promptHash = system === '' ? undefined : createHash('sha256').update(system).digest('hex')
     }

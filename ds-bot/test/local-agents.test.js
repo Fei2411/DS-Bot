@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -879,12 +880,13 @@ test('codex app-server: thread start and resume send the fields Codex reads', as
     assert.ok(start !== undefined, `${preset}: a thread starts`)
     assert.ok(resume !== undefined, `${preset}: the saved thread resumes`)
     // The team instructions travel on the new thread; a resumed one keeps its own.
+    // Codex reads them through its native channel: they pass through verbatim, with
+    // no bridge rules — those belong to the ACP prompt assembly, not a channel that
+    // duplicates what the replay/delta prompts already carry.
     assert.ok(start.developerInstructions.startsWith('You are Kai, a coder.'), `${preset} start: team instructions first`)
-    assert.match(start.developerInstructions, /## Working inside DS Bot/, `${preset} start: bridge rules appended`)
-    // The bridge names the dsbot schedule tools and bans the CLI's own schedulers,
-    // or the CLI falls back on a scheduler the user's team cannot see.
-    assert.match(start.developerInstructions, /schedule_create/, `${preset} start: the dsbot schedule tools are named`)
-    assert.match(start.developerInstructions, /[Nn]ever use your own built-in scheduler/, `${preset} start: the native scheduler is banned`)
+    assert.equal(start.developerInstructions, 'You are Kai, a coder.', `${preset} start: the native channel carries the team's words verbatim`)
+    assert.doesNotMatch(start.developerInstructions, /## Working inside DS Bot/, `${preset} start: no bridge rules on the native channel`)
+    assert.doesNotMatch(start.developerInstructions, /schedule_create/, `${preset} start: no scheduler bridge on the native channel`)
     assert.equal(resume.developerInstructions, undefined, `${preset} resume: keeps the instructions it started with`)
     assert.equal(resume.threadId, records.s1.cliSessionId, `${preset} resume: resumes the saved thread`)
     assert.equal('threadId' in start, false, `${preset} start: no thread id`)
@@ -3046,6 +3048,13 @@ test('acp: when session/load fails and falls back to session/new, adapter replay
   const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
   const promptText = calls.at(-1).params.prompt.map(block => block.text ?? '').join('\n')
   assert.match(promptText, /The team instructions for this conversation:\nYou are Kai\. Team memory: user prefers pnpm\./)
+  // The ACP prompt is where the bridge rules live: the team instructions gain the
+  // DS Bot working rules exactly once — never duplicated by replay assembly, and
+  // only because ACP has no native system channel of its own.
+  assert.match(promptText, /## Working inside DS Bot/, 'ACP prompt: bridge rules ride inside the prompt')
+  assert.match(promptText, /schedule_create \/ schedule_list \/ schedule_view \/ schedule_edit/, 'ACP prompt: the dsbot schedule tools are named')
+  const ruleOccurrences = promptText.split('## Working inside DS Bot').length - 1
+  assert.equal(ruleOccurrences, 1, 'ACP prompt: bridge rules appear exactly once, never doubled by replay')
   assert.match(promptText, /The conversation so far \(oldest first\):/)
   assert.match(promptText, /User: Earlier task: fix auth token refresh/)
   assert.match(promptText, /You: Checked src\/auth\.js and found the expiry check\./)
@@ -3232,6 +3241,7 @@ test('failed CLI resume preserves a >2000-char request followed by a clock messa
   const fallbackStart = codexCalls.filter(call => call.method === 'thread/start').at(-1)
   assert.doesNotMatch(fallbackStart.params.developerInstructions, /Deploy to staging/, 'fallback Codex thread/start developerInstructions must not carry deleted memory')
   assert.ok(fallbackStart.params.developerInstructions.includes('Keep literal $& and $$100 intact'), 'fallback Codex developerInstructions must carry refreshed memory literally')
+  assert.doesNotMatch(fallbackStart.params.developerInstructions, /## Working inside DS Bot/, 'refreshed memory instructions stay verbatim on the native channel — no bridge rules')
 
   // Codex maintenance (`note()`) on a failed resume must reject without calling thread/start
   // (no orphan blank thread created) and clean up live + engine thread entries.
@@ -3248,4 +3258,43 @@ test('failed CLI resume preserves a >2000-char request followed by a clock messa
   const maintCodexCalls = readFileSync(maintCodexRecord, 'utf8').trim().split('\n').map(line => JSON.parse(line))
   assert.equal(maintCodexCalls.filter(call => call.method === 'thread/resume').length, 1, 'Codex maintenance must attempt thread/resume')
   assert.equal(maintCodexCalls.filter(call => call.method === 'thread/start').length, 0, 'failed Codex maintenance resume must not spawn an orphan thread/start')
+})
+
+// The bridge rules belong to the ACP prompt assembly alone: exactly once in the
+// prompt, hashed once into the recorded promptHash, and never on Codex's or
+// Claude's native channels — even after a memory refresh rebuilds the instructions.
+test('bridge rules reach ACP prompts exactly once with a matching promptHash, and never the native channels', async (t) => {
+  const sysText = 'You are Kai. Follow the team.'
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-bridge-scope-')), 'prompts.jsonl')
+  t.after(() => rmSync(dirname(record), { recursive: true, force: true }))
+  const records = {}
+  const adapter = makeAdapter({ records, acpArgs: ['--record', record] })
+  t.after(() => adapter.dispose())
+  const out = await collect(adapter.stream(options('s1', [system('sys', sysText), user('m1', 'hello')])))
+  assert.equal(out.finish?.kind, 'stop')
+
+  const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const prompt = calls.at(-1).params.prompt.map(block => block.text ?? '').join('\n')
+  assert.match(prompt, /## Working inside DS Bot/, 'ACP prompt carries the bridge rules')
+  assert.match(prompt, /schedule_create \/ schedule_list \/ schedule_view \/ schedule_edit/, 'the dsbot schedule tools are named for the CLI')
+  assert.equal(prompt.split('## Working inside DS Bot').length - 1, 1, 'bridge rules appear exactly once in the prompt')
+  assert.equal(prompt.split('schedule_create / schedule_list / schedule_view / schedule_edit').length - 1, 1, 'the schedule bridge line is not duplicated')
+
+  // The recorded hash describes exactly what the prompt carried: the team's words
+  // plus one copy of the rules — recomputed here byte for byte, so a doubled
+  // injection or a hash over different content both fail.
+  const expectedInstructions = `${sysText}\n## Working inside DS Bot\n- The tools of the user's team reach you through the MCP server named "dsbot". If they are not listed up front, discover and activate them with your tool-search facilities (such as search_tool/use_tool) before assuming they are missing.\n- Scheduled tasks, reminders and recurring automation for the user are created ONLY with the dsbot tools schedule_create / schedule_list / schedule_view / schedule_edit. Never use your own built-in scheduler, cron, reminder, tasks or automation tools for them: those run outside the user's team, and the user can neither see nor manage what they create.`
+  assert.equal(records.s1.promptHash, createHash('sha256').update(expectedInstructions).digest('hex'), 'promptHash covers the instructions exactly once')
+
+  // Codex and Claude native channels stay verbatim after the same instructions.
+  const codexRecord = join(mkdtempSync(join(tmpdir(), 'dsb-bridge-codex-')), 'params.jsonl')
+  t.after(() => rmSync(dirname(codexRecord), { recursive: true, force: true }))
+  const codexAdapter = makeAdapter({ records: {}, codexArgs: ['--record', codexRecord] })
+  t.after(() => codexAdapter.dispose())
+  await collect(codexAdapter.stream(options('c1', [system('sys', sysText), user('m1', 'hello')], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  const codexCalls = readFileSync(codexRecord, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const start = codexCalls.find(call => call.method === 'thread/start')
+  assert.equal(start.params.developerInstructions, sysText, 'Codex developerInstructions carry the team words verbatim')
+  const turnInput = codexCalls.find(call => call.method === 'turn/start').params.input.map(block => block.text ?? '').join('\n')
+  assert.doesNotMatch(turnInput, /## Working inside DS Bot/, 'no bridge rules in the Codex replay prompt either')
 })
