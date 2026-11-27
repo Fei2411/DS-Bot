@@ -20,6 +20,7 @@ import { FolderIcon, SideIcon, TerminalIcon, CanvasIcon, ReaderIcon, CheckIcon }
 import { ImportCard, ImportMenu, PreviewCard, RemoteDebugCard, SafariPermissionCard, orderImportSources, siteMatchesHost, useCookieImportFlow } from './cookie-import-ui.js'
 import { SIDE_APPS, isFileApp, tabLabels, widthRangeOf } from './side-apps.js'
 import { LAYOUT_ICONS, layoutMenuItems, layoutOf } from './side-layout-ui.js'
+import { focusTargetOnClose, openerBeforeOpen } from './panel-focus.js'
 import { CanvasView } from './canvas-app.js'
 import { ReaderView } from './reader-app.js'
 import { t } from './i18n.js'
@@ -747,6 +748,18 @@ export function BotPanel({ pane, leaving, room, overlay, floating = false, layou
   }, [view, panelWidth, leaving, overlay, floating])
   const dragCleanup = useRef(null)
   useEscape(() => actions.closeOverlay(), !leaving, { priority: -1 })
+  // Focus is not taken when the panel opens (the chat box keeps it). When the panel starts
+  // to leave, focus that is inside it goes back to what had it before, else to the
+  // conversation's own entry in the header; focus anywhere else stays put.
+  const opener = useRef(null)
+  useLayoutEffect(() => {
+    opener.current = openerBeforeOpen({ panel: root.current, active: typeof document === 'undefined' ? null : document.activeElement })
+  }, [])
+  useLayoutEffect(() => {
+    if (!leaving || typeof document === 'undefined') return
+    const target = focusTargetOnClose({ panel: root.current, active: document.activeElement, opener: opener.current, find: selector => document.querySelector(selector) })
+    target?.focus?.({ preventScroll: true })
+  }, [leaving])
   useEffect(() => () => { dragCleanup.current?.(); chatRoom.setRight(null); chatRoom.hold(false) }, [])
   // A `room` change (window resize, the left column moving) lands at once.
   const mounted = useRef(false)

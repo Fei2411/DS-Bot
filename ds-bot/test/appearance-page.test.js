@@ -37,10 +37,20 @@ function find(tree, match) {
 const byLabel = (tree, label) => find(tree, node => node.props?.['aria-label'] === label)
 const kindButton = (tree, kind) => find(tree, node => node.props?.['data-kind'] === kind)
 
+// Node has no animation frames: give the page timer-backed ones for the test, and put
+// back exactly what was there (including "nothing") afterwards.
 function withDocument(t) {
-  const before = { document: globalThis.document, FileReader: globalThis.FileReader }
+  const names = ['document', 'FileReader', 'requestAnimationFrame', 'cancelAnimationFrame']
+  const before = Object.fromEntries(names.map(name => [name, globalThis[name]]))
   globalThis.document = { body: { hasAttribute: () => false } }
-  t.after(() => Object.assign(globalThis, before))
+  globalThis.requestAnimationFrame = run => setTimeout(() => run(performance.now()), 0)
+  globalThis.cancelAnimationFrame = id => clearTimeout(id)
+  t.after(() => {
+    for (const name of names) {
+      if (before[name] === undefined) delete globalThis[name]
+      else globalThis[name] = before[name]
+    }
+  })
 }
 
 const GRADIENT = { kind: 'gradient', from: '#223344', to: '#445566', angle: 90 }

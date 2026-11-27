@@ -113,10 +113,11 @@ function liveSprings(apply) {
         if (!value || jump) { values.set(key, { x: to, v: 0, to, k, c }); current[key] = to }
         else Object.assign(value, { to, k, c })
       }
-      if (jump) { cancelAnimationFrame(frame); frame = 0; apply(current); return }
+      if (jump) { if (frame) cancelAnimationFrame(frame); frame = 0; apply(current); return }
       if (!frame) { last = performance.now(); frame = requestAnimationFrame(step) }
     },
-    stop: () => cancelAnimationFrame(frame),
+    // Only a frame that is really queued is cancelled: a spring that never moved has none.
+    stop: () => { if (frame) cancelAnimationFrame(frame); frame = 0 },
   }
 }
 

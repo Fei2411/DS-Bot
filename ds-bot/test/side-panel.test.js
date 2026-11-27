@@ -120,7 +120,9 @@ test('the `+` button opens the menu with an item per entry and accepts an option
   const customTree = PanelMenu({ items, className: 'bt-ptab-new', 'aria-label': 'Custom', icon: CustomIcon })
   const [customBtn] = find(customTree, node => node.type === 'button' && node.props?.className === 'bt-ptab-new')
   assert.equal(customBtn.children[0].type, CustomIcon)
-  const labels = find(tree, node => node.props?.role === 'menuitem').map(node => node.children.flat(Infinity).at(-1)?.children?.[0])
+  // An item is icon, label span and, only when checked, a check mark: read the label span, not the last child.
+  const labelOf = node => node.children.flat(Infinity).find(child => child?.type === 'span' && child.props?.className !== 'bt-pmenu-check')?.children?.[0]
+  const labels = find(tree, node => node.props?.role === 'menuitem').map(labelOf)
   assert.deepEqual([...labels], ['New browser tab', 'Side chat', 'Terminal', 'Files'])
   assert.equal(find(tree, node => node.props?.className === 'bt-pmenu-sep').length, 1)
 })

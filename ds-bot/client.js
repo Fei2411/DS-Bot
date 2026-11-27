@@ -22436,7 +22436,7 @@ function liveSprings(apply2) {
         } else Object.assign(value, { to, k, c });
       }
       if (jump) {
-        cancelAnimationFrame(frame2);
+        if (frame2) cancelAnimationFrame(frame2);
         frame2 = 0;
         apply2(current2);
         return;
@@ -22446,7 +22446,11 @@ function liveSprings(apply2) {
         frame2 = requestAnimationFrame(step);
       }
     },
-    stop: () => cancelAnimationFrame(frame2)
+    // Only a frame that is really queued is cancelled: a spring that never moved has none.
+    stop: () => {
+      if (frame2) cancelAnimationFrame(frame2);
+      frame2 = 0;
+    }
   };
 }
 var CHOSEN = '[aria-pressed="true"],[aria-selected="true"],[aria-current="page"]';
@@ -56201,6 +56205,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     {
       type: "button",
       className: "bt-pill",
+      "data-panel-opener": "",
       "aria-expanded": away ? void 0 : detailsOpen,
       "data-memory": memoryNotice ? "updated" : void 0,
       "aria-label": away ? t("Back to chat") : memoryNotice ? t("Memory updated. Open {name}'s memory", { name: roster.byId[changed]?.name ?? name }) : t("View conversation details"),
@@ -61012,6 +61017,21 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   ];
 }
 
+// src/client/panel-focus.js
+var PANEL_OPENER = "[data-panel-opener]";
+var HEADER_ENTRY = ".bt-pill";
+function focusTargetOnClose({ panel, active, opener: opener2, find }) {
+  if (panel === null || active === null || active === void 0) return null;
+  if (!panel.contains(active)) return null;
+  if (opener2 && opener2.isConnected !== false && !panel.contains(opener2)) return opener2;
+  return find(PANEL_OPENER) ?? find(HEADER_ENTRY) ?? null;
+}
+function openerBeforeOpen({ panel, active }) {
+  if (active === null || active === void 0) return null;
+  if (panel?.contains?.(active)) return null;
+  return active;
+}
+
 // src/client/line-diff.js
 var DIFF_LINES_MAX = 5e3;
 var DIFF_CHARS_MAX = 1024 * 1024;
@@ -62545,6 +62565,15 @@ function BotPanel({ pane, leaving, room: room2, overlay, floating = false, layou
   }, [view, panelWidth, leaving, overlay, floating]);
   const dragCleanup = (0, import_react94.useRef)(null);
   useEscape(() => actions.closeOverlay(), !leaving, { priority: -1 });
+  const opener2 = (0, import_react94.useRef)(null);
+  (0, import_react94.useLayoutEffect)(() => {
+    opener2.current = openerBeforeOpen({ panel: root.current, active: typeof document === "undefined" ? null : document.activeElement });
+  }, []);
+  (0, import_react94.useLayoutEffect)(() => {
+    if (!leaving || typeof document === "undefined") return;
+    const target = focusTargetOnClose({ panel: root.current, active: document.activeElement, opener: opener2.current, find: (selector) => document.querySelector(selector) });
+    target?.focus?.({ preventScroll: true });
+  }, [leaving]);
   (0, import_react94.useEffect)(() => () => {
     dragCleanup.current?.();
     chatRoom.setRight(null);
