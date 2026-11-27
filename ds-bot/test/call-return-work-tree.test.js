@@ -645,6 +645,7 @@ test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_
   failEnsureFor = undefined
 
   // 4b) spawnInBackground (reuseWork: true) rollback: must NOT close/delete paused work, must roll back toSession/toTaskId, and must NOT send failure reply to caller!
+  // Also prove startup reconcileOrphanWorks() running concurrently during the openTaskPart/rollback await window never closes the work.
   rt.openWork('w-paused-bg', {
     from: 'a',
     to: 'b',
@@ -657,6 +658,15 @@ test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_
   emit('dm-b', 'tool/call', { callId: 'busy-1', name: 'bash', arguments: '{}' })
   const chiefCallsBeforeBgRollback = agents.get('dm-a').calls.length
   let hitBgTaskSid
+  let orphanSweepRanMidDispatch = false
+  const origOpenTaskPart = rt.openTaskPart
+  rt.openTaskPart = async (...args) => {
+    // Exercise the exact race window where work.state is already 'open' before any
+    // task exists in target.tasks and before any inflight delivery is recorded.
+    await rt.reconcileOrphanWorks()
+    orphanSweepRanMidDispatch = true
+    return origOpenTaskPart(...args)
+  }
   rt.ensureCapabilities = async (sid) => {
     if (sid.startsWith('created-') || sid.startsWith('fork-')) {
       hitBgTaskSid = sid
@@ -665,7 +675,9 @@ test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_
     return origEnsure(sid)
   }
   await assert.rejects(() => rt.resumePausedWork('w-paused-bg'), /task capability mount failed/)
+  rt.openTaskPart = origOpenTaskPart
   rt.ensureCapabilities = origEnsure
+  assert.equal(orphanSweepRanMidDispatch, true, 'test must exercise concurrent reconcileOrphanWorks during dispatch')
   assert.ok(hitBgTaskSid, 'resumePausedWork must have entered spawnBotHandoffTask({ reuseWork: true })')
   assert.ok(rt.state.works['w-paused-bg'], 'spawnInBackground reuseWork rollback must keep work in state.works')
   assert.equal(rt.state.works['w-paused-bg'].state, 'paused', 'spawnInBackground reuseWork rollback must restore paused state')

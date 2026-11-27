@@ -22,6 +22,7 @@ const MAX_OFFICE_OUTPUT_BYTES = 24 * 1024 * 1024
 const MAX_OFFICE_CONVERSIONS = 2
 const MAX_TERMINALS = 8
 const TERMINAL_SCROLLBACK_CHARS = 64 * 1024
+const TERMINAL_SCROLLBACK_PART_CHARS = 4096
 const TERMINAL_BATCH_MS = 16
 const TERMINAL_GRACE_MS = 3000
 const DIFF_TIMEOUT_MS = 30_000
@@ -181,7 +182,7 @@ async function convertOfficeToPdf(inputRealPath, ext, signal) {
 
 export function install(rt) {
   const { ctx } = rt
-  /** @type {Map<string, { id: string, cwd: string, title: string, pty: boolean, exited: boolean, closed: boolean, exitCode: number | null, buffer: string, write: (data: string) => Promise<void>, resize: (cols: number, rows: number) => Promise<void>, terminate: () => Promise<void> }>} */
+  /** @type {Map<string, { id: string, cwd: string, title: string, pty: boolean, exited: boolean, closed: boolean, exitCode: number | null, buffer: string, parts: { seq: number, text: string }[], startSeq: number, endSeq: number, write: (data: string) => Promise<void>, resize: (cols: number, rows: number) => Promise<void>, terminate: () => Promise<void> }>} */
   const terminals = new Map()
   /** @type {Set<Promise<void>>} */
   const inFlightSpawns = new Set()
@@ -357,9 +358,10 @@ export function install(rt) {
       if (typeof body.path !== 'string' || body.path === '') throw invalid('A file path is required')
       const target = await resolveSafeTarget(realRoot, body.path)
       const info = await stat(target)
-      if (!info.isFile()) throw invalid('Path is not a file')
-      const fileName = basename(target)
+      const fileName = basename(target) || basename(realRoot) || realRoot
       const relPath = toPosixRel(realRoot, target)
+      if (info.isDirectory()) return { kind: 'dir', name: fileName, path: relPath, root: realRoot }
+      if (!info.isFile()) throw invalid('Path is not a file')
       const ext = extname(fileName).toLowerCase()
 
       if (ext === '.pdf') {
@@ -475,10 +477,65 @@ export function install(rt) {
     return diff
   }
 
+  // Output positions count scrollback parts, not bytes: a client that holds part N asks
+  // for N + 1, and trimming drops whole parts so the position never lands inside one.
   const appendScrollback = (term, chunk) => {
     if (!chunk) return
-    const next = term.buffer + chunk
-    term.buffer = next.length > TERMINAL_SCROLLBACK_CHARS ? next.slice(next.length - TERMINAL_SCROLLBACK_CHARS) : next
+    let at = 0
+    while (at < chunk.length) {
+      let end = Math.min(at + TERMINAL_SCROLLBACK_PART_CHARS, chunk.length)
+      const code = chunk.charCodeAt(end - 1)
+      if (end < chunk.length && end > at + 1 && code >= 0xd800 && code <= 0xdbff) end -= 1
+      const text = chunk.slice(at, end)
+      term.endSeq += 1
+      term.parts.push({ seq: term.endSeq, text })
+      term.buffer += text
+      at = end
+    }
+  }
+
+  // Trim only between batches: output already collected for the next event keeps its
+  // part metadata until that event has been emitted, so positions never rewrite a batch.
+  const trimScrollback = (term) => {
+    while (term.buffer.length > TERMINAL_SCROLLBACK_CHARS && term.parts.length > 1) {
+      const first = term.parts.shift()
+      term.buffer = term.buffer.slice(first.text.length)
+    }
+    term.startSeq = term.parts[0]?.seq ?? term.endSeq + 1
+  }
+
+  const readScrollback = (term, after = 0) => {
+    if (!Number.isSafeInteger(after) || after < 0) throw invalid('after must be a non-negative whole number')
+    const truncated = after + 1 < term.startSeq
+    const from = Math.max(after, term.startSeq - 1)
+    const parts = term.parts.filter(part => part.seq > from).map(part => ({ seq: part.seq, text: part.text }))
+    return {
+      id: term.id,
+      start: term.startSeq,
+      end: term.endSeq,
+      truncated,
+      parts,
+      chunk: parts.map(part => part.text).join(''),
+      exited: term.exited,
+      exitCode: term.exitCode,
+    }
+  }
+
+  const terminalListEntry = (term, positions) => {
+    const base = {
+      id: term.id,
+      cwd: term.cwd,
+      title: term.title,
+      pty: term.pty,
+      exited: term.exited,
+      exitCode: term.exitCode,
+      start: term.startSeq,
+      end: term.endSeq,
+    }
+    if (positions === undefined) return { ...base, snapshot: term.buffer }
+    const after = Object.hasOwn(positions, term.id) ? positions[term.id] : undefined
+    const { chunk, ...catchup } = readScrollback(term, after ?? 0)
+    return { ...base, ...catchup, cwd: term.cwd, title: term.title, pty: term.pty }
   }
 
   async function openTerminal(body = {}, signal) {
@@ -504,6 +561,7 @@ export function install(rt) {
       const subprocess = ctx.get?.('subprocess')
       let record
       let pendingOut = ''
+      let pendingStart = 0
       let flushTimer = null
       const clearBatch = () => {
         if (flushTimer !== null) {
@@ -511,6 +569,7 @@ export function install(rt) {
           flushTimer = null
         }
         pendingOut = ''
+        pendingStart = 0
       }
       const flush = () => {
         flushTimer = null
@@ -519,12 +578,19 @@ export function install(rt) {
           return
         }
         const chunk = pendingOut
+        const start = pendingStart
+        const end = record.endSeq
+        const parts = record.parts.filter(part => part.seq >= start && part.seq <= end).map(part => ({ seq: part.seq, text: part.text }))
         pendingOut = ''
-        emitLocal('terminal', { id, chunk })
+        pendingStart = 0
+        emitLocal('terminal', { id, chunk, start, end, parts })
+        trimScrollback(record)
       }
       const enqueueChunk = (text) => {
         if (!text || !record || record.closed) return
+        const before = record.endSeq
         appendScrollback(record, text)
+        if (pendingOut === '') pendingStart = before + 1
         pendingOut += text
         if (flushTimer === null) {
           flushTimer = setTimeout(flush, TERMINAL_BATCH_MS)
@@ -540,7 +606,7 @@ export function install(rt) {
           return
         }
         if (flushTimer !== null) { clearTimeout(flushTimer); flush() }
-        emitLocal('terminal-exit', { id, code: record.exitCode })
+        emitLocal('terminal-exit', { id, code: record.exitCode, end: record.endSeq })
       }
 
       if (typeof subprocess?.spawnTerminal === 'function') {
@@ -568,6 +634,9 @@ export function install(rt) {
           closed: false,
           exitCode: null,
           buffer: '',
+          parts: [],
+          startSeq: 1,
+          endSeq: 0,
           write: data => handle.write(data),
           resize: (c, r) => handle.resize(c, r),
           terminate: async () => {
@@ -615,6 +684,9 @@ export function install(rt) {
           closed: false,
           exitCode: null,
           buffer: '',
+          parts: [],
+          startSeq: 1,
+          endSeq: 0,
           write: async (data) => {
             if (record.exited || record.closed) return
             // Non-PTY fallback has no foreground job group, so Ctrl+C cannot interrupt a
@@ -676,20 +748,21 @@ export function install(rt) {
 
   async function terminalEndpoint(name, body = {}, signal) {
     if (name === 'list') {
-      return [...terminals.values()].map(term => ({
-        id: term.id,
-        cwd: term.cwd,
-        title: term.title,
-        pty: term.pty,
-        exited: term.exited,
-        exitCode: term.exitCode,
-        snapshot: term.buffer,
-      }))
+      const positions = body.positions !== null && typeof body.positions === 'object' && !Array.isArray(body.positions) ? body.positions : undefined
+      if (positions !== undefined) {
+        for (const value of Object.values(positions)) {
+          if (!Number.isSafeInteger(value) || value < 0) throw invalid('Terminal positions must be non-negative whole numbers')
+        }
+      }
+      return [...terminals.values()].map(term => terminalListEntry(term, positions))
     }
     if (name === 'open') return openTerminal(body, signal)
     const id = typeof body.id === 'string' ? body.id : ''
     const term = terminals.get(id)
     if (term === undefined) throw notFound('Unknown terminal')
+    if (name === 'read') {
+      return readScrollback(term, body.after ?? 0)
+    }
     if (name === 'input') {
       if (typeof body.data !== 'string') throw invalid('Input data must be a string')
       if (body.data.length > 64 * 1024) throw invalid('Input chunk is too large')

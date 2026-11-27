@@ -36,6 +36,24 @@ export function getLiveShortcutContext() {
 }
 
 /**
+ * Resolves the topmost active modal kind following actual z-index stacking
+ * (75 shortcuts > 70 palette/groupSearch > 66 releaseNotes > 61 memory > 60 settings > dialogs > inbox).
+ */
+export function resolveActiveModal(uiSnap, doc = typeof document === 'undefined' ? null : document) {
+  if (!uiSnap) return null
+  if (uiSnap.shortcuts) return 'shortcuts'
+  if (uiSnap.palette) return 'palette'
+  if (uiSnap.groupSearch) return 'groupSearch'
+  if (uiSnap.releaseNotes) return 'dialog'
+  if (uiSnap.memory) return 'memory'
+  if (uiSnap.settings) return 'settings'
+  if (uiSnap.newChat || uiSnap.exchange || uiSnap.voice || uiSnap.signIn) return 'dialog'
+  if (uiSnap.inbox) return 'inbox'
+  if (doc && typeof doc.querySelector === 'function' && doc.querySelector('[aria-modal="true"]')) return 'dialog'
+  return null
+}
+
+/**
  * Matches desktop-wide keyboard shortcuts using the active user bindings.
  * Respects IME composition, already-handled events, recording mode, terminal pass-through,
  * modal boundaries, and Settings' own Cmd/Ctrl+K search.

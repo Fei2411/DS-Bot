@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { buildPluginShortcutCommands, registerPluginShortcuts } from '../src/client/plugin-shortcuts.js'
+import { createSource } from '../src/client/sources.js'
+import { teamActions } from '../src/client/team-actions.js'
 
 const clientStore = {
   createSnapshotStore: (initial) => {
@@ -499,6 +501,31 @@ test('real DSH ShortcutRegistry dispatches ds-bot commands without modals and bl
       cleanup()
     }
   }
+})
+
+test('numbered conversations follow the pending sidebar fold, including on rollback', async () => {
+  const { deps, calls } = makeDeps()
+  const data = deps.roster.getSnapshot()
+  const roster = createSource({
+    ...data,
+    bots: [data.bots[0], { ...data.bots[1], sectionId: 'first' }],
+    rooms: [{ ...data.rooms[0], sectionId: 'second' }],
+    sections: [{ id: 'first' }, { id: 'second' }],
+  })
+  const ui = createSource({})
+  const write = Promise.withResolvers()
+  const { saveSection } = teamActions({ call: () => write.promise, roster, ui })
+  const shortcut = buildPluginShortcutCommands({ ...deps, roster, ui }).find(cmd => cmd.id === 'ds-bot.switch-bot-2')
+  const switchConversation = () => shortcut.resolve({ modal: null }).run()
+  switchConversation()
+  assert.deepEqual(calls.at(-1), ['openSession', 'bot-two'])
+  const save = saveSection({ id: 'first', collapsed: true })
+  switchConversation()
+  assert.deepEqual(calls.at(-1), ['openSession', 'room-1'])
+  write.reject(new Error('cannot save'))
+  await assert.rejects(save, /cannot save/)
+  switchConversation()
+  assert.deepEqual(calls.at(-1), ['openSession', 'bot-two'])
 })
 
 test('registerPluginShortcuts reports registration errors visibly instead of swallowing them', () => {

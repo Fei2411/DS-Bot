@@ -134,8 +134,8 @@ export function ChangesReview({ changes, onOpenFile }) {
       },
       h('span', { className: 'dsb-chg-file-name', title: file.display }, file.display),
       h('span', { className: 'dsb-chg-file-stats' },
-        file.binary ? h('span', { className: 'dsb-pv-badge' }, 'BIN')
-          : file.oversized ? h('span', { className: 'dsb-pv-badge' }, 'BIG')
+        file.binary ? h('span', { className: 'dsb-pv-badge' }, t('Binary'))
+          : file.oversized ? h('span', { className: 'dsb-pv-badge' }, t('Large'))
             : [
                 file.added > 0 ? h('span', { key: 'a', className: 'bt-changes-add' }, `+${file.added}`) : null,
                 file.deleted > 0 ? h('span', { key: 'd', className: 'bt-changes-del' }, `−${file.deleted}`) : null,

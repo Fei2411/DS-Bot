@@ -12,7 +12,7 @@ import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, isSilentTurnText, SOURCE_KIND } from '
 import { within } from './folders.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { addressOf } from './session-follow.js'
-import { presentedFileName, presentedFiles, relayRange } from '../shared/group-replies.js'
+import { presentedFileName, presentedFiles, relayRange, stripRelayPrefix } from '../shared/group-replies.js'
 import { textOf } from './text.js'
 import { hourKeys } from './usage.js'
 
@@ -194,7 +194,7 @@ export function roomItems(events, rowsOf = () => []) {
     let replies
     if (range !== undefined) replies = rowsOf(range)
     else {
-      try { replies = JSON.parse(text)?.replies } catch { continue }
+      try { replies = JSON.parse(stripRelayPrefix(text))?.replies } catch { continue }
     }
     if (!Array.isArray(replies)) continue
     relays.delete(callId)

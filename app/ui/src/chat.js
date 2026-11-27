@@ -24,12 +24,14 @@ import { SecretDock } from '../../../ds-bot/src/client/secret-card.js'
 import { writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { STORAGE } from '../../../ds-bot/src/client/storage.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
+import { mentionableBots } from '../../../ds-bot/src/client/user-message.js'
 import { WidgetDock } from '../../../ds-bot/src/client/widget-cell.js'
 import { ApprovalDock } from './approval-dock.js'
 import { AgentEmptyHero } from './classic-sidebar.js'
 import { ComposerMenu, activeComposerTrigger, applyTriggerText, buildComposerMenuItems } from './composer-menus.js'
 import { SessionTranscript, UserAttachments, useSessionFollow } from './session-chat.js'
 import { SubagentLineageBar, SubagentReadOnlyBar } from './subagent-viewer.js'
+import { UserMessageText } from './user-text.js'
 
 // The chat follows its end while the user is this close to it.
 const FOLLOW_PX = 80
@@ -72,7 +74,7 @@ async function fileToBase64(file) {
         const comma = result.indexOf(',')
         resolve(comma >= 0 ? result.slice(comma + 1) : result)
       }
-      reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'))
+      reader.onerror = () => reject(reader.error ?? new Error(t('Failed to read file')))
       reader.readAsDataURL(file)
     })
   }
@@ -944,12 +946,12 @@ function PendingUserRows({ items, sessionId, classic = false }) {
     return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'dsb-dsh-user' },
       h('div', { className: 'dsb-dsh-user-stack' },
         entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
-        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, entry.text) : null))))
+        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, h(UserMessageText, { text: entry.text, interactive: false })) : null))))
   }
   return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
       entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
-      entry.text !== '' ? h('div', { className: 'bt-ubody' }, entry.text) : null))))
+      entry.text !== '' ? h('div', { className: 'bt-ubody' }, h(UserMessageText, { text: entry.text, interactive: false })) : null))))
 }
 
 // One conversation in the main view, drawn with the Bot views' own rows, cards and docks.
@@ -1234,6 +1236,33 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     return h(UserAttachments, { attachments: blocks, sessionId: row.sessionId ?? activeSessionId })
   }, [activeSessionId])
 
+  const openRoomFile = useMemo(() => (typeof actions?.openFile === 'function'
+    ? target => actions.openFile(typeof target === 'string'
+      ? { path: target, sessionId: activeSessionId }
+      : { ...target, sessionId: target?.sessionId ?? activeSessionId })
+    : undefined), [actions, activeSessionId])
+  const revealRoomFolder = useMemo(() => (typeof actions?.revealFolder === 'function'
+    ? target => actions.revealFolder(typeof target === 'string'
+      ? { path: target, sessionId: activeSessionId }
+      : { ...target, sessionId: target?.sessionId ?? activeSessionId })
+    : openRoomFile
+      ? target => openRoomFile(typeof target === 'string' ? { path: target, isDir: true } : { ...target, isDir: true })
+      : undefined), [actions, activeSessionId, openRoomFile])
+  const roomMentionBots = useMemo(
+    () => (Array.isArray(roster?.bots) ? mentionableBots(roster, activeSessionId) : []),
+    [roster, activeSessionId],
+  )
+  const renderRoomUserText = useCallback(({ text, fullText, revealedSecrets, onToggleSecret }) => h(UserMessageText, {
+    text,
+    fullText,
+    bots: roomMentionBots,
+    revealedSecrets,
+    onToggleSecret,
+    onOpenBot: actions?.openSession,
+    onOpenFile: openRoomFile,
+    onRevealFolder: revealRoomFolder,
+  }), [roomMentionBots, actions, openRoomFile, revealRoomFolder])
+
   const hasAgentMessages = !isRoom && Array.isArray(dmChat.log?.events)
     && dmChat.log.events.some(ev => ev?.type === 'user/message' || ev?.type === 'assistant/message' || ev?.type === 'turn/start' || ev?.type === 'tool/call')
   const showAgentHero = isAgent
@@ -1270,8 +1299,9 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       earlier ? h('div', { className: 'bt-earlier-top' }, earlier) : null,
       sessionNotice,
       h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
+        !isRoom && dmChat.historyReloaded ? h('div', { key: 'history-reloaded', className: 'bt-time-sep', role: 'separator' }, t('Conversation history was reloaded')) : null,
         isRoom
-          ? h(MemoChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments })
+          ? h(MemoChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments, renderUserText: renderRoomUserText })
           : h(SessionTranscript, {
             log: dmChat.log,
             sessionId: viewedSessionId,

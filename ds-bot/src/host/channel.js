@@ -237,6 +237,8 @@ export function install(rt) {
     speech: Boolean(ctx.get?.('speechController')),
     // True once until the user confirms or declines the telemetry privacy notice.
     telemetryPrompt: rt.telemetry?.shouldPromptNotice?.() === true,
+    // Release notes state for local windows (excluded from remote/relay payloads).
+    releaseNotes: rt.releaseNotesView?.() ?? null,
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -254,7 +256,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'secret-refresh-external', 'state', 'models', 'presets', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'telemetry-status', 'telemetry-client-error', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'job-list', 'job-read', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'secret-refresh-external', 'state', 'models', 'presets', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'telemetry-status', 'telemetry-client-error', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'job-list', 'job-read', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'engine-feedback-list', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
   READS.add('chatgpt')
 
   const modelRequests = { approvalModel: 0, defaultBotModel: 0 }
@@ -440,7 +442,7 @@ export function install(rt) {
           await rt.catalog()
           await rt.loadSecrets()
           const answer = liveAnswer()
-          const { api: _, telemetryPrompt: _tp, ...remoteLive } = answer.value
+          const { api: _, telemetryPrompt: _tp, releaseNotes: _rn, ...remoteLive } = answer.value
           const liveValue = remote
             ? {
               ...remoteLive,
@@ -760,9 +762,14 @@ export function install(rt) {
         case 'set-flags':
           await rt.load()
           return ok(await rt.setFlags(body.id, body))
-        case 'section-save':
+        case 'section-save': {
           await rt.load()
-          return ok(await rt.saveSection(body))
+          const saved = await rt.saveSection(body)
+          if (body.withRevision !== true) return ok(saved)
+          // Read the current section and revision together: a concurrent save may have won.
+          const section = state.sections?.find(entry => entry.id === saved.id)
+          return ok({ section: section ? { ...section } : null, revision: state.revision })
+        }
         case 'section-order':
           await rt.load()
           await rt.reorderSections(body.ids)
@@ -1078,6 +1085,9 @@ export function install(rt) {
         }
         case 'update-install':
           return ok(rt.updateStart())
+        case 'release-notes-claim':
+          if (remote) return fail('Release notes can only be claimed on this computer', 'bot/refused')
+          return ok(await rt.claimReleaseNotes(body.version))
         case 'dsh-update-install':
           return ok(rt.dshUpdateStart?.())
         case 'repo-stars':
@@ -1308,6 +1318,7 @@ export function install(rt) {
           if (endpoint.startsWith('job-')) return ok(await rt.jobEndpoint(endpoint.slice('job-'.length), body, signal))
           if (endpoint.startsWith('workspace-')) return ok(await rt.workspaceEndpoint(endpoint.slice('workspace-'.length), body, signal))
           if (endpoint.startsWith('terminal-')) return ok(await rt.terminalEndpoint(endpoint.slice('terminal-'.length), body, signal))
+          if (endpoint.startsWith('engine-feedback-')) return ok(await rt.feedbackEndpoint(endpoint.slice('engine-feedback-'.length), body, signal))
           if (endpoint.startsWith('engine-')) return ok(await rt.engineEndpoint(endpoint.slice('engine-'.length), body, signal, meta))
           if (endpoint.startsWith('computer-')) {
             await rt.load()

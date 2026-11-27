@@ -172,6 +172,7 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   const computerSrc = readFileSync(new URL('../src/host/computer/index.js', import.meta.url), 'utf8')
   const workspaceSrc = readFileSync(new URL('../src/host/workspace-panel.js', import.meta.url), 'utf8')
   const engineSrc = readFileSync(new URL('../src/host/engine-settings.js', import.meta.url), 'utf8')
+  const feedbackSrc = readFileSync(new URL('../src/host/message-feedback.js', import.meta.url), 'utf8')
   const pluginsSrc = readFileSync(new URL('../src/host/plugins/index.js', import.meta.url), 'utf8')
   const sessionSrc = readFileSync(new URL('../src/host/session-follow.js', import.meta.url), 'utf8')
   const connectorsSrc = readFileSync(new URL('../src/host/connectors/index.js', import.meta.url), 'utf8')
@@ -183,11 +184,12 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   const workspaceRoutes = [...workspaceBody.matchAll(/name === '([^']+)'/g)].map(match => `workspace-${match[1]}`)
   const terminalRoutes = [...terminalBody.matchAll(/name === '([^']+)'/g)].map(match => `terminal-${match[1]}`)
   const engineRoutes = [...engineSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `engine-${match[1]}`)
+  const feedbackRoutes = [...feedbackSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `engine-feedback-${match[1]}`)
   const pluginRoutes = [...pluginsSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `plugins-${match[1]}`)
   const sessionRoutes = [...sessionSrc.matchAll(/name !== '([^']+)'/g)].map(match => `session-${match[1]}`)
   const connectorRoutes = [...connectorsSrc.matchAll(/async '([^']+)'\(/g)].map(match => match[1])
   const gatedRoutes = new Set([...gatedSrc.matchAll(/'([^']+)'/g)].map(match => match[1]))
-  const allHostRoutes = new Set([...channelRoutes, ...computerRoutes, ...workspaceRoutes, ...terminalRoutes, ...engineRoutes, ...pluginRoutes, ...sessionRoutes, ...connectorRoutes])
+  const allHostRoutes = new Set([...channelRoutes, ...computerRoutes, ...workspaceRoutes, ...terminalRoutes, ...engineRoutes, ...feedbackRoutes, ...pluginRoutes, ...sessionRoutes, ...connectorRoutes])
 
   // Every host endpoint is explicitly classified. A new endpoint fails here until a
   // maintainer decides whether it acts on the team or on this computer.
@@ -247,10 +249,13 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'computer-app-answer').code, 'bot/refused')
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-import-scan').code, 'bot/refused')
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-import').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'engine-feedback-list').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'engine-feedback-put').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'engine-feedback-delete').code, 'bot/refused')
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'future-unlisted-endpoint').code, 'bot/refused')
   assert.equal(BROWSER_ALLOWED.has('session-page'), false)
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'job-list').message, 'Background jobs are available on the computer')
-  for (const localOnly of ['job-list', 'job-read', 'job-kill', 'workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open', 'engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe', 'telemetry-status', 'telemetry-update', 'telemetry-reset-id', 'telemetry-clear-log', 'telemetry-client-error']) {
+  for (const localOnly of ['job-list', 'job-read', 'job-kill', 'workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open', 'terminal-read', 'engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe', 'telemetry-status', 'telemetry-update', 'telemetry-reset-id', 'telemetry-clear-log', 'telemetry-client-error']) {
     assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, localOnly).code, 'bot/refused')
     assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, localOnly).code, 'bot/refused')
     assert.equal(BROWSER_ALLOWED.has(localOnly), false)

@@ -440,11 +440,13 @@ export function install(rt) {
         const ids = Array.isArray(ctx.workspaceRegistry?.archivedSessionIds)
           ? [...ctx.workspaceRegistry.archivedSessionIds]
           : []
-        const restorableIds = ids.reverse().filter(id =>
-          rt.selfOf?.(id) === undefined
-          && rt.botOf?.(id) === undefined
-          && rt.roomOf?.(id) === undefined
-          && rt.pastOwners?.has?.(id) !== true)
+        const ownedByTeam = id => (typeof rt.isTeamSession === 'function'
+          ? rt.isTeamSession(id)
+          : rt.selfOf?.(id) !== undefined
+            || rt.botOf?.(id) !== undefined
+            || rt.roomOf?.(id) !== undefined
+            || rt.pastOwners?.has?.(id) === true)
+        const restorableIds = ids.reverse().filter(id => !ownedByTeam(id))
         const byId = restorableIds.length > 0 ? await passiveSessionMap(signal) : new Map()
         const sessions = restorableIds.map((id) => {
           const meta = byId.get(id)
@@ -467,10 +469,12 @@ export function install(rt) {
           ? ctx.workspaceRegistry.archivedSessionIds
           : []
         if (!archived.includes(sessionId)) throw notFound('This session is not archived')
-        const ownedByTeam = rt.selfOf?.(sessionId) !== undefined
-          || rt.botOf?.(sessionId) !== undefined
-          || rt.roomOf?.(sessionId) !== undefined
-          || rt.pastOwners?.has?.(sessionId) === true
+        const ownedByTeam = typeof rt.isTeamSession === 'function'
+          ? rt.isTeamSession(sessionId)
+          : rt.selfOf?.(sessionId) !== undefined
+            || rt.botOf?.(sessionId) !== undefined
+            || rt.roomOf?.(sessionId) !== undefined
+            || rt.pastOwners?.has?.(sessionId) === true
         if (ownedByTeam) throw refused('Bot and group conversation segments cannot be restored into Classic mode')
         await ctx.workspaceRegistry.unarchiveSession(sessionId)
         let adoptedAgentId = null

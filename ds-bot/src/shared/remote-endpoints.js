@@ -67,6 +67,8 @@ export const COMPUTER_ONLY_ENDPOINTS = new Set([
   // Reads other apps' connector configurations and secrets from this computer's home folder.
   'connector-import-scan',
   'connector-import',
+  // Claims the computer's own post-upgrade release notes notice; phones track their own app version locally.
+  'release-notes-claim',
 ])
 
 // The only computer-prefixed endpoints a paired phone may use. Every other computer-*

@@ -44,10 +44,69 @@ function makeStyle() {
   }
 }
 
+class MiniEvent {
+  constructor(type, options = {}) {
+    this.type = type
+    this.bubbles = options.bubbles !== false
+    this.cancelable = options.cancelable !== false
+    this.composed = options.composed === true
+    this.detail = options.detail
+    this.target = null
+    this.currentTarget = null
+    this.defaultPrevented = false
+    this.cancelBubble = false
+    this.timeStamp = Date.now()
+  }
+  preventDefault() { if (this.cancelable) this.defaultPrevented = true }
+  stopPropagation() { this.cancelBubble = true }
+  stopImmediatePropagation() { this.cancelBubble = true; this.immediateStopped = true }
+  composedPath() { return this._path ?? [] }
+}
+
 class EventTargetMini {
-  addEventListener() {}
-  removeEventListener() {}
-  dispatchEvent() { return true }
+  constructor() { this._miniListeners = new Map() }
+  addEventListener(type, listener, options = {}) {
+    if (typeof listener !== 'function' && (listener === null || typeof listener?.handleEvent !== 'function')) return
+    const capture = options === true || options?.capture === true
+    const key = `${type}:${capture ? 1 : 0}`
+    if (!this._miniListeners.has(key)) this._miniListeners.set(key, new Set())
+    this._miniListeners.get(key).add(listener)
+  }
+  removeEventListener(type, listener, options = {}) {
+    const capture = options === true || options?.capture === true
+    this._miniListeners.get(`${type}:${capture ? 1 : 0}`)?.delete(listener)
+  }
+  dispatchEvent(event) {
+    if (event.target == null) event.target = this
+    const path = []
+    for (let node = event.target; node; node = node.parentNode) path.push(node)
+    if (event.target?.ownerDocument && !path.includes(event.target.ownerDocument)) path.push(event.target.ownerDocument)
+    event._path = path
+    const invoke = (target, capture) => {
+      event.currentTarget = target
+      const listeners = [...(target._miniListeners?.get(`${event.type}:${capture ? 1 : 0}`) ?? [])]
+      for (const listener of listeners) {
+        if (event.immediateStopped) break
+        if (typeof listener === 'function') listener.call(target, event)
+        else listener.handleEvent(event)
+      }
+    }
+    for (const target of [...path].reverse()) {
+      if (target === event.target) continue
+      invoke(target, true)
+      if (event.cancelBubble) return !event.defaultPrevented
+    }
+    invoke(event.target, true)
+    invoke(event.target, false)
+    if (event.bubbles) {
+      for (const target of path.slice(1)) {
+        if (event.cancelBubble) break
+        invoke(target, false)
+      }
+    }
+    event.currentTarget = null
+    return !event.defaultPrevented
+  }
 }
 
 class NodeMini extends EventTargetMini {
@@ -343,8 +402,8 @@ class DocumentMini extends NodeMini {
 
 export function installMiniDom() {
   const document = new DocumentMini()
-  const Event = class Event { constructor(type) { this.type = type } }
-  const CustomEvent = class CustomEvent extends Event { constructor(type, opts) { super(type); this.detail = opts?.detail } }
+  const Event = class Event extends MiniEvent {}
+  const CustomEvent = class CustomEvent extends MiniEvent {}
   const MutationObserver = class MutationObserver { observe() {} disconnect() {} takeRecords() { return [] } }
   const window = Object.assign(new EventTargetMini(), {
     document,
