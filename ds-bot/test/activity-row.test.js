@@ -179,7 +179,6 @@ test('fresh input ignores queued sends and takes the newest of the rest', () => 
   assert.equal(freshInputAt([], undefined), 0)
 })
 
-<<<<<<< HEAD
 test('pickActivity prefers a newer host activity over an older chat note and hides host-only work while streaming', () => {
   const olderTool = { label: 'Opening a file', state: 'searching', at: 100 }
   const newerHost = { label: 'Running shell commands', state: 'working' }
@@ -196,7 +195,8 @@ test('pickActivity prefers a newer host activity over an older chat note and hid
 
   // Host status alone stays hidden while reply text is already streaming.
   assert.equal(pickActivity({ tools: [], localNote: newerHost, localAt: 200, streaming: true }), undefined)
-=======
+})
+
 // The move-to-background action stays invisible and borderless at rest so the
 // activity row remains quiet, reveals smoothly on hover/focus/touch-open/busy
 // (except while exiting), keeps :disabled dimmed, and respects reduced motion.
@@ -392,5 +392,4 @@ test('ActivityIndicator renders wrapped background button, sets data-bg-busy on 
   } finally {
     unmount()
   }
->>>>>>> upstream/dev
 })
