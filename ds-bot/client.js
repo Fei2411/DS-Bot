@@ -64104,27 +64104,37 @@ var RELEASE_NOTES = [
     "notes": {
       "zh": {
         "items": [
-          "桌面端切换为 DS Bot 独立前端，新增青瓷主题、双色自动配色、VS Code 主题导入与自定义样式",
-          "新增统一收件箱，所有 Bot 与群聊的待批准、待回答和未读消息集中处理",
-          "全新 20 款 3D 动态形象，桌面与手机端同步展示 Bot 当前动作状态",
-          "新增 Bot 插件市场与四级权限安全模型，支持热切换浏览器控制槽位",
-          "新增「自动审查」权限模式、自定义快捷键，以及本地统一外部 API（含 OpenAI 兼容与 MCP）",
-          "支持 ChatGPT 账号登录、多文件夹授权、1Password（op://）密钥与同 CLI 多账号配置",
-          "大幅降低桌面端 CPU 与内存占用，手机端新增 Android 应用内更新、通知与完整用量看板"
+          "全新独立桌面端：更轻更快、大幅降低 CPU 与内存消耗，新增天青主题、双色自动配色、VS Code 主题导入与自定义样式",
+          "统一收件箱：所有 Bot 和群聊的待批准、待回答、未读消息集中处理",
+          "全新 20 款动态形象：桌面和手机同步显示每个 Bot 当前状态，支持自定义群头像",
+          "Bot 插件与安全分级：新增插件市场与四级权限安全模型",
+          "隐私与安全升级：默认拦截底层遥测，隐私 Bot 断网保护更安全；新增原子存盘防断电丢数据",
+          "自动审查与权限升级：可选审查模型自动把关审批，支持多文件夹授权与单 Bot 独立预设",
+          "统一外部 API：本机开放 MCP、OpenAI 兼容接口和 CLI，支持外部 Agent 调用，彻底打通工作流",
+          "协作与上下文重构：群聊与消息结构重构，上下文支持工具结果召回且更稳命中缓存，并可选开启代码模式编排多工具",
+          "账号、密钥与快捷键：支持 ChatGPT 登录、同 CLI 多账号、1Password（op://）与多行密钥、全局自定义快捷键",
+          "浏览器增强：新增可热切换的浏览器插件（目前可选 Ego Lite 浏览器、Playwright MCP、Chrome DevTools MCP），优化 Cookie 导入并支持 macOS Safari 批量导入",
+          "手机端升级：Android 支持应用内自动更新、原生通知与完整用量看板；对话内支持直接查看交互卡片、保留输入内容与回车发送",
+          "更多体验与修复：关于页新增自动更新开关与更新日志弹窗，并修复大量 IM、本地 CLI 与稳定性问题"
         ],
-        "intro": "全新桌面前端、统一收件箱、Bot 插件与 3D 动态形象上线，整体更轻更稳。"
+        "intro": "全新自写桌面前端、统一收件箱、Bot 插件与全新 Bot 形象上线，安全与隐私升级，更轻、更稳、更开放。"
       },
       "en": {
         "items": [
-          "New native desktop frontend with the Celadon theme, 2-color themes, VS Code theme import, and custom CSS",
-          "Unified Inbox brings pending approvals, questions, and unread items from all Bots and groups into one view",
-          "Redesigned 20-character 3D avatars show what each Bot is doing at a glance on desktop and phone",
-          "Bot Plugins with a 4-tier security model and a hot-swappable Browser Control slot",
-          "Auto Review permission mode, customizable keyboard shortcuts, and a unified local External API (OpenAI-compatible & MCP)",
-          "Sign in with ChatGPT, multi-folder access, 1Password (op://) secrets, and multiple account profiles per local CLI",
-          "Lower desktop CPU and memory usage, plus Android in-app updates, notifications, and the full Usage dashboard"
+          "Native desktop frontend: lighter and faster with much lower CPU and memory usage, plus the Celadon theme, 2-color themes, VS Code theme import, and custom CSS",
+          "Unified Inbox: handle pending approvals, unanswered questions, and unread messages across all Bots and groups in one view",
+          "20 new live avatars: see each Bot's current status at a glance across desktop and phone, plus custom group avatars",
+          "Bot Plugins & security tiers: new plugin catalog with a 4-tier permission and security model",
+          "Privacy & durability: blocks underlying telemetry by default with fail-closed offline protection for private Bots, plus atomic saves against power loss",
+          "Auto Review & permissions: optional review model for approvals, multi-folder access, and per-Bot Agent presets",
+          "Unified External API: local MCP, OpenAI-compatible API, and CLI so external Agents can plug right into your workflow",
+          "Coordination & context overhaul: cleaner group and message coordination, tool-output recall with steadier prompt caching, and opt-in Code Mode",
+          "Accounts, Secrets & shortcuts: Sign in with ChatGPT, multiple profiles per local CLI, 1Password (op://) and multiline secrets, and customizable shortcuts",
+          "Browser upgrades: hot-swappable browser plugins (Ego Lite Browser, Playwright MCP, Chrome DevTools MCP) plus improved batch Cookie import with macOS Safari support",
+          "Phone upgrades: Android in-app auto-update, native notifications, and full Usage dashboard, plus inline interactive cards, saved drafts, and Enter-to-send",
+          "Polish & fixes: automatic updates toggle and in-app What's New dialog in About, plus stability fixes across IM platforms and local CLIs"
         ],
-        "intro": "A native DS Bot desktop frontend, unified Inbox, Bot Plugins, and 3D live avatars."
+        "intro": "A native DS Bot desktop frontend, unified Inbox, Bot Plugins, redesigned live avatars, and stronger privacy — lighter, steadier, and more open."
       }
     }
   },
