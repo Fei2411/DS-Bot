@@ -666,3 +666,33 @@ test('PluginsPage shows the execution tier row and the floating-version note in 
   assert.match(textOf(tree), /trusted-worker/)
   assert.match(textOf(tree), /approval does not pin exact bytes/)
 })
+
+test('PluginsPage labels external browser plugins as External window and shows Browser window row in details', async () => {
+  const { draw } = mountPluginsPage()
+  draw()
+  await flush()
+  let tree = draw()
+
+  const egoTile = findAll(tree, n => n.props?.className === 'bt-plg-tile' && textOf(n).includes('Ego Lite Browser'))[0]
+  assert.ok(egoTile)
+  assert.ok(findAll(egoTile, n => n.type === 'span' && n.props?.className === 'bt-tag' && textOf(n) === 'External window').length === 1)
+
+  const refsTile = findAll(tree, n => n.props?.className === 'bt-plg-tile' && textOf(n).includes('Playwright (Refs)'))[0]
+  assert.ok(refsTile)
+  assert.equal(findAll(refsTile, n => n.type === 'span' && n.props?.className === 'bt-tag' && textOf(n) === 'External window').length, 0)
+
+  // Open Ego Lite details -> Browser window: External window
+  findAll(egoTile, n => n.type === 'button' && n.props?.className === 'bt-plg-main')[0].props.onClick()
+  tree = draw()
+  assert.match(textOf(tree), /Browser window/)
+  assert.match(textOf(tree), /External window/)
+
+  // Navigate back and open Playwright (Refs) details -> Browser window: Sidebar browser
+  findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Back')[0].props.onClick()
+  tree = draw()
+  const refsMain = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-plg-main' && textOf(n).includes('Playwright (Refs)'))[0]
+  refsMain.props.onClick()
+  tree = draw()
+  assert.match(textOf(tree), /Browser window/)
+  assert.match(textOf(tree), /Sidebar browser/)
+})

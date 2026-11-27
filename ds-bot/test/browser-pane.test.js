@@ -728,3 +728,88 @@ test('ImportCard disables Close and ignores Escape while apply is busy, but stil
   assert.equal(menuClosed, 0, 'Escape must not dismiss overlay ImportMenu while busy')
   menuInst.unmount()
 })
+
+test('BrowserView hides takeover bar in read-only mode, shows external-window notice for external plugins, and keeps takeover for sidebar-controlled plugins', () => {
+  const h = createHarness()
+  const { BrowserView, browserPaneMode } = h.exports
+  const bot = { id: 'chief', name: 'Chief' }
+  const useBrowserPages = (sel) => sel({ 'tab-1': { url: '', title: '', loading: false, canGoBack: false, canGoForward: false, error: null } })
+  const openedSettings = []
+  const actions = {
+    browserShow() {},
+    browserNavigate: async () => true,
+    browserFocus() {},
+    browserCommand() {},
+    browserNewTab() {},
+    browserTakeover: async () => ({}),
+    browserStop: async () => ({}),
+    browserGiveBack: async () => ({}),
+    browserImport: { sources: async () => [], paste: async () => ({}) },
+    openSettings: (...args) => openedSettings.push(args),
+  }
+
+  // 1. Read-only mode: no takeover banner, normal read-along empty state with Import cookies.
+  assert.deepEqual({ ...browserPaneMode({ active: 'builtin:readonly', controlsPane: false, windowMode: 'readonly' }) }, {
+    active: 'builtin:readonly',
+    activeLabel: 'Read-only Browser',
+    controlsPane: false,
+    windowMode: 'readonly',
+    showTakeover: false,
+    isExternal: false,
+  })
+  const roInst = h.mount(BrowserView, {
+    bot, ownerId: bot.id, tabId: 'tab-1', leaving: false, landed: true, actions, useBrowserPages, hold: null,
+    browserSlot: { active: 'builtin:readonly', activeName: 'Read-only Browser', controlsPane: false, windowMode: 'readonly' },
+  })
+  const roTree = roInst.render()
+  assert.equal(allNodes(roTree, n => n.props?.className === 'bt-browser-takeover').length, 0)
+  assert.doesNotMatch(textOf(roTree), /The Bot controls this browser/)
+  assert.match(textOf(roTree), /Import cookies/)
+  roInst.unmount()
+
+  // 2. Sidebar-controlled built-in Playwright: shows takeover banner with Take over & Stop.
+  const paneInst = h.mount(BrowserView, {
+    bot, ownerId: bot.id, tabId: 'tab-1', leaving: false, landed: true, actions, useBrowserPages, hold: null,
+    browserSlot: { active: 'builtin:refs', activeName: 'Playwright (Refs)', controlsPane: true, windowMode: 'pane' },
+  })
+  const paneTree = paneInst.render()
+  const paneBanner = allNodes(paneTree, n => n.props?.className === 'bt-browser-takeover')[0]
+  assert.ok(paneBanner)
+  assert.equal(paneBanner.props['data-external'], undefined)
+  assert.match(textOf(paneBanner), /The Bot controls this browser/)
+  assert.ok(allNodes(paneBanner, n => n.type === 'button' && textOf(n) === 'Take over').length === 1)
+  assert.ok(allNodes(paneBanner, n => n.type === 'button' && textOf(n) === 'Stop').length === 1)
+  paneInst.unmount()
+
+  // 3. External window plugin (e.g. Ego Lite): no takeover banner; shows external-window notice + Switch button.
+  const extInst = h.mount(BrowserView, {
+    bot, ownerId: bot.id, tabId: 'tab-1', leaving: false, landed: true, actions, useBrowserPages, hold: null,
+    browserSlot: { active: 'dsh:dsh-ego-browser', activeName: 'Ego Lite Browser', controlsPane: false, windowMode: 'external' },
+  })
+  const extTree = extInst.render()
+  const extBanner = allNodes(extTree, n => n.props?.className === 'bt-browser-takeover')[0]
+  assert.ok(extBanner)
+  assert.equal(extBanner.props['data-external'], '')
+  assert.doesNotMatch(textOf(extTree), /The Bot controls this browser/)
+  assert.match(textOf(extBanner), /Ego Lite Browser opens in an external window, not this sidebar/)
+  const switchBtn = allNodes(extBanner, n => n.type === 'button' && textOf(n) === 'Switch')[0]
+  assert.ok(switchBtn)
+  switchBtn.props.onClick()
+  assert.deepEqual(openedSettings[0], ['plugins', 'browser'])
+  const emptySwitchBtn = allNodes(extTree, n => n.type === 'button' && textOf(n) === 'Switch browser plugin')[0]
+  assert.ok(emptySwitchBtn)
+  emptySwitchBtn.props.onClick()
+  assert.deepEqual(openedSettings[1], ['plugins', 'browser'])
+  extInst.unmount()
+
+  // 4. Active hold always remains releasable even after switching to an external plugin.
+  const heldExtInst = h.mount(BrowserView, {
+    bot, ownerId: bot.id, tabId: 'tab-1', leaving: false, landed: true, actions, useBrowserPages,
+    hold: { by: 'user', reason: 'takeover' },
+    browserSlot: { active: 'dsh:dsh-ego-browser', activeName: 'Ego Lite Browser', controlsPane: false, windowMode: 'external' },
+  })
+  const heldExtTree = heldExtInst.render()
+  assert.match(textOf(heldExtTree), /You control this browser/)
+  assert.ok(allNodes(heldExtTree, n => n.type === 'button' && textOf(n) === 'Give back').length === 1)
+  heldExtInst.unmount()
+})

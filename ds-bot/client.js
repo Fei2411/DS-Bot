@@ -2438,6 +2438,13 @@ var JA = {
   "Shared login": "ログイン共有",
   "Real Chromium": "実Chromium",
   "Human + AI": "人＋AI協働",
+  "Ego Lite Browser": "Ego Lite ブラウザ",
+  "Sidebar browser": "サイドバーブラウザ",
+  "External window": "外部ウィンドウ",
+  "Requires Ego Lite app": "Ego Lite アプリが必要",
+  "Browser window": "ブラウザウィンドウ",
+  "{name} opens in an external window, not this sidebar": "{name} は外部ウィンドウで開き、このサイドバーには表示されません",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} は外部ウィンドウで動作するため、{name} はここで開いたページを使いません。このサイドバーで操作するには内蔵ブラウザプラグインに切り替えてください。",
   "Accessibility tree": "アクセシビリティツリー",
   "Standard MCP": "標準MCP",
   "DOM & console": "DOM・コンソール",
@@ -6103,6 +6110,13 @@ var KO = {
   "Shared login": "로그인 공유",
   "Real Chromium": "실제 Chromium",
   "Human + AI": "사람 + AI",
+  "Ego Lite Browser": "Ego Lite 브라우저",
+  "Sidebar browser": "사이드바 브라우저",
+  "External window": "외부 창",
+  "Requires Ego Lite app": "Ego Lite 앱 필요",
+  "Browser window": "브라우저 창",
+  "{name} opens in an external window, not this sidebar": "{name}은(는) 외부 창에서 열리며 이 사이드바에 표시되지 않습니다",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin}은(는) 외부 창에서 실행되므로 {name}은(는) 여기서 연 페이지를 사용하지 않습니다. 이 사이드바에서 탐색하려면 내장 브라우저 플러그인으로 전환하세요.",
   "Accessibility tree": "접근성 트리",
   "Standard MCP": "표준 MCP",
   "DOM & console": "DOM 및 콘솔",
@@ -9769,6 +9783,13 @@ var ES = {
   "Shared login": "Sesión compartida",
   "Real Chromium": "Chromium real",
   "Human + AI": "Humano + IA",
+  "Ego Lite Browser": "Ego Lite Browser",
+  "Sidebar browser": "Navegador lateral",
+  "External window": "Ventana externa",
+  "Requires Ego Lite app": "Requiere la app Ego Lite",
+  "Browser window": "Ventana del navegador",
+  "{name} opens in an external window, not this sidebar": "{name} se abre en una ventana externa, no en esta barra lateral",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} se ejecuta en una ventana externa, por lo que {name} no usa las páginas abiertas aquí. Cambia a un plugin de navegador integrado para navegar en esta barra lateral.",
   "Accessibility tree": "Árbol de accesibilidad",
   "Standard MCP": "MCP estándar",
   "DOM & console": "DOM y consola",
@@ -13391,6 +13412,13 @@ var FR = {
   "Shared login": "Session partagée",
   "Real Chromium": "Vrai Chromium",
   "Human + AI": "Humain + IA",
+  "Ego Lite Browser": "Ego Lite Browser",
+  "Sidebar browser": "Navigateur latéral",
+  "External window": "Fenêtre externe",
+  "Requires Ego Lite app": "Nécessite l’app Ego Lite",
+  "Browser window": "Fenêtre du navigateur",
+  "{name} opens in an external window, not this sidebar": "{name} s’ouvre dans une fenêtre externe, pas dans cette barre latérale",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} s’exécute dans une fenêtre externe : {name} n’utilise pas les pages ouvertes ici. Passez à un plugin de navigateur intégré pour naviguer dans cette barre latérale.",
   "Accessibility tree": "Arbre d'accessibilité",
   "Standard MCP": "MCP standard",
   "DOM & console": "DOM et console",
@@ -17056,6 +17084,13 @@ var DE = {
   "Shared login": "Geteilter Login",
   "Real Chromium": "Echtes Chromium",
   "Human + AI": "Mensch + KI",
+  "Ego Lite Browser": "Ego Lite Browser",
+  "Sidebar browser": "Seitenleisten-Browser",
+  "External window": "Externes Fenster",
+  "Requires Ego Lite app": "Erfordert die Ego Lite-App",
+  "Browser window": "Browserfenster",
+  "{name} opens in an external window, not this sidebar": "{name} öffnet sich in einem externen Fenster, nicht in dieser Seitenleiste",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} läuft in einem externen Fenster, daher nutzt {name} hier geöffnete Seiten nicht. Wechsle zu einem integrierten Browser-Plugin, um in dieser Seitenleiste zu surfen.",
   "Accessibility tree": "Barrierefreiheitsbaum",
   "Standard MCP": "Standard-MCP",
   "DOM & console": "DOM & Konsole",
@@ -20523,6 +20558,13 @@ var ZH = {
   "Shared login": "共享登录态",
   "Real Chromium": "真实浏览器",
   "Human + AI": "人机协作",
+  "Ego Lite Browser": "Ego Lite 浏览器",
+  "Sidebar browser": "侧边栏浏览器",
+  "External window": "外部窗口",
+  "Requires Ego Lite app": "需本机安装 Ego Lite",
+  "Browser window": "浏览器窗口",
+  "{name} opens in an external window, not this sidebar": "{name} 在外部窗口运行，不在此侧边栏显示",
+  "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} 在外部独立窗口运行，{name} 不会使用这里打开的网页。切换为内置浏览器插件即可在此侧边栏里直接浏览与操控。",
   "Accessibility tree": "可访问性树",
   "Standard MCP": "标准 MCP",
   "DOM & console": "DOM 与控制台",
@@ -57561,17 +57603,20 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
     setKinds((current2) => checked ? current2.includes(kind) ? current2 : [...current2, kind] : current2.filter((value) => value !== kind));
   };
   const addBtn = adding || bots.length === 0 ? null : (0, import_react61.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "data-tour": "browser-allow", onClick: () => setAdding(true) }, (0, import_react61.createElement)(PlusIcon), t("Allow action"));
-  const activeBrowserId = roster.plugins?.slots?.browser?.active ?? "builtin:readonly";
-  const KNOWN_BROWSER_LABELS = {
+  const browserSlot = roster.plugins?.slots?.browser;
+  const activeBrowserId = browserSlot?.active ?? "builtin:readonly";
+  const KNOWN_BROWSER_LABELS2 = {
     "builtin:readonly": t("Read-only Browser"),
     "builtin:refs": t("Playwright (Refs)"),
     "builtin:script": t("Playwright (Script)"),
     "builtin:task": t("Playwright (Task)"),
-    "dsh:dsh-ego-browser": "Ego Lite Browser",
+    "dsh:dsh-ego-browser": t("Ego Lite Browser"),
     "mcp:playwright-mcp": "Playwright MCP",
     "mcp:chrome-devtools-mcp": "Chrome DevTools MCP"
   };
-  const activeBrowserLabel = KNOWN_BROWSER_LABELS[activeBrowserId] ?? activeBrowserId.replace(/^(builtin|dsh|mcp|provider):/, "");
+  const activeBrowserName = KNOWN_BROWSER_LABELS2[activeBrowserId] ?? browserSlot?.activeName ?? activeBrowserId.replace(/^(builtin|dsh|mcp|provider):/, "");
+  const isExternalBrowser = browserSlot?.windowMode === "external" || browserSlot?.windowMode == null && activeBrowserId !== "builtin:readonly" && !/^builtin:(refs|script|task|injected)$/.test(activeBrowserId);
+  const activeBrowserLabel = isExternalBrowser ? `${activeBrowserName} · ${t("External window")}` : activeBrowserName;
   return (0, import_react61.createElement)(
     "div",
     { className: "bt-browser-settings" },
@@ -57897,40 +57942,41 @@ function PluginMark({ plugin }) {
 var BROWSER_META = {
   "builtin:readonly": {
     url: "browser://readonly",
-    traits: ["Read current page", "Zero writes"]
+    traits: ["Sidebar browser", "Read current page", "Zero writes"]
   },
   "builtin:refs": {
     url: "browser://playwright/refs",
-    traits: ["Click & forms", "Element refs", "Screenshots"]
+    traits: ["Sidebar browser", "Click & forms", "Element refs"]
   },
   "builtin:script": {
     url: "browser://playwright/script",
-    traits: ["JS scripts", "Batch steps", "Fast"]
+    traits: ["Sidebar browser", "JS scripts", "Batch steps"]
   },
   "builtin:task": {
     url: "browser://playwright/task",
-    traits: ["Multi-step", "Autonomous"]
+    traits: ["Sidebar browser", "Multi-step", "Autonomous"]
   },
   "dsh:dsh-ego-browser": {
     url: "browser://ego-lite",
-    traits: ["Shared login", "Real Chromium", "Human + AI"]
+    traits: ["External window", "Requires Ego Lite app", "Real Chromium"]
   },
   "mcp:playwright-mcp": {
     url: "browser://playwright-mcp",
-    traits: ["Accessibility tree", "Standard MCP"]
+    traits: ["External window", "Accessibility tree", "Standard MCP"]
   },
   "mcp:chrome-devtools-mcp": {
     url: "browser://chrome-devtools",
-    traits: ["DOM & console", "Network debug", "CDP"]
+    traits: ["External window", "DOM & console", "CDP"]
   }
 };
 function browserMetaFor(plugin) {
   if (!plugin) return { url: "browser://none", traits: [] };
   if (BROWSER_META[plugin.id]) return BROWSER_META[plugin.id];
   const slug = String(plugin.id || "custom").replace(/^(builtin|dsh|mcp|provider):/, "").replace(/[^a-z0-9._-]+/gi, "-").toLowerCase();
+  const surfaceTrait = plugin.windowMode === "external" || !plugin.builtin && plugin.controlsPane !== true ? "External window" : "Sidebar browser";
   return {
     url: `browser://${slug || "custom"}`,
-    traits: plugin.kind === "mcp" ? ["Standard MCP", "Browser slot"] : ["Browser slot"]
+    traits: plugin.kind === "mcp" ? [surfaceTrait, "Standard MCP"] : [surfaceTrait, "Browser slot"]
   };
 }
 
@@ -58247,10 +58293,17 @@ function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSl
     onChange: (next) => onToggle(plugin.id, next)
   });
 }
+function isExternalBrowserPlugin(plugin) {
+  if (plugin?.slot !== "browser") return false;
+  if (plugin.windowMode === "external") return true;
+  if (plugin.windowMode === "pane" || plugin.windowMode === "readonly") return false;
+  return !plugin.builtin && plugin.controlsPane !== true;
+}
 function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActivateSlot, onInstall, onToggle, onCopy, onConsent }) {
   const name = localizedField(plugin, "name") || plugin.name || plugin.id;
   const desc = localizedField(plugin, "description") || plugin.description || "";
   const isActive = Boolean(plugin.slot ? plugin.active && plugin.desired !== false : plugin.installed && plugin.enabled);
+  const externalBrowser = isExternalBrowserPlugin(plugin);
   const fresh = useJustActivated(isActive);
   const subtitle = plugin.error ? hostText(plugin.error) : plugin.status === "restart-required" ? t("Restart required") : desc;
   const tone = plugin.status === "error" || plugin.killed || plugin.status === "unverifiable" || plugin.error && !plugin.consentRequired ? "error" : plugin.status === "restart-required" || plugin.consentRequired ? "warn" : void 0;
@@ -58278,6 +58331,7 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
           "span",
           { className: "bt-plg-name" },
           (0, import_react63.createElement)("span", { className: "bt-plg-label" }, name),
+          externalBrowser && !plugin.killed && !plugin.consentRequired && plugin.status !== "unverifiable" ? (0, import_react63.createElement)("span", { className: "bt-tag" }, t("External window")) : null,
           plugin.custom && !plugin.killed && !plugin.consentRequired && plugin.status !== "unverifiable" ? (0, import_react63.createElement)("span", { className: "bt-tag" }, t("Added")) : null,
           plugin.killed ? (0, import_react63.createElement)("span", { className: "bt-tag", "data-tone": "error" }, t("Stopped")) : null,
           plugin.consentRequired ? (0, import_react63.createElement)("span", { className: "bt-tag", "data-tone": "warn" }, t("Approval needed")) : null,
@@ -58304,7 +58358,7 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
     plugin.author || null
   ].filter(Boolean).join(" · ");
   const hasDetailRows = Boolean(
-    plugin.packageName || plugin.installSpec && plugin.installSpec !== plugin.packageName || plugin.mcp?.url || plugin.mcp?.command || plugin.toolPrefixes?.length || homepageUrl || repoUrl || plugin.updatable && plugin.installed || plugin.removable
+    plugin.slot === "browser" || plugin.packageName || plugin.installSpec && plugin.installSpec !== plugin.packageName || plugin.mcp?.url || plugin.mcp?.command || plugin.toolPrefixes?.length || homepageUrl || repoUrl || plugin.updatable && plugin.installed || plugin.removable
   );
   const isActive = Boolean(plugin.slot ? plugin.active && plugin.desired !== false : plugin.installed && plugin.enabled);
   return (0, import_react63.createElement)(
@@ -58369,6 +58423,11 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
     hasDetailRows ? (0, import_react63.createElement)(
       Section2,
       { title: t("Details") },
+      plugin.slot === "browser" ? (0, import_react63.createElement)(
+        Row4,
+        { label: t("Browser window") },
+        (0, import_react63.createElement)("span", { className: "bt-chip" }, isExternalBrowserPlugin(plugin) ? t("External window") : t("Sidebar browser"))
+      ) : null,
       plugin.packageName ? (0, import_react63.createElement)(Row4, { label: t("Package") }, (0, import_react63.createElement)("code", { className: "bt-plg-code" }, plugin.packageName)) : null,
       plugin.installSpec && plugin.installSpec !== plugin.packageName ? (0, import_react63.createElement)(Row4, { label: t("Source") }, (0, import_react63.createElement)("code", { className: "bt-plg-code" }, plugin.installSpec)) : null,
       plugin.mcp?.url ? (0, import_react63.createElement)(Row4, { label: t("URL") }, (0, import_react63.createElement)("code", { className: "bt-plg-code" }, plugin.mcp.url)) : null,
@@ -71344,7 +71403,30 @@ function shouldCheckBrowserCover(records) {
     return hasOverlayNode(record.addedNodes) || hasOverlayNode(record.removedNodes);
   });
 }
-function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+var KNOWN_BROWSER_LABELS = {
+  "builtin:readonly": () => t("Read-only Browser"),
+  "builtin:refs": () => t("Playwright (Refs)"),
+  "builtin:script": () => t("Playwright (Script)"),
+  "builtin:task": () => t("Playwright (Task)"),
+  "dsh:dsh-ego-browser": () => t("Ego Lite Browser"),
+  "mcp:playwright-mcp": () => "Playwright MCP",
+  "mcp:chrome-devtools-mcp": () => "Chrome DevTools MCP"
+};
+function browserPaneMode(browserSlot, hold = null) {
+  const active = browserSlot?.active ?? "builtin:readonly";
+  const controlsPane = typeof browserSlot?.controlsPane === "boolean" ? browserSlot.controlsPane : browserSlot?.windowMode === "pane" || browserSlot?.windowMode == null && /^builtin:(refs|script|task|injected)$/.test(active);
+  const windowMode = browserSlot?.windowMode === "pane" || browserSlot?.windowMode === "readonly" || browserSlot?.windowMode === "external" ? browserSlot.windowMode : controlsPane ? "pane" : active === "builtin:readonly" ? "readonly" : "external";
+  const activeLabel = KNOWN_BROWSER_LABELS[active]?.() ?? browserSlot?.activeName ?? active.replace(/^(builtin|dsh|mcp|provider):/, "");
+  return {
+    active,
+    activeLabel,
+    controlsPane,
+    windowMode,
+    showTakeover: Boolean(controlsPane || hold?.by),
+    isExternal: windowMode === "external"
+  };
+}
+function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold, browserSlot }) {
   const browserId = ownerId ?? bot?.id ?? "";
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
   const pageUrl = visibleUrl(page.url);
@@ -71453,11 +71535,12 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
     input.current?.blur();
   }, editing, { priority: ESCAPE_PRIORITY.INLINE_ACTION });
   const secure = /^https:/i.test(pageUrl);
+  const paneMode = browserPaneMode(browserSlot, hold);
   const viewLabel = bot ? t("{name}'s browser", { name: bot.name }) : t("Browser");
   return (0, import_react95.createElement)(
     "div",
     { className: "bt-panel-view bt-panel-browser", "aria-label": viewLabel },
-    bot && actions.browserTakeover ? (0, import_react95.createElement)(
+    bot && actions.browserTakeover && paneMode.showTakeover ? (0, import_react95.createElement)(
       "div",
       { className: "bt-browser-takeover", "data-held": hold?.by === "user" || void 0 },
       (0, import_react95.createElement)("span", null, hold?.by === "user" ? t("You control this browser") : hold?.by === "bot" ? t("The Bot handed this browser to you: {reason}", { reason: hold.reason }) : t("The Bot controls this browser")),
@@ -71467,6 +71550,11 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
         (0, import_react95.createElement)("button", { type: "button", onClick: () => void actions.browserTakeover(bot.id) }, t("Take over")),
         (0, import_react95.createElement)("button", { type: "button", onClick: () => void actions.browserStop(bot.id) }, t("Stop"))
       )
+    ) : bot && paneMode.isExternal ? (0, import_react95.createElement)(
+      "div",
+      { className: "bt-browser-takeover", "data-external": "" },
+      (0, import_react95.createElement)("span", null, t("{name} opens in an external window, not this sidebar", { name: paneMode.activeLabel })),
+      actions.openSettings ? (0, import_react95.createElement)("button", { type: "button", onClick: () => actions.openSettings("plugins", "browser") }, t("Switch")) : null
     ) : null,
     (0, import_react95.createElement)(
       "div",
@@ -71592,8 +71680,8 @@ function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowser
         { className: "bt-browser-empty" },
         bot ? (0, import_react95.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }) : (0, import_react95.createElement)("span", { className: "bt-browser-empty-icon", "aria-hidden": true }, (0, import_react95.createElement)(GlobeIcon2)),
         (0, import_react95.createElement)("div", { className: "bt-browser-empty-title" }, bot ? t("{name}'s browser", { name: bot.name }) : t("Browser")),
-        (0, import_react95.createElement)("div", { className: "bt-browser-empty-text" }, bot ? t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name }) : t("Open a page beside your session. Enter an address above to get started.")),
-        bot && imports ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
+        (0, import_react95.createElement)("div", { className: "bt-browser-empty-text" }, bot ? paneMode.isExternal ? t("{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.", { plugin: paneMode.activeLabel, name: bot.name }) : t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name }) : t("Open a page beside your session. Enter an address above to get started.")),
+        bot && paneMode.isExternal && actions.openSettings ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openSettings("plugins", "browser") }, t("Switch browser plugin")) : bot && imports ? (0, import_react95.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
       ) : null
     )
   );
@@ -71897,7 +71985,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       { key: "workspace", className: "bt-panel-view bt-panel-workspace", hidden: view !== "workspace" },
       workspace.render(workspace.active, view === "workspace")
     ) : null,
-    view === "workspace" ? !hasWs ? (0, import_react95.createElement)("div", { key: "workspace-empty", className: "bt-panel-view bt-panel-workspace" }) : null : view === "browser" && browserOwner ? (0, import_react95.createElement)(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react95.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react95.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : hasSubjectDetails || workspace === void 0 ? (0, import_react95.createElement)(
+    view === "workspace" ? !hasWs ? (0, import_react95.createElement)("div", { key: "workspace-empty", className: "bt-panel-view bt-panel-workspace" }) : null : view === "browser" && browserOwner ? (0, import_react95.createElement)(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold, browserSlot: roster.plugins?.slots?.browser }) : view === "side" && sideChat ? (0, import_react95.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react95.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react95.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : hasSubjectDetails || workspace === void 0 ? (0, import_react95.createElement)(
       "div",
       { key: `details:${subjectId}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
       (0, import_react95.createElement)(DetailsDrawer, {
@@ -71969,8 +72057,9 @@ var BROWSER_CSS = `
 .bt-browser-bar{position:relative;display:flex;align-items:center;gap:2px;height:52px;padding:0 10px 0 12px;flex:none;border-bottom:.5px solid var(--bt-line)}
 .bt-browser-takeover{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:var(--bt-hover);border-bottom:.5px solid var(--bt-line);font-size:12px;color:var(--bt-ink-2)}
 .bt-browser-takeover[data-held]{background:var(--bt-active)}
-.bt-browser-takeover-actions{display:flex;gap:6px}
-.bt-browser-takeover button{border:1px solid var(--bt-line-2);border-radius:8px;padding:5px 9px;background:var(--bt-main);color:var(--bt-ink);font:inherit;cursor:pointer}
+.bt-browser-takeover-actions{display:flex;gap:6px;flex:none}
+.bt-browser-takeover button{flex:none;white-space:nowrap;border:1px solid var(--bt-line-2);border-radius:8px;padding:5px 9px;background:var(--bt-main);color:var(--bt-ink);font:inherit;cursor:pointer;transition:background-color .12s ease}
+.bt-browser-takeover button:hover{background:var(--bt-hover)}
 .bt-browser-bar .bt-icon-btn:disabled{opacity:.35;cursor:default;background:none}
 .bt-browser-address{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:32px;margin:0 4px;padding:0 12px;border-radius:999px;background:var(--bt-hover);border:.5px solid transparent;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
 .bt-browser-address:hover{background:var(--bt-active)}

@@ -118,18 +118,23 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
 
   const addBtn = adding || bots.length === 0 ? null
     : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'browser-allow', onClick: () => setAdding(true) }, h(PlusIcon), t('Allow action'))
-  const activeBrowserId = roster.plugins?.slots?.browser?.active ?? 'builtin:readonly'
+  const browserSlot = roster.plugins?.slots?.browser
+  const activeBrowserId = browserSlot?.active ?? 'builtin:readonly'
   const KNOWN_BROWSER_LABELS = {
     'builtin:readonly': t('Read-only Browser'),
     'builtin:refs': t('Playwright (Refs)'),
     'builtin:script': t('Playwright (Script)'),
     'builtin:task': t('Playwright (Task)'),
-    'dsh:dsh-ego-browser': 'Ego Lite Browser',
+    'dsh:dsh-ego-browser': t('Ego Lite Browser'),
     'mcp:playwright-mcp': 'Playwright MCP',
     'mcp:chrome-devtools-mcp': 'Chrome DevTools MCP',
   }
-  const activeBrowserLabel = KNOWN_BROWSER_LABELS[activeBrowserId]
+  const activeBrowserName = KNOWN_BROWSER_LABELS[activeBrowserId]
+    ?? browserSlot?.activeName
     ?? activeBrowserId.replace(/^(builtin|dsh|mcp|provider):/, '')
+  const isExternalBrowser = browserSlot?.windowMode === 'external'
+    || (browserSlot?.windowMode == null && activeBrowserId !== 'builtin:readonly' && !/^builtin:(refs|script|task|injected)$/.test(activeBrowserId))
+  const activeBrowserLabel = isExternalBrowser ? `${activeBrowserName} · ${t('External window')}` : activeBrowserName
 
   return h('div', { className: 'bt-browser-settings' },
     h(Section, null,

@@ -1757,6 +1757,42 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     return rules.prefixes.some(prefix => prefix && toolName.startsWith(prefix))
   }
 
+  function browserSurfaceFor(id, controlsPane) {
+    if (id === 'builtin:readonly') return { controlsPane: false, windowMode: 'readonly' }
+    if (controlsPane === true) return { controlsPane: true, windowMode: 'pane' }
+    return { controlsPane: false, windowMode: 'external' }
+  }
+
+  function resolveActiveBrowserMeta(activeId, catalogEntries = catalogManager.peek().entries) {
+    const id = activeId ?? 'builtin:readonly'
+    const mount = activeMounts.get('slot:browser')
+    const mountedDesc = mount?.slotTargetId === id ? mount.descriptor : null
+    const builtinDesc = builtinPlugins.get(id)
+    const nativeDesc = mountedDesc
+      ?? nativePlugins.get(id)
+      ?? (id.startsWith('provider:') ? nativePlugins.get(id.slice('provider:'.length)) : null)
+    const desc = builtinDesc ?? nativeDesc
+    const surface = browserSurfaceFor(id, Boolean(desc?.controlsPane))
+    let activeName = desc?.name ?? null
+    if (!activeName) {
+      const store = pluginStore()
+      const customEntry = own(store.custom, id)
+      const catalogEntry = (catalogEntries ?? []).find(e => e?.id === id)
+      const snapshotEntry = own(store.snapshots, id)
+      const entry = customEntry ?? catalogEntry ?? snapshotEntry
+      if (entry?.name) {
+        activeName = entry.name
+      } else if (id.startsWith('dsh:')) {
+        const pkg = id.slice('dsh:'.length)
+        const bundle = cachedBundles.get(pkg)
+        activeName = resolveLocalizedText(bundle?.meta?.title, pkg)
+      } else {
+        activeName = id.replace(/^(builtin|dsh|mcp|provider):/, '')
+      }
+    }
+    return { ...surface, activeName }
+  }
+
   // Build the unified list of all plugins (built-ins + catalog + custom + installed DSH bundles + standalone native providers).
   async function buildPluginsView({ refreshCatalog = false, signal } = {}) {
     const store = pluginStore()
@@ -1856,6 +1892,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         updatable: false,
         supportsPerBot: desc.supportsPerBot,
         supportsGrants: desc.supportsGrants,
+        ...(slot === 'browser' ? browserSurfaceFor(desc.id, desc.controlsPane) : {}),
         offFor: [],
         toolPrefixes: desc.toolPrefixes,
         packageName: null,
@@ -1930,6 +1967,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
           updatable: false,
           supportsPerBot: slot === null,
           supportsGrants: false,
+          ...(slot === 'browser' ? browserSurfaceFor(entry.id, false) : {}),
           offFor: slot === null ? [...(own(store.offFor, entry.id) ?? [])] : [],
           toolPrefixes: defaultPrefixesForMcp(entry.id, entry.toolPrefixes),
           packageName: null,
@@ -1990,6 +2028,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         updatable: Boolean(bundle?.updatable),
         supportsPerBot: slot === null && cleanPrefixes(entry.toolPrefixes).length > 0,
         supportsGrants: Boolean(nativeBacking?.supportsGrants),
+        ...(slot === 'browser' ? browserSurfaceFor(entry.id, Boolean(nativeBacking?.controlsPane)) : {}),
         offFor: slot === null ? [...(own(store.offFor, entry.id) ?? [])] : [],
         toolPrefixes: cleanPrefixes(entry.toolPrefixes),
         packageName: pkgName,
@@ -2045,6 +2084,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         ...securityViewFields(stat),
         supportsPerBot: desc.supportsPerBot,
         supportsGrants: desc.supportsGrants,
+        ...(slot === 'browser' ? browserSurfaceFor(desc.id, desc.controlsPane) : {}),
         offFor: [...(own(store.offFor, desc.id) ?? [])],
         toolPrefixes: desc.toolPrefixes,
         packageName: desc.packageName ?? null,
@@ -2131,6 +2171,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
           status: slotStat('browser')?.status ?? 'ready',
           error: slotStat('browser')?.error ?? null,
           restartReason: slotStat('browser')?.restartReason ?? null,
+          ...resolveActiveBrowserMeta(activeSlotTarget('browser') ?? 'builtin:readonly', catalogSnapshot.entries),
         },
       },
       plugins: items,
@@ -2162,6 +2203,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
           status: browserStat?.status ?? 'ready',
           error: browserStat?.error ?? null,
           restartReason: browserStat?.restartReason ?? null,
+          ...resolveActiveBrowserMeta(activeBrowser),
         },
       },
     }

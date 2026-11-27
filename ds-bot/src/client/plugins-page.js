@@ -341,10 +341,18 @@ function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSl
   })
 }
 
+function isExternalBrowserPlugin(plugin) {
+  if (plugin?.slot !== 'browser') return false
+  if (plugin.windowMode === 'external') return true
+  if (plugin.windowMode === 'pane' || plugin.windowMode === 'readonly') return false
+  return !plugin.builtin && plugin.controlsPane !== true
+}
+
 function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActivateSlot, onInstall, onToggle, onCopy, onConsent }) {
   const name = localizedField(plugin, 'name') || plugin.name || plugin.id
   const desc = localizedField(plugin, 'description') || plugin.description || ''
   const isActive = Boolean(plugin.slot ? (plugin.active && plugin.desired !== false) : (plugin.installed && plugin.enabled))
+  const externalBrowser = isExternalBrowserPlugin(plugin)
   const fresh = useJustActivated(isActive)
   const subtitle = plugin.error
     ? hostText(plugin.error)
@@ -371,6 +379,8 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
   h('span', { className: 'bt-plg-text' },
     h('span', { className: 'bt-plg-name' },
       h('span', { className: 'bt-plg-label' }, name),
+      externalBrowser && !plugin.killed && !plugin.consentRequired && plugin.status !== 'unverifiable'
+        ? h('span', { className: 'bt-tag' }, t('External window')) : null,
       plugin.custom && !plugin.killed && !plugin.consentRequired && plugin.status !== 'unverifiable'
         ? h('span', { className: 'bt-tag' }, t('Added')) : null,
       plugin.killed ? h('span', { className: 'bt-tag', 'data-tone': 'error' }, t('Stopped')) : null,
@@ -397,7 +407,8 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
   ].filter(Boolean).join(' · ')
 
   const hasDetailRows = Boolean(
-    plugin.packageName
+    plugin.slot === 'browser'
+    || plugin.packageName
     || (plugin.installSpec && plugin.installSpec !== plugin.packageName)
     || plugin.mcp?.url
     || plugin.mcp?.command
@@ -449,6 +460,10 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
       : null,
     hasDetailRows
       ? h(Section, { title: t('Details') },
+        plugin.slot === 'browser'
+          ? h(Row, { label: t('Browser window') },
+            h('span', { className: 'bt-chip' }, isExternalBrowserPlugin(plugin) ? t('External window') : t('Sidebar browser')))
+          : null,
         plugin.packageName ? h(Row, { label: t('Package') }, h('code', { className: 'bt-plg-code' }, plugin.packageName)) : null,
         plugin.installSpec && plugin.installSpec !== plugin.packageName ? h(Row, { label: t('Source') }, h('code', { className: 'bt-plg-code' }, plugin.installSpec)) : null,
         plugin.mcp?.url ? h(Row, { label: t('URL') }, h('code', { className: 'bt-plg-code' }, plugin.mcp.url)) : null,

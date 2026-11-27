@@ -427,9 +427,43 @@ export function shouldCheckBrowserCover(records) {
   })
 }
 
+const KNOWN_BROWSER_LABELS = {
+  'builtin:readonly': () => t('Read-only Browser'),
+  'builtin:refs': () => t('Playwright (Refs)'),
+  'builtin:script': () => t('Playwright (Script)'),
+  'builtin:task': () => t('Playwright (Task)'),
+  'dsh:dsh-ego-browser': () => t('Ego Lite Browser'),
+  'mcp:playwright-mcp': () => 'Playwright MCP',
+  'mcp:chrome-devtools-mcp': () => 'Chrome DevTools MCP',
+}
+
+export function browserPaneMode(browserSlot, hold = null) {
+  const active = browserSlot?.active ?? 'builtin:readonly'
+  const controlsPane = typeof browserSlot?.controlsPane === 'boolean'
+    ? browserSlot.controlsPane
+    : browserSlot?.windowMode === 'pane'
+      || (browserSlot?.windowMode == null && /^builtin:(refs|script|task|injected)$/.test(active))
+  const windowMode = browserSlot?.windowMode === 'pane'
+    || browserSlot?.windowMode === 'readonly'
+    || browserSlot?.windowMode === 'external'
+    ? browserSlot.windowMode
+    : (controlsPane ? 'pane' : (active === 'builtin:readonly' ? 'readonly' : 'external'))
+  const activeLabel = KNOWN_BROWSER_LABELS[active]?.()
+    ?? browserSlot?.activeName
+    ?? active.replace(/^(builtin|dsh|mcp|provider):/, '')
+  return {
+    active,
+    activeLabel,
+    controlsPane,
+    windowMode,
+    showTakeover: Boolean(controlsPane || hold?.by),
+    isExternal: windowMode === 'external',
+  }
+}
+
 // The browser view: toolbar (back, forward, reload/stop, address) over the frame
 // the guest webview covers.
-export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold, browserSlot }) {
   const browserId = ownerId ?? bot?.id ?? ''
   const page = useBrowserPages(pages => pages[tabId ?? '']) ?? EMPTY_PAGE
   const pageUrl = visibleUrl(page.url)
@@ -523,15 +557,20 @@ export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, use
   const editing = draft !== null
   useEscape(() => { setDraft(null); input.current?.blur() }, editing, { priority: ESCAPE_PRIORITY.INLINE_ACTION })
   const secure = /^https:/i.test(pageUrl)
+  const paneMode = browserPaneMode(browserSlot, hold)
   const viewLabel = bot ? t("{name}'s browser", { name: bot.name }) : t('Browser')
   return h('div', { className: 'bt-panel-view bt-panel-browser', 'aria-label': viewLabel },
-    bot && actions.browserTakeover ? h('div', { className: 'bt-browser-takeover', 'data-held': hold?.by === 'user' || undefined },
+    bot && actions.browserTakeover && paneMode.showTakeover ? h('div', { className: 'bt-browser-takeover', 'data-held': hold?.by === 'user' || undefined },
       h('span', null, hold?.by === 'user' ? t('You control this browser') : hold?.by === 'bot' ? t('The Bot handed this browser to you: {reason}', { reason: hold.reason }) : t('The Bot controls this browser')),
       hold?.by
         ? h('button', { type: 'button', onClick: () => void actions.browserGiveBack(bot.id) }, t('Give back'))
         : h('span', { className: 'bt-browser-takeover-actions' },
             h('button', { type: 'button', onClick: () => void actions.browserTakeover(bot.id) }, t('Take over')),
-            h('button', { type: 'button', onClick: () => void actions.browserStop(bot.id) }, t('Stop')))) : null,
+            h('button', { type: 'button', onClick: () => void actions.browserStop(bot.id) }, t('Stop'))))
+      : bot && paneMode.isExternal ? h('div', { className: 'bt-browser-takeover', 'data-external': '' },
+        h('span', null, t('{name} opens in an external window, not this sidebar', { name: paneMode.activeLabel })),
+        actions.openSettings ? h('button', { type: 'button', onClick: () => actions.openSettings('plugins', 'browser') }, t('Switch')) : null)
+        : null,
     h('div', { className: 'bt-browser-bar' },
       h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Back'), title: t('Back'), disabled: !page.canGoBack, onClick: () => actions.browserCommand(tabId, 'back') }, h(BackIcon)),
       h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Forward'), title: t('Forward'), disabled: !page.canGoForward, onClick: () => actions.browserCommand(tabId, 'forward') }, h(ForwardIcon)),
@@ -621,9 +660,13 @@ export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, use
                 : h('span', { className: 'bt-browser-empty-icon', 'aria-hidden': true }, h(GlobeIcon)),
               h('div', { className: 'bt-browser-empty-title' }, bot ? t("{name}'s browser", { name: bot.name }) : t('Browser')),
               h('div', { className: 'bt-browser-empty-text' }, bot
-                ? t('Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.', { name: bot.name })
+                ? (paneMode.isExternal
+                  ? t('{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.', { plugin: paneMode.activeLabel, name: bot.name })
+                  : t('Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.', { name: bot.name }))
                 : t('Open a page beside your session. Enter an address above to get started.')),
-              bot && imports ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: openImport }, t('Import cookies')) : null)
+              bot && paneMode.isExternal && actions.openSettings
+                ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: () => actions.openSettings('plugins', 'browser') }, t('Switch browser plugin'))
+                : (bot && imports ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: openImport }, t('Import cookies')) : null))
           : null))
 }
 
@@ -918,7 +961,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     view === 'workspace'
       ? (!hasWs ? h('div', { key: 'workspace-empty', className: 'bt-panel-view bt-panel-workspace' }) : null)
       : view === 'browser' && browserOwner
-        ? h(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold })
+        ? h(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold, browserSlot: roster.plugins?.slots?.browser })
         : view === 'side' && sideChat
           ? h('div', { key: `side:${sideChat.id}`, className: 'bt-panel-view' }, h(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions }))
           : view === 'task' && taskEntry && taskBot
@@ -982,8 +1025,9 @@ export const BROWSER_CSS = `
 .bt-browser-bar{position:relative;display:flex;align-items:center;gap:2px;height:52px;padding:0 10px 0 12px;flex:none;border-bottom:.5px solid var(--bt-line)}
 .bt-browser-takeover{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:var(--bt-hover);border-bottom:.5px solid var(--bt-line);font-size:12px;color:var(--bt-ink-2)}
 .bt-browser-takeover[data-held]{background:var(--bt-active)}
-.bt-browser-takeover-actions{display:flex;gap:6px}
-.bt-browser-takeover button{border:1px solid var(--bt-line-2);border-radius:8px;padding:5px 9px;background:var(--bt-main);color:var(--bt-ink);font:inherit;cursor:pointer}
+.bt-browser-takeover-actions{display:flex;gap:6px;flex:none}
+.bt-browser-takeover button{flex:none;white-space:nowrap;border:1px solid var(--bt-line-2);border-radius:8px;padding:5px 9px;background:var(--bt-main);color:var(--bt-ink);font:inherit;cursor:pointer;transition:background-color .12s ease}
+.bt-browser-takeover button:hover{background:var(--bt-hover)}
 .bt-browser-bar .bt-icon-btn:disabled{opacity:.35;cursor:default;background:none}
 .bt-browser-address{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:32px;margin:0 4px;padding:0 12px;border-radius:999px;background:var(--bt-hover);border:.5px solid transparent;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
 .bt-browser-address:hover{background:var(--bt-active)}

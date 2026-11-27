@@ -139,31 +139,31 @@ export function PluginMark({ plugin }) {
 const BROWSER_META = {
   'builtin:readonly': {
     url: 'browser://readonly',
-    traits: ['Read current page', 'Zero writes'],
+    traits: ['Sidebar browser', 'Read current page', 'Zero writes'],
   },
   'builtin:refs': {
     url: 'browser://playwright/refs',
-    traits: ['Click & forms', 'Element refs', 'Screenshots'],
+    traits: ['Sidebar browser', 'Click & forms', 'Element refs'],
   },
   'builtin:script': {
     url: 'browser://playwright/script',
-    traits: ['JS scripts', 'Batch steps', 'Fast'],
+    traits: ['Sidebar browser', 'JS scripts', 'Batch steps'],
   },
   'builtin:task': {
     url: 'browser://playwright/task',
-    traits: ['Multi-step', 'Autonomous'],
+    traits: ['Sidebar browser', 'Multi-step', 'Autonomous'],
   },
   'dsh:dsh-ego-browser': {
     url: 'browser://ego-lite',
-    traits: ['Shared login', 'Real Chromium', 'Human + AI'],
+    traits: ['External window', 'Requires Ego Lite app', 'Real Chromium'],
   },
   'mcp:playwright-mcp': {
     url: 'browser://playwright-mcp',
-    traits: ['Accessibility tree', 'Standard MCP'],
+    traits: ['External window', 'Accessibility tree', 'Standard MCP'],
   },
   'mcp:chrome-devtools-mcp': {
     url: 'browser://chrome-devtools',
-    traits: ['DOM & console', 'Network debug', 'CDP'],
+    traits: ['External window', 'DOM & console', 'CDP'],
   },
 }
 
@@ -171,8 +171,11 @@ export function browserMetaFor(plugin) {
   if (!plugin) return { url: 'browser://none', traits: [] }
   if (BROWSER_META[plugin.id]) return BROWSER_META[plugin.id]
   const slug = String(plugin.id || 'custom').replace(/^(builtin|dsh|mcp|provider):/, '').replace(/[^a-z0-9._-]+/gi, '-').toLowerCase()
+  const surfaceTrait = plugin.windowMode === 'external' || (!plugin.builtin && plugin.controlsPane !== true)
+    ? 'External window'
+    : 'Sidebar browser'
   return {
     url: `browser://${slug || 'custom'}`,
-    traits: plugin.kind === 'mcp' ? ['Standard MCP', 'Browser slot'] : ['Browser slot'],
+    traits: plugin.kind === 'mcp' ? [surfaceTrait, 'Standard MCP'] : [surfaceTrait, 'Browser slot'],
   }
 }
