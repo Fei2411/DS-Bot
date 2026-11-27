@@ -249,22 +249,28 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
         actions.reportError?.(new Error(hostText(error?.message ?? String(error))), 'move-to-background')
       })
   }
-  return createPortal(h('div', { className: 'bt-typing', 'data-exiting': phase === 'out' ? '' : undefined },
+  return createPortal(h('div', {
+    className: 'bt-typing',
+    'data-exiting': phase === 'out' ? '' : undefined,
+    'data-bg-busy': showBgAction && movingBg ? '' : undefined,
+  },
     h('span', { className: 'bt-typing-mark', 'aria-hidden': true },
       bot ? h(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : h(RoomAvatar, { room, roster, size: 28 })),
     h('span', { className: 'bt-typing-text', 'aria-hidden': true },
       h('span', { key: `${shown.key}:${shown.at}`, className: 'bt-typing-label' }, h(Shimmer, null, `${shown.text}…`)),
       h(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: 'bt-typing-time' })),
     showBgAction
-      ? h('button', {
-          type: 'button',
-          className: 'bt-typing-bg',
-          disabled: movingBg,
-          'aria-label': t('Move current work to background'),
-          title: t('Move current work to background'),
-          onClick: moveToBg,
-        },
-        h('span', { className: 'bt-typing-bg-ico', 'aria-hidden': true }, h(MoveIcon)),
-        h('span', null, movingBg ? t('Moving…') : t('Move to background')))
+      ? h('span', { className: 'bt-typing-bg-wrap' },
+        h('span', { className: 'bt-typing-bg-in' },
+          h('button', {
+            type: 'button',
+            className: 'bt-typing-bg',
+            disabled: movingBg,
+            'aria-label': t('Move current work to background'),
+            title: t('Move current work to background'),
+            onClick: moveToBg,
+          },
+          h('span', { className: 'bt-typing-bg-ico', 'aria-hidden': true }, h(MoveIcon)),
+          h('span', null, movingBg ? t('Moving…') : t('Move to background')))))
       : null), host)
 }

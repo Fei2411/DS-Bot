@@ -177,3 +177,35 @@ test('fresh input ignores queued sends and takes the newest of the rest', () => 
   assert.equal(freshInputAt(undefined, 400), 400)
   assert.equal(freshInputAt([], undefined), 0)
 })
+
+// The move-to-background action stays invisible and borderless at rest so the
+// activity row remains quiet, and reveals smoothly on hover, focus, or busy state.
+test('activity-row background action stays hidden and borderless at rest, revealing on hover', async () => {
+  const { outputFiles: styleFiles } = await build({
+    stdin: { contents: "export { CONVERSATION_CSS } from './src/client/styles.js'", resolveDir: PLUGIN },
+    bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
+    external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+  })
+  const styleMod = { exports: {} }
+  runInNewContext(styleFiles[0].text, {
+    module: styleMod, exports: styleMod.exports,
+    require: () => react,
+  })
+  const styleDom = new JSDOM('<!doctype html><html><head></head><body></body></html>')
+  const styleEl = styleDom.window.document.createElement('style')
+  styleEl.textContent = styleMod.exports.CONVERSATION_CSS
+  styleDom.window.document.head.appendChild(styleEl)
+  const rules = [...styleEl.sheet.cssRules]
+  const bgRule = rules.find(rule => rule.selectorText === '.bt-typing-bg')
+  const wrapRule = rules.find(rule => rule.selectorText === '.bt-typing-bg-wrap')
+  const revealWrapRule = rules.find(rule => rule.selectorText === '.bt-typing:is(:hover,:focus-within,[data-bg-busy])>.bt-typing-bg-wrap')
+  const revealBgRule = rules.find(rule => rule.selectorText === '.bt-typing:is(:hover,:focus-within,[data-bg-busy]) .bt-typing-bg')
+  assert.ok(bgRule && wrapRule && revealWrapRule && revealBgRule)
+  assert.equal(bgRule.style.getPropertyValue('border-width') || bgRule.style.getPropertyValue('border'), '0px')
+  assert.equal(bgRule.style.getPropertyValue('opacity'), '0')
+  assert.equal(bgRule.style.getPropertyValue('pointer-events'), 'none')
+  assert.equal(wrapRule.style.getPropertyValue('grid-template-columns'), '0fr')
+  assert.equal(revealWrapRule.style.getPropertyValue('grid-template-columns'), '1fr')
+  assert.equal(revealBgRule.style.getPropertyValue('opacity'), '1')
+  assert.equal(revealBgRule.style.getPropertyValue('pointer-events'), 'auto')
+})
