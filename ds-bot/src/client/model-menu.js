@@ -335,7 +335,7 @@ export const Caret = () => h('svg', { className: 'bt-model-caret', width: 12, he
 
 // A menu that opens under its trigger, or above when the window has no room below. A
 // click outside, Escape, or a scroll outside it closes it.
-export function useAnchoredMenu(minWidth = 240) {
+export function useAnchoredMenu(minWidth = 240, align = 'right') {
   const [anchor, setAnchor] = useState(null)
   const [place, setPlace] = useState(null)
   const [shownPlace, leaving] = useLinger(place, MENU_EXIT_MS)
@@ -371,12 +371,14 @@ export function useAnchoredMenu(minWidth = 240) {
     if (anchor === null || !button.current) return
     const rect = button.current.getBoundingClientRect()
     const width = Math.min(Math.max(minWidth, rect.width), window.innerWidth - 16)
-    const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
+    const rawLeft = align === 'left' ? rect.left : rect.right - width
+    const left = Math.max(8, Math.min(rawLeft, window.innerWidth - width - 8))
     const below = viewBottom() - rect.bottom
+    const originX = align === 'left' ? 'left' : 'right'
     setPlace(below >= 260 || below >= rect.top
-      ? { left, width, top: rect.bottom + 4, maxHeight: below - 16, '--bt-origin': 'top right' }
-      : { left, width, bottom: viewBottom() - rect.top + 4, maxHeight: rect.top - 16, '--bt-origin': 'bottom right' })
-  }, [anchor, tick, minWidth])
+      ? { left, width, top: rect.bottom + 4, maxHeight: below - 16, '--bt-origin': `top ${originX}` }
+      : { left, width, bottom: viewBottom() - rect.top + 4, maxHeight: rect.top - 16, '--bt-origin': `bottom ${originX}` })
+  }, [anchor, tick, minWidth, align])
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close }
 }
 
@@ -476,10 +478,27 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
   }
 }
 
-const modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
+const modelTrigger = (picker, { wide, compact, disabled, button, isOpen, onClick }) => {
   const { shown, models, withEfforts, effortLabel, inherited } = picker
+  if (compact) {
+    const sub = withEfforts && effortLabel !== undefined ? effortLabel : null
+    return h('button', {
+      ref: button, type: 'button', className: 'bt-model-trigger bt-model-trigger-compact',
+      disabled,
+      'aria-haspopup': 'menu', 'aria-expanded': isOpen,
+      'aria-label': t('Model: {model}', { model: shown?.name ?? t('none') }),
+      title: shown ? (sub ? `${shown.name} · ${sub}` : shown.name) : t('Choose a model'),
+      'data-missing': shown !== undefined && !shown.served && models.length > 0 ? '' : undefined,
+      'data-empty': !shown || undefined,
+      onClick,
+    },
+    h('span', { className: 'bt-model-name' }, shown?.name ?? t('Choose a model')),
+    sub ? h('span', { className: 'bt-model-compact-effort' }, sub) : null,
+    h(Caret))
+  }
   return h('button', {
     ref: button, type: 'button', className: 'bt-model-trigger', 'data-wide': wide || undefined,
+    disabled,
     'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': t('Model: {model}', { model: shown?.name ?? t('none') }),
     'data-missing': shown !== undefined && !shown.served && models.length > 0 ? '' : undefined, onClick,
     'data-empty': !shown || undefined,
@@ -531,8 +550,8 @@ export function ModelMenu(props) {
 }
 
 // A Thinking section at the foot of the menu lists the levels of the shown model when it has them.
-function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true, fallbackModel }) {
-  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu(wide ? 260 : 240)
+function PopupModelMenu({ bot, roster, actions, run, wide = false, compact = false, disabled = false, align = 'right', onPick, onPickEffort, withEfforts = true, fallbackModel }) {
+  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu(wide ? 260 : 240, align)
   const picker = useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withEfforts, fallbackModel })
   const { manage, hasEfforts } = picker
   const hasModels = picker.models.length > 0
@@ -547,6 +566,7 @@ function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPic
     return () => observer.disconnect()
   }, [wide, button, picker.shown?.provider, picker.shown?.served, picker.effortLabel, withEfforts, hasModels])
   const toggle = () => {
+    if (disabled) return
     if (isOpen) { close(); return }
     picker.opened()
     open()
@@ -556,7 +576,7 @@ function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPic
     picker.choose(ref)
   }
   return h(Fragment, null,
-    modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
+    modelTrigger(picker, { wide, compact, disabled, button, isOpen, onClick: toggle }),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, 'data-wide': wide || undefined, role: 'menu', 'aria-label': modelMenuLabel(bot), style: shownPlace, 'data-leaving': leaving || undefined },
       modelSearch(picker, menu),
       modelScroll(picker, pick),

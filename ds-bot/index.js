@@ -64,6 +64,7 @@ import * as mobile from './src/host/mobile.js'
 import * as feed from './src/host/feed.js'
 import * as fonts from './src/host/fonts.js'
 import * as sessionFollow from './src/host/session-follow.js'
+import * as sessionControls from './src/host/session-controls.js'
 import * as jobs from './src/host/jobs.js'
 import * as workspacePanel from './src/host/workspace-panel.js'
 import * as engineSettings from './src/host/engine-settings.js'
@@ -91,7 +92,7 @@ export { name, inject } from './src/host/entry.js'
 // module sees `rt.coordDb` and the unified D1–D4 adapter; usage meters model requests
 // after every listener that rewrites them; privacy checks a call before tools do;
 // extraFolders answers an approval ahead of approvals, which would show it to the user.
-const MODULES = [diagnostics, branding, store, contextRuntime, coordinationDb, ledger, dshAdapter, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, inbox, usage, update, releaseNotes, dshUpdate, telemetry, thinking, mobile, feed, fonts, sessionFollow, jobs, workspacePanel, engineSettings, messageFeedback, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
+const MODULES = [diagnostics, branding, store, contextRuntime, coordinationDb, ledger, dshAdapter, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, inbox, usage, update, releaseNotes, dshUpdate, telemetry, thinking, mobile, sessionControls, feed, fonts, sessionFollow, jobs, workspacePanel, engineSettings, messageFeedback, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
 
 export function apply(ctx, config = {}) {
   ctx.effect(() => installSocketTosGuard(), 'ds-bot: socket type of service')
