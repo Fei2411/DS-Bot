@@ -104,7 +104,7 @@ function runClassifier(workflowFile, filesChanged, envOverrides = {}) {
     })
     assert.equal(res.status, 0, `${workflowFile} classifier failed: ${res.stderr}`)
 
-    const out = {}
+    const out = { _headSha: headSha }
     for (const rawLine of readFileSync(outputFile, 'utf8').split(/\r?\n/)) {
       const line = rawLine.trim()
       const idx = line.indexOf('=')
@@ -132,10 +132,12 @@ describe('CI workflow separation and path classification', () => {
     assert.deepEqual(fullLabelWf.on.pull_request.types, ['labeled'])
     assert.equal(fullLabelWf.jobs.package.uses, './.github/workflows/package.yml')
     assert.equal(fullLabelWf.jobs.package.with.force_full, true)
-    assert.match(String(testWf.concurrency?.group || ''), /nightly-dev/, 'test.yml must isolate schedule nightly concurrency lane from push:main')
+    assert.match(String(testWf.concurrency?.group || ''), /test-nightly-dev/, 'test.yml must isolate schedule nightly concurrency lane from push:main')
+    assert.match(String(testWf.concurrency?.group || ''), /test-dispatch-/, 'test.yml must isolate workflow_dispatch concurrency lane from push:dev/main')
     assert.match(String(testWf.concurrency?.['cancel-in-progress'] || ''), /refs\/heads\/dev/, 'test.yml must cancel superseded dev pushes')
     assert.match(String(pkgWf.concurrency?.group || ''), /inputs\.force_full/, 'package.yml must isolate forced full-package concurrency lane')
     assert.match(String(pkgWf.concurrency?.group || ''), /package-nightly-dev/, 'package.yml must isolate schedule nightly concurrency lane from push:main')
+    assert.match(String(pkgWf.concurrency?.group || ''), /package-dispatch-/, 'package.yml must isolate workflow_dispatch concurrency lane from push:main')
     assert.match(String(triageWf.jobs['sync-labels'].if || ''), /changes\.base/, 'pr-triage-labels.yml must run on PR base retargeting')
     assert.match(String(triageWf.concurrency?.group || ''), /pr-triage-retarget-/, 'pr-triage-labels.yml must isolate base-retarget concurrency lane')
     const triageScript = triageWf.jobs['sync-labels'].steps.find((s) => s.with?.script)?.with?.script || ''
@@ -144,10 +146,16 @@ describe('CI workflow separation and path classification', () => {
     const winNextStep = pkgWf.jobs['app-package'].steps.find((s) => s.name === 'Build the next version')
     assert.equal(winNextStep?.env?.ELECTRON_BUILDER_COMPRESSION_LEVEL, '1')
 
-    // test.yml shards Linux unit tests, separates Playwright browser & Windows jobs, and keeps packaging out.
+    // test.yml shards Linux unit tests, deduplicates harness cache saves, and separates browser & Windows jobs.
     assert.deepEqual(testWf.jobs.test.strategy?.matrix?.shard, [1, 2, 3])
     assert.equal(testWf.jobs.test['runs-on'], 'ubuntu-latest')
+    const shardRunStep = testWf.jobs.test.steps.find((s) => String(s.run || '').includes('--test-shard='))
+    assert.match(String(shardRunStep?.run || ''), /--test-shard=\$\{\{\s*matrix\.shard\s*\}\}\/3/)
+    const testSaveHarness = testWf.jobs.test.steps.find((s) => s.name === 'Save DSH test harness')
+    assert.match(String(testSaveHarness?.if || ''), /matrix\.shard == 1/)
     assert.ok(testWf.jobs['test-browser'])
+    const browserSaveHarness = testWf.jobs['test-browser'].steps.find((s) => s.name === 'Save DSH test harness')
+    assert.match(String(browserSaveHarness?.if || ''), /needs\.changes\.outputs\.ds_bot != 'true'/)
     assert.ok(testWf.jobs['test-windows'])
     assert.equal(testWf.jobs['test-windows']['runs-on'], 'windows-latest')
     assert.ok(testWf.jobs['app-windows'])
@@ -157,18 +165,38 @@ describe('CI workflow separation and path classification', () => {
     assert.equal(testWf.jobs['mobile-ios'], undefined)
     assert.equal(testWf.jobs['mobile-android'], undefined)
 
-    // Every checkout step in test.yml and package.yml must target dev on schedule runs.
+    // scan must depend on changes so schedule/dispatch runs pin every job to one immutable SHA.
+    assert.equal(testWf.jobs.scan.needs, 'changes')
     for (const [name, wf] of [['test.yml', testWf], ['package.yml', pkgWf]]) {
+      const changesCheckout = wf.jobs.changes.steps.find((s) => String(s.uses || '').startsWith('actions/checkout@'))
+      assert.match(
+        String(changesCheckout?.with?.ref || ''),
+        /github\.event_name == 'schedule' && 'dev'/,
+        `${name} changes job must check out dev on schedule runs`
+      )
       for (const [jobId, job] of Object.entries(wf.jobs)) {
+        if (jobId === 'changes') continue
         const checkout = (job.steps || []).find((s) => String(s.uses || '').startsWith('actions/checkout@'))
         if (!checkout) continue
-        assert.match(
+        assert.equal(
           String(checkout.with?.ref || ''),
-          /github\.event_name == 'schedule' && 'dev'/,
-          `${name} job ${jobId} must check out dev on schedule runs`
+          '${{ needs.changes.outputs.checkout_ref }}',
+          `${name} job ${jobId} must check out the pinned SHA from changes.outputs.checkout_ref`
         )
       }
     }
+
+    // publish-docker must stay strictly gated on docker + result success, Fei-Craft/DS-Bot, and pinned image metadata.
+    const pub = testWf.jobs['publish-docker']
+    assert.deepEqual([...pub.needs].sort(), ['docker', 'result'])
+    assert.match(String(pub.if || ''), /needs\.docker\.result == 'success'/)
+    assert.match(String(pub.if || ''), /needs\.result\.result == 'success'/)
+    assert.match(String(pub.if || ''), /github\.repository == 'Fei-Craft\/DS-Bot'/)
+    assert.match(String(pub.if || ''), /refs\/heads\/main/)
+    assert.match(String(pub.if || ''), /github\.event_name == 'schedule'/)
+    const pubStep = pub.steps.find((s) => s.name === 'Publish the tested image')
+    assert.equal(pubStep?.env?.GHCR_BRANCH, '${{ needs.docker.outputs.image_branch }}')
+    assert.equal(pubStep?.env?.GHCR_SHA, '${{ needs.docker.outputs.image_sha }}')
 
     // Every non-publish job in test.yml is checked by Test result.
     const testJobs = Object.keys(testWf.jobs).filter((k) => k !== 'result' && k !== 'publish-docker')
@@ -183,6 +211,8 @@ describe('CI workflow separation and path classification', () => {
     const fast = runClassifier('test.yml', ['ds-bot/src/host/turns.js'])
     const heavy = runClassifier('package.yml', ['ds-bot/src/host/turns.js'])
 
+    assert.equal(fast.checkout_ref, '')
+    assert.equal(heavy.checkout_ref, '')
     assert.equal(fast.ds_bot, 'true')
     assert.equal(fast.ds_bot_browser, 'false')
     assert.equal(fast.ds_bot_win, 'false')
@@ -196,10 +226,11 @@ describe('CI workflow separation and path classification', () => {
     assert.equal(heavy.mobile_android, 'false')
   })
 
-  it('runs parallel Playwright browser tests on client, browser-host, and html-preview PRs to dev', () => {
+  it('runs parallel Playwright browser tests on client, browser-host, harness-resolve, and html-preview PRs to dev', () => {
     for (const file of [
       'ds-bot/src/client/themes.js',
       'ds-bot/src/host/browser/gate.js',
+      'ds-bot/test/harness-resolve.mjs',
       'app/ui/src/html-preview.js',
     ]) {
       const fast = runClassifier('test.yml', [file])
@@ -247,14 +278,15 @@ describe('CI workflow separation and path classification', () => {
     }
   })
 
-  it('runs full matrix on release PRs to main, workflow edits, ci/full-package label, and daily dev Nightly', () => {
-    for (const [files, overrides] of [
-      [['README.md'], { BASE_REF: 'main' }],
-      [['README.md'], { EVENT: 'schedule', REF: 'refs/heads/main', BASE_REF: '' }],
-      [['README.md'], { EVENT: 'workflow_dispatch', REF: 'refs/heads/dev', BASE_REF: '' }],
-      [['.github/workflows/test.yml'], {}],
+  it('runs full matrix and pins checkout_ref on release PRs to main, workflow edits, ci/full-package label, and daily dev Nightly', () => {
+    for (const [files, overrides, expectPinnedSha] of [
+      [['README.md'], { BASE_REF: 'main' }, false],
+      [['README.md'], { EVENT: 'schedule', REF: 'refs/heads/main', BASE_REF: '' }, true],
+      [['README.md'], { EVENT: 'workflow_dispatch', REF: 'refs/heads/dev', BASE_REF: '' }, true],
+      [['.github/workflows/test.yml'], {}, false],
     ]) {
       const fast = runClassifier('test.yml', files, overrides)
+      assert.equal(fast.checkout_ref, expectPinnedSha ? fast._headSha : '')
       assert.equal(fast.full, 'true')
       assert.equal(fast.ds_bot, 'true')
       assert.equal(fast.ds_bot_browser, 'true')
@@ -267,14 +299,17 @@ describe('CI workflow separation and path classification', () => {
       assert.equal(fast.docker, 'true')
     }
 
-    for (const [files, overrides] of [
-      [['README.md'], { BASE_REF: 'main' }],
-      [['README.md'], { PR_FULL_PACKAGE: 'true' }],
-      [['README.md'], { EVENT: 'schedule', REF: 'refs/heads/main', BASE_REF: '' }],
-      [['README.md'], { EVENT: 'workflow_dispatch', REF: 'refs/heads/dev', BASE_REF: '' }],
-      [['.github/workflows/package.yml'], {}],
+    for (const [files, overrides, expectPinnedSha] of [
+      [['README.md'], { BASE_REF: 'main' }, false],
+      [['README.md'], { PR_FULL_PACKAGE: 'true' }, false],
+      [['README.md'], { EVENT: 'schedule', REF: 'refs/heads/main', BASE_REF: '' }, true],
+      [['README.md'], { EVENT: 'workflow_dispatch', REF: 'refs/heads/dev', BASE_REF: '' }, true],
+      [['.github/workflows/package.yml'], {}, false],
+      [['.github/workflows/full-package.yml'], {}, false],
+      [['.github/workflows/release.yml'], {}, false],
     ]) {
       const heavy = runClassifier('package.yml', files, overrides)
+      assert.equal(heavy.checkout_ref, expectPinnedSha ? heavy._headSha : '')
       assert.equal(heavy.full, 'true')
       assert.equal(heavy.app_package_full, 'true')
       assert.equal(heavy.app_package_linux, 'true')
@@ -284,18 +319,34 @@ describe('CI workflow separation and path classification', () => {
     }
   })
 
-  it('keeps push to dev Linux-only and fast, and keeps push to main off Windows/macOS runners', () => {
+  it('keeps push to dev Linux-only and fast, falls back to full when BEFORE is missing or test.yml changes, and keeps push to main off Windows/macOS runners', () => {
     const devTestPush = runClassifier('test.yml', ['ds-bot/index.js', 'docker/Dockerfile'], {
       EVENT: 'push',
       REF: 'refs/heads/dev',
       BASE_REF: '',
     })
+    assert.equal(devTestPush.checkout_ref, '')
     assert.equal(devTestPush.ds_bot, 'true')
     assert.equal(devTestPush.app_unit, 'true')
     assert.equal(devTestPush.ds_bot_win, 'false')
     assert.equal(devTestPush.app_unit_win, 'false')
     assert.equal(devTestPush.node22, 'false')
     assert.equal(devTestPush.docker, 'false')
+
+    const devPushZeroBefore = runClassifier('test.yml', ['ds-bot/index.js'], {
+      EVENT: 'push',
+      REF: 'refs/heads/dev',
+      BASE_REF: '',
+      BEFORE: '0000000000000000000000000000000000000000',
+    })
+    assert.equal(devPushZeroBefore.full, 'true')
+
+    const devPushWorkflowEdit = runClassifier('test.yml', ['.github/workflows/test.yml'], {
+      EVENT: 'push',
+      REF: 'refs/heads/dev',
+      BASE_REF: '',
+    })
+    assert.equal(devPushWorkflowEdit.full, 'true')
 
     const mainTestPush = runClassifier('test.yml', ['ds-bot/index.js'], {
       EVENT: 'push',

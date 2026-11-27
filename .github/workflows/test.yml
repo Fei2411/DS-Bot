@@ -24,7 +24,11 @@ permissions:
 # publishes and cache saves stay ordered and never block each other.
 # Heavy desktop packaging and native mobile builds live in package.yml.
 concurrency:
-  group: test-${{ github.event_name == 'schedule' && 'nightly-dev' || github.ref }}
+  group: >-
+    ${{ github.event_name == 'schedule' && 'test-nightly-dev'
+        || (github.event_name == 'workflow_dispatch'
+            && format('test-dispatch-{0}', github.event.inputs.ref || github.ref)
+            || format('test-{0}', github.ref)) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/dev') }}
 
 jobs:
@@ -32,6 +36,7 @@ jobs:
     name: Detect changed areas
     runs-on: ubuntu-latest
     outputs:
+      checkout_ref: ${{ steps.filter.outputs.checkout_ref }}
       full: ${{ steps.filter.outputs.full }}
       ds_bot: ${{ steps.filter.outputs.ds_bot }}
       ds_bot_browser: ${{ steps.filter.outputs.ds_bot_browser }}
@@ -124,7 +129,7 @@ jobs:
             link=false
             docker=false
             if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$|scripts/check-pure-base-sync\.mjs$|\.github/workflows/(package|full-package|pr-triage-labels)\.yml$)'; then ds_bot=true; fi
-            if has '^(ds-bot/(src/client/|src/host/browser/|src/host/fonts\.js$|src/shared/|assets/|test/browser/|scripts/|dev/harness/|package\.json$|package-lock\.json$)|app/ui/src/html-preview\.js$)'; then ds_bot_browser=true; fi
+            if has '^(ds-bot/(src/client/|src/host/browser/|src/host/fonts\.js$|src/shared/|assets/|test/(browser/|harness-resolve\.mjs$)|scripts/|dev/harness/|package\.json$|package-lock\.json$)|app/ui/src/html-preview\.js$)'; then ds_bot_browser=true; fi
             if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$)'; then app_unit=true; fi
             if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/package\.json$|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest)\.js$|ds-bot/src/client/avatar/)'; then mobile=true; fi
             if has '^link/'; then link=true; fi
@@ -139,7 +144,15 @@ jobs:
             fi
           fi
 
+          checkout_ref=""
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then
+            # Pin every downstream job to the exact commit SHA resolved here so a concurrent
+            # merge to dev cannot mix commits across scan, unit tests, and Docker publishing.
+            checkout_ref="$(git rev-parse HEAD)"
+          fi
+
           {
+            echo "checkout_ref=$checkout_ref"
             echo "full=$full"
             echo "ds_bot=$ds_bot"
             echo "ds_bot_browser=$ds_bot_browser"
@@ -170,7 +183,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -215,7 +228,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -271,7 +284,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -316,7 +329,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -346,11 +359,12 @@ jobs:
 
   scan:
     name: Leak scan
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -373,7 +387,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -400,7 +414,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -424,7 +438,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -452,7 +466,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -474,7 +488,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
+          ref: ${{ needs.changes.outputs.checkout_ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24

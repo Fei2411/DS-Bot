@@ -140,7 +140,7 @@ node scripts/build-client.mjs --check  # client.js matches src/client
 npm run lint                           # oxlint
 ```
 
-CI runs `npm test` (sharded across Linux runners, including the generated-bundle checks) and `npm run lint` for pull requests to `dev` that touch `ds-bot/`, `link/`, or `start.ps1`. Cross-platform Windows, Node 22, Docker, and desktop/mobile packaging suites run on the daily `dev` Nightly CI, on release/hotfix pull requests to `main`, and on demand (`ci/full-package` label or manual workflow dispatch). CI also scans the tracked files for keys, tokens, personal paths and e-mail addresses, and for material that must stay local. To run the scan yourself, from the repository root:
+CI runs `npm test` (sharded across Linux runners, including the generated-bundle checks) and `npm run lint` for pull requests to `dev` that touch `ds-bot/`, `link/`, or `start.ps1` (Docker changes also verify Docker on PRs to `dev`). Cross-platform Windows, Node 22, Docker, and desktop/mobile packaging suites run on the daily `dev` Nightly CI, on release/hotfix pull requests to `main`, and on demand via manual workflow dispatch (the `ci/full-package` PR label also triggers `Package & Native` on demand). CI also scans the tracked files for keys, tokens, personal paths and e-mail addresses, and for material that must stay local. To run the scan yourself, from the repository root:
 
 ```sh
 mkdir -p /tmp/ds-bot-tree && git archive HEAD | tar -x -C /tmp/ds-bot-tree && node scripts/scan.mjs /tmp/ds-bot-tree
