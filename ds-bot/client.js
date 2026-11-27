@@ -23562,7 +23562,7 @@ var dropSessionsExcept = (keys) => {
     if (!keys.has(tabKey)) dropSession(tabKey, key.slice(0, key.indexOf(KEY_SEP)));
   }
 };
-function startPolling({ tick, delay, active, doc = typeof document === "undefined" ? void 0 : document, timers = { set: setTimeout, clear: clearTimeout } }) {
+function startPolling({ tick, delay, active, doc = typeof document === "undefined" ? void 0 : document, timers = { set: (fn, ms) => setTimeout(fn, ms), clear: (id) => clearTimeout(id) } }) {
   let timer2 = null;
   let stopped = false;
   const schedule = () => {

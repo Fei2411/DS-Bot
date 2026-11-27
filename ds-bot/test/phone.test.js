@@ -264,6 +264,20 @@ test('the host enforces a default-deny browser allowlist across every channel ro
     assert.equal(BROWSER_ALLOWED.has(localOnly), false)
   }
 
+  // Side App endpoints act on this computer alone: `open` moves a window on it, and
+  // read/diff/preview/opened/bytes read files out of the computer's own working
+  // folders. They are classified computer-only, never team endpoints, and paired
+  // devices fail closed on every one of them.
+  for (const endpoint of ['side-app-open', 'side-app-read', 'side-app-diff', 'side-app-preview', 'side-app-opened', 'side-app-bytes']) {
+    assert.equal(isClassifiedEndpoint(endpoint), true, `${endpoint} must be classified`)
+    assert.equal(isComputerOnlyEndpoint(endpoint), true, `${endpoint} must be computer-only`)
+    assert.equal(COMPUTER_ONLY_ENDPOINTS.has(endpoint), true, `${endpoint} must be in the computer-only set`)
+    assert.equal(TEAM_ENDPOINTS.has(endpoint), false, `${endpoint} must never widen to the team set`)
+    assert.equal(BROWSER_ALLOWED.has(endpoint), false, `${endpoint} must never reach a paired browser`)
+    assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, endpoint)?.code, 'bot/refused', `a paired phone fails closed on ${endpoint}`)
+    assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, endpoint)?.code, 'bot/refused', `a paired browser fails closed on ${endpoint}`)
+  }
+
   const home = mkdtempSync(join(tmpdir(), 'dsb-gated-'))
   const ctx = fakeContext()
   const rt = { home, ctx, state: { revision: 0 }, load: async () => {}, readOnly: () => undefined, feedTap: () => () => {}, agentOf: id => (id === 'agent-s1' ? { id: 'a1' } : undefined) }

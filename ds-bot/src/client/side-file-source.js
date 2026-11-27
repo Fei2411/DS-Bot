@@ -107,8 +107,11 @@ export const dropSessionsExcept = (keys) => {
 /**
  * Keep `tick` going while `active`: once at once, then after each `delay`; paused while
  * the window is hidden, with an immediate check when it returns. Returns the stop.
+ * The default timers wrap the globals in arrows: a browser's setTimeout/clearTimeout
+ * throw Illegal invocation when they are invoked as properties of some other object
+ * (`timers.set(...)`), so capturing them bare would kill the loop in a real browser.
  */
-export function startPolling({ tick, delay, active, doc = typeof document === 'undefined' ? undefined : document, timers = { set: setTimeout, clear: clearTimeout } }) {
+export function startPolling({ tick, delay, active, doc = typeof document === 'undefined' ? undefined : document, timers = { set: (fn, ms) => setTimeout(fn, ms), clear: id => clearTimeout(id) } }) {
   let timer = null
   let stopped = false
   const schedule = () => {

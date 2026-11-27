@@ -86,12 +86,16 @@ function hookRuntime() {
 const hooks = hookRuntime()
 const react = { createElement: () => null, useEffect() {}, useLayoutEffect() {}, useMemo: make => make(), useRef: current => ({ current }), useState: init => [init, () => {}], useSyncExternalStore: (sub, get) => get() }
 const module = { exports: {} }
-runInNewContext(outputFiles[0].text, {
+// The bundle's globals live in this sandbox object: bare `setTimeout(...)` inside it
+// carries the sandbox as receiver, the same way a browser carries its window. Tests
+// may re-pose host discipline on it (see the browser-strict polling test).
+const sandbox = {
   module, exports: module.exports, console, setTimeout, clearTimeout, atob, Blob, Uint8Array,
   window: { matchMedia: () => ({ matches: false }) }, document: { hidden: false }, localStorage: { getItem: () => null, setItem() {} },
   fetch: async () => { throw new Error('no network in tests') },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
-})
+}
+runInNewContext(outputFiles[0].text, sandbox)
 const { createFileSession, startPolling, sessionFor, dropSession, chooseBase, nextPreview, useHostBase, POLL_MS } = module.exports
 const plain = value => JSON.parse(JSON.stringify(value))
 // Promises made in the bundle's context take extra turns; a macrotask lets them all land.
@@ -280,6 +284,35 @@ test('a failing read does not stop the loop', async () => {
 
 test('the tick is the documented two seconds', () => {
   assert.equal(POLL_MS, 2000)
+})
+
+test('the default timers survive a browser-strict host where the receiver must be the global object', async (t) => {
+  // A real browser's setTimeout/clearTimeout are interface operations: invoked as
+  // `timers.set(...)` the receiver is the timers object, not the window, and the call
+  // throws Illegal invocation. Node's own timers tolerate any receiver, so this test
+  // re-poses that discipline on the bundle's own globals for the duration of one
+  // polling loop: the default `timers` shape must invoke them bare, never as a
+  // property of some other object, or the loop dies the first time it schedules.
+  const realSet = sandbox.setTimeout
+  const realClear = sandbox.clearTimeout
+  sandbox.setTimeout = function strictSetTimeout(fn, ms, ...rest) {
+    if (this !== undefined && this !== sandbox) throw new TypeError('Illegal invocation')
+    return realSet.call(this === undefined ? sandbox : this, fn, ms, ...rest)
+  }
+  sandbox.clearTimeout = function strictClearTimeout(id) {
+    if (this !== undefined && this !== sandbox) throw new TypeError('Illegal invocation')
+    return realClear.call(this === undefined ? sandbox : this, id)
+  }
+  t.after(() => {
+    sandbox.setTimeout = realSet
+    sandbox.clearTimeout = realClear
+  })
+  let reads = 0
+  // No timers passed: the loop runs on the default host timers, whatever they are.
+  const stop = startPolling({ tick: async () => { reads += 1 }, delay: () => 5, active: () => true, doc: doc() })
+  await new Promise(resolve => realSet(resolve, 80))
+  stop()
+  assert.ok(reads >= 2, `the loop kept polling under browser receiver discipline (reads: ${reads})`)
 })
 
 // ---- sessions per tab and the diff base --------------------------------------------------
