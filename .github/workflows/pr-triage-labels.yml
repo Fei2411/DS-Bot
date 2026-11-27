@@ -13,8 +13,13 @@ permissions:
   issues: write
   pull-requests: write
 
+# Base-retarget events use a dedicated concurrency lane so comments, body edits, or
+# synchronize pushes can never evict a pending base-retarget invalidation run.
 concurrency:
-  group: pr-triage-labels-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: >-
+    ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && github.event.changes.base != null
+        && format('pr-triage-retarget-{0}', github.event.pull_request.number)
+        || format('pr-triage-labels-{0}', github.event.pull_request.number || github.event.issue.number) }}
   cancel-in-progress: false
 
 jobs:
@@ -333,7 +338,7 @@ jobs:
                         !liveBaseRef.startsWith('-') &&
                         !/[\s\x00-\x1f\x7f~^:?*[\\]|\.\./.test(liveBaseRef);
 
-                      const [comments, reviews] = await Promise.all([
+                      const [comments, reviews, timeline] = await Promise.all([
                         github.paginate(github.rest.issues.listComments, {
                           owner,
                           repo,
@@ -344,6 +349,12 @@ jobs:
                           owner,
                           repo,
                           pull_number: issueNumber,
+                          per_page: 100,
+                        }),
+                        github.paginate(github.rest.issues.listEventsForTimeline, {
+                          owner,
+                          repo,
+                          issue_number: issueNumber,
                           per_page: 100,
                         }),
                       ]);
@@ -388,7 +399,20 @@ jobs:
                         });
                       }
 
-                      trustedMarkers.sort((a, b) => (a.ts - b.ts) || (a.id - b.id));
+                      trustedMarkers.sort((a, b) => {
+                        if (a.ts !== b.ts) return a.ts - b.ts;
+                        // Fail-closed on same-second cross-source ties: non-approval verdicts sort later.
+                        const rankA = a.status === 'review/approved' ? 0 : 1;
+                        const rankB = b.status === 'review/approved' ? 0 : 1;
+                        if (rankA !== rankB) return rankA - rankB;
+                        return a.id - b.id;
+                      });
+
+                      const latestRetargetTs = timeline.reduce((maxTs, ev) => {
+                        if (ev?.event !== 'base_ref_changed') return maxTs;
+                        const ts = Date.parse(ev.created_at || '');
+                        return Number.isNaN(ts) ? maxTs : Math.max(maxTs, ts);
+                      }, -1);
 
                       if (
                         livePr?.state === 'open' &&
@@ -466,8 +490,11 @@ jobs:
                             }
                           }
                           if (approvedIdx >= 0) {
-                            const approvedSha = resolvedMarkers[approvedIdx].resolvedSha;
-                            const overridden = resolvedMarkers.slice(approvedIdx + 1).some((m) => {
+                            const approvedMarker = resolvedMarkers[approvedIdx];
+                            const approvedSha = approvedMarker.resolvedSha;
+                            const retargetedAfterApproval =
+                              latestRetargetTs >= 0 && latestRetargetTs >= approvedMarker.ts;
+                            const overridden = retargetedAfterApproval || resolvedMarkers.slice(approvedIdx + 1).some((m) => {
                               // Ignore late comments explicitly targeting an older ancestor commit;
                               // any standalone re-review or verdict on approvedSha/newer/unresolved commits overrides.
                               if (!m.resolvedSha) return true;
