@@ -211,7 +211,7 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
       setConfirmRemove(true)
       return
     }
-    const models = selected.map(row => (row.returned ? row.model : { id: row.id }))
+    const models = selected.map(row => row.useCatalogLevels ? { ...row.model, useCatalogLevels: true } : row.returned ? row.model : { id: row.id })
     void apply(actions.saveProviderModels({ provider: provider.id, models, revision: draft.revision ?? revision })).then((ok) => {
       if (!ok) return
       setDraft(null)
@@ -230,7 +230,9 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
               }, refreshing ? t('Refreshing…') : t('Refresh models'))
             : null),
         draft !== null
-          ? h(ModelDraft, { provider, draft, roster, onToggle: toggle, onSave: save, onCancel: () => { setDraft(null); setConfirmRemove(false) }, confirmRemove })
+          ? h(ModelDraft, { provider, draft, roster, onToggle: toggle,
+              onCatalog: (id, enabled) => setDraft(current => ({ ...current, rows: current.rows.map(row => row.id === id ? { ...row, useCatalogLevels: enabled } : row) })),
+              onSave: save, onCancel: () => { setDraft(null); setConfirmRemove(false) }, confirmRemove })
           : [
               provider.models.length > 0
                 ? h('div', { className: 'bt-provider-models' },
@@ -269,7 +271,7 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
           : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', onClick: () => setConfirm(true) }, h(TrashIcon), t('Remove provider'))) : null) : null)
 }
 
-function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confirmRemove }) {
+function ModelDraft({ provider, draft, roster, onToggle, onCatalog, onSave, onCancel, confirmRemove }) {
   const { selected, added, removed } = draftSummary(draft)
   const { switching, failed, local } = fallbacksFor(provider, draft, roster)
   const localNames = [...new Set(local.map(bot => bot.name))]
@@ -288,6 +290,10 @@ function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confi
           h('div', { className: 'bt-secret-edit-label' }, t('Models from the endpoint')),
           h('div', { className: 'bt-secret-bots bt-provider-found' }, returned.map(modelButton)))
       : h('div', { className: 'bt-set-hint' }, t('The endpoint lists no models.')),
+    ...selected.filter(row => row.model.hasCustomLevels).map(row =>
+      h('label', { key: 'catalog-' + row.id, className: 'bt-set-hint' },
+        h('input', { type: 'checkbox', checked: row.useCatalogLevels === true, onChange: event => onCatalog(row.id, event.target.checked) }),
+        t('Use catalog levels for {model} ({levels})', { model: row.id, levels: row.model.catalogLevels.join(', ') }))),
     unreturned.length > 0
       ? h('div', { className: 'bt-provider-draft-group' },
           h('div', { className: 'bt-secret-edit-label' }, t("Upstream didn't return")),

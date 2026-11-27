@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Config as PiAiConfig } from '@deepseek-ai/dsh-llm-pi-ai'
 import { install as installModels } from '../src/host/models.js'
 import { checkKey, install, keyRefFor } from '../src/host/providers.js'
@@ -7,7 +10,7 @@ import { checkKey, install, keyRefFor } from '../src/host/providers.js'
 // A DSH with the official DeepSeek route, an account route, and the pi-ai adapter: its
 // directory offers catalog providers, and its settings take path writes the way DSH's
 // do, under a revision. Routes come and go with the pi-ai section.
-function dsh({ keys = {}, readOnly = [], user = {}, base = {}, catalog = { anthropic: ['claude-a', 'claude-b'], moonshotai: ['kimi-k3'] } } = {}) {
+function dsh({ home, keys = {}, readOnly = [], user = {}, base = {}, catalog = { anthropic: ['claude-a', 'claude-b'], moonshotai: ['kimi-k3'] } } = {}) {
   const store = { ...keys }
   const writes = []
   const listeners = new Map()
@@ -65,7 +68,7 @@ function dsh({ keys = {}, readOnly = [], user = {}, base = {}, catalog = { anthr
       discoverModels: async (ns, request) => { discovered.push([ns, request]); return [{ id: 'relay-1', name: 'Relay One', contextWindow: 128000, inputModalities: ['text'] }, { id: 'relay-2' }] },
     },
   }
-  const rt = { ctx, state: { bots: {} } }
+  const rt = { ctx, home, state: { bots: {} } }
   installModels(rt)
   install(rt)
   return { rt, store, writes, listeners, discovered }
@@ -391,4 +394,34 @@ test('retained models keep explicit metadata before catalog defaults fill absent
   assert.equal(models[0].contextWindow, 64000)
   assert.deepEqual(models[0].input, ['text'])
   assert.equal(models[0].name, 'My Model')
+})
+
+test('a discovered ID gains catalog levels, preserves manual mappings, and can follow the catalog again', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'dsbot-efforts-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const model = 'gpt-6.2-astra'
+  await writeFile(join(home, 'model-catalog-codex.json'), JSON.stringify({
+    updated: Date.now(), rows: [[model, ['low', 'high', 'max', 'ultra']]],
+  }))
+  const { rt } = dsh({ home })
+  const settings = rt.ctx.get('settings')
+  const route = () => settings.describe().at(-1)
+  rt.ctx.llm.discoverModels = async () => [{ id: model }, { id: 'unknown' }]
+  const api = 'openai-completions'
+  const baseURL = 'https://relay.example/v1'
+  const preview = await rt.discoverModels({ api, baseURL })
+  assert.deepEqual(preview[0].catalogLevels, ['low', 'high', 'max'])
+  assert.equal(preview[1].catalogLevels, undefined)
+  await rt.addProvider({ custom: true, provider: 'relay', api, baseURL, models: preview })
+  const expected = { low: 'low', high: 'high', max: 'max' }
+  assert.deepEqual(route().user.providers.relay.models[0].reasoningEfforts, expected)
+  assert.equal(route().user.providers.relay.models[1].reasoningEfforts, undefined)
+  await settings.mutate('llm-pi-ai', [{ op: 'set', path: ['providers', 'relay', 'models', '0', 'reasoningEfforts'], value: { max: 'my-max' } }], route().revision)
+  const models = await rt.discoverModels({ provider: 'relay' })
+  assert.equal(models[0].hasCustomLevels, true)
+  await rt.saveProviderModels({ provider: 'relay', models })
+  assert.deepEqual(route().user.providers.relay.models[0].reasoningEfforts, { max: 'my-max' })
+  models[0].useCatalogLevels = true
+  await rt.saveProviderModels({ provider: 'relay', models })
+  assert.deepEqual(route().user.providers.relay.models[0].reasoningEfforts, expected)
 })

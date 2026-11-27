@@ -3,6 +3,8 @@
 // it, the route's key in DSH's credential store under the reference the route names.
 // The providers to add are the ones DSH's directory of configurable providers offers.
 
+import { isDeepStrictEqual } from 'node:util'
+import { createEffortCatalog } from './model-effort-catalog.js'
 import { serviceOf } from './services.js'
 import { CHATGPT_PROVIDER } from './chatgpt.js'
 const PI_AI = 'llm-pi-ai'
@@ -13,7 +15,10 @@ const ROUTE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 export const PROTOCOLS = ['openai-completions', 'openai-responses', 'anthropic-messages']
 // The protocols whose model-listing the pi-ai adapter can read. A route on any other
 // protocol has no refresh entry: the adapter would answer DISCOVERY_UNSUPPORTED.
-const LISTABLE_PROTOCOLS = new Set(PROTOCOLS)
+function canList(profile, section) {
+  const api = profile?.api ?? 'openai-completions'
+  return PROTOCOLS.includes(api) || (api === 'google-generative-ai' && protocolsOf(section).includes(api))
+}
 
 function protocolsOf(section) {
   const schema = section?.schema
@@ -139,6 +144,44 @@ export function install(rt) {
   const refOf = profile => (typeof profile?.apiKeyEnv === 'string' && profile.apiKeyEnv !== '' ? profile.apiKeyEnv : undefined)
   const entryOf = provider => ctx.llm.listConfigurableProviders().find(entry => entry.provider === provider)
 
+  const catalogEfforts = createEffortCatalog(rt.home)
+  const trackedEfforts = () => rt.state.prefs?.catalogEfforts ?? {}
+  async function rememberEfforts(changes) {
+    if (!changes.size) return
+    const next = { ...trackedEfforts() }
+    for (const [ref, value] of changes) {
+      if (value === undefined) delete next[ref]
+      else next[ref] = value
+    }
+    rt.state.prefs ??= {}
+    rt.state.prefs.catalogEfforts = next
+    await rt.save?.()
+  }
+
+  // A saved map is user-owned unless it still matches our last write. This
+  // preserves disabled levels and custom wire spellings across catalog updates.
+  async function enrichModel(provider, api, model, changes, useCatalog = false) {
+    const id = typeof model === 'string' ? model : model.id
+    const ref = provider + '/' + id
+    const saved = model.reasoningEfforts
+    const managed = trackedEfforts()[ref]
+    if (saved !== undefined && !useCatalog && !isDeepStrictEqual(saved, managed)) {
+      if (managed !== undefined) changes.set(ref, undefined)
+      return model
+    }
+    const levels = await catalogEfforts(id, api)
+    if (levels === null && managed !== undefined && isDeepStrictEqual(saved, managed)) {
+      changes.set(ref, undefined)
+      const next = { ...model }
+      delete next.reasoningEfforts
+      return next
+    }
+    if (!levels) return model
+    if (!isDeepStrictEqual(managed, levels)) changes.set(ref, levels)
+    if (isDeepStrictEqual(saved, levels)) return model
+    return { ...(typeof model === 'string' ? { id } : model), reasoningEfforts: levels }
+  }
+
   let knownCache
   async function knownCatalogModels() {
     if (knownCache !== undefined) return knownCache
@@ -176,13 +219,22 @@ export function install(rt) {
     const userProviders = section?.user?.providers
     if (!userProviders || typeof userProviders !== 'object') return
     const ops = []
+    const changes = new Map()
     for (const [id, profile] of Object.entries(userProviders)) {
       const nextCompat = compatForRoute(id, profile)
       if (nextCompat !== undefined) ops.push({ op: 'set', path: ['providers', id, 'compat'], value: nextCompat })
+      if (!rt.home || rt.readOnly?.() || rt.hasLoaded?.() === false || !Array.isArray(profile?.models) ||
+          !profile.baseURL || entryOf(id)?.declared !== true) continue
+      const models = await Promise.all(profile.models.map(model => enrichModel(id, profile.api ?? 'openai-completions', model, changes)))
+      if (models.some((model, i) => model !== profile.models[i])) {
+        ops.push({ op: 'set', path: ['providers', id, 'models'], value: models })
+      }
     }
-    if (ops.length === 0) return
-    await found.settings.mutate(PI_AI, ops, section.revision)
-    rt.dropCatalog()
+    if (ops.length) {
+      await found.settings.mutate(PI_AI, ops, section.revision)
+      rt.dropCatalog()
+    }
+    await rememberEfforts(changes)
   }
   function repairRoutes() {
     repairing = repairing.then(ensureCustomCompat, ensureCustomCompat).catch(() => {})
@@ -245,7 +297,7 @@ export function install(rt) {
       // such entry; they are not named here.
       const listable = entry.settingsNs === PI_AI && profile !== undefined
         && typeof profile.baseURL === 'string' && profile.baseURL !== ''
-        && LISTABLE_PROTOCOLS.has(typeof profile.api === 'string' ? profile.api : 'openai-completions')
+        && canList(profile, map.get(PI_AI))
       const refreshable = listable && profileOf(entry, map, 'user') !== undefined
       const declared = (Array.isArray(profile?.models) ? profile.models : []).map(model => {
         const id = typeof model === 'string' ? model : model?.id
@@ -314,8 +366,11 @@ export function install(rt) {
     // A blank key keeps a key that is already there, else the provider's own sign-in.
     const keyed = key !== undefined || info.configured === true
     const profile = custom ? customProfile(body, known, protocolsOf(map.get(PI_AI))) : {}
+    const changes = new Map()
+    if (custom) profile.models = await Promise.all(profile.models.map(model => enrichModel(provider, profile.api, model, changes)))
     if (keyed) profile.apiKeyEnv = ref
     await settings.mutate(PI_AI, [{ op: 'set', path: entry?.settingsPath ?? ['providers', provider], value: profile }], map.get(PI_AI)?.revision)
+    await rememberEfforts(changes)
     if (key !== undefined) await credentials.set(ref, key)
     rt.dropCatalog()
     return providersView()
@@ -365,18 +420,25 @@ export function install(rt) {
         }
     const models = await ctx.llm.discoverModels(PI_AI, request)
     const known = request.provider === undefined ? await knownCatalogModels() : undefined
-    return models.slice(0, MAX_MODELS).map((model) => {
+    const existing = new Map((Array.isArray(profile?.models) ? profile.models : []).map(m => [typeof m === 'string' ? m : m.id, m]))
+    return Promise.all(models.slice(0, MAX_MODELS).map(async model => {
+      const levels = !entry || entry.declared === true ? await catalogEfforts(model.id, request.api ?? 'openai-completions') : undefined
+      const saved = existing.get(model.id)?.reasoningEfforts
+      const manual = saved !== undefined && !isDeepStrictEqual(saved, trackedEfforts()[provider + '/' + model.id])
+
       const match = lookupKnownModel(known, model.id)
       const contextWindow = model.contextWindow ?? match?.contextWindow
       const inputModalities = model.inputModalities ?? match?.inputModalities
       return {
         id: model.id,
+        ...(levels ? { catalogLevels: Object.keys(levels) } : {}),
+        ...(levels && manual && !isDeepStrictEqual(saved, levels) ? { hasCustomLevels: true } : {}),
         ...(model.name ? { name: model.name } : {}),
         ...(contextWindow ? { contextWindow } : {}),
         ...(model.maxTokens ? { maxTokens: model.maxTokens } : {}),
         ...(inputModalities ? { inputModalities: [...inputModalities] } : {}),
       }
-    })
+    }))
   }
 
   // Replace only one provider's models. The route, its endpoint, protocol, key
@@ -392,7 +454,7 @@ export function install(rt) {
     if (profileOf(entry, map, 'user') === undefined) throw invalid(`${provider} cannot be changed here`)
     const profile = profileOf(entry, map)
     const listable = typeof profile?.baseURL === 'string' && profile.baseURL !== ''
-      && LISTABLE_PROTOCOLS.has(typeof profile.api === 'string' ? profile.api : 'openai-completions')
+      && canList(profile, map.get(PI_AI))
     if (!listable) throw invalid(`${provider} has no model list to refresh here`)
     const section = map.get(PI_AI)
     if (body.revision !== undefined && section !== undefined && body.revision !== section.revision) {
@@ -405,16 +467,24 @@ export function install(rt) {
     const current = new Map((Array.isArray(profile?.models) ? profile.models : [])
       .map(model => [typeof model === 'string' ? model : model?.id, model])
       .filter(([id]) => typeof id === 'string' && id !== ''))
-    const models = list.map((model) => {
+    const changes = new Map()
+    const models = await Promise.all(list.map(async model => {
       const id = typeof model === 'string' ? model.trim() : model?.id?.trim()
       const old = current.get(id)
       const saved = typeof old === 'string' ? { id: old } : old
       const incoming = typeof model === 'string' ? { id: model } : model
       const next = modelEntry({ ...saved, ...incoming }, known)
-      return { ...saved, ...next }
-    })
+      const merged = { ...saved, ...next }
+      return entry.declared === true ? enrichModel(provider, profile.api ?? 'openai-completions', merged, changes, incoming.useCatalogLevels === true) : merged
+    }))
+    const kept = new Set(models.map(model => model.id))
+    for (const id of current.keys()) {
+      const ref = provider + '/' + id
+      if (!kept.has(id) && trackedEfforts()[ref] !== undefined) changes.set(ref, undefined)
+    }
     if (new Set(models.map(model => model.id)).size !== models.length) throw invalid('Two models have the same id')
     await settings.mutate(PI_AI, [{ op: 'set', path: [...entry.settingsPath, 'models'], value: models }], section?.revision)
+    await rememberEfforts(changes)
     rt.dropCatalog()
     return providersView()
   }
@@ -436,6 +506,8 @@ export function install(rt) {
       const info = await credentials.describe(ref)
       if (info.configured && info.writable) await credentials.unset(ref)
     }
+    const changes = new Map(Object.keys(trackedEfforts()).filter(ref => ref.startsWith(provider + '/')).map(ref => [ref, undefined]))
+    await rememberEfforts(changes)
     rt.dropCatalog()
     return providersView()
   }

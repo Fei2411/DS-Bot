@@ -470,6 +470,7 @@ export const DE = {
   '{count} models': '{count} Modelle',
   'Refresh models': 'Modelle aktualisieren',
   'Refreshing…': 'Wird aktualisiert…',
+  'Use catalog levels for {model} ({levels})': 'Katalogstufen für {model} verwenden ({levels})',
   'Models from the endpoint': 'Modelle vom Endpunkt',
   "Upstream didn't return": 'Vom Upstream nicht zurückgegeben',
   'Keep the ids you still want by hand.': 'Behalte gewünschte IDs manuell.',
