@@ -19,7 +19,18 @@ const SERIES = ['accent', 'green', 'magenta', 'violet', 'cyan', 'star']
 // view's inputs and `let`s. A formula that fails under the current values shows
 // a placeholder only where it sits, like the desktop's errored cell.
 // `root` is the blueprint's root node (stack, options, form, …), as the computer stores it.
-export function ViewCard({ sessionId, id, title, root, p, readOnly, bare }: { sessionId: string; id?: string; title?: string; root: unknown; p: Palette; readOnly?: boolean; bare?: boolean }) {
+export function ViewCard({ sessionId, id, title, root, p, readOnly, displayOnly, bare, unframed, onSettled }: {
+  sessionId: string
+  id?: string
+  title?: string
+  root: unknown
+  p: Palette
+  readOnly?: boolean
+  displayOnly?: boolean
+  bare?: boolean
+  unframed?: boolean
+  onSettled?: () => void
+}) {
   const [inputs, setInputs] = useState<Map<string, unknown>>(() => collectInputs(root))
   const [lets] = useState<Map<string, unknown>>(() => collectLets(root))
   const [done, setDone] = useState<string | null>(null)
@@ -38,20 +49,21 @@ export function ViewCard({ sessionId, id, title, root, p, readOnly, bare }: { se
   // The answer names the component that sent it (deep-view's validateViewAnswer);
   // the card's inputs ride along so the Bot sees what the slider or choice was set to.
   const answer = (component: string, _kind: string, values: unknown) => {
-    if (readOnly || done !== null) return
+    if (readOnly || displayOnly || done !== null) return
     const sent = { ...(values as Record<string, unknown>), ...(inputs.size > 0 ? { inputs: Object.fromEntries(inputs) } : {}) }
     call('view-reply', { sessionId, viewId: id, action: component, values: sent })
-      .then(() => { void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setFailed(null); setDone(component) })
+      .then(() => { void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setFailed(null); setDone(component); onSettled?.() })
       .catch((failure: { message?: string }) => setFailed(failure?.message ?? String(failure)))
   }
-  const dismiss = () => void call('dismiss-view', { sessionId }).catch(() => {})
+  const dismiss = () => void call('dismiss-view', { sessionId }).then(() => { setDone('dismiss'); onSettled?.() }, () => {})
+  const containerStyle = bare === true ? null : unframed === true ? styles.unframed : [styles.card, { backgroundColor: p.card, borderColor: p.line }]
   return (
-    <View style={bare === true ? null : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-      {bare !== true && title ? <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{title}</Text> : null}
+    <View style={containerStyle}>
+      {bare !== true && title ? <Text style={[unframed === true ? type.small : type.settingsRow, { color: unframed === true ? p.ink2 : p.ink, fontWeight: '600' }]}>{title}</Text> : null}
       <Node node={root} val={val} p={p} readOnly={readOnly === true || done !== null} inputs={inputs} setInputs={setInputs} answer={answer} done={done} />
-      {done === null && readOnly !== true ? <Pressable accessibilityRole="button" onPress={dismiss} style={styles.dismiss}><Text style={[type.caption, { color: p.ink3 }]}>{t('Dismiss')}</Text></Pressable> : null}
+      {done === null && readOnly !== true && displayOnly !== true ? <Pressable accessibilityRole="button" onPress={dismiss} style={styles.dismiss}><Text style={[type.caption, { color: p.ink3 }]}>{t('Dismiss')}</Text></Pressable> : null}
       {failed !== null ? <Text style={[type.caption, { color: p.danger, marginTop: 4 }]}>{failed}</Text> : null}
-      {done !== null ? <Text style={[type.caption, { color: p.green, marginTop: 4 }]}>{t('Done')}</Text> : null}
+      {done !== null && done !== 'dismiss' ? <Text style={[type.caption, { color: p.green, marginTop: 4 }]}>{t('Done')}</Text> : null}
     </View>
   )
 }
@@ -433,7 +445,8 @@ function DataTable({ columns, rows, p }: { columns: string[]; rows: unknown[][];
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: radius.card, borderWidth: 1, padding: 14, gap: 10, marginVertical: 4 },
+  card: { alignSelf: 'stretch', width: '100%', borderRadius: radius.card, borderWidth: 1, padding: 14, gap: 10, marginVertical: 4 },
+  unframed: { alignSelf: 'stretch', width: '100%', gap: 10, marginVertical: 6 },
   track: { height: 6, borderRadius: 3 },
   knob: { position: 'absolute', top: 4, width: 14, height: 14, borderRadius: 7, marginLeft: -7 },
   callout: { borderLeftWidth: 3, borderRadius: radius.item, padding: 8 },

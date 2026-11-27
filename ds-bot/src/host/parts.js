@@ -4076,7 +4076,13 @@ export function install(rt) {
           }
           const view = normalizeView(args?.view)
           const shown = checkShownView(args?.title, view)
-          if (shown.error === undefined && !shown.interactive && args?.await_reply !== true) {
+          const pendingView = callId === null ? undefined : rt.own(state.views, partId)
+          const isPendingView = pendingView !== undefined && (pendingView.callSessionId ?? partId) === partId && pendingView.callId === callId
+          if (isPendingView) {
+            if (!hidden.has(event.data?.turn ?? turn)) {
+              items.push({ kind: 'view', id: pendingView.id, title: pendingView.title, view: pendingView.view, callId, pending: true, time: event.time })
+            }
+          } else if (shown.error === undefined && !shown.interactive && args?.await_reply !== true) {
             if (!hidden.has(event.data?.turn ?? turn)) items.push({ kind: 'view', title: shown.title, view, callId, time: event.time })
           } else if (shown.error === undefined && closed !== undefined) {
             items.push({ kind: 'closed', closed, title: shown.title, view, callId, time: event.time })

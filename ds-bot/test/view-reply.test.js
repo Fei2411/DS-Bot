@@ -618,3 +618,62 @@ test('show_view closes an earlier-segment card as dismissed even when the new ca
   await show('writer-now', { title: 'New View Again', view: CHOICES }, 'v-dup')
   assert.equal((await team()).closedCards['writer-now'], undefined)
 })
+
+test('displayItems emits a pending show_view inline for visible turns, and omits hidden-turn or rolled-over pending views', async (t) => {
+  const eventsByPart = {
+    'writer-now': [
+      { seq: 1, time: 1000, type: 'turn/start', data: { turn: 1 } },
+      { seq: 2, time: 1001, type: 'user/message', data: { content: text('Show options'), source: { kind: 'user' } } },
+      { seq: 3, time: 1002, type: 'tool/call', data: { name: 'show_view', callId: 'call-visible', arguments: { title: 'Pick', view: CHOICES } } },
+      { seq: 4, time: 1003, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      { seq: 5, time: 2000, type: 'turn/start', data: { turn: 2 } },
+      { seq: 6, time: 2001, type: 'user/message', data: { content: text('[Message from Chief]\nAsk privately'), source: { kind: 'bot', role: 'request', senderSessionId: 'chief', senderName: 'Chief', exchangeId: 'x1', hop: 0 } } },
+      { seq: 7, time: 2002, type: 'tool/call', data: { name: 'show_view', callId: 'call-hidden', arguments: { title: 'Hidden', view: CHOICES } } },
+    ],
+  }
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-views-inline-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    ...TEAM,
+    exchangeTurns: { 'writer-now': [2] },
+    views: { 'writer-now': { id: 'v-vis', callId: 'call-visible', title: 'Pick', view: CHOICES, askedAt: 1002 } },
+  }))
+  const ctx = fakeContext()
+  Object.assign(ctx, {
+    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {}, unarchiveSession: async () => {} },
+    sessionController: {
+      create: async () => ({ sessionId: 's1' }),
+      resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup() {} } }),
+      selectModel: async () => {},
+      page: async ({ address }) => ({
+        records: (eventsByPart[address.sessionId] ?? []).map(event => ({ event })),
+      }),
+    },
+    sessionTitle: { rename: async () => {} },
+    sessions: { flush: async () => {} },
+  })
+  let route
+  const register = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (options) => { route = options; return register(options) }
+  const host = createRuntime(ctx, { home })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  const call = async (endpoint, payload = {}) => (await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+
+  // Visible turn: pending view appears inline at its call site.
+  const first = (await call('chat', { botId: 'writer' })).value
+  const inline = first.items.filter(item => item.kind === 'view')
+  assert.equal(inline.length, 1)
+  assert.equal(inline[0].id, 'v-vis')
+  assert.equal(inline[0].callId, 'call-visible')
+  assert.equal(inline[0].pending, true)
+  assert.equal(inline[0].title, 'Pick')
+
+  // Hidden turn: pending view must NOT be emitted into the transcript (stays in Dock).
+  host.state.views['writer-now'] = { id: 'v-hid', callId: 'call-hidden', title: 'Hidden', view: CHOICES, askedAt: 2002 }
+  const second = (await call('chat', { botId: 'writer' })).value
+  assert.equal(second.items.filter(item => item.kind === 'view').length, 0)
+
+  // Rolled-over card from an earlier part: must NOT match the current part's transcript.
+  host.state.views['writer-now'] = { id: 'v-roll', callId: 'call-visible', callSessionId: 'writer-old', title: 'Rolled', view: CHOICES, askedAt: 3000 }
+  const third = (await call('chat', { botId: 'writer' })).value
+  assert.equal(third.items.filter(item => item.kind === 'view').length, 0)
+})
