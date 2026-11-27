@@ -33,7 +33,7 @@ const KNOWN_PROVIDERS = new Set([
 const KNOWN_LOCAL_AGENTS = new Set([
   'claude-code', 'codex', 'gemini', 'antigravity', 'opencode', 'cursor', 'devin', 'qoder',
 ])
-const KNOWN_THEMES = new Set(['deepseek', 'mono', 'paper', 'moonlight', 'celadon'])
+const KNOWN_THEMES = new Set(['deepseek', 'mono', 'paper', 'moonlight', 'fei'])
 const KNOWN_IM = new Set(['telegram', 'feishu', 'discord', 'slack', 'dingtalk', 'wecom', 'qq', 'weixin'])
 const KNOWN_FEATURES = new Set([
   'group_chat', 'background_task', 'bot_browser', 'computer_use', 'schedule',
