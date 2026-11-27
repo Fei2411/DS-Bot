@@ -116,6 +116,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on approval/request (prepend)',
     'effect ds-bot: extra folders section',
     'prompt bot-extra-folders 642',
+    'effect ds-bot: resume lifecycle',
     'effect ds-bot: memory recovery',
     'effect ds-bot: memory section',
     'prompt bot-memory 10320',
