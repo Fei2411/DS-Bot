@@ -28,14 +28,16 @@ export const collapsedTrackWidth = () =>
 // tens of milliseconds a write. A changed rule still restyles the column's
 // subtree, so a drag writes the column's own inline style each frame and the
 // rule once, on release.
+// Another extension's classic script can shadow the bare `CSS` global with a top-level
+// `const`, or replace window.CSS itself with a top-level `var` (#2356). The column's
+// module-hash class names need no escaping, so the raw name is a valid fallback.
+const escapeClass = name => (typeof globalThis.CSS?.escape === 'function' ? globalThis.CSS.escape(name) : name)
 const room = { rule: null, selector: '' }
 const roomRule = () => {
   const live = room.rule?.parentStyleSheet?.ownerNode?.isConnected
   if (live && room.selector) return room.rule
   const column = document.querySelector('[class*="_centerCol"]')
-  // Read CSS off globalThis: another extension's classic script can declare a top-level
-  // `CSS` that shadows the bare global (#2356).
-  const selector = column ? [...column.classList].filter(name => name.includes('_centerCol')).map(name => `.${globalThis.CSS.escape(name)}`).join(',') : ''
+  const selector = column ? [...column.classList].filter(name => name.includes('_centerCol')).map(name => `.${escapeClass(name)}`).join(',') : ''
   if (live && !selector) return room.rule
   const declarations = room.rule?.style.cssText ?? ''
   room.rule?.parentStyleSheet?.ownerNode?.remove()

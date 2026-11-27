@@ -45327,12 +45327,13 @@ var dshCollapsed = (column = typeof document === "undefined" ? null : document.q
   return column ? column.closest("[data-sidebar-collapsed]") !== null : null;
 };
 var collapsedTrackWidth = () => document.documentElement.hasAttribute("data-windows-titlebar") || document.documentElement.dataset.platform === "darwin" ? 0 : 56;
+var escapeClass = (name) => typeof globalThis.CSS?.escape === "function" ? globalThis.CSS.escape(name) : name;
 var room = { rule: null, selector: "" };
 var roomRule = () => {
   const live = room.rule?.parentStyleSheet?.ownerNode?.isConnected;
   if (live && room.selector) return room.rule;
   const column = document.querySelector('[class*="_centerCol"]');
-  const selector = column ? [...column.classList].filter((name) => name.includes("_centerCol")).map((name) => `.${globalThis.CSS.escape(name)}`).join(",") : "";
+  const selector = column ? [...column.classList].filter((name) => name.includes("_centerCol")).map((name) => `.${escapeClass(name)}`).join(",") : "";
   if (live && !selector) return room.rule;
   const declarations2 = room.rule?.style.cssText ?? "";
   room.rule?.parentStyleSheet?.ownerNode?.remove();
