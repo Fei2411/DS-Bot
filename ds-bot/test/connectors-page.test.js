@@ -15,7 +15,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // stable because the tree expands the same way every pass.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { AddMenu, ConnectorRow, MailCatalogRow, MailToolCell } from './src/client/connectors.js'\nexport { ConnectorsPage } from './src/client/connectors-page.js'",
+    contents: "export { AddMenu, BotConnectors, ConnectorRow, MailCatalogRow, MailToolCell } from './src/client/connectors.js'\nexport { ConnectorsPage } from './src/client/connectors-page.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -66,7 +66,7 @@ runInNewContext(outputFiles[0].text, {
   window: { matchMedia: () => ({ matches: false }), dshDesktop: {}, open: (url) => { opened.push(url); return null } },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { AddMenu, ConnectorRow, MailCatalogRow, MailToolCell, ConnectorsPage } = module.exports
+const { AddMenu, BotConnectors, ConnectorRow, MailCatalogRow, MailToolCell, ConnectorsPage } = module.exports
 // The mail tests below draw MailCatalogRow; the connector tests name their own component.
 const render = (component = MailCatalogRow) => { active = () => expand(component(props)); rerender() }
 const renderCell = (cellProps) => { slots.length = 0; active = () => expand(MailToolCell(cellProps)); rerender() }
@@ -469,4 +469,34 @@ test('the client form says where to allow the redirect URL before the client is 
   // A service without its own steps still names the address its app has to allow.
   drawRow({ ...slack, id: 'notion', name: 'Notion', auth: { kind: 'oauth' } }, {})
   assert.match(flatten(collect(node => node.props?.className === 'bt-connector-setup')[0]).join(' '), /In the app settings, add this redirect URL:/)
+})
+
+test('BotConnectors reflects mail.offFor and preserves other Bots when toggling Mailbox', () => {
+  const calls = []
+  const actions = { connectorSet: (id, patch) => { calls.push({ id, patch }); return Promise.resolve() } }
+  const run = promise => promise
+  const drawBot = (bot, offFor) => {
+    slots.length = 0
+    active = () => expand(BotConnectors({
+      bot,
+      roster: { connectors: { connectors: [], mail: { accounts: [{ id: 'a1', address: 'me@example.com' }], offFor } } },
+      actions,
+      run,
+    }))
+    rerender()
+  }
+
+  // Bot b1 already has mail off; Bot b2 sees Mailbox as on and turning b2 off keeps b1 in offFor.
+  drawBot({ id: 'b2' }, ['b1'])
+  const mailSwitch = () => collect(node => node.props?.role === 'switch')[0]
+  assert.equal(mailSwitch().props['aria-checked'], true)
+  mailSwitch().props.onClick()
+  assert.deepEqual(structuredClone(calls), [{ id: 'mail', patch: { offFor: ['b1', 'b2'] } }])
+
+  // Once the host returns mail.offFor including b2, the switch renders off and toggling it back on keeps b1 off.
+  calls.length = 0
+  drawBot({ id: 'b2' }, ['b1', 'b2'])
+  assert.equal(mailSwitch().props['aria-checked'], false)
+  mailSwitch().props.onClick()
+  assert.deepEqual(structuredClone(calls), [{ id: 'mail', patch: { offFor: ['b1'] } }])
 })

@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
+import { makeStatefulReact } from './stateful-react.js'
 
 // jsdom comes from the harness that test/harness-resolve.mjs found, like the dsh packages.
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -178,6 +179,7 @@ test('fresh input ignores queued sends and takes the newest of the rest', () => 
   assert.equal(freshInputAt([], undefined), 0)
 })
 
+<<<<<<< HEAD
 test('pickActivity prefers a newer host activity over an older chat note and hides host-only work while streaming', () => {
   const olderTool = { label: 'Opening a file', state: 'searching', at: 100 }
   const newerHost = { label: 'Running shell commands', state: 'working' }
@@ -194,4 +196,201 @@ test('pickActivity prefers a newer host activity over an older chat note and hid
 
   // Host status alone stays hidden while reply text is already streaming.
   assert.equal(pickActivity({ tools: [], localNote: newerHost, localAt: 200, streaming: true }), undefined)
+=======
+// The move-to-background action stays invisible and borderless at rest so the
+// activity row remains quiet, reveals smoothly on hover/focus/touch-open/busy
+// (except while exiting), keeps :disabled dimmed, and respects reduced motion.
+test('activity-row background action stays hidden and borderless at rest, with valid cascade and reduced-motion rules', async () => {
+  const { outputFiles: styleFiles } = await build({
+    stdin: { contents: "export { CONVERSATION_CSS } from './src/client/styles.js'", resolveDir: PLUGIN },
+    bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
+    external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+  })
+  const styleMod = { exports: {} }
+  runInNewContext(styleFiles[0].text, {
+    module: styleMod, exports: styleMod.exports,
+    require: () => react,
+  })
+  const styleDom = new JSDOM('<!doctype html><html><head></head><body></body></html>')
+  const styleEl = styleDom.window.document.createElement('style')
+  styleEl.textContent = styleMod.exports.CONVERSATION_CSS
+  styleDom.window.document.head.appendChild(styleEl)
+  const rules = [...styleEl.sheet.cssRules]
+  const rowRule = rules.find(rule => rule.selectorText === '.bt-typing')
+  const bgRule = rules.find(rule => rule.selectorText === '.bt-typing-bg')
+  const wrapRule = rules.find(rule => rule.selectorText === '.bt-typing-bg-wrap')
+  const revealSel = '.bt-typing:is(:focus-within,[data-bg-open],[data-bg-busy]):not([data-exiting])'
+  const revealWrapRule = rules.find(rule => rule.selectorText === `${revealSel}>.bt-typing-bg-wrap`)
+  const revealBgRule = rules.find(rule => rule.selectorText === `${revealSel} .bt-typing-bg`)
+  const revealDisabledRule = rules.find(rule => rule.selectorText === `${revealSel} .bt-typing-bg:disabled`)
+  const hoverBlock = rules.find(rule => rule.conditionText?.replace(/\s+/g, '') === '(hover:hover)'
+    && [...rule.cssRules].some(inner => inner.selectorText?.includes('.bt-typing:hover:not([data-exiting])')))
+  const reducedBlock = rules.find(rule => rule.conditionText?.replace(/\s+/g, '') === '(prefers-reduced-motion:reduce)'
+    && [...rule.cssRules].some(inner => inner.selectorText?.includes('.bt-typing-bg')))
+  const offTransformRule = rules.find(rule => rule.selectorText?.includes('body[data-bt-effects=off]')
+    && rule.selectorText.includes('.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico'))
+  const offScaleRule = rules.find(rule => rule.selectorText === 'body[data-bt-effects=off] .bt-typing-bg:active:not(:disabled)')
+  assert.ok(rowRule && bgRule && wrapRule && revealWrapRule && revealBgRule && revealDisabledRule && hoverBlock && reducedBlock && offTransformRule && offScaleRule)
+  // Unconditional reveal must not include :hover so touch sticky-hover cannot block tap dismissal.
+  assert.equal(rules.some(r => r.selectorText?.includes('.bt-typing') && r.selectorText.includes(':hover') && r.selectorText.includes('.bt-typing-bg-wrap')), false)
+  assert.equal(rowRule.style.getPropertyValue('box-sizing'), 'border-box')
+  assert.equal(bgRule.style.getPropertyValue('border-width') || bgRule.style.getPropertyValue('border'), '0px')
+  assert.equal(bgRule.style.getPropertyValue('opacity'), '0')
+  assert.equal(bgRule.style.getPropertyValue('pointer-events'), 'none')
+  assert.equal(wrapRule.style.getPropertyValue('grid-template-columns'), '0fr')
+  assert.equal(revealWrapRule.style.getPropertyValue('grid-template-columns'), '1fr')
+  assert.equal(revealBgRule.style.getPropertyValue('opacity'), '1')
+  assert.equal(revealBgRule.style.getPropertyValue('pointer-events'), 'auto')
+  assert.equal(Number(revealDisabledRule.style.getPropertyValue('opacity')), 0.55)
+  const hoverInner = [...hoverBlock.cssRules]
+  assert.ok(hoverInner.some(r => r.selectorText === '.bt-typing:hover:not([data-exiting])>.bt-typing-bg-wrap' && r.style.getPropertyValue('grid-template-columns') === '1fr'))
+  assert.ok(hoverInner.some(r => r.selectorText === '.bt-typing:hover:not([data-exiting]) .bt-typing-bg' && r.style.getPropertyValue('opacity') === '1' && r.style.getPropertyValue('pointer-events') === 'auto'))
+  assert.ok(hoverInner.some(r => r.selectorText === '.bt-typing:hover:not([data-exiting]) .bt-typing-bg:disabled' && Number(r.style.getPropertyValue('opacity')) === 0.55))
+  const reducedInner = [...reducedBlock.cssRules]
+  assert.ok(reducedInner.some(r => r.selectorText?.includes('.bt-typing-bg:hover:not(:disabled) .bt-typing-bg-ico') && r.style.getPropertyValue('transform') === 'none'))
+  assert.ok(reducedInner.some(r => r.selectorText === '.bt-typing-bg:active:not(:disabled)' && r.style.getPropertyValue('scale') === 'none'))
+  assert.equal(offTransformRule.style.getPropertyValue('transform'), 'none')
+  assert.equal(offScaleRule.style.getPropertyValue('scale'), 'none')
+})
+
+test('ActivityIndicator renders wrapped background button, sets data-bg-busy on click, and supports touch tap-to-toggle', async () => {
+  const { outputFiles: compFiles } = await build({
+    stdin: { contents: "export { ActivityIndicator } from './src/client/activity-row.js'", resolveDir: PLUGIN },
+    bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
+    external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+  })
+  const { React: baseReact, render: baseRender, unmount } = makeStatefulReact()
+  // Real React commits useLayoutEffect before useEffect; mirror that order so
+  // ActivityIndicator's collapse cleanup does not run after its phrase effect.
+  const deferredEffects = []
+  const React = {
+    ...baseReact,
+    useEffect: (fn, deps) => baseReact.useEffect(() => {
+      let cleanup
+      deferredEffects.push(() => { cleanup = fn() })
+      return () => { if (typeof cleanup === 'function') cleanup() }
+    }, deps),
+  }
+  const render = (el, attach) => {
+    const tree = baseRender(el, attach)
+    while (deferredEffects.length > 0) deferredEffects.shift()()
+    return tree
+  }
+  const compDom = new JSDOM('<!doctype html><body><div data-chat-flow id="flow"><div data-chat-running></div></div></body>')
+  let isTouch = true
+  const listeners = new Map()
+  const win = {
+    matchMedia: query => ({ matches: query === '(hover: none)' ? isTouch : false }),
+    addEventListener: (type, fn) => { listeners.set(type, fn) },
+    removeEventListener: (type, fn) => { if (listeners.get(type) === fn) listeners.delete(type) },
+  }
+  const compMod = { exports: {} }
+  runInNewContext(compFiles[0].text, {
+    module: compMod, exports: compMod.exports,
+    document: compDom.window.document,
+    window: win,
+    Element: compDom.window.Element,
+    MutationObserver: compDom.window.MutationObserver,
+    requestAnimationFrame: fn => setTimeout(fn, 0),
+    cancelAnimationFrame: id => clearTimeout(id),
+    setTimeout, clearTimeout,
+    require: name => (name === 'react' ? React : name === 'react-dom' ? { createPortal: node => node } : {}),
+  })
+  const { ActivityIndicator } = compMod.exports
+  const calls = []
+  let rejectMove
+  const props = {
+    sessionId: 's1',
+    useRoster: sel => sel({ byId: { s1: { id: 'b1', name: 'Chief' } }, roomsById: {} }),
+    useSessionStatus: sel => sel(new Map([['s1', { running: true }]])),
+    useSession: sel => sel({ pendingSubmissions: [] }),
+    useLive: sel => sel({}),
+    useWork: sel => sel({ canBackground: { s1: { botId: 'b1', turn: 3 } }, turns: { s1: 1000 } }),
+    actions: {
+      clearLive() {},
+      reportError() {},
+      moveToBackground: (...args) => new Promise((_res, rej) => { calls.push(args); rejectMove = rej }),
+    },
+  }
+  const findNode = (node, pred) => {
+    if (!node || typeof node !== 'object') return null
+    if (pred(node)) return node
+    for (const child of node.children ?? []) {
+      const hit = findNode(child, pred)
+      if (hit) return hit
+    }
+    return null
+  }
+  const fakeRowEl = compDom.window.document.createElement('div')
+  const fakeOutsideEl = compDom.window.document.createElement('div')
+  const attachRef = (tree) => {
+    const row = findNode(tree, n => n.props?.className === 'bt-typing')
+    if (row?.props?.ref) row.props.ref.current = fakeRowEl
+  }
+  try {
+    // First render commits layout + passive effects (host, phase, shown); second draws the row.
+    let tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    const row = findNode(tree, n => n.props?.className === 'bt-typing')
+    const wrap = findNode(row, n => n.props?.className === 'bt-typing-bg-wrap')
+    const inner = findNode(wrap, n => n.props?.className === 'bt-typing-bg-in')
+    const btn = findNode(inner, n => n.type === 'button' && n.props?.className === 'bt-typing-bg')
+    assert.ok(row && wrap && inner && btn)
+    assert.equal(row.props['data-bg-open'], undefined)
+    assert.equal(row.props['data-bg-busy'], undefined)
+    assert.equal(btn.props.disabled, false)
+
+    // Pointer device: tapping status text does not set data-bg-open.
+    isTouch = false
+    row.props.onClick({ target: { closest: () => null } })
+    tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    assert.equal(findNode(tree, n => n.props?.className === 'bt-typing').props['data-bg-open'], undefined)
+
+    // Touch device: tapping mark does not toggle; tapping text toggles open and a second tap closes + removes listener.
+    isTouch = true
+    row.props.onClick({ target: { closest: sel => (sel.includes('.bt-typing-mark') ? {} : null) } })
+    tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    assert.equal(findNode(tree, n => n.props?.className === 'bt-typing').props['data-bg-open'], undefined)
+
+    row.props.onClick({ target: { closest: () => null } })
+    tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    assert.equal(findNode(tree, n => n.props?.className === 'bt-typing').props['data-bg-open'], '')
+    assert.equal(listeners.has('pointerdown'), true)
+
+    // Second tap on the row toggles closed and detaches pointerdown listener.
+    findNode(tree, n => n.props?.className === 'bt-typing').props.onClick({ target: { closest: () => null } })
+    tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    assert.equal(findNode(tree, n => n.props?.className === 'bt-typing').props['data-bg-open'], undefined)
+    assert.equal(listeners.has('pointerdown'), false)
+
+    // Reopen and verify outside pointerdown also dismisses and detaches listener.
+    findNode(tree, n => n.props?.className === 'bt-typing').props.onClick({ target: { closest: () => null } })
+    tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    assert.equal(listeners.has('pointerdown'), true)
+    listeners.get('pointerdown')({ target: fakeOutsideEl })
+    tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    assert.equal(findNode(tree, n => n.props?.className === 'bt-typing').props['data-bg-open'], undefined)
+    assert.equal(listeners.has('pointerdown'), false)
+
+    // Clicking the button moves to background, clears data-bg-open, sets data-bg-busy + disabled.
+    findNode(tree, n => n.props?.className === 'bt-typing').props.onClick({ target: { closest: () => null } })
+    tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    findNode(tree, n => n.props?.className === 'bt-typing-bg').props.onClick()
+    tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    assert.deepEqual(calls, [['b1', 's1', 3]])
+    const busyRow = findNode(tree, n => n.props?.className === 'bt-typing')
+    assert.equal(busyRow.props['data-bg-open'], undefined)
+    assert.equal(busyRow.props['data-bg-busy'], '')
+    assert.equal(findNode(busyRow, n => n.props?.className === 'bt-typing-bg').props.disabled, true)
+
+    // Rejected RPC clears busy/disabled state.
+    rejectMove(new Error('boom'))
+    await new Promise(resolve => setImmediate(resolve))
+    tree = render(React.createElement(ActivityIndicator, props), attachRef)
+    assert.equal(findNode(tree, n => n.props?.className === 'bt-typing').props['data-bg-busy'], undefined)
+    assert.equal(findNode(tree, n => n.props?.className === 'bt-typing-bg').props.disabled, false)
+  } finally {
+    unmount()
+  }
+>>>>>>> upstream/dev
 })

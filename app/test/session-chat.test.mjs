@@ -24,17 +24,39 @@ const stubs = {
     export const Elapsed = () => null
     export const workPhrase = () => ''
     export const isBotTool = name => ['show_view', 'ask_user', 'request_secret', 'message_bot', 'cua', 'computer_handoff'].includes(name)
-    export const ToolCell = ({ node, sessionId, useHeldCards }) => {
+    export const ToolCell = ({ node, sessionId, useHeldCards, actions }) => {
       const root = node?.data?.root
       const heldCards = useHeldCards?.(state => state?.[sessionId])
-      const name = root?.name || root?.call?.name
-      if (name === 'show_view') {
-        return {
-          type: 'widget-cell',
-          props: { callId: root.callId, title: root.args?.text?.('title'), done: root.kind === 'tool-result', isError: root.isError === true, heldCards, children: ['widget:' + (root.args?.text?.('title') ?? root.callId)] },
-        }
+      const calls = []
+      const seen = new Set()
+      const visit = (c) => {
+        if (!c || seen.has(c)) return
+        seen.add(c)
+        calls.push(c)
+        for (const child of c.subCalls ?? []) visit(child)
       }
-      return { type: 'bot-tool-cell', props: { toolName: name, callId: root?.callId, sessionId, heldCards, children: ['bot-tool:' + name] } }
+      visit(root)
+      const running = root?.kind === 'tool-result' ? undefined : calls.findLast(c => c.kind !== 'tool-result')
+      if (running && typeof actions?.noteLive === 'function') {
+        actions.noteLive(sessionId, 'tool:' + (root?.callId ?? node?.key), { label: running.name || running.call?.name || 'tool' })
+      }
+      const drawn = calls.filter(c => isBotTool(c.name || c.call?.name))
+      if (drawn.length === 0) return { type: 'span', props: { hidden: true, 'data-bt-empty': true, children: [] } }
+      return {
+        type: 'fragment',
+        props: {
+          children: drawn.map((call) => {
+            const name = call.name || call.call?.name
+            if (name === 'show_view') {
+              return {
+                type: 'widget-cell',
+                props: { callId: call.callId, title: call.args?.text?.('title'), done: call.kind === 'tool-result', isError: call.isError === true, heldCards, children: ['widget:' + (call.args?.text?.('title') ?? call.callId)] },
+              }
+            }
+            return { type: 'bot-tool-cell', props: { toolName: name, callId: call.callId, sessionId, heldCards, children: ['bot-tool:' + name] } }
+          }),
+        },
+      }
     }
   `,
   'widget-cell.js': `
@@ -761,7 +783,8 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
     assert.match(rendered, /想想下一步/)
     assert.match(rendered, /目标、约束、下一步/)
     assert.match(rendered, /建议分三步走/)
-    assert.match(rendered, /list_bots/)
+    // Bot DM mode keeps non-Bot tool calls (such as `list_bots`) out of the chat transcript.
+    assert.doesNotMatch(rendered, /list_bots/)
     // Once snapshot landed with `hasMore: false` and `bot.parts` has 1 earlier segment, EarlierParts mounts.
     assert.equal(all(tree, n => n.type === 'earlier-parts').length, 1, 'EarlierParts must mount when bot.parts.length === 1')
     // Legacy saved reaction key `${sessionId}:${time}` is preserved on Turn 1's Bubbles.
@@ -1632,5 +1655,93 @@ test('createTeam followWork marks activeRooms running before member turns start 
     sandbox.clearInterval = prevClearInterval
     sandbox.__testCall = async () => ({})
     fetchCtrl.reset()
+  }
+})
+
+test('SessionTranscript hides non-Bot/MCP tool cards and compaction in Bot DM mode while keeping them in Classic Agent mode', () => {
+  const T0 = 1_700_000_000_000
+  const T_LATER = T0 + 45 * 60 * 1000
+  const snapshot = {
+    type: 'snapshot',
+    header: { id: 'b1', cwd: '/repo' },
+    cursor: 16,
+    hasMore: false,
+    records: [
+      { type: 'event', event: { type: 'user/message', seq: 1, time: T0, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'check github issues' }] } } },
+      // Compaction checkpoint + settled MCP/shell/custom/orphan tools sitting 45m after the user message.
+      { type: 'event', event: { type: 'compaction/summary', seq: 2, time: T_LATER - 5000, data: { compactionId: 'cmp-1', summary: 'Condensed context.', shadowedItemCount: 8 } } },
+      { type: 'event', event: { type: 'user/message', seq: 3, time: T_LATER - 4000, surfaceOp: 'replace', data: { source: { kind: 'compact-checkpoint', compactionId: 'cmp-1', itemCount: 8 }, content: [{ type: 'text', text: 'checkpoint' }] } } },
+      { type: 'event', event: { type: 'turn/start', seq: 4, time: T_LATER, data: { turn: 1 } } },
+      { type: 'event', event: { type: 'tool/call', seq: 5, time: T_LATER + 100, data: { turn: 1, step: 1, callId: 'mcp-1', name: 'mcp__github__search_issues', arguments: '{"query":"bot_remember"}' } } },
+      { type: 'event', event: { type: 'tool/result', seq: 6, time: T_LATER + 200, data: { turn: 1, step: 1, message: { toolCallId: 'mcp-1', isError: true, content: [{ type: 'text', text: 'Error' }] } } } },
+      { type: 'event', event: { type: 'tool/call', seq: 7, time: T_LATER + 300, data: { turn: 1, step: 1, callId: 'prep-1', name: 'prepare_ds_bot_issue', arguments: '{"title":"bug"}' } } },
+      { type: 'event', event: { type: 'tool/result', seq: 8, time: T_LATER + 400, data: { turn: 1, step: 1, message: { toolCallId: 'prep-1', isError: false, content: [{ type: 'text', text: 'drafted' }] } } } },
+      // Orphan tool/result whose tool/call fell before the page window.
+      { type: 'event', event: { type: 'tool/result', seq: 9, time: T_LATER + 500, data: { turn: 1, step: 1, message: { toolCallId: 'orphan-1', isError: false, content: [{ type: 'text', text: 'stale' }] } } } },
+      // PTC run_code dispatching BOTH a hidden MCP tool AND a visible Bot tool (`ask_user`).
+      { type: 'event', event: { type: 'tool/call', seq: 10, time: T_LATER + 600, data: { turn: 1, step: 2, callId: 'ptc-mix', name: 'run_code', arguments: '{"code":"..."}' } } },
+      { type: 'event', event: { type: 'tool/ptc-dispatch-start', seq: 11, time: T_LATER + 610, data: { turn: 1, parentCallId: 'ptc-mix', rootCallId: 'ptc-mix', subCallId: 'sub-mcp', name: 'mcp__github__get_me', arguments: '{}' } } },
+      { type: 'event', event: { type: 'tool/ptc-dispatch', seq: 12, time: T_LATER + 620, data: { turn: 1, parentCallId: 'ptc-mix', rootCallId: 'ptc-mix', subCallId: 'sub-mcp', name: 'mcp__github__get_me', isError: false, content: [] } } },
+      { type: 'event', event: { type: 'tool/ptc-dispatch-start', seq: 13, time: T_LATER + 630, data: { turn: 1, parentCallId: 'ptc-mix', rootCallId: 'ptc-mix', subCallId: 'sub-ask', name: 'ask_user', arguments: '{"question":"Submit?"}' } } },
+      { type: 'event', event: { type: 'tool/ptc-dispatch', seq: 14, time: T_LATER + 640, data: { turn: 1, parentCallId: 'ptc-mix', rootCallId: 'ptc-mix', subCallId: 'sub-ask', name: 'ask_user', isError: false, content: [] } } },
+      { type: 'event', event: { type: 'tool/result', seq: 15, time: T_LATER + 650, data: { turn: 1, step: 2, message: { toolCallId: 'ptc-mix', isError: false, content: [{ type: 'text', text: 'ok' }] } } } },
+      { type: 'event', event: { type: 'assistant/message', seq: 16, time: T_LATER + 700, data: { turn: 1, step: 3, message: { content: [{ type: 'text', text: 'Draft ready.' }] } } } },
+    ],
+  }
+  const { log } = applyFrame(emptyLog(), snapshot)
+  const bot = { id: 'b1', name: 'Chief', color: 'blue' }
+  const roster = {
+    bots: [bot],
+    byId: { b1: bot },
+    rooms: [],
+    roomsById: {},
+    prefs: { layout: 'flat' },
+    exchangeTurns: {},
+  }
+
+  // Bot DM mode (classic: false): no raw tool cards, no compaction pill, no run_code wrapper,
+  // flat SpeakerHead still lands on the assistant reply (not stolen by hidden tools), and ask_user renders via ToolCell.
+  const botInst = mount(SessionTranscript, {
+    log,
+    sessionId: 'b1',
+    bot,
+    roster,
+    actions: {},
+    classic: false,
+  })
+  try {
+    const tree = botInst.render()
+    const rendered = textOf(tree)
+    assert.equal(all(tree, n => n.props?.className === 'dsb-tool').length, 0, 'Bot DM renders zero raw GenericToolCards')
+    assert.equal(all(tree, n => n.props?.className === 'dsb-compaction').length, 0, 'Bot DM hides compaction checkpoints')
+    assert.doesNotMatch(rendered, /mcp__github__search_issues|prepare_ds_bot_issue|mcp__github__get_me|run_code|orphan-1|compacted/)
+    assert.equal(all(tree, n => n.type === 'bot-tool-cell' && n.props?.toolName === 'ask_user').length, 1, 'PTC nested Bot tool still renders via ToolCell')
+    assert.equal(all(tree, n => n.props?.className === 'bt-group-name').length, 1, 'flat-layout SpeakerHead renders once on the assistant reply')
+    assert.match(rendered, /Draft ready\./)
+    // Time separators: 1 before user message (T0) + 1 before the first visible row after 45m gap (ptc-mix with ask_user).
+    assert.equal(all(tree, n => n.props?.className === 'bt-time-sep').length, 2, 'hidden compaction and non-Bot tools do not add extra time separators')
+  } finally {
+    botInst.unmount()
+  }
+
+  // Classic Agent mode (classic: true): retains full developer tool cards and compaction checkpoints.
+  const classicInst = mount(SessionTranscript, {
+    log,
+    sessionId: 'b1',
+    bot: undefined,
+    roster,
+    actions: {},
+    classic: true,
+  })
+  try {
+    const tree = classicInst.render()
+    const rendered = textOf(tree)
+    assert.equal(all(tree, n => n.props?.className === 'dsb-compaction').length, 1, 'Classic Agent keeps compaction checkpoints')
+    assert.ok(all(tree, n => n.props?.className === 'dsb-tool').length >= 4, 'Classic Agent renders raw tool cards')
+    assert.match(rendered, /mcp__github__search_issues/)
+    assert.match(rendered, /prepare_ds_bot_issue/)
+    assert.match(rendered, /run_code/)
+  } finally {
+    classicInst.unmount()
   }
 })
