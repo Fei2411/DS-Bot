@@ -1,0 +1,24 @@
+name: Full Package (on label)
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+# Separate workflow so adding unrelated labels (agent/*, review/*) never cancels an active
+# package.yml run and never overwrites Package result with a skipped check run.
+concurrency:
+  group: >-
+    ${{ github.event.label.name == 'ci/full-package'
+        && format('full-package-{0}', github.ref)
+        || format('full-package-noop-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    if: github.event.label.name == 'ci/full-package'
+    uses: ./.github/workflows/package.yml
+    with:
+      force_full: true
