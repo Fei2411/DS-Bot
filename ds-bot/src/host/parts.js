@@ -4077,7 +4077,15 @@ export function install(rt) {
           const view = normalizeView(args?.view)
           const shown = checkShownView(args?.title, view)
           const pendingView = callId === null ? undefined : rt.own(state.views, partId)
-          const isPendingView = pendingView !== undefined && (pendingView.callSessionId ?? partId) === partId && pendingView.callId === callId
+          // Match by exact tool/call event seq + callId so providers that reuse short
+          // call IDs (e.g. "call_0") never hijack an earlier display/closed view; legacy
+          // persisted records without callSeq stay out of the transcript and use the Dock.
+          const isPendingView = pendingView !== undefined
+            && (pendingView.callSessionId ?? partId) === partId
+            && pendingView.callId === callId
+            && typeof pendingView.callSeq === 'number'
+            && Number.isInteger(pendingView.callSeq)
+            && event.seq === pendingView.callSeq
           if (isPendingView) {
             if (!hidden.has(event.data?.turn ?? turn)) {
               stamp(event, { kind: 'view', id: pendingView.id, title: pendingView.title, view: pendingView.view, callId, pending: true, time: event.time })

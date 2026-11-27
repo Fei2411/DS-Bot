@@ -653,8 +653,14 @@ export function install(rt) {
     if (name !== undefined) setActivity(id, name === 'ask_user' || name === 'show_view' ? undefined : activityOf(name))
     else if (entry.turn !== undefined) setActivity(id, 'thinking')
   }
-  const startCall = (id, entry, callId, name, args) => {
-    if (typeof callId === 'string') (entry.calls ??= new Map()).set(callId, { name, args })
+  const startCall = (id, entry, callId, name, args, seq) => {
+    if (typeof callId === 'string') {
+      (entry.calls ??= new Map()).set(callId, {
+        name,
+        args,
+        ...(typeof seq === 'number' && Number.isInteger(seq) ? { seq } : {}),
+      })
+    }
     showCall(id, entry)
   }
   const endCall = (id, entry, callId) => {
@@ -1151,7 +1157,7 @@ export function install(rt) {
       }
       case 'tool/call': {
         const name = String(event.data?.name ?? '')
-        startCall(id, entry, event.data?.callId, name, String(event.data?.arguments ?? ''))
+        startCall(id, entry, event.data?.callId, name, String(event.data?.arguments ?? ''), event.seq)
         // A program is as quick as the tools it runs, so its sub-calls decide.
         if (name !== PROGRAM_TOOL) {
           entry.toolCount = (entry.toolCount ?? 0) + 1
@@ -2086,5 +2092,7 @@ export function install(rt) {
     if (id !== undefined && !rt.isBotSession?.(id) && rt.roomOf?.(id) === undefined) forgetSessionTurn(id)
   })
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, forgetSessionTurn, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork, isHiddenBotWorkTurn })
+  const callSeq = (sessionId, callId) => live.get(sessionId)?.calls?.get(callId)?.seq
+
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, callSeq, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, forgetSessionTurn, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork, isHiddenBotWorkTurn })
 }

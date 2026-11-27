@@ -512,30 +512,36 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
     })
     if (missing.length > 0) void refresh(generation.current)
   }, [page, dockViews, refresh])
-  const rowsLenRef = useRef(rows.length)
-  rowsLenRef.current = rows.length
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
   const scrollRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollRetryCountRef = useRef(0)
+  const scrollRetryRowKeyRef = useRef<string | null>(null)
   const clearScrollRetry = useCallback(() => {
     if (scrollRetryTimerRef.current !== null) {
       clearTimeout(scrollRetryTimerRef.current)
       scrollRetryTimerRef.current = null
     }
     scrollRetryCountRef.current = 0
+    scrollRetryRowKeyRef.current = null
   }, [])
   useEffect(() => clearScrollRetry, [chatKey, clearScrollRetry])
-  const jumpToRow = useCallback((index: number) => {
-    if (index < 0 || index >= rowsLenRef.current) return
+  const jumpToRowKey = useCallback((rowKey: string): boolean => {
+    const index = rowsRef.current.findIndex(row => row.key === rowKey)
+    if (index < 0) return false
     clearScrollRetry()
+    scrollRetryRowKeyRef.current = rowKey
     restoredForRef.current = chatKey
     list.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 })
+    return true
   }, [chatKey, clearScrollRetry])
   const handleViewSettled = useCallback(() => {
     refreshTeam?.()
     void refresh(generation.current)
   }, [refreshTeam, refresh])
   // Opening a chat from Needs you for an inline view scrolls straight to that card.
-  // Compare focusToken by object reference (ShellB passes params object, not a primitive).
+  // Compare focusToken by object reference (ShellB passes params object, not a primitive)
+  // and mark handled only once the timer actually runs so a mid-wait refresh reschedules.
   const jumpedFocusRef = useRef<{ chatKey: string; focus: string; token: unknown } | null>(null)
   useEffect(() => {
     if (focus === undefined) return
@@ -543,11 +549,15 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
     if (prev !== null && prev.chatKey === chatKey && prev.focus === focus && prev.token === focusToken) return
     const match = inlineViews.find(entry => viewFocusKey(entry) === focus)
     if (match === undefined) return
-    jumpedFocusRef.current = { chatKey, focus, token: focusToken }
+    const targetRowKey = match.rowKey
     restoredForRef.current = chatKey
-    const timer = setTimeout(() => jumpToRow(match.rowIndex), 80)
+    const timer = setTimeout(() => {
+      if (jumpToRowKey(targetRowKey)) {
+        jumpedFocusRef.current = { chatKey, focus, token: focusToken }
+      }
+    }, 80)
     return () => clearTimeout(timer)
-  }, [chatKey, focus, focusToken, inlineViews, jumpToRow])
+  }, [chatKey, focus, focusToken, inlineViews, jumpToRowKey])
   const inlineViewSig = inlineViews.map(entry => `${entry.rowKey}:${entry.view.id ?? ''}`).join('|')
   const listExtraData = useMemo(() => ({ openSteps, inlineViewSig }), [openSteps, inlineViewSig])
   // Group rows show each member's name, color and mark; a team refresh that changes
@@ -601,10 +611,14 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
                   if (scrollRetryCountRef.current >= 3) return
                   scrollRetryCountRef.current += 1
                   if (scrollRetryTimerRef.current !== null) clearTimeout(scrollRetryTimerRef.current)
-                  const targetIndex = info.index
+                  const targetKey = scrollRetryRowKeyRef.current
+                  const fallbackIndex = info.index
                   scrollRetryTimerRef.current = setTimeout(() => {
                     scrollRetryTimerRef.current = null
-                    if (targetIndex >= 0 && targetIndex < rowsLenRef.current) {
+                    const targetIndex = targetKey !== null
+                      ? rowsRef.current.findIndex(row => row.key === targetKey)
+                      : fallbackIndex
+                    if (targetIndex >= 0 && targetIndex < rowsRef.current.length) {
                       list.current?.scrollToIndex({ index: targetIndex, animated: true, viewPosition: 0.5 })
                     }
                   }, 120)
@@ -654,7 +668,7 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
         items={inlineViews.map(entry => ({
           key: viewFocusKey(entry),
           label: viewReminderLabel(bot?.name, entry.view.title, t),
-          onJump: () => jumpToRow(entry.rowIndex),
+          onJump: () => { jumpToRowKey(entry.rowKey) },
         }))}
         p={p}
       />

@@ -635,7 +635,7 @@ test('displayItems emits a pending show_view inline for visible turns, and omits
   writeFileSync(join(home, 'state.json'), JSON.stringify({
     ...TEAM,
     exchangeTurns: { 'writer-now': [2] },
-    views: { 'writer-now': { id: 'v-vis', callId: 'call-visible', title: 'Pick', view: CHOICES, askedAt: 1002 } },
+    views: { 'writer-now': { id: 'v-vis', callId: 'call-visible', callSeq: 3, title: 'Pick', view: CHOICES, askedAt: 1002 } },
   }))
   const ctx = fakeContext()
   Object.assign(ctx, {
@@ -681,7 +681,7 @@ test('displayItems emits a pending show_view inline for visible turns, and omits
 
   // Answering a pending view removes the inline pending view and emits the answer row.
   delete host.state.closedCards?.['writer-now']
-  host.state.views['writer-now'] = { id: 'v-vis', callId: 'call-visible', title: 'Pick', view: CHOICES, askedAt: 1002 }
+  host.state.views['writer-now'] = { id: 'v-vis', callId: 'call-visible', callSeq: 3, title: 'Pick', view: CHOICES, askedAt: 1002 }
   const sentFollowups = []
   ctx.sessionController.resolveAgent = async sessionId => ({
     agent: { session: { id: sessionId }, followup: msg => sentFollowups.push(msg) },
@@ -712,12 +712,47 @@ test('displayItems emits a pending show_view inline for visible turns, and omits
   assert.equal(afterBad.items.filter(item => item.kind === 'view').length, 0)
 
   // Hidden turn: pending view must NOT be emitted into the transcript (stays in Dock).
-  host.state.views['writer-now'] = { id: 'v-hid', callId: 'call-hidden', title: 'Hidden', view: CHOICES, askedAt: 2002 }
+  host.state.views['writer-now'] = { id: 'v-hid', callId: 'call-hidden', callSeq: 7, title: 'Hidden', view: CHOICES, askedAt: 2002 }
   const second = (await call('chat', { botId: 'writer' })).value
   assert.equal(second.items.filter(item => item.kind === 'view').length, 0)
 
   // Rolled-over card from an earlier part: must NOT match the current part's transcript.
-  host.state.views['writer-now'] = { id: 'v-roll', callId: 'call-visible', callSessionId: 'writer-old', title: 'Rolled', view: CHOICES, askedAt: 3000 }
+  host.state.views['writer-now'] = { id: 'v-roll', callId: 'call-visible', callSeq: 3, callSessionId: 'writer-old', title: 'Rolled', view: CHOICES, askedAt: 3000 }
   const third = (await call('chat', { botId: 'writer' })).value
   assert.equal(third.items.filter(item => item.kind === 'view').length, 0)
+
+  // Reused short callId ("call_0") across turns: callSeq pins pending projection to the exact
+  // tool/call event so an earlier display view with the same callId is never hijacked.
+  eventsByPart['writer-now'].push(
+    { seq: 10, time: 4000, type: 'turn/start', data: { turn: 3 } },
+    { seq: 11, time: 4001, type: 'tool/call', data: { name: 'show_view', callId: 'call_0', arguments: { title: 'Metric', view: METER } } },
+    { seq: 12, time: 4002, type: 'turn/end', data: { turn: 3, reason: { kind: 'completed' } } },
+    { seq: 13, time: 5000, type: 'turn/start', data: { turn: 4 } },
+    { seq: 14, time: 5001, type: 'tool/call', data: { name: 'show_view', callId: 'call_0', arguments: { title: 'Pick again', view: CHOICES } } },
+  )
+  // Real show_view execution after turns.js observes tool/call records callSeq automatically.
+  await ctx.emitAsync('agent/created', { agent: ctx.scopeAgent('writer-now') })
+  for (const listener of ctx.listeners.get('session/event') ?? []) {
+    if (listener.length >= 2) listener({ id: 'writer-now' }, eventsByPart['writer-now'].at(-2))
+    if (listener.length >= 2) listener({ id: 'writer-now' }, eventsByPart['writer-now'].at(-1))
+  }
+  await host.teamTools.find(d => d.name === 'show_view').execute(
+    { title: 'Pick again', view: CHOICES },
+    { agent: { id: 'writer-now' }, callId: 'call_0', concludeTurn() {} },
+  )
+  assert.equal(host.state.views['writer-now']?.callSeq, 14)
+  const reused = (await call('chat', { botId: 'writer' })).value.items.filter(item => item.kind === 'view')
+  assert.equal(reused.length, 2)
+  assert.equal(reused[0].title, 'Metric')
+  assert.equal(reused[0].pending, undefined)
+  assert.equal(reused[1].title, 'Pick again')
+  assert.equal(reused[1].pending, true)
+  assert.equal(reused[1].seq, 14)
+
+  // Legacy persisted pending view without callSeq: never hijacks historical rows (falls back to Dock).
+  delete host.state.views['writer-now'].callSeq
+  const legacy = (await call('chat', { botId: 'writer' })).value.items.filter(item => item.kind === 'view')
+  assert.equal(legacy.length, 1)
+  assert.equal(legacy[0].title, 'Metric')
+  assert.equal(legacy[0].pending, undefined)
 })
