@@ -22,7 +22,7 @@ jobs:
     name: Sync agent and review labels
     runs-on: ubuntu-latest
     if: >-
-      (github.event_name == 'pull_request_target' && github.event.pull_request.state == 'open' && (github.event.action != 'edited' || github.event.changes.body != null)) ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.state == 'open' && (github.event.action != 'edited' || github.event.changes.body != null || github.event.changes.base != null)) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.issue.state == 'open') ||
       (github.event_name == 'pull_request_review' && github.event.pull_request.state == 'open')
     steps:
@@ -263,6 +263,19 @@ jobs:
               const current = await getCurrentLabels(owner, repo, issueNumber);
 
               if (action === 'opened' || action === 'edited') {
+                if (action === 'edited' && context.payload.changes?.base) {
+                  const staleOnRetarget =
+                    current.has('review/approved') || current.has('review/changes-requested');
+                  if (staleOnRetarget) {
+                    const toRemove = [
+                      'review/approved',
+                      'review/changes-requested',
+                      ...REVIEWED_BY_LABELS,
+                    ];
+                    await applyLabelDiff(owner, repo, issueNumber, current, toRemove, ['review/re-review']);
+                    core.info(`PR #${issueNumber}: marked review/re-review after base branch retarget.`);
+                  }
+                }
                 if (action === 'edited' && !context.payload.changes?.body) {
                   core.info(`PR #${issueNumber}: body unchanged; skipping agent/* sync.`);
                   return;
@@ -304,13 +317,8 @@ jobs:
                   const { pathToFileURL } = require('node:url');
                   const { spawnSync } = require('node:child_process');
                   const verifierPath = path.resolve('scripts/check-pure-base-sync.mjs');
-                  const baseRef = String(pr.base?.ref || '').trim();
-                  const safeBaseRef =
-                    baseRef &&
-                    !baseRef.startsWith('-') &&
-                    !/[\s\x00-\x1f\x7f~^:?*[\\]|\.\./.test(baseRef);
 
-                  if (fs.existsSync(verifierPath) && safeBaseRef) {
+                  if (fs.existsSync(verifierPath)) {
                     let bareDir = null;
                     try {
                       const { data: livePr } = await github.rest.pulls.get({
@@ -319,6 +327,12 @@ jobs:
                         pull_number: issueNumber,
                       });
                       const liveHeadSha = String(livePr?.head?.sha || '').trim().toLowerCase();
+                      const liveBaseRef = String(livePr?.base?.ref || '').trim();
+                      const safeBaseRef =
+                        liveBaseRef &&
+                        !liveBaseRef.startsWith('-') &&
+                        !/[\s\x00-\x1f\x7f~^:?*[\\]|\.\./.test(liveBaseRef);
+
                       const [comments, reviews] = await Promise.all([
                         github.paginate(github.rest.issues.listComments, {
                           owner,
@@ -342,6 +356,7 @@ jobs:
                         if (Number.isNaN(ts)) continue;
                         const parsed = parseReviewComment(comment.body);
                         if (!parsed) continue;
+                        if (parsed.status !== 'review/re-review' && !parsed.reviewedSha) continue;
                         trustedMarkers.push({
                           ts,
                           id: Number(comment.id) || 0,
@@ -364,6 +379,7 @@ jobs:
                         if (commitId && parsed.reviewedSha && !commitId.startsWith(parsed.reviewedSha)) {
                           sha = null;
                         }
+                        if (parsed.status !== 'review/re-review' && !sha) continue;
                         trustedMarkers.push({
                           ts,
                           id: Number(review.id) || 0,
@@ -373,15 +389,18 @@ jobs:
                       }
 
                       trustedMarkers.sort((a, b) => (a.ts - b.ts) || (a.id - b.id));
-                      const latestMarker = trustedMarkers[trustedMarkers.length - 1] || null;
 
                       if (
                         livePr?.state === 'open' &&
+                        safeBaseRef &&
                         /^[0-9a-f]{40}$/.test(liveHeadSha) &&
-                        latestMarker?.status === 'review/approved' &&
-                        latestMarker.sha
+                        trustedMarkers.some((m) => m.status === 'review/approved' && m.sha)
                       ) {
-                        const { checkPureBaseSync, resolveUniqueCommit } = await import(pathToFileURL(verifierPath).href);
+                        const {
+                          checkPureBaseSync,
+                          isStrictAncestor,
+                          resolveUniqueCommit,
+                        } = await import(pathToFileURL(verifierPath).href);
                         bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-pure-sync-'));
                         const token = process.env.GITHUB_TOKEN || '';
                         const authHeader = token
@@ -406,7 +425,7 @@ jobs:
                               env: {
                                 ...process.env,
                                 GIT_CONFIG_NOSYSTEM: '1',
-                                GIT_CONFIG_GLOBAL: os.devNull,
+                                GIT_CONFIG_GLOBAL: '/dev/null',
                                 GIT_TERMINAL_PROMPT: '0',
                               },
                               maxBuffer: 32 * 1024 * 1024,
@@ -424,39 +443,67 @@ jobs:
                               '--no-tags',
                               '--filter=blob:none',
                               'origin',
-                              `refs/heads/${baseRef}:refs/heads/${baseRef}`,
+                              `refs/heads/${liveBaseRef}:refs/heads/${liveBaseRef}`,
                               `refs/pull/${issueNumber}/head:refs/pull/${issueNumber}/head`,
                             ])
                           : remoteRes;
 
                         if (fetchRes.status === 0) {
-                          const approvedSha = resolveUniqueCommit(bareDir, latestMarker.sha, gitConfigArgs);
-                          if (approvedSha && approvedSha === liveHeadSha) {
-                            core.info(
-                              `PR #${issueNumber}: live head ${liveHeadSha.slice(0, 8)} already matches latest trusted approval; preserving review/approved.`,
-                            );
-                            return;
-                          }
-                          if (approvedSha) {
-                            const verdict = checkPureBaseSync({
-                              gitDir: bareDir,
-                              beforeSha: approvedSha,
-                              afterSha: liveHeadSha,
-                              baseRef: `refs/heads/${baseRef}`,
-                              gitConfigArgs,
-                            });
-                            if (verdict.pure) {
-                              core.info(
-                                `PR #${issueNumber}: preserved review/approved after pure base sync from approved ${approvedSha.slice(0, 8)} to ${liveHeadSha.slice(0, 8)} (${verdict.reason}, base ${String(verdict.baseTip || '').slice(0, 8)}).`,
-                              );
-                              return;
+                          const resolvedMarkers = trustedMarkers.map((m) => ({
+                            ...m,
+                            resolvedSha: m.sha ? resolveUniqueCommit(bareDir, m.sha, gitConfigArgs) : null,
+                          }));
+                          let approvedIdx = -1;
+                          for (let i = resolvedMarkers.length - 1; i >= 0; i -= 1) {
+                            const m = resolvedMarkers[i];
+                            if (m.status !== 'review/approved' || !m.resolvedSha) continue;
+                            if (
+                              m.resolvedSha === liveHeadSha ||
+                              isStrictAncestor(bareDir, m.resolvedSha, liveHeadSha, gitConfigArgs) === true
+                            ) {
+                              approvedIdx = i;
+                              break;
                             }
-                            core.info(
-                              `PR #${issueNumber}: head ${liveHeadSha.slice(0, 8)} is not a pure base sync from approved ${approvedSha.slice(0, 8)} (${verdict.reason}); invalidating review labels.`,
-                            );
+                          }
+                          if (approvedIdx >= 0) {
+                            const approvedSha = resolvedMarkers[approvedIdx].resolvedSha;
+                            const overridden = resolvedMarkers.slice(approvedIdx + 1).some((m) => {
+                              // Ignore late comments explicitly targeting an older ancestor commit;
+                              // any standalone re-review or verdict on approvedSha/newer/unresolved commits overrides.
+                              if (!m.resolvedSha) return true;
+                              return isStrictAncestor(bareDir, m.resolvedSha, approvedSha, gitConfigArgs) !== true;
+                            });
+                            if (!overridden) {
+                              if (approvedSha === liveHeadSha) {
+                                core.info(
+                                  `PR #${issueNumber}: live head ${liveHeadSha.slice(0, 8)} already matches latest trusted approval; preserving review/approved.`,
+                                );
+                                return;
+                              }
+                              const verdict = checkPureBaseSync({
+                                gitDir: bareDir,
+                                beforeSha: approvedSha,
+                                afterSha: liveHeadSha,
+                                baseRef: `refs/heads/${liveBaseRef}`,
+                                gitConfigArgs,
+                              });
+                              if (verdict.pure) {
+                                core.info(
+                                  `PR #${issueNumber}: preserved review/approved after pure base sync from approved ${approvedSha.slice(0, 8)} to ${liveHeadSha.slice(0, 8)} (${verdict.reason}, base ${String(verdict.baseTip || '').slice(0, 8)}).`,
+                                );
+                                return;
+                              }
+                              core.info(
+                                `PR #${issueNumber}: head ${liveHeadSha.slice(0, 8)} is not a pure base sync from approved ${approvedSha.slice(0, 8)} (${verdict.reason}); invalidating review labels.`,
+                              );
+                            } else {
+                              core.info(
+                                `PR #${issueNumber}: a newer non-stale review marker overrides approval @ ${approvedSha.slice(0, 8)}; invalidating review labels.`,
+                              );
+                            }
                           } else {
                             core.info(
-                              `PR #${issueNumber}: could not uniquely resolve approved SHA ${latestMarker.sha}; invalidating review labels.`,
+                              `PR #${issueNumber}: no resolvable trusted review/approved ancestor of ${liveHeadSha.slice(0, 8)}; invalidating review labels.`,
                             );
                           }
                         } else {

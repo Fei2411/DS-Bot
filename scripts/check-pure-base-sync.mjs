@@ -1,35 +1,42 @@
 #!/usr/bin/env node
-// Verifies whether a PR head (`afterSha`) is strictly a pure merge of newer commits
-// from the PR's base branch on top of the last trusted approved commit (`beforeSha`),
-// allowing deterministic rebuilds of generated bundles ONLY when those bundles actually
-// conflicted or both merge sides touched their build inputs (and whose contents are
-// independently verified byte-for-byte by CI).
+// Verifies whether a PR head (`afterSha`) is strictly a chain of pure base-branch merges
+// on top of the last trusted approved commit (`beforeSha`), allowing deterministic rebuilds
+// of generated bundles ONLY when those bundles actually conflicted or both merge sides
+// touched their build inputs (and whose contents are independently verified byte-for-byte by CI).
 //
 // Fail-closed: any missing object, ambiguous ref, rebase/force-push, non-base merge,
 // source conflict, evil merge, unprompted generated-file edit, or git error returns { pure: false }.
 
 import { spawnSync } from 'node:child_process'
-import { devNull } from 'node:os'
+import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const SHA_RE = /^[0-9a-f]{40}$/i
 const UNSAFE_REF_RE = /[\s\x00-\x1f\x7f~^:?*[\\]|\.\./
+// Git for Windows rejects Node's `\\.\nul` (`os.devNull`) as GIT_CONFIG_GLOBAL with EINVAL,
+// while `/dev/null` is accepted portably by POSIX Git and Git for Windows alike.
+const GIT_NULL_CONFIG = '/dev/null'
 
 const DEFAULT_GENERATED_SPECS = {
   'ds-bot/client.js': [
     /^ds-bot\/client\.js$/,
     /^ds-bot\/src\/client\//,
     /^ds-bot\/src\/shared\//,
+    /^ds-bot\/package\.json$/,
     /^ds-bot\/package-lock\.json$/,
     /^ds-bot\/scripts\/build-client\.mjs$/,
+    /^ds-bot\/scripts\/build-release-notes\.mjs$/,
     /^link\//,
     /^CHANGELOG\.md$/,
   ],
   'ds-bot/src/shared/release-notes-generated.js': [
     /^ds-bot\/src\/shared\/release-notes-generated\.js$/,
     /^ds-bot\/src\/shared\/release-notes\.json$/,
+    /^ds-bot\/src\/shared\/semver\.js$/,
+    /^ds-bot\/package\.json$/,
     /^ds-bot\/scripts\/build-client\.mjs$/,
+    /^ds-bot\/scripts\/build-release-notes\.mjs$/,
     /^CHANGELOG\.md$/,
   ],
 }
@@ -52,7 +59,7 @@ function runGit(gitDir, args, extraArgs = []) {
     env: {
       ...process.env,
       GIT_CONFIG_NOSYSTEM: '1',
-      GIT_CONFIG_GLOBAL: devNull,
+      GIT_CONFIG_GLOBAL: GIT_NULL_CONFIG,
       GIT_TERMINAL_PROMPT: '0',
     },
     maxBuffer: 32 * 1024 * 1024,
@@ -62,6 +69,17 @@ function runGit(gitDir, args, extraArgs = []) {
 function isCommit(gitDir, ref, extraArgs) {
   const res = runGit(gitDir, ['cat-file', '-t', '--end-of-options', ref], extraArgs)
   return res.status === 0 && res.stdout.trim() === 'commit'
+}
+
+function isAncestor(gitDir, ancestorRef, descendantRef, extraArgs) {
+  const res = runGit(
+    gitDir,
+    ['merge-base', '--is-ancestor', '--end-of-options', ancestorRef, descendantRef],
+    extraArgs,
+  )
+  if (res.status === 0) return true
+  if (res.status === 1) return false
+  return null
 }
 
 function isRegularBlob(gitDir, commitSha, filePath, extraArgs) {
@@ -91,6 +109,36 @@ function touchesAnyPattern(files, patterns) {
   return files.some((file) => patterns.some((re) => re.test(file)))
 }
 
+function getParents(gitDir, commitSha, extraArgs) {
+  const res = runGit(gitDir, ['rev-list', '--parents', '-n', '1', '--end-of-options', commitSha], extraArgs)
+  if (res.status !== 0) return null
+  const tokens = res.stdout.trim().split(/\s+/).filter(Boolean)
+  if (tokens.length < 1 || tokens[0].toLowerCase() !== commitSha) return null
+  return tokens.slice(1).map((s) => s.toLowerCase())
+}
+
+function computeEligibleGenerated(gitDir, leftSha, rightSha, conflictSet, generatedSpecs, extraArgs) {
+  const mbRes = runGit(gitDir, ['merge-base', '--end-of-options', leftSha, rightSha], extraArgs)
+  if (mbRes.status !== 0) return null
+  const commonBase = mbRes.stdout.trim().toLowerCase()
+  if (!SHA_RE.test(commonBase)) return null
+
+  const leftFiles = diffNames(gitDir, commonBase, leftSha, extraArgs)
+  const rightFiles = diffNames(gitDir, commonBase, rightSha, extraArgs)
+  if (leftFiles === null || rightFiles === null) return null
+
+  const eligible = new Set()
+  for (const [bundlePath, patterns] of Object.entries(generatedSpecs)) {
+    if (
+      conflictSet.has(bundlePath) ||
+      (touchesAnyPattern(leftFiles, patterns) && touchesAnyPattern(rightFiles, patterns))
+    ) {
+      eligible.add(bundlePath)
+    }
+  }
+  return eligible
+}
+
 /**
  * Resolves a 7-40 hex commit SHA prefix uniquely in `gitDir` (fails closed on missing or ambiguous prefix).
  */
@@ -101,6 +149,17 @@ export function resolveUniqueCommit(gitDir, shaPrefix, gitConfigArgs = []) {
   if (res.status !== 0) return null
   const resolved = res.stdout.trim().toLowerCase()
   return SHA_RE.test(resolved) ? resolved : null
+}
+
+/**
+ * Checks if `ancestorSha` is strictly an ancestor of `descendantSha` (true), equal/unrelated (false), or error (null).
+ */
+export function isStrictAncestor(gitDir, ancestorSha, descendantSha, gitConfigArgs = []) {
+  const a = String(ancestorSha || '').trim().toLowerCase()
+  const d = String(descendantSha || '').trim().toLowerCase()
+  if (!SHA_RE.test(a) || !SHA_RE.test(d)) return null
+  if (a === d) return false
+  return isAncestor(gitDir, a, d, gitConfigArgs)
 }
 
 /**
@@ -144,127 +203,151 @@ export function checkPureBaseSync({
   }
 
   // Reject force-pushes and rebases: before must remain an ancestor of after.
-  const anc = runGit(gitDir, ['merge-base', '--is-ancestor', '--end-of-options', before, after], gitConfigArgs)
-  if (anc.status !== 0) {
+  if (isAncestor(gitDir, before, after, gitConfigArgs) !== true) {
     return { pure: false, reason: 'before-not-ancestor' }
   }
 
-  // Find the newest base-branch commit merged into after.
-  const mb = runGit(gitDir, ['merge-base', '--end-of-options', after, base], gitConfigArgs)
-  if (mb.status !== 0) {
-    return { pure: false, reason: 'no-base-merge-base' }
+  // Walk the first-parent commit chain from before -> after so successive dev syncs are
+  // verified in order against their actual merge bases (avoiding false conflicts on chained syncs).
+  const chainRes = runGit(
+    gitDir,
+    ['rev-list', '--first-parent', '--reverse', '--end-of-options', `${before}..${after}`],
+    gitConfigArgs,
+  )
+  if (chainRes.status !== 0) {
+    return { pure: false, reason: 'rev-list-failed' }
   }
-  const baseTip = mb.stdout.trim().toLowerCase()
-  if (!SHA_RE.test(baseTip)) {
-    return { pure: false, reason: 'invalid-base-tip' }
-  }
-
-  // Base commits must actually have advanced beyond what before already contained;
-  // otherwise a standalone edit to a generated file would look like a pure sync.
-  const alreadyMerged = runGit(gitDir, ['merge-base', '--is-ancestor', '--end-of-options', baseTip, before], gitConfigArgs)
-  if (alreadyMerged.status === 0) {
-    return { pure: false, reason: 'base-did-not-advance', baseTip }
-  }
-  if (alreadyMerged.status !== 1) {
-    return { pure: false, reason: 'ancestor-check-failed', baseTip }
+  const chain = chainRes.stdout.trim().split(/\r?\n/).filter(Boolean).map((s) => s.toLowerCase())
+  if (chain.length === 0) {
+    return { pure: false, reason: 'empty-chain' }
   }
 
   const allowed = new Set(Object.keys(generatedSpecs))
+  let prev = before
+  let latestBaseTip = null
+  let pendingRebuildBundles = null
+  const allGeneratedChanged = new Set()
 
-  // Compute the exact automatic 3-way merge tree of (before, baseTip) with no manual edits.
-  const mt = runGit(
-    gitDir,
-    ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', '--end-of-options', before, baseTip],
-    gitConfigArgs,
-  )
-  if (mt.status !== 0 && mt.status !== 1) {
-    return { pure: false, reason: 'merge-tree-error', baseTip }
-  }
-
-  const mtTokens = mt.stdout.split('\0')
-  const pureTree = (mtTokens[0] || '').trim().toLowerCase()
-  if (!SHA_RE.test(pureTree)) {
-    return { pure: false, reason: 'invalid-merge-tree-oid', baseTip }
-  }
-
-  const conflicts = mt.status === 1
-    ? mtTokens.slice(1).filter(Boolean)
-    : []
-  const conflictSet = new Set(conflicts)
-  const disallowedConflicts = conflicts.filter((p) => !allowed.has(p))
-  if (disallowedConflicts.length > 0) {
-    return {
-      pure: false,
-      reason: 'source-merge-conflict',
-      baseTip,
-      conflicts: disallowedConflicts,
+  for (const commitSha of chain) {
+    if (!SHA_RE.test(commitSha)) {
+      return { pure: false, reason: 'invalid-chain-sha' }
     }
-  }
-
-  // Compare the pure 3-way merge tree against after's actual tree.
-  // Any non-allowed difference (evil merge, manual edit, mode/symlink change, extra branch) fails closed.
-  const changedFiles = diffNames(gitDir, pureTree, after, gitConfigArgs)
-  if (changedFiles === null) {
-    return { pure: false, reason: 'diff-tree-error', baseTip }
-  }
-
-  const disallowedChanges = changedFiles.filter((p) => !allowed.has(p))
-  if (disallowedChanges.length > 0) {
-    return {
-      pure: false,
-      reason: 'non-base-changes',
-      baseTip,
-      changedFiles: disallowedChanges,
-    }
-  }
-
-  if (changedFiles.length > 0) {
-    // Defense in depth: only allow a generated bundle to differ from the automatic merge tree
-    // if that bundle actually conflicted OR both sides of the merge touched its build inputs.
-    const commonBaseRes = runGit(gitDir, ['merge-base', '--end-of-options', before, baseTip], gitConfigArgs)
-    if (commonBaseRes.status !== 0) {
-      return { pure: false, reason: 'no-common-merge-base', baseTip }
-    }
-    const commonBase = commonBaseRes.stdout.trim().toLowerCase()
-    if (!SHA_RE.test(commonBase)) {
-      return { pure: false, reason: 'invalid-common-merge-base', baseTip }
+    const parents = getParents(gitDir, commitSha, gitConfigArgs)
+    if (!parents || parents[0] !== prev) {
+      return { pure: false, reason: 'broken-first-parent-chain' }
     }
 
-    const prFiles = diffNames(gitDir, commonBase, before, gitConfigArgs)
-    const baseFiles = diffNames(gitDir, commonBase, baseTip, gitConfigArgs)
-    if (prFiles === null || baseFiles === null) {
+    if (parents.length === 1) {
+      // Allow a single generated-bundle rebuild commit immediately after a clean base merge
+      // (e.g. `scripts/merge-dev.sh` "Rebuild client.js after merging dev").
+      if (!pendingRebuildBundles || pendingRebuildBundles.size === 0) {
+        return { pure: false, reason: 'non-merge-commit' }
+      }
+      const changed = diffNames(gitDir, prev, commitSha, gitConfigArgs)
+      if (changed === null) {
+        return { pure: false, reason: 'diff-tree-error', baseTip: latestBaseTip }
+      }
+      if (changed.length === 0) {
+        return { pure: false, reason: 'empty-rebuild-commit', baseTip: latestBaseTip }
+      }
+      const disallowed = changed.filter((p) => !allowed.has(p))
+      if (disallowed.length > 0) {
+        return { pure: false, reason: 'non-base-changes', baseTip: latestBaseTip, changedFiles: disallowed }
+      }
+      const unexpected = changed.filter((p) => !pendingRebuildBundles.has(p))
+      if (unexpected.length > 0) {
+        return { pure: false, reason: 'unexpected-generated-change', baseTip: latestBaseTip, changedFiles: unexpected }
+      }
+      for (const filePath of changed) {
+        if (!isRegularBlob(gitDir, commitSha, filePath, gitConfigArgs)) {
+          return { pure: false, reason: 'invalid-generated-blob', baseTip: latestBaseTip, changedFiles: changed }
+        }
+        allGeneratedChanged.add(filePath)
+      }
+      pendingRebuildBundles = null
+      prev = commitSha
+      continue
+    }
+
+    if (parents.length !== 2) {
+      return { pure: false, reason: 'octopus-merge-not-allowed' }
+    }
+
+    const baseTip = parents[1]
+    // Second parent must be a commit on the PR's base branch.
+    if (isAncestor(gitDir, baseTip, base, gitConfigArgs) !== true) {
+      return { pure: false, reason: 'non-base-merge', baseTip }
+    }
+    // Base commits must actually advance beyond prev.
+    const alreadyMerged = isAncestor(gitDir, baseTip, prev, gitConfigArgs)
+    if (alreadyMerged !== false) {
+      return { pure: false, reason: 'base-did-not-advance', baseTip }
+    }
+
+    const mt = runGit(
+      gitDir,
+      ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', '--end-of-options', prev, baseTip],
+      gitConfigArgs,
+    )
+    if (mt.status !== 0 && mt.status !== 1) {
+      return { pure: false, reason: 'merge-tree-error', baseTip }
+    }
+
+    const mtTokens = mt.stdout.split('\0')
+    const pureTree = (mtTokens[0] || '').trim().toLowerCase()
+    if (!SHA_RE.test(pureTree)) {
+      return { pure: false, reason: 'invalid-merge-tree-oid', baseTip }
+    }
+
+    const conflicts = mt.status === 1 ? mtTokens.slice(1).filter(Boolean) : []
+    const conflictSet = new Set(conflicts)
+    const disallowedConflicts = conflicts.filter((p) => !allowed.has(p))
+    if (disallowedConflicts.length > 0) {
+      return { pure: false, reason: 'source-merge-conflict', baseTip, conflicts: disallowedConflicts }
+    }
+
+    const changedFiles = diffNames(gitDir, pureTree, commitSha, gitConfigArgs)
+    if (changedFiles === null) {
+      return { pure: false, reason: 'diff-tree-error', baseTip }
+    }
+
+    const disallowedChanges = changedFiles.filter((p) => !allowed.has(p))
+    if (disallowedChanges.length > 0) {
+      return { pure: false, reason: 'non-base-changes', baseTip, changedFiles: disallowedChanges }
+    }
+
+    const eligible = computeEligibleGenerated(gitDir, prev, baseTip, conflictSet, generatedSpecs, gitConfigArgs)
+    if (eligible === null) {
       return { pure: false, reason: 'diff-tree-error', baseTip }
     }
 
     for (const filePath of changedFiles) {
-      const patterns = generatedSpecs[filePath] || []
-      const rebuildExpected =
-        conflictSet.has(filePath) ||
-        (touchesAnyPattern(prFiles, patterns) && touchesAnyPattern(baseFiles, patterns))
-      if (!rebuildExpected) {
-        return {
-          pure: false,
-          reason: 'unexpected-generated-change',
-          baseTip,
-          changedFiles: [filePath],
-        }
+      if (!eligible.has(filePath)) {
+        return { pure: false, reason: 'unexpected-generated-change', baseTip, changedFiles: [filePath] }
       }
-      if (!isRegularBlob(gitDir, after, filePath, gitConfigArgs)) {
-        return {
-          pure: false,
-          reason: 'invalid-generated-blob',
-          baseTip,
-          changedFiles,
-        }
+      if (!isRegularBlob(gitDir, commitSha, filePath, gitConfigArgs)) {
+        return { pure: false, reason: 'invalid-generated-blob', baseTip, changedFiles }
       }
+      allGeneratedChanged.add(filePath)
     }
+
+    // If this was a clean merge (no rebuild folded into the merge commit itself), allow one
+    // immediately following rebuild commit for eligible dual-sided generated bundles.
+    pendingRebuildBundles = changedFiles.length === 0 ? eligible : null
+    latestBaseTip = baseTip
+    prev = commitSha
   }
 
+  if (!latestBaseTip) {
+    return { pure: false, reason: 'base-did-not-advance' }
+  }
+
+  const changedList = [...allGeneratedChanged]
   return {
     pure: true,
-    reason: changedFiles.length === 0 ? 'clean-base-merge' : 'base-merge-with-generated-rebuild',
-    baseTip,
-    changedFiles,
+    reason: changedList.length === 0 ? 'clean-base-merge' : 'base-merge-with-generated-rebuild',
+    baseTip: latestBaseTip,
+    changedFiles: changedList,
   }
 }
 
@@ -280,7 +363,15 @@ function parseCliArgs(argv) {
   return out
 }
 
-const isDirectRun = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])
+function safeRealpath(p) {
+  try {
+    return realpathSync(p)
+  } catch {
+    return resolve(p)
+  }
+}
+
+const isDirectRun = process.argv[1] && safeRealpath(fileURLToPath(import.meta.url)) === safeRealpath(process.argv[1])
 if (isDirectRun) {
   const result = checkPureBaseSync(parseCliArgs(process.argv.slice(2)))
   process.stdout.write(`${JSON.stringify(result)}\n`)

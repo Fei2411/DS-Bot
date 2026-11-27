@@ -21,7 +21,10 @@ permissions:
 # Heavy packaging and native mobile builds run in their own workflow so unit-test retries in
 # test.yml never have to wait for 30-40 minute desktop/iOS builds to finish first.
 concurrency:
-  group: package-${{ github.ref }}
+  group: >-
+    ${{ inputs.force_full
+        && format('full-package-run-{0}', github.ref)
+        || format('package-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -117,8 +120,9 @@ jobs:
             if has '^(app/(package\.json|package-lock\.json|electron-builder\.yml|\.npmrc|build/|engine/|assets/|scripts/((before-pack|check-lifecycle|check-packed|check-update|dist|prepare-runtime|seed-electron-checksums)\.|primary-runtime\.lock\.json$)|src/update)|ds-bot/(package\.json|package-lock\.json|cordis\.patch\.yml|office\.js|src/office/|src/host/computer/))'; then
               app_package_full=true
             fi
-            # Main-process app/src/ edits get a fast Linux packaged smoke without blocking on 40m macOS/Windows queues.
-            if [ "$app_package_full" = "true" ] || has '^app/src/'; then
+            # Main-process app/src/ and desktop UI bundle config edits get a fast Linux packaged smoke
+            # without blocking on 40m macOS/Windows queues.
+            if [ "$app_package_full" = "true" ] || has '^(app/src/|app/vite\.config\.js$|app/ui/index\.html$)'; then
               app_package_linux=true
             fi
             if has '^app/(package\.json|package-lock\.json|electron-builder\.yml|build/|scripts/(before-pack|check-update|dist)\.|src/update)'; then
@@ -396,6 +400,8 @@ jobs:
       # runs it; the uninstaller check that follows removes the updated copy.
       - name: Build the next version
         if: needs.changes.outputs.app_update == 'true'
+        env:
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
         run: |
           next="$(node -p "const [a, b, c] = require('./package.json').version.split(/[.-]/u); [a, b, Number(c) + 1].join('.')")"
           echo "NEXT_VERSION=$next" >> "$GITHUB_ENV"

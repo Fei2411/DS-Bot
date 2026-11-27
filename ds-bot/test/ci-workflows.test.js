@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { devNull, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -48,7 +48,7 @@ function runClassifier(workflowFile, filesChanged, envOverrides = {}) {
   const gitEnv = {
     ...process.env,
     GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_TERMINAL_PROMPT: '0',
   }
 
@@ -131,6 +131,11 @@ describe('CI workflow separation and path classification', () => {
     assert.deepEqual(fullLabelWf.on.pull_request.types, ['labeled'])
     assert.equal(fullLabelWf.jobs.package.uses, './.github/workflows/package.yml')
     assert.equal(fullLabelWf.jobs.package.with.force_full, true)
+    assert.match(String(pkgWf.concurrency?.group || ''), /inputs\.force_full/, 'package.yml must isolate forced full-package concurrency lane')
+    assert.match(String(triageWf.jobs['sync-labels'].if || ''), /changes\.base/, 'pr-triage-labels.yml must run on PR base retargeting')
+
+    const winNextStep = pkgWf.jobs['app-package'].steps.find((s) => s.name === 'Build the next version')
+    assert.equal(winNextStep?.env?.ELECTRON_BUILDER_COMPRESSION_LEVEL, '1')
 
     // test.yml must stay fast: no desktop packaging or native mobile build jobs.
     assert.equal(testWf.jobs['app-package'], undefined)
@@ -185,15 +190,17 @@ describe('CI workflow separation and path classification', () => {
     assert.equal(heavy.app_update, 'false')
   })
 
-  it('runs Linux packaged smoke for app/src PRs without blocking on macOS/Windows full packaging', () => {
-    const fast = runClassifier('test.yml', ['app/src/bot-views.mjs'])
-    const heavy = runClassifier('package.yml', ['app/src/bot-views.mjs'])
+  it('runs Linux packaged smoke for app/src and desktop UI bundle config PRs without blocking on macOS/Windows full packaging', () => {
+    for (const file of ['app/src/bot-views.mjs', 'app/vite.config.js', 'app/ui/index.html']) {
+      const fast = runClassifier('test.yml', [file])
+      const heavy = runClassifier('package.yml', [file])
 
-    assert.equal(fast.app_unit, 'true')
-    assert.equal(fast.app_unit_win, 'true')
-    assert.equal(heavy.app_package_linux, 'true')
-    assert.equal(heavy.app_package_full, 'false')
-    assert.equal(heavy.app_update, 'false')
+      assert.equal(fast.app_unit, 'true', `${file} must run app_unit`)
+      assert.equal(fast.app_unit_win, 'true', `${file} must run app_unit_win`)
+      assert.equal(heavy.app_package_linux, 'true', `${file} must run app_package_linux`)
+      assert.equal(heavy.app_package_full, 'false', `${file} should not trigger 4-OS packaging`)
+      assert.equal(heavy.app_update, 'false', `${file} should not trigger update double-build`)
+    }
   })
 
   it('runs full 4-OS packaging for updater, packaging config, and runtime lockfile changes', () => {
