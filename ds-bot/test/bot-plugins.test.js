@@ -988,7 +988,7 @@ test('unregistering active native browser provider disposes and falls back; late
   const fakePm = {
     async listBundles() {
       return [{
-        name: 'dsh-ego-browser',
+        name: 'acme-dsh-browser',
         official: false,
         availability: 'profile',
         version: '1.0.0',
@@ -1031,20 +1031,25 @@ test('unregistering active native browser provider disposes and falls back; late
   assert.equal(rt.teamTools.some(tool => tool.name === 'temp_nav'), false)
   assert.equal(rt.plugins.getSlotActiveId('browser'), 'builtin:readonly')
 
-  // 2. Activate DSH bundle first (package-only mount), then register native provider for that package → upgrades!
-  await call('plugins-slot-set', { slot: 'browser', id: 'dsh:dsh-ego-browser' })
+  // 2. Activate bare DSH bundle first (package-only mount), verify slot/external surface, then upgrade via late native provider.
+  const bareAct = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:acme-dsh-browser' })
+  assert.equal(bareAct.ok, true)
   assert.equal(rt.plugins.getActiveMount('slot:browser')?.kind, 'dsh')
+  const bareItem = bareAct.value.plugins.find(p => p.id === 'dsh:acme-dsh-browser')
+  assert.equal(bareItem.slot, 'browser')
+  assert.equal(bareItem.windowMode, 'external')
+  assert.equal(bareItem.controlsPane, false)
 
   let upgraded = false
   const unregUpgrade = rt.plugins.registerNative(defineBrowserProvider({
-    id: 'ego-native',
-    name: 'Ego Native',
-    packageName: 'dsh-ego-browser',
+    id: 'acme-native',
+    name: 'Acme Native',
+    packageName: 'acme-dsh-browser',
     mount(host) {
       upgraded = true
       host.registerTool(host.defineTool({
-        name: 'ego_native_nav',
-        description: 'Ego native nav',
+        name: 'acme_native_nav',
+        description: 'Acme native nav',
         parameters: {},
         async execute() { return 'ok' },
       }))
@@ -1055,7 +1060,7 @@ test('unregistering active native browser provider disposes and falls back; late
   await rt.plugins.reconcileSlot('browser')
   assert.equal(upgraded, true)
   assert.equal(rt.plugins.getActiveMount('slot:browser')?.kind, 'provider')
-  assert.equal(rt.teamTools.some(tool => tool.name === 'ego_native_nav'), true)
+  assert.equal(rt.teamTools.some(tool => tool.name === 'acme_native_nav'), true)
 })
 
 test('resolveMcpPresetCommand uses desktop bundled packageManager when npx/pnpm are absent', () => {
@@ -1304,4 +1309,86 @@ test('browser slot reports controlsPane, windowMode, and activeName accurately a
   assert.equal(upgraded.value.slots.browser.windowMode, 'pane')
   assert.equal(upgraded.value.slots.browser.activeName, 'My Browser')
   assert.equal(upgraded.value.slots.browser.customName, true)
+})
+
+test('legacy saved dsh:dsh-ego-browser snapshot loads cleanly offline and can switch away or uninstall after catalog removal', async (t) => {
+  const bundles = [{
+    name: 'dsh-ego-browser',
+    official: false,
+    availability: 'profile',
+    version: '1.0.0',
+    enabled: true,
+    installed: true,
+    optional: false,
+    removable: true,
+    updatable: false,
+    rows: [],
+    overrides: [],
+  }]
+  const removed = []
+  const fakePm = {
+    async listBundles() { return bundles.map(b => ({ ...b })) },
+    async setBundleEnabled(name, enabled) {
+      const b = bundles.find(item => item.name === name)
+      if (b) b.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+    async removeBundle(name) {
+      removed.push(name)
+      const idx = bundles.findIndex(item => item.name === name)
+      if (idx !== -1) bundles.splice(idx, 1)
+      return { changed: true, application: 'applied', stage: 'remove', target: name }
+    },
+  }
+  const { rt, call, stop } = startRuntime({
+    state: {
+      version: 1,
+      mainBotIds: ['bot-1'],
+      bots: { 'bot-1': { id: 'bot-1', name: 'Chief', role: 'Lead', capabilities: [], packs: [] } },
+      rooms: {},
+      plugins: {
+        slots: { browser: 'dsh:dsh-ego-browser' },
+        enabled: {},
+        offFor: {},
+        custom: {},
+        snapshots: {
+          'dsh:dsh-ego-browser': {
+            id: 'dsh:dsh-ego-browser',
+            name: 'Ego Lite Browser',
+            description: 'Legacy snapshot',
+            category: 'browser',
+            slot: 'browser',
+            kind: 'dsh',
+            toolPrefixes: ['ego_'],
+            install: { packageName: 'dsh-ego-browser', spec: 'dsh-ego-browser' },
+          },
+        },
+        sources: [],
+        knownPrefixes: {},
+        consent: {},
+      },
+    },
+    services: { pluginManager: fakePm },
+  })
+  t.after(stop)
+  await rt.load()
+  await rt.reconcilePlugins()
+
+  const listed = await call('plugins-list', {})
+  assert.equal(listed.ok, true)
+  assert.equal(listed.value.slots.browser.active, 'dsh:dsh-ego-browser')
+  assert.equal(listed.value.slots.browser.windowMode, 'external')
+  assert.equal(listed.value.slots.browser.controlsPane, false)
+
+  // Switch back to built-in Playwright and remove the legacy Ego Lite bundle cleanly.
+  const switched = await call('plugins-slot-set', { slot: 'browser', id: 'builtin:refs' })
+  assert.equal(switched.ok, true)
+  assert.equal(switched.value.slots.browser.active, 'builtin:refs')
+  assert.equal(switched.value.slots.browser.windowMode, 'pane')
+
+  const uninstall = await call('plugins-remove', { id: 'dsh:dsh-ego-browser' })
+  assert.equal(uninstall.ok, true)
+  assert.deepEqual(removed, ['dsh-ego-browser'])
+  assert.equal(rt.state.plugins.snapshots['dsh:dsh-ego-browser'], undefined)
+  assert.equal(uninstall.value.plugins.some(p => p.id === 'dsh:dsh-ego-browser'), false)
 })
