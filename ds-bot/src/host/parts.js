@@ -3185,15 +3185,19 @@ export function install(rt) {
     const freshId = await rt.createSession(effectiveRoom === undefined ? name : bot === undefined ? effectiveRoom.name : `${name} · ${effectiveRoom.name}`, { dir, bot })
     // Record the part's owner before anything else can interrupt the switch: the
     // writeback into the Bot/group record lands several awaits later, and a crash or
-    // overwrite in that window must not orphan the part (#2361). The save makes the
-    // lineage durable before the writeback's own save runs.
+    // overwrite in that window must not orphan the part (#2361). The save is
+    // fire-and-forget on purpose: writes run in order, so once the writeback's own
+    // save lands the lineage has landed with or before it, while the switch's await
+    // chain never pays for the extra write. Awaiting it here doubled the flushed
+    // writes on the switch critical path and timing-sensitive suites stalled on
+    // Windows, where a flushed write is far slower than elsewhere.
     if (bot !== undefined) {
       rt.notePartOwner?.(freshId, {
         botId: bot.id,
         ...(thread?.thread === 'task' ? { taskId: thread.taskId } : {}),
         ...(room !== undefined ? { roomId: room.id } : {}),
       })
-      await rt.save().catch(error => rt.warn('ds-bot: part lineage for %s not saved: %s', name, error))
+      void rt.save().catch(error => rt.warn('ds-bot: part lineage for %s not saved: %s', name, error))
     }
     // The group's own Session never asks the model, so selectRoomSession picks an
     // image-capable route when available; the earlier part's route may no longer be served (#1310).
