@@ -501,7 +501,7 @@ export function install(rt) {
         case 'presets':
           return ok({ presets: await rt.agentPresetRows({ fit: true }) })
         case 'efforts':
-          return ok(await rt.reasoningOf(String(body.ref ?? '')) ?? { efforts: [] })
+          return ok(await rt.botReasoningOf(String(body.ref ?? '')) ?? { efforts: [] })
         // A Turn's exact thinking time, from the timed stream in its events; `ms`
         // omitted when the stream carries no reasoning records.
         case 'thinking': {
@@ -535,6 +535,8 @@ export function install(rt) {
           return ok(await rt.discoverModels(body))
         case 'provider-models-save':
           return ok(await rt.saveProviderModels(body))
+        case 'provider-model-effort':
+          return ok(await rt.setProviderModelEffort(body))
         case 'provider-remove':
           return ok(await rt.removeProvider(String(body.provider ?? '')))
         case 'duplicate-bot':

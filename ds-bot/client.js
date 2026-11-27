@@ -994,6 +994,7 @@ var JA = {
   "Create": "作成",
   "Default": "デフォルト",
   "Thinking level": "思考レベル",
+  "Default thinking level · {model}": "デフォルトの思考レベル · {model}",
   "Model: {model}": "モデル: {model}",
   "none": "なし",
   "Choose a model": "モデルを選択",
@@ -4630,6 +4631,7 @@ var KO = {
   // Model menu
   Default: "기본값",
   "Thinking level": "사고 강도",
+  "Default thinking level · {model}": "기본 사고 강도 · {model}",
   "Model: {model}": "모델: {model}",
   none: "없음",
   "Choose a model": "모델 선택",
@@ -8296,6 +8298,7 @@ var ES = {
   // Model menu
   Default: "Predeterminado",
   "Thinking level": "Nivel de razonamiento",
+  "Default thinking level · {model}": "Nivel de razonamiento predeterminado · {model}",
   "Model: {model}": "Modelo: {model}",
   none: "ninguno",
   "Choose a model": "Elegir un modelo",
@@ -11947,6 +11950,7 @@ var FR = {
   "Create": "Créer",
   "Default": "Par défaut",
   "Thinking level": "Niveau de réflexion",
+  "Default thinking level · {model}": "Niveau de réflexion par défaut · {model}",
   "Model: {model}": "Modèle : {model}",
   "none": "aucun",
   "Choose a model": "Choisir un modèle",
@@ -15583,6 +15587,7 @@ var DE = {
   // Model menu
   Default: "Standard",
   "Thinking level": "Denktiefe",
+  "Default thinking level · {model}": "Standard-Denktiefe · {model}",
   "Model: {model}": "Modell: {model}",
   none: "keine",
   "Choose a model": "Modell wählen",
@@ -19146,6 +19151,7 @@ var ZH = {
   // Model menu
   Default: "默认",
   "Thinking level": "思考强度",
+  "Default thinking level · {model}": "默认思考强度 · {model}",
   "Model: {model}": "模型：{model}",
   none: "无",
   "Choose a model": "选择模型",
@@ -23274,6 +23280,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     setProviderKey: (provider, value) => after(call2("provider-key", { provider, value })),
     addProvider: (body) => after(call2("provider-add", body)),
     providerModels: (body) => call2("provider-models", body),
+    setProviderModelEffort: (provider, model, effort) => after(call2("provider-model-effort", { provider, model, effort: effort ?? null })),
     saveProviderModels: (body) => call2("provider-models-save", body),
     removeProvider: (provider) => after(call2("provider-remove", { provider })),
     // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
@@ -37840,7 +37847,7 @@ var ResetIcon = () => (0, import_react22.createElement)(
   (0, import_react22.createElement)("path", { d: "M2.8 6.5A5.5 5.5 0 1 1 4 11.8" }),
   (0, import_react22.createElement)("path", { d: "M2.5 3.2v3.4h3.4" })
 );
-function EffortBar({ reasoning, current: current2, onPick }) {
+function EffortBar({ reasoning, current: current2, onPick, label = t("Thinking level") }) {
   const stops = effortStops(reasoning);
   const track = (0, import_react22.useRef)(null);
   const drag = (0, import_react22.useRef)(null);
@@ -37971,11 +37978,11 @@ function EffortBar({ reasoning, current: current2, onPick }) {
   };
   return (0, import_react22.createElement)(
     "div",
-    { className: "bt-effort-bar", role: "group", "aria-label": t("Thinking level") },
+    { className: "bt-effort-bar", role: "group", "aria-label": label },
     (0, import_react22.createElement)(
       "div",
       { className: "bt-effort-head" },
-      (0, import_react22.createElement)("span", { className: "bt-effort-label" }, t("Thinking level")),
+      (0, import_react22.createElement)("span", { className: "bt-effort-label" }, label),
       (0, import_react22.createElement)(
         "span",
         { className: "bt-effort-meta" },
@@ -37997,7 +38004,7 @@ function EffortBar({ reasoning, current: current2, onPick }) {
         className: "bt-effort-track",
         role: "slider",
         tabIndex: 0,
-        "aria-label": t("Thinking level"),
+        "aria-label": label,
         "aria-valuemin": 0,
         "aria-valuemax": stops.length - 1,
         "aria-valuenow": activeIndex,
@@ -60007,6 +60014,15 @@ function keyState(key) {
   if (!key.configured) return ["missing", t("Needs an API key")];
   return key.writable ? ["set", t("Key set")] : ["outside", t("Key set outside DS Bot")];
 }
+function ModelEfforts({ models: models2, onPick }) {
+  return models2.filter((model) => model.catalogLevels?.length).map((model) => (0, import_react68.createElement)(EffortBar, {
+    key: model.id,
+    label: t("Default thinking level · {model}", { model: model.id }),
+    reasoning: { efforts: model.catalogLevels.map((id) => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1) })) },
+    current: model.defaultEffort,
+    onPick: (effort) => onPick(model.id, effort)
+  }));
+}
 function ProviderRow({ provider, apply: apply2, actions, roster, revision, open, onToggle, chatgptProvider }) {
   const [confirm, setConfirm] = (0, import_react68.useState)(false);
   const [refreshing, setRefreshing] = (0, import_react68.useState)(false);
@@ -60089,7 +60105,11 @@ function ProviderRow({ provider, apply: apply2, actions, roster, revision, open,
         shown.map((model) => (0, import_react68.createElement)("span", { key: model.ref, className: "bt-tag", title: model.ref }, model.name)),
         provider.models.length > shown.length ? (0, import_react68.createElement)("span", { className: "bt-set-hint" }, t("and {count} more", { count: provider.models.length - shown.length })) : null
       ) : (0, import_react68.createElement)("div", { className: "bt-set-hint" }, t("No models")),
-      refreshError ? (0, import_react68.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, refreshError) : null
+      refreshError ? (0, import_react68.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, refreshError) : null,
+      provider.custom ? (0, import_react68.createElement)(ModelEfforts, { key: "efforts", models: provider.declaredModels ?? [], onPick: (model, effort) => {
+        effortCache.delete(provider.id + "/" + model);
+        return apply2(actions.setProviderModelEffort(provider.id, model, effort));
+      } }) : null
     ]
   ) : null;
   const logoId = matchProviderId({ provider: provider.id, providerName: provider.name, model: provider.models?.[0]?.ref, name: provider.models?.[0]?.name });
@@ -60300,9 +60320,42 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
   const [found, setFound] = (0, import_react68.useState)(null);
   const [picked, setPicked] = (0, import_react68.useState)([]);
   const [asking, setAsking] = (0, import_react68.useState)(false);
-  const set = (field, value) => setDraft((current2) => ({ ...current2, [field]: value }));
-  const typed = draft.typed.split(/[\s,]+/).map((id) => id.trim()).filter(Boolean);
-  const models2 = [...(found ?? []).filter((model) => picked.includes(model.id)), ...typed.filter((id) => !picked.includes(id)).map((id) => ({ id }))];
+  const [defaults, setDefaults] = (0, import_react68.useState)(/* @__PURE__ */ new Map());
+  const [lookedUp, setLookedUp] = (0, import_react68.useState)(null);
+  const discovery = (0, import_react68.useRef)(0);
+  const set = (field, value) => {
+    if (field === "api" || field === "baseURL" || field === "key") {
+      discovery.current++;
+      setFound(null);
+      setPicked([]);
+      setDefaults(/* @__PURE__ */ new Map());
+      setAsking(false);
+    }
+    setDraft((current2) => ({ ...current2, [field]: value }));
+  };
+  const typed = [...new Set(draft.typed.split(/[\s,]+/).filter(Boolean))];
+  const manualIds = typed.filter((id) => !found?.some((model) => model.id === id));
+  const lookupKey = JSON.stringify([draft.api, manualIds]);
+  (0, import_react68.useEffect)(() => {
+    const [api, ids] = JSON.parse(lookupKey);
+    if (!ids.length) return;
+    let live = true;
+    const timer2 = setTimeout(() => {
+      void actions.providerModels({ api, ids }).then((rows2) => {
+        if (live) setLookedUp({ key: lookupKey, rows: rows2 });
+      }).catch(() => {
+      });
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(timer2);
+    };
+  }, [lookupKey, actions.providerModels]);
+  const lookedUpModels = lookedUp?.key === lookupKey ? lookedUp.rows : [];
+  const models2 = [
+    ...(found ?? []).filter((model) => picked.includes(model.id) || typed.includes(model.id)),
+    ...manualIds.map((id) => lookedUpModels.find((model) => model.id === id) ?? { id })
+  ].map((model) => defaults.has(model.id) && model.catalogLevels?.includes(defaults.get(model.id)) ? { ...model, defaultEffort: defaults.get(model.id) } : model);
   const missing = [];
   if (draft.provider.trim() === "") missing.push(t("Provider ID"));
   if (draft.baseURL.trim() === "") missing.push(t("Endpoint"));
@@ -60316,11 +60369,16 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
     })
   );
   const fetchModels = () => {
+    const seq = ++discovery.current;
     setAsking(true);
     void apply2(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => {
-      setFound(list);
-      setPicked([]);
-    })).finally(() => setAsking(false));
+      if (seq === discovery.current) {
+        setFound(list);
+        setPicked((current2) => current2.filter((id) => list.some((model) => model.id === id)));
+      }
+    })).finally(() => {
+      if (seq === discovery.current) setAsking(false);
+    });
   };
   const toggle = (id) => setPicked((list) => list.includes(id) ? list.filter((item) => item !== id) : [...list, id]);
   const add = () => {
@@ -60377,7 +60435,8 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
         title: model.name && model.name !== model.id ? model.name : void 0,
         onClick: () => toggle(model.id)
       }, (0, import_react68.createElement)("code", null, model.id), picked.includes(model.id) ? (0, import_react68.createElement)(CheckIcon) : null))) : null,
-      input("typed", t("Model ids"), t("Model ids, separated by commas"))
+      input("typed", t("Model ids"), t("Model ids, separated by commas")),
+      (0, import_react68.createElement)(ModelEfforts, { models: models2, onPick: (id, effort) => setDefaults((current2) => new Map(current2).set(id, effort)) })
     ),
     missingHint,
     (0, import_react68.createElement)(FormActions, { onCancel: onDone, onAdd: add, ready })

@@ -889,6 +889,7 @@ export const KO = {
   // Model menu
   Default: '기본값',
   'Thinking level': '사고 강도',
+  'Default thinking level · {model}': '기본 사고 강도 · {model}',
   'Model: {model}': '모델: {model}',
   none: '없음',
   'Choose a model': '모델 선택',

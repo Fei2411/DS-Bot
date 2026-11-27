@@ -864,6 +864,7 @@ export const JA = {
   "Create": "作成",
   "Default": "デフォルト",
   "Thinking level": "思考レベル",
+  "Default thinking level · {model}": "デフォルトの思考レベル · {model}",
   "Model: {model}": "モデル: {model}",
   "none": "なし",
   "Choose a model": "モデルを選択",

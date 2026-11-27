@@ -84,7 +84,7 @@ const ResetIcon = () => h('svg', { width: 12, height: 12, viewBox: '0 0 16 16', 
   h('path', { d: 'M2.8 6.5A5.5 5.5 0 1 1 4 11.8' }),
   h('path', { d: 'M2.5 3.2v3.4h3.4' }))
 
-export function EffortBar({ reasoning, current, onPick }) {
+export function EffortBar({ reasoning, current, onPick, label = t('Thinking level') }) {
   const stops = effortStops(reasoning)
   const track = useRef(null)
   const drag = useRef(null)
@@ -211,9 +211,9 @@ export function EffortBar({ reasoning, current, onPick }) {
     const next = stops[nextIndex]
     if (next) commit(next.effort)
   }
-  return h('div', { className: 'bt-effort-bar', role: 'group', 'aria-label': t('Thinking level') },
+  return h('div', { className: 'bt-effort-bar', role: 'group', 'aria-label': label },
     h('div', { className: 'bt-effort-head' },
-      h('span', { className: 'bt-effort-label' }, t('Thinking level')),
+      h('span', { className: 'bt-effort-label' }, label),
       h('span', { className: 'bt-effort-meta' },
         picked === undefined && hasDefault ? h('span', { className: 'bt-effort-tag' }, t('Default')) : null,
         h('span', { className: 'bt-effort-val' }, active.label),
@@ -225,7 +225,7 @@ export function EffortBar({ reasoning, current, onPick }) {
           : null)),
     h('div', {
       ref: track, className: 'bt-effort-track', role: 'slider', tabIndex: 0,
-      'aria-label': t('Thinking level'), 'aria-valuemin': 0, 'aria-valuemax': stops.length - 1,
+      'aria-label': label, 'aria-valuemin': 0, 'aria-valuemax': stops.length - 1,
       'aria-valuenow': activeIndex, 'aria-valuetext': active.label,
       'data-dragging': dragRatio !== null ? '' : undefined,
       style: { '--bt-effort-p': ratio },

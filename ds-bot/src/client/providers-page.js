@@ -1,7 +1,7 @@
 // The Models page of a window that has no DSH settings of its own: the model providers
 // DSH serves, with their API keys and models, and the providers it can add. DSH keeps
 // all of it; a key only ever travels from these inputs to the host.
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import { BotAvatar } from './mark.js'
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PlusIcon, TrashIcon } from './icons.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
@@ -11,6 +11,7 @@ import { ProviderLogo, matchProviderId } from './provider-logos.js'
 import { SelectMenu } from './select-menu.js'
 import { hostText, t } from './i18n.js'
 import { ChatGPTSettings } from './chatgpt-settings.js'
+import { EffortBar, effortCache } from './model-menu.js'
 
 const PROTOCOL_NAMES = {
   'openai-completions': 'OpenAI Chat Completions',
@@ -160,6 +161,15 @@ function keyState(key) {
   return key.writable ? ['set', t('Key set')] : ['outside', t('Key set outside DS Bot')]
 }
 
+function ModelEfforts({ models, onPick }) {
+  return models.filter(model => model.catalogLevels?.length).map(model => h(EffortBar, {
+    key: model.id, label: t('Default thinking level · {model}', { model: model.id }),
+    reasoning: { efforts: model.catalogLevels.map(id => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1) })) },
+    current: model.defaultEffort,
+    onPick: effort => onPick(model.id, effort),
+  }))
+}
+
 export function ProviderRow({ provider, apply, actions, roster, revision, open, onToggle, chatgptProvider }) {
   const [confirm, setConfirm] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -238,6 +248,10 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
                     provider.models.length > shown.length ? h('span', { className: 'bt-set-hint' }, t('and {count} more', { count: provider.models.length - shown.length })) : null)
                 : h('div', { className: 'bt-set-hint' }, t('No models')),
               refreshError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, refreshError) : null,
+              provider.custom ? h(ModelEfforts, { key: 'efforts', models: provider.declaredModels ?? [], onPick: (model, effort) => {
+                effortCache.delete(provider.id + '/' + model)
+                return apply(actions.setProviderModelEffort(provider.id, model, effort))
+              } }) : null,
             ])
     : null
   const logoId = matchProviderId({ provider: provider.id, providerName: provider.name, model: provider.models?.[0]?.ref, name: provider.models?.[0]?.name })
@@ -388,9 +402,39 @@ export function CustomForm({ view, apply, actions, onDone }) {
   const [found, setFound] = useState(null)
   const [picked, setPicked] = useState([])
   const [asking, setAsking] = useState(false)
-  const set = (field, value) => setDraft(current => ({ ...current, [field]: value }))
-  const typed = draft.typed.split(/[\s,]+/).map(id => id.trim()).filter(Boolean)
-  const models = [...(found ?? []).filter(model => picked.includes(model.id)), ...typed.filter(id => !picked.includes(id)).map(id => ({ id }))]
+  const [defaults, setDefaults] = useState(new Map())
+  const [lookedUp, setLookedUp] = useState(null)
+  const discovery = useRef(0)
+  const set = (field, value) => {
+    if (field === 'api' || field === 'baseURL' || field === 'key') {
+      discovery.current++
+      setFound(null)
+      setPicked([])
+      setDefaults(new Map())
+      setAsking(false)
+    }
+    setDraft(current => ({ ...current, [field]: value }))
+  }
+  const typed = [...new Set(draft.typed.split(/[\s,]+/).filter(Boolean))]
+  const manualIds = typed.filter(id => !found?.some(model => model.id === id))
+  const lookupKey = JSON.stringify([draft.api, manualIds])
+  useEffect(() => {
+    const [api, ids] = JSON.parse(lookupKey)
+    if (!ids.length) return
+    let live = true
+    const timer = setTimeout(() => {
+      void actions.providerModels({ api, ids }).then(rows => {
+        if (live) setLookedUp({ key: lookupKey, rows })
+      }).catch(() => {})
+    }, 250)
+    return () => { live = false; clearTimeout(timer) }
+  }, [lookupKey, actions.providerModels])
+  const lookedUpModels = lookedUp?.key === lookupKey ? lookedUp.rows : []
+  const models = [
+    ...(found ?? []).filter(model => picked.includes(model.id) || typed.includes(model.id)),
+    ...manualIds.map(id => lookedUpModels.find(model => model.id === id) ?? { id }),
+  ].map(model => defaults.has(model.id) && model.catalogLevels?.includes(defaults.get(model.id))
+    ? { ...model, defaultEffort: defaults.get(model.id) } : model)
   const missing = []
   if (draft.provider.trim() === '') missing.push(t('Provider ID'))
   if (draft.baseURL.trim() === '') missing.push(t('Endpoint'))
@@ -401,9 +445,11 @@ export function CustomForm({ view, apply, actions, onDone }) {
       fields: missing.join(t(', ')),
     }))
   const fetchModels = () => {
+    const seq = ++discovery.current
     setAsking(true)
-    void apply(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => { setFound(list); setPicked([]) }))
-      .finally(() => setAsking(false))
+    void apply(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => {
+      if (seq === discovery.current) { setFound(list); setPicked(current => current.filter(id => list.some(model => model.id === id))) }
+    })).finally(() => { if (seq === discovery.current) setAsking(false) })
   }
   const toggle = id => setPicked(list => (list.includes(id) ? list.filter(item => item !== id) : [...list, id]))
   const add = () => {
@@ -435,7 +481,8 @@ export function CustomForm({ view, apply, actions, onDone }) {
       found !== null && found.length > 0 ? h('div', { className: 'bt-secret-bots bt-provider-found' }, found.map(model => h('button', {
         key: model.id, type: 'button', className: 'bt-secret-bot', 'aria-pressed': picked.includes(model.id), title: model.name && model.name !== model.id ? model.name : undefined, onClick: () => toggle(model.id),
       }, h('code', null, model.id), picked.includes(model.id) ? h(CheckIcon) : null))) : null,
-      input('typed', t('Model ids'), t('Model ids, separated by commas'))),
+      input('typed', t('Model ids'), t('Model ids, separated by commas')),
+      h(ModelEfforts, { models, onPick: (id, effort) => setDefaults(current => new Map(current).set(id, effort)) })),
     missingHint,
     h(FormActions, { onCancel: onDone, onAdd: add, ready }))
 }

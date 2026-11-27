@@ -425,3 +425,29 @@ test('a discovered ID gains catalog levels, preserves manual mappings, and can f
   await rt.saveProviderModels({ provider: 'relay', models })
   assert.deepEqual(route().user.providers.relay.models[0].reasoningEfforts, expected)
 })
+
+test('a custom model default follows its Bot sessions until overridden, cleared or removed', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'dsbot-defaults-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const model = 'gpt-6.2-astra'
+  const ref = 'relay/' + model
+  const api = 'openai-completions'
+  await writeFile(join(home, 'model-catalog-codex.json'), JSON.stringify({ updated: Date.now(), rows: [[model, ['low', 'max']]] }))
+  const { rt } = dsh({ home })
+  rt.ctx.llm.resolveModelInfo = async (_provider, id) => id === model ? { reasoning: { efforts: [{ id: 'low' }, { id: 'max' }] } } : {}
+  const [typed] = await rt.discoverModels({ api, ids: [model] })
+  assert.deepEqual(typed.catalogLevels, ['low', 'max'])
+  const body = { custom: true, provider: 'relay', api, baseURL: 'https://relay.example/v1' }
+  await assert.rejects(rt.addProvider({ ...body, models: [{ ...typed, defaultEffort: 'ultra' }] }), /not available/)
+  const view = await rt.addProvider({ ...body, models: [{ ...typed, defaultEffort: 'max' }, 'other'] })
+  assert.equal(row(view, 'relay').declaredModels[0].defaultEffort, 'max')
+  assert.equal((await rt.botReasoningOf(ref)).defaultEffort, 'max')
+  assert.equal(await rt.desiredEffort({}, ref), 'max')
+  assert.equal(await rt.desiredEffort({ effort: 'low' }, ref), 'low')
+  assert.equal(await rt.desiredEffort({}, 'relay/other'), undefined)
+  await rt.setProviderModelEffort({ provider: 'relay', model, effort: null })
+  assert.equal(await rt.desiredEffort({}, ref), undefined)
+  await rt.setProviderModelEffort({ provider: 'relay', model, effort: 'low' })
+  await rt.saveProviderModels({ provider: 'relay', models: ['other'] })
+  assert.equal(await rt.desiredEffort({}, ref), undefined)
+})

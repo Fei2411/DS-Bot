@@ -889,6 +889,7 @@ export const DE = {
   // Model menu
   Default: 'Standard',
   'Thinking level': 'Denktiefe',
+  'Default thinking level · {model}': 'Standard-Denktiefe · {model}',
   'Model: {model}': 'Modell: {model}',
   none: 'keine',
   'Choose a model': 'Modell wählen',

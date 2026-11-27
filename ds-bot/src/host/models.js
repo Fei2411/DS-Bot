@@ -267,6 +267,17 @@ export function install(rt) {
     return value
   }
 
+  function providerDefault(ref, reasoning) {
+    const effort = state.prefs?.modelEffortDefaults?.[ref]
+    return effort && reasoning?.efforts.some(level => level.id === effort) ? effort : undefined
+  }
+
+  async function botReasoningOf(ref) {
+    const reasoning = await reasoningOf(ref)
+    const effort = providerDefault(ref, reasoning)
+    return effort === undefined ? reasoning : { ...reasoning, defaultEffort: effort }
+  }
+
   // A provider's model list can change in DSH settings without any event, so a picker
   // that is about to be used asks for a `fresh` one. Entries for models a Bot uses
   // also carry their `reasoning`, so the picker can offer thinking levels.
@@ -304,7 +315,7 @@ export function install(rt) {
     rt.unblockBots?.({ keyed: new Set(entries.filter(entry => !entry.needsKey).map(entry => entry.provider)) })
     const used = new Set(Object.values(state.bots ?? {}).flatMap(bot => [bot.model, bot.appliedModel].filter(Boolean)))
     await Promise.all(entries.filter(entry => used.has(entry.ref)).map(async (entry) => {
-      const reasoning = await reasoningOf(entry.ref)
+      const reasoning = await botReasoningOf(entry.ref)
       if (reasoning !== undefined) entry.reasoning = reasoning
     }))
     catalogCache = { at: Date.now(), value: entries }
@@ -416,9 +427,9 @@ export function install(rt) {
   // model's own default applies. A level the model does not have is ignored, never
   // sent: an explicit effort a provider does not know is a hard refusal there.
   async function desiredEffort(bot, ref) {
-    if (bot.effort === undefined || ref === undefined) return undefined
+    if (ref === undefined || (bot.effort === undefined && !state.prefs?.modelEffortDefaults?.[ref])) return undefined
     const reasoning = await reasoningOf(ref)
-    return reasoning?.efforts?.some(effort => effort.id === bot.effort) ? bot.effort : undefined
+    return reasoning?.efforts?.some(effort => effort.id === bot.effort) ? bot.effort : providerDefault(ref, reasoning)
   }
 
   // A thinking level id, or a name only one level of the model has, like resolveModel.
@@ -440,6 +451,7 @@ export function install(rt) {
   async function defaultEffort(ref) {
     const wanted = ctx.get?.('agentDefaultModel')?.currentSelection?.()?.reasoningEffort
     if (ref === undefined || wanted === undefined) return undefined
+    if (state.prefs?.modelEffortDefaults?.[ref] && providerDefault(ref, await reasoningOf(ref))) return undefined
     return resolveEffort(ref, wanted).catch(() => undefined)
   }
 
@@ -822,7 +834,7 @@ export function install(rt) {
   const healDue = () => hasMissingSessions() && !healCheckPending && (lastHealCheckAt === 0 || Date.now() - lastHealCheckAt >= HEAL_POLL_MS)
   const syncModels = () => {
     if (readOnly()) return modelsSynced ?? Promise.resolve()
-    const key = answerable(catalogCache.value).map(entry => entry.ref).join(',')
+    const key = JSON.stringify(answerable(catalogCache.value).map(({ ref }) => [ref, state.prefs?.modelEffortDefaults?.[ref]]))
     if (key !== syncedKey) {
       syncedKey = key
       retryQueued = false
@@ -1046,7 +1058,7 @@ export function install(rt) {
     // Work that starts while the host runs can ask whether the host is still there.
     hostClosing: () => llm() === undefined,
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
-    defaultRef, defaultModel, defaultBotModel, defaultEffort, isUsable, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
+    defaultRef, defaultModel, defaultBotModel, defaultEffort, isUsable, resolveModel, desiredModel, reasoningOf, botReasoningOf, resolveEffort, desiredEffort,
     selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, retryModel, reapplyModel, routeRefused, dropCatalog, assembleLlm, forgetSessionModel,
   })
 }

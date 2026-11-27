@@ -146,16 +146,19 @@ export function install(rt) {
 
   const catalogEfforts = createEffortCatalog(rt.home)
   const trackedEfforts = () => rt.state.prefs?.catalogEfforts ?? {}
-  async function rememberEfforts(changes) {
-    if (!changes.size) return
-    const next = { ...trackedEfforts() }
-    for (const [ref, value] of changes) {
-      if (value === undefined) delete next[ref]
-      else next[ref] = value
-    }
+  async function rememberEfforts(changes, defaults = new Map()) {
+    if (!changes.size && !defaults.size) return
     rt.state.prefs ??= {}
-    rt.state.prefs.catalogEfforts = next
-    await rt.save?.()
+    for (const [key, updates] of [['catalogEfforts', changes], ['modelEffortDefaults', defaults]]) {
+      if (!updates.size) continue
+      const next = { ...rt.state.prefs[key] }
+      for (const [ref, value] of updates) {
+        if (value === undefined || value === null) delete next[ref]
+        else next[ref] = value
+      }
+      rt.state.prefs[key] = next
+    }
+    await rt.save?.({ required: defaults.size > 0 })
   }
 
   // A saved map is user-owned unless it still matches our last write. This
@@ -299,11 +302,17 @@ export function install(rt) {
         && typeof profile.baseURL === 'string' && profile.baseURL !== ''
         && canList(profile, map.get(PI_AI))
       const refreshable = listable && profileOf(entry, map, 'user') !== undefined
-      const declared = (Array.isArray(profile?.models) ? profile.models : []).map(model => {
+      const declared = (await Promise.all((Array.isArray(profile?.models) ? profile.models : []).map(async model => {
         const id = typeof model === 'string' ? model : model?.id
         if (typeof id !== 'string' || id.trim() === '') return undefined
-        return { id, ref: `${entry.provider}/${id}`, name: typeof model?.name === 'string' && model.name.trim() !== '' ? model.name : id }
-      }).filter(Boolean)
+        const ref = `${entry.provider}/${id}`
+        const reasoning = entry.declared === true && entry.provider !== CHATGPT_PROVIDER && refreshable ? await rt.reasoningOf?.(ref) : undefined
+        const levels = reasoning?.efforts?.map(effort => effort.id)
+        const defaultEffort = rt.state.prefs?.modelEffortDefaults?.[ref]
+        return { id, ref, name: model?.name?.trim() || id,
+          ...(levels?.length ? { catalogLevels: levels } : {}),
+          ...(levels?.includes(defaultEffort) ? { defaultEffort } : {}) }
+      }))).filter(Boolean)
       providers.push({
         id: entry.provider,
         ...(entry.provider === CHATGPT_PROVIDER ? { auth: 'chatgpt' } : {}),
@@ -367,10 +376,19 @@ export function install(rt) {
     const keyed = key !== undefined || info.configured === true
     const profile = custom ? customProfile(body, known, protocolsOf(map.get(PI_AI))) : {}
     const changes = new Map()
-    if (custom) profile.models = await Promise.all(profile.models.map(model => enrichModel(provider, profile.api, model, changes)))
+    const defaults = new Map()
+    if (custom) {
+      profile.models = await Promise.all(profile.models.map(model => enrichModel(provider, profile.api, model, changes)))
+      for (const [i, model] of profile.models.entries()) {
+        const effort = body.models[i]?.defaultEffort
+        if (effort == null) continue
+        if (typeof effort !== 'string' || typeof model.reasoningEfforts?.[effort] !== 'string') throw invalid(`Thinking level ${effort} is not available for ${model.id}`)
+        defaults.set(provider + '/' + model.id, effort)
+      }
+    }
     if (keyed) profile.apiKeyEnv = ref
     await settings.mutate(PI_AI, [{ op: 'set', path: entry?.settingsPath ?? ['providers', provider], value: profile }], map.get(PI_AI)?.revision)
-    await rememberEfforts(changes)
+    await rememberEfforts(changes, defaults)
     if (key !== undefined) await credentials.set(ref, key)
     rt.dropCatalog()
     return providersView()
@@ -398,6 +416,12 @@ export function install(rt) {
     const { settings } = usable()
     const map = sections(settings)
     const protocols = protocolsOf(map.get(PI_AI))
+    if (Array.isArray(body.ids)) {
+      if (!protocols.includes(body.api) || body.ids.length > MAX_MODELS) throw invalid('Invalid model lookup')
+      return Promise.all(body.ids.filter(id => typeof id === 'string').map(async id => ({
+        id, catalogLevels: Object.keys(await catalogEfforts(id, body.api) ?? {}),
+      })))
+    }
     const provider = typeof body.provider === 'string' && body.provider !== '' ? body.provider : undefined
     const entry = provider === undefined ? undefined : entryOf(provider)
     const profile = entry !== undefined && entry.settingsNs === PI_AI ? profileOf(entry, map) : undefined
@@ -478,15 +502,34 @@ export function install(rt) {
       return entry.declared === true ? enrichModel(provider, profile.api ?? 'openai-completions', merged, changes, incoming.useCatalogLevels === true) : merged
     }))
     const kept = new Set(models.map(model => model.id))
+    const defaults = new Map()
     for (const id of current.keys()) {
       const ref = provider + '/' + id
       if (!kept.has(id) && trackedEfforts()[ref] !== undefined) changes.set(ref, undefined)
+      if (!kept.has(id) && rt.state.prefs?.modelEffortDefaults?.[ref] !== undefined) defaults.set(ref, undefined)
     }
     if (new Set(models.map(model => model.id)).size !== models.length) throw invalid('Two models have the same id')
     await settings.mutate(PI_AI, [{ op: 'set', path: [...entry.settingsPath, 'models'], value: models }], section?.revision)
-    await rememberEfforts(changes)
+    await rememberEfforts(changes, defaults)
     rt.dropCatalog()
     return providersView()
+  }
+
+  async function setProviderModelEffort({ provider, model, effort }) {
+    await rt.load?.()
+    const { settings } = usable()
+    const entry = entryOf(provider)
+    const map = sections(settings)
+    const profile = entry?.declared === true && provider !== CHATGPT_PROVIDER && entry.settingsNs === PI_AI && profileOf(entry, map, 'user') ? profileOf(entry, map) : undefined
+    if (!profile?.models?.some(item => (item?.id ?? item) === model)) throw invalid('Choose a configured custom model')
+    const ref = provider + '/' + model
+    const selected = effort === null ? null : await rt.resolveEffort(ref, effort)
+    if (selected === undefined) throw invalid('Choose a thinking level')
+    await rememberEfforts(new Map(), new Map([[ref, selected]]))
+    rt.dropCatalog()
+    const view = await providersView()
+    await rt.syncModels?.()
+    return view
   }
 
   // Only a route the user added goes; its key goes with it when it is the one this page
@@ -502,15 +545,15 @@ export function install(rt) {
     const ref = refOf(profileOf(entry, map))
     const shared = [...keyRefs()].some(([other, otherRef]) => other !== provider && otherRef === ref)
     await settings.mutate(PI_AI, [{ op: 'unset', path: entry.settingsPath }], map.get(PI_AI)?.revision)
+    const removed = prefs => new Map(Object.keys(prefs ?? {}).filter(key => key.startsWith(provider + '/')).map(key => [key, undefined]))
+    await rememberEfforts(removed(trackedEfforts()), removed(rt.state.prefs?.modelEffortDefaults))
     if (ref === keyRefFor(provider) && !shared) {
       const info = await credentials.describe(ref)
       if (info.configured && info.writable) await credentials.unset(ref)
     }
-    const changes = new Map(Object.keys(trackedEfforts()).filter(ref => ref.startsWith(provider + '/')).map(ref => [ref, undefined]))
-    await rememberEfforts(changes)
     rt.dropCatalog()
     return providersView()
   }
 
-  Object.assign(rt, { keyRefs, missingKeys, providersView, setProviderKey, clearProviderKey, addProvider, discoverModels, saveProviderModels, removeProvider })
+  Object.assign(rt, { keyRefs, missingKeys, providersView, setProviderKey, clearProviderKey, addProvider, discoverModels, saveProviderModels, setProviderModelEffort, removeProvider })
 }

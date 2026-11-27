@@ -864,6 +864,7 @@ export const FR = {
   "Create": "Créer",
   "Default": "Par défaut",
   "Thinking level": "Niveau de réflexion",
+  "Default thinking level · {model}": "Niveau de réflexion par défaut · {model}",
   "Model: {model}": "Modèle : {model}",
   "none": "aucun",
   "Choose a model": "Choisir un modèle",
