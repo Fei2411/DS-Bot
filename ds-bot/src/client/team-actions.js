@@ -2,11 +2,26 @@ import { countCards, heldCardKey } from './sources.js'
 import { noteClientError } from './diagnostics.js'
 import { chatOfSession } from './draft-keep.js'
 
+export function sectionFoldWrites() {
+  const saved = new Map()
+  return {
+    note(id, collapsed, revision) { saved.set(id, { revision, collapsed }) },
+    reconcile(sections, revision) {
+      if (!sections || saved.size === 0) return sections
+      for (const [id, fold] of saved) if (fold.revision <= revision) saved.delete(id)
+      return saved.size === 0 ? sections : sections.map(section => {
+        const fold = saved.get(section.id)
+        return fold ? { ...section, collapsed: fold.collapsed } : section
+      })
+    },
+  }
+}
+
 // The actions every window that draws the Bot views shares: dialogs and panels (the `ui`
 // source), requests to the host, and the notes the transcript keeps. The shell around the
 // views adds navigation and its own panels. `after` reads the team again once a request
 // is done; `partFor` maps a Bot id, or any part of its chat, to its current part.
-export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }) {
+export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites }) {
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
   const subjectOf = (snap, id) => snap.byId?.[id]?.id ?? snap.roomsById?.[id]?.id ?? id
@@ -36,6 +51,44 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       delete next[oldest]
     }
     return next
+  }
+  const sectionSaves = new Map()
+  const saveSection = async (payload) => {
+    const { id, collapsed } = payload
+    if (typeof id !== 'string' || !id || typeof collapsed !== 'boolean' || Object.keys(payload).some(key => key !== 'id' && key !== 'collapsed')) {
+      return after(call('section-save', payload))
+    }
+    const previous = sectionSaves.get(id)
+    const save = async () => {
+      const reply = await call('section-save', { ...payload, withRevision: true })
+      const { section: saved, revision } = reply
+      if (!Number.isSafeInteger(revision)) return after(Promise.resolve(reply))
+      if (!saved) return saved
+      roster.set(state => {
+        // The full roster revision describes the last state read, not this one field.
+        if (state.revision >= revision) return state
+        foldWrites?.note(id, saved.collapsed, revision)
+        const section = state.sections?.find(section => section.id === id)
+        if (!section || Boolean(section.collapsed) === Boolean(saved.collapsed)) return state
+        return { ...state, sections: state.sections.map(entry => (entry === section ? { ...entry, collapsed: saved.collapsed } : entry)) }
+      })
+      return saved
+    }
+    const pending = previous ? previous.then(save, save) : Promise.resolve().then(save)
+    sectionSaves.set(id, pending)
+    ui.set(state => ({ ...state, sectionFolds: { ...state.sectionFolds, [id]: collapsed } }))
+    try {
+      return await pending
+    } finally {
+      if (sectionSaves.get(id) === pending) {
+        sectionSaves.delete(id)
+        ui.set(state => {
+          const sectionFolds = { ...state.sectionFolds }
+          delete sectionFolds[id]
+          return { ...state, sectionFolds }
+        })
+      }
+    }
   }
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
@@ -96,6 +149,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     // DS Bot's own Models page: the providers DSH serves, their keys and models.
     openModels: () => openSettings('models'),
     closeSettings: () => { ui.set(state => (state.settings ? { ...state, settings: null } : state)) },
+    openReleaseNotes: (options = {}) => { ui.set(state => ({ ...state, releaseNotes: { mode: 'manual', current: options?.current ?? null, notesUrl: options?.notesUrl ?? null }, menu: null, palette: null })) },
+    closeReleaseNotes: () => { ui.set(state => (state.releaseNotes ? { ...state, releaseNotes: null } : state)) },
+    claimReleaseNotes: version => after(call('release-notes-claim', { version })),
     openMemory: (id) => { ui.set(state => ({ ...state, memory: id, menu: null, palette: null })) },
     closeMemory: () => { ui.set(state => (state.memory ? { ...state, memory: null } : state)) },
     openConnectors: () => { ui.set(state => ({ ...state, settings: { page: 'connectors', id: null }, menu: null, palette: null, newChat: null })) },
@@ -199,7 +255,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     }),
     clearQuote: token => ui.set(state => (state.quote?.token === token ? { ...state, quote: null } : state)),
     setFlags: (id, flags) => after(call('set-flags', { id, ...flags })),
-    saveSection: payload => after(call('section-save', payload)),
+    saveSection,
     reorderSections: ids => after(call('section-order', { ids })),
     deleteSection: id => after(call('section-delete', { id })),
     beginSectionRename: id => ui.set(state => ({ ...state, renameSection: id })),

@@ -11,6 +11,7 @@ import { homeLock } from './home-lock.js'
 import { currentColor, headOf, normalize, unquote } from './text.js'
 import { isActiveTask } from './threads.js'
 import { AMBIGUOUS_OLD_ROUTES, legacyRoute } from './local-agents/engines.js'
+import { cleanSemver } from '../shared/semver.js'
 
 // A table read that sees only the keys the table holds itself. Ids that come from
 // outside (a request body, a tool argument, a name a model gives) go through this, so
@@ -35,10 +36,11 @@ export function segmentNoteFile(sessionId) {
 export function install(rt) {
   const { ctx, home, statePath } = rt
 
-  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, contextParts:Record<string,any>, revision:number}} */
+  /** @type {{version:1, lastSeenVersion?:string, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, contextParts:Record<string,any>, revision:number}} */
   const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, plugins: { slots: {}, enabled: {}, offFor: {}, custom: {}, snapshots: {}, sources: [], knownPrefixes: {} }, exchanges: [], exchangeTurns: {}, works: {}, closedWorks: {}, pairLoops: {}, workSeq: 0, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, contextParts: {}, revision: 0 }
   let loaded = null
   let storeReady = false
+  let hadPersistedTeam = false
   let writing = Promise.resolve()
   const { warn } = rt
   const sessionIdOf = id => (typeof id === 'string' && id !== '' ? id : undefined)
@@ -302,9 +304,26 @@ export function install(rt) {
   const adopt = (parsed) => {
     lockEpoch += 1
     noteCache.clear()
+    hadPersistedTeam = parsed !== null && parsed !== undefined && (
+      Object.keys(parsed.bots ?? {}).length > 0
+      || Object.keys(parsed.rooms ?? {}).length > 0
+      || Object.keys(parsed.agents ?? {}).length > 0
+      || (typeof parsed.workspaceId === 'string' && parsed.workspaceId !== '')
+    )
     const hadCapabilities = parsed !== null && parsed !== undefined && Object.hasOwn(parsed, 'capabilities')
     for (const key of Object.keys(state)) delete state[key]
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
+    let migrated = !hadCapabilities
+    if (state.lastSeenVersion !== undefined) {
+      const cleanVersion = cleanSemver(state.lastSeenVersion)
+      if (cleanVersion === null) {
+        delete state.lastSeenVersion
+        migrated = true
+      } else if (cleanVersion !== state.lastSeenVersion) {
+        state.lastSeenVersion = cleanVersion
+        migrated = true
+      }
+    }
     if (!Array.isArray(state.exchanges)) state.exchanges = []
     state.prefs ??= {}
     if (state.contextParts === null || typeof state.contextParts !== 'object' || Array.isArray(state.contextParts)) state.contextParts = {}
@@ -331,7 +350,6 @@ export function install(rt) {
         ? `builtin:${legacyActive}`
         : legacyActive
     }
-    let migrated = !hadCapabilities
     if (state.capabilities === null || typeof state.capabilities !== 'object' || Array.isArray(state.capabilities)) {
       state.capabilities = { items: {} }
       migrated = true
@@ -621,6 +639,7 @@ export function install(rt) {
   }
 
   const hasLoaded = () => storeReady
+  const hasExistingTeamData = () => hadPersistedTeam
   const notifyStoreSync = () => {
     rt.onStoreSync?.()
     rt.syncDeepseekTools?.()
@@ -1074,6 +1093,17 @@ export function install(rt) {
   const selfOf = id => chatOwners.get(id) ?? groupOwners.get(id)?.botId ?? pastOwners.get(id)?.botId
   // A Session where the Bot speaks now, as opposed to an archived segment.
   const isBotSession = id => chatOwners.has(id) || groupOwners.has(id)
+  // Any Session owned by the team (current or archived): Bot chats, active or settled tasks,
+  // hidden group member Sessions, group room Sessions, and earlier segments/parts of any of them.
+  const isTeamSession = id => typeof id === 'string' && id !== '' && (
+    chatOwners.has(id)
+    || taskOwners.has(id)
+    || groupOwners.has(id)
+    || roomOwners.has(id)
+    || pastOwners.has(id)
+    || botOf(id) !== undefined
+    || roomOf(id) !== undefined
+  )
   const roomsOf = botId => (botId === undefined ? [] : Object.values(state.rooms).filter(room => Array.isArray(room?.members) && room.members.includes(botId)))
   const groupSessionsOf = botId => Object.values(state.rooms).map(room => room.sessions?.[botId]).filter(Boolean)
   const dropGroupSession = (room, botId) => {
@@ -1158,10 +1188,10 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, closeCard,
+    state, load, save, refresh, readOnly, hasLoaded, hasExistingTeamData, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, closeCard,
     readSegmentNote, writeSegmentNote, deleteSegmentNotes,
     teamWriteAccess,
-    botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
+    botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession, isTeamSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, roomsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })

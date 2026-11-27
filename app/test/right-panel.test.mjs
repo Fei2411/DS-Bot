@@ -774,7 +774,14 @@ test('Unified right sidebar coexists across Details, Side chat, Files, Preview, 
       registry: reg,
       visible: true,
     })
-    assert.match(textOf(tree), /console\.log\(1\)/)
+    const codeCells = all(tree, n => n.type === 'td' && n.props?.className === 'dsb-pv-line')
+    const rawCodeText = (node) => {
+      if (node === null || node === undefined || typeof node === 'boolean') return ''
+      if (typeof node === 'string' || typeof node === 'number') return String(node)
+      if (Array.isArray(node)) return node.map(rawCodeText).join('')
+      return rawCodeText(node.props?.children)
+    }
+    assert.match(codeCells.map(rawCodeText).join('\n'), /console\.log\(1\)/)
 
     // Switch to crashing plugin tab -> isolated fallback with Retry.
     tree = panelInst.render({
@@ -927,6 +934,151 @@ test('ChangesReview renders summary errors before loading state and guards cycli
     assert.match(textOf(tree), /loop/)
   } finally {
     cyclicPanel.unmount()
+  }
+})
+
+test('WorkspaceTerminal resumes numbered output after feed reconnects and marks trimmed scrollback', async () => {
+  const listRequests = []
+  const listAnswers = []
+  const openCalls = []
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = (endpoint, body) => {
+    if (endpoint === 'terminal-list') {
+      listRequests.push(body?.positions ?? null)
+      return Promise.resolve(listAnswers.length === 0 ? [] : listAnswers.shift())
+    }
+    if (endpoint === 'terminal-open') openCalls.push(body)
+    return Promise.resolve({})
+  }
+  const entry = (parts, extra = {}) => ({
+    id: 'term-1', cwd: '/repo', title: 'repo', pty: true,
+    start: parts[0]?.seq ?? 1, end: parts.at(-1)?.seq ?? 0,
+    parts, truncated: false, exited: false, exitCode: null, ...extra,
+  })
+  listAnswers.push([entry([{ seq: 1, text: 'line-1\n' }])])
+  const team = createTeam()
+  const inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    inst.render()
+    assert.ok(listRequests.length >= 1)
+    assert.equal(openCalls.length, 0)
+    assert.equal(sandbox.__xterms.length, 1)
+    const xterm = sandbox.__xterms[0]
+    assert.equal(xterm.written.join(''), 'line-1\n')
+
+    // Ordered live parts write once; overlapping replayed parts are dropped by position.
+    team.chat.emit('terminal', { id: 'term-1', chunk: 'line-2\nline-3\n', start: 2, end: 3, parts: [{ seq: 2, text: 'line-2\n' }, { seq: 3, text: 'line-3\n' }] })
+    team.chat.emit('terminal', { id: 'term-1', chunk: 'line-3\n', start: 3, end: 3, parts: [{ seq: 3, text: 'line-3\n' }] })
+    assert.equal(xterm.written.join(''), 'line-1\nline-2\nline-3\n')
+
+    // A feed hello sends the held position and the answer fills exactly the missing tail.
+    listAnswers.push([entry([{ seq: 4, text: 'line-4\n' }, { seq: 5, text: 'line-5\n' }], { start: 4, end: 5 })])
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    assert.equal(listRequests.at(-1)?.['term-1'], 3)
+    assert.equal(xterm.written.join(''), 'line-1\nline-2\nline-3\nline-4\nline-5\n')
+
+    // When the host no longer reaches the held position, the terminal says so quietly and
+    // continues with the retained suffix; no output is duplicated.
+    listAnswers.push([entry([{ seq: 8, text: 'line-8\n' }], { start: 8, end: 8, truncated: true })])
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    const written = xterm.written.join('')
+    assert.match(written, /Earlier output was trimmed/)
+    assert.ok(written.indexOf('line-5') < written.indexOf('Earlier output was trimmed'))
+    assert.ok(written.indexOf('Earlier output was trimmed') < written.indexOf('line-8'))
+    assert.equal((written.match(/line-8/g) ?? []).length, 1)
+
+    // Exit state is part of the same catch-up read when its live event was missed.
+    listAnswers.push([entry([], { start: 8, end: 8, exited: true, exitCode: 7 })])
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    const tree = inst.render()
+    assert.match(textOf(tree), /Process exited \(7\)/)
+  } finally {
+    inst.unmount()
+  }
+})
+
+
+test('WorkspaceTerminal does not auto-open after a list failure, appends reconnected terminals, and syncs early exits', async () => {
+  sandbox.__xterms.length = 0
+  let openCalls = 0
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') return Promise.reject(new Error('host hiccup'))
+    if (endpoint === 'terminal-open') { openCalls += 1; return Promise.resolve({ id: 'never', cwd: '/repo', title: 'repo' }) }
+    return Promise.resolve({})
+  }
+  let team = createTeam()
+  let inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  inst.render()
+  await tick()
+  await tick()
+  assert.equal(openCalls, 0, 'a failed terminal-list is not proof that no terminals exist')
+  inst.unmount()
+
+  // Reconnected discoveries append after existing tabs, keeping tab numbers stable.
+  const entry = (id, title) => ({ id, cwd: '/repo', title, pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null })
+  const answers = [
+    [entry('term-a', 'alpha')],
+    [entry('term-a', 'alpha'), entry('term-b', 'beta')],
+  ]
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') return Promise.resolve(answers.length > 1 ? answers.shift() : answers[0])
+    return Promise.resolve({})
+  }
+  team = createTeam()
+  inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    inst.render()
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    const text = textOf(inst.render())
+    assert.ok(text.indexOf('alpha #1') >= 0 && text.indexOf('alpha #1') < text.indexOf('beta #2'), `tabs keep their order: ${text}`)
+  } finally {
+    inst.unmount()
+  }
+
+  // An exit that wins the race with terminal-open still triggers an immediate positional catch-up.
+  sandbox.__xterms.length = 0
+  let resolveOpen
+  let listCalls = 0
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') {
+      listCalls += 1
+      return Promise.resolve(listCalls === 1 ? [] : [entry('term-fast', 'fast')].map(item => ({ ...item, end: 2, parts: [{ seq: 1, text: 'final-1\n' }, { seq: 2, text: 'final-2\n' }], exited: true, exitCode: 0 })))
+    }
+    if (endpoint === 'terminal-open') return new Promise(resolve => { resolveOpen = resolve })
+    return Promise.resolve({})
+  }
+  team = createTeam()
+  inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    team.chat.emit('terminal-exit', { id: 'term-fast', code: 0, end: 2 })
+    resolveOpen({ id: 'term-fast', cwd: '/repo', title: 'fast', cols: 96, rows: 28, pty: true })
+    await tick()
+    await tick()
+    await tick()
+    assert.ok(listCalls >= 2, 'the early exit end position triggers terminal-list immediately')
+    inst.render()
+    assert.equal(sandbox.__xterms[0]?.written.join(''), 'final-1\nfinal-2\n')
+  } finally {
+    inst.unmount()
+    sandbox.__testCall = async () => ({})
   }
 })
 

@@ -53,6 +53,7 @@ import * as learning from './src/host/learning.js'
 import * as schedules from './src/host/schedules.js'
 import * as usage from './src/host/usage.js'
 import * as update from './src/host/update.js'
+import * as releaseNotes from './src/host/release-notes.js'
 import * as dshUpdate from './src/host/dsh-update.js'
 import * as thinking from './src/host/thinking.js'
 import * as phone from './src/host/phone.js'
@@ -62,8 +63,11 @@ import * as mobile from './src/host/mobile.js'
 import * as feed from './src/host/feed.js'
 import * as fonts from './src/host/fonts.js'
 import * as sessionFollow from './src/host/session-follow.js'
+import * as sessionControls from './src/host/session-controls.js'
+import * as jobs from './src/host/jobs.js'
 import * as workspacePanel from './src/host/workspace-panel.js'
 import * as engineSettings from './src/host/engine-settings.js'
+import * as messageFeedback from './src/host/message-feedback.js'
 import * as im from './src/host/im/index.js'
 import * as externalApi from './src/host/api/index.js'
 import * as officeSkills from './src/host/office-skills.js'
@@ -86,7 +90,7 @@ export { name, inject } from './src/host/entry.js'
 // usage meters model requests after every listener that rewrites them. privacy checks a
 // call before the hooks of tools do, so a closed call never reaches a card they show.
 // extraFolders answers an approval ahead of approvals, which would show it to the user.
-const MODULES = [diagnostics, branding, store, contextRuntime, ledger, coordination, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, inbox, usage, update, dshUpdate, telemetry, thinking, mobile, feed, fonts, sessionFollow, workspacePanel, engineSettings, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
+const MODULES = [diagnostics, branding, store, contextRuntime, ledger, coordination, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, inbox, usage, update, releaseNotes, dshUpdate, telemetry, thinking, mobile, sessionControls, feed, fonts, sessionFollow, jobs, workspacePanel, engineSettings, messageFeedback, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
 
 export function apply(ctx, config = {}) {
   ctx.effect(() => installSocketTosGuard(), 'ds-bot: socket type of service')

@@ -10,6 +10,7 @@ import { arch, homedir, platform, release } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { format } from 'node:util'
+import { redactSecretsForLog } from '../shared/secret-mask.js'
 
 export const KEEP = 200
 const LOG_MAX_BYTES = 1 << 20
@@ -38,7 +39,7 @@ const CREDENTIALS = [
 ]
 
 export function cleanText(text, { redact = value => value, home = homedir(), maxLength = TEXT_MAX } = {}) {
-  let out = redact(String(text ?? ''))
+  let out = redactSecretsForLog(redact(String(text ?? '')))
   for (const [pattern, replacement] of CREDENTIALS) out = out.replace(pattern, replacement)
   if (home && home.length > 1) {
     out = out.replace(new RegExp(quote(home), 'g'), '~')

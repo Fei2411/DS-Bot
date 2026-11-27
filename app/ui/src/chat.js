@@ -6,7 +6,7 @@ import { ChatRows, Shimmer } from '../../../ds-bot/src/client/cells.js'
 import { ComposerPlus, ComposerVoice } from '../../../ds-bot/src/client/composer.js'
 import { AppAccessDock, ComputerHandoffDock } from '../../../ds-bot/src/client/computer.js'
 import { ConnectorDock, MailDock } from '../../../ds-bot/src/client/connectors.js'
-import { chatOfSession, keepDraft, takeDraft } from '../../../ds-bot/src/client/draft-keep.js'
+import { chatOfSession, keepDraft, keepDraftText, takeDraft } from '../../../ds-bot/src/client/draft-keep.js'
 import { fileExtension, fileSizeText } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { isImeComposing, sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { HandoffDock } from '../../../ds-bot/src/client/handoff-card.js'
@@ -24,11 +24,28 @@ import { SecretDock } from '../../../ds-bot/src/client/secret-card.js'
 import { writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { STORAGE } from '../../../ds-bot/src/client/storage.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
+import { mentionableBots } from '../../../ds-bot/src/client/user-message.js'
 import { WidgetDock } from '../../../ds-bot/src/client/widget-cell.js'
 import { ApprovalDock } from './approval-dock.js'
+import { ClassicControls } from './classic-controls.js'
+import { ClassicPlanReviewDock, ClassicQuestionDock } from './classic-questions.js'
 import { AgentEmptyHero } from './classic-sidebar.js'
 import { ComposerMenu, activeComposerTrigger, applyTriggerText, buildComposerMenuItems } from './composer-menus.js'
+import {
+  FailedSendBar,
+  clearFailedSends,
+  heldFailedUrls,
+  inFlightUrls,
+  pendingFailedByChat,
+  pruneFailedSends,
+  revokeUrl,
+  trackFailedUrls,
+  trackInFlightUrls,
+} from './failed-send-bar.js'
+import { DesktopQueueDock, queueRowText } from './queue-dock.js'
 import { SessionTranscript, UserAttachments, useSessionFollow } from './session-chat.js'
+import { SubagentLineageBar, SubagentReadOnlyBar } from './subagent-viewer.js'
+import { UserMessageText } from './user-text.js'
 
 // The chat follows its end while the user is this close to it.
 const FOLLOW_PX = 80
@@ -38,10 +55,57 @@ const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024
 const MAX_BATCH_STAGED_BYTES = 64 * 1024 * 1024
 const stagedByteCost = (size, isImage) => (isImage ? Math.ceil(size / 3) * 4 : size)
 const EMPTY_OBJ = {}
+const EMPTY_LIST = Object.freeze([])
 const EMPTY_WORK = { bots: {}, approvals: [] }
 const NO_OBJ_HOOK = selector => selector(EMPTY_OBJ)
+const NO_LIST_HOOK = selector => selector(EMPTY_LIST)
 const MemoChatRows = typeof memo === 'function' ? memo(ChatRows) : ChatRows
 const NO_WORK_HOOK = selector => selector(EMPTY_WORK)
+
+export { clearFailedSends, pruneFailedSends }
+
+let failedSendSeq = 0
+let pendingSendSeq = 0
+const liveWithdrawByChat = new Map()
+
+function withdrawQueuedText({ chatId, chatKey, sessionId, text }) {
+  const incoming = String(text ?? '').trim()
+  if (incoming === '') return
+  const live = liveWithdrawByChat.get(chatKey)
+  if (typeof live === 'function') {
+    live(incoming)
+    return
+  }
+  if (!chatId) return
+  const merged = mergeRescuedDraft(readSavedDraftText(chatId), incoming)
+  draftRevisions.set(chatId, (draftRevisions.get(chatId) ?? 0) + 1)
+  keepDraftText({ chatId, part: sessionId, text: merged })
+}
+
+async function stageAttachmentItems(items, actions) {
+  if (!Array.isArray(items) || items.length === 0) return { images: [], files: [] }
+  const batchCost = items.reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
+  if (batchCost > MAX_BATCH_STAGED_BYTES) {
+    throw new Error(t('File too large (max {size})', { size: '64 MB' }))
+  }
+  const images = []
+  const files = []
+  for (const item of items) {
+    const base64 = await fileToBase64(item.file)
+    if (item.isImage) {
+      const staged = await (typeof actions?.stageImage === 'function'
+        ? actions.stageImage(item.mediaType, base64, item.name)
+        : call('stage-image', { mediaType: item.mediaType, data: base64, name: item.name }))
+      images.push(staged.id)
+    } else {
+      const staged = await (typeof actions?.stageFile === 'function'
+        ? actions.stageFile(item.name, base64, item.mediaType)
+        : call('stage-file', { name: item.name, data: base64, mediaType: item.mediaType }))
+      files.push(staged.id)
+    }
+  }
+  return { images, files }
+}
 
 export function bytesToBase64(bytes) {
   if (typeof globalThis.btoa === 'function') {
@@ -71,7 +135,7 @@ async function fileToBase64(file) {
         const comma = result.indexOf(',')
         resolve(comma >= 0 ? result.slice(comma + 1) : result)
       }
-      reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'))
+      reader.onerror = () => reject(reader.error ?? new Error(t('Failed to read file')))
       reader.readAsDataURL(file)
     })
   }
@@ -97,10 +161,6 @@ function hasFileDrag(dataTransfer) {
   if (!types) return false
   if (typeof types.includes === 'function') return types.includes('Files')
   return Array.from(types).includes('Files')
-}
-
-function revokeUrl(url) {
-  if (url && typeof URL?.revokeObjectURL === 'function') URL.revokeObjectURL(url)
 }
 
 function revokeEntryUrls(entry) {
@@ -302,7 +362,7 @@ function readSavedDraftText(chatId) {
 
 // What the Bot views' voice/quote/paste helpers ask of a composer:
 // where the caret is, text insertion at caret, and focusing the textarea.
-function useInput(field, textRef, setText, setCaret) {
+function useInput(field, textRef, setText, setCaret, onEdit) {
   return useMemo(() => ({
     captureInsertion: () => (field.current ? { start: field.current.selectionStart, end: field.current.selectionEnd } : null),
     insertText: (value, at) => {
@@ -311,6 +371,7 @@ function useInput(field, textRef, setText, setCaret) {
       const end = Math.max(start, Math.min(at?.end ?? start, current.length))
       const nextText = current.slice(0, start) + value + current.slice(end)
       const nextCaret = start + value.length
+      onEdit?.()
       textRef.current = nextText
       setText(nextText)
       setCaret?.(nextCaret)
@@ -324,7 +385,7 @@ function useInput(field, textRef, setText, setCaret) {
       else restore()
       return true
     },
-  }), [field, textRef, setText, setCaret])
+  }), [field, textRef, setText, setCaret, onEdit])
 }
 
 function ComposerAttachments({ items, onRemove, onPutBackPaste }) {
@@ -448,26 +509,50 @@ function AgentComposerPlus({ disabled, fileInput, actions }) {
     canTerminal ? h('button', { type: 'button', role: 'menuitem', onClick: openTerminal }, h(TerminalIcon), h('span', { className: 'bt-menu-label' }, t('Terminal'))) : null), document.body) : null)
 }
 
-function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, actions, feed, useUi, useRoster, useWork, useSessions, useRescuedDrafts }) {
+function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, withdrawRef, actions, feed, useUi, useRoster, useWork, useSessions, useSessionQueues, useRescuedDrafts }) {
   const roster = useRoster(value => value)
   const sessions = (useSessions ?? NO_SESSIONS_HOOK)(value => value)
+  const sessionQueue = (useSessionQueues ?? NO_OBJ_HOOK)(map => map?.[sessionId] ?? EMPTY_LIST)
   const isTeamChat = Boolean(roster.byId?.[sessionId] || roster.roomsById?.[sessionId])
   const isAgentChat = roster.agentOf?.[sessionId] !== undefined || (roster.ready === true && !isTeamChat)
   const chatInfo = chatOfSession(roster, sessionId)
   const chatId = chatInfo?.id ?? null
+  const chatKey = chatId ?? sessionId
   const [text, setText] = useState(() => readSavedDraftText(chatId))
   const [caret, setCaret] = useState(0)
   const [attachments, setAttachments] = useState([])
+  const [failedSends, setFailedSends] = useState(() => pendingFailedByChat.get(chatKey) ?? [])
+  const [retryingFailedId, setRetryingFailedId] = useState(null)
+  const [classicControls, setClassicControls] = useState(null)
+  const [classicCommands, setClassicCommands] = useState(EMPTY_LIST)
+  const [classicSkills, setClassicSkills] = useState(EMPTY_LIST)
+  const [classicFiles, setClassicFiles] = useState(EMPTY_LIST)
   const [stopping, setStopping] = useState(false)
   const lastEscAt = useRef(0)
   useEffect(() => { lastEscAt.current = 0 }, [sessionId, running])
   const [error, setError] = useState(null)
+  const [commandNotice, setCommandNotice] = useState(null)
+  const classicControlsRef = useRef(classicControls)
+  classicControlsRef.current = classicControls
+  useEffect(() => {
+    if (!commandNotice) return undefined
+    const timer = setTimeout(() => setCommandNotice(null), 4500)
+    return () => clearTimeout(timer)
+  }, [commandNotice])
   const [menuIndex, setMenuIndex] = useState(0)
   const [dismissedKey, setDismissedKey] = useState(null)
   const [referenceTrigger, setReferenceTrigger] = useState(null)
   const field = useRef(null)
   const fileInput = useRef(null)
   const seqRef = useRef(0)
+  const fileQuerySeq = useRef(0)
+  const draftEditSeqRef = useRef(0)
+  const steeringRef = useRef(false)
+  const classicCommandsRef = useRef(EMPTY_LIST)
+  const commandsLoadedForRef = useRef(null)
+  const commandsPromiseRef = useRef(null)
+  const skillsLoadedForRef = useRef(null)
+  const skillsPromiseRef = useRef(null)
   const hydratedChatRef = useRef(null)
   const skipNextSaveRef = useRef(false)
   const ownedUrlsRef = useRef(undefined)
@@ -477,13 +562,110 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
+  const chatKeyRef = useRef(chatKey)
+  chatKeyRef.current = chatKey
+  const sessionIdRef = useRef(sessionId)
+  sessionIdRef.current = sessionId
+  const rosterRef = useRef(roster)
+  rosterRef.current = roster
   const attachmentsRef = useRef(undefined)
   attachmentsRef.current = attachments
   const textRef = useRef(text)
   textRef.current = text
-  const inputActions = useInput(field, textRef, setText, setCaret)
+  const noteDraftEdit = useCallback(() => { draftEditSeqRef.current += 1 }, [])
+  const inputActions = useInput(field, textRef, setText, setCaret, noteDraftEdit)
   const enterToSend = sendsOnEnter(roster.prefs)
   const rescued = useRescuedDrafts?.(state => readRescuedForChat(state, chatId, sessionId)) ?? ''
+
+  useEffect(() => {
+    setFailedSends(pendingFailedByChat.get(chatKey) ?? [])
+    setRetryingFailedId(null)
+    setCommandNotice(null)
+  }, [chatKey])
+
+  // Load classic session controls (model, effort, permissions, plan state).
+  // Slash commands & skills load lazily when `/` opens or is submitted so browsing cold
+  // Classic sessions never wakes their Agent on Host.
+  const refreshClassicControls = useCallback(() => {
+    if (!isAgentChat || !sessionId || typeof actions?.sessionControls !== 'function') return
+    void Promise.resolve(actions.sessionControls(sessionId))
+      .then((value) => {
+        if (mountedRef.current && chatKeyRef.current === chatKey && value) setClassicControls(value)
+      })
+      .catch(() => {})
+  }, [isAgentChat, sessionId, chatKey, actions])
+
+  const ensureClassicCommands = useCallback(async () => {
+    if (!isAgentChat || !sessionId || typeof actions?.sessionCommands !== 'function') return EMPTY_LIST
+    if (commandsLoadedForRef.current === sessionId) return classicCommandsRef.current
+    if (commandsPromiseRef.current?.sessionId === sessionId) return commandsPromiseRef.current.promise
+    const targetSession = sessionId
+    const promise = Promise.resolve(actions.sessionCommands(targetSession, { wake: true }))
+      .then((value) => {
+        const list = Array.isArray(value?.commands) ? value.commands : EMPTY_LIST
+        if (mountedRef.current && sessionIdRef.current === targetSession) {
+          classicCommandsRef.current = list
+          commandsLoadedForRef.current = targetSession
+          setClassicCommands(list)
+        }
+        return list
+      })
+      .catch(() => EMPTY_LIST)
+      .finally(() => {
+        if (commandsPromiseRef.current?.promise === promise) commandsPromiseRef.current = null
+      })
+    commandsPromiseRef.current = { sessionId: targetSession, promise }
+    return promise
+  }, [isAgentChat, sessionId, actions])
+
+  const ensureClassicSkills = useCallback(async () => {
+    if (!isAgentChat || !sessionId || typeof actions?.sessionSkills !== 'function') return EMPTY_LIST
+    if (skillsLoadedForRef.current === sessionId) return EMPTY_LIST
+    if (skillsPromiseRef.current?.sessionId === sessionId) return skillsPromiseRef.current.promise
+    const targetSession = sessionId
+    const promise = Promise.resolve(actions.sessionSkills(targetSession))
+      .then((value) => {
+        const list = Array.isArray(value?.skills) ? value.skills : EMPTY_LIST
+        if (mountedRef.current && sessionIdRef.current === targetSession) {
+          skillsLoadedForRef.current = targetSession
+          setClassicSkills(list)
+        }
+        return list
+      })
+      .catch(() => EMPTY_LIST)
+      .finally(() => {
+        if (skillsPromiseRef.current?.promise === promise) skillsPromiseRef.current = null
+      })
+    skillsPromiseRef.current = { sessionId: targetSession, promise }
+    return promise
+  }, [isAgentChat, sessionId, actions])
+
+  const refreshClassicControlsRef = useRef(refreshClassicControls)
+  refreshClassicControlsRef.current = refreshClassicControls
+  const ensureClassicCommandsRef = useRef(ensureClassicCommands)
+  ensureClassicCommandsRef.current = ensureClassicCommands
+  const ensureClassicSkillsRef = useRef(ensureClassicSkills)
+  ensureClassicSkillsRef.current = ensureClassicSkills
+
+  useEffect(() => {
+    classicCommandsRef.current = EMPTY_LIST
+    commandsLoadedForRef.current = null
+    commandsPromiseRef.current = null
+    skillsLoadedForRef.current = null
+    skillsPromiseRef.current = null
+    setClassicCommands(EMPTY_LIST)
+    setClassicSkills(EMPTY_LIST)
+    setClassicFiles(EMPTY_LIST)
+    if (!isAgentChat || !sessionId) {
+      setClassicControls(null)
+      return undefined
+    }
+    refreshClassicControlsRef.current()
+    const offFeed = feed?.on?.((event) => {
+      if (event === 'live' || event === 'revision' || event === 'hello') refreshClassicControlsRef.current()
+    })
+    return () => { offFeed?.() }
+  }, [isAgentChat, sessionId, feed])
 
   useLayoutEffect(() => {
     const node = field.current
@@ -495,7 +677,9 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   useEffect(() => {
     const owned = ownedUrlsRef.current
     return () => {
-      for (const url of owned) revokeUrl(url)
+      for (const url of owned) {
+        if (!heldFailedUrls.has(url) && !inFlightUrls.has(url)) revokeUrl(url)
+      }
       owned.clear()
     }
   }, [])
@@ -549,7 +733,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       for (const item of attachmentsRef.current ?? []) {
         if (item.previewUrl) {
           ownedUrlsRef.current.delete(item.previewUrl)
-          revokeUrl(item.previewUrl)
+          if (!heldFailedUrls.has(item.previewUrl) && !inFlightUrls.has(item.previewUrl)) revokeUrl(item.previewUrl)
         }
       }
       attachmentsRef.current = []
@@ -649,17 +833,21 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     if (oversized) setError(t('File too large (max {size})', { size: '16 MB' }))
     else if (overBudget) setError(t('File too large (max {size})', { size: '64 MB' }))
     else if (next.length > 0) setError(null)
-    if (next.length > 0) setAttachments(current => [...current, ...next])
+    if (next.length > 0) {
+      draftEditSeqRef.current += 1
+      setAttachments(current => [...current, ...next])
+    }
   }, [disabled, buildAttachmentEntries])
 
   if (addFilesRef) addFilesRef.current = addFiles
 
   const removeAttachment = useCallback((id) => {
+    draftEditSeqRef.current += 1
     const current = attachmentsRef.current ?? []
     const target = current.find(item => item.id === id)
     if (target?.previewUrl) {
       ownedUrlsRef.current.delete(target.previewUrl)
-      revokeUrl(target.previewUrl)
+      if (!heldFailedUrls.has(target.previewUrl) && !inFlightUrls.has(target.previewUrl)) revokeUrl(target.previewUrl)
     }
     const next = current.filter(item => item.id !== id)
     attachmentsRef.current = next
@@ -707,15 +895,210 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     }
   }
 
-  // Composer trigger menus: "+ → Reference a chat", "@mention", and "/command".
+  const withdrawIntoComposer = useCallback((withdrawnText) => {
+    const incoming = String(withdrawnText ?? '').trim()
+    if (incoming === '') return
+    draftEditSeqRef.current += 1
+    const merged = mergeRescuedDraft(textRef.current ?? '', incoming)
+    textRef.current = merged
+    setText(merged)
+    setCaret(merged.length)
+    const focusEnd = () => {
+      field.current?.focus?.()
+      field.current?.setSelectionRange?.(merged.length, merged.length)
+    }
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focusEnd)
+    else focusEnd()
+  }, [])
+
+  const withdrawFnRef = useRef(withdrawIntoComposer)
+  withdrawFnRef.current = withdrawIntoComposer
+  useEffect(() => {
+    const handler = incoming => withdrawFnRef.current(incoming)
+    liveWithdrawByChat.set(chatKey, handler)
+    return () => {
+      if (liveWithdrawByChat.get(chatKey) === handler) liveWithdrawByChat.delete(chatKey)
+    }
+  }, [chatKey])
+
+  if (withdrawRef) withdrawRef.current = withdrawIntoComposer
+
+  const pushFailedSend = useCallback((targetKey, entry) => {
+    trackFailedUrls(entry.items, true)
+    const next = [...(pendingFailedByChat.get(targetKey) ?? []), entry]
+    pendingFailedByChat.set(targetKey, next)
+    if (mountedRef.current && chatKeyRef.current === targetKey) setFailedSends(next)
+  }, [])
+
+  const removeFailedSend = useCallback((entryId, { revoke = false, targetKey = chatKeyRef.current } = {}) => {
+    const current = pendingFailedByChat.get(targetKey) ?? []
+    const removed = current.find(item => item.id === entryId)
+    const next = current.filter(item => item.id !== entryId)
+    if (next.length > 0) pendingFailedByChat.set(targetKey, next)
+    else pendingFailedByChat.delete(targetKey)
+    if (removed) {
+      trackFailedUrls(removed.items, false)
+      for (const item of removed.items ?? []) {
+        if (!item?.previewUrl) continue
+        if (revoke) {
+          ownedUrlsRef.current.delete(item.previewUrl)
+          revokeUrl(item.previewUrl)
+        } else {
+          ownedUrlsRef.current.delete(item.previewUrl)
+        }
+      }
+    }
+    if (mountedRef.current && chatKeyRef.current === targetKey) setFailedSends(next)
+  }, [])
+
+  const retryFailedSend = useCallback(async (entry) => {
+    if (disabled || retryingFailedId !== null) return
+    const targetKey = chatKeyRef.current
+    setRetryingFailedId(entry.id)
+    setError(null)
+    trackInFlightUrls(entry.items, true)
+    try {
+      await onSend(entry.text, entry.items)
+      trackInFlightUrls(entry.items, false)
+      removeFailedSend(entry.id, { revoke: false, targetKey })
+    } catch (failure) {
+      trackInFlightUrls(entry.items, false)
+      const msg = failure?.message ?? String(failure)
+      const next = (pendingFailedByChat.get(targetKey) ?? []).map(item => (
+        item.id === entry.id ? { ...item, error: msg } : item
+      ))
+      if (next.length > 0) pendingFailedByChat.set(targetKey, next)
+      if (mountedRef.current && chatKeyRef.current === targetKey) setFailedSends(next)
+    } finally {
+      if (mountedRef.current) setRetryingFailedId(cur => (cur === entry.id ? null : cur))
+    }
+  }, [disabled, retryingFailedId, onSend, removeFailedSend])
+
+  const restoreFailedSend = useCallback((entry) => {
+    const currentItems = attachmentsRef.current ?? []
+    const incomingItems = entry.items ?? []
+    if (incomingItems.length > 0) {
+      const usedCost = currentItems.reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
+      const addCost = incomingItems.reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
+      if (usedCost + addCost > MAX_BATCH_STAGED_BYTES) {
+        setError(t('File too large (max {size})', { size: '64 MB' }))
+        return
+      }
+    }
+    draftEditSeqRef.current += 1
+    const nextText = entry.text ? mergeRescuedDraft(textRef.current ?? '', entry.text) : (textRef.current ?? '')
+    textRef.current = nextText
+    setText(nextText)
+    setCaret(nextText.length)
+    if (incomingItems.length > 0) {
+      const rekeyed = incomingItems.map((item) => {
+        if (item?.previewUrl) {
+          heldFailedUrls.delete(item.previewUrl)
+          ownedUrlsRef.current.add(item.previewUrl)
+        }
+        seqRef.current += 1
+        return { ...item, id: `att-${seqRef.current}` }
+      })
+      setAttachments((current) => {
+        const next = [...current, ...rekeyed]
+        attachmentsRef.current = next
+        return next
+      })
+    }
+    const targetKey = chatKeyRef.current
+    const nextList = (pendingFailedByChat.get(targetKey) ?? []).filter(item => item.id !== entry.id)
+    if (nextList.length > 0) pendingFailedByChat.set(targetKey, nextList)
+    else pendingFailedByChat.delete(targetKey)
+    setFailedSends(nextList)
+    setError(null)
+    const focusEnd = () => {
+      field.current?.focus?.()
+      field.current?.setSelectionRange?.(nextText.length, nextText.length)
+    }
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focusEnd)
+    else focusEnd()
+  }, [])
+
+  const runClassicCommand = useCallback(async (line, items = []) => {
+    if (!isAgentChat || disabled || typeof actions?.runSessionCommand !== 'function') return false
+    setError(null)
+    setCommandNotice(null)
+    const prevPlanActive = Boolean(classicControlsRef.current?.plan?.active)
+    try {
+      const extra = items.length > 0 ? await stageAttachmentItems(items, actions) : null
+      const res = extra && (extra.images.length > 0 || extra.files.length > 0)
+        ? await actions.runSessionCommand(sessionId, line, extra)
+        : await actions.runSessionCommand(sessionId, line)
+      if (res?.controls && mountedRef.current && chatKeyRef.current === chatKey) {
+        setClassicControls(res.controls)
+      }
+      if (res?.matched === false) {
+        setError(t('Couldn’t run command'))
+        return false
+      }
+      if (res?.result?.kind === 'error') {
+        setError(res.result.text || t('Couldn’t run command'))
+        return false
+      }
+      const planToggled = res?.controls?.plan !== undefined && Boolean(res.controls.plan.active) !== prevPlanActive
+      if (res?.result?.text && !planToggled && mountedRef.current && chatKeyRef.current === chatKey) {
+        setCommandNotice(res.result.text)
+      }
+      return true
+    } catch (failure) {
+      setError(failure?.message ?? t('Couldn’t run command'))
+      return false
+    }
+  }, [isAgentChat, disabled, actions, sessionId, chatKey])
+
+  // Composer trigger menus: "+ → Reference a chat", "@mention" / "@file", and "/command" (+ skills/files in Classic).
   const rawTrigger = disabled ? null : (referenceTrigger
     ? { kind: 'reference', start: referenceTrigger.start, end: referenceTrigger.end, query: '' }
-    : activeComposerTrigger(text, caret))
+    : activeComposerTrigger(text, caret, { fileMentions: isAgentChat }))
   const triggerKey = rawTrigger ? `${rawTrigger.kind}:${rawTrigger.start}:${rawTrigger.query}` : null
   const trigger = rawTrigger && dismissedKey !== triggerKey ? rawTrigger : null
+
+  useEffect(() => {
+    if (!isAgentChat || trigger?.kind !== 'command') return
+    void ensureClassicCommandsRef.current()
+    void ensureClassicSkillsRef.current()
+  }, [isAgentChat, sessionId, trigger?.kind])
+
+  useEffect(() => {
+    if (!isAgentChat || !trigger || (trigger.kind !== 'command' && trigger.kind !== 'mention')) return undefined
+    if (typeof actions?.sessionFiles !== 'function') return undefined
+    const seq = ++fileQuerySeq.current
+    void Promise.resolve(actions.sessionFiles(sessionId, trigger.query ?? ''))
+      .then((res) => {
+        if (mountedRef.current && fileQuerySeq.current === seq && Array.isArray(res?.files)) {
+          setClassicFiles(res.files)
+        }
+      })
+      .catch(() => {})
+    return undefined
+  }, [isAgentChat, sessionId, trigger?.kind, trigger?.query, actions])
+
+  const planActive = Boolean(classicControls?.plan && (classicControls.plan.pending ? !classicControls.plan.active : classicControls.plan.active))
+  const classicCatalog = useMemo(() => (isAgentChat ? {
+    commands: classicCommands,
+    skills: classicSkills,
+    files: classicFiles,
+    planActive,
+  } : null), [isAgentChat, classicCommands, classicSkills, classicFiles, planActive])
+
   const menuItems = useMemo(() => (trigger
-    ? buildComposerMenuItems({ mode: trigger.kind, query: trigger.query, roster, sessions, sessionId, actions })
-    : []), [trigger, roster, sessions, sessionId, actions])
+    ? buildComposerMenuItems({
+      mode: trigger.kind,
+      query: trigger.query,
+      quoted: trigger.quoted === true,
+      roster,
+      sessions,
+      sessionId,
+      actions,
+      classicCatalog,
+      onRunCommand: line => { void runClassicCommand(line) },
+    })
+    : []), [trigger, roster, sessions, sessionId, actions, classicCatalog, runClassicCommand])
   const clampedMenuIndex = menuItems.length > 0 ? Math.max(0, Math.min(menuIndex, menuItems.length - 1)) : 0
   useEffect(() => { setMenuIndex(0) }, [triggerKey])
 
@@ -726,6 +1109,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
 
   const selectMenuItem = (item) => {
     if (!item || !trigger) return
+    draftEditSeqRef.current += 1
     setReferenceTrigger(null)
     setDismissedKey(null)
     if (item.kind === 'insert') {
@@ -748,6 +1132,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     item.run?.()
   }
 
+  const runningCommandForRef = useRef(null)
   const canSend = !disabled && (text.trim() !== '' || attachments.length > 0)
   const submit = async () => {
     const value = text.trim()
@@ -756,24 +1141,87 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     setError(null)
     setReferenceTrigger(null)
     setDismissedKey(null)
+    const originChatId = chatId
+    const originChatKey = chatKey
+    const originSessionId = sessionId
+    // In Classic mode, a leading `/cmd` matching a registered DSH host command executes
+    // through `session-command-run` (forwarding any staged attachments) rather than sending
+    // as an ordinary user message. Ensure commands are loaded even if the user submitted immediately.
+    if (isAgentChat && value.startsWith('/') && typeof actions?.runSessionCommand === 'function') {
+      if (runningCommandForRef.current === originChatKey) return
+      const match = /^\/([a-z][a-z0-9_-]*)(?=$|\s)/i.exec(value)
+      const cmdName = match?.[1]?.toLowerCase()
+      if (cmdName) {
+        runningCommandForRef.current = originChatKey
+        let fellThrough = false
+        try {
+          const submitEditSeq = draftEditSeqRef.current
+          const startDraftRev = originChatId ? (draftRevisions.get(originChatId) ?? 0) : null
+          const commands = commandsLoadedForRef.current === originSessionId
+            ? classicCommandsRef.current
+            : await ensureClassicCommands()
+          if (commands.some(cmd => cmd?.name === cmdName)) {
+            const ok = await runClassicCommand(value, items)
+            if (ok) {
+              const untouchedLive = mountedRef.current
+                && chatKeyRef.current === originChatKey
+                && draftEditSeqRef.current === submitEditSeq
+              if (untouchedLive) {
+                for (const item of items) {
+                  if (item.previewUrl) {
+                    ownedUrlsRef.current.delete(item.previewUrl)
+                    revokeUrl(item.previewUrl)
+                  }
+                }
+                textRef.current = ''
+                attachmentsRef.current = []
+                setText('')
+                setCaret(0)
+                setAttachments([])
+                if (originChatId) writeDraft({ chatId: originChatId, part: originSessionId, text: '', files: [] })
+              } else if (originChatId && (draftRevisions.get(originChatId) ?? 0) === startDraftRev) {
+                writeDraft({ chatId: originChatId, part: originSessionId, text: '', files: [] })
+              }
+            }
+            return
+          }
+          if (!mountedRef.current || chatKeyRef.current !== originChatKey || draftEditSeqRef.current !== submitEditSeq) {
+            return
+          }
+          fellThrough = true
+        } finally {
+          if (runningCommandForRef.current === originChatKey) runningCommandForRef.current = null
+        }
+        if (!fellThrough) return
+      }
+    }
     textRef.current = ''
     attachmentsRef.current = []
     setText('')
     setCaret(0)
     setAttachments([])
-    const clearedRev = chatId ? writeDraft({ chatId, part: sessionId, text: '', files: [] }) : null
+    const clearedRev = originChatId ? writeDraft({ chatId: originChatId, part: originSessionId, text: '', files: [] }) : null
+    trackInFlightUrls(items, true)
     try {
       await onSend(value, items)
+      trackInFlightUrls(items, false)
       // Hand previewUrl cleanup to Chat's pending-message lifecycle on success.
       for (const item of items) {
         if (item.previewUrl) ownedUrlsRef.current.delete(item.previewUrl)
       }
     } catch (failure) {
-      if (!mountedRef.current) {
-        if (chatId && draftRevisions.get(chatId) === clearedRev) {
+      trackInFlightUrls(items, false)
+      const errMsg = failure?.message ?? String(failure)
+      const activeBot = rosterRef.current?.byId?.[sessionIdRef.current]
+      const activeRoom = rosterRef.current?.roomsById?.[sessionIdRef.current]
+      const isSameChat = chatKeyRef.current === originChatKey
+        || (Array.isArray(activeBot?.parts) && activeBot.parts.includes(originSessionId))
+        || (Array.isArray(activeRoom?.parts) && activeRoom.parts.includes(originSessionId))
+      if (!mountedRef.current || !isSameChat) {
+        if (originChatId && draftRevisions.get(originChatId) === clearedRev) {
           writeDraft({
-            chatId,
-            part: sessionId,
+            chatId: originChatId,
+            part: originSessionId,
             text: value,
             files: items.map(item => ({
               kind: item.isImage ? 'image' : 'file',
@@ -781,22 +1229,50 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
               ...(item.pastedText ? { pastedText: item.pastedText } : {}),
             })),
           })
+          // `writeDraft` keeps the raw File objects; returning to this chat creates fresh URLs.
+          for (const item of items) {
+            if (item.previewUrl) {
+              ownedUrlsRef.current.delete(item.previewUrl)
+              if (!heldFailedUrls.has(item.previewUrl)) revokeUrl(item.previewUrl)
+            }
+          }
+        } else {
+          // A newer draft was written while this send was in flight: preserve the failed
+          // message in the recovery shelf so neither the new draft nor the failed send is lost.
+          pushFailedSend(originChatKey, {
+            id: `fail-${++failedSendSeq}`,
+            text: value,
+            items,
+            error: errMsg,
+            time: Date.now(),
+          })
         }
         return
       }
-      setText((current) => {
-        const next = current === '' ? value : current
-        textRef.current = next
-        return next
+      const userAlreadyTyping = textRef.current !== '' || (attachmentsRef.current?.length ?? 0) > 0
+      if (userAlreadyTyping) {
+        // User already started typing the next message: keep their active draft untouched
+        // and surface the failed message in the recovery shelf with Retry & Restore actions.
+        pushFailedSend(chatKeyRef.current, {
+          id: `fail-${++failedSendSeq}`,
+          text: value,
+          items,
+          error: errMsg,
+          time: Date.now(),
+        })
+        return
+      }
+      setText(() => {
+        textRef.current = value
+        return value
       })
       if (items.length > 0) {
-        setAttachments((current) => {
-          const next = [...items, ...current]
-          attachmentsRef.current = next
-          return next
+        setAttachments(() => {
+          attachmentsRef.current = items
+          return items
         })
       }
-      setError(failure?.message ?? String(failure))
+      setError(errMsg)
     }
   }
 
@@ -820,10 +1296,139 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
 
   const menuLabel = trigger?.kind === 'command' ? t('Commands')
     : trigger?.kind === 'reference' ? t('Reference a chat')
-      : t('Mention a Bot')
+      : isAgentChat ? t('Workspace files') : t('Mention a Bot')
+
+  const userQueuedIds = useMemo(
+    () => (Array.isArray(sessionQueue) ? sessionQueue.filter(item => item?.source?.kind === 'user').map(item => item.id) : EMPTY_LIST),
+    [sessionQueue],
+  )
+  const canEnterSteer = enterToSend
+    && !disabled
+    && text === ''
+    && attachments.length === 0
+    && running
+    && userQueuedIds.length > 0
+    && typeof actions?.steerSessionQueue === 'function'
+  const effectivePlaceholder = canEnterSteer ? t('Press Enter to steer queued messages') : placeholder
+
+  const inputField = h('div', { className: 'dsb-composer-input', 'data-input-scroll': '' },
+    h('textarea', {
+      ref: field,
+      rows: 1,
+      value: text,
+      disabled,
+      placeholder: effectivePlaceholder,
+      'aria-label': effectivePlaceholder,
+      'data-composer-input': '',
+      onChange: (event) => {
+        draftEditSeqRef.current += 1
+        setText(event.target.value)
+        setReferenceTrigger(null)
+        setDismissedKey(null)
+        const pos = event.target?.selectionStart
+        setCaret(typeof pos === 'number' ? pos : event.target.value.length)
+      },
+      onClick: syncCaret,
+      onKeyUp: syncCaret,
+      onSelect: syncCaret,
+      onBlur: () => { lastEscAt.current = 0; closeMenu() },
+      onPaste,
+      onKeyDown: (event) => {
+        if (menuItems.length > 0 && !isImeComposing(event)) {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault()
+            setMenuIndex((clampedMenuIndex + 1) % menuItems.length)
+            return
+          }
+          if (event.key === 'ArrowUp') {
+            event.preventDefault()
+            setMenuIndex((clampedMenuIndex - 1 + menuItems.length) % menuItems.length)
+            return
+          }
+          if (((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') && !event.altKey && !event.ctrlKey && !event.metaKey) {
+            event.preventDefault()
+            selectMenuItem(menuItems[clampedMenuIndex])
+            return
+          }
+          if (event.key === 'Escape') {
+            lastEscAt.current = 0
+            event.preventDefault()
+            event.stopPropagation()
+            closeMenu()
+            return
+          }
+        }
+        // Double-Escape within 500 ms stops the running turn while keeping queued messages.
+        if (event.key === 'Escape' && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !isImeComposing(event)) {
+          const overlayOpen = hasEscapeLayer() || (typeof document !== 'undefined' && Boolean(document.querySelector('[aria-modal="true"], [role="menu"], [role="dialog"]')))
+          if (running && !stopping && typeof onStop === 'function' && !overlayOpen) {
+            const now = Date.now()
+            if (now - lastEscAt.current <= 500) {
+              lastEscAt.current = 0
+              event.preventDefault()
+              event.stopPropagation()
+              void stop()
+              return
+            }
+            lastEscAt.current = now
+            return
+          }
+          lastEscAt.current = 0
+          return
+        }
+        if (event.key !== 'Escape') lastEscAt.current = 0
+        const plainEnter = event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey
+        const modEnter = event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey
+        if ((enterToSend ? (plainEnter || modEnter) : modEnter) && !isImeComposing(event)) {
+          // On an empty composer while running with queued user messages, Enter steers them now.
+          if (text.trim() === '' && attachments.length === 0 && running && userQueuedIds.length > 0 && typeof actions?.steerSessionQueue === 'function') {
+            event.preventDefault()
+            if (steeringRef.current) return
+            steeringRef.current = true
+            void Promise.resolve(actions.steerSessionQueue(sessionId, userQueuedIds))
+              .catch(err => actions?.reportError?.(err, 'queue'))
+              .finally(() => { steeringRef.current = false })
+            return
+          }
+          event.preventDefault()
+          void submit()
+        }
+      },
+    }))
+
+  const trailingControls = h('div', { className: 'dsb-composer-trailing' },
+    h(ComposerVoice, { sessionId, inputActions, actions, useUi, useRoster, voiceChat: !isAgentChat, disabled }),
+    running && typeof onStop === 'function' ? h('button', {
+      type: 'button',
+      className: 'dsb-stop',
+      disabled: stopping,
+      'aria-busy': stopping || undefined,
+      'aria-label': t('Stop generating'),
+      title: t('Stop generating'),
+      onClick: () => { void stop() },
+    }, h(StopIcon)) : null,
+    h('button', {
+      type: 'button',
+      className: 'dsb-send',
+      disabled: !canSend,
+      'aria-label': t('Send message'),
+      title: t('Send message'),
+      onClick: () => { void submit() },
+    }, h(ArrowUpIcon)))
 
   return h('div', { className: 'dsb-composer-wrap' },
+    h(FailedSendBar, {
+      items: failedSends,
+      disabled,
+      retryingId: retryingFailedId,
+      onRetry: entry => { void retryFailedSend(entry) },
+      onRestore: restoreFailedSend,
+      onDismiss: entry => removeFailedSend(entry.id, { revoke: true }),
+    }),
     error ? h('p', { className: 'dsb-composer-error', role: 'alert' }, error) : null,
+    !error && commandNotice ? h('div', { className: 'dsb-composer-notice', role: 'status' },
+      h('span', { className: 'dsb-composer-notice-text' }, commandNotice),
+      h('button', { type: 'button', className: 'dsb-composer-notice-x', 'aria-label': t('Dismiss'), onClick: () => setCommandNotice(null) }, h(CloseIcon))) : null,
     menuItems.length > 0 ? h(ComposerMenu, {
       items: menuItems,
       activeIndex: clampedMenuIndex,
@@ -839,102 +1444,27 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     },
     h('input', { ref: fileInput, type: 'file', multiple: true, hidden: true, disabled, tabIndex: -1, onChange: onFilePick }),
     h(ComposerAttachments, { items: attachments, onRemove: removeAttachment, onPutBackPaste: putBackPaste }),
-    h('div', { className: 'dsb-composer-tools' },
-      isAgentChat
-        ? h(AgentComposerPlus, { disabled, fileInput, actions })
-        : h(ComposerPlus, { sessionId, inputActions, useRoster, useWork, actions })),
-    h('div', { className: 'dsb-composer-input', 'data-input-scroll': '' },
-      h('textarea', {
-        ref: field,
-        rows: 1,
-        value: text,
-        disabled,
-        placeholder,
-        'aria-label': placeholder,
-        'data-composer-input': '',
-        onChange: (event) => {
-          setText(event.target.value)
-          setReferenceTrigger(null)
-          setDismissedKey(null)
-          const pos = event.target?.selectionStart
-          setCaret(typeof pos === 'number' ? pos : event.target.value.length)
-        },
-        onClick: syncCaret,
-        onKeyUp: syncCaret,
-        onSelect: syncCaret,
-        onBlur: () => { lastEscAt.current = 0; closeMenu() },
-        onPaste,
-        onKeyDown: (event) => {
-          if (menuItems.length > 0 && !isImeComposing(event)) {
-            if (event.key === 'ArrowDown') {
-              event.preventDefault()
-              setMenuIndex((clampedMenuIndex + 1) % menuItems.length)
-              return
-            }
-            if (event.key === 'ArrowUp') {
-              event.preventDefault()
-              setMenuIndex((clampedMenuIndex - 1 + menuItems.length) % menuItems.length)
-              return
-            }
-            if (((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') && !event.altKey && !event.ctrlKey && !event.metaKey) {
-              event.preventDefault()
-              selectMenuItem(menuItems[clampedMenuIndex])
-              return
-            }
-            if (event.key === 'Escape') {
-              lastEscAt.current = 0
-              event.preventDefault()
-              event.stopPropagation()
-              closeMenu()
-              return
-            }
-          }
-          // Double-Escape within 500 ms stops the running turn while keeping queued messages.
-          if (event.key === 'Escape' && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !isImeComposing(event)) {
-            const overlayOpen = hasEscapeLayer() || (typeof document !== 'undefined' && Boolean(document.querySelector('[aria-modal="true"], [role="menu"], [role="dialog"]')))
-            if (running && !stopping && typeof onStop === 'function' && !overlayOpen) {
-              const now = Date.now()
-              if (now - lastEscAt.current <= 500) {
-                lastEscAt.current = 0
-                event.preventDefault()
-                event.stopPropagation()
-                void stop()
-                return
-              }
-              lastEscAt.current = now
-              return
-            }
-            lastEscAt.current = 0
-            return
-          }
-          if (event.key !== 'Escape') lastEscAt.current = 0
-          const plainEnter = event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey
-          const modEnter = event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey
-          if ((enterToSend ? (plainEnter || modEnter) : modEnter) && !isImeComposing(event)) {
-            event.preventDefault()
-            void submit()
-          }
-        },
-      })),
-    h('div', { className: 'dsb-composer-trailing' },
-      isAgentChat ? null : h(ComposerVoice, { sessionId, inputActions, actions, useUi, useRoster }),
-      running && typeof onStop === 'function' ? h('button', {
-        type: 'button',
-        className: 'dsb-stop',
-        disabled: stopping,
-        'aria-busy': stopping || undefined,
-        'aria-label': t('Stop generating'),
-        title: t('Stop generating'),
-        onClick: () => { void stop() },
-      }, h(StopIcon)) : null,
-      h('button', {
-        type: 'button',
-        className: 'dsb-send',
-        disabled: !canSend,
-        'aria-label': t('Send message'),
-        title: t('Send message'),
-        onClick: () => { void submit() },
-      }, h(ArrowUpIcon)))))
+    isAgentChat
+      ? h(Fragment, null,
+        inputField,
+        h('div', { className: 'dsb-classic-footer' },
+          h('div', { className: 'dsb-classic-footer-left' },
+            h('div', { className: 'dsb-composer-tools' },
+              h(AgentComposerPlus, { disabled, fileInput, actions })),
+            h(ClassicControls, {
+              sessionId,
+              controls: classicControls,
+              roster,
+              actions,
+              disabled,
+              onUpdated: setClassicControls,
+            })),
+          trailingControls))
+      : h(Fragment, null,
+        h('div', { className: 'dsb-composer-tools' },
+          h(ComposerPlus, { sessionId, inputActions, useRoster, useWork, actions })),
+        inputField,
+        trailingControls)))
 }
 
 function PendingUserRows({ items, sessionId, classic = false }) {
@@ -943,12 +1473,12 @@ function PendingUserRows({ items, sessionId, classic = false }) {
     return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'dsb-dsh-user' },
       h('div', { className: 'dsb-dsh-user-stack' },
         entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
-        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, entry.text) : null))))
+        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, h(UserMessageText, { text: entry.text, interactive: false })) : null))))
   }
   return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
       entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
-      entry.text !== '' ? h('div', { className: 'bt-ubody' }, entry.text) : null))))
+      entry.text !== '' ? h('div', { className: 'bt-ubody' }, h(UserMessageText, { text: entry.text, interactive: false })) : null))))
 }
 
 // One conversation in the main view, drawn with the Bot views' own rows, cards and docks.
@@ -971,19 +1501,24 @@ export function Chat({ sessionId, team, registry, classic = false }) {
 
   const [pending, setPending] = useState([])
   const [dragging, setDragging] = useState(false)
+  const [subagentStack, setSubagentStack] = useState([])
   const sendGen = useRef(0)
   const dragDepth = useRef(0)
   const addFilesRef = useRef(undefined)
+  const withdrawRef = useRef(undefined)
   const pendingRef = useRef(undefined)
   pendingRef.current = pending
   const scroller = useRef(null)
   const follow = useRef(true)
   const keep = useRef(null)
+  const seenQueuedIdsRef = useRef(new Set())
 
   useEffect(() => {
     sendGen.current += 1
     keep.current = null
     follow.current = true
+    setSubagentStack([])
+    seenQueuedIdsRef.current = new Set()
     setPending((list) => {
       for (const entry of list) {
         entry.removed = true
@@ -1031,13 +1566,41 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     }], initial)
   }, [clearPendingUsers])
 
+  const viewingSubagent = !isRoom && subagentStack.length > 0 ? subagentStack.at(-1) : null
+  const viewedSessionId = viewingSubagent ? viewingSubagent.sessionId : activeSessionId
+  const subagentAncestors = useMemo(() => {
+    if (!viewingSubagent || subagentStack.length <= 1 || !activeSessionId) return undefined
+    return [
+      { sessionId: activeSessionId },
+      ...subagentStack.slice(0, -1).map(item => ({ sessionId: item.sessionId, ...(item.mode ? { mode: item.mode } : {}) })),
+    ]
+  }, [viewingSubagent, subagentStack, activeSessionId])
+  const openSubagent = useCallback((entry) => {
+    if (!entry?.sessionId || !entry?.parentSessionId) return
+    follow.current = true
+    keep.current = null
+    setSubagentStack(prev => (prev.at(-1)?.sessionId === entry.sessionId ? prev : [...prev, entry]))
+  }, [])
+  const popSubagent = useCallback(() => {
+    follow.current = true
+    keep.current = null
+    setSubagentStack(prev => prev.slice(0, -1))
+  }, [])
+  const selectSubagentDepth = useCallback((depth) => {
+    follow.current = true
+    keep.current = null
+    setSubagentStack(prev => prev.slice(0, Math.max(0, depth)))
+  }, [])
+
   const roomChat = useRoomChat(room?.id, sessionId, feed, keep, clearPendingUsers)
   const dmChat = useSessionFollow({
-    sessionId: activeSessionId,
-    enabled: !isRoom && Boolean(activeSessionId),
+    sessionId: viewedSessionId,
+    parent: viewingSubagent?.parentSessionId,
+    mode: viewingSubagent?.mode,
+    enabled: !isRoom && Boolean(viewedSessionId),
     feed,
     readOnly: Boolean(roster.readOnly),
-    onUserMessage: onSessionUser,
+    onUserMessage: viewingSubagent ? undefined : onSessionUser,
     keep,
   })
 
@@ -1084,6 +1647,8 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     const imageCount = items.filter(item => item.isImage).length
     const fileCount = items.length - imageCount
     const entry = {
+      requestId: `pending-${++pendingSendSeq}`,
+      queued: running && !isRoom,
       kind: 'user',
       text,
       attachments: pendingAttachments,
@@ -1098,26 +1663,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     setPending(list => [...list, entry])
     actions.noteSent(activeSessionId)
     try {
-      const batchCost = items.reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
-      if (batchCost > MAX_BATCH_STAGED_BYTES) {
-        throw new Error(t('File too large (max {size})', { size: '64 MB' }))
-      }
-      const imageIds = []
-      const fileIds = []
-      for (const item of items) {
-        const base64 = await fileToBase64(item.file)
-        if (item.isImage) {
-          const staged = await (typeof actions.stageImage === 'function'
-            ? actions.stageImage(item.mediaType, base64, item.name)
-            : call('stage-image', { mediaType: item.mediaType, data: base64, name: item.name }))
-          imageIds.push(staged.id)
-        } else {
-          const staged = await (typeof actions.stageFile === 'function'
-            ? actions.stageFile(item.name, base64, item.mediaType)
-            : call('stage-file', { name: item.name, data: base64, mediaType: item.mediaType }))
-          fileIds.push(staged.id)
-        }
-      }
+      const { images: imageIds, files: fileIds } = await stageAttachmentItems(items, actions)
       if (imageIds.length > 0 || fileIds.length > 0) {
         await actions.send(activeSessionId, text, { images: imageIds, files: fileIds })
       } else {
@@ -1162,12 +1708,44 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   const waiting = bot?.waiting === true
   const locked = waiting || readOnly
   const useWork = hooks.useWork ?? NO_WORK_HOOK
+  const useUserQuestions = hooks.useUserQuestions ?? NO_LIST_HOOK
+  const useSessionQueues = hooks.useSessionQueues ?? NO_OBJ_HOOK
   const useCards = hooks.useCards ?? NO_OBJ_HOOK
   const useHeldCards = hooks.useHeldCards ?? NO_OBJ_HOOK
   const useComputer = hooks.useComputer ?? NO_OBJ_HOOK
   const useBrowserHolds = hooks.useBrowserHolds ?? NO_OBJ_HOOK
   const useBrowserTabs = hooks.useBrowserTabs ?? NO_OBJ_HOOK
   const useBrowserPages = hooks.useBrowserPages ?? NO_OBJ_HOOK
+
+  // Once an optimistic message lands in the live Queue Dock, drop its faded pending bubble
+  // from the transcript so queued messages are never shown twice. Track seen queue item IDs
+  // so an already-queued identical message never clears a second in-flight send early.
+  const queuedRows = useSessionQueues(map => map?.[activeSessionId] ?? EMPTY_LIST)
+  useEffect(() => {
+    if (!Array.isArray(queuedRows) || queuedRows.length === 0) return
+    const seen = seenQueuedIdsRef.current
+    const freshRows = []
+    for (const row of queuedRows) {
+      const rowId = typeof row?.id === 'string' ? row.id : ''
+      if (rowId !== '') {
+        if (seen.has(rowId)) continue
+        seen.add(rowId)
+      }
+      freshRows.push(row)
+    }
+    if (freshRows.length === 0) return
+    const queuedUsers = freshRows.map((row) => {
+      const blocks = Array.isArray(row?.content) ? row.content : []
+      let images = 0
+      let files = 0
+      for (const block of blocks) {
+        if (block?.type === 'image') images += 1
+        else if (block?.type === 'file') files += 1
+      }
+      return { text: queueRowText(blocks), images, fileCount: files }
+    })
+    clearPendingUsers(queuedUsers, false)
+  }, [queuedRows, clearPendingUsers])
 
   const onDragEnter = (event) => {
     if (locked || !hasFileDrag(event.dataTransfer)) return
@@ -1203,6 +1781,33 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     return h(UserAttachments, { attachments: blocks, sessionId: row.sessionId ?? activeSessionId })
   }, [activeSessionId])
 
+  const openRoomFile = useMemo(() => (typeof actions?.openFile === 'function'
+    ? target => actions.openFile(typeof target === 'string'
+      ? { path: target, sessionId: activeSessionId }
+      : { ...target, sessionId: target?.sessionId ?? activeSessionId })
+    : undefined), [actions, activeSessionId])
+  const revealRoomFolder = useMemo(() => (typeof actions?.revealFolder === 'function'
+    ? target => actions.revealFolder(typeof target === 'string'
+      ? { path: target, sessionId: activeSessionId }
+      : { ...target, sessionId: target?.sessionId ?? activeSessionId })
+    : openRoomFile
+      ? target => openRoomFile(typeof target === 'string' ? { path: target, isDir: true } : { ...target, isDir: true })
+      : undefined), [actions, activeSessionId, openRoomFile])
+  const roomMentionBots = useMemo(
+    () => (Array.isArray(roster?.bots) ? mentionableBots(roster, activeSessionId) : []),
+    [roster, activeSessionId],
+  )
+  const renderRoomUserText = useCallback(({ text, fullText, revealedSecrets, onToggleSecret }) => h(UserMessageText, {
+    text,
+    fullText,
+    bots: roomMentionBots,
+    revealedSecrets,
+    onToggleSecret,
+    onOpenBot: actions?.openSession,
+    onOpenFile: openRoomFile,
+    onRevealFolder: revealRoomFolder,
+  }), [roomMentionBots, actions, openRoomFile, revealRoomFolder])
+
   const hasAgentMessages = !isRoom && Array.isArray(dmChat.log?.events)
     && dmChat.log.events.some(ev => ev?.type === 'user/message' || ev?.type === 'assistant/message' || ev?.type === 'turn/start' || ev?.type === 'tool/call')
   const showAgentHero = isAgent
@@ -1215,6 +1820,20 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     && !hasAgentMessages
   const heroCwd = dmChat.log?.header?.cwd || roster.workspace || ''
 
+  const activeChatId = chatOfSession(roster, activeSessionId)?.id ?? null
+  const activeChatKey = activeChatId ?? activeSessionId
+  const transcriptPending = useMemo(() => pending.filter(entry => !entry.queued), [pending])
+  const pendingQueue = useMemo(
+    () => pending.filter(entry => entry.queued).map(entry => ({
+      requestId: entry.requestId,
+      text: entry.text,
+      attachments: (entry.attachments ?? []).map(att => (att.type === 'image'
+        ? { type: 'image', value: { previewUrl: att.attachment?.previewUrl, name: att.attachment?.name } }
+        : { type: 'file', value: { name: att.attachment?.name, bytes: att.attachment?.bytes } })),
+    })),
+    [pending],
+  )
+
   return h('div', {
     className: isClassic ? 'dsb-chat dsb-classic-chat' : 'dsb-chat',
     'data-classic': isClassic ? '' : undefined,
@@ -1226,21 +1845,35 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   },
   dragging ? h('div', { className: 'dsb-dropzone', 'aria-hidden': true },
     h('div', { className: 'dsb-dropzone-card' }, t('Drop files to attach'))) : null,
-  h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', 'data-empty-hero': showAgentHero ? '' : undefined, onScroll },
-    showAgentHero ? h(AgentEmptyHero, { cwd: heroCwd, actions, readOnly }) : null,
+  viewingSubagent ? h(SubagentLineageBar, {
+    stack: subagentStack,
+    rootLabel: name || t('Parent session'),
+    running: dmChat.log.writing !== null,
+    onBack: popSubagent,
+    onSelectDepth: selectSubagentDepth,
+  }) : null,
+  h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', 'data-empty-hero': !viewingSubagent && showAgentHero ? '' : undefined, onScroll },
+    !viewingSubagent && showAgentHero ? h(AgentEmptyHero, { cwd: heroCwd, actions, readOnly }) : null,
     h('div', { className: 'dsb-column' },
       earlier ? h('div', { className: 'bt-earlier-top' }, earlier) : null,
       sessionNotice,
       h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
+        !isRoom && dmChat.historyReloaded ? h('div', { key: 'history-reloaded', className: 'bt-time-sep', role: 'separator' }, t('Conversation history was reloaded')) : null,
         isRoom
-          ? h(MemoChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments })
+          ? h(MemoChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments, renderUserText: renderRoomUserText })
           : h(SessionTranscript, {
             log: dmChat.log,
-            sessionId: activeSessionId,
+            sessionId: viewedSessionId,
+            parent: viewingSubagent?.parentSessionId,
+            mode: viewingSubagent?.mode,
+            ancestors: subagentAncestors,
             bot,
             roster,
             actions,
             classic: isClassic,
+            feed,
+            readOnly: readOnly || Boolean(viewingSubagent),
+            onOpenSubagent: openSubagent,
             useUi: hooks.useUi,
             useRoster: hooks.useRoster,
             useWork,
@@ -1254,37 +1887,53 @@ export function Chat({ sessionId, team, registry, classic = false }) {
             hasMore: dmChat.hasMore,
             registry,
           }),
-        h(PendingUserRows, { items: pending, sessionId: activeSessionId, classic: isClassic }),
+        !viewingSubagent ? h(PendingUserRows, { items: transcriptPending, sessionId: activeSessionId, classic: isClassic }) : null,
         // The Bot views' activity row (from the header pill) draws itself in here.
-        h('div', { 'data-chat-running': '' })))),
+        !viewingSubagent ? h('div', { 'data-chat-running': '' }) : null))),
   h('div', { className: 'dsb-composer-root' },
-    h(MemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }),
-    h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }),
-    h(QuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }),
-    !isRoom ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom ? h(SecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom ? h(ConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom ? h(MailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
-    !isRoom ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
-    !isRoom ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
-    !isRoom ? h(ApprovalDock, { botId: bot?.id, sessionId: activeSessionId, useWork, actions, readOnly }) : null,
-    !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(BtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
-    !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
-    h(Composer, {
+    !viewingSubagent ? h(MemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }) : null,
+    !viewingSubagent ? h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    !viewingSubagent ? h(QuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(SecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(ConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(MailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
+    !isRoom && !viewingSubagent ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+    !isRoom && !viewingSubagent ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+    !isRoom && !viewingSubagent ? h(ApprovalDock, { botId: bot?.id, sessionId: activeSessionId, useWork, actions, readOnly }) : null,
+    !isRoom && !viewingSubagent ? h(ClassicPlanReviewDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
+    !isRoom && !viewingSubagent ? h(ClassicQuestionDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
+    !isRoom && !viewingSubagent && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(BtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    !isRoom && !viewingSubagent && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    !viewingSubagent ? h(DesktopQueueDock, {
       sessionId: activeSessionId,
-      disabled: locked,
       running,
-      placeholder: waiting ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
-      onSend: send,
-      onStop,
-      addFilesRef,
+      readOnly,
+      useSessionQueues,
+      pendingQueue,
       actions,
-      feed,
-      useUi: hooks.useUi,
-      useRoster: hooks.useRoster,
-      useWork,
-      useSessions: hooks.useSessions,
-      useRescuedDrafts: hooks.useRescuedDrafts,
-    })))
+      classic: isClassic,
+      onWithdraw: text => withdrawQueuedText({ chatId: activeChatId, chatKey: activeChatKey, sessionId: activeSessionId, text }),
+    }) : null,
+    viewingSubagent
+      ? h(SubagentReadOnlyBar, { onBack: popSubagent })
+      : h(Composer, {
+        sessionId: activeSessionId,
+        disabled: locked,
+        running,
+        placeholder: waiting ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
+        onSend: send,
+        onStop,
+        addFilesRef,
+        withdrawRef,
+        actions,
+        feed,
+        useUi: hooks.useUi,
+        useRoster: hooks.useRoster,
+        useWork,
+        useSessions: hooks.useSessions,
+        useSessionQueues,
+        useRescuedDrafts: hooks.useRescuedDrafts,
+      })))
 }

@@ -6,6 +6,7 @@ import { call } from '../../../ds-bot/src/client/api.js'
 import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
 import { createBotBrowsers, serveBrowserReads } from '../../../ds-bot/src/client/bot-browsers.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
+import { pruneDrafts } from '../../../ds-bot/src/client/draft-keep.js'
 import { readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { lookOf, toolState } from '../../../ds-bot/src/client/mark.js'
@@ -16,10 +17,11 @@ import { createSource, EMPTY_ROSTER, indexRoster } from '../../../ds-bot/src/cli
 import { requestPreparation } from '../../../ds-bot/src/client/speech.js'
 import { STORAGE, migrateStorage } from '../../../ds-bot/src/client/storage.js'
 import { readMode, writeMode } from '../../../ds-bot/src/client/surface.js'
-import { teamActions } from '../../../ds-bot/src/client/team-actions.js'
+import { sectionFoldWrites, teamActions } from '../../../ds-bot/src/client/team-actions.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { registry } from '../../../ds-bot/src/client/themes.js'
 import { openFeed } from './api.js'
+import { pruneFailedSends } from './failed-send-bar.js'
 
 // Memory news and connector states change without a notice on the feed.
 const CATCH_UP_MS = 15_000
@@ -64,9 +66,31 @@ export function createTeam() {
   const seenStore = sharedMap(STORAGE.seen)
   let seenAt = seenStore.read()
   const roster = createSource(EMPTY_ROSTER)
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, releaseNotes: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
   const activity = createSource({})
   const work = createSource(NO_WORK)
+  const userQuestions = createSource([])
+  const sessionQueues = createSource({})
+  const mergeSessionQueues = (nextMap) => {
+    if (!nextMap || typeof nextMap !== 'object') return
+    sessionQueues.set((prev) => {
+      const prevKeys = Object.keys(prev)
+      const nextKeys = Object.keys(nextMap)
+      let changed = prevKeys.length !== nextKeys.length
+      const merged = {}
+      for (const sid of nextKeys) {
+        const prevRows = prev[sid]
+        const nextRows = nextMap[sid]
+        if (prevRows !== undefined && JSON.stringify(prevRows) === JSON.stringify(nextRows)) {
+          merged[sid] = prevRows
+        } else {
+          merged[sid] = nextRows
+          changed = true
+        }
+      }
+      return changed ? merged : prev
+    })
+  }
   const memoryNews = createSource({})
   const live = createSource({})
   const cards = createSource({})
@@ -230,6 +254,7 @@ export function createTeam() {
   // Reads can overlap (the feed and a finished action); an older answer never wins.
   let pulls = 0
   let applied = 0
+  const foldWrites = sectionFoldWrites()
   let liveKey
   const pull = async () => {
     const order = ++pulls
@@ -240,6 +265,8 @@ export function createTeam() {
     if (value.liveKey !== undefined) liveKey = value.liveKey
     if (value.activity !== undefined) setChanged(activity, value.activity)
     if (value.work !== undefined) setChanged(work, value.work)
+    if (value.userQuestions !== undefined) setChanged(userQuestions, value.userQuestions)
+    if (value.sessionQueues !== undefined) mergeSessionQueues(value.sessionQueues)
     if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
     if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
     if (value.memoryNews !== undefined) noteNews(value.memoryNews)
@@ -264,19 +291,26 @@ export function createTeam() {
     if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
     if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) changed.plugins = value.plugins
     if (value.speech !== undefined && Boolean(value.speech) !== Boolean(current.speech)) changed.speech = Boolean(value.speech)
+    if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(current.telemetryPrompt)) changed.telemetryPrompt = Boolean(value.telemetryPrompt)
+    if (value.releaseNotes !== undefined && JSON.stringify(value.releaseNotes) !== JSON.stringify(current.releaseNotes ?? null)) changed.releaseNotes = value.releaseNotes
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
       if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
       return
     }
     // In a window with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
-    const indexed = indexRoster(value)
+    const indexed = indexRoster({ ...value, sections: foldWrites.reconcile(value.sections, value.revision) })
     if (current.ready) {
       const gone = [
         ...Object.keys(current.byId ?? {}).filter(id => indexed.byId[id] === undefined),
         ...Object.keys(current.roomsById ?? {}).filter(id => indexed.roomsById[id] === undefined),
+        ...Object.keys(current.agentOf ?? {}).filter(id => indexed.agentOf?.[id] === undefined),
       ]
-      if (gone.length > 0) questionDrafts.pruneChats(gone)
+      if (gone.length > 0) {
+        questionDrafts.pruneChats(gone)
+        pruneDrafts(gone)
+        pruneFailedSends(gone)
+      }
     }
     roster.set(indexed)
     if ((indexed.agents ?? []).some(agent => (agent.sessions?.length ?? 0) > 0)) {
@@ -319,7 +353,7 @@ export function createTeam() {
   }
 
   const questionDrafts = createQuestionDrafts()
-  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, questionDrafts })
+  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, questionDrafts, foldWrites })
   const speechCall = (endpoint, payload, signal) => call(endpoint, payload, signal).then(
     value => ({ ok: true, value }),
     error => ({ ok: false, error: { code: error?.code ?? 'speech/error', message: error?.message ?? String(error) } }),
@@ -335,7 +369,7 @@ export function createTeam() {
 
   // Unified right sidebar workspace state: coexists with Bot/Group details, browser, side
   // chats, and tasks inside one shared `BotPanel` strip.
-  const EMPTY_RIGHT_PANEL = { tabs: [], tab: 'files', file: null, fileSessionId: null, fileRoot: null, changes: null, terminalNonce: 0 }
+  const EMPTY_RIGHT_PANEL = { tabs: [], tab: 'files', file: null, fileLine: null, fileSessionId: null, fileRoot: null, revealDir: null, revealNonce: 0, changes: null, terminalNonce: 0 }
   const STALE_WORKSPACE_TABS = new Set(['preview', 'changes'])
   const normalizeRightPanel = (prev) => {
     if (!prev || typeof prev !== 'object') return { ...EMPTY_RIGHT_PANEL, tabs: [] }
@@ -353,8 +387,10 @@ export function createTeam() {
     const changed = keptTabs.length !== normalized.tabs.length
       || nextTab !== prev.tab
       || prev.file !== null
+      || prev.fileLine !== null
       || prev.fileSessionId !== null
       || prev.fileRoot !== null
+      || prev.revealDir !== null
       || prev.changes !== null
     if (!changed) return prev
     return {
@@ -362,8 +398,10 @@ export function createTeam() {
       tabs: keptTabs,
       tab: nextTab,
       file: null,
+      fileLine: null,
       fileSessionId: null,
       fileRoot: null,
+      revealDir: null,
       changes: null,
     }
   }
@@ -443,6 +481,7 @@ export function createTeam() {
         palette: null,
         groupSearch: null,
         settings: null,
+        releaseNotes: null,
         shortcuts: false,
       }))
       writeMode(nextMode)
@@ -577,6 +616,8 @@ export function createTeam() {
     },
     archiveAgentSession: async (agentId, sessionId) => {
       await after(call('agent-archive', { agentId, sessionId }))
+      pruneDrafts([sessionId])
+      pruneFailedSends([sessionId])
       if (lastAgentSession === sessionId) lastAgentSession = null
       if (shown.getSnapshot() === sessionId) {
         const snap = roster.getSnapshot()
@@ -599,6 +640,10 @@ export function createTeam() {
     removeAgent: async (agentId) => {
       const owned = roster.getSnapshot().agentsById?.[agentId]?.sessions ?? []
       const result = await after(call('remove-agent', { agentId }))
+      if (owned.length > 0) {
+        pruneDrafts(owned)
+        pruneFailedSends(owned)
+      }
       if (owned.includes(lastAgentSession)) lastAgentSession = null
       const currentShown = shown.getSnapshot()
       if (currentShown !== null && owned.includes(currentShown)) {
@@ -610,6 +655,33 @@ export function createTeam() {
       return result
     },
     stopAgent: (agentId, sessionId) => after(call('stop-agent', sessionId ? { agentId, sessionId } : { agentId })),
+    sessionControls: sessionId => call('session-controls', { sessionId }),
+    selectSessionModel: (sessionId, ref, effort) => after(call('session-model', {
+      sessionId,
+      ...(ref !== undefined ? { ref } : {}),
+      ...(effort !== undefined ? { effort } : {}),
+    })),
+    setSessionPermission: (sessionId, preset) => after(call('session-permission', { sessionId, preset })),
+    sessionCommands: (sessionId, options) => call('session-commands', {
+      sessionId,
+      ...(options?.wake ? { wake: true } : {}),
+    }),
+    runSessionCommand: (sessionId, line, extra) => after(call('session-command-run', {
+      sessionId,
+      line,
+      ...(extra?.images?.length ? { images: extra.images } : {}),
+      ...(extra?.files?.length ? { files: extra.files } : {}),
+    })),
+    sessionSkills: sessionId => call('session-skills', { sessionId }),
+    sessionFiles: (sessionId, query = '') => call('session-files', { sessionId, query }),
+    answerUserQuestion: (sessionId, requestId, answers) => after(call('session-question-answer', { sessionId, requestId, answers })),
+    dismissUserQuestion: (sessionId, requestId) => after(call('session-question-dismiss', { sessionId, requestId })),
+    updateSessionQueue: (sessionId, itemId, action) => after(call('session-queue-update', { sessionId, itemId, action })),
+    steerSessionQueue: (sessionId, itemIds) => after(call('session-queue-update', {
+      sessionId,
+      ...(Array.isArray(itemIds) && itemIds.length > 0 ? { itemIds } : {}),
+      action: { kind: 'steer-all' },
+    })),
     createClassicSession: (options = {}) => {
       const snap = roster.getSnapshot()
       if (snap.readOnly) return undefined
@@ -695,13 +767,29 @@ export function createTeam() {
     canOpenFiles: () => true,
     canOpenTerminal: () => !roster.getSnapshot().readOnly,
     openFiles: () => openWorkspaceTab('files'),
+    revealFolder: (input) => {
+      const raw = typeof input === 'string' ? input : (typeof input?.path === 'string' ? input.path : '')
+      const target = raw.replace(/[\\/]+$/, '')
+      const revealSessionId = typeof input?.sessionId === 'string' && input.sessionId !== '' ? input.sessionId : null
+      openWorkspaceTab('files', prev => ({
+        ...prev,
+        revealDir: target,
+        revealNonce: (prev?.revealNonce ?? 0) + 1,
+      }), revealSessionId)
+    },
     openFile: (path) => {
       const target = typeof path === 'string' ? path : (typeof path?.path === 'string' ? path.path : '')
       if (target === '') return
       const fileSessionId = typeof path?.sessionId === 'string' && path.sessionId !== '' ? path.sessionId : null
+      const isDir = path?.isDir === true || (/[\\/]$/.test(target) && target !== '/' && !/^[A-Za-z]:[\\/]$/.test(target))
+      if (isDir) {
+        actions.revealFolder({ path: target, sessionId: fileSessionId })
+        return
+      }
       const fileRoot = typeof path?.root === 'string' && path.root !== '' ? path.root : null
+      const fileLine = Number.isInteger(path?.line) && path.line > 0 ? path.line : null
       const fileFallback = typeof path?.onUnavailable === 'function' ? path.onUnavailable : null
-      openWorkspaceTab('preview', prev => ({ ...prev, file: target, fileSessionId, fileRoot, fileFallback }), fileSessionId)
+      openWorkspaceTab('preview', prev => ({ ...prev, file: target, fileLine, fileSessionId, fileRoot, fileFallback }), fileSessionId)
     },
     openChanges: async (changes) => {
       if (!changes || typeof changes !== 'object' || typeof changes.sessionId !== 'string' || !Number.isInteger(changes.seq)) return
@@ -726,7 +814,7 @@ export function createTeam() {
               ...prev,
               tabs: remaining,
               tab: prev.tab === tabId ? remaining[remaining.length - 1] : prev.tab,
-              ...(tabId === 'preview' ? { file: null, fileSessionId: null, fileRoot: null, fileFallback: null } : {}),
+              ...(tabId === 'preview' ? { file: null, fileLine: null, fileSessionId: null, fileRoot: null, fileFallback: null } : {}),
               ...(tabId === 'changes' ? { changes: null } : {}),
             },
           }
@@ -1148,7 +1236,7 @@ export function createTeam() {
     const cleanups = []
     const appComputer = globalThis.dsBotApp
     if (typeof appComputer?.computer === 'function') {
-      const nameOf = id => roster.getSnapshot().byId[id]?.name ?? 'a Bot'
+      const nameOf = id => roster.getSnapshot().byId[id]?.name ?? t('a Bot')
       const syncComputer = () => {
         if (stopped) return
         const live = computer.getSnapshot()
@@ -1296,6 +1384,8 @@ export function createTeam() {
     useUi: use(ui),
     useActivity: use(activity),
     useWork: use(work),
+    useUserQuestions: use(userQuestions),
+    useSessionQueues: use(sessionQueues),
     useMemoryNews: use(memoryNews),
     useLive: use(live),
     useCards: use(cards),

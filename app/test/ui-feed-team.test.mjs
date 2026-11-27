@@ -86,7 +86,86 @@ test('openFeed escalates backoff on repeated 200-EOF responses, resets on valid 
   assert.equal(pendingTimers.size, 0, 'stop() cancels active backoff timer immediately')
 })
 
-test('createTeam pauses catch-up polling while hidden, caches sessionHook, prunes deleted sessions, and fires noteLive only on stream transitions', async () => {
+test('openFeed reconnects immediately without backoff or lost event on server : rotate comment', async (t) => {
+  const origFetch = globalThis.fetch
+  const origSetTimeout = globalThis.setTimeout
+  const origClearTimeout = globalThis.clearTimeout
+  t.after(() => {
+    globalThis.fetch = origFetch
+    globalThis.setTimeout = origSetTimeout
+    globalThis.clearTimeout = origClearTimeout
+  })
+
+  const delays = []
+  const pendingTimers = new Map()
+  let nextId = 1
+  globalThis.setTimeout = (fn, ms) => {
+    const id = nextId++
+    delays.push(ms)
+    pendingTimers.set(id, fn)
+    return id
+  }
+  globalThis.clearTimeout = (id) => { pendingTimers.delete(id) }
+
+  let calls = 0
+  const events = []
+  globalThis.fetch = async () => {
+    calls += 1
+    // 1st connection: hello followed by server-initiated `: rotate` -> must reconnect immediately with no timer and no `lost`.
+    if (calls === 1) return { ok: true, status: 200, body: makeStream(['event: hello\ndata: {"revision":1}\n\n', ': rotate\n\n']) }
+    // 2nd connection: delivers fresh hello then stays open until stop().
+    if (calls === 2) {
+      return {
+        ok: true,
+        status: 200,
+        body: {
+          getReader() {
+            let sent = false
+            return {
+              async read() {
+                if (!sent) {
+                  sent = true
+                  return { value: new TextEncoder().encode('event: hello\ndata: {"revision":2}\n\n'), done: false }
+                }
+                return await new Promise(() => {})
+              },
+              async cancel() {},
+            }
+          },
+        },
+      }
+    }
+    return { ok: true, status: 200, body: makeStream([]) }
+  }
+
+  const stop = openFeed((event, data) => events.push([event, data]))
+  await tick()
+  await tick()
+  await tick()
+  assert.equal(calls, 2, 'server : rotate triggers immediate second fetch without waiting on setTimeout')
+  assert.deepEqual(delays, [], 'no backoff timer scheduled on clean : rotate')
+  assert.deepEqual(events, [
+    ['hello', { revision: 1 }],
+    ['hello', { revision: 2 }],
+  ], 'no synthetic lost event emitted on clean : rotate')
+  stop()
+
+  // Guard: a bare `: rotate` with NO prior event still backs off instead of tight-spinning.
+  calls = 0
+  delays.length = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    return { ok: true, status: 200, body: makeStream([': rotate\n\n']) }
+  }
+  const stop2 = openFeed(() => {})
+  await tick()
+  await tick()
+  assert.equal(calls, 1)
+  assert.deepEqual(delays, [500], 'bare : rotate without hello falls back to normal backoff')
+  stop2()
+})
+
+test('createTeam pauses catch-up polling while hidden, caches sessionHook, prunes deleted sessions, and fires noteLive only on stream transitions', async (t) => {
   const { outputFiles } = await build({
     entryPoints: [fileURLToPath(new URL('../ui/src/team.js', import.meta.url))],
     bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -136,6 +215,8 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   }
   const module = { exports: {} }
   const storageData = new Map()
+  let nextRead
+  let delayedSave
   const localStorage = {
     getItem: k => storageData.get(k) ?? null,
     setItem: (k, v) => storageData.set(k, String(v)),
@@ -144,8 +225,28 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   const sandbox = {
     module,
     exports: module.exports,
-    __call: async (name) => {
-      if (name === 'state') { pullCount += 1; return rosterValue }
+    __call: async (name, body) => {
+      if (name === 'state') {
+        pullCount += 1
+        if (nextRead) {
+          const read = nextRead
+          nextRead = undefined
+          return read.promise
+        }
+        if (body.since === rosterValue.revision) return { revision: rosterValue.revision, unchanged: true }
+        return rosterValue
+      }
+      if (name === 'section-save') {
+        const section = { ...rosterValue.sections[0], collapsed: body.collapsed }
+        rosterValue = { ...rosterValue, revision: rosterValue.revision + 1, sections: [section] }
+        const reply = body.withRevision ? { section, revision: rosterValue.revision } : section
+        if (delayedSave) {
+          const delay = delayedSave
+          delayedSave = undefined
+          await delay.promise
+        }
+        return reply
+      }
       return {}
     },
     __feedCb: null,
@@ -186,6 +287,7 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
 
   // 2. Start team: catch-up interval pauses when hidden and catches up on visibilitychange.
   const stop = team.start()
+  t.after(stop)
   await tick()
   assert.equal(pullCount, 1)
   assert.equal(intervalsStarted, 1)
@@ -269,6 +371,43 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   assert.equal(team.hooks.useSessions(list => list.ids.includes('b2')), false, 'deleted session pruned from sessions')
   assert.equal(team.hooks.useSessionStatus(map => map.has('b2')), false, 'deleted session pruned from status')
   assert.notEqual(team.sessionHook('b2'), hookB2Before, 'deleted session pruned from sessionHook cache')
+
+  await t.test('a read from another window wins over an older fold acknowledgement', async () => {
+    rosterValue = { ...rosterValue, revision: 4, sections: [{ id: 'work', name: 'Work' }] }
+    intervalCb()
+    await tick()
+    const snapshot = () => team.snapshots.roster()
+
+    for (const replyFirst of [true, false]) {
+      const saveGate = delayedSave = Promise.withResolvers()
+      const collapse = team.actions.saveSection({ id: 'work', collapsed: true })
+      await tick()
+      assert.equal(rosterValue.sections[0].collapsed, true)
+      const readGate = nextRead = Promise.withResolvers()
+      sandbox.__feedCb('revision', {})
+      await sandbox.__call('section-save', { id: 'work', collapsed: false })
+      const deliverSave = async () => {
+        saveGate.resolve()
+        await collapse
+      }
+      const deliverRead = async () => {
+        readGate.resolve(rosterValue)
+        await tick()
+      }
+      if (replyFirst) {
+        await deliverSave()
+        assert.equal(snapshot().sections[0].collapsed, true)
+        await deliverRead()
+      } else {
+        await deliverRead()
+        await deliverSave()
+      }
+      intervalCb()
+      await tick()
+      assert.equal(snapshot().revision, rosterValue.revision)
+      assert.equal(snapshot().sections[0].collapsed, false, `newer fold wins (save reply first: ${replyFirst})`)
+    }
+  })
 
   void liveUpdates
   void unsubLive

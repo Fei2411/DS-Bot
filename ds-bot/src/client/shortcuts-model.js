@@ -1,4 +1,5 @@
 import { isImeComposing } from './enter-key.js'
+import { sectionCollapsed } from './sources.js'
 import { currentPart } from './text.js'
 
 const STORAGE_KEY = 'ds-bot.shortcuts.v1'
@@ -598,7 +599,7 @@ export function matchShortcutEvent(event, {
  * 3. Expanded sections in order (pinned first, then most recently updated)
  * Hidden Bots/rooms are skipped unless currently active.
  */
-export function visibleSidebarTargets(roster, sessionsById = {}, activeId = null) {
+export function visibleSidebarTargets(roster, sessionsById = {}, activeId = null, sectionFolds) {
   if (!roster) return []
   const stamps = {}
   for (const [id, entry] of Object.entries(sessionsById ?? {})) {
@@ -641,7 +642,7 @@ export function visibleSidebarTargets(roster, sessionsById = {}, activeId = null
     }
   }
   for (const section of sections) {
-    if (section.collapsed) continue
+    if (sectionCollapsed(section, sectionFolds)) continue
     for (const entry of ordered) {
       if (entry.item.sectionId === section.id) {
         targets.push({ kind: entry.kind, id: entry.id, name: entry.item.name ?? 'DSH Agent' })

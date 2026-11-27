@@ -105,6 +105,7 @@ function TreeBranch({
   loadingDirs,
   truncatedDirs,
   selectedPath,
+  highlightedDir,
   menuPath,
   filter,
   onToggleDir,
@@ -141,6 +142,7 @@ function TreeBranch({
           loadingDirs,
           truncatedDirs,
           selectedPath,
+          highlightedDir,
           menuPath,
           filter,
           onToggleDir,
@@ -154,6 +156,8 @@ function TreeBranch({
         type: 'button',
         role: 'treeitem',
         className: 'dsb-ft-row is-dir',
+        'data-tree-path': path,
+        'data-revealed': highlightedDir === path ? '' : undefined,
         style: { paddingLeft: `${10 + depth * 14}px` },
         'aria-expanded': isOpen,
         'data-path': path,
@@ -185,6 +189,7 @@ function TreeBranch({
         type: 'button',
         role: 'treeitem',
         className: 'dsb-ft-row is-file',
+        'data-tree-path': entry.path,
         style: { paddingLeft: `${26 + depth * 14}px` },
         'aria-current': selectedPath === entry.path ? 'true' : undefined,
         'data-path': entry.path,
@@ -203,6 +208,79 @@ function TreeBranch({
     }
   }
   return rows
+}
+
+const WINDOWS_DRIVE_ABS_RE = /^[A-Za-z]:(?:\/|$)/
+const REVEAL_HIGHLIGHT_MS = 1800
+
+function hasEscapingDotDot(relPath) {
+  let depth = 0
+  for (const seg of relPath.split('/')) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..') {
+      depth -= 1
+      if (depth < 0) return true
+    } else {
+      depth += 1
+    }
+  }
+  return false
+}
+
+function collapseRelativeSegments(relPath) {
+  const out = []
+  for (const seg of relPath.split('/')) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..') {
+      if (out.length === 0) return null
+      out.pop()
+    } else {
+      out.push(seg)
+    }
+  }
+  return out.join('/')
+}
+
+function normalizeFsPath(value) {
+  if (typeof value !== 'string') return ''
+  const s = value.trim().replace(/\\/g, '/')
+  if (s === '') return ''
+  if (/^\/+$/.test(s)) return '/'
+  if (/^[A-Za-z]:\/+$/.test(s)) return `${s.slice(0, 2)}/`
+  return s.replace(/\/+$/, '')
+}
+
+/**
+ * Resolves a folder reveal target against the workspace root.
+ * Returns `{ status: 'ok', path }` (workspace-relative path, `''` for root)
+ * or `{ status: 'outside', raw }` when an absolute path or `..` traversal escapes the root.
+ */
+export function normalizeRevealPath(raw, rootPath) {
+  if (typeof raw !== 'string') return { status: 'ok', path: '' }
+  const p = normalizeFsPath(raw)
+  if (p === '' || p === '.') return { status: 'ok', path: '' }
+
+  const isWinAbs = WINDOWS_DRIVE_ABS_RE.test(p)
+  const isPosixAbs = p.startsWith('/')
+  if (isWinAbs || isPosixAbs) {
+    const normRoot = normalizeFsPath(rootPath)
+    if (normRoot === '') return { status: 'outside', raw: p }
+    const caseInsensitive = isWinAbs || WINDOWS_DRIVE_ABS_RE.test(normRoot)
+    const cmpPath = caseInsensitive ? p.toLowerCase() : p
+    const cmpRoot = caseInsensitive ? normRoot.toLowerCase() : normRoot
+    const rootPrefix = cmpRoot.endsWith('/') ? cmpRoot : `${cmpRoot}/`
+    if (cmpPath !== cmpRoot && !cmpPath.startsWith(rootPrefix)) {
+      return { status: 'outside', raw: p }
+    }
+    const remainder = p.slice(normRoot.length).replace(/^\/+/, '')
+    if (remainder === '') return { status: 'ok', path: '' }
+    const collapsed = collapseRelativeSegments(remainder)
+    return collapsed === null ? { status: 'outside', raw: p } : { status: 'ok', path: collapsed }
+  }
+
+  if (hasEscapingDotDot(p)) return { status: 'outside', raw: p }
+  const collapsed = collapseRelativeSegments(p)
+  return collapsed === null ? { status: 'outside', raw: p } : { status: 'ok', path: collapsed }
 }
 
 function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, onOpenDefault, onCopyPath, onCopyRelativePath, onClose }) {
@@ -308,7 +386,7 @@ function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, on
   return target ? createPortal(node, target) : node
 }
 
-function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active = true }) {
+function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, revealNonce = 0, onOpenFile, active = true }) {
   const [rootInfo, setRootInfo] = useState({ root: '', rootName: '', missing: false, truncated: false })
   const [childrenByPath, setChildrenByPath] = useState({})
   const [truncatedDirs, setTruncatedDirs] = useState(() => new Set())
@@ -316,10 +394,15 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
   const [loadingDirs, setLoadingDirs] = useState(() => new Set())
   const [includeHidden, setIncludeHidden] = useState(false)
   const [filter, setFilter] = useState('')
+  const [highlightedDir, setHighlightedDir] = useState(null)
+  const [revealNotice, setRevealNotice] = useState('')
   const [error, setError] = useState('')
   const [menu, setMenu] = useState(null)
   const genRef = useRef(0)
   const listRef = useRef(null)
+  const handledRevealNonceRef = useRef(0)
+  const pendingHiddenRevealRef = useRef(null)
+  const highlightTimerRef = useRef(null)
   const watchIdRef = useRef(null)
   const watchRecursiveRef = useRef(true)
   const syncedDirsKeyRef = useRef('')
@@ -331,13 +414,36 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
   const expandedRef = useRef(expanded)
   expandedRef.current = expanded
 
-  const loadDir = useCallback(async (dirPath, gen, { silent = false } = {}) => {
+  const flashHighlightedDir = useCallback((dirPath) => {
+    if (highlightTimerRef.current !== null) {
+      clearTimeout(highlightTimerRef.current)
+      highlightTimerRef.current = null
+    }
+    setHighlightedDir(dirPath)
+    if (dirPath !== null) {
+      highlightTimerRef.current = setTimeout(() => {
+        highlightTimerRef.current = null
+        setHighlightedDir(cur => (cur === dirPath ? null : cur))
+      }, REVEAL_HIGHLIGHT_MS)
+    }
+  }, [])
+
+  useEffect(() => () => {
+    if (highlightTimerRef.current !== null) {
+      clearTimeout(highlightTimerRef.current)
+      highlightTimerRef.current = null
+    }
+  }, [])
+
+  const loadDir = useCallback(async (dirPath, gen, { silent = false, hiddenOverride } = {}) => {
+    const showHidden = hiddenOverride ?? includeHidden
     if (!silent) setLoadingDirs(current => new Set(current).add(dirPath))
     try {
       const expectedRoot = dirPath !== '' && rootPathRef.current ? rootPathRef.current : undefined
-      const res = await call('workspace-list', { sessionId, path: dirPath, includeHidden, ...(expectedRoot ? { expectedRoot } : {}) })
+      const res = await call('workspace-list', { sessionId, path: dirPath, includeHidden: showHidden, ...(expectedRoot ? { expectedRoot } : {}) })
       if (genRef.current !== gen) return { ok: false, stale: false }
       if (dirPath === '') {
+        rootPathRef.current = res.root ?? ''
         setRootInfo({
           root: res.root ?? '',
           rootName: res.rootName ?? '',
@@ -356,14 +462,20 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
       }
       setChildrenByPath(current => ({ ...current, [dirPath]: res.entries ?? [] }))
       setError('')
-      return { ok: true, root: res.root ?? '' }
+      return { ok: true, root: res.root ?? '', res }
     } catch (failure) {
       if (genRef.current !== gen) return { ok: false, stale: false }
+      const message = hostText(failure?.message ?? String(failure))
       if (dirPath !== '' && failure?.code === 'bot/stale') {
-        return { ok: false, stale: true }
+        return { ok: false, stale: true, error: message }
       }
       if (dirPath !== '' && (failure?.code === 'bot/not-found' || failure?.code === 'bot/invalid')) {
         // Expanded folder was deleted or replaced; drop it cleanly without disturbing sibling state.
+        if (expandedRef.current.has(dirPath)) {
+          const next = new Set(expandedRef.current)
+          next.delete(dirPath)
+          expandedRef.current = next
+        }
         setExpanded((current) => {
           if (!current.has(dirPath)) return current
           const next = new Set(current)
@@ -382,10 +494,10 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
           next.delete(dirPath)
           return next
         })
-        return { ok: false, removed: true }
+        return { ok: false, removed: true, error: message }
       }
-      if (dirPath === '') setError(hostText(failure?.message ?? String(failure)))
-      return { ok: false }
+      if (dirPath === '') setError(message)
+      return { ok: false, error: message }
     } finally {
       if (!silent && genRef.current === gen) {
         setLoadingDirs((current) => {
@@ -403,10 +515,13 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
     const scrollTop = listRef.current?.scrollTop ?? 0
     const prevRoot = rootPathRef.current
     if (reset) {
+      rootPathRef.current = ''
+      expandedRef.current = new Set()
       setChildrenByPath({})
       setTruncatedDirs(new Set())
       setExpanded(new Set())
       setLoadingDirs(new Set())
+      flashHighlightedDir(null)
       setError('')
       await loadDir('', gen, { silent: false })
       return
@@ -415,8 +530,10 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
     if (genRef.current !== gen || !rootRes?.ok) return
     if (prevRoot && rootRes.root && rootRes.root !== prevRoot) {
       // Workspace root changed (e.g. working_directory moved); reset stale expanded paths.
+      expandedRef.current = new Set()
       setExpanded(new Set())
       setTruncatedDirs(new Set())
+      flashHighlightedDir(null)
       setChildrenByPath(current => (Object.hasOwn(current, '') ? { '': current[''] } : {}))
       return
     }
@@ -441,7 +558,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
         el.scrollTop = scrollTop
       }
     }
-  }, [loadDir])
+  }, [loadDir, flashHighlightedDir])
 
   const refreshTreeRef = useRef(refreshTree)
   refreshTreeRef.current = refreshTree
@@ -452,6 +569,11 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
     setMenu(null)
     void refreshTree({ silent: false, reset: sessionChanged })
   }, [sessionId, includeHidden, refreshTree])
+
+  useEffect(() => {
+    setRevealNotice('')
+    pendingHiddenRevealRef.current = null
+  }, [sessionId])
 
   // When returning from a hidden tab (e.g. Preview/Terminal), refresh once cleanly.
   useEffect(() => {
@@ -566,8 +688,108 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
     }).catch(() => {})
   }, [sessionId, active, expanded])
 
+  // Reveal a referenced folder in the tree: consume each `revealNonce` once so later
+  // Hide-dotfiles toggles never replay an old dotfolder reveal.
+  useEffect(() => {
+    let targetDir = null
+    let usingPendingHidden = false
+    if (pendingHiddenRevealRef.current !== null && includeHidden) {
+      targetDir = pendingHiddenRevealRef.current
+      pendingHiddenRevealRef.current = null
+      usingPendingHidden = true
+    } else if (revealNonce && revealDir !== null && revealNonce !== handledRevealNonceRef.current) {
+      handledRevealNonceRef.current = revealNonce
+      pendingHiddenRevealRef.current = null
+      targetDir = revealDir
+    } else {
+      return undefined
+    }
+
+    let alive = true
+    const run = async () => {
+      setRevealNotice('')
+      if (!rootPathRef.current) {
+        let rootRes
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const stepGen = genRef.current
+          rootRes = await loadDir('', stepGen)
+          if (!alive) return
+          if (rootRes.ok || genRef.current === stepGen) break
+        }
+        if (!rootRes?.ok && rootRes?.error) {
+          setRevealNotice(rootRes.error)
+          return
+        }
+      }
+      const norm = normalizeRevealPath(targetDir, rootPathRef.current)
+      setFilter('')
+      if (norm.status === 'outside') {
+        flashHighlightedDir(null)
+        setRevealNotice(t('Path is outside the workspace folder: {path}', { path: targetDir }))
+        return
+      }
+      const rel = norm.path
+      if (rel === '') {
+        flashHighlightedDir(null)
+        return
+      }
+      const segments = rel.split('/').filter(Boolean)
+      const needsHidden = segments.some(seg => seg.startsWith('.'))
+      if (needsHidden && !includeHidden && !usingPendingHidden) {
+        pendingHiddenRevealRef.current = targetDir
+        setIncludeHidden(true)
+        return
+      }
+      const prefixes = segments.map((_, idx) => segments.slice(0, idx + 1).join('/'))
+      const nextExpanded = new Set(expandedRef.current)
+      for (const p of prefixes) nextExpanded.add(p)
+      expandedRef.current = nextExpanded
+      setExpanded((current) => {
+        const next = new Set(current)
+        for (const p of prefixes) next.add(p)
+        return next
+      })
+      for (const p of prefixes) {
+        if (!alive) return
+        let loaded
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const stepGen = genRef.current
+          loaded = await loadDir(p, stepGen, { hiddenOverride: needsHidden ? true : undefined })
+          if (!alive) return
+          if (loaded.ok || genRef.current === stepGen) break
+        }
+        if (!loaded?.ok) {
+          if (loaded?.stale) void refreshTreeRef.current({ silent: false, reset: false })
+          flashHighlightedDir(null)
+          setRevealNotice(loaded?.error || t('Could not open folder'))
+          return
+        }
+      }
+      if (!alive) return
+      flashHighlightedDir(rel)
+      const scrollToRow = () => {
+        const rows = listRef.current?.querySelectorAll?.('[data-tree-path]') ?? []
+        for (const el of rows) {
+          if (el.getAttribute('data-tree-path') === rel) {
+            el.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
+            break
+          }
+        }
+      }
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(scrollToRow)
+      else scrollToRow()
+    }
+    void run()
+    return () => { alive = false }
+  }, [revealDir, revealNonce, includeHidden, loadDir, flashHighlightedDir])
+
   const toggleDir = useCallback((dirPath) => {
+    setRevealNotice('')
     const isOpen = expandedRef.current.has(dirPath)
+    const nextExpanded = new Set(expandedRef.current)
+    if (isOpen) nextExpanded.delete(dirPath)
+    else nextExpanded.add(dirPath)
+    expandedRef.current = nextExpanded
     setExpanded((current) => {
       const next = new Set(current)
       if (isOpen) next.delete(dirPath)
@@ -583,6 +805,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
   }, [childrenByPath, loadDir, refreshTree])
 
   const openFileTarget = useCallback((path) => {
+    setRevealNotice('')
     onOpenFile(rootPathRef.current ? { path, root: rootPathRef.current } : path)
   }, [onOpenFile])
 
@@ -620,6 +843,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
     loadingDirs,
     truncatedDirs,
     selectedPath,
+    highlightedDir,
     menuPath: menu?.entry?.path ?? null,
     filter,
     onToggleDir: toggleDir,
@@ -635,14 +859,21 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
           type: 'button',
           className: 'bt-soft bt-soft-sm',
           'aria-pressed': includeHidden,
-          onClick: () => setIncludeHidden(v => !v),
+          onClick: () => {
+            pendingHiddenRevealRef.current = null
+            setRevealNotice('')
+            setIncludeHidden(v => !v)
+          },
         }, includeHidden ? t('Hide dotfiles') : t('Show hidden')),
         h('button', {
           type: 'button',
           className: 'bt-icon-btn',
           'aria-label': t('Refresh'),
           title: t('Refresh'),
-          onClick: () => { void refreshTree({ silent: false, reset: false }) },
+          onClick: () => {
+            setRevealNotice('')
+            void refreshTree({ silent: false, reset: false })
+          },
         }, h(RefreshIcon)))),
     h('div', { className: 'dsb-ft-search' },
       h('span', { className: 'dsb-ft-search-ico', 'aria-hidden': true }, h(SearchIcon)),
@@ -652,8 +883,12 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
         value: filter,
         placeholder: t('Filter files…'),
         'aria-label': t('Filter files…'),
-        onChange: event => setFilter(event.target.value),
+        onChange: (event) => {
+          setRevealNotice('')
+          setFilter(event.target.value)
+        },
       })),
+    revealNotice ? h('div', { className: 'dsb-rp-error dsb-ft-notice', role: 'alert' }, h('p', null, revealNotice)) : null,
     error ? h('div', { className: 'dsb-rp-error', role: 'alert' }, h('p', null, error))
       : rootInfo.missing ? h('div', { className: 'dsb-rp-empty' }, t('Workspace folder is empty'))
         : loadingDirs.has('') && rootEntries.length === 0 ? h('div', { className: 'dsb-rp-empty' }, t('Loading…'))
@@ -731,6 +966,11 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
     void call('workspace-read', { sessionId: fileSessionId, path: filePath, ...(expectedRoot ? { expectedRoot } : {}) })
       .then((res) => {
         if (fileReqRef.current !== reqId) return
+        if (res?.kind === 'dir') {
+          actions.revealFolder?.({ path: res.path ?? filePath, sessionId: fileSessionId })
+          actions.closeWorkspaceTab?.('preview')
+          return
+        }
         setFileState({ path: filePath, data: res, loading: false, error: '' })
       })
       .catch((failure) => {
@@ -767,12 +1007,22 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
   return h('div', { className: 'dsb-ws-body' },
     hasFiles
       ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'files' },
-        h(FileTree, { sessionId, feed, actions, selectedPath: filePath, onOpenFile: openWorkspaceFile, active: visible && activeTab === 'files' }))
+        h(FileTree, {
+          sessionId,
+          feed,
+          actions,
+          selectedPath: filePath,
+          revealDir: panel?.revealDir ?? null,
+          revealNonce: panel?.revealNonce ?? 0,
+          onOpenFile: openWorkspaceFile,
+          active: visible && activeTab === 'files',
+        }))
       : null,
     hasPreview
       ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'preview' },
         h(FilePreview, {
           file: fileState.data,
+          line: panel?.fileLine ?? null,
           loading: fileState.loading,
           error: fileState.error,
           onRetry: () => setRetryState(prev => ({ key: fileKey, count: prev.key === fileKey ? prev.count + 1 : 1 })),

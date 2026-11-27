@@ -67,20 +67,24 @@ export const COMPUTER_ONLY_ENDPOINTS = new Set([
   // Reads other apps' connector configurations and secrets from this computer's home folder.
   'connector-import-scan',
   'connector-import',
+  // Claims the computer's own post-upgrade release notes notice; phones track their own app version locally.
+  'release-notes-claim',
 ])
 
 // The only computer-prefixed endpoints a paired phone may use. Every other computer-*
 // endpoint stays computer-only even if it is accidentally added to the team set.
 export const TEAM_COMPUTER_PREFIX_EXCEPTIONS = new Set(['computer-stop', 'computer-app-answer'])
 
-// Endpoint families whose whole purpose is this computer: pairing, raw Session logs,
-// external API tokens, MCP setup, workspace files and terminals, engine/plugin/speech/
-// telemetry settings, and computer-use mediation. `computer-stop` and
-// `computer-app-answer` are the exceptions: the phone may stop computer control and answer
-// the access card while the computer itself stays in charge of that control.
+// Endpoint families whose whole purpose is this computer: pairing, raw Session logs
+// and desktop session controls, background jobs, external API tokens, MCP setup,
+// workspace files and terminals, engine/plugin/speech/telemetry settings, and
+// computer-use mediation. `computer-stop` and `computer-app-answer` are the exceptions:
+// the phone may stop computer control and answer the access card while the computer
+// itself stays in charge of that control.
 export const COMPUTER_ONLY_PREFIXES = Object.freeze([
   'phone-',
   'session-',
+  'job-',
   'api-',
   'mcp-',
   'workspace-',
@@ -110,6 +114,7 @@ export function computerOnlyError(endpoint) {
   if (!isComputerOnlyEndpoint(endpoint)) return undefined
   if (endpoint.startsWith('phone-')) return { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} }
   if (endpoint.startsWith('session-')) return { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} }
+  if (endpoint.startsWith('job-')) return { code: 'bot/refused', message: 'Background jobs are available on the computer', details: {} }
   if (endpoint.startsWith('api-')) return { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} }
   if (endpoint.startsWith('mcp-')) return { code: 'bot/refused', message: 'MCP access is set up on the computer', details: {} }
   if (endpoint.startsWith('workspace-') || endpoint.startsWith('terminal-')) return { code: 'bot/refused', message: 'Workspace files and terminals are available on the computer', details: {} }

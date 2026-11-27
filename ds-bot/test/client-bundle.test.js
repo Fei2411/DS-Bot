@@ -2,10 +2,15 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
-import { bundleClient, bundleOffice } from '../scripts/build-client.mjs'
+import { bundleClient, bundleOffice, bundleReleaseNotes } from '../scripts/build-client.mjs'
 
 const committed = () => readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 const committedOffice = () => readFileSync(new URL('../office.js', import.meta.url), 'utf8')
+const committedReleaseNotes = () => readFileSync(new URL('../src/shared/release-notes-generated.js', import.meta.url), 'utf8')
+
+test('release-notes-generated.js is the build of release-notes.json and CHANGELOG.md', () => {
+  assert.equal(bundleReleaseNotes(), committedReleaseNotes(), 'release-notes-generated.js is stale: run `npm run build` and commit it')
+})
 
 test('client.js is the build of src/client', async () => {
   assert.equal(await bundleClient(), committed(), 'client.js is stale: run `npm run build` and commit it')

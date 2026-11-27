@@ -214,17 +214,18 @@ export function install(rt) {
     }
   }
 
-  // Steers queued user-authored messages in one atomic host step so promoting
-  // several queued rows at once never races between per-row RPCs, never
-  // reorders messages behind other queued items, and never cascade-cuts turns.
-  const steerQueued = (id, ids) => {
+  const DEFAULT_STEER_KINDS = new Set(['user'])
+  // Steers queued messages in one atomic host step so promoting several queued
+  // rows at once never races between per-row RPCs, never reorders messages
+  // behind other queued items, and never cascade-cuts turns.
+  const steerQueued = (id, ids, { kinds = DEFAULT_STEER_KINDS } = {}) => {
     const agent = liveAgent(id)
     if (agent === undefined || !isActiveForeground(id, agent) || agent.status !== 'running') return { steered: 0 }
     const botId = rt.chatOwners.get(id)
     if (Array.isArray(ids) && ids.length === 0) return { steered: 0 }
     const nextTurn = agent.inbox?.nextTurn ?? []
     const wanted = Array.isArray(ids) ? new Set(ids) : undefined
-    const selected = nextTurn.filter(message => message?.source?.kind === 'user'
+    const selected = nextTurn.filter(message => kinds.has(message?.source?.kind)
       && (wanted === undefined || wanted.has(message.id)))
     if (selected.length === 0) return { steered: 0 }
     if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) {

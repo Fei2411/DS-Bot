@@ -10,7 +10,8 @@
 // environment variable and from a `.scan-extra` file at the root of the checkout (ignored by
 // Git). They hold markers that must not appear in this repository and must not be named in it
 // either, such as a maintainer's machine or account names.
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -28,6 +29,16 @@ const NOT_PUBLIC = /(^|[\s(`'"]|\.\.\/)(spec|research|backup|shots|attachments|w
 // color keys) to move saved data over; there, and on lines that say "legacy" (旧版), old names stay.
 const LEGACY_FILES = /(^|\/)(src\/client\/storage\.js|src\/legacy\.mjs|test\/legacy[\w-]*\.test\.(?:js|mjs))$/
 
+const args = process.argv.slice(2)
+const root = args.find(a => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--json')
+if (!root) {
+  console.error('usage: node scripts/scan.mjs <dir> [--json <file>] [--all]')
+  process.exit(2)
+}
+const jsonOut = args.includes('--json') ? args[args.indexOf('--json') + 1] : null
+const showAll = args.includes('--all')
+
+const scanExtraAllowed = isAllowedLocalScanExtra(root)
 const extra = extraPatterns()
 
 const TEXT_RULES = [
@@ -72,27 +83,18 @@ const FORBIDDEN_FILES = [
   { re: /(^|\/)\.dsh-(home|test)/, why: 'DSH data' },
   { re: /(^|\/)node_modules\//, why: 'installed packages' },
   { re: /\.(env|pem|key|p12|sqlite|db)$/, why: 'secret or data file' },
-  { re: /^\.scan-extra$/, why: 'local scan patterns' },
+  { re: /(^|\/)\.scan-extra$/, why: 'local scan patterns' },
 ]
-
-const args = process.argv.slice(2)
-const root = args.find(a => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--json')
-if (!root) {
-  console.error('usage: node scripts/scan.mjs <dir> [--json <file>] [--all]')
-  process.exit(2)
-}
-const jsonOut = args.includes('--json') ? args[args.indexOf('--json') + 1] : null
-const showAll = args.includes('--all')
 
 const findings = []
 const files = walk(root).map(path => relative(root, path).split('\\').join('/')).sort()
 
 for (const file of files) {
   for (const rule of FORBIDDEN_FILES) {
-    if (rule.re.test(file)) add(MUST, 'forbidden-file', file, 0, rule.why)
+    if (rule.re.test(file) && (file !== '.scan-extra' || !scanExtraAllowed)) add(MUST, 'forbidden-file', file, 0, rule.why)
   }
-  // The scanner names the patterns it looks for.
-  if (file === SELF) continue
+  // The scanner and an allowed local pattern file name the patterns they look for.
+  if (file === SELF || (file === '.scan-extra' && scanExtraAllowed)) continue
   const data = readFileSync(join(root, file))
   if (data.includes(0)) continue
   const lines = data.toString('utf8').split('\n')
@@ -135,6 +137,36 @@ for (const name of ['README.md', 'README.zh.md', 'CONTRIBUTING.md', 'CHANGELOG.m
 
 report()
 
+function realPath(path) {
+  try { return realpathSync.native(path) } catch { return null }
+}
+function gitToplevel(dir) {
+  const res = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+  return res.status === 0 ? realPath(res.stdout.trim()) : null
+}
+function gitTracksScanExtra(repoRoot) {
+  if (spawnSync('git', ['ls-files', '--error-unmatch', '.scan-extra'], { cwd: repoRoot, stdio: 'ignore' }).status === 0) return true
+  if (spawnSync('git', ['cat-file', '-e', 'HEAD:.scan-extra'], { cwd: repoRoot, stdio: 'ignore' }).status === 0) return true
+  return false
+}
+function isAllowedLocalScanExtra(targetRoot) {
+  const targetReal = realPath(targetRoot)
+  const targetExtra = join(targetRoot, '.scan-extra')
+  if (targetReal === null || !existsSync(targetExtra)) return false
+  // Treat the target's own Git index as authoritative only when scanning a Git worktree root.
+  if (gitToplevel(targetRoot) === targetReal) return !gitTracksScanExtra(targetRoot)
+  // Everywhere else (outside a checkout or in a subdirectory of one), fail closed except
+  // for a clean export containing scripts/scan.mjs alongside an untracked local .scan-extra
+  // byte-identical to this checkout's untracked root .scan-extra.
+  if (!existsSync(join(targetRoot, SELF))) return false
+  const checkout = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const checkoutReal = realPath(checkout)
+  if (checkoutReal === null || gitToplevel(checkout) !== checkoutReal) return false
+  if (gitTracksScanExtra(checkout)) return false
+  const checkoutExtra = join(checkout, '.scan-extra')
+  if (!existsSync(checkoutExtra)) return false
+  return readFileSync(checkoutExtra).equals(readFileSync(targetExtra))
+}
 function extraPatterns() {
   const local = join(dirname(fileURLToPath(import.meta.url)), '..', '.scan-extra')
   const lines = [process.env.SCAN_EXTRA_PATTERNS ?? '', existsSync(local) ? readFileSync(local, 'utf8') : '']

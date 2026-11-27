@@ -34,6 +34,8 @@ const WATCHED = ['src', 'plugin.js', 'index.js', 'web-search.js', 'package.json'
 const log = message => console.log(`[ds-bot-dev] ${message}`)
 
 const IGNORED = /^(node_modules|\.git|\.pnpm-store)$/
+// Generated modules written inside src/ by scripts/build-client.mjs must not re-trigger polling.
+const GENERATED_FILES = new Set(['src/shared/release-notes-generated.js'])
 
 let child = null
 let stopping = false
@@ -221,8 +223,10 @@ const snapshot = () => {
       if (entry.isDirectory()) {
         walk(full)
       } else if (entry.isFile()) {
+        const relative = full.slice(PLUGIN.length + 1)
+        if (GENERATED_FILES.has(relative)) continue
         try {
-          files.set(full.slice(PLUGIN.length + 1), statSync(full).mtimeMs)
+          files.set(relative, statSync(full).mtimeMs)
         } catch {
           // The file went away between the listing and the stat.
         }
