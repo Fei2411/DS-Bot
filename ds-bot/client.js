@@ -1054,7 +1054,7 @@ var JA = {
   "Mono": "モノクロ",
   "Paper": "ペーパー",
   "Moonlight": "ムーンライト",
-  "Celadon": "青磁",
+  "Fei": "Fei",
   "General": "一般",
   "Bots": "Bot",
   "Group chats": "グループチャット",
@@ -4693,7 +4693,7 @@ var KO = {
   Mono: "모노",
   Paper: "페이퍼",
   Moonlight: "문라이트",
-  Celadon: "청자",
+  Fei: "Fei",
   // Settings dialog
   General: "일반",
   Bots: "Bot",
@@ -8359,7 +8359,7 @@ var ES = {
   Mono: "Mono",
   Paper: "Papel",
   Moonlight: "Luz de luna",
-  Celadon: "Celadón",
+  Fei: "Fei",
   // Settings dialog
   General: "General",
   Bots: "Bots",
@@ -12007,7 +12007,7 @@ var FR = {
   "Mono": "Mono",
   "Paper": "Papier",
   "Moonlight": "Clair de lune",
-  "Celadon": "Céladon",
+  "Fei": "Fei",
   "General": "Général",
   "Bots": "Bots",
   "Group chats": "Discussions de groupe",
@@ -15646,7 +15646,7 @@ var DE = {
   Mono: "Monochrom",
   Paper: "Papier",
   Moonlight: "Mondlicht",
-  Celadon: "Seladon",
+  Fei: "Fei",
   // Settings dialog
   General: "Allgemein",
   Bots: "Bots",
@@ -19209,7 +19209,7 @@ var ZH = {
   Mono: "黑白",
   Paper: "纸张",
   Moonlight: "月光",
-  Celadon: "天青",
+  Fei: "Fei",
   // Settings dialog
   General: "通用",
   Bots: "Bot",
@@ -21971,7 +21971,7 @@ var STORAGE = {
 };
 var LEGACY_PREFIXES = ["dsh-bot:", "dsh-bot-team:"];
 var LEGACY_BROWSER_KEYS = ["ds-bot.browser.v1", "dsh-bot.browser.v1"];
-var LEGACY_THEMES = { grok: "mono" };
+var LEGACY_THEMES = { grok: "mono", celadon: "fei" };
 function legacyKeys(key) {
   if (key === STORAGE.browsers) return LEGACY_BROWSER_KEYS;
   const name = key.slice(key.indexOf(":") + 1);
@@ -23774,8 +23774,8 @@ var THEMES = {
     light: { bg: "#f7f9fc", sidebar: "#eef2f8", bubble: "#e5ebf5", card: "#ffffff", text: "#121826", user: "#1e3a8a", userText: "#ffffff", accent: "#1e86ff" },
     dark: { bg: "#0b1020", sidebar: "#10172a", bubble: "#1a2340", card: "#141c33", text: "#e8edf7", user: "#3b6fd8", userText: "#ffffff", accent: "#4f9dff" }
   },
-  celadon: {
-    label: "Celadon",
+  fei: {
+    label: "Fei",
     light: { bg: "#faf6ee", sidebar: "#f3ede2", bubble: "#efe8db", card: "#fdfbf7", text: "#211f1b", user: "#e2eeec", userText: "#163f46", accent: "#1e8294" },
     dark: { bg: "#1d1c19", sidebar: "#23221e", bubble: "#2d2b26", card: "#27251f", text: "#f2ede3", user: "#1f4a51", userText: "#e6f1f0", accent: "#3fa9ba" },
     css: SERIF_REPLIES
@@ -64104,7 +64104,7 @@ var RELEASE_NOTES = [
     "notes": {
       "zh": {
         "items": [
-          "全新独立桌面端：更轻更快、大幅降低 CPU 与内存消耗，新增天青主题、双色自动配色、VS Code 主题导入与自定义样式",
+          "全新独立桌面端：更轻更快、大幅降低 CPU 与内存消耗，新增 Fei 主题、双色自动配色、VS Code 主题导入与自定义样式",
           "统一收件箱：所有 Bot 和群聊的待批准、待回答、未读消息集中处理",
           "全新 20 款动态形象：桌面和手机同步显示每个 Bot 当前状态，支持自定义群头像",
           "Bot 插件与安全分级：新增插件市场与四级权限安全模型",
@@ -64121,7 +64121,7 @@ var RELEASE_NOTES = [
       },
       "en": {
         "items": [
-          "Native desktop frontend: lighter and faster with much lower CPU and memory usage, plus the Celadon theme, 2-color themes, VS Code theme import, and custom CSS",
+          "Native desktop frontend: lighter and faster with much lower CPU and memory usage, plus the Fei theme, 2-color themes, VS Code theme import, and custom CSS",
           "Unified Inbox: handle pending approvals, unanswered questions, and unread messages across all Bots and groups in one view",
           "20 new live avatars: see each Bot's current status at a glance across desktop and phone, plus custom group avatars",
           "Bot Plugins & security tiers: new plugin catalog with a 4-tier permission and security model",
