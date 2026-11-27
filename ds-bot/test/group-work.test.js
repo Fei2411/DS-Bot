@@ -133,11 +133,11 @@ async function start(t, room, services, extraRooms, bots, llm, top, files = {}) 
 
 // The save before a group post runs on a real timer/threadpool turn; waiting with
 // setImmediate starves it, and mocked setTimeout must not freeze polling.
-const until = async (check, ms = 15_000) => {
+const until = async (check, ms = 15_000, stepMs = 20) => {
   const stop = Date.now() + ms
   let ok = await check()
   while (!ok && Date.now() < stop) {
-    await loopTurn(20)
+    await loopTurn(stepMs)
     ok = await check()
   }
   assert.ok(ok, 'condition not reached')
@@ -731,8 +731,13 @@ test('a late reply during a running round is logged at once, called in that roun
   host.emit('gb', 'tool/result', { callId: 'k1' })
   host.finish('gb', '整理好了，在 docs/ 下。')
   await settle(() => rt.roomOf('r1').log.some(line => line.who === 'Writer' && line.text === '整理好了，在 docs/ 下。'))
-  await rt.save()
-  assert.ok(logLines(host).some(line => line.who === 'Writer' && line.text === '整理好了，在 docs/ 下。'))
+  await until(() => {
+    try {
+      return logLines(host).some(line => line.who === 'Writer' && line.text === '整理好了，在 docs/ 下。')
+    } catch {
+      return false
+    }
+  }, 15_000, 50)
   assert.deepEqual(host.agentOf('r1').calls, [])
   // The Chief, which asked for it, answers the result in this round once its own turn ends.
   host.finish('ga', '确认过了。')

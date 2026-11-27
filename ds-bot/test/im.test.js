@@ -5860,3 +5860,75 @@ test('a group chat title from the platform is stored and refreshed', async (t) =
   s.imTurn('a')
   assert.equal(one.chats.g1.title, '发布群 v2', 'a later title refreshes the stored chat name')
 })
+
+test('dispose drains an in-flight token card send and persists delivered state so restart does not resend it', async (t) => {
+  let enteredFormSend
+  let releaseFormSend
+  const fake = fakeAdapter({ buttons: false })
+  const realConnect = fake.connect.bind(fake)
+  fake.connect = (fields, env, handlers) => {
+    const handle = realConnect(fields, env, handlers)
+    const origSend = handle.send
+    const origStop = handle.stop
+    return {
+      ...handle,
+      send: async (chat, body) => {
+        if (/Card V\d+/.test(body.text)) {
+          enteredFormSend = true
+          await new Promise((resolve) => { releaseFormSend = resolve })
+          fake.sent.push({ chat, messageId: 'dt-form-1', ...body })
+          return { messageId: 'dt-form-1' }
+        }
+        return origSend(chat, body)
+      },
+      stop: () => {
+        origStop()
+        // Simulate an in-flight platform HTTP send that finishes right after stop() begins.
+        if (releaseFormSend !== undefined) {
+          const done = releaseFormSend
+          releaseFormSend = undefined
+          setTimeout(done, 25)
+        }
+      },
+    }
+  }
+
+  let s = await start({ platform: 'dingtalk', adapter: fake })
+  t.after(() => s.stop())
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'form please')
+  s.imTurn('a')
+
+  const view = { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] }
+  await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view }, { agent: { id: 'a' }, concludeTurn() {} })
+  await waitFor(() => enteredFormSend === true, { label: 'in-flight form card send entered' })
+  const viewId = s.rt.state.views.a.id
+  const runtimePath = join(s.home, 'im', `${conn.id}.json`)
+  await waitFor(() => {
+    try {
+      const saved = JSON.parse(readFileSync(runtimePath, 'utf8'))
+      return saved.cards?.[`v:${viewId}`]?.[0]?.delivered === false
+    } catch {
+      return false
+    }
+  }, { label: 'undelivered reservation persisted before shutdown' })
+
+  await s.close()
+
+  const afterClose = JSON.parse(readFileSync(runtimePath, 'utf8'))
+  assert.equal(afterClose.cards?.[`v:${viewId}`]?.[0]?.delivered, true, 'dispose must drain markCard and persist delivered=true')
+  assert.equal(afterClose.cards?.[`v:${viewId}`]?.[0]?.messageId, 'dt-form-1')
+
+  const fresh = fakeAdapter({ buttons: false })
+  s = await start({ platform: 'dingtalk', home: s.home, adapter: fresh })
+  await s.rt.imWhenIdle()
+  await delay(50)
+  assert.equal(
+    fresh.sent.filter(job => /Card V\d+/.test(job.text)).length,
+    0,
+    'restart must not resend a form card that finished delivering during dispose',
+  )
+})

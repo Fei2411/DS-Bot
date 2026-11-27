@@ -879,8 +879,8 @@ test('importFromBrowser propagates AbortSignal cancellation to pending live CDP 
       cookieDb: join(net, 'Cookies'), keychainServices: ['Chrome Safe Storage'], exe: null,
     }
     const ctrl = new AbortController()
-    // Abort deterministically once the live CDP WebSocket connects and awaits Storage.getCookies.
-    wss.once('connection', () => ctrl.abort())
+    // Abort deterministically once the live CDP client sends Storage.getCookies.
+    wss.once('connection', (ws) => ws.once('message', () => ctrl.abort()))
     await assert.rejects(
       () => importFromBrowser(source, { platformOverride: 'win32', signal: ctrl.signal }),
       (error) => error.code === 'import-cancelled',

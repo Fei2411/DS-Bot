@@ -357,6 +357,7 @@ export function install(rt) {
     if (!hasLegacyCutoff) await writeRuntime(id)
     return held
   }
+  const DISPOSE_DRAIN_MS = 2_000
   let runtimeWritesClosed = false
   const scheduleWrite = (id) => {
     if (stopped || runtimeWritesClosed) return
@@ -369,14 +370,17 @@ export function install(rt) {
     }, RUNTIME_SAVE_MS)
     held.timer.unref?.()
   }
+  const queueRuntimeWrite = (id, held, { force = false } = {}) => {
+    held.write = (held.write ?? Promise.resolve()).catch(() => {}).then(() => persistRuntime(id, held, { force }))
+    return held.write
+  }
   const writeRuntime = (id) => {
     const held = runtimes.get(id)
     if (held === undefined || runtimeWritesClosed || rt.readOnly() !== undefined) return Promise.resolve()
-    held.write = (held.write ?? Promise.resolve()).catch(() => {}).then(() => persistRuntime(id, held))
-    return held.write
+    return queueRuntimeWrite(id, held)
   }
-  const persistRuntime = async (id, held) => {
-    if (runtimeWritesClosed) return
+  const persistRuntime = async (id, held, { force = false } = {}) => {
+    if (!force && runtimeWritesClosed) return
     await mkdir(imDir, { recursive: true })
     const temp = join(imDir, `${id}.${process.pid}.tmp`)
     // `sent` only exists for platforms that can quote (weixin): a runtime file
@@ -2022,7 +2026,9 @@ export function install(rt) {
   // reserved slots rather than start a second adapter.
   let syncing = Promise.resolve()
   const sync = () => {
+    if (stopped) return Promise.resolve()
     const run = syncing.then(async () => {
+      if (stopped) return
       const conns = connections()
       for (const conn of Object.values(conns)) {
         const wants = stopped !== true && adapters[conn.platform] !== undefined && conn.enabled !== false
@@ -2617,7 +2623,7 @@ export function install(rt) {
 
   rt.onApproval((kind, data) => {
     if (kind === 'open') {
-      if (data.botId === undefined) return
+      if (stopped || data.botId === undefined) return
       void trackOutbound((async () => {
         const origin = approvalOrigin(data)
         if (origin === undefined) return
@@ -2642,6 +2648,21 @@ export function install(rt) {
     void trackOutbound(sync().catch(() => {}))
   })
 
+  const drainOutboundBounded = async (ms = DISPOSE_DRAIN_MS) => {
+    const deadline = Date.now() + ms
+    while (outboundWork.size > 0) {
+      const left = deadline - Date.now()
+      if (left <= 0) break
+      let timer
+      const timeout = new Promise((resolve) => {
+        timer = setTimeout(resolve, left)
+        timer.unref?.()
+      })
+      await Promise.race([Promise.allSettled([...outboundWork]), timeout])
+      clearTimeout(timer)
+    }
+  }
+
   let interval
   ctx.effect(() => {
     interval = setInterval(() => {
@@ -2654,14 +2675,24 @@ export function install(rt) {
       clearInterval(interval)
       resumedOrigins.clear()
       return Promise.all([...runners.keys()].map(stop)).then(async () => {
+        await drainOutboundBounded()
+        runtimeWritesClosed = true
         for (const held of runtimes.values()) {
           if (held.timer !== undefined) {
             clearTimeout(held.timer)
             held.timer = undefined
           }
         }
-        await Promise.allSettled([...runtimes.keys()].map(writeRuntime))
-        runtimeWritesClosed = true
+        if (rt.readOnly() === undefined) {
+          await Promise.allSettled([...runtimes.entries()].map(([id, held]) => queueRuntimeWrite(id, held, { force: true })))
+        }
+        for (;;) {
+          const snapshot = new Map([...runtimes.values()].map(held => [held, held.write]))
+          const pending = [...snapshot.values()].filter(Boolean)
+          if (pending.length === 0) break
+          await Promise.allSettled(pending)
+          if ([...runtimes.values()].every(held => held.write === snapshot.get(held))) break
+        }
       })
     }
   }, 'ds-bot: im')
