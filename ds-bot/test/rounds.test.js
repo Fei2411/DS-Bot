@@ -550,7 +550,12 @@ test('a member deleted while its group Session is made is left out, and the Sess
 // there; the group's book has it whole. Members still read it whole.
 test('a long group line keeps its start in state.json, and members and read_group_chat read it whole', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, home, rt } = start()
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let again
+  t.after(async () => {
+    await again?.stop({ keep: true })
+    await stop({ keep: true })
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   const room = await team(call, sent)
   const long = `${'长'.repeat(9000)}结尾`
   await emit(room.id, userMessage('Write it all out'))
@@ -583,8 +588,7 @@ test('a long group line keeps its start in state.json, and members and read_grou
   writeFileSync(file, JSON.stringify(onDisk))
 
   // After a restart the whole line is read back from the group's book.
-  const again = start({ home })
-  t.after(() => again.stop({ keep: true }))
+  again = start({ home })
   await again.call('state', {})
   const whole = await again.rt.teamTools.find(d => d.name === 'read_group_chat').execute({ group: 'R1', seq: saved.seq }, exec)
   assert.ok(whole.endsWith(long))
@@ -1263,7 +1267,12 @@ test('the stagnation pause survives a restart and the user lifts it', async (t) 
 // whole, also after a restart.
 test("a long round's result stays small, and its rows read back whole after a restart", async (t) => {
   const { call, emit, userMessage, inboxOf, answer, stop, sent, home, rt } = start()
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let again
+  t.after(async () => {
+    await again?.stop({ keep: true })
+    await stop({ keep: true })
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   const room = await team(call, sent)
   const long = `${'回'.repeat(60_000)}完`
   await emit(room.id, userMessage('Write a long report'))
@@ -1281,8 +1290,7 @@ test("a long round's result stays small, and its rows read back whole after a re
   await rt.save()
   await stop({ keep: true })
 
-  const again = start({ home })
-  t.after(() => again.stop({ keep: true }))
+  again = start({ home })
   await again.call('state', {})
   const rows = (await again.call('group-rows', { roomId: room.id, from, to })).value.rows
   assert.deepEqual(rows.map(row => [row.kind ?? 'message', row.text?.length]), [['message', long.length]])
@@ -1423,7 +1431,12 @@ test('the rows of a round leave out its opening message and show once what came 
 // saved after keeps its number: the next line takes the one after it.
 test('a group whose state was not saved after its last line goes on numbering after the book', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, home, rt } = start()
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let again
+  t.after(async () => {
+    await again?.stop({ keep: true })
+    await stop({ keep: true })
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   const room = await team(call, sent)
   await emit(room.id, userMessage('One'))
   const running = relay(room.id, 'one')
@@ -1439,8 +1452,7 @@ test('a group whose state was not saved after its last line goes on numbering af
   const book = join(home, 'ledger', `group-${room.id}.jsonl`)
   writeFileSync(book, `${readFileSync(book, 'utf8')}${JSON.stringify({ who: 'User', text: 'said, not saved', seq: seq + 1, time: Date.now() })}\n`)
 
-  const again = start({ home })
-  t.after(() => again.stop({ keep: true }))
+  again = start({ home })
   await again.call('state', {})
   await again.emit(room.id, again.userMessage('Two'))
   const next = again.relay(room.id, 'two')

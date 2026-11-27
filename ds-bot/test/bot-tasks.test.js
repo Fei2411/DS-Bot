@@ -368,7 +368,11 @@ test('a host with an unusable write lock keeps reports and pending archives for 
     patch.mock.restore()
     syncBuiltinESMExports()
   }
-  t.after(env.stop)
+  let reopened
+  t.after(async () => {
+    await reopened?.ctx.dispose()
+    await env.stop()
+  })
   const dir = join(env.home, 'task-reports')
   mkdirSync(dir)
   for (const task of team.bots.a.tasks) writeFileSync(join(dir, task.reportFile), 'Task report')
@@ -383,8 +387,7 @@ test('a host with an unusable write lock keeps reports and pending archives for 
   assert.equal(existsSync(join(dir, 'old-task-1.txt')), true)
 
   await env.ctx.dispose()
-  const reopened = await startEnv({ existingHome: env.home })
-  t.after(reopened.stop)
+  reopened = await startEnv({ existingHome: env.home })
   await reopened.rt.reconcileTasksAfterRestart()
   assert.deepEqual(reopened.archivedSessions.map(({ sid }) => sid), ['old-session-0', 'old-session-1'])
   assert.deepEqual(JSON.parse(readFileSync(reopened.rt.statePath, 'utf8')).retiredTasks, [])

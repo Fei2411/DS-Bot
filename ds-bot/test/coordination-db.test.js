@@ -11,6 +11,8 @@ import {
   install,
   openCoordinationDb,
 } from '../src/host/coordination-db.js'
+import { createRuntime } from '../index.js'
+import { fakeContext } from './fake-ctx.js'
 
 const tempDirs = []
 after(() => {
@@ -1155,4 +1157,64 @@ test('install(rt) keeps coordination.sqlite lazy until written and exposes exist
   assert.equal(db.isClosed(), true)
   assert.equal(rt.existingCoordDb(), null)
   assert.equal(rt.hasExistingCoordDb(), false)
+})
+
+test('createRuntime keeps coordination.sqlite uncreated on fresh/settled homes and deduplicates concurrent adoptLiveWork', async () => {
+  for (const [label, seed] of [
+    ['empty', null],
+    ['bots-with-completed-task', {
+      version: 1,
+      mainBotIds: ['a'],
+      bots: {
+        a: {
+          id: 'a',
+          name: 'Chief',
+          role: 'Lead',
+          sessionId: 'a',
+          createdAt: 1,
+          tasks: [{ id: 'k1', title: 'Done', brief: 'Done', sessionId: 'a-k1', status: 'completed', startedAt: 1, endedAt: 2 }],
+        },
+      },
+      rooms: {},
+      exchanges: [],
+      exchangeTurns: {},
+      questions: {},
+      prefs: {},
+      revision: 1,
+    }],
+  ]) {
+    const home = tempDir(`dsb-coord-rt-lazy-${label}-`)
+    if (seed) writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+    const ctx = fakeContext()
+    try {
+      const rt = createRuntime(ctx, { home })
+      await rt.load()
+      await new Promise(resolve => setTimeout(resolve, 120))
+      assert.equal(existsSync(join(home, 'coordination.sqlite')), false, `${label}: startup must not eagerly create coordination.sqlite`)
+      assert.equal(rt.hasExistingCoordDb(), false, `${label}: hasExistingCoordDb remains false`)
+    } finally {
+      await ctx.dispose()
+    }
+  }
+
+  // When coordination.sqlite already exists, concurrent startup adoptLiveWork({ lazy: true })
+  // and explicit adoptLiveWork() must run reconciliation once, not twice.
+  const home = tempDir('dsb-coord-rt-dedup-')
+  const seedDb = openCoordinationDb({ home })
+  seedDb.ensureForegroundWork({ botId: 'a', sessionId: 'a' })
+  seedDb.close()
+  const ctx = fakeContext()
+  try {
+    const rt = createRuntime(ctx, { home })
+    let reconcileCalls = 0
+    const origReconcile = rt.reconcileLostWorks
+    rt.reconcileLostWorks = (...args) => {
+      reconcileCalls += 1
+      return origReconcile?.(...args)
+    }
+    await rt.adoptLiveWork()
+    assert.equal(reconcileCalls, 1, 'explicit adoptLiveWork joined with non-skipped lazy startup must not run recovery twice')
+  } finally {
+    await ctx.dispose()
+  }
 })

@@ -686,7 +686,7 @@ export function install(rt) {
   }
 
   const cancelCoordSecretWait = (requestId, why = 'superseded') => {
-    const db = writableCoordDb()
+    const db = existingWritableCoordDb()
     if (!db || !requestId) return
     try {
       const wait = db.listWaits({ kind: 'secret', status: 'open', targetId: `secret:${requestId}`, limit: 1 })[0]

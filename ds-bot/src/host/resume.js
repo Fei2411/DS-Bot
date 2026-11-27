@@ -163,13 +163,13 @@ export function install(rt) {
   // 2. When holding `state.lock` (RW): runs idempotent legacy migration, ensures foreground works,
   //    reconciles every interrupted work against DSH D2 `queryDeliveryStatus` (never routing
   //    failed/unstarted background tasks into foreground private chat), and kicks the scheduler.
-  let adoptingLazy = false
+  let adoptingSkipped = false
   function adoptLiveWork({ lazy = false } = {}) {
     if (adopting !== null) {
-      if (lazy || !adoptingLazy) return adopting
-      return adopting.then(() => adoptLiveWork({ lazy: false }))
+      if (lazy) return adopting
+      return adopting.then(() => (adoptingSkipped ? adoptLiveWork({ lazy: false }) : undefined))
     }
-    adoptingLazy = lazy
+    adoptingSkipped = false
     adopting = (async () => {
       await rt.load()
       rt.refreshCoordDb?.()
@@ -183,9 +183,12 @@ export function install(rt) {
           || existsSync(inflightPath)
           || existsSync(apiRunsPath)
         const hasOpenBotTasks = Object.values(rt.state?.bots ?? {}).some(
-          bot => Array.isArray(bot?.tasks) && bot.tasks.some(t => t && !['done', 'cancelled', 'failed', 'interrupted', 'stopped'].includes(t.status)),
+          bot => Array.isArray(bot?.tasks) && bot.tasks.some(t => t && !['done', 'completed', 'cancelled', 'failed', 'interrupted', 'stopped'].includes(t.status)),
         )
-        if (!hasLegacyWorkData && !hasOpenBotTasks) return
+        if (!hasLegacyWorkData && !hasOpenBotTasks) {
+          adoptingSkipped = true
+          return
+        }
       }
       const coordDb = rt.coordDb
       if (!coordDb || coordDb.readonly || coordDb.isClosed()) return

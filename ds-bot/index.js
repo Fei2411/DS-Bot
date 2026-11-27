@@ -129,6 +129,6 @@ export function createRuntime(ctx, config = {}, codeMode) {
   // keeps the turns and child agents it had, while this runtime starts with empty
   // maps. Adopt them now, so Stop, the group view and a late child settle still see
   // the work. A fresh start has nothing to adopt.
-  void rt.adoptLiveWork?.().catch(error => rt.warn?.('ds-bot: adopting the work still running failed: %s', error))
+  void rt.adoptLiveWork?.({ lazy: true }).catch(error => rt.warn?.('ds-bot: adopting the work still running failed: %s', error))
   return rt
 }

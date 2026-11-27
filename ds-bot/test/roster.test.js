@@ -1943,17 +1943,22 @@ test('persisted silent notes survive missing-Session recovery when recovery runs
     rooms: {}, agents: {}, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0,
   }
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-race-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let first
+  let second
+  t.after(async () => {
+    await second?.stop()
+    await first?.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
 
   // Boot with legacy silent note persisted on disk under `gone-session`.
-  const first = start(team, {
+  first = start(team, {
     home,
     keepHome: true,
     inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
     models: ['deepseek-v4-flash'],
     lost: new Set(['gone-session']),
   })
-  t.after(first.stop)
 
   await first.call('state', {})
   await first.rt.adoptLiveWork()
@@ -1973,13 +1978,12 @@ test('persisted silent notes survive missing-Session recovery when recovery runs
   first.rt.coordDb.ackInboxSeq('fg:chief', notes[0].seq)
   await first.stop()
 
-  const second = start(undefined, {
+  second = start(undefined, {
     home,
     keepHome: true,
     models: ['deepseek-v4-flash'],
     lost: new Set(['gone-session']),
   })
-  t.after(second.stop)
   await second.call('state', {})
   await second.rt.adoptLiveWork()
   assert.equal(second.rt.coordDb.listInbox('fg:chief', { unreadOnly: true }).filter(m => m.kind === 'note').length, 0)
@@ -2017,13 +2021,17 @@ test('missing-Session recovery commits replacement ownership before rebinding si
     return origRename(from, to)
   }
   syncBuiltinESMExports()
-  t.after(() => {
+  let beforeCrash
+  let afterPreSaveCrash
+  t.after(async () => {
+    await afterPreSaveCrash?.stop()
+    await beforeCrash?.stop()
     fsp.rename = origRename
     syncBuiltinESMExports()
     rmSync(homeBeforeSave, { recursive: true, force: true, maxRetries: 5 })
   })
 
-  const beforeCrash = start(makeTeam(), {
+  beforeCrash = start(makeTeam(), {
     home: homeBeforeSave,
     keepHome: true,
     inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
@@ -2043,13 +2051,12 @@ test('missing-Session recovery commits replacement ownership before rebinding si
 
   // Restart after pre-save crash: `state.json` commits `freshId` BEFORE `rebindSession` runs.
   failStateRename = false
-  const afterPreSaveCrash = start(undefined, {
+  afterPreSaveCrash = start(undefined, {
     home: homeBeforeSave,
     keepHome: true,
     models: ['deepseek-v4-flash'],
     lost: new Set(['gone-session']),
   })
-  t.after(afterPreSaveCrash.stop)
   await afterPreSaveCrash.call('state', {})
   await afterPreSaveCrash.rt.adoptLiveWork()
   let diskStateAtRebind
@@ -2081,15 +2088,18 @@ test('missing-Session recovery commits replacement ownership before rebinding si
     switching: { 'gone-session': { botId: 'chief', missing: true } },
   }
   const homePostSaveReplay = mkdtempSync(join(tmpdir(), 'ds-bot-roster-crash-after-a-'))
-  t.after(() => rmSync(homePostSaveReplay, { recursive: true, force: true, maxRetries: 5 }))
-  const restartA = start(postSaveTeam, {
+  let restartA
+  t.after(async () => {
+    await restartA?.stop()
+    rmSync(homePostSaveReplay, { recursive: true, force: true, maxRetries: 5 })
+  })
+  restartA = start(postSaveTeam, {
     home: homePostSaveReplay,
     keepHome: true,
     inflight: { turns: {}, queued: {}, silent: { 'gone-session': [{ message: note }] } },
     models: ['deepseek-v4-flash'],
     lost: new Set(['gone-session']),
   })
-  t.after(restartA.stop)
   await restartA.call('state', {})
   await restartA.rt.adoptLiveWork()
   assert.equal(restartA.rt.coordDb.getForegroundWork('chief')?.sessionId, 'fresh-committed')

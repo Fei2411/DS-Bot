@@ -4218,7 +4218,8 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
 
 test('IM /steer, /background, and platform messageId redelivery deduplication (#2077)', async (t) => {
   const s = await start()
-  t.after(s.stop)
+  let active = s
+  t.after(() => active.stop())
   const { one } = await pairedConn(s)
 
   // 1) /steer <text> sends with mode: 'steer'; bare /steer prints usage without prompting.
@@ -4297,7 +4298,7 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   await s.rt.save()
   await s.close()
   const sRestart = await start({ home: s.home })
-  t.after(sRestart.stop)
+  active = sRestart
   await sRestart.rt.imEndpoint('im-retry', { id: one.id })
   // Populate DSH's durable session events on Bot 'a' with the earlier ordinary "1" prompt.
   const restartedAgent = sRestart.agentOf(sRestart.rt.chatOf('a'))
