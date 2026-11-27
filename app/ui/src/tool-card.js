@@ -121,6 +121,18 @@ function useToolDisclosure(initial = false) {
   return useMemo(() => ({ expanded, setExpanded, toggle }), [expanded, toggle])
 }
 
+export function formatToolLabel(toolName) {
+  if (typeof toolName !== 'string' || toolName === '') return { server: '', name: '', raw: '' }
+  if (toolName.startsWith('mcp__')) {
+    const rest = toolName.slice(5)
+    const sep = rest.indexOf('__')
+    if (sep > 0 && sep + 2 < rest.length) {
+      return { server: rest.slice(0, sep), name: rest.slice(sep + 2), raw: toolName }
+    }
+  }
+  return { server: '', name: toolName, raw: toolName }
+}
+
 export function GenericToolCard({ callId, toolName, phase, block, useDisclosure }) {
   const disclosure = useDisclosure()
   const running = phase === 'preparing' || phase === 'start'
@@ -134,7 +146,8 @@ export function GenericToolCard({ callId, toolName, phase, block, useDisclosure 
     return bits.join(' · ')
   }, [isError, block?.error])
   const hasBody = argsText !== '' || resultText !== '' || errorLine !== ''
-  const title = toolName || (callId ? `${t('Tool call')} · ${callId}` : t('Tool call'))
+  const label = useMemo(() => formatToolLabel(toolName), [toolName])
+  const title = label.name || (callId ? `${t('Tool call')} · ${callId}` : t('Tool call'))
   const duration = formatToolDuration(block, phase)
 
   return h('div', {
@@ -151,7 +164,8 @@ export function GenericToolCard({ callId, toolName, phase, block, useDisclosure 
     onClick: hasBody ? disclosure.toggle : undefined,
   },
   h('span', { className: 'dsb-tool-dot', 'aria-hidden': true }),
-  h('span', { className: 'dsb-tool-name' }, title),
+  label.server ? h('span', { className: 'dsb-tool-server', title: label.raw }, label.server) : null,
+  h('span', { className: 'dsb-tool-name', title: label.server ? label.raw : undefined }, title),
   summary ? h('span', { className: 'dsb-tool-summary', title: summary }, summary) : null,
   running ? h('span', { className: 'dsb-tool-state' }, t('Running'))
     : isError ? h('span', { className: 'dsb-tool-state' }, t('Error'))

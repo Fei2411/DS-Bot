@@ -649,11 +649,32 @@ const TurnErrorRow = memo(function TurnErrorRow({ row, bot, sessionId, useRoster
 })
 
 
+// True when a tool call block or any nested PTC sub-call is a Bot-facing tool drawn by
+// `ToolCell` (e.g. ask_user, show_view, message_bot, bot_remember, cua). Internal tools
+// (MCP, bash, read, edit, prepare_*, run_code without Bot sub-calls, etc.) stay out of
+// Bot chats and only surface as the live activity phrase while running.
+function hasBotToolInBlock(block) {
+  if (!block || typeof block !== 'object' || typeof isBotTool !== 'function') return false
+  const stack = [block]
+  const seen = new Set()
+  while (stack.length > 0) {
+    const cur = stack.pop()
+    if (!cur || typeof cur !== 'object' || seen.has(cur)) continue
+    seen.add(cur)
+    const name = cur.name || cur.call?.name || ''
+    if (name && isBotTool(name)) return true
+    if (Array.isArray(cur.subCalls)) {
+      for (const child of cur.subCalls) stack.push(child)
+    }
+  }
+  return false
+}
+
 // A tool row, memoized like the message rows: the fallback closures exist only when the
 // row itself renders, so a committed tool card renders once per roster or language change
 // and never per stream chunk. `lang` rides along because the cards carry translated copy.
 const SessionToolRow = memo(function SessionToolRow({
-  row, showSpeaker, flat, bot, cwd, sessionId, roster, actions, registry, lang,
+  row, showSpeaker, flat, bot, cwd, sessionId, roster, actions, registry, lang, classic = false,
   loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
   useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
 }) {
@@ -661,6 +682,34 @@ const SessionToolRow = memo(function SessionToolRow({
     () => ({ useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer }),
     [useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer],
   )
+  // Bot chats mirror plugin mode (`shadow('conversation.chat.node', { key: 'tool-call' }, ToolCell)`):
+  // ToolCell owns every tool call (including PTC trees), emits live activity phrases while
+  // running, renders only Bot-facing tools, and returns CellEmpty for internal tools.
+  if (!classic) {
+    return h('div', {
+      className: 'dsb-tool-wrap',
+      'data-chat-anchor-key': row.callId ? `call:${row.callId}` : undefined,
+      'data-chat-call-id': row.callId || undefined,
+    }, h(ToolCell, {
+      node: {
+        key: row.callId || row.key,
+        data: { root: row.block },
+        location: { turn: { turn: row.turn } },
+      },
+      sessionId,
+      openFile: actions?.openFile,
+      useRoster,
+      useUi,
+      useWork,
+      useHeldCards,
+      useBrowserHolds,
+      useBrowserTabs,
+      useBrowserPages,
+      useComputer,
+      actions,
+    }))
+  }
+
   const renderToolFallback = (ownerProps) => {
     if (isComputerToolName(ownerProps.toolName)) {
       return h(ComputerToolView, ownerProps)
@@ -676,6 +725,7 @@ const SessionToolRow = memo(function SessionToolRow({
           location: { turn: { turn: row.turn } },
         },
         sessionId,
+        openFile: actions?.openFile,
         useRoster,
         useUi,
         useWork,
@@ -803,6 +853,7 @@ function renderTranscriptRows({
   onSelectFeedback, onRetractFeedback, renderEarlierUserText,
   parent, mode, ancestors, safeRoster, loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
 }) {
+  const showToolCards = Boolean(classic || parent)
   const seenTurnSpeaker = new Set(initialSpeakers)
   let prevTime
 
@@ -814,13 +865,22 @@ function renderTranscriptRows({
         : h(PartLine, { key: row.key, time: row.time })]
     }
 
+    // In Bot chats, compaction happens silently (matching plugin mode's CellEmpty shadow).
+    if (!showToolCards && row.kind === 'compaction') return []
+
+    // Internal tools (MCP, bash, read, edit, etc.) never draw cards in Bot chats.
+    // Once finished they omit all DOM; while running we still mount ToolCell (hidden via
+    // CSS) so `useLiveNote` keeps the activity indicator updated.
+    const hiddenBotTool = !showToolCards && row.kind === 'tool' && !hasBotToolInBlock(row.block)
+    if (hiddenBotTool && row.phase === 'result') return []
+
     // Track whether a flat-layout turn still needs its opening Bot avatar+name line.
     let showSpeaker = false
     if (row.kind === 'assistant') {
       const visible = row.texts.length > 0 || row.activity.length > 0 || (showThinking && row.reasoning !== '')
       if (!visible) return []
     }
-    if (row.kind === 'assistant' || row.kind === 'tool') {
+    if (row.kind === 'assistant' || (showToolCards && row.kind === 'tool')) {
       const turnKey = row.turn ?? row.key
       if (!seenTurnSpeaker.has(turnKey)) {
         seenTurnSpeaker.add(turnKey)
@@ -828,8 +888,8 @@ function renderTranscriptRows({
       }
     }
 
-    const pause = !classic && Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
-    if (Number.isFinite(row.time)) prevTime = row.time
+    const pause = !classic && !hiddenBotTool && Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
+    if (!hiddenBotTool && Number.isFinite(row.time)) prevTime = row.time
 
     const renderDefault = () => {
       switch (row.kind) {
@@ -850,7 +910,7 @@ function renderTranscriptRows({
           })
         }
         case 'tool': return h(SessionToolRow, {
-          row, showSpeaker, flat, bot, cwd, sessionId, roster: safeRoster, actions, registry, lang,
+          row, showSpeaker, flat, bot, cwd, sessionId, roster: safeRoster, actions, registry, lang, classic: showToolCards,
           loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
           useRoster: resolvedUseRoster, useUi: resolvedUseUi, useWork: resolvedUseWork,
           useHeldCards: resolvedUseHeldCards, useBrowserHolds: resolvedUseBrowserHolds,
@@ -1038,16 +1098,17 @@ export function SessionTranscript({
   // Wait until the opening snapshot lands (`log.header !== null`) before mounting EarlierParts
   // so we never issue wasted RPCs while loading or duplicate a snapshot's `part-start`.
   const showTopEarlierParts = log?.header !== null && !hasMore && !hasPartStart && canLoadEarlierParts && (bot?.parts?.length ?? 0) > 0
+  const showToolCards = Boolean(classic || parent)
   const committedSpeakers = useMemo(() => {
     const speakers = new Set()
     for (const row of rowParts.committed) {
       if (row.kind === 'assistant') {
         if (row.texts.length === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
-      } else if (row.kind !== 'tool') continue
+      } else if (!(showToolCards && row.kind === 'tool')) continue
       speakers.add(row.turn ?? row.key)
     }
     return speakers
-  }, [rowParts.committed, showThinking])
+  }, [rowParts.committed, showThinking, showToolCards])
   const rowProps = {
     canLoadEarlierParts, sessionId, bot, roster, actions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
     useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,

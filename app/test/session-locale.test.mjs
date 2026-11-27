@@ -156,7 +156,7 @@ function baseLog() {
 const actions = {}
 const bot = roster.byId[sessionId]
 
-function mount() {
+function mount(classic = false) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -164,7 +164,7 @@ function mount() {
     container,
     render(log) {
       act(() => root.render(h(SessionTranscript, {
-        log, sessionId, roster, actions, classic: false,
+        log, sessionId, roster, actions, classic,
         bot,
       })))
     },
@@ -182,13 +182,13 @@ const keysFor = (rowKey) => [...renderCounts.keys()].filter(key => key.endsWith(
 
 test('stream chunks re-render only the live row; committed memoized rows render zero extra times', () => {
   resetRenderCounts()
-  const view = mount()
+  const view = mount(false)
   let log = baseLog()
   view.render(log)
-  // The tree rendered: one of each memoized row.
+  // The tree rendered: one of each memoized row (compaction is hidden in Bot mode).
   assert.ok(countOf('user:2') >= 1, 'user row mounted')
   assert.ok(countOf('assistant:3') >= 1, 'committed assistant row mounted')
-  assert.ok(countOf('compaction:5') >= 1, 'compaction row mounted')
+  assert.equal(countOf('compaction:5'), 0, 'compaction row is hidden in Bot mode')
   assert.ok(countOf('ev:7') >= 1, 'bot event row mounted')
   assert.ok(countOf('turn-error:9') >= 1, 'failure row mounted')
 
@@ -223,15 +223,18 @@ test('stream chunks re-render only the live row; committed memoized rows render 
 
 test('a language switch re-renders the memoized rows in the new language, mid-stream or not', () => {
   resetRenderCounts()
-  const view = mount()
+  const view = mount(false)
+  const classicView = mount(true)
   const log = baseLog()
   view.render(log)
+  classicView.render(log)
 
-  // English copy before the switch: user copy button, compaction bar, bot event line,
+  // English copy before the switch: user copy button, compaction bar (Classic mode), bot event line,
   // failure banner, and the code block's own Copy label inside the committed reply.
   assert.match(view.container.innerHTML, /aria-label="Copy"/, 'copy buttons read Copy in English')
   assert.equal(view.container.querySelector('.md-copy')?.textContent, 'Copy', 'the code block label reads Copy in English')
-  assert.match(view.text(), /compacted/, 'compaction bar in English')
+  assert.doesNotMatch(view.text(), /compacted/, 'compaction bar stays hidden in Bot mode')
+  assert.match(classicView.text(), /compacted/, 'compaction bar in English in Classic mode')
   assert.match(view.text(), /Profile updated/, 'bot event line in English')
   assert.match(view.text(), /script/, 'assistant text rendered')
 
@@ -243,7 +246,7 @@ test('a language switch re-renders the memoized rows in the new language, mid-st
   assert.match(view.container.innerHTML, /aria-label="复制"/, 'copy buttons read 复制 after the switch')
   assert.equal(view.container.querySelector('.md-copy')?.textContent, '复制', 'the code block label inside the memoized committed row is in Chinese')
   assert.doesNotMatch(view.container.innerHTML, /aria-label="Copy"/, 'no English Copy label survives anywhere')
-  assert.match(view.text(), /压缩|条消息|上下文/, 'compaction bar is in Chinese')
+  assert.match(classicView.text(), /压缩|条消息|上下文/, 'compaction bar is in Chinese in Classic mode')
   assert.doesNotMatch(view.text(), /Profile updated/, 'the English bot event line is gone')
   assert.match(view.text(), /资料|更新/, 'bot event line is in Chinese')
   assert.match(view.text(), /script/, 'the untranslated reply text itself is untouched')
@@ -258,11 +261,12 @@ test('a language switch re-renders the memoized rows in the new language, mid-st
   assert.equal(view.container.querySelector('.md-copy')?.textContent, 'Copy', 'the code block label is English again')
   assert.match(view.text(), /Profile updated/, 'bot event line is English again')
   view.unmount()
+  classicView.unmount()
 })
 
 test('a language switch during streaming re-renders history once and streaming keeps the memo afterwards', () => {
   resetRenderCounts()
-  const view = mount()
+  const view = mount(false)
   let log = baseLog()
   view.render(log)
 
@@ -277,7 +281,7 @@ test('a language switch during streaming re-renders history once and streaming k
 
   // Language switches mid-stream: history re-renders exactly this once.
   act(() => { void locale.setLocale('zh') })
-  for (const rowKey of ['user:2', 'assistant:3', 'compaction:5', 'ev:7']) {
+  for (const rowKey of ['user:2', 'assistant:3', 'ev:7']) {
     const earlier = [...settledCounts.entries()].filter(([key]) => key.endsWith('::' + rowKey)).reduce((sum, [, n]) => sum + n, 0)
     assert.ok(countOf(rowKey) > earlier, `${rowKey} re-rendered for the switch`)
   }
@@ -324,7 +328,7 @@ test('a live expanded focused tool card keeps its DOM node and disclosure when i
   stream({ type: 'chunk', attemptId: 'tool-live', revision: 2, index: 0, time: T0 + 10, chunk: { type: 'block-start', index: 0, blockType: 'tool-call' } })
   stream({ type: 'chunk', attemptId: 'tool-live', revision: 3, index: 1, time: T0 + 11, chunk: { type: 'tool-call-delta', index: 0, id: 'call-live', name: 'bash', argumentsDelta: '{"command":"ls -la"' } })
   const render = () => act(() => root.render(h(SessionTranscript, {
-    log, sessionId, roster, actions, classic: false, bot,
+    log, sessionId, roster, actions, classic: true, bot,
   })))
   render()
   const head = container.querySelector('.dsb-tool-head')
@@ -376,6 +380,58 @@ test('a stream chunk never rewrites the turn clock: the noting effect skips when
   })))
   assert.ok(otherNotes.length > 0, 'switching sessionId/actions re-notes turn times even when events array ref matches')
   assert.ok(otherNotes.every(([sid]) => sid === 'session-2'))
+  act(() => root.unmount())
+  container.remove()
+})
+
+test('real ToolCell in Bot mode hides MCP/internal tools, drives and clears live activity, and draws Bot tools', () => {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  const liveNotes = []
+  const botActions = {
+    noteLive: (sid, key, note) => liveNotes.push({ sid, key, note }),
+    openSession() {},
+  }
+  let log = applyFrame(emptyLog(), {
+    type: 'snapshot',
+    header: { id: sessionId, cwd: '/tmp/bench' },
+    cursor: 6,
+    hasMore: false,
+    records: [
+      ev(1, T0, 'turn/start', { turn: 1 }),
+      ev(2, T0 + 1, 'user/message', { turn: 1, source: { kind: 'user' }, content: [{ type: 'text', text: 'search github' }] }),
+      ev(3, T0 + 2, 'tool/call', { turn: 1, callId: 'mcp-1', name: 'mcp__github__search_issues', arguments: '{"query":"ds-bot"}' }),
+      ev(4, T0 + 3, 'tool/call', { turn: 1, callId: 'mem-1', name: 'bot_remember', arguments: '{"scope":"team","fact":"always test"}' }),
+      ev(5, T0 + 4, 'tool/result', { turn: 1, message: { toolCallId: 'mem-1', isError: false, content: [{ type: 'text', text: 'Saved to team memory.' }] } }),
+      ev(6, T0 + 5, 'assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'All clear.' }] } }),
+    ],
+    assistantStream: { revision: 0 },
+  }).log
+
+  const render = () => act(() => root.render(h(SessionTranscript, {
+    log, sessionId, roster, actions: botActions, classic: false, bot,
+  })))
+  render()
+
+  // While mcp__github__search_issues is running: zero .dsb-tool cards, real ToolCell emits live note + CellEmpty.
+  assert.equal(container.querySelectorAll('.dsb-tool').length, 0, 'Bot mode never renders .dsb-tool cards')
+  assert.ok(container.querySelector('[data-bt-empty]'), 'running internal tool mounts real ToolCell returning CellEmpty')
+  assert.ok(liveNotes.some(e => e.key === 'tool:mcp-1' && e.note !== null), 'running MCP tool registers a live activity note')
+  assert.ok(container.querySelector('.bt-event'), 'Bot tool (bot_remember) still renders its Bot event line')
+
+  // Once mcp__github__search_issues finishes: its wrapper unmounts completely and cleans up its live note.
+  log = applyFrame(log, ev(7, T0 + 6, 'tool/result', {
+    turn: 1,
+    message: { toolCallId: 'mcp-1', isError: true, content: [{ type: 'text', text: 'error' }] },
+  })).log
+  render()
+
+  assert.equal(container.querySelectorAll('.dsb-tool').length, 0, 'finished MCP error tool still renders zero .dsb-tool cards')
+  assert.equal(container.querySelector('[data-chat-call-id="mcp-1"]'), null, 'finished internal tool leaves zero DOM nodes')
+  assert.equal(liveNotes.at(-1)?.key, 'tool:mcp-1')
+  assert.equal(liveNotes.at(-1)?.note, null, 'unmounting finished internal tool clears its live activity note')
+
   act(() => root.unmount())
   container.remove()
 })

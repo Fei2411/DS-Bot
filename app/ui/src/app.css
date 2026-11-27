@@ -138,7 +138,7 @@ body[data-bt-room] [data-composer-card]:has(.dsb-send:disabled):not([data-runnin
 /* Generic tool call cards (`tool-card.js`), compaction checkpoints, and error notices. */
 .dsb-tool{max-width:calc(var(--bt-msg-w,.86) * 100%);margin:2px 0;border-radius:12px;background:var(--bt-card);box-shadow:inset 0 0 0 1px var(--bt-line);overflow:hidden;box-sizing:border-box}
 body[data-bt-layout=flat] .dsb-tool{max-width:calc(var(--bt-flat-w,1) * 100%)}
-.dsb-tool[data-error]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bt-danger) 35%,transparent)}
+.dsb-tool[data-error]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bt-danger) 24%,var(--bt-line))}
 .dsb-tool-head-row{display:flex;align-items:center;gap:4px;min-width:0}
 .dsb-tool-head-row>.dsb-tool-head{flex:1 1 auto;min-width:0;width:auto}
 .dsb-tool-head-action{flex:none;display:inline-flex;align-items:center;padding-right:8px}
@@ -153,6 +153,7 @@ body[data-bt-layout=flat] .dsb-tool{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .dsb-tool[data-phase=preparing] .dsb-tool-dot,.dsb-tool[data-phase=start] .dsb-tool-dot{background:var(--bt-accent);animation:dsb-tool-pulse 1.3s ease-in-out infinite}
 .dsb-tool[data-error] .dsb-tool-dot{background:var(--bt-danger);animation:none}
 @keyframes dsb-tool-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.dsb-tool-server{flex:none;display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:6px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:18px;font-weight:500;white-space:nowrap}
 .dsb-tool-name{flex:none;font-weight:500;color:var(--bt-ink);white-space:nowrap}
 .dsb-tool-summary{flex:1 1 auto;min-width:0;color:var(--bt-ink-2);font-family:var(--bt-mono);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsb-tool-state,.dsb-tool-time{flex:none;margin-left:auto;font-size:11px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -175,7 +176,7 @@ body[data-bt-layout=flat] .dsb-tool{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .dsb-tool-fold:hover{background:var(--bt-hover)}
 .dsb-tool-fold:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .dsb-tool-errline{font-size:12px;line-height:17px;color:var(--bt-danger);overflow-wrap:anywhere}
-.dsb-tool-wrap:has(> [data-bt-empty]:only-child){display:none}
+.dsb-tool-wrap:not(:has(> :not([data-bt-empty]))){display:none}
 .dsb-tool-icon{flex:none;display:inline-flex;align-items:center;color:var(--bt-ink-2)}
 .dsb-tool-icon svg{width:14px;height:14px}
 .dsb-tool-meta{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:6px}

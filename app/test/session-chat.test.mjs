@@ -23,18 +23,42 @@ const stubs = {
     export const Shimmer = ({ children }) => ({ type: 'shimmer', props: { children: [children] } })
     export const Elapsed = () => null
     export const workPhrase = () => ''
-    export const isBotTool = name => ['show_view', 'ask_user', 'request_secret', 'message_bot', 'cua', 'computer_handoff'].includes(name)
-    export const ToolCell = ({ node, sessionId, useHeldCards }) => {
+    export const isBotTool = name => ['show_view', 'ask_user', 'request_secret', 'message_bot', 'cua', 'computer_handoff', 'bot_remember'].includes(name)
+    const walkCalls = (root) => {
+      const out = []
+      const visit = (call) => {
+        if (!call) return
+        out.push(call)
+        for (const child of call.subCalls ?? []) visit(child)
+      }
+      visit(root)
+      return out
+    }
+    export const ToolCell = ({ node, sessionId, useHeldCards, actions }) => {
       const root = node?.data?.root
       const heldCards = useHeldCards?.(state => state?.[sessionId])
-      const name = root?.name || root?.call?.name
-      if (name === 'show_view') {
-        return {
-          type: 'widget-cell',
-          props: { callId: root.callId, title: root.args?.text?.('title'), done: root.kind === 'tool-result', isError: root.isError === true, heldCards, children: ['widget:' + (root.args?.text?.('title') ?? root.callId)] },
-        }
+      const calls = walkCalls(root)
+      const running = root?.kind === 'tool-result' ? undefined : calls.findLast(c => c.kind !== 'tool-result')
+      if (running && typeof actions?.noteLive === 'function') {
+        actions.noteLive(sessionId, 'tool:' + (root?.callId ?? node?.key), [running.name || running.call?.name, 'working'])
       }
-      return { type: 'bot-tool-cell', props: { toolName: name, callId: root?.callId, sessionId, heldCards, children: ['bot-tool:' + name] } }
+      const drawn = calls.filter(c => isBotTool(c?.name || c?.call?.name))
+      if (drawn.length === 0) return { type: 'span', props: { 'data-bt-empty': '', hidden: true, children: [] } }
+      return {
+        type: 'fragment',
+        props: {
+          children: drawn.map((call) => {
+            const name = call?.name || call?.call?.name
+            if (name === 'show_view') {
+              return {
+                type: 'widget-cell',
+                props: { callId: call.callId, title: call.args?.text?.('title'), done: call.kind === 'tool-result', isError: call.isError === true, heldCards, children: ['widget:' + (call.args?.text?.('title') ?? call.callId)] },
+              }
+            }
+            return { type: 'bot-tool-cell', props: { toolName: name, callId: call?.callId, sessionId, heldCards, children: ['bot-tool:' + name] } }
+          }),
+        },
+      }
     }
   `,
   'widget-cell.js': `
@@ -761,7 +785,8 @@ test('Chat DM renders real recorded session, show_view via WidgetCell, legacy re
     assert.match(rendered, /想想下一步/)
     assert.match(rendered, /目标、约束、下一步/)
     assert.match(rendered, /建议分三步走/)
-    assert.match(rendered, /list_bots/)
+    assert.match(rendered, /现在的班底/)
+    assert.doesNotMatch(rendered, /list_bots/, 'internal tool calls stay hidden in Bot DM chats')
     // Once snapshot landed with `hasMore: false` and `bot.parts` has 1 earlier segment, EarlierParts mounts.
     assert.equal(all(tree, n => n.type === 'earlier-parts').length, 1, 'EarlierParts must mount when bot.parts.length === 1')
     // Legacy saved reaction key `${sessionId}:${time}` is preserved on Turn 1's Bubbles.
@@ -1632,5 +1657,67 @@ test('createTeam followWork marks activeRooms running before member turns start 
     sandbox.clearInterval = prevClearInterval
     sandbox.__testCall = async () => ({})
     fetchCtrl.reset()
+  }
+})
+
+test('Bot mode hides internal/MCP tools and compaction, preserves live activity + flat SpeakerHead, and Classic mode formats MCP tool labels', () => {
+  const T0 = 1700000000000
+  const ev = (seq, time, type, data) => ({ type: 'event', event: { seq, time, type, data } })
+  const log = applyFrame(emptyLog(), {
+    type: 'snapshot',
+    header: { id: 'b1', cwd: '/repo' },
+    cursor: 12,
+    hasMore: false,
+    records: [
+      ev(1, T0, 'turn/start', { turn: 1 }),
+      ev(2, T0 + 1000, 'user/message', { turn: 1, source: { kind: 'user' }, content: [{ type: 'text', text: 'check github issues' }] }),
+      ev(3, T0 + 2000, 'tool/call', { turn: 1, callId: 'm1', name: 'mcp__github__search_issues', arguments: '{"query":"bot_remember"}' }),
+      ev(4, T0 + 4000, 'tool/result', { turn: 1, message: { toolCallId: 'm1', isError: true, content: [{ type: 'text', text: 'rate limited' }] } }),
+      ev(5, T0 + 5000, 'tool/call', { turn: 1, callId: 'p1', name: 'prepare_ds_bot_issue', arguments: '{"title":"bug"}' }),
+      ev(6, T0 + 6000, 'tool/result', { turn: 1, message: { toolCallId: 'p1', isError: false, content: [{ type: 'text', text: 'ok' }] } }),
+      ev(7, T0 + 7000, 'tool/call', { turn: 1, callId: 'b1-bash', name: 'bash', arguments: '{"command":"ls"}' }),
+      ev(8, T0 + 8000, 'tool/result', { turn: 1, message: { toolCallId: 'b1-bash', isError: false, content: [{ type: 'text', text: 'a.txt' }] } }),
+      ev(9, T0 + 9000, 'compaction/summary', { compactionId: 'c1', summary: 'Earlier talk', shadowedItemCount: 4 }),
+      { type: 'event', event: { seq: 10, time: T0 + 9500, type: 'user/message', surfaceOp: 'replace', data: { source: { kind: 'compact-checkpoint', compactionId: 'c1', itemCount: 4 }, content: [{ type: 'text', text: 'checkpoint' }] } } },
+      ev(11, T0 + 10000, 'assistant/message', { turn: 1, step: 2, message: { content: [{ type: 'text', text: '查重没撞车。' }] } }),
+      // Still-running MCP tool in turn 2 so Bot mode keeps ToolCell mounted for useLiveNote without rendering a card.
+      ev(12, T0 + 45 * 60 * 1000, 'tool/call', { turn: 2, callId: 'm-live', name: 'mcp__github__get_me', arguments: '{}' }),
+    ],
+  }).log
+
+  const roster = {
+    bots: [{ id: 'b1', name: 'Chief', color: 'blue' }],
+    byId: { b1: { id: 'b1', name: 'Chief', color: 'blue' } },
+    rooms: [],
+    roomsById: {},
+    prefs: { layout: 'flat' },
+    exchangeTurns: {},
+  }
+  const liveNotes = []
+  const actions = { openSession() {}, noteTurnTime() {}, noteLive: (...args) => liveNotes.push(args) }
+
+  const botInst = mount(SessionTranscript, { log, sessionId: 'b1', bot: roster.byId.b1, roster, actions, classic: false })
+  try {
+    const tree = botInst.render()
+    assert.equal(all(tree, n => n.props?.className === 'dsb-tool').length, 0, 'Bot mode renders zero .dsb-tool cards')
+    assert.equal(all(tree, n => n.props?.className === 'dsb-compaction').length, 0, 'Bot mode hides compaction checkpoints')
+    assert.equal(all(tree, n => n.props?.className === 'bt-time-sep').length, 1, 'Hidden running/finished internal tools emit no extra bt-time-sep')
+    assert.equal(all(tree, n => n.props?.className === 'bt-group-name').length, 1, 'Flat layout SpeakerHead is not stolen by hidden internal tools')
+    assert.ok(liveNotes.some(([, key, note]) => key === 'tool:m-live' && note?.[0] === 'mcp__github__get_me'), 'Running internal tool still drives live activity via ToolCell')
+  } finally {
+    botInst.unmount()
+  }
+
+  const classicInst = mount(SessionTranscript, { log, sessionId: 'as1', roster, actions, classic: true })
+  try {
+    const tree = classicInst.render()
+    assert.ok(all(tree, n => n.props?.className === 'dsb-tool').length >= 4, 'Classic mode renders tool cards')
+    assert.equal(all(tree, n => n.props?.className === 'dsb-compaction').length, 1, 'Classic mode renders compaction checkpoint')
+    const serverTags = all(tree, n => n.props?.className === 'dsb-tool-server')
+    assert.ok(serverTags.some(n => n.props?.children?.includes('github') && n.props?.title === 'mcp__github__search_issues'), 'Classic mode formats mcp__<server>__<tool> cleanly')
+    const toolNames = all(tree, n => n.props?.className === 'dsb-tool-name')
+    assert.ok(toolNames.some(n => n.props?.children?.includes('search_issues') && n.props?.title === 'mcp__github__search_issues'), 'Classic mode keeps full MCP wire name in title')
+  } finally {
+    classicInst.unmount()
   }
 })
