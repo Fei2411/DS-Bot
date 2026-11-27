@@ -246,6 +246,8 @@ export function BotDetails({ route, navigation }: any) {
           <MarksShown.Provider value={shown && avatarInView}>
             <Avatar bot={bot} dark={dark} size={64} ring={p.main} state={botMarkState(team, bot)} badge={false} live pokeable />
           </MarksShown.Provider>
+        </View>
+        <View style={{ alignItems: 'center' }}>
           <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18 }]}>{bot.name}</Text>
           {bot.role ? <Text style={[typeScale.caption, { color: p.ink3, marginTop: 2 }]}>{bot.role}</Text> : null}
         </View>

@@ -25,12 +25,13 @@ const ACTIVITY_PHRASES: Record<string, string> = {
   orbit: 'On it',
 }
 
-export type WorkDetail = { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean }
+export type WorkDetail = { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean; roomId?: string }
 
-// Foreground running detail for a Bot: prefers work.bots[id] (structured step), and falls
-// back to activity[id] only when it names an active turn state (never 'waiting' or 'alert').
+// Foreground DM running detail for a Bot: prefers work.bots[id] (structured step) when it
+// belongs to the Bot's own chat (roomId === undefined), and falls back to activity[id] only
+// when it names an active turn state (never 'waiting' or 'alert').
 export function runningActivityOf(workBot: WorkDetail | undefined, activityWord: unknown): WorkDetail | string | undefined {
-  if (workBot !== undefined) return workBot
+  if (workBot !== undefined) return workBot.roomId === undefined ? workBot : undefined
   if (typeof activityWord === 'string' && Object.hasOwn(ACTIVITY_PHRASES, activityWord)) return activityWord
   return undefined
 }

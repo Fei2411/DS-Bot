@@ -4350,11 +4350,23 @@ export function install(rt) {
   const PREVIEWABLE = new Set(['bot', 'user', 'answer', 'post', 'view'])
   const tails = new Map()
   const previewText = item => String(item.text || item.title || item.texts?.join(' ') || (Array.isArray(item.presented) ? item.presented.map(file => presentedFileName(file.path)).join(', ') : '')).replace(/\s+/g, ' ').trim()
-  const applyTail = (sessionId, item) => tails.set(sessionId, { lastAt: item.time ?? 0, preview: previewText(item) })
+  const isBotReplyItem = item => item.kind === 'bot' || (item.kind === 'view' && item.pending !== true)
+  const applyTail = (sessionId, item) => {
+    const prev = tails.get(sessionId)
+    const lastBotAt = isBotReplyItem(item) ? (item.time ?? 0) : prev?.lastBotAt
+    const latestTurn = prev?.latestTurn
+    tails.set(sessionId, {
+      lastAt: item.time ?? 0,
+      preview: previewText(item),
+      ...(lastBotAt !== undefined ? { lastBotAt } : {}),
+      ...(latestTurn !== undefined ? { latestTurn } : {}),
+    })
+  }
   const fillTail = async sessionId => {
     // Newest page back until a row shows; chats almost always have it on page one.
     try {
       let beforeSeq
+      let latestTurn
       for (let pages = 0; pages < 10; pages += 1) {
         const page = await ctx.sessionController.page({
           address: { kind: 'session', sessionId },
@@ -4362,12 +4374,36 @@ export function install(rt) {
           maxMessages: EARLIER_PAGE,
         }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
         const events = page.records.map(record => record.event)
-        const last = [...displayItems(sessionId, events)].reverse().find(item => PREVIEWABLE.has(item.kind))
-        if (last !== undefined) { applyTail(sessionId, last); return }
+        for (const event of events) {
+          if (event?.type === 'turn/start' && typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn) && event.data.turn >= 1) {
+            latestTurn = latestTurn === undefined ? event.data.turn : Math.max(latestTurn, event.data.turn)
+          }
+        }
+        const reversed = [...displayItems(sessionId, events)].reverse()
+        const last = reversed.find(item => PREVIEWABLE.has(item.kind))
+        if (last !== undefined) {
+          const prev = tails.get(sessionId)
+          const botRow = reversed.find(isBotReplyItem)
+          const mergedTurn = prev?.latestTurn !== undefined && latestTurn !== undefined
+            ? Math.max(prev.latestTurn, latestTurn)
+            : (prev?.latestTurn ?? latestTurn)
+          const lastBotAt = botRow !== undefined ? (botRow.time ?? 0) : prev?.lastBotAt
+          tails.set(sessionId, {
+            lastAt: last.time ?? 0,
+            preview: previewText(last),
+            ...(lastBotAt !== undefined ? { lastBotAt } : {}),
+            ...(mergedTurn !== undefined ? { latestTurn: mergedTurn } : {}),
+          })
+          return
+        }
         if (!page.hasMore || events.length === 0) break
         beforeSeq = events[0]?.seq
       }
-      tails.set(sessionId, { lastAt: 0, preview: '' })
+      const prev = tails.get(sessionId)
+      const mergedTurn = prev?.latestTurn !== undefined && latestTurn !== undefined
+        ? Math.max(prev.latestTurn, latestTurn)
+        : (prev?.latestTurn ?? latestTurn)
+      tails.set(sessionId, { lastAt: 0, preview: '', ...(mergedTurn !== undefined ? { latestTurn: mergedTurn } : {}) })
     } catch { tails.set(sessionId, { lastAt: 0, preview: '' }) }
   }
   rt.chatTail = sessionId => {
@@ -4377,6 +4413,13 @@ export function install(rt) {
   ctx.on('session/event', (session, event) => {
     if (!tails.has(session.id)) return
     try {
+      if (event.type === 'turn/start' && typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn) && event.data.turn >= 1) {
+        const prev = tails.get(session.id)
+        if (prev !== null) {
+          const latestTurn = prev?.latestTurn === undefined ? event.data.turn : Math.max(prev.latestTurn, event.data.turn)
+          tails.set(session.id, { ...prev, latestTurn })
+        }
+      }
       for (const item of displayItems(session.id, [event], session)) if (PREVIEWABLE.has(item.kind)) applyTail(session.id, item)
     } catch { /* a tail miss must never take out the other listeners */ }
   })

@@ -712,12 +712,16 @@ test('a preview puts transparent pixels over white', () => {
   assert.ok(preview.data[0] > 240 && preview.data[1] > 240 && preview.data[2] > 240)
 })
 
-test('state rows carry lastAt and preview from the Bot own chat', async () => {
+test('state rows carry lastAt, lastBotAt, latestTurn and preview from the Bot own chat', async () => {
   const { call, emit, history, stop } = start()
   const { chief } = await team(call)
   const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
-  history[sessionId] = [user(1, 'Ship the list first', 1000)]
+  history[sessionId] = [
+    { type: 'turn/start', seq: 1, time: 990, data: { turn: 1 } },
+    user(2, 'Ship the list first', 1000),
+  ]
   await emit(sessionId, history[sessionId][0])
+  await emit(sessionId, history[sessionId][1])
   let row
   for (let at = 0; at < 200 && row === undefined; at += 1) {
     const bot = (await call('state', {})).value.bots.find(candidate => candidate.id === chief)
@@ -726,7 +730,30 @@ test('state rows carry lastAt and preview from the Bot own chat', async () => {
   }
   assert(row !== undefined)
   assert.equal(row.lastAt, 1000)
+  assert.equal(row.lastBotAt, undefined)
+  assert.equal(row.latestTurn, 1)
   assert.equal(row.preview, 'Ship the list first')
+
+  // A real Bot reply advances both lastAt and lastBotAt.
+  const botReply = { type: 'assistant/message', seq: 3, time: 1100, data: { turn: 1, message: { content: [{ type: 'text', text: 'Done.' }] } } }
+  history[sessionId].push(botReply)
+  await emit(sessionId, botReply)
+  const afterReply = (await call('state', {})).value.bots.find(candidate => candidate.id === chief)
+  assert.equal(afterReply.lastAt, 1100)
+  assert.equal(afterReply.lastBotAt, 1100)
+
+  // A subsequent user message + stopped retry advances lastAt and latestTurn without advancing lastBotAt.
+  const retryStart = { type: 'turn/start', seq: 4, time: 1200, data: { turn: 2 } }
+  const nextUser = user(5, 'Try again', 1205)
+  const retryStop = { type: 'turn/end', seq: 6, time: 1210, data: { turn: 2, reason: { kind: 'stopped' } } }
+  history[sessionId].push(retryStart, nextUser, retryStop)
+  await emit(sessionId, retryStart)
+  await emit(sessionId, nextUser)
+  await emit(sessionId, retryStop)
+  const afterStop = (await call('state', {})).value.bots.find(candidate => candidate.id === chief)
+  assert.equal(afterStop.lastAt, 1205)
+  assert.equal(afterStop.lastBotAt, 1100)
+  assert.equal(afterStop.latestTurn, 2)
   await stop()
 })
 

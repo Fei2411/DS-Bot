@@ -18,14 +18,14 @@ import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { shadow, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { ArrowDownIcon, FishLogo } from '../ui/icons.tsx'
-import { roomTitle, runningActivityOf, workPhrase } from '../ui/phrases.ts'
+import { roomTitle, workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
 import { learningForChat } from './chat/learning.ts'
 import { Composer, type Photo } from './chat/composer.tsx'
 import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type FileRef, type ImageRef } from './chat/items.tsx'
 import { bumpMarkdownImageCache } from './chat/markdown.tsx'
 import { isComputerHandoff } from '../../../ds-bot/src/client/mark-states.js'
-import { workMarkState } from '../team/mark-state.ts'
+import { ownWorkOf, workMarkState } from '../team/mark-state.ts'
 
 // Feed events refresh the chat as things happen; the poll only catches what a
 // dropped event missed, so it runs rarely.
@@ -316,7 +316,7 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
     }
     return []
   }, [bot, room, team?.bots])
-  const doing = bot !== undefined ? runningActivityOf(team?.work?.bots?.[bot.id], team?.activity?.[bot.id]) : undefined
+  const doing = bot !== undefined ? ownWorkOf(team, bot.id) : undefined
   const secrets = (team?.secretRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const connectorRequests = (team?.connectorRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const mailRequests = (team?.mailRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')

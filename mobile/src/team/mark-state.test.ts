@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { isComputerHandoff } from '../../../ds-bot/src/client/mark-states.js'
 import type { Bot, TeamState } from '../connection.ts'
 import { runningActivityOf, workPhrase } from '../ui/phrases.ts'
-import { botMarkState, botPreviewKind, botRunning, isTopBlockInView, shouldCelebrateSettle, workMarkState } from './mark-state.ts'
+import { botMarkState, botPreviewKind, botRunning, hasUnreadBotReply, isTopBlockInView, ownWorkOf, shouldCelebrateSettle, workMarkState } from './mark-state.ts'
 
 const reviewer = { id: 'reviewer', name: 'Reviewer', sessionId: 'reviewer-p2' } as Bot
 const team = (extra: Record<string, unknown>) => ({ bots: [reviewer], ...extra }) as unknown as TeamState
@@ -93,11 +93,13 @@ test("the activity row: thinking until a tool runs, then the tool's kind", () =>
 })
 
 test('between-turn states (#2305): failed, background tasks, and unread replies follow desktop priority', () => {
-  const blockedBot = { ...reviewer, blocked: { code: 'auth', at: 1 } } as Bot
-  assert.equal(botMarkState(team({}), blockedBot, { unread: true }), 'failed')
-  // Last-turn failure on the current part yields failed; a newer turn clears it.
+  const blockedBot = { ...reviewer, blocked: { code: 'auth', at: 1 }, latestTurn: 9 } as Bot
+  assert.equal(botMarkState(team({}), blockedBot, { replied: true }), 'failed')
+  // Last-turn failure on the current part yields failed; a newer host latestTurn (e.g. a stopped retry) clears it.
   const failedBot = { ...reviewer, failures: { 'reviewer-p2': { turn: 4, code: 'err' } } } as Bot
   assert.equal(botMarkState(team({}), failedBot), 'failed')
+  assert.equal(botMarkState(team({}), { ...failedBot, latestTurn: 4 }), 'failed')
+  assert.equal(botMarkState(team({}), { ...failedBot, latestTurn: 5 }), 'idle')
   assert.equal(botMarkState(team({}), failedBot, { latestTurn: 5 }), 'idle')
   // A failure on an older part does not count.
   const oldFailedBot = { ...reviewer, failures: { reviewer: { turn: 2, code: 'err' } } } as Bot
@@ -107,24 +109,44 @@ test('between-turn states (#2305): failed, background tasks, and unread replies 
   assert.equal(botMarkState(team({ work: { bots: { reviewer: {} } }, activity: { reviewer: 'thinking' } }), failedBot), 'thinking')
   // Background DM tasks show 'background' (group tasks do not); waiting_approval escalates to 'alert' when idle.
   const bgBot = { ...reviewer, tasks: [{ id: 't1', title: 'Build', status: 'running', sessionId: 's-t1' }] } as Bot
-  assert.equal(botMarkState(team({}), bgBot, { unread: true }), 'background')
+  assert.equal(botMarkState(team({}), bgBot, { replied: true }), 'background')
   const groupBgBot = { ...reviewer, tasks: [{ id: 't1', title: 'Build', status: 'running', sessionId: 's-t1', roomId: 'g1' }] } as Bot
   assert.equal(botMarkState(team({}), groupBgBot), 'idle')
   const bgApproveBot = { ...reviewer, tasks: [{ id: 't1', title: 'Deploy', status: 'waiting_approval', sessionId: 's-t1' }] } as Bot
   assert.equal(botMarkState(team({}), bgApproveBot), 'alert')
   assert.equal(botMarkState(team({ work: { bots: { reviewer: {} } }, activity: { reviewer: 'working' } }), bgApproveBot), 'working')
   // Unread reply shows 'replied' when otherwise idle.
-  assert.equal(botMarkState(team({}), reviewer, { unread: true }), 'replied')
-  assert.equal(botMarkState(team({}), reviewer, { unread: false }), 'idle')
+  assert.equal(botMarkState(team({}), reviewer, { replied: true }), 'replied')
+  assert.equal(botMarkState(team({}), reviewer, { replied: false }), 'idle')
 })
 
-test('runningActivityOf and workPhrase handle host activity words without misreporting waiting/alert as running', () => {
+test('hasUnreadBotReply only fires for unread Bot replies, never a newer user message', () => {
+  assert.equal(hasUnreadBotReply({ lastAt: 200, lastBotAt: 200 }, true), true)
+  assert.equal(hasUnreadBotReply({ lastAt: 200, lastBotAt: 200 }, false), false)
+  // User sent a message on desktop after an earlier bot reply and stopped before the Bot answered.
+  assert.equal(hasUnreadBotReply({ lastAt: 250, lastBotAt: 200 }, true), false)
+  // No bot reply recorded yet (or older host without lastBotAt).
+  assert.equal(hasUnreadBotReply({ lastAt: 250 }, true), false)
+})
+
+test('runningActivityOf, ownWorkOf, and workPhrase separate DM foreground work from group work', () => {
   assert.equal(runningActivityOf(undefined, 'waiting'), undefined)
   assert.equal(runningActivityOf(undefined, 'alert'), undefined)
   assert.equal(runningActivityOf(undefined, 'thinking'), 'thinking')
   assert.equal(runningActivityOf(undefined, 'searching'), 'searching')
+  assert.equal(runningActivityOf({ tool: 'web_search', roomId: 'g1' }, 'searching'), undefined)
   const detail = { tool: 'run_command', said: 'Running tests' }
   assert.equal(runningActivityOf(detail, 'waiting'), detail)
+  // Real host shape: Bot working only in a group carries work.bots[id].roomId AND activity[id].
+  const groupOnly = team({
+    work: { bots: { reviewer: { tool: 'web_search', roomId: 'g1' } }, rooms: { g1: [{ botId: 'reviewer', tool: 'web_search' }] } },
+    activity: { reviewer: 'searching' },
+  })
+  assert.equal(ownWorkOf(groupOnly, 'reviewer'), undefined)
+  const roomOnly = team({ work: { rooms: { g1: [{ botId: 'reviewer', tool: 'web_search' }] } }, activity: { reviewer: 'searching' } })
+  assert.equal(ownWorkOf(roomOnly, 'reviewer'), undefined)
+  const dmWork = team({ work: { bots: { reviewer: detail }, rooms: { g1: [{ botId: 'reviewer', tool: 'web_search' }] } }, activity: { reviewer: 'working' } })
+  assert.equal(ownWorkOf(dmWork, 'reviewer'), detail)
   assert.equal(workPhrase('thinking'), 'Thinking about it')
   assert.equal(workPhrase('searching'), 'Searching online')
   assert.equal(workPhrase('working'), 'On it')
@@ -149,12 +171,20 @@ test('isComputerHandoff handles null and empty reason strings safely, matching h
   assert.equal(botMarkState(team({ computerLive: { holds: { reviewer: { by: 'user', reason: '' } } } }), reviewer), 'idle')
 })
 
-test('botPreviewKind keeps foreground work above deferred background approvals', () => {
+test('botPreviewKind keeps foreground work above deferred background approvals and preserves group work', () => {
   const bgApproval = approval({ taskId: 't1' })
   // Running foreground turn + background approval -> preview shows foreground work, not approval.
   const busy = team({ work: { bots: { reviewer: { tool: 'run_command', said: 'Building' } }, approvals: [bgApproval] }, activity: { reviewer: 'working' } })
   assert.equal(botPreviewKind(busy, reviewer).kind, 'doing')
-  // Group work + background approval -> preview shows group work.
+  // Real host group-only shape: work.bots[id] carries roomId AND work.rooms[g1] lists the member.
+  const hostGroupBusy = team({
+    work: { bots: { reviewer: { tool: 'write_file', roomId: 'g1' } }, rooms: { g1: [{ botId: 'reviewer', tool: 'write_file' }] }, approvals: [bgApproval] },
+    activity: { reviewer: 'working' },
+  })
+  const groupPreview = botPreviewKind(hostGroupBusy, reviewer)
+  assert.equal(groupPreview.kind, 'group')
+  assert.equal(groupPreview.roomId, 'g1')
+  // Group work + background approval without work.bots -> preview shows group work.
   const groupBusy = team({ work: { rooms: { g1: [{ botId: 'reviewer', tool: 'write_file' }] }, approvals: [bgApproval] } })
   assert.equal(botPreviewKind(groupBusy, reviewer).kind, 'group')
   // Idle + background approval -> preview falls back to approval.

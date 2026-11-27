@@ -130,15 +130,21 @@ export function install(rt) {
     // `waiting`: the Bot holds its greeting until the user picks its model or fixes
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
     bots: Object.values(state.bots).map(({ segments, kickoff, agentPresetDefault, agentPresetDefaultPending, tasks: _rawTasks, ...bot }) => {
-      const tail = rt.chatTail(rt.chatOf(bot.id))
+      const partId = rt.chatOf(bot.id)
+      const tail = rt.chatTail(partId)
+      const liveTurn = rt.latestTurnOf?.(partId)
+      const latestTurn = tail?.latestTurn !== undefined && liveTurn !== undefined
+        ? Math.max(tail.latestTurn, liveTurn)
+        : (liveTurn ?? tail?.latestTurn)
       const botTasks = rt.taskViewOf?.(state.bots[bot.id]) ?? []
       return {
-        ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId),
+        ...bot, sessionId: partId, parts: (segments ?? []).map(segment => segment.sessionId),
         ...(botTasks.length > 0 ? { tasks: botTasks } : {}),
         ...(kickoff ? { waiting: true } : {}),
         // `engine` is the Bot's local-agent route, present only on abots.
         ...(rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined ? { engine: rt.localAgentBadge(bot.model ?? bot.appliedModel) } : {}),
-        ...(tail ? { lastAt: tail.lastAt, preview: tail.preview } : {}),
+        ...(tail ? { lastAt: tail.lastAt, preview: tail.preview, ...(tail.lastBotAt !== undefined ? { lastBotAt: tail.lastBotAt } : {}) } : {}),
+        ...(latestTurn !== undefined ? { latestTurn } : {}),
       }
     }),
     // `sessionId` is the group's own Session's current part, `ownParts` its earlier

@@ -1,5 +1,6 @@
 import { botState, isBrowserHandoff, isComputerHandoff, RUNNING_STATES, toolState } from '../../../ds-bot/src/client/mark-states.js'
 import type { Bot, TeamState } from '../connection.ts'
+import { runningActivityOf, type WorkDetail } from '../ui/phrases.ts'
 
 // What a Bot's mark shows, from the team's state as the desktop sidebar reads it
 // (sidebar.js BotRow + mark.js dmMarkState): what it is doing, waiting for you,
@@ -14,13 +15,31 @@ export function botRunning(team: TeamState | null, botId: string): boolean {
   return Object.values(work?.rooms ?? {}).some(list => Array.isArray(list) && list.some(entry => entry?.botId === botId))
 }
 
+// Foreground DM work for a Bot's own chat (never group work, even though host work.bots
+// and activity fall back to group turns when a Bot is only working in a group).
+export function ownWorkOf(team: TeamState | null, botId: string): WorkDetail | string | undefined {
+  const workBot = team?.work?.bots?.[botId]
+  if (workBot !== undefined) return workBot.roomId === undefined ? workBot : undefined
+  const inGroup = Object.values(team?.work?.rooms ?? {}).some(list => Array.isArray(list) && list.some(entry => entry?.botId === botId))
+  if (inGroup) return undefined
+  return runningActivityOf(undefined, team?.activity?.[botId])
+}
+
+// Whether a Bot has an unread reply of its own (as opposed to a newer user message
+// sent on desktop before the Bot answered).
+export const hasUnreadBotReply = (bot: Pick<Bot, 'lastAt' | 'lastBotAt'>, unreadAtBotReply: boolean): boolean => (
+  unreadAtBotReply
+  && bot.lastBotAt !== undefined
+  && (bot.lastAt === undefined || bot.lastBotAt >= bot.lastAt)
+)
+
 type Requests = Record<string, { status?: string }[] | undefined> | undefined
 const hasPending = (list: { status?: string }[] | undefined) => Array.isArray(list) && list.some(request => request?.status === 'pending')
 
 export function botMarkState(
   team: TeamState | null,
   bot: Bot,
-  options?: { unread?: boolean; latestTurn?: number },
+  options?: { replied?: boolean; latestTurn?: number },
 ): string {
   const id = bot.id
   const part = bot.sessionId ?? id
@@ -40,7 +59,7 @@ export function botMarkState(
   const waits = blocking || own.some(entry => entry.taskId !== undefined) || taskWaitingApproval || (team?.learning?.[id]?.length ?? 0) > 0
   // Last-turn failure or active credential/balance block (mark.js lastTurnFailed).
   const failure = bot.failures?.[part]
-  const latestTurn = options?.latestTurn
+  const latestTurn = options?.latestTurn ?? bot.latestTurn
   const failed = bot.blocked !== undefined || (failure !== undefined && !(typeof failure.turn === 'number' && failure.turn >= 1 && typeof latestTurn === 'number' && latestTurn > failure.turn))
   // The computer's own word for what the Bot does (thinking, searching, waiting…).
   const said: unknown = team?.activity?.[id]
@@ -49,7 +68,7 @@ export function botMarkState(
   return botState(botRunning(team, id), doing, waits, {
     failed,
     background,
-    replied: options?.unread === true,
+    replied: options?.replied === true,
   })
 }
 
@@ -73,23 +92,28 @@ export const shouldCelebrateSettle = (prevState: string, nextState: string): boo
 )
 
 // Preview priority for one Bot row (mirroring desktop sidebar.js BotRow):
-// foreground blocking questions/approvals > foreground running turn > group work >
+// foreground blocking questions/approvals > foreground own-chat turn > group work >
 // deferred background approvals > waiting on handed-off work > fallback preview/role.
-export function botPreviewKind(team: TeamState | null, bot: Bot): { kind: 'answer' | 'approval' | 'doing' | 'group' | 'waiting' | 'idle'; doing?: unknown; roomId?: string; groupEntry?: { tool?: string; said?: string; note?: string; target?: string } } {
+export function botPreviewKind(team: TeamState | null, bot: Bot): { kind: 'answer' | 'approval' | 'doing' | 'group' | 'waiting' | 'idle'; doing?: unknown; roomId?: string; groupEntry?: WorkDetail } {
   const sessionId = bot.sessionId ?? bot.id
   if (team?.questions?.[sessionId] !== undefined || team?.views?.[sessionId] !== undefined) return { kind: 'answer' }
   const approvals = (Array.isArray(team?.work?.approvals) ? team.work.approvals : []).filter(a => a?.answerable !== false && a?.roomId === undefined && a?.botId === bot.id)
   const fgComputer = Object.values(team?.computerLive?.asks ?? {}).some(ask => ask?.roomId === undefined && ask?.botId === bot.id)
   if (approvals.some(a => a.taskId === undefined) || fgComputer) return { kind: 'approval' }
   const workBot = team?.work?.bots?.[bot.id]
-  const activity = team?.activity?.[bot.id]
-  const activeWord = typeof activity === 'string' && RUNNING_STATES.has(activity) && activity !== 'done' ? activity : undefined
-  if (workBot !== undefined || activeWord !== undefined) return { kind: 'doing', doing: workBot ?? activeWord }
+  if (workBot !== undefined && workBot.roomId === undefined) return { kind: 'doing', doing: workBot }
   const workRooms = team?.work?.rooms ?? {}
+  if (workBot?.roomId !== undefined) {
+    const preferred = Array.isArray(workRooms[workBot.roomId]) ? workRooms[workBot.roomId].find(e => e?.botId === bot.id) : undefined
+    return { kind: 'group', roomId: workBot.roomId, groupEntry: preferred ?? workBot }
+  }
   for (const [roomId, list] of Object.entries(workRooms)) {
     const entry = Array.isArray(list) ? list.find(e => e?.botId === bot.id) : undefined
     if (entry !== undefined) return { kind: 'group', roomId, groupEntry: entry }
   }
+  const activity = team?.activity?.[bot.id]
+  const activeWord = typeof activity === 'string' && RUNNING_STATES.has(activity) && activity !== 'done' ? activity : undefined
+  if (activeWord !== undefined) return { kind: 'doing', doing: activeWord }
   const hasBgApproval = approvals.some(a => a.taskId !== undefined)
     || (bot.tasks ?? []).some(task => task && !task.roomId && task.status === 'waiting_approval')
   if (hasBgApproval) return { kind: 'approval' }

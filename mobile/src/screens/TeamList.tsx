@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View, SectionList, type NativeScrollEvent,
 import type { Agent, Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
 import { roomHasPending } from '../nav/pending.ts'
-import { botMarkState, botPreviewKind } from '../team/mark-state.ts'
+import { botMarkState, botPreviewKind, hasUnreadBotReply } from '../team/mark-state.ts'
 import { isUnread, seenVersion, subscribeSeen } from '../team/seen.ts'
 import { getLang, t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
@@ -103,11 +103,11 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
           <View onLayout={event => { headerHeight.current = event.nativeEvent.layout.height; syncHeaderInView() }}>
           {mainList.length > 0 ? <MarksShown.Provider value={shown && headerInView}><View style={styles.tiles}>
             {mainList.map(main => {
-              const unread = isUnread(hostId, main.id, main.lastAt, current === main.id)
+              const replied = hasUnreadBotReply(main, isUnread(hostId, main.id, main.lastBotAt, current === main.id))
               return (
                 <Pressable key={main.id} accessibilityRole="button" accessibilityLabel={`${main.name}, ${t('Main Bot')}`} onPress={() => onOpen({ kind: 'bot', id: main.id })}
                   style={({ pressed }) => [styles.tile, { backgroundColor: pressed || current === main.id ? p.active : p.hover }]}>
-                  <Avatar bot={main} dark={dark} size={52} ring={p.sidebar} main state={botMarkState(team, main, { unread })} live />
+                  <Avatar bot={main} dark={dark} size={52} ring={p.sidebar} main state={botMarkState(team, main, { replied })} live />
                   <Text style={[typeScale.small, { color: p.ink, fontWeight: '600', marginTop: 6 }]} numberOfLines={1}>{main.name}</Text>
                   {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 15, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
                 </Pressable>
@@ -120,7 +120,8 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
         renderItem={({ item: entry }) => {
           if (entry.kind === 'bot') {
             const unread = isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)
-            return <BotRow bot={entry.item} p={p} dark={dark} mains={mains} state={botMarkState(team, entry.item, { unread })} shown={shown && (inView === null || inView.has(`bot-${entry.item.id}`))} preview={preview(entry.item)} selected={current === entry.item.id} unread={unread} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
+            const replied = hasUnreadBotReply(entry.item, isUnread(hostId, entry.item.id, entry.item.lastBotAt, current === entry.item.id))
+            return <BotRow bot={entry.item} p={p} dark={dark} mains={mains} state={botMarkState(team, entry.item, { replied })} shown={shown && (inView === null || inView.has(`bot-${entry.item.id}`))} preview={preview(entry.item)} selected={current === entry.item.id} unread={unread} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
           }
           return <RoomRow room={entry.item} bots={bots} p={p} dark={dark} waiting={roomHasPending(team, entry.item)} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
         }}

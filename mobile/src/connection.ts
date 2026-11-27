@@ -51,6 +51,8 @@ export interface Bot {
   hidden?: boolean
   createdAt?: number
   lastAt?: number
+  lastBotAt?: number
+  latestTurn?: number
   preview?: string
 }
 
@@ -186,7 +188,7 @@ export interface TeamState {
   dataPath?: string
   version?: string
   work?: {
-    bots?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean }>
+    bots?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean; roomId?: string }>
     agents?: Record<string, { tool?: string; said?: string; note?: string; target?: string }>
     rooms?: Record<string, { botId: string; tool?: string; said?: string; note?: string; target?: string }[]>
     approvals?: Approval[]
