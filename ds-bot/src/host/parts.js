@@ -4351,10 +4351,27 @@ export function install(rt) {
   const tails = new Map()
   const previewText = item => String(item.text || item.title || item.texts?.join(' ') || (Array.isArray(item.presented) ? item.presented.map(file => presentedFileName(file.path)).join(', ') : '')).replace(/\s+/g, ' ').trim()
   const isBotReplyItem = item => item.kind === 'bot' || (item.kind === 'view' && item.pending !== true)
+  const positiveTurn = value => (typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : undefined)
+  const maxTurn = (a, b) => (a !== undefined && b !== undefined ? Math.max(a, b) : (a ?? b))
+  const projectionLatestTurn = (sessionId) => {
+    const projections = ctx.get?.('sessionProjections')
+    if (projections === undefined) return undefined
+    const ref = { id: sessionId }
+    let outlineTurn
+    try {
+      const outline = typeof projections.snapshot === 'function' ? projections.snapshot(ref, ['turnOutline'])?.values?.turnOutline : undefined
+      outlineTurn = Array.isArray(outline) && outline.length > 0 ? positiveTurn(outline.at(-1)?.turn) : undefined
+    } catch { outlineTurn = undefined }
+    let anchorTurn
+    try {
+      anchorTurn = typeof projections.stateOf === 'function' ? positiveTurn(projections.stateOf(ref, 'dsBotAnchor')?.turn) : undefined
+    } catch { anchorTurn = undefined }
+    return maxTurn(outlineTurn, anchorTurn)
+  }
   const applyTail = (sessionId, item) => {
     const prev = tails.get(sessionId)
     const lastBotAt = isBotReplyItem(item) ? (item.time ?? 0) : prev?.lastBotAt
-    const latestTurn = prev?.latestTurn
+    const latestTurn = maxTurn(prev?.latestTurn, positiveTurn(item.turn))
     tails.set(sessionId, {
       lastAt: item.time ?? 0,
       preview: previewText(item),
@@ -4363,10 +4380,14 @@ export function install(rt) {
     })
   }
   const fillTail = async sessionId => {
-    // Newest page back until a row shows; chats almost always have it on page one.
+    // Newest page back until both a previewable row and the latest turn number are known;
+    // chats almost always find both on page one, and a long tool turn that splits across
+    // the 60-event boundary keeps walking until it recovers its turn number.
     try {
       let beforeSeq
-      let latestTurn
+      let latest
+      let lastBotAt
+      let latestTurn = projectionLatestTurn(sessionId)
       for (let pages = 0; pages < 10; pages += 1) {
         const page = await ctx.sessionController.page({
           address: { kind: 'session', sessionId },
@@ -4375,35 +4396,33 @@ export function install(rt) {
         }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
         const events = page.records.map(record => record.event)
         for (const event of events) {
-          if (event?.type === 'turn/start' && typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn) && event.data.turn >= 1) {
-            latestTurn = latestTurn === undefined ? event.data.turn : Math.max(latestTurn, event.data.turn)
+          latestTurn = maxTurn(latestTurn, positiveTurn(event?.data?.turn))
+        }
+        if (latest === undefined) {
+          const reversed = [...displayItems(sessionId, events)].reverse()
+          const found = reversed.find(item => PREVIEWABLE.has(item.kind))
+          if (found !== undefined) {
+            latest = { lastAt: found.time ?? 0, preview: previewText(found) }
+            const botRow = reversed.find(isBotReplyItem)
+            if (botRow !== undefined) lastBotAt = botRow.time ?? 0
           }
         }
-        const reversed = [...displayItems(sessionId, events)].reverse()
-        const last = reversed.find(item => PREVIEWABLE.has(item.kind))
-        if (last !== undefined) {
-          const prev = tails.get(sessionId)
-          const botRow = reversed.find(isBotReplyItem)
-          const mergedTurn = prev?.latestTurn !== undefined && latestTurn !== undefined
-            ? Math.max(prev.latestTurn, latestTurn)
-            : (prev?.latestTurn ?? latestTurn)
-          const lastBotAt = botRow !== undefined ? (botRow.time ?? 0) : prev?.lastBotAt
-          tails.set(sessionId, {
-            lastAt: last.time ?? 0,
-            preview: previewText(last),
-            ...(lastBotAt !== undefined ? { lastBotAt } : {}),
-            ...(mergedTurn !== undefined ? { latestTurn: mergedTurn } : {}),
-          })
-          return
-        }
+        if (latest !== undefined && latestTurn !== undefined) break
         if (!page.hasMore || events.length === 0) break
         beforeSeq = events[0]?.seq
       }
       const prev = tails.get(sessionId)
-      const mergedTurn = prev?.latestTurn !== undefined && latestTurn !== undefined
-        ? Math.max(prev.latestTurn, latestTurn)
-        : (prev?.latestTurn ?? latestTurn)
-      tails.set(sessionId, { lastAt: 0, preview: '', ...(mergedTurn !== undefined ? { latestTurn: mergedTurn } : {}) })
+      const mergedTurn = maxTurn(prev?.latestTurn, latestTurn)
+      const usePrev = prev !== null && prev !== undefined && (latest === undefined || prev.lastAt > latest.lastAt)
+      const base = usePrev ? { lastAt: prev.lastAt, preview: prev.preview } : (latest ?? { lastAt: 0, preview: '' })
+      const mergedBotAt = prev?.lastBotAt !== undefined && lastBotAt !== undefined
+        ? Math.max(prev.lastBotAt, lastBotAt)
+        : (prev?.lastBotAt ?? lastBotAt)
+      tails.set(sessionId, {
+        ...base,
+        ...(mergedBotAt !== undefined ? { lastBotAt: mergedBotAt } : {}),
+        ...(mergedTurn !== undefined ? { latestTurn: mergedTurn } : {}),
+      })
     } catch { tails.set(sessionId, { lastAt: 0, preview: '' }) }
   }
   rt.chatTail = sessionId => {
@@ -4413,11 +4432,11 @@ export function install(rt) {
   ctx.on('session/event', (session, event) => {
     if (!tails.has(session.id)) return
     try {
-      if (event.type === 'turn/start' && typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn) && event.data.turn >= 1) {
+      const eventTurn = positiveTurn(event?.data?.turn)
+      if (eventTurn !== undefined) {
         const prev = tails.get(session.id)
         if (prev !== null) {
-          const latestTurn = prev?.latestTurn === undefined ? event.data.turn : Math.max(prev.latestTurn, event.data.turn)
-          tails.set(session.id, { ...prev, latestTurn })
+          tails.set(session.id, { ...prev, latestTurn: maxTurn(prev?.latestTurn, eventTurn) })
         }
       }
       for (const item of displayItems(session.id, [event], session)) if (PREVIEWABLE.has(item.kind)) applyTail(session.id, item)

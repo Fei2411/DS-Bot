@@ -757,6 +757,36 @@ test('state rows carry lastAt, lastBotAt, latestTurn and preview from the Bot ow
   await stop()
 })
 
+test('cold chatTail recovers latestTurn across a 60-event page split after restart', async () => {
+  const { call, history, rt, stop } = start()
+  const created = (await call('create-bot', { name: 'RetryBot' })).value
+  const sessionId = rt.chatOf(created.id)
+  // Simulate a stopped retry whose turn/start sits on page 2 while 65 subsequent events
+  // (including a user message on page 1) fill the newest 60-event page without turn/start.
+  history[sessionId] = [
+    { type: 'turn/start', seq: 1, time: 1000, data: { turn: 2 } },
+    ...Array.from({ length: 65 }, (_, index) => ({
+      type: 'tool/call',
+      seq: index + 2,
+      time: 1001 + index,
+      data: { name: 'read_file', callId: `c${index}`, arguments: '{}' },
+    })),
+    user(67, 'Retry prompt on newest page', 2000),
+  ]
+  // Trigger a cold fillTail without emitting any live turn/start in this process.
+  let row
+  for (let at = 0; at < 200 && row === undefined; at += 1) {
+    const bot = (await call('state', {})).value.bots.find(candidate => candidate.id === created.id)
+    if (bot?.preview === 'Retry prompt on newest page') row = bot
+    else await settle()
+  }
+  assert(row !== undefined)
+  assert.equal(row.lastAt, 2000)
+  assert.equal(row.lastBotAt, undefined)
+  assert.equal(row.latestTurn, 2)
+  await stop()
+})
+
 test('room-chat reads the current part after a group chat moves to a fresh part, and pages back to earlier parts', async (t) => {
   const { call, emit, history, routes, rt, stop } = start()
   t.after(stop)
