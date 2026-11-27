@@ -3092,30 +3092,47 @@ export function openCoordinationDb({
         }
       }
 
+      const idemByRun = new Map()
+      if (Array.isArray(legacyApiRuns?.idempotency)) {
+        for (const pair of legacyApiRuns.idempotency) {
+          if (Array.isArray(pair) && typeof pair[0] === 'string' && pair[1] && typeof pair[1].runId === 'string') {
+            idemByRun.set(pair[1].runId, { key: pair[0], fingerprint: pair[1].fingerprint })
+          }
+        }
+      }
       const runsList = Array.isArray(legacyApiRuns?.runs) ? legacyApiRuns.runs : []
       for (const run of runsList) {
         if (!run || typeof run !== 'object' || typeof run.runId !== 'string' || run.runId === '') continue
+        const isGroupTarget = run.target?.kind === 'group' || run.target?.kind === 'room'
         const botId = run.target?.kind === 'bot' ? run.target.id : (run.botId ?? 'api')
         const status = run.status === 'completed'
           ? 'done'
           : run.status === 'failed'
             ? 'failed'
             : 'stopped'
+        const idem = idemByRun.get(run.runId)
         const res = createWork({
           workId: `api:${run.runId}`,
           botId,
-          kind: run.target?.kind === 'room' ? 'room_work' : 'task',
+          kind: isGroupTarget ? 'room_work' : 'task',
           logicalAddress: `api:${run.runId}`,
           status,
           originKind: 'api',
-          roomId: run.target?.kind === 'room' ? run.target.id : undefined,
+          roomId: isGroupTarget ? run.target.id : undefined,
           apiRunId: run.runId,
+          ...(idem?.key ? { apiIdempotencyKey: idem.key } : {}),
           apiMeta: {
             tokenId: run.tokenId ?? null,
             tokenName: run.tokenName ?? null,
             target: run.target ?? null,
             mode: run.mode ?? 'chat',
+            runStatus: run.status ?? status,
             usage: run.usage ?? null,
+            ...(run.output !== undefined ? { output: run.output } : {}),
+            ...(run.error !== undefined ? { error: run.error } : {}),
+            ...(run.taskId !== undefined ? { taskId: run.taskId } : {}),
+            ...(run.partId !== undefined ? { partId: run.partId } : {}),
+            ...(idem?.fingerprint !== undefined ? { idempotencyFingerprint: idem.fingerprint } : {}),
           },
           sessionId: run.sessionId,
           meta: { migratedFrom: 'api-runs.json' },

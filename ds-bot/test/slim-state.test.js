@@ -965,7 +965,7 @@ test('concurrent writeSegmentNote + deleteSegmentNotes cannot resurrect deleted 
   assert.equal(host.rt.readSegmentNote('race-sid'), undefined)
 })
 
-test('dispose during migrateSegmentNotes stops remaining segment note writes before lock release', async (t) => {
+test('dispose during migrateSegmentNotes stops remaining segment note writes before lock release', async () => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-slim-dispose-'))
   tempDirs.push(home)
 
@@ -1026,7 +1026,7 @@ test('dispose during migrateSegmentNotes stops remaining segment note writes bef
   assert.equal(existsSync(seg2Path), false, 'seg-2 must not be written after dispose stopped migration')
 })
 
-test('ledger.mergeRecords prevents duplicate disk writes, duplicate delivered events on cold open, and book resurrection after drop', async (t) => {
+test('ledger.mergeRecords prevents duplicate disk writes, duplicate delivered events on cold open, and book resurrection after drop', async () => {
   const makeLedger = (label) => {
     const home = mkdtempSync(join(tmpdir(), `ds-bot-merge-race-${label}-`))
     tempDirs.push(home)

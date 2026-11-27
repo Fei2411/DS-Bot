@@ -120,31 +120,35 @@ export function install(rt) {
   const { home } = rt
   const inflightPath = join(home, 'inflight.json')
   const apiRunsPath = join(home, 'api-runs.json')
+  /** @type {{ promise: Promise<void>, skipped: boolean } | null} */
   let adopting = null
   let migratedLegacy = false
+  let disposed = false
+  rt.ctx?.effect?.(() => () => { disposed = true }, 'ds-bot: resume lifecycle')
 
   function migrateLegacyToCoordDb() {
-    if (migratedLegacy) return false
+    if (migratedLegacy || disposed) return false
     if (rt.readOnly?.() !== undefined) return false
     const coordDb = rt.coordDb
     if (!coordDb || coordDb.readonly || coordDb.isClosed()) return false
 
     const inflight = existsSync(inflightPath) ? readJsonSafe(inflightPath) : undefined
-    const apiRuns = existsSync(apiRunsPath) ? readJsonSafe(apiRunsPath) : undefined
     const hasLegacyState = Object.keys(rt.state?.bots ?? {}).length > 0
       || Object.keys(rt.state?.works ?? {}).length > 0
       || Object.keys(rt.state?.roomBatches ?? {}).length > 0
       || Object.keys(rt.state?.roomReports ?? {}).length > 0
 
-    if (!hasLegacyState && !inflight && !apiRuns) {
+    if (!hasLegacyState && !inflight) {
       migratedLegacy = true
       return false
     }
 
+    // Legacy `api-runs.json` is migrated exclusively by `api/runs.js:migrateLegacyApiRuns()`
+    // during `rt.reconcileApiRuns()` so full `idempotency`, `output`, `error`, `taskId`,
+    // and `group` target fields are preserved without stub rows shadowing them.
     coordDb.importLegacyState({
       state: rt.state,
       inflight,
-      apiRuns,
     })
 
     if (existsSync(inflightPath)) {
@@ -163,17 +167,20 @@ export function install(rt) {
   // 2. When holding `state.lock` (RW): runs idempotent legacy migration, ensures foreground works,
   //    reconciles every interrupted work against DSH D2 `queryDeliveryStatus` (never routing
   //    failed/unstarted background tasks into foreground private chat), and kicks the scheduler.
-  let adoptingSkipped = false
   function adoptLiveWork({ lazy = false } = {}) {
     if (adopting !== null) {
-      if (lazy) return adopting
-      return adopting.then(() => (adoptingSkipped ? adoptLiveWork({ lazy: false }) : undefined))
+      const current = adopting
+      if (lazy) return current.promise
+      return current.promise.then(() => (current.skipped ? adoptLiveWork({ lazy: false }) : undefined))
     }
-    adoptingSkipped = false
-    adopting = (async () => {
+    const run = { promise: null, skipped: false }
+    adopting = run
+    run.promise = (async () => {
       await rt.load()
+      if (disposed) return
       rt.refreshCoordDb?.()
       await rt.adoptLiveTurnMaps?.()
+      if (disposed) return
 
       if (rt.readOnly?.() !== undefined) return
       if (lazy && typeof rt.hasExistingCoordDb === 'function' && !rt.hasExistingCoordDb()) {
@@ -186,12 +193,12 @@ export function install(rt) {
           bot => Array.isArray(bot?.tasks) && bot.tasks.some(t => t && !['done', 'completed', 'cancelled', 'failed', 'interrupted', 'stopped'].includes(t.status)),
         )
         if (!hasLegacyWorkData && !hasOpenBotTasks) {
-          adoptingSkipped = true
+          run.skipped = true
           return
         }
       }
       const coordDb = rt.coordDb
-      if (!coordDb || coordDb.readonly || coordDb.isClosed()) return
+      if (disposed || !coordDb || coordDb.readonly || coordDb.isClosed()) return
 
       migrateLegacyToCoordDb()
       rt.reconcileLostWorks?.()
@@ -264,7 +271,7 @@ export function install(rt) {
 
       const interrupted = coordDb.listInterruptedWorks()
       for (const work of interrupted) {
-        if (rt.readOnly?.() !== undefined) return
+        if (disposed || coordDb.isClosed() || rt.readOnly?.() !== undefined) return
         // Group-relay-managed room_call / room_caller works are reconciled via `groups.js` (`settleRoomBatches`),
         // never requeued into raw `dsh-adapter` dispatch bypassing `group_relay`.
         if (work.kind === 'room_work' && work.originKind === 'group') continue
@@ -301,6 +308,7 @@ export function install(rt) {
         try {
           deliveryStatus = await rt.queryDeliveryStatus(sessionId, query)
         } catch (error) {
+          if (disposed || coordDb.isClosed() || rt.readOnly?.() !== undefined) return
           rt.warn?.('ds-bot: delivery status check for %s failed: %s', work.workId, error?.message ?? error)
           coordDb.pauseWork(work.workId, {
             status: 'needs_verification',
@@ -314,6 +322,7 @@ export function install(rt) {
           })
           continue
         }
+        if (disposed || coordDb.isClosed() || rt.readOnly?.() !== undefined) return
         const reconciled = coordDb.reconcileDeliveryStatus({
           workId: work.workId,
           deliveryStatus,
@@ -332,14 +341,18 @@ export function install(rt) {
         }
       }
 
+      if (disposed || coordDb.isClosed() || rt.readOnly?.() !== undefined) return
       await rt.reconcileTasksAfterRestart?.(liveTaskSessions)
+      if (disposed || coordDb.isClosed() || rt.readOnly?.() !== undefined) return
       await rt.settleRoomBatches?.()
+      if (disposed || coordDb.isClosed() || rt.readOnly?.() !== undefined) return
       await rt.reconcileApiRuns?.()
+      if (disposed || coordDb.isClosed() || rt.readOnly?.() !== undefined) return
       await rt.kickScheduler?.()
     })().finally(() => {
-      adopting = null
+      if (adopting === run) adopting = null
     })
-    return adopting
+    return run.promise
   }
 
   // Process-local tracker for direct `rt.deliver()` messages (e.g. `role: 'kickoff'`)

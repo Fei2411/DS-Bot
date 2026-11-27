@@ -1217,4 +1217,107 @@ test('createRuntime keeps coordination.sqlite uncreated on fresh/settled homes a
   } finally {
     await ctx.dispose()
   }
+
+  // When an in-flight lazy adoptLiveWork skips early, multiple concurrent explicit
+  // adoptLiveWork() callers must ALL wait for the single follow-up recovery run to finish.
+  {
+    const multiHome = tempDir('dsb-coord-rt-multi-wait-')
+    const multiCtx = fakeContext()
+    try {
+      const rt = createRuntime(multiCtx, { home: multiHome })
+      // Wait for initial startup lazy adopt to finish so we control exact concurrency.
+      await rt.adoptLiveWork({ lazy: true })
+      const loadGate = Promise.withResolvers()
+      const recoveryGate = Promise.withResolvers()
+      let loadCalls = 0
+      let recoveryCalls = 0
+      const origLoad = rt.load
+      rt.load = async (...args) => {
+        loadCalls += 1
+        if (loadCalls === 1) await loadGate.promise
+        return origLoad(...args)
+      }
+      const origReconcileTasks = rt.reconcileTasksAfterRestart
+      rt.reconcileTasksAfterRestart = async (...args) => {
+        recoveryCalls += 1
+        await recoveryGate.promise
+        return origReconcileTasks?.(...args)
+      }
+
+      const lazyRun = rt.adoptLiveWork({ lazy: true })
+      let firstSettled = false
+      let secondSettled = false
+      const explicit1 = rt.adoptLiveWork().then(() => { firstSettled = true })
+      const explicit2 = rt.adoptLiveWork().then(() => { secondSettled = true })
+
+      // Release lazy load so lazyRun skips early and triggers ONE non-lazy follow-up.
+      loadGate.resolve()
+      await lazyRun
+      await new Promise(resolve => setTimeout(resolve, 25))
+      assert.equal(recoveryCalls, 1, 'exactly one follow-up non-lazy recovery run starts')
+      assert.equal(firstSettled, false, 'first explicit caller must wait for follow-up recovery')
+      assert.equal(secondSettled, false, 'second explicit caller must ALSO wait for follow-up recovery')
+
+      recoveryGate.resolve()
+      await Promise.all([explicit1, explicit2])
+      assert.equal(firstSettled, true)
+      assert.equal(secondSettled, true)
+      assert.equal(loadCalls, 2, 'only lazy + one non-lazy follow-up load occurred')
+      assert.equal(recoveryCalls, 1, 'recovery ran once for all concurrent explicit callers')
+    } finally {
+      await multiCtx.dispose()
+    }
+  }
+
+  // End-to-end upgrade from legacy api-runs.json through startup adoptLiveWork must preserve
+  // Idempotency-Key, output, taskId, and group target without stub rows shadowing them.
+  {
+    const upgradeHome = tempDir('dsb-coord-api-upgrade-')
+    writeFileSync(join(upgradeHome, 'state.json'), JSON.stringify({
+      version: 1,
+      mainBotIds: ['a'],
+      bots: { a: { id: 'a', name: 'Chief', role: 'Lead', sessionId: 'a', createdAt: 1 } },
+      rooms: { r1: { id: 'r1', name: 'Ops', members: ['a'], admin: 'a', mode: 'admin', sessions: { a: 'r1-a' } } },
+      exchanges: [],
+      exchangeTurns: {},
+      questions: {},
+      prefs: {},
+      revision: 1,
+    }))
+    writeFileSync(join(upgradeHome, 'api-runs.json'), JSON.stringify({
+      version: 1,
+      runs: [{
+        runId: 'run_upg_1',
+        tokenId: 'tok_1',
+        tokenName: 'ci',
+        target: { kind: 'group', id: 'r1', name: 'Ops' },
+        mode: 'task',
+        status: 'completed',
+        createdAtMs: 1000,
+        startedAtMs: 1001,
+        finishedAtMs: 2000,
+        sessionId: 'r1-a',
+        taskId: 'k_api_1',
+        output: { text: 'Full legacy API output', truncated: false, fullFileRef: null, messages: [], deliverables: [] },
+        usage: { inputTokens: 10, cacheReadTokens: 0, outputTokens: 20, calls: 1 },
+      }],
+      idempotency: [['idem-key-upgrade-1', { runId: 'run_upg_1', fingerprint: 'fp-upgrade-1' }]],
+    }))
+    const upgCtx = fakeContext()
+    try {
+      const rt = createRuntime(upgCtx, { home: upgradeHome })
+      await rt.adoptLiveWork()
+      const byIdem = rt.coordDb.getWorkByApiIdempotencyKey('idem-key-upgrade-1')
+      assert.ok(byIdem, 'legacy api-runs.json Idempotency-Key must survive startup migration')
+      assert.equal(byIdem.apiRunId, 'run_upg_1')
+      assert.equal(byIdem.kind, 'room_work')
+      assert.equal(byIdem.roomId, 'r1')
+      assert.equal(byIdem.apiMeta?.output?.text, 'Full legacy API output')
+      assert.equal(byIdem.apiMeta?.taskId, 'k_api_1')
+      assert.equal(byIdem.apiMeta?.idempotencyFingerprint, 'fp-upgrade-1')
+      assert.equal(existsSync(join(upgradeHome, 'api-runs.json.migrated')), true)
+    } finally {
+      await upgCtx.dispose()
+    }
+  }
 })
