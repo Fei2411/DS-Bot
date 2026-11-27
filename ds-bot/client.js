@@ -2086,6 +2086,7 @@ var JA = {
   "This file cannot be read here": "このファイルはここでは読み取れません",
   "That wait is no longer open": "その待機はすでに終了しています",
   "Nothing to send": "送信する内容がありません",
+  "This question is no longer open": "この質問はすでに閉じられています",
   "This view is no longer open": "このビューはすでに閉じられています",
   "This is not a photo DS Bot can send": "これは DS Bot が送信できる画像ではありません",
   "A photo did not arrive. Send it again.": "画像が届きませんでした。もう一度送信してください。",
@@ -5490,6 +5491,7 @@ var KO = {
   "This file cannot be read here": "이 파일은 여기에서 읽을 수 없습니다",
   "That wait is no longer open": "해당 대기가 이미 종료되었습니다",
   "Nothing to send": "보낼 내용이 없습니다",
+  "This question is no longer open": "이 질문은 이미 닫혔습니다",
   "This view is no longer open": "이 보기는 이미 닫혔습니다",
   "This is not a photo DS Bot can send": "DS Bot이 보낼 수 있는 사진이 아닙니다",
   "A photo did not arrive. Send it again.": "사진이 도착하지 않았습니다. 다시 보내 주세요.",
@@ -8896,6 +8898,7 @@ var ES = {
   "This file cannot be read here": "Este archivo no se puede leer aquí",
   "That wait is no longer open": "Esa espera ya no está abierta",
   "Nothing to send": "Nada que enviar",
+  "This question is no longer open": "Esta pregunta ya no está abierta",
   "This view is no longer open": "Esta vista ya no está abierta",
   "This is not a photo DS Bot can send": "Esta no es una foto que DS Bot pueda enviar",
   "A photo did not arrive. Send it again.": "No llegó una foto. Envíala de nuevo.",
@@ -12259,6 +12262,7 @@ var FR = {
   "This file cannot be read here": "Ce fichier ne peut pas être lu ici",
   "That wait is no longer open": "Cette attente est terminée",
   "Nothing to send": "Rien à envoyer",
+  "This question is no longer open": "Cette question n’est plus ouverte",
   "This view is no longer open": "Cette vue n’est plus ouverte",
   "This is not a photo DS Bot can send": "Ce n’est pas une photo que DS Bot peut envoyer",
   "A photo did not arrive. Send it again.": "Une photo n’est pas arrivée. Envoyez-la de nouveau.",
@@ -15663,6 +15667,7 @@ var DE = {
   "This file cannot be read here": "Diese Datei kann hier nicht gelesen werden",
   "That wait is no longer open": "Dieses Warten ist nicht mehr aktiv",
   "Nothing to send": "Nichts zu senden",
+  "This question is no longer open": "Diese Frage ist nicht mehr offen",
   "This view is no longer open": "Diese Ansicht ist nicht mehr geöffnet",
   "This is not a photo DS Bot can send": "Dies ist kein Foto, das DS Bot senden kann",
   "A photo did not arrive. Send it again.": "Ein Foto ist nicht angekommen. Sende es erneut.",
@@ -19718,6 +19723,7 @@ var HOST_ZH = {
   "This file cannot be read here": "这个文件在这里读不了",
   "That wait is no longer open": "这个等待已经结束了",
   "Nothing to send": "没有要发送的内容",
+  "This question is no longer open": "这个提问已经关闭了",
   "This view is no longer open": "这个视图已经关闭了",
   "This is not a photo DS Bot can send": "这不是 DS Bot 能发送的照片",
   "A photo did not arrive. Send it again.": "有张照片没传到，请重新发送。",
@@ -30966,10 +30972,11 @@ function PendingQuestion({ sessionId, question, actions, inline, enterToSend = t
     void Promise.resolve().then(make).then(() => {
       if (outcome) actions?.finishQuestionSettle?.("ask_user", question.id, true);
       if (settle) setAnswered(question.id);
-    }, () => {
+    }, (failure) => {
       if (outcome) actions?.finishQuestionSettle?.("ask_user", question.id, false);
       onFail?.();
       setAnswered(null);
+      actions?.reportError?.(failure, "question");
     }).finally(() => {
       busyRef.current = false;
       setBusy(false);
@@ -34771,9 +34778,10 @@ function PendingView({ sessionId, view, actions, inline, bare: bare2 = false }) 
     setBusy(true);
     void Promise.resolve().then(make).then(() => {
       if (settle) setAnswered(view.id);
-    }, () => {
+    }, (failure) => {
       onFail?.();
       setAnswered(null);
+      actions.reportError?.(failure, "view");
     }).finally(() => {
       busyRef.current = false;
       setBusy(false);

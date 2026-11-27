@@ -1989,6 +1989,7 @@ export const KO = {
   'This file cannot be read here': '이 파일은 여기에서 읽을 수 없습니다',
   'That wait is no longer open': '해당 대기가 이미 종료되었습니다',
   'Nothing to send': '보낼 내용이 없습니다',
+  'This question is no longer open': '이 질문은 이미 닫혔습니다',
   'This view is no longer open': '이 보기는 이미 닫혔습니다',
   'This is not a photo DS Bot can send': 'DS Bot이 보낼 수 있는 사진이 아닙니다',
   'A photo did not arrive. Send it again.': '사진이 도착하지 않았습니다. 다시 보내 주세요.',

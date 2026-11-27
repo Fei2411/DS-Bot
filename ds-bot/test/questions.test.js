@@ -28,9 +28,10 @@ async function start() {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-questions-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const ctx = fakeContext()
+  const followups = []
   Object.assign(ctx, {
     workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
-    sessionController: { create: async () => ({ sessionId: 's1' }), resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup() {} } }), selectModel: async () => {} },
+    sessionController: { create: async () => ({ sessionId: 's1' }), resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup: message => followups.push(message) } }), selectModel: async () => {} },
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
   })
@@ -51,12 +52,13 @@ async function start() {
     { question: 'Which name?', options: [{ label: 'Lookout' }, { label: 'Scout' }] },
     { agent: { id: sessionId }, callId, concludeTurn() {} },
   )
-  const questions = async () => (await (await route.fetch(new Request('http://localhost/api/bot', {
-    method: 'POST', body: JSON.stringify({ endpoint: 'state', payload: {} }),
-  }))).json()).value.questions
+  const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', {
+    method: 'POST', body: JSON.stringify({ endpoint, payload }),
+  }))).json()
+  const questions = async () => (await call('state', {})).value.questions
   // Loading once fills the Session-owner indexes turns.js filters events by.
   await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
-  return { emit, ask, questions, stop: async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) } }
+  return { emit, ask, call, questions, followups, stop: async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) } }
 }
 
 const text = value => [{ type: 'text', text: value }]
@@ -72,6 +74,23 @@ test('a card asked in a hidden Bot-to-Bot turn keeps its call id, and closing it
   assert.equal(asked.callId, 'call-1')
   emit('writer', 'user/message', { content: text('Call it Scout'), source: { kind: 'user' } })
   assert.equal((await questions()).writer, undefined)
+  assert.deepEqual(rt.state.closedCards, { writer: { 'call-1': 'replied' } })
+})
+
+// The user's message already answered the card, so a later click on it is refused
+// rather than sent as a second, contradicting answer (#2357).
+test('answering a card after the user wrote in the chat is refused as stale and sends nothing', async (t) => {
+  const { emit, ask, call, questions, followups, stop } = await start()
+  t.after(stop)
+  emit('writer', 'turn/start', { turn: 1 })
+  emit('writer', 'user/message', { content: text('Help me name a Bot'), source: { kind: 'user' } })
+  await ask('writer', 'call-1')
+  const { id } = (await questions()).writer
+  emit('writer', 'user/message', { content: text('Call it Scout'), source: { kind: 'user' } })
+  const late = await call('answer-question', { sessionId: 'writer', questionId: id, answer: { selected: ['Lookout'] } })
+  assert.equal(late.ok, false)
+  assert.equal(late.error.code, 'bot/stale')
+  assert.deepEqual(followups, [])
   assert.deepEqual(rt.state.closedCards, { writer: { 'call-1': 'replied' } })
 })
 

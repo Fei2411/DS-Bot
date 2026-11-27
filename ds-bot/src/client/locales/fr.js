@@ -1956,6 +1956,7 @@ export const FR = {
   "This file cannot be read here": "Ce fichier ne peut pas être lu ici",
   "That wait is no longer open": "Cette attente est terminée",
   "Nothing to send": "Rien à envoyer",
+  "This question is no longer open": "Cette question n’est plus ouverte",
   "This view is no longer open": "Cette vue n’est plus ouverte",
   "This is not a photo DS Bot can send": "Ce n’est pas une photo que DS Bot peut envoyer",
   "A photo did not arrive. Send it again.": "Une photo n’est pas arrivée. Envoyez-la de nouveau.",

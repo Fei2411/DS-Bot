@@ -186,6 +186,7 @@ test('user-facing host errors translate across all non-English locales', () => {
     'This file cannot be read here',
     'That wait is no longer open',
     'Nothing to send',
+    'This question is no longer open',
     'This view is no longer open',
     'This is not a photo DS Bot can send',
     'A photo did not arrive. Send it again.',
