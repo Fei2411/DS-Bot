@@ -368,7 +368,7 @@ test('Engine settings plugin registers all sections + session-log item, and Appe
   mod.registerEngineSettingsPlugin(runtime)
 
   const sectionIds = Array.from(slots.list(mod.SETTINGS_SECTION_SLOT), entry => entry.id)
-  assert.deepEqual(sectionIds, ['account', 'plugins', 'agent-presets', 'archived-sessions'])
+  assert.deepEqual(sectionIds, ['account', 'plugins', 'agent-presets', 'models', 'archived-sessions'])
   assert.deepEqual(Array.from(slots.list(mod.SETTINGS_GENERAL_ITEM_SLOT), entry => entry.id), ['language', 'session-log-deepseek'])
 
   // Bot mode hides Archived sessions from the Settings bridge; Classic Agent mode exposes it.
@@ -377,10 +377,10 @@ test('Engine settings plugin registers all sections + session-log item, and Appe
     return { type: 'probe', props: { ids: bridge.sections.map(s => s.id), items: bridge.items.map(i => i.id), children: [] } }
   }
   const botBridge = renderTree(Probe, { surfaceMode: 'bot' })
-  assert.deepEqual(Array.from(botBridge.props.ids), ['account', 'plugins', 'agent-presets'])
+  assert.deepEqual(Array.from(botBridge.props.ids), ['account', 'plugins', 'agent-presets', 'models'])
   assert.deepEqual(Array.from(botBridge.props.items), ['language', 'session-log-deepseek'])
   const agentBridge = renderTree(Probe, { surfaceMode: 'agent' })
-  assert.deepEqual(Array.from(agentBridge.props.ids), ['account', 'plugins', 'agent-presets', 'archived-sessions'])
+  assert.deepEqual(Array.from(agentBridge.props.ids), ['account', 'plugins', 'agent-presets', 'models', 'archived-sessions'])
 
   const Section = ({ children }) => ({ type: 'section', props: { children } })
   const Row = ({ label, children }) => ({ type: 'row', props: { label, children } })

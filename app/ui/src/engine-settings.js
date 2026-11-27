@@ -4,6 +4,7 @@
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
+import { effortCache } from '../../../ds-bot/src/client/model-menu.js'
 import { Switch } from '../../../ds-bot/src/client/bot-settings.js'
 import { MAIN_LOOK } from '../../../ds-bot/src/client/characters.js'
 import { hostText, language, t } from '../../../ds-bot/src/client/i18n.js'
@@ -487,6 +488,117 @@ function StatusAlert({ error, notice }) {
   return h(Fragment, null,
     error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null,
     notice ? h('div', { className: 'dsb-engine-notice', role: 'status' }, notice) : null)
+}
+
+const OPENAI_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+const GEMINI_LEVELS = ['off', 'minimal', 'low', 'medium', 'high']
+
+// DSH addresses a declared model by array index. Its namespace revision binds the
+// selected id to that index if another window refreshes or reorders the models.
+function declaredModels(section) {
+  const list = []
+  for (const [provider, route] of Object.entries(section?.value?.providers ?? {})) {
+    if (!Array.isArray(route?.models)) continue
+    route.models.forEach((entry, index) => {
+      const id = typeof entry === 'string' ? entry : entry?.id
+      if (!id) return
+      list.push({
+        ref: provider + '/' + id, id, entry, api: route.api,
+        path: ['providers', provider, 'models', String(index)],
+      })
+    })
+  }
+  return list
+}
+
+function ModelThinkingForm({ model, revision, disabled, onSave }) {
+  const saved = model.entry.reasoningEfforts
+  const [draft, setDraft] = useState(saved)
+  const levels = model.api === 'google-generative-ai' ? GEMINI_LEVELS : OPENAI_LEVELS
+  function change(level, value) {
+    setDraft(current => {
+      const next = { ...current }
+      if (value === undefined) delete next[level]
+      else next[level] = value
+      return Object.keys(next).length ? next : undefined
+    })
+  }
+  const keys = Object.keys(draft ?? {})
+  const dirty = draft !== saved && (keys.length !== Object.keys(saved ?? {}).length ||
+    keys.some(key => draft[key] !== saved?.[key]) || typeof draft !== typeof saved)
+  const invalid = keys.length > 0 && (!keys.some(level => level !== 'off') ||
+    keys.some(level => level !== 'off' && !draft[level]?.trim()))
+  function save() {
+    let op
+    if (typeof model.entry === 'string') {
+      op = { op: 'set', path: model.path, value: { id: model.id, reasoningEfforts: draft } }
+    } else {
+      const path = [...model.path, 'reasoningEfforts']
+      op = draft === undefined ? { op: 'unset', path } : { op: 'set', path, value: draft }
+    }
+    void onSave(op, revision, model.ref)
+  }
+  return h(EngineSection, { title: t('Thinking level') },
+    levels.map(level => {
+      const checked = Object.hasOwn(draft ?? {}, level)
+      return h(EngineRow, { key: level, label: level },
+        h('div', { className: 'dsb-engine-inline' },
+          checked ? h('input', {
+            className: 'bt-input dsb-engine-text', 'aria-label': level + ' · API ' + t('Value'),
+            value: draft[level] ?? '', spellCheck: false, disabled,
+            onChange: e => change(level, level === 'off' && e.target.value === '' ? null : e.target.value),
+          }) : null,
+          h(Switch, {
+            on: checked, label: level, disabled,
+            onChange: on => change(level, on ? (level === 'off' ? null : level) : undefined),
+          })))
+    }),
+    h(EngineFormBar, { dirty, invalid, disabled, onSave: save, onDiscard: () => setDraft(saved) }))
+}
+
+export function ModelThinkingSettingsPage({ readOnly = false }) {
+  const [section, setSection] = useState(null)
+  const [writable, setWritable] = useState(false)
+  const [ref, setRef] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  async function load() {
+    try {
+      const data = await call('engine-settings-list')
+      setSection(data.namespaces?.find(item => item.ns === 'llm-pi-ai') ?? {})
+      setWritable(data.writable === true)
+      setError('')
+    } catch (failure) { setError(hostText(failure.message)) }
+  }
+  useEffect(() => { void load() }, [])
+  async function save(op, revision, modelRef) {
+    setSaving(true)
+    setNotice('')
+    try {
+      const updated = await call('engine-settings-mutate', { ns: 'llm-pi-ai', expectedRevision: revision, ops: [op] })
+      effortCache.delete(modelRef)
+      setSection(updated)
+      setError('')
+      setNotice(t('Saved'))
+    } catch (failure) {
+      setError(hostText(failure.message))
+    } finally { setSaving(false) }
+  }
+  const models = declaredModels(section)
+  const model = models.find(row => row.ref === ref) ?? models[0]
+  return h('div', { className: 'dsb-engine-page' },
+    h(StatusAlert, { error, notice }),
+    error ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: saving, onClick: load }, t('Reload')) : null,
+    section === null ? (error ? null : h('p', { role: 'status' }, t('Loading…'))) :
+      model === undefined ? h('p', null, t('No models available.')) : h(Fragment, null,
+        h(EngineSection, { title: t('Model') }, h(EngineRow, { label: t('Choose a model') },
+          h(SelectMenu, { value: model.ref, disabled: saving, 'aria-label': t('Choose a model'),
+            options: models.map(row => ({ value: row.ref, label: row.ref })),
+            onChange: next => { setRef(next); setNotice(''); setError('') },
+          }))),
+        h(ModelThinkingForm, { key: model.ref + ':' + section.revision, model, revision: section.revision,
+          disabled: readOnly || !writable || saving, onSave: save })))
 }
 
 function formatWallets(wallets) {

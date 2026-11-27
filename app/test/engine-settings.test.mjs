@@ -24,6 +24,7 @@ const entryCode = `
     isExcludedBundle,
     AccountSettingsPage,
     PluginsSettingsPage,
+    ModelThinkingSettingsPage,
     AgentPresetsSettingsPage,
     ArchivedSessionsPage,
     SessionLogGeneralItem,
@@ -654,7 +655,7 @@ test('registerEngineSettingsPlugin removes engine-config and forwards subTarget 
   mod.registerEngineSettingsPlugin(runtime)
 
   const sectionIds = Array.from(slots.list(mod.SETTINGS_SECTION_SLOT), entry => entry.id)
-  assert.deepEqual(sectionIds, ['account', 'plugins', 'agent-presets', 'archived-sessions'])
+  assert.deepEqual(sectionIds, ['account', 'plugins', 'agent-presets', 'models', 'archived-sessions'])
   assert.equal(slots.list(mod.SETTINGS_SECTION_ICON_SLOT).some(entry => entry.id === 'engine-config'), false)
 
   const Probe = () => {
@@ -665,6 +666,37 @@ test('registerEngineSettingsPlugin removes engine-config and forwards subTarget 
   const lazyNodes = findAll(rendered, n => n.type === 'lazy-stub')
   assert.equal(lazyNodes.length, 1)
   assert.equal(lazyNodes[0].props.subTarget, 'web-search')
+})
+
+test('model settings save a gateway effort on the selected model with its read revision', async () => {
+  const descriptor = { ns: 'llm-pi-ai', revision: 5, value: { providers: {
+    relay: { api: 'openai-responses', models: [{ id: 'astra', contextWindow: 128000 }, 'other'] },
+  } } }
+  const writes = []
+  const { mod } = loadMod(async (endpoint, body) => {
+    if (endpoint === 'engine-settings-list') return { writable: true, namespaces: [descriptor] }
+    if (endpoint === 'engine-settings-mutate') {
+      writes.push(structuredClone(body))
+      return { ...descriptor, revision: 6 }
+    }
+    throw new Error(endpoint)
+  })
+  const harness = createHarness(mod.ModelThinkingSettingsPage)
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const toggle = findAll(harness.render(), n => n.props?.role === 'switch' && n.props['aria-label'] === 'max')[0]
+  assert.equal(toggle.props['aria-checked'], false)
+  toggle.props.onClick()
+  const field = findAll(harness.render(), n => n.type === 'input' && n.props.value === 'max')[0]
+  field.props.onChange({ target: { value: 'gateway-max' } })
+  const save = findAll(harness.render(), n => n.type === 'button' && textOf(n) === 'Save')[0]
+  assert.equal(save.props.disabled, false)
+  save.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.deepEqual(writes, [{
+    ns: 'llm-pi-ai', expectedRevision: 5,
+    ops: [{ op: 'set', path: ['providers', 'relay', 'models', '0', 'reasoningEfforts'], value: { max: 'gateway-max' } }],
+  }])
 })
 
 test('AccountSettingsPage opens view.attempt.authorizeUrl on sign-in and supports cancel and sign-out', async () => {
