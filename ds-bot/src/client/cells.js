@@ -27,6 +27,7 @@ import { BtwCardView } from './btw.js'
 import { partIndexOf, withBtwRows } from './btw-model.js'
 import { PresentedFiles, ViaTag } from './user-message.js'
 import { layoutOf, thinkingShown } from './themes.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { lruGet, lruSet, memo, useRosterPick } from './memo.js'
 
 export { clockLabel }
@@ -219,12 +220,11 @@ function useDismiss(open, close, refs) {
       if (refs.some(ref => ref.current?.contains(event.target))) return
       close()
     }
-    const onKey = (event) => { if (event.key === 'Escape') { event.stopPropagation(); close() } }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('touchstart', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('touchstart', onDown); window.removeEventListener('keydown', onKey, true) }
+    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('touchstart', onDown) }
   }, [open])
+  useEscape(close, open, { priority: ESCAPE_PRIORITY.MENU })
 }
 
 // The hover toolbar beside a reply bubble: Add reaction, Reply, More. `open` is

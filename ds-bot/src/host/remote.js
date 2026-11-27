@@ -200,7 +200,7 @@ export function createRemoteService(rt) {
 
     feed(signal) {
       return feedEvents((listener) => rt.subscribeFeed((event, data) => {
-        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs') return
+        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs' || event === 'workspace-changed') return
         listener(event, event === 'live' ? stripRemoteLive(data) : data)
       }), signal, this[STOP])
     }

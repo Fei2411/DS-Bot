@@ -297,7 +297,7 @@ export function install(rt) {
     const wantFeed = running !== null && (readyCount > 0 || hasPushDevices())
     if (wantFeed && feedUntap === null) {
       feedUntap = rt.feedTap((event, payload) => {
-        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs') return
+        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs' || event === 'workspace-changed') return
         if (readyCount > 0) {
           if (event === 'live') {
             running.emit(event, remoteState(payload, { browser: true }), (targetDeviceId) => {

@@ -91,8 +91,19 @@ export function install(rt) {
     if (listening()) publish(event, data)
   }
   // Computer-local SSE only (never fans out to paired phones, browsers, or remote RPC taps).
+  const localListeners = new Set()
+  const notifyLocalClients = () => {
+    for (const fn of localListeners) {
+      try { fn(clients.size) } catch { /* isolated */ }
+    }
+  }
   rt.publishLocalFeed = (event, data) => {
     publishLocal(event, data)
+  }
+  rt.localFeedClientCount = () => clients.size
+  rt.onLocalFeedClients = (listener) => {
+    localListeners.add(listener)
+    return () => localListeners.delete(listener)
   }
 
   let liveTimer
@@ -206,6 +217,7 @@ export function install(rt) {
         notifyLocalDisconnected()
       }
     }
+    if (had) notifyLocalClients()
   }
 
   ctx.effect(() => ctx.connection.fetch.register({
@@ -226,6 +238,7 @@ export function install(rt) {
             localConnected = true
             notifyLocalConnected()
           }
+          notifyLocalClients()
           replay((event, data) => send(own, encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)))
         },
         cancel() { leave(controller, { rotated: false }) },
@@ -253,6 +266,7 @@ export function install(rt) {
       for (const controller of clients) leave(controller)
       localConnectListeners.clear()
       localDisconnectListeners.clear()
+      localListeners.clear()
       taps.clear()
       writing.clear()
     }
