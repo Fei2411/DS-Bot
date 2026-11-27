@@ -156,7 +156,7 @@ function baseLog() {
 const actions = {}
 const bot = roster.byId[sessionId]
 
-function mount() {
+function mount({ classic = false } = {}) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -164,8 +164,8 @@ function mount() {
     container,
     render(log) {
       act(() => root.render(h(SessionTranscript, {
-        log, sessionId, roster, actions, classic: false,
-        bot,
+        log, sessionId, roster, actions, classic,
+        bot: classic ? undefined : bot,
       })))
     },
     text: () => container.textContent,
@@ -182,7 +182,7 @@ const keysFor = (rowKey) => [...renderCounts.keys()].filter(key => key.endsWith(
 
 test('stream chunks re-render only the live row; committed memoized rows render zero extra times', () => {
   resetRenderCounts()
-  const view = mount()
+  const view = mount({ classic: true })
   let log = baseLog()
   view.render(log)
   // The tree rendered: one of each memoized row.
@@ -223,7 +223,7 @@ test('stream chunks re-render only the live row; committed memoized rows render 
 
 test('a language switch re-renders the memoized rows in the new language, mid-stream or not', () => {
   resetRenderCounts()
-  const view = mount()
+  const view = mount({ classic: true })
   const log = baseLog()
   view.render(log)
 
@@ -262,7 +262,7 @@ test('a language switch re-renders the memoized rows in the new language, mid-st
 
 test('a language switch during streaming re-renders history once and streaming keeps the memo afterwards', () => {
   resetRenderCounts()
-  const view = mount()
+  const view = mount({ classic: true })
   let log = baseLog()
   view.render(log)
 
@@ -295,11 +295,12 @@ test('a language switch during streaming re-renders history once and streaming k
     assert.equal(n, afterSwitch.get(key) ?? 0, `${key} stays memoized while streaming in the new language`)
   }
   assert.match(view.text(), /text here/, 'the tail of the reply arrived')
+  act(() => { void locale.setLocale('en') })
   view.unmount()
 })
 
 
-test('a live expanded focused tool card keeps its DOM node and disclosure when its row commits', () => {
+test('a live expanded focused tool card in classic mode keeps its DOM node and disclosure when its row commits', () => {
   resetRenderCounts()
   const container = document.createElement('div')
   document.body.appendChild(container)
@@ -324,7 +325,7 @@ test('a live expanded focused tool card keeps its DOM node and disclosure when i
   stream({ type: 'chunk', attemptId: 'tool-live', revision: 2, index: 0, time: T0 + 10, chunk: { type: 'block-start', index: 0, blockType: 'tool-call' } })
   stream({ type: 'chunk', attemptId: 'tool-live', revision: 3, index: 1, time: T0 + 11, chunk: { type: 'tool-call-delta', index: 0, id: 'call-live', name: 'bash', argumentsDelta: '{"command":"ls -la"' } })
   const render = () => act(() => root.render(h(SessionTranscript, {
-    log, sessionId, roster, actions, classic: false, bot,
+    log, sessionId, roster, actions, classic: true,
   })))
   render()
   const head = container.querySelector('.dsb-tool-head')
@@ -345,6 +346,45 @@ test('a live expanded focused tool card keeps its DOM node and disclosure when i
   assert.equal(container.contains(head), true)
   assert.equal(head.getAttribute('aria-expanded'), 'true', 'disclosure state survives the commit')
   assert.equal(document.activeElement, head, 'focus survives the commit')
+  act(() => root.unmount())
+  container.remove()
+})
+
+test('Bot DM mode hides compaction checkpoints and non-Bot/MCP tool cards while still reporting live notes via real ToolCell', () => {
+  resetRenderCounts()
+  const liveNotes = []
+  const botActions = {
+    noteLive: (sid, id, entry) => liveNotes.push([sid, id, entry]),
+  }
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  let log = baseLog()
+  // Add a running MCP tool call and a settled MCP tool call to the Bot DM session.
+  log = applyFrame(log, ev(10, T0 + 10, 'turn/start', { turn: 4 })).log
+  log = applyFrame(log, ev(11, T0 + 11, 'tool/call', { turn: 4, step: 1, callId: 'mcp-done', name: 'mcp__github__search_issues', arguments: '{"query":"memory scope"}' })).log
+  log = applyFrame(log, ev(12, T0 + 12, 'tool/result', { turn: 4, step: 1, message: { toolCallId: 'mcp-done', isError: true, content: [{ type: 'text', text: 'rate limit' }] } })).log
+  log = applyFrame(log, ev(13, T0 + 13, 'tool/call', { turn: 4, step: 2, callId: 'bash-live', name: 'bash', arguments: '{"command":"ls -la"}' })).log
+  const render = (next) => act(() => root.render(h(SessionTranscript, {
+    log: next, sessionId, roster, actions: botActions, classic: false, bot,
+  })))
+  render(log)
+
+  // Compaction pill and both MCP/bash tool cards stay out of Bot DM DOM.
+  assert.equal(container.querySelector('.dsb-compaction'), null, 'Bot DM hides compaction bar')
+  assert.equal(container.querySelector('.dsb-tool'), null, 'Bot DM hides raw tool cards')
+  assert.doesNotMatch(container.textContent, /mcp__github__search_issues|compacted/)
+  // Real ToolCell still emitted a live activity note for the running bash call.
+  assert.ok(liveNotes.some(([sid, id, entry]) => sid === sessionId && id === 'tool:bash-live' && entry !== null), 'running non-Bot tool reports live activity note')
+  const wrap = container.querySelector('.dsb-tool-wrap')
+  assert.ok(wrap && wrap.children.length === 1 && wrap.children[0].getAttribute('data-bt-empty') !== null, 'running non-Bot tool renders only hidden CellEmpty inside .dsb-tool-wrap')
+
+  // Once the running bash call settles, it unmounts and cleans up its live note.
+  log = applyFrame(log, ev(14, T0 + 14, 'tool/result', { turn: 4, step: 2, message: { toolCallId: 'bash-live', isError: false, content: [{ type: 'text', text: 'ok' }] } })).log
+  render(log)
+  assert.equal(container.querySelector('.dsb-tool-wrap'), null, 'settled non-Bot tool leaves zero wrapper nodes in Bot DM')
+  assert.deepEqual(liveNotes.at(-1), [sessionId, 'tool:bash-live', null], 'unmounting settled non-Bot tool clears live note')
+
   act(() => root.unmount())
   container.remove()
 })

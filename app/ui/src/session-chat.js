@@ -649,11 +649,30 @@ const TurnErrorRow = memo(function TurnErrorRow({ row, bot, sessionId, useRoster
 })
 
 
+// Returns true if the tool call tree (root or any nested PTC sub-call) contains a
+// Bot-level tool rendered by DS Bot's `ToolCell`.
+function hasBotToolInTree(block) {
+  if (!block || typeof isBotTool !== 'function') return false
+  const seen = new Set()
+  const stack = [block]
+  while (stack.length > 0) {
+    const cur = stack.pop()
+    if (!cur || seen.has(cur)) continue
+    seen.add(cur)
+    const name = cur.name || cur.call?.name || ''
+    if (name !== '' && isBotTool(name)) return true
+    if (Array.isArray(cur.subCalls)) {
+      for (const child of cur.subCalls) stack.push(child)
+    }
+  }
+  return false
+}
+
 // A tool row, memoized like the message rows: the fallback closures exist only when the
 // row itself renders, so a committed tool card renders once per roster or language change
 // and never per stream chunk. `lang` rides along because the cards carry translated copy.
 const SessionToolRow = memo(function SessionToolRow({
-  row, showSpeaker, flat, bot, cwd, sessionId, roster, actions, registry, lang,
+  row, classic = false, cwd, sessionId, bot, roster, actions, registry, lang,
   loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
   useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
 }) {
@@ -661,6 +680,34 @@ const SessionToolRow = memo(function SessionToolRow({
     () => ({ useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer }),
     [useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer],
   )
+  // Bot DM mode delegates the full call tree (including PTC sub-calls) to DS Bot's
+  // `ToolCell`, matching plugin mode: only Bot-level cards/events draw while non-Bot
+  // and MCP tools stay quiet in the transcript and report running phrases via live notes.
+  if (!classic) {
+    const callId = row.block?.callId || row.callId || ''
+    return h('div', {
+      className: 'dsb-tool-wrap',
+      'data-chat-anchor-key': callId ? `call:${callId}` : undefined,
+      'data-chat-call-id': callId || undefined,
+    }, h(ToolCell, {
+      node: {
+        key: callId || row.key,
+        data: { root: row.block },
+        location: { turn: { turn: row.turn } },
+      },
+      sessionId,
+      useRoster,
+      useUi,
+      useWork,
+      useHeldCards,
+      useBrowserHolds,
+      useBrowserTabs,
+      useBrowserPages,
+      useComputer,
+      actions,
+    }))
+  }
+
   const renderToolFallback = (ownerProps) => {
     if (isComputerToolName(ownerProps.toolName)) {
       return h(ComputerToolView, ownerProps)
@@ -690,25 +737,23 @@ const SessionToolRow = memo(function SessionToolRow({
     return h(GenericToolCard, ownerProps)
   }
 
-  return h(Fragment, null,
-    showSpeaker && flat && bot ? h(SpeakerHead, { bot, time: row.time }) : null,
-    h(ToolCallCard, {
-      entry: row,
-      cwd,
-      openFile: actions?.openFile,
-      loadImage,
-      sessionId,
-      botId: bot?.id,
-      roster,
-      actions,
-      feed,
-      readOnly,
-      hooks: toolHooks,
-      subagentCatalog,
-      onOpenSubagent,
-      registry,
-      fallback: renderToolFallback,
-    }))
+  return h(ToolCallCard, {
+    entry: row,
+    cwd,
+    openFile: actions?.openFile,
+    loadImage,
+    sessionId,
+    botId: bot?.id,
+    roster,
+    actions,
+    feed,
+    readOnly,
+    hooks: toolHooks,
+    subagentCatalog,
+    onOpenSubagent,
+    registry,
+    fallback: renderToolFallback,
+  })
 })
 
 /**
@@ -794,7 +839,7 @@ const EMPTY_SPEAKERS = new Set()
 
 function renderTranscriptRows({
   rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts,
-  sessionId, bot, roster, actions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
+  sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
   useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
   resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
   resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
@@ -814,13 +859,24 @@ function renderTranscriptRows({
         : h(PartLine, { key: row.key, time: row.time })]
     }
 
+    // A Bot condenses its conversation quietly; compaction checkpoints belong to Classic mode.
+    if (row.kind === 'compaction' && !classic) return []
+
+    // Bot DM mode hides settled non-Bot/MCP tools completely and keeps running ones silent
+    // (mounted only so `ToolCell` can report live activity phrases via `useLiveNote`).
+    let silentTool = false
+    if (row.kind === 'tool' && !classic) {
+      if (!hasBotToolInTree(row.block)) {
+        if (row.block?.kind === 'tool-result') return []
+        silentTool = true
+      }
+    }
+
     // Track whether a flat-layout turn still needs its opening Bot avatar+name line.
     let showSpeaker = false
     if (row.kind === 'assistant') {
       const visible = row.texts.length > 0 || row.activity.length > 0 || (showThinking && row.reasoning !== '')
       if (!visible) return []
-    }
-    if (row.kind === 'assistant' || row.kind === 'tool') {
       const turnKey = row.turn ?? row.key
       if (!seenTurnSpeaker.has(turnKey)) {
         seenTurnSpeaker.add(turnKey)
@@ -828,8 +884,8 @@ function renderTranscriptRows({
       }
     }
 
-    const pause = !classic && Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
-    if (Number.isFinite(row.time)) prevTime = row.time
+    const pause = !classic && !silentTool && Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
+    if (!silentTool && Number.isFinite(row.time)) prevTime = row.time
 
     const renderDefault = () => {
       switch (row.kind) {
@@ -850,7 +906,7 @@ function renderTranscriptRows({
           })
         }
         case 'tool': return h(SessionToolRow, {
-          row, showSpeaker, flat, bot, cwd, sessionId, roster: safeRoster, actions, registry, lang,
+          row, classic, bot, cwd, sessionId, roster: safeRoster, actions: toolActions, registry, lang,
           loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
           useRoster: resolvedUseRoster, useUi: resolvedUseUi, useWork: resolvedUseWork,
           useHeldCards: resolvedUseHeldCards, useBrowserHolds: resolvedUseBrowserHolds,
@@ -1041,15 +1097,18 @@ export function SessionTranscript({
   const committedSpeakers = useMemo(() => {
     const speakers = new Set()
     for (const row of rowParts.committed) {
-      if (row.kind === 'assistant') {
-        if (row.texts.length === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
-      } else if (row.kind !== 'tool') continue
+      if (row.kind !== 'assistant') continue
+      if (row.texts.length === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
       speakers.add(row.turn ?? row.key)
     }
     return speakers
   }, [rowParts.committed, showThinking])
+  const toolActions = useMemo(
+    () => (typeof actions?.noteLive === 'function' ? actions : { ...actions, noteLive() {} }),
+    [actions],
+  )
   const rowProps = {
-    canLoadEarlierParts, sessionId, bot, roster, actions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
+    canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
     useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
     resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
     resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
@@ -1068,7 +1127,7 @@ export function SessionTranscript({
     thinkingAt: undefined,
     rows: rowParts.committed,
   }), [
-    rowParts.committed, canLoadEarlierParts, sessionId, bot, roster, actions, classic,
+    rowParts.committed, canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic,
     useUi, useRoster, useTurnClock, useWork, useHeldCards,
     useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, registry, lang,
     resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
