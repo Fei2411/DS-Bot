@@ -100,7 +100,14 @@ jobs:
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
           prev_tag="$(git describe --tags --abbrev=0 --match 'v*' --exclude='*-*' HEAD^ 2>/dev/null || true)"
-          head_msg="$(git log -n 2 --format=%B HEAD 2>/dev/null || true)"
+          # Only inspect commits introduced by this release (HEAD itself, and for merge commits the
+          # second-parent range HEAD^1..HEAD), never older main history on HEAD^1 so a regular
+          # release after a hotfix cannot inherit the previous hotfix's trailer.
+          if git rev-parse --verify HEAD^2 >/dev/null 2>&1; then
+            release_commits_msg="$(git log --format=%B HEAD^1..HEAD 2>/dev/null || true)"
+          else
+            release_commits_msg="$(git log -1 --format=%B HEAD 2>/dev/null || true)"
+          fi
           args=(--version "v$version" --repo "$GITHUB_REPOSITORY" --head-ref HEAD)
           if [ -n "$prev_tag" ]; then
             args+=(--base-ref "$prev_tag")
@@ -108,7 +115,7 @@ jobs:
           if [ "$EVENT" = "workflow_dispatch" ] && [ "$DRY_RUN" = "true" ]; then
             args+=(--allow-open)
           elif grep -Fq '<!-- hotfix -->' <<< "$RELEASE_BODY" \
-            || grep -qE '(^Hotfix-Release:\s*true$|Merge pull request #[0-9]+ from [^/]+/(hotfix/|fix/hot-))' <<< "$head_msg"; then
+            || grep -qE '(^Hotfix-Release:\s*true$|Merge pull request #[0-9]+ from [^/]+/(hotfix/|fix/hot-))' <<< "$release_commits_msg"; then
             args+=(--hotfix)
           fi
           node ../scripts/check-release-milestone.mjs "${args[@]}"
@@ -128,45 +135,49 @@ jobs:
             current_ver="$(node -p "require('./package.json').version")"
             current_tag="${EVENT_TAG:-v$current_ver}"
 
-            # Inspect recent stable published releases carrying a signed Android APK + SHA256SUMS.txt
-            # and pick the latest one that is a strict ancestor of HEAD^ (never matching current_tag).
-            fallback_json="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=20" 2>/dev/null || echo '[]')"
-            candidates="$(node -e '
-              const releases = JSON.parse(process.argv[1] || "[]");
-              const currentTag = process.argv[2] || "";
-              for (const rel of releases) {
-                if (!rel || rel.draft || rel.prerelease) continue;
-                const tag = String(rel.tag_name || "");
-                if (!tag || tag === currentTag || !/^v\d+\.\d+\.\d+$/u.test(tag)) continue;
-                const ver = tag.slice(1);
-                const assets = Array.isArray(rel.assets) ? rel.assets : [];
-                const apk = assets.find(a => a?.name === `DS-Bot-${ver}-android.apk` && Number(a.size) > 0);
-                const sums = assets.find(a => a?.name === "SHA256SUMS.txt");
-                if (apk && sums) {
-                  console.log(`${tag}\t${ver}\t${apk.size}`);
+            # Filter release metadata via --jq and stream via stdin to node (never via argv, which
+            # overflows Linux MAX_ARG_STRLEN at 128 KiB on rich release notes).
+            if candidates="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=20" \
+              --jq '[.[] | {tag_name, draft, prerelease, assets: [.assets[]? | {name, size}]}]' \
+              | CURRENT_TAG="$current_tag" node -e '
+                const fs = require("node:fs");
+                const releases = JSON.parse(fs.readFileSync(0, "utf8") || "[]");
+                const currentTag = process.env.CURRENT_TAG || "";
+                for (const rel of releases) {
+                  if (!rel || rel.draft || rel.prerelease) continue;
+                  const tag = String(rel.tag_name || "");
+                  if (!tag || tag === currentTag || !/^v\d+\.\d+\.\d+$/u.test(tag)) continue;
+                  const ver = tag.slice(1);
+                  const assets = Array.isArray(rel.assets) ? rel.assets : [];
+                  const apk = assets.find(a => a?.name === `DS-Bot-${ver}-android.apk` && Number(a.size) > 0);
+                  const sums = assets.find(a => a?.name === "SHA256SUMS.txt");
+                  if (apk && sums) {
+                    console.log(`${tag}\t${ver}\t${apk.size}`);
+                  }
                 }
-              }
-            ' "$fallback_json" "$current_tag" || true)"
-
-            while IFS=$'\t' read -r apk_tag apk_ver apk_size; do
-              [ -z "$apk_tag" ] && continue
-              if ! git rev-parse --verify "refs/tags/$apk_tag^{commit}" >/dev/null 2>&1; then
-                continue
-              fi
-              if ! git merge-base --is-ancestor "refs/tags/$apk_tag^{commit}" HEAD^ 2>/dev/null; then
-                continue
-              fi
-              # Exclude generated release-notes metadata that changes on every release bump so
-              # desktop-only releases can reuse the previous signed Android APK.
-              changed="$(git -c core.quotepath=false diff --name-only "$apk_tag..HEAD" | grep -Ev '^ds-bot/src/shared/release-notes(-generated\.js|\.json)$' || true)"
-              if ! grep -qE '^(mobile/|link/|\.github/gradle/|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|sources|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest|inbox-text|effects)\.js$|ds-bot/src/client/(avatar|locales)/)' <<< "$changed"; then
-                build_android=false
-                fallback_version="$apk_ver"
-                fallback_size="$apk_size"
-                echo "No mobile changes since ancestor $apk_tag (signed APK present); skipping Android rebuild."
-              fi
-              break
-            done <<< "$candidates"
+              ')"; then
+              while IFS=$'\t' read -r apk_tag apk_ver apk_size; do
+                [ -z "$apk_tag" ] && continue
+                if ! git rev-parse --verify "refs/tags/$apk_tag^{commit}" >/dev/null 2>&1; then
+                  continue
+                fi
+                if ! git merge-base --is-ancestor "refs/tags/$apk_tag^{commit}" HEAD^ 2>/dev/null; then
+                  continue
+                fi
+                # Exclude generated release-notes metadata that changes on every release bump so
+                # desktop-only releases can reuse the previous signed Android APK.
+                changed="$(git -c core.quotepath=false diff --name-only "$apk_tag..HEAD" | grep -Ev '^ds-bot/src/shared/release-notes(-generated\.js|\.json)$' || true)"
+                if ! grep -qE '^(mobile/|link/|\.github/gradle/|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|sources|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest|inbox-text|effects)\.js$|ds-bot/src/client/(avatar|locales)/)' <<< "$changed"; then
+                  build_android=false
+                  fallback_version="$apk_ver"
+                  fallback_size="$apk_size"
+                  echo "No mobile changes since ancestor $apk_tag (signed APK present); skipping Android rebuild."
+                fi
+                break
+              done <<< "$candidates"
+            else
+              echo "::warning::Failed to inspect previous GitHub Releases for Android APK reuse; falling back to rebuilding Android APK."
+            fi
           fi
 
           {

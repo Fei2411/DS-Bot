@@ -81,7 +81,7 @@ Errors contain fixed safe text, never remote diagnostics. Request methods:
   the browser and owns cancellation. consent:true requests prompt=consent.
 - chatgpt:cancel -> current Status; abort requested (completion is asynchronous).
 - chatgpt:sign-out -> Status plus remoteRevocationConfirmed:boolean
-- chatgpt:models -> [{id, name}] in server order
+- chatgpt:models -> [{id, name, contextWindow?, inputModalities?, reasoningEfforts?}] in server order
 - chatgpt:route -> {baseURL, secret}, **trusted child only**, never a client channel
 
 Main pushes {type:'chatgpt:changed', status:Status} whenever service status changes,

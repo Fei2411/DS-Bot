@@ -7,7 +7,6 @@ const KNOWN_BROWSER_LABELS = {
   'builtin:refs': () => t('Playwright (Refs)'),
   'builtin:script': () => t('Playwright (Script)'),
   'builtin:task': () => t('Playwright (Task)'),
-  'dsh:dsh-ego-browser': () => t('Ego Lite Browser'),
   'mcp:playwright-mcp': () => 'Playwright MCP',
   'mcp:chrome-devtools-mcp': () => 'Chrome DevTools MCP',
 }

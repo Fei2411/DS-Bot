@@ -249,9 +249,9 @@ describe('release milestone gate', () => {
     git(['config', 'user.name', 'Test'])
     writeFileSync(join(gitDir, 'a.txt'), 'v1\n')
     git(['add', '.'])
-    git(['commit', '-m', 'initial'])
-    const mainSha = git(['rev-parse', 'HEAD'])
-    git(['update-ref', 'refs/remotes/origin/main', mainSha])
+    git(['commit', '-m', 'Merge pull request #400 from Fei-Craft/fix/old-reopened'])
+    const oldMainPrSha = git(['rev-parse', 'HEAD'])
+    git(['update-ref', 'refs/remotes/origin/main', oldMainPrSha])
     writeFileSync(join(gitDir, 'a.txt'), 'v2\n')
     git(['add', '.'])
     git(['commit', '-m', 'fix(core): resolve bug\n\nFixes #201'])
@@ -266,6 +266,48 @@ describe('release milestone gate', () => {
     const server = createServer((req, res) => {
       res.setHeader('connection', 'close')
       const url = new URL(req.url, 'http://127.0.0.1')
+      if (url.pathname === '/repos/acme/reopened/milestones') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify([{ number: 7, title: 'v0.4.2', state: 'open', open_issues: 1, closed_issues: 0 }]))
+        return
+      }
+      if (url.pathname === '/repos/acme/reopened/issues') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify([
+          { number: 203, title: 'Reopened regression', state: 'open', html_url: 'https://example.test/issues/203' },
+        ]))
+        return
+      }
+      if (url.pathname === '/repos/acme/reopened/issues/203/timeline') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify([
+          {
+            event: 'cross-referenced',
+            source: {
+              issue: {
+                number: 400,
+                state: 'closed',
+                pull_request: { url: 'https://example.test/pull/400' },
+                repository: { full_name: 'acme/reopened' },
+              },
+            },
+          },
+        ]))
+        return
+      }
+      if (url.pathname === '/repos/acme/reopened/pulls/400') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({
+          number: 400,
+          merged: true,
+          merged_at: '2026-11-01T10:00:00Z',
+          merge_commit_sha: oldMainPrSha,
+          base: { ref: 'dev' },
+          title: 'fix: earlier fix already shipped in main',
+          body: 'Fixes #203',
+        }))
+        return
+      }
       if (url.pathname === '/repos/acme/rate-limited/milestones') {
         res.writeHead(403, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ message: 'Resource not accessible by integration' }))
@@ -379,6 +421,19 @@ describe('release milestone gate', () => {
     })
     assert.equal(passedViaDevFixes.ok, true, passedViaDevFixes.message)
     assert.deepEqual(passedViaDevFixes.resolvedPendingMain.map(i => i.number), [201, 202])
+
+    // Reopened issue #203 whose only merged PR (#400) is ALREADY an ancestor of origin/main must NOT be exempted.
+    const reopenedBlocked = await runReleaseMilestoneCheck({
+      version: 'v0.4.2',
+      repo: 'acme/reopened',
+      apiBase,
+      baseRef: 'origin/main',
+      headRef: 'origin/dev',
+      cwd: gitDir,
+    })
+    assert.equal(reopenedBlocked.ok, false)
+    assert.deepEqual(reopenedBlocked.blockingItems.map(i => i.number), [203])
+    assert.deepEqual(reopenedBlocked.resolvedPendingMain, [])
 
     // Cross-origin pagination Link header must fail closed without forwarding Authorization.
     await assert.rejects(

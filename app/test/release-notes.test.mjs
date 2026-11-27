@@ -308,10 +308,16 @@ test('release.yml marks Latest after primary builds + publish, decouples macOS x
   assert.equal(workflow.jobs.downloads.permissions?.contents, 'write')
   assert.equal(workflow.jobs['downloads-macos-x64'].permissions?.contents, 'write')
 
-  // validate checks Milestone (with hotfix trailer fallback), verifies ancestor tags, excludes generated release-notes metadata, and computes build_android.
+  // validate checks Milestone (with hotfix trailer scoped to current release commits only, never HEAD^1),
+  // streams filtered release JSON via stdin (avoiding Linux 128 KiB MAX_ARG_STRLEN), verifies ancestor tags,
+  // excludes generated release-notes metadata, and computes build_android.
   const validateRuns = runs(workflow.jobs.validate)
   assert.match(validateRuns, /check-release-milestone\.mjs/u)
   assert.match(validateRuns, /Hotfix-Release:/u)
+  assert.match(validateRuns, /HEAD\^1\.\.HEAD/u)
+  assert.doesNotMatch(validateRuns, /git log -n 2/u, 'validate must never inspect HEAD^1 history for hotfix trailers')
+  assert.match(validateRuns, /--jq '\[/u)
+  assert.match(validateRuns, /readFileSync\(0/u, 'android-scope must read filtered release JSON via stdin, not argv')
   assert.match(validateRuns, /merge-base --is-ancestor/u)
   assert.match(validateRuns, /release-notes\(-generated\\\.js\|\\\.json\)/u)
   assert.ok(workflow.jobs.validate.outputs?.build_android)
@@ -326,6 +332,58 @@ test('release.yml marks Latest after primary builds + publish, decouples macOS x
   assert.match(job.steps.at(-1).run, /^gh release edit "\$TAG" --latest$/u)
   assert.match(runs(job), /node scripts\/release-notes\.mjs /u)
   assert.match(runs(job), /node scripts\/release-upload\.mjs /u)
+})
+
+test('release.yml hotfix detection scopes to current release commits and never inherits a previous hotfix on HEAD^1', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-hotfix-scope-'))
+  t.after(() => { rmSync(dir, { recursive: true, force: true }) })
+  const gitEnv = {
+    ...process.env,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_TERMINAL_PROMPT: '0',
+  }
+  const git = (args) => {
+    const res = spawnSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8', env: gitEnv })
+    assert.equal(res.status, 0, res.stderr)
+    return res.stdout.trim()
+  }
+  const detectHotfix = () => {
+    const isMerge = spawnSync('git', ['rev-parse', '--verify', 'HEAD^2'], { cwd: dir, env: gitEnv }).status === 0
+    const msg = git(isMerge ? ['log', '--format=%B', 'HEAD^1..HEAD'] : ['log', '-1', '--format=%B', 'HEAD'])
+    return /(^Hotfix-Release:\s*true$|Merge pull request #[0-9]+ from [^/]+\/(hotfix\/|fix\/hot-))/mu.test(msg)
+  }
+
+  // Base commit -> hotfix v0.4.1 on main with Hotfix-Release: true trailer.
+  git(['init', '-b', 'main'])
+  git(['config', 'user.email', 'test@example.com'])
+  git(['config', 'user.name', 'Test'])
+  writeFileSync(join(dir, 'file.txt'), '0.4.0\n')
+  git(['add', '.'])
+  git(['commit', '-m', 'release: v0.4.0'])
+  git(['checkout', '-b', 'dev'])
+  writeFileSync(join(dir, 'dev.txt'), 'feature for 0.4.2\n')
+  git(['add', '.'])
+  git(['commit', '-m', 'feat: planned 0.4.2 feature'])
+
+  git(['checkout', 'main'])
+  writeFileSync(join(dir, 'file.txt'), '0.4.1\n')
+  git(['add', '.'])
+  git(['commit', '-m', 'release: v0.4.1', '-m', 'Hotfix-Release: true'])
+  assert.equal(detectHotfix(), true, 'single-parent hotfix commit with Hotfix-Release trailer must be detected')
+
+  // Regular release v0.4.2 merges dev onto main (whose HEAD^1 is the v0.4.1 hotfix commit).
+  git(['merge', '--no-ff', 'dev', '-m', 'Merge pull request #2500 from Fei-Craft/chore/release-0.4.2'])
+  assert.equal(detectHotfix(), false, 'regular release v0.4.2 after hotfix v0.4.1 must NOT inherit hotfix exemption from HEAD^1')
+
+  // Subsequent merge PR from a hotfix/* branch with a hotfix commit on HEAD^2 IS detected.
+  git(['checkout', '-b', 'hotfix/0.4.3'])
+  writeFileSync(join(dir, 'file.txt'), '0.4.3\n')
+  git(['add', '.'])
+  git(['commit', '-m', 'release: v0.4.3', '-m', 'Hotfix-Release: true'])
+  git(['checkout', 'main'])
+  git(['merge', '--no-ff', 'hotfix/0.4.3', '-m', 'Merge pull request #2501 from Fei-Craft/hotfix/0.4.3'])
+  assert.equal(detectHotfix(), true, 'hotfix merge PR must be detected via HEAD^1..HEAD')
 })
 
 test('both READMEs link the latest release and do not hard-code release version numbers', () => {

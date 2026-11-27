@@ -488,6 +488,7 @@ async function isIssueFixedInDevViaTimeline({
   apiBase,
   token,
   fetchImpl,
+  baseRef,
   headRef,
   cwd,
   checkAncestry,
@@ -517,7 +518,14 @@ async function isIssueFixedInDevViaTimeline({
     const closedByBody = extractClosingIssueNumbers(`${pr.title || ''}\n${pr.body || ''}`, repo)
     if (!closedByBody.has(issueNumber)) continue
     if (checkAncestry) {
-      if (isCommitAncestor(pr.merge_commit_sha, headRef, cwd)) return true
+      // Must be merged into headRef (e.g. dev) AND NOT already present on baseRef (main),
+      // so an issue reopened after an earlier shipped release is never falsely exempted by its old PR.
+      if (
+        isCommitAncestor(pr.merge_commit_sha, headRef, cwd)
+        && (!baseRef || !isCommitAncestor(pr.merge_commit_sha, baseRef, cwd))
+      ) {
+        return true
+      }
     } else if (pr.base?.ref === 'dev') {
       return true
     }
@@ -587,6 +595,7 @@ export async function runReleaseMilestoneCheck({
             apiBase: base,
             token,
             fetchImpl,
+            baseRef,
             headRef,
             cwd,
             checkAncestry: hasLocalHead,

@@ -9,7 +9,7 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize, edited, labeled, unlabeled, milestoned, demilestoned]
   milestone:
-    types: [created, closed, opened, edited]
+    types: [created, closed, opened, edited, deleted]
 
 permissions:
   contents: read
