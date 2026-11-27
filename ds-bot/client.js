@@ -34975,7 +34975,7 @@ var WarnIcon = () => (0, import_react20.createElement)(
   (0, import_react20.createElement)("path", { d: "M10 3.5l7 12.5H3z" }),
   (0, import_react20.createElement)("path", { d: "M10 8.5v3.5M10 14.2h.01" })
 );
-var MASK_BY_CSS = typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("-webkit-text-security", "disc");
+var MASK_BY_CSS = typeof globalThis.CSS?.supports === "function" && globalThis.CSS.supports("-webkit-text-security", "disc");
 var insecure = () => typeof location !== "undefined" && location.protocol === "http:" && !/^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/.test(location.hostname);
 var scopeLabel = (scope, roster) => {
   if (scope === "all") return t("All Bots");
@@ -45332,7 +45332,7 @@ var roomRule = () => {
   const live = room.rule?.parentStyleSheet?.ownerNode?.isConnected;
   if (live && room.selector) return room.rule;
   const column = document.querySelector('[class*="_centerCol"]');
-  const selector = column ? [...column.classList].filter((name) => name.includes("_centerCol")).map((name) => `.${CSS.escape(name)}`).join(",") : "";
+  const selector = column ? [...column.classList].filter((name) => name.includes("_centerCol")).map((name) => `.${globalThis.CSS.escape(name)}`).join(",") : "";
   if (live && !selector) return room.rule;
   const declarations2 = room.rule?.style.cssText ?? "";
   room.rule?.parentStyleSheet?.ownerNode?.remove();
@@ -48239,7 +48239,7 @@ function useReportReady(drawn, roster) {
 }
 function mainMarkOf(id) {
   if (typeof document === "undefined") return null;
-  const key = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id;
+  const key = globalThis.CSS?.escape ? globalThis.CSS.escape(id) : id;
   return document.querySelector(`.bt-side [data-bot-id="${key}"] .bt-mark`);
 }
 function mainAvatarPlace(roster) {

@@ -1253,7 +1253,7 @@ function useReportReady(drawn, roster) {
 
 function mainMarkOf(id) {
   if (typeof document === 'undefined') return null
-  const key = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id
+  const key = globalThis.CSS?.escape ? globalThis.CSS.escape(id) : id
   return document.querySelector(`.bt-side [data-bot-id="${key}"] .bt-mark`)
 }
 

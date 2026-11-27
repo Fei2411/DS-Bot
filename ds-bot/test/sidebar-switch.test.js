@@ -840,6 +840,24 @@ test('chat margins own auto width until both overrides are released', async () =
   })
 })
 
+// Extension bundles are classic page scripts sharing one global scope, so another
+// extension's top-level `const CSS = '...'` shadows window.CSS for every later lookup (#2356).
+test('chat margins still apply when another page script shadows the CSS global', () => {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div></body>')
+  const { document } = dom.window
+  const shadowed = {
+    module: { exports: {} }, require: sandbox.require, window: { innerWidth: 1280 },
+    document, CSS: { escape: value => value },
+  }
+  shadowed.exports = shadowed.module.exports
+  runInNewContext('const CSS = ".some-extension { color: red }"', shadowed)
+  runInNewContext(outputFiles[0].text, shadowed)
+  shadowed.module.exports.chatRoom.setLeft(88)
+  const style = document.querySelector('style[data-dsh-bot="chat-room"]').sheet.cssRules[0]
+  assert.equal(style.selectorText, '.x_centerCol')
+  assert.equal(style.style.getPropertyValue('margin-left'), '88px')
+})
+
 test('an overlay sidebar strip does not reserve a grid track', async () => {
   await withDom('<!doctype html><body><div class="x_sidebarCol"></div></body>', async ({ document, getComputedStyle }) => {
     const column = document.querySelector('.x_sidebarCol')

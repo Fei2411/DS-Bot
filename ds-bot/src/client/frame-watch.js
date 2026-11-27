@@ -33,7 +33,9 @@ const roomRule = () => {
   const live = room.rule?.parentStyleSheet?.ownerNode?.isConnected
   if (live && room.selector) return room.rule
   const column = document.querySelector('[class*="_centerCol"]')
-  const selector = column ? [...column.classList].filter(name => name.includes('_centerCol')).map(name => `.${CSS.escape(name)}`).join(',') : ''
+  // Read CSS off globalThis: another extension's classic script can declare a top-level
+  // `CSS` that shadows the bare global (#2356).
+  const selector = column ? [...column.classList].filter(name => name.includes('_centerCol')).map(name => `.${globalThis.CSS.escape(name)}`).join(',') : ''
   if (live && !selector) return room.rule
   const declarations = room.rule?.style.cssText ?? ''
   room.rule?.parentStyleSheet?.ownerNode?.remove()
