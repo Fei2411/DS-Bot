@@ -46,7 +46,9 @@ jobs:
     outputs:
       checkout_ref: ${{ steps.filter.outputs.checkout_ref }}
       full: ${{ steps.filter.outputs.full }}
+      hotfix: ${{ steps.filter.outputs.hotfix }}
       app_package_full: ${{ steps.filter.outputs.app_package_full }}
+      app_package_macos_x64: ${{ steps.filter.outputs.app_package_macos_x64 }}
       app_package_linux: ${{ steps.filter.outputs.app_package_linux }}
       app_update: ${{ steps.filter.outputs.app_update }}
       mobile_ios: ${{ steps.filter.outputs.mobile_ios }}
@@ -62,22 +64,44 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          IS_SAME_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
           PR_FULL_PACKAGE: ${{ inputs.force_full || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci/full-package')) }}
+          PR_HOTFIX: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release/hotfix') }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           full=false
+          explicit_full=false
+          hotfix=false
           main_push=false
-          if [ "$EVENT" = "pull_request" ] && [ "$PR_FULL_PACKAGE" != "true" ] && [ -n "$PR_NUMBER" ] && [ -n "$GH_TOKEN" ]; then
-            if gh api "repos/$GH_REPO/issues/$PR_NUMBER/labels" --jq '.[].name' 2>/dev/null | grep -qx 'ci/full-package'; then
+
+          if [ "$EVENT" = "pull_request" ] && [ -n "$PR_NUMBER" ] && [ -n "$GH_TOKEN" ]; then
+            live_labels="$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/labels" --jq '.[].name' 2>/dev/null || true)"
+            if [ "$PR_FULL_PACKAGE" != "true" ] && grep -qx 'ci/full-package' <<< "$live_labels"; then
               PR_FULL_PACKAGE=true
             fi
+            if [ "$PR_HOTFIX" != "true" ] && grep -qx 'release/hotfix' <<< "$live_labels"; then
+              PR_HOTFIX=true
+            fi
           fi
-          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$BASE_REF" = "main" ] || [ "$PR_FULL_PACKAGE" = "true" ]; then
+
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            if [ "$PR_HOTFIX" = "true" ]; then
+              hotfix=true
+            elif [ "$IS_SAME_REPO" = "true" ] && [[ "$HEAD_REF" == hotfix/* || "$HEAD_REF" == fix/hot-* ]]; then
+              hotfix=true
+            fi
+          fi
+
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$PR_FULL_PACKAGE" = "true" ]; then
+            explicit_full=true
+            full=true
+          elif [ "$BASE_REF" = "main" ] && [ "$hotfix" = "false" ]; then
             full=true
           elif [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
             # Release PRs already pass the full matrix on BASE_REF=main before merge, and daily
@@ -103,8 +127,51 @@ jobs:
             fi
           fi
 
+          # In hotfix fast-lane mode on BASE_REF=main, a pure version bump inside package.json or
+          # package-lock.json must not force 24m iOS, 14m Android, or 4-OS Electron packaging.
+          effective_changed="$changed"
+          if [ "$hotfix" = "true" ] && [ "$full" = "false" ] && [ -n "$changed" ]; then
+            effective_changed="$(BASE_REF="$BASE_REF" CHANGED_FILES="$changed" node -e '
+              const { execFileSync } = require("node:child_process");
+              const fs = require("node:fs");
+              const baseRef = process.env.BASE_REF;
+              const files = process.env.CHANGED_FILES.split(/\r?\n/).filter(Boolean);
+              const VERSION_BUMP_FILES = new Set([
+                "ds-bot/package.json",
+                "ds-bot/package-lock.json",
+                "app/package.json",
+                "app/package-lock.json",
+              ]);
+              function stripVersion(file, obj) {
+                if (!obj || typeof obj !== "object") return obj;
+                const copy = JSON.parse(JSON.stringify(obj));
+                delete copy.version;
+                if (file.endsWith("package-lock.json") && copy.packages && typeof copy.packages === "object") {
+                  if (copy.packages[""]) delete copy.packages[""].version;
+                  if (copy.packages["node_modules/ds-bot"]) delete copy.packages["node_modules/ds-bot"].version;
+                  if (copy.packages["../ds-bot"]) delete copy.packages["../ds-bot"].version;
+                }
+                return copy;
+              }
+              function isVersionOnlyChange(file) {
+                try {
+                  const baseRaw = execFileSync("git", ["show", `origin/${baseRef}:${file}`], {
+                    encoding: "utf8",
+                    maxBuffer: 16 * 1024 * 1024,
+                  });
+                  const headRaw = fs.readFileSync(file, "utf8");
+                  return JSON.stringify(stripVersion(file, JSON.parse(baseRaw))) === JSON.stringify(stripVersion(file, JSON.parse(headRaw)));
+                } catch {
+                  return false;
+                }
+              }
+              const kept = files.filter((file) => !(VERSION_BUMP_FILES.has(file) && isVersionOnlyChange(file)));
+              process.stdout.write(kept.join("\n"));
+            ' 2>/dev/null || printf '%s' "$changed")"
+          fi
+
           has() {
-            grep -qE "$1" <<< "$changed"
+            grep -qE "$1" <<< "$effective_changed"
           }
 
           if [ "$full" = "false" ] && [ "$main_push" = "false" ] && has '^\.github/workflows/(package|full-package|release)\.yml$'; then
@@ -123,6 +190,26 @@ jobs:
             app_update=false
             mobile_ios=false
             mobile_android=false
+          elif [ "$hotfix" = "true" ]; then
+            # Hotfix fast-lane on BASE_REF=main: run Linux packaged smoke by default and trigger
+            # native/4-OS packaging only for genuinely affected paths in origin/main...HEAD.
+            app_package_full=false
+            app_package_linux=true
+            app_update=false
+            mobile_ios=false
+            mobile_android=false
+            if has '^(app/(package\.json|package-lock\.json|electron-builder\.yml|\.npmrc|build/|engine/|assets/|scripts/((before-pack|check-lifecycle|check-packed|check-update|dist|prepare-runtime|seed-electron-checksums)\.|primary-runtime\.lock\.json$)|src/(update|mac-updater\.mjs))|ds-bot/(package\.json|package-lock\.json|cordis\.patch\.yml|office\.js|src/office/|src/host/computer/))'; then
+              app_package_full=true
+            fi
+            if has '^app/(package\.json|package-lock\.json|electron-builder\.yml|build/|scripts/(before-pack|check-update|dist)\.|src/(update|mac-updater\.mjs))'; then
+              app_update=true
+            fi
+            if has '^(mobile/(app\.json|app\.config\.js|package\.json|package-lock\.json|plugins/|ios/|assets/|eas\.json)|ds-bot/package\.json$)'; then
+              mobile_ios=true
+            fi
+            if has '^(mobile/(app\.json|app\.config\.js|package\.json|package-lock\.json|plugins/|android/|assets/|eas\.json)|ds-bot/package\.json$|\.github/gradle/)'; then
+              mobile_android=true
+            fi
           else
             # Everyday PRs to dev defer heavy installers and native mobile builds to the daily
             # dev Nightly, release/hotfix PRs to main, or an explicit `ci/full-package` label.
@@ -131,6 +218,13 @@ jobs:
             app_update=false
             mobile_ios=false
             mobile_android=false
+          fi
+
+          # macos-26-intel routinely queues for an hour; skip it on pull_request events unless
+          # explicitly requested via ci/full-package, workflow_dispatch, or daily schedule.
+          app_package_macos_x64=false
+          if [ "$app_package_full" = "true" ] && [ "$explicit_full" = "true" ]; then
+            app_package_macos_x64=true
           fi
 
           checkout_ref=""
@@ -143,7 +237,9 @@ jobs:
           {
             echo "checkout_ref=$checkout_ref"
             echo "full=$full"
+            echo "hotfix=$hotfix"
             echo "app_package_full=$app_package_full"
+            echo "app_package_macos_x64=$app_package_macos_x64"
             echo "app_package_linux=$app_package_linux"
             echo "app_update=$app_update"
             echo "mobile_ios=$mobile_ios"
@@ -468,9 +564,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { arch: arm64, runner: macos-latest }
-          - { arch: x64, runner: macos-26-intel }
+        include: ${{ fromJson(needs.changes.outputs.app_package_macos_x64 == 'true' && '[{"arch":"arm64","runner":"macos-latest"},{"arch":"x64","runner":"macos-26-intel"}]' || '[{"arch":"arm64","runner":"macos-latest"}]') }}
     defaults:
       run:
         shell: bash

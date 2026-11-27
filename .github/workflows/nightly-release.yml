@@ -1,0 +1,609 @@
+name: Nightly Release
+
+# Daily rolling pre-release built from dev at 20:00 UTC (04:00 +08:00).
+# Exits early with zero wasted runner minutes when dev has no new commits since the last
+# nightly tag or latest release tag. Never marks Latest and never publishes to npm.
+
+on:
+  schedule:
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Build nightly even when dev has no new commits
+        type: boolean
+        default: false
+      build_android:
+        description: Force building the Android APK even if mobile files did not change
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check dev changes & release readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      should_run: ${{ steps.plan.outputs.should_run }}
+      sha: ${{ steps.plan.outputs.sha }}
+      short_sha: ${{ steps.plan.outputs.short_sha }}
+      build_android: ${{ steps.plan.outputs.build_android }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Detect new dev commits and build Release Readiness report
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force }}
+          FORCE_ANDROID: ${{ inputs.build_android }}
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          short_sha="$(git rev-parse --short=8 HEAD)"
+
+          base_ref=""
+          if git rev-parse --verify "refs/tags/nightly^{commit}" >/dev/null 2>&1; then
+            base_ref="nightly"
+          else
+            latest_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+            if [ -n "$latest_tag" ]; then
+              base_ref="$latest_tag"
+            fi
+          fi
+
+          should_run=true
+          if [ "$FORCE" != "true" ] && [ -n "$base_ref" ]; then
+            base_sha="$(git rev-parse "${base_ref}^{commit}")"
+            if [ "$head_sha" = "$base_sha" ]; then
+              should_run=false
+              echo "dev ($short_sha) has no new commits since $base_ref; skipping nightly build." | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+          build_android=false
+          if [ "$should_run" = "true" ]; then
+            if [ "$FORCE_ANDROID" = "true" ]; then
+              build_android=true
+            elif [ -n "$base_ref" ]; then
+              changed="$(git -c core.quotepath=false diff --name-only "${base_ref}..HEAD" | grep -Ev '^ds-bot/src/shared/release-notes(-generated\.js|\.json)$' || true)"
+              if grep -qE '^(mobile/|link/|\.github/gradle/|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|sources|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest|inbox-text|effects)\.js$|ds-bot/src/client/(avatar|locales)/)' <<< "$changed"; then
+                build_android=true
+              fi
+            fi
+          fi
+
+          # Generate Release Readiness report (recent commits, active Milestone open items, needs-product-ok PRs).
+          mkdir -p "$RUNNER_TEMP/readiness"
+          HEAD_SHA="$head_sha" SHORT_SHA="$short_sha" BASE_REF="$base_ref" BUILD_ANDROID="$build_android" \
+          node --input-type=module -e '
+            import { execFileSync } from "node:child_process";
+            import { readFileSync, writeFileSync } from "node:fs";
+            import { resolveActiveDevMilestone } from "./scripts/check-release-milestone.mjs";
+
+            const repo = process.env.GITHUB_REPOSITORY || "Fei-Craft/DS-Bot";
+            const token = process.env.GH_TOKEN || "";
+            const headSha = process.env.HEAD_SHA;
+            const shortSha = process.env.SHORT_SHA;
+            const baseRef = process.env.BASE_REF || "";
+            const buildAndroid = process.env.BUILD_ANDROID === "true";
+            const currentVersion = JSON.parse(readFileSync("ds-bot/package.json", "utf8")).version;
+
+            const logRange = baseRef ? `${baseRef}..HEAD` : "HEAD";
+            let commits = [];
+            try {
+              const raw = execFileSync("git", ["log", "--no-merges", "--max-count=30", "--pretty=format:- `%h` %s", logRange], { encoding: "utf8" }).trim();
+              if (raw) commits = raw.split(/\r?\n/);
+            } catch {}
+
+            const headers = {
+              Accept: "application/vnd.github+json",
+              "User-Agent": "ds-bot-nightly-release",
+              "X-GitHub-Api-Version": "2022-11-28",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            };
+            async function api(path) {
+              const res = await fetch(`https://api.github.com${path}`, { headers });
+              if (!res.ok) return null;
+              return res.json();
+            }
+
+            const milestones = (await api(`/repos/${repo}/milestones?state=open&per_page=100`)) || [];
+            const active = resolveActiveDevMilestone(currentVersion, milestones);
+            let milestoneOpenItems = [];
+            if (active && active.milestone.open_issues > 0) {
+              milestoneOpenItems = (await api(`/repos/${repo}/issues?milestone=${active.milestone.number}&state=open&per_page=50`)) || [];
+            }
+            const productOkIssues = (await api(`/repos/${repo}/issues?state=open&labels=needs-product-ok&per_page=50`)) || [];
+            const productOkPrs = productOkIssues.filter(item => Boolean(item?.pull_request));
+
+            const lines = [
+              `## Nightly Build (\`dev\` @ \`${shortSha}\`)`,
+              "",
+              `- **Commit**: \`${headSha}\``,
+              `- **Base version**: \`v${currentVersion}\``,
+              `- **Android APK**: ${buildAndroid ? "rebuilt for this nightly" : "skipped (no mobile changes since last baseline)"}`,
+              "- **Channel**: rolling GitHub Pre-release (`nightly`); never marked Latest and never published to npm `latest`.",
+              "",
+              "## Release Readiness",
+              "",
+            ];
+
+            if (active) {
+              const openCount = Number(active.milestone.open_issues ?? 0);
+              const closedCount = Number(active.milestone.closed_issues ?? 0);
+              lines.push(`- **Active Milestone**: \`${active.parsed.tag}\` — **${openCount} open** / ${closedCount} closed`);
+              if (milestoneOpenItems.length > 0) {
+                for (const item of milestoneOpenItems.slice(0, 15)) {
+                  const kind = item.pull_request ? "PR" : "Issue";
+                  lines.push(`  - [${kind}] #${item.number} ${item.title}`);
+                }
+              }
+            } else {
+              lines.push(`- **Active Milestone**: none open above \`v${currentVersion}\``);
+            }
+
+            lines.push(`- **Open PRs waiting on \`needs-product-ok\`**: ${productOkPrs.length}`);
+            for (const pr of productOkPrs.slice(0, 15)) {
+              lines.push(`  - [PR] #${pr.number} ${pr.title}`);
+            }
+
+            lines.push("", `## Commits since \`${baseRef || "initial"}\``, "");
+            if (commits.length > 0) {
+              lines.push(...commits);
+            } else {
+              lines.push("- No new non-merge commits.");
+            }
+            lines.push("");
+
+            writeFileSync(`${process.env.RUNNER_TEMP}/readiness/report.md`, lines.join("\n"));
+          '
+
+          cat "$RUNNER_TEMP/readiness/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo "should_run=$should_run"
+            echo "sha=$head_sha"
+            echo "short_sha=$short_sha"
+            echo "build_android=$build_android"
+          } | tee -a "$GITHUB_OUTPUT"
+      - name: Upload Release Readiness report
+        if: steps.plan.outputs.should_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-readiness
+          path: ${{ runner.temp }}/readiness/report.md
+          retention-days: 3
+          if-no-files-found: error
+
+  verify:
+    name: Verify ds-bot (dev)
+    needs: check
+    if: needs.check.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+        working-directory: ds-bot
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            ds-bot/package-lock.json
+            link/package-lock.json
+      - run: npm ci --no-fund --no-audit
+      - run: npm ci --no-fund --no-audit --prefix ../link
+      - name: Restore DSH test harness
+        id: harness-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('ds-bot/dev/harness/package.json', 'ds-bot/dev/harness/package-lock.json') }}
+      - name: Install DSH test harness
+        if: steps.harness-cache.outputs.cache-hit != 'true'
+        run: npm run harness
+      - run: node scripts/build-client.mjs --check
+      - run: npm test
+      - run: npm run lint
+      - name: Pack plugin tarball (no npm publish)
+        run: npm pack
+      - name: Upload plugin tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-plugin
+          path: ds-bot/ds-bot-*.tgz
+          retention-days: 3
+          if-no-files-found: error
+          compression-level: 0
+
+  package-windows:
+    name: Nightly package (Windows x64)
+    needs: [check, verify]
+    if: needs.check.outputs.should_run == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Name the download cache
+        id: downloads-key
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+          BUILDER_HASH: ${{ hashFiles('app/electron-builder.yml') }}
+        run: |
+          prefix="electron-downloads-${RUNNER_OS}-${RUNNER_ARCH}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${BUILDER_HASH}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
+      - run: npm ci --no-fund --no-audit
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: node scripts/seed-electron-checksums.mjs
+      - name: Restore the locked runtime archives
+        uses: actions/cache/restore@v4
+        with:
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
+      - run: npm run dist
+        env:
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
+      - run: node scripts/check-packed.mjs
+      - name: Upload Windows nightly artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-win-x64
+          path: app/dist-pack/DS-Bot-*-win-x64.exe
+          retention-days: 3
+          if-no-files-found: error
+          compression-level: 0
+
+  package-macos-arm64:
+    name: Nightly package (macOS arm64)
+    needs: [check, verify]
+    if: needs.check.outputs.should_run == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Name the download cache
+        id: downloads-key
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+          BUILDER_HASH: ${{ hashFiles('app/electron-builder.yml') }}
+        run: |
+          prefix="electron-downloads-${RUNNER_OS}-${RUNNER_ARCH}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${BUILDER_HASH}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
+      - run: npm ci --no-fund --no-audit
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: node scripts/seed-electron-checksums.mjs
+      - name: Restore the locked runtime archives
+        uses: actions/cache/restore@v4
+        with:
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
+      - run: npm run dist
+        env:
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '5'
+      - run: node scripts/check-packed.mjs
+      - name: Upload macOS arm64 nightly artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-mac-arm64
+          path: app/dist-pack/DS-Bot-*-mac-arm64.zip
+          retention-days: 3
+          if-no-files-found: error
+          compression-level: 0
+
+  package-linux:
+    name: Nightly package (Linux x64)
+    needs: [check, verify]
+    if: needs.check.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Name the download cache
+        id: downloads-key
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+          BUILDER_HASH: ${{ hashFiles('app/electron-builder.yml') }}
+        run: |
+          prefix="electron-downloads-${RUNNER_OS}-${RUNNER_ARCH}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${BUILDER_HASH}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
+      - run: npm ci --no-fund --no-audit
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: node scripts/seed-electron-checksums.mjs
+      - name: Restore the locked runtime archives
+        uses: actions/cache/restore@v4
+        with:
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
+      - run: npm run dist
+      - name: Check packaged Linux app
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          xvfb-run -a node scripts/check-packed.mjs
+      - name: Upload Linux nightly artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-linux-x64
+          path: |
+            app/dist-pack/DS-Bot-*-linux-x86_64.AppImage
+            app/dist-pack/DS-Bot-*-linux-amd64.deb
+          retention-days: 3
+          if-no-files-found: error
+          compression-level: 0
+
+  package-android:
+    name: Nightly package (Android APK)
+    needs: [check, verify]
+    if: needs.check.outputs.should_run == 'true' && needs.check.outputs.build_android == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    defaults:
+      run:
+        shell: bash
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            mobile/package-lock.json
+            link/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci --no-fund --no-audit --prefix ../link
+      - run: npm ci --no-fund --no-audit
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx expo prebuild --platform android --no-install
+      - name: Install ccache
+        run: |
+          if ! command -v ccache >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq ccache
+          fi
+          echo "CCACHE_BIN=$(command -v ccache)" >> "$GITHUB_ENV"
+      - name: Restore Android C++ ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: android-ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/plugins/**', '.github/gradle/ccache.init.gradle') }}
+          restore-keys: android-ccache-v2-${{ runner.os }}-${{ runner.arch }}-
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      - name: Build nightly APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          CCACHE_BASEDIR: ${{ github.workspace }}
+          CCACHE_NOHASHDIR: 'true'
+          CCACHE_COMPILERCHECK: content
+          CCACHE_SLOPPINESS: include_file_mtime,include_file_ctime,time_macros
+          CCACHE_MAXSIZE: 600M
+        run: |
+          export CCACHE_DIR="$HOME/.ccache"
+          mkdir -p "$CCACHE_DIR"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            export DSBOT_ANDROID_KEYSTORE="$RUNNER_TEMP/upload.jks" DSBOT_ANDROID_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" DSBOT_ANDROID_KEY_ALIAS="$KEY_ALIAS"
+          fi
+          (cd android && ./gradlew assembleRelease --no-daemon --build-cache --console=plain -PreactNativeArchitectures=arm64-v8a,armeabi-v7a --init-script "$GITHUB_WORKSPACE/.github/gradle/ccache.init.gradle")
+          rm -f "$RUNNER_TEMP/upload.jks"
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk dist/DS-Bot-nightly-android.apk
+      - name: Upload Android nightly artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-android
+          path: mobile/dist/DS-Bot-nightly-android.apk
+          retention-days: 3
+          if-no-files-found: error
+          compression-level: 0
+
+  publish-nightly:
+    name: Publish rolling nightly pre-release
+    needs: [check, verify, package-windows, package-macos-arm64, package-linux, package-android]
+    if: >-
+      ${{ !cancelled() &&
+          needs.check.outputs.should_run == 'true' &&
+          needs.verify.result == 'success' &&
+          needs.package-windows.result == 'success' &&
+          needs.package-macos-arm64.result == 'success' &&
+          needs.package-linux.result == 'success' &&
+          (needs.package-android.result == 'success' || (needs.check.outputs.build_android == 'false' && needs.package-android.result == 'skipped')) &&
+          (github.event_name == 'workflow_dispatch' || github.repository == 'Fei-Craft/DS-Bot') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NIGHTLY_SHA: ${{ needs.check.outputs.sha }}
+      NIGHTLY_SHORT_SHA: ${{ needs.check.outputs.short_sha }}
+      BUILD_ANDROID: ${{ needs.check.outputs.build_android }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Download readiness report and nightly artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: nightly-*
+          path: ${{ runner.temp }}/nightly
+          merge-multiple: true
+      - name: Normalize nightly asset names and compute SHA256SUMS.txt
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/upload"
+          for f in "$RUNNER_TEMP"/nightly/*; do
+            base="$(basename "$f")"
+            case "$base" in
+              report.md) continue ;;
+              DS-Bot-*-win-x64.exe) cp "$f" "$RUNNER_TEMP/upload/DS-Bot-nightly-win-x64.exe" ;;
+              DS-Bot-*-mac-arm64.zip) cp "$f" "$RUNNER_TEMP/upload/DS-Bot-nightly-mac-arm64.zip" ;;
+              DS-Bot-*-linux-x86_64.AppImage) cp "$f" "$RUNNER_TEMP/upload/DS-Bot-nightly-linux-x86_64.AppImage" ;;
+              DS-Bot-*-linux-amd64.deb) cp "$f" "$RUNNER_TEMP/upload/DS-Bot-nightly-linux-amd64.deb" ;;
+              DS-Bot-nightly-android.apk) cp "$f" "$RUNNER_TEMP/upload/DS-Bot-nightly-android.apk" ;;
+              ds-bot-*.tgz) cp "$f" "$RUNNER_TEMP/upload/ds-bot-nightly.tgz" ;;
+            esac
+          done
+          (cd "$RUNNER_TEMP/upload" && sha256sum * > SHA256SUMS.txt)
+
+          # When Android build was skipped, keep SHA256SUMS.txt consistent with any retained APK:
+          # preserve its verified digest line (and record its source in report.md), or delete the
+          # stale APK asset if no verified digest is available.
+          if [ "$BUILD_ANDROID" = "false" ] && gh release view nightly >/dev/null 2>&1; then
+            rel_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/nightly" 2>/dev/null || echo '{}')"
+            has_old_apk="$(node -e '
+              const rel = JSON.parse(process.argv[1] || "{}");
+              const apk = (rel.assets || []).find(a => a?.name === "DS-Bot-nightly-android.apk");
+              if (!apk) process.exit(0);
+              const digest = typeof apk.digest === "string" && apk.digest.startsWith("sha256:") ? apk.digest.slice(7).toLowerCase() : "";
+              const target = String(rel.target_commitish || "").slice(0, 8);
+              console.log(`${digest}\t${target}`);
+            ' "$rel_json" || true)"
+
+            if [ -n "$has_old_apk" ]; then
+              IFS=$'\t' read -r api_digest prev_target <<< "$has_old_apk"
+              preserved_sha=""
+              if gh release download nightly -p SHA256SUMS.txt -D "$RUNNER_TEMP/prev" --clobber >/dev/null 2>&1; then
+                sums_sha="$(grep -E '^[0-9a-fA-F]{64}[[:space:]]+\*?DS-Bot-nightly-android\.apk$' "$RUNNER_TEMP/prev/SHA256SUMS.txt" | awk '{print tolower($1)}' | head -n1 || true)"
+                if [ -n "$sums_sha" ] && { [ -z "$api_digest" ] || [ "$sums_sha" = "$api_digest" ]; }; then
+                  preserved_sha="$sums_sha"
+                fi
+              elif [ -n "$api_digest" ]; then
+                preserved_sha="$api_digest"
+              fi
+
+              if [ -n "$preserved_sha" ]; then
+                echo "${preserved_sha}  DS-Bot-nightly-android.apk" >> "$RUNNER_TEMP/upload/SHA256SUMS.txt"
+                echo "" >> "$RUNNER_TEMP/nightly/report.md"
+                echo "_Note: \`DS-Bot-nightly-android.apk\` was retained unchanged from previous nightly (\`${prev_target:-previous}\`) with its verified SHA-256 preserved in \`SHA256SUMS.txt\`._" >> "$RUNNER_TEMP/nightly/report.md"
+              else
+                echo "Deleting stale DS-Bot-nightly-android.apk because no verified SHA-256 checksum was found."
+                gh release delete-asset nightly DS-Bot-nightly-android.apk --yes || true
+              fi
+            fi
+          fi
+          ls -lh "$RUNNER_TEMP/upload"
+      - name: Update rolling nightly tag and GitHub pre-release
+        run: |
+          set -euo pipefail
+          git tag -f nightly "$NIGHTLY_SHA"
+          git push origin refs/tags/nightly --force
+
+          title="Nightly (dev @ $NIGHTLY_SHORT_SHA)"
+          notes="$RUNNER_TEMP/nightly/report.md"
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly \
+              --prerelease \
+              --latest=false \
+              --title "$title" \
+              --notes-file "$notes"
+          else
+            gh release create nightly \
+              --target "$NIGHTLY_SHA" \
+              --prerelease \
+              --latest=false \
+              --title "$title" \
+              --notes-file "$notes"
+          fi
+          node app/scripts/release-upload.mjs nightly "$RUNNER_TEMP"/upload/*
+          cat "$notes" >> "$GITHUB_STEP_SUMMARY"

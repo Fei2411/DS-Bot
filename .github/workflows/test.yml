@@ -39,6 +39,8 @@ jobs:
     outputs:
       checkout_ref: ${{ steps.filter.outputs.checkout_ref }}
       full: ${{ steps.filter.outputs.full }}
+      hotfix: ${{ steps.filter.outputs.hotfix }}
+      release_pr: ${{ steps.filter.outputs.release_pr }}
       ds_bot: ${{ steps.filter.outputs.ds_bot }}
       ds_bot_browser: ${{ steps.filter.outputs.ds_bot_browser }}
       ds_bot_win: ${{ steps.filter.outputs.ds_bot_win }}
@@ -59,13 +61,37 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          IS_SAME_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+          PR_HOTFIX: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release/hotfix') }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           full=false
           main_push=false
-          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$BASE_REF" = "main" ]; then
+          hotfix=false
+          release_pr=false
+
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            if [ "$PR_HOTFIX" = "true" ]; then
+              hotfix=true
+            elif [ "$IS_SAME_REPO" = "true" ] && [[ "$HEAD_REF" == hotfix/* || "$HEAD_REF" == fix/hot-* ]]; then
+              hotfix=true
+            elif [ -n "$PR_NUMBER" ] && [ -n "$GH_TOKEN" ]; then
+              if gh api "repos/$GH_REPO/issues/$PR_NUMBER/labels" --jq '.[].name' 2>/dev/null | grep -qx 'release/hotfix'; then
+                hotfix=true
+              fi
+            fi
+            if [ "$hotfix" = "false" ]; then
+              release_pr=true
+            fi
+          fi
+
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$release_pr" = "true" ]; then
             full=true
           elif [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
             # Release PRs already pass the full matrix on BASE_REF=main before merge, and daily
@@ -129,12 +155,18 @@ jobs:
             mobile=false
             link=false
             docker=false
-            if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$|scripts/check-pure-base-sync\.mjs$|\.github/workflows/(package|full-package|pr-triage-labels)\.yml$)'; then ds_bot=true; fi
+            if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$|scripts/(check-pure-base-sync|check-release-milestone)\.mjs$|\.github/workflows/(package|full-package|pr-triage-labels|pr-merge-guard|release|nightly-release|cut-release)\.yml$)'; then ds_bot=true; fi
             if has '^(ds-bot/(src/client/|src/host/browser/|src/host/fonts\.js$|src/shared/|assets/|test/(browser/|harness-resolve\.mjs$)|scripts/|dev/harness/|package\.json$|package-lock\.json$)|app/ui/src/html-preview\.js$)'; then ds_bot_browser=true; fi
-            if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$)'; then app_unit=true; fi
-            if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/package\.json$|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest)\.js$|ds-bot/src/client/avatar/)'; then mobile=true; fi
+            if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$|\.github/workflows/release\.yml$)'; then app_unit=true; fi
+            if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/(package\.json|link\.js)$|ds-bot/src/shared/|ds-bot/src/host/phone\.js$|ds-bot/src/client/(i18n|themes|sources|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest|inbox-text|effects)\.js$|ds-bot/src/client/(avatar|locales)/)'; then mobile=true; fi
             if has '^link/'; then link=true; fi
             if has '^(docker/|docker-compose.*\.yml$|\.dockerignore$)'; then docker=true; fi
+            # Hotfix PRs targeting main still run the fast 4-shard Windows unit suites (~5m)
+            # whenever plugin or desktop code changes so main never loses Windows test coverage.
+            if [ "$hotfix" = "true" ]; then
+              if [ "$ds_bot" = "true" ]; then ds_bot_win=true; fi
+              if [ "$app_unit" = "true" ]; then app_unit_win=true; fi
+            fi
             # Push to dev stays fast and Linux-only so rapid merges warm Linux caches and catch
             # cross-PR regressions immediately without hogging Windows or Docker runners; Windows,
             # Node 22, and Docker :dev publishing run on the daily dev Nightly.
@@ -155,6 +187,8 @@ jobs:
           {
             echo "checkout_ref=$checkout_ref"
             echo "full=$full"
+            echo "hotfix=$hotfix"
+            echo "release_pr=$release_pr"
             echo "ds_bot=$ds_bot"
             echo "ds_bot_browser=$ds_bot_browser"
             echo "ds_bot_win=$ds_bot_win"
@@ -273,11 +307,15 @@ jobs:
         run: npm run test:browser
 
   test-windows:
-    name: windows-latest · Node 24
+    name: windows-latest · Node 24 (shard ${{ matrix.shard }}/4)
     needs: changes
     if: needs.changes.outputs.ds_bot_win == 'true'
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     defaults:
       run:
         shell: bash
@@ -306,16 +344,18 @@ jobs:
         if: steps.harness-cache.outputs.cache-hit != 'true'
         run: npm run harness
       - name: Save DSH test harness
-        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.harness-cache.outputs.cache-hit != 'true'
+        if: matrix.shard == 1 && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref == '')) && steps.harness-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ds-bot/dev/harness/node_modules
           key: ${{ steps.harness-cache.outputs.cache-primary-key }}
-      - name: Run unit tests (Windows)
-        # Windows file locking plus several concurrent test-file processes make the same
-        # local asynchronous chains take several times longer; two at a time removes the
-        # contention instead of hiding it behind longer assertions.
-        run: npm run test:windows
+      - name: Run unit tests (Windows shard ${{ matrix.shard }}/4)
+        env:
+          MATRIX_SHARD: ${{ matrix.shard }}
+        run: |
+          # Split Windows unit tests across 4 balanced parallel shards while keeping
+          # --test-concurrency=2 per shard to avoid Windows file-lock contention.
+          npm run test:windows:shard -- --shard "${MATRIX_SHARD}/4"
 
   test-node22:
     name: ubuntu-latest · Node 22
@@ -357,6 +397,42 @@ jobs:
           path: ds-bot/dev/harness/node_modules
           key: ${{ steps.harness-cache.outputs.cache-primary-key }}
       - run: npm test
+
+  release-milestone:
+    name: Release milestone gate
+    needs: changes
+    if: needs.changes.outputs.release_pr == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.checkout_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify target release Milestone has zero blocking open items
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./ds-bot/package.json').version")"
+          args=(--version "v$version" --repo "$GITHUB_REPOSITORY" --base-ref origin/main --head-ref HEAD)
+          if [ -n "$PR_NUMBER" ]; then
+            args+=(--ignore-pr "$PR_NUMBER")
+          fi
+          # Fork PRs may receive a restricted token; gracefully skip only on 401/403.
+          if [ "$IS_FORK" = "true" ]; then
+            args+=(--allow-missing-token)
+          fi
+          node scripts/check-release-milestone.mjs "${args[@]}"
 
   scan:
     name: Leak scan
@@ -552,9 +628,11 @@ jobs:
   # The one check that branch rules require. A job whose needs failed is skipped,
   # and GitHub counts a skipped required check as passed, so this job always runs
   # and fails unless every job required for the changed paths passed.
+  # Live label/milestone merge gating (needs-product-ok, future Milestone) runs in
+  # pr-merge-guard.yml via the independent "PR merge guard" commit status.
   result:
     name: Test result
-    needs: [changes, test, test-browser, test-windows, test-node22, scan, app, app-windows, mobile, link, docker]
+    needs: [changes, test, test-browser, test-windows, test-node22, release-milestone, scan, app, app-windows, mobile, link, docker]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -570,6 +648,8 @@ jobs:
           TEST_WIN_RESULT: ${{ needs.test-windows.result }}
           RUN_NODE22: ${{ needs.changes.outputs.node22 }}
           NODE22_RESULT: ${{ needs.test-node22.result }}
+          RUN_RELEASE_MILESTONE: ${{ needs.changes.outputs.release_pr }}
+          RELEASE_MILESTONE_RESULT: ${{ needs.release-milestone.result }}
           RUN_APP_UNIT: ${{ needs.changes.outputs.app_unit }}
           APP_RESULT: ${{ needs.app.result }}
           RUN_APP_UNIT_WIN: ${{ needs.changes.outputs.app_unit_win }}
@@ -606,6 +686,7 @@ jobs:
           check "test-browser" "$RUN_DS_BOT_BROWSER" "$TEST_BROWSER_RESULT"
           check "test-windows" "$RUN_DS_BOT_WIN" "$TEST_WIN_RESULT"
           check "test-node22" "$RUN_NODE22" "$NODE22_RESULT"
+          check "release-milestone" "$RUN_RELEASE_MILESTONE" "$RELEASE_MILESTONE_RESULT"
           check "app" "$RUN_APP_UNIT" "$APP_RESULT"
           check "app-windows" "$RUN_APP_UNIT_WIN" "$APP_WIN_UNIT_RESULT"
           check "mobile" "$RUN_MOBILE" "$MOBILE_RESULT"
