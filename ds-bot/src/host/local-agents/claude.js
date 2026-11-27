@@ -160,7 +160,7 @@ class ClaudeSession {
     let child
     try {
       child = this.child = spawnAgent(bin, args, {
-        env: cleanEnv(this.engine.env ?? {}),
+        env: cleanEnv(this.engine.engine.env ?? this.engine.env ?? {}),
         cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,

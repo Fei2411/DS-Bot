@@ -10,7 +10,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises'
 import { arch, platform, release } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cleanText, dshVersion } from './diagnostics.js'
 import { replaceFile } from './files.js'
@@ -33,7 +33,7 @@ const KNOWN_PROVIDERS = new Set([
 const KNOWN_LOCAL_AGENTS = new Set([
   'claude-code', 'codex', 'gemini', 'antigravity', 'opencode', 'cursor', 'devin', 'qoder',
 ])
-const KNOWN_THEMES = new Set(['deepseek', 'mono', 'paper', 'moonlight', 'celadon'])
+const KNOWN_THEMES = new Set(['deepseek', 'mono', 'paper', 'moonlight', 'fei'])
 const KNOWN_IM = new Set(['telegram', 'feishu', 'discord', 'slack', 'dingtalk', 'wecom', 'qq', 'weixin'])
 const KNOWN_FEATURES = new Set([
   'group_chat', 'background_task', 'bot_browser', 'computer_use', 'schedule',
@@ -41,6 +41,28 @@ const KNOWN_FEATURES = new Set([
   'local_api', 'connectors', 'capabilities', 'plugins', 'secrets',
 ])
 const ERROR_SOURCES = new Set(['host', 'electron-main', 'renderer', 'turn', 'update'])
+const SAFE_ERROR_NAMES = new Set([
+  'Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError', 'URIError',
+  'EvalError', 'AggregateError', 'AbortError', 'TimeoutError', 'DOMException',
+  'SystemError', 'AssertionError', 'HttpError', 'NetworkError', 'AuthError',
+  'QuotaError', 'ConfigError', 'SqliteError',
+])
+const SAFE_ERROR_CODES = new Set([
+  'bot/invalid', 'bot/not-found', 'bot/refused', 'bot/read-only', 'bot/stale',
+  'bot/busy', 'bot/conflict', 'bot/timeout', 'bot/internal', 'schedule/pending',
+  'gateway/internal', 'gateway/timeout', 'gateway/unavailable',
+  'session/not-found', 'session/agent-busy', 'session/archived', 'subagent/unauthorized',
+  'AUTH', 'QUOTA', 'RATE_LIMIT', 'NETWORK', 'TIMEOUT', 'CONTENT_POLICY', 'ABORTED', 'UNKNOWN',
+  'SERVER', 'MAX_TOKENS', 'CONTEXT_WINDOW_EXCEEDED', 'BAD_REQUEST', 'FORBIDDEN', 'NOT_FOUND',
+  'OVERLOADED', 'PROVIDER', 'MODEL',
+  'ENOENT', 'EACCES', 'EPERM', 'EEXIST', 'EISDIR', 'ENOTDIR', 'EMFILE', 'ENOSPC', 'EPIPE',
+  'ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH',
+  'EADDRINUSE', 'EADDRNOTAVAIL', 'EAI_AGAIN', 'ENOTFOUND', 'EBUSY', 'EXDEV', 'EINVAL',
+  'ERR_INVALID_ARG_TYPE', 'ERR_MODULE_NOT_FOUND', 'ERR_IPC_CHANNEL_CLOSED',
+  'ERR_STREAM_DESTROYED', 'ERR_ABORTED', 'ERR_UNHANDLED_REJECTION',
+  'SQLITE_BUSY', 'SQLITE_CORRUPT', 'SQLITE_FULL', 'SQLITE_IOERR', 'SQLITE_READONLY', 'SQLITE_CONSTRAINT',
+])
+const HTTP_ERROR_CODE_RE = /^HTTP_[45]\d\d$/
 const SAFE_WHERE = new Set([
   'turns', 'groups', 'memory', 'browser', 'store', 'channel', 'schedule', 'connector',
   'im', 'phone', 'api', 'computer', 'plugins', 'secrets', 'update', 'overlay',
@@ -49,9 +71,17 @@ const SAFE_WHERE = new Set([
 const ARCHS = new Set(['arm64', 'x64', 'ia32', 'arm'])
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const IDENT_RE = /^[A-Za-z][A-Za-z0-9_]{0,47}$/
-const CODE_RE = /^[A-Za-z0-9_/-]{1,48}$/
-const FRAME_CHECK_RE = /^(?:[A-Za-z0-9_$.<> -]{1,64} @ )?(?:ds-bot|app|link|mobile)\/[A-Za-z0-9_./-]{1,120}(?::[0-9]{1,6}(?::[0-9]{1,5})?)?$/
+const FRAME_CHECK_RE = /^(?:ds-bot|app|link|mobile)\/(?:(?:ui\/)?src\/|scripts\/|engine\/)?[A-Za-z0-9_/-]{1,96}\.(?:js|mjs|cjs|ts|tsx)(?::[0-9]{1,6}(?::[0-9]{1,5})?)?$/
+
+export function normalizeErrorName(raw) {
+  return typeof raw === 'string' && SAFE_ERROR_NAMES.has(raw) ? raw : 'Error'
+}
+
+export function normalizeErrorCode(raw) {
+  if (typeof raw !== 'string' || raw === '') return undefined
+  if (SAFE_ERROR_CODES.has(raw) || HTTP_ERROR_CODE_RE.test(raw)) return raw
+  return undefined
+}
 
 export function normalizeWhere(raw) {
   if (typeof raw !== 'string') return undefined
@@ -74,12 +104,26 @@ const ownVersion = () => {
   }
 }
 
+const isTruthyEnv = (value) => {
+  const clean = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  return clean === '1' || clean === 'true'
+}
+
 export function envDisabledReason(env = process.env) {
   if (typeof env.DS_BOT_TELEMETRY_DISABLED === 'string' && env.DS_BOT_TELEMETRY_DISABLED !== '') {
     return 'DS_BOT_TELEMETRY_DISABLED'
   }
-  const dnt = typeof env.DO_NOT_TRACK === 'string' ? env.DO_NOT_TRACK.trim().toLowerCase() : ''
-  if (dnt === '1' || dnt === 'true') return 'DO_NOT_TRACK'
+  if (isTruthyEnv(env.DO_NOT_TRACK)) return 'DO_NOT_TRACK'
+  return null
+}
+
+export function automatedEnvReason(env = process.env) {
+  if (isTruthyEnv(env.CI)) return 'CI'
+  if (isTruthyEnv(env.GITHUB_ACTIONS)) return 'GITHUB_ACTIONS'
+  if (typeof env.NODE_TEST_CONTEXT === 'string' && env.NODE_TEST_CONTEXT !== '') return 'NODE_TEST_CONTEXT'
+  if (typeof env.VITEST === 'string' && env.VITEST !== '') return 'VITEST'
+  if (typeof env.JEST_WORKER_ID === 'string' && env.JEST_WORKER_ID !== '') return 'JEST_WORKER_ID'
+  if (typeof env.PLAYWRIGHT_TEST === 'string' && env.PLAYWRIGHT_TEST !== '') return 'PLAYWRIGHT_TEST'
   return null
 }
 
@@ -158,21 +202,16 @@ export function sanitizeStack(rawStack) {
     const line = rawLine.trim()
     if (!line.startsWith('at ')) continue
     const body = line.slice(3).trim()
-    let fn = ''
     let loc = body
-    const paren = body.match(/^(.+?)\s+\((.+)\)$/)
-    if (paren) {
-      fn = paren[1].replace(/^async\s+/, '').trim()
-      loc = paren[2].trim()
-    }
+    const paren = body.match(/^.+?\s+\((.+)\)$/)
+    if (paren) loc = paren[1].trim()
     const normalized = loc.replace(/\\/g, '/').replace(/[?#][^:]*/g, '')
-    const match = /(?:^|.*\/)((?:ds-bot|app|link|mobile)\/[A-Za-z0-9_./-]{1,120})(?::(\d{1,6})(?::(\d{1,5}))?)?$/.exec(normalized)
+    const match = /(?:^|.*\/)((?:ds-bot|app|link|mobile)\/(?:(?:ui\/)?src\/|scripts\/|engine\/)?[A-Za-z0-9_/-]{1,96}\.(?:js|mjs|cjs|ts|tsx))(?::(\d{1,6})(?::(\d{1,5}))?)?$/.exec(normalized)
     if (!match) continue
     const rel = match[1]
     if (rel.includes('..') || rel.includes('/node_modules/')) continue
     const coords = match[2] ? `:${match[2]}${match[3] ? `:${match[3]}` : ''}` : ''
-    const safeFn = fn && /^[A-Za-z0-9_$.<> -]{1,64}$/.test(fn) ? `${fn} @ ` : ''
-    const frame = `${safeFn}${rel}${coords}`
+    const frame = `${rel}${coords}`
     if (!FRAME_CHECK_RE.test(frame)) continue
     frames.push(frame)
     if (frames.length >= 8) break
@@ -191,7 +230,7 @@ function defaultState(now = Date.now()) {
     version: 1,
     noticeAccepted: false,
     noticeVersion: NOTICE_VERSION,
-    usage: true,
+    usage: false,
     errors: false,
     dshSessionLog: false,
     dshFeedbackTelemetry: false,
@@ -223,12 +262,13 @@ function readInitialState(filePath, now) {
     const sentErrors = parsed.sentErrors && parsed.sentErrors.day === day && parsed.sentErrors.counts && typeof parsed.sentErrors.counts === 'object'
       ? { day, counts: { ...parsed.sentErrors.counts } }
       : { day, counts: {} }
+    const noticeAccepted = parsed.noticeAccepted === true
     return {
       version: 1,
-      noticeAccepted: parsed.noticeAccepted === true,
+      noticeAccepted,
       noticeVersion: Number.isInteger(parsed.noticeVersion) ? parsed.noticeVersion : NOTICE_VERSION,
-      usage: parsed.usage !== false,
-      errors: parsed.errors === true,
+      usage: noticeAccepted && parsed.usage === true,
+      errors: noticeAccepted && parsed.errors === true,
       dshSessionLog: parsed.dshSessionLog === true,
       dshFeedbackTelemetry: parsed.dshFeedbackTelemetry === true,
       anonId: validId ? parsed.anonId.toLowerCase() : randomUUID(),
@@ -258,7 +298,14 @@ export function install(rt) {
   let startTimer = null
   let periodicTimer = null
 
-  const envReason = () => (configDisabled ? 'config' : envDisabledReason(process.env))
+  const hasTestOverride = typeof config.telemetryFetch === 'function' || typeof config.telemetryUrl === 'string'
+  const envReason = () => {
+    if (configDisabled) return 'config'
+    const explicit = envDisabledReason(process.env)
+    if (explicit !== null) return explicit
+    if (!hasTestOverride) return automatedEnvReason(process.env)
+    return null
+  }
   const isDisabled = () => envReason() !== null || endpoint === null
 
   const rotateIfNeeded = (now = nowFn()) => {
@@ -299,54 +346,128 @@ export function install(rt) {
     return saving
   }
 
-  // Synchronous check used by DSH `sessionLogDeepSeek.registerExclusion` and
-  // `session-telemetry/record` to guarantee private Bots never upload logs.
-  const isPrivateSession = (sessionId) => {
-    if (typeof sessionId !== 'string' || sessionId === '') return false
+  const isPathWithin = (candidate, dir) => {
+    if (typeof candidate !== 'string' || candidate === '' || typeof dir !== 'string' || dir === '') return false
+    const norm = p => resolve(p).replace(/\\/g, '/').replace(/\/+$/, '')
+    const c = process.platform === 'linux' ? norm(candidate) : norm(candidate).toLowerCase()
+    const d = process.platform === 'linux' ? norm(dir) : norm(dir).toLowerCase()
+    return c === d || c.startsWith(`${d}/`)
+  }
+
+  const hasAnyPrivate = () => Object.values(rt.state?.bots ?? {}).some(bot => bot?.private === true)
+    || (rt.state?.privateArchives?.length ?? 0) > 0
+
+  const botOwnsSession = (bot, sessionId) => {
+    if (!bot) return false
+    if (bot.id === sessionId || rt.chatOf?.(bot.id) === sessionId) return true
+    if (Array.isArray(bot.segments) && bot.segments.some(seg => seg?.sessionId === sessionId)) return true
+    if (Array.isArray(bot.openParts) && bot.openParts.some(part => part?.sessionId === sessionId
+      || (Array.isArray(part?.segments) && part.segments.some(seg => seg?.sessionId === sessionId)))) return true
+    if (Array.isArray(bot.tasks) && bot.tasks.some(task => task?.sessionId === sessionId)) return true
+    if (Array.isArray(bot.retiredTasks) && bot.retiredTasks.some(task => task?.sessionId === sessionId)) return true
+    return false
+  }
+
+  const isPrivateCwd = (cwd) => {
+    if (typeof cwd !== 'string' || cwd === '') return false
+    for (const bot of Object.values(rt.state?.bots ?? {})) {
+      if (bot?.private !== true) continue
+      if (isPathWithin(cwd, bot.workDir)) return true
+      if (isPathWithin(cwd, join(home, 'memory', 'bots', bot.id))) return true
+      if (isPathWithin(cwd, join(home, 'browser-profiles', bot.id))) return true
+    }
+    for (const archive of rt.state?.privateArchives ?? []) {
+      if (isPathWithin(cwd, archive?.archivePath)) return true
+    }
+    return false
+  }
+
+  const isDirectlyPrivate = (sessionId) => {
     const owner = rt.selfOf?.(sessionId)
     if (owner !== undefined && rt.isPrivate?.(owner)) return true
     for (const bot of Object.values(rt.state?.bots ?? {})) {
-      if (bot?.private !== true) continue
-      if (bot.id === sessionId || rt.chatOf?.(bot.id) === sessionId) return true
-      if (Array.isArray(bot.segments) && bot.segments.some(seg => seg?.sessionId === sessionId)) return true
-      if (Array.isArray(bot.tasks) && bot.tasks.some(task => task?.sessionId === sessionId)) return true
-      if (Array.isArray(bot.retiredTasks) && bot.retiredTasks.some(task => task?.sessionId === sessionId)) return true
+      if (bot?.private === true && botOwnsSession(bot, sessionId)) return true
     }
     for (const archive of rt.state?.privateArchives ?? []) {
       if (archive?.id === sessionId) return true
       if (Array.isArray(archive?.sessionIds) && archive.sessionIds.includes(sessionId)) return true
     }
-    // Walk live parentSession chain for subagents spawned by a private Bot.
-    const seen = new Set([sessionId])
-    let cur = ctx.sessions?.get?.(sessionId)?.header?.parentSession
-    while (cur !== undefined && !seen.has(String(cur))) {
-      const id = String(cur)
-      seen.add(id)
-      const parentOwner = rt.selfOf?.(id)
-      if (parentOwner !== undefined && rt.isPrivate?.(parentOwner)) return true
-      cur = ctx.sessions?.get?.(id)?.header?.parentSession
+    return false
+  }
+
+  const isDirectlyPublic = (sessionId) => {
+    const owner = rt.selfOf?.(sessionId)
+    if (owner !== undefined && !rt.isPrivate?.(owner)) return true
+    if (rt.roomOf?.(sessionId)) return true
+    if (rt.agentOf?.(sessionId) !== undefined) return true
+    for (const bot of Object.values(rt.state?.bots ?? {})) {
+      if (bot?.private !== true && botOwnsSession(bot, sessionId)) return true
+    }
+    for (const agent of Object.values(rt.state?.agents ?? {})) {
+      if (Array.isArray(agent?.sessions) && agent.sessions.includes(sessionId)) return true
     }
     return false
   }
 
+  // Synchronous check used by DSH `sessionLogDeepSeek.registerExclusion`,
+  // `session-telemetry/record`, and DS Bot telemetry to guarantee private Bots
+  // (including offline/disk-resumed subagents) never upload logs.
+  const isPrivateSession = (sessionId, { failClosed = false, record } = {}) => {
+    const recordCwd = record?.attributes?.['session.cwd']
+    if (isPrivateCwd(recordCwd)) return true
+    if (typeof sessionId !== 'string' || sessionId === '') return failClosed && hasAnyPrivate()
+
+    const seen = new Set()
+    let cur = sessionId
+    let first = true
+    while (cur !== undefined && !seen.has(cur)) {
+      seen.add(cur)
+      if (isDirectlyPrivate(cur)) return true
+      const live = ctx.sessions?.get?.(cur)
+      if (live && isPrivateCwd(live.header?.cwd)) return true
+      if (isDirectlyPublic(cur)) return false
+      if (live) {
+        const nextParent = live.header?.parentSession
+        if (nextParent === undefined) return false
+        cur = String(nextParent)
+        first = false
+        continue
+      }
+      // Check parent hints on the record itself before giving up on an offline session.
+      if (first && record) {
+        const hint = record?.sourceEvent?.envelope?.parentSession ?? record?.attributes?.['session.parent_id']
+        if (typeof hint === 'string' && hint !== '' && !seen.has(hint)) {
+          cur = hint
+          first = false
+          continue
+        }
+      }
+      // Offline / disk-resumed session whose ownership cannot be proven public:
+      // fail closed whenever this team has any private Bot or private archive.
+      return failClosed && hasAnyPrivate()
+    }
+    return failClosed && hasAnyPrivate()
+  }
+
   // --- DSH upstream telemetry safeguards (without patching DSH) ---
   // 1. Official DeepSeek API incremental session-log upload: excluded by default,
-  //    and permanently excluded for all private Bots.
+  //    and permanently excluded for all private Bots (fail-closed on offline subagents).
   ctx.inject?.(['sessionLogDeepSeek'], (child) => {
     if (typeof child.sessionLogDeepSeek?.registerExclusion !== 'function') return
     child.sessionLogDeepSeek.registerExclusion((request) => {
       if (!data.dshSessionLog) return true
-      if (isPrivateSession(request?.sessionId)) return true
+      if (isPrivateSession(request?.sessionId, { failClosed: true })) return true
       return false
     })
   })
 
   // 2. OTLP feedback telemetry redaction & opt-in gate: DSH ships no default redaction
-  //    rules, so we withhold unless enabled, always block private Bots, and scrub secrets/paths.
+  //    rules, so we withhold unless enabled, always block private Bots (fail-closed on
+  //    offline/disk-resumed subagents), and scrub secrets/paths.
   //    Cordis waterfall `next()` takes no arguments; run downstream first, then scrub its result.
   ctx.on?.('session-telemetry/record', (record, next) => {
     const sid = record?.sourceEvent?.sessionId ?? record?.attributes?.['session.id']
-    if (!data.dshFeedbackTelemetry || isPrivateSession(sid)) {
+    if (!data.dshFeedbackTelemetry || isPrivateSession(sid, { failClosed: true, record })) {
       return { ...record, sourceEvent: undefined }
     }
     const current = next()
@@ -544,8 +665,8 @@ export function install(rt) {
     if (sessionId && isPrivateSession(sessionId)) return false
 
     const safeSource = ERROR_SOURCES.has(source) ? source : 'host'
-    const rawName = typeof errorName === 'string' && IDENT_RE.test(errorName) ? errorName : 'Error'
-    const safeCode = typeof code === 'string' && CODE_RE.test(code) ? code : undefined
+    const rawName = normalizeErrorName(errorName)
+    const safeCode = normalizeErrorCode(code)
     const safeWhere = normalizeWhere(where)
     const frames = sanitizeStack(stack)
     const fp = errorFingerprint({ source: safeSource, errorName: rawName, errorCode: safeCode, where: safeWhere, frames })
@@ -622,6 +743,12 @@ export function install(rt) {
     if (typeof patch.noticeAccepted === 'boolean') {
       data.noticeAccepted = patch.noticeAccepted
       data.noticeVersion = NOTICE_VERSION
+      // On first-time consent, each switch requires explicit opt-in; never silently
+      // enable usage statistics when the user only toggles error reports.
+      if (!wasCurrent && patch.noticeAccepted === true) {
+        if (typeof patch.usage !== 'boolean') data.usage = false
+        if (typeof patch.errors !== 'boolean') data.errors = false
+      }
     }
     if (typeof patch.usage === 'boolean') data.usage = patch.usage
     if (typeof patch.errors === 'boolean') data.errors = patch.errors

@@ -449,11 +449,11 @@ test('archived-list excludes Bot/group segments and archived-unarchive refuses r
 
 test('Classic Agent approvals bridge into approvalsView without botId, and session-scoped stop-agent cancels only the targeted session', async () => {
   const { install: installApprovals } = await import('../src/host/approvals.js')
+  const { install: installInbox } = await import('../src/host/inbox.js')
   const { install: installTurns } = await import('../src/host/turns.js')
   const { fakeContext } = await import('./fake-ctx.js')
   const ctx = fakeContext()
   const cancelled = []
-  const approvalWaitCalls = []
   const rt = {
     ctx,
     state: { bots: {}, rooms: {}, agents: { a1: { id: 'a1', sessions: ['cs-1', 'cs-2'] } } },
@@ -469,13 +469,13 @@ test('Classic Agent approvals bridge into approvalsView without botId, and sessi
     agentById: id => (id === 'a1' ? { id: 'a1', sessions: ['cs-1', 'cs-2'] } : undefined),
     agentOf: sid => (sid === 'cs-1' || sid === 'cs-2' ? { id: 'a1', sessions: ['cs-1', 'cs-2'] } : undefined),
     resolveAgent: async sid => ({ cancel: reason => cancelled.push([sid, reason]) }),
-    approvalWaiting: entry => approvalWaitCalls.push(entry),
     switchJobs: () => [],
   }
   installTurns(rt)
   installApprovals(rt)
+  installInbox(rt)
 
-  // Classic Agent approval request queues in approvalsView without botId, never triggers bot-only approvalWaiting or activity['undefined'].
+  // Classic Agent approval request queues in approvalsView without botId, never reaches the Bot inbox or activity['undefined'].
   let nextCalled = false
   const approvalMiddleware = ctx.listeners.get('approval/request').at(-1)
   const outcomePromise = approvalMiddleware({
@@ -495,7 +495,7 @@ test('Classic Agent approvals bridge into approvalsView without botId, and sessi
   assert.equal(view[0].sessionId, 'cs-1')
   assert.equal('botId' in view[0], false)
   assert.equal(view[0].answerable, true)
-  assert.equal(approvalWaitCalls.length, 0, 'Classic Agent approval must not trigger Bot mobile approvalWaiting')
+  assert.equal(rt.inboxView().count, 0, 'A Classic Agent approval is not a Bot\'s: the inbox (and the phone notices it drives) leaves it out')
   assert.equal('undefined' in rt.activityView(), false, 'activityView must not gain an undefined key')
 
   rt.answerApproval(view[0].id, 'allow')
@@ -512,4 +512,58 @@ test('Classic Agent approvals bridge into approvalsView without botId, and sessi
   rt.live.delete('cs-2')
   assert.equal(await rt.stopAgent('a1'), true)
   assert.deepEqual(cancelled, [['cs-2', { kind: 'user' }], ['cs-1', { kind: 'user' }]])
+})
+
+test('engine-web-providers and engine-model-catalog expose registered providers/models, allow read-only, and refuse remote', async () => {
+  const web = {
+    async listProviders() {
+      return {
+        search: [{ id: 'deepseek-search-api', title: 'DeepSeek Search API', available: true }],
+        fetch: [{ id: 'http', title: 'Direct HTTP', available: true }],
+      }
+    },
+  }
+  const llm = {
+    listProviders() {
+      return [
+        { id: 'deepseek', name: 'DeepSeek' },
+        { id: 'flaky', name: 'Flaky Provider' },
+      ]
+    },
+    async listModels(providerId) {
+      if (providerId === 'flaky') throw new Error('provider offline')
+      return [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }, { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner' }]
+    },
+  }
+  const { rt } = makeHarness({ readOnly: 'Another dsh holds this team', services: { web, llm } })
+
+  const webRes = await rt.channelCall('engine-web-providers', {})
+  assert.equal(webRes.ok, true)
+  assert.equal(webRes.value.available, true)
+  assert.deepEqual(webRes.value.search.map(p => p.id), ['deepseek-search-api'])
+  assert.deepEqual(webRes.value.fetch.map(p => p.id), ['http'])
+
+  const catRes = await rt.channelCall('engine-model-catalog', {})
+  assert.equal(catRes.ok, true)
+  assert.equal(catRes.value.available, true)
+  assert.equal(catRes.value.partial, true, 'flaky provider failure sets partial=true while keeping healthy providers')
+  assert.equal(catRes.value.groups.length, 1)
+  assert.deepEqual(catRes.value.groups[0].models.map(m => m.id), ['deepseek-chat', 'deepseek-reasoner'])
+
+  // Remote/phone access refuses both read endpoints.
+  for (const ep of ['engine-web-providers', 'engine-model-catalog']) {
+    assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, ep).code, 'bot/refused')
+    assert.equal(remoteAccessError({ deviceId: 'b1', kind: 'browser' }, ep).code, 'bot/refused')
+  }
+
+  // Fallback to rt.cachedCatalog() when ctx.llm is absent.
+  const { rt: fallbackRt } = makeHarness()
+  fallbackRt.cachedCatalog = () => [
+    { ref: 'openai/gpt-5', provider: 'openai', providerName: 'OpenAI', name: 'GPT-5' },
+  ]
+  const fbRes = await fallbackRt.channelCall('engine-model-catalog', {})
+  assert.equal(fbRes.ok, true)
+  assert.equal(fbRes.value.groups.length, 1)
+  assert.equal(fbRes.value.groups[0].id, 'openai')
+  assert.equal(fbRes.value.groups[0].models[0].id, 'gpt-5')
 })

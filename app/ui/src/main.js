@@ -29,11 +29,13 @@ import { PROVIDERS_CSS } from '../../../ds-bot/src/client/providers-page.js'
 import { QUEUE_CSS } from '../../../ds-bot/src/client/queue-dock.js'
 import { SCHEDULE_CSS } from '../../../ds-bot/src/client/schedules.js'
 import { APPEARANCE_PAGE_CSS } from '../../../ds-bot/src/client/appearance-page.js'
+import { SHORTCUTS_PAGE_CSS } from '../../../ds-bot/src/client/shortcuts-page.js'
 import { SECRET_CSS } from '../../../ds-bot/src/client/secret-card.js'
 import { SERVICES_CSS } from '../../../ds-bot/src/client/services-settings.js'
 import { SIDE_CSS } from '../../../ds-bot/src/client/side-chat.js'
 import { SIDE_APP_CSS } from '../../../ds-bot/src/client/side-app-styles.js'
 import { RETURN_CSS, SIDEBAR_CSS } from '../../../ds-bot/src/client/sidebar.js'
+import { INBOX_CSS } from '../../../ds-bot/src/client/inbox.js'
 import { CONVERSATION_CSS, SHELL_CSS, installStyles } from '../../../ds-bot/src/client/styles.js'
 import { TASK_CSS } from '../../../ds-bot/src/client/task-board.js'
 import { ANNOTATION_CSS } from '../../../ds-bot/src/client/text-annotation.js'
@@ -44,19 +46,26 @@ import { WIDGET_CSS } from '../../../ds-bot/src/client/widget-cell.js'
 import { createLocale, setAppLocaleService } from './locale.js'
 import { App } from './app.js'
 import { registerBuiltinToolViews } from './builtin-tool-views.js'
+import { registerClassicPlanView } from './classic-plan-view.js'
 import { registerEngineSettingsPlugin } from './engine-settings-bridge.js'
+import { registerMathStyleLoader } from './math-render.js'
 import { paintMode } from './mode.js'
 import { pluginRuntime } from './plugin-runtime.js'
 import { slots } from './slots.js'
 import './app.css'
+import './composer-classic.css'
+import './message-parity.css'
+
+registerMathStyleLoader(() => import('katex/dist/katex.min.css'))
 
 const appLocale = createLocale(navigator.language)
 setAppLocaleService(appLocale)
 installLocale(appLocale)
 installMotionRest()
 pluginRuntime.provide('slots', slots)
-pluginRuntime.use({ id: 'ds-bot.builtin-tool-views', name: 'Built-in tool views' }, () => registerBuiltinToolViews(slots))
-registerEngineSettingsPlugin(pluginRuntime)
+pluginRuntime.use({ id: 'ds-bot.builtin-tool-views', name: 'Built-in tool views', pages: ['chat'] }, () => registerBuiltinToolViews(slots))
+pluginRuntime.use({ id: 'ds-bot.classic-plan-view', name: 'Classic plan card', pages: ['chat'] }, () => registerClassicPlanView(slots))
+registerEngineSettingsPlugin(pluginRuntime, { pages: ['settings'] })
 globalThis.dsBotPlugins = pluginRuntime
 document.documentElement.lang = appLocale.getLocale().active
 // macOS puts the window buttons at the band's left end, over the sidebar (app.css).
@@ -64,12 +73,12 @@ if (/mac/iu.test(navigator.userAgentData?.platform ?? navigator.platform)) docum
 
 // The Bot views' own stylesheets, the same ones the plugin puts in DSH.
 for (const [tag, text] of [
-  ['shell', SHELL_CSS], ['sidebar', SIDEBAR_CSS + RETURN_CSS],
+  ['shell', SHELL_CSS], ['sidebar', SIDEBAR_CSS + RETURN_CSS + INBOX_CSS],
   ['conversation', CONVERSATION_CSS + PASTE_CSS + OPENING_CSS + USER_MESSAGE_CSS + WIDGET_CSS + CHANGES_CSS + HANDOFF_CSS + TURN_ERROR_CSS + QUEUE_CSS + ANNOTATION_CSS],
   ['secrets', SECRET_CSS], ['providers', PROVIDERS_CSS + SERVICES_CSS], ['connectors', CONNECTOR_CSS + CONNECTORS_PAGE_CSS + IM_CSS],
   ['models', MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + AVATAR_LIBRARY_CSS + GROUP_SETTINGS_CSS],
   ['panel', BROWSER_CSS + COMPUTER_CSS + SIDE_CSS + SIDE_APP_CSS + GOAL_CSS + TASK_CSS + TASKS_CSS + LEARNING_CSS],
-  ['usage', USAGE_CSS], ['schedules', SCHEDULE_CSS], ['appearance', APPEARANCE_PAGE_CSS],
+  ['usage', USAGE_CSS], ['schedules', SCHEDULE_CSS], ['appearance', APPEARANCE_PAGE_CSS], ['shortcuts', SHORTCUTS_PAGE_CSS],
   ['feedback', FEEDBACK_CSS], ['privacy', PRIVACY_CSS], ['about', ABOUT_CSS], ['members', MEMBER_CSS],
 ]) installStyles(text, tag)
 

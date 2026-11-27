@@ -1094,7 +1094,9 @@ test('a stale-session prompt arriving during the foreground commit waits for a d
   assert.equal(admitted().length, 0)
 
   blocked.mock.restore()
-  await settle(() => admitted().length === 1 && journal(rig).length === 0, 4500, 'the stale-session prompt should replay after writes recover')
+  // Retry backoff doubles (1s -> 2s -> 4s) if a timer fires while writes are blocked;
+  // allow enough time for the backed-off replay timer plus the real agent turn.
+  await settle(() => admitted().length === 1 && journal(rig).length === 0, 10_000, 'the stale-session prompt should replay after writes recover')
   assert.equal(diskForeground(), 'fork-1')
   assert.equal(admitted().length, 1)
 })
@@ -1683,5 +1685,54 @@ test('real DSH ReactLoopAgent: steering queued user messages behind hidden peer-
   assert.deepEqual(users.slice(-2), ['FIRST_QUEUED', 'SECOND_QUEUED'])
 
   rig.toolGate.resolve()
+  await dmA.whenIdle()
+})
+
+test('real DSH ReactLoopAgent: confirmSessionFlushed waits through idle inbox.claim() window until user/message lands and flushes true', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true, holdFirstModel: true })
+  const dmA = rig.agents.get('dm-a')
+  const origFlush = rig.root.sessions.flush.bind(rig.root.sessions)
+  const flushedIds = []
+  rig.root.sessions.flush = async (session) => {
+    flushedIds.push(session.id)
+    return origFlush(session)
+  }
+  // Wire real DSH SessionController.prompt contract onto the real ReactLoopAgent.
+  rig.rt.ctx.sessionController.prompt = async ({ sessionId, content, requestId, mode }) => {
+    const agent = rig.agents.get(sessionId)
+    const msg = createUserMessage({ content, source: { kind: 'user', rpcId: requestId } })
+    if (mode === 'steer') agent.steer(msg)
+    else agent.followup(msg)
+    return { ok: true }
+  }
+
+  // Idle real ReactLoopAgent synchronously calls inbox.claim() inside agent.followup() before
+  // preStep/step appends user/message; confirmSessionFlushed must wait for user/message and flush true.
+  const requestId = 'im:telegram:c1:dm-u1:idle-claim-1'
+  const delivered = await rig.rt.sendUser({
+    sessionId: 'a',
+    content: [{ type: 'text', text: 'Idle IM prompt' }],
+    requestId,
+  })
+  assert.equal(delivered.sessionId, 'dm-a')
+  assert.equal(delivered.alreadyAdmitted, false)
+  // Verify the exact real DSH preStep race window happened right after prompt() returned:
+  // inbox.nextTurn was already synchronously claimed and emptied!
+  assert.equal(dmA.inbox.nextTurn.length, 0)
+
+  const confirmed = await rig.rt.confirmSessionFlushed(delivered.sessionId, requestId)
+  assert.equal(confirmed, true, 'confirmSessionFlushed must wait for claimed prompt to land as user/message and flush true')
+  assert.deepEqual(flushedIds, ['dm-a'])
+  assert.equal(
+    dmA.session.snapshotEvents().some(ev => ev.type === 'user/message' && ev.data?.source?.rpcId === requestId),
+    true,
+    'user/message must be present on dm-a before confirmSessionFlushed resolves true',
+  )
+
+  // Repeat lookup must now remember durable: true for that session.
+  const repeat = await rig.rt.findAdmittedForSend({ ref: 'a', requestId, callerSupplied: true })
+  assert.deepEqual(repeat, { admitted: true, sessionId: 'dm-a', durable: true })
+
+  rig.firstModelGate.resolve()
   await dmA.whenIdle()
 })

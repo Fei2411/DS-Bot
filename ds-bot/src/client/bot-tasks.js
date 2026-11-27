@@ -7,6 +7,7 @@ import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightI
 import { SPRING_TAP, spring, useMorph } from './motion.js'
 import { sendsOnEnter } from './enter-key.js'
 import { relativeShort } from './text.js'
+import { alwaysAllowScopeLabel, cleanApprovalReason } from './approval-helpers.js'
 import { hostText, mdLabels, t } from './i18n.js'
 
 // -------------------------------------------------------------------------
@@ -249,11 +250,17 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
   const setDraftFor = (key, updater) => setDrafts(prev => ({ ...prev, [key]: typeof updater === 'function' ? updater(prev[key] ?? '') : updater }))
   const approvalItem = item.kind === 'approval' ? item.approvalItem : null
   const isApproval = approvalItem !== null
+  const readOnly = Boolean(roster?.readOnly)
+  const toolApproval = isApproval && approvalItem.kind === 'tool' ? approvalItem.approval : null
+  const canAlways = Boolean(toolApproval?.alwaysAllow) && !readOnly
+  const approvalReason = toolApproval ? cleanApprovalReason(toolApproval, item.title) : ''
+  const approvalScope = canAlways ? alwaysAllowScopeLabel(toolApproval.alwaysAllow) : ''
   const taskActive = task !== undefined && isActiveTask(task)
   const panelSubject = room?.sessionId ?? room?.id ?? bot?.sessionId ?? bot?.id ?? targetId
 
   const answerApproval = (choice) => {
-    if (busy || !approvalItem) return
+    if (busy || readOnly || !approvalItem) return
+    if (approvalItem.kind === 'tool' && choice === 'always' && !canAlways) return
     setBusy(true)
     setError('')
     const promise = approvalItem.kind === 'computer-app'
@@ -326,12 +333,13 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
 
         isApproval && approvalItem.kind === 'tool'
           ? h(Fragment, null,
-              approvalItem.approval.reason ? h('div', { className: 'bt-btask-reason' }, approvalItem.approval.reason) : null,
+              approvalReason ? h('div', { className: 'bt-btask-reason' }, approvalReason) : null,
               approvalItem.approval.detail?.code
                 ? h('div', { className: 'bt-btask-cmd' },
                     approvalItem.approval.tool ? h('span', { className: 'bt-btask-cmd-tool' }, approvalItem.approval.tool) : null,
                     h('code', { className: 'bt-btask-cmd-code', title: approvalItem.approval.detail.code }, approvalItem.approval.detail.code))
-                : null)
+                : null,
+              approvalScope ? h('div', { className: 'bt-btask-scope' }, approvalScope) : null)
           : null,
 
         !isApproval && task
@@ -384,8 +392,11 @@ export function TaskIslandPanel({ bot, room, roster, approvals = [], focusTaskId
               h('button', { type: 'button', className: 'bt-btask-btn is-primary', disabled: busy, onClick: () => answerApproval('always') }, t('Always')))
           : isApproval
             ? h(Fragment, null,
-                h('button', { type: 'button', className: 'bt-btask-btn', disabled: busy, onClick: () => answerApproval('reject') }, t('Reject')),
-                h('button', { type: 'button', className: 'bt-btask-btn is-primary', disabled: busy, onClick: () => answerApproval('allow') }, t('Allow once')))
+                h('button', { type: 'button', className: 'bt-btask-btn', disabled: busy || readOnly, onClick: () => answerApproval('reject') }, t('Reject')),
+                h('button', { type: 'button', className: 'bt-btask-btn is-primary', disabled: busy || readOnly, onClick: () => answerApproval('allow') }, t('Allow once')),
+                canAlways
+                  ? h('button', { type: 'button', className: 'bt-btask-btn', disabled: busy || readOnly, onClick: () => answerApproval('always') }, t('Always allow'))
+                  : null)
             : taskActive
               ? h('button', { type: 'button', className: 'bt-btask-btn is-danger', disabled: busy, onClick: stopFocusedTask }, t('Stop'))
               : null)))
@@ -733,6 +744,7 @@ export const TASKS_CSS = `
 
 .bt-btask-title{font-size:15px;line-height:21px;font-weight:600;letter-spacing:-.012em;color:var(--bt-ink);overflow-wrap:anywhere}
 .bt-btask-reason{font-size:12.5px;line-height:18px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-btask-scope{padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-accent) 8%,transparent);font-size:12px;line-height:17px;color:var(--bt-ink-2);overflow-wrap:anywhere}
 
 /* Clean inset monospace command strip (zero card-in-card clutter) */
 .bt-btask-cmd{display:flex;align-items:baseline;gap:8px;padding:8px 11px;border-radius:10px;background:var(--bt-island-well);border:.5px solid var(--bt-line);overflow-x:auto}

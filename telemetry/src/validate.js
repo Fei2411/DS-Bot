@@ -9,7 +9,7 @@ export const BOT_BUCKETS = new Set(['0', '1', '2-3', '4-7', '8+'])
 export const GROUP_BUCKETS = new Set(['0', '1-2', '3+'])
 export const TURN_BUCKETS = new Set(['0', '1-5', '6-20', '21-50', '51+'])
 export const CONNECTOR_BUCKETS = new Set(['0', '1-2', '3+'])
-export const THEMES = new Set(['deepseek', 'mono', 'paper', 'moonlight', 'celadon', 'custom'])
+export const THEMES = new Set(['deepseek', 'mono', 'paper', 'moonlight', 'fei', 'celadon', 'custom'])
 export const LAYOUTS = new Set(['bubble', 'flat'])
 export const PROVIDERS = new Set([
   'deepseek-official', 'deepseek-account', 'openai', 'anthropic', 'google',
@@ -28,6 +28,28 @@ export const IM_PLATFORMS = new Set([
   'telegram', 'feishu', 'discord', 'slack', 'dingtalk', 'wecom', 'qq', 'weixin',
 ])
 export const ERROR_SOURCES = new Set(['host', 'electron-main', 'renderer', 'turn', 'update'])
+export const SAFE_ERROR_NAMES = new Set([
+  'Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError', 'URIError',
+  'EvalError', 'AggregateError', 'AbortError', 'TimeoutError', 'DOMException',
+  'SystemError', 'AssertionError', 'HttpError', 'NetworkError', 'AuthError',
+  'QuotaError', 'ConfigError', 'SqliteError',
+])
+export const SAFE_ERROR_CODES = new Set([
+  'bot/invalid', 'bot/not-found', 'bot/refused', 'bot/read-only', 'bot/stale',
+  'bot/busy', 'bot/conflict', 'bot/timeout', 'bot/internal', 'schedule/pending',
+  'gateway/internal', 'gateway/timeout', 'gateway/unavailable',
+  'session/not-found', 'session/agent-busy', 'session/archived', 'subagent/unauthorized',
+  'AUTH', 'QUOTA', 'RATE_LIMIT', 'NETWORK', 'TIMEOUT', 'CONTENT_POLICY', 'ABORTED', 'UNKNOWN',
+  'SERVER', 'MAX_TOKENS', 'CONTEXT_WINDOW_EXCEEDED', 'BAD_REQUEST', 'FORBIDDEN', 'NOT_FOUND',
+  'OVERLOADED', 'PROVIDER', 'MODEL',
+  'ENOENT', 'EACCES', 'EPERM', 'EEXIST', 'EISDIR', 'ENOTDIR', 'EMFILE', 'ENOSPC', 'EPIPE',
+  'ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH',
+  'EADDRINUSE', 'EADDRNOTAVAIL', 'EAI_AGAIN', 'ENOTFOUND', 'EBUSY', 'EXDEV', 'EINVAL',
+  'ERR_INVALID_ARG_TYPE', 'ERR_MODULE_NOT_FOUND', 'ERR_IPC_CHANNEL_CLOSED',
+  'ERR_STREAM_DESTROYED', 'ERR_ABORTED', 'ERR_UNHANDLED_REJECTION',
+  'SQLITE_BUSY', 'SQLITE_CORRUPT', 'SQLITE_FULL', 'SQLITE_IOERR', 'SQLITE_READONLY', 'SQLITE_CONSTRAINT',
+])
+const HTTP_ERROR_CODE_RE = /^HTTP_[45]\d\d$/
 export const SAFE_WHERE = new Set([
   'turns', 'groups', 'memory', 'browser', 'store', 'channel', 'schedule', 'connector',
   'im', 'phone', 'api', 'computer', 'plugins', 'secrets', 'update', 'overlay',
@@ -39,11 +61,13 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 const VERSION_RE = /^(?:unknown|[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]{1,32})?)$/
 const OS_RE = /^(?:darwin|win32|linux|ios|android|unknown)(?: [0-9]{1,3})?$/
 const LOCALE_RE = /^(?:unknown|[a-z]{2}(?:-[A-Z]{2})?)$/
-const IDENT_RE = /^[A-Za-z][A-Za-z0-9_]{0,47}$/
-const CODE_RE = /^[A-Za-z0-9_/-]{1,48}$/
 const FINGERPRINT_RE = /^[0-9a-f]{16}$/
-// Only relative package frames inside ds-bot/, app/, link/, or mobile/.
-const FRAME_RE = /^(?:[A-Za-z0-9_$.<> -]{1,64} @ )?(?:ds-bot|app|link|mobile)\/[A-Za-z0-9_./-]{1,120}(?::[0-9]{1,6}(?::[0-9]{1,5})?)?$/
+// Only relative DS Bot package source frames (no arbitrary function names or non-source paths).
+const FRAME_RE = /^(?:ds-bot|app|link|mobile)\/(?:(?:ui\/)?src\/|scripts\/|engine\/)?[A-Za-z0-9_/-]{1,96}\.(?:js|mjs|cjs|ts|tsx)(?::[0-9]{1,6}(?::[0-9]{1,5})?)?$/
+
+function isValidErrorCode(code) {
+  return typeof code === 'string' && (SAFE_ERROR_CODES.has(code) || HTTP_ERROR_CODE_RE.test(code))
+}
 
 const DAILY_KEYS = new Set([
   'schema_v', 'type', 'anon_id', 'day', 'app_version', 'dsh_version',
@@ -152,8 +176,8 @@ export function validatePayload(raw, nowMs = Date.now()) {
 
   // type === 'error'
   if (typeof raw.source !== 'string' || !ERROR_SOURCES.has(raw.source)) return { ok: false, error: 'invalid source' }
-  if (typeof raw.error_name !== 'string' || !IDENT_RE.test(raw.error_name)) return { ok: false, error: 'invalid error_name' }
-  if (raw.error_code !== undefined && (typeof raw.error_code !== 'string' || !CODE_RE.test(raw.error_code))) return { ok: false, error: 'invalid error_code' }
+  if (typeof raw.error_name !== 'string' || !SAFE_ERROR_NAMES.has(raw.error_name)) return { ok: false, error: 'invalid error_name' }
+  if (raw.error_code !== undefined && !isValidErrorCode(raw.error_code)) return { ok: false, error: 'invalid error_code' }
   if (raw.where !== undefined && (typeof raw.where !== 'string' || !SAFE_WHERE.has(raw.where))) return { ok: false, error: 'invalid where' }
   if (!Array.isArray(raw.stack_frames) || raw.stack_frames.length > 8) return { ok: false, error: 'invalid stack_frames' }
   for (const frame of raw.stack_frames) {

@@ -3,11 +3,12 @@ import { createPortal } from 'react-dom'
 import { memo } from './memo.js'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
-import { isMainOf } from './sources.js'
+import { isMainOf, sectionCollapsed } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
-import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+import { botState, lastTurnFailed, latestTurnOf, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+export { botPendingOf } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { SidebarTaskPill, taskCountsOf } from './bot-tasks.js'
 import { reducedMotion } from './activity-row.js'
@@ -20,7 +21,8 @@ import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { panelLayoutOf } from './side-layout-ui.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
-import { useEscape } from './overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
+import { InboxEntry, waitLineOf, waitsOf } from './inbox.js'
 
 // Maximum retries to collapse DSH's own sidebar before stopping, so a shell that
 // stays uncollapsed never spins data-bt-collapsing and re-renders forever (#2050).
@@ -50,33 +52,10 @@ const nameIfCut = (event) => {
 const useFalse = () => false
 const useEmptyArrayJson = () => '[]'
 const useNullJson = () => 'null'
-const useEmptySectionWork = () => '0|0'
 
-// Whether an approval waits for the user: for a Bot, in its own chat; for a group,
-// from any of its members in that group (both DSH tool approvals and computer-use asks).
-const useApproval = (useWork, useComputer, matchApproval, matchAsk) => {
-  const useReadWork = useWork ?? useFalse
-  const useReadComputer = useComputer ?? useFalse
-  const tool = useReadWork(work => (work.approvals ?? []).some(matchApproval))
-  const app = useReadComputer(comp => Object.values(comp?.asks ?? {}).some(matchAsk))
-  return tool || app
-}
-
-const hasPendingRequest = list => Array.isArray(list) && list.some(entry => entry?.status === 'pending')
-
-// Pending user-action cards stored on the roster for one Bot's DM:
-// skill / AGENTS.md learning proposals, secret / connector / mail approvals,
-// and ask_user / show_view cards.
-export function botPendingOf(roster, bot) {
-  const id = bot.id
-  const part = currentPart(bot)
-  const learning = (roster?.learning?.[id]?.length ?? 0) > 0
-  const cardApproval = hasPendingRequest(roster?.secretRequests?.[id])
-    || hasPendingRequest(roster?.connectorRequests?.[id])
-    || hasPendingRequest(roster?.mailRequests?.[id])
-  const question = roster?.questions?.[part] !== undefined || roster?.views?.[part] !== undefined
-  return { learning, cardApproval, question }
-}
+// What waits for the user in a Bot's own chat or a group chat comes from the host's
+// one list (inbox.js), the same one the inbox page, the phone and the notifications
+// read: a group's cards mark the group's row, not the member's own chat (#1623).
 
 // Work running in group Sessions, as "botId|tool" keys so a row redraws only when it
 // changes: the groups one Bot works in, or the members at work in one group.
@@ -107,20 +86,14 @@ const sameBotRow = (a, b) => a.bot === b.bot
   && a.useSessionRetainInfo === b.useSessionRetainInfo
   && a.useActivity === b.useActivity
   && a.useWork === b.useWork
-  && a.useComputer === b.useComputer
   && a.roster.mainBotId === b.roster.mainBotId
   && a.roster.mainBotIds === b.roster.mainBotIds
   && a.roster.byId === b.roster.byId
   && a.roster.roomsById === b.roster.roomsById
   && a.roster.exchangeTurns === b.roster.exchangeTurns
-  && a.roster.learning === b.roster.learning
-  && a.roster.secretRequests === b.roster.secretRequests
-  && a.roster.connectorRequests === b.roster.connectorRequests
-  && a.roster.mailRequests === b.roster.mailRequests
-  && a.roster.questions === b.roster.questions
-  && a.roster.views === b.roster.views
+  && a.roster.inbox === b.roster.inbox
 
-const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotCompletions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, onDragStart }) {
+const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotCompletions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
@@ -129,38 +102,36 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   const active = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
   const pendingInteraction = useSessionStatus(map => map.get(part)?.pendingInteraction !== undefined)
   const unread = pendingInteraction || completionUnread || (marked && !active)
+  const finished = completionUnread && !active
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
-  const fgApproval = useApproval(
-    useWork,
-    useComputer,
-    entry => entry.roomId === undefined && entry.botId === id && entry.taskId === undefined && entry.answerable !== false,
-    ask => ask.roomId === undefined && ask.botId === id,
-  )
-  const useReadBgWork = useWork ?? useFalse
-  const bgApproval = useReadBgWork(work => (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === id && entry.taskId !== undefined && entry.answerable !== false))
-  const pending = botPendingOf(roster, bot)
-  const blockingApproval = fgApproval || pending.cardApproval
-  const nonBlockingApproval = bgApproval || pending.learning
-  const approval = blockingApproval || nonBlockingApproval
-  const alert = approval || pending.question
+  // What stops this chat (an approval, a card, a hand-off) overrides what it is doing;
+  // a background task's approval, a proposal or a fix shows only while it is idle.
+  const asks = waitsOf(roster, { botId: id })
+  const alert = asks.any
   const doing = useActivity(map => map[id])
   // Work in a group runs in a Session of its own, so the Bot's chat stays idle meanwhile.
   const groups = useGroupWork(useWork, rooms => Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) }))))
   const away = !running && groups.length > 0
   // Group approvals live on the group's row and header island, not on the Bot's
-  // own DM avatar (#1623). Blocking DM approvals/questions override 'working' so
+  // own DM avatar (#1623). Blocking DM approvals/questions/handoffs override 'working' so
   // a running turn paused on a card still wears the alert mark; any remaining
   // 'alert' activity comes from a group, background-task, or unanswerable approval
   // and is stripped while the foreground turn runs.
-  const blockingAlert = blockingApproval || pending.question
-  const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
-  const state = botState(running || away, dmDoing, alert)
-  const waitLine = blockingApproval ? t('Waiting for your approval') : pending.question ? t('Waiting for your answer') : null
-  const deferredWaitLine = nonBlockingApproval ? t('Waiting for your approval') : null
+  const taskCounts = taskCountsOf({ bot })
+  const failed = lastTurnFailed(bot, useSessions(list => latestTurnOf(list, part)))
+  const dmDoing = asks.blocking ? 'alert' : doing === 'alert' ? undefined : doing
+  const markAlert = Boolean(asks.blocking) || (asks.deferred !== undefined && asks.deferred.kind !== 'blocked') || taskCounts.waitingApproval > 0
+  const state = botState(running || away, dmDoing, markAlert, {
+    failed,
+    background: taskCounts.active > 0,
+    replied: finished,
+  })
+  const waitLine = waitLineOf(asks.blocking)
+  const deferredWaitLine = waitLineOf(asks.deferred)
   // A Bot running in its own chat previews what it is doing, like a group's row.
-  const runningLine = running && doing && doing !== 'alert' ? doingLine(doing) : null
+  const runningLine = running && !asks.blocking ? doingLine(dmDoing ?? 'working') : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
   const useReadWaits = useWork ?? useNullJson
   const waitsRaw = useReadWaits(work => JSON.stringify(work.waiting?.[id] ?? null))
@@ -172,7 +143,6 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
     actions.openMenu({ kind: 'bot', id, x: event.clientX, y: event.clientY })
   }
   const pinned = bot.pinned === true && !tile
-  const taskCounts = taskCountsOf({ bot })
   const openTasks = () => { actions.openSession(id); actions.openTaskDeck?.(id) }
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', taskCounts.active > 0 ? t('{count} background tasks running', { count: taskCounts.active }) : '', waitsFor, waitLine || deferredWaitLine || '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
   if (tile && wide) {
@@ -181,6 +151,7 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
       'data-bot-id': id, title: waitLine || deferredWaitLine || preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
     },
     h(BotAvatar, { bot, size: 60, state, main: true }),
+    alert && !active && state !== 'alert' ? h('span', { className: 'bt-dot bt-dot-wait', 'aria-hidden': true }) : null,
     h('span', { className: 'bt-tile-name' }, bot.name),
     bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null,
     h(SidebarTaskPill, { active: taskCounts.active, waitingApproval: taskCounts.waitingApproval, onClick: openTasks })))
@@ -216,10 +187,10 @@ const sameRoomRow = (a, b) => a.room === b.room
   && a.useSessionStatus === b.useSessionStatus
   && a.useSessionRetainInfo === b.useSessionRetainInfo
   && a.useWork === b.useWork
-  && a.useComputer === b.useComputer
   && a.roster.byId === b.roster.byId
+  && a.roster.inbox === b.roster.inbox
 
-const RoomRow = memo(function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, useComputer, wide, marked, onDragStart }) {
+const RoomRow = memo(function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked, onDragStart }) {
   const id = room.id
   // The group's own Session is a chain of parts; the row shows the current one.
   const sessionId = room.sessionId ?? id
@@ -228,7 +199,10 @@ const RoomRow = memo(function RoomRow({ room, roster, actions, useSessions, useS
   const active = useSessionRetainInfo(sessionId, info => (info?.retainedBy?.mainView ?? 0) > 0)
   const unread = useSessionStatus(map => map.get(sessionId)?.completionUnread === true) || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
-  const approval = useApproval(useWork, useComputer, entry => entry.roomId === id && entry.answerable !== false, ask => ask.roomId === id)
+  // Anything a member asked here, the group's goal, a relay pause.
+  const waits = waitsOf(roster, { roomId: id })
+  const approval = waits.any
+  const waitLine = waitLineOf(waits.blocking ?? waits.deferred)
   const members = useGroupWork(useWork, rooms => (rooms[id] ?? []).filter(entry => entry.botId !== undefined).map(entry => ({ id: entry.botId, ...doingOf(entry) })))
   const first = roster.byId[members[0]?.id]
   const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null
@@ -236,7 +210,7 @@ const RoomRow = memo(function RoomRow({ room, roster, actions, useSessions, useS
   const pinned = room.pinned === true
   const taskCounts = taskCountsOf({ room, roster })
   const openTasks = () => { actions.openSession(id); actions.openTaskDeck?.(id) }
-  const label = [room.name, pinned ? t('Pinned') : '', members.length > 0 ? t('Working') : '', taskCounts.active > 0 ? t('{count} background tasks running', { count: taskCounts.active }) : '', approval ? t('Waiting for your approval') : ''].filter(Boolean).join(', ')
+  const label = [room.name, pinned ? t('Pinned') : '', members.length > 0 ? t('Working') : '', taskCounts.active > 0 ? t('{count} background tasks running', { count: taskCounts.active }) : '', waitLine ?? ''].filter(Boolean).join(', ')
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
     'data-room-id': id, title: wide ? undefined : room.name,
@@ -249,7 +223,7 @@ const RoomRow = memo(function RoomRow({ room, roster, actions, useSessions, useS
   pinned && !wide ? h(PinMark) : null,
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, room.name), pinned ? h(PinMark) : null, h(SidebarTaskPill, { active: taskCounts.active, waitingApproval: taskCounts.waitingApproval, onClick: openTasks })),
-    approval ? h('span', { className: 'bt-row-preview bt-row-preview-wait' }, t('Waiting for your approval'))
+    approval ? h('span', { className: 'bt-row-preview bt-row-preview-wait' }, waitLine)
       : workingLine ? h('span', { className: 'bt-row-preview' }, workingLine)
         : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
   wide && approval && !active ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
@@ -374,8 +348,14 @@ function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
       : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart })
 }
 
+const entrySessionIds = entry => (
+  entry.kind === 'bot' ? [currentPart(entry.item)]
+    : entry.kind === 'room' ? [entry.item.sessionId ?? entry.item.id]
+      : entry.item.sessions ?? []
+)
+
 function SectionBlock({ section, entries, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
-  const { roster, actions, useSessions, useBotCompletions, useSessionStatus, useWork, useComputer, wide } = rowProps
+  const { roster, actions, useSessions, useBotCompletions, useSessionStatus, useWork, wide } = rowProps
   const input = useRef(null)
   useLayoutEffect(() => {
     if (!renaming) return
@@ -398,12 +378,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     }
     return list
   }, [visibleEntries, roster.byId])
-  const sessionIds = useMemo(() => entries.flatMap(entry => (
-    entry.kind === 'bot' ? [currentPart(entry.item)]
-      : entry.kind === 'room' ? [entry.item.sessionId ?? entry.item.id]
-        : entry.item.sessions ?? []
-  )), [entries])
-  const botParts = useMemo(() => new Set(entries.filter(entry => entry.kind === 'bot').map(entry => currentPart(entry.item))), [entries])
+  const sessionIds = useMemo(() => entries.flatMap(entrySessionIds), [entries])
   const activeSession = useSessions(list => sessionIds.find(id => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? '')
   const activeEntry = useMemo(() => {
     if (activeSession === '') return undefined
@@ -413,42 +388,35 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
           : (entry.item.sessions ?? []).includes(activeSession)
     ))
   }, [entries, activeSession])
-  const statusBits = useSessionStatus(map => JSON.stringify(sessionIds.map(id => [
-    id,
-    map.get(id)?.running === true ? 1 : 0,
-    (!botParts.has(id) && map.get(id)?.completionUnread === true) || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
-  ])))
   const shownEntries = useMemo(() => entries.filter(entry => (
     !entry.item.hidden || entry === activeEntry || (entry.kind === 'bot' && isMainOf(roster, entry.item.id))
   )), [entries, activeEntry, roster])
-  const useReadSectionWork = useWork ?? useEmptySectionWork
-  const workBits = useReadSectionWork(work => {
+  const shownSessionIds = useMemo(() => shownEntries.flatMap(entrySessionIds), [shownEntries])
+  const shownBotParts = useMemo(
+    () => new Set(shownEntries.filter(entry => entry.kind === 'bot').map(entry => currentPart(entry.item))),
+    [shownEntries],
+  )
+  const statusBits = useSessionStatus(map => JSON.stringify(shownSessionIds.map(id => [
+    id,
+    map.get(id)?.running === true ? 1 : 0,
+    (!shownBotParts.has(id) && map.get(id)?.completionUnread === true) || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
+  ])))
+  const useReadSectionWork = useWork ?? useFalse
+  const hasRoomWork = useReadSectionWork((work) => {
     const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
     const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
-    const approval = (work.approvals ?? []).some(a => a.answerable !== false && ((a.roomId === undefined && botIds.has(a.botId)) || roomIds.has(a.roomId)))
-    const roomWorking = Object.entries(work.rooms ?? {}).some(([rId, list]) => (
+    return Object.entries(work.rooms ?? {}).some(([rId, list]) => (
       (roomIds.has(rId) && list.some(e => e.botId !== undefined)) || list.some(e => botIds.has(e.botId))
     ))
-    return `${approval ? 1 : 0}|${roomWorking ? 1 : 0}`
-  })
-  const useReadSectionComputer = useComputer ?? useFalse
-  const hasComputerAsk = useReadSectionComputer(comp => {
-    const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
-    const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
-    return Object.values(comp?.asks ?? {}).some(ask => (ask.roomId === undefined && botIds.has(ask.botId)) || roomIds.has(ask.roomId))
   })
   const parsedStatuses = JSON.parse(statusBits)
-  const [hasApproval, hasRoomWork] = workBits.split('|').map(v => v === '1')
-  const hasPendingCard = shownEntries.some((entry) => {
-    if (entry.kind !== 'bot') return false
-    const pending = botPendingOf(roster, entry.item)
-    return pending.learning || pending.cardApproval || pending.question
-  })
-  const hasAlert = hasPendingCard || hasApproval || hasComputerAsk
+  const hasAlert = shownEntries.some(entry => (entry.kind === 'bot' || entry.kind === 'room')
+    && waitsOf(roster, entry.kind === 'bot' ? { botId: entry.item.id } : { roomId: entry.item.id }).any)
   const hasWorking = hasRoomWork || parsedStatuses.some(([, run]) => run === 1)
-  const hasBotUnread = useBotCompletions(unread => [...botParts].some(id => id !== activeSession && unread[id] === true))
+  const useReadSectionBotCompletions = useBotCompletions ?? useFalse
+  const hasBotUnread = useReadSectionBotCompletions(unread => [...shownBotParts].some(id => id !== activeSession && unread[id] === true))
   const hasUnread = hasBotUnread || parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession)
-    || entries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
+    || shownEntries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
   const statusKind = hasAlert ? 'alert' : hasWorking ? 'working' : hasUnread ? 'unread' : null
   const toggle = () => {
     void Promise.resolve(actions.saveSection({ id: section.id, collapsed: !section.collapsed })).catch(error => actions.reportError(error, 'section'))
@@ -622,6 +590,8 @@ export function TeamSidebar(props) {
   const panelYield = useUi(value => value.panelYield === true)
   const bootFailed = useUi(value => value.bootFailed === true)
   const renameSection = useUi(value => value.renameSection)
+  const sectionFolds = useUi(value => value.sectionFolds)
+  const inboxOpen = useUi(value => value.inbox === true)
   props.useRegistry(value => value)
   const frameSnap = props.useFrame ? props.useFrame(value => value) : { viewport: typeof window === 'undefined' ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 }
   const pref = props.useSidebarPref ? props.useSidebarPref(value => value) : 'open'
@@ -655,7 +625,13 @@ export function TeamSidebar(props) {
     ]
     return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
   }, [roster, updated])
-  const sections = roster.sections ?? []
+  const sections = useMemo(() => {
+    const sections = roster.sections ?? []
+    return sectionFolds ? sections.map(section => {
+      const collapsed = sectionCollapsed(section, sectionFolds)
+      return collapsed === section.collapsed ? section : { ...section, collapsed }
+    }) : sections
+  }, [roster.sections, sectionFolds])
   const sectionSet = useMemo(() => new Set(sections.map(sec => sec.id)), [sections])
   const ungrouped = useMemo(
     () => order.filter(entry => !entry.item.sectionId || !sectionSet.has(entry.item.sectionId)),
@@ -930,9 +906,14 @@ export function TeamSidebar(props) {
       openAgent: id => navigate(actions.openAgent, id),
       openAgentSession: id => navigate(actions.openAgentSession, id),
       newAgentSession: id => navigate(actions.newAgentSession, id),
+      openInbox: () => {
+        const result = actions.openInbox?.()
+        if (leftDrawerRef.current) actions.setLeftDrawer?.(false)
+        return result
+      },
     }
   }, [actions])
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent }
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, wide: wideContent }
   // Typing while the sidebar has focus starts a search.
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
@@ -965,6 +946,7 @@ export function TeamSidebar(props) {
         h('span', { className: 'bt-brand' }, h(BrandName)),
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
+        h(InboxEntry, { roster, open: inboxOpen, actions: rowActions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)))
     : h('div', { className: 'bt-rail-top' },
@@ -973,10 +955,11 @@ export function TeamSidebar(props) {
         main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The foot stands in for the shell's hidden footer: the account avatar, and on
-  // the rail the new-chat button above it.
+  // the rail the inbox and new-chat buttons above it.
   const foot = wideContent
     ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), h(PluginsButton, { actions }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
+        h(InboxEntry, { roster, open: inboxOpen, rail: true, actions: rowActions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h(AccountLauncher, { seat: false, actions }),
         h(PluginsButton, { actions }))
@@ -1011,8 +994,9 @@ export function TeamSidebar(props) {
         onDropSec,
       }))),
     foot)
+  const hideTitleToggle = props.hideTitleToggle === true
   return h(Fragment, null,
-    h(TitleToggle, { hidden: mode === 'hidden', mode, onToggle }),
+    hideTitleToggle ? null : h(TitleToggle, { hidden: mode === 'hidden', mode, onToggle }),
     shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content))
 }
 
@@ -1028,16 +1012,15 @@ function UpdateButton({ useUpdate, actions }) {
   const [error, setError] = useState('')
   const [dshError, setDshError] = useState('')
   const button = useRef(null)
+  useEscape(() => { setOpen(false); button.current?.focus() }, open, { priority: ESCAPE_PRIORITY.MENU })
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => {
       if (event.target instanceof Element && (event.target.closest('.bt-update-pop') || button.current?.contains(event.target))) return
       setOpen(false)
     }
-    const onKey = (event) => { if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); setOpen(false); button.current?.focus() } }
     window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
+    return () => { window.removeEventListener('mousedown', onDown) }
   }, [open])
   const phase = update?.phase ?? 'idle'
   const dsh = update?.dsh
@@ -1151,6 +1134,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
   const button = useRef(null)
   const menuRef = useRef(null)
   useEffect(() => { if (settingsOpen) setOpen(false) }, [settingsOpen])
+  useEscape(() => { setOpen(false); button.current?.focus() }, open, { priority: ESCAPE_PRIORITY.MENU })
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => {
@@ -1158,8 +1142,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       setOpen(false)
     }
     const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event, button.current)) return
-      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); setOpen(false); button.current?.focus() }
+      stepMenuFocus(menuRef.current, event, button.current)
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)

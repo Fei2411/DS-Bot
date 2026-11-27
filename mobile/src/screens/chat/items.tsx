@@ -6,18 +6,19 @@ import * as Haptics from 'expo-haptics'
 import { t, clockLabel, messageClock } from '../../ui/i18n.ts'
 import { CheckIcon } from '../../ui/icons.tsx'
 import { Avatar } from '../../ui/marks.tsx'
-import type { Bot } from '../../connection.ts'
+import type { Bot, ShownView } from '../../connection.ts'
 import { imPlatform } from '../../../../ds-bot/src/shared/im-platforms.js'
 import { inkColor, radius, type as typeScale, useTheme, type Palette } from '../../ui/tokens.ts'
 import { Markdown, hasBlockContent } from './markdown.tsx'
 import { useTeam } from '../../team/context.tsx'
 import { ViewCard } from './view.tsx'
+import { viewHasControls } from './inline-views.ts'
 import { handoffTitleOf, relayReplyText, roundEventText, settledQuestionPicks, stripLongNote, type RelayReplyData, type SettledQuestionData } from './settled.ts'
 import { viewAnswerText } from 'deep-view/core'
 
 export interface ImageRef { attachmentId: string; mime?: string; name?: string }
 
-export interface FileRef { name: string; bytes?: number; sessionId?: string; attachmentId?: string; seq?: number; index?: number }
+export interface FileRef { name: string; bytes?: number; description?: string; sessionId?: string; attachmentId?: string; seq?: number; index?: number }
 
 export type { SettledQuestionData }
 
@@ -44,6 +45,8 @@ export interface ChatItem {
   whole?: { file?: FileRef; length?: number }
   length?: number
   title?: string
+  callId?: string
+  pending?: boolean
   view?: unknown
   views?: { id: string; title: string; view: unknown }[]
   closed?: string
@@ -69,7 +72,11 @@ export interface ChatItem {
 export function keysOf(items: ChatItem[]): string[] {
   const seen = new Map<string, number>()
   return items.map(item => {
-    const base = item.localId !== undefined ? `local-${item.localId}` : `${item.kind}-${item.seq ?? item.time ?? (item.kind === 'steps' ? `t${item.turn ?? ''}` : '')}`
+    const base = item.localId !== undefined
+      ? `local-${item.localId}`
+      : item.kind === 'view' && (item.id !== undefined || item.callId !== undefined)
+        ? `view-${item.id ?? item.callId}`
+        : `${item.kind}-${item.seq ?? item.time ?? (item.kind === 'steps' ? `t${item.turn ?? ''}` : '')}`
     const count = seen.get(base) ?? 0
     seen.set(base, count + 1)
     return count === 0 ? base : `${base}#${count}`
@@ -86,27 +93,44 @@ const dataUri = (value: unknown) => `data:${(value as { mime?: string })?.mime ?
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
-export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onSaveFile, onRetry, stamp, author, admin }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; onLongPress?: (text: string) => void; onOpenFile?: (file: FileRef) => void; onSaveFile?: (file: FileRef) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
+export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onSaveFile, onRetry, stamp, author, admin, pendingView, onViewSettled }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; pendingView?: { sessionId: string; view: ShownView }; onViewSettled?: () => void; onLongPress?: (text: string) => void; onOpenFile?: (file: FileRef) => void; onSaveFile?: (file: FileRef) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
   const { dark } = useTheme()
   const rowSessionId = item.sessionId ?? sessionId
   const authorBotId = item.botId ?? author?.id
   const wholeFile = item.file?.attachmentId !== undefined ? item.file : item.whole?.file?.attachmentId !== undefined ? item.whole.file : undefined
-  const chips = (item.files ?? []).map(file => (
-    <View key={file.attachmentId ?? `${file.seq}:${file.index}:${file.name}`}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: p.line2, backgroundColor: p.card }}>
-      <Pressable accessibilityRole="button" onPress={() => onOpenFile?.(file)}
-        style={{ flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8 }}>
+  const chips = (item.files ?? []).map(file => {
+    const extMeta = [(file.name.split('.').pop() ?? '').toUpperCase(), file.bytes !== undefined ? `${Math.max(1, Math.round(file.bytes / 1024))} KB` : ''].filter(Boolean).join(' · ')
+    const subMeta = file.description && file.description !== '' ? file.description : extMeta
+    const isPresented = file.attachmentId === undefined && file.seq !== undefined
+    const canAct = file.attachmentId !== undefined || file.seq !== undefined
+    const label = (
+      <>
         <Text style={[type.small, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{file.name}</Text>
-        <Text style={[type.caption, { color: p.ink3 }]}>{[(file.name.split('.').pop() ?? '').toUpperCase(), file.bytes !== undefined ? `${Math.max(1, Math.round(file.bytes / 1024))} KB` : ''].filter(Boolean).join(' · ')}</Text>
-      </Pressable>
-      {onSaveFile === undefined ? null : (
-        <Pressable accessibilityRole="button" accessibilityLabel={t('Save {name}', { name: file.name })} onPress={() => onSaveFile(file)}
-          style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, opacity: pressed ? 0.6 : 1 })}>
-          <Text style={[type.small, { color: p.accent, fontWeight: '600' }]}>{t('Save')}</Text>
-        </Pressable>
-      )}
-    </View>
-  ))
+        {subMeta !== '' ? <Text style={[type.caption, { color: p.ink3 }]} numberOfLines={1}>{subMeta}</Text> : null}
+      </>
+    )
+    return (
+      <View key={file.attachmentId ?? `${file.seq ?? 'legacy'}:${file.index ?? 0}:${file.name}`}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: p.line2, backgroundColor: p.card }}>
+        {canAct ? (
+          <Pressable accessibilityRole="button" onPress={() => (isPresented ? onSaveFile?.(file) : onOpenFile?.(file))}
+            style={{ flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8 }}>
+            {label}
+          </Pressable>
+        ) : (
+          <View style={{ flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8 }}>
+            {label}
+          </View>
+        )}
+        {!canAct || onSaveFile === undefined ? null : (
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Save {name}', { name: file.name })} onPress={() => onSaveFile(file)}
+            style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, opacity: pressed ? 0.6 : 1 })}>
+            <Text style={[type.small, { color: p.accent, fontWeight: '600' }]}>{t('Save')}</Text>
+          </Pressable>
+        )}
+      </View>
+    )
+  })
   const fullMessageLink = wholeFile !== undefined ? (
     <Pressable accessibilityRole="button" onPress={() => onOpenFile?.(wholeFile)} style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 2 }}>
       <Text style={[type.small, { color: p.accent, fontWeight: '500' }]}>{t('Read full message')}</Text>
@@ -159,11 +183,28 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
     )
   }
   if (item.kind === 'view') {
-    return item.view !== undefined
-      ? <ViewCard sessionId={rowSessionId ?? ''} title={item.title} root={item.view} p={p} readOnly />
-      : <View style={[styles.settledCard, { backgroundColor: p.card, borderColor: p.line }]}>
-          <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{item.title ?? 'View'}</Text>
-        </View>
+    if (pendingView !== undefined) {
+      return (
+        <ViewCard
+          sessionId={pendingView.sessionId}
+          id={pendingView.view.id}
+          title={pendingView.view.title ?? item.title}
+          root={pendingView.view.view ?? item.view}
+          p={p}
+          onSettled={onViewSettled}
+        />
+      )
+    }
+    if (item.pending === true) return null
+    if (item.view !== undefined) {
+      const hasControls = viewHasControls(item.view)
+      return <ViewCard sessionId={rowSessionId ?? ''} title={item.title} root={item.view} p={p} readOnly={!hasControls} displayOnly={hasControls} unframed={!hasControls} />
+    }
+    return (
+      <View style={[styles.settledCard, { backgroundColor: p.card, borderColor: p.line }]}>
+        <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{item.title ?? 'View'}</Text>
+      </View>
+    )
   }
   if (item.kind === 'answer') {
     let handoff = item.handoff

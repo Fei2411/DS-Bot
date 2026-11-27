@@ -4,10 +4,23 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { cleanText } from './diagnostics.js'
 import { REFERENCE_KIND, REPLY_KIND } from './constants.js'
 import { reviewApproval, reviewContext, reviewSessionIds, REVIEW_TIMEOUT_MS } from './approval-review.js'
+import { ESCALATION } from './extra-folders.js'
 
 const OUTCOMES = { allow: 'allowed-once', reject: 'rejected' }
+const FILE_ESCALATION_TOOLS = new Set(['write', 'edit', 'apply_patch'])
 const sessionOf = agent => agent?.session?.id ?? agent?.id
 const keyOf = (agent, callId) => JSON.stringify([sessionOf(agent), callId])
+
+function cleanDisplayReason(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out = {}
+  for (const [lang, text] of Object.entries(raw)) {
+    if (typeof lang === 'string' && lang.length <= 16 && typeof text === 'string' && text.trim() !== '') {
+      out[lang] = text.slice(0, 500)
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
 
 async function nativeEvidence(ctx, exec) {
   const evidence = { kind: 'tool', tool: exec.name, arguments: JSON.parse(JSON.stringify(exec.arguments ?? {})) }
@@ -43,7 +56,7 @@ export function install(rt) {
       try { listener(kind, data) } catch (error) { rt.warn('ds-bot: approval listener failed: %s', error) }
     }
   }
-  const view = ({ answer, cancelReview, ownerSessionId, lineageSessionIds, privacy: _, ...entry }) => {
+  const view = ({ answer, cancelReview, toManual, isAborted, ownerSessionId, lineageSessionIds, prepareAlways, answering, privacy: _, ...entry }) => {
     const taskSessionId = rt.taskOwners?.has(entry.sessionId) ? entry.sessionId : ownerSessionId ?? entry.sessionId
     const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(taskSessionId) : undefined
     const liveEntry = liveTask === undefined ? undefined : rt.taskBySession?.(taskSessionId)?.task
@@ -51,6 +64,7 @@ export function install(rt) {
     const liveRoomId = entry.roomId === undefined ? (liveTask?.roomId ?? liveEntry?.roomId) : undefined
     return {
       ...entry,
+      ...(ownerSessionId !== undefined && ownerSessionId !== entry.sessionId ? { ownerSessionId } : {}),
       ...(liveRoomId !== undefined ? { roomId: liveRoomId } : {}),
       ...(liveTask ? { taskId: liveTask.taskId, ...(liveTitle ? { taskTitle: liveTitle } : {}) } : {}),
       answerable: answer !== undefined,
@@ -71,12 +85,21 @@ export function install(rt) {
   // events release both successful and rejected calls, including PTC sub-calls.
   ctx.on('tools/pre-execute', async (exec, next) => {
     const owner = await ownerOf(exec.agent)
-    if (!owner || !enabled(owner)) return next()
-    if (exec.callId !== undefined) {
+    if (!owner) return next()
+    if (enabled(owner)) {
+      if (exec.callId !== undefined) {
+        const key = keyOf(exec.agent, exec.callId)
+        const readEvidence = () => nativeEvidence(ctx, exec)
+        const evidence = await readEvidence().catch(() => ({ kind: 'tool', tool: exec.name }))
+        executions.set(key, { evidence, readEvidence })
+        if (executions.size > 1000) executions.delete(executions.keys().next().value)
+      }
+    } else if (FILE_ESCALATION_TOOLS.has(exec.name) && exec.arguments?.sandbox_permissions !== undefined && exec.callId !== undefined) {
+      // Capture only the file-tool arguments needed to evaluate "Always allow" extra-folder eligibility,
+      // never touching workingDirectory.ensure when automatic review is off.
       const key = keyOf(exec.agent, exec.callId)
-      const readEvidence = () => nativeEvidence(ctx, exec)
-      const evidence = await readEvidence().catch(() => ({ kind: 'tool', tool: exec.name }))
-      executions.set(key, { evidence, readEvidence })
+      const evidence = { kind: 'tool', tool: exec.name, arguments: JSON.parse(JSON.stringify(exec.arguments ?? {})) }
+      executions.set(key, { evidence })
       if (executions.size > 1000) executions.delete(executions.keys().next().value)
     }
     return next()
@@ -177,12 +200,14 @@ export function install(rt) {
     const original = request.signal
     const linked = new AbortController()
     const reviewer = new AbortController()
+    const displayReason = cleanDisplayReason(request.displayReason)
     const entry = {
       id, sessionId: owner.sessionId, ownerSessionId: owner.ownerSessionId, lineageSessionIds: owner.lineageSessionIds,
       ...(owner.botId !== undefined ? { botId: owner.botId } : {}),
       ...(owner.roomId ? { roomId: owner.roomId } : {}),
       ...(owner.taskId ? { taskId: owner.taskId, ...(owner.taskTitle ? { taskTitle: owner.taskTitle } : {}) } : {}),
       tool: String(request.toolName ?? ''), reason: String(request.reason ?? '').slice(0, 500),
+      ...(displayReason ? { displayReason } : {}),
       ...(request.privacy === true ? { privacy: true } : {}),
       detail: rt.callDetail?.(owner.sessionId, request.callId) ?? {}, at: Date.now(),
     }
@@ -211,21 +236,26 @@ export function install(rt) {
         emit('settled', { id, outcome, ...(settledTaskId ? { taskId: settledTaskId } : {}) })
         return true
       }
-      const complete = (outcome, reviewed = false) => { if (settle(outcome, reviewed)) resolve(outcome) }
+      const complete = (outcome, reviewed = false) => {
+        const didSettle = settle(outcome, reviewed)
+        if (didSettle) resolve(outcome)
+        return didSettle
+      }
       const manual = reason => {
         if (!pending.has(id) || manualStarted) return
         manualStarted = true
         clearTimeout(timer)
         if (automatic) entry.review = { ...entry.review, status: 'manual', reason: clean(reason) }
         changed(entry)
-        // Group sessions have DS Bot's member card; a background task's card sits
-        // on the member's group Session. Own-chat children still need the host
-        // path, since their Bot may have no group approval controls.
+        // Group sessions and background tasks run in hidden Sessions owned by DS Bot's
+        // cards (group member card or task deck), so they never race DSH's own card.
+        // Own-chat children still need the host path, since their Bot may have no group
+        // approval controls.
         const yieldSession = owner.taskId === undefined || owner.roomId === undefined
           ? owner.ownerSessionId
           : rt.roomOf(owner.roomId)?.sessions?.[owner.botId] ?? owner.ownerSessionId
         rt.yieldRoomTurn?.(yieldSession)
-        if (owner.roomId !== undefined) return
+        if (owner.roomId !== undefined || owner.taskId !== undefined) return
         request.signal = linked.signal
         Promise.resolve().then(next).then(outcome => {
           if (outcome !== 'unavailable' || owner.ownerSessionId !== owner.sessionId) complete(outcome)
@@ -233,11 +263,51 @@ export function install(rt) {
       }
       entry.answer = complete
       entry.cancelReview = () => reviewer.abort()
+      entry.toManual = () => {
+        if (automatic && pending.has(id) && entry.review?.status === 'reviewing') {
+          manual('Automatic review stopped; review this action manually.')
+        }
+      }
+      entry.isAborted = () => original?.aborted === true
       pending.set(id, entry)
       rt.noteApproval?.(owner.ownerSessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200), ...(entry.privacy ? { privacy: true } : {}) })
-      if (owner.botId !== undefined) rt.approvalWaiting?.(entry)
       original?.addEventListener('abort', abort, { once: true })
       emit('open', view(entry))
+      // "Always allow" is offered only for direct (non-subagent) Bot/group file-tool sandbox
+      // escalations (`extraDirs`), where DS Bot has a visible, revocable folder-grant store and
+      // matching auto-allow escalation handler. Browser write prompts stay one-time (preauthorization
+      // lives in Browser settings); shell commands, privacy gates, private Bots, local agents,
+      // classic sessions, and subagent child sessions stay strictly one-time.
+      if (owner.botId !== undefined
+        && owner.sessionId === owner.ownerSessionId
+        && request.privacy !== true
+        && !explicit
+        && !entry.alwaysAllow
+        && FILE_ESCALATION_TOOLS.has(entry.tool)
+        && entry.reason.startsWith(ESCALATION)
+        && execution?.arguments
+        && typeof rt.resolvableExtraDirs === 'function') {
+        void rt.resolvableExtraDirs({
+          session: request.agent?.session,
+          botId: owner.botId,
+          roomId: owner.roomId,
+          name: entry.tool,
+          args: execution.arguments,
+        }).then((dirs) => {
+          if (!pending.has(id) || entry.answering || !Array.isArray(dirs) || dirs.length === 0) return
+          const scopeRoom = owner.roomId ? rt.roomOf(owner.roomId) : undefined
+          const groupScoped = scopeRoom?.workDir !== undefined
+          const scope = groupScoped ? 'group' : 'bot'
+          entry.alwaysAllow = {
+            kind: 'extra-dir',
+            dirs,
+            scope,
+            ...(groupScoped && scopeRoom?.name ? { scopeName: scopeRoom.name } : {}),
+          }
+          entry.prepareAlways = () => rt.prepareGrantExtraDirs({ botId: owner.botId, roomId: owner.roomId, dirs, scope })
+          changed(entry)
+        }).catch(() => {})
+      }
       if (original?.aborted) return complete('cancelled')
       if (!automatic) return manual()
       const timeout = new Promise((_, fail) => {
@@ -254,7 +324,7 @@ export function install(rt) {
         request, owner, evidence, validateEvidence, signal: reviewer.signal,
         onModel: model => { if (pending.has(id)) { entry.review.model = model; changed(entry) } },
       }), timeout]).then(async decision => {
-        if (!pending.has(id)) return
+        if (!pending.has(id) || entry.answering) return
         if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
         if (decision.decision === 'manual') {
           manual(decision.reason)
@@ -266,11 +336,11 @@ export function install(rt) {
           throw new Error('The conversation changed while saving the review')
         }
         await validateEvidence?.()
-        if (!pending.has(id)) return
+        if (!pending.has(id) || entry.answering) return
         if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
         complete(OUTCOMES[decision.decision], true)
       }).catch(async () => {
-        if (!pending.has(id)) return
+        if (!pending.has(id) || entry.answering) return
         const reason = 'Automatic review could not decide. Review this action manually.'
         manual(reason)
         try { await record(entry, { decision: 'manual', reason }) } catch { /* the manual card remains available */ }
@@ -285,7 +355,52 @@ export function install(rt) {
   function answerApproval(id, choice) {
     const entry = pending.get(String(id ?? ''))
     if (!entry?.answer) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+    if (choice === 'always') {
+      if (!entry.alwaysAllow || typeof entry.prepareAlways !== 'function') {
+        throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+      }
+      if (entry.answering) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+      // Two-phase validate -> settle -> commit: reserve the approval and cancel automatic
+      // review synchronously while keeping the tool blocked until Phase 1 validation succeeds.
+      // If validation fails, release the reservation so the approval stays open and answerable.
+      // Only once validation passes and the entry is still live and unaborted do we settle
+      // `allowed-once` synchronously and commit the pre-validated grant.
+      entry.cancelReview()
+      if (entry.isAborted?.()) {
+        entry.answer('cancelled')
+        throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+      }
+      entry.answering = true
+      return (async () => {
+        let prepared
+        try {
+          prepared = await entry.prepareAlways()
+        } catch (error) {
+          if (pending.has(id)) {
+            entry.answering = false
+            if (entry.isAborted?.()) entry.answer('cancelled')
+            else entry.toManual?.()
+          }
+          throw error
+        }
+        if (!pending.has(id) || entry.isAborted?.()) {
+          if (pending.has(id)) entry.answer('cancelled')
+          throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+        }
+        if (typeof prepared?.verifySync === 'function' && !prepared.verifySync()) {
+          entry.answering = false
+          entry.toManual?.()
+          throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+        }
+        const settled = entry.answer('allowed-once')
+        if (!settled) {
+          throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+        }
+        return await prepared.commit()
+      })()
+    }
     if (!Object.hasOwn(OUTCOMES, choice)) throw Object.assign(new Error('Choose allow or reject'), { code: 'bot/invalid' })
+    if (entry.answering) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
     entry.answer(OUTCOMES[choice])
   }
   const cancelApprovals = sessionId => {

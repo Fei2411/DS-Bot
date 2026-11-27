@@ -15,8 +15,6 @@ import {
   type ControlFrameType,
   type HelloAckPayload,
   type HelloPayload,
-  type PushNotifyPayload,
-  type PushResultPayload,
   type RelayPayload,
   type RemoteMessage,
   type RpcRequestPayload,
@@ -72,11 +70,9 @@ interface Tunnel {
 }
 
 const RELAY_CAPABILITY = 'transport.relay'
-const PUSH_FCM_CAPABILITY = 'push.fcm'
 const MAX_CALLS_PER_TUNNEL = 32
 const MAX_EMIT_PENDING = 64
 const SERVER_SILENCE_MS = 75_000
-const PUSH_TIMEOUT_MS = 10_000
 const HANDSHAKE_TIMEOUT_MS = 15_000
 
 class TunnelError extends Error {
@@ -97,8 +93,6 @@ export class HostLink {
   private readonly tunnels = new Map<string, Tunnel>()
   private socket?: WebSocket
   private limits: ControlFrameByteLimits = {}
-  private serverCapabilities: string[] = []
-  private readonly pendingPushes = new Map<string, { resolve: (value: { ok: boolean; gone?: boolean; code?: string }) => void; timer: ReturnType<typeof setTimeout> }>()
   private running = false
   private loopDone?: Promise<void>
   private wake?: () => void
@@ -156,32 +150,6 @@ export class HostLink {
   /** Phones with a finished handshake. */
   connectedDevices(): string[] {
     return [...this.tunnels.values()].filter(tunnel => tunnel.stage === 'ready').map(tunnel => tunnel.deviceId)
-  }
-
-  /** Capabilities the connected Relay Server advertised in hello.ack. */
-  capabilities(): string[] {
-    return [...this.serverCapabilities]
-  }
-
-  /** Asks the Relay Server to forward an opaque encrypted FCM wakeup for an offline phone. */
-  sendPush(payload: Omit<PushNotifyPayload, 'requestId'>): Promise<{ ok: boolean; gone?: boolean; code?: string }> {
-    if (this.socket?.readyState !== 1) return Promise.resolve({ ok: false, code: 'OFFLINE' })
-    if (!this.serverCapabilities.includes(PUSH_FCM_CAPABILITY)) return Promise.resolve({ ok: false, code: 'UNSUPPORTED' })
-    const requestId = globalThis.crypto.randomUUID()
-    return new Promise(resolve => {
-      const timer = setTimeout(() => {
-        this.pendingPushes.delete(requestId)
-        resolve({ ok: false, code: 'TIMEOUT' })
-      }, PUSH_TIMEOUT_MS)
-      this.pendingPushes.set(requestId, { resolve, timer })
-      try {
-        this.sendControl('push.notify', { ...payload, requestId } satisfies PushNotifyPayload)
-      } catch {
-        clearTimeout(timer)
-        this.pendingPushes.delete(requestId)
-        resolve({ ok: false, code: 'SEND_FAILED' })
-      }
-    })
   }
 
   /** Ends every link of a device, for example when the user removes it. */
@@ -258,7 +226,7 @@ export class HostLink {
           identityKey: this.options.identity.publicKey,
           accessToken: this.options.accessToken,
           protocols: [PROTOCOL_VERSION],
-          capabilities: [RELAY_CAPABILITY, PUSH_FCM_CAPABILITY],
+          capabilities: [RELAY_CAPABILITY],
         } satisfies HelloPayload)
       }
       socket.onmessage = event => {
@@ -310,31 +278,15 @@ export class HostLink {
 
   private acceptHello(payload: Partial<HelloAckPayload>): void {
     if (payload.protocol !== PROTOCOL_VERSION) throw new Error('The Server chose an unsupported protocol.')
-    const negotiated = acceptNegotiatedCapabilities([RELAY_CAPABILITY, PUSH_FCM_CAPABILITY], payload.capabilities)
-    if (!negotiated.includes(RELAY_CAPABILITY)) {
+    if (!acceptNegotiatedCapabilities([RELAY_CAPABILITY], payload.capabilities).includes(RELAY_CAPABILITY)) {
       throw new Error('The Server does not relay.')
     }
-    this.serverCapabilities = negotiated
     this.limits = { maxControlFrameBytes: payload.maxControlFrameBytes, maxRelayFrameBytes: payload.maxRelayFrameBytes }
   }
 
   private handleFrame(frame: ControlFrame): void {
     const payload = frame.payload as Record<string, unknown>
     if (frame.type === 'ping') { this.sendControl('pong', payload); return }
-    if (frame.type === 'push.result') {
-      const result = payload as Partial<PushResultPayload>
-      const pending = typeof result.requestId === 'string' ? this.pendingPushes.get(result.requestId) : undefined
-      if (pending !== undefined) {
-        clearTimeout(pending.timer)
-        this.pendingPushes.delete(result.requestId!)
-        pending.resolve({
-          ok: result.ok === true,
-          ...(result.gone === true ? { gone: true } : {}),
-          ...(typeof result.code === 'string' ? { code: result.code } : {}),
-        })
-      }
-      return
-    }
     if (frame.type === 'connect.incoming') { this.incoming(payload as Partial<ConnectIncomingPayload>); return }
     if (frame.type === 'error') {
       const tunnel = typeof payload.connectionId === 'string' ? this.tunnels.get(payload.connectionId) : undefined
@@ -504,12 +456,6 @@ export class HostLink {
   }
 
   private dropAll(): void {
-    this.serverCapabilities = []
-    for (const [id, pending] of this.pendingPushes) {
-      clearTimeout(pending.timer)
-      pending.resolve({ ok: false, code: 'OFFLINE' })
-      this.pendingPushes.delete(id)
-    }
     for (const tunnel of [...this.tunnels.values()]) this.dropTunnel(tunnel, undefined)
   }
 

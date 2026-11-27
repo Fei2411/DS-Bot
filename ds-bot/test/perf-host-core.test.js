@@ -25,7 +25,7 @@ import { install as installExternalApi } from '../src/host/api/index.js'
 import { install as installMemory } from '../src/host/memory.js'
 import { avatarRef, clearAvatarRefCache, install as installMobile } from '../src/host/mobile.js'
 import { install as installModels } from '../src/host/models.js'
-import { install as installParts } from '../src/host/parts.js'
+import { historyEntry, install as installParts } from '../src/host/parts.js'
 import { install as installPermissions } from '../src/host/permissions.js'
 import { install as installPrivacy } from '../src/host/privacy.js'
 import { install as installRequests } from '../src/host/requests.js'
@@ -35,6 +35,18 @@ import { install as installTasks } from '../src/host/tasks.js'
 import { install as installTurns } from '../src/host/turns.js'
 import { install as installUsage } from '../src/host/usage.js'
 import { fakeContext } from './fake-ctx.js'
+
+
+// The review reads transcripts through rt.eventsBackwards + rt.historyEntry (raw
+// events carry the source a line's trust lives on). A fake session of one user
+// line, newest first as the real index yields them, projected by the same
+// historyEntry parts.js installs on the real rt.
+const fakeTranscript = (text) => ({
+  eventsBackwards: async function* () {
+    yield { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } }
+  },
+  historyEntry: (event, group) => historyEntry(event, group),
+})
 
 const tempDirs = []
 after(() => {
@@ -382,10 +394,23 @@ test('secrets.js avoids rt.save in noteUsed via shellEnv.resolve, skips reload o
   assert.equal(envVars.DSH_SECRET_API_TOKEN, 'super-secret-value-12345')
   t.mock.timers.tick(5_500)
   t.mock.timers.reset()
-  await new Promise(resolve => setTimeout(resolve, 30))
+  let persistedSecrets
+  const persistDeadline = Date.now() + 2000
+  while (Date.now() < persistDeadline) {
+    try {
+      const parsed = JSON.parse(readFileSync(join(home, 'secrets.json'), 'utf8'))
+      if (typeof parsed.secrets?.[0]?.lastUsedAt === 'number') {
+        persistedSecrets = parsed
+        break
+      }
+    } catch {}
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(typeof persistedSecrets?.secrets[0].lastUsedAt, 'number', 'noteUsed persisted lastUsedAt to secrets.json')
+  // Wait a timer turn after rename visibility so libuv delivers replaceFile's completion
+  // and persist() records seenStamp before read-only onStoreSync checks fileStamp().
+  await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(saveCalls, savesAfterSet, 'noteUsed timer firing must persist secrets.json without calling rt.save()')
-  const persistedSecrets = JSON.parse(readFileSync(join(home, 'secrets.json'), 'utf8'))
-  assert.equal(typeof persistedSecrets.secrets[0].lastUsedAt, 'number', 'noteUsed persisted lastUsedAt to secrets.json')
 
   // Unchanged objects/arrays in redactDeep return identical reference (zero allocation).
   const redact = redactor([{ name: 'API_TOKEN', value: 'super-secret-value-12345' }])
@@ -417,7 +442,10 @@ test('secrets.js avoids rt.save in noteUsed via shellEnv.resolve, skips reload o
   }
   writeFileSync(join(home, 'secrets.json'), JSON.stringify(updatedPayload))
   rt.onStoreSync()
-  await new Promise(resolve => setTimeout(resolve, 25))
+  const reloadDeadline = Date.now() + 2000
+  while (secretsChangedCalls === changedBeforePoll && Date.now() < reloadDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
   assert.equal(secretsChangedCalls, changedBeforePoll + 1, 'modified secrets.json must trigger reload on read-only onStoreSync')
   assert.ok(rt.secretsView().some(item => item.name === 'EXTRA_KEY'))
 })
@@ -496,6 +524,7 @@ test('usage.js journal() uses revision-keyed cache before scanning book.owners()
       sessionQuery: { listSessions: async () => { listCalls += 1; return [] } },
     },
   })
+  let journalChatReads = 0
   const rt = {
     ctx,
     home,
@@ -504,7 +533,7 @@ test('usage.js journal() uses revision-keyed cache before scanning book.owners()
     load: async () => {},
     readOnly: () => undefined,
     cachedCatalog: () => [],
-    chatOf: id => id,
+    chatOf: id => { journalChatReads += 1; return id },
     chatOwners: new Map([['a', 'a']]),
     groupOwners: new Map(),
     roomOwners: new Map(),
@@ -531,13 +560,21 @@ test('usage.js journal() uses revision-keyed cache before scanning book.owners()
   }
   const msgs1 = rt.tagUsage([], { sessionId: 'a', kind: 'memory' })
   assert.equal(await drain(onStream({ sessionId: 'a', messages: msgs1, provider: 'deepseek', model: 'deepseek-chat' }, () => makeStream())), 1)
-  await new Promise(resolve => setTimeout(resolve, 20))
+  // Opening usage.sqlite (WAL + schema creation) runs asynchronously behind noteSession();
+  // wait until journal() actually populates the revision-keyed cache before sending msgs2.
+  const journalDeadline = Date.now() + 5000
+  while (journalChatReads === 0 && Date.now() < journalDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.ok(journalChatReads > 0, 'first noteSession must open the ledger and journal session owners')
   const loadsAfterFirst = loadCalls
+  const journalReadsAfterFirst = journalChatReads
 
   const msgs2 = rt.tagUsage([], { sessionId: 'a', kind: 'memory' })
   assert.equal(await drain(onStream({ sessionId: 'a', messages: msgs2, provider: 'deepseek', model: 'deepseek-chat' }, () => makeStream())), 1)
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(loadCalls, loadsAfterFirst, 'second noteSession at same revision hits fast-path journaled cache')
+  assert.equal(journalChatReads, journalReadsAfterFirst, 'second noteSession at same revision skips liveOwners/book.owners scan')
 
   const view = await rt.usageView({ range: '7d' })
   assert.equal(view.rows.reduce((sum, row) => sum + row[8], 0), 2)
@@ -802,9 +839,10 @@ test('memory-review.js does not cancel pending review timer on agent/disposed', 
     isMain: id => id === 'a',
     isPrivate: () => false,
     partsOfThread: () => [{ sessionId: 'a' }],
-    async *partLines() {
+    ...fakeTranscript('Remember that we always ship with tests.'),
+    eventsBackwards: async function* () {
       partLinesCalls += 1
-      yield { seq: 1, who: 'user', text: 'Remember that we always ship with tests.' }
+      yield { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Remember that we always ship with tests.' }] } }
     },
     desiredModel: async () => 'deepseek/deepseek-chat',
     defaultModel: async () => 'deepseek/deepseek-chat',
@@ -830,8 +868,11 @@ test('memory-review.js does not cancel pending review timer on agent/disposed', 
   onDisposed({ agent: { id: 'a' } })
   assert.equal(rt.memoryReviews(), 1, 'agent/disposed must NOT cancel pending memory review timer')
 
-  // Wait for timer to fire and run the review.
-  await new Promise(resolve => setTimeout(resolve, 90))
+  // Wait for the timer's asynchronous transcript read and review call to finish.
+  const reviewDeadline = Date.now() + 2000
+  while ((partLinesCalls === 0 || llmCalls === 0) && Date.now() < reviewDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
   assert.equal(partLinesCalls >= 1, true, 'final turn memory review actually executed after agent/disposed')
   assert.equal(llmCalls >= 1, true, 'review LLM call ran after agent/disposed')
 })
@@ -1117,6 +1158,96 @@ test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and dro
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   assert.equal(existsSync(droppedPath), false, 'closeWork on parent must delete result file once onSaved fires')
+})
+
+test('handoffs.js startup orphan sweep preserves live unsaved results and finishes on load failure or without ctx.effect', async (t) => {
+  const home = tempDir(t, 'ds-bot-perf-handoffs-sweep-')
+  const resultsDir = join(home, 'handoff-results')
+  mkdirSync(resultsDir, { recursive: true })
+  const stalePath = join(resultsDir, 'stale-crash.txt')
+  writeFileSync(stalePath, 'left behind by crashed host', 'utf8')
+
+  const ctx = fakeContext()
+  const savedListeners = new Set()
+  let releaseLoad
+  const loadGate = new Promise(resolve => { releaseLoad = resolve })
+  const rt = {
+    ctx,
+    home,
+    state: seedState({ revision: 2 }),
+    readOnly: () => undefined,
+    load: () => loadGate,
+    onSaved: fn => { savedListeners.add(fn); return () => savedListeners.delete(fn) },
+    botOf: id => rt.state.bots[id],
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    // Simulate a save that does not commit (never fires onSaved).
+    save: async () => {},
+    warn() {},
+  }
+  installHandoffs(rt)
+  t.after(() => ctx.dispose())
+
+  // Write a long result and drop its work without onSaved while startupSweep is still pending.
+  const longText = 'r'.repeat(25_000)
+  rt.openWork('parent-live', { from: 'user', to: 'a' })
+  rt.openWork('w-live', { from: 'a', to: 'b', parent: 'parent-live' })
+  rt.closeWork('w-live', 'Writer', longText)
+  const liveFile = rt.state.works['parent-live'].results[0].file
+  const livePath = join(resultsDir, liveFile)
+  assert.equal(existsSync(livePath), true, 'live result written before startup sweep')
+
+  rt.dropWork('parent-live')
+  assert.equal(existsSync(livePath), true, 'unsaved dropWork keeps live result file')
+
+  // Release startup load so pruneOrphanResultFiles() runs now.
+  releaseLoad()
+  const sweepDeadline = Date.now() + 3000
+  while (existsSync(stalePath) && Date.now() < sweepDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(existsSync(stalePath), false, 'startup orphan sweep removes genuine prior-crash orphan')
+  assert.equal(existsSync(livePath), true, 'startup orphan sweep must not delete live file created before sweep finished')
+
+  // Startup failure path: if rt.load() rejects before pruneOrphanResultFiles(), the startup
+  // chain still settles cleanly without unhandled rejection.
+  const failHome = tempDir(t, 'ds-bot-perf-handoffs-loadfail-')
+  const failCtx = fakeContext()
+  const warns = []
+  const failRt = {
+    ctx: failCtx,
+    home: failHome,
+    state: seedState({ revision: 1 }),
+    readOnly: () => undefined,
+    load: async () => { throw new Error('boom load') },
+    botOf: id => failRt.state.bots[id],
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    save: async () => {},
+    warn: (...args) => warns.push(args.join(' ')),
+  }
+  installHandoffs(failRt)
+  t.after(() => failCtx.dispose())
+  const warnDeadline = Date.now() + 2000
+  while (warns.length === 0 && Date.now() < warnDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(warns.length, 1, 'failed startup load is warned and finished cleanly')
+
+  // Narrow runtime without ctx.effect initializes without throwing or leaking startup tracking.
+  const narrowHome = tempDir(t, 'ds-bot-perf-handoffs-narrow-')
+  const narrowRt = {
+    home: narrowHome,
+    state: seedState({ revision: 1 }),
+    readOnly: () => undefined,
+    botOf: id => narrowRt.state.bots[id],
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    save: async () => {},
+    warn() {},
+  }
+  installHandoffs(narrowRt)
+  narrowRt.openWork('p-narrow', { from: 'user', to: 'a' })
+  narrowRt.openWork('w-narrow', { from: 'a', to: 'b', parent: 'p-narrow' })
+  narrowRt.closeWork('w-narrow', 'Writer', longText)
+  assert.ok(narrowRt.state.works['p-narrow'].results[0].file)
 })
 
 test('ledger.js bounds LRU, handles prepend rename TOCTOU, broken UTF-8 byte boundaries, torn recovery, and write-failure rollback', async (t) => {
@@ -1853,8 +1984,9 @@ test('memory-review.js deleting a Bot while its review is queued does not reject
     isMain: id => id === 'a',
     isPrivate: () => false,
     partsOfThread: id => [{ sessionId: id }],
-    async *partLines(id) {
-      yield { seq: 1, who: 'user', text: `Fact for ${id}` }
+    ...fakeTranscript(''),
+    eventsBackwards: async function* (id) {
+      yield { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: `Fact for ${id}` }] } }
     },
     desiredModel: async () => 'deepseek/deepseek-chat',
     defaultModel: async () => 'deepseek/deepseek-chat',
@@ -2165,9 +2297,7 @@ test('memory-review.js forgetBotReview cancels pending failure retry timers', as
     isMain: id => id === 'a',
     isPrivate: () => false,
     partsOfThread: id => [{ sessionId: id }],
-    async *partLines() {
-      yield { seq: 1, who: 'user', text: 'Remember my test preference.' }
-    },
+    ...fakeTranscript('Remember my test preference.'),
     desiredModel: async () => 'deepseek/deepseek-chat',
     defaultModel: async () => 'deepseek/deepseek-chat',
     tagUsage: msgs => msgs,

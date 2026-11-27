@@ -8,7 +8,7 @@ import { descriptorFromResult } from './side-apps.js'
 import { contentText } from './text.js'
 import { t } from './i18n.js'
 
-const APPS = { open_canvas: { app: 'canvas', Icon: CanvasIcon, name: 'Canvas' }, open_reader: { app: 'reader', Icon: ReaderIcon, name: 'Reader' } }
+const APPS = { open_canvas: { app: 'canvas', Icon: CanvasIcon, name: 'Canvas app' }, open_reader: { app: 'reader', Icon: ReaderIcon, name: 'Reader app' } }
 export const isOpenTool = tool => Object.hasOwn(APPS, tool)
 
 export function SideAppCard({ tool, done, isError, content, arg, sessionId, actions }) {

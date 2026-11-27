@@ -11,6 +11,7 @@ import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
 import { addressedSession, returnAddress, sameConversation, threadCurrentOfPart } from './threads.js'
 import { viaOf } from '../shared/im-platforms.js'
+import { presentedFiles } from '../shared/group-replies.js'
 import { reminderText } from './schedules.js'
 import { usageChunk } from './usage.js'
 
@@ -363,6 +364,15 @@ export function install(rt) {
 
   /** @type {Map<string, {turn?:number, pending?:any, pendingText?:string, info?:any, texts:string[], opened?:boolean, joined?:{info:any, from:number}[]}>} */
   const live = new Map()
+  // Highest numbered turn/start seen per Session in this process, so mobile clients
+  // can tell a stopped retry superseded an earlier turn failure just like desktop's outline.
+  /** @type {Map<string, number>} */
+  const latestTurns = new Map()
+  const recordTurn = (id, turn) => {
+    if (typeof turn === 'number' && Number.isInteger(turn) && turn >= 1) {
+      latestTurns.set(id, Math.max(latestTurns.get(id) ?? 0, turn))
+    }
+  }
   /** @type {Map<string, {sessionId:string, resolve:(text:string|null)=>void, fail:(failure:any)=>void, touch:()=>void, approval:()=>void}>} member turn waiters keyed by exchange id */
   const roomWaiters = new Map()
   /** @type {Map<string, {roomId:string, replies:any[], members:string[], speaking:string|null}>} */
@@ -652,8 +662,14 @@ export function install(rt) {
     if (name !== undefined) setActivity(id, name === 'ask_user' || name === 'show_view' ? undefined : activityOf(name))
     else if (entry.turn !== undefined) setActivity(id, 'thinking')
   }
-  const startCall = (id, entry, callId, name, args) => {
-    if (typeof callId === 'string') (entry.calls ??= new Map()).set(callId, { name, args })
+  const startCall = (id, entry, callId, name, args, seq) => {
+    if (typeof callId === 'string') {
+      (entry.calls ??= new Map()).set(callId, {
+        name,
+        args,
+        ...(typeof seq === 'number' && Number.isInteger(seq) ? { seq } : {}),
+      })
+    }
     showCall(id, entry)
   }
   const endCall = (id, entry, callId) => {
@@ -831,7 +847,13 @@ export function install(rt) {
       if (job.roomId === undefined) merged[job.botId] = 'thinking'
       else merged[job.botId ?? job.roomId] ??= 'thinking'
     }
-    for (const approval of rt.approvalsView?.() ?? []) if (approval.botId) merged[approval.botId] = 'alert'
+    // Only answerable foreground DM approvals alert the Bot's own mascot; group approvals
+    // live on the group row/island (#1623) and background task approvals live in the task deck.
+    for (const approval of rt.approvalsView?.() ?? []) {
+      if (approval.botId && approval.roomId === undefined && approval.taskId === undefined && approval.answerable !== false) {
+        merged[approval.botId] = 'alert'
+      }
+    }
     // Waiting for work it handed on shows only while no turn of the Bot runs.
     for (const botId of Object.keys(rt.waitingView?.() ?? {})) merged[botId] ??= 'waiting'
     return merged
@@ -1144,7 +1166,7 @@ export function install(rt) {
       }
       case 'tool/call': {
         const name = String(event.data?.name ?? '')
-        startCall(id, entry, event.data?.callId, name, String(event.data?.arguments ?? ''))
+        startCall(id, entry, event.data?.callId, name, String(event.data?.arguments ?? ''), event.seq)
         // A program is as quick as the tools it runs, so its sub-calls decide.
         if (name !== PROGRAM_TOOL) {
           entry.toolCount = (entry.toolCount ?? 0) + 1
@@ -1192,8 +1214,12 @@ export function install(rt) {
         endCall(id, entry, event.data?.callId)
         break
       case 'turn/start':
+        // A model that could not be applied before is tried again now that a turn has
+        // proved its Session can be reached; the first try may have come too early (#1937).
+        if (rt.readOnly?.() === undefined) void rt.retryModel?.(rt.selfOf?.(id))
         setActivity(id, 'thinking')
         entry.turn = event.data.turn
+        recordTurn(id, event.data?.turn)
         entry.since = event.time ?? Date.now()
         entry.texts = []
         entry.shown = 0
@@ -1340,9 +1366,11 @@ export function install(rt) {
           const roomId = rt.roomOf(id).id
           // A long post comes as a file (attachLong), which stays with its line.
           const files = (Array.isArray(event.data.content) ? event.data.content : []).filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
+          const presented = presentedFiles(source.presented)
           queueRoomMessage(roomId, {
             text: textOf(event.data.content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
             ...(files.length > 0 ? { files } : {}),
+            ...(presented.length > 0 ? { presented } : {}),
             botId: source.senderSessionId,
             name: source.senderName,
             reportBack: source.reportBack === true,
@@ -1394,6 +1422,7 @@ export function install(rt) {
             ...(source.exchangeId ? { exchangeId: source.exchangeId } : {}),
             ...(source.goal !== undefined ? { goal: source.goal } : {}),
             ...(source.goalId !== undefined ? { goalId: source.goalId } : {}),
+            ...(source.via !== undefined ? { via: source.via } : {}),
           })
           rt.roomRelayTaken?.(roomId, source.exchangeId)
         } else if (source?.kind === SOURCE_KIND) {
@@ -1588,6 +1617,7 @@ export function install(rt) {
         entry.later = []
         if (steerCut || suppressedSubagent) {
           rt.dropRoomStepEcho?.(id)
+          rt.clearGroupPresented?.(id)
           if (suppressedSubagent && !steerCut && rt.groupOwners.has(id)) {
             void rt.settleRoomReports?.(rt.groupOwners.get(id).roomId).catch(error => rt.warn('ds-bot: group report settle in %s failed: %s', id, error))
           }
@@ -1636,6 +1666,24 @@ export function install(rt) {
           const config = session.requestHeader?.()?.config
           const ref = config?.provider && config?.model ? `${config.provider}/${config.model}` : undefined
           if (ref !== undefined) void rt.routeRefused(ref, rt.botOf(rt.selfOf(id))).catch(error => rt.warn('ds-bot: %s still failing: %s', ref, error))
+        }
+        // A turn refused before its request left because the Session's selection names
+        // a provider with no adapter, or a model DSH no longer serves, applies the Bot's
+        // model again and rewrites that selection, so the next turn can run (#1937).
+        if ((failure?.code === 'NO_ADAPTER' || failure?.code === 'UNKNOWN_MODEL') && rt.readOnly?.() === undefined) {
+          const bot = rt.botOf(rt.selfOf(id))
+          if (bot !== undefined) {
+            // The turned-away Session is the one whose own selection is wrong; only it
+            // is rewritten, not every part and group of the Bot (#2002 review).
+            void Promise.resolve(rt.reapplyModel?.(bot, id))
+              .catch(error => rt.warn('ds-bot: model for %s still not applied: %s', bot.name, error))
+          } else {
+            const room = rt.roomOf?.(id)
+            if (room !== undefined) {
+              void Promise.resolve(rt.selectRoomSession?.(id, room, { force: true }))
+                .catch(error => rt.warn('ds-bot: model for the group Session %s not applied: %s', id, error))
+            }
+          }
         }
         const held = rt.groupOwners.has(id) ? rt.takeRoomSteps?.(id) ?? '' : ''
         if (switched) {
@@ -1795,6 +1843,8 @@ export function install(rt) {
             // The round moved on without this member; how its turn ends still reaches the group.
             if (failure !== undefined) void rt.lateRoomFailure?.(id, info, failure)
             else void rt.lateRoomReply?.(id, info, groupReply(), { shown, toolCount: workToolCount, turn, joined: joined.map(item => item.info) })
+          } else {
+            rt.clearGroupPresented?.(id)
           }
         } else if (!retry && speaksInGroup(id, info)) {
           // A turn that failed before it took any input (DSH can turn it down before its
@@ -1802,6 +1852,7 @@ export function install(rt) {
           const inRound = failure !== undefined && info === undefined && rt.failRoomTurn?.(id, failure) === true
           if (failure !== undefined) { if (!inRound) void rt.lateRoomFailure?.(id, info ?? {}, failure) }
           else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply(), { shown, toolCount: workToolCount, turn, joined: joined.map(item => item.info) })
+          else rt.clearGroupPresented?.(id)
         } else if (!retry && info !== undefined) {
           finish(info, replyText())
         }
@@ -2044,6 +2095,7 @@ export function install(rt) {
     if (typeof sessionId !== 'string' || sessionId === '') return
     const entry = live.get(sessionId)
     if (entry !== undefined && entry.turn === undefined && entry.carry === undefined && entry.pending === undefined) live.delete(sessionId)
+    latestTurns.delete(sessionId)
     stoppedSubagentParents.delete(sessionId)
   }
   ctx.on?.('agent/disposed', ({ agent }) => {
@@ -2051,5 +2103,7 @@ export function install(rt) {
     if (id !== undefined && !rt.isBotSession?.(id) && rt.roomOf?.(id) === undefined) forgetSessionTurn(id)
   })
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, forgetSessionTurn, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork, isHiddenBotWorkTurn })
+  const callSeq = (sessionId, callId) => live.get(sessionId)?.calls?.get(callId)?.seq
+
+  Object.assign(rt, { live, liveOf, latestTurnOf: id => latestTurns.get(id), roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, callSeq, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, forgetSessionTurn, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork, isHiddenBotWorkTurn })
 }

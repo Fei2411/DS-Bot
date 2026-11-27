@@ -26,13 +26,17 @@ async function read(key: string): Promise<unknown> {
   try { return JSON.parse(text) } catch { return undefined }
 }
 
-export async function loadIdentity(): Promise<PhoneIdentity> {
+export async function loadIdentityWithMeta(): Promise<{ identity: PhoneIdentity; existed: boolean }> {
   const saved = await read(IDENTITY)
-  if (validIdentity(saved)) return saved
+  if (validIdentity(saved)) return { identity: saved, existed: true }
   const keys = generateKeyPair()
   const identity = { deviceId: deviceIdFor(keys.publicKey), ...keys, accessToken: randomToken() }
   await SecureStore.setItemAsync(IDENTITY, JSON.stringify(identity), LOCAL)
-  return identity
+  return { identity, existed: false }
+}
+
+export async function loadIdentity(): Promise<PhoneIdentity> {
+  return (await loadIdentityWithMeta()).identity
 }
 
 // The computer list is the one record of paired computers; the active one is
@@ -96,6 +100,7 @@ export async function readPrefs(): Promise<Record<string, string>> {
   return prefsCache
 }
 let prefsCache: Record<string, string> | null = null
+export function peekPrefs(): Record<string, string> | null { return prefsCache }
 const prefListeners = new Set<() => void>()
 export function onPrefsChange(listener: () => void): () => void {
   prefListeners.add(listener)

@@ -17,7 +17,8 @@ export const NOTIFY_KEY = 'ds-bot:notify'
  * @param {boolean} state.enabled the global switch
  * @param {boolean} state.muted this conversation is muted
  * @param {boolean} state.group is this a group chat
- * @returns {'reply' | 'question' | undefined} what to say, or undefined for nothing
+ * @returns {'reply' | 'question' | undefined} what to say, or undefined for nothing; a
+ *   'question' is anything that starts to wait on the user
  */
 export function notifyKind({ before, after, viewing, focused, enabled, muted, group }) {
   if (before === undefined || enabled !== true || muted === true) return undefined
@@ -41,7 +42,7 @@ export function notifyKind({ before, after, viewing, focused, enabled, muted, gr
  */
 export function noticeText({ title, kind }) {
   const name = String(title ?? '').trim().slice(0, 60)
-  const body = t(kind === 'question' ? 'Waiting for your answer' : 'A new reply is waiting')
+  const body = t(kind === 'question' ? 'Waiting for you' : 'A new reply is waiting')
   return { title: name === '' ? 'DS Bot' : name, body }
 }
 
@@ -90,26 +91,29 @@ export function badgeOf(rows) {
 }
 
 
-export function notificationRows({ statuses, roster, approvals = [] }) {
+/**
+ * Each conversation's row for the notifications and the dock badge: its status, and what
+ * waits on the user in it — the host's inbox items there (src/host/inbox.js) and a card
+ * the shell holds itself. A group's items are the group's, not its member's own chat.
+ * @param {{ statuses?: Map<string, object>, roster: object }} input
+ */
+export function notificationRows({ statuses, roster }) {
   const rows = []
-  const botApprovals = new Map()
-  const roomApprovals = new Map()
-  for (const approval of approvals) {
-    const index = approval.roomId === undefined ? botApprovals : roomApprovals
-    const id = approval.roomId === undefined ? approval.botId : approval.roomId
+  const own = new Map()
+  const groups = new Map()
+  for (const item of Array.isArray(roster?.inbox?.items) ? roster.inbox.items : []) {
+    const [index, id] = item.roomId === undefined ? [own, item.botId] : [groups, item.roomId]
+    if (id === undefined) continue
     if (!index.has(id)) index.set(id, [])
-    index.get(id).push(approval)
+    index.get(id).push(item.id)
   }
-  for (const [group, entries] of [[false, roster.bots ?? []], [true, roster.rooms ?? []]]) {
+  for (const [group, entries] of [[false, roster?.bots ?? []], [true, roster?.rooms ?? []]]) {
     for (const entry of entries) {
       const sessionId = entry.sessionId ?? entry.id
       const status = statuses?.get(sessionId)
-      const question = roster.questions?.[sessionId]
-      const waiting = (group ? roomApprovals : botApprovals).get(entry.id) ?? []
       const interaction = status?.pendingInteraction
       const keys = [
-        ...(question ? [`question:${question.id}`] : []),
-        ...waiting.map(approval => `approval:${approval.id}`),
+        ...((group ? groups : own).get(entry.id) ?? []),
         ...(interaction !== undefined ? [`interaction:${interaction?.id ?? interaction?.kind ?? 'pending'}`] : []),
       ].sort()
       if (status === undefined && keys.length === 0) continue

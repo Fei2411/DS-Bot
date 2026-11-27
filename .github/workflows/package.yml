@@ -1,0 +1,704 @@
+name: Package & Native
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  schedule:
+    # Daily full cross-platform packaging and mobile native build verification at 19:00 UTC
+    # (03:00 +08:00) so installers, iOS/Android native builds and caches stay verified and warm.
+    - cron: '0 19 * * *'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      force_full:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Heavy packaging and native mobile builds run in their own workflow so unit-test retries in
+# test.yml never have to wait for 30-40 minute desktop/iOS builds to finish first.
+concurrency:
+  group: >-
+    ${{ inputs.force_full
+        && format('full-package-run-{0}', github.ref)
+        || format('package-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: Detect packaging scope
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.filter.outputs.full }}
+      app_package_full: ${{ steps.filter.outputs.app_package_full }}
+      app_package_linux: ${{ steps.filter.outputs.app_package_linux }}
+      app_update: ${{ steps.filter.outputs.app_update }}
+      mobile_ios: ${{ steps.filter.outputs.mobile_ios }}
+      mobile_android: ${{ steps.filter.outputs.mobile_android }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_FULL_PACKAGE: ${{ inputs.force_full || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci/full-package')) }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          full=false
+          main_push=false
+          if [ "$EVENT" = "pull_request" ] && [ "$PR_FULL_PACKAGE" != "true" ] && [ -n "$PR_NUMBER" ] && [ -n "$GH_TOKEN" ]; then
+            if gh api "repos/$GH_REPO/issues/$PR_NUMBER/labels" --jq '.[].name' 2>/dev/null | grep -qx 'ci/full-package'; then
+              PR_FULL_PACKAGE=true
+            fi
+          fi
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$BASE_REF" = "main" ] || [ "$PR_FULL_PACKAGE" = "true" ]; then
+            full=true
+          elif [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
+            # Release PRs already pass the full matrix on BASE_REF=main before merge, and daily
+            # schedule keeps main caches warm. Running only Linux packaging here prevents
+            # push:main from competing for macOS runners with the Release workflow.
+            main_push=true
+          fi
+
+          changed=""
+          if [ "$full" = "false" ] && [ "$main_push" = "false" ]; then
+            if [ "$EVENT" = "pull_request" ]; then
+              if ! changed="$(git -c core.quotepath=false diff --name-only "origin/$BASE_REF...HEAD")"; then
+                full=true
+              fi
+            elif [ "$EVENT" = "push" ]; then
+              if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+                changed="$(git -c core.quotepath=false diff --name-only "$BEFORE" "$SHA")"
+              else
+                full=true
+              fi
+            else
+              full=true
+            fi
+          fi
+
+          has() {
+            grep -qE "$1" <<< "$changed"
+          }
+
+          if [ "$full" = "false" ] && [ "$main_push" = "false" ] && has '^\.github/workflows/(package|full-package|release)\.yml$'; then
+            full=true
+          fi
+
+          if [ "$full" = "true" ]; then
+            app_package_full=true
+            app_package_linux=true
+            app_update=true
+            mobile_ios=true
+            mobile_android=true
+          elif [ "$main_push" = "true" ]; then
+            app_package_full=false
+            app_package_linux=true
+            app_update=false
+            mobile_ios=false
+            mobile_android=false
+          else
+            app_package_full=false
+            app_package_linux=false
+            app_update=false
+            mobile_ios=false
+            mobile_android=false
+            # Full cross-OS packaging runs on packaging/installer/runtime/updater/native changes.
+            # Pure app/ui/ and app/test/ edits are verified by test.yml (vite build + Ubuntu/Windows unit tests).
+            if has '^(app/(package\.json|package-lock\.json|electron-builder\.yml|\.npmrc|build/|engine/|assets/|scripts/((before-pack|check-lifecycle|check-packed|check-update|dist|prepare-runtime|seed-electron-checksums)\.|primary-runtime\.lock\.json$)|src/update)|ds-bot/(package\.json|package-lock\.json|cordis\.patch\.yml|office\.js|src/office/|src/host/computer/))'; then
+              app_package_full=true
+            fi
+            # Main-process app/src/ and desktop UI bundle config edits get a fast Linux packaged smoke
+            # without blocking on 40m macOS/Windows queues.
+            if [ "$app_package_full" = "true" ] || has '^(app/src/|app/vite\.config\.js$|app/ui/index\.html$)'; then
+              app_package_linux=true
+            fi
+            if has '^app/(package\.json|package-lock\.json|electron-builder\.yml|build/|scripts/(before-pack|check-update|dist)\.|src/update)'; then
+              app_update=true
+            fi
+            # Native iOS / Android builds run on native config, icon assets, or version/dependency changes
+            # (not pure JS/TS edits in mobile/src/).
+            if has '^(mobile/(app\.json|app\.config\.js|package\.json|package-lock\.json|plugins/|ios/|assets/|eas\.json)|ds-bot/package\.json$)'; then
+              mobile_ios=true
+            fi
+            if has '^(mobile/(app\.json|app\.config\.js|package\.json|package-lock\.json|plugins/|android/|assets/|eas\.json)|ds-bot/package\.json$|\.github/gradle/)'; then
+              mobile_android=true
+            fi
+            # Always keep Linux packaging smoke & caches warm on push to dev without using macOS runners.
+            if [ "$EVENT" = "push" ]; then
+              app_package_linux=true
+            fi
+          fi
+
+          {
+            echo "full=$full"
+            echo "app_package_full=$app_package_full"
+            echo "app_package_linux=$app_package_linux"
+            echo "app_update=$app_update"
+            echo "mobile_ios=$mobile_ios"
+            echo "mobile_android=$mobile_android"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  mobile-ios:
+    name: Mobile app iOS build (simulator)
+    needs: changes
+    if: needs.changes.outputs.mobile_ios == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      # CocoaPods normalizes paths as UTF-8; a C locale fails `pod install`.
+      LANG: en_US.UTF-8
+    defaults:
+      run:
+        shell: bash
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            mobile/package-lock.json
+            link/package-lock.json
+      # The app imports the shared code in ../link, which has its own packages.
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
+      - run: npm ci --no-fund --no-audit
+      # ios/ is generated by the build and not committed (see mobile/README.md); this is
+      # the same prebuild the release script runs.
+      - name: Generate the iOS project
+        run: npx expo prebuild --platform ios --no-install
+      - name: Restore CocoaPods
+        id: cocoapods-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/Library/Caches/CocoaPods
+          key: cocoapods-${{ runner.os }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/ios/Podfile') }}
+          restore-keys: cocoapods-${{ runner.os }}-
+      - name: Install CocoaPods
+        working-directory: mobile/ios
+        run: pod install
+      - name: Save CocoaPods
+        if: github.event_name != 'pull_request' && steps.cocoapods-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/CocoaPods
+          key: ${{ steps.cocoapods-cache.outputs.cache-primary-key }}
+      # Unsigned: this proves the app compiles for the simulator. Signing and the
+      # TestFlight upload need the Apple account (docs/plans/2026-11-13-ios-release.md).
+      - name: Build for the simulator
+        working-directory: mobile/ios
+        run: |
+          xcodebuild -workspace DSBot.xcworkspace -scheme DSBot \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+  # Verifies the Android release APK build on native/release PRs and warms main's Gradle + ccache
+  # caches on the daily schedule so release tag builds do not cold-compile from scratch.
+  mobile-android:
+    name: Mobile app Android build (APK)
+    needs: changes
+    if: needs.changes.outputs.mobile_android == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            mobile/package-lock.json
+            link/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
+      - run: npm ci --no-fund --no-audit
+      - run: npx expo prebuild --platform android --no-install
+      - name: Install ccache
+        run: |
+          if ! command -v ccache >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq ccache
+          fi
+          echo "CCACHE_BIN=$(command -v ccache)" >> "$GITHUB_ENV"
+      - name: Restore Android C++ ccache
+        id: ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: android-ccache-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/plugins/**', '.github/gradle/ccache.init.gradle') }}
+          restore-keys: android-ccache-v2-${{ runner.os }}-${{ runner.arch }}-
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Build release APK (debug-signed)
+        env:
+          CCACHE_BASEDIR: ${{ github.workspace }}
+          CCACHE_NOHASHDIR: 'true'
+          # Default mtime check misses whenever GitHub rotates runner image builds with identical NDK binaries.
+          CCACHE_COMPILERCHECK: content
+          CCACHE_SLOPPINESS: include_file_mtime,include_file_ctime,time_macros
+          CCACHE_MAXSIZE: 600M
+        run: |
+          export CCACHE_DIR="$HOME/.ccache"
+          mkdir -p "$CCACHE_DIR"
+          (cd android && ./gradlew assembleRelease --no-daemon --build-cache --console=plain -PreactNativeArchitectures=arm64-v8a,armeabi-v7a --init-script "$GITHUB_WORKSPACE/.github/gradle/ccache.init.gradle")
+          ccache -s || true
+      - name: Save Android C++ ccache
+        if: github.event_name != 'pull_request' && steps.ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
+      - name: Check the APK
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          if unzip -l "$apk" | grep -Eq 'lib/(x86|x86_64)/'; then
+            echo "::error::Release APK contains x86 simulator binaries."
+            exit 1
+          fi
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          zipalign="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/zipalign"
+          aapt2="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt2"
+          badging="$("$aapt2" dump badging "$apk")"
+          compile_sdk="$(printf '%s\n' "$badging" | sed -n "s/.*compileSdkVersion='\([0-9]*\)'.*/\1/p" | head -n1)"
+          target_sdk="$(printf '%s\n' "$badging" | sed -n "s/.*targetSdkVersion:'\([0-9]*\)'.*/\1/p" | head -n1)"
+          if [ -z "$compile_sdk" ] || [ -z "$target_sdk" ] || [ "$compile_sdk" -gt "$target_sdk" ]; then
+            echo "::error::Invalid Android SDK levels in APK: compileSdkVersion=$compile_sdk targetSdkVersion=$target_sdk"
+            exit 1
+          fi
+          if ! printf '%s\n' "$badging" | grep -q "android.permission.POST_NOTIFICATIONS"; then
+            echo "::error::Release APK does not declare android.permission.POST_NOTIFICATIONS."
+            exit 1
+          fi
+          "$zipalign" -c -P 16 4 "$apk"
+          certs="$("$apksigner" verify --min-sdk-version 21 --verbose --print-certs "$apk")"
+          for scheme in 'v1 scheme (JAR signing): true' 'v2 scheme (APK Signature Scheme v2): true' 'v3 scheme (APK Signature Scheme v3): true'; do
+            if ! echo "$certs" | grep -Fq "Verified using $scheme"; then
+              echo "::error::The APK is missing signature $scheme."
+              exit 1
+            fi
+          done
+
+  app-package:
+    name: Desktop app package (Windows)
+    needs: changes
+    if: needs.changes.outputs.app_package_full == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      # Electron and electron-builder's build tools come from GitHub releases, which sometimes answer
+      # 504. The key holds the Electron and electron-builder versions and the builder config, which
+      # decide the files downloaded.
+      - name: Name the download cache
+        id: downloads-key
+        run: |
+          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        id: downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
+      - run: npm ci --no-fund --no-audit
+        env:
+          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
+          # under dist.mjs retries, avoiding an unused binary download during npm ci.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Run desktop app unit tests (Windows)
+        run: npm test
+      - run: node scripts/seed-electron-checksums.mjs
+      - name: Restore the locked runtime archives
+        id: runtime-cache
+        uses: actions/cache/restore@v4
+        with:
+          # A cache from another lock version cannot supply a wrong runtime: the archives are
+          # stored under their sha256 and every read is verified against it again.
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
+      - run: npm run dist
+        env:
+          # CI packages are never published; fast compression cuts archive time dramatically.
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
+      # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
+      - name: Save the locked runtime archives
+        if: github.event_name != 'pull_request' && steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/build/runtime-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
+      - name: Save Electron and the build tools
+        if: github.event_name != 'pull_request' && steps.downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
+      # The runner is a fresh machine, so the installer may run here. It must install for the
+      # current user only, the installed app must pass check-packed, and the uninstaller must
+      # remove it again.
+      - name: Install and check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Find-Entry($root) {
+            Get-ChildItem "$root\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
+              Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like 'DS Bot*' }
+          }
+          $installer = Get-Item dist-pack/DS-Bot-*-win-x64.exe
+          Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\DS Bot'
+          $exe = Join-Path $dir 'DS Bot.exe'
+          if (-not (Test-Path $exe)) { throw "The installer did not put the app in $dir" }
+          $entry = Find-Entry 'HKCU:'
+          if (-not $entry) { throw 'No uninstall entry found in HKCU' }
+          if (Find-Entry 'HKLM:') { throw 'Installer wrote to HKLM; it must install per-user' }
+          node scripts/check-packed.mjs $exe
+          if ($LASTEXITCODE -ne 0) { throw 'check-packed failed' }
+
+      # The update builds the app a second time, so it runs only for updater/installer changes
+      # (and full runs). The installed app downloads the new installer from a local server and
+      # runs it; the uninstaller check that follows removes the updated copy.
+      - name: Build the next version
+        if: needs.changes.outputs.app_update == 'true'
+        env:
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
+        run: |
+          next="$(node -p "const [a, b, c] = require('./package.json').version.split(/[.-]/u); [a, b, Number(c) + 1].join('.')")"
+          echo "NEXT_VERSION=$next" >> "$GITHUB_ENV"
+          npx electron-builder --publish never -c.extraMetadata.version="$next" -c.directories.output=dist-next
+      - name: Update the installed app and check it
+        if: needs.changes.outputs.app_update == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\DS Bot\DS Bot.exe'
+          node scripts/check-update.mjs $exe dist-next
+          if ($LASTEXITCODE -ne 0) { throw 'The installed app did not take the update' }
+          # The installer goes on after the app has quit.
+          function Installed-Version {
+            Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
+              ForEach-Object { Get-ItemProperty $_.PSPath } |
+              Where-Object { $_.DisplayName -like 'DS Bot*' } |
+              Select-Object -ExpandProperty DisplayVersion
+          }
+          $deadline = (Get-Date).AddSeconds(240)
+          while ((Installed-Version) -ne $env:NEXT_VERSION -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
+          if ((Installed-Version) -ne $env:NEXT_VERSION) { throw "The installed version is $(Installed-Version), not $env:NEXT_VERSION" }
+          while ((Get-Process | Where-Object { $_.Path -like '*dsbot-updater*' }) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          node scripts/check-packed.mjs $exe
+          if ($LASTEXITCODE -ne 0) { throw 'The updated app failed its check' }
+
+      - name: Uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Find-Entry($root) {
+            Get-ChildItem "$root\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
+              Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like 'DS Bot*' }
+          }
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\DS Bot'
+          $exe = Join-Path $dir 'DS Bot.exe'
+          # The uninstaller removes the program only: the data location and the app's own data stay.
+          $kept = foreach ($folder in (Join-Path $HOME '.ds-bot'), (Join-Path $env:APPDATA 'DS Bot')) {
+            New-Item -ItemType Directory -Force $folder | Out-Null
+            $file = Join-Path $folder 'kept.txt'
+            Set-Content $file 'kept'
+            $file
+          }
+          $uninstaller = Join-Path $dir 'Uninstall DS Bot.exe'
+          Start-Process -FilePath $uninstaller -ArgumentList '/currentuser', '/S' -Wait
+          # The uninstaller goes on from a copy in the temp folder, so wait for its result.
+          $deadline = (Get-Date).AddSeconds(120)
+          while (((Test-Path $exe) -or (Find-Entry 'HKCU:')) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          if (Test-Path $exe) { throw 'The uninstaller left the app in place' }
+          if (Find-Entry 'HKCU:') { throw 'The uninstaller left its uninstall entry' }
+          foreach ($file in $kept) { if (-not (Test-Path $file)) { throw "The uninstaller removed $file" } }
+
+  app-package-macos:
+    name: Desktop app package (macOS ${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.app_package_full == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, runner: macos-latest }
+          - { arch: x64, runner: macos-26-intel }
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      # Electron and electron-builder's build tools come from GitHub releases, which sometimes answer
+      # 504. The key holds the Electron and electron-builder versions and the builder config, which
+      # decide the files downloaded.
+      - name: Name the download cache
+        id: downloads-key
+        run: |
+          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        id: downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
+      - run: npm ci --no-fund --no-audit
+        env:
+          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
+          # under dist.mjs retries, avoiding an unused binary download during npm ci.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Run desktop app unit tests (macOS)
+        if: matrix.arch == 'arm64'
+        run: npm test
+      - run: node scripts/seed-electron-checksums.mjs
+      - name: Restore the locked runtime archives
+        id: runtime-cache
+        uses: actions/cache/restore@v4
+        with:
+          # A cache from another lock version cannot supply a wrong runtime: the archives are
+          # stored under their sha256 and every read is verified against it again.
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
+      - run: npm run dist
+        env:
+          # Ad-hoc identity '-' uses no certificate or secret, so PR signing is safe; otherwise electron-builder skips signing and leaves an unsealed bundle.
+          CSC_FOR_PULL_REQUEST: 'true'
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
+      # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
+      - name: Save the locked runtime archives
+        if: github.event_name != 'pull_request' && steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/build/runtime-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
+      - name: Save Electron and the build tools
+        if: github.event_name != 'pull_request' && steps.downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
+      - name: Install from the zip and check
+        run: |
+          zip="dist-pack/DS-Bot-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.zip"
+          test -f "$zip"
+          ditto -x -k "$zip" /Applications
+          app="/Applications/DS Bot.app"
+          exe="$app/Contents/MacOS/DS Bot"
+          codesign --verify --deep --strict "$app"
+          file "$exe"
+          expected="${{ matrix.arch }}"
+          if [ "$expected" = x64 ]; then expected=x86_64; fi
+          file -b "$exe" | grep -F "$expected"
+          node scripts/check-packed.mjs "$exe"
+          node scripts/check-update.mjs "$exe" 99.0.0
+
+  app-package-linux:
+    name: Desktop app package (Linux x64)
+    needs: changes
+    if: needs.changes.outputs.app_package_linux == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      # Electron and electron-builder's build tools come from GitHub releases, which sometimes answer
+      # 504. The key holds the Electron and electron-builder versions and the builder config, which
+      # decide the files downloaded.
+      - name: Name the download cache
+        id: downloads-key
+        run: |
+          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        id: downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
+      - run: npm ci --no-fund --no-audit
+        env:
+          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
+          # under dist.mjs retries, avoiding an unused binary download during npm ci.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: node scripts/seed-electron-checksums.mjs
+      - name: Restore the locked runtime archives
+        id: runtime-cache
+        uses: actions/cache/restore@v4
+        with:
+          # A cache from another lock version cannot supply a wrong runtime: the archives are
+          # stored under their sha256 and every read is verified against it again.
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
+      - run: npm run dist
+      # Saved as soon as the build is done, so a later check that fails does not drop the downloads.
+      - name: Save the locked runtime archives
+        if: github.event_name != 'pull_request' && steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/build/runtime-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
+      - name: Save Electron and the build tools
+        if: github.event_name != 'pull_request' && steps.downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
+      - name: Check the packages
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          test -f "dist-pack/DS-Bot-$version-linux-x86_64.AppImage"
+          test -f "dist-pack/DS-Bot-$version-linux-amd64.deb"
+          test -f dist-pack/latest-linux.yml
+      # An AppImage mounts through FUSE 2, and Ubuntu 24.04's AppArmor blocks the unprivileged
+      # user namespaces that Chromium's sandbox needs; a throwaway runner may lift that.
+      - name: Prepare to run the app
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libfuse2t64 xvfb
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # apt-get, not dpkg: it also installs the deb's dependencies. The ./ prefix makes apt-get
+      # read a file; without it the path is taken for a package name.
+      - name: Install the deb and check
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          sudo apt-get install -y "./dist-pack/DS-Bot-$version-linux-amd64.deb"
+          test -f /usr/share/applications/dsbot.desktop
+          xvfb-run -a node scripts/check-packed.mjs "/opt/DS Bot/dsbot"
+      # A deb cannot update itself: it points at the release page, as on macOS.
+      - name: The deb's app hears of a new version
+        run: xvfb-run -a node scripts/check-update.mjs "/opt/DS Bot/dsbot" 99.0.0
+      # The update builds the app a second time, so it runs only for updater/installer changes
+      # (and full runs). The AppImage downloads the new one and replaces itself as it quits.
+      - name: Build the next version
+        if: needs.changes.outputs.app_update == 'true'
+        run: |
+          next="$(node -p "const [a, b, c] = require('./package.json').version.split(/[.-]/u); [a, b, Number(c) + 1].join('.')")"
+          npx electron-builder --publish never -c.extraMetadata.version="$next" -c.directories.output=dist-next
+      - name: The AppImage takes the update
+        if: needs.changes.outputs.app_update == 'true'
+        run: |
+          tmp="$(mktemp -d)"
+          cp dist-pack/DS-Bot-*-linux-x86_64.AppImage "$tmp/dsbot.AppImage"
+          chmod +x "$tmp/dsbot.AppImage"
+          xvfb-run -a node scripts/check-update.mjs "$tmp/dsbot.AppImage" dist-next
+          pkill -f "$tmp/dsbot" || true
+          next="$(ls dist-next/DS-Bot-*-linux-x86_64.AppImage)"
+          test "$(sha512sum "$tmp/dsbot.AppImage" | cut -d' ' -f1)" = "$(sha512sum "$next" | cut -d' ' -f1)"
+      - name: Uninstall
+        run: |
+          sudo apt-get remove -y dsbot
+          test ! -e "/opt/DS Bot/dsbot"
+
+  result:
+    name: Package result
+    needs: [changes, mobile-ios, mobile-android, app-package, app-package-macos, app-package-linux]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required packaging checks
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RUN_MOBILE_IOS: ${{ needs.changes.outputs.mobile_ios }}
+          MOBILE_IOS_RESULT: ${{ needs.mobile-ios.result }}
+          RUN_MOBILE_ANDROID: ${{ needs.changes.outputs.mobile_android }}
+          MOBILE_ANDROID_RESULT: ${{ needs.mobile-android.result }}
+          RUN_APP_PKG_FULL: ${{ needs.changes.outputs.app_package_full }}
+          APP_WIN_RESULT: ${{ needs.app-package.result }}
+          APP_MAC_RESULT: ${{ needs.app-package-macos.result }}
+          RUN_APP_PKG_LINUX: ${{ needs.changes.outputs.app_package_linux }}
+          APP_LINUX_RESULT: ${{ needs.app-package-linux.result }}
+        run: |
+          set -euo pipefail
+          fail=0
+          check() {
+            local name="$1" wanted="$2" actual="$3"
+            if [ "$wanted" = "true" ]; then
+              if [ "$actual" != "success" ]; then
+                echo "::error::$name was required for these changes but ended with '$actual'"
+                fail=1
+              fi
+            elif [ "$wanted" = "false" ]; then
+              if [ "$actual" != "skipped" ] && [ "$actual" != "success" ]; then
+                echo "::error::$name ended with '$actual'"
+                fail=1
+              fi
+            else
+              echo "::error::$name had unexpected requirement flag '$wanted' (result '$actual')"
+              fail=1
+            fi
+          }
+          check "changes" "true" "$CHANGES_RESULT"
+          check "mobile-ios" "$RUN_MOBILE_IOS" "$MOBILE_IOS_RESULT"
+          check "mobile-android" "$RUN_MOBILE_ANDROID" "$MOBILE_ANDROID_RESULT"
+          check "app-package" "$RUN_APP_PKG_FULL" "$APP_WIN_RESULT"
+          check "app-package-macos" "$RUN_APP_PKG_FULL" "$APP_MAC_RESULT"
+          check "app-package-linux" "$RUN_APP_PKG_LINUX" "$APP_LINUX_RESULT"
+          exit "$fail"

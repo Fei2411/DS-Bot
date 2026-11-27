@@ -851,6 +851,24 @@ export function install(rt) {
     }
     return { resolved, failed, errors }
   }
+  function resolveUncachedExternalForBot(botId, signal) {
+    if (botId === undefined || !hasUncachedExternalForBot(botId)) return
+    return resolveExternalForBot(botId, { signal }).catch(error => {
+      if (!signal?.aborted) rt.warn('ds-bot: external secret resolution failed: %s', error?.message ?? 'error')
+    })
+  }
+  const botForSecretSession = sessionId => blocked === undefined && !store.locked ? rt.selfOf(sessionId) : undefined
+  async function prepareSecretEnvForSession(sessionId, signal) {
+    signal?.throwIfAborted()
+    if (rt.hasLoaded?.() === false) await rt.load()
+    if (shouldReload()) await loadSecrets()
+    let botId = botForSecretSession(sessionId)
+    if (botId === undefined && rt.readOnly() !== undefined) {
+      rt.syncReadOnly?.()
+      botId = botForSecretSession(sessionId)
+    }
+    if (rt.botOf(botId) !== undefined) await resolveUncachedExternalForBot(botId, signal)
+  }
   const invalidateExternal = (providerId) => {
     retireCachedExternals(providerId)
     resolver.invalidate(providerId)
@@ -1256,7 +1274,6 @@ export function install(rt) {
       })
       trimRequests(list)
       await rt.save()
-      rt.cardShown?.(id, 'secret', name)
       exec.concludeTurn?.()
       return secret
         ? `The card asking the user to let you use ${name} is on screen. A note arrives when the user answers; you will not see the value.`
@@ -1290,10 +1307,7 @@ export function install(rt) {
   // re-renders a changed success result from its redacted value.
   ctx.on('tools/execute', async (exec, next) => {
     if (hasExternalSecrets && SHELL_ENV_TOOLS.has(exec?.name)) {
-      const botId = resolveBotId(exec)
-      if (botId !== undefined && hasUncachedExternalForBot(botId)) {
-        await resolveExternalForBot(botId).catch(error => rt.warn('ds-bot: external secret resolution failed: %s', error?.message ?? 'error'))
-      }
+      await resolveUncachedExternalForBot(resolveBotId(exec))
     }
     const result = await next()
     if (!hasRedactions || result === null || typeof result !== 'object') return result
@@ -1357,7 +1371,7 @@ export function install(rt) {
     return llm.stream({ ...options, messages: fresh, ...(system !== undefined ? { system } : {}) })
   })
 
-  function resolveEnv(execution, declaredKeys) {
+  function resolveEnv(botForSession, declaredKeys, command = '') {
     if (rt.hasLoaded?.() === false) void rt.load()
     if (loaded === null || loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) {
       if (loaded === null || fileStamp() !== seenStamp || (loadedReadOnly && rt.readOnly() === undefined && rt.hasLoaded?.() !== false)) {
@@ -1365,13 +1379,12 @@ export function install(rt) {
         loaded = Promise.resolve()
       }
     }
-    let botId = resolveBotId(execution)
+    let botId = botForSession()
     if (botId === undefined && rt.readOnly() !== undefined) {
       rt.syncReadOnly?.()
-      botId = resolveBotId(execution)
+      botId = botForSession()
     }
     if (rt.botOf(botId) === undefined) return {}
-    const command = typeof execution.arguments?.command === 'string' ? execution.arguments.command : ''
     const mode = shellMode()
     const values = {}
     let used = false
@@ -1427,7 +1440,8 @@ export function install(rt) {
         unregister = sub.shellEnv.register({
           name: 'ds-bot-secrets',
           variables,
-          resolve: execution => resolveEnv(execution, declaredKeys),
+          resolve: execution => resolveEnv(() => resolveBotId(execution), declaredKeys,
+            typeof execution.arguments?.command === 'string' ? execution.arguments.command : ''),
         })
       } catch (error) {
         declared = ''
@@ -1490,6 +1504,8 @@ export function install(rt) {
     secretStoreStatus,
     secretValue: name => resolvedValueOf(secrets.get(name)),
     canUseSecret: (name, botId) => canUse(secrets.get(name), botId),
+    prepareSecretEnvForSession,
+    secretEnvForSession: sessionId => resolveEnv(() => botForSecretSession(sessionId)),
     secretEndpoint,
     forgetBotSecrets,
     loadSecrets,

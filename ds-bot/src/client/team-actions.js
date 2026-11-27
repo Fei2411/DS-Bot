@@ -4,11 +4,26 @@ import { chatOfSession } from './draft-keep.js'
 import { FILE_TABS_MAX, closeFileTab, isFileApp, isSideApp, openFileTab, parseDescriptor, reopenBody, setTabMode, tabFromDescriptor } from './side-apps.js'
 import { dropSession } from './side-file-source.js'
 
+export function sectionFoldWrites() {
+  const saved = new Map()
+  return {
+    note(id, collapsed, revision) { saved.set(id, { revision, collapsed }) },
+    reconcile(sections, revision) {
+      if (!sections || saved.size === 0) return sections
+      for (const [id, fold] of saved) if (fold.revision <= revision) saved.delete(id)
+      return saved.size === 0 ? sections : sections.map(section => {
+        const fold = saved.get(section.id)
+        return fold ? { ...section, collapsed: fold.collapsed } : section
+      })
+    },
+  }
+}
+
 // The actions every window that draws the Bot views shares: dialogs and panels (the `ui`
 // source), requests to the host, and the notes the transcript keeps. The shell around the
 // views adds navigation and its own panels. `after` reads the team again once a request
 // is done; `partFor` maps a Bot id, or any part of its chat, to its current part.
-export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }) {
+export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites }) {
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
   const subjectOf = (snap, id) => snap.byId?.[id]?.id ?? snap.roomsById?.[id]?.id ?? id
@@ -39,9 +54,50 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     }
     return next
   }
+  const sectionSaves = new Map()
+  const saveSection = async (payload) => {
+    const { id, collapsed } = payload
+    if (typeof id !== 'string' || !id || typeof collapsed !== 'boolean' || Object.keys(payload).some(key => key !== 'id' && key !== 'collapsed')) {
+      return after(call('section-save', payload))
+    }
+    const previous = sectionSaves.get(id)
+    const save = async () => {
+      const reply = await call('section-save', { ...payload, withRevision: true })
+      const { section: saved, revision } = reply
+      if (!Number.isSafeInteger(revision)) return after(Promise.resolve(reply))
+      if (!saved) return saved
+      roster.set(state => {
+        // The full roster revision describes the last state read, not this one field.
+        if (state.revision >= revision) return state
+        foldWrites?.note(id, saved.collapsed, revision)
+        const section = state.sections?.find(section => section.id === id)
+        if (!section || Boolean(section.collapsed) === Boolean(saved.collapsed)) return state
+        return { ...state, sections: state.sections.map(entry => (entry === section ? { ...entry, collapsed: saved.collapsed } : entry)) }
+      })
+      return saved
+    }
+    const pending = previous ? previous.then(save, save) : Promise.resolve().then(save)
+    sectionSaves.set(id, pending)
+    ui.set(state => ({ ...state, sectionFolds: { ...state.sectionFolds, [id]: collapsed } }))
+    try {
+      return await pending
+    } finally {
+      if (sectionSaves.get(id) === pending) {
+        sectionSaves.delete(id)
+        ui.set(state => {
+          const sectionFolds = { ...state.sectionFolds }
+          delete sectionFolds[id]
+          return { ...state, sectionFolds }
+        })
+      }
+    }
+  }
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
-    openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false })) },
+    openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, inbox: false, inboxTarget: null, menu: null, palette: null, leftDrawer: false })) },
+    // The inbox page sits over the conversation column like New chat (inbox.js).
+    openInbox: () => { ui.set(state => ({ ...state, inbox: true, inboxTarget: null, newChat: null, newChatSection: null, exchange: null, menu: null, palette: null, groupSearch: null, leftDrawer: false })) },
+    closeInbox: () => { ui.set(state => (state.inbox ? { ...state, inbox: false, inboxTarget: null } : state)) },
     openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => { ui.set(state => (state.palette && (token === undefined || state.palette.token === token) ? { ...state, palette: null } : state)) },
@@ -89,13 +145,16 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         return { ...state, details: id, view, task: null, renaming: false, tab: null }
       })
     },
-    showDetails: (id, tab = null) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: false, tab, panelYield: yieldTo(state, 'details') })) },
+    showDetails: (id, tab = null) => { ui.set(state => ({ ...state, inbox: false, details: id, view: 'details', renaming: false, tab, panelYield: yieldTo(state, 'details') })) },
     // Opening the conversation would move focus to its composer and blur the name field.
     renameBot: (id) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: true, tab: null, panelYield: yieldTo(state, 'details') })) },
     openSettings,
     // DS Bot's own Models page: the providers DSH serves, their keys and models.
     openModels: () => openSettings('models'),
     closeSettings: () => { ui.set(state => (state.settings ? { ...state, settings: null } : state)) },
+    openReleaseNotes: (options = {}) => { ui.set(state => ({ ...state, releaseNotes: { mode: 'manual', current: options?.current ?? null, notesUrl: options?.notesUrl ?? null }, menu: null, palette: null })) },
+    closeReleaseNotes: () => { ui.set(state => (state.releaseNotes ? { ...state, releaseNotes: null } : state)) },
+    claimReleaseNotes: version => after(call('release-notes-claim', { version })),
     openMemory: (id) => { ui.set(state => ({ ...state, memory: id, menu: null, palette: null })) },
     closeMemory: () => { ui.set(state => (state.memory ? { ...state, memory: null } : state)) },
     openConnectors: () => { ui.set(state => ({ ...state, settings: { page: 'connectors', id: null }, menu: null, palette: null, newChat: null })) },
@@ -261,7 +320,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     }),
     clearQuote: token => ui.set(state => (state.quote?.token === token ? { ...state, quote: null } : state)),
     setFlags: (id, flags) => after(call('set-flags', { id, ...flags })),
-    saveSection: payload => after(call('section-save', payload)),
+    saveSection,
     reorderSections: ids => after(call('section-order', { ids })),
     deleteSection: id => after(call('section-delete', { id })),
     beginSectionRename: id => ui.set(state => ({ ...state, renameSection: id })),
@@ -273,12 +332,13 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     closeExchange: () => { ui.set(state => (state.exchange ? { ...state, exchange: null } : state)) },
     closeOverlay: () => {
       ui.set((state) => {
-        const keepPanel = Boolean(state.newChat || state.exchange)
+        const keepPanel = Boolean(state.newChat || state.exchange || state.inbox)
         return {
           ...state,
           newChat: null,
           newChatSection: null,
           exchange: null,
+          inbox: false,
           details: keepPanel ? state.details : null,
           ...(keepPanel || state.rightPanel === undefined ? {} : { rightPanel: null }),
         }
@@ -297,6 +357,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     cancelWork: (id, reason) => after(call('cancel-work', { id, ...(reason ? { reason } : {}) })),
     resumeRoomPause: roomId => after(call('resume-room-pause', { roomId })),
     refreshModels: () => after(call('models')).catch(() => {}),
+    // The Agent presets of the profile: the directory the Agent preset picker shows.
+    presets: () => call('presets'),
     // One local agent's models: the first look starts its CLI, later ones read what it said.
     agentModels: route => after(call('local-agent-models', { route })).catch(() => {}),
     efforts: ref => call('efforts', { ref }),
@@ -380,6 +442,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       approvalOpen: state.goalOpen === roomId ? state.approvalOpen : null,
       taskDeck: state.goalOpen === roomId ? state.taskDeck : null,
     })),
+    openGoal: roomId => ui.set(state => ({ ...state, goalOpen: roomId, approvalOpen: null, taskDeck: null })),
     closeGoal: () => ui.set(state => (state.goalOpen ? { ...state, goalOpen: null } : state)),
     toggleApproval: roomId => ui.set(state => ({
       ...state,
@@ -465,6 +528,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     pluginsToggle: (id, enabled) => after(call('plugins-toggle', { id, enabled })),
     pluginsRemove: id => after(call('plugins-remove', { id })),
     pluginsUpdate: (id, version) => after(call('plugins-update', { id, ...(version ? { version } : {}) })),
+    pluginsConsent: id => after(call('plugins-consent', { id })),
     pluginsSlotSet: (slot, id) => after(call('plugins-slot-set', { slot, id })),
     pluginsBotToggle: (id, botId, enabled) => after(call('plugins-bot-toggle', { id, botId, enabled })),
     pluginsCustomSave: body => after(call('plugins-custom-save', body)),

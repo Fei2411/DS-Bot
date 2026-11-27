@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
 import { linkMentions, normalizeFileLinks, mentionTarget, dayLabel, contentText, stripHeader, stripToolCallTags, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
-import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, GoalIcon, MemoryIcon } from './icons.js'
+import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, EyeIcon, HideIcon, GoalIcon, MemoryIcon } from './icons.js'
+import { detectSecrets, projectSecretsToSlice } from '../shared/secret-mask.js'
 import { ChangesCard } from './changes-card.js'
 import { SideAppCard } from './side-app-card.js'
 import { goalEventText } from './goal.js'
@@ -19,14 +20,15 @@ import { mdLabels, t } from './i18n.js'
 import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
 import { turnReasoning, thinkingStep, opensReply, stepActivity } from './turn-reasoning.js'
-import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
+import { compressedRelayPreview, parseReplies, presentedFiles, relayRange, stackReplies } from '../shared/group-replies.js'
 import { FOLD_AT, FOLD_HUGE, stripLongNote, useFold } from './fold.js'
 import { ReplyGuide } from './reading.js'
 import { noHover, useViewport, viewBottom } from './motion.js'
 import { BtwCardView } from './btw.js'
 import { partIndexOf, withBtwRows } from './btw-model.js'
-import { ViaTag } from './user-message.js'
+import { PresentedFiles, ViaTag } from './user-message.js'
 import { layoutOf, thinkingShown } from './themes.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { lruGet, lruSet, memo, useRosterPick } from './memo.js'
 
 export { clockLabel }
@@ -47,6 +49,7 @@ const sameBubbles = (a, b) => sameStringList(a.texts, b.texts)
   && a.selfId === b.selfId
   && a.actions === b.actions
   && a.streaming === b.streaming
+  && a.lang === b.lang
   && a.sessionId === b.sessionId
   && a.msgKey === b.msgKey
   && a.useUi === b.useUi
@@ -64,7 +67,7 @@ const sameBubbles = (a, b) => sameStringList(a.texts, b.texts)
 // `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
 // of its message (see useFold). `time` marks the bubbles' message below them; a caller
 // whose own head already shows one (the flat speaker line, the group name row) leaves it unset.
-export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
+export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, lang, fold = FOLD_AT, whole, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -80,7 +83,7 @@ export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, s
       const first = index === 0
       const last = index === cleaned.length - 1
       return h(Bubble, {
-        key: index, text, index, first, last, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
+        key: index, text, index, first, last, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource, lang,
         picked: msgKey ? reactions?.[index] ?? EMPTY_PICKED : EMPTY_PICKED,
         live: streaming && last,
         lead: lead && last ? lead : null,
@@ -127,6 +130,7 @@ const sameBubble = (a, b) => a.text === b.text
   && a.first === b.first
   && a.last === b.last
   && a.selfId === b.selfId
+  && a.lang === b.lang
   && a.actions === b.actions
   && a.sessionId === b.sessionId
   && a.msgKey === b.msgKey
@@ -140,14 +144,37 @@ const sameBubble = (a, b) => a.text === b.text
   && a.roster?.bots === b.roster?.bots
   && a.roster?.byId?.[a.selfId]?.name === b.roster?.byId?.[b.selfId]?.name
 
+// `lang` is compared in `sameBubble` to invalidate memoization on language switches;
+// `mdLabels()` is already content-addressed per language so Bubble reads it directly.
 const Bubble = memo(function Bubble({ text, index, first = true, last = true, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live })
   const key = msgKey ? `${msgKey}:${index}` : undefined
+  // `mdLabels()` is already content-addressed per language; reading it directly avoids
+  // freezing labels at mount time for callers that do not pass `lang`, while `sameBubble`
+  // still invalidates memoization when `lang` changes.
   const labels = mdLabels()
   const linked = useMemo(() => (shown === '' ? '' : linkMentions(normalizeFileLinks(shown), roster.bots, selfId)), [shown, roster.bots, selfId])
+  const openFile = useMemo(() => (typeof actions?.openFile === 'function'
+    ? target => actions.openFile(typeof target === 'string'
+      ? { path: target, sessionId }
+      : { ...target, sessionId: target?.sessionId ?? sessionId })
+    : undefined), [actions, sessionId])
+  const revealFolder = useMemo(() => (typeof actions?.revealFolder === 'function'
+    ? target => actions.revealFolder(typeof target === 'string'
+      ? { path: target, sessionId }
+      : { ...target, sessionId: target?.sessionId ?? sessionId })
+    : undefined), [actions, sessionId])
   const body = useMemo(
-    () => (linked === '' ? null : h(MarkdownText, { text: linked, streaming: live, labels, variant: 'compact', fileMentions: mentions })),
-    [linked, live, labels, mentions],
+    () => (linked === '' ? null : h(MarkdownText, {
+      text: linked,
+      streaming: live,
+      labels,
+      variant: 'compact',
+      fileMentions: mentions,
+      ...(openFile ? { onOpenFile: openFile } : {}),
+      ...(revealFolder ? { onRevealFolder: revealFolder } : {}),
+    })),
+    [linked, live, labels, mentions, openFile, revealFolder],
   )
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its tools, a tap elsewhere
@@ -194,12 +221,11 @@ function useDismiss(open, close, refs) {
       if (refs.some(ref => ref.current?.contains(event.target))) return
       close()
     }
-    const onKey = (event) => { if (event.key === 'Escape') { event.stopPropagation(); close() } }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('touchstart', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('touchstart', onDown); window.removeEventListener('keydown', onKey, true) }
+    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('touchstart', onDown) }
   }, [open])
+  useEscape(close, open, { priority: ESCAPE_PRIORITY.MENU })
 }
 
 // The hover toolbar beside a reply bubble: Add reaction, Reply, More. `open` is
@@ -466,7 +492,7 @@ export function claimLines(claims) {
   return lines
 }
 
-export function GroupMessage({ bot, text, texts = [text], room, sessionId, roster, actions, msgKey, useUi, whole, time, duration, claims, changes }) {
+export function GroupMessage({ bot, text, texts = [text], files = [], openFile, room, sessionId, roster, actions, msgKey, useUi, whole, time, duration, claims, changes }) {
   const ref = useRef(null)
   useLayoutEffect(() => {
     const el = ref.current
@@ -483,12 +509,20 @@ export function GroupMessage({ bot, text, texts = [text], room, sessionId, roste
   // The Reply tool quotes into the composer of the chat on screen: a group that has split
   // its public chat keeps going in a new Session, while its room id stays the same.
   const quoteSession = sessionId ?? room?.sessionId ?? room?.id
+  const visibleTexts = (Array.isArray(texts) ? texts : []).filter(entry => entry !== '' && entry !== undefined)
+  const fileList = presentedFiles(files)
+  const filesOnly = visibleTexts.length === 0 && fileList.length > 0
+  const fileCards = fileList.length > 0 ? h(PresentedFiles, { files: fileList, openFile, actions }) : null
   return h('div', { ref, className: 'bt-group-msg', 'data-bot-id': bot.id },
     h('span', { className: 'bt-group-name', style: flat ? undefined : { color: inkText(colorOf(bot)) } }, flat ? lead : null, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null,
       Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null,
       took ? h('span', { className: 'bt-group-took', title: t('Ran for {duration}', { duration: took }) }, took) : null),
-    h(Bubbles, { texts, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole, textInteractionSource: true }),
+    filesOnly
+      ? (flat ? fileCards : h('div', { className: 'bt-pfiles-row' }, lead, fileCards))
+      : h(Fragment, null,
+        h(Bubbles, { texts: visibleTexts, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole, textInteractionSource: true }),
+        fileCards),
     changes === undefined ? null : h(ChangesCard, { changes, actions }),
     claimLines(claims).map(line => h('div', { key: line.kind + line.text, className: `bt-claim bt-claim-${line.kind}`, role: 'status', title: line.detail ?? undefined }, line.text)))
 }
@@ -577,9 +611,91 @@ const scrollParent = (node) => {
   return null
 }
 
-function EarlierUser({ row, actions, renderUserAttachments }) {
-  const { shown, folded, control, code, codeHead } = useFold(row.text ?? '')
-  const body = row.text && shown !== '' ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
+function MaskedUserInline({ text, spans, revealed: controlledRevealed = null, onToggle = null }) {
+  const [localRevealed, setLocalRevealed] = useState(() => new Set())
+  useEffect(() => {
+    setLocalRevealed(prev => (prev.size === 0 ? prev : new Set()))
+  }, [text])
+  const revealed = controlledRevealed instanceof Set ? controlledRevealed : localRevealed
+  const toggle = (key) => {
+    if (typeof onToggle === 'function') { onToggle(key); return }
+    setLocalRevealed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const nodes = []
+  let cursor = 0
+  for (let i = 0; i < spans.length; i += 1) {
+    const span = spans[i]
+    if (span.start > cursor) nodes.push(h(Fragment, { key: `t:${i}` }, text.slice(cursor, span.start)))
+    const isOpen = revealed.has(span.key)
+    const label = isOpen ? t('Hide secret') : t('Reveal secret')
+    nodes.push(h('span', {
+      key: `s:${span.key}:${i}`,
+      className: `dsb-secret${isOpen ? ' is-revealed' : ''}`,
+      'data-secret-masked': isOpen ? undefined : '',
+    },
+    h('span', { className: 'dsb-secret-val' }, isOpen ? span.raw : span.masked),
+    h('button', {
+      type: 'button',
+      className: 'dsb-secret-toggle',
+      'aria-pressed': isOpen,
+      'aria-label': label,
+      title: label,
+      onClick: (event) => { event.stopPropagation(); toggle(span.key) },
+    }, isOpen ? h(HideIcon) : h(EyeIcon))))
+    cursor = span.end
+  }
+  if (cursor < text.length) nodes.push(h(Fragment, { key: 't:end' }, text.slice(cursor)))
+  return h('div', { className: 'bt-umasked', style: { whiteSpace: 'pre-wrap' } }, nodes)
+}
+
+function EarlierUser({ row, sessionId, roster, actions, renderUserAttachments, renderUserText, showTime = false }) {
+  const fullText = row.text ?? ''
+  const customRender = typeof renderUserText === 'function'
+    ? renderUserText
+    : (typeof actions?.renderUserText === 'function' ? actions.renderUserText : null)
+  const fullSecrets = useMemo(() => detectSecrets(fullText), [fullText])
+  // Disable markdown code-fence folding whenever credentials are present or the own-window
+  // user renderer handles the bubble, so folded fenced code can never bypass masking.
+  const { shown, folded, control, code, codeHead } = useFold(fullText, {
+    markdown: customRender === null && fullSecrets.length === 0,
+  })
+  const [revealedSecrets, setRevealedSecrets] = useState(() => new Set())
+  useEffect(() => {
+    setRevealedSecrets(prev => (prev.size === 0 ? prev : new Set()))
+  }, [fullText])
+  const toggleSecret = (key) => {
+    setRevealedSecrets((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const secretSpans = useMemo(
+    () => (fullSecrets.length > 0 ? projectSecretsToSlice(fullText, shown, fullSecrets) : []),
+    [fullText, shown, fullSecrets],
+  )
+  const body = fullText && shown !== ''
+    ? (customRender !== null
+      ? h('div', { className: 'bt-umasked', style: { whiteSpace: 'pre-wrap' } },
+        customRender({
+          text: shown,
+          fullText,
+          sessionId,
+          roster,
+          actions,
+          revealedSecrets,
+          onToggleSecret: toggleSecret,
+        }))
+      : secretSpans.length > 0
+        ? h(MaskedUserInline, { text: shown, spans: secretSpans, revealed: revealedSecrets, onToggle: toggleSecret })
+        : h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }))
+    : null
   const area = foldArea(body, code, codeHead, actions)
   const hasRich = typeof renderUserAttachments === 'function' && ((row.imageRefs?.length ?? 0) > 0 || (row.fileRefs?.length ?? 0) > 0)
   const attachments = hasRich ? renderUserAttachments(row) : null
@@ -587,6 +703,7 @@ function EarlierUser({ row, actions, renderUserAttachments }) {
     ? row.fileRefs.map(file => file.name).filter(Boolean).join(', ')
     : ''
   const showBubble = Boolean(body || code !== undefined || (!hasRich && (row.images || fileNames)))
+  const hasMeta = row.via !== undefined || (showTime && Number.isFinite(row.time))
   return h('div', { className: 'bt-urow' },
     attachments,
     showBubble ? h('div', { className: 'bt-ububble', 'data-folded': folded || undefined, 'data-text-interaction-source': body || code !== undefined ? '' : undefined },
@@ -594,7 +711,9 @@ function EarlierUser({ row, actions, renderUserAttachments }) {
       control,
       !hasRich && row.images ? h('span', { className: 'bt-uimages', 'data-text-interaction-exclude': '' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null,
       fileNames ? h('span', { className: 'bt-uimages', 'data-text-interaction-exclude': '' }, fileNames) : null) : null,
-    row.via ? h('div', { className: 'bt-utime' }, h(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null)
+    hasMeta ? h('div', { className: 'bt-utime', title: Number.isFinite(row.time) ? clockLabel(row.time) : undefined },
+      row.via !== undefined ? h(ViaTag, { via: row.via }) : null,
+      Number.isFinite(row.time) ? messageClock(row.time) : null) : null)
 }
 
 // Pure helpers for EarlierParts: merging skipped/multi-page earlier responses,
@@ -634,7 +753,7 @@ export function earlierItems(pages, { cursor, loading } = {}) {
 // The earlier parts of a Bot's own chat, above its current part as one conversation.
 // Pages load from the host as the user scrolls up; a thin line marks where each
 // part begins, the last one where the current part begins.
-export function EarlierParts({ sessionId, roster, actions }) {
+export function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) {
   const [view, setView] = useState({ pages: [], cursor: undefined, loading: true, failed: false, startedAt: null })
   const top = useRef(null)
   const busy = useRef(false)
@@ -702,14 +821,14 @@ export function EarlierParts({ sessionId, roster, actions }) {
       view.loading ? h(Shimmer, null, t('Loading earlier messages…'))
         : view.failed ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor) }, t('Couldn’t load earlier messages · Retry'))
           : view.cursor ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor) }, t('Load earlier')) : null),
-    h(ChatRows, { items, sessionId, roster, actions, onBtwDelete: removeBtw }),
+    h(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw, renderUserText }),
     hasContent ? h(PartLine, { time: view.startedAt }) : null)
 }
 
 // A Bot chat's entries as the host lists them (the `earlier` and `chat` endpoints): the
 // Bot's messages in a row are one block, and a thin line marks where a part begins.
 // `clock` adds the time separators: one above the first entry, and one after each pause.
-export function ChatRows({ items, sessionId, roster, actions, useUi, clock = false, onBtwDelete, renderUserAttachments }) {
+export function ChatRows({ items, sessionId, roster, actions, useUi, clock = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   const selfId = roster.byId[sessionId]?.id
   const rows = []
   for (const item of items) {
@@ -726,7 +845,7 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
   return rows.flatMap((row, index) => {
     // Pages are prepended, so a row keeps its distance from the end.
     const key = rows.length - index
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments })
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText })
     // A part's first entry shows its time under the part's line, as a chat's first one does.
     if (row.kind === 'divider') {
       before = undefined
@@ -739,10 +858,10 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
 }
 
 // `useUi` gives a block its reactions and its Reply tool.
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   switch (row.kind) {
     case 'divider': return h(PartLine, { key, time: row.time })
-    case 'user': return h(EarlierUser, { key, row, actions, renderUserAttachments })
+    case 'user': return h(EarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText })
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
     // A question or view card closed without an answer on it.
     case 'closed': return row.view === undefined
@@ -760,7 +879,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
       // A member's message in a group's earlier part, as the live row shows it.
       const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: row.color ?? 'gray' }
       return h(GroupMessage, {
-        key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, room: roster.roomsById[sessionId], sessionId, roster, actions,
+        key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, files: row.presented ?? row.files, openFile, room: roster.roomsById[sessionId], sessionId, roster, actions,
         msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration, claims: row.claims, changes: row.changes, useUi,
         whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : undefined,
       })
@@ -789,7 +908,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
   }
 }
 
-export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, useUi, actions }) {
+export function TriggerCell({ node, sessionId, openFile, useRoster, useSessions, useTurnClock, useUi, actions }) {
   const roster = useRosterPick(useRoster, TRIGGER_ROSTER_FIELDS)
   const data = node.data
   const source = data.source !== null && typeof data.source === 'object' ? data.source : {}
@@ -830,7 +949,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
   function triggerBody() {
     if (source.kind === 'bot') {
       // A part opens with its handoff package, so the earlier parts go right above it.
-      if (source.handoff === true) return h(EarlierParts, { sessionId, roster, actions })
+      if (source.handoff === true) return h(EarlierParts, { sessionId, roster, actions, openFile })
       // Group turns belong to the group chat; the member's own chat stays one-to-one.
       // Background task handoff notices and computer handback notices are model-only context.
       if (source.role === 'kickoff' || source.role === 'room' || source.role === 'goal' || source.role === 'task-handoff' || source.role === 'handback') return null
@@ -853,7 +972,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         const text = stripHeader(contentText(data.content))
         // A trigger's data carries no turn; its event seq is the one durable name of this post.
         return h(GroupMessage, {
-          bot: poster, text: file ? stripLongNote(text) : text, room, sessionId, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi, time: data.time,
+          bot: poster, text: file ? stripLongNote(text) : text, files: presentedFiles(source.presented), openFile, room, sessionId, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi, time: data.time,
           claims: source.claims,
           changes: source.changes,
           whole: file ? { length: source.length, load: () => actions.fileText(file) } : undefined,
@@ -1005,8 +1124,8 @@ export function Shimmer({ children }) {
 }
 
 // The time since `at`, from 1s. It ticks on its own whole seconds, so its parent does
-// not render again each second.
-export function Elapsed({ at, className }) {
+// not render again each second. `dot` leads it with a separator, for a line it ends.
+export function Elapsed({ at, className, dot = true }) {
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     let timer = 0
@@ -1018,7 +1137,8 @@ export function Elapsed({ at, className }) {
     tick()
     return () => clearTimeout(timer)
   }, [at])
-  return h('span', { className }, `· ${elapsedLabel(Math.max(1000, now - at))}`)
+  const label = elapsedLabel(Math.max(1000, now - at))
+  return h('span', { className }, dot ? `· ${label}` : label)
 }
 
 // Status phrases. A running tool names what it does; otherwise one
@@ -1200,7 +1320,7 @@ function RelayEvent({ reply, bot, room, sessionId, actions, latestPaused = false
 const MAX_SETTLED_ROWS = 120
 export const settledRows = new Map()
 
-function GroupReplies({ sessionId, callId, done, content, roster, actions, useRoster, useUi, useWork }) {
+function GroupReplies({ sessionId, callId, done, content, roster, actions, useRoster, useUi, useWork, openFile }) {
   const [live, setLive] = useState({ replies: [], speaking: [] })
   useEffect(() => {
     if (done) return undefined
@@ -1316,12 +1436,17 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
     }
   }
   return h('div', { className: 'bt-group-replies' },
-    stacked.map(({ reply, index, texts, time, duration, claims, changes }, at) => {
+    stacked.map(({ reply, index, texts, files, time, duration, claims, changes }, at) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
-        return h('div', { key: `user-${index}`, className: 'bt-urow' },
-          h('div', { className: 'bt-ububble', 'data-text-interaction-source': '' }, h(MarkdownText, { text: reply.text, labels: mdLabels(), variant: 'compact' })),
-          (reply.via !== undefined || Number.isFinite(time)) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, ...(reply.via !== undefined ? [h(ViaTag, { key: 'via', via: reply.via })] : []), Number.isFinite(time) ? messageClock(time) : null) : null)
+        return h(EarlierUser, {
+          key: `user-${index}`,
+          row: { ...reply, time },
+          sessionId,
+          roster,
+          actions,
+          showTime: true,
+        })
       }
       if (reply.kind === 'goal') {
         return h('div', { key: `goal-${index}`, className: 'bt-event', title: reply.text || undefined },
@@ -1330,7 +1455,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
       if (reply.kind !== undefined) {
         return h(RelayEvent, { key: `${reply.botId ?? reply.kind}-${index}`, reply, bot, room, sessionId, actions, latestPaused: at === lastPausedIndex })
       }
-      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, room, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, time, duration, claims, changes })
+      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, files, openFile, room, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, time, duration, claims, changes })
     }),
     pending.map((id, at) => {
       const bot = roster.byId[id]
@@ -1377,7 +1502,7 @@ function useShownCards(actions, sessionId, callIds) {
   }, [sessionId, key])
 }
 
-function renderCall(call, { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks }) {
+function renderCall(call, { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks, openFile }) {
   const tool = toolName(call)
   const done = call.kind === 'tool-result'
   const { text: arg, value: argValue } = toolArgs(call)
@@ -1430,7 +1555,7 @@ function renderCall(call, { sessionId, roster, actions, useRoster, useUi, useWor
       return done && target ? h(EventLine, { prefix: t('Updated'), bots: [target], onOpen: bot => actions.openSession(bot.id) }) : h(CellEmpty)
     }
     case 'group_relay':
-      return h(GroupReplies, { sessionId, callId: call.callId, done, content: call.content, roster, actions, useRoster, useUi, useWork })
+      return h(GroupReplies, { sessionId, callId: call.callId, done, content: call.content, roster, actions, useRoster, useUi, useWork, openFile })
     case 'create_group':
     case 'update_group':
     case 'delete_group':
@@ -1496,7 +1621,7 @@ function renderCall(call, { sessionId, roster, actions, useRoster, useUi, useWor
   }
 }
 
-export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
+export function ToolCell({ node, sessionId, openFile, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
   const roster = useRosterPick(useRoster, TOOL_ROSTER_FIELDS)
   const heldCards = useHeldCards?.(state => state[sessionId])
   const root = node.data.root
@@ -1517,6 +1642,6 @@ export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCa
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note)
   useShownCards(actions, sessionId, drawn.filter(call => (CARDS.has(toolName(call)) || isComputerCall(toolName(call))) && call.callId).map(call => call.callId))
   if (drawn.length === 0) return h(CellEmpty)
-  const env = { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } }
+  const env = { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, openFile, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } }
   return h(Fragment, null, drawn.map((call, index) => h(Fragment, { key: call.callId ?? index }, renderCall(call, env))))
 }

@@ -138,6 +138,31 @@ test('the appearance and the themes of your own are saved with the team', async 
   assert.equal(after.theme, undefined)
 })
 
+
+test('a paired device cannot change computer-window appearance fields', async (t) => {
+  const { rt, call } = team(t)
+  assert.equal((await call('set-prefs', { appearance: { css: 'body{--x:red}', material: false, mode: 'dark', uiFont: 'Inter', codeFont: 'Menlo', fontSize: 16, lineHeight: 1.8, radius: 40 } })).ok, true)
+  const before = (await call('state', {})).value.prefs.appearance
+  assert.deepEqual(before, { css: 'body{--x:red}', material: false, mode: 'dark', uiFont: 'Inter', codeFont: 'Menlo', fontSize: 16, lineHeight: 1.8, radius: 40 })
+
+  for (const appearance of [{ css: 'body{display:none}' }, { css: null }, { material: true }, { mode: 'light' }, { uiFont: 'Arial' }, { codeFont: 'Courier' }, { fontSize: 12 }, { lineHeight: 1.4 }]) {
+    const answer = await rt.channelCall('set-prefs', { appearance }, undefined, true)
+    assert.equal(answer.ok, false)
+    assert.equal(answer.error.code, 'bot/refused')
+    assert.match(answer.error.message, /only be changed on this computer/)
+  }
+  assert.deepEqual((await call('state', {})).value.prefs.appearance, before)
+
+  // Team-facing appearance fields still work for the same remote caller.
+  const answer = await rt.channelCall('set-prefs', { appearance: { radius: 60, density: 'compact' } }, undefined, true)
+  assert.equal(answer.ok, true)
+  const after = (await call('state', {})).value.prefs.appearance
+  assert.equal(after.radius, 60)
+  assert.equal(after.density, 'compact')
+  assert.equal(after.css, before.css)
+  assert.equal(after.material, false)
+})
+
 test('a change refused after a wait leaves a save that landed during the wait', async (t) => {
   const { rt, call } = team(t)
   let refuse
@@ -219,7 +244,9 @@ test('the page stylesheet follows the appearance, and safe appearance drops the 
   assert.match(css, /html body\{--bt-pane:transparent;--bt-wash:rgba\(252,252,252,0\.8\);--bt-skin-main:rgba\(252,252,252,0\.94\);--bt-skin-sidebar:rgba\(247,247,247,0\.4\);--bt-skin-card:rgba\(255,255,255,0\.94\)\}/)
   assert.match(css, /html body::after\{[^}]*background:linear-gradient\(rgba\(252,252,252,0\.8\),rgba\(252,252,252,0\.8\)\),linear-gradient\(rgba\(255,255,255,0\.3\)/)
   assert.match(css, /html body\[data-ds-dark-theme\]::after\{background:linear-gradient\(rgba\(20,20,20,0\.8\)/)
-  assert.ok(css.endsWith('.x{color:red}'))
+  // The user stylesheet never joins the generated sheet's text: it reaches the page only
+  // through the sanitized constructed stylesheet (theme-css.js, covered in theme-css.test).
+  assert.doesNotMatch(css, /color:red/)
   // In DSH the font size is DSH's setting; the fonts go through DSH's own font variables too.
   const inDsh = appearanceCss({ appearance, theme })
   assert.doesNotMatch(inDsh, /--bt-fs/)

@@ -994,6 +994,29 @@ test('re-review fixes: linear-time isAckLikeText, no duplicate deferred ask_back
   assert.equal(isRelayContext({ source: { kind: 'bot', role: 'stopped', senderSessionId: 'a' } }), true)
 })
 
+test('extractGroupSessionLines preserves the channel of backfilled user lines', () => {
+  // A line backfilled from the Session keeps the via its live intake would have
+  // written: an IM or API post is no owner's line after a rebuild either.
+  const eventOf = (rpcId, text) => ({
+    type: 'user/message',
+    seq: 1,
+    time: 1000,
+    data: { content: textBlock(text), source: { kind: 'user', rpcId } },
+  })
+  assert.deepEqual(
+    extractGroupSessionLines([eventOf('im:telegram:deadbeef', 'im words')], () => undefined).map(line => [line.who, line.via]),
+    [['User', 'telegram']],
+  )
+  assert.deepEqual(
+    extractGroupSessionLines([eventOf('api:token123:run_abc', 'api words')], () => undefined).map(line => [line.who, line.via]),
+    [['User', 'api']],
+  )
+  assert.deepEqual(
+    extractGroupSessionLines([eventOf('web-f47ac10b', 'own words')], () => undefined).map(line => [line.who, line.via]),
+    [['User', undefined]],
+  )
+})
+
 test('soak findings: resumeRoomPause signals Continue to woken member, and superseded waiterless joined room calls coalesce per room', async (t) => {
   const { rt, agentOf, emit, stop } = await start()
   t.after(stop)

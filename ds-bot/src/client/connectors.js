@@ -487,7 +487,7 @@ const connectorView = (request, settled = false) => ({
   ].filter(Boolean),
 })
 
-function ConnectorCard({ sessionId, bot, request, actions, inline = false }) {
+export function ConnectorCard({ sessionId, bot, request, actions, inline = false }) {
   const name = request.name ?? request.connectorId
   return h(RequestView, {
     sessionId, kind: 'connector', request, actions, inline,

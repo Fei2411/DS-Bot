@@ -73,12 +73,38 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         // Same check as the computer, so a wrong answer shape fails here too.
         const checked = pending === undefined ? { error: 'This view is no longer open' } : validateViewAnswer(pending.view, body.action, body.values)
         if (checked.error !== undefined) throw Object.assign(new Error(checked.error), { code: 'bot/invalid' })
-        delete state.views![sid]; touch()
+        const pages = chatOf(sid)
+        if (pages?.[0] !== undefined) {
+          const items = pages[0].items.filter(item => !(item.kind === 'view' && item.id === pending!.id))
+          items.push({
+            kind: 'answer',
+            views: [{ id: pending!.id ?? sid, title: pending!.title ?? '', view: pending!.view }],
+            answers: [{ id: pending!.id ?? sid, action: String(body.action ?? ''), values: body.values as never }],
+            time: Date.now(),
+            seq: (pages[0].items.at(-1)?.seq ?? 0) + 1,
+          })
+          pages[0] = { ...pages[0], items }
+        }
+        const { [sid]: _settled, ...restViews } = state.views ?? {}
+        state.views = restViews
+        touch()
         return { ok: true }
       }
       case 'dismiss-view': {
         const sid = String(body.sessionId ?? '')
-        if (state.views?.[sid] !== undefined) { delete state.views[sid]; touch() }
+        const pending = state.views?.[sid]
+        if (pending !== undefined) {
+          const pages = chatOf(sid)
+          if (pages?.[0] !== undefined) {
+            const items = pages[0].items.map(item => (item.kind === 'view' && item.id === pending.id
+              ? { kind: 'closed' as const, closed: 'dismissed', title: pending.title, view: pending.view, callId: pending.callId, time: item.time, seq: item.seq }
+              : item))
+            pages[0] = { ...pages[0], items }
+          }
+          const { [sid]: _dismissed, ...restViews } = state.views ?? {}
+          state.views = restViews
+          touch()
+        }
         return { ok: true }
       }
       case 'image': {

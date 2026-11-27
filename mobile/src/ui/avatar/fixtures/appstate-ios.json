@@ -1,0 +1,25 @@
+{
+  "source": "Recorded 2026-11-25 from the app on the iOS 26.5 simulator (iPhone 17), React Native 0.88: AppState 'change', AccessibilityInfo 'reduceMotionChanged' and requestIdleCallback deadlines, logged as they arrived. ms: since the app's JS started.",
+  "initial": "active",
+  "changes": [
+    { "label": "Home button", "to": "inactive", "ms": 60901 },
+    { "label": "Home button", "to": "background", "ms": 61529 },
+    { "label": "opened again from the home screen", "to": "active", "ms": 69278 },
+    { "label": "app switcher", "to": "inactive", "ms": 82677 },
+    { "label": "back from the app switcher", "to": "active", "ms": 89753 },
+    { "label": "Settings opened over the app", "to": "inactive", "ms": 98891 },
+    { "label": "Settings opened over the app", "to": "background", "ms": 101625 },
+    { "label": "back from Settings", "reduceMotion": true, "ms": 125228 },
+    { "label": "back from Settings", "to": "active", "ms": 125481 }
+  ],
+  "idle": {
+    "note": "requestIdleCallback with { timeout: 300 } while the app was idle: called back almost at once, offering about 50 ms, never timing out.",
+    "calls": [
+      { "since": 3.1, "remaining": 49.98, "didTimeout": false },
+      { "since": 3.4, "remaining": 49.99, "didTimeout": false },
+      { "since": 3.6, "remaining": 49.99, "didTimeout": false },
+      { "since": 3.8, "remaining": 49.99, "didTimeout": false },
+      { "since": 4.0, "remaining": 49.99, "didTimeout": false }
+    ]
+  }
+}

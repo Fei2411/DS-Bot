@@ -507,8 +507,13 @@ test('only the last messages sent to a chat are kept for quoting', async (t) => 
     s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: `Report ${at}` }] } })
   }
   await s.flush()
-  await delay(1_200)
-  const kept = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')).sent['dm-u1']
+  const runtimePath = join(s.home, 'im', `${conn.id}.json`)
+  const kept = await waitFor(() => {
+    try {
+      const list = JSON.parse(readFileSync(runtimePath, 'utf8')).sent?.['dm-u1']
+      return list?.some(entry => entry.text === 'Report 20') ? list : undefined
+    } catch { return undefined }
+  }, { label: 'sent store persisted with newest Report 20' })
   assert.equal(kept.length, 20)
   assert.ok(!kept.some(entry => entry.text === 'Report 0'), 'the oldest is dropped')
   assert.ok(kept.some(entry => entry.text === 'Report 20'), 'the newest stays')
@@ -616,8 +621,14 @@ test('the sent store is bounded across chats so the runtime file cannot grow wit
     }
   }
   await s.flush()
-  await delay(600)
-  const runtime = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  const runtimePath = join(s.home, 'im', `${conn.id}.json`)
+  const runtime = await waitFor(() => {
+    try {
+      const parsed = JSON.parse(readFileSync(runtimePath, 'utf8'))
+      const lists = Object.values(parsed.sent ?? {})
+      return lists.some(list => list.some(entry => entry.text.startsWith('Report 11-19'))) ? parsed : undefined
+    } catch { return undefined }
+  }, { label: 'bounded sent store persisted with newest message' })
   const size = JSON.stringify(runtime.sent).length
   assert.ok(size <= 200_000, `sent store stays bounded (${size} bytes)`)
   const lists = Object.values(runtime.sent)
@@ -686,13 +697,20 @@ test('a settled card leaves the runtime file once its source is gone; an open on
   s.imTurn('a')
   s.rt.state.questions.a = { id: 'q1', question: 'Pick', options: [{ label: 'x' }, { label: 'y' }] }
   await s.rt.save()
-  await s.flush()
+  await s.rt.imWhenIdle()
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: 'q:q1:0', messageId: 1 })
+  await s.rt.imWhenIdle()
+  assert.ok(s.fake.edited.length >= 1, 'settled card is edited before cleanup')
   s.rt.state.questions.a = { id: 'q2', question: 'Still open', options: [{ label: 'x' }] }
   await s.rt.save()
-  await s.flush()
-  await delay(600)
-  const runtime = JSON.parse((await import('node:fs')).readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  await s.rt.imWhenIdle()
+  const runtimePath = join(s.home, 'im', `${conn.id}.json`)
+  const runtime = await waitFor(() => {
+    try {
+      const parsed = JSON.parse(readFileSync(runtimePath, 'utf8'))
+      return parsed.cards?.['q:q1'] === undefined && parsed.cards?.['q:q2'] !== undefined ? parsed : undefined
+    } catch { return undefined }
+  }, { label: 'runtime file persisted with q1 dropped and q2 kept' })
   assert.ok(runtime.cards['q:q1'] === undefined, 'settled and edited card is dropped')
   assert.ok(runtime.cards['q:q2'] !== undefined, 'open card stays')
 })
@@ -3236,19 +3254,16 @@ test('a send that keeps answering 5xx keeps an exhausted send for manual retry w
   const fail = () => Object.assign(new Error('Feishu answered 502'), { status: 502, retryAfter: 0.005 })
   s.fake.fails.push(fail(), fail(), fail(), fail())
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'first' }] } })
-  await delay(120)
+  await waitFor(() => s.rt.imStatusView()[conn.id].state === 'error', { label: 'the first message pauses after four attempts' })
   assert.equal(s.fake.sent.filter(job => job.text === 'first').length, 4, 'the first message pauses after four attempts')
   const status = s.rt.imStatusView()[conn.id]
   assert.equal(status.state, 'error')
   assert.match(status.error, /Send failed after 4 attempts: Feishu answered 502/)
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'second' }] } })
-  await delay(40)
-  assert.equal(s.fake.sent.filter(job => job.text === 'second').length, 1, 'the next message is not held behind the failed one')
+  await waitFor(() => s.fake.sent.filter(job => job.text === 'second').length === 1, { label: 'the next message is not held behind the failed one' })
   assert.equal(s.rt.imStatusView()[conn.id].state, 'error', 'a later success cannot hide an undelivered message')
   await s.rt.imEndpoint('im-retry', { id: conn.id })
-  await delay(40)
-  assert.equal(s.fake.sent.filter(job => job.text === 'first').length, 5)
-  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+  await waitFor(() => s.fake.sent.filter(job => job.text === 'first').length === 5 && s.rt.imStatusView()[conn.id].state === 'ready', { label: 'manual retry delivers the retained first message' })
 })
 
 test('a retrying send shows a retrying status before the budget runs out', async (t) => {
@@ -3261,13 +3276,18 @@ test('a retrying send shows a retrying status before the budget runs out', async
   await dm(s, 'u1', 'hi')
   s.imTurn('a')
   s.fake.sent.length = 0
-  s.fake.fails.push(Object.assign(new Error('Feishu answered 502'), { status: 502, retryAfter: 0.2 }))
+  s.fake.fails.push(Object.assign(new Error('Feishu answered 502'), { status: 502, retryAfter: 0.35 }))
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'slow' }] } })
-  await delay(60)
-  const status = s.rt.imStatusView()[conn.id]
+  const status = await waitFor(() => {
+    const cur = s.rt.imStatusView()[conn.id]
+    return cur?.state === 'retrying' ? cur : undefined
+  }, { label: 'retrying status appears' })
   assert.equal(status.state, 'retrying')
   assert.match(status.error, /502/)
-  await delay(220)
+  await waitFor(
+    () => s.fake.sent.filter(job => job.text === 'slow').length === 2 && s.rt.imStatusView()[conn.id]?.state === 'ready',
+    { label: 'retry succeeds and status returns to ready' },
+  )
   assert.equal(s.fake.sent.filter(job => job.text === 'slow').length, 2)
   assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
 })
@@ -3330,7 +3350,7 @@ test('an approval card whose send exhausts retries is retained and re-delivered 
     { agent: { id: 'a' }, toolName: 'bash', reason: 'run it', signal: original.signal },
     () => new Promise(() => {}),
   )
-  await delay(140)
+  await waitFor(() => s.rt.imStatusView()[conn.id].state === 'error', { label: 'the approval card pauses after four attempts' })
   assert.equal(s.fake.sent.filter(job => /bash/.test(job.text)).length, 4)
 
   // Try again resumes the original card and its pending delivery callback.
@@ -4170,7 +4190,7 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
   })
   s.emitEvent('a-new', 'assistant/message', { message: { content: [{ type: 'text', text: 'quick foreground answer' }] } })
   s.emitEvent('a-new', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await s.flush()
+  await waitFor(() => s.fake.sent.some(entry => entry.text === 'quick foreground answer'), { label: 'foreground answer must reach IM' })
 
   assert.deepEqual(
     s.fake.sent.map(entry => [entry.chat.key, entry.text]),
@@ -4187,7 +4207,7 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
   })
   s.emitEvent('a-new', 'assistant/message', { message: { content: [{ type: 'text', text: 'Your background job finished!' }] } })
   s.emitEvent('a-new', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await s.flush()
+  await waitFor(() => s.fake.sent.some(entry => entry.text === 'Your background job finished!'), { label: 'task-report reply must reach IM' })
 
   assert.deepEqual(
     s.fake.sent.map(entry => [entry.chat.key, entry.text]),
@@ -4257,27 +4277,162 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   assert.equal(s.prompts.length, promptsBeforeWx + 1, 'redelivery after rememberWeixinRequest failure must not be swallowed')
   assert.equal(s.prompts.at(-1).content[0].text, 'weixin retryable text')
 
-  // 5) Redelivered ordinary numeric message "1" must NOT answer a question card opened afterward.
+  // 5) Redelivered ordinary numeric message "1" must NOT answer a newly opened question card,
+  //    EVEN when `conn.seenInbound` is missing after a crash/restart and only DSH retains the prompt!
   const origConfirm = s.rt.confirmSessionFlushed
   s.rt.confirmSessionFlushed = async () => true
   await dm(s, 'u1', '1', { messageId: 'num-msg-1' })
   assert.equal(s.prompts.at(-1).content[0].text, '1')
+  const numReqId = s.prompts.at(-1).requestId
   assert.equal(one.seenInbound?.includes(`${one.id}:dm-u1:num-msg-1`), true, 'persisted seenInbound written once session flush confirmed true')
-  // Open a question card and redeliver the exact same messageId "num-msg-1" -> MUST be ignored!
-  let answeredQ = 0
-  const origAnswerQ = s.rt.answerQuestion
-  s.rt.answerQuestion = async (...args) => { answeredQ += 1; return origAnswerQ(...args) }
+  // Register a REAL open question card with IM via the real turn + state.questions + save path.
+  s.imTurn('a')
+  s.fake.sent.length = 0
   s.rt.state.questions[s.rt.chatOf('a')] = { id: 'q-after-1', question: 'Pick one', options: [{ label: 'Alpha' }, { label: 'Beta' }] }
-  s.rt.emitImCard?.(one.id, 'dm-u1', 'q:q-after-1')
-  await dm(s, 'u1', '1', { messageId: 'num-msg-1' })
-  assert.equal(answeredQ, 0, 'redelivered ordinary "1" must NOT answer a newly opened question card')
-  delete s.rt.state.questions[s.rt.chatOf('a')]
-  s.rt.answerQuestion = origAnswerQ
+  await s.rt.save()
+  await waitFor(() => s.fake.sent.some(entry => entry.text?.includes('Pick one')), { label: 'question card must actually be registered and sent to IM' })
+  // Simulate crash/restart before `conn.seenInbound` was persisted: strip seenInbound AND record
+  // `numReqId` in DSH's persisted session events on a fresh runtime sharing the same home!
+  one.seenInbound = one.seenInbound.filter(k => k !== `${one.id}:dm-u1:num-msg-1`)
+  await s.rt.save()
+  await s.close()
+  const sRestart = await start({ home: s.home })
+  t.after(sRestart.stop)
+  await sRestart.rt.imEndpoint('im-retry', { id: one.id })
+  // Populate DSH's durable session events on Bot 'a' with the earlier ordinary "1" prompt.
+  const restartedAgent = sRestart.agentOf(sRestart.rt.chatOf('a'))
+  restartedAgent.session.snapshotEvents = () => [
+    { type: 'user/message', seq: 1, data: { id: 'm-num-1', content: [{ type: 'text', text: '1' }], source: { kind: 'user', rpcId: numReqId } } },
+  ]
+  sRestart.ctx.get = (name) => (name === 'agents' ? sRestart.agents : undefined)
+  let answeredQ = 0
+  const origAnswerQ = sRestart.rt.answerQuestion
+  sRestart.rt.answerQuestion = async (...args) => { answeredQ += 1; return origAnswerQ(...args) }
+  // Re-deliver the exact same platform messageId "num-msg-1" -> DSH admission MUST suppress it BEFORE card handling!
+  await dm(sRestart, 'u1', '1', { messageId: 'num-msg-1' })
+  assert.equal(answeredQ, 0, 'redelivered ordinary "1" (missing seenInbound, retained in DSH) must NOT answer newly opened question card')
+  assert.ok(sRestart.rt.state.questions[sRestart.rt.chatOf('a')] !== undefined, 'question card must remain open')
+  // Prove the card IS genuinely open and answerable by a brand-new messageId "num-msg-2":
+  await dm(sRestart, 'u1', '1', { messageId: 'num-msg-2' })
+  assert.equal(answeredQ, 1, 'fresh "1" with a new platform messageId must answer the open question card')
+  sRestart.rt.answerQuestion = origAnswerQ
 
-  // 6) conn.seenInbound must NOT be persisted when session flush returns false (un-durable session).
-  s.rt.confirmSessionFlushed = async () => false
-  await dm(s, 'u1', 'unflushed prompt', { messageId: 'unflushed-1' })
-  assert.equal(one.seenInbound?.includes(`${one.id}:dm-u1:unflushed-1`), false, 'unflushed session must NOT persist seenInbound key')
+  // 6) conn.seenInbound must NOT be persisted when the EXACT receiving session fails flush,
+  //    even if the Bot's foreground moved to a different session S2 whose flush returns true!
+  const oneR = sRestart.rt.state.im.connections[one.id]
+  const flushedSessions = []
+  const s1Session = {
+    id: 'a',
+    requestHeader: () => undefined,
+    snapshotEvents: () => [],
+  }
+  const s2Session = {
+    id: 'a-moved-fg',
+    requestHeader: () => undefined,
+    snapshotEvents: () => [],
+  }
+  sRestart.agents.set('a', {
+    id: 'a',
+    session: s1Session,
+    inbox: { nextStep: [], nextTurn: [], remove: () => false },
+    followup() {},
+    steer() {},
+    cancel() {},
+    async whenIdle() {},
+  })
+  sRestart.agents.set('a-moved-fg', {
+    id: 'a-moved-fg',
+    session: s2Session,
+    inbox: { nextStep: [], nextTurn: [], remove: () => false },
+    followup() {},
+    steer() {},
+    cancel() {},
+    async whenIdle() {},
+  })
+  const origPromptR = sRestart.ctx.sessionController.prompt
+  sRestart.ctx.sessionController.prompt = async (req) => {
+    const res = await origPromptR(req)
+    // Record prompt on S1 ('a'), then immediately move foreground to S2 ('a-moved-fg')!
+    s1Session.snapshotEvents = () => [
+      { type: 'user/message', seq: 2, data: { id: 'm-s1-unflushed', content: req.content, source: { kind: 'user', rpcId: req.requestId } } },
+    ]
+    sRestart.rt.botOf('a').sessionId = 'a-moved-fg'
+    sRestart.rt.chatOwners.set('a-moved-fg', 'a')
+    return res
+  }
+  sRestart.ctx.sessions.flush = async (session) => {
+    flushedSessions.push(session.id)
+    // S1 ('a') fails to flush (returns false); S2 ('a-moved-fg') would return true!
+    return session.id === 'a-moved-fg'
+  }
+  await dm(sRestart, 'u1', 'unflushed prompt on S1', { messageId: 'unflushed-s1-1' })
+  assert.deepEqual(flushedSessions, ['a'], 'confirmSessionFlushed must flush exact receiving session S1 ("a"), NEVER moved foreground S2')
+  assert.equal(oneR.seenInbound?.includes(`${one.id}:dm-u1:unflushed-s1-1`), false, 'unflushed S1 must NOT persist seenInbound even though S2 flushes true')
+  sRestart.ctx.sessionController.prompt = origPromptR
+
+  // 7) An unrelated Bot B with a corrupt cold archive must NOT block fresh `!card` or numbered card replies on Bot A!
+  sRestart.rt.botOf('b').segments = [{ sessionId: 'b-corrupt-cold', endedAt: 1 }]
+  sRestart.agents.delete('b-corrupt-cold')
+  const origGetR = sRestart.ctx.get
+  sRestart.ctx.get = (name) => {
+    if (name === 'sessionQuery') {
+      return {
+        inspectSession: async (sid) => {
+          if (sid === 'b-corrupt-cold') {
+            throw Object.assign(new Error('session b-corrupt-cold not found in surface'), { code: 'SESSION_QUERY_CORRUPT_SESSION' })
+          }
+          throw Object.assign(new Error('not found'), { code: 'SESSION_QUERY_SESSION_NOT_FOUND' })
+        },
+      }
+    }
+    return origGetR(name)
+  }
+  // Open a real question card on Bot A's current foreground ('a-moved-fg') and answer it with fresh "1".
+  sRestart.imTurn('a-moved-fg')
+  sRestart.rt.state.questions['a-moved-fg'] = { id: 'q-corrupt-peer', question: 'Confirm?', options: [{ label: 'Yes' }, { label: 'No' }] }
+  await sRestart.rt.save()
+  await waitFor(() => sRestart.fake.sent.some(entry => entry.text?.includes('Confirm?')), { label: 'question card must be sent to IM before answering' })
+  await dm(sRestart, 'u1', '1', { messageId: 'fresh-card-answer-1' })
+  assert.equal(sRestart.rt.state.questions['a-moved-fg'], undefined, 'unrelated corrupt cold archive on Bot B must NOT block numbered card answer on Bot A')
+  // Open a real view card on Bot A via show_view and answer it with reserved `!card V<n>` reply.
+  await sRestart.rt.teamTools.find(tool => tool.name === 'show_view').execute(
+    { title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name', value: 'Default' }] } },
+    { agent: { id: 'a-moved-fg' }, concludeTurn() {} },
+  )
+  const viewMsg = await waitFor(() => [...sRestart.fake.sent].reverse().find(entry => /!card\s+(V\d+)/i.test(entry.text ?? '')), { label: 'view card with !card code must be sent to IM' })
+  const viewCode = /!card\s+(V\d+)/i.exec(viewMsg.text ?? '')?.[1]
+  assert.ok(viewCode)
+  await dm(sRestart, 'u1', `!card ${viewCode}\n1: Alice`, { messageId: 'fresh-view-card-1' })
+  assert.equal(sRestart.rt.state.views['a-moved-fg'], undefined, 'unrelated corrupt cold archive on Bot B must NOT block !card view reply on Bot A')
+
+  // 8) Rebinding a chat from corrupt Bot B to Bot A records Bot B in `pastTargets`, so a bare
+  //    numeric redelivery FAILS CLOSED instead of answering Bot A's open card.
+  await sRestart.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'dm-u1', target: { botId: 'b' } })
+  await sRestart.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'dm-u1', target: { botId: 'a' } })
+  assert.ok(oneR.chats['dm-u1'].pastTargets?.includes('b'), 'rebinding must record former target in chat.pastTargets')
+  sRestart.rt.state.questions['a-moved-fg'] = { id: 'q-rebound-corrupt', question: 'Confirm rebound?', options: [{ label: 'Yes' }, { label: 'No' }] }
+  await sRestart.rt.save()
+  await waitFor(() => sRestart.fake.sent.some(entry => entry.text?.includes('Confirm rebound?')), { label: 'rebound question card must be sent to IM' })
+  const promptsBeforeCorruptRebound = sRestart.prompts.length
+  await dm(sRestart, 'u1', '1', { messageId: 'maybe-rebound-redelivery-1' })
+  assert.equal(sRestart.rt.state.questions['a-moved-fg']?.id, 'q-rebound-corrupt', 'question card must remain unanswered when former binding history is corrupt')
+  assert.equal(sRestart.prompts.length, promptsBeforeCorruptRebound, 'failed precheck must not fall through to sendUser')
+  delete sRestart.rt.state.questions['a-moved-fg']
+
+  // 9) Implicit direct-chat rebind via `im-update` changing `conn.botId` records former default Bot in `conn.pastBotIds`,
+  //    so a direct chat without explicit `chat.target` also fails closed when its former default Bot has corrupt history.
+  delete oneR.chats['dm-u1'].target
+  delete oneR.chats['dm-u1'].pastTargets
+  await sRestart.rt.imEndpoint('im-update', { id: one.id, botId: 'b' })
+  await sRestart.rt.imEndpoint('im-update', { id: one.id, botId: 'a' })
+  assert.ok(oneR.pastBotIds?.includes('b'), 'im-update changing conn.botId must record former default Bot in conn.pastBotIds')
+  sRestart.rt.state.questions['a-moved-fg'] = { id: 'q-implicit-rebound-corrupt', question: 'Confirm implicit?', options: [{ label: 'Yes' }, { label: 'No' }] }
+  await sRestart.rt.save()
+  await waitFor(() => sRestart.fake.sent.some(entry => entry.text?.includes('Confirm implicit?')), { label: 'implicit rebound question card must be sent to IM' })
+  await dm(sRestart, 'u1', '1', { messageId: 'maybe-implicit-rebound-1' })
+  assert.equal(sRestart.rt.state.questions['a-moved-fg']?.id, 'q-implicit-rebound-corrupt', 'implicit direct-chat rebind via conn.botId must fail closed when former default Bot is corrupt')
+  delete sRestart.rt.state.questions['a-moved-fg']
+  sRestart.ctx.get = origGetR
   s.rt.confirmSessionFlushed = origConfirm
 })
 

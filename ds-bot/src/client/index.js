@@ -2,7 +2,7 @@ import { call } from './api.js'
 import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
-import { teamActions } from './team-actions.js'
+import { sectionFoldWrites, teamActions } from './team-actions.js'
 import { themeCss, shellTokens, surfaceColors, registry, registerShape, registerTheme, allThemes, themesOf, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
 import { appearanceCss, backgroundShown, onSafeAppearance, pictureUrl, safeAppearance, userCss, watchSafeAppearance } from './appearance.js'
 import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
@@ -44,6 +44,7 @@ import { CONNECTORS_PAGE_CSS } from './connectors-page.js'
 import { PROVIDERS_CSS } from './providers-page.js'
 import { LearningDock, LearningTurnTail, PendingLearning, LEARNING_CSS } from './learning-card.js'
 import { MODEL_CSS, ModelChoiceDock, DeepSeekSignIn } from './model-menu.js'
+import { AGENT_PRESET_CSS } from './agent-preset-menu.js'
 import { BOT_SETTINGS_CSS } from './bot-settings.js'
 import { BOT_MODELS_CSS } from './bot-models-page.js'
 import { AGENT_CARDS_CSS } from './agent-cards.js'
@@ -53,6 +54,8 @@ import { FOLDER_CSS } from './folder-menu.js'
 import { USAGE_CSS } from './usage-page.js'
 import { SCHEDULE_CSS } from './schedules.js'
 import { APPEARANCE_PAGE_CSS } from './appearance-page.js'
+import { SHORTCUTS_PAGE_CSS } from './shortcuts-page.js'
+import { registerPluginShortcuts } from './plugin-shortcuts.js'
 import { STORAGE, migrateStorage } from './storage.js'
 import { noteLeft, setUnread, sharedMap, toggleReaction } from './shared-map.js'
 import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from './surface.js'
@@ -64,6 +67,7 @@ import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, ri
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { PRIVACY_CSS } from './privacy-page.js'
 import { ABOUT_CSS } from './about.js'
+import { INBOX_CSS } from './inbox.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { TASK_CSS } from './task-board.js'
 import { IM_CSS } from './im-page.js'
@@ -78,6 +82,7 @@ import { createQuestionDrafts } from './question-draft.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
+import { installTitle } from './branding.js'
 import { needsIdleSample, pollDelay } from './polling.js'
 import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
@@ -100,6 +105,7 @@ export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'th
 const WINDOWS = globalThis.navigator?.userAgentData?.platform === 'Windows' || /^Win/u.test(globalThis.navigator?.platform ?? '')
 
 export function apply(ctx) {
+  ctx.effect(() => installTitle(document), 'ds-bot: window title')
   ctx.effect(() => installLocale(ctx.get('locale')), 'ds-bot: interface copy')
   migrateStorage()
   // The window's cached prefs stand in until the first pull answers: a saved
@@ -118,7 +124,7 @@ export function apply(ctx) {
   // subject Bot's browser inside it. `fileTabs` holds each subject's Canvas and Reader
   // tabs (identity and mode only; see side-apps.js), `fileTab` the one on screen.
   const savedFileTabs = readFileTabs()
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, fileTabs: savedFileTabs, fileTab: null, draft: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, fileTabs: savedFileTabs, fileTab: null, draft: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, releaseNotes: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null, inbox: false })
   ctx.effect(() => {
     let last = ui.getSnapshot().fileTabs
     return ui.subscribe(() => {
@@ -127,8 +133,7 @@ export function apply(ctx) {
       last = next
       writeFileTabs(next)
     })
-  }, 'ds-bot: file tabs')
-  // The left column's kept preference, and the frame geometry the layout rules
+  }, 'ds-bot: file tabs')  // The left column's kept preference, and the frame geometry the layout rules
   // in frame-layout.js read: the window and the shell's collapsed track come from
   // installFrameWatch, the open column's width is the user's own.
   let sidebarSaved = readSidebar()
@@ -233,6 +238,7 @@ export function apply(ctx) {
   // Pulls can overlap (the poll and a navigation); an older answer never wins.
   let pulls = 0
   let applied = 0
+  const foldWrites = sectionFoldWrites()
   let avatarIncomplete = false
   const pull = async () => {
     const order = ++pulls
@@ -274,6 +280,9 @@ export function apply(ctx) {
     if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
     if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) live.apiVia = value.apiVia
     if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) live.plugins = value.plugins
+    if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(current.inbox ?? null)) live.inbox = value.inbox
+    if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(current.telemetryPrompt)) live.telemetryPrompt = Boolean(value.telemetryPrompt)
+    if (value.releaseNotes !== undefined && JSON.stringify(value.releaseNotes) !== JSON.stringify(current.releaseNotes ?? null)) live.releaseNotes = value.releaseNotes
     // The read-only notice goes once this host takes the team over from a dsh that
     // closed, without a reload: the window holds the answer's live fields until then.
     if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) live.readOnly = value.readOnly
@@ -296,7 +305,7 @@ export function apply(ctx) {
     }
     // On a browser with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...hydrated.bots, ...hydrated.rooms].map(entry => entry.id))
-    roster.set(indexRoster(hydrated))
+    roster.set(indexRoster({ ...hydrated, sections: foldWrites.reconcile(hydrated.sections, hydrated.revision) }))
     try {
       const ids = (hydrated.agents ?? []).flatMap(agent => agent.sessions ?? [])
       localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids))
@@ -683,7 +692,21 @@ export function apply(ctx) {
     openingWait.begin({ target, id: owner?.id ?? target, name: owner?.name ?? '' })
   }
   const endOpening = () => { openingWait.end() }
-  const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => { expected = target; ctx.uiWorkspace.openSession(target) }, current: mainView, begin: beginOpening, done: endOpening })
+  // A wait that cannot succeed. The roster already knows a Bot lost this Session (the
+  // Host marks it when a model selection comes back not-found): keep the cover as a
+  // failure card with a way out. Standalone DSH Agent sessions have no cover, so report
+  // the failure directly when one never arrives.
+  const failOpening = (target, reason = 'missing') => {
+    if (ownerOfSession(target) === undefined) {
+      endOpening()
+      actions.reportError(new Error(t(reason === 'timeout' ? 'This session is not available yet.' : 'This session is no longer available.')), 'open-session')
+      return
+    }
+    openingWait.fail(target, reason)
+  }
+  const lostSession = (target) => (roster.getSnapshot().bots ?? []).some(bot => bot.sessionMissing === target)
+  const recovering = new Set()
+  const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => { expected = target; ctx.uiWorkspace.openSession(target) }, current: mainView, begin: beginOpening, done: endOpening, fail: failOpening, gone: lostSession })
   // Whether the open Bot panel is folded away for lack of room: its opener then
   // means "show it" (the column yields), not "close it". A panel shown because
   // the column already yielded is not folded, so its opener closes it.
@@ -716,7 +739,7 @@ export function apply(ctx) {
     }
   }
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }),
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites }),
     // The files a group row names open DSH's own review tab for that turn. The tab reads
     // the changes of the Session the shell shows, so that Session is opened first; the same
     // call then retries until its right column is mounted. This jump is the one place a
@@ -740,16 +763,45 @@ export function apply(ctx) {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
       navSeq += 1
-      ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state))
-      setPlain(false)
       const target = partFor(id)
+      const fromInbox = ui.getSnapshot().inbox === true
+      ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox || state.inboxTarget
+        ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? target : null }
+        : state))
+      setPlain(false)
       show(target)
+    },
+    retryOpening: (target) => {
+      if (!target) return
+      show(target)
+    },
+    // The Bot's current Session is gone from the library: a fresh part takes its place
+    // (the Host makes it without the lost part), then that part is opened. The failure
+    // card stays meanwhile, so a failed try leaves the way out on screen.
+    recoverOpening: async (botId) => {
+      if (recovering.has(botId)) return
+      recovering.add(botId)
+      const seq = ++navSeq
+      try {
+        await after(call('recover-session', { botId }))
+        if (seq !== navSeq) return
+        const bot = roster.getSnapshot().byId[botId]
+        if (bot === undefined) { endOpening(); return }
+        navSeq += 1
+        setPlain(false)
+        show(currentPart(bot))
+      } catch (error) {
+        actions.reportError(error, 'reopen-session')
+      } finally {
+        recovering.delete(botId)
+      }
     },
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
       navSeq += 1
-      ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
+      const fromInbox = ui.getSnapshot().inbox === true
+      ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? sessionId : null, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
       setPlain(true)
       show(sessionId)
     },
@@ -878,7 +930,7 @@ export function apply(ctx) {
         return
       }
       if (mode === 'agent') {
-        ui.set(state => ({ ...state, details: null, view: 'details', task: null, taskDeck: null, settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }))
+        ui.set(state => ({ ...state, details: null, view: 'details', task: null, taskDeck: null, settings: null, palette: null, groupSearch: null, newChat: null, inbox: false, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }))
       }
       writeMode(mode)
       surface.set(state => ({ ...state, mode }))
@@ -919,7 +971,20 @@ export function apply(ctx) {
         if (!bot) return
         browsers.ensureTabs(bot.id)
         if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: yieldBrowser(state) }))
+        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: yieldBrowser(state) }))
+      },
+      toggleBrowser: (id) => {
+        const snap = roster.getSnapshot()
+        if (snap.browser === false) return
+        const bot = snap.byId?.[id]
+        if (!bot) return
+        const state = ui.getSnapshot()
+        const detailsBotId = state.details ? (snap.byId?.[state.details]?.id ?? state.details) : null
+        if (state.details && state.view === 'browser' && detailsBotId === bot.id) {
+          actions.closePanel()
+          return
+        }
+        actions.openBrowser(bot.id)
       },
       // '+' on the strip or the drawer's new-tab card: a blank tab in the browser view.
       browserNewTab: (id) => {
@@ -927,7 +992,7 @@ export function apply(ctx) {
         if (!bot) return null
         browsers.ensureTabs(bot.id)
         const tabId = browsers.openTab(bot.id)
-        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: yieldBrowser(state) }))
+        ui.set(state => ({ ...state, inbox: false, details: id, view: 'browser', renaming: false, tab: null, panelYield: yieldBrowser(state) }))
         return tabId
       },
       // A drawer card: its tab active, the panel on the browser view.
@@ -1165,13 +1230,28 @@ export function apply(ctx) {
       return () => { if (typeof off === 'function') off() }
     }, 'ds-bot: computer actions')
   }
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, botCompletions, surface, update, frame, sidebarPref, settingsShellHeld } })
   // Since DSH 0.2.1-alpha.3 user text is drawn by rules and a content factory, not the
   // primitives' text projection; the user's bubble draws with either (user-message.js).
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === 'function'
   // DS Bot's own rows in the `/` menu of a Bot chat and a group chat (the DSH rows stay;
   // the host module stops their execution there).
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), 'ds-bot: bot command actions')
+  // Register core DS Bot commands into DSH's shortcut catalog (plugin mode).
+  ctx.inject(['shortcuts'], (scope) => {
+    scope.effect(() => registerPluginShortcuts(scope.shortcuts, {
+      roster,
+      ui,
+      surface,
+      actions,
+      mainView,
+      sessionsById: () => ctx.sessions.list.getSnapshot().byId,
+      onError: (id, error) => {
+        noteClientError(`shortcut:${id}`, error)
+        console.error(`ds-bot: failed to register shortcut "${id}":`, error)
+      },
+    }), 'ds-bot: bot shortcuts')
+  })
   // DS Bot holds the settings seat in every mode, Agent mode included: the bundle patch
   // turns DSH's own shell off, and this one draws DSH's settings pages in DS Bot's dialog.
   ctx.effect(() => {
@@ -1448,12 +1528,15 @@ export function apply(ctx) {
   const SHELL_SHEETS = [
     [SHELL_CSS, 'shell'],
     [SIDEBAR_CSS, 'sidebar'],
+    [INBOX_CSS, 'inbox'],
     [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS + PROVIDERS_CSS, 'secrets'],
     [LEARNING_CSS, 'learning'],
+    [AGENT_PRESET_CSS, 'agent-presets'],
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],
     [USAGE_CSS, 'usage'],
     [SCHEDULE_CSS, 'schedules'],
     [APPEARANCE_PAGE_CSS, 'appearance-page'],
+    [SHORTCUTS_PAGE_CSS, 'shortcuts-page'],
     [FEEDBACK_CSS, 'feedback'],
     [PRIVACY_CSS, 'privacy'],
     [ABOUT_CSS, 'about'],
@@ -1710,7 +1793,7 @@ export function apply(ctx) {
   }, 'ds-bot: agent surface')
 
   ctx.effect(() => watchBotCompletions({
-    roster, sessions: ctx.sessions.list, statuses: ctx.get('uiSession')?.sessionStatus, unread: botCompletions,
+    roster, sessions: ctx.sessions.list, statuses: ctx.get('uiSession')?.sessionStatus, unread: botCompletions, ui,
   }), 'ds-bot: sidebar completions')
 
   ctx.effect(() => {

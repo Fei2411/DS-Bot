@@ -5,6 +5,7 @@ import { IconSettingsOutlineMedium } from './dsh-primitives.js'
 import { modelLine, modelName } from './bot-models-page.js'
 import { isLocalRoute } from './agent-routes.js'
 import { isImeComposing } from './enter-key.js'
+import { ESCAPE_PRIORITY, topEscapePriority, useEscape } from './overlay-hooks.js'
 import { t } from './i18n.js'
 
 // Every page, part, and key control, with English and Chinese keywords.
@@ -17,6 +18,7 @@ export const SEARCH_ENTRIES = [
   { id: 'memory', label: 'Memory', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, keywords: 'bring up related memory group bot team memory size recall limits 记忆 上限 召回 自动召回' },
   { id: 'background', label: 'Background work', group: 'General', page: 'general', icon: 'general', expandAdvanced: true, keywords: 'background commands after seconds timeout 后台 命令 超时 秒' },
   { id: 'mode', label: 'Classic Agent mode', group: 'General', page: 'general', icon: 'general', requiresSurface: true, keywords: 'bot mode agent mode surface 经典模式 切换' },
+  { id: 'shortcuts', label: 'Keyboard shortcuts', group: 'General', page: 'shortcuts', icon: 'shortcuts', keywords: 'shortcut hotkey keybind keyboard browser inbox switch bot mode 快捷键 热键 按键 绑定 浏览器 经典模式 收件箱 切换' },
   { id: 'appearance', label: 'Appearance', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'theme accent color dark light font size background material mica vibrancy corners density stylesheet css 主题 强调色 颜色 深色 浅色 字体 字号 背景 材质 窗口材质 圆角 密度 样式表' },
   { id: 'layout', label: 'Message layout', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'bubble flat text bubble width text width show thinking 气泡 平铺 宽度 气泡宽度 正文宽度 显示思考过程 思考' },
   { id: 'motion', label: 'Motion', group: 'Appearance', page: 'appearance', icon: 'appearance', keywords: 'interface motion bot animation quiet normal lively full reduced 界面动效 动画 安静 正常 活泼' },
@@ -175,6 +177,7 @@ export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasS
     h('span', { className: 'bt-set-search-title' }, hit.title),
     hit.meta && hit.meta !== hit.title ? h('span', { className: 'bt-set-search-meta' }, hit.meta) : null))
   })
+  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.PALETTE })
   return h('div', { className: 'bt-set-palette-layer' },
     h('div', { className: 'bt-set-palette-scrim', onMouseDown: onClose }),
     h('div', { className: 'bt-set-palette', role: 'dialog', 'aria-label': t('Search settings') },
@@ -198,6 +201,7 @@ export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasS
             if (isImeComposing(event)) return
             if (event.key === 'Tab') { event.preventDefault(); return }
             if (event.key === 'Escape') {
+              if (topEscapePriority() > ESCAPE_PRIORITY.PALETTE) return
               event.preventDefault()
               event.stopPropagation()
               event.nativeEvent?.stopPropagation?.()

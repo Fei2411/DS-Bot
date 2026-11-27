@@ -131,14 +131,12 @@ test('a Bot recovers when the provider repeats malformed parallel calls unless a
   ])
 })
 
-for (const [finishReason, message] of [
-  ['MALFORMED_FUNCTION_CALL', 'Provider stopped with: MALFORMED_FUNCTION_CALL'],
-  ['UNEXPECTED_TOOL_CALL', 'Provider stopped with: UNEXPECTED_TOOL_CALL'],
-  ['MALFORMED_RESPONSE', 'Unhandled stop reason: MALFORMED_RESPONSE'],
-]) {
+for (const finishReason of ['MALFORMED_FUNCTION_CALL', 'UNEXPECTED_TOOL_CALL', 'MALFORMED_RESPONSE']) {
   test(`a Bot retries a Gemini ${finishReason} stop and completes on the next response`, async t => {
     const unrecovered = await boot(t, false, gemini(finishReason))
-    assert.deepEqual(unrecovered.failures, [{ code: 'PI_AI_ERROR', message }])
+    assert.equal(unrecovered.failures.length, 1)
+    assert.equal(unrecovered.failures[0].code, 'PI_AI_ERROR')
+    assert.ok(unrecovered.failures[0].message.includes(finishReason), unrecovered.failures[0].message)
     const result = await boot(t, true, gemini(finishReason))
     assert.equal(result.attempts, 2)
     assert.equal(result.events.findLast(event => event.type === 'turn/end').data.reason.kind, 'completed')
@@ -206,11 +204,12 @@ test('other failures, non-Bots, aborts and downstream decisions do not consume r
 test('only Gemini malformed stops among PI_AI_ERROR failures consume malformed retries', async () => {
   const { run, warnings } = handler()
   const p = payload()
-  for (const message of ['Unhandled stop reason: OTHER_REASON', 'pi-ai stream for model "mock" ended pending', 'MALFORMED_RESPONSE', quotedGeminiStop, 'Provider stopped with: MALFORMED_FUNCTION_CALL.']) {
+  for (const message of ['Unhandled stop reason: OTHER_REASON', 'pi-ai stream for model "mock" ended pending', 'MALFORMED_RESPONSE', quotedGeminiStop, 'Provider stopped with: MALFORMED_FUNCTION_CALL.', 'Provider stopped with: MALFORMED_RESPONSE.']) {
     assert.equal(await run({ ...p, failure: { code: 'PI_AI_ERROR', message } }, next), undefined)
   }
   assert.equal(warnings.length, 0)
   assert.deepEqual(await run({ ...p, failure: { code: 'PI_AI_ERROR', message: 'Unhandled stop reason: MALFORMED_RESPONSE' } }, next), { kind: 'retry' })
+  assert.deepEqual(await run({ ...p, failure: { code: 'PI_AI_ERROR', message: 'Provider stopped with: MALFORMED_RESPONSE' } }, next), { kind: 'retry' })
 })
 
 test('Gemini malformed stops leave the retry to a policy that already retries PI_AI_ERROR', async () => {

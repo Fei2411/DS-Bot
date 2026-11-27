@@ -169,7 +169,10 @@ function phaseOf(block, fallback) {
   return fallback ?? 'start'
 }
 
-function ToolCallBranch({ block, cwd, openFile, loadImage, registry, fallback }) {
+function ToolCallBranch({
+  block, cwd, openFile, loadImage, registry, fallback,
+  sessionId, botId, roster, actions, feed, readOnly, hooks, subagentCatalog, onOpenSubagent,
+}) {
   const callId = block?.callId ?? ''
   const toolName = block?.name || block?.call?.name || ''
   const phase = phaseOf(block)
@@ -182,6 +185,15 @@ function ToolCallBranch({ block, cwd, openFile, loadImage, registry, fallback })
     loadImage: loadImage ?? NOOP_LOAD_IMAGE,
     phase,
     block,
+    sessionId,
+    botId,
+    roster,
+    actions,
+    feed,
+    readOnly: Boolean(readOnly),
+    hooks,
+    subagentCatalog,
+    onOpenSubagent,
   }
   const subCalls = Array.isArray(block?.subCalls) ? block.subCalls : []
   const renderFallback = () => (typeof fallback === 'function' ? fallback(ownerProps) : h(GenericToolCard, ownerProps))
@@ -213,6 +225,15 @@ function ToolCallBranch({ block, cwd, openFile, loadImage, registry, fallback })
         loadImage,
         registry,
         fallback,
+        sessionId,
+        botId,
+        roster,
+        actions,
+        feed,
+        readOnly,
+        hooks,
+        subagentCatalog,
+        onOpenSubagent,
       }))))
 }
 
@@ -220,8 +241,14 @@ function ToolCallBranch({ block, cwd, openFile, loadImage, registry, fallback })
  * Renders one tool call entry (or raw ToolCallBlock) and any nested PTC sub-calls,
  * dispatching each atomic call through `tool.call.toolview` before falling back to `GenericToolCard`.
  */
-export function ToolCallCard({ entry, block, cwd, openFile, loadImage, registry = defaultSlots, fallback }) {
+export function ToolCallCard({
+  entry, block, cwd, openFile, loadImage, registry = defaultSlots, fallback,
+  sessionId, botId, roster, actions, feed, readOnly, hooks, subagentCatalog, onOpenSubagent,
+}) {
   const target = block ?? entry?.block
   if (!target) return null
-  return h(ToolCallBranch, { block: target, cwd, openFile, loadImage, registry, fallback })
+  return h(ToolCallBranch, {
+    block: target, cwd, openFile, loadImage, registry, fallback,
+    sessionId, botId, roster, actions, feed, readOnly, hooks, subagentCatalog, onOpenSubagent,
+  })
 }

@@ -116,7 +116,7 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, Switch = null
   const repo = update.repoUrl
   return [
     h('div', { key: 'hero', className: 'bt-about-hero' },
-      h('span', { className: 'bt-about-mark' }, h(BotMark, { look: MAIN_LOOK, bot: { id: 'about' }, size: 52, state: markState, live: true, gaze: true, pokeable: true })),
+      h('span', { className: 'bt-about-mark bt-pet-zone' }, h(BotMark, { look: MAIN_LOOK, bot: { id: 'about' }, size: 52, state: markState, live: true, gaze: true, pokeable: true })),
       h('div', { className: 'bt-about-copy' },
         h('span', { className: 'bt-about-name' }, 'DS Bot'),
         update.current ? h('span', { className: 'bt-about-version' }, t('Version {version}', { version: update.current })) : null),
@@ -137,7 +137,9 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, Switch = null
     h(Section, { key: 'links', title: t('Links') },
       onStartTour ? h(Row, { label: t('Settings guide') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: onStartTour }, h(CompassIcon), t('Start'))) : null,
       repo ? h(Row, { label: t('Source code'), hint: repo.replace(/^https:\/\//, '') }, h('a', linkProps(repo), h(GitHubMark), t('Open'))) : null,
-      update.notesUrl ? h(Row, { label: t('Release notes') }, h('a', linkProps(update.notesUrl), t('Open'))) : null,
+      typeof actions.openReleaseNotes === 'function'
+        ? h(Row, { label: t('Release notes') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openReleaseNotes({ current: update.current ?? null, notesUrl: update.notesUrl ?? null }) }, t('Open')))
+        : update.notesUrl ? h(Row, { label: t('Release notes') }, h('a', linkProps(update.notesUrl), t('Open'))) : null,
       inlineFeedback ? null : h(Row, { label: t('Report a problem') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('feedback') }, t('Open')))),
   ]
 }
@@ -145,10 +147,6 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, Switch = null
 export const ABOUT_CSS = `
 .bt-about-hero{display:flex;align-items:center;gap:14px;padding:16px;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow)}
 .bt-about-mark{flex:none;display:inline-flex;position:relative}
-.bt-about-mark::before{content:'';position:absolute;inset:-20%;border-radius:50%}
-body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle]:not(.bt-mark-poke) .bt-b{rotate:8deg;translate:5% -1%;animation:bt-nuzzle .78s ease-in-out .32s infinite}
-body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle] .bt-eye{scale:1 0;animation:none}
-body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle] .bt-eye-happy{opacity:1;transition-delay:.1s}
 .bt-about-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .bt-about-name{font-size:16px;line-height:22px;font-weight:600}
 .bt-about-version{font-size:12px;line-height:16px;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}

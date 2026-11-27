@@ -40,17 +40,13 @@ export interface UnifiedPushEvent {
 interface NativeNotifications {
   ensureChannels(): Promise<boolean>
   areNotificationsEnabled(): Promise<boolean>
-  setUiState?(mounted: boolean, foreground: boolean): Promise<boolean>
-  setUiActive(active: boolean): Promise<boolean>
+  setUiState(mounted: boolean, foreground: boolean): Promise<boolean>
   notify(payload: NativeNoticePayload): Promise<boolean>
   cancelTag(tag: string): Promise<boolean>
-  cancelAll(): Promise<boolean>
   openChannelSettings(channel: string | null): Promise<boolean>
-  isIgnoringBatteryOptimizations(): Promise<boolean>
   requestIgnoreBatteryOptimizations(): Promise<boolean>
   setBackgroundConfig(config: { mode: BackgroundMode; title: string; subtitle: string }): Promise<{ serviceStarted: boolean; jobScheduled: boolean }>
   updateBackgroundStatus(subtitle: string): Promise<boolean>
-  listUnifiedPushDistributors(): Promise<UnifiedPushDistributor[]>
   registerUnifiedPush(distributorPackage: string): Promise<boolean>
   unregisterUnifiedPush(): Promise<boolean>
   getBackgroundStatus(): Promise<BackgroundStatus>
@@ -81,15 +77,7 @@ export async function areSystemNotificationsEnabled(): Promise<boolean> {
 export async function setNativeUiState(mounted: boolean, foreground: boolean): Promise<void> {
   const m = mod()
   if (m === null) return
-  if (typeof m.setUiState === 'function') {
-    await m.setUiState(mounted, foreground).catch(() => {})
-  } else {
-    await m.setUiActive(mounted && foreground).catch(() => {})
-  }
-}
-
-export async function setNativeUiActive(active: boolean): Promise<void> {
-  await setNativeUiState(active, active)
+  await m.setUiState(mounted, foreground).catch(() => {})
 }
 
 export async function postNativeNotification(payload: NativeNoticePayload): Promise<boolean> {
@@ -101,11 +89,6 @@ export async function postNativeNotification(payload: NativeNoticePayload): Prom
 export async function cancelNotificationTag(tag: string): Promise<void> {
   const m = mod()
   if (m !== null) await m.cancelTag(tag).catch(() => {})
-}
-
-export async function cancelAllNativeNotifications(): Promise<void> {
-  const m = mod()
-  if (m !== null) await m.cancelAll().catch(() => {})
 }
 
 export async function openNotificationChannelSettings(channel: 'needs_you' | 'replies' | 'background' | null = null): Promise<void> {

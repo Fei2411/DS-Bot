@@ -29,7 +29,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', review = false, acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', review = false, acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView, secretEnvForSession } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -37,6 +37,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', review = false,
     attachments,
     fs,
     freshMemoryView,
+    secretEnvForSession,
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
@@ -685,6 +686,120 @@ test('codex app-server: thread per session, models from model/list', async (t) =
   const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'local-codex-cli' })))
   assert.match(out.text, /fix it/)
   assert.match(out.thinking, /▸/)
+})
+
+test('codex gives only the authorized session its shell secret and drops it after revocation', async (t) => {
+  const inherited = { DSH_SECRET_ENV_PROBE: process.env.DSH_SECRET_ENV_PROBE, DSH_CODEX_INTERNAL_PROBE: process.env.DSH_CODEX_INTERNAL_PROBE }
+  t.after(() => {
+    for (const [key, value] of Object.entries(inherited)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
+  process.env.DSH_SECRET_ENV_PROBE = 'unscoped-test-value'
+  process.env.DSH_CODEX_INTERNAL_PROBE = 'host-test-value'
+  let granted = true
+  const adapter = makeAdapter({
+    secretEnvForSession: sessionId => granted && sessionId === 'authorized' ? { DSH_SECRET_ENV_PROBE: 'scoped-test-value' } : {},
+  })
+  t.after(() => adapter.dispose())
+  const probe = async (sessionId, messageId) => {
+    const out = await collect(adapter.stream(options(sessionId, [user(messageId, 'show-shell-env')], { provider: 'local-codex-cli' })))
+    return JSON.parse(out.text)
+  }
+  assert.deepEqual(await probe('denied', 'm1'), { granted: false, inherited: false, internal: false })
+  assert.deepEqual(await probe('authorized', 'm2'), { granted: true, inherited: false, internal: false })
+  assert.deepEqual(await probe('another', 'm3'), { granted: false, inherited: false, internal: false })
+  granted = false
+  const note = await adapter.note('authorized', 'show-shell-env', AbortSignal.timeout(30_000))
+  assert.deepEqual(JSON.parse(note), { granted: false, inherited: false, internal: false })
+  assert.deepEqual(await probe('authorized', 'm4'), { granted: false, inherited: false, internal: false })
+})
+
+test('codex replaces its process cleanly when secrets change while suspended on a bridged call', async (t) => {
+  let granted = true
+  const records = {}
+  const adapter = makeAdapter({
+    records,
+    secretEnvForSession: sessionId => granted && sessionId === 's1' ? { DSH_SECRET_ENV_PROBE: 'scoped-test-value' } : {},
+  })
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'hold-ask')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  const call = first.calls.find(entry => entry.name === 'approve_agent_action')
+  assert.ok(call, 'the approval came as a card')
+  const firstLive = adapter.live.get('s1')
+  const firstChild = firstLive.engine.child
+  assert.equal(firstLive.state, 'suspended')
+
+  // Revoke the secret while the Codex turn is suspended, then resume with only the tool result.
+  granted = false
+  const resumed = await collect(adapter.stream(options(
+    's1',
+    [...messages, toolResult('t1', call.id, '{"decision":"allow"}', false)],
+    { provider: 'local-codex-cli', signal: AbortSignal.timeout(30_000) },
+  )))
+  assert.equal(resumed.finish?.kind, 'stop')
+  assert.match(resumed.text, /ok: The calls that were waiting on the user are settled/, JSON.stringify(resumed))
+  assert.ok(firstChild.exitCode !== null || firstChild.signalCode !== null, 'old Codex app-server exited')
+  assert.notEqual(adapter.live.get('s1').engine.child, firstChild, 'a fresh Codex app-server replaced it')
+
+  const envCheck = await collect(adapter.stream(options(
+    's1',
+    [...messages, toolResult('t1', call.id, '{"decision":"allow"}', false), user('m2', 'show-shell-env')],
+    { provider: 'local-codex-cli', signal: AbortSignal.timeout(30_000) },
+  )))
+  assert.deepEqual(JSON.parse(envCheck.text), { granted: false, inherited: false, internal: false })
+})
+
+test('codex rechecks secret access after interrupting the previous turn', async (t) => {
+  let secrets = {}
+  const adapter = makeAdapter({ secretEnvForSession: () => secrets })
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'hold-ask')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  const call = first.calls.find(entry => entry.name === 'approve_agent_action')
+  assert.ok(call)
+  const live = adapter.live.get('s1')
+  const cancel = live.engine.cancel.bind(live.engine)
+  const interrupting = Promise.withResolvers()
+  const interrupted = Promise.withResolvers()
+  live.engine.cancel = async (thread) => {
+    interrupting.resolve()
+    await interrupted.promise
+    return cancel(thread)
+  }
+  secrets = { DSH_SECRET_ENV_PROBE: 'scoped-test-value' }
+  const next = collect(adapter.stream(options(
+    's1',
+    [...messages, toolResult('t1', call.id, '{"decision":"allow"}'), user('m2', 'show-shell-env')],
+    { provider: 'local-codex-cli', signal: AbortSignal.timeout(30_000) },
+  )))
+  await interrupting.promise
+  secrets = {}
+  interrupted.resolve()
+  assert.deepEqual(JSON.parse((await next).text), { granted: false, inherited: false, internal: false })
+})
+
+test('codex secretsChanged closes idle sessions whose secrets changed without disturbing others', async (t) => {
+  let granted = true
+  const records = {}
+  const adapter = makeAdapter({
+    records,
+    secretEnvForSession: sessionId => granted && sessionId === 'authorized' ? { DSH_SECRET_ENV_PROBE: 'scoped-test-value' } : {},
+  })
+  t.after(() => adapter.dispose())
+  await collect(adapter.stream(options('authorized', [user('m1', 'show-shell-env')], { provider: 'local-codex-cli' })))
+  await collect(adapter.stream(options('other', [user('m1', 'show-shell-env')], { provider: 'local-codex-cli' })))
+  const authChild = adapter.live.get('authorized').engine.child
+  const otherChild = adapter.live.get('other').engine.child
+
+  granted = false
+  await adapter.secretsChanged()
+  assert.ok(authChild.exitCode !== null || authChild.signalCode !== null, 'revoked idle Codex process closed immediately')
+  assert.equal(adapter.live.has('authorized'), false)
+  assert.equal(adapter.live.get('other').engine.child, otherChild, 'unaffected Codex process stayed live')
+  assert.equal(otherChild.exitCode, null)
 })
 
 test('codex app-server: failed thread start closes the bridge so the same session can retry', async (t) => {
@@ -2025,6 +2140,37 @@ test('codex receives image blocks on first replay turn, delta turn, and image-on
   const second = await collect(adapter.stream(options('s1', [imageMsg('m1', 'describe this', pngRef), imageMsg('m2', undefined, jpgRef)], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
   assert.equal(second.finish?.kind, 'stop')
   assert.match(second.text, new RegExp(`data:image/jpeg;base64,${jpgBytes.toString('base64')}`))
+})
+
+test('codex retries an unsent image prompt after a secret change closes the bridge', async (t) => {
+  const records = {}
+  const reading = Promise.withResolvers()
+  const image = Promise.withResolvers()
+  const bytes = Buffer.from([137, 80, 78, 71, 1, 2, 3, 4])
+  const ref = { attachmentId: 'att-secret-change', mediaType: 'image/png', bytes: bytes.length, width: 1, height: 1 }
+  let secrets = { DSH_SECRET_ENV_PROBE: 'scoped-test-value' }
+  const adapter = makeAdapter({
+    records,
+    attachments: { readImage: () => { reading.resolve(); return image.promise } },
+    secretEnvForSession: () => secrets,
+  })
+  t.after(() => adapter.dispose())
+  const route = { provider: 'local-codex-cli' }
+  const messages = [user('m1', 'hello')]
+  await collect(adapter.stream(options('s1', messages, route)))
+  const request = options('s1', [...messages, imageMsg('m2', 'describe this', ref)], route)
+  const pending = collect(adapter.stream(request))
+  const rejected = assert.rejects(pending, { code: 'LOCAL_AGENT_EXIT' })
+  await reading.promise
+  secrets = {}
+  await adapter.secretsChanged()
+  image.resolve({ ref, data: bytes })
+  await rejected
+  assert.equal(records.s1.handedId, 'm1')
+
+  const retried = await collect(adapter.stream(request))
+  assert.match(retried.text, new RegExp(`data:image/png;base64,${bytes.toString('base64')}`))
+  assert.equal(records.s1.handedId, 'm2')
 })
 
 test('claude receives Anthropic base64 image blocks for text+image and image-only turns', async (t) => {

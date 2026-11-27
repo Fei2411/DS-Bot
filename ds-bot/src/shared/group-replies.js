@@ -4,10 +4,15 @@
 // ledger (relayRange); one from before the ledger holds the round's `replies`
 // itself, in the order the live view draws them.
 
+// A logged tool/result can open with a session handle ("§38§ ") before the JSON
+// payload `group_relay` wrote.
+const HANDLE_PREFIX = /^\s*§\d+§\s*/
+export const stripRelayPrefix = text => (typeof text === 'string' ? text.replace(HANDLE_PREFIX, '') : text)
+
 // The seq range of a round's rows, or undefined for a result from before the ledger.
 export function relayRange(text) {
   try {
-    const value = JSON.parse(text)
+    const value = JSON.parse(stripRelayPrefix(text))
     if (Number.isInteger(value?.from)) return { from: value.from, ...(Number.isInteger(value.to) ? { to: value.to } : {}), ...(typeof value.anchor === 'string' ? { anchor: value.anchor } : {}) }
   } catch { /* an older result, or one cut short */ }
   return undefined
@@ -23,13 +28,16 @@ const RELAY_LIST = /"replies"\s*:\s*\[/
 const PRUNE_MARKER = /\[\.\.\. tool result middle pruned \.\.\.\]/
 const SAVE_TOKEN_NOTICE = /\n\n\[save-token #[\da-z]+ (?:compressed|losslessly re-encoded): [\d,]+ -> [\d,]+ bytes[\s\S]*\]$/
 export const compressedRelayPreview = text => {
-  const notice = SAVE_TOKEN_NOTICE.exec(text)
-  return notice === null ? undefined : text.slice(0, notice.index)
+  const body = stripRelayPrefix(text)
+  if (typeof body !== 'string') return undefined
+  const notice = SAVE_TOKEN_NOTICE.exec(body)
+  return notice === null ? undefined : body.slice(0, notice.index)
 }
 export const REPLY_ELISION = / \.\.\.\[\+(\d+) chars\]\.\.\. /
 
 export function parseReplies(text) {
-  const preview = compressedRelayPreview(text)
+  const body = stripRelayPrefix(text)
+  const preview = compressedRelayPreview(body)
   if (preview !== undefined) {
     // The elision can splice two different Bots' text into a single valid JSON string.
     const replies = parseReplies(preview).replies.filter(reply => reply && typeof reply === 'object'
@@ -37,13 +45,13 @@ export function parseReplies(text) {
     return { replies, broken: true }
   }
   try {
-    const replies = JSON.parse(text)?.replies
+    const replies = JSON.parse(body)?.replies
     return { replies: Array.isArray(replies) ? replies : [], broken: false }
   } catch { /* fall through */ }
   const replies = []
-  const head = RELAY_LIST.exec(text)
+  const head = RELAY_LIST.exec(body)
   if (head) {
-    for (const piece of text.slice(head.index + head[0].length).split(PRUNE_MARKER)) {
+    for (const piece of body.slice(head.index + head[0].length).split(PRUNE_MARKER)) {
       // The cut can start inside a string, leaving a fragment that keeps the
       // scanner inside quotes: restart at the first complete reply instead.
       const first = piece.indexOf('{"')
@@ -81,7 +89,8 @@ function scanReplies(text, start, replies) {
 }
 
 // A member's messages in a row, as one block under its name: what it says while it
-// works comes one message at a time. A block carries the last message's time and run.
+// works comes one message at a time. A block carries the last message's time and run,
+// and the files its messages presented; a message of files only adds no bubble.
 export function stackReplies(replies) {
   const items = []
   replies.forEach((reply, index) => {
@@ -93,10 +102,16 @@ export function stackReplies(replies) {
     // approval, done, the user) breaks the run.
     if (reply.kind === 'working' && last?.reply.kind === 'working'
       && reply.botId !== undefined && reply.botId === last.reply.botId) return
+    const texts = reply.kind === undefined && typeof reply.text === 'string' && reply.text !== '' ? [reply.text] : []
+    const files = reply.kind === undefined ? presentedFiles(reply.presented) : []
     if (reply.kind === undefined && last?.reply.kind === undefined && last?.reply.botId === reply.botId
       && last.claims === undefined && (last.changes === undefined
         || (reply.changes?.sessionId === last.changes.sessionId && reply.changes?.turn === last.changes.turn))) {
-      last.texts.push(reply.text)
+      last.texts.push(...texts)
+      // A path presented again keeps one card, with its last description and locator.
+      if (files.length > 0) {
+        last.files = [...last.files.filter(file => !files.some(again => again.path === file.path)), ...files]
+      }
       last.time = reply.time
       last.duration = reply.duration
       if (reply.claims !== undefined) last.claims = reply.claims
@@ -106,7 +121,8 @@ export function stackReplies(replies) {
     } else {
       items.push({
         reply, index,
-        texts: reply.kind === undefined ? [reply.text] : [],
+        texts,
+        files,
         time: reply.time, duration: reply.duration,
         ...(reply.claims === undefined ? {} : { claims: reply.claims }),
         ...(reply.changes === undefined ? {} : { changes: reply.changes }),
@@ -115,3 +131,17 @@ export function stackReplies(replies) {
   })
   return items
 }
+
+// The basename of a presented path on POSIX or Windows.
+export const presentedFileName = path => String(path ?? '').split(/[\\/]/).filter(Boolean).at(-1) || String(path ?? '') || 'file'
+
+// The files of a reply or post, as far as they name a path.
+export const presentedFiles = value => (Array.isArray(value) ? value : [])
+  .filter(file => typeof file?.path === 'string' && file.path.trim() !== '')
+  .map(file => ({
+    path: file.path,
+    ...(typeof file.description === 'string' && file.description !== '' ? { description: file.description } : {}),
+    ...(typeof file.sessionId === 'string' && file.sessionId !== '' ? { sessionId: file.sessionId } : {}),
+    ...(Number.isInteger(file.seq) ? { seq: file.seq } : {}),
+    ...(Number.isInteger(file.index) ? { index: file.index } : {}),
+  }))

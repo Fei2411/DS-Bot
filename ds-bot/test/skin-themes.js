@@ -1,4 +1,4 @@
-// The four built-in themes, as the skin bridge's contrast test needs their surface and
+// The built-in themes, as the skin bridge's contrast test needs their surface and
 // text colors (kept here so the test does not reach into the client bundle's registry).
 export const THEMES = {
   deepseek: {
@@ -16,5 +16,9 @@ export const THEMES = {
   moonlight: {
     light: { bg: '#f7f9fc', sidebar: '#eef2f8', bubble: '#e5ebf5', card: '#ffffff', text: '#121826', user: '#1e3a8a', userText: '#ffffff', accent: '#1e86ff' },
     dark: { bg: '#0b1020', sidebar: '#10172a', bubble: '#1a2340', card: '#141c33', text: '#e8edf7', user: '#3b6fd8', userText: '#ffffff', accent: '#4f9dff' },
+  },
+  fei: {
+    light: { bg: '#faf6ee', sidebar: '#f3ede2', bubble: '#efe8db', card: '#fdfbf7', text: '#211f1b', user: '#e2eeec', userText: '#163f46', accent: '#1e8294' },
+    dark: { bg: '#1d1c19', sidebar: '#23221e', bubble: '#2d2b26', card: '#27251f', text: '#f2ede3', user: '#1f4a51', userText: '#e6f1f0', accent: '#3fa9ba' },
   },
 }

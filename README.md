@@ -4,7 +4,7 @@
 
 English | [中文](README.zh.md) · [Docs](docs/README.md) · [Vision](docs/vision.md) · [Known issues](docs/known-issues.md) · [Contributing](CONTRIBUTING.md)
 
-![version](https://img.shields.io/badge/version-v0.3.10-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
+![version](https://img.shields.io/badge/version-v0.4.0-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
 
 DS Bot is an open-source project built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH), available as a standalone desktop app or as a DSH plugin. It turns DSH into a team of long-lived bots that you create, talk to and work with.
 
@@ -44,6 +44,10 @@ npx @deepseek-ai/dsh@0.2.2-rc.5 web
 **Docker (NAS, Linux server)**
 
 See [`docker/README.md`](docker/README.md).
+
+**Optional code-mode executor (experimental)**
+
+An opt-in code executor is available as `ds-bot/code-mode` (DSH **0.2.2-rc.1 or newer**; off by default so older hosts and default Bots are unaffected). Enable `config.codeMode.enabled: true` on the active profile's `bot` (`ds-bot`) row, restart the engine, and optionally enable `tool-fs`'s `applyPatch: true` in the agent preset for multi-file patches. See [code-mode setup and limits](docs/plans/2026-11-18-code-mode.md).
 
 ## Setup
 

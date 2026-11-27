@@ -142,6 +142,19 @@ test('sections can be created, renamed, colored, collapsed, reordered, and ungro
   assert.equal(del.value.bots.find(b => b.id === 'editor').sectionId, undefined)
 })
 
+test('a fold reply can include the matching section and roster revision', async (t) => {
+  const { call, stop } = start(baseTeam())
+  t.after(stop)
+  const { value: { id } } = await call('section-save', { name: 'Work' })
+  const first = (await call('section-save', { id, collapsed: true, withRevision: true })).value
+  const latest = (await call('section-save', { id, collapsed: false, withRevision: true })).value
+  const state = (await call('state', {})).value
+  assert.equal(first.section.collapsed, true)
+  assert.ok(first.revision < latest.revision)
+  assert.deepEqual(latest, { section: state.sections[0], revision: state.revision })
+  assert.equal(latest.section.collapsed, undefined)
+})
+
 test('a rejected section update leaves its name, color, and collapsed state unchanged', async (t) => {
   const { call, stop, home } = start(baseTeam())
   t.after(stop)

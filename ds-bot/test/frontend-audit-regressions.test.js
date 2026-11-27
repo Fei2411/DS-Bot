@@ -83,8 +83,7 @@ test('every --bt-* CSS variable referenced in client styles is defined or an all
   const files = readdirSync(clientDir).filter(name => name.endsWith('.js'))
   const defined = new Set([
     // Runtime-injected CSS variables set via JS inline styles or themes.js/inks.js/skin.js
-    '--bt-accent-ink', '--bt-size', '--bt-delay', '--bt-fidget', '--bt-fidget-delay',
-    '--bt-gx', '--bt-gy', '--bt-stack-size', '--bt-lc-w', '--bt-mem-w',
+    '--bt-accent-ink', '--bt-size', '--bt-stack-size', '--bt-lc-w', '--bt-mem-w',
     '--bt-panel-w', '--bt-fold-top', '--bt-fill', '--bt-origin', '--bt-first-sep',
     '--bt-placeholder', '--bt-steer-unread', '--bt-level', '--bt-caption-start',
     '--bt-leftcol-fill', '--bt-fx-blur-2', '--bt-fx-blur-3', '--bt-fx-blur-4',
@@ -663,7 +662,13 @@ test('useEscape priority stack lets DetailsDrawer rename and ImportMenu consume 
       sheet: { cssRules: [{ style: { setProperty() {}, removeProperty() {} } }], insertRule() { return 0 } },
       remove() {},
     }),
-    documentElement: { style: { setProperty() {}, removeProperty() {} } },
+    documentElement: {
+      style: { setProperty() {}, removeProperty() {} },
+      hasAttribute: name => name === 'data-windows-titlebar',
+      getAttribute: () => null,
+      setAttribute() {},
+      removeAttribute() {},
+    },
     querySelector: () => null,
     querySelectorAll: () => [],
     addEventListener() {},
@@ -711,7 +716,7 @@ test('useEscape priority stack lets DetailsDrawer rename and ImportMenu consume 
       overlay: false,
       roster,
       actions,
-      useSessions: sel => sel({ byId: {}, projectionsBySession: {} }),
+      useSessions: sel => sel({ ids: [], byId: {}, projectionsBySession: {} }),
       useSessionStatus: sel => sel(new Map()),
       useActivity: sel => sel({}),
       useWork: sel => sel({ bots: {}, rooms: {}, approvals: [], waiting: {} }),
@@ -962,7 +967,13 @@ test('BotPanel and PanelStrip unify workspace tabs with Details/Side chat, keep 
       sheet: { cssRules: [{ style: { setProperty() {}, removeProperty() {} } }], insertRule() { return 0 } },
       remove() {},
     }),
-    documentElement: { style: { setProperty() {}, removeProperty() {} } },
+    documentElement: {
+      style: { setProperty() {}, removeProperty() {} },
+      hasAttribute: name => name === 'data-windows-titlebar',
+      getAttribute: () => null,
+      setAttribute() {},
+      removeAttribute() {},
+    },
     querySelector: () => null,
     querySelectorAll: () => [],
     addEventListener() {},
@@ -1030,7 +1041,7 @@ test('BotPanel and PanelStrip unify workspace tabs with Details/Side chat, keep 
       overlay: false,
       roster,
       actions,
-      useSessions: sel => sel({ byId: {}, projectionsBySession: {} }),
+      useSessions: sel => sel({ ids: [], byId: {}, projectionsBySession: {} }),
       useSessionStatus: sel => sel(new Map()),
       useActivity: sel => sel({}),
       useWork: sel => sel({ bots: {}, rooms: {}, approvals: [], waiting: {} }),
@@ -1315,7 +1326,7 @@ test('PanelStrip translates vertical wheel to horizontal scroll, tracks overflow
       hasStrip: false,
       roster: { bots: [{ id: 'b1', name: 'Chief' }], rooms: [], byId: { b1: { id: 'b1', name: 'Chief', parts: [] } }, roomsById: {}, mainBotIds: [], exchangeTurns: {}, models: [], sideChats: {}, browser: false },
       actions: { closeOverlay() {}, canOpenFiles: () => true, openFiles() {}, newSideChat() {} },
-      useSessions: sel => sel({ byId: {}, projectionsBySession: {} }),
+      useSessions: sel => sel({ ids: [], byId: {}, projectionsBySession: {} }),
       useSessionStatus: sel => sel(new Map()),
       useActivity: sel => sel({}),
       useWork: sel => sel({ bots: {}, rooms: {}, approvals: [], waiting: {} }),
@@ -1358,6 +1369,154 @@ test('PanelStrip translates vertical wheel to horizontal scroll, tracks overflow
     globalThis.window = origWin
     globalThis.document = origDoc
     globalThis.ResizeObserver = origRO
+    globalThis.requestAnimationFrame = origRaf
+    globalThis.cancelAnimationFrame = origCancelRaf
+  }
+})
+
+test('TeamSidebar hideTitleToggle removes duplicate toggle in narrow drawers, and BotPanel renders Classic browser pane cleanly', async () => {
+  const code = await loadClientBundle(`
+    export { TeamSidebar } from './src/client/sidebar.js'
+    export { BotPanel } from './src/client/browser-pane.js'
+  `)
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  const origWin = globalThis.window
+  const origDoc = globalThis.document
+  const origRO = globalThis.ResizeObserver
+  const origMO = globalThis.MutationObserver
+  const origLS = globalThis.localStorage
+  const origRaf = globalThis.requestAnimationFrame
+  const origCancelRaf = globalThis.cancelAnimationFrame
+  globalThis.requestAnimationFrame = () => 0
+  globalThis.cancelAnimationFrame = () => {}
+  globalThis.window = { addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: false }), innerWidth: 508 }
+  globalThis.document = {
+    body: { dataset: {} },
+    head: { appendChild() {} },
+    createElement: () => ({
+      dataset: {},
+      style: {},
+      textContent: '',
+      sheet: { cssRules: [{ style: { setProperty() {}, removeProperty() {} } }], insertRule() { return 0 } },
+      remove() {},
+    }),
+    documentElement: {
+      style: { setProperty() {}, removeProperty() {} },
+      hasAttribute: name => name === 'data-windows-titlebar',
+      getAttribute: () => null,
+      setAttribute() {},
+      removeAttribute() {},
+    },
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener() {},
+    removeEventListener() {},
+  }
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
+  globalThis.MutationObserver = class { observe() {} disconnect() {} }
+  globalThis.localStorage = { getItem: () => null, setItem() {} }
+
+  try {
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { TeamSidebar, BotPanel } = mod.exports
+
+    const roster = {
+      ready: true,
+      bots: [{ id: 'b1', name: 'Chief', sessionId: 'b1' }],
+      rooms: [],
+      agents: [],
+      sections: [],
+      byId: { b1: { id: 'b1', name: 'Chief', sessionId: 'b1', parts: [] } },
+      roomsById: {},
+      agentOf: {},
+      mainBotId: 'b1',
+      mainBotIds: ['b1'],
+      exchangeTurns: {},
+      models: [],
+      sideChats: {},
+      browser: true,
+      prefs: {},
+    }
+    const commonSidebar = {
+      roster,
+      useRoster: sel => sel(roster),
+      useRegistry: sel => sel({}),
+      useFrame: sel => sel({ viewport: 1280, sidebarWidth: 260, collapsedWidth: 0 }),
+      actions: { openSession() {}, openSettings() {}, openNewChat() {}, toggleSidebar() {}, navSeq: () => 0, landOn() {} },
+      useSessions: sel => sel({ ids: [], byId: {}, projectionsBySession: {} }),
+      useSessionStatus: sel => sel(new Map()),
+      useSessionRetainInfo: () => ({ mainView: 0 }),
+      useSessionTitle: () => '',
+      useSurface: sel => sel({ mode: 'bot' }),
+      useActivity: sel => sel({}),
+      useWork: sel => sel({ bots: {}, rooms: {}, approvals: [], waiting: {} }),
+      useBrowserTabs: sel => sel({}),
+      useBrowserPages: sel => sel({}),
+      useBrowserHolds: sel => sel({}),
+      useComputer: sel => sel({}),
+      useUi: sel => sel({ open: 'b1', unread: new Set() }),
+      useUpdate: sel => sel({}),
+      wide: true,
+      collapsed: false,
+      onToggleSidebar: () => {},
+    }
+
+    // Wide layout keeps single TitleToggle; narrow drawer (`hideTitleToggle: true`) omits it completely.
+    const wideTree = harness.render(harness.React.createElement(TeamSidebar, { ...commonSidebar, hideTitleToggle: false }))
+    assert.equal(findAll(wideTree, n => n.props?.className === 'bt-title-toggle').length, 1)
+    harness.unmount()
+
+    const narrowTree = harness.render(harness.React.createElement(TeamSidebar, { ...commonSidebar, hideTitleToggle: true }))
+    assert.equal(findAll(narrowTree, n => n.props?.className === 'bt-title-toggle').length, 0, 'narrow drawer must not mount a second sidebar toggle')
+    harness.unmount()
+
+    // Classic mode BotPanel with workspace.browserId='classic' mounts BrowserView without Bot-only takeover/import bars.
+    const classicPanel = harness.render(harness.React.createElement(BotPanel, {
+      leaving: false,
+      room: 1200,
+      overlay: false,
+      roster,
+      pane: { id: 'agent-1', view: 'browser', renaming: false, tab: null, side: null },
+      workspace: { tabs: [], active: null, browserId: 'classic', onSelect() {}, onCloseTab() {}, render: () => null },
+      actions: {
+        closeOverlay() {},
+        closePanel() {},
+        setPanelView() {},
+        browserEnsure() {},
+        browserNewTab() {},
+        browserPick() {},
+        browserCloseTab() {},
+        browserShow: () => Promise.resolve(),
+        browserHide() {},
+        browserBack() {},
+        browserForward() {},
+        browserReload() {},
+        browserGo() {},
+      },
+      useSessions: sel => sel({ ids: [], byId: {}, projectionsBySession: {} }),
+      useSessionStatus: sel => sel(new Map()),
+      useActivity: sel => sel({}),
+      useWork: sel => sel({ bots: {}, rooms: {}, approvals: [], waiting: {} }),
+      useBrowserTabs: sel => sel({ classic: { ids: ['t1'], active: 't1' } }),
+      useBrowserPages: sel => sel({ t1: { title: 'Docs', url: 'https://example.com' } }),
+      useBrowserHolds: sel => sel({}),
+      useComputer: sel => sel({}),
+    }))
+    assert.equal(classicPanel.props['data-view'], 'browser')
+    assert.equal(findAll(classicPanel, n => n.props?.className === 'bt-browser-bar').length, 1, 'Classic browser toolbar renders')
+    assert.equal(findAll(classicPanel, n => n.props?.className === 'bt-ptab bt-ptab-bot').length, 0, 'Classic mode omits Bot tab')
+    assert.equal(findAll(classicPanel, n => n.props?.className === 'bt-browser-hold').length, 0, 'Classic browser hides Bot takeover bar')
+    harness.unmount()
+  } finally {
+    harness.unmount()
+    globalThis.window = origWin
+    globalThis.document = origDoc
+    globalThis.ResizeObserver = origRO
+    globalThis.MutationObserver = origMO
+    globalThis.localStorage = origLS
     globalThis.requestAnimationFrame = origRaf
     globalThis.cancelAnimationFrame = origCancelRaf
   }

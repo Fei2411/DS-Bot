@@ -4,7 +4,7 @@
 
 [English](README.md) | 中文 · [文档导航](docs/README.md) · [愿景](docs/vision.zh.md) · [已知问题](docs/known-issues.zh.md) · [参与开发](CONTRIBUTING.zh.md)
 
-![版本](https://img.shields.io/badge/版本-v0.3.10-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5-4D6BFE) ![许可](https://img.shields.io/badge/许可-Apache_2.0-green)
+![版本](https://img.shields.io/badge/版本-v0.4.0-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5-4D6BFE) ![许可](https://img.shields.io/badge/许可-Apache_2.0-green)
 
 DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（简称 DSH）的开源项目，提供独立桌面应用和 DSH 插件两种形态。它将 DSH 转化为一支持久化的 Bot 团队，你可以创建、交流并与它们一起工作。
 
@@ -44,6 +44,10 @@ npx @deepseek-ai/dsh@0.2.2-rc.5 web
 **Docker（NAS、Linux 服务器）**
 
 见 [`docker/README.md`](docker/README.md)。
+
+**可选代码执行器（实验性）**
+
+可选代码执行器通过 `ds-bot/code-mode` 提供（要求 DSH **0.2.2-rc.1 或更新版本**，默认关闭，不影响旧版宿主和默认 Bot）。在当前 profile 的 `bot`（`ds-bot`）行中设置 `config.codeMode.enabled: true` 并重启 engine，多文件补丁可同时在 agent 预设中开启 `tool-fs` 的 `applyPatch: true`。参见[配置和限制](docs/plans/2026-11-18-code-mode.md)。
 
 ## 配置
 

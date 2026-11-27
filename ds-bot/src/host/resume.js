@@ -1448,6 +1448,7 @@ export function install(rt) {
         if (stopped || rt.readOnly?.() !== undefined) return totalSettled
         if (!work || !Object.hasOwn(works, workId)) continue
         if (keptWorks.has(workId) || wokenWorks.has(workId)) continue
+        if (rt.isDispatchingWork?.(workId) === true) continue
         if ((work.state ?? 'open') !== 'open') continue
         if ((work.open?.length ?? 0) !== 0) continue
         if (work.child !== undefined || work.room !== undefined) continue
@@ -1499,6 +1500,7 @@ export function install(rt) {
         const current = Object.hasOwn(works, workId) ? works[workId] : undefined
         if (current === undefined || (current.state ?? 'open') !== 'open' || (current.open?.length ?? 0) !== 0) continue
         if (keptWorks.has(workId) || wokenWorks.has(workId)) continue
+        if (rt.isDispatchingWork?.(workId) === true) continue
         const recheck = collectProtectedSets()
         if (recheck.activeTaskWorks.has(workId) || (current.toTaskId !== undefined && recheck.activeTaskIds.has(current.toTaskId))) continue
         if (recheck.roomTrackedWorks.has(workId) || recheck.inflightWorks.has(workId)) continue
@@ -1660,14 +1662,38 @@ export function install(rt) {
       || Object.keys(recoveredSilent).length > 0
   }
 
+  let recoveredSnapshotPending = false
+  const ensureRecoveredBeforeReplay = () => {
+    if (stopped || rt.readOnly?.() !== undefined || !rt.hasLoaded?.()) return
+    if (coord?.recoverAfterLock?.() === true) {
+      coord?.syncLegacyInflight?.()
+      if (mergeRecoveredSnapshot(coord.loadInitialState?.())) recoveredSnapshotPending = true
+    } else {
+      coord?.syncLegacyInflight?.()
+    }
+  }
+  const peekStartupSilent = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return []
+    ensureRecoveredBeforeReplay()
+    const list = interrupted.silent?.[sessionId]
+    return Array.isArray(list) ? list : []
+  }
+  const clearStartupSilent = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    if (interrupted.silent !== undefined && Object.hasOwn(interrupted.silent, sessionId)) {
+      const next = { ...interrupted.silent }
+      delete next[sessionId]
+      interrupted = { ...interrupted, silent: next }
+    }
+  }
+  rt.peekStartupSilent = peekStartupSilent
+  rt.clearStartupSilent = clearStartupSilent
+
   async function resumeAll() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
-    if (coord?.recoverAfterLock?.() === true) {
-      coord?.syncLegacyInflight?.()
-      mergeRecoveredSnapshot(coord.loadInitialState?.())
-    }
-    coord?.syncLegacyInflight?.()
+    ensureRecoveredBeforeReplay()
+    recoveredSnapshotPending = false
     if ((coord?.listTerminalMarkers?.().length ?? 0) > 0) {
       await reconcileTerminalMarkers().catch(error => rt.warn('ds-bot: reconciling terminal markers failed: %s', error))
     }
@@ -1826,9 +1852,10 @@ export function install(rt) {
       : setTimeout(() => {
         fastStartup = rt.load()
           .then(() => {
-            if (rt.readOnly() === undefined && coord?.recoverAfterLock?.() === true) {
-              coord?.syncLegacyInflight?.()
-              if (mergeRecoveredSnapshot(coord.loadInitialState?.())) {
+            if (rt.readOnly() === undefined) {
+              ensureRecoveredBeforeReplay()
+              if (recoveredSnapshotPending) {
+                recoveredSnapshotPending = false
                 return resumeAll()
               }
             }

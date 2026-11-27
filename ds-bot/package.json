@@ -1,6 +1,6 @@
 {
   "name": "ds-bot",
-  "version": "0.3.10",
+  "version": "0.4.0",
   "description": "DS Bot: a team of long-lived Bots for DeepSeek Harness, with Main Bots, Bot-to-Bot messages and group chats",
   "keywords": [
     "dsh-plugin",
@@ -30,9 +30,11 @@
     "./plugin-sdk": "./src/host/plugins/sdk.js",
     "./browser-provider": "./src/host/plugins/sdk.js",
     "./web-search": "./web-search.js",
+    "./code-mode": "./code-mode.js",
     "./package.json": "./package.json"
   },
   "files": [
+    "assets/",
     "bin/",
     "plugin.js",
     "index.js",
@@ -46,30 +48,41 @@
     "link.js",
     "office.js",
     "web-search.js",
+    "code-mode.js",
     "cordis.patch.yml",
+    "assets/pwa/",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "build": "node scripts/build-client.mjs && node scripts/build-link.mjs",
     "test": "node --import ./test/harness-resolve.mjs --test --test-timeout=120000 --test-force-exit \"test/*.test.js\"",
+    "test:windows": "node --import ./test/harness-resolve.mjs --test --test-concurrency=2 --test-timeout=120000 --test-force-exit \"test/*.test.js\"",
     "test:browser": "node --import ./test/harness-resolve.mjs --test --test-concurrency=1 --test-timeout=120000 --test-force-exit \"test/browser/*.test.js\"",
     "lint": "node scripts/lint.mjs",
-    "harness": "npm install --prefix dev/harness --legacy-peer-deps=false --no-package-lock --no-fund --no-audit",
+    "harness": "npm ci --prefix dev/harness --legacy-peer-deps=false --no-fund --no-audit",
     "check": "sh dev/check.sh"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
     "@deepseek-ai/dsh-fs-patch": "*",
     "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-ptc-runtime": "*",
     "@deepseek-ai/dsh-sandbox-policy": "*",
     "@deepseek-ai/dsh-scope": "*",
     "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/dsh-tool-executor-native": "*",
+    "@deepseek-ai/dsh-tool-executor-ptc": "*",
     "@deepseek-ai/dsh-typert-protocol": "*",
-    "@deepseek-ai/dsh-web": "*"
+    "@deepseek-ai/dsh-web": "*",
+    "@deepseek-ai/schemastery": "*"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/dsh-fs-patch": { "optional": true }
+    "@deepseek-ai/dsh-fs-patch": { "optional": true },
+    "@deepseek-ai/dsh-ptc-runtime": { "optional": true },
+    "@deepseek-ai/dsh-tool-executor-native": { "optional": true },
+    "@deepseek-ai/dsh-tool-executor-ptc": { "optional": true },
+    "@deepseek-ai/schemastery": { "optional": true }
   },
   "dsh": {
     "client": {
@@ -95,6 +108,7 @@
     "nodemailer": "10.2.1",
     "playwright-core": "1.64.1",
     "pngjs": "7.0.0",
+    "saxes": "6.0.0",
     "semver": "^7.8.6",
     "undici": "8.11.2",
     "ws": "8.18.3"

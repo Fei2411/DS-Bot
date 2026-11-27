@@ -340,6 +340,36 @@ test('Overlays wraps every overlay and watcher child in an OverlayBoundary', () 
     'notifications', 'side-app-opens', 'opening', 'panel', 'new-chat', 'palette',
     'group-search', 'exchange', 'voice', 'menu', 'settings', 'memory',
   ])
+  const openingBoundary = children.find(child => child.props.name === 'opening')
+  assert.equal(openingBoundary.props.children.props.onNewSession, undefined)
+})
+
+test('Overlays passes actions.recoverOpening as onNewSession through the opening OverlayBoundary', () => {
+  const { react } = createRuntime()
+  const { Overlays, OverlayBoundary } = loadModule(react)
+  const recoverOpening = () => {}
+  const roster = { bots: [], rooms: [], byId: { 'bot-1': { id: 'bot-1', name: 'Chief' } }, roomsById: {}, exchangeTurns: {}, prefs: {} }
+  const tree = Overlays({
+    useRoster: select => select(roster),
+    useUi: select => select({ pendingOpen: { target: 'bot-1', id: 'bot-1', name: 'Chief', failed: true }, leftDrawer: false, panelYield: false }),
+    useSessions: select => select({ byId: {} }),
+    useSessionStatus: select => select(new Map()),
+    useActivity: select => select({}),
+    useWork: select => select({}),
+    useComputer: select => select({}),
+    useRegistry: select => select({}),
+    useBrowserPages: select => select({}),
+    useBrowserTabs: select => select({}),
+    useBrowserHolds: select => select({}),
+    useUpdate: select => select({}),
+    useFrame: select => select({ viewport: 1400, sidebarWidth: 280, collapsedWidth: 0 }),
+    useSidebarPref: select => select('open'),
+    useSettingsShellHeld: select => select(false),
+    actions: { recoverOpening },
+  })
+  const openingBoundary = tree.props.children.filter(Boolean).find(child => child.type === OverlayBoundary && child.props.name === 'opening')
+  assert.ok(openingBoundary, 'opening OverlayBoundary is mounted')
+  assert.equal(openingBoundary.props.children.props.onNewSession, recoverOpening)
 })
 
 test('Overlays derives distinct panel reset keys for different background tasks', () => {

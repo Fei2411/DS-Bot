@@ -11,6 +11,7 @@ import { build } from 'esbuild'
 // from the chat's hooks down to the textarea and the plugin's voice buttons.
 const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
 const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
+const deepViewReact = fileURLToPath(import.meta.resolve('deep-view/react'))
 const stubs = {
   'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const EarlierParts = () => null\nexport const PartLine = () => null\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\nexport const Elapsed = () => null\nexport const workPhrase = () => ""\nexport const ToolCell = (props) => ({ type: "tool-cell", props: { ...props, children: [] } })\nexport const isBotTool = name => ["show_view", "ask_user", "request_secret", "message_bot", "computer_handoff"].includes(name)\n',
   'widget-cell.js': 'export const WidgetCell = () => null\nexport const WidgetDock = () => null\nexport const AnsweredReply = () => null\nexport const ViewCard = () => null\n',
@@ -27,6 +28,7 @@ const { outputFiles } = await build({
     setup(bundler) {
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-llm\/assistant-stream$/ }, () => ({ path: assistantStream }))
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-util-values$/ }, () => ({ path: utilValues }))
+      bundler.onResolve({ filter: /^deep-view\/react$/ }, () => ({ path: deepViewReact }))
       bundler.onResolve({ filter: /(src\/client\/(cells|widget-cell|model-menu|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
         const name = args.path.split('/').pop()
         return { path: name === 'dsh-primitives.js' ? 'primitives.js' : name, namespace: 'app-chat-stub' }
@@ -64,9 +66,11 @@ class TestComponent {
   constructor(props) { this.props = props; this.state = {} }
   setState(next) { this.state = { ...this.state, ...(typeof next === 'function' ? next(this.state, this.props) : next) } }
 }
+const MEMO_TYPE = Symbol.for('react.memo')
 const react = {
   Component: TestComponent,
   Fragment: 'fragment',
+  memo: fn => ({ $$typeof: MEMO_TYPE, type: fn }),
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
   useState: (initial) => {
     const cell = slot(() => ({ value: typeof initial === 'function' ? initial() : initial }))
@@ -148,22 +152,25 @@ const { Chat } = module.exports
 
 // Function children stay inert in the React stand-in, so the tree is expanded by
 // calling them with per-component fiber buckets so dynamic siblings never shift hook slots.
+const resolveType = type => (type && typeof type === 'object' && type.$$typeof === MEMO_TYPE ? type.type : type)
+
 const expand = (node, path = 'root') => {
   if (Array.isArray(node)) return node.map((child, idx) => expand(child, `${path}[${child?.props?.key ?? idx}]`))
   if (!node || typeof node !== 'object') return node
-  if (typeof node.type === 'function') {
-    const id = `${path}/${node.type.name || 'fn'}:${node.props?.key ?? ''}`
+  const fn = resolveType(node.type)
+  if (typeof fn === 'function') {
+    const id = `${path}/${fn.name || 'fn'}:${node.props?.key ?? ''}`
     let bucket = current.fibers.get(id)
     if (!bucket) { bucket = { slots: [], index: 0 }; current.fibers.set(id, bucket) }
     bucket.index = 0
     const prev = current.fiber
     current.fiber = bucket
     try {
-      if (node.type.prototype instanceof TestComponent) {
-        const comp = new node.type(node.props)
+      if (fn.prototype instanceof TestComponent) {
+        const comp = new fn(node.props)
         return expand(comp.render(), id)
       }
-      return expand(node.type(node.props), id)
+      return expand(fn(node.props), id)
     } finally {
       current.fiber = prev
     }
@@ -939,4 +946,12 @@ test('DSH Agent blank session renders AgentEmptyHero with workspace folder and f
   } finally {
     view.unmount()
   }
+})
+
+test('adaptRoomItem preserves presented files on group Bot messages for ChatRows', () => {
+  const { adaptRoomItem } = module.exports
+  const file = { name: 'report.pdf', path: '/work/report.pdf', description: 'Final', sessionId: 'm1', seq: 5, index: 0 }
+  const adapted = adaptRoomItem({ id: 'r1:0', kind: 'bot', botId: 'b1', name: 'Writer', text: 'Ready.', time: 100, files: [file] })
+  assert.equal(adapted.kind, 'post')
+  assert.deepEqual(adapted.presented, [file])
 })

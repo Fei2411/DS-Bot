@@ -19,12 +19,12 @@ import {
   isPublicIpAddress,
   isUrgentNoticeKind,
   isValidPushEndpoint,
-  isValidPushToken,
   pairingUri,
   randomToken,
   sealPushEnvelope,
 } from '../../link.js'
 import { BROWSER_ALLOWED } from '../shared/browser-endpoints.js'
+import { computerOnlyError, unclassifiedRemoteError } from '../shared/remote-endpoints.js'
 
 const FILE = 'phone.json'
 const SERVER = /^wss?:\/\/[^\s/?#@]+(\/[^\s?#]*)?$/i
@@ -50,23 +50,28 @@ function trimUtf8(value, maxBytes) {
   return out
 }
 
-async function postUnifiedPush(endpoint, bodyText, urgency, signal, allowLoopbackHttp) {
+export async function resolveVerifiedPushAddresses(hostname, lookupFn = dnsLookup) {
+  const entries = await lookupFn(hostname, { all: true, verbatim: true })
+  if (!Array.isArray(entries) || entries.length === 0) return []
+  if (!entries.every(entry => isPublicIpAddress(entry.address))) {
+    throw new Error('Push endpoint resolved to a non-public address')
+  }
+  return entries.map(({ address, family }) => ({ address, family }))
+}
+
+async function postUnifiedPush(endpoint, bodyText, urgency, signal, allowLoopbackHttp, lookupFn = dnsLookup) {
   if (!isValidPushEndpoint(endpoint, { allowLoopbackHttp })) return { status: 0 }
   const parsed = new URL(endpoint)
   const isLoopbackTest = allowLoopbackHttp && parsed.protocol === 'http:'
   const hostBare = parsed.hostname.startsWith('[') && parsed.hostname.endsWith(']')
     ? parsed.hostname.slice(1, -1)
     : parsed.hostname
-  let resolved
+  let resolvedList
   if (isLoopbackTest) {
-    resolved = { address: hostBare === 'localhost' ? '127.0.0.1' : hostBare, family: hostBare.includes(':') ? 6 : 4 }
+    resolvedList = [{ address: hostBare === 'localhost' ? '127.0.0.1' : hostBare, family: hostBare.includes(':') ? 6 : 4 }]
   } else {
-    const entries = await dnsLookup(hostBare, { all: true, verbatim: true })
-    if (!Array.isArray(entries) || entries.length === 0) return { status: 0 }
-    if (!entries.every(entry => isPublicIpAddress(entry.address))) {
-      throw new Error('Push endpoint resolved to a non-public address')
-    }
-    resolved = entries[0]
+    resolvedList = await resolveVerifiedPushAddresses(hostBare, lookupFn)
+    if (resolvedList.length === 0) return { status: 0 }
   }
 
   const body = Buffer.from(bodyText, 'utf8')
@@ -82,10 +87,12 @@ async function postUnifiedPush(endpoint, bodyText, urgency, signal, allowLoopbac
         ttl: '86400',
         urgency,
       },
+      // Return every verified public IP when Node requests `{ all: true }` so Happy Eyeballs
+      // can fall back from IPv6 to IPv4 on dual-stack hosts without risking DNS rebinding.
       lookup: (_host, opts, cb) => {
-        if (typeof opts === 'function') { opts(null, resolved.address, resolved.family); return }
-        if (opts && opts.all) { cb(null, [{ address: resolved.address, family: resolved.family }]); return }
-        cb(null, resolved.address, resolved.family)
+        if (typeof opts === 'function') { opts(null, resolvedList[0].address, resolvedList[0].family); return }
+        if (opts && opts.all) { cb(null, resolvedList.map(entry => ({ ...entry }))); return }
+        cb(null, resolvedList[0].address, resolvedList[0].family)
       },
     }, (res) => {
       const status = res.statusCode ?? 0
@@ -110,31 +117,13 @@ async function postUnifiedPush(endpoint, bodyText, urgency, signal, allowLoopbac
 
 export function remoteAccessError(device, endpoint) {
   if (device === undefined) return { code: 'bot/refused', message: 'This device is not paired', details: {} }
-  if (endpoint.startsWith('phone-')) return { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} }
-  // A Session's whole log, any Session's (session-follow.js), is read by the window on the
-  // computer; a phone reads the team's chats.
-  if (endpoint.startsWith('session-')) return { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} }
-  if (endpoint.startsWith('api-')) return { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} }
+  // Pairing, Session logs and external API tokens had their own messages before the
+  // classification moved into shared/remote-endpoints.js; browsers keep seeing them.
+  if (endpoint.startsWith('phone-') || endpoint.startsWith('session-') || endpoint.startsWith('api-')) return computerOnlyError(endpoint)
   if (device.kind !== 'phone' && !BROWSER_ALLOWED.has(endpoint)) {
     return { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
   }
-  if (endpoint.startsWith('mcp-')) return { code: 'bot/refused', message: 'MCP access is set up on the computer', details: {} }
-  if (endpoint.startsWith('workspace-') || endpoint.startsWith('terminal-')) {
-    return { code: 'bot/refused', message: 'Workspace files and terminals are available on the computer', details: {} }
-  }
-  if (endpoint.startsWith('engine-')) {
-    return { code: 'bot/refused', message: 'Engine settings are managed on the computer', details: {} }
-  }
-  if (endpoint.startsWith('plugins-')) {
-    return { code: 'bot/refused', message: 'Plugins are managed on the computer', details: {} }
-  }
-  if (endpoint.startsWith('speech-')) {
-    return { code: 'bot/refused', message: 'Voice input settings and transcription are available on the computer', details: {} }
-  }
-  if (endpoint.startsWith('telemetry-')) {
-    return { code: 'bot/refused', message: 'Privacy and telemetry settings are managed on the computer', details: {} }
-  }
-  return undefined
+  return computerOnlyError(endpoint) ?? unclassifiedRemoteError(endpoint)
 }
 
 // A browser may not open DSH Agent chats, so it may not read their media or answer their approvals either.
@@ -142,17 +131,36 @@ const AGENT_MEDIA = new Set(['image', 'file-download', 'markdown-image'])
 const BROWSER_DENIED = { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
-function remoteState(state, { browser = false } = {}) {
+export function remoteState(state, { browser = false } = {}) {
   if (!state || typeof state !== 'object') return state
   let next = state
+  if (Object.hasOwn(next, 'userQuestions') || Object.hasOwn(next, 'sessionQueues')) {
+    next = { ...next }
+    delete next.userQuestions
+    delete next.sessionQueues
+  }
   if (next.phone && Object.hasOwn(next.phone, 'pairing')) {
     const phone = { ...next.phone }
     delete phone.pairing
     next = { ...next, phone }
   }
-  if (browser && Array.isArray(next.work?.approvals)) {
-    const approvals = next.work.approvals.filter(entry => entry?.botId !== undefined)
-    if (approvals.length !== next.work.approvals.length) {
+  if (Array.isArray(next.work?.approvals)) {
+    let changed = false
+    const approvals = []
+    for (const entry of next.work.approvals) {
+      if (browser && entry?.botId === undefined) {
+        changed = true
+        continue
+      }
+      if (entry && Object.hasOwn(entry, 'alwaysAllow')) {
+        const { alwaysAllow: _, ...rest } = entry
+        approvals.push(rest)
+        changed = true
+      } else {
+        approvals.push(entry)
+      }
+    }
+    if (changed) {
       next = { ...next, work: { ...next.work, approvals } }
     }
   }
@@ -215,25 +223,17 @@ export function install(rt) {
         status = response.status
         await response.body?.cancel?.().catch(() => {})
       } else {
-        const res = await postUnifiedPush(device.push.endpoint, bodyText, urgency, signal, rt.pushAllowLoopbackHttp === true)
+        const res = await postUnifiedPush(
+          device.push.endpoint,
+          bodyText,
+          urgency,
+          signal,
+          rt.pushAllowLoopbackHttp === true,
+          rt.pushLookup ?? dnsLookup,
+        )
         status = res.status
       }
       if (status === 404 || status === 410) {
-        registry?.setPush(device.deviceId, undefined)
-        clearPushQueue(device.deviceId)
-        reconcileFeed()
-      }
-      return
-    }
-    if (device.push.kind === 'fcm' && link !== null) {
-      const res = await link.sendPush({
-        targetDeviceId: device.deviceId,
-        kind: 'fcm',
-        token: device.push.token,
-        urgency,
-        envelope,
-      })
-      if (res.gone === true) {
         registry?.setPush(device.deviceId, undefined)
         clearPushQueue(device.deviceId)
         reconcileFeed()
@@ -297,7 +297,7 @@ export function install(rt) {
     const wantFeed = running !== null && (readyCount > 0 || hasPushDevices())
     if (wantFeed && feedUntap === null) {
       feedUntap = rt.feedTap((event, payload) => {
-        if (event === 'terminal' || event === 'terminal-exit') return
+        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs' || event === 'workspace-changed') return
         if (readyCount > 0) {
           if (event === 'live') {
             running.emit(event, remoteState(payload, { browser: true }), (targetDeviceId) => {
@@ -354,14 +354,28 @@ export function install(rt) {
     const id = String(payload?.id ?? '')
     if (id === '') return false
     const entry = rt.approvalById?.(id) ?? rt.approvalsView?.()?.find(item => item.id === id)
-    return entry !== undefined && (entry.botId === undefined || rt.agentOf?.(entry.sessionId) !== undefined)
+    return entry !== undefined && (entry.botId === undefined || rt.agentOf?.(entry.sessionId) !== undefined || rt.agentOf?.(entry.ownerSessionId) !== undefined)
   }
-  const agentAccessError = (device, endpoint, payload) =>
-    device.kind !== 'phone'
-    && ((AGENT_MEDIA.has(endpoint) && rt.agentOf?.(String(payload?.sessionId ?? '')) !== undefined)
-      || agentApprovalDenied(endpoint, payload))
-      ? BROWSER_DENIED
-      : undefined
+  const hasParentArg = payload => payload?.parent !== undefined && payload?.parent !== null && String(payload.parent).trim() !== ''
+  const agentAccessError = (device, endpoint, payload) => {
+    if (endpoint === 'approval-answer' && payload?.choice === 'always') {
+      return { code: 'bot/refused', message: 'Always allow is available on the computer', details: {} }
+    }
+    if (endpoint === 'image' && hasParentArg(payload)) {
+      return device.kind !== 'phone'
+        ? BROWSER_DENIED
+        : { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} }
+    }
+    if (device.kind !== 'phone'
+      && ((AGENT_MEDIA.has(endpoint) && (
+        rt.agentOf?.(String(payload?.sessionId ?? '')) !== undefined
+        || rt.agentOf?.(String(payload?.parent ?? '')) !== undefined
+      ))
+        || agentApprovalDenied(endpoint, payload))) {
+      return BROWSER_DENIED
+    }
+    return undefined
+  }
   const callBot = async (params, signal, deviceId) => {
     const endpoint = String(params?.endpoint ?? '')
     // Fail closed if the calling device is missing, unknown, or was revoked.
@@ -373,24 +387,15 @@ export function install(rt) {
     const browser = device.kind !== 'phone'
     if (endpoint === 'push-register') {
       const payload = params?.payload ?? {}
-      const kind = payload?.kind
-      if (kind === 'unifiedpush') {
-        if (!isValidPushEndpoint(payload?.endpoint, { allowLoopbackHttp: rt.pushAllowLoopbackHttp === true })) {
-          return { ok: false, error: { code: 'bot/invalid', message: 'Push endpoint must be a valid https:// URL', details: {} } }
-        }
-        registry.setPush(device.deviceId, { kind: 'unifiedpush', endpoint: payload.endpoint, updatedAt: Date.now() })
-        reconcileFeed()
-        return { ok: true, value: { registered: true, kind: 'unifiedpush', relayFcm: link?.capabilities?.().includes('push.fcm') === true } }
+      if (payload?.kind !== 'unifiedpush') {
+        return { ok: false, error: { code: 'bot/invalid', message: 'Push kind must be unifiedpush', details: {} } }
       }
-      if (kind === 'fcm') {
-        if (!isValidPushToken(payload?.token)) {
-          return { ok: false, error: { code: 'bot/invalid', message: 'Push token is invalid', details: {} } }
-        }
-        registry.setPush(device.deviceId, { kind: 'fcm', token: payload.token, updatedAt: Date.now() })
-        reconcileFeed()
-        return { ok: true, value: { registered: true, kind: 'fcm', relayFcm: link?.capabilities?.().includes('push.fcm') === true } }
+      if (!isValidPushEndpoint(payload?.endpoint, { allowLoopbackHttp: rt.pushAllowLoopbackHttp === true })) {
+        return { ok: false, error: { code: 'bot/invalid', message: 'Push endpoint must be a valid https:// URL', details: {} } }
       }
-      return { ok: false, error: { code: 'bot/invalid', message: 'Push kind must be unifiedpush or fcm', details: {} } }
+      registry.setPush(device.deviceId, { kind: 'unifiedpush', endpoint: payload.endpoint, updatedAt: Date.now() })
+      reconcileFeed()
+      return { ok: true, value: { registered: true, kind: 'unifiedpush' } }
     }
     if (endpoint === 'push-unregister') {
       registry.setPush(device.deviceId, undefined)

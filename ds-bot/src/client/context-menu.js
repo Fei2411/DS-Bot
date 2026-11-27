@@ -5,7 +5,7 @@ import { isMainOf } from './sources.js'
 import { currentPart } from './text.js'
 import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon, FolderIcon, PlusIcon, CheckIcon, PeopleIcon, SignOutIcon } from './icons.js'
 import { BotMark, RoomAvatar } from './mark.js'
-import { useEscape } from './overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { stepMenuFocus, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
 
@@ -32,7 +32,7 @@ function sectionMoveItems(entry, roster, actions) {
 const useNullWork = () => 'null'
 
 export function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
-  useEscape(() => actions.closeMenu(), !leaving)
+  useEscape(() => actions.closeMenu(), !leaving, { priority: ESCAPE_PRIORITY.MENU })
   const ref = useRef(null)
   const trigger = useRef(typeof document === 'undefined' ? null : document.activeElement)
   const [armedDelete, setArmedDelete] = useState(false)

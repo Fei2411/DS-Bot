@@ -1,0 +1,511 @@
+// Generated from src/shared/release-notes.json and ../CHANGELOG.md by `npm run build` (scripts/build-client.mjs). Do not edit by hand.
+export const RELEASE_NOTES = [
+  {
+    "version": "0.4.0",
+    "date": "2026-11-27",
+    "notes": {
+      "zh": {
+        "items": [
+          "全新独立桌面端：更轻更快、大幅降低 CPU 与内存消耗，新增 Fei 主题、双色自动配色、VS Code 主题导入与自定义样式",
+          "统一收件箱：所有 Bot 和群聊的待批准、待回答、未读消息集中处理",
+          "全新 20 款动态形象：桌面和手机同步显示每个 Bot 当前状态，支持自定义群头像",
+          "Bot 插件与安全分级：新增插件市场与四级权限安全模型",
+          "隐私与安全升级：默认拦截底层遥测，隐私 Bot 断网保护更安全；新增原子存盘防断电丢数据",
+          "自动审查与权限升级：可选审查模型自动把关审批，支持多文件夹授权与单 Bot 独立预设",
+          "统一外部 API：本机开放 MCP、OpenAI 兼容接口和 CLI，支持外部 Agent 调用，彻底打通工作流",
+          "协作与上下文重构：群聊与消息结构重构，上下文支持工具结果召回且更稳命中缓存，并可选开启代码模式编排多工具",
+          "账号、密钥与快捷键：支持 ChatGPT 登录、同 CLI 多账号、1Password（op://）与多行密钥、全局自定义快捷键",
+          "浏览器增强：新增可热切换的浏览器插件（目前可选 Ego Lite 浏览器、Playwright MCP、Chrome DevTools MCP），优化 Cookie 导入并支持 macOS Safari 批量导入",
+          "手机端升级：Android 支持应用内自动更新、原生通知与完整用量看板；对话内支持直接查看交互卡片、保留输入内容与回车发送",
+          "更多体验与修复：关于页新增自动更新开关与更新日志弹窗，并修复大量 IM、本地 CLI 与稳定性问题"
+        ],
+        "intro": "全新自写桌面前端、统一收件箱、Bot 插件与全新 Bot 形象上线，安全与隐私升级，更轻、更稳、更开放。"
+      },
+      "en": {
+        "items": [
+          "Native desktop frontend: lighter and faster with much lower CPU and memory usage, plus the Fei theme, 2-color themes, VS Code theme import, and custom CSS",
+          "Unified Inbox: handle pending approvals, unanswered questions, and unread messages across all Bots and groups in one view",
+          "20 new live avatars: see each Bot's current status at a glance across desktop and phone, plus custom group avatars",
+          "Bot Plugins & security tiers: new plugin catalog with a 4-tier permission and security model",
+          "Privacy & durability: blocks underlying telemetry by default with fail-closed offline protection for private Bots, plus atomic saves against power loss",
+          "Auto Review & permissions: optional review model for approvals, multi-folder access, and per-Bot Agent presets",
+          "Unified External API: local MCP, OpenAI-compatible API, and CLI so external Agents can plug right into your workflow",
+          "Coordination & context overhaul: cleaner group and message coordination, tool-output recall with steadier prompt caching, and opt-in Code Mode",
+          "Accounts, Secrets & shortcuts: Sign in with ChatGPT, multiple profiles per local CLI, 1Password (op://) and multiline secrets, and customizable shortcuts",
+          "Browser upgrades: hot-swappable browser plugins (Ego Lite Browser, Playwright MCP, Chrome DevTools MCP) plus improved batch Cookie import with macOS Safari support",
+          "Phone upgrades: Android in-app auto-update, native notifications, and full Usage dashboard, plus inline interactive cards, saved drafts, and Enter-to-send",
+          "Polish & fixes: automatic updates toggle and in-app What's New dialog in About, plus stability fixes across IM platforms and local CLIs"
+        ],
+        "intro": "A native DS Bot desktop frontend, unified Inbox, Bot Plugins, redesigned live avatars, and stronger privacy — lighter, steadier, and more open."
+      }
+    }
+  },
+  {
+    "version": "0.3.10",
+    "date": "2026-11-22",
+    "notes": {
+      "zh": {
+        "items": [
+          "设置新增概览页和 ⌘K / Ctrl+K 搜索，一键找设置、Bot 和模型",
+          "新增功能包，MCP 和技能支持按需加载，对话更轻量",
+          "微信、飞书等 IM 群聊现在可以直接回复提问和表单卡片",
+          "Bot 回归单一连续对话，上下文自动换段，并行活交给后台任务",
+          "侧栏直接显示待批准和待回答提醒，状态一眼看清",
+          "修复模型选择器崩溃，弹窗各自隔离，单个报错不再卡死界面"
+        ],
+        "intro": "设置全新改版，整体更稳更快。"
+      },
+      "en": {
+        "items": [
+          "New Settings overview and ⌘K / Ctrl+K search for settings, Bots, and models",
+          "Feature packs load MCP servers and skills on demand to keep chats lighter",
+          "Question, form, and multi-select cards now work right inside IM group chats",
+          "Every Bot is back to one continuous chat with automatic rollover and background tasks",
+          "Sidebar rows now show pending approval and question badges at a glance",
+          "Fixed the model picker crash and isolated dialogs so one error never freezes the app"
+        ],
+        "intro": "A cleaner Settings home and a steadier team overall."
+      }
+    }
+  },
+  {
+    "version": "0.3.9",
+    "date": "2026-11-21",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增 Bot 异步后台任务，慢活自动转后台，顶部灵动岛随时看进度",
+          "新增网页版手机远控，任意浏览器都能加密控制你的 Bot 团队",
+          "可选开启 DeepSeek 官方搜索、文档识别与语音听写朗读",
+          "新增本机 MCP 访问，允许本机其他 Agent 直接调用你的团队",
+          "没发出去的消息和附件自动保留，切换对话或换段不再丢失",
+          "大幅优化启动速度、长对话打字流畅度与用量查询性能"
+        ]
+      },
+      "en": {
+        "items": [
+          "Background tasks keep slow work moving while Dynamic Island shows live progress",
+          "Web remote lets you control your Bot team from any browser over an encrypted link",
+          "Opt-in DeepSeek Search, document reading, voice dictation, and reply read-aloud",
+          "Local MCP access lets other agents on your computer reach your Bots",
+          "Unsent drafts and attachments now stay with each chat across switches",
+          "Faster startup, smoother typing in long chats, and quicker Usage and search"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.3.8",
+    "date": "2026-11-16",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增 Antigravity 等 25 个本地编程 CLI 支持，自动桥接 MCP",
+          "新增群聊任务看板、共用待办、群搜索与成员改动文件审阅",
+          "选中聊天文字可直接引用或批注，长回复新增阅读进度胶囊",
+          "新增界面动效三档与空闲自动暂停，桌面端 CPU 占用明显下降",
+          "密钥支持口令加密保存，手机端支持保存 Bot 交付的文件"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added 25 more local coding CLIs including Antigravity with automatic MCP bridging",
+          "Added group task board, shared to-dos, group search, and member diff reviews",
+          "Select chat text to quote or annotate, plus a reading pill for long replies",
+          "Added Interface motion presets and idle animation pause to cut CPU use",
+          "Optional passphrase encryption for Secrets and file saving on the phone app"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.3.6",
+    "date": "2026-11-12",
+    "notes": {
+      "zh": {
+        "items": [
+          "修复 Android 手机端切换 Bot、群聊或打开记忆页时的闪退问题",
+          "Android 安装包补齐 v1 / v2 / v3 签名，首次安装识别更顺畅",
+          "修复手机端气泡、卡片、代码间距与照片预览等多处显示细节"
+        ]
+      },
+      "en": {
+        "items": [
+          "Fixed Android crashes when switching chats, tapping banners, or opening Memory",
+          "Signed the Android APK with v1, v2, and v3 schemes for smooth first-time installs",
+          "Polished chat bubbles, cards, inline code spacing, and photo previews on mobile"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.3.5",
+    "date": "2026-11-11",
+    "notes": {
+      "zh": {
+        "items": [
+          "上线 Android 手机 App 测试版，扫码配对即可端到端加密控制团队",
+          "新增繁体中文、日、韩、西、法、德六种界面语言",
+          "群聊和 Bot 间消息改走可靠账本，重启也不再丢失未完成的回复",
+          "已回答或关闭的卡片留在对话原处收起，不再一直挡在输入框上方"
+        ]
+      },
+      "en": {
+        "items": [
+          "Launched the Android phone app (beta) with end-to-end encrypted QR pairing",
+          "Added six interface languages: Traditional Chinese, Japanese, Korean, Spanish, French, and German",
+          "Group and Bot-to-Bot messages now run on a durable ledger that survives restarts",
+          "Settled cards fold neatly in place instead of staying pinned above the composer"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.3.2",
+    "date": "2026-11-09",
+    "notes": {
+      "zh": {
+        "items": [
+          "侧栏支持分组与拖拽整理，团队再多也能井井有条",
+          "记忆系统升级分层与每日自动整理，支持置顶、到期日和一键撤销",
+          "macOS 桌面端改用无标题栏设计配侧栏毛玻璃，设置合为双栏窗口",
+          "模型和本地 Agent 合进同一选择器，修复 Windows 电脑操控与 CLI 启动问题"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added collapsible sidebar sections with drag-and-drop organization",
+          "Upgraded Memory with topic layers, pins, expiry dates, and daily tidy with undo",
+          "Frameless macOS window with sidebar vibrancy and a unified two-column Settings view",
+          "Combined models and local CLIs in one picker and fixed Windows Computer use startup"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.3.1",
+    "date": "2026-11-07",
+    "notes": {
+      "zh": {
+        "items": [
+          "修复打开「本地 Agent」设置后其他弹窗无法打开的问题",
+          "更新 Docker 镜像内置的 DeepSeek Harness 版本"
+        ]
+      },
+      "en": {
+        "items": [
+          "Fixed dialogs failing to open after visiting Settings → Local agents",
+          "Updated the DeepSeek Harness runtime bundled in the Docker image"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.3.0",
+    "date": "2026-11-07",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增电脑操控，Bot 可在授权范围内操作桌面应用，你随时可接管",
+          "支持接入微信、飞书、钉钉、企业微信、QQ、Telegram、Discord 与 Slack",
+          "新增连接器目录，一键登录连接邮箱和常用外部服务",
+          "支持把 Claude Code、Codex、Devin 等本地编程 CLI 直接当 Bot 用"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added Computer use so Bots can operate approved desktop apps with instant takeover",
+          "Connect Bots to WeChat, Feishu, DingTalk, WeCom, QQ, Telegram, Discord, and Slack",
+          "Added a Connectors catalog with one-step sign-in for mailboxes and external services",
+          "Run local coding CLIs like Claude Code, Codex, and Devin right alongside your Bots"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.2.7",
+    "date": "2026-11-03",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增群聊目标，群管理员可分阶段派活并逐段验收",
+          "桌面端新增启动窗口，首次选文件夹和导入团队都在应用内完成",
+          "记忆支持变更历史与单条撤销，设置可指定新 Bot 默认模型",
+          "修复群聊漏回、Office 预览打不开以及界面细节问题"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added Group goals so the admin can split work into checked stages",
+          "Added an in-app start window with built-in folder picking and team import",
+          "Added Memory history with single-change undo and a default model for new Bots",
+          "Fixed group reply misses, Office document previews, and layout polish"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.2.6",
+    "date": "2026-11-02",
+    "notes": {
+      "zh": {
+        "items": [
+          "修复早期版本导入的团队中群聊打不开的问题，启动时自动补齐缺失会话"
+        ]
+      },
+      "en": {
+        "items": [
+          "Fixed imported group chats failing to open by restoring missing sessions on startup"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.2.5",
+    "date": "2026-11-01",
+    "notes": {
+      "zh": {
+        "items": [
+          "桌面端与安装包统一更名为 DS Bot，原有团队和设置无缝保留",
+          "群聊取消接力次数上限，被点到的成员同时开工并汇总结果",
+          "私聊中途插话马上送达，修复 30 多项消息、记忆与桌面体验问题"
+        ]
+      },
+      "en": {
+        "items": [
+          "Unified desktop branding as DS Bot while keeping all existing teams and settings",
+          "Removed the group relay limit and let mentioned members work in parallel",
+          "Mid-turn messages reach Bots right away, plus over 30 stability fixes"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.2.4",
+    "date": "2026-10-29",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增隐私 Bot，文件夹、记忆与聊天对外隔离，分享须经你批准",
+          "新增 Word、PowerPoint、Excel 文档读写与检查能力",
+          "侧栏支持自由拖宽或收起为头像窄栏，群聊新增「全部停止」"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added private Bots with isolated folders, memory, and approval-gated sharing",
+          "Bots can now read, inspect, and edit Word, PowerPoint, and Excel documents",
+          "Resizable sidebar with avatar-rail collapse and a Stop all button for groups"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.2.3",
+    "date": "2026-10-27",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增系统托盘，关掉窗口后 Bot 依然在后台继续干活",
+          "新增头像库，可批量导入照片给任意 Bot 复用",
+          "新增浏览器交接卡，需要登录或付款时在聊天里一键接管"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added system tray support so Bots keep working after you close the window",
+          "Added an avatar library to import and reuse custom photos across Bots",
+          "Added browser handoff cards to take over sign-ins and payments from chat"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.2.2",
+    "date": "2026-10-25",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增 Bot 浏览器和桌面浏览器面板，保留登录态，敏感操作须你批准",
+          "支持 /side 侧边对话，以及在菜单中打开终端和文件树",
+          "关于页新增手动检查更新，修复重启后委派结果丢失问题"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added per-Bot browsers and a desktop browser panel with approval-gated actions",
+          "Updated /side for side chats alongside quick terminal and file-tree access",
+          "Added update checks in About and fixed delegated results across restarts"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.2.1",
+    "date": "2026-10-23",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增 Linux 桌面应用，提供 AppImage 和 deb 安装包",
+          "新增 /btw 顺手插问、消息布局宽度调节与平铺模式",
+          "Bot 回复支持展示图表、计算器和自定义交互视图"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added the Linux desktop app as both AppImage and deb packages",
+          "Added /btw side questions, bubble width sliders, and a flat message layout",
+          "Bots can now render charts, calculators, and custom views inside replies"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.2.0",
+    "date": "2026-10-21",
+    "notes": {
+      "zh": {
+        "items": [
+          "发布 Windows 与 macOS 桌面应用，支持首次引导与导入旧团队",
+          "新增应用更新提醒与后台下载、群聊专属记忆和视图卡片"
+        ]
+      },
+      "en": {
+        "items": [
+          "Launched the Windows and macOS desktop app with first-run setup and team import",
+          "Added app update checks, group-only memory, and interactive view cards"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.1.7",
+    "date": "2026-10-16",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增 Docker 镜像，方便部署到 NAS 或常开服务器",
+          "Bot 互相可见工作状态，交接任务等齐结果再汇总答复"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added a Docker image for NAS and always-on servers",
+          "Bots see each other's status and wait for all delegated results before replying"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.1.6",
+    "date": "2026-10-15",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增群聊统一权限开关，群内协作支持实时同步进度"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added unified group permissions and live progress updates during group work"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.1.5",
+    "date": "2026-10-13",
+    "notes": {
+      "zh": {
+        "items": [
+          "支持为 Bot 和群聊指定工作文件夹，修复交付文件卡片显示问题"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added custom working folders for Bots and groups, plus deliverable card fixes"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.1.4",
+    "date": "2026-10-13",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增共享能力管理、重启后工作自动恢复、审批角标和群聊 @ 分工"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added shared capabilities, automatic work recovery, approval badges, and @ handoffs"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.1.3",
+    "date": "2026-10-12",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增 @ 提及列表、聊天引用，Bot 工作中也能及时收到新消息"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added @ mention autocomplete, chat references, and live delivery to busy Bots"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.1.2",
+    "date": "2026-10-11",
+    "notes": {
+      "zh": {
+        "items": [
+          "新增「关于 DS Bot」页面，可查看版本并手动检查更新"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added the About DS Bot page with version info and update checks"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.1.1",
+    "date": "2026-10-11",
+    "notes": {
+      "zh": {
+        "items": [
+          "支持按 Bot 设置思考强度与权限档位，接入本地语音识别"
+        ]
+      },
+      "en": {
+        "items": [
+          "Added per-Bot thinking levels, permission presets, and local voice input"
+        ]
+      }
+    }
+  },
+  {
+    "version": "0.1.0",
+    "date": "2026-10-10",
+    "notes": {
+      "zh": {
+        "items": [
+          "DS Bot 首个公开预览版，带来 Bot 团队、群聊、记忆、定时任务与密钥卡"
+        ]
+      },
+      "en": {
+        "items": [
+          "First public preview with Bot teams, group chats, memory, schedules, and secret cards"
+        ]
+      }
+    }
+  }
+]

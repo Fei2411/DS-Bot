@@ -1,5 +1,5 @@
 import { AppState, Platform } from 'react-native'
-import { readPrefs } from '../store.ts'
+import { listComputers, readPrefs } from '../store.ts'
 import type { ChatTarget } from '../screens/TeamList.tsx'
 import { t } from '../ui/i18n.ts'
 import {
@@ -23,12 +23,35 @@ import { recordNoticeSeen } from './notice-cursor-store.ts'
 const onlineHosts = new Set<string>()
 const hostPushStates = new Map<string, 'unknown' | 'synced' | 'failed'>()
 const pushSyncListeners = new Set<() => void>()
+const hostDeliveryQueues = new Map<string, Promise<unknown>>()
+
+function enqueueHostDelivery<T>(hostId: string, fn: () => Promise<T>): Promise<T> {
+  const key = hostId || 'default'
+  const prev = hostDeliveryQueues.get(key) ?? Promise.resolve()
+  const next = prev.then(fn, fn)
+  const tail = next.then(() => {}, () => {})
+  hostDeliveryQueues.set(key, tail)
+  void tail.finally(() => {
+    if (hostDeliveryQueues.get(key) === tail) hostDeliveryQueues.delete(key)
+  })
+  return next
+}
 
 function setHostPushSyncState(hostId: string, state: 'unknown' | 'synced' | 'failed'): void {
   if (!hostId) return
   if (hostPushStates.get(hostId) === state) return
   hostPushStates.set(hostId, state)
   pushSyncListeners.forEach(fn => fn())
+}
+
+export function resetHostPushSyncState(hostId?: string): void {
+  if (!hostId) {
+    if (hostPushStates.size === 0) return
+    hostPushStates.clear()
+    pushSyncListeners.forEach(fn => fn())
+    return
+  }
+  setHostPushSyncState(hostId, 'unknown')
 }
 
 export function setForegroundLinkOnline(hostId: string, online: boolean): void {
@@ -63,34 +86,42 @@ export async function deliverSystemNotice(
   },
 ): Promise<boolean> {
   if (Platform.OS !== 'android' || !isAndroidNotificationsAvailable()) return false
-  const prefs = readNotifyPrefsFromRecord(await readPrefs())
-  const appActive = options.appActive ?? (AppState.currentState === 'active')
-  const classified = shouldPostSystemNotification(notice, prefs, {
-    appActive,
-    activeChat: options.activeChat ?? null,
-    hostId: options.hostId,
-  })
-  if (classified === null) {
-    // Still advance persisted cursor for muted/filtered background notices so periodic sync
-    // does not repeatedly re-fetch them.
-    if (!appActive && options.dedupe !== false) {
-      await recordNoticeSeen(options.hostId, options.boot, notice.seq)
+  return enqueueHostDelivery(options.hostId, async () => {
+    const prefs = readNotifyPrefsFromRecord(await readPrefs())
+    const appActive = options.appActive ?? (AppState.currentState === 'active')
+    const classified = shouldPostSystemNotification(notice, prefs, {
+      appActive,
+      activeChat: options.activeChat ?? null,
+      hostId: options.hostId,
+    })
+    if (classified === null) {
+      // Still advance persisted cursor for filtered background notices so periodic sync
+      // does not repeatedly re-fetch them.
+      if (!appActive && options.dedupe !== false) {
+        await recordNoticeSeen(options.hostId, options.boot, notice.seq)
+      }
+      return false
     }
-    return false
-  }
-  if (options.dedupe !== false) {
-    const fresh = await recordNoticeSeen(options.hostId, options.boot, notice.seq)
-    if (!fresh) return false
-  }
-  const copy = formatNoticeNotification(notice, { preview: prefs.preview, hostName: options.hostName })
-  return postNativeNotification({
-    tag: classified.tag,
-    title: copy.title,
-    body: copy.body,
-    channel: classified.channel,
-    targetKind: classified.target.kind === 'room' ? 'room' : 'bot',
-    targetId: classified.target.id,
-    hostId: options.hostId,
+    if (options.dedupe !== false) {
+      const fresh = await recordNoticeSeen(options.hostId, options.boot, notice.seq)
+      if (!fresh) return false
+    }
+    const multiHost = options.hostName
+      ? await listComputers().then(res => res.computers.length > 1).catch(() => false)
+      : false
+    const copy = formatNoticeNotification(notice, {
+      preview: prefs.preview,
+      hostName: multiHost ? options.hostName : undefined,
+    })
+    return postNativeNotification({
+      tag: classified.tag,
+      title: copy.title,
+      body: copy.body,
+      channel: classified.channel,
+      targetKind: classified.target.kind === 'room' ? 'room' : 'bot',
+      targetId: classified.target.id,
+      hostId: options.hostId,
+    })
   })
 }
 

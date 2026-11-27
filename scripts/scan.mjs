@@ -10,7 +10,8 @@
 // environment variable and from a `.scan-extra` file at the root of the checkout (ignored by
 // Git). They hold markers that must not appear in this repository and must not be named in it
 // either, such as a maintainer's machine or account names.
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -22,12 +23,22 @@ const PLACEHOLDER = /mock|test|fake|dummy|example|placeholder|should-not|xxx|you
 const VENDORS = /\b(qwen|minimax|stepfun|kimi|moonshot|zhipu|glm|mimo|anthropic|claude|openai|gemini|mistral|xai|zai)\b/i
 // Files that define the look (characters, inks, logos, themes). Vendor names there are
 // brand references; elsewhere they name model routes and can stay.
-const LOOK_FILES = /(^|\/)(src\/client\/(inks|characters|mark|themes|styles)\.js|dev\/(mascot-outlines|characters)\.mjs)$/
+const LOOK_FILES = /(^|\/)(src\/client\/(inks|characters|mark|themes|styles|avatar\/(models|outlines))\.js|dev\/characters\.mjs)$/
 const NOT_PUBLIC = /(^|[\s(`'"]|\.\.\/)(spec|research|backup|shots|attachments|workspace)\/|\.dsh-home/
 // Migration code and its tests must name the legacy ids (old package name, old theme and
 // color keys) to move saved data over; there, and on lines that say "legacy" (旧版), old names stay.
 const LEGACY_FILES = /(^|\/)(src\/client\/storage\.js|src\/legacy\.mjs|test\/legacy[\w-]*\.test\.(?:js|mjs))$/
 
+const args = process.argv.slice(2)
+const root = args.find(a => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--json')
+if (!root) {
+  console.error('usage: node scripts/scan.mjs <dir> [--json <file>] [--all]')
+  process.exit(2)
+}
+const jsonOut = args.includes('--json') ? args[args.indexOf('--json') + 1] : null
+const showAll = args.includes('--all')
+
+const scanExtraAllowed = isAllowedLocalScanExtra(root)
 const extra = extraPatterns()
 
 const TEXT_RULES = [
@@ -47,7 +58,7 @@ const TEXT_RULES = [
   { id: 'personal-path', level: MUST, re: /\/home\/(?!<|user\b|runner\b|node\b)[a-z_][a-z0-9_-]*\/|\/Users\/(?!<|Shared\b)[A-Za-z][\w.-]*\/|[A-Za-z]:\\Users\\(?!<|Public\b)[^\\\s`"'<>]+/g },
   { id: 'personal-email', level: MUST, re: /\b[\w.+-]+@(qq|163|126|gmail|outlook|hotmail|foxmail|icloud|yahoo)\.(com|cn)\b/gi },
   { id: 'other-email', level: KEEP, re: /\b[\w.+-]+@(?!(\d|example\.|users\.noreply\.github\.com|localhost|(qq|163|126|gmail|outlook|hotmail|foxmail|icloud|yahoo)\.))[\w-]+\.[a-z]{2,}\b/gi },
-  ...(extra ? [{ id: 'extra-pattern', level: MUST, re: extra, legacyOk: true }] : []),
+  ...(extra.length ? [{ id: 'extra-pattern', level: MUST, patterns: extra, redact: true, legacyOk: true }] : []),
   // Only original material: no vendor brands in the look, no third-party logos.
   { id: 'vendor-look-identifier', level: MUST, re: /\b(KIMI|MINIMAX|STEPFUN|QWEN|MIMO|ZAI|ZHIPU|GLM|DEEPSEEK)_(BODY|WAVE|STAR|MARK|LOGO|INK|INKS|COLOR|COLORS)\b|\bLAB_(INKS|COLORS)\b/g, legacyOk: true },
   { id: 'vendor-in-look-file', level: MUST, re: new RegExp(VENDORS.source, 'gi'), files: LOOK_FILES, legacyOk: true },
@@ -72,31 +83,25 @@ const FORBIDDEN_FILES = [
   { re: /(^|\/)\.dsh-(home|test)/, why: 'DSH data' },
   { re: /(^|\/)node_modules\//, why: 'installed packages' },
   { re: /\.(env|pem|key|p12|sqlite|db)$/, why: 'secret or data file' },
-  { re: /^\.scan-extra$/, why: 'local scan patterns' },
+  { re: /(^|\/)\.scan-extra$/, why: 'local scan patterns' },
 ]
-
-const args = process.argv.slice(2)
-const root = args.find(a => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--json')
-if (!root) {
-  console.error('usage: node scripts/scan.mjs <dir> [--json <file>] [--all]')
-  process.exit(2)
-}
-const jsonOut = args.includes('--json') ? args[args.indexOf('--json') + 1] : null
-const showAll = args.includes('--all')
 
 const findings = []
 const files = walk(root).map(path => relative(root, path).split('\\').join('/')).sort()
 
 for (const file of files) {
   for (const rule of FORBIDDEN_FILES) {
-    if (rule.re.test(file)) add(MUST, 'forbidden-file', file, 0, rule.why)
+    if (rule.re.test(file) && (file !== '.scan-extra' || !scanExtraAllowed)) add(MUST, 'forbidden-file', file, 0, rule.why)
   }
-  // The scanner names the patterns it looks for.
-  if (file === SELF) continue
+  // The scanner and an allowed local pattern file name the patterns they look for.
+  if (file === SELF || (file === '.scan-extra' && scanExtraAllowed)) continue
+  const isScanExtraFile = /(^|\/)\.scan-extra$/.test(file)
   const data = readFileSync(join(root, file))
   if (data.includes(0)) continue
   const lines = data.toString('utf8').split('\n')
   lines.forEach((line, index) => {
+    let lineExtra = null
+    const getExtra = () => (lineExtra ??= extraMatchInfo(line))
     for (const rule of TEXT_RULES) {
       if (rule.files && !rule.files.test(file)) continue
       if (rule.notFiles && rule.notFiles.test(file)) continue
@@ -104,10 +109,29 @@ for (const file of files) {
       const legacy = LEGACY_FILES.test(file) || /legacy|旧版/i.test(line)
       if (rule.legacyOk && legacy) continue
       if (rule.onlyLegacy && !legacy) continue
+      if (rule.patterns) {
+        const { ranges, zeroWidthCount } = getExtra()
+        for (const [mStart, mEnd] of ranges) {
+          add(rule.level, rule.id, file, index + 1, `<redacted> (${mEnd - mStart} chars)`, rule.summary)
+        }
+        for (let i = 0; i < zeroWidthCount; i += 1) {
+          add(rule.level, rule.id, file, index + 1, '<redacted> (0 chars)', rule.summary)
+        }
+        continue
+      }
       rule.re.lastIndex = 0
       for (const match of line.matchAll(rule.re)) {
         if (rule.secret && PLACEHOLDER.test(match[0])) continue
-        const shown = rule.secret ? `${match[0].slice(0, 6)}… (${match[0].length} chars)` : snippet(line, match.index, match[0].length)
+        const mStart = match.index
+        const mEnd = mStart + match[0].length
+        const extraInfo = extra.length > 0 ? getExtra() : { ranges: [], zeroWidthCount: 0 }
+        const redactLine = extraInfo.zeroWidthCount > 0
+        const overlapsExtra = redactLine || hasRangeOverlap(extraInfo.ranges, mStart, mEnd)
+        const shown = (rule.redact || isScanExtraFile || redactLine || (rule.secret && overlapsExtra))
+          ? `<redacted> (${match[0].length} chars)`
+          : rule.secret
+            ? `${match[0].slice(0, 6)}… (${match[0].length} chars)`
+            : snippet(line, mStart, match[0].length, extraInfo.ranges)
         add(rule.level, rule.id, file, index + 1, shown, rule.summary)
       }
     }
@@ -135,13 +159,57 @@ for (const name of ['README.md', 'README.zh.md', 'CONTRIBUTING.md', 'CHANGELOG.m
 
 report()
 
+function realPath(path) {
+  try { return realpathSync.native(path) } catch { return null }
+}
+function gitToplevel(dir) {
+  const res = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+  return res.status === 0 ? realPath(res.stdout.trim()) : null
+}
+function gitTracksScanExtra(repoRoot) {
+  if (spawnSync('git', ['ls-files', '--error-unmatch', '.scan-extra'], { cwd: repoRoot, stdio: 'ignore' }).status === 0) return true
+  if (spawnSync('git', ['cat-file', '-e', 'HEAD:.scan-extra'], { cwd: repoRoot, stdio: 'ignore' }).status === 0) return true
+  return false
+}
+function isAllowedLocalScanExtra(targetRoot) {
+  const targetReal = realPath(targetRoot)
+  const targetExtra = join(targetRoot, '.scan-extra')
+  if (targetReal === null || !existsSync(targetExtra)) return false
+  // Treat the target's own Git index as authoritative only when scanning a Git worktree root.
+  if (gitToplevel(targetRoot) === targetReal) return !gitTracksScanExtra(targetRoot)
+  // Everywhere else (outside a checkout or in a subdirectory of one), fail closed except
+  // for a clean export containing scripts/scan.mjs alongside an untracked local .scan-extra
+  // byte-identical to this checkout's untracked root .scan-extra.
+  if (!existsSync(join(targetRoot, SELF))) return false
+  const checkout = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const checkoutReal = realPath(checkout)
+  if (checkoutReal === null || gitToplevel(checkout) !== checkoutReal) return false
+  if (gitTracksScanExtra(checkout)) return false
+  const checkoutExtra = join(checkout, '.scan-extra')
+  if (!existsSync(checkoutExtra)) return false
+  return readFileSync(checkoutExtra).equals(readFileSync(targetExtra))
+}
 function extraPatterns() {
   const local = join(dirname(fileURLToPath(import.meta.url)), '..', '.scan-extra')
-  const lines = [process.env.SCAN_EXTRA_PATTERNS ?? '', existsSync(local) ? readFileSync(local, 'utf8') : '']
-    .flatMap(text => text.split(/\r?\n/))
-    .map(line => line.trim())
-    .filter(line => line && !line.startsWith('#'))
-  return lines.length ? new RegExp(lines.map(line => `(?:${line})`).join('|'), 'gi') : null
+  const sources = [
+    ['SCAN_EXTRA_PATTERNS', process.env.SCAN_EXTRA_PATTERNS ?? ''],
+    ['.scan-extra', existsSync(local) ? readFileSync(local, 'utf8') : ''],
+  ]
+  const patterns = []
+  for (const [label, text] of sources) {
+    const rawLines = text.split(/\r?\n/)
+    rawLines.forEach((raw, idx) => {
+      const line = raw.trim()
+      if (!line || line.startsWith('#')) return
+      try {
+        patterns.push(new RegExp(line, 'gi'))
+      } catch {
+        console.error(`invalid extra scan pattern in ${label} (line ${idx + 1})`)
+        process.exit(2)
+      }
+    })
+  }
+  return patterns
 }
 
 function add(level, id, file, line, text, summary = false) {
@@ -150,7 +218,7 @@ function add(level, id, file, line, text, summary = false) {
 
 function report() {
   const byLevel = level => findings.filter(f => f.level === level)
-  console.log(`scanned ${files.length} files in ${root}${extra ? ' (with extra patterns)' : ''}`)
+  console.log(`scanned ${files.length} files in ${root}${extra.length ? ' (with extra patterns)' : ''}`)
   for (const level of [MUST, KEEP]) {
     const list = byLevel(level)
     console.log(`\n== ${level}: ${list.length}`)
@@ -171,10 +239,51 @@ function report() {
   process.exit(byLevel(MUST).length > 0 ? 1 : 0)
 }
 
-function snippet(line, at, length) {
+function extraMatchInfo(line) {
+  if (!extra.length) return { ranges: [], zeroWidthCount: 0 }
+  const raw = []
+  let zeroWidthCount = 0
+  for (const re of extra) {
+    re.lastIndex = 0
+    for (const m of line.matchAll(re)) {
+      if (m[0].length === 0) zeroWidthCount += 1
+      else raw.push([m.index, m.index + m[0].length])
+    }
+  }
+  if (raw.length <= 1) return { ranges: raw, zeroWidthCount }
+  raw.sort((a, b) => a[0] - b[0] || b[1] - a[1])
+  const merged = [raw[0]]
+  for (let i = 1; i < raw.length; i += 1) {
+    const prev = merged[merged.length - 1]
+    if (raw[i][0] <= prev[1]) prev[1] = Math.max(prev[1], raw[i][1])
+    else merged.push(raw[i])
+  }
+  return { ranges: merged, zeroWidthCount }
+}
+
+function hasRangeOverlap(ranges, start, end) {
+  return ranges.some(([rStart, rEnd]) => rStart < end && rEnd > start)
+}
+
+function redactExtraInSlice(line, start, end, ranges) {
+  if (!ranges.length) return line.slice(start, end)
+  let out = ''
+  let cursor = start
+  for (const [mStart, mEnd] of ranges) {
+    if (mEnd <= start) continue
+    if (mStart >= end) break
+    if (mStart > cursor) out += line.slice(cursor, mStart)
+    out += '<redacted>'
+    cursor = Math.max(cursor, Math.min(mEnd, end))
+  }
+  if (cursor < end) out += line.slice(cursor, end)
+  return out
+}
+
+function snippet(line, at, length, ranges = extraMatchInfo(line).ranges) {
   const start = Math.max(0, at - 40)
   const end = Math.min(line.length, at + length + 40)
-  return `${start > 0 ? '…' : ''}${line.slice(start, end).trim()}${end < line.length ? '…' : ''}`
+  return `${start > 0 ? '…' : ''}${redactExtraInSlice(line, start, end, ranges).trim()}${end < line.length ? '…' : ''}`
 }
 
 function walk(dir) {

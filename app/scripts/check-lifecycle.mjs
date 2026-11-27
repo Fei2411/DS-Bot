@@ -62,7 +62,7 @@ try {
   mkdirSync(work, { recursive: true })
   child = spawn(electron, [join(here, '..', 'test', 'electron', 'lifecycle-main.mjs'), ...mockKeychainArgs()], {
     cwd: join(here, '..'),
-    env: { ...process.env, DS_BOT_SHELL_DATA: work },
+    env: { ...process.env, DS_BOT_SHELL_DATA: work, DS_BOT_TELEMETRY_DISABLED: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   child.stdout.setEncoding('utf8')
