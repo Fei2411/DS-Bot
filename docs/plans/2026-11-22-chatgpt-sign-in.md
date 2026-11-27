@@ -30,8 +30,14 @@ access, refresh and ID tokens. Nothing is passed to a renderer or written to DSH
 credential store except the loopback-only relay secret.
 
 Responses bodies are limited to 32 MiB, parsed as JSON, and normalized for the
-preview: store:false, stream:true, unsupported fields removed, system input messages
-appended to instructions, developer messages retained. String input becomes a user
+preview: store:false, stream:true, unsupported fields removed (including
+prompt_cache_options and prompt_cache_retention), system input messages
+converted in place to developer messages so the system prompt stays in the
+cacheable input prefix instead of uncached top-level instructions, developer
+messages retained, and reasoning.encrypted_content added to include for
+reasoning models unless reasoning.effort is "none". Session affinity headers
+(session-id and x-client-request-id, falling back to prompt_cache_key for
+session-id) are allowlist-forwarded upstream. String input becomes a user
 message array. Flat function/custom tools are grouped in the reserved ds_bot namespace
 using {type:'namespace',name:'ds_bot',description,tools:[...]}; schemas, tool names and
 tool_choice are retained. Existing namespaces and hosted tool definitions are retained.
