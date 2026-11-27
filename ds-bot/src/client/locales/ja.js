@@ -2435,6 +2435,8 @@ export const JA = {
   "Changed files": "変更されたファイル",
   "Open file": "ファイルを開く",
   "File is too large for diff preview": "ファイルが大きすぎて差分を表示できません",
+  "Earlier output was trimmed": "以前の出力は省略されました",
+  "Conversation history was reloaded": "会話履歴を再読み込みしました",
   "New terminal": "新しいターミナル",
   "Terminals are disabled in a read-only window": "読み取り専用ウィンドウではターミナルを使えません",
   "No open terminals": "開いているターミナルはありません",

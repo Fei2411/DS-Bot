@@ -430,9 +430,56 @@ test('terminal endpoints preserve scrubbedParentEnv, publish only to local feed 
   assert.equal(abortedTerminated, 1)
   assert.equal((await rtAbort.terminalEndpoint('list')).length, 0)
 
+  const firstEvent = localFeedEvents.find(e => e.event === 'terminal' && e.data.id === opened.id)
+  assert.equal(firstEvent.data.start, 1)
+  assert.equal(firstEvent.data.end, firstEvent.data.parts.at(-1).seq)
+  const readAll = await rt.terminalEndpoint('read', { id: opened.id, after: 0 })
+  assert.equal(readAll.truncated, false)
+  assert.equal(readAll.end, firstEvent.data.end)
+  assert.match(readAll.chunk, /你好终端\$/)
+  const readHeld = await rt.terminalEndpoint('read', { id: opened.id, after: readAll.end })
+  assert.equal(readHeld.chunk, '')
+
+  // A fixed-size part never cuts an astral surrogate pair in half.
+  const beforeAstral = readAll.end
+  output.write(`${'a'.repeat(4095)}😀z`)
+  await new Promise(resolve => setTimeout(resolve, 40))
+  const astral = await rt.terminalEndpoint('read', { id: opened.id, after: beforeAstral })
+  assert.equal(astral.parts[0].text.length, 4095)
+  assert.equal(astral.parts.map(part => part.text).join(''), `${'a'.repeat(4095)}😀z`)
+
+  // Scrollback trimming drops whole numbered parts. A client behind the trim hears that
+  // honestly; one at the exact retained boundary still reads every later part once.
+  for (let index = 0; index < 18; index += 1) output.write(`${'x'.repeat(4090)}${index}\n`)
+  await new Promise(resolve => setTimeout(resolve, 60))
+  const trimmed = await rt.terminalEndpoint('read', { id: opened.id, after: 0 })
+  assert.equal(trimmed.truncated, true)
+  assert.equal(trimmed.parts[0].seq, trimmed.start)
+  assert.ok(trimmed.start > 1)
+  const exact = await rt.terminalEndpoint('read', { id: opened.id, after: trimmed.start - 1 })
+  assert.equal(exact.truncated, false)
+  assert.equal(exact.parts[0].seq, trimmed.start)
+  const withPositions = await rt.terminalEndpoint('list', { positions: { [opened.id]: trimmed.start - 1 } })
+  assert.equal(withPositions[0].truncated, false)
+  assert.equal(withPositions[0].parts[0].seq, trimmed.start)
+  assert.equal(withPositions[0].snapshot, undefined)
+  const unseen = await rt.terminalEndpoint('list', { positions: {} })
+  assert.equal(unseen[0].snapshot, undefined)
+  assert.equal(unseen[0].chunk, undefined)
+  assert.ok(Array.isArray(unseen[0].parts))
+
+  // Exit is part of the catch-up state even when its live event was not received.
+  resolveDone({ exitCode: 7 })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const afterExit = await rt.terminalEndpoint('read', { id: opened.id, after: trimmed.end })
+  assert.equal(afterExit.exited, true)
+  assert.equal(afterExit.exitCode, 7)
+
   const listed = await rt.terminalEndpoint('list')
   assert.equal(listed.length, 1)
-  assert.match(listed[0].snapshot, /你好终端\$/)
+  assert.match(listed[0].snapshot, /x{20}/)
+  assert.equal(listed[0].start, trimmed.start)
+  assert.equal(listed[0].end, trimmed.end)
 
   await rt.terminalDispose()
   assert.equal(terminated, 1)

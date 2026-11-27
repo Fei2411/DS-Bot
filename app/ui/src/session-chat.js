@@ -26,7 +26,7 @@ import { ViaTag, contentParts, mentionableBots, userTextParts } from '../../../d
 import { AnsweredReply } from '../../../ds-bot/src/client/widget-cell.js'
 import { openSessionFollow } from './api.js'
 import { getAppLocale } from './locale.js'
-import { buildSessionRows, extractTurnFacts } from './session-transcript.js'
+import { buildSessionRowParts, extractTurnFacts } from './session-transcript.js'
 import { CHAT_NODE_SLOT, SlotOutlet, slots as defaultSlots } from './slots.js'
 
 const NO_LOCALE = () => {}
@@ -141,12 +141,14 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     failed: false,
     pageFailed: false,
     terminalError: null,
+    historyReloaded: false,
   }))
   const logRef = useRef(emptyLog())
   const followRef = useRef(null)
   const genRef = useRef(0)
   const pagingRef = useRef(false)
   const openedRef = useRef(false)
+  const resyncRef = useRef(false)
   const seenUserSeqsRef = useRef(new Set())
   const onUserRef = useRef(onUserMessage)
   onUserRef.current = onUserMessage
@@ -157,16 +159,19 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     const myGen = ++genRef.current
     pagingRef.current = false
     openedRef.current = false
+    resyncRef.current = false
     seenUserSeqsRef.current = new Set()
     const fresh = emptyLog()
     logRef.current = fresh
-    setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null })
+    setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null, historyReloaded: false })
     if (!enabled || !sessionId) return undefined
 
-    const handle = openFollowRef.current({ sessionId, max: PAGE_SIZE }, (event, data) => {
+    const handle = openFollowRef.current({ sessionId, max: PAGE_SIZE, after: () => (resyncRef.current ? undefined : logRef.current.cursor) }, (event, data) => {
       if (genRef.current !== myGen) return
       if (event === 'frame') {
-        const next = applyFrame(logRef.current, data)
+        const resyncing = data?.type === 'snapshot' && resyncRef.current
+        const next = applyFrame(resyncing ? emptyLog() : logRef.current, data)
+        if (resyncing) resyncRef.current = false
         logRef.current = next.log
         // Notify new user messages so optimistic pending bubbles clear one-for-one without
         // matching historical duplicates or dropping messages on a gap-reopen frame.
@@ -195,10 +200,18 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
           loading: false,
           failed: false,
           terminalError: null,
+          historyReloaded: current.historyReloaded || resyncing,
         }))
         if (next.reopen) followRef.current?.reopen()
       } else if (event === 'error') {
-        const terminal = data?.code === 'bot/not-found' || data?.code === 'bot/refused' || data?.code === 'bot/invalid'
+        if (data?.code === 'bot/stale' && !resyncRef.current) {
+          // The durable log no longer reaches this window's cursor. Reopen once without
+          // `after`; the fresh opening replaces the rows instead of looping on that cursor.
+          resyncRef.current = true
+          followRef.current?.reopen()
+          return
+        }
+        const terminal = data?.code === 'bot/not-found' || data?.code === 'bot/refused' || data?.code === 'bot/invalid' || data?.code === 'bot/stale'
         setState(current => ({
           ...current,
           loading: false,
@@ -266,6 +279,7 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     failed: state.failed,
     pageFailed: state.pageFailed,
     terminalError: state.terminalError,
+    historyReloaded: state.historyReloaded,
     hasMore: pageBefore(state.log) !== undefined,
     thinkingAt: state.thinkingAt,
     loadEarlier,
@@ -707,84 +721,21 @@ const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actio
     h(LearningTurnTail, { turn: row.turnInfo, sessionId, useRoster, actions }))
 })
 
-export function SessionTranscript({
-  log, sessionId, bot, roster, actions, classic = false,
-  useUi, useRoster, useWork, useTurnClock, useHeldCards,
-  useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
-  thinkingAt, hasMore = false, registry = defaultSlots,
-}) {
-  // The memoized rows read `t()` at render time, so the language travels as a prop:
-  // a switch re-renders them in the new language, and a stream chunk never changes it.
-  const lang = useUiLanguage()
-  const rows = useMemo(() => buildSessionRows(log, { roster, sessionId }), [log, roster, sessionId])
-  const turnFacts = useMemo(() => extractTurnFacts(log?.events, { roster, sessionId }), [log?.events, roster, sessionId])
-  const turnSig = turnFactsSignature(turnFacts)
-  const turnFactsRef = useRef(turnFacts)
-  turnFactsRef.current = turnFacts
-  const safeRoster = useMemo(() => ({
-    bots: [], rooms: [], byId: {}, roomsById: {}, exchangeTurns: {}, ...roster,
-  }), [roster])
-  const fallbackUseRoster = useCallback(selector => selector(safeRoster), [safeRoster])
-  const resolvedUseRoster = typeof useRoster === 'function' ? useRoster : fallbackUseRoster
-  const resolvedUseUi = typeof useUi === 'function' ? useUi : NO_OBJECT_HOOK
-  const resolvedUseWork = typeof useWork === 'function' ? useWork : NO_WORK_HOOK
-  const resolvedUseHeldCards = typeof useHeldCards === 'function' ? useHeldCards : NO_HELD_CARDS_HOOK
-  const resolvedUseBrowserHolds = typeof useBrowserHolds === 'function' ? useBrowserHolds : NO_OBJECT_HOOK
-  const resolvedUseBrowserTabs = typeof useBrowserTabs === 'function' ? useBrowserTabs : NO_OBJECT_HOOK
-  const resolvedUseBrowserPages = typeof useBrowserPages === 'function' ? useBrowserPages : NO_OBJECT_HOOK
-  const resolvedUseComputer = typeof useComputer === 'function' ? useComputer : NO_OBJECT_HOOK
-  // Sync turn facts (`{ turns, openTurn }`) only when turn boundaries actually change so
-  // non-turn streaming events do not fan out re-renders across every turn tail.
-  useEffect(() => {
-    if (typeof actions?.noteTurnFacts !== 'function' || !sessionId) return undefined
-    actions.noteTurnFacts(sessionId, turnFactsRef.current)
-    return undefined
-  }, [turnSig, sessionId, actions])
-  useEffect(() => () => {
-    if (typeof actions?.noteTurnFacts === 'function' && sessionId) actions.noteTurnFacts(sessionId, null)
-  }, [sessionId, actions])
-  // Sync turn start/end timestamps straight from `log.events` so `FailureCell` settles as
-  // soon as a Retry turn starts, even before the new turn emits any assistant text. A
-  // stream chunk replaces neither the events array nor any committed row (the cache in
-  // session-transcript.js), and writing rows carry no time, so when the events array is
-  // the same one the effect already noted there is nothing new to note and it skips.
-  const notedEventsRef = useRef(null)
-  useEffect(() => {
-    if (typeof actions?.noteTurnTime !== 'function') return
-    const prev = notedEventsRef.current
-    if (log?.events !== undefined
-      && prev !== null
-      && prev.events === log.events
-      && prev.sessionId === sessionId
-      && prev.noteTurnTime === actions.noteTurnTime) return
-    notedEventsRef.current = { events: log?.events ?? null, sessionId, noteTurnTime: actions.noteTurnTime }
-    for (const event of Array.isArray(log?.events) ? log.events : []) {
-      const turn = event?.data?.turn
-      if (!Number.isInteger(turn) || !Number.isFinite(event.time)) continue
-      if (event.type === 'turn/start') actions.noteTurnTime(sessionId, turn, 'first', event.time)
-      else if (event.type === 'turn/end') actions.noteTurnTime(sessionId, turn, 'end', event.time)
-    }
-    for (const row of rows) {
-      if (Number.isInteger(row.turn) && Number.isFinite(row.time)) {
-        actions.noteTurnTime(sessionId, row.turn, 'first', row.time)
-      }
-    }
-  }, [log?.events, rows, sessionId, actions])
 
-  const selfId = bot?.id ?? sessionId
-  const cwd = log?.header?.cwd
-  const showThinking = thinkingShown(roster.prefs)
-  const flat = layoutOf(roster.prefs) === 'flat'
-  const canLoadEarlierParts = typeof actions?.earlier === 'function'
-  const hasPartStart = rows.some(row => row.kind === 'part-start')
-  // `bot.parts` holds only earlier segments (host/channel.js), not current `bot.sessionId`.
-  // Wait until the opening snapshot lands (`log.header !== null`) before mounting EarlierParts
-  // so we never issue wasted RPCs while loading or duplicate a snapshot's `part-start`.
-  const showTopEarlierParts = log?.header !== null && !hasMore && !hasPartStart && canLoadEarlierParts && (bot?.parts?.length ?? 0) > 0
-  const seenTurnSpeaker = new Set()
+const EMPTY_SPEAKERS = new Set()
+
+function renderTranscriptRows({
+  rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts,
+  sessionId, bot, roster, actions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
+  useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
+  resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
+  resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
+  selfId, cwd, showThinking, flat,
+}) {
+  const seenTurnSpeaker = new Set(initialSpeakers)
   let prevTime
 
-  const projected = rows.flatMap((row) => {
+  return rows.flatMap((row) => {
     if (row.kind === 'part-start') {
       prevTime = undefined
       return [canLoadEarlierParts
@@ -845,6 +796,120 @@ export function SessionTranscript({
       ? [h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)), node]
       : [node]
   })
+}
+
+export function SessionTranscript({
+  log, sessionId, bot, roster, actions, classic = false,
+  useUi, useRoster, useWork, useTurnClock, useHeldCards,
+  useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
+  thinkingAt, hasMore = false, registry = defaultSlots,
+}) {
+  // The memoized rows read `t()` at render time, so the language travels as a prop:
+  // a switch re-renders them in the new language, and a stream chunk never changes it.
+  const lang = useUiLanguage()
+  const rowParts = useMemo(() => buildSessionRowParts(log, { roster, sessionId }), [log, roster, sessionId])
+  const turnFacts = useMemo(() => extractTurnFacts(log?.events, { roster, sessionId }), [log?.events, roster, sessionId])
+  const turnSig = useMemo(() => turnFactsSignature(turnFacts), [turnFacts])
+  const turnFactsRef = useRef(turnFacts)
+  turnFactsRef.current = turnFacts
+  const safeRoster = useMemo(() => ({
+    bots: [], rooms: [], byId: {}, roomsById: {}, exchangeTurns: {}, ...roster,
+  }), [roster])
+  const fallbackUseRoster = useCallback(selector => selector(safeRoster), [safeRoster])
+  const resolvedUseRoster = typeof useRoster === 'function' ? useRoster : fallbackUseRoster
+  const resolvedUseUi = typeof useUi === 'function' ? useUi : NO_OBJECT_HOOK
+  const resolvedUseWork = typeof useWork === 'function' ? useWork : NO_WORK_HOOK
+  const resolvedUseHeldCards = typeof useHeldCards === 'function' ? useHeldCards : NO_HELD_CARDS_HOOK
+  const resolvedUseBrowserHolds = typeof useBrowserHolds === 'function' ? useBrowserHolds : NO_OBJECT_HOOK
+  const resolvedUseBrowserTabs = typeof useBrowserTabs === 'function' ? useBrowserTabs : NO_OBJECT_HOOK
+  const resolvedUseBrowserPages = typeof useBrowserPages === 'function' ? useBrowserPages : NO_OBJECT_HOOK
+  const resolvedUseComputer = typeof useComputer === 'function' ? useComputer : NO_OBJECT_HOOK
+  // Sync turn facts (`{ turns, openTurn }`) only when turn boundaries actually change so
+  // non-turn streaming events do not fan out re-renders across every turn tail.
+  useEffect(() => {
+    if (typeof actions?.noteTurnFacts !== 'function' || !sessionId) return undefined
+    actions.noteTurnFacts(sessionId, turnFactsRef.current)
+    return undefined
+  }, [turnSig, sessionId, actions])
+  useEffect(() => () => {
+    if (typeof actions?.noteTurnFacts === 'function' && sessionId) actions.noteTurnFacts(sessionId, null)
+  }, [sessionId, actions])
+  // Sync turn start/end timestamps straight from `log.events` so `FailureCell` settles as
+  // soon as a Retry turn starts, even before the new turn emits any assistant text. A
+  // stream chunk replaces neither the events array nor any committed row (the cache in
+  // session-transcript.js), and writing rows carry no time, so when the events array is
+  // the same one the effect already noted there is nothing new to note and it skips.
+  const notedEventsRef = useRef(null)
+  useEffect(() => {
+    if (typeof actions?.noteTurnTime !== 'function') return
+    const prev = notedEventsRef.current
+    if (log?.events !== undefined
+      && prev !== null
+      && prev.events === log.events
+      && prev.sessionId === sessionId
+      && prev.noteTurnTime === actions.noteTurnTime) return
+    notedEventsRef.current = { events: log?.events ?? null, sessionId, noteTurnTime: actions.noteTurnTime }
+    for (const event of Array.isArray(log?.events) ? log.events : []) {
+      const turn = event?.data?.turn
+      if (!Number.isInteger(turn) || !Number.isFinite(event.time)) continue
+      if (event.type === 'turn/start') actions.noteTurnTime(sessionId, turn, 'first', event.time)
+      else if (event.type === 'turn/end') actions.noteTurnTime(sessionId, turn, 'end', event.time)
+    }
+    for (const row of rowParts.committed) {
+      if (Number.isInteger(row.turn) && Number.isFinite(row.time)) {
+        actions.noteTurnTime(sessionId, row.turn, 'first', row.time)
+      }
+    }
+  }, [log?.events, rowParts.committed, sessionId, actions])
+
+  const selfId = bot?.id ?? sessionId
+  const cwd = log?.header?.cwd
+  const showThinking = thinkingShown(roster.prefs)
+  const flat = layoutOf(roster.prefs) === 'flat'
+  const canLoadEarlierParts = typeof actions?.earlier === 'function'
+  const hasPartStart = useMemo(() => rowParts.committed.some(row => row.kind === 'part-start'), [rowParts.committed])
+  // `bot.parts` holds only earlier segments (host/channel.js), not current `bot.sessionId`.
+  // Wait until the opening snapshot lands (`log.header !== null`) before mounting EarlierParts
+  // so we never issue wasted RPCs while loading or duplicate a snapshot's `part-start`.
+  const showTopEarlierParts = log?.header !== null && !hasMore && !hasPartStart && canLoadEarlierParts && (bot?.parts?.length ?? 0) > 0
+  const committedSpeakers = useMemo(() => {
+    const speakers = new Set()
+    for (const row of rowParts.committed) {
+      if (row.kind === 'assistant') {
+        if (row.texts.length === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
+      } else if (row.kind !== 'tool') continue
+      speakers.add(row.turn ?? row.key)
+    }
+    return speakers
+  }, [rowParts.committed, showThinking])
+  const rowProps = {
+    canLoadEarlierParts, sessionId, bot, roster, actions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
+    useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
+    resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
+    resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
+    selfId, cwd, showThinking, flat,
+  }
+
+  // Committed and live rows must be siblings in one keyed list: a live tool call that
+  // commits keeps the same component instance instead of unmounting into another subtree.
+  // The committed elements are memoized without `thinkingAt`, so stream chunks and
+  // reasoning clocks never repaint finished history.
+  const committedElements = useMemo(() => renderTranscriptRows({
+    ...rowProps,
+    thinkingAt: undefined,
+    rows: rowParts.committed,
+  }), [
+    rowParts.committed, canLoadEarlierParts, sessionId, bot, roster, actions, classic,
+    useUi, useRoster, useTurnClock, useWork, useHeldCards,
+    useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, registry, lang,
+    resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
+    resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
+    selfId, cwd, showThinking, flat,
+  ])
+  const liveElements = rowParts.live.length === 0
+    ? []
+    : renderTranscriptRows({ ...rowProps, rows: rowParts.live, initialSpeakers: committedSpeakers })
+  const projected = [...committedElements, ...liveElements]
 
   return showTopEarlierParts
     ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions }), ...projected]

@@ -2281,6 +2281,8 @@ const ZH = {
   "Changed files": "改动的文件",
   "Open file": "打开文件",
   "File is too large for diff preview": "文件过大，暂不支持差异预览",
+  "Earlier output was trimmed": "已省略较早的输出",
+  "Conversation history was reloaded": "对话历史已重新加载",
   "New terminal": "新建终端",
   "Terminals are disabled in a read-only window": "只读窗口中已禁用终端",
   "No open terminals": "暂无已打开的终端",

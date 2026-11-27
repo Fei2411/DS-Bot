@@ -719,7 +719,7 @@ function writingRows(log, committed, roster, sessionId) {
   const writingTurn = log.writing?.turn
   const writingStep = log.writing?.step
   if (writing.length === 0 || hiddenTurn(roster, sessionId, writingTurn)) return rows
-  const taken = new Set(committed.callsById.keys())
+  const taken = new Set()
   const attemptId = log.writing?.attemptId ?? 'live'
   const { reasoning, activity } = splitReasoning(writing)
   const texts = writing
@@ -748,7 +748,7 @@ function writingRows(log, committed, roster, sessionId) {
     if (block?.type !== 'tool-call') continue
     const callId = block.id || `writing-${attemptId}-${toolIdx}`
     toolIdx += 1
-    if (taken.has(callId)) continue
+    if (taken.has(callId) || committed.callsById.has(callId)) continue
     taken.add(callId)
     const name = typeof block.name === 'string' ? block.name : ''
     const argsRaw = stringifyArgs(block.arguments)
@@ -783,9 +783,14 @@ function writingRows(log, committed, roster, sessionId) {
  * @param {{ roster?: object, sessionId?: string }} [options]
  * @returns {object[]}
  */
-export function buildSessionRows(log, { roster, sessionId } = {}) {
+export function buildSessionRowParts(log, { roster, sessionId } = {}) {
   const events = Array.isArray(log?.events) ? log.events : []
   const committed = committedRowsOf(events, roster, sessionId)
   const live = writingRows(log, committed, roster, sessionId)
-  return live.length === 0 ? committed.rows : [...committed.rows, ...live]
+  return { committed: committed.rows, live }
+}
+
+export function buildSessionRows(log, { roster, sessionId } = {}) {
+  const { committed, live } = buildSessionRowParts(log, { roster, sessionId })
+  return live.length === 0 ? committed : [...committed, ...live]
 }

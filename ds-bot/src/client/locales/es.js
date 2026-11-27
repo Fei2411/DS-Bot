@@ -2469,6 +2469,8 @@ export const ES = {
   "Changed files": "Archivos modificados",
   "Open file": "Abrir archivo",
   "File is too large for diff preview": "El archivo es demasiado grande para ver diferencias",
+  "Earlier output was trimmed": "La salida anterior se omitió",
+  "Conversation history was reloaded": "Se recargó el historial de la conversación",
   "New terminal": "Nueva terminal",
   "Terminals are disabled in a read-only window": "Las terminales están desactivadas en una ventana de solo lectura",
   "No open terminals": "No hay terminales abiertas",

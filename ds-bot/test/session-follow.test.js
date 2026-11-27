@@ -155,12 +155,120 @@ test('unloading the plugin ends a follow that is open', async (t) => {
 test('a request that names no Session, or a bad size, is refused before DSH is asked', async (t) => {
   const { open, asked, stop } = start({ follow: (request, signal) => frames([], signal) })
   t.after(stop)
-  for (const query of ['', 'id=a/b', 'id=s1&max=-1', 'id=s1&max=0', 'id=s1&max=x', 'id=s1&parent=..%2F', 'id=s1&parent=p1&mode=forever']) {
+  for (const query of ['', 'id=a/b', 'id=s1&max=-1', 'id=s1&max=0', 'id=s1&max=x', 'id=s1&after=-1', 'id=s1&after=x', 'id=s1&parent=..%2F', 'id=s1&parent=p1&mode=forever']) {
     const response = await open(query)
     assert.equal(response.status, 400, query)
     assert.equal((await response.json()).error.code, 'bot/invalid')
   }
   assert.equal(asked.follow.length, 0)
+})
+
+
+test('a reconnect fills a gap wider than the opening before the opening and live frames', async (t) => {
+  const logEvents = Array.from({ length: 22 }, (_, seq) => ({ type: 'event', seq, time: seq, data: {} }))
+  const record = event => ({ type: 'event', event })
+  const opening = {
+    type: 'snapshot',
+    header: { id: 'session-main', cwd: '/bench' },
+    cursor: 20,
+    records: logEvents.slice(17, 21).map(record),
+    hasMore: true,
+    projections: { asOfSeq: 20, values: {} },
+    assistantStream: { revision: 8 },
+  }
+  const live = { type: 'assistant-stream', frame: { type: 'start', attemptId: 'a1', revision: 9, startedAfterSeq: 20, turn: 3, step: 1 } }
+  const follow = async function* () {
+    yield opening
+    yield { type: 'event', event: logEvents[21] }
+    yield live
+  }
+  const page = async ({ beforeSeq, throughSeq, maxMessages }) => {
+    assert.equal(throughSeq, 20)
+    const end = Math.max(0, beforeSeq - 1)
+    const start = Math.max(0, end - maxMessages + 1)
+    return { cursor: 20, records: logEvents.slice(start, end + 1).map(record), hasMore: start > 0 }
+  }
+  const { open, asked, stop } = start({ follow, page })
+  t.after(stop)
+  const got = await events(await open('id=session-main&max=4&after=10'))
+  assert.deepEqual(got.filter(({ event }) => event === 'frame').map(({ data }) => data), [
+    ...logEvents.slice(11, 17).map(event => ({ type: 'event', event })),
+    opening,
+    { type: 'event', event: logEvents[21] },
+    live,
+  ])
+  assert.deepEqual(asked.page.map(({ beforeSeq }) => beforeSeq), [17, 13])
+})
+
+test('a gap far beyond the live queue follows consumer backpressure without truncating', async (t) => {
+  const total = 1600
+  const boundary = 1551
+  const eventAt = seq => ({ type: 'event', seq, time: seq, data: {} })
+  const record = event => ({ type: 'event', event })
+  const opening = {
+    type: 'snapshot',
+    header: { id: 'session-main', cwd: '/bench' },
+    cursor: total,
+    records: Array.from({ length: total - boundary + 1 }, (_, index) => record(eventAt(boundary + index))),
+    hasMore: true,
+    projections: { asOfSeq: total, values: {} },
+    assistantStream: { revision: 1 },
+  }
+  const follow = async function* () {
+    yield opening
+    yield { type: 'event', event: eventAt(total + 1) }
+  }
+  const page = async ({ beforeSeq, throughSeq, maxMessages }) => {
+    assert.equal(throughSeq, total)
+    const end = Math.max(0, beforeSeq - 1)
+    const start = Math.max(0, end - maxMessages + 1)
+    return { cursor: total, records: Array.from({ length: end - start + 1 }, (_, index) => record(eventAt(start + index))), hasMore: start > 0 }
+  }
+  const { open, stop } = start({ follow, page })
+  t.after(stop)
+  const response = await open('id=session-main&max=100&after=0')
+  assert.equal(response.status, 200)
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let text = ''
+  for (;;) {
+    const chunk = await reader.read()
+    if (chunk.done) break
+    // A slow window must not turn the finite catch-up into the live-output drop guard.
+    await new Promise(resolve => setTimeout(resolve, 1))
+    text += decoder.decode(chunk.value, { stream: true })
+  }
+  const got = text.split('\n\n').filter(block => block.startsWith('event: ')).map((block) => {
+    const [event, data] = block.split('\n')
+    return { event: event.slice(7), data: JSON.parse(data.slice(6)) }
+  })
+  const frames = got.filter(({ event }) => event === 'frame').map(({ data }) => data)
+  assert.equal(frames.length, boundary - 1 + 2, 'gap frames, opening snapshot, and the first live event all arrive')
+  assert.equal(frames[0].event.seq, 1)
+  assert.equal(frames[boundary - 2].event.seq, boundary - 1)
+  assert.equal(frames[boundary - 1].type, 'snapshot')
+  assert.equal(frames.at(-1).event.seq, total + 1)
+  assert.deepEqual(got.at(-1), { event: 'end', data: {} })
+})
+
+test('paged catch-up that does not move backwards is stale instead of looping', async (t) => {
+  const opening = {
+    type: 'snapshot',
+    header: { id: 'session-main', cwd: '/bench' },
+    cursor: 10,
+    records: [{ type: 'event', event: { type: 'event', seq: 10, time: 10, data: {} } }],
+    hasMore: true,
+  }
+  const follow = async function* () { yield opening }
+  const repeated = { type: 'event', seq: 9, time: 9, data: {} }
+  const page = async () => ({ cursor: 10, records: [{ type: 'event', event: repeated }], hasMore: true })
+  const { open, asked, stop } = start({ follow, page })
+  t.after(stop)
+  const got = await events(await open('id=session-main&max=4&after=0'))
+  assert.equal(got.length, 1)
+  assert.equal(got[0].event, 'error')
+  assert.equal(got[0].data.code, 'bot/stale')
+  assert.equal(asked.page.length, 2, 'the second repeated page proves the cut did not advance')
 })
 
 test('a subagent\'s Session is read under its parent', () => {
