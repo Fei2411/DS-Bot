@@ -787,6 +787,26 @@ test('cold chatTail recovers latestTurn across a 60-event page split after resta
   await stop()
 })
 
+test('cold chatTail reads latestTurn from sessionController.projections when available', async () => {
+  const { call, ctx, history, rt, stop } = start()
+  const created = (await call('create-bot', { name: 'ProjBot' })).value
+  const sessionId = rt.chatOf(created.id)
+  history[sessionId] = [user(500, 'Deep turn prompt', 3000)]
+  ctx.sessionController.projections = async ({ sessionId: sid }) => (
+    sid === sessionId ? { asOfSeq: 500, values: { turnOutline: [{ turn: 7, seq: 1, prompt: 'hi', response: '' }] } } : null
+  )
+  let row
+  for (let at = 0; at < 200 && row === undefined; at += 1) {
+    const bot = (await call('state', {})).value.bots.find(candidate => candidate.id === created.id)
+    if (bot?.preview === 'Deep turn prompt') row = bot
+    else await settle()
+  }
+  assert(row !== undefined)
+  assert.equal(row.lastAt, 3000)
+  assert.equal(row.latestTurn, 7)
+  await stop()
+})
+
 test('room-chat reads the current part after a group chat moves to a fresh part, and pages back to earlier parts', async (t) => {
   const { call, emit, history, routes, rt, stop } = start()
   t.after(stop)

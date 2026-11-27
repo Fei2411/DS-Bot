@@ -4353,20 +4353,26 @@ export function install(rt) {
   const isBotReplyItem = item => item.kind === 'bot' || (item.kind === 'view' && item.pending !== true)
   const positiveTurn = value => (typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : undefined)
   const maxTurn = (a, b) => (a !== undefined && b !== undefined ? Math.max(a, b) : (a ?? b))
-  const projectionLatestTurn = (sessionId) => {
-    const projections = ctx.get?.('sessionProjections')
-    if (projections === undefined) return undefined
-    const ref = { id: sessionId }
-    let outlineTurn
-    try {
-      const outline = typeof projections.snapshot === 'function' ? projections.snapshot(ref, ['turnOutline'])?.values?.turnOutline : undefined
-      outlineTurn = Array.isArray(outline) && outline.length > 0 ? positiveTurn(outline.at(-1)?.turn) : undefined
-    } catch { outlineTurn = undefined }
-    let anchorTurn
-    try {
-      anchorTurn = typeof projections.stateOf === 'function' ? positiveTurn(projections.stateOf(ref, 'dsBotAnchor')?.turn) : undefined
-    } catch { anchorTurn = undefined }
-    return maxTurn(outlineTurn, anchorTurn)
+  const projectionLatestTurn = async (sessionId) => {
+    let latest
+    const liveSession = ctx.get?.('agents')?.get?.(sessionId)?.session ?? ctx.get?.('sessions')?.get?.(sessionId)
+    if (liveSession !== undefined) {
+      const projections = ctx.get?.('sessionProjections')
+      try {
+        latest = maxTurn(latest, positiveTurn(projections?.stateOf?.(liveSession, 'dsBotAnchor')?.turn))
+      } catch { /* projection unavailable */ }
+      if (latest !== undefined) return latest
+    }
+    if (typeof ctx.sessionController?.projections === 'function') {
+      try {
+        const res = await ctx.sessionController.projections({ sessionId }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+        const values = res?.values ?? res
+        const outline = values?.turnOutline
+        if (Array.isArray(outline) && outline.length > 0) latest = maxTurn(latest, positiveTurn(outline.at(-1)?.turn))
+        latest = maxTurn(latest, positiveTurn(values?.dsBotAnchor?.turn))
+      } catch { /* fall back to page scan */ }
+    }
+    return latest
   }
   const applyTail = (sessionId, item) => {
     const prev = tails.get(sessionId)
@@ -4387,7 +4393,7 @@ export function install(rt) {
       let beforeSeq
       let latest
       let lastBotAt
-      let latestTurn = projectionLatestTurn(sessionId)
+      let latestTurn = await projectionLatestTurn(sessionId)
       for (let pages = 0; pages < 10; pages += 1) {
         const page = await ctx.sessionController.page({
           address: { kind: 'session', sessionId },
