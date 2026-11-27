@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -230,6 +231,58 @@ test('oversized bytes never enter memory past the ceiling', async (t) => {
   )
   const { bytes } = await rt.sideAppInternals.readVerified(real, { anchor: root, limit: 4096 })
   assert.equal(bytes.length, 1026, 'the whole file reads when it fits the ceiling')
+})
+
+test('a multi-chunk read returns every byte the file holds, not the last chunks repeated', async (t) => {
+  // The read scratch is 64 KiB; anything larger is several reads. A byte pattern that
+  // differs at every position and per 64 KiB block proves the bytes came back whole:
+  // chunk aliasing would repeat later scratch content over the earlier blocks.
+  const root = tempRoot(t)
+  const size = 200 * 1024 + 517
+  const body = Buffer.alloc(size)
+  for (let i = 0; i < size; i += 1) {
+    body[i] = (i * 131 + Math.floor(i / 65536) * 7) % 251
+  }
+  write(root, 'chunked.html', body)
+  const { rt } = harness({ root })
+  const real = await realpath(join(root, 'chunked.html'))
+  const { bytes } = await rt.sideAppInternals.readVerified(real, { anchor: root, limit: 4 * 1024 * 1024 })
+  assert.equal(bytes.length, size, 'the read length matches the file')
+  assert.equal(
+    createHash('sha256').update(bytes).digest('hex'),
+    createHash('sha256').update(body).digest('hex'),
+    'the served bytes hash to the file the disk holds',
+  )
+  for (let block = 0; block * 65536 < size; block += 1) {
+    const at = block * 65536
+    const end = Math.min(at + 65536, size)
+    assert.deepEqual(bytes.subarray(at, end), body.subarray(at, end), `block ${block} survives whole`)
+  }
+})
+
+test('an oversized multi-chunk file still fails at ceiling plus one byte, never returning truncated bytes', async (t) => {
+  // Growth past the ceiling must surface as the oversized error even when the file
+  // needs several scratch rounds: the extra byte is the proof, not a short read.
+  const root = tempRoot(t)
+  const size = 150 * 1024 + 33
+  const body = Buffer.alloc(size, 120)
+  write(root, 'overgrown.html', body)
+  const { rt } = harness({ root })
+  const real = await realpath(join(root, 'overgrown.html'))
+  await assert.rejects(
+    rt.sideAppInternals.readVerified(real, { anchor: root, limit: 100 * 1024, oversized: 'too large for the test' }),
+    error => error?.code === 'bot/too-large' && /too large for the test/.test(error.message),
+    'a file over the ceiling rejects instead of serving a partial read',
+  )
+  // Exactly at the ceiling, the same multi-chunk path serves every byte whole.
+  const exact = 100 * 1024
+  const exactBody = Buffer.alloc(exact)
+  for (let i = 0; i < exact; i += 1) exactBody[i] = (i * 97) % 251
+  write(root, 'exact.html', exactBody)
+  const exactReal = await realpath(join(root, 'exact.html'))
+  const { bytes } = await rt.sideAppInternals.readVerified(exactReal, { anchor: root, limit: exact })
+  assert.equal(bytes.length, exact)
+  assert.deepEqual(bytes, exactBody, 'a file exactly at the ceiling reads whole through several chunks')
 })
 
 test('a path that names no regular file never reaches the byte channel', async (t) => {

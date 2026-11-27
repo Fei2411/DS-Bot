@@ -181,7 +181,9 @@ export function install(rt) {
       if (room <= 0) break
       const { bytesRead } = await handle.read(scratch, 0, Math.min(scratch.length, room), null)
       if (bytesRead === 0) break
-      chunks.push(Buffer.from(scratch.buffer, scratch.byteOffset, bytesRead))
+      // The scratch is reused by the next read, so every chunk copies out of it:
+      // a shared view would see the bytes of a later read instead of its own.
+      chunks.push(Buffer.from(scratch.subarray(0, bytesRead)))
       total += bytesRead
     }
     return Buffer.concat(chunks, total)
