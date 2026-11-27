@@ -383,6 +383,9 @@ describe('CI workflow separation and path classification', () => {
     assert.match(cutAllRuns, /fix\/hot-\*/u)
     assert.match(cutAllRuns, /git fetch origin main dev --tags --force/u)
     assert.match(cutAllRuns, /--ignore-pr "\$existing_pr"/u)
+    assert.match(cutAllRuns, /git ls-remote --exit-code --heads origin "\$TARGET_BRANCH"/u)
+    assert.match(cutAllRuns, /git merge --no-edit "\$BASE_REF"/u)
+    assert.doesNotMatch(cutAllRuns, /git push[^\n]*--force/u, 'cut-release.yml must reuse existing release branch and never force-push')
     assert.match(cutAllRuns, /<!-- auto-fixes -->/u)
     assert.match(cutAllRuns, /Hotfix-Release: true/u)
     assert.match(cutAllRuns, /scripts\/check-release-milestone\.mjs/u)
@@ -619,6 +622,15 @@ describe('CI workflow separation and path classification', () => {
       assert.equal(testHotfix.release_pr, 'false')
       assert.equal(testHotfix.full, 'false')
       assert.equal(testHotfix.ds_bot, 'true')
+      assert.equal(testHotfix.ds_bot_win, 'true', 'hotfix PR to main changing ds-bot must run 4-shard Windows unit tests')
+      assert.equal(testHotfix.app_unit, 'true')
+      assert.equal(testHotfix.app_unit_win, 'true', 'hotfix PR to main changing app/ds-bot must run Windows desktop unit tests')
+
+      const winHotfix = runClassifier('test.yml', ['start.ps1'], overrides)
+      assert.equal(winHotfix.hotfix, 'true')
+      assert.equal(winHotfix.ds_bot, 'true')
+      assert.equal(winHotfix.ds_bot_win, 'true', 'Windows-specific hotfix (start.ps1) must run Windows unit tests')
+      assert.equal(winHotfix.app_unit_win, 'false')
     }
 
     // A fork PR named hotfix/* without maintainer release/hotfix label must NOT bypass full checks.

@@ -161,6 +161,12 @@ jobs:
             if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/(package\.json|link\.js)$|ds-bot/src/shared/|ds-bot/src/host/phone\.js$|ds-bot/src/client/(i18n|themes|sources|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest|inbox-text|effects)\.js$|ds-bot/src/client/(avatar|locales)/)'; then mobile=true; fi
             if has '^link/'; then link=true; fi
             if has '^(docker/|docker-compose.*\.yml$|\.dockerignore$)'; then docker=true; fi
+            # Hotfix PRs targeting main still run the fast 4-shard Windows unit suites (~5m)
+            # whenever plugin or desktop code changes so main never loses Windows test coverage.
+            if [ "$hotfix" = "true" ]; then
+              if [ "$ds_bot" = "true" ]; then ds_bot_win=true; fi
+              if [ "$app_unit" = "true" ]; then app_unit_win=true; fi
+            fi
             # Push to dev stays fast and Linux-only so rapid merges warm Linux caches and catch
             # cross-PR regressions immediately without hogging Windows or Docker runners; Windows,
             # Node 22, and Docker :dev publishing run on the daily dev Nightly.

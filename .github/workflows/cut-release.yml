@@ -146,7 +146,17 @@ jobs:
           BASE_REF: ${{ steps.meta.outputs.base_ref }}
         run: |
           set -euo pipefail
-          git checkout -B "$TARGET_BRANCH" "$BASE_REF"
+          git config user.name "${GITHUB_ACTOR}"
+          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "$TARGET_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$TARGET_BRANCH"
+            git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+            if ! git merge-base --is-ancestor "$BASE_REF" HEAD; then
+              git merge --no-edit "$BASE_REF"
+            fi
+          else
+            git checkout -B "$TARGET_BRANCH" "$BASE_REF"
+          fi
 
           VERSION="$TARGET_VERSION" node -e '
             const { execFileSync } = require("node:child_process");
