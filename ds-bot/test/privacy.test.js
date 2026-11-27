@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { test } from 'node:test'
@@ -405,19 +405,24 @@ test('bundled skill references stay readable under a data root with a private Bo
 test('a link into the folder of a private Bot is closed too', async (t) => {
   const { run, project, diary, stop } = await start()
   t.after(stop)
+  const link = join(project, 'link')
   try {
-    symlinkSync(diary, join(project, 'link'), 'junction')
+    symlinkSync(diary, link, 'junction')
   } catch {
     t.skip('no links here')
     return
   }
-  const result = await run('read', { file_path: join(project, 'link', 'notes.txt') }, 'b')
-  assert.equal(result.ran, false)
-  assert.match(result.error, CLOSED)
-  // The file does not exist yet: the link above it still has to be resolved.
-  const created = await run('write', { file_path: join(project, 'link', 'new.txt'), content: 'x' }, 'b')
-  assert.equal(created.ran, false)
-  assert.match(created.error, CLOSED)
+  try {
+    const result = await run('read', { file_path: join(project, 'link', 'notes.txt') }, 'b')
+    assert.equal(result.ran, false)
+    assert.match(result.error, CLOSED)
+    // The file does not exist yet: the link above it still has to be resolved.
+    const created = await run('write', { file_path: join(project, 'link', 'new.txt'), content: 'x' }, 'b')
+    assert.equal(created.ran, false)
+    assert.match(created.error, CLOSED)
+  } finally {
+    unlinkSync(link)
+  }
 })
 
 test('the private Bot reads its own and the team\'s files; a Session it starts speaks for it', async (t) => {
@@ -1237,4 +1242,27 @@ test('privacy shell and run_code guards normalize Windows UNC and repeated slash
   const codeRes = await run('run_code', { code: 'return "\\\\\\\\fileserver\\\\team\\\\private-vault\\\\notes.md"' }, 'b', writerAgent)
   assert.equal(codeRes.ran, false, 'expected run_code block for escaped UNC path')
   assert.match(codeRes.error, CLOSED)
+})
+
+test('present tool cannot expose private Bot files, host API files, or secret files', async (t) => {
+  const { run, rt, home, diary, agentOf, stop } = await start()
+  t.after(stop)
+  const writerAgent = agentOf('b')
+  const privateRes = await run('present', { files: [{ path: join(diary, 'notes.txt') }] }, 'b', writerAgent)
+  assert.equal(privateRes.ran, false)
+  assert.match(privateRes.error, CLOSED)
+  // Without any private Bot, guardApiFiles, guardSecretFiles, and guardPresentData still block present.
+  rt.state.bots[P].private = false
+  const apiRes = await run('present', { files: [{ path: join(home, 'api-tokens.json') }] }, 'b', writerAgent)
+  assert.equal(apiRes.ran, false)
+  assert.match(apiRes.error, /API token|telemetry/)
+  const secretRes = await run('present', { files: [{ path: join(home, 'secret-refs', 'tok.json') }] }, 'b', writerAgent)
+  assert.equal(secretRes.ran, false)
+  assert.match(secretRes.error, /secret/)
+  const stateRes = await run('present', { files: [{ path: join(home, 'state.json') }] }, 'b', writerAgent)
+  assert.equal(stateRes.ran, false)
+  assert.match(stateRes.error, /DeepSeek Harness data/)
+  const secretsJsonRes = await run('present', { files: [{ path: join(home, 'secrets.json') }] }, 'b', writerAgent)
+  assert.equal(secretsJsonRes.ran, false)
+  assert.match(secretsJsonRes.error, /DeepSeek Harness data/)
 })

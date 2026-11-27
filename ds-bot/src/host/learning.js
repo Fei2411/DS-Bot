@@ -610,7 +610,7 @@ export function install(rt) {
           if (lines.length > 0) succeeded += 1
           if (proposal !== undefined) {
             store.proposals[proposal.id] = proposal
-            rt.learningProposed?.(proposal)
+            rt.inboxChanged?.()
             made += 1
           }
           if (config.agentsMd !== false) {
@@ -681,7 +681,7 @@ export function install(rt) {
             succeeded += 1
             if (proposal !== undefined) {
               store.proposals[proposal.id] = proposal
-              rt.learningProposed?.(proposal)
+              rt.inboxChanged?.()
               made += 1
             }
             const queue = store.agentsPending[folder]
@@ -767,6 +767,7 @@ export function install(rt) {
           : { name: proposal.name, description: proposal.description, at: Date.now() }
         store.declined = [...store.declined, decline].slice(-settings.declinedMax)
         await persist()
+        rt.inboxChanged?.()
         return { applied: false }
       }
       // A failed approval keeps the card, so the user can still decline it.
@@ -774,6 +775,7 @@ export function install(rt) {
       else await applySkill(proposal)
       settle('approved')
       await persist()
+      rt.inboxChanged?.()
       return { applied: true }
     } finally {
       answering.delete(id)
@@ -905,7 +907,10 @@ export function install(rt) {
         changed = true
       }
     }
-    if (changed) await persist()
+    if (changed) {
+      await persist()
+      rt.inboxChanged?.()
+    }
   }
   rt.onBotDelete?.(dropBot)
 

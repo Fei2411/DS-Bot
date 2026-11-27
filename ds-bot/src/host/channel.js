@@ -9,6 +9,8 @@ import { threadCurrentOfPart, threadOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { validateOnePasswordConfig } from './secret-providers/onepassword.js'
 import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
+import { presentedFileName } from '../shared/group-replies.js'
+import { COMPUTER_APPEARANCE_FIELDS } from '../shared/appearance.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
@@ -145,7 +147,8 @@ export function install(rt) {
     rooms: Object.values(state.rooms).map(({ log, seen, paused, sessions, segments, parts: ownParts, ...room }) => {
       const parts = [...Object.values(sessions ?? {}), ...Object.values(segments ?? {}).flat().map(segment => segment.sessionId), ...(ownParts ?? []).map(segment => segment.sessionId)]
       const last = (log ?? []).filter(line => line.kind === undefined).at(-1)
-      return { ...room, sessionId: rt.sessionOfRoom(room), ownParts: (ownParts ?? []).map(segment => segment.sessionId), parts, ...(last ? { lastAt: last.time, preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
+      const lastBody = last ? (last.text || (Array.isArray(last.presented) ? last.presented.map(file => presentedFileName(file.path)).join(', ') : '')) : ''
+      return { ...room, sessionId: rt.sessionOfRoom(room), ownParts: (ownParts ?? []).map(segment => segment.sessionId), parts, ...(last ? { lastAt: last.time, preview: last.who === 'User' ? lastBody : `${last.who}：${lastBody}` } : {}) }
     }),
     // Deleted private Bots whose folder, memory and chats stay closed to the others.
     privateArchives: rt.archivesView(),
@@ -224,6 +227,9 @@ export function install(rt) {
     // Browser holds (handoffs and takeovers) change without bumping state.revision,
     // so they ride on live() to reconcile unchanged-revision polls.
     browserHolds: rt.browserChannel?.holdSnapshot?.() ?? {},
+    // Everything across the team that waits on the user (inbox.js): one list for the
+    // sidebar, the inbox page, the phone and notifications.
+    inbox: rt.inboxView?.() ?? null,
     // Plugin runtime summary (active slots, restart status, installed count) updates
     // asynchronously as slots reconcile, so it rides on live().
     plugins: rt.pluginsSummary?.() ?? null,
@@ -231,6 +237,8 @@ export function install(rt) {
     speech: Boolean(ctx.get?.('speechController')),
     // True once until the user confirms or declines the telemetry privacy notice.
     telemetryPrompt: rt.telemetry?.shouldPromptNotice?.() === true,
+    // Release notes state for local windows (excluded from remote/relay payloads).
+    releaseNotes: rt.releaseNotesView?.() ?? null,
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -257,7 +265,13 @@ export function install(rt) {
   // unsaved too, so a refused change never shows up later with the next save.
   // Model catalog checks run before anything changes; the rest applies in one step so a
   // refused change cannot roll back another request's save.
-  async function setPrefs(body, requests = {}) {
+  async function setPrefs(body, requests = {}, { remote = false } = {}) {
+    if (remote && body.appearance !== null && typeof body.appearance === 'object' && !Array.isArray(body.appearance)) {
+      const blocked = Object.keys(body.appearance).filter(field => COMPUTER_APPEARANCE_FIELDS.has(field))
+      if (blocked.length > 0) {
+        throw Object.assign(new Error(`These appearance fields can only be changed on this computer: ${blocked.join(', ')}`), { code: 'bot/refused' })
+      }
+    }
     const model = await defaultModelOf(body)
     let approvalModel
     if (body.approvalModel !== undefined) {
@@ -428,7 +442,7 @@ export function install(rt) {
           await rt.catalog()
           await rt.loadSecrets()
           const answer = liveAnswer()
-          const { api: _, telemetryPrompt: _tp, ...remoteLive } = answer.value
+          const { api: _, telemetryPrompt: _tp, releaseNotes: _rn, ...remoteLive } = answer.value
           const liveValue = remote ? remoteLive : answer.value
           if (body.since === state.revision && (body.models === undefined || body.models === modelsKey())) {
             if (body.live === answer.key) return ok({ revision: state.revision, unchanged: true, liveKey: answer.key })
@@ -488,7 +502,7 @@ export function install(rt) {
           return ok(await rt.duplicateBot(body.id))
         case 'set-prefs':
           await rt.load()
-          await setPrefs(body, requests)
+          await setPrefs(body, requests, { remote })
           return ok(state.prefs)
         case 'exchange': {
           await rt.load()
@@ -736,9 +750,14 @@ export function install(rt) {
         case 'set-flags':
           await rt.load()
           return ok(await rt.setFlags(body.id, body))
-        case 'section-save':
+        case 'section-save': {
           await rt.load()
-          return ok(await rt.saveSection(body))
+          const saved = await rt.saveSection(body)
+          if (body.withRevision !== true) return ok(saved)
+          // Read the current section and revision together: a concurrent save may have won.
+          const section = state.sections?.find(entry => entry.id === saved.id)
+          return ok({ section: section ? { ...section } : null, revision: state.revision })
+        }
         case 'section-order':
           await rt.load()
           await rt.reorderSections(body.ids)
@@ -1044,6 +1063,9 @@ export function install(rt) {
         }
         case 'update-install':
           return ok(rt.updateStart())
+        case 'release-notes-claim':
+          if (remote) return fail('Release notes can only be claimed on this computer', 'bot/refused')
+          return ok(await rt.claimReleaseNotes(body.version))
         case 'dsh-update-install':
           return ok(rt.dshUpdateStart?.())
         case 'repo-stars':
@@ -1074,7 +1096,7 @@ export function install(rt) {
           // Taking over a handoff keeps its reason, note, and call, so its card stays up.
           const asked = rt.browserChannel.holdOf(botId)
           rt.browserChannel.setHold(botId, asked?.callId !== undefined
-            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId, ...(asked.sessionId !== undefined ? { sessionId: asked.sessionId } : {}) }
+            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId, ...(Number.isFinite(asked.at) ? { at: asked.at } : {}), ...(asked.sessionId !== undefined ? { sessionId: asked.sessionId } : {}) }
             : { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' })
           return ok(true)
         }

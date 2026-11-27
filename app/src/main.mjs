@@ -23,6 +23,7 @@ import { disk } from './copy-tree.mjs'
 import { configureIdentity } from './legacy.mjs'
 import { hostPort } from './host-port.mjs'
 import { captureStdio, LogFile } from './logs.mjs'
+import { locationsFile, readSavedLocations } from './locations.mjs'
 import { Pickers } from './picker-host.mjs'
 import { currentRootOf, driveOf, formatBytes, freeSpace, isEmptyTree, pickFrom, placeOf, rootOf, runningLow } from './place.mjs'
 import { createShell, SHELL_TEXT } from './shell.mjs'
@@ -32,6 +33,7 @@ import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
 import { installSocketTosGuard } from 'ds-bot/socket-tos-guard'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
+import { subframeNavigationAllowed } from './frame-navigation.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
 import { matchForwardedShortcut } from './shortcut-match.mjs'
 
@@ -285,7 +287,15 @@ function stopHost() {
 }
 
 // A throwaway run (DS_BOT_HOME) asks nothing and shows what a later start shows.
-const startKind = () => (process.env.DS_BOT_HOME || existsSync(join(app.getPath('userData'), 'locations.json')) ? 'later' : 'first')
+function startKind() {
+  if (process.env.DS_BOT_HOME) return 'later'
+  try {
+    return readSavedLocations(locationsFile(app.getPath('userData'))) ? 'later' : 'first'
+  } catch {
+    // Let boot report a read error through the start window instead of treating it as a first run.
+    return 'later'
+  }
+}
 
 async function start() {
   setMenu()
@@ -455,7 +465,7 @@ async function boot(mine) {
     setPlaces({ dataDir: where.dataDir, workspace: where.workspace })
     importOffer = where.offer
     if (first) startWindow.explain(explainOf({ offered: importOffer !== undefined, team: teamIn(where.dataDir) }))
-    else tellLowSpace(where.freeAtStart)
+    else if (importOffer === undefined) tellLowSpace(where.freeAtStart)
   }
   // Also the check that the data folder can be written.
   mkdirSync(profileDir(), { recursive: true })
@@ -613,12 +623,16 @@ const hostOutput = (stream, chunk) => {
 }
 
 function dshTelemetryEnv(dataDir) {
-  if (process.env.DSH_TELEMETRY_DISABLED !== undefined) return {}
-  try {
-    const saved = JSON.parse(readFileSync(join(dataDir, 'bot', 'telemetry.json'), 'utf8'))
-    if (saved?.dshFeedbackTelemetry === true) return {}
-  } catch { /* default off until the user explicitly opts in */ }
-  return { DSH_TELEMETRY_DISABLED: '1' }
+  const out = {}
+  if (process.env.DSH_TELEMETRY_DISABLED === undefined) {
+    let feedbackEnabled = false
+    try {
+      const saved = JSON.parse(readFileSync(join(dataDir, 'bot', 'telemetry.json'), 'utf8'))
+      feedbackEnabled = saved?.dshFeedbackTelemetry === true
+    } catch { /* default off until the user explicitly opts in */ }
+    if (!feedbackEnabled) out.DSH_TELEMETRY_DISABLED = '1'
+  }
+  return out
 }
 
 function newHost() {
@@ -627,7 +641,7 @@ function newHost() {
   const child = new HostProcess({
     entry: join(here, 'host.mjs'),
     cwd: profileDir(),
-    env: { ...process.env, ...dshTelemetryEnv(places.dataDir), DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_UI_DIR: join(here, '..', 'ui', 'dist'), DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(app.isPackaged && process.platform === 'darwin' ? { DS_BOT_COMPUTER_HELPER_HOME: join(app.getPath('userData'), 'computer-use') } : {}), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
+    env: { ...process.env, ...dshTelemetryEnv(places.dataDir), DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_APP_VERSION: app.getVersion(), DS_BOT_UI_DIR: join(here, '..', 'ui', 'dist'), DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(app.isPackaged && process.platform === 'darwin' ? { DS_BOT_COMPUTER_HELPER_HOME: join(app.getPath('userData'), 'computer-use') } : {}), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
     pnpm: pnpmEntry(),
     onFailure: (error) => { if (mine === attempt) void fail(error) },
     output: hostOutput,
@@ -739,7 +753,7 @@ async function importStep(mine) {
         if (host === warm) host = undefined
         if (mine === attempt) startWindow.engineDown()
       },
-      copy: options => importTeam({ from: offer.from, to: where.dataDir, workspace: where.workspace, dsh: getDshRuntimeVersion(), ...options }),
+      copy: options => importTeam({ from: offer.from, to: where.dataDir, workspace: where.workspace, dsh: getDshRuntimeVersion(), currentVersion: app.getVersion(), ...options }),
       reasonOf: copyReason,
       progress: setProgress,
       lang: lang(),
@@ -1405,7 +1419,7 @@ function startUpdates() {
   const autoUpdate = readAutoUpdate(updatePrefsFile())
   if (process.platform === 'darwin') {
     return watchReleases({
-      current: app.getVersion(), arch: process.arch, feed, autoUpdate, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
+      current: app.getVersion(), arch: process.arch, feed, autoUpdate, ask: throwaway ? undefined : (version, info) => downloadPrompt.prompt(version, info), open: url => electronShell.openExternal(url),
     })
   }
   // electron-updater's Linux updater works only from inside an AppImage (APPIMAGE is set there);
@@ -1414,7 +1428,7 @@ function startUpdates() {
   if (process.platform === 'linux' && process.env.APPIMAGE === undefined) {
     const debArch = { x64: 'amd64', arm64: 'arm64' }[process.arch] ?? process.arch
     return watchReleases({
-      current: app.getVersion(), arch: process.arch, feed, autoUpdate, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
+      current: app.getVersion(), arch: process.arch, feed, autoUpdate, ask: throwaway ? undefined : (version, info) => downloadPrompt.prompt(version, info), open: url => electronShell.openExternal(url),
       asset: version => `DS-Bot-${version}-linux-${debArch}.deb`,
     })
   }
@@ -1422,7 +1436,7 @@ function startUpdates() {
     // The update ends the app: the window closes for good, and the Host stops before the
     // installer replaces its files.
     return watchUpdates({
-      updater: electronUpdater.autoUpdater, feed, autoUpdate, ask: throwaway ? undefined : (version) => restartPrompt.prompt(version),
+      updater: electronUpdater.autoUpdater, feed, autoUpdate, ask: throwaway ? undefined : (version, info) => restartPrompt.prompt(version, info),
       beforeInstall: () => { shell.beginQuit(); return stopHost() },
     })
   }
@@ -1439,16 +1453,21 @@ function windowShown() {
 // question on it would go with it. After a failed start, fail() takes the update over.
 const afterHandoff = async () => { await startWindow.teamShown; return !failed }
 
-// An update question that the page cannot show counts as 「以后再说」: the update installs at the
-// next quit, and the About row still offers it.
-async function askRestartNow(version) {
-  if (failed || updates?.state()?.autoUpdate === false || !await afterHandoff() || updates?.state()?.autoUpdate === false) return false
-  return await askInWindow({ message: tx('dialog.update.ready', { version }), detail: tx('dialog.update.readyDetail'), buttons: [{ label: tx('btn.restart'), primary: true }, { label: tx('btn.notNowRestart') }], cancel: 1 }) === 0
+function updateDetail(base, info) {
+  const notes = typeof info?.notes === 'string' ? info.notes.trim() : ''
+  return notes ? `${base}\n\n${notes}` : base
 }
 
-async function askDownloadNow(version) {
+// An update question that the page cannot show counts as 「以后再说」: the update installs at the
+// next quit, and the About row still offers it.
+async function askRestartNow(version, info) {
   if (failed || updates?.state()?.autoUpdate === false || !await afterHandoff() || updates?.state()?.autoUpdate === false) return false
-  return await askInWindow({ message: tx('dialog.update.available', { version }), detail: tx('dialog.update.availableDetail'), buttons: [{ label: tx('btn.download'), primary: true }, { label: tx('btn.notNowDownload') }], cancel: 1 }) === 0
+  return await askInWindow({ message: tx('dialog.update.ready', { version }), detail: updateDetail(tx('dialog.update.readyDetail'), info), buttons: [{ label: tx('btn.restart'), primary: true }, { label: tx('btn.notNowRestart') }], cancel: 1 }) === 0
+}
+
+async function askDownloadNow(version, info) {
+  if (failed || updates?.state()?.autoUpdate === false || !await afterHandoff() || updates?.state()?.autoUpdate === false) return false
+  return await askInWindow({ message: tx('dialog.update.available', { version }), detail: updateDetail(tx('dialog.update.availableDetail'), info), buttons: [{ label: tx('btn.download'), primary: true }, { label: tx('btn.notNowDownload') }], cancel: 1 }) === 0
 }
 
 // The cards that the team window shows, by id, until they have their answer.
@@ -1647,6 +1666,10 @@ function createWindow() {
     }
     child.webContents.on('will-navigate', away)
     child.webContents.on('will-redirect', away)
+  })
+  contents.on('will-frame-navigate', (details) => {
+    if (details.isMainFrame || subframeNavigationAllowed(details.url, origin)) return
+    details.preventDefault()
   })
   contents.on('will-navigate', (event, url) => {
     if (url.startsWith(`${origin}/`)) return

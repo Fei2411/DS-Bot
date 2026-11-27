@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, isSilentTurnText, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
-import { relayRange } from '../shared/group-replies.js'
+import { presentedFileName, presentedFiles, relayRange, stripRelayPrefix } from '../shared/group-replies.js'
 import { textOf } from './text.js'
 import { hourKeys } from './usage.js'
 
@@ -55,7 +55,13 @@ export const CAPABILITIES = [
   'write-state',
   'push-register',
 ]
-export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval', 'secret', 'connector', 'handoff', 'learning']
+export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval', 'secret', 'connector', 'handoff', 'learning', 'mail', 'computer', 'goal', 'blocked', 'paused', 'alert']
+// The notice each kind of inbox item sends (inbox.js). A source's own kinds send 'alert'.
+const INBOX_NOTICE_KIND = {
+  question: 'question', view: 'view', approval: 'approval', secret: 'secret', connector: 'connector',
+  handoff: 'handoff', learning: 'learning', mail: 'mail', computer: 'computer', goal: 'goal',
+  blocked: 'blocked', model: 'blocked', paused: 'paused', 'room-paused': 'paused',
+}
 
 // Notices live in memory: a client away longer than this many notices, or across a
 // restart (a new `boot`), reads the team again instead.
@@ -107,6 +113,15 @@ function reminderText(text) {
   }
 }
 
+const presentedFileRefs = value => presentedFiles(value).map(file => ({
+  name: presentedFileName(file.path),
+  path: file.path,
+  ...(file.description ? { description: file.description } : {}),
+  ...(file.sessionId ? { sessionId: file.sessionId } : {}),
+  ...(Number.isInteger(file.seq) ? { seq: file.seq } : {}),
+  ...(Number.isInteger(file.index) ? { index: file.index } : {}),
+}))
+
 // One reply of a round as an item: a member's message, the user's message that came in
 // while the round ran, or an event of the round. `id` names it the same while the round
 // runs and once its result is logged, so a client can swap the one for the other.
@@ -114,7 +129,10 @@ function replyItem(reply, id, extra = {}) {
   const who = { ...(reply.botId ? { botId: reply.botId } : {}), ...(reply.name ? { name: reply.name } : {}), ...(reply.color ? { color: reply.color } : {}) }
   const time = Number.isFinite(reply.time) ? reply.time : null
   if (reply.kind === 'user') return { id, kind: 'user', text: String(reply.text ?? ''), time, ...extra }
-  if (reply.kind === undefined) return { id, kind: 'bot', ...who, text: String(reply.text ?? ''), time, ...(Number.isFinite(reply.duration) ? { duration: reply.duration } : {}), ...(reply.changes ? { changes: reply.changes } : {}), ...extra }
+  if (reply.kind === undefined) {
+    const files = presentedFileRefs(reply.presented)
+    return { id, kind: 'bot', ...who, text: String(reply.text ?? ''), time, ...(Number.isFinite(reply.duration) ? { duration: reply.duration } : {}), ...(reply.changes ? { changes: reply.changes } : {}), ...(files.length > 0 ? { files } : {}), ...extra }
+  }
   if (!ROUND_EVENTS.has(reply.kind)) return undefined
   return {
     id, kind: 'event', event: reply.kind, ...who,
@@ -154,10 +172,12 @@ export function roomItems(events, rowsOf = () => []) {
         // picked-up work, stopped work or finished work is an event of the round it opens.
         if (source.logged !== undefined || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true || source.resumedPause === true) continue
         const file = source.length === undefined ? undefined : content.find(block => block?.type === 'file')?.attachment
+        const files = presentedFileRefs(source.presented)
         items.push({
           id: `${seq}`, kind: 'bot', botId: source.senderSessionId ?? null, name: source.senderName ?? null,
           text: textOf(content).replace(POST_HEADER, ''), time: event.time ?? null,
           ...(file ? { whole: { length: source.length, file } } : {}),
+          ...(files.length > 0 ? { files } : {}),
         })
       }
       continue
@@ -173,7 +193,7 @@ export function roomItems(events, rowsOf = () => []) {
     let replies
     if (range !== undefined) replies = rowsOf(range)
     else {
-      try { replies = JSON.parse(text)?.replies } catch { continue }
+      try { replies = JSON.parse(stripRelayPrefix(text))?.replies } catch { continue }
     }
     if (!Array.isArray(replies)) continue
     relays.delete(callId)
@@ -232,26 +252,24 @@ export function install(rt) {
     roomChanged(room.id)
     if (line.botId === undefined || line.who === 'User') return
     const base = { roomId: room.id, title: room.name }
-    if (line.kind === undefined) botNotice(line.botId, { kind: 'group', ...base, text: line.text })
+    if (line.kind === undefined) {
+      const summary = line.text || (Array.isArray(line.presented) ? line.presented.map(file => presentedFileName(file.path)).join(', ') : '')
+      botNotice(line.botId, { kind: 'group', ...base, text: summary })
+    }
     else if (line.kind === 'done') botNotice(line.botId, { kind: 'done', ...base, text: '' })
   }
 
-  // A card in a Bot's own chat waits for the user.
-  rt.cardShown = (sessionId, kind, text) => {
-    const botId = rt.chatOwners.get(sessionId)
-    if (botId !== undefined) botNotice(botId, { kind, sessionId, text })
-  }
-  rt.approvalWaiting = (entry) => {
-    if (!entry.botId) return
-    const room = rt.roomOf(entry.roomId)
-    botNotice(entry.botId, { kind: 'approval', sessionId: entry.sessionId, ...(room ? { roomId: room.id, title: room.name } : {}), text: entry.tool })
-  }
-  rt.learningProposed = (proposal) => {
-    if (!proposal?.botId) return
-    const label = proposal.kind === 'agents' ? `${proposal.folder}/AGENTS.md` : `skills/${proposal.name}/SKILL.md`
-    const sessionId = rt.chatOf?.(proposal.botId)
-    botNotice(proposal.botId, { kind: 'learning', ...(sessionId ? { sessionId } : {}), text: label })
-  }
+  // Whatever waits on the user, wherever it was asked: a new inbox item (inbox.js) is
+  // one notice. The kind names what waits; the text is the item's own summary, and the
+  // phone decides how much of it a notification shows.
+  const offInbox = rt.onInboxAdded?.((item) => {
+    const kind = INBOX_NOTICE_KIND[item.kind] ?? 'alert'
+    const room = item.roomId === undefined ? undefined : rt.roomOf(item.roomId)
+    const text = item.kind === 'approval' ? item.tool ?? '' : item.text ?? ''
+    const entry = { kind, ...(item.sessionId ? { sessionId: item.sessionId } : {}), ...(room ? { roomId: room.id, title: room.name } : {}), text }
+    if (item.botId !== undefined && rt.botOf(item.botId) !== undefined) botNotice(item.botId, entry)
+    else if (room !== undefined) addNotice({ name: room.name, ...entry })
+  })
 
   ctx.on('session/event', (session, event) => {
     const id = session?.id
@@ -281,18 +299,8 @@ export function install(rt) {
     }, LIVE_SIGNAL_MS)
   }
   const offApproval = rt.onApproval?.(() => liveChanged())
-  const seenHolds = new Map()
-  const offHolds = rt.browserChannel?.subscribeHolds?.((botId, hold) => {
-    liveChanged()
-    if (hold === null || hold?.callId === undefined) {
-      seenHolds.delete(botId)
-      return
-    }
-    if (seenHolds.get(botId) === hold.callId) return
-    seenHolds.set(botId, hold.callId)
-    const sessionId = hold.sessionId ?? rt.chatOf?.(botId)
-    botNotice(botId, { kind: 'handoff', ...(sessionId ? { sessionId } : {}), text: hold.note || hold.reason || '' })
-  })
+  const offHolds = rt.browserChannel?.subscribeHolds?.(() => liveChanged())
+  const offInboxChange = rt.onInboxChanged?.(() => liveChanged())
 
   ctx.effect(() => () => {
     for (const timer of roomTimers.values()) clearTimeout(timer)
@@ -301,6 +309,8 @@ export function install(rt) {
     liveTimer = undefined
     offApproval?.()
     offHolds?.()
+    offInboxChange?.()
+    offInbox?.()
     clearAvatarRefCache()
   }, 'ds-bot: mobile room signals')
 
@@ -604,6 +614,7 @@ export function install(rt) {
             if (typeof file?.path !== 'string') continue
             const realPath = await rt.real?.(file.path)
             if (realPath && await rt.inData?.(realPath)) throw unavailable()
+            if (await rt.isPrivatePathBlocked?.(realPath ?? file.path, memberBotId ?? botId)) throw unavailable()
             const info = await stat(realPath ?? file.path).catch(() => undefined)
             if (info?.isFile() !== true) throw unavailable()
             if (chunked) {

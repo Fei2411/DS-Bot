@@ -86,7 +86,7 @@ test('openFeed escalates backoff on repeated 200-EOF responses, resets on valid 
   assert.equal(pendingTimers.size, 0, 'stop() cancels active backoff timer immediately')
 })
 
-test('createTeam pauses catch-up polling while hidden, caches sessionHook, prunes deleted sessions, and fires noteLive only on stream transitions', async () => {
+test('createTeam pauses catch-up polling while hidden, caches sessionHook, prunes deleted sessions, and fires noteLive only on stream transitions', async (t) => {
   const { outputFiles } = await build({
     entryPoints: [fileURLToPath(new URL('../ui/src/team.js', import.meta.url))],
     bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -136,6 +136,8 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   }
   const module = { exports: {} }
   const storageData = new Map()
+  let nextRead
+  let delayedSave
   const localStorage = {
     getItem: k => storageData.get(k) ?? null,
     setItem: (k, v) => storageData.set(k, String(v)),
@@ -144,8 +146,28 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   const sandbox = {
     module,
     exports: module.exports,
-    __call: async (name) => {
-      if (name === 'state') { pullCount += 1; return rosterValue }
+    __call: async (name, body) => {
+      if (name === 'state') {
+        pullCount += 1
+        if (nextRead) {
+          const read = nextRead
+          nextRead = undefined
+          return read.promise
+        }
+        if (body.since === rosterValue.revision) return { revision: rosterValue.revision, unchanged: true }
+        return rosterValue
+      }
+      if (name === 'section-save') {
+        const section = { ...rosterValue.sections[0], collapsed: body.collapsed }
+        rosterValue = { ...rosterValue, revision: rosterValue.revision + 1, sections: [section] }
+        const reply = body.withRevision ? { section, revision: rosterValue.revision } : section
+        if (delayedSave) {
+          const delay = delayedSave
+          delayedSave = undefined
+          await delay.promise
+        }
+        return reply
+      }
       return {}
     },
     __feedCb: null,
@@ -186,6 +208,7 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
 
   // 2. Start team: catch-up interval pauses when hidden and catches up on visibilitychange.
   const stop = team.start()
+  t.after(stop)
   await tick()
   assert.equal(pullCount, 1)
   assert.equal(intervalsStarted, 1)
@@ -222,7 +245,36 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
     'noteLive fires once on stream text start and once on stream end across 10 deltas',
   )
 
-  // 4. Deleting a bot in a roster update prunes its sessionId from sessions, status, sent, and sessionHooks.
+  // 4. Replies arriving while Inbox covers the active chat and group notices mark completionUnread, and closing Inbox clears the active chat.
+  rosterValue = {
+    ...rosterValue,
+    revision: 2,
+    rooms: [{ id: 'r1', sessionId: 'r1', name: 'Ops', members: ['b1', 'b2'] }],
+  }
+  sandbox.__feedCb('revision', {})
+  await tick()
+  team.actions.openSession('b1')
+  team.actions.openInbox()
+  sandbox.__feedCb('message', { botId: 'b1', sessionId: 'b1', item: { kind: 'bot', text: 'while inbox open', time: 110 } })
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', text: 'ops update', time: 111 })
+  assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), true, 'active chat reply marks unread while Inbox covers it')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true, 'group reply notice marks group unread')
+  // Opening r1 from Inbox clears r1 without clearing b1!
+  team.actions.openSession('r1')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), false, 'opening the group clears its unread flag')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), true, 'opening r1 from Inbox preserves b1 unread')
+  // Opening Inbox over r1, receiving a reply on r1, switching to New chat, then dismissing New chat clears r1 on reveal.
+  team.actions.openInbox()
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', text: 'ops update 2', time: 112 })
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true)
+  team.actions.openNewChat('bot')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true, 'replacing Inbox with New chat keeps covered chat unread')
+  team.actions.closeNewChat()
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), false, 'dismissing New chat reveals r1 and clears its unread flag')
+  team.actions.openSession('b1')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), false)
+
+  // 5. Deleting a bot in a roster update prunes its sessionId from sessions, status, sent, and sessionHooks.
   team.actions.noteSent('b2')
   sandbox.__feedCb('message', { botId: 'b2', sessionId: 'b2', item: { kind: 'bot', text: 'bye', time: 100 } })
   const hookB2Before = team.sessionHook('b2')
@@ -231,14 +283,52 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
 
   rosterValue = {
     ...rosterValue,
-    revision: 2,
+    revision: 3,
     bots: [{ id: 'b1', sessionId: 'b1', name: 'Alpha', parts: ['b1'] }],
+    rooms: [],
   }
   sandbox.__feedCb('revision', {})
   await tick()
   assert.equal(team.hooks.useSessions(list => list.ids.includes('b2')), false, 'deleted session pruned from sessions')
   assert.equal(team.hooks.useSessionStatus(map => map.has('b2')), false, 'deleted session pruned from status')
   assert.notEqual(team.sessionHook('b2'), hookB2Before, 'deleted session pruned from sessionHook cache')
+
+  await t.test('a read from another window wins over an older fold acknowledgement', async () => {
+    rosterValue = { ...rosterValue, revision: 4, sections: [{ id: 'work', name: 'Work' }] }
+    intervalCb()
+    await tick()
+    const snapshot = () => team.snapshots.roster()
+
+    for (const replyFirst of [true, false]) {
+      const saveGate = delayedSave = Promise.withResolvers()
+      const collapse = team.actions.saveSection({ id: 'work', collapsed: true })
+      await tick()
+      assert.equal(rosterValue.sections[0].collapsed, true)
+      const readGate = nextRead = Promise.withResolvers()
+      sandbox.__feedCb('revision', {})
+      await sandbox.__call('section-save', { id: 'work', collapsed: false })
+      const deliverSave = async () => {
+        saveGate.resolve()
+        await collapse
+      }
+      const deliverRead = async () => {
+        readGate.resolve(rosterValue)
+        await tick()
+      }
+      if (replyFirst) {
+        await deliverSave()
+        assert.equal(snapshot().sections[0].collapsed, true)
+        await deliverRead()
+      } else {
+        await deliverRead()
+        await deliverSave()
+      }
+      intervalCb()
+      await tick()
+      assert.equal(snapshot().revision, rosterValue.revision)
+      assert.equal(snapshot().sections[0].collapsed, false, `newer fold wins (save reply first: ${replyFirst})`)
+    }
+  })
 
   void liveUpdates
   void unsubLive

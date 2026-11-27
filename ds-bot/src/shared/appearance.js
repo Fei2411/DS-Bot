@@ -170,6 +170,10 @@ const FIELDS = {
   },
 }
 export const APPEARANCE_FIELDS = Object.keys(FIELDS)
+// Window-level appearance: color mode, fonts, text metrics, material and CSS draw the
+// computer's own window rather than the shared team look. CSS can also fetch remote
+// resources. Paired devices keep the team-facing fields but may not change these.
+export const COMPUTER_APPEARANCE_FIELDS = new Set(['css', 'mode', 'uiFont', 'codeFont', 'fontSize', 'lineHeight', 'material'])
 
 /**
  * Apply a change to the saved appearance. Fields the change does not name stay as they are.

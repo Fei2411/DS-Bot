@@ -45,7 +45,7 @@
     "ios": "expo run:ios",
     "android": "expo run:android",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/team/*.test.ts src/nav/*.test.ts src/screens/chat/*.test.ts plugins/*.test.js",
+    "test": "node --test src/team/*.test.ts src/nav/*.test.ts src/screens/chat/*.test.ts src/ui/*.test.ts src/ui/avatar/*.test.ts plugins/*.test.js",
     "ios:archive": "sh scripts/ios-archive.sh"
   },
   "private": true,

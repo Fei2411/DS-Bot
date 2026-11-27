@@ -22,6 +22,12 @@ const URGENT_NOTICE_KINDS = new Set([
   'connector',
   'handoff',
   'learning',
+  'mail',
+  'computer',
+  'goal',
+  'blocked',
+  'paused',
+  'alert',
 ])
 
 const BLOCKED_HOST_SUFFIXES = [
@@ -35,7 +41,7 @@ const BLOCKED_HOST_SUFFIXES = [
 export interface PushNoticeEntry {
   seq: number
   kind: string
-  botId: string
+  botId?: string
   name: string
   roomId?: string
   title?: string
@@ -318,13 +324,16 @@ export function parsePushEnvelope(input: unknown): PushEnvelope | null {
 function isPushNoticeEntry(value: unknown): value is PushNoticeEntry {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const entry = value as Record<string, unknown>
+  const hasBotId = typeof entry.botId === 'string' && entry.botId.length > 0 && entry.botId.length <= 256
+  const hasRoomId = typeof entry.roomId === 'string' && entry.roomId.length > 0 && entry.roomId.length <= 256
   return typeof entry.seq === 'number' && Number.isSafeInteger(entry.seq) && entry.seq >= 0
     && typeof entry.kind === 'string' && entry.kind.length > 0 && entry.kind.length <= 64
-    && typeof entry.botId === 'string' && entry.botId.length > 0 && entry.botId.length <= 256
+    && (hasBotId || hasRoomId)
+    && (entry.botId === undefined || hasBotId)
+    && (entry.roomId === undefined || hasRoomId)
     && typeof entry.name === 'string' && entry.name.length <= 256
     && typeof entry.text === 'string' && entry.text.length <= 2000
     && typeof entry.time === 'number' && Number.isFinite(entry.time) && entry.time >= 0
-    && (entry.roomId === undefined || (typeof entry.roomId === 'string' && entry.roomId.length <= 256))
     && (entry.title === undefined || (typeof entry.title === 'string' && entry.title.length <= 256))
     && (entry.sessionId === undefined || (typeof entry.sessionId === 'string' && entry.sessionId.length <= 256))
 }

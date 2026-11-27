@@ -255,7 +255,7 @@ You need Node 24, pnpm and a deepseek-harness checkout with its dependencies ins
 ```sh
 npm ci                                   # the plugin's packages and esbuild, for the client build
 npm ci --prefix ../link                  # the phone link's packages, for link.js and its test
-npm run harness                          # DSH packages and oxlint for tests/lint
+npm run harness                          # locked DSH packages and oxlint for tests/lint
 npm run build                            # build client.js and link.js
 npm test                                 # unit tests
 npm run lint                             # oxlint from dev/harness or DSH_HARNESS (.oxlintrc.json)
@@ -272,7 +272,7 @@ dev/check.sh                             # all checks (see below)
 - **Ports**: every script takes `SLOT=n` (0-9, default 0) so that several people or sessions on one machine do not collide: Web bench `31n0` and mock `88n0`, smoke `31n1` and `88n1`, Desktop mock `88n2`, and so on. A Desktop uses about 1 GB of memory; stop it when you are done.
 - **Real models** (these cost tokens): `dev/steward-eval.mjs` sends hand-written conversation endings through the context steward's own prompt to an OpenAI-compatible route (or, with `--api messages`, an Anthropic Messages route such as DeepSeek's official one) and checks each decision. `dev/llm-tap.mjs <port> <upstream base URL> <log.jsonl> [body dir]` is a logging pass-through for either format: point a provider's `baseURL` at it, and it writes one JSON line per call (steward, checkpoint, handoff note or main turn, the Bot's name, token usage, the answer, and where the request first differs from the same Bot's previous one, which is what a provider's cache can reuse; never headers). With a body dir it also saves every request body. Each file explains its use at the top.
 - **Screenshots**: `dev/ui-shots.mjs` works for both apps (`desktop <dsh repo> <dir> <renderer port>` or `web <dsh repo> <dir> <bench name> <web port>`).
-- `npm test` loads the `@deepseek-ai/*` packages from `dev/harness/` (`npm run harness`) or `DSH_HARNESS`.
+- `npm test` loads the `@deepseek-ai/*` packages from `dev/harness/` (`npm run harness`, installed reproducibly from `dev/harness/package-lock.json`) or `DSH_HARNESS`.
 
 ## Layout
 

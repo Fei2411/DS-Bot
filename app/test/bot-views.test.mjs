@@ -645,21 +645,33 @@ test('CDP debugger attaches lazily on first WS attach, short-circuits idle messa
 test('BotViews debounces async persistence, skips bounds-only place() writes, and flushes synchronously on dispose', async t => {
   const dir = mkdtempSync(join(tmpdir(), 'bot-views-debounce-'))
   const statePath = join(dir, 'bot-views.json')
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { manager } = fixture({ statePath, persistDebounceMs: 40 })
+  t.after(() => {
+    manager.dispose()
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
   manager.create('a', { tabId: 'T1', url: 'http://127.0.0.1:43118/one' })
   // Immediately after create(), state file is NOT yet synchronously written.
   assert.equal(existsSync(statePath), false, 'create() debounces persist instead of blocking with writeFileSync')
-  await new Promise(resolve => setTimeout(resolve, 90))
-  assert.equal(existsSync(statePath), true, 'debounced async persist writes state')
-  const before = JSON.parse(readFileSync(statePath, 'utf8'))
+  let before
+  const deadline = Date.now() + 2000
+  while (Date.now() < deadline) {
+    if (existsSync(statePath)) {
+      try {
+        before = JSON.parse(readFileSync(statePath, 'utf8'))
+        break
+      } catch {}
+    }
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.ok(before !== undefined, 'debounced async persist writes state')
   assert.equal(before.bots.a.active, 'T1')
 
   // Repeated bounds-only place() updates on already-active T1 must not rewrite disk.
   writeFileSync(statePath, '{"sentinel":true}')
   manager.place('T1', { left: 10, top: 10, width: 300, height: 200 }, true)
   manager.place('T1', { left: 20, top: 20, width: 400, height: 300 }, true)
-  await new Promise(resolve => setTimeout(resolve, 90))
+  await new Promise(resolve => setTimeout(resolve, 120))
   assert.equal(readFileSync(statePath, 'utf8'), '{"sentinel":true}', 'pure bounds updates do not trigger disk writes')
 
   // Dispose flushes dirty state synchronously.

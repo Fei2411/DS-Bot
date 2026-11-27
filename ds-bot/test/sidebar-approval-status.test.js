@@ -6,11 +6,12 @@ import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 import { watchBotCompletions } from '../src/client/bot-completions.js'
 import { createSource } from '../src/client/sources.js'
+import { teamActions } from '../src/client/team-actions.js'
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 
 const { outputFiles } = await build({
-  stdin: { contents: "export { TeamSidebar, botPendingOf } from './src/client/sidebar.js'\nexport { HeaderPill } from './src/client/header.js'\nexport { DetailsDrawer } from './src/client/details-drawer.js'", resolveDir: PLUGIN },
+  stdin: { contents: "export { TeamSidebar } from './src/client/sidebar.js'\nexport { waitsOf, waitLineOf } from './src/client/inbox.js'\nexport { HeaderPill } from './src/client/header.js'\nexport { DetailsDrawer } from './src/client/details-drawer.js'", resolveDir: PLUGIN },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -30,7 +31,17 @@ runInNewContext(outputFiles[0].text, {
   document: { body: {}, documentElement: { hasAttribute: () => false }, querySelector: () => null },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: child => child } : {}),
 })
-const { TeamSidebar, HeaderPill, DetailsDrawer, botPendingOf } = module.exports
+const { TeamSidebar, HeaderPill, DetailsDrawer, waitsOf, waitLineOf } = module.exports
+
+// What waits for the user, as the host's inbox lists it (src/host/inbox.js; its items'
+// shape is pinned by test/inbox.test.js against the state each module writes).
+const GROUPS = { learning: 'suggest', blocked: 'fix', model: 'fix', paused: 'fix', 'room-paused': 'fix' }
+const waiting = (...entries) => {
+  const items = entries.map(([kind, ref, place], index) => ({ id: `${kind}:${ref}`, kind, group: GROUPS[kind] ?? 'decide', ref, at: index + 1, ...place }))
+  const counts = { decide: 0, fix: 0, suggest: 0 }
+  for (const item of items) counts[item.group] += 1
+  return { inbox: { count: items.length, counts, items } }
+}
 
 const expand = (node) => {
   if (Array.isArray(node)) return node.map(expand)
@@ -76,6 +87,8 @@ function renderSidebar({
   unread = {},
   activeSession = null,
   wide = true,
+  actions = noopActions,
+  sectionFolds,
 } = {}) {
   const byId = Object.fromEntries(bots.flatMap(bot => [[bot.id, bot], ...(bot.sessionId ? [[bot.sessionId, bot]] : [])]))
   const roomsById = Object.fromEntries(rooms.flatMap(room => [[room.id, room], ...(room.sessionId ? [[room.sessionId, room]] : [])]))
@@ -92,10 +105,10 @@ function renderSidebar({
     botCompletions = snapshot.getSnapshot()
   }
   const tree = TeamSidebar({
-    actions: noopActions,
+    actions,
     useSidebarPref: () => (wide ? 'open' : 'rail'),
     useRoster: pick => pick(roster),
-    useUi: pick => pick({ unread: { ...unread, ...markedUnread } }),
+    useUi: pick => pick({ unread: { ...unread, ...markedUnread }, sectionFolds }),
     useRegistry: pick => pick({}),
     useSessions: pick => pick(list),
     useBotCompletions: pick => pick(botCompletions),
@@ -109,6 +122,36 @@ function renderSidebar({
   })
   return expand(tree)
 }
+
+test('a sidebar section folds before the save finishes and opens again if saving fails', async () => {
+  const sections = [{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }]
+  const roster = createSource({ sections })
+  const ui = createSource({})
+  const write = Promise.withResolvers()
+  const sent = []
+  const errors = []
+  const actions = {
+    ...noopActions,
+    ...teamActions({
+      roster, ui,
+      call: (mode, payload) => { sent.push([mode, { ...payload }]); return write.promise },
+      after: () => assert.fail('folding should not pull the roster again'),
+    }),
+    reportError: (error, where) => { errors.push([error.message, where]) },
+  }
+  const headers = () => walk(renderSidebar({
+    actions, sections: roster.getSnapshot().sections, sectionFolds: ui.getSnapshot().sectionFolds,
+  }), node => classes(node).includes('bt-sec-head'))
+  headers()[0].props.onClick()
+  assert.deepEqual(headers().map(header => header.props['aria-expanded']), [false, true])
+  assert.equal(roster.getSnapshot().sections, sections)
+  await Promise.resolve()
+  assert.deepEqual(sent, [['section-save', { id: 'one', collapsed: true, withRevision: true }]])
+  write.reject(new Error('save failed'))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(headers().map(header => header.props['aria-expanded']), [true, true])
+  assert.deepEqual(errors, [['save failed', 'section']])
+})
 
 test('only a visible completion sets the Bot row unread dot', () => {
   const part = 'writer-p2'
@@ -216,28 +259,35 @@ test('a collapsed section does not show a completion dot for a hidden exchange',
   }
 })
 
-test('botPendingOf detects learning proposals, pending request cards, questions and views on current part', () => {
-  const bot = { id: 'reviewer', sessionId: 'reviewer-p2', name: 'Reviewer' }
-  const plain = value => ({ ...value })
-  assert.deepEqual(plain(botPendingOf({}, bot)), { learning: false, cardApproval: false, question: false })
-  assert.deepEqual(plain(botPendingOf({ learning: { reviewer: [{ id: 'p1', kind: 'skill', name: 's1' }] } }, bot)), { learning: true, cardApproval: false, question: false })
-  assert.deepEqual(plain(botPendingOf({ learning: { reviewer: [] } }, bot)), { learning: false, cardApproval: false, question: false })
-  assert.deepEqual(plain(botPendingOf({ secretRequests: { reviewer: [{ id: 's1', status: 'answered' }] } }, bot)), { learning: false, cardApproval: false, question: false })
-  assert.deepEqual(plain(botPendingOf({ secretRequests: { reviewer: [{ id: 's1', status: 'pending' }] } }, bot)), { learning: false, cardApproval: true, question: false })
-  assert.deepEqual(plain(botPendingOf({ connectorRequests: { reviewer: [{ id: 'c1', status: 'pending' }] } }, bot)), { learning: false, cardApproval: true, question: false })
-  assert.deepEqual(plain(botPendingOf({ mailRequests: { reviewer: [{ id: 'm1', status: 'pending' }] } }, bot)), { learning: false, cardApproval: true, question: false })
-  assert.deepEqual(plain(botPendingOf({ questions: { 'reviewer-p2': { id: 'q1' } } }, bot)), { learning: false, cardApproval: false, question: true })
-  assert.deepEqual(plain(botPendingOf({ views: { 'reviewer-p2': { id: 'v1' } } }, bot)), { learning: false, cardApproval: false, question: true })
-  // An old part's question does not mark the current part.
-  assert.deepEqual(plain(botPendingOf({ questions: { reviewer: { id: 'q0' } } }, bot)), { learning: false, cardApproval: false, question: false })
+test('a chat\'s marks come from the inbox: what stops it, what does not, and its line', () => {
+  const lines = (roster, place) => {
+    const waits = waitsOf(roster, place)
+    return [waitLineOf(waits.blocking), waitLineOf(waits.deferred), waits.any]
+  }
+  assert.deepEqual(lines({}, { botId: 'reviewer' }), [null, null, false])
+  assert.deepEqual(lines(waiting(['learning', 'p1', { botId: 'reviewer' }]), { botId: 'reviewer' }), [null, 'Waiting for your approval', true])
+  for (const kind of ['secret', 'connector', 'mail', 'approval', 'computer']) {
+    assert.deepEqual(lines(waiting([kind, 'r1', { botId: 'reviewer' }]), { botId: 'reviewer' }), ['Waiting for your approval', null, true], kind)
+  }
+  for (const kind of ['question', 'view']) {
+    assert.deepEqual(lines(waiting([kind, 'q1', { botId: 'reviewer', sessionId: 'reviewer-p2' }]), { botId: 'reviewer' }), ['Waiting for your answer', null, true], kind)
+  }
+  assert.deepEqual(lines(waiting(['handoff', 'call-1', { botId: 'reviewer' }]), { botId: 'reviewer' }), ['Waiting for you', null, true])
+  assert.deepEqual(lines(waiting(['blocked', 'reviewer', { botId: 'reviewer' }]), { botId: 'reviewer' }), [null, 'Needs a fix', true])
+  // A background task's card does not stop the chat.
+  assert.deepEqual(lines(waiting(['question', 'q2', { botId: 'reviewer', taskId: 't1' }]), { botId: 'reviewer' }), [null, 'Waiting for your answer', true])
+  // A card asked in a group marks the group, not the member's own chat (#1623).
+  const group = waiting(['question', 'q3', { botId: 'reviewer', roomId: 'r1' }], ['room-paused', 'r1', { roomId: 'r1' }], ['goal', 'g1', { botId: 'reviewer', roomId: 'r1' }])
+  assert.deepEqual(lines(group, { botId: 'reviewer' }), [null, null, false])
+  assert.deepEqual(lines(group, { roomId: 'r1' }), ['Waiting for your answer', 'Paused', true])
 })
 
 test('a Bot with a pending skill learning proposal shows alert badge, approval status text, and wait dot', () => {
   const reviewer = { id: 'reviewer', name: 'Reviewer', createdAt: 1 }
-  const learning = { reviewer: [{ id: 'p1', kind: 'skill', name: 'stateful-regression-review' }] }
+  const learning = waiting(['learning', 'p1', { botId: 'reviewer' }])
 
   // Inactive in wide sidebar: avatar ? badge, "Waiting for your approval" line, and amber wait dot.
-  const inactiveWide = renderSidebar({ bots: [reviewer], rosterExtra: { learning } })
+  const inactiveWide = renderSidebar({ bots: [reviewer], rosterExtra: learning })
   const [row] = walk(inactiveWide, node => node.props?.['data-bot-id'] === 'reviewer')
   assert.ok(row !== undefined)
   assert.equal(walk(row, node => classes(node).includes('bt-badge-alert')).length, 1)
@@ -248,14 +298,14 @@ test('a Bot with a pending skill learning proposal shows alert badge, approval s
   assert.equal(walk(row, node => classes(node).includes('bt-unread-wait')).length, 1)
 
   // Active in wide sidebar: still shows avatar ? badge and "Waiting for your approval", hides unread dot.
-  const activeWide = renderSidebar({ bots: [reviewer], rosterExtra: { learning }, activeSession: 'reviewer' })
+  const activeWide = renderSidebar({ bots: [reviewer], rosterExtra: learning, activeSession: 'reviewer' })
   const [activeRow] = walk(activeWide, node => node.props?.['data-bot-id'] === 'reviewer')
   assert.equal(walk(activeRow, node => classes(node).includes('bt-badge-alert')).length, 1)
   assert.equal(textOf(walk(activeRow, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your approval')
   assert.equal(walk(activeRow, node => classes(node).includes('bt-unread-wait')).length, 0)
 
   // Inactive on narrow rail: amber wait dot.
-  const rail = renderSidebar({ bots: [reviewer], rosterExtra: { learning }, wide: false })
+  const rail = renderSidebar({ bots: [reviewer], rosterExtra: learning, wide: false })
   const [railRow] = walk(rail, node => node.props?.['data-bot-id'] === 'reviewer')
   assert.equal(walk(railRow, node => classes(node).includes('bt-dot-wait')).length, 1)
 })
@@ -264,7 +314,7 @@ test('a Bot running a new turn while a non-blocking learning proposal waits keep
   const reviewer = { id: 'reviewer', name: 'Reviewer', createdAt: 1 }
   const tree = renderSidebar({
     bots: [reviewer],
-    rosterExtra: { learning: { reviewer: [{ id: 'p1', kind: 'agents' }] } },
+    rosterExtra: waiting(['learning', 'p1', { botId: 'reviewer' }]),
     activity: { reviewer: 'working' },
     statusMap: new Map([['reviewer', { running: true }]]),
   })
@@ -281,15 +331,15 @@ test('a running Bot paused on a tool approval shows "Waiting for your approval",
     bots: [bot],
     activity: { coder: 'alert' },
     statusMap: new Map([['coder', { running: true }]]),
-    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'coder' }] },
+    rosterExtra: waiting(['approval', 'a1', { botId: 'coder', sessionId: 'coder', tool: 'bash' }]),
   })
   const [row] = walk(tree, node => node.props?.['data-bot-id'] === 'coder')
   assert.equal(walk(row, node => classes(node).includes('bt-badge-alert')).length, 1)
   const [preview] = walk(row, node => classes(node).includes('bt-row-preview-wait'))
   assert.equal(textOf(preview), 'Waiting for your approval')
 
-  // Unanswerable approvals do not mark the Bot, Room, or collapsed Section as waiting for approval,
-  // even when host activityView() reports 'alert' for that Bot.
+  // Unanswerable approvals are not the user's (the inbox leaves them out), so nothing marks
+  // the Bot, Room, or collapsed Section, even when host activityView() reports 'alert'.
   const room = { id: 'r1', name: 'Ops Room', members: ['coder'], sectionId: 'sec-1', createdAt: 2 }
   const unanswerable = renderSidebar({
     bots: [{ ...bot, sectionId: 'sec-1' }],
@@ -322,10 +372,9 @@ test('a group approval does not leak alert badge onto a running DM Bot that also
   const tree = renderSidebar({
     bots: [reviewer],
     rooms: [room],
-    rosterExtra: { learning: { reviewer: [{ id: 'p1', kind: 'skill', name: 's1' }] } },
+    rosterExtra: waiting(['learning', 'p1', { botId: 'reviewer' }], ['approval', 'a1', { botId: 'reviewer', roomId: 'r1', tool: 'bash' }]),
     activity: { reviewer: 'alert' },
     statusMap: new Map([['reviewer', { running: true }]]),
-    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'reviewer', roomId: 'r1' }] },
   })
   const [botRow] = walk(tree, node => node.props?.['data-bot-id'] === 'reviewer')
   assert.equal(walk(botRow, node => classes(node).includes('bt-badge-alert')).length, 0)
@@ -336,10 +385,7 @@ test('a Bot with both a blocking question and a non-blocking learning proposal r
   const ops = { id: 'ops', name: 'Ops', createdAt: 1 }
   const tree = renderSidebar({
     bots: [ops],
-    rosterExtra: {
-      learning: { ops: [{ id: 'p1', kind: 'skill', name: 's1' }] },
-      questions: { ops: { id: 'q1', question: 'Confirm?' } },
-    },
+    rosterExtra: waiting(['question', 'q1', { botId: 'ops', sessionId: 'ops', text: 'Confirm?' }], ['learning', 'p1', { botId: 'ops' }]),
   })
   const [row] = walk(tree, node => node.props?.['data-bot-id'] === 'ops')
   assert.equal(textOf(walk(row, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your answer')
@@ -350,11 +396,11 @@ test('a Bot with both a blocking question and a non-blocking learning proposal r
 test('a running Bot paused on a secret, connector, mail, question, or view card wears the alert mark and status line', () => {
   const bot = { id: 'ops', name: 'Ops', createdAt: 1 }
   const cases = [
-    [{ secretRequests: { ops: [{ id: 's1', status: 'pending' }] } }, 'Waiting for your approval'],
-    [{ connectorRequests: { ops: [{ id: 'c1', status: 'pending' }] } }, 'Waiting for your approval'],
-    [{ mailRequests: { ops: [{ id: 'm1', status: 'pending' }] } }, 'Waiting for your approval'],
-    [{ questions: { ops: { id: 'q1', question: 'Which env?' } } }, 'Waiting for your answer'],
-    [{ views: { ops: { id: 'v1', title: 'Review' } } }, 'Waiting for your answer'],
+    [waiting(['secret', 's1', { botId: 'ops', sessionId: 'ops' }]), 'Waiting for your approval'],
+    [waiting(['connector', 'c1', { botId: 'ops', sessionId: 'ops' }]), 'Waiting for your approval'],
+    [waiting(['mail', 'm1', { botId: 'ops', sessionId: 'ops' }]), 'Waiting for your approval'],
+    [waiting(['question', 'q1', { botId: 'ops', sessionId: 'ops' }]), 'Waiting for your answer'],
+    [waiting(['view', 'v1', { botId: 'ops', sessionId: 'ops' }]), 'Waiting for your answer'],
   ]
   for (const [rosterExtra, expected] of cases) {
     // Host clears `activity` on ask_user / request_secret while the turn is still running.
@@ -377,7 +423,8 @@ test('a group approval shows "Waiting for your approval" on the group row withou
     bots: [bot],
     rooms: [room],
     activity: { reviewer: 'alert' },
-    work: { waiting: {}, rooms: { r1: [{ botId: 'reviewer', tool: 'bash' }] }, approvals: [{ id: 'a1', botId: 'reviewer', roomId: 'r1' }] },
+    work: { waiting: {}, rooms: { r1: [{ botId: 'reviewer', tool: 'bash' }] }, approvals: [] },
+    rosterExtra: waiting(['approval', 'a1', { botId: 'reviewer', roomId: 'r1', tool: 'bash' }]),
   })
   const [botRow] = walk(tree, node => node.props?.['data-bot-id'] === 'reviewer')
   const [roomRow] = walk(tree, node => node.props?.['data-room-id'] === 'r1')
@@ -393,7 +440,7 @@ test('a collapsed sidebar section surfaces alert status for pending learning and
   const wideTree = renderSidebar({
     bots: [bot],
     sections,
-    rosterExtra: { learning: { reviewer: [{ id: 'p1', kind: 'skill', name: 'stateful-regression-review' }] } },
+    rosterExtra: waiting(['learning', 'p1', { botId: 'reviewer' }]),
   })
   const [status] = walk(wideTree, node => classes(node).includes('bt-sec-status'))
   assert.ok(status !== undefined)
@@ -402,7 +449,7 @@ test('a collapsed sidebar section surfaces alert status for pending learning and
   const railTree = renderSidebar({
     bots: [bot],
     sections,
-    rosterExtra: { secretRequests: { reviewer: [{ id: 's1', status: 'pending' }] } },
+    rosterExtra: waiting(['secret', 's1', { botId: 'reviewer' }]),
     wide: false,
   })
   const [railDot] = walk(railTree, node => classes(node).includes('bt-dot-wait'))
@@ -415,7 +462,7 @@ test('a collapsed sidebar section surfaces alert status for pending learning and
       { id: 'visible-bot', name: 'Visible', sectionId: 'sec-1', createdAt: 2 },
     ],
     sections,
-    rosterExtra: { learning: { 'hidden-bot': [{ id: 'p1', kind: 'skill', name: 's1' }] } },
+    rosterExtra: waiting(['learning', 'p1', { botId: 'hidden-bot' }]),
   })
   assert.equal(walk(hiddenOnly, node => classes(node).includes('bt-sec-status')).length, 0)
 })
@@ -427,9 +474,8 @@ test('a background task approval does not mask a foreground question, and still 
   }
   const withQuestion = renderSidebar({
     bots: [ops],
-    rosterExtra: { questions: { ops: { id: 'q1', question: 'Which env?' } } },
+    rosterExtra: waiting(['approval', 'a1', { botId: 'ops', taskId: 't1', tool: 'bash' }], ['question', 'q1', { botId: 'ops', sessionId: 'ops' }]),
     activity: { ops: 'alert' },
-    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'ops', taskId: 't1' }] },
   })
   const [qRow] = walk(withQuestion, node => node.props?.['data-bot-id'] === 'ops')
   assert.equal(textOf(walk(qRow, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your answer')
@@ -438,7 +484,7 @@ test('a background task approval does not mask a foreground question, and still 
   const idleBg = renderSidebar({
     bots: [ops],
     activity: { ops: 'alert' },
-    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'ops', taskId: 't1' }] },
+    rosterExtra: waiting(['approval', 'a1', { botId: 'ops', taskId: 't1', tool: 'bash' }]),
   })
   const [idleRow] = walk(idleBg, node => node.props?.['data-bot-id'] === 'ops')
   assert.equal(walk(idleRow, node => classes(node).includes('bt-badge-alert')).length, 1)
@@ -482,7 +528,7 @@ test('a running DM keeps its working shimmer line even if stale alert activity a
     rooms: [room],
     activity: { reviewer: 'alert' },
     statusMap: new Map([['reviewer', { running: true }]]),
-    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'reviewer', roomId: 'r1' }] },
+    rosterExtra: waiting(['approval', 'a1', { botId: 'reviewer', roomId: 'r1' }]),
   })
   const [groupOnlyRow] = walk(groupOnly, node => node.props?.['data-bot-id'] === 'reviewer')
   const [groupOnlyPreview] = walk(groupOnlyRow, node => classes(node).includes('bt-row-preview'))
@@ -495,10 +541,9 @@ test('a running DM keeps its working shimmer line even if stale alert activity a
   const groupAndLearning = renderSidebar({
     bots: [bot],
     rooms: [room],
-    rosterExtra: { learning: { reviewer: [{ id: 'p1', kind: 'skill', name: 's1' }] } },
+    rosterExtra: waiting(['approval', 'a1', { botId: 'reviewer', roomId: 'r1' }], ['learning', 'p1', { botId: 'reviewer' }]),
     activity: { reviewer: 'alert' },
     statusMap: new Map([['reviewer', { running: true }]]),
-    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'reviewer', roomId: 'r1' }] },
   })
   const [glRow] = walk(groupAndLearning, node => node.props?.['data-bot-id'] === 'reviewer')
   const [glPreview] = walk(glRow, node => classes(node).includes('bt-row-preview'))
@@ -513,7 +558,7 @@ test('a running DM keeps its working shimmer line even if stale alert activity a
     bots: [bot],
     activity: { reviewer: 'alert' },
     statusMap: new Map([['reviewer', { running: true }]]),
-    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a2', botId: 'reviewer', taskId: 't1' }] },
+    rosterExtra: waiting(['approval', 'a2', { botId: 'reviewer', taskId: 't1' }]),
   })
   const [bgRow] = walk(bgRunning, node => node.props?.['data-bot-id'] === 'reviewer')
   const [bgPreview] = walk(bgRow, node => classes(node).includes('bt-row-preview'))
@@ -523,7 +568,7 @@ test('a running DM keeps its working shimmer line even if stale alert activity a
   assert.equal(walk(bgRow, node => classes(node).includes('bt-badge-working')).length, 1)
   assert.equal(walk(bgRow, node => classes(node).includes('bt-unread-wait')).length, 1)
 
-  // (d) Unanswerable approval + running DM keeps runningLine shimmer.
+  // (d) Unanswerable approval + running DM keeps runningLine shimmer (the inbox omits unanswerable approvals).
   const unanswerableRunning = renderSidebar({
     bots: [bot],
     activity: { reviewer: 'alert' },
@@ -541,8 +586,8 @@ test('a running DM keeps its working shimmer line even if stale alert activity a
   // (e) Turn-start poll lag (running: true, activity: {}) + non-blocking approval (learning or bgApproval)
   // still renders the working shimmer subtitle instead of falling through to amber approval text.
   for (const extra of [
-    { rosterExtra: { learning: { reviewer: [{ id: 'p1', kind: 'skill', name: 's1' }] } } },
-    { work: { waiting: {}, rooms: {}, approvals: [{ id: 'a4', botId: 'reviewer', taskId: 't1' }] } },
+    { rosterExtra: waiting(['learning', 'p1', { botId: 'reviewer' }]) },
+    { rosterExtra: waiting(['approval', 'a4', { botId: 'reviewer', taskId: 't1' }]) },
   ]) {
     const lagTree = renderSidebar({
       bots: [bot],
@@ -564,15 +609,12 @@ test('browser_handoff and computer_handoff holds surface alert state on BotRow a
   const ops = { id: 'ops', name: 'Ops', sectionId: 'sec-1', createdAt: 1 }
   const sections = [{ id: 'sec-1', name: 'Ops', collapsed: true }]
 
-  // Browser handoff (requested by bot, and also when user clicked Take over keeping callId).
-  for (const hold of [
-    { by: 'bot', reason: 'login', note: 'Sign in', callId: 'bh-1' },
-    { by: 'user', reason: 'login', note: 'Sign in', callId: 'bh-1' },
-  ]) {
+  // Browser and computer handoffs in the host inbox surface alert on BotRow and collapsed SectionBlock.
+  for (const surface of ['browser', 'computer']) {
     const tree = renderSidebar({
       bots: [ops],
       sections,
-      browserHolds: { ops: hold },
+      rosterExtra: waiting(['handoff', `h-${surface}`, { botId: 'ops', surface }]),
       activity: { ops: 'working' },
       statusMap: new Map([['ops', { running: true }]]),
     })
@@ -584,54 +626,22 @@ test('browser_handoff and computer_handoff holds surface alert state on BotRow a
     assert.equal(secStatus?.props?.['data-kind'], 'alert')
   }
 
-  // Manual browser takeover or stop (no callId) does NOT alert.
-  for (const hold of [
-    { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' },
-    { by: 'user', reason: 'stopped', note: 'The user is controlling this browser.' },
+  // Manual browser/computer takeover or stop (excluded from the host inbox) does NOT alert.
+  for (const extra of [
+    { browserHolds: { ops: { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' } } },
+    { computer: { asks: {}, holds: { ops: { id: 'ch-m', by: 'user', surface: 'computer', reason: 'takeover' } } } },
   ]) {
-    const tree = renderSidebar({ bots: [ops], sections, browserHolds: { ops: hold } })
+    const tree = renderSidebar({ bots: [ops], sections, ...extra })
     const [row] = walk(tree, node => node.props?.['data-bot-id'] === 'ops')
     assert.equal(walk(row, node => classes(node).includes('bt-badge-alert')).length, 0)
     assert.equal(walk(row, node => classes(node).includes('bt-row-preview-wait')).length, 0)
     assert.equal(walk(tree, node => classes(node).includes('bt-sec-status')).length, 0)
   }
 
-  // Computer handoff (by: 'bot' with or without callId, or user takeover preserving callId or non-takeover reason).
-  for (const hold of [
-    { id: 'ch-1', by: 'bot', surface: 'computer', reason: 'confirm', callId: 'c-1' },
-    { id: 'ch-2', by: 'bot', surface: 'computer', reason: 'login' },
-    { id: 'ch-3', by: 'user', surface: 'computer', reason: 'confirm', callId: 'c-1' },
-    { id: 'ch-4', by: 'user', surface: 'computer', reason: 'login' },
-  ]) {
-    const tree = renderSidebar({
-      bots: [ops],
-      sections,
-      computer: { asks: {}, holds: { ops: hold } },
-    })
-    const [row] = walk(tree, node => node.props?.['data-bot-id'] === 'ops')
-    assert.equal(walk(row, node => classes(node).includes('bt-badge-alert')).length, 1)
-    assert.equal(textOf(walk(row, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for you')
-    assert.equal(walk(row, node => classes(node).includes('bt-unread-wait')).length, 1)
-    const [secStatus] = walk(tree, node => classes(node).includes('bt-sec-status'))
-    assert.equal(secStatus?.props?.['data-kind'], 'alert')
-  }
-
-  // Manual computer takeOver (by: 'user', no callId) does NOT alert.
-  const manualComp = renderSidebar({
-    bots: [ops],
-    sections,
-    computer: { asks: {}, holds: { ops: { id: 'ch-m', by: 'user', surface: 'computer', reason: 'takeover' } } },
-  })
-  const [manualRow] = walk(manualComp, node => node.props?.['data-bot-id'] === 'ops')
-  assert.equal(walk(manualRow, node => classes(node).includes('bt-badge-alert')).length, 0)
-  assert.equal(walk(manualRow, node => classes(node).includes('bt-row-preview-wait')).length, 0)
-  assert.equal(walk(manualComp, node => classes(node).includes('bt-sec-status')).length, 0)
-
-  // Priority: blockingApproval and pending.question take precedence over handoff.
+  // Priority: earlier blocking question in the inbox takes precedence over a later handoff.
   const questionAndHandoff = renderSidebar({
     bots: [ops],
-    rosterExtra: { questions: { ops: { id: 'q1', question: 'Continue?' } } },
-    browserHolds: { ops: { by: 'bot', reason: 'login', callId: 'bh-1' } },
+    rosterExtra: waiting(['question', 'q1', { botId: 'ops', at: 1 }], ['handoff', 'bh-1', { botId: 'ops', surface: 'browser', at: 2 }]),
   })
   const [qhRow] = walk(questionAndHandoff, node => node.props?.['data-bot-id'] === 'ops')
   assert.equal(textOf(walk(qhRow, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your answer')
@@ -639,11 +649,12 @@ test('browser_handoff and computer_handoff holds surface alert state on BotRow a
 
 test('Main Bot tile shows an amber wait dot when busy with a non-blocking approval and hides it when active or idle-alert', () => {
   const chief = { id: 'chief', name: 'Chief', role: 'Lead', createdAt: 1 }
+  const learning = { mainBotId: 'chief', ...waiting(['learning', 'p1', { botId: 'chief' }]) }
 
   // Busy + non-blocking learning proposal + inactive: working avatar + amber .bt-dot-wait on tile.
   const busyTile = renderSidebar({
     bots: [chief],
-    rosterExtra: { mainBotId: 'chief', learning: { chief: [{ id: 'p1', kind: 'skill', name: 's1' }] } },
+    rosterExtra: learning,
     activity: { chief: 'working' },
     statusMap: new Map([['chief', { running: true }]]),
   })
@@ -655,7 +666,7 @@ test('Main Bot tile shows an amber wait dot when busy with a non-blocking approv
   // Active: hides the amber tile dot.
   const activeTile = renderSidebar({
     bots: [chief],
-    rosterExtra: { mainBotId: 'chief', learning: { chief: [{ id: 'p1', kind: 'skill', name: 's1' }] } },
+    rosterExtra: learning,
     activity: { chief: 'working' },
     statusMap: new Map([['chief', { running: true }]]),
     activeSession: 'chief',
@@ -666,7 +677,7 @@ test('Main Bot tile shows an amber wait dot when busy with a non-blocking approv
   // Idle with approval: avatar wears '?' badge, no redundant corner dot.
   const idleTile = renderSidebar({
     bots: [chief],
-    rosterExtra: { mainBotId: 'chief', learning: { chief: [{ id: 'p1', kind: 'skill', name: 's1' }] } },
+    rosterExtra: learning,
   })
   const [idleTileBtn] = walk(idleTile, node => classes(node).includes('bt-tile'))
   assert.equal(walk(idleTileBtn, node => classes(node).includes('bt-badge-alert')).length, 1)
