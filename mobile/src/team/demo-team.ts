@@ -52,7 +52,7 @@ export function demoData(): DemoData {
       waiting: {},
       turns: {},
     },
-    activity: { 'b-coder': { tool: 'run_command', said: 'Running the test suite' } },
+    activity: { 'b-coder': 'working' },
     browserHolds: {
       'b-coder': { by: 'bot', reason: 'handoff', note: '需要你在浏览器里登录 GitHub 才能继续。', callId: 'hc-1' },
     },

@@ -25,7 +25,8 @@ import { learningForChat } from './chat/learning.ts'
 import { Composer, type Photo } from './chat/composer.tsx'
 import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type FileRef, type ImageRef } from './chat/items.tsx'
 import { bumpMarkdownImageCache } from './chat/markdown.tsx'
-import { workMarkState } from '../team/mark-state.ts'
+import { isComputerHandoff } from '../../../ds-bot/src/client/mark-states.js'
+import { ownWorkOf, workMarkState } from '../team/mark-state.ts'
 
 // Feed events refresh the chat as things happen; the poll only catches what a
 // dropped event missed, so it runs rarely.
@@ -319,7 +320,7 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
     }
     return []
   }, [bot, room, team?.bots])
-  const doing = bot !== undefined ? team?.work?.bots?.[bot.id] ?? team?.activity?.[bot.id] : undefined
+  const doing = bot !== undefined ? ownWorkOf(team, bot.id) : undefined
   const secrets = (team?.secretRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const connectorRequests = (team?.connectorRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const mailRequests = (team?.mailRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
@@ -814,7 +815,7 @@ function ComputerCards({ bot, room, p }: { bot?: Bot; room?: Room; p: ReturnType
   } | null)?.computerLive
   const asks = computerAsksForChat(team, { bot, room })
   const rawHold = bot !== undefined ? live?.holds?.[bot.id] : undefined
-  const hold = rawHold !== undefined && (rawHold.by === 'bot' || rawHold.fromBot === true || rawHold.callId !== undefined) ? rawHold : undefined
+  const hold = isComputerHandoff(rawHold) ? rawHold : undefined
   const control = bot !== undefined ? live?.bots?.[bot.id] : undefined
   const acting = control !== undefined && control.state !== undefined && control.state !== 'idle'
   const act = (endpoint: string, body: Record<string, unknown>) => { call(endpoint, body).then(() => setError(null), (failure: Error) => setError(failure?.message ?? String(failure))) }
