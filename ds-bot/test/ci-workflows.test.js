@@ -186,7 +186,39 @@ describe('CI workflow separation and path classification', () => {
       }
     }
 
-    // publish-docker must stay strictly gated on docker + result success, Fei-Craft/DS-Bot, and pinned image metadata.
+    // Cache writes must never cross the dev -> main release cache boundary on schedule or
+    // explicit-ref workflow_dispatch runs.
+    for (const [name, wf] of [['test.yml', testWf], ['package.yml', pkgWf]]) {
+      for (const [jobId, job] of Object.entries(wf.jobs)) {
+        for (const step of job.steps || []) {
+          const uses = String(step.uses || '')
+          if (uses.startsWith('actions/cache/save@')) {
+            const cond = String(step.if || '')
+            assert.match(cond, /github\.event_name == 'push'/, `${name} ${jobId} cache/save must restrict saves to push/same-ref dispatch`)
+            assert.match(cond, /github\.event\.inputs\.ref == ''/, `${name} ${jobId} cache/save must forbid explicit-ref dispatch saves`)
+            assert.doesNotMatch(cond, /github\.event_name != 'pull_request'/, `${name} ${jobId} cache/save must not save on schedule`)
+          } else if (uses.startsWith('actions/setup-node@') && step.with?.cache !== undefined) {
+            const cacheExpr = String(step.with.cache)
+            assert.match(cacheExpr, /github\.event_name != 'schedule'/, `${name} ${jobId} setup-node must disable npm cache writes on schedule`)
+            assert.match(cacheExpr, /github\.event\.inputs\.ref != ''/, `${name} ${jobId} setup-node must disable npm cache writes on explicit-ref dispatch`)
+            assert.match(cacheExpr, /&& 'npm' \|\| ''/, `${name} ${jobId} setup-node cache ternary must place 'npm' before fallback ''`)
+          } else if (uses.startsWith('gradle/actions/setup-gradle@')) {
+            const ro = String(step.with?.['cache-read-only'] || '')
+            assert.match(ro, /github\.event_name == 'schedule'/, `${name} ${jobId} setup-gradle must be read-only on schedule`)
+            assert.match(ro, /github\.event\.inputs\.ref != ''/, `${name} ${jobId} setup-gradle must be read-only on explicit-ref dispatch`)
+          } else if (uses.startsWith('docker/build-push-action@') && step.with?.['cache-to'] !== undefined) {
+            const cacheTo = String(step.with['cache-to'])
+            assert.doesNotMatch(cacheTo, /schedule/, `${name} ${jobId} docker cache-to must not write to main cache scope on schedule`)
+            assert.match(cacheTo, /github\.event_name == 'push'/, `${name} ${jobId} docker cache-to must only save on push`)
+          }
+        }
+      }
+    }
+
+    // docker stamps revision metadata; publish-docker stays strictly gated on docker + result
+    // success, keeps exact tip check on main, and advances :dev monotonically without rollback.
+    const prodBuild = testWf.jobs.docker.steps.find((s) => s.name === 'Build production image')
+    assert.match(String(prodBuild?.with?.labels || ''), /org\.opencontainers\.image\.revision=\$\{\{\s*steps\.build-meta\.outputs\.sha\s*\}\}/)
     const pub = testWf.jobs['publish-docker']
     assert.deepEqual([...pub.needs].sort(), ['docker', 'result'])
     assert.match(String(pub.if || ''), /needs\.docker\.result == 'success'/)
@@ -197,6 +229,8 @@ describe('CI workflow separation and path classification', () => {
     const pubStep = pub.steps.find((s) => s.name === 'Publish the tested image')
     assert.equal(pubStep?.env?.GHCR_BRANCH, '${{ needs.docker.outputs.image_branch }}')
     assert.equal(pubStep?.env?.GHCR_SHA, '${{ needs.docker.outputs.image_sha }}')
+    assert.match(String(pubStep?.run || ''), /compare\/\$GHCR_SHA\.\.\.dev/)
+    assert.match(String(pubStep?.run || ''), /compare\/\$current_sha\.\.\.\$GHCR_SHA/)
 
     // Every non-publish job in test.yml is checked by Test result.
     const testJobs = Object.keys(testWf.jobs).filter((k) => k !== 'result' && k !== 'publish-docker')
