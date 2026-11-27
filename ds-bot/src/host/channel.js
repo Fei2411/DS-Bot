@@ -253,10 +253,15 @@ export function install(rt) {
     sessionQueues: rt.sessionQueuesView?.() ?? {},
     // Per-Bot own-chat tail metadata (lastAt, lastBotAt, latestTurn, preview) changes on
     // normal turns and stopped retries without bumping state.revision, so it rides on live()
-    // for unchanged-revision mobile polls.
+    // for unchanged-revision mobile polls. Empty sessions stay omitted so cold fillTail
+    // resolving `{ lastAt: 0, preview: '' }` never churns liveKey.
     botTails: Object.fromEntries(Object.values(state.bots).flatMap((bot) => {
       const entry = botTailOf(bot.id)
-      return Object.keys(entry).length > 0 ? [[bot.id, entry]] : []
+      const hasData = (entry.lastAt ?? 0) > 0
+        || (entry.preview ?? '') !== ''
+        || entry.lastBotAt !== undefined
+        || entry.latestTurn !== undefined
+      return hasData ? [[bot.id, entry]] : []
     })),
     // True once until the user confirms or declines the telemetry privacy notice.
     telemetryPrompt: rt.telemetry?.shouldPromptNotice?.() === true,
