@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -34,6 +34,70 @@ const BASH_EXE = resolveBashExecutable()
 
 function loadWorkflow(filename) {
   return parseYaml(readFileSync(join(WORKFLOWS_DIR, filename), 'utf8'))
+}
+
+function walkFiles(dir, predicate) {
+  const out = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === '.git') continue
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      out.push(...walkFiles(full, predicate))
+    } else if (predicate(full)) {
+      out.push(full)
+    }
+  }
+  return out
+}
+
+/**
+ * Recursively discover all `ds-bot/...` repository-relative paths imported statically
+ * from `mobile/src/` (separating runtime sources from `*.test.ts` test files).
+ */
+function discoverMobileDsBotImports() {
+  const mobileSrcDir = join(REPO_ROOT, 'mobile', 'src')
+  const runtimeDsBot = new Set()
+  const testOnlyDsBot = new Set()
+  const importRe = /(?:import|export)\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]|require\(\s*['"]([^'"]+)['"]\s*\)/gu
+
+  function resolveRelative(fromFile, spec) {
+    if (!spec.startsWith('.')) return null
+    const base = resolve(dirname(fromFile), spec)
+    for (const candidate of [base, `${base}.js`, `${base}.ts`, `${base}.tsx`, join(base, 'index.js'), join(base, 'index.ts')]) {
+      if (existsSync(candidate)) return candidate
+    }
+    return null
+  }
+
+  function traceFrom(startFiles, targetSet) {
+    const visited = new Set()
+    const queue = [...startFiles]
+    while (queue.length > 0) {
+      const current = queue.shift()
+      if (visited.has(current)) continue
+      visited.add(current)
+      const text = readFileSync(current, 'utf8')
+      for (const match of text.matchAll(importRe)) {
+        const spec = match[1] || match[2]
+        const resolved = resolveRelative(current, spec)
+        if (!resolved) continue
+        const rel = relative(REPO_ROOT, resolved).split('\\').join('/')
+        if (rel.startsWith('ds-bot/')) {
+          targetSet.add(rel)
+          queue.push(resolved)
+        } else if (rel.startsWith('mobile/src/')) {
+          queue.push(resolved)
+        }
+      }
+    }
+  }
+
+  const allMobileFiles = walkFiles(mobileSrcDir, (f) => /\.(?:ts|tsx|js|mjs)$/u.test(f))
+  const runtimeStarts = allMobileFiles.filter((f) => !/\.test\.(?:ts|tsx|js|mjs)$/u.test(f))
+  const testStarts = allMobileFiles.filter((f) => /\.test\.(?:ts|tsx|js|mjs)$/u.test(f))
+  traceFrom(runtimeStarts, runtimeDsBot)
+  traceFrom(testStarts, testOnlyDsBot)
+  return { runtimeDsBot: [...runtimeDsBot].sort(), testOnlyDsBot: [...testOnlyDsBot].sort() }
 }
 
 function runClassifier(workflowFile, filesChanged, envOverrides = {}, { baseFiles = {}, headContents = {} } = {}) {
@@ -99,6 +163,7 @@ function runClassifier(workflowFile, filesChanged, envOverrides = {}, { baseFile
         REF: 'refs/pull/1/merge',
         BASE_REF: 'dev',
         HEAD_REF: 'fix/sample',
+        IS_SAME_REPO: 'true',
         BEFORE: baseSha,
         SHA: headSha,
         PR_NUMBER: '',
@@ -124,17 +189,19 @@ function runClassifier(workflowFile, filesChanged, envOverrides = {}, { baseFile
 }
 
 describe('CI workflow separation and path classification', () => {
-  it('parses all workflow files and enforces job dependencies, Windows sharding, macOS Intel gate, and PR merge guard', () => {
+  it('parses all workflow files and enforces job dependencies, Windows sharding, macOS Intel gate, and isolated PR merge guard', () => {
     const testWf = loadWorkflow('test.yml')
     const pkgWf = loadWorkflow('package.yml')
     const fullLabelWf = loadWorkflow('full-package.yml')
     const triageWf = loadWorkflow('pr-triage-labels.yml')
+    const mergeGuardWf = loadWorkflow('pr-merge-guard.yml')
     const nightlyWf = loadWorkflow('nightly-release.yml')
     const cutReleaseWf = loadWorkflow('cut-release.yml')
 
     assert.equal(testWf.name, 'Test')
     assert.equal(pkgWf.name, 'Package & Native')
     assert.equal(fullLabelWf.name, 'Full Package (on label)')
+    assert.equal(mergeGuardWf.name, 'PR Merge Guard')
     assert.equal(nightlyWf.name, 'Nightly Release')
     assert.equal(cutReleaseWf.name, 'Cut Release')
     assert.equal(triageWf.permissions.contents, 'read')
@@ -147,18 +214,26 @@ describe('CI workflow separation and path classification', () => {
     assert.match(String(triageWf.concurrency?.group || ''), /pr-triage-retarget-/, 'pr-triage-labels.yml must isolate base-retarget concurrency lane')
     const triageScript = triageWf.jobs['sync-labels'].steps.find((s) => s.with?.script)?.with?.script || ''
     assert.match(triageScript, /base_ref_changed/, 'pr-triage-labels.yml must durably reject approvals predating base_ref_changed')
+    assert.equal(triageWf.jobs['pr-merge-guard'], undefined, 'pr-merge-guard must live in its own workflow file')
 
-    // PR merge guard watches labels and milestones and evaluates needs-product-ok + future Milestone.
-    for (const evType of ['labeled', 'unlabeled', 'milestoned', 'demilestoned']) {
-      assert.ok(triageWf.on.pull_request_target.types.includes(evType), `pr-triage-labels.yml must trigger on ${evType}`)
+    // Isolated pr-merge-guard.yml: no issue_comment/pull_request_review triggers, handles milestone lifecycle, distinct job vs status context names.
+    assert.equal(mergeGuardWf.on.issue_comment, undefined)
+    assert.equal(mergeGuardWf.on.pull_request_review, undefined)
+    for (const evType of ['opened', 'reopened', 'synchronize', 'edited', 'labeled', 'unlabeled', 'milestoned', 'demilestoned']) {
+      assert.ok(mergeGuardWf.on.pull_request_target.types.includes(evType), `pr-merge-guard.yml must trigger on ${evType}`)
     }
-    const guardJob = triageWf.jobs['pr-merge-guard']
-    assert.ok(guardJob, 'pr-triage-labels.yml must define pr-merge-guard job')
+    for (const msType of ['created', 'closed', 'opened', 'edited']) {
+      assert.ok(mergeGuardWf.on.milestone.types.includes(msType), `pr-merge-guard.yml must trigger on milestone:${msType}`)
+    }
+    const guardJob = mergeGuardWf.jobs['evaluate-merge-guard']
+    assert.ok(guardJob, 'pr-merge-guard.yml must define evaluate-merge-guard job')
+    assert.notEqual(guardJob.name, 'PR merge guard', 'job name must differ from commit status context')
     assert.equal(guardJob.permissions?.statuses, 'write')
     const guardScript = guardJob.steps.find((s) => s.with?.script)?.with?.script || ''
     assert.match(guardScript, /evaluatePrMergeGuard/u)
     assert.match(guardScript, /createCommitStatus/u)
-    assert.match(guardScript, /PR merge guard/u)
+    assert.match(guardScript, /context: 'PR merge guard'/u)
+    assert.match(guardScript, /context\.eventName === 'milestone'/u)
 
     // Windows unit tests are split into 4 parallel shards in test.yml.
     const winShards = testWf.jobs.test.strategy.matrix.include.filter((e) => e.os === 'windows-latest')
@@ -169,10 +244,12 @@ describe('CI workflow separation and path classification', () => {
     const saveHarnessStep = testWf.jobs.test.steps.find((s) => s.name === 'Save DSH test harness')
     assert.match(String(saveHarnessStep?.if || ''), /matrix\.shard == 1/u)
 
-    // Release milestone gate is wired into test.yml and required by Test result.
+    // Release milestone gate and PR merge guard are wired into test.yml and required by Test result.
     assert.ok(testWf.jobs['release-milestone'])
+    assert.ok(testWf.jobs['pr-guard'])
     const milestoneRun = testWf.jobs['release-milestone'].steps.map((s) => s.run || '').join('\n')
     assert.match(milestoneRun, /scripts\/check-release-milestone\.mjs/u)
+    assert.match(milestoneRun, /--head-ref HEAD/u)
 
     // package.yml dynamically gates macos-26-intel behind app_package_macos_x64.
     const macMatrixInclude = String(pkgWf.jobs['app-package-macos'].strategy.matrix.include || '')
@@ -199,7 +276,9 @@ describe('CI workflow separation and path classification', () => {
     const pkgJobs = Object.keys(pkgWf.jobs).filter((k) => k !== 'result')
     assert.deepEqual([...pkgWf.jobs.result.needs].sort(), [...pkgJobs].sort())
 
-    // Nightly release workflow contract: daily 20:00 UTC cron, pre-release only, no npm publish, readiness report.
+    // Nightly release workflow contract: minimal top-level permissions, daily 20:00 UTC cron, pre-release only, no npm publish, APK checksum consistency.
+    assert.equal(nightlyWf.permissions.contents, 'read')
+    assert.equal(nightlyWf.jobs['publish-nightly'].permissions?.contents, 'write')
     assert.deepEqual(nightlyWf.on.schedule, [{ cron: '0 20 * * *' }])
     const nightlyAllRuns = Object.values(nightlyWf.jobs).flatMap((j) => (j.steps || []).map((s) => s.run || '')).join('\n')
     assert.doesNotMatch(nightlyAllRuns, /npm publish/u, 'nightly-release.yml must never publish to npm')
@@ -207,16 +286,91 @@ describe('CI workflow separation and path classification', () => {
     assert.match(nightlyAllRuns, /--latest=false/u)
     assert.match(nightlyAllRuns, /Release Readiness/u)
     assert.match(nightlyAllRuns, /needs-product-ok/u)
+    assert.match(nightlyAllRuns, /delete-asset nightly DS-Bot-nightly-android\.apk/u)
 
-    // Cut release workflow contract: manual dispatch with version/mode/auto_publish(default false), milestone check, never Latest.
+    // Cut release workflow contract: no shell interpolation of ${{ ... }} in run:, fail-fast without RELEASE_BOT_TOKEN on auto_publish, supports fix/hot-*, fetches tags --force, polls checks before --watch.
     const cutInputs = cutReleaseWf.on.workflow_dispatch.inputs
     assert.equal(cutInputs.version.required, true)
     assert.deepEqual(cutInputs.mode.options, ['stable', 'hotfix'])
     assert.equal(cutInputs.auto_publish.default, false)
+    for (const step of cutReleaseWf.jobs['cut-release'].steps) {
+      if (typeof step.run === 'string') {
+        assert.doesNotMatch(step.run, /\$\{\{/u, `cut-release.yml step "${step.name}" must pass expressions via env:, not inline in run:`)
+      }
+    }
     const cutAllRuns = Object.values(cutReleaseWf.jobs).flatMap((j) => (j.steps || []).map((s) => s.run || '')).join('\n')
+    assert.match(cutAllRuns, /HAS_RELEASE_BOT_TOKEN/u)
+    assert.match(cutAllRuns, /fix\/hot-\*/u)
+    assert.match(cutAllRuns, /git fetch origin main dev --tags --force/u)
+    assert.match(cutAllRuns, /Hotfix-Release: true/u)
     assert.match(cutAllRuns, /scripts\/check-release-milestone\.mjs/u)
     assert.match(cutAllRuns, /--latest=false/u)
     assert.match(cutAllRuns, /chore\/merge-main-/u)
+  })
+
+  it('covers every ds-bot file statically imported by mobile/src across test.yml, release.yml, and nightly-release.yml while excluding generated release-notes metadata from Android APK rebuilds', () => {
+    const { runtimeDsBot, testOnlyDsBot } = discoverMobileDsBotImports()
+    assert.ok(runtimeDsBot.includes('ds-bot/src/client/inbox-text.js'), 'expected mobile/src to import inbox-text.js')
+    assert.ok(runtimeDsBot.some((f) => f.startsWith('ds-bot/src/client/locales/')), 'expected transitive locale imports from i18n.js')
+
+    const releaseText = readFileSync(join(WORKFLOWS_DIR, 'release.yml'), 'utf8')
+    const nightlyText = readFileSync(join(WORKFLOWS_DIR, 'nightly-release.yml'), 'utf8')
+    const testText = readFileSync(join(WORKFLOWS_DIR, 'test.yml'), 'utf8')
+
+    const extractPattern = (text, label) => {
+      const m = /grep -qE '([^']*mobile\/[^']*)'/u.exec(text) || /has '([^']*mobile\/[^']*)'/u.exec(text)
+      assert.ok(m, `${label}: failed to extract mobile path regex`)
+      return new RegExp(m[1], 'u')
+    }
+
+    const releaseExcludeRe = /^ds-bot\/src\/shared\/release-notes(-generated\.js|\.json)$/u
+    const releaseMobileRe = extractPattern(releaseText, 'release.yml')
+    const nightlyMobileRe = extractPattern(nightlyText, 'nightly-release.yml')
+    const testMobileRe = extractPattern(testText, 'test.yml')
+
+    assert.match(releaseText, /grep -Ev '\^ds-bot\/src\/shared\/release-notes\(-generated\\\.js\|\\\.json\)\$'/u)
+    assert.match(nightlyText, /grep -Ev '\^ds-bot\/src\/shared\/release-notes\(-generated\\\.js\|\\\.json\)\$'/u)
+
+    for (const file of runtimeDsBot) {
+      assert.ok(testMobileRe.test(file), `test.yml mobile filter missed imported file: ${file}`)
+      if (releaseExcludeRe.test(file)) continue
+      assert.ok(releaseMobileRe.test(file), `release.yml android-scope filter missed imported file: ${file}`)
+      assert.ok(nightlyMobileRe.test(file), `nightly-release.yml android filter missed imported file: ${file}`)
+    }
+    for (const file of testOnlyDsBot) {
+      assert.ok(testMobileRe.test(file), `test.yml mobile filter missed test-imported file: ${file}`)
+    }
+
+    // Pure release metadata edits must NOT trigger Android APK rebuilds in release.yml or nightly-release.yml.
+    const metadataOnly = [
+      'ds-bot/package.json',
+      'app/package.json',
+      'CHANGELOG.md',
+      'ds-bot/src/shared/release-notes.json',
+      'ds-bot/src/shared/release-notes-generated.js',
+    ].filter((f) => !releaseExcludeRe.test(f))
+    for (const file of metadataOnly) {
+      assert.equal(releaseMobileRe.test(file), false, `release.yml must not rebuild Android APK for ${file}`)
+      assert.equal(nightlyMobileRe.test(file), false, `nightly-release.yml must not rebuild Android APK for ${file}`)
+    }
+  })
+
+  it('extracts full CHANGELOG.md release notes across blank lines in cut-release.yml', () => {
+    const changelog = readFileSync(join(REPO_ROOT, 'CHANGELOG.md'), 'utf8')
+    const lines = changelog.split(/\r?\n/u)
+    const version = '0.4.1'
+    const startRe = new RegExp(`^## \\[${version.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\\](?:\\s|$)`, 'u')
+    const startIdx = lines.findIndex((line) => startRe.test(line))
+    assert.notEqual(startIdx, -1)
+    const collected = []
+    for (let i = startIdx + 1; i < lines.length; i += 1) {
+      if (lines[i].startsWith('## [')) break
+      collected.push(lines[i])
+    }
+    const body = collected.join('\n').trim()
+    assert.match(body, /^### Changed/u)
+    assert.match(body, /### Fixed/u)
+    assert.doesNotMatch(body, /^## \[0\.4\.0\]/mu)
   })
 
   it('keeps mobile/src PRs on the fast gate without triggering iOS/Android native builds', () => {
@@ -293,6 +447,7 @@ describe('CI workflow separation and path classification', () => {
       '.github/workflows/package.yml',
       '.github/workflows/full-package.yml',
       '.github/workflows/pr-triage-labels.yml',
+      '.github/workflows/pr-merge-guard.yml',
       '.github/workflows/release.yml',
       '.github/workflows/nightly-release.yml',
       '.github/workflows/cut-release.yml',
@@ -308,6 +463,7 @@ describe('CI workflow separation and path classification', () => {
     assert.equal(releasePrFast.full, 'true')
     assert.equal(releasePrFast.release_pr, 'true')
     assert.equal(releasePrFast.hotfix, 'false')
+    assert.equal(releasePrFast.pr_guard, 'true')
 
     const releasePrPkg = runClassifier('package.yml', ['README.md'], { BASE_REF: 'main', HEAD_REF: 'chore/release-0.4.2' })
     assert.equal(releasePrPkg.full, 'true')
@@ -332,23 +488,34 @@ describe('CI workflow separation and path classification', () => {
     }
   })
 
-  it('uses hotfix fast-lane on BASE_REF=main for hotfix/* branches and release/hotfix PRs without forcing iOS/Android/4-OS packaging', () => {
+  it('uses hotfix fast-lane on BASE_REF=main for same-repo hotfix/*, fix/hot-*, or release/hotfix PRs (ignoring version-only lockfile bumps) while blocking fork branch-name spoofing', () => {
     const basePkg = JSON.stringify({ name: 'ds-bot', version: '0.4.1', dependencies: { ws: '8.18.3' } }, null, 2)
     const bumpedPkg = JSON.stringify({ name: 'ds-bot', version: '0.4.2', dependencies: { ws: '8.18.3' } }, null, 2)
     const baseAppPkg = JSON.stringify({ name: 'dsbot', version: '0.4.1' }, null, 2)
     const bumpedAppPkg = JSON.stringify({ name: 'dsbot', version: '0.4.2' }, null, 2)
+    const baseAppLock = JSON.stringify({
+      name: 'dsbot',
+      version: '0.4.1',
+      packages: { '': { version: '0.4.1' }, 'node_modules/ds-bot': { version: '0.4.1', resolved: 'file:../ds-bot' } },
+    }, null, 2)
+    const bumpedAppLock = JSON.stringify({
+      name: 'dsbot',
+      version: '0.4.2',
+      packages: { '': { version: '0.4.2' }, 'node_modules/ds-bot': { version: '0.4.2', resolved: 'file:../ds-bot' } },
+    }, null, 2)
 
     for (const overrides of [
-      { BASE_REF: 'main', HEAD_REF: 'hotfix/0.4.2-mail-toggle' },
-      { BASE_REF: 'main', HEAD_REF: 'fix/urgent-patch', PR_HOTFIX: 'true' },
+      { BASE_REF: 'main', HEAD_REF: 'hotfix/0.4.2-mail-toggle', IS_SAME_REPO: 'true' },
+      { BASE_REF: 'main', HEAD_REF: 'fix/hot-mail-toggle', IS_SAME_REPO: 'true' },
+      { BASE_REF: 'main', HEAD_REF: 'fix/urgent-patch', IS_SAME_REPO: 'false', PR_HOTFIX: 'true' },
     ]) {
       const pkgHotfix = runClassifier(
         'package.yml',
-        ['ds-bot/src/host/tools.js', 'app/ui/src/session-chat.js', 'ds-bot/package.json', 'app/package.json'],
+        ['ds-bot/src/host/tools.js', 'app/ui/src/session-chat.js', 'ds-bot/package.json', 'app/package.json', 'app/package-lock.json'],
         overrides,
         {
-          baseFiles: { 'ds-bot/package.json': basePkg, 'app/package.json': baseAppPkg },
-          headContents: { 'ds-bot/package.json': bumpedPkg, 'app/package.json': bumpedAppPkg },
+          baseFiles: { 'ds-bot/package.json': basePkg, 'app/package.json': baseAppPkg, 'app/package-lock.json': baseAppLock },
+          headContents: { 'ds-bot/package.json': bumpedPkg, 'app/package.json': bumpedAppPkg, 'app/package-lock.json': bumpedAppLock },
         },
       )
       assert.equal(pkgHotfix.hotfix, 'true')
@@ -366,12 +533,32 @@ describe('CI workflow separation and path classification', () => {
       assert.equal(testHotfix.ds_bot, 'true')
     }
 
+    // A fork PR named hotfix/* without maintainer release/hotfix label must NOT bypass full checks.
+    const forkSpoofPkg = runClassifier('package.yml', ['ds-bot/src/host/tools.js'], {
+      BASE_REF: 'main',
+      HEAD_REF: 'hotfix/spoofed',
+      IS_SAME_REPO: 'false',
+      PR_HOTFIX: 'false',
+    })
+    assert.equal(forkSpoofPkg.hotfix, 'false')
+    assert.equal(forkSpoofPkg.full, 'true')
+
+    const forkSpoofTest = runClassifier('test.yml', ['ds-bot/src/host/tools.js'], {
+      BASE_REF: 'main',
+      HEAD_REF: 'hotfix/spoofed',
+      IS_SAME_REPO: 'false',
+      PR_HOTFIX: 'false',
+    })
+    assert.equal(forkSpoofTest.hotfix, 'false')
+    assert.equal(forkSpoofTest.release_pr, 'true')
+    assert.equal(forkSpoofTest.full, 'true')
+
     // A hotfix that genuinely changes mobile native config or adds a dependency still triggers native/full packaging.
     const depChangePkg = JSON.stringify({ name: 'ds-bot', version: '0.4.2', dependencies: { ws: '8.18.4' } }, null, 2)
     const depHotfix = runClassifier(
       'package.yml',
       ['ds-bot/package.json', 'mobile/app.json'],
-      { BASE_REF: 'main', HEAD_REF: 'hotfix/0.4.2-native' },
+      { BASE_REF: 'main', HEAD_REF: 'hotfix/0.4.2-native', IS_SAME_REPO: 'true' },
       {
         baseFiles: { 'ds-bot/package.json': basePkg },
         headContents: { 'ds-bot/package.json': depChangePkg },

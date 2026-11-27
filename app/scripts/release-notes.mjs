@@ -57,10 +57,21 @@ function mirrorUrl(mirror, name) {
   return `${mirror.replace(/\/+$/u, '')}/${encodeURIComponent(name)}`
 }
 
+function mirrorBaseForVersion(mirror, currentVersion, targetVersion) {
+  if (!mirror || currentVersion === targetVersion) return mirror
+  const cleanCurrent = String(currentVersion).replace(/^v/u, '')
+  const cleanTarget = String(targetVersion).replace(/^v/u, '')
+  const escaped = cleanCurrent.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  // Rewrite versioned mirror path segment (e.g. .../v0.4.2 -> .../v0.4.0) so reused
+  // historical packages never 404 under the current release's mirror folder.
+  const versionSegment = new RegExp(`(/v?)${escaped}(?=/|$)`, 'u')
+  return versionSegment.test(mirror) ? mirror.replace(versionSegment, `$1${cleanTarget}`) : mirror
+}
+
 /**
  * Render the Markdown download table block.
  * - `sizes`: bytes by package name for packages attached to `version`.
- * - `externalPackages`: map of `entry.file` -> `{ version, size? }` for packages reused unchanged from an earlier release (e.g. Android APK during desktop-only hotfixes).
+ * - `externalPackages`: map of `entry.file` -> `{ version, size?, mirror? }` for packages reused unchanged from an earlier release (e.g. Android APK during desktop-only hotfixes).
  * - `pendingPackages`: iterable of `entry.file` currently building asynchronously (e.g. `mac-x64.zip`).
  */
 export function downloadBlock({
@@ -72,9 +83,12 @@ export function downloadBlock({
   pendingPackages = [],
 }) {
   const pendingSet = new Set(pendingPackages)
-  const links = (targetVersion, name) => {
+  const links = (targetVersion, name, customMirror) => {
     const github = releaseUrl({ repo, version: targetVersion, name })
-    return mirror ? `${name}: [Mirror / 国内镜像](${mirrorUrl(mirror, name)}) · [GitHub](${github})` : `[${name}](${github})`
+    const effectiveMirror = customMirror ?? mirrorBaseForVersion(mirror, version, targetVersion)
+    return effectiveMirror
+      ? `${name}: [Mirror / 国内镜像](${mirrorUrl(effectiveMirror, name)}) · [GitHub](${github})`
+      : `[${name}](${github})`
   }
   const rows = PACKAGES.map((entry) => {
     const system = entry.note === undefined ? entry.system : `${entry.system}<br>${entry.note}`
@@ -87,7 +101,7 @@ export function downloadBlock({
       const extVersion = ext.version.trim().replace(/^v/u, '')
       const extName = packageName(extVersion, entry)
       const sizeCell = Number.isFinite(ext.size) && ext.size > 0 ? formatSize(ext.size) : '—'
-      return `| ${system} | ${links(extVersion, extName)} *(unchanged since v${extVersion} / 同 v${extVersion})* | ${sizeCell} |`
+      return `| ${system} | ${links(extVersion, extName, ext.mirror)} *(unchanged since v${extVersion} / 同 v${extVersion})* | ${sizeCell} |`
     }
     if (pendingSet.has(entry.file)) {
       return `| ${system} | Building… / 构建中… | — |`

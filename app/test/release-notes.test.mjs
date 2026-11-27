@@ -120,6 +120,33 @@ test('reused external Android APK points at its historical release and pending m
     block,
     /\| Android \(phone app \/ 手机 App\) \| \[DS-Bot-0\.4\.0-android\.apk\]\(https:\/\/github\.com\/Fei-Craft\/DS-Bot\/releases\/download\/v0\.4\.0\/DS-Bot-0\.4\.0-android\.apk\) \*\(unchanged since v0\.4\.0 \/ 同 v0\.4\.0\)\* \| 62 MB \|/u,
   )
+
+  // Versioned mirror URLs rewrite /v0.4.2 -> /v0.4.0 for reused packages so they never 404.
+  const withVersionedMirror = downloadBlock({
+    version: '0.4.2',
+    sizes,
+    mirror: 'https://mirror.example/ds-bot/v0.4.2/',
+    externalPackages: { 'android.apk': { version: '0.4.0', size: 62 * MB } },
+    pendingPackages: ['mac-x64.zip'],
+  })
+  assert.match(
+    withVersionedMirror,
+    /DS-Bot-0\.4\.0-android\.apk: \[Mirror \/ 国内镜像\]\(https:\/\/mirror\.example\/ds-bot\/v0\.4\.0\/DS-Bot-0\.4\.0-android\.apk\) · \[GitHub\]\(https:\/\/github\.com\/Fei-Craft\/DS-Bot\/releases\/download\/v0\.4\.0\/DS-Bot-0\.4\.0-android\.apk\)/u,
+  )
+  assert.doesNotMatch(withVersionedMirror, /v0\.4\.2\/DS-Bot-0\.4\.0-android\.apk/u)
+
+  // Flat mirror URLs (without version segment) keep their base intact.
+  const withFlatMirror = downloadBlock({
+    version: '0.4.2',
+    sizes,
+    mirror: 'https://dl.dsbot.app',
+    externalPackages: { 'android.apk': { version: '0.4.0', size: 62 * MB } },
+    pendingPackages: ['mac-x64.zip'],
+  })
+  assert.match(
+    withFlatMirror,
+    /DS-Bot-0\.4\.0-android\.apk: \[Mirror \/ 国内镜像\]\(https:\/\/dl\.dsbot\.app\/DS-Bot-0\.4\.0-android\.apk\)/u,
+  )
 })
 
 test('the table goes on top of the notes, and a second run replaces it', () => {
@@ -275,8 +302,18 @@ test('release.yml marks Latest after primary builds + publish, decouples macOS x
   assert.match(runs(x64Attach), /node scripts\/release-upload\.mjs /u)
   assert.doesNotMatch(runs(x64Attach), /--latest/u)
 
-  // validate checks Milestone and computes build_android; app-android respects build_android.
-  assert.match(runs(workflow.jobs.validate), /check-release-milestone\.mjs/u)
+  // Top-level permissions stay read-only; contents:write is scoped to publishing jobs only.
+  assert.equal(workflow.permissions.contents, 'read')
+  assert.equal(workflow.jobs.publish.permissions?.contents, 'write')
+  assert.equal(workflow.jobs.downloads.permissions?.contents, 'write')
+  assert.equal(workflow.jobs['downloads-macos-x64'].permissions?.contents, 'write')
+
+  // validate checks Milestone (with hotfix trailer fallback), verifies ancestor tags, excludes generated release-notes metadata, and computes build_android.
+  const validateRuns = runs(workflow.jobs.validate)
+  assert.match(validateRuns, /check-release-milestone\.mjs/u)
+  assert.match(validateRuns, /Hotfix-Release:/u)
+  assert.match(validateRuns, /merge-base --is-ancestor/u)
+  assert.match(validateRuns, /release-notes\(-generated\\\.js\|\\\.json\)/u)
   assert.ok(workflow.jobs.validate.outputs?.build_android)
   assert.match(String(workflow.jobs['app-android'].if || ''), /needs\.validate\.outputs\.build_android == 'true'/u)
   assert.ok(workflow.on.workflow_dispatch?.inputs?.force_android)

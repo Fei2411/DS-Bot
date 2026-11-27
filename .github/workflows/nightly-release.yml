@@ -19,9 +19,7 @@ on:
         default: false
 
 permissions:
-  contents: write
-  issues: read
-  pull-requests: read
+  contents: read
 
 concurrency:
   group: nightly-release
@@ -32,6 +30,10 @@ jobs:
     name: Check dev changes & release readiness
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
     outputs:
       should_run: ${{ steps.plan.outputs.should_run }}
       sha: ${{ steps.plan.outputs.sha }}
@@ -80,8 +82,8 @@ jobs:
             if [ "$FORCE_ANDROID" = "true" ]; then
               build_android=true
             elif [ -n "$base_ref" ]; then
-              changed="$(git -c core.quotepath=false diff --name-only "${base_ref}..HEAD" || true)"
-              if grep -qE '^(mobile/|link/|\.github/gradle/|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest)\.js$|ds-bot/src/client/avatar/)' <<< "$changed"; then
+              changed="$(git -c core.quotepath=false diff --name-only "${base_ref}..HEAD" | grep -Ev '^ds-bot/src/shared/release-notes(-generated\.js|\.json)$' || true)"
+              if grep -qE '^(mobile/|link/|\.github/gradle/|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|sources|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest|inbox-text|effects)\.js$|ds-bot/src/client/(avatar|locales)/)' <<< "$changed"; then
                 build_android=true
               fi
             fi
@@ -257,10 +259,14 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - name: Name the download cache
         id: downloads-key
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+          BUILDER_HASH: ${{ hashFiles('app/electron-builder.yml') }}
         run: |
-          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          prefix="electron-downloads-${RUNNER_OS}-${RUNNER_ARCH}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
-          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${BUILDER_HASH}" >> "$GITHUB_OUTPUT"
       - name: Restore Electron and the build tools
         uses: actions/cache/restore@v4
         with:
@@ -312,10 +318,14 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - name: Name the download cache
         id: downloads-key
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+          BUILDER_HASH: ${{ hashFiles('app/electron-builder.yml') }}
         run: |
-          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          prefix="electron-downloads-${RUNNER_OS}-${RUNNER_ARCH}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
-          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${BUILDER_HASH}" >> "$GITHUB_OUTPUT"
       - name: Restore Electron and the build tools
         uses: actions/cache/restore@v4
         with:
@@ -367,10 +377,14 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - name: Name the download cache
         id: downloads-key
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+          BUILDER_HASH: ${{ hashFiles('app/electron-builder.yml') }}
         run: |
-          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          prefix="electron-downloads-${RUNNER_OS}-${RUNNER_ARCH}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
-          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${BUILDER_HASH}" >> "$GITHUB_OUTPUT"
       - name: Restore Electron and the build tools
         uses: actions/cache/restore@v4
         with:
@@ -493,10 +507,13 @@ jobs:
           (github.event_name == 'workflow_dispatch' || github.repository == 'Fei-Craft/DS-Bot') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       NIGHTLY_SHA: ${{ needs.check.outputs.sha }}
       NIGHTLY_SHORT_SHA: ${{ needs.check.outputs.short_sha }}
+      BUILD_ANDROID: ${{ needs.check.outputs.build_android }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -528,6 +545,43 @@ jobs:
             esac
           done
           (cd "$RUNNER_TEMP/upload" && sha256sum * > SHA256SUMS.txt)
+
+          # When Android build was skipped, keep SHA256SUMS.txt consistent with any retained APK:
+          # preserve its verified digest line (and record its source in report.md), or delete the
+          # stale APK asset if no verified digest is available.
+          if [ "$BUILD_ANDROID" = "false" ] && gh release view nightly >/dev/null 2>&1; then
+            rel_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/nightly" 2>/dev/null || echo '{}')"
+            has_old_apk="$(node -e '
+              const rel = JSON.parse(process.argv[1] || "{}");
+              const apk = (rel.assets || []).find(a => a?.name === "DS-Bot-nightly-android.apk");
+              if (!apk) process.exit(0);
+              const digest = typeof apk.digest === "string" && apk.digest.startsWith("sha256:") ? apk.digest.slice(7).toLowerCase() : "";
+              const target = String(rel.target_commitish || "").slice(0, 8);
+              console.log(`${digest}\t${target}`);
+            ' "$rel_json" || true)"
+
+            if [ -n "$has_old_apk" ]; then
+              IFS=$'\t' read -r api_digest prev_target <<< "$has_old_apk"
+              preserved_sha=""
+              if gh release download nightly -p SHA256SUMS.txt -D "$RUNNER_TEMP/prev" --clobber >/dev/null 2>&1; then
+                sums_sha="$(grep -E '^[0-9a-fA-F]{64}[[:space:]]+\*?DS-Bot-nightly-android\.apk$' "$RUNNER_TEMP/prev/SHA256SUMS.txt" | awk '{print tolower($1)}' | head -n1 || true)"
+                if [ -n "$sums_sha" ] && { [ -z "$api_digest" ] || [ "$sums_sha" = "$api_digest" ]; }; then
+                  preserved_sha="$sums_sha"
+                fi
+              elif [ -n "$api_digest" ]; then
+                preserved_sha="$api_digest"
+              fi
+
+              if [ -n "$preserved_sha" ]; then
+                echo "${preserved_sha}  DS-Bot-nightly-android.apk" >> "$RUNNER_TEMP/upload/SHA256SUMS.txt"
+                echo "" >> "$RUNNER_TEMP/nightly/report.md"
+                echo "_Note: \`DS-Bot-nightly-android.apk\` was retained unchanged from previous nightly (\`${prev_target:-previous}\`) with its verified SHA-256 preserved in \`SHA256SUMS.txt\`._" >> "$RUNNER_TEMP/nightly/report.md"
+              else
+                echo "Deleting stale DS-Bot-nightly-android.apk because no verified SHA-256 checksum was found."
+                gh release delete-asset nightly DS-Bot-nightly-android.apk --yes || true
+              fi
+            fi
+          fi
           ls -lh "$RUNNER_TEMP/upload"
       - name: Update rolling nightly tag and GitHub pre-release
         run: |

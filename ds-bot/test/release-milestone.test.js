@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import {
+  collectClosingIssuesFromGit,
   compareSemver,
   evaluatePrMergeGuard,
   evaluateReleaseMilestone,
+  extractClosingIssueNumbers,
   findMilestoneForVersion,
   parseSemver,
   resolveActiveDevMilestone,
@@ -28,7 +32,7 @@ const MILESTONE_SCRIPT = join(REPO_ROOT, 'scripts', 'check-release-milestone.mjs
 const SHARD_SCRIPT = join(PLUGIN_ROOT, 'scripts', 'run-tests-shard.mjs')
 
 describe('release milestone gate', () => {
-  it('parses and compares semver versions including prereleases', () => {
+  it('parses and compares semver versions numerically including v0.4.2 vs v0.4.10 and prereleases', () => {
     assert.equal(parseSemver('v0.4.2').version, '0.4.2')
     assert.equal(parseSemver('0.4.2').tag, 'v0.4.2')
     assert.equal(parseSemver('0.4.2-rc.1').prerelease, true)
@@ -36,10 +40,23 @@ describe('release milestone gate', () => {
     assert.equal(parseSemver('0.4.'), null)
 
     assert.equal(compareSemver('v0.4.1', 'v0.4.2'), -1)
+    assert.equal(compareSemver('v0.4.2', 'v0.4.10'), -1)
+    assert.equal(compareSemver('v0.4.10', 'v0.4.2'), 1)
     assert.equal(compareSemver('0.4.2', 'v0.4.2'), 0)
     assert.equal(compareSemver('0.4.2-rc.1', '0.4.2'), -1)
     assert.equal(compareSemver('0.4.2-rc.2', '0.4.2-rc.10'), -1)
     assert.equal(compareSemver('0.5.0', '0.4.99'), 1)
+
+    const active = resolveActiveDevMilestone('0.4.1', [
+      { number: 10, title: 'v0.4.10', state: 'open', open_issues: 1 },
+      { number: 4, title: 'v0.4.2', state: 'open', open_issues: 2 },
+    ])
+    assert.equal(active?.parsed.tag, 'v0.4.2')
+  })
+
+  it('extracts GitHub closing keywords accurately while ignoring cross-repo issues', () => {
+    const text = 'Fixes #123, closes: #456, Resolves Fei-Craft/DS-Bot#789, fix other/repo#999, mentions #111'
+    assert.deepEqual([...extractClosingIssueNumbers(text, 'Fei-Craft/DS-Bot')].sort((a, b) => a - b), [123, 456, 789])
   })
 
   it('finds milestones matching vX.Y.Z or bare X.Y.Z', () => {
@@ -84,6 +101,34 @@ describe('release milestone gate', () => {
     assert.equal(noList.reason, 'open-items-remaining')
   })
 
+  it('exempts open issues already fixed in dev (pending merge to main) while still blocking unmerged PRs and unfixed issues', () => {
+    const allFixedInDev = evaluateReleaseMilestone({
+      targetVersion: 'v0.4.2',
+      milestones: [{ number: 4, title: 'v0.4.2', state: 'open', open_issues: 2, closed_issues: 3 }],
+      openItems: [
+        { number: 2500, title: 'release: v0.4.2', state: 'open', pull_request: {} },
+        { number: 2401, title: 'Already fixed on dev', state: 'open', html_url: 'https://github.com/Fei-Craft/DS-Bot/issues/2401' },
+      ],
+      ignorePrNumber: 2500,
+      resolvedIssueNumbers: [2401],
+    })
+    assert.equal(allFixedInDev.ok, true)
+    assert.equal(allFixedInDev.resolvedPendingMain.length, 1)
+    assert.match(allFixedInDev.message, /will auto-close on merge to main/u)
+
+    // Even if a PR number appears in resolvedIssueNumbers, unmerged PRs are never exempted.
+    const unmergedPrStillBlocks = evaluateReleaseMilestone({
+      targetVersion: 'v0.4.2',
+      milestones: [{ number: 4, title: 'v0.4.2', state: 'open', open_issues: 1 }],
+      openItems: [
+        { number: 2405, title: 'Open feature PR', state: 'open', pull_request: {} },
+      ],
+      resolvedIssueNumbers: [2405],
+    })
+    assert.equal(unmergedPrStillBlocks.ok, false)
+    assert.equal(unmergedPrStillBlocks.blockingItems[0].number, 2405)
+  })
+
   it('ignores the release PR itself via ignorePrNumber and allows clean, closed, hotfix, prerelease, or allowOpen runs', () => {
     const onlySelfPr = evaluateReleaseMilestone({
       targetVersion: 'v0.4.2',
@@ -95,20 +140,6 @@ describe('release milestone gate', () => {
     })
     assert.equal(onlySelfPr.ok, true)
     assert.equal(onlySelfPr.reason, 'milestone-clean')
-
-    // Self PR ignored, but an open issue still blocks.
-    const selfPlusIssue = evaluateReleaseMilestone({
-      targetVersion: 'v0.4.2',
-      milestones: [{ number: 4, title: 'v0.4.2', state: 'open', open_issues: 2 }],
-      openItems: [
-        { number: 2500, title: 'release: v0.4.2', state: 'open', pull_request: {} },
-        { number: 2410, title: 'Unfinished bug', state: 'open' },
-      ],
-      ignorePrNumber: 2500,
-    })
-    assert.equal(selfPlusIssue.ok, false)
-    assert.equal(selfPlusIssue.blockingItems.length, 1)
-    assert.equal(selfPlusIssue.blockingItems[0].number, 2410)
 
     // Closed milestone with 0 open items passes.
     const closedClean = evaluateReleaseMilestone({
@@ -188,7 +219,6 @@ describe('release milestone gate', () => {
     assert.equal(bothBlocked.ok, false)
     assert.equal(bothBlocked.reasons.length, 2)
 
-    // PR targeting main is not subject to the dev future-milestone rule, but needs-product-ok still blocks.
     const mainPrOk = evaluatePrMergeGuard({
       baseRef: 'main',
       labels: [],
@@ -199,13 +229,54 @@ describe('release milestone gate', () => {
     assert.equal(mainPrOk.ok, true)
   })
 
-  it('verifies HTTP pagination, CLI exit codes, and missing-token fallback against a local GitHub API mock', async (t) => {
+  it('verifies HTTP pagination, same-origin guard, dev-fixed issue detection, fork restricted-token fallback, and CLI exit codes', async (t) => {
+    // Create a tiny temp git repo with origin/main and origin/dev containing "Fixes #201" + a merged PR commit.
+    const gitDir = mkdtempSync(join(tmpdir(), 'dsb-milestone-git-'))
+    t.after(() => rmSync(gitDir, { recursive: true, force: true }))
+    const gitEnv = {
+      ...process.env,
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_TERMINAL_PROMPT: '0',
+    }
+    const git = (args) => {
+      const res = spawnSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: gitDir, encoding: 'utf8', env: gitEnv })
+      assert.equal(res.status, 0, res.stderr)
+      return res.stdout.trim()
+    }
+    git(['init', '-b', 'dev'])
+    git(['config', 'user.email', 'test@example.com'])
+    git(['config', 'user.name', 'Test'])
+    writeFileSync(join(gitDir, 'a.txt'), 'v1\n')
+    git(['add', '.'])
+    git(['commit', '-m', 'initial'])
+    const mainSha = git(['rev-parse', 'HEAD'])
+    git(['update-ref', 'refs/remotes/origin/main', mainSha])
+    writeFileSync(join(gitDir, 'a.txt'), 'v2\n')
+    git(['add', '.'])
+    git(['commit', '-m', 'fix(core): resolve bug\n\nFixes #201'])
+    writeFileSync(join(gitDir, 'b.txt'), 'v3\n')
+    git(['add', '.'])
+    git(['commit', '-m', 'Merge pull request #500 from Fei-Craft/fix/issue-202'])
+    const mergedPrSha = git(['rev-parse', 'HEAD'])
+    git(['update-ref', 'refs/remotes/origin/dev', mergedPrSha])
+
+    assert.deepEqual([...collectClosingIssuesFromGit({ baseRef: 'origin/main', headRef: 'origin/dev', cwd: gitDir })], [201])
+
     const server = createServer((req, res) => {
       res.setHeader('connection', 'close')
       const url = new URL(req.url, 'http://127.0.0.1')
       if (url.pathname === '/repos/acme/rate-limited/milestones') {
         res.writeHead(403, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ message: 'API rate limit exceeded' }))
+        res.end(JSON.stringify({ message: 'Resource not accessible by integration' }))
+        return
+      }
+      if (url.pathname === '/repos/acme/cross-origin/milestones') {
+        res.writeHead(200, {
+          'content-type': 'application/json',
+          link: '<https://evil.example/steal-token>; rel="next"',
+        })
+        res.end(JSON.stringify([]))
         return
       }
       if (url.pathname === '/repos/acme/ds-bot/milestones') {
@@ -220,7 +291,7 @@ describe('release milestone gate', () => {
         }
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify([
-          { number: 2, title: 'v0.4.2', state: 'open', open_issues: 1, closed_issues: 3 },
+          { number: 2, title: 'v0.4.2', state: 'open', open_issues: 3, closed_issues: 3 },
           { number: 3, title: 'v0.4.3', state: 'open', open_issues: 2, closed_issues: 0 },
         ]))
         return
@@ -229,7 +300,39 @@ describe('release milestone gate', () => {
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify([
           { number: 99, title: 'release: v0.4.2', state: 'open', pull_request: {}, html_url: 'https://example.test/pull/99' },
+          { number: 201, title: 'Fixed via commit in dev', state: 'open', html_url: 'https://example.test/issues/201' },
+          { number: 202, title: 'Fixed via PR body merged to dev', state: 'open', html_url: 'https://example.test/issues/202' },
         ]))
+        return
+      }
+      if (url.pathname === '/repos/acme/ds-bot/issues/202/timeline') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify([
+          {
+            event: 'cross-referenced',
+            source: {
+              issue: {
+                number: 500,
+                state: 'closed',
+                pull_request: { url: 'https://example.test/pull/500' },
+                repository: { full_name: 'acme/ds-bot' },
+              },
+            },
+          },
+        ]))
+        return
+      }
+      if (url.pathname === '/repos/acme/ds-bot/pulls/500') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({
+          number: 500,
+          merged: true,
+          merged_at: '2026-11-27T10:00:00Z',
+          merge_commit_sha: mergedPrSha,
+          base: { ref: 'dev' },
+          title: 'fix: resolve 202',
+          body: 'Fixes #202',
+        }))
         return
       }
       if (url.pathname === '/repos/acme/ds-bot/pulls/123') {
@@ -255,34 +358,50 @@ describe('release milestone gate', () => {
     })
     const apiBase = `http://127.0.0.1:${String(server.address().port)}`
 
-    // Paginated milestone fetch detects open PR #99 and fails unless --ignore-pr 99 is passed.
+    // Without headRef, issues #201 and #202 + PR #99 all block.
     const blocked = await runReleaseMilestoneCheck({
       version: 'v0.4.2',
       repo: 'acme/ds-bot',
       apiBase,
     })
     assert.equal(blocked.ok, false)
-    assert.equal(blocked.blockingItems[0].number, 99)
+    assert.equal(blocked.blockingItems.length, 3)
 
-    const passedIgnoringSelf = await runReleaseMilestoneCheck({
+    // With headRef=origin/dev + ignorePrNumber=99: #201 is cleared via git log Fixes #201 and #202 via timeline merged PR #500.
+    const passedViaDevFixes = await runReleaseMilestoneCheck({
       version: 'v0.4.2',
       repo: 'acme/ds-bot',
       apiBase,
       ignorePrNumber: 99,
+      baseRef: 'origin/main',
+      headRef: 'origin/dev',
+      cwd: gitDir,
     })
-    assert.equal(passedIgnoringSelf.ok, true)
+    assert.equal(passedViaDevFixes.ok, true, passedViaDevFixes.message)
+    assert.deepEqual(passedViaDevFixes.resolvedPendingMain.map(i => i.number), [201, 202])
 
-    // Fork PR without token skips cleanly when allowMissingToken is true and GitHub returns 403.
+    // Cross-origin pagination Link header must fail closed without forwarding Authorization.
+    await assert.rejects(
+      runReleaseMilestoneCheck({
+        version: 'v0.4.2',
+        repo: 'acme/cross-origin',
+        apiBase,
+        token: 'placeholder-token-for-test',
+      }),
+      /cross-origin/u,
+    )
+
+    // Fork PR with non-empty restricted token skips cleanly when allowMissingToken is true and GitHub returns 403.
     const forkSkip = await runReleaseMilestoneCheck({
       version: 'v0.4.2',
       repo: 'acme/rate-limited',
       apiBase,
-      token: '',
+      token: 'restricted-fork-token-placeholder',
       allowMissingToken: true,
     })
     assert.equal(forkSkip.ok, true)
     assert.equal(forkSkip.skipped, true)
-    assert.equal(forkSkip.reason, 'missing-token-rate-limited')
+    assert.equal(forkSkip.reason, 'restricted-token')
 
     // PR guard via HTTP API blocks future Milestone v0.4.3 when active dev milestone is v0.4.2.
     const prGuard = await runPrMergeGuard({
@@ -295,8 +414,8 @@ describe('release milestone gate', () => {
     assert.equal(prGuard.blockedByFutureMilestone, true)
 
     // CLI contract (must spawn asynchronously so the in-process mock HTTP server stays responsive).
-    const runCli = (args) => new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [MILESTONE_SCRIPT, ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const runCli = (args, cwd = PLUGIN_ROOT) => new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [MILESTONE_SCRIPT, ...args], { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
       let stdout = ''
       let stderr = ''
       child.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8') })
@@ -309,7 +428,14 @@ describe('release milestone gate', () => {
     assert.equal(cliFail.status, 1)
     assert.match(cliFail.stderr, /#99 release: v0\.4\.2/u)
 
-    const cliOk = await runCli(['--version', 'v0.4.2', '--repo', 'acme/ds-bot', '--api-base', apiBase, '--ignore-pr', '99'])
+    const cliOk = await runCli([
+      '--version', 'v0.4.2',
+      '--repo', 'acme/ds-bot',
+      '--api-base', apiBase,
+      '--ignore-pr', '99',
+      '--base-ref', 'origin/main',
+      '--head-ref', 'origin/dev',
+    ], gitDir)
     assert.equal(cliOk.status, 0, cliOk.stderr)
     assert.match(cliOk.stdout, /passed/u)
   })
@@ -339,7 +465,6 @@ describe('Windows test shard runner', () => {
     const reversed = partitionTestFiles([...entries].reverse(), 4)
     assert.deepEqual(forward, reversed, 'partitioning must be invariant to input order')
 
-    // Largest 4 files must land in 4 distinct shards.
     const shardOf = (name) => forward.findIndex(bucket => bucket.includes(name))
     assert.equal(new Set(['test/a.test.js', 'test/b.test.js', 'test/c.test.js', 'test/d.test.js'].map(shardOf)).size, 4)
 

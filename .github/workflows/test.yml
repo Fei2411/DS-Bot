@@ -31,6 +31,7 @@ jobs:
       full: ${{ steps.filter.outputs.full }}
       hotfix: ${{ steps.filter.outputs.hotfix }}
       release_pr: ${{ steps.filter.outputs.release_pr }}
+      pr_guard: ${{ steps.filter.outputs.pr_guard }}
       ds_bot: ${{ steps.filter.outputs.ds_bot }}
       node22: ${{ steps.filter.outputs.node22 }}
       app_unit: ${{ steps.filter.outputs.app_unit }}
@@ -52,6 +53,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          IS_SAME_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
           PR_HOTFIX: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release/hotfix') }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -61,9 +63,16 @@ jobs:
           main_push=false
           hotfix=false
           release_pr=false
+          pr_guard=false
+
+          if [ "$EVENT" = "pull_request" ]; then
+            pr_guard=true
+          fi
 
           if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
-            if [[ "$HEAD_REF" == hotfix/* ]] || [ "$PR_HOTFIX" = "true" ]; then
+            if [ "$PR_HOTFIX" = "true" ]; then
+              hotfix=true
+            elif [ "$IS_SAME_REPO" = "true" ] && [[ "$HEAD_REF" == hotfix/* || "$HEAD_REF" == fix/hot-* ]]; then
               hotfix=true
             elif [ -n "$PR_NUMBER" ] && [ -n "$GH_TOKEN" ]; then
               if gh api "repos/$GH_REPO/issues/$PR_NUMBER/labels" --jq '.[].name' 2>/dev/null | grep -qx 'release/hotfix'; then
@@ -133,10 +142,10 @@ jobs:
             mobile=false
             link=false
             docker=false
-            if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$|scripts/(check-pure-base-sync|check-release-milestone)\.mjs$|\.github/workflows/(package|full-package|pr-triage-labels|release|nightly-release|cut-release)\.yml$)'; then ds_bot=true; fi
+            if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$|scripts/(check-pure-base-sync|check-release-milestone)\.mjs$|\.github/workflows/(package|full-package|pr-triage-labels|pr-merge-guard|release|nightly-release|cut-release)\.yml$)'; then ds_bot=true; fi
             if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$|\.github/workflows/release\.yml$)'; then app_unit=true; fi
             if has '^app/'; then app_unit_win=true; fi
-            if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/package\.json$|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest)\.js$|ds-bot/src/client/avatar/)'; then mobile=true; fi
+            if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/(package\.json|link\.js)$|ds-bot/src/shared/|ds-bot/src/host/phone\.js$|ds-bot/src/client/(i18n|themes|sources|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest|inbox-text|effects)\.js$|ds-bot/src/client/(avatar|locales)/)'; then mobile=true; fi
             if has '^link/'; then link=true; fi
             if has '^(docker/|docker-compose.*\.yml$|\.dockerignore$|ds-bot/package\.json$|ds-bot/package-lock\.json$|ds-bot/\.npmrc$|ds-bot/cordis\.patch\.yml$|ds-bot/plugin\.js$)'; then docker=true; fi
             # Rapid merges to dev can supersede intermediate queued pushes, so always run the
@@ -153,6 +162,7 @@ jobs:
             echo "full=$full"
             echo "hotfix=$hotfix"
             echo "release_pr=$release_pr"
+            echo "pr_guard=$pr_guard"
             echo "ds_bot=$ds_bot"
             echo "node22=$node22"
             echo "app_unit=$app_unit"
@@ -211,12 +221,16 @@ jobs:
           path: ds-bot/dev/harness/node_modules
           key: ${{ steps.harness-cache.outputs.cache-primary-key }}
       - name: Run unit tests
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+          MATRIX_SHARD: ${{ matrix.shard }}
+          MATRIX_SHARD_TOTAL: ${{ matrix.shard_total }}
         run: |
-          if [ -n "${{ matrix.shard }}" ]; then
+          if [ -n "$MATRIX_SHARD" ]; then
             # Split Windows unit tests across 4 balanced parallel shards while keeping
             # --test-concurrency=2 per shard to avoid Windows file-lock contention.
-            npm run test:windows:shard -- --shard "${{ matrix.shard }}/${{ matrix.shard_total }}"
-          elif [ "${{ matrix.os }}" = "windows-latest" ]; then
+            npm run test:windows:shard -- --shard "${MATRIX_SHARD}/${MATRIX_SHARD_TOTAL}"
+          elif [ "$MATRIX_OS" = "windows-latest" ]; then
             npm run test:windows
           else
             npm test
@@ -296,10 +310,12 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Verify target release Milestone has zero open items
+      - name: Verify target release Milestone has zero blocking open items
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -307,11 +323,45 @@ jobs:
         run: |
           set -euo pipefail
           version="$(node -p "require('./ds-bot/package.json').version")"
-          args=(--version "v$version" --repo "$GITHUB_REPOSITORY")
+          args=(--version "v$version" --repo "$GITHUB_REPOSITORY" --base-ref origin/main --head-ref HEAD)
           if [ -n "$PR_NUMBER" ]; then
             args+=(--ignore-pr "$PR_NUMBER")
           fi
-          # Fork PRs may receive a restricted token; gracefully skip only on 401/403 without token.
+          # Fork PRs may receive a restricted token; gracefully skip only on 401/403.
+          if [ "$IS_FORK" = "true" ]; then
+            args+=(--allow-missing-token)
+          fi
+          node scripts/check-release-milestone.mjs "${args[@]}"
+
+  # Lightweight merge-guard check integrated into Test result so needs-product-ok and future
+  # Milestone blocks are enforced immediately even before PR merge guard is added to Rulesets.
+  # Live label/milestone updates without re-running unit tests are handled by pr-merge-guard.yml.
+  pr-guard:
+    name: PR merge guard (in Test)
+    needs: changes
+    if: needs.changes.outputs.pr_guard == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify needs-product-ok and active dev Milestone
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -euo pipefail
+          dev_version="$(git show origin/dev:ds-bot/package.json 2>/dev/null | node -e "const d = JSON.parse(require('node:fs').readFileSync(0,'utf8')); console.log(d.version);" || node -p "require('./ds-bot/package.json').version")"
+          args=(--mode pr-guard --pr "$PR_NUMBER" --current-version "$dev_version" --repo "$GITHUB_REPOSITORY")
           if [ "$IS_FORK" = "true" ]; then
             args+=(--allow-missing-token)
           fi
@@ -481,7 +531,7 @@ jobs:
   # and fails unless every job required for the changed paths passed.
   result:
     name: Test result
-    needs: [changes, test, test-node22, release-milestone, scan, app, app-windows, mobile, link, docker]
+    needs: [changes, test, test-node22, release-milestone, pr-guard, scan, app, app-windows, mobile, link, docker]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -495,6 +545,8 @@ jobs:
           NODE22_RESULT: ${{ needs.test-node22.result }}
           RUN_RELEASE_MILESTONE: ${{ needs.changes.outputs.release_pr }}
           RELEASE_MILESTONE_RESULT: ${{ needs.release-milestone.result }}
+          RUN_PR_GUARD: ${{ needs.changes.outputs.pr_guard }}
+          PR_GUARD_RESULT: ${{ needs.pr-guard.result }}
           RUN_APP_UNIT: ${{ needs.changes.outputs.app_unit }}
           APP_RESULT: ${{ needs.app.result }}
           RUN_APP_UNIT_WIN: ${{ needs.changes.outputs.app_unit_win }}
@@ -530,6 +582,7 @@ jobs:
           check "test" "$RUN_DS_BOT" "$TEST_RESULT"
           check "test-node22" "$RUN_NODE22" "$NODE22_RESULT"
           check "release-milestone" "$RUN_RELEASE_MILESTONE" "$RELEASE_MILESTONE_RESULT"
+          check "pr-guard" "$RUN_PR_GUARD" "$PR_GUARD_RESULT"
           check "app" "$RUN_APP_UNIT" "$APP_RESULT"
           check "app-windows" "$RUN_APP_UNIT_WIN" "$APP_WIN_UNIT_RESULT"
           check "mobile" "$RUN_MOBILE" "$MOBILE_RESULT"

@@ -1,0 +1,169 @@
+name: PR Merge Guard
+
+# Dedicated merge-guard workflow isolated from comment/review events so a skipped run on
+# issue_comment or pull_request_review can never satisfy or shadow branch protection.
+# Publishes commit status "PR merge guard" (distinct from job name "Evaluate merge guard")
+# on each open PR head SHA, and refreshes open dev PRs whenever Milestones change.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled, milestoned, demilestoned]
+  milestone:
+    types: [created, closed, opened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    ${{ github.event_name == 'milestone'
+        && 'pr-merge-guard-milestone'
+        || format('pr-merge-guard-pr-{0}', github.event.pull_request.number) }}
+  cancel-in-progress: false
+
+jobs:
+  evaluate-merge-guard:
+    name: Evaluate merge guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Checkout trusted guard script and dev version
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            ds-bot/package.json
+            scripts/check-release-milestone.mjs
+          sparse-checkout-cone-mode: false
+      - name: Evaluate needs-product-ok and future Milestone guards
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const { pathToFileURL } = require('node:url');
+
+            const { owner, repo } = context.repo;
+            const guardPath = path.resolve('scripts/check-release-milestone.mjs');
+            const pkgPath = path.resolve('ds-bot/package.json');
+            if (!fs.existsSync(guardPath) || !fs.existsSync(pkgPath)) {
+              core.warning('PR Merge Guard skipped: guard script or ds-bot/package.json not yet present on dev.');
+              return;
+            }
+
+            const currentVersion = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version;
+            const { evaluatePrMergeGuard } = await import(pathToFileURL(guardPath).href);
+            const openMilestones = await github.paginate(github.rest.issues.listMilestones, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            async function publishStatus(prNumber, sha, verdict) {
+              if (!sha) return;
+              const description = verdict.ok
+                ? verdict.summary.slice(0, 140)
+                : `${verdict.reasons.map((r) => r.code).join(', ')}: ${verdict.summary}`.slice(0, 140);
+              try {
+                await github.rest.repos.createCommitStatus({
+                  owner,
+                  repo,
+                  sha,
+                  state: verdict.ok ? 'success' : 'failure',
+                  context: 'PR merge guard',
+                  description,
+                  target_url: `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+                });
+              } catch (err) {
+                core.warning(`PR #${prNumber}: could not publish commit status (${err?.message || err}).`);
+              }
+            }
+
+            if (context.eventName === 'milestone') {
+              const openDevPrs = await github.paginate(github.rest.pulls.list, {
+                owner,
+                repo,
+                state: 'open',
+                base: 'dev',
+                per_page: 100,
+              });
+              const summaryLines = [
+                `### Milestone event (\`${context.payload.action}\`: \`${context.payload.milestone?.title || ''}\`) — refreshed ${openDevPrs.length} open \`dev\` PR(s)`,
+                `- **Current \`dev\` version**: \`v${currentVersion}\``,
+              ];
+              for (const pr of openDevPrs) {
+                const verdict = evaluatePrMergeGuard({
+                  baseRef: String(pr.base?.ref || 'dev'),
+                  labels: Array.isArray(pr.labels) ? pr.labels : [],
+                  prMilestoneTitle: pr.milestone?.title ?? null,
+                  currentVersion,
+                  milestones: openMilestones,
+                });
+                await publishStatus(pr.number, pr.head?.sha, verdict);
+                summaryLines.push(
+                  `- PR #${pr.number} (\`${pr.milestone?.title || 'no milestone'}\`): ${verdict.ok ? 'PASS' : `BLOCKED (${verdict.reasons.map((r) => r.code).join(', ')})`}`,
+                );
+              }
+              if (process.env.GITHUB_STEP_SUMMARY) {
+                fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summaryLines.join('\n')}\n`);
+              }
+              core.info(`Refreshed PR merge guard status for ${openDevPrs.length} open dev PR(s).`);
+              return;
+            }
+
+            const prNumber = context.payload.pull_request?.number;
+            if (!prNumber) return;
+
+            const { data: livePr } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: prNumber,
+            });
+            if (!livePr || livePr.state !== 'open') {
+              core.info(`PR #${prNumber} is no longer open; skipping merge guard.`);
+              return;
+            }
+
+            const verdict = evaluatePrMergeGuard({
+              baseRef: String(livePr.base?.ref || ''),
+              labels: Array.isArray(livePr.labels) ? livePr.labels : [],
+              prMilestoneTitle: livePr.milestone?.title ?? null,
+              currentVersion,
+              milestones: openMilestones,
+            });
+
+            await publishStatus(prNumber, livePr.head?.sha, verdict);
+
+            const summaryLines = [
+              `### PR #${prNumber} merge guard`,
+              `- **Base branch**: \`${livePr.base?.ref || ''}\``,
+              `- **Current \`dev\` version**: \`v${currentVersion}\``,
+              `- **Active \`dev\` Milestone**: ${verdict.activeMilestone ? `\`${verdict.activeMilestone}\`` : '_none_'}`,
+              `- **PR Milestone**: ${verdict.prMilestone ? `\`${verdict.prMilestone}\`` : '_none_'}`,
+              `- **Result**: ${verdict.ok ? 'PASS' : 'BLOCKED'}`,
+            ];
+            if (!verdict.ok) {
+              for (const reason of verdict.reasons) {
+                summaryLines.push(`- **Blocked (${reason.code})**: ${reason.message}`);
+              }
+            }
+            if (process.env.GITHUB_STEP_SUMMARY) {
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summaryLines.join('\n')}\n`);
+            }
+
+            if (!verdict.ok) {
+              for (const reason of verdict.reasons) {
+                core.error(reason.message);
+              }
+              core.setFailed(verdict.summary);
+            } else {
+              core.info(verdict.summary);
+            }

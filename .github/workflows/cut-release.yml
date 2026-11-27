@@ -4,13 +4,10 @@ name: Cut Release
 # - Default (auto_publish: false): checks Milestone zero-open (in stable mode), bumps versions
 #   and lockfiles, updates README badges and CHANGELOG.md skeleton, rebuilds release-notes-generated.js
 #   and client.js, runs verification tests + leak scan, and opens the `release: vX.Y.Z` PR to main.
-# - Optional (auto_publish: true): waits for required checks, merges the release PR to main,
-#   publishes the GitHub Release WITHOUT Latest (so release.yml attaches packages and marks Latest),
-#   and opens the `main -> dev` merge-back PR.
-#
-# Tip: set repository secret RELEASE_BOT_TOKEN (PAT with contents/pull_requests/workflows write)
-# if you want PRs and Releases created by this workflow to trigger downstream GitHub Actions.
-# When unset, the workflow falls back cleanly to github.token.
+# - Optional (auto_publish: true): requires repository secret RELEASE_BOT_TOKEN so PRs and Releases
+#   actually trigger downstream workflows (fail-fast when missing), waits for required checks,
+#   merges the release PR to main, publishes the GitHub Release WITHOUT Latest (so release.yml
+#   attaches packages and marks Latest), and opens the `main -> dev` merge-back PR.
 
 on:
   workflow_dispatch:
@@ -48,6 +45,7 @@ jobs:
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN || github.token }}
+      HAS_RELEASE_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN != '' }}
       INPUT_VERSION: ${{ inputs.version }}
       MODE: ${{ inputs.mode }}
       AUTO_PUBLISH: ${{ inputs.auto_publish }}
@@ -59,24 +57,37 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Validate version and choose release base branch
+      - name: Validate inputs, token requirements, and release base branch
         id: meta
         run: |
           set -euo pipefail
+          if [ "$AUTO_PUBLISH" = "true" ] && [ "$HAS_RELEASE_BOT_TOKEN" != "true" ]; then
+            echo "::error::auto_publish=true requires secrets.RELEASE_BOT_TOKEN; github.token cannot trigger downstream CI or release.yml on created PRs/Releases."
+            exit 1
+          fi
+
           version="${INPUT_VERSION#v}"
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::Invalid version '$INPUT_VERSION'; expected semver like 0.4.2 or 0.4.2-rc.1."
             exit 1
           fi
           tag="v$version"
+
+          # Validate GITHUB_REF_NAME strictly before referencing it in git commands.
+          if ! [[ "$GITHUB_REF_NAME" =~ ^[A-Za-z0-9._/-]+$ ]] || [[ "$GITHUB_REF_NAME" == -* ]] || [[ "$GITHUB_REF_NAME" == *".."* ]]; then
+            echo "::error::Unsafe dispatch ref name: '$GITHUB_REF_NAME'."
+            exit 1
+          fi
+
+          git fetch origin main dev --tags --force
           if git rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1; then
             echo "::error::Tag $tag already exists."
             exit 1
           fi
 
-          git fetch origin main dev --tags
           if [ "$MODE" = "hotfix" ]; then
-            if [[ "$GITHUB_REF_NAME" == hotfix/* ]]; then
+            if [[ "$GITHUB_REF_NAME" == hotfix/* || "$GITHUB_REF_NAME" == fix/hot-* ]]; then
+              git fetch origin "refs/heads/$GITHUB_REF_NAME:refs/remotes/origin/$GITHUB_REF_NAME"
               base_ref="origin/$GITHUB_REF_NAME"
             else
               base_ref="origin/main"
@@ -99,23 +110,27 @@ jobs:
           } | tee -a "$GITHUB_OUTPUT"
 
       - name: Check release Milestone gate
+        env:
+          TARGET_TAG: ${{ steps.meta.outputs.tag }}
+          BASE_REF: ${{ steps.meta.outputs.base_ref }}
         run: |
           set -euo pipefail
-          args=(--version "${{ steps.meta.outputs.tag }}" --repo "$GITHUB_REPOSITORY")
+          args=(--version "$TARGET_TAG" --repo "$GITHUB_REPOSITORY" --base-ref origin/main --head-ref "$BASE_REF")
           if [ "$MODE" = "hotfix" ]; then
             args+=(--hotfix)
           fi
           node scripts/check-release-milestone.mjs "${args[@]}"
 
       - name: Create release branch and bump versions, README badges, and CHANGELOG
+        env:
+          TARGET_VERSION: ${{ steps.meta.outputs.version }}
+          TARGET_BRANCH: ${{ steps.meta.outputs.branch }}
+          BASE_REF: ${{ steps.meta.outputs.base_ref }}
         run: |
           set -euo pipefail
-          version="${{ steps.meta.outputs.version }}"
-          branch="${{ steps.meta.outputs.branch }}"
-          base_ref="${{ steps.meta.outputs.base_ref }}"
-          git checkout -B "$branch" "$base_ref"
+          git checkout -B "$TARGET_BRANCH" "$BASE_REF"
 
-          VERSION="$version" node -e '
+          VERSION="$TARGET_VERSION" node -e '
             const { execFileSync } = require("node:child_process");
             const fs = require("node:fs");
             const version = process.env.VERSION;
@@ -136,6 +151,7 @@ jobs:
             updateJson("app/package-lock.json", (lock) => {
               lock.version = version;
               if (lock.packages && lock.packages[""]) lock.packages[""].version = version;
+              if (lock.packages && lock.packages["node_modules/ds-bot"]) lock.packages["node_modules/ds-bot"].version = version;
               if (lock.packages && lock.packages["../ds-bot"]) lock.packages["../ds-bot"].version = version;
             });
 
@@ -189,12 +205,11 @@ jobs:
 
       - name: Commit, push, and open release PR to main
         id: pr
+        env:
+          TARGET_TAG: ${{ steps.meta.outputs.tag }}
+          TARGET_BRANCH: ${{ steps.meta.outputs.branch }}
         run: |
           set -euo pipefail
-          version="${{ steps.meta.outputs.version }}"
-          tag="${{ steps.meta.outputs.tag }}"
-          branch="${{ steps.meta.outputs.branch }}"
-
           git config user.name "${GITHUB_ACTOR}"
           git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
 
@@ -203,7 +218,11 @@ jobs:
               app/package.json app/package-lock.json \
               README.md README.zh.md CHANGELOG.md \
               ds-bot/client.js ds-bot/src/shared/release-notes-generated.js
-            git commit -m "release: $tag"
+            if [ "$MODE" = "hotfix" ]; then
+              git commit -m "release: $TARGET_TAG" -m "Hotfix-Release: true"
+            else
+              git commit -m "release: $TARGET_TAG"
+            fi
           fi
 
           # Scan the tracked tree as it will be published.
@@ -211,32 +230,32 @@ jobs:
           git archive HEAD | tar -x -C "$RUNNER_TEMP/tree"
           node scripts/scan.mjs "$RUNNER_TEMP/tree"
 
-          git push -u origin "$branch"
+          git push -u origin "$TARGET_BRANCH"
 
-          existing="$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // ""')"
+          existing="$(gh pr list --base main --head "$TARGET_BRANCH" --state open --json number --jq '.[0].number // ""')"
           if [ -n "$existing" ]; then
             pr_num="$existing"
             echo "Reusing existing release PR #$pr_num"
           else
             body_file="$RUNNER_TEMP/pr-body.md"
             {
-              echo "## Release $tag ($MODE)"
+              echo "## Release $TARGET_TAG ($MODE)"
               echo ""
               echo "- Version bumped in \`ds-bot/package.json\`, \`app/package.json\`, lockfiles, and README badges."
               echo "- \`CHANGELOG.md\` and \`ds-bot/src/shared/release-notes-generated.js\` updated and verified."
               if [ "$MODE" = "hotfix" ]; then
-                echo "- Mode: **hotfix** (fast-lane CI enabled via \`release/hotfix\` label)."
+                echo "- Mode: **hotfix** (fast-lane CI enabled via \`release/hotfix\` label; release commit carries \`Hotfix-Release: true\` so manual GitHub Releases also preserve hotfix exemption, or include \`<!-- hotfix -->\` in the Release notes)."
               else
-                echo "- Mode: **stable** (Milestone \`$tag\` verified at 0 open items)."
+                echo "- Mode: **stable** (Milestone \`$TARGET_TAG\` verified at 0 blocking open items)."
               fi
             } > "$body_file"
 
-            create_args=(pr create --base main --head "$branch" --title "release: $tag" --body-file "$body_file")
+            create_args=(pr create --base main --head "$TARGET_BRANCH" --title "release: $TARGET_TAG" --body-file "$body_file")
             if [ "$MODE" = "hotfix" ]; then
               create_args+=(--label "release/hotfix")
             fi
-            if gh api "repos/$GITHUB_REPOSITORY/milestones?state=all&per_page=100" --jq '.[].title' | grep -qx "$tag"; then
-              create_args+=(--milestone "$tag")
+            if gh api "repos/$GITHUB_REPOSITORY/milestones?state=all&per_page=100" --jq '.[].title' | grep -qx "$TARGET_TAG"; then
+              create_args+=(--milestone "$TARGET_TAG")
             fi
             pr_url="$(gh "${create_args[@]}")"
             pr_num="$(gh pr view "$pr_url" --json number --jq .number)"
@@ -249,45 +268,70 @@ jobs:
 
       - name: Auto-merge, publish GitHub Release (not Latest), and open main->dev merge-back PR
         if: inputs.auto_publish
+        env:
+          TARGET_VERSION: ${{ steps.meta.outputs.version }}
+          TARGET_TAG: ${{ steps.meta.outputs.tag }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          IS_PRERELEASE: ${{ steps.meta.outputs.prerelease }}
         run: |
           set -euo pipefail
-          version="${{ steps.meta.outputs.version }}"
-          tag="${{ steps.meta.outputs.tag }}"
-          pr_num="${{ steps.pr.outputs.number }}"
-          prerelease="${{ steps.meta.outputs.prerelease }}"
+          # Wait briefly for GitHub Actions check runs to register on the newly created PR
+          # before invoking --watch, avoiding a race where 0 checks exits immediately.
+          checks_seen=false
+          for _ in $(seq 1 12); do
+            count="$(gh pr checks "$PR_NUMBER" --json name --jq 'length' 2>/dev/null || echo 0)"
+            if [ "${count:-0}" -gt 0 ]; then
+              checks_seen=true
+              break
+            fi
+            sleep 5
+          done
+          if [ "$checks_seen" != "true" ]; then
+            echo "::error::No PR checks registered on PR #$PR_NUMBER within 60s; aborting auto-merge."
+            exit 1
+          fi
 
-          gh pr checks "$pr_num" --watch --interval 20
-          gh pr merge "$pr_num" --merge
+          gh pr checks "$PR_NUMBER" --watch --interval 20
+          gh pr merge "$PR_NUMBER" --merge
 
-          # Extract this version's section from CHANGELOG.md for the GitHub Release notes.
-          VERSION="$version" MODE="$MODE" node -e '
+          # Extract this version's section from CHANGELOG.md (line-based to span blank lines cleanly).
+          VERSION="$TARGET_VERSION" MODE="$MODE" node -e '
             const fs = require("node:fs");
             const version = process.env.VERSION;
-            const text = fs.readFileSync("CHANGELOG.md", "utf8");
-            const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const match = new RegExp(`^## \\[${escaped}\\][^\\n]*\\n([\\s\\S]*?)(?=^## \\[|$)`, "mu").exec(text);
-            let body = match ? match[1].trim() : `Release v${version}`;
+            const lines = fs.readFileSync("CHANGELOG.md", "utf8").split(/\r?\n/u);
+            const startRe = new RegExp(`^## \\[${version.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\](?:\\s|$)`, "u");
+            const startIdx = lines.findIndex((line) => startRe.test(line));
+            let body = `Release v${version}`;
+            if (startIdx !== -1) {
+              const collected = [];
+              for (let i = startIdx + 1; i < lines.length; i += 1) {
+                if (/^## \[/.test(lines[i])) break;
+                collected.push(lines[i]);
+              }
+              const trimmed = collected.join("\n").trim();
+              if (trimmed) body = trimmed;
+            }
             if (process.env.MODE === "hotfix") {
               body = `<!-- hotfix -->\n\n${body}`;
             }
             fs.writeFileSync(`${process.env.RUNNER_TEMP}/release-notes.md`, `${body}\n`);
           '
 
-          release_args=(release create "$tag" --target main --latest=false --title "$tag" --notes-file "$RUNNER_TEMP/release-notes.md")
-          if [ "$prerelease" = "true" ]; then
+          release_args=(release create "$TARGET_TAG" --target main --latest=false --title "$TARGET_TAG" --notes-file "$RUNNER_TEMP/release-notes.md")
+          if [ "$IS_PRERELEASE" = "true" ]; then
             release_args+=(--prerelease)
           fi
           gh "${release_args[@]}"
 
           # Open main -> dev merge-back PR.
           git fetch origin main dev
-          merge_branch="chore/merge-main-$version"
+          merge_branch="chore/merge-main-$TARGET_VERSION"
           git checkout -B "$merge_branch" origin/dev
           if git merge --no-edit origin/main; then
             git push -u origin "$merge_branch"
             gh pr create --base dev --head "$merge_branch" \
-              --title "chore: merge $tag from main into dev" \
-              --body "Merge release \`$tag\` back from \`main\` into \`dev\`."
+              --title "chore: merge $TARGET_TAG from main into dev" \
+              --body "Merge release \`$TARGET_TAG\` back from \`main\` into \`dev\`."
           else
             echo "::warning::Merging main into dev had conflicts; resolve manually and open the merge-back PR."
             git merge --abort || true

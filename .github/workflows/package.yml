@@ -54,6 +54,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          IS_SAME_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
           PR_FULL_PACKAGE: ${{ inputs.force_full || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci/full-package')) }}
           PR_HOTFIX: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release/hotfix') }}
           GH_TOKEN: ${{ github.token }}
@@ -76,7 +77,9 @@ jobs:
           fi
 
           if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
-            if [[ "$HEAD_REF" == hotfix/* ]] || [ "$PR_HOTFIX" = "true" ]; then
+            if [ "$PR_HOTFIX" = "true" ]; then
+              hotfix=true
+            elif [ "$IS_SAME_REPO" = "true" ] && [[ "$HEAD_REF" == hotfix/* || "$HEAD_REF" == fix/hot-* ]]; then
               hotfix=true
             fi
           fi
@@ -131,13 +134,17 @@ jobs:
                 delete copy.version;
                 if (file.endsWith("package-lock.json") && copy.packages && typeof copy.packages === "object") {
                   if (copy.packages[""]) delete copy.packages[""].version;
+                  if (copy.packages["node_modules/ds-bot"]) delete copy.packages["node_modules/ds-bot"].version;
                   if (copy.packages["../ds-bot"]) delete copy.packages["../ds-bot"].version;
                 }
                 return copy;
               }
               function isVersionOnlyChange(file) {
                 try {
-                  const baseRaw = execFileSync("git", ["show", `origin/${baseRef}:${file}`], { encoding: "utf8" });
+                  const baseRaw = execFileSync("git", ["show", `origin/${baseRef}:${file}`], {
+                    encoding: "utf8",
+                    maxBuffer: 16 * 1024 * 1024,
+                  });
                   const headRaw = fs.readFileSync(file, "utf8");
                   return JSON.stringify(stripVersion(file, JSON.parse(baseRaw))) === JSON.stringify(stripVersion(file, JSON.parse(headRaw)));
                 } catch {
