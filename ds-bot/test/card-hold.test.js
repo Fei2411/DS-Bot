@@ -115,9 +115,10 @@ const deferred = () => {
 }
 const lease = () => {
   const source = createSource({})
-  const actions = teamActions({ heldCards: source })
+  const ui = createSource({})
+  const actions = teamActions({ heldCards: source, ui })
   const count = (sessionId, kind, id) => source.getSnapshot()[sessionId]?.[heldCardKey(kind, id)] ?? 0
-  return { source, actions, count }
+  return { source, ui, actions, count }
 }
 const Hold = props => useDockHold(props.sessionId, props.kind, props.id, props.actions, props.inline)
 const question = { id: 'question', question: 'Which draft?', options: ['Short', 'Detailed'], allowCustom: true, multiSelect: true }
@@ -369,6 +370,27 @@ test('a pending view stays visible and busy while its request is in flight', asy
   assert.equal(pending.render().type, CellEmpty)
   pending.unmount()
   assert.equal(count('chief', 'view', 'view-1'), 0)
+})
+
+// A card the host already closed (the user wrote in the chat, a newer card replaced it)
+// refuses its answer with `bot/stale`. The user must see why, not a card that snaps
+// back as if the click never happened (#2357).
+test('a refused answer tells the user why instead of snapping back silently', async (t) => {
+  const { actions, ui } = lease()
+  const refuse = message => () => Promise.reject(Object.assign(new Error(message), { code: 'bot/stale' }))
+  actions.answerQuestion = refuse('This question is no longer open')
+  actions.answerView = refuse('This view is no longer open')
+  const asked = mount(PendingQuestion, { actions, sessionId: 'chief', question: { ...question, multiSelect: false }, inline: false })
+  const initial = childOf(asked.render())
+  const card = mount(initial.type, initial.props)
+  const shown = mount(PendingView, { actions, sessionId: 'chief', view: pendingView(), inline: false })
+  t.after(() => { for (const instance of [card, asked, shown]) instance.unmount() })
+  options(card.render())[0].props.onClick()
+  await tick()
+  assert.equal(ui.getSnapshot().toast?.text, 'This question is no longer open')
+  childOf(shown.render()).props.onSubmit('pick', { selected: ['A'] })
+  await tick()
+  assert.equal(ui.getSnapshot().toast?.text, 'This view is no longer open')
 })
 
 test('letter keys answer a card only while it is the sole open card with keys', async () => {

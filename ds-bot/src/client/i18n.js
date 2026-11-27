@@ -2653,6 +2653,7 @@ const HOST_ZH = {
   'This file cannot be read here': '这个文件在这里读不了',
   'That wait is no longer open': '这个等待已经结束了',
   'Nothing to send': '没有要发送的内容',
+  'This question is no longer open': '这个提问已经关闭了',
   'This view is no longer open': '这个视图已经关闭了',
   'This is not a photo DS Bot can send': '这不是 DS Bot 能发送的照片',
   'A photo did not arrive. Send it again.': '有张照片没传到，请重新发送。',

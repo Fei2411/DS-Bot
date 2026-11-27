@@ -397,10 +397,11 @@ export function PendingQuestion({ sessionId, question, actions, inline, enterToS
     void Promise.resolve().then(make).then(() => {
       if (outcome) actions?.finishQuestionSettle?.('ask_user', question.id, true)
       if (settle) setAnswered(question.id)
-    }, () => {
+    }, (failure) => {
       if (outcome) actions?.finishQuestionSettle?.('ask_user', question.id, false)
       onFail?.()
       setAnswered(null)
+      actions?.reportError?.(failure, 'question')
     }).finally(() => {
       busyRef.current = false
       setBusy(false)

@@ -1956,6 +1956,7 @@ export const JA = {
   "This file cannot be read here": "このファイルはここでは読み取れません",
   "That wait is no longer open": "その待機はすでに終了しています",
   "Nothing to send": "送信する内容がありません",
+  "This question is no longer open": "この質問はすでに閉じられています",
   "This view is no longer open": "このビューはすでに閉じられています",
   "This is not a photo DS Bot can send": "これは DS Bot が送信できる画像ではありません",
   "A photo did not arrive. Send it again.": "画像が届きませんでした。もう一度送信してください。",

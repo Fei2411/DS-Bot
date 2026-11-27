@@ -194,9 +194,10 @@ export function PendingView({ sessionId, view, actions, inline, bare = false }) 
     hold()
     busyRef.current = true
     setBusy(true)
-    void Promise.resolve().then(make).then(() => { if (settle) setAnswered(view.id) }, () => {
+    void Promise.resolve().then(make).then(() => { if (settle) setAnswered(view.id) }, (failure) => {
       onFail?.()
       setAnswered(null)
+      actions.reportError?.(failure, 'view')
     }).finally(() => {
       busyRef.current = false
       setBusy(false)
