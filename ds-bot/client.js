@@ -2435,13 +2435,8 @@ var JA = {
   "Fast": "高速",
   "Multi-step": "複数ステップ",
   "Autonomous": "自律実行",
-  "Shared login": "ログイン共有",
-  "Real Chromium": "実Chromium",
-  "Human + AI": "人＋AI協働",
-  "Ego Lite Browser": "Ego Lite ブラウザ",
   "Sidebar browser": "サイドバーブラウザ",
   "External window": "外部ウィンドウ",
-  "Requires Ego Lite app": "Ego Lite アプリが必要",
   "Browser window": "ブラウザウィンドウ",
   "{name} opens in an external window, not this sidebar": "{name} は外部ウィンドウで開き、このサイドバーには表示されません",
   "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} は外部ウィンドウで動作するため、{name} はここで開いたページを使いません。このサイドバーで操作するには内蔵ブラウザプラグインに切り替えてください。",
@@ -6107,13 +6102,8 @@ var KO = {
   "Fast": "빠른 실행",
   "Multi-step": "다단계",
   "Autonomous": "자율 수행",
-  "Shared login": "로그인 공유",
-  "Real Chromium": "실제 Chromium",
-  "Human + AI": "사람 + AI",
-  "Ego Lite Browser": "Ego Lite 브라우저",
   "Sidebar browser": "사이드바 브라우저",
   "External window": "외부 창",
-  "Requires Ego Lite app": "Ego Lite 앱 필요",
   "Browser window": "브라우저 창",
   "{name} opens in an external window, not this sidebar": "{name}은(는) 외부 창에서 열리며 이 사이드바에 표시되지 않습니다",
   "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin}은(는) 외부 창에서 실행되므로 {name}은(는) 여기서 연 페이지를 사용하지 않습니다. 이 사이드바에서 탐색하려면 내장 브라우저 플러그인으로 전환하세요.",
@@ -9780,13 +9770,8 @@ var ES = {
   "Fast": "Rápido",
   "Multi-step": "Multipasos",
   "Autonomous": "Autónomo",
-  "Shared login": "Sesión compartida",
-  "Real Chromium": "Chromium real",
-  "Human + AI": "Humano + IA",
-  "Ego Lite Browser": "Ego Lite Browser",
   "Sidebar browser": "Navegador lateral",
   "External window": "Ventana externa",
-  "Requires Ego Lite app": "Requiere la app Ego Lite",
   "Browser window": "Ventana del navegador",
   "{name} opens in an external window, not this sidebar": "{name} se abre en una ventana externa, no en esta barra lateral",
   "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} se ejecuta en una ventana externa, por lo que {name} no usa las páginas abiertas aquí. Cambia a un plugin de navegador integrado para navegar en esta barra lateral.",
@@ -13409,13 +13394,8 @@ var FR = {
   "Fast": "Rapide",
   "Multi-step": "Multi-étapes",
   "Autonomous": "Autonome",
-  "Shared login": "Session partagée",
-  "Real Chromium": "Vrai Chromium",
-  "Human + AI": "Humain + IA",
-  "Ego Lite Browser": "Ego Lite Browser",
   "Sidebar browser": "Navigateur latéral",
   "External window": "Fenêtre externe",
-  "Requires Ego Lite app": "Nécessite l’app Ego Lite",
   "Browser window": "Fenêtre du navigateur",
   "{name} opens in an external window, not this sidebar": "{name} s’ouvre dans une fenêtre externe, pas dans cette barre latérale",
   "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} s’exécute dans une fenêtre externe : {name} n’utilise pas les pages ouvertes ici. Passez à un plugin de navigateur intégré pour naviguer dans cette barre latérale.",
@@ -17081,13 +17061,8 @@ var DE = {
   "Fast": "Schnell",
   "Multi-step": "Mehrstufig",
   "Autonomous": "Autonom",
-  "Shared login": "Geteilter Login",
-  "Real Chromium": "Echtes Chromium",
-  "Human + AI": "Mensch + KI",
-  "Ego Lite Browser": "Ego Lite Browser",
   "Sidebar browser": "Seitenleisten-Browser",
   "External window": "Externes Fenster",
-  "Requires Ego Lite app": "Erfordert die Ego Lite-App",
   "Browser window": "Browserfenster",
   "{name} opens in an external window, not this sidebar": "{name} öffnet sich in einem externen Fenster, nicht in dieser Seitenleiste",
   "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} läuft in einem externen Fenster, daher nutzt {name} hier geöffnete Seiten nicht. Wechsle zu einem integrierten Browser-Plugin, um in dieser Seitenleiste zu surfen.",
@@ -20555,13 +20530,8 @@ var ZH = {
   "Fast": "高速执行",
   "Multi-step": "多步规划",
   "Autonomous": "自主完成",
-  "Shared login": "共享登录态",
-  "Real Chromium": "真实浏览器",
-  "Human + AI": "人机协作",
-  "Ego Lite Browser": "Ego Lite 浏览器",
   "Sidebar browser": "侧边栏浏览器",
   "External window": "外部窗口",
-  "Requires Ego Lite app": "需本机安装 Ego Lite",
   "Browser window": "浏览器窗口",
   "{name} opens in an external window, not this sidebar": "{name} 在外部窗口运行，不在此侧边栏显示",
   "{plugin} runs in an external window, so {name} does not use pages opened here. Switch to a built-in browser plugin to browse in this sidebar.": "{plugin} 在外部独立窗口运行，{name} 不会使用这里打开的网页。切换为内置浏览器插件即可在此侧边栏里直接浏览与操控。",
@@ -57505,7 +57475,6 @@ var KNOWN_BROWSER_LABELS = {
   "builtin:refs": () => t("Playwright (Refs)"),
   "builtin:script": () => t("Playwright (Script)"),
   "builtin:task": () => t("Playwright (Task)"),
-  "dsh:dsh-ego-browser": () => t("Ego Lite Browser"),
   "mcp:playwright-mcp": () => "Playwright MCP",
   "mcp:chrome-devtools-mcp": () => "Chrome DevTools MCP"
 };
@@ -57872,21 +57841,6 @@ var PlaywrightOfficialMark = () => (0, import_react62.createElement)(
   (0, import_react62.createElement)("path", { d: "M225.27 269.163L223.415 268.712C182.398 256.698 176.072 223.99 176.072 223.99L232.89 239.872L262.971 124.281L262.607 124.185C225.711 114.304 201.232 97.0224 191.532 88.8994C177.783 77.3834 171.735 69.3802 165.783 81.4857C160.526 92.163 153.797 109.54 147.284 133.866C133.171 186.543 122.623 297.706 209.867 321.097L211.655 321.5L225.27 269.163ZM166.497 172.756C166.497 172.756 180.246 151.372 203.565 158C226.899 164.628 228.706 190.425 228.706 190.425L166.497 172.756Z", fill: "#1D8D22" }),
   (0, import_react62.createElement)("path", { d: "M141.946 245.451L131.072 248.537C133.641 263.019 138.169 276.917 145.276 289.195C146.513 288.922 147.74 288.687 149 288.342C152.302 287.451 155.364 286.348 158.312 285.145C150.371 273.361 145.118 259.789 141.946 245.451ZM137.7 143.451C132.112 164.307 127.113 194.326 128.489 224.436C130.952 223.367 133.554 222.371 136.444 221.551L138.457 221.101C136.003 188.939 141.308 156.165 147.284 133.866C148.799 128.225 150.318 122.978 151.832 118.085C149.393 119.637 146.767 121.228 143.776 122.867C141.759 129.093 139.722 135.898 137.7 143.451Z", fill: "#C04B41" })
 );
-var EgoOfficialMark = () => svg2(
-  (0, import_react62.createElement)("path", {
-    fillRule: "evenodd",
-    clipRule: "evenodd",
-    fill: "var(--bt-mark-ink)",
-    d: [
-      // Left circle: cx=7.86, cy=12, rx=6.15, ry=6.12
-      "M1.71 12a6.15 6.12 0 1 0 12.3 0a6.15 6.12 0 1 0 -12.3 0Z",
-      // Middle oval: cx=14.18, cy=12, rx=3.12, ry=6.12 (intersects circle → crisp lens cutout)
-      "M11.06 12a3.12 6.12 0 1 0 6.24 0a3.12 6.12 0 1 0 -6.24 0Z",
-      // Right slim oval: cx=20.70, cy=12, rx=1.57, ry=6.12
-      "M19.13 12a1.57 6.12 0 1 0 3.14 0a1.57 6.12 0 1 0 -3.14 0Z"
-    ].join(" ")
-  })
-);
 var ChromeDevtoolsMark = () => svg2(
   (0, import_react62.createElement)("path", { d: "M3.51 7.1A9.8 9.8 0 0 1 20.49 7.1H12a4.9 4.9 0 0 0-4.24 7.35Z", fill: "#EA4335" }),
   (0, import_react62.createElement)("path", { d: "M20.49 7.1A9.8 9.8 0 0 1 12 21.8l4.24-7.35A4.9 4.9 0 0 0 12 7.1Z", fill: "#FBBC04" }),
@@ -57939,7 +57893,6 @@ var PLUGIN_MARKS = {
   "builtin:refs": PlaywrightOfficialMark,
   "builtin:script": PlaywrightOfficialMark,
   "builtin:task": PlaywrightOfficialMark,
-  "dsh:dsh-ego-browser": EgoOfficialMark,
   "mcp:playwright-mcp": PlaywrightOfficialMark,
   "mcp:chrome-devtools-mcp": ChromeDevtoolsMark
 };
@@ -57986,10 +57939,6 @@ var BROWSER_META = {
   "builtin:task": {
     url: "browser://playwright/task",
     traits: ["Sidebar browser", "Multi-step", "Autonomous"]
-  },
-  "dsh:dsh-ego-browser": {
-    url: "browser://ego-lite",
-    traits: ["External window", "Requires Ego Lite app", "Real Chromium"]
   },
   "mcp:playwright-mcp": {
     url: "browser://playwright-mcp",
@@ -58644,7 +58593,7 @@ function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstal
             "aria-label": t("Package or repository"),
             disabled,
             value: spec,
-            placeholder: "dsh-ego-browser / github:owner/repo / /path/to/plugin",
+            placeholder: "my-dsh-plugin / github:owner/repo / /path/to/plugin",
             onChange: (e) => setSpec(e.target.value)
           })
         ) : [
@@ -58701,7 +58650,7 @@ function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstal
             "aria-label": t("Tool prefixes"),
             disabled,
             value: prefixes,
-            placeholder: "ego_, browser_",
+            placeholder: "my_tool_, browser_",
             onChange: (e) => setPrefixes(e.target.value)
           })
         ),
