@@ -1103,10 +1103,29 @@ export function SessionTranscript({
     }
     return speakers
   }, [rowParts.committed, showThinking])
-  const toolActions = useMemo(
-    () => (typeof actions?.noteLive === 'function' ? actions : { ...actions, noteLive() {} }),
-    [actions],
-  )
+  const toolActions = useMemo(() => {
+    const rawShot = typeof actions?.computerShot === 'function' ? actions.computerShot : null
+    // Prefer durable session attachment reads so persisted `cua` screenshots survive restart,
+    // falling back to the host's in-memory `computer-shot` buffer for live captures.
+    const computerShot = async (id) => {
+      try {
+        const dataUrl = await loadImage(id)
+        if (dataUrl) return { dataUrl }
+      } catch { /* fall through to live computer-shot buffer */ }
+      if (rawShot) {
+        try {
+          const live = await rawShot(id)
+          if (live?.dataUrl) return live
+        } catch { /* unavailable */ }
+      }
+      return null
+    }
+    return {
+      ...actions,
+      ...(typeof actions?.noteLive === 'function' ? {} : { noteLive() {} }),
+      computerShot,
+    }
+  }, [actions, loadImage])
   const rowProps = {
     canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
     useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,

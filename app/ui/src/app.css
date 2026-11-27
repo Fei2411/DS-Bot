@@ -175,7 +175,7 @@ body[data-bt-layout=flat] .dsb-tool{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .dsb-tool-fold:hover{background:var(--bt-hover)}
 .dsb-tool-fold:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .dsb-tool-errline{font-size:12px;line-height:17px;color:var(--bt-danger);overflow-wrap:anywhere}
-.dsb-tool-wrap:has(> [data-bt-empty]:only-child){display:none}
+.dsb-tool-wrap:has(> [data-bt-empty]):not(:has(> :not([data-bt-empty]))){display:none}
 .dsb-tool-icon{flex:none;display:inline-flex;align-items:center;color:var(--bt-ink-2)}
 .dsb-tool-icon svg{width:14px;height:14px}
 .dsb-tool-meta{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:6px}
