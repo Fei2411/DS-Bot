@@ -4,6 +4,7 @@
 // Each waiting item renders directly as one flat, actionable card in a single column
 // so the user can triage top-to-bottom without opening a second view or nesting boxes.
 import { createElement as h, useEffect, useRef, useState } from 'react'
+import { useOptionKeys } from 'deep-view/react'
 import { BotAvatar, RoomAvatar } from './mark.js'
 import { Segmented } from './motion.js'
 import { useEscape } from './overlay-hooks.js'
@@ -18,12 +19,26 @@ import { PendingHandoff } from './handoff-card.js'
 import { PendingComputerHandoff } from './computer.js'
 import { WorkPauseCard } from './work-pause-card.js'
 import { ProposalCard } from './learning-card.js'
+import { sendsOnEnter } from './enter-key.js'
 import { currentPart, previewOf } from './text.js'
 import { t } from './i18n.js'
 import { INBOX_SECTIONS, inboxSummary, inboxTag } from './inbox-text.js'
 
 const NONE = Object.freeze([])
 const useNothing = () => undefined
+const noop = () => {}
+
+// While the inbox covers the chat and stacks multiple items in one view, bare
+// document-wide option letters (A/B/C) would be ambiguous across cards or could
+// answer a covered chat behind the inbox. Holding two leases on the shared
+// useOptionKeys registry keeps its count >= 2 so neither hints nor listeners fire
+// (without calling preventDefault on letter keys) until the inbox unmounts.
+function OptionKeyGuard() {
+  const emptyRef = useRef(null)
+  useOptionKeys(1, noop, emptyRef)
+  useOptionKeys(1, noop, emptyRef)
+  return null
+}
 
 /** The host's list, or none while it has not answered yet. */
 export const inboxItems = roster => (Array.isArray(roster?.inbox?.items) ? roster.inbox.items : NONE)
@@ -74,8 +89,25 @@ export function InboxEntry({ roster, open, rail, actions }) {
   count > 0 ? h('span', { className: 'bt-ib-badge', 'aria-hidden': true }, count > 99 ? '99+' : String(count)) : null)
 }
 
-// Kinds that show an actionable card or step directly here; the rest open in chat.
-const HERE = new Set(['approval', 'computer', 'question', 'view', 'secret', 'connector', 'mail', 'handoff', 'paused', 'room-paused', 'blocked', 'learning'])
+// Resolve whether this item renders its own actionable card/step here (as opposed to
+// falling back to the single Open-in-chat prompt), so the header never duplicates it.
+function hasOwnAction(item, bot, roster, hooks) {
+  switch (item.kind) {
+    case 'approval': return Boolean(bot && hooks.approvals.some(entry => entry.id === item.ref))
+    case 'computer': return Boolean(bot && hooks.asks[item.ref])
+    case 'question': return Boolean(roster.questions?.[item.sessionId])
+    case 'view': return Boolean(roster.views?.[item.sessionId])
+    case 'secret': return Boolean(bot && (roster.secretRequests?.[item.botId] ?? []).some(entry => entry.id === item.ref))
+    case 'connector': return Boolean(bot && (roster.connectorRequests?.[item.botId] ?? []).some(entry => entry.id === item.ref))
+    case 'mail': return Boolean(bot && (roster.mailRequests?.[item.botId] ?? []).some(entry => entry.id === item.ref))
+    case 'handoff': return Boolean(bot && (item.surface === 'computer' ? hooks.computerHolds[item.botId] : hooks.browserHolds[item.botId]))
+    case 'paused': return hooks.paused.some(entry => entry.id === item.ref)
+    case 'room-paused':
+    case 'blocked': return true
+    case 'learning': return (roster.learning?.[item.botId] ?? []).some(entry => entry.id === item.ref)
+    default: return false
+  }
+}
 
 // A card asked in a group lives in that group's chat, not in the member's own.
 function openItem(item, actions) {
@@ -105,20 +137,22 @@ function ItemAvatar({ item, bot, room, roster, size = 20 }) {
 // The chat's own card rendered flat inside the single item surface (zero nested chrome).
 function ItemBody({ item, bot, summary, roster, actions, hooks }) {
   const [busy, setBusy] = useState(false)
-  const busyRef = useRef(false)
+  const inFlightRef = useRef(null)
   const run = (make) => {
-    if (busyRef.current) return undefined
-    busyRef.current = true
+    if (inFlightRef.current) return inFlightRef.current
     setBusy(true)
-    return Promise.resolve().then(make)
+    const pending = Promise.resolve().then(make)
       .catch(error => actions.reportError?.(error, 'inbox'))
-      .finally(() => { busyRef.current = false; setBusy(false) })
+      .finally(() => { inFlightRef.current = null; setBusy(false) })
+    inFlightRef.current = pending
+    return pending
   }
   const open = () => openItem(item, actions)
   const compact = (label, onClick, disabled = false) => h('div', { className: 'bt-ib-compact' },
     h('span', { className: 'bt-ib-compact-text' }, summary),
     h('button', { type: 'button', className: 'bt-send bt-ib-btn', disabled, onClick }, t(label)))
-  // Guard synchronous double-clicks on approval buttons and ensure browser/computer
+  // Guard synchronous double-clicks on approval buttons (returning the in-flight promise
+  // so ApprovalCard keeps its disabled state until settled) and ensure browser/computer
   // takeover dismisses the inbox pane (z 44) before revealing the right panel (z 40).
   const guardedActions = {
     ...actions,
@@ -152,7 +186,7 @@ function ItemBody({ item, bot, summary, roster, actions, hooks }) {
     }
     case 'question': {
       const question = roster.questions?.[item.sessionId]
-      return question ? h(PendingQuestion, { sessionId: item.sessionId, question, actions, inline: true }) : compact('Open in chat', open)
+      return question ? h(PendingQuestion, { sessionId: item.sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) }) : compact('Open in chat', open)
     }
     case 'view': {
       const view = roster.views?.[item.sessionId]
@@ -202,6 +236,7 @@ function TriageCard({ item, gone, roster, actions, hooks, itemRef }) {
   const room = item.roomId === undefined ? undefined : roster.roomsById?.[item.roomId]
   const who = [bot?.name, room?.name].filter(Boolean).join(' · ')
   const summary = inboxSummary(item, t, id => roster.byId?.[id]?.name)
+  const showOpenLink = !gone && hasOwnAction(item, bot, roster, hooks)
   return h('article', {
     ref: itemRef,
     tabIndex: gone ? undefined : -1,
@@ -219,7 +254,7 @@ function TriageCard({ item, gone, roster, actions, hooks, itemRef }) {
       !gone && item.at > 0 ? h(Elapsed, { at: item.at, className: 'bt-ib-time', dot: false }) : null),
     gone
       ? h('span', { className: 'bt-ib-ok' }, h(CheckIcon), t('Handled'))
-      : HERE.has(item.kind)
+      : showOpenLink
         ? h('button', { type: 'button', className: 'bt-ib-link', onClick: () => openItem(item, actions) },
             t('Open in chat'), h(ChevronRightIcon))
         : null),
@@ -357,11 +392,13 @@ export function InboxPane({ paneLeft, roster, actions, useSessions, useWork, use
     return { group, title, rows }
   }).filter(section => section.rows.length > 0)
 
-  // ↑ ↓ step focus across cards or replies without interfering with form inputs.
+  // ↑ ↓ step focus across cards or replies without stealing keys handled by inner
+  // widgets (charts, menus, sliders, radiogroups, form inputs).
   const onKey = (event) => {
     const step = { ArrowDown: 1, ArrowUp: -1 }[event.key]
-    if (step === undefined || event.metaKey || event.ctrlKey || event.altKey) return
-    if (typeof Element !== 'undefined' && event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable=true]')) return
+    if (step === undefined || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
+    if (typeof Element !== 'undefined' && event.target instanceof Element
+      && event.target.closest('input,textarea,select,[contenteditable=true],[role=menu],[role=listbox],[role=slider],[role=radiogroup]')) return
     const ids = tab === 'wait'
       ? sections.flatMap(section => section.rows).filter(item => !gone.has(item.id)).map(item => item.id)
       : replies.map(entry => `reply:${entry.id}`)
@@ -381,6 +418,7 @@ export function InboxPane({ paneLeft, roster, actions, useSessions, useWork, use
   const count = items.length
 
   return h('div', { className: 'bt-pane bt-ib-pane', style: { left: paneLeft } },
+    h(OptionKeyGuard),
     h('div', { ref: paneRef, tabIndex: -1, className: 'bt-ib-page', role: 'region', 'aria-label': t('Inbox'), onKeyDown: onKey },
       h('header', { className: 'bt-ib-top', 'data-window-drag': true },
         h('div', { className: 'bt-ib-top-in' },
@@ -482,7 +520,7 @@ export const INBOX_CSS = `
 .bt-ib-dot[data-group=suggest]{background:var(--bt-accent)}
 .bt-ib-sec-n{color:var(--bt-ink-3);font-weight:500;font-variant-numeric:tabular-nums}
 .bt-ib-list{display:flex;flex-direction:column;gap:10px}
-.bt-ib-row{border-radius:12px;background:var(--bt-card);border:1px solid var(--bt-line);overflow:hidden;box-sizing:border-box;transition:border-color .12s ease,opacity .16s ease}
+.bt-ib-row{border-radius:12px;background:var(--bt-card);border:1px solid var(--bt-line);box-sizing:border-box;transition:border-color .12s ease,opacity .16s ease}
 .bt-ib-row:hover:not([data-gone]){border-color:var(--bt-line-2)}
 .bt-ib-row[data-gone]{opacity:.52}
 .bt-ib-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:38px;padding:7px 12px 7px 14px;border-bottom:1px solid var(--bt-line);box-sizing:border-box}
@@ -500,8 +538,9 @@ export const INBOX_CSS = `
 .bt-ib-link{flex:none;display:inline-flex;align-items:center;gap:2px;height:24px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background-color .12s ease,color .12s ease}
 .bt-ib-link:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-ib-detail{padding:14px 16px}
-.bt-ib-detail .bt-q-inline{margin:0;max-width:none;width:100%;order:0}
-.bt-ib-detail .bt-q,.bt-ib-detail .bt-q-inline .bt-q,.bt-ib-detail .bt-mw-card,.bt-ib-detail .dv-view,.bt-ib-detail .dv-q{margin:0;max-width:none;width:100%;order:0;padding:0;border:0;border-radius:0;background:none;box-shadow:none;animation:none}
+.bt-ib-page .bt-ib-detail .bt-q-inline,.bt-ib-page .bt-ib-detail .bt-q-inline:has(>.dv-view-bare){margin:0;max-width:none;width:100%;order:0}
+.bt-ib-page .bt-ib-detail .bt-q,.bt-ib-page .bt-ib-detail .bt-q-inline .bt-q,.bt-ib-page .bt-ib-detail .bt-mw-card,.bt-ib-page .bt-ib-detail .bt-q-inline .dv-view,.bt-ib-page .bt-ib-detail .bt-q-inline .dv-q,.bt-ib-page .bt-ib-detail .dv-view,.bt-ib-page .bt-ib-detail .dv-q{margin:0;max-width:none;width:100%;order:0;padding:0;border:0;border-radius:0;background:none;box-shadow:none;animation:none}
+.bt-ib-page .bt-ib-detail .bt-q-submit,.bt-ib-page .bt-ib-detail .dv-q-submit{animation:none}
 .bt-ib-compact{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .bt-ib-compact-text{min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink)}
 .bt-ib-btn{flex:none;height:30px;padding:0 14px;font-size:13px;font-weight:500}

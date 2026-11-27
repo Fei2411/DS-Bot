@@ -241,16 +241,17 @@ test('Take over on a handoff card closes the inbox and focuses the Bot panel; ap
     useBotCompletions: pick => pick({}),
   }))
 
-  const tree = draw()
-  // Both items are visible directly: double-clicking Allow once dispatches only once while in flight.
+  let tree = draw()
+  // Double-clicking Allow once returns the same in-flight promise so the button stays disabled until settled.
   const apRow = rowOf(tree, 'approval:ap-1')
   button(apRow, 'Allow once').props.onClick()
+  tree = draw()
+  assert.equal(button(rowOf(tree, 'approval:ap-1'), 'Allow once').props.disabled, true)
   button(apRow, 'Allow once').props.onClick()
   await sleep(0)
   assert.equal(answerCalls, 1)
-  button(apRow, 'Allow once').props.onClick()
-  await sleep(0)
-  assert.equal(answerCalls, 1)
+  tree = draw()
+  assert.equal(button(rowOf(tree, 'approval:ap-1'), 'Allow once').props.disabled, true, 'duplicate click does not clear busy before request resolves')
   resolveAnswer()
   await sleep(0)
 
@@ -258,6 +259,109 @@ test('Take over on a handoff card closes the inbox and focuses the Bot panel; ap
   button(rowOf(tree, 'handoff:bh-1'), 'Take over').props.onClick()
   await sleep(10)
   assert.deepEqual(events, ['takeover:writer', 'openSession:writer', 'closeInbox', 'openBrowser:writer'])
+})
+
+test('Inbox suppresses bare option letter shortcuts across mixed question/view cards and respects defaultPrevented arrow keys', async (t) => {
+  const keyListeners = new Set()
+  const before = {
+    window: globalThis.window, document: globalThis.document,
+    requestAnimationFrame: globalThis.requestAnimationFrame, cancelAnimationFrame: globalThis.cancelAnimationFrame,
+    HTMLInputElement: globalThis.HTMLInputElement, HTMLTextAreaElement: globalThis.HTMLTextAreaElement,
+    HTMLSelectElement: globalThis.HTMLSelectElement, HTMLElement: globalThis.HTMLElement,
+  }
+  class FakeElement {}
+  globalThis.HTMLElement = FakeElement
+  globalThis.HTMLInputElement = class extends FakeElement {}
+  globalThis.HTMLTextAreaElement = class extends FakeElement {}
+  globalThis.HTMLSelectElement = class extends FakeElement {}
+  globalThis.requestAnimationFrame = () => 0
+  globalThis.cancelAnimationFrame = () => {}
+  const add = (type, fn) => { if (type === 'keydown') keyListeners.add(fn) }
+  const remove = (type, fn) => { if (type === 'keydown') keyListeners.delete(fn) }
+  globalThis.window = { addEventListener: add, removeEventListener: remove, matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }) }
+  globalThis.document = { addEventListener: add, removeEventListener: remove, body: { dataset: {}, hasAttribute: () => false }, documentElement: { hasAttribute: () => false }, activeElement: null, querySelector: () => null, hasFocus: () => true }
+  const code = await loadClientBundle("export { InboxPane } from './src/client/inbox.js'; export { PendingQuestion } from './src/client/questions.js'")
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (id === 'react-dom' ? { createPortal: el => el } : harness.React))
+  t.after(() => { harness.unmount(); Object.assign(globalThis, before) })
+
+  const answered = []
+  const roster = {
+    bots: [
+      { id: 'alpha', name: 'Alpha', sessionId: 'alpha', createdAt: 1 },
+      { id: 'beta', name: 'Beta', sessionId: 'beta', createdAt: 2 },
+    ],
+    rooms: [],
+    byId: {
+      alpha: { id: 'alpha', name: 'Alpha', sessionId: 'alpha', createdAt: 1 },
+      beta: { id: 'beta', name: 'Beta', sessionId: 'beta', createdAt: 2 },
+    },
+    roomsById: {},
+    questions: { alpha: { id: 'q-a', question: 'Use staging?', options: [{ label: 'Yes' }, { label: 'No' }] } },
+    views: { beta: { id: 'v-b', title: 'Pick a lane', view: { type: 'options', id: 'lane', options: [{ label: 'Fast' }, { label: 'Safe' }] } } },
+    inbox: {
+      count: 3,
+      counts: { decide: 3, fix: 0, suggest: 0 },
+      items: [
+        { id: 'question:q-a', kind: 'question', group: 'decide', ref: 'q-a', at: 10, botId: 'alpha', sessionId: 'alpha', text: 'Use staging?' },
+        { id: 'view:v-b', kind: 'view', group: 'decide', ref: 'v-b', at: 20, botId: 'beta', sessionId: 'beta', text: 'Pick a lane' },
+        { id: 'approval:missing', kind: 'approval', group: 'decide', ref: 'missing', at: 30, botId: 'alpha', sessionId: 'alpha', tool: 'bash', text: 'ls' },
+      ],
+    },
+  }
+  const actions = {
+    closeInbox: () => {},
+    openSession: () => {},
+    answerQuestion: (sid, id, ans) => { answered.push(['q', sid, id, ans]); return Promise.resolve() },
+    answerView: (sid, id, ans) => { answered.push(['v', sid, id, ans]); return Promise.resolve() },
+    reportError: (err) => { throw err },
+  }
+  const draw = (showInbox) => harness.render(harness.React.createElement('div', null,
+    // Covered chat behind the inbox holding a question card.
+    harness.React.createElement(mod.exports.PendingQuestion, { sessionId: 'alpha', question: roster.questions.alpha, actions, inline: false }),
+    showInbox ? harness.React.createElement(mod.exports.InboxPane, {
+      paneLeft: 280, roster, actions,
+      useWork: pick => pick({ approvals: [], paused: [] }),
+      useComputer: pick => pick({ asks: {}, holds: {} }),
+      useBrowserHolds: pick => pick({}),
+      useSessionStatus: pick => pick(new Map()),
+      useBotCompletions: pick => pick({}),
+    }) : null))
+
+  const tree = draw(true)
+  // Missing approval detail falls back to one Open in chat button (no duplicate in header).
+  const missingRow = rowOf(tree, 'approval:missing')
+  assert.equal(all(missingRow, node => node.type === 'button' && textOf(node) === 'Open in chat').length, 1)
+
+  // Re-render after OptionKeyGuard effects settle: no card displays misleading A/B letter hints while Inbox is open.
+  const settledTree = draw(true)
+  assert.equal(all(settledTree, node => hasClass(node, 'bt-key') || hasClass(node, 'dv-key')).length, 0)
+
+  // While Inbox is open with mixed question + view + covered chat card, pressing bare 'a' answers none and does not preventDefault.
+  const letterA = { key: 'a', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null, defaultPrevented: false, preventDefault() { this.defaultPrevented = true } }
+  for (const fn of [...keyListeners]) fn(letterA)
+  assert.equal(letterA.defaultPrevented, false)
+  assert.deepEqual(answered, [])
+
+  // ArrowDown already handled by a child widget (e.g. a chart calling preventDefault) must not pull focus away.
+  const page = all(settledTree, node => hasClass(node, 'bt-ib-page'))[0]
+  let focused = 0
+  const fakeRow = { focus() { focused += 1 }, scrollIntoView() {}, contains: () => false }
+  rowOf(settledTree, 'question:q-a').props.ref?.(fakeRow)
+  page.props.onKeyDown({ key: 'ArrowDown', defaultPrevented: true, metaKey: false, ctrlKey: false, altKey: false, target: null, preventDefault() {} })
+  assert.equal(focused, 0, 'handled ArrowDown does not move Inbox focus')
+  page.props.onKeyDown({ key: 'ArrowDown', defaultPrevented: false, metaKey: false, ctrlKey: false, altKey: false, target: null, preventDefault() {} })
+  assert.equal(focused, 1, 'unhandled ArrowDown steps focus to the first card')
+
+  // Unmounting Inbox releases the guard so the lone revealed chat question answers 'a' again.
+  draw(false)
+  const aloneA = { key: 'a', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null, defaultPrevented: false, preventDefault() { this.defaultPrevented = true } }
+  for (const fn of [...keyListeners]) fn(aloneA)
+  await sleep(0)
+  assert.equal(aloneA.defaultPrevented, true)
+  assert.equal(answered.length, 1)
+  assert.deepEqual(answered[0].slice(0, 3), ['q', 'alpha', 'q-a'])
 })
 
 test('Escape closes the inbox on the first press, and filtering holds steady during leave grace', async (t) => {
