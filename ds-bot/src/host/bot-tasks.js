@@ -478,7 +478,7 @@ export function install(rt) {
   }
 
   const cleanPrunedSession = (id) => {
-    for (const entries of [state.closedCards, state.exchangeTurns, state.questions, state.views, state.switching]) {
+    for (const entries of [state.closedCards, state.closedCardSeqs, state.exchangeTurns, state.questions, state.views, state.switching]) {
       if (entries !== undefined) delete entries[id]
     }
     forgetTaskSession(id)
@@ -2961,6 +2961,16 @@ export function install(rt) {
             if (!hasEventBounds || inheritedCallIds.has(callId)) carriedCards[callId] = card
           }
           if (Object.keys(carriedCards).length > 0) (state.closedCards ??= {})[newSid] = carriedCards
+        }
+        const oldClosedSeqs = rt.own(state.closedCardSeqs, oldSid)
+        if (oldClosedSeqs && typeof oldClosedSeqs === 'object') {
+          const carriedSeqs = {}
+          for (const [key, outcome] of Object.entries(oldClosedSeqs)) {
+            const at = key.lastIndexOf('@')
+            const callId = at > 0 ? key.slice(0, at) : key
+            if (!hasEventBounds || inheritedCallIds.has(callId)) carriedSeqs[key] = outcome
+          }
+          if (Object.keys(carriedSeqs).length > 0) (state.closedCardSeqs ??= {})[newSid] = carriedSeqs
         }
       }
       record.committed = true

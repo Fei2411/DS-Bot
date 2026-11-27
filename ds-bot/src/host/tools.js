@@ -1672,9 +1672,11 @@ export function install(rt) {
       if (prevView !== undefined && ((prevView.callSessionId ?? id) !== id || prevView.callId !== exec.callId)) {
         rt.closeCard(id, prevView, 'dismissed')
       }
+      const callSeq = exec.callId ? rt.callSeq?.(id, exec.callId) : undefined
       const card = {
         id: randomUUID(),
         ...(exec.callId ? { callId: exec.callId } : {}),
+        ...(typeof callSeq === 'number' && Number.isInteger(callSeq) ? { callSeq } : {}),
         title,
         view,
         ...(issueDraft === undefined ? {} : { issueDraft }),

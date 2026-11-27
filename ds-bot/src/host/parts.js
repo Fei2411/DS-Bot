@@ -4076,10 +4076,36 @@ export function install(rt) {
           }
           const view = normalizeView(args?.view)
           const shown = checkShownView(args?.title, view)
-          if (shown.error === undefined && !shown.interactive && args?.await_reply !== true) {
+          const pendingView = callId === null ? undefined : rt.own(state.views, partId)
+          const pendingHasSeq = typeof pendingView?.callSeq === 'number' && Number.isInteger(pendingView.callSeq)
+          // Match by exact tool/call event seq + callId so providers that reuse short
+          // call IDs (e.g. "call_0") never hijack an earlier display/closed view; legacy
+          // persisted records without callSeq stay out of the transcript and use the Dock.
+          const isPendingView = pendingView !== undefined
+            && (pendingView.callSessionId ?? partId) === partId
+            && pendingView.callId === callId
+            && pendingHasSeq
+            && event.seq === pendingView.callSeq
+          const seqMap = callId === null ? undefined : rt.own(state.closedCardSeqs, partId)
+          const exactClosed = seqMap !== undefined && typeof event.seq === 'number' && Number.isInteger(event.seq)
+            ? rt.own(seqMap, `${callId}@${event.seq}`)
+            : undefined
+          const hasSeqClosedForCall = seqMap !== undefined && Object.keys(seqMap).some(key => key.startsWith(`${callId}@`))
+          const legacyPendingSameCall = pendingView !== undefined
+            && (pendingView.callSessionId ?? partId) === partId
+            && pendingView.callId === callId
+            && !pendingHasSeq
+          const closedView = exactClosed !== undefined
+            ? exactClosed
+            : (hasSeqClosedForCall || legacyPendingSameCall ? undefined : closed)
+          if (isPendingView) {
+            if (!hidden.has(event.data?.turn ?? turn)) {
+              stamp(event, { kind: 'view', id: pendingView.id, title: pendingView.title, view: pendingView.view, callId, pending: true, time: event.time })
+            }
+          } else if (shown.error === undefined && !shown.interactive && args?.await_reply !== true) {
             if (!hidden.has(event.data?.turn ?? turn)) items.push({ kind: 'view', title: shown.title, view, callId, time: event.time })
-          } else if (shown.error === undefined && closed !== undefined) {
-            items.push({ kind: 'closed', closed, title: shown.title, view, callId, time: event.time })
+          } else if (shown.error === undefined && closedView !== undefined) {
+            items.push({ kind: 'closed', closed: closedView, title: shown.title, view, callId, time: event.time })
           }
         }
         continue
@@ -4315,7 +4341,7 @@ export function install(rt) {
       if (turn === undefined || hidden.has(turn)) continue
       if (event.type === 'tool/call') {
         const name = event.data?.name
-        if (typeof name !== 'string' || name === 'ask_user' || name === 'request_secret' || name === 'group_relay') continue
+        if (typeof name !== 'string' || name === 'ask_user' || name === 'show_view' || name === 'request_secret' || name === 'group_relay') continue
         const list = byTurn.get(turn) ?? byTurn.set(turn, []).get(turn)
         list.push({ callId: event.data?.callId ?? null, name, label: toolLabel(name) ?? null })
         continue
