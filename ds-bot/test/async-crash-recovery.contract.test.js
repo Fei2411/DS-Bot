@@ -14,6 +14,7 @@ import {
   appendFileSync,
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -586,11 +587,14 @@ async function runWorker() {
 
       const logFiles = walkFiles(join(home, 'sessions')).filter(f => f.endsWith('.jsonl'))
       assert.ok(logFiles.length > 0, 'expected persisted session .jsonl file on disk')
-      // Revoke read permission so recovery hits a real OS EACCES / unreadable session log failure.
+      // Make the persisted session log unreadable at the OS level so recovery hits a real
+      // persistence read failure (EACCES via chmod 0o000 on POSIX; EISDIR via directory
+      // replacement on Windows / root where ACLs or root privileges bypass deny-read).
+      const useDirFault = process.platform === 'win32' || process.getuid?.() === 0
       for (const file of logFiles) {
-        if (process.platform === 'win32') {
-          const acl = spawnSync('icacls', [file, '/inheritance:r', '/deny', '*S-1-1-0:(R)'], { stdio: 'ignore' })
-          assert.equal(acl.status, 0, `icacls deny read failed for ${file}`)
+        if (useDirFault) {
+          rmSync(file, { force: true })
+          mkdirSync(file)
         } else {
           chmodSync(file, 0o000)
         }
@@ -1641,9 +1645,6 @@ if (process.env.DSB_CRASH_WORKER === '1') {
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop()
       for (const file of walkFiles(dir)) {
-        if (process.platform === 'win32') {
-          try { spawnSync('icacls', [file, '/reset'], { stdio: 'ignore' }) } catch {}
-        }
         try { chmodSync(file, 0o600) } catch {}
       }
       rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
@@ -1799,7 +1800,7 @@ if (process.env.DSB_CRASH_WORKER === '1') {
       }
     })
 
-    it('B6b: unreadable DSH session JSONL on disk (EACCES chmod 0o000 / Windows NTFS ACL) -> pauses as needs_verification(delivery_status_unreadable), never reruns', () => {
+    it('B6b: unreadable DSH session JSONL on disk (EACCES chmod 0o000 / EISDIR on Windows) -> pauses as needs_verification(delivery_status_unreadable), never reruns', () => {
       const home = makeHome('b6b')
       const crash = spawnPhase(home, 'B6b', 'crash')
       assert.equal(crash.status, 137, `expected hard crash 137, got ${crash.status}: ${crash.stderr}`)
