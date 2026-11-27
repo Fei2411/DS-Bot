@@ -812,4 +812,23 @@ test('BrowserView hides takeover bar in read-only mode, shows external-window no
   assert.match(textOf(heldExtTree), /You control this browser/)
   assert.ok(allNodes(heldExtTree, n => n.type === 'button' && textOf(n) === 'Give back').length === 1)
   heldExtInst.unmount()
+
+  // 5. External mode without actions.openSettings must NOT fall back to Import cookies.
+  const { openSettings: _omitOpenSettings, ...actionsWithoutSettings } = actions
+  const noSettingsInst = h.mount(BrowserView, {
+    bot, ownerId: bot.id, tabId: 'tab-1', leaving: false, landed: true, actions: actionsWithoutSettings, useBrowserPages, hold: null,
+    browserSlot: { active: 'dsh:dsh-ego-browser', activeName: 'My Ego', customName: true, controlsPane: false, windowMode: 'external' },
+  })
+  const noSettingsTree = noSettingsInst.render()
+  assert.doesNotMatch(textOf(noSettingsTree), /Import cookies/)
+  assert.doesNotMatch(textOf(noSettingsTree), /Switch browser plugin/)
+  assert.match(textOf(noSettingsTree), /My Ego opens in an external window, not this sidebar/)
+  noSettingsInst.unmount()
+
+  // 6. browserPaneMode partial/missing fallbacks and custom controlsPane provider.
+  assert.equal(browserPaneMode(undefined).windowMode, 'readonly')
+  assert.equal(browserPaneMode(undefined).showTakeover, false)
+  assert.equal(browserPaneMode({ active: 'provider:custom-pane', controlsPane: true }).windowMode, 'pane')
+  assert.equal(browserPaneMode({ active: 'provider:custom-pane', controlsPane: true }).isExternal, false)
+  assert.equal(browserPaneMode({ active: 'dsh:dsh-ego-browser', activeName: 'My Ego', customName: true }).activeLabel, 'My Ego')
 })

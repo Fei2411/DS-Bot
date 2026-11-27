@@ -695,4 +695,22 @@ test('PluginsPage labels external browser plugins as External window and shows B
   tree = draw()
   assert.match(textOf(tree), /Browser window/)
   assert.match(textOf(tree), /Sidebar browser/)
+
+  // A non-builtin plugin (even a known external ID) that declares runtime windowMode: 'pane' is treated as Sidebar browser.
+  const upgradedView = {
+    ...SAMPLE_VIEW,
+    slots: { browser: { ...SAMPLE_VIEW.slots.browser, active: 'dsh:dsh-ego-browser', controlsPane: true, windowMode: 'pane' } },
+    plugins: SAMPLE_VIEW.plugins.map(p => (p.id === 'dsh:dsh-ego-browser'
+      ? { ...p, installed: true, enabled: true, active: true, status: 'ready', windowMode: 'pane' }
+      : { ...p, active: false, enabled: false })),
+  }
+  const upgraded = mountPluginsPage({ view: upgradedView })
+  upgraded.draw()
+  await flush()
+  const upgradedTree = upgraded.draw()
+  const stage = findAll(upgradedTree, n => n.props?.className === 'bt-plg-stage')[0]
+  assert.match(textOf(stage), /Sidebar browser/)
+  assert.doesNotMatch(textOf(stage), /External window/)
+  const upgradedTile = findAll(upgradedTree, n => n.props?.className === 'bt-plg-tile' && textOf(n).includes('Ego Lite Browser'))[0]
+  assert.equal(findAll(upgradedTile, n => n.type === 'span' && n.props?.className === 'bt-tag' && textOf(n) === 'External window').length, 0)
 })

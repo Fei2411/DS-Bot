@@ -4,6 +4,7 @@ import { CheckIcon, PlusIcon } from './icons.js'
 import { Segmented, useMorph } from './motion.js'
 import { SelectMenu } from './select-menu.js'
 import { ImportCard, ImportMenu, useCookieImportFlow } from './cookie-import-ui.js'
+import { browserPaneMode } from './browser-plugin-mode.js'
 import { dateLocale, t } from './i18n.js'
 
 const ACTIONS = [['post', 'Post'], ['upload', 'Upload'], ['download', 'Download'], ['delete', 'Delete']]
@@ -118,23 +119,8 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
 
   const addBtn = adding || bots.length === 0 ? null
     : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'browser-allow', onClick: () => setAdding(true) }, h(PlusIcon), t('Allow action'))
-  const browserSlot = roster.plugins?.slots?.browser
-  const activeBrowserId = browserSlot?.active ?? 'builtin:readonly'
-  const KNOWN_BROWSER_LABELS = {
-    'builtin:readonly': t('Read-only Browser'),
-    'builtin:refs': t('Playwright (Refs)'),
-    'builtin:script': t('Playwright (Script)'),
-    'builtin:task': t('Playwright (Task)'),
-    'dsh:dsh-ego-browser': t('Ego Lite Browser'),
-    'mcp:playwright-mcp': 'Playwright MCP',
-    'mcp:chrome-devtools-mcp': 'Chrome DevTools MCP',
-  }
-  const activeBrowserName = KNOWN_BROWSER_LABELS[activeBrowserId]
-    ?? browserSlot?.activeName
-    ?? activeBrowserId.replace(/^(builtin|dsh|mcp|provider):/, '')
-  const isExternalBrowser = browserSlot?.windowMode === 'external'
-    || (browserSlot?.windowMode == null && activeBrowserId !== 'builtin:readonly' && !/^builtin:(refs|script|task|injected)$/.test(activeBrowserId))
-  const activeBrowserLabel = isExternalBrowser ? `${activeBrowserName} · ${t('External window')}` : activeBrowserName
+  const paneMode = browserPaneMode(roster.plugins?.slots?.browser)
+  const activeBrowserLabel = paneMode.isExternal ? `${paneMode.activeLabel} · ${t('External window')}` : paneMode.activeLabel
 
   return h('div', { className: 'bt-browser-settings' },
     h(Section, null,

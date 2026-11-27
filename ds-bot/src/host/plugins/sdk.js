@@ -111,6 +111,7 @@ export function defineBrowserProvider(spec) {
   const hasTools = Array.isArray(spec.toolDefs) && spec.toolDefs.length > 0
   const hasMount = typeof spec.mount === 'function'
   if (!hasTools && !hasMount) throw new TypeError('Browser provider must provide either toolDefs or a mount(host) function.')
+  const usesDefaultMount = hasTools && !hasMount
   const mount = hasMount
     ? spec.mount
     : (host) => host.mountBrowserTools({ toolDefs: spec.toolDefs, openSession: spec.openSession })
@@ -118,8 +119,8 @@ export function defineBrowserProvider(spec) {
     ...spec,
     category: 'browser',
     slot: 'browser',
-    supportsGrants: spec.supportsGrants ?? hasTools,
-    controlsPane: spec.controlsPane ?? hasTools,
+    supportsGrants: spec.supportsGrants ?? usesDefaultMount,
+    controlsPane: spec.controlsPane ?? usesDefaultMount,
     toolPrefixes: spec.toolPrefixes ?? (hasTools ? spec.toolDefs.map(t => t.name) : ['browser_']),
     mount,
   })

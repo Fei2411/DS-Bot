@@ -1773,24 +1773,29 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       ?? (id.startsWith('provider:') ? nativePlugins.get(id.slice('provider:'.length)) : null)
     const desc = builtinDesc ?? nativeDesc
     const surface = browserSurfaceFor(id, Boolean(desc?.controlsPane))
-    let activeName = desc?.name ?? null
-    if (!activeName) {
-      const store = pluginStore()
-      const customEntry = own(store.custom, id)
-      const catalogEntry = (catalogEntries ?? []).find(e => e?.id === id)
-      const snapshotEntry = own(store.snapshots, id)
-      const entry = customEntry ?? catalogEntry ?? snapshotEntry
-      if (entry?.name) {
-        activeName = entry.name
-      } else if (id.startsWith('dsh:')) {
-        const pkg = id.slice('dsh:'.length)
-        const bundle = cachedBundles.get(pkg)
-        activeName = resolveLocalizedText(bundle?.meta?.title, pkg)
-      } else {
-        activeName = id.replace(/^(builtin|dsh|mcp|provider):/, '')
-      }
+    const store = pluginStore()
+    const customEntry = own(store.custom, id)
+    const catalogEntry = (catalogEntries ?? []).find(e => e?.id === id)
+    const snapshotEntry = own(store.snapshots, id)
+    const entry = customEntry ?? catalogEntry ?? snapshotEntry
+    const pkg = id.startsWith('dsh:') ? id.slice('dsh:'.length) : (entry?.install?.packageName ?? entry?.packageName ?? null)
+    const bundle = entry ? resolveDshBundleForEntry(entry) : (pkg ? cachedBundles.get(pkg) : null)
+    const hasCustomName = typeof customEntry?.name === 'string' && customEntry.name.trim() !== ''
+    const activeName = hasCustomName
+      ? customEntry.name.trim()
+      : (desc?.name
+        ?? entry?.name
+        ?? (bundle ? resolveLocalizedText(bundle.meta?.title, bundle.name) : null)
+        ?? id.replace(/^(builtin|dsh|mcp|provider):/, ''))
+    const activeLocales = hasCustomName
+      ? null
+      : (desc?.locales ?? entry?.locales ?? extractMetaLocales(bundle?.meta) ?? null)
+    return {
+      ...surface,
+      activeName,
+      ...(hasCustomName ? { customName: true } : {}),
+      ...(activeLocales ? { activeLocales } : {}),
     }
-    return { ...surface, activeName }
   }
 
   // Build the unified list of all plugins (built-ins + catalog + custom + installed DSH bundles + standalone native providers).

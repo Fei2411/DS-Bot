@@ -8,6 +8,7 @@ import { Switch } from './bot-settings.js'
 import { writeClipboard } from './dsh-primitives.js'
 import { BotAvatar } from './mark.js'
 import { ExtensionsClusterMark, PluginMark, browserMetaFor } from './plugin-marks.js'
+import { isExternalBrowserPlugin } from './browser-plugin-mode.js'
 import {
   CheckIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon,
   PlusIcon, SearchIcon, SpinnerIcon, TrashIcon,
@@ -339,13 +340,6 @@ function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSl
     disabled,
     onChange: next => onToggle(plugin.id, next),
   })
-}
-
-function isExternalBrowserPlugin(plugin) {
-  if (plugin?.slot !== 'browser') return false
-  if (plugin.windowMode === 'external') return true
-  if (plugin.windowMode === 'pane' || plugin.windowMode === 'readonly') return false
-  return !plugin.builtin && plugin.controlsPane !== true
 }
 
 function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActivateSlot, onInstall, onToggle, onCopy, onConsent }) {

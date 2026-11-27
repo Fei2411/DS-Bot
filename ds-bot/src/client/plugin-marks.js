@@ -5,6 +5,7 @@
 // Marks render in calm grayscale when inactive and bloom into full color on
 // activation, matching Connectors (connectors-page.js).
 import { createElement as h } from 'react'
+import { isExternalBrowserPlugin } from './browser-plugin-mode.js'
 
 const svg = (...kids) => h('svg', { width: 22, height: 22, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true }, ...kids)
 
@@ -169,11 +170,14 @@ const BROWSER_META = {
 
 export function browserMetaFor(plugin) {
   if (!plugin) return { url: 'browser://none', traits: [] }
-  if (BROWSER_META[plugin.id]) return BROWSER_META[plugin.id]
+  const isExternal = isExternalBrowserPlugin(plugin)
+  const surfaceTrait = isExternal ? 'External window' : 'Sidebar browser'
+  const known = BROWSER_META[plugin.id]
+  if (known) {
+    const rest = known.traits.filter(tr => tr !== 'External window' && tr !== 'Sidebar browser')
+    return { url: known.url, traits: [surfaceTrait, ...rest] }
+  }
   const slug = String(plugin.id || 'custom').replace(/^(builtin|dsh|mcp|provider):/, '').replace(/[^a-z0-9._-]+/gi, '-').toLowerCase()
-  const surfaceTrait = plugin.windowMode === 'external' || (!plugin.builtin && plugin.controlsPane !== true)
-    ? 'External window'
-    : 'Sidebar browser'
   return {
     url: `browser://${slug || 'custom'}`,
     traits: plugin.kind === 'mcp' ? [surfaceTrait, 'Standard MCP'] : [surfaceTrait, 'Browser slot'],
