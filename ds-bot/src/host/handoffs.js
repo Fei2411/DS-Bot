@@ -167,22 +167,26 @@ export function install(rt) {
         const db = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
         if (!db || db.isClosed?.()) return
         const activeNonFg = new Set()
-        for (const work of db.listWorks({ limit: 5000 })) {
-          const isActive = !TERMINAL_STATUSES.has(work.status)
-          if (isActive && work.kind !== 'foreground') activeNonFg.add(work.workId)
-          if (isActive || work.parentWorkId === null) {
-            const name = keptName(work.resultRef)
-            if (name !== undefined) used.add(name)
-            for (const legacy of Array.isArray(work.meta?.legacyResults) ? work.meta.legacyResults : []) {
-              const legacyName = keptName(legacy?.file ?? legacy?.resultRef ?? legacy?.bodyRef)
-              if (legacyName !== undefined) used.add(legacyName)
+        try {
+          for (const work of db.listWorks({ limit: 5000 })) {
+            const isActive = !TERMINAL_STATUSES.has(work.status)
+            if (isActive && work.kind !== 'foreground') activeNonFg.add(work.workId)
+            if (isActive || work.parentWorkId === null) {
+              const name = keptName(work.resultRef)
+              if (name !== undefined) used.add(name)
+              for (const legacy of Array.isArray(work.meta?.legacyResults) ? work.meta.legacyResults : []) {
+                const legacyName = keptName(legacy?.file ?? legacy?.resultRef ?? legacy?.bodyRef)
+                if (legacyName !== undefined) used.add(legacyName)
+              }
             }
           }
-        }
-        for (const call of db.listCalls({ limit: 5000 })) {
-          if (!activeNonFg.has(call.parentWorkId)) continue
-          const name = keptName(call.resultRef)
-          if (name !== undefined) used.add(name)
+          for (const call of db.listCalls({ limit: 5000 })) {
+            if (!activeNonFg.has(call.parentWorkId)) continue
+            const name = keptName(call.resultRef)
+            if (name !== undefined) used.add(name)
+          }
+        } catch {
+          return
         }
       }
       for (const file of entries) {
@@ -193,7 +197,10 @@ export function install(rt) {
       }
     })()
     activePrunes.add(run)
-    run.finally(() => activePrunes.delete(run))
+    run.then(
+      () => activePrunes.delete(run),
+      () => activePrunes.delete(run),
+    )
     return run
   }
 

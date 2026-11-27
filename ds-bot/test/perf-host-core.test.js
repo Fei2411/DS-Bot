@@ -1255,6 +1255,46 @@ test('handoffs.js startup orphan sweep preserves live unsaved results and finish
   const legacyAnswer = legacyRt.answerText('handoff:w-legacy-parent', 'done', 'Writer')
   assert.ok(legacyAnswer.includes(legacyBody), 'answerText restores full body from preserved legacyResults file')
 
+  // Fail-closed DB read error path: if coordDb.listWorks() throws during prune, no unhandled
+  // rejection is emitted and result files on disk are preserved untouched.
+  const errHome = tempDir(t, 'ds-bot-perf-handoffs-dberr-')
+  const errResultsDir = join(errHome, 'handoff-results')
+  mkdirSync(errResultsDir, { recursive: true })
+  const errProtectedPath = join(errResultsDir, 'w-db-err-keep.txt')
+  writeFileSync(errProtectedPath, 'must stay on db error')
+  const errCtx = fakeContext()
+  const errSettled = new Set()
+  const unhandled = []
+  const onUnhandled = reason => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  t.after(() => process.off('unhandledRejection', onUnhandled))
+  const errRt = {
+    ctx: errCtx,
+    home: errHome,
+    state: seedState({ revision: 4 }),
+    readOnly: () => undefined,
+    load: async () => {},
+    onWorkSettled: fn => { errSettled.add(fn); return () => errSettled.delete(fn) },
+    botOf: id => errRt.state.bots[id],
+    chatOf: id => errRt.state.bots[id]?.sessionId ?? id,
+    roomOf: () => undefined,
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    save: async () => {},
+    warn() {},
+    hasExistingCoordDb: () => true,
+    existingCoordDb: () => ({
+      isClosed: () => false,
+      listWorks: () => { throw new Error('simulated SQLITE_CORRUPT') },
+      listCalls: () => [],
+    }),
+  }
+  installHandoffs(errRt)
+  t.after(() => errCtx.dispose())
+  for (const fn of errSettled) fn({ work: { workId: 'w-err' }, outcome: 'done', settledCalls: [] })
+  await new Promise(resolve => setTimeout(resolve, 40))
+  assert.equal(unhandled.length, 0, 'DB error during prune must never emit unhandledRejection')
+  assert.equal(existsSync(errProtectedPath), true, 'DB error during prune must fail closed and preserve files')
+
   // Startup failure path: if rt.load() rejects before pruneOrphanResultFiles(), the startup
   // chain still settles cleanly without unhandled rejection.
   const failHome = tempDir(t, 'ds-bot-perf-handoffs-loadfail-')
