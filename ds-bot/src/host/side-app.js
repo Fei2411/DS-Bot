@@ -5,7 +5,7 @@
 // working root; and a ticketed web-server route serves a Canvas entry document and
 // its same-directory assets to the sandboxed preview iframe.
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { lstat, open, readdir, stat } from 'node:fs/promises'
+import { lstat, open, readdir, readlink, stat } from 'node:fs/promises'
 import { basename, dirname, extname, resolve, sep } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { output } from './tools.js'
@@ -187,14 +187,77 @@ export function install(rt) {
     return Buffer.concat(chunks, total)
   }
 
-  async function readVerified(realPath, { limit, oversized } = {}) {
-    // The final component is re-probed without following links immediately before
-    // open: a path swapped to a symlink since its realpath check never opens. This
-    // shrinks the swap window to the open call itself; ancestors and the remaining
-    // race are the documented platform boundary, not something this layer claims.
-    const linkProbe = await lstat(realPath).catch(() => undefined)
-    if (linkProbe === undefined) throw notFound('The file is no longer there')
-    if (!linkProbe.isFile()) throw invalid('That path is not a file')
+  // ---- verified open: binding authorization to the object that is read -----------
+  //
+  // The threat is a path swap between the path-level authorization (realpath
+  // folding, containment, inData) and the open syscall that actually chooses the
+  // object. Neither Node nor the documented DSH APIs expose openat2(RESOLVE_BENEATH)
+  // or dirfd-relative opens, so the binding is proven after opening instead:
+  //
+  // 1. Linux with /proc: `readlink /proc/self/fd/<n>` names the opened object itself,
+  //    independent of any path manipulation in progress. That object path is folded
+  //    and re-proved against the anchor and the data roots — the strong proof.
+  // 2. Everywhere: the opened object's (dev, ino) must equal those of the path the
+  //    authorization describes, where that path is re-folded and re-proved at the
+  //    moment of opening. A swap between the fold and the probe changes the identity
+  //    the probe sees, so the comparison fails closed; a swap before both either
+  //    keeps the authorized object (no escape) or fails the containment/inData proof.
+  //    The residual is a double race hitting the nanosecond gaps around the fold —
+  //    documented in the plan, not claimed closed.
+  //
+  // bigint stats are mandatory: Windows NTFS file indices exceed Number.MAX_SAFE_INTEGER,
+  // and a precision-collapsed comparison is no comparison at all. On filesystems that
+  // report no usable identity (ino 0 — some FAT/SMB shares) verification refuses
+  // closed: the Canvas never silently falls back to path-only trust.
+  const identityOf = info => (info !== undefined && info.ino !== 0n ? { dev: info.dev, ino: info.ino } : undefined)
+
+  async function verifyOpened(handle, realPath, { anchor } = {}) {
+    const own = await handle.stat({ bigint: true })
+    if (!own.isFile()) throw invalid('That path is not a file')
+    const ownIdentity = identityOf(own)
+    if (ownIdentity === undefined) {
+      throw forbidden('This filesystem gives no reliable file identity, so the file cannot be bound to its authorization')
+    }
+
+    // The strong proof: where /proc names objects, the opened object itself is
+    // containment- and data-root-proven, whatever state the original path is in.
+    // A deleted or unresolvable object path fails this branch only — the identity
+    // comparison below still carries the binding on its own.
+    if (process.platform === 'linux') {
+      try {
+        const objectPath = await readlink(`/proc/self/fd/${handle.fd}`)
+        const objectReal = (await rt.realBeyond?.(objectPath).catch(() => undefined)) ?? (await rt.real?.(objectPath).catch(() => undefined)) ?? objectPath
+        if (!within(objectReal, anchor)) throw forbidden('That path leaves the working folder')
+        if (await rt.inData?.(objectReal)) throw forbidden('That path is inside DeepSeek Harness or team data, which cannot be opened here')
+      } catch (error) {
+        if (error?.code === 'bot/forbidden') throw error
+        // No /proc (unusual mounts, sandboxed runtimes): the identity comparison below carries alone.
+      }
+    }
+
+    // The portable proof, always required: the object that was opened must be the
+    // object the authorized path names right now, and that naming must still prove
+    // the containment and data-root rules. A path swapped out from under the open
+    // can satisfy at most one side of the pair.
+    const folded = (await rt.realBeyond?.(realPath).catch(() => undefined)) ?? (await rt.real?.(realPath).catch(() => undefined)) ?? undefined
+    if (folded === undefined || !within(folded, anchor)) throw forbidden('That path leaves the working folder')
+    if (await rt.inData?.(folded)) throw forbidden('That path is inside DeepSeek Harness or team data, which cannot be opened here')
+    const probe = await lstat(folded, { bigint: true }).catch(() => undefined)
+    const probeIdentity = probe !== undefined && probe.isFile() ? identityOf(probe) : undefined
+    if (probeIdentity === undefined || probeIdentity.dev !== ownIdentity.dev || probeIdentity.ino !== ownIdentity.ino) {
+      // The path no longer names the object the open captured: nothing proves this
+      // read reads what the authorization approved.
+      throw forbidden('The file changed while it was being opened; read it again')
+    }
+    return own
+  }
+
+  // The one read path of the whole module: every byte the host serves or scans comes
+  // through here. `anchor` is the containment boundary the read must prove at read
+  // time — the session's working root, or the ticket's entry directory for the
+  // preview route and scan — never merely a promise made before the path could change.
+  async function readVerified(realPath, { anchor, limit, oversized } = {}) {
+    if (anchor === undefined) throw invalid('A verified read needs its containment anchor')
     let handle
     try {
       handle = await open(realPath, 'r')
@@ -202,13 +265,12 @@ export function install(rt) {
       throw notFound('The file is no longer there')
     }
     try {
-      const info = await handle.stat()
-      if (!info.isFile()) throw invalid('That path is not a file')
+      const info = await verifyOpened(handle, realPath, { anchor })
       const ceiling = limit !== undefined ? Math.min(limit, READ_HARD_CAP) : READ_HARD_CAP
       if (info.size > ceiling) throw tooLarge(oversized ?? 'The file is too large')
       const bytes = await readBounded(handle, ceiling)
       if (bytes.length > ceiling) throw tooLarge(oversized ?? 'The file is too large')
-      return { bytes, size: info.size }
+      return { bytes, size: Number(info.size) }
     } finally {
       await handle.close().catch(() => {})
     }
@@ -417,7 +479,7 @@ export function install(rt) {
     // non-file, sitting inside harness or team data, or grown past the serving
     // limit makes the scan fail, never a hash of oversized bytes read wholesale.
     if (await rt.inData?.(ticket.entryReal)) throw forbidden('That path is inside DeepSeek Harness or team data, which cannot be opened here')
-    const entryRead = await readVerified(ticket.entryReal, { limit: HTML_LIMIT, oversized: 'The HTML file is larger than 8 MiB' }).catch(error => error)
+    const entryRead = await readVerified(ticket.entryReal, { anchor: ticket.root, limit: HTML_LIMIT, oversized: 'The HTML file is larger than 8 MiB' }).catch(error => error)
     if (entryRead instanceof Error) throw entryRead
     hash.update(entryRead.bytes)
     const walk = async (dir, depth) => {
@@ -455,7 +517,7 @@ export function install(rt) {
         hash.update(real.slice(ticket.root.length))
         hash.update(String(info.size))
         hash.update(String(Math.floor(info.mtimeMs)))
-        if (info.size <= MANIFEST_BYTES_MAX) hash.update((await readVerified(real, { limit: MANIFEST_BYTES_MAX }).catch(() => ({ bytes: Buffer.alloc(0) }))).bytes)
+        if (info.size <= MANIFEST_BYTES_MAX) hash.update((await readVerified(real, { anchor: ticket.root, limit: MANIFEST_BYTES_MAX }).catch(() => ({ bytes: Buffer.alloc(0) }))).bytes)
       }
     }
     await walk(ticket.root, 0)
@@ -492,7 +554,7 @@ export function install(rt) {
     // is the file that is served, even if the path is swapped in between.
     let bytes
     try {
-      bytes = (await readVerified(real, { limit, oversized: 'too large' })).bytes
+      bytes = (await readVerified(real, { anchor: ticket.root, limit, oversized: 'too large' })).bytes
     } catch (error) {
       return errorPage(error?.code === 'bot/too-large' ? 413 : 404, error?.code === 'bot/too-large' ? 'Too large' : 'Not found')
     }
@@ -595,7 +657,8 @@ export function install(rt) {
     if (app === undefined) throw invalid('app must be canvas or reader')
     const { target } = await authorizeFile(body, { app })
     const ext = fileKind(app, target.realPath)
-    const { bytes, size } = await readVerified(target.realPath, app === 'canvas' ? { limit: HTML_LIMIT, oversized: 'The HTML file is larger than 8 MiB' } : {})
+    const limits = app === 'canvas' ? { limit: HTML_LIMIT, oversized: 'The HTML file is larger than 8 MiB' } : {}
+    const { bytes, size } = await readVerified(target.realPath, { anchor: target.root, ...limits })
     const revision = sha(bytes)
     return {
       file: { app, displayPath: target.displayPath, workspaceTag: rootTag(target.root) },
@@ -614,7 +677,7 @@ export function install(rt) {
     fileKind(app, target.realPath)
     // Text reads cap at the text line even for HTML: the 8 MiB allowance is for the
     // rendered preview bytes, never for text a client shows.
-    const { bytes } = await readVerified(target.realPath, { limit: TEXT_LIMIT, oversized: 'The file is larger than 4 MiB of text' })
+    const { bytes } = await readVerified(target.realPath, { anchor: target.root, limit: TEXT_LIMIT, oversized: 'The file is larger than 4 MiB of text' })
     if (!isUtf8(bytes)) throw invalid('The file is not valid UTF-8 text')
     const revision = sha(bytes)
     if (typeof body.knownRevision === 'string' && body.knownRevision === revision) return { kind: 'unchanged', revision }
@@ -652,7 +715,7 @@ export function install(rt) {
     const ext = extname(target.realPath).toLowerCase()
     const mime = IMAGE_MIMES.get(ext)
     if (mime === undefined) throw invalid(`Only image files can be read here (png, jpg, gif, webp, avif, svg), not ${ext || 'this file'}`)
-    const { bytes } = await readVerified(target.realPath, { limit: IMAGE_LIMIT, oversized: 'The image is larger than 4 MiB' })
+    const { bytes } = await readVerified(target.realPath, { anchor: target.root, limit: IMAGE_LIMIT, oversized: 'The image is larger than 4 MiB' })
     const revision = sha(bytes)
     if (typeof body.knownRevision === 'string' && body.knownRevision === revision) return { kind: 'unchanged', revision }
     return { kind: 'bytes', revision, mime, size: bytes.length, data: bytes.toString('base64') }
@@ -841,6 +904,8 @@ export function install(rt) {
       tickets,
       pendingOpens,
       writePair,
+      verifyOpened,
+      readVerified,
       TEXT_LIMIT,
       HTML_LIMIT,
       CANVAS_ROUTE,
