@@ -38304,9 +38304,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     opened: () => {
       if (local) readModels(routeOf(current2));
       else {
-        for (const [key, value] of effortCache) {
-          if (!value?.efforts?.length) effortCache.delete(key);
-        }
+        effortCache.clear();
         void actions?.refreshModels?.();
       }
       setQuery("");

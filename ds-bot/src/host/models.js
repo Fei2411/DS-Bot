@@ -216,7 +216,6 @@ export function install(rt) {
   ctx.on?.('llm/adapters-updated', async () => {
     dropCatalog()
     syncedKey = undefined
-    reasoningCache.clear()
     await forgetChangedRefusals()
     syncAfterAdapters()
   })

@@ -27,13 +27,27 @@ function reasoningEffortsOf(model) {
       ? model.supported_reasoning_efforts
       : undefined
   if (raw === undefined) return undefined
+  if (raw.length === 0) return false
+  // DSH's llm-pi-ai folds unset effort (Default) and explicit 'off' into the same
+  // omitted pi-ai option, which openai-responses sends as effort='none' whenever
+  // thinkingLevelMap.off is non-null. Only advertise 'off' when the model's own
+  // default is 'none', so Default never silently disables thinking on models that
+  // think by default (e.g. default_reasoning_level: 'medium').
+  const defaultLevel = typeof model?.default_reasoning_level === 'string'
+    ? model.default_reasoning_level.trim().toLowerCase()
+    : ''
+  let recognized = 0
   const efforts = {}
   for (const item of raw) {
     const value = typeof item === 'string' ? item : item?.effort
     const mapped = typeof value === 'string' ? REASONING_LEVELS[value.trim().toLowerCase()] : undefined
-    if (mapped) efforts[mapped[0]] = mapped[1]
+    if (!mapped) continue
+    recognized += 1
+    if (mapped[0] === 'off' && defaultLevel !== 'none') continue
+    efforts[mapped[0]] = mapped[1]
   }
-  return Object.keys(efforts).some(level => level !== 'off') ? efforts : false
+  if (Object.keys(efforts).some(level => level !== 'off')) return efforts
+  return recognized > 0 ? false : undefined
 }
 
 function modelSummary(model) {

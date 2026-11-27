@@ -9,6 +9,7 @@ import { install as installChatGPT, appChatGPTRequest } from '../src/host/chatgp
 import { install as installModels } from '../src/host/models.js'
 import { install as installProviders } from '../src/host/providers.js'
 import { install as installChannel } from '../src/host/channel.js'
+import { createChatGPTRelay } from '../../app/src/chatgpt-relay.mjs'
 
 async function fixture(t, { app = true, previous, status = { state: 'connected', account: { email: 'person@example.test' } }, models = [{ id: 'model-z', name: 'Z' }], modelError } = {}) {
   const effects = []
@@ -167,7 +168,7 @@ test('IPC requests correlate replies and use fixed errors rather than remote dia
   assert.equal(ipc.listenerCount('message'), 0)
 })
 
-test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai resolution and send reasoning.effort on requests', async t => {
+test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai and relay, preserving Default semantics', async t => {
   const requests = []
   const upstream = createServer(async (req, res) => {
     const chunks = []
@@ -182,16 +183,26 @@ test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai 
   })
   await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve))
   t.after(async () => { upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve)) })
-  const baseURL = `http://127.0.0.1:${upstream.address().port}/v1`
+  const relay = await createChatGPTRelay({
+    signIn: {
+      status: () => ({ state: 'connected' }),
+      getAccessToken: async () => 'synthetic-access',
+      refresh: async () => {},
+      listModels: async () => [],
+    },
+    responsesUrl: `http://127.0.0.1:${upstream.address().port}/v1/responses`,
+  })
+  t.after(() => relay.close())
+  const { baseURL, secret } = relay.route()
 
   const ctx = new Context()
   t.after(() => ctx.fiber.dispose())
   ctx.plugin(dshLlm.LlmRuntime)
-  const keys = { OPENAI_CHATGPT_API_KEY: 'fake-relay-key' }
+  const keys = { OPENAI_CHATGPT_API_KEY: secret }
   const routes = {
     'openai-chatgpt': {
       displayName: 'ChatGPT (plan)', api: 'openai-responses', baseURL,
-      apiKeyEnv: 'OPENAI_CHATGPT_API_KEY', models: [{ id: 'gpt-5.4', name: 'GPT-5.4' }],
+      apiKeyEnv: 'OPENAI_CHATGPT_API_KEY', models: [{ id: 'gpt-5.5', name: 'GPT-5.5' }],
       compat: { supportsDeveloperRole: true },
     },
   }
@@ -226,15 +237,15 @@ test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai 
 
   const ipc = new EventEmitter()
   const rt = {
-    ctx, state: { bots: { b1: { id: 'b1', model: 'openai-chatgpt/gpt-5.4' } }, rooms: {}, prefs: {} },
+    ctx, state: { bots: { b1: { id: 'b1', model: 'openai-chatgpt/gpt-5.5' } }, rooms: {}, prefs: {} },
     refresh: async () => {}, load: async () => {}, readOnly: () => undefined, phoneServe() {}, warn() {},
   }
   installModels(rt)
   installProviders(rt)
-  let servedModels = [{ id: 'gpt-5.4', name: 'GPT-5.4' }]
+  let servedModels = [{ id: 'gpt-5.5', name: 'GPT-5.5', reasoningEfforts: false }]
   const request = async (method) => {
     if (method === 'chatgpt:status') return { state: 'connected', account: { email: 'person@example.test' } }
-    if (method === 'chatgpt:route') return { baseURL, secret: 'fake-relay-key' }
+    if (method === 'chatgpt:route') return { baseURL, secret }
     if (method === 'chatgpt:models') return servedModels
     throw new Error('Unexpected request')
   }
@@ -242,11 +253,19 @@ test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai 
   await new Promise(resolve => setImmediate(resolve))
   await new Promise(resolve => setImmediate(resolve))
 
-  // Before reasoning metadata is present, reasoningOf caches undefined.
-  assert.equal(await rt.reasoningOf('openai-chatgpt/gpt-5.4'), undefined)
+  // While reasoning is disabled, reasoningOf caches undefined.
+  assert.equal(await rt.reasoningOf('openai-chatgpt/gpt-5.5'), undefined)
 
-  // Refresh with supported reasoning efforts from ChatGPT sign-in.
+  // Refresh with supported reasoning efforts from ChatGPT sign-in:
+  // - gpt-5.5 defaults to medium (so off is omitted and Default keeps upstream default)
+  // - gpt-5.4 defaults to none (so off: 'none' is offered)
+  // - gpt-6.2-sol supports low..max
+  // - gpt-4o is non-reasoning
   servedModels = [
+    {
+      id: 'gpt-5.5', name: 'GPT-5.5', contextWindow: 272000, inputModalities: ['text', 'image'],
+      reasoningEfforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' },
+    },
     {
       id: 'gpt-5.4', name: 'GPT-5.4', contextWindow: 272000, inputModalities: ['text', 'image'],
       reasoningEfforts: { off: 'none', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' },
@@ -258,53 +277,97 @@ test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai 
     { id: 'gpt-4o', name: 'GPT-4o', reasoningEfforts: false },
   ]
   const refreshed = await rt.chatgptModels()
-  assert.equal(refreshed.length, 3)
+  assert.equal(refreshed.length, 4)
   assert.equal(routes['openai-chatgpt'].models[0].inputModalities, undefined)
   assert.deepEqual(routes['openai-chatgpt'].models[0].input, ['text', 'image'])
 
   // dropCatalog() cleared reasoningCache, so efforts are immediately available.
+  assert.deepEqual((await rt.reasoningOf('openai-chatgpt/gpt-5.5')).efforts.map(e => e.id), ['low', 'medium', 'high', 'xhigh'])
   assert.deepEqual((await rt.reasoningOf('openai-chatgpt/gpt-5.4')).efforts.map(e => e.id), ['off', 'low', 'medium', 'high', 'xhigh'])
   assert.deepEqual((await rt.reasoningOf('openai-chatgpt/gpt-6.2-sol')).efforts.map(e => e.id), ['low', 'medium', 'high', 'xhigh', 'max'])
   assert.equal(await rt.reasoningOf('openai-chatgpt/gpt-4o'), undefined)
   assert.equal(await rt.resolveEffort('openai-chatgpt/gpt-5.4', 'xhigh'), 'xhigh')
   assert.equal(await rt.desiredEffort({ effort: 'max' }, 'openai-chatgpt/gpt-6.2-sol'), 'max')
-  assert.equal(await rt.desiredEffort({ effort: 'off' }, 'openai-chatgpt/gpt-6.2-sol'), undefined)
+  assert.equal(await rt.desiredEffort({ effort: 'off' }, 'openai-chatgpt/gpt-5.5'), undefined)
   const catalog = await rt.catalog({ fresh: true })
-  const used = catalog.find(entry => entry.ref === 'openai-chatgpt/gpt-5.4')
-  assert.deepEqual(used.reasoning.efforts.map(e => e.id), ['off', 'low', 'medium', 'high', 'xhigh'])
+  const used = catalog.find(entry => entry.ref === 'openai-chatgpt/gpt-5.5')
+  assert.deepEqual(used.reasoning.efforts.map(e => e.id), ['low', 'medium', 'high', 'xhigh'])
 
-  // Real request through DSH LlmService + PiAiAdapter sends reasoning.effort over openai-responses.
-  const chunks = []
-  for await (const chunk of ctx.llm.stream({
-    provider: 'openai-chatgpt',
-    model: 'gpt-6.2-sol',
-    reasoningEffort: 'xhigh',
-    messages: [dshLlm.createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })],
-  })) chunks.push(chunk)
-  assert.ok(chunks.some(chunk => chunk.type === 'finish'))
-  assert.equal(requests.length, 1)
-  assert.deepEqual(requests[0].reasoning, { effort: 'xhigh', summary: 'auto' })
-  assert.deepEqual(requests[0].include, ['reasoning.encrypted_content'])
+  const runTurn = async (model, reasoningEffort) => {
+    const chunks = []
+    for await (const chunk of ctx.llm.stream({
+      provider: 'openai-chatgpt',
+      model,
+      system: 'Be brief.',
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+      messages: [dshLlm.createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })],
+    })) chunks.push(chunk)
+    assert.ok(chunks.some(chunk => chunk.type === 'finish'))
+  }
+
+  // Default (unset effort) on gpt-5.5 omits `reasoning` instead of disabling thinking,
+  // and keeps the developer role intact through the real ChatGPT relay.
+  await runTurn('gpt-5.5', undefined)
+  assert.equal(requests.at(-1).reasoning, undefined)
+  assert.equal(requests.at(-1).input[0].role, 'developer')
+
+  // Explicit 'xhigh' sends reasoning.effort + reasoning.encrypted_content through the relay.
+  await runTurn('gpt-6.2-sol', 'xhigh')
+  assert.deepEqual(requests.at(-1).reasoning, { effort: 'xhigh', summary: 'auto' })
+  assert.deepEqual(requests.at(-1).include, ['reasoning.encrypted_content'])
+
+  // Model with default_reasoning_level === 'none' sends effort='none' for explicit 'off'.
+  await runTurn('gpt-5.4', 'off')
+  assert.deepEqual(requests.at(-1).reasoning, { effort: 'none' })
 })
 
-test('first ChatGPT sign-in writes clean pi-ai model entries and falls back to enabled openai route when efforts are omitted', async t => {
-  const f = await fixture(t, {
+test('first ChatGPT sign-in falls back for omitted reasoning levels with or without an openai route and ignores custom openai gateways', async t => {
+  // 1. Pure ChatGPT plan user with no `openai` route at all: family fallback applies to
+  // known reasoning models and skips chat-only models.
+  const pure = await fixture(t, {
     status: { state: 'signed-out' },
     models: [
-      { id: 'gpt-5.4', name: 'GPT-5.4', contextWindow: 272000, inputModalities: ['text', 'image'] },
+      { id: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', contextWindow: 272000, inputModalities: ['text', 'image'] },
+      { id: 'gpt-5.4-pro', name: 'GPT-5.4 Pro' },
+      { id: 'gpt-4o', name: 'GPT-4o' },
+      { id: 'gpt-5-chat-latest', name: 'GPT-5 Chat' },
     ],
   })
-  f.rt.ctx.llm.listProviders = () => [{ id: 'openai', name: 'OpenAI' }]
-  f.rt.ctx.llm.resolveModelInfo = async (provider, model) => (provider === 'openai' && model === 'gpt-5.4'
+  await pure.start()
+  assert.equal((await pure.post('chatgpt-sign-in')).value.state, 'connected')
+  assert.deepEqual(pure.routes['openai-chatgpt'].models, [
+    { id: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', contextWindow: 272000, input: ['text', 'image'], reasoningEfforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' } },
+    { id: 'gpt-5.4-pro', name: 'GPT-5.4 Pro', reasoningEfforts: { medium: 'medium', high: 'high', xhigh: 'xhigh' } },
+    { id: 'gpt-4o', name: 'GPT-4o' },
+    { id: 'gpt-5-chat-latest', name: 'GPT-5 Chat' },
+  ])
+
+  // 2. Official `openai` route (no custom baseURL) is consulted via resolveModelInfo, omitting 'off'.
+  const withOpenAI = await fixture(t, {
+    status: { state: 'signed-out' },
+    models: [{ id: 'custom-future-model', name: 'Future' }],
+  })
+  withOpenAI.rt.ctx.llm.listProviders = () => [{ id: 'openai', name: 'OpenAI' }]
+  withOpenAI.rt.ctx.llm.resolveModelInfo = async (provider, model) => (provider === 'openai' && model === 'custom-future-model'
     ? { reasoning: { efforts: [{ id: 'off', name: 'Off' }, { id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } }
     : undefined)
-  await f.start()
-  assert.equal((await f.post('chatgpt-sign-in')).value.state, 'connected')
-  assert.deepEqual(f.routes['openai-chatgpt'].models, [{
-    id: 'gpt-5.4',
-    name: 'GPT-5.4',
-    contextWindow: 272000,
-    input: ['text', 'image'],
-    reasoningEfforts: { off: 'none', low: 'low', high: 'high' },
-  }])
+  await withOpenAI.start()
+  assert.equal((await withOpenAI.post('chatgpt-sign-in')).value.state, 'connected')
+  assert.deepEqual(withOpenAI.routes['openai-chatgpt'].models, [
+    { id: 'custom-future-model', name: 'Future', reasoningEfforts: { low: 'low', high: 'high' } },
+  ])
+
+  // 3. `openai` route repointed to a custom gateway baseURL is NOT consulted.
+  const repointed = await fixture(t, {
+    status: { state: 'signed-out' },
+    models: [{ id: 'custom-future-model', name: 'Future' }],
+  })
+  repointed.routes.openai.baseURL = 'https://third-party-gateway.example/v1'
+  repointed.rt.ctx.llm.listProviders = () => [{ id: 'openai', name: 'OpenAI' }]
+  let called = false
+  repointed.rt.ctx.llm.resolveModelInfo = async () => { called = true; return { reasoning: { efforts: [{ id: 'high', name: 'High' }] } } }
+  await repointed.start()
+  assert.equal((await repointed.post('chatgpt-sign-in')).value.state, 'connected')
+  assert.equal(called, false)
+  assert.deepEqual(repointed.routes['openai-chatgpt'].models, [{ id: 'custom-future-model', name: 'Future' }])
 })
