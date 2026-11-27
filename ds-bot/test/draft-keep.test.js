@@ -489,6 +489,33 @@ test('DraftKeeper stops keeping a draft that is being sent, and keeps it again i
   assert.deepEqual(Array.from(back.files, item => item.file.name), ['img.png'])
 })
 
+test('owned Classic Agent Sessions get stable draft keys and survive switches and pruning', () => {
+  const classicRoster = {
+    ...roster,
+    agentOf: { 'classic-s1': 'agent-a' },
+    agents: [{ id: 'agent-a', sessions: ['classic-s1', 'classic-s2'] }],
+  }
+  assert.deepEqual(chatOfSession(classicRoster, 'classic-s1'), { id: 'classic-s1', part: 'classic-s1' })
+  assert.deepEqual(chatOfSession(classicRoster, 'classic-s2'), { id: 'classic-s2', part: 'classic-s2' })
+  assert.equal(chatOfSession(classicRoster, 'unowned-session'), undefined)
+
+  keepDraft({ chatId: 'classic-s1', part: 'classic-s1', text: 'draft one', files: [image('one.png')] }, storage)
+  keepDraft({ chatId: 'classic-s2', part: 'classic-s2', text: 'draft two', files: [] }, storage)
+  keepDraft({ chatId: 'bee', part: 'bee-2', text: 'bot draft', files: [] }, storage)
+  const stored = JSON.parse(storage.getItem(STORAGE.drafts))
+  assert.equal(stored['classic-s1'].text, 'draft one')
+  assert.equal(stored['classic-s2'].text, 'draft two')
+  assert.equal(stored.bee.text, 'bot draft')
+  const back = takeDraft({ chatId: 'classic-s1', part: 'classic-s1', text: 'draft one', attached: 0 }, storage)
+  assert.deepEqual(back.files.map(item => item.file.name), ['one.png'])
+
+  pruneDrafts(['classic-s1'], storage)
+  const afterPrune = JSON.parse(storage.getItem(STORAGE.drafts))
+  assert.equal(afterPrune['classic-s1'], undefined)
+  assert.equal(afterPrune['classic-s2'].text, 'draft two')
+  assert.equal(afterPrune.bee.text, 'bot draft')
+})
+
 // Real DSH session + conversation fixtures matching SessionSnapshot and ChatSnapshot.
 const chatSnapshot = (messages = []) => {
   const map = new Map()
