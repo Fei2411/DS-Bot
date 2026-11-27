@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, test } from 'node:test'
@@ -64,14 +64,14 @@ function initMinimalGitRepo() {
   return { work, repo }
 }
 
-function runScan(scannerPath, targetDir) {
+function runScan(scannerPath, targetDir, extraEnv = {}) {
   const outDir = tempDir('ds-bot-scan-out-')
   const jsonPath = join(outDir, 'findings.json')
   const res = spawnSync(process.execPath, [scannerPath, targetDir, '--json', jsonPath], {
     encoding: 'utf8',
-    env: { ...process.env, SCAN_EXTRA_PATTERNS: '' },
+    env: { ...process.env, SCAN_EXTRA_PATTERNS: '', ...extraEnv },
   })
-  const findings = JSON.parse(readFileSync(jsonPath, 'utf8'))
+  const findings = existsSync(jsonPath) ? JSON.parse(readFileSync(jsonPath, 'utf8')) : []
   return { status: res.status, stdout: res.stdout, stderr: res.stderr, findings }
 }
 
@@ -230,4 +230,43 @@ test('scan.mjs redacts extra-pattern matches across all rules and staged .scan-e
   assert.ok(extraIds.includes('personal-email'), `expected personal-email on staged .scan-extra, got ${JSON.stringify(extraIds)}`)
   assert.ok(extraIds.includes('personal-path'), `expected personal-path on staged .scan-extra, got ${JSON.stringify(extraIds)}`)
   assertNoPrivateLeak(staged, 'staged .scan-extra')
+})
+
+test('scan.mjs redacts secret prefixes overlapping extra markers, overlapping prefix/longer markers, and invalid regex errors without leaking patterns', () => {
+  const { repo } = initMinimalGitRepo()
+  const tok = syntheticToken()
+  const secretPrefixMarker = tok.slice(0, 6)
+  const shortPrefix = 'OverlapMark'
+  const longerPrefix = 'OverlapMarkTail99'
+  const draftTag = ['DRAFT', 'for'].join(' ')
+  writeFileSync(join(repo, '.scan-extra'), [secretPrefixMarker, shortPrefix, longerPrefix].join('\n') + '\n')
+  writeFileSync(join(repo, 'mixed.txt'), [
+    `token = ${tok}`,
+    `${draftTag} ${longerPrefix}`,
+  ].join('\n') + '\n')
+
+  const res = runScan(join(repo, 'scripts', 'scan.mjs'), repo)
+  assert.equal(res.status, 1)
+  const mixedFindings = res.findings.filter(f => f.level === 'must fix' && f.file === 'mixed.txt')
+  const ghFindings = mixedFindings.filter(f => f.id === 'secret-github')
+  assert.equal(ghFindings.length, 1)
+  assert.equal(ghFindings[0].text, `<redacted> (${tok.length} chars)`)
+  const draftFindings = mixedFindings.filter(f => f.id === 'draft-marker')
+  assert.equal(draftFindings.length, 1)
+  assert.ok(draftFindings[0].text.includes('<redacted>'))
+  const combined = `${res.stdout}\n${res.stderr}\n${JSON.stringify(res.findings)}`
+  for (const sensitive of [secretPrefixMarker, shortPrefix, longerPrefix, 'Tail99']) {
+    assert.ok(!combined.includes(sensitive), `report must never echo "${sensitive}"`)
+  }
+
+  // Invalid regex in SCAN_EXTRA_PATTERNS must fail with exit code 2 without echoing valid markers or raw regex text.
+  const secretBeforeBad = 'PrivateBeforeBrokenRegex77'
+  const badRes = runScan(join(repo, 'scripts', 'scan.mjs'), repo, {
+    SCAN_EXTRA_PATTERNS: `${secretBeforeBad}\n(unclosed-regex-marker-99\n`,
+  })
+  assert.equal(badRes.status, 2)
+  assert.match(badRes.stderr, /invalid extra scan pattern in SCAN_EXTRA_PATTERNS \(line 2\)/)
+  const badOut = `${badRes.stdout}\n${badRes.stderr}`
+  assert.ok(!badOut.includes(secretBeforeBad), 'stderr must never leak valid markers alongside an invalid regex')
+  assert.ok(!badOut.includes('unclosed-regex-marker-99'), 'stderr must never echo the invalid pattern text')
 })
