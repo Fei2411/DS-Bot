@@ -6,6 +6,8 @@
 // failed (`failed`), work handed on (`waiting`), background tasks running
 // (`background`), a reply you have not read (`replied`).
 export const MARK_STATES = ['idle', 'thinking', 'searching', 'working', 'sending', 'orbit', 'waiting', 'background', 'alert', 'failed', 'done', 'replied']
+// States that wear the working badge.
+export const RUNNING_STATES = new Set(['thinking', 'searching', 'working', 'sending', 'orbit', 'done'])
 // States between turns; a running turn shows what it does instead.
 const BETWEEN = new Set(['waiting', 'background', 'failed', 'replied'])
 export const botState = (running, activity, alert, { failed = false, background = false, replied = false } = {}) => (running
@@ -13,3 +15,9 @@ export const botState = (running, activity, alert, { failed = false, background 
   : alert ? 'alert' : failed ? 'failed' : activity === 'waiting' ? 'waiting' : background ? 'background' : replied ? 'replied' : 'idle')
 export const toolState = name => (/^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
   : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? 'searching' : 'working')
+// One badge at a time, derived from the mark's state: waiting for you > working > admin > Main Bot.
+export const avatarBadge = (state, { main = false, admin = false, badge = true } = {}) => (
+  !badge ? null : state === 'alert' ? 'alert' : RUNNING_STATES.has(state) ? 'working' : admin ? 'admin' : main ? 'main' : null
+)
+export const isBrowserHandoff = hold => hold?.callId !== undefined
+export const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.fromBot === true || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))

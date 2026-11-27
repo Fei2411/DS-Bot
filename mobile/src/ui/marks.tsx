@@ -79,51 +79,55 @@ export function BotMark({ bot, dark, size = 36, ...motion }: { bot: unknown; dar
   return <Mark look={lookOf(bot)} dark={dark} size={size} seed={id === undefined || id === '' ? undefined : String(id)} label={label} {...motion} />
 }
 
-// Marks settle with a short hop when a run finishes, as on the desktop (mark.js useSettled).
+// Marks settle with a short hop when a run finishes, matching the desktop (mark.js useSettled):
+// idle and an unread reply count as one so opening the chat does not cut the hop short,
+// and leaving alert/failed does not celebrate.
+const AFTER_WORK = new Set(['idle', 'replied'])
+const NOT_WORK = new Set(['alert', 'failed'])
 function useSettled(state: string, id: string | undefined): boolean {
+  const after = AFTER_WORK.has(state)
   const prev = useRef({ state, id })
   const [settled, setSettled] = useState(false)
   useEffect(() => {
     const was = prev.current
     prev.current = { state, id }
-    if (was.id !== id || state !== 'idle') { setSettled(false); return undefined }
-    if (was.state === 'idle' || was.state === 'alert') return undefined
+    if (was.id !== id || !after) { setSettled(false); return undefined }
+    if (AFTER_WORK.has(was.state) || NOT_WORK.has(was.state)) return undefined
     setSettled(true)
     const timer = setTimeout(() => setSettled(false), 1800)
     return () => clearTimeout(timer)
-  }, [state, id])
+  }, [after, id])
+  useEffect(() => { if (!after) prev.current = { state, id } })
   return settled
 }
 
 // Status badges per ui-standard section 8, scaled to the row's 44px avatar: a working
 // green dot (12px), a waiting accent "?" (12px), the Main Bot star at 36% of the
-// avatar within 14-22px like the desktop. One at a time (badge.ts). `ring` is the
-// opaque color the badges are ringed in: the sidebar color in the team list, as on
-// the desktop, or the page's background elsewhere.
-// The mark moves for what the Bot does: `state` when given, else what the badges say
-// (waiting for you, working).
-export function Avatar({ bot, dark, size = 44, ring, working = false, waiting = false, main = false, state, live = false, pokeable = false }: {
-  bot: Bot; dark: boolean; size?: number; ring: string; working?: boolean; waiting?: boolean; main?: boolean
+// avatar within 14-22px like the desktop. Derived from the mark's state, one at a time
+// (badge.ts / mark-states.js avatarBadge). `badge={false}` hides all badges (header pill
+// and details panel). `ring` is the opaque color the badges are ringed in.
+export function Avatar({ bot, dark, size = 44, ring, working = false, waiting = false, main = false, badge = true, state, live = false, pokeable = false }: {
+  bot: Bot; dark: boolean; size?: number; ring: string; working?: boolean; waiting?: boolean; main?: boolean; badge?: boolean
 } & MotionProps) {
   const star = Math.round(Math.min(22, Math.max(14, size * 0.36)))
   const dot = Math.round(size * 0.27)
   const doing = state ?? (waiting ? 'alert' : working ? 'working' : 'idle')
   const settled = useSettled(doing, bot?.id)
-  const badge = badgeOf({ waiting, working, main })
+  const badgeKind = badgeOf({ state: doing, main, badge })
   return (
     <View style={{ width: size, height: size }}>
       <BotMark bot={bot} dark={dark} size={size} state={settled ? 'done' : doing} live={live} pokeable={pokeable} />
-      {badge === 'alert'
+      {badgeKind === 'alert'
         ? <View style={[styles.badge, { width: dot + 4, height: dot + 4, borderRadius: (dot + 4) / 2, backgroundColor: ring, bottom: -2, right: -2 }]}>
             <View style={[styles.badgeIn, { width: dot, height: dot, borderRadius: dot / 2, backgroundColor: '#4d6bfe' }]}>
               <Text style={[styles.q, { fontSize: dot * 0.66, lineHeight: dot }]}>?</Text>
             </View>
           </View>
-        : badge === 'working'
+        : badgeKind === 'working'
           ? <View style={[styles.badge, { width: dot + 4, height: dot + 4, borderRadius: (dot + 4) / 2, backgroundColor: ring, bottom: 0, right: 0 }]}>
               <View style={{ width: dot * 0.67, height: dot * 0.67, borderRadius: dot, backgroundColor: '#00c972', alignSelf: 'center', marginTop: dot * 0.165 }} />
             </View>
-          : badge === 'main'
+          : badgeKind === 'main'
             ? <View style={[styles.badge, { width: star + 3, height: star + 3, bottom: -2, right: -2, justifyContent: 'center', alignItems: 'center' }]}><MainStarIcon size={star} outline={ring} /></View>
             : null}
     </View>

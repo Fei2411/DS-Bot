@@ -2,15 +2,15 @@ import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore 
 import { Pressable, StyleSheet, Text, View, SectionList, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import type { Agent, Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
-import { botHasPending, roomHasPending } from '../nav/pending.ts'
-import { botMarkState, botRunning } from '../team/mark-state.ts'
+import { roomHasPending } from '../nav/pending.ts'
+import { botMarkState } from '../team/mark-state.ts'
 import { isUnread, seenVersion, subscribeSeen } from '../team/seen.ts'
 import { getLang, t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { MarksShown } from '../ui/avatar/LiveMark.tsx'
 import { FishLogo, PinMarkIcon } from '../ui/icons.tsx'
-import { roomTitle, workPhrase } from '../ui/phrases.ts'
+import { roomTitle, runningActivityOf, workPhrase } from '../ui/phrases.ts'
 import { teamListEmptyMessage } from '../nav/team-list-empty.ts'
 import { cleanPreview } from './chat/settled.ts'
 
@@ -72,8 +72,8 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   const preview = (bot: Bot): string | undefined => {
     const sessionId = bot.sessionId ?? bot.id
     if (questions[sessionId] !== undefined || team?.views?.[sessionId] !== undefined) return t('Waiting for your answer')
-    if (approvals.some(a => a?.botId === bot.id)) return t('Waiting for your approval')
-    const doing = workBots[bot.id] ?? team?.activity?.[bot.id]
+    if (approvals.some(a => a?.roomId === undefined && a?.botId === bot.id) || Object.values(team?.computerLive?.asks ?? {}).some(ask => ask?.roomId === undefined && ask?.botId === bot.id)) return t('Waiting for your approval')
+    const doing = runningActivityOf(workBots[bot.id], team?.activity?.[bot.id])
     if (doing !== undefined) return `${workPhrase(doing)}…`
     const groupWork = Object.entries(workRooms).find(([, list]) => Array.isArray(list) && list.some(e => e?.botId === bot.id))
     const workingEntry = groupWork?.[1]?.find(e => e?.botId === bot.id)
@@ -109,23 +109,28 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
         ListHeaderComponent={mainList.length > 0 || agentList.length > 0 ? (
           <View onLayout={event => { headerHeight.current = event.nativeEvent.layout.height; syncHeaderInView() }}>
           {mainList.length > 0 ? <MarksShown.Provider value={shown && headerInView}><View style={styles.tiles}>
-            {mainList.map(main => (
-              <Pressable key={main.id} accessibilityRole="button" accessibilityLabel={`${main.name}, ${t('Main Bot')}`} onPress={() => onOpen({ kind: 'bot', id: main.id })}
-                style={({ pressed }) => [styles.tile, { backgroundColor: pressed || current === main.id ? p.active : p.hover }]}>
-                <Avatar bot={main} dark={dark} size={52} ring={p.sidebar} main working={botRunning(team, main.id)} waiting={botHasPending(team, main)} state={botMarkState(team, main)} live />
-                <Text style={[typeScale.small, { color: p.ink, fontWeight: '600', marginTop: 6 }]} numberOfLines={1}>{main.name}</Text>
-                {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 15, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
-              </Pressable>
-            ))}
+            {mainList.map(main => {
+              const unread = isUnread(hostId, main.id, main.lastAt, current === main.id)
+              return (
+                <Pressable key={main.id} accessibilityRole="button" accessibilityLabel={`${main.name}, ${t('Main Bot')}`} onPress={() => onOpen({ kind: 'bot', id: main.id })}
+                  style={({ pressed }) => [styles.tile, { backgroundColor: pressed || current === main.id ? p.active : p.hover }]}>
+                  <Avatar bot={main} dark={dark} size={52} ring={p.sidebar} main state={botMarkState(team, main, { unread })} live />
+                  <Text style={[typeScale.small, { color: p.ink, fontWeight: '600', marginTop: 6 }]} numberOfLines={1}>{main.name}</Text>
+                  {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 15, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
+                </Pressable>
+              )
+            })}
           </View></MarksShown.Provider> : null}
           {agentList.map(agent => <AgentRow key={agent.id} agent={agent} p={p} selected={current === agent.id} onPress={() => onOpen({ kind: 'agent', id: agent.id })} />)}
           </View>
         ) : undefined}
-        renderItem={({ item: entry }) => entry.kind === 'bot' ? (
-          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} waiting={botHasPending(team, entry.item)} working={botRunning(team, entry.item.id)} state={botMarkState(team, entry.item)} shown={shown && (inView === null || inView.has(`bot-${entry.item.id}`))} preview={preview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
-        ) : (
-          <RoomRow room={entry.item} bots={bots} p={p} dark={dark} waiting={roomHasPending(team, entry.item)} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
-        )}
+        renderItem={({ item: entry }) => {
+          if (entry.kind === 'bot') {
+            const unread = isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)
+            return <BotRow bot={entry.item} p={p} dark={dark} mains={mains} state={botMarkState(team, entry.item, { unread })} shown={shown && (inView === null || inView.has(`bot-${entry.item.id}`))} preview={preview(entry.item)} selected={current === entry.item.id} unread={unread} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
+          }
+          return <RoomRow room={entry.item} bots={bots} p={p} dark={dark} waiting={roomHasPending(team, entry.item)} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
+        }}
         ListEmptyComponent={emptyMessage === null ? undefined : (
           <Text style={[typeScale.small, { color: p.ink3, textAlign: 'center', marginTop: 40 }]} accessibilityLiveRegion="polite">{emptyMessage}</Text>
         )}
@@ -134,14 +139,14 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   )
 }
 
-function BotRow({ bot, p, dark, mains, waiting, working, state, shown, preview, unread, selected, onPress }: {
+function BotRow({ bot, p, dark, mains, state, shown, preview, unread, selected, onPress }: {
   bot: Bot; p: ReturnType<typeof useTheme>['p']; dark: boolean; mains: Set<string>
-  waiting: boolean; working: boolean; state: string; shown: boolean; preview?: string; unread?: boolean; selected?: boolean; onPress: () => void
+  state: string; shown: boolean; preview?: string; unread?: boolean; selected?: boolean; onPress: () => void
 }) {
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
       <MarksShown.Provider value={shown}>
-        <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={mains.has(bot.id)} working={working} waiting={waiting} state={state} live />
+        <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={mains.has(bot.id)} state={state} live />
       </MarksShown.Provider>
       <View style={styles.rowBody}>
         <View style={styles.nameRow}>

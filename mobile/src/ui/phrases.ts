@@ -17,7 +17,26 @@ const TOOL_PHRASES: [RegExp, string][] = [
   [/recall|memory|remember/i, 'Checking memory'],
 ]
 
-export function workPhrase(doing: { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean } | string | undefined): string {
+const ACTIVITY_PHRASES: Record<string, string> = {
+  thinking: 'Thinking about it',
+  searching: 'Searching online',
+  working: 'On it',
+  sending: 'On it',
+  orbit: 'On it',
+}
+
+export type WorkDetail = { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean }
+
+// Foreground running detail for a Bot: prefers work.bots[id] (structured step), and falls
+// back to activity[id] only when it names an active turn state (never 'waiting' or 'alert').
+export function runningActivityOf(workBot: WorkDetail | undefined, activityWord: unknown): WorkDetail | string | undefined {
+  if (workBot !== undefined) return workBot
+  if (typeof activityWord === 'string' && Object.hasOwn(ACTIVITY_PHRASES, activityWord)) return activityWord
+  return undefined
+}
+
+export function workPhrase(doing: WorkDetail | string | undefined): string {
+  if (typeof doing === 'string' && Object.hasOwn(ACTIVITY_PHRASES, doing)) return t(ACTIVITY_PHRASES[doing])
   const { tool, said, note, target, switching, folder } = typeof doing === 'string' ? { tool: doing } : doing ?? {}
   if (switching) return folder === true ? t('Switching working folder') : t('Moving to a fresh conversation')
   const own = (said || note)?.replace(/[\s.。…]+$/u, '')

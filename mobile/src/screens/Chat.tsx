@@ -18,7 +18,7 @@ import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { shadow, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { ArrowDownIcon, FishLogo } from '../ui/icons.tsx'
-import { roomTitle, workPhrase } from '../ui/phrases.ts'
+import { roomTitle, runningActivityOf, workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
 import { learningForChat } from './chat/learning.ts'
 import { Composer, type Photo } from './chat/composer.tsx'
@@ -315,7 +315,7 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
     }
     return []
   }, [bot, room, team?.bots])
-  const doing = bot !== undefined ? team?.work?.bots?.[bot.id] ?? team?.activity?.[bot.id] : undefined
+  const doing = bot !== undefined ? runningActivityOf(team?.work?.bots?.[bot.id], team?.activity?.[bot.id]) : undefined
   const secrets = (team?.secretRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const connectorRequests = (team?.connectorRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const mailRequests = (team?.mailRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')

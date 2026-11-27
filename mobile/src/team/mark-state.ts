@@ -1,8 +1,11 @@
-import { botState, toolState } from '../../../ds-bot/src/client/mark-states.js'
+import { botState, isBrowserHandoff, isComputerHandoff, RUNNING_STATES, toolState } from '../../../ds-bot/src/client/mark-states.js'
 import type { Bot, TeamState } from '../connection.ts'
 
 // What a Bot's mark shows, from the team's state as the desktop sidebar reads it
-// (sidebar.js BotRow): what it is doing, and waiting for you.
+// (sidebar.js BotRow + mark.js dmMarkState): what it is doing, waiting for you,
+// last-turn failure, active background tasks, and unread replies.
+
+const ACTIVE_TASK_STATUSES = new Set(['running', 'waiting_work', 'waiting_approval'])
 
 // Whether the Bot runs a turn now, in its own chat or in a group.
 export function botRunning(team: TeamState | null, botId: string): boolean {
@@ -14,27 +17,48 @@ export function botRunning(team: TeamState | null, botId: string): boolean {
 type Requests = Record<string, { status?: string }[] | undefined> | undefined
 const hasPending = (list: { status?: string }[] | undefined) => Array.isArray(list) && list.some(request => request?.status === 'pending')
 
-export function botMarkState(team: TeamState | null, bot: Bot): string {
+export function botMarkState(
+  team: TeamState | null,
+  bot: Bot,
+  options?: { unread?: boolean; latestTurn?: number },
+): string {
   const id = bot.id
   const part = bot.sessionId ?? id
   // Group approvals show on the group, not on the Bot (#1623).
   const own = (team?.work?.approvals ?? []).filter(entry => entry?.roomId === undefined && entry?.botId === id && entry?.answerable !== false)
-  const mail = (team as { mailRequests?: Requests } | null)?.mailRequests
-  const browserHolds = (team as { browserHolds?: Record<string, { callId?: string } | undefined> } | null)?.browserHolds
-  const card = hasPending(team?.secretRequests?.[id]) || hasPending(team?.connectorRequests?.[id]) || hasPending(mail?.[id])
+  const fgComputer = Object.values(team?.computerLive?.asks ?? {}).some(ask => ask?.roomId === undefined && ask?.botId === id)
+  const card = hasPending(team?.secretRequests?.[id]) || hasPending(team?.connectorRequests?.[id]) || hasPending((team?.mailRequests as Requests)?.[id])
   const question = team?.questions?.[part] !== undefined || team?.views?.[part] !== undefined
-  // A turn stops on these until you answer; a background task's approval, a skill to
-  // learn, or a browser handoff waits without stopping anything.
-  const blocking = own.some(entry => entry.taskId === undefined) || card || question
-  const browserHold = browserHolds?.[id]?.callId !== undefined
-  const waits = blocking || own.some(entry => entry.taskId !== undefined) || (team?.learning?.[id]?.length ?? 0) > 0 || browserHold
+  const handoff = isBrowserHandoff(team?.browserHolds?.[id]) || isComputerHandoff(team?.computerLive?.holds?.[id])
+  // Direct-chat background tasks (non-group, mirroring bot-tasks.js tasksForChat).
+  const dmTasks = (bot.tasks ?? []).filter(task => task && !task.roomId && ACTIVE_TASK_STATUSES.has(task.status))
+  const background = dmTasks.length > 0
+  const taskWaitingApproval = dmTasks.some(task => task.status === 'waiting_approval')
+  // A turn stops on these until you answer; a background task's approval or a skill to
+  // learn waits without stopping foreground work.
+  const blocking = own.some(entry => entry.taskId === undefined) || fgComputer || card || question || handoff
+  const waits = blocking || own.some(entry => entry.taskId !== undefined) || taskWaitingApproval || (team?.learning?.[id]?.length ?? 0) > 0
+  // Last-turn failure or active credential/balance block (mark.js lastTurnFailed).
+  const failure = bot.failures?.[part]
+  const latestTurn = options?.latestTurn
+  const failed = bot.blocked !== undefined || (failure !== undefined && !(typeof failure.turn === 'number' && failure.turn >= 1 && typeof latestTurn === 'number' && latestTurn > failure.turn))
   // The computer's own word for what the Bot does (thinking, searching, waiting…).
   const said: unknown = team?.activity?.[id]
   const activity = typeof said === 'string' ? said : undefined
   const doing = blocking ? 'alert' : activity === 'alert' ? undefined : activity
-  return botState(botRunning(team, id), doing, waits)
+  return botState(botRunning(team, id), doing, waits, {
+    failed,
+    background,
+    replied: options?.unread === true,
+  })
 }
 
 // A running turn's own mark (the chat's activity row): thinking until a tool runs, then
 // what the tool does, as the desktop's activity row shows it (cells.js).
-export const workMarkState = (doing: { tool?: string; switching?: boolean } | undefined) => (doing?.switching || !doing?.tool ? 'thinking' : toolState(doing.tool))
+export const workMarkState = (doing: { tool?: string; switching?: boolean } | string | undefined) => {
+  if (typeof doing === 'string') return RUNNING_STATES.has(doing) ? doing : 'thinking'
+  return doing?.switching || !doing?.tool ? 'thinking' : toolState(doing.tool)
+}
+
+// Whether a block anchored at the top of a scroll view is still at least partially visible.
+export const isTopBlockInView = (scrollY: number, blockBottom: number): boolean => blockBottom <= 0 || scrollY < blockBottom

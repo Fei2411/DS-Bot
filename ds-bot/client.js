@@ -29998,9 +29998,13 @@ var LiveMark = class {
 
 // src/client/mark-states.js
 var MARK_STATES = ["idle", "thinking", "searching", "working", "sending", "orbit", "waiting", "background", "alert", "failed", "done", "replied"];
+var RUNNING_STATES = /* @__PURE__ */ new Set(["thinking", "searching", "working", "sending", "orbit", "done"]);
 var BETWEEN = /* @__PURE__ */ new Set(["waiting", "background", "failed", "replied"]);
 var botState = (running, activity, alert, { failed = false, background = false, replied = false } = {}) => running ? MARK_STATES.includes(activity) && !BETWEEN.has(activity) ? activity : "working" : alert ? "alert" : failed ? "failed" : activity === "waiting" ? "waiting" : background ? "background" : replied ? "replied" : "idle";
 var toolState = (name) => /^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
+var avatarBadge = (state, { main = false, admin = false, badge = true } = {}) => !badge ? null : state === "alert" ? "alert" : RUNNING_STATES.has(state) ? "working" : admin ? "admin" : main ? "main" : null;
+var isBrowserHandoff = (hold) => hold?.callId !== void 0;
+var isComputerHandoff = (hold) => hold !== void 0 && (hold.by === "bot" || hold.fromBot === true || hold.callId !== void 0 || typeof hold.reason === "string" && hold.reason !== "takeover");
 
 // src/client/memo.js
 var React = __toESM(require("react"), 1);
@@ -30027,7 +30031,6 @@ function useRosterPick(useRoster, fields) {
 
 // src/client/mark.js
 var import_react2 = require("react");
-var RUNNING = /* @__PURE__ */ new Set(["thinking", "searching", "working", "sending", "orbit", "done"]);
 var latestTurnOf = (list, part) => {
   const outline2 = turnOutlineOf(list, part);
   return Array.isArray(outline2) && outline2.length > 0 ? outline2.at(-1).turn : void 0;
@@ -30058,8 +30061,6 @@ function useBotApprovals(botId, useWork, useComputer) {
   const bgApproval = useReadWork((work) => botId !== void 0 && (work.approvals ?? []).some((entry) => entry.roomId === void 0 && entry.botId === botId && entry.taskId !== void 0 && entry.answerable !== false));
   return { fgApproval: fgTool || fgComputer, bgApproval };
 }
-var isBrowserHandoff = (hold) => hold?.callId !== void 0;
-var isComputerHandoff = (hold) => hold !== void 0 && (hold.by === "bot" || hold.fromBot === true || hold.callId !== void 0 || typeof hold.reason === "string" && hold.reason !== "takeover");
 function useBotHandoff(botId, useBrowserHolds, useComputer) {
   const useReadBrowserHolds = useBrowserHolds ?? useFalse;
   const useReadComputer = useComputer ?? useFalse;
@@ -30172,7 +30173,7 @@ function useSettled(state, id) {
 var BotAvatar = memo(function BotAvatar2({ bot, size, state = "idle", main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
   const settled = useSettled(state, bot?.id);
   if (bot === void 0) return (0, import_react2.createElement)(BotMark, { size });
-  const badgeKind = !badge ? null : state === "alert" ? "alert" : RUNNING.has(state) ? "working" : admin ? "admin" : main ? "main" : null;
+  const badgeKind = avatarBadge(state, { main, admin, badge });
   return (0, import_react2.createElement)(
     "span",
     { className: "bt-mark", style: { width: size, height: size, "--bt-size": `${size}px` } },
@@ -30911,7 +30912,7 @@ function useEscape(onClose, active = true, { priority = 0 } = {}) {
 // src/client/goal.js
 var import_react7 = require("react");
 var REPORTED = /* @__PURE__ */ new Set(["reported", "done"]);
-var RUNNING2 = /* @__PURE__ */ new Set(["active", "paused"]);
+var RUNNING = /* @__PURE__ */ new Set(["active", "paused"]);
 var FACES_MAX = 4;
 var hasGoalAdmin = (room2, roster) => room2 !== void 0 && room2.members?.includes(room2.admin) === true && roster.byId?.[room2.admin] !== void 0;
 var canSetGoal = (room2, roster) => hasGoalAdmin(room2, roster) && room2.goal?.status !== "active" && room2.goal?.status !== "paused";
@@ -30920,7 +30921,7 @@ function goalView(goal, { roster = {}, roomWork = [] } = {}) {
   const stages = goal.stages ?? [];
   const count = stages.length;
   const at2 = goal.current;
-  const current2 = RUNNING2.has(goal.status) ? stages[at2] : void 0;
+  const current2 = RUNNING.has(goal.status) ? stages[at2] : void 0;
   const checking = current2 !== void 0 && (current2.tasks ?? []).every((task) => REPORTED.has(task.status));
   const number = goal.status === "drafting" ? void 0 : goal.status === "stopped" ? stages.filter((stage) => stage.status === "passed").length : current2 !== void 0 ? at2 + 1 : count;
   const barLabel = goal.status === "drafting" ? t("Aligning the goal with you") : goal.status === "stopped" ? t("Stopped") : goal.status === "complete" ? t("Goal reached") : goal.status === "paused" ? current2 ? t("Paused · {title}", { title: current2.title }) : t("Paused") : goal.idle === true ? current2 ? t("Waiting for you · {title}", { title: current2.title }) : t("Waiting for you") : current2 === void 0 ? t("Final check") : checking ? t("Checking · {title}", { title: current2.title }) : current2.title;
@@ -30937,7 +30938,7 @@ function goalView(goal, { roster = {}, roomWork = [] } = {}) {
     title: stage.title,
     acceptance: stage.acceptance,
     status: stage.status,
-    kind: stage.status === "passed" ? "passed" : i === at2 && RUNNING2.has(goal.status) ? "current" : "upcoming",
+    kind: stage.status === "passed" ? "passed" : i === at2 && RUNNING.has(goal.status) ? "current" : "upcoming",
     tasks: (stage.tasks ?? []).map((task) => ({ bot: roster.byId?.[task.botId], task: task.task, status: task.status })),
     evidence: stage.evidence,
     reworks: stage.reworks ?? 0,
@@ -31037,11 +31038,11 @@ function TaskRow({ task, working }) {
 }
 var STOP_ARM_MS = 3e3;
 function GoalPanel({ goal, view, room: room2, roster, actions, working }) {
-  const at2 = RUNNING2.has(view.status) && goal.current < view.stages.length ? goal.current : -1;
+  const at2 = RUNNING.has(view.status) && goal.current < view.stages.length ? goal.current : -1;
   const [selected, setSelected] = (0, import_react7.useState)(at2);
   const [checks, setChecks] = (0, import_react7.useState)(false);
   const [armed, setArmed] = (0, import_react7.useState)(false);
-  (0, import_react7.useEffect)(() => setSelected(RUNNING2.has(view.status) && goal.current < view.stages.length ? goal.current : -1), [view.status, goal.current]);
+  (0, import_react7.useEffect)(() => setSelected(RUNNING.has(view.status) && goal.current < view.stages.length ? goal.current : -1), [view.status, goal.current]);
   (0, import_react7.useEffect)(() => {
     if (!armed) return void 0;
     const timer2 = setTimeout(() => setArmed(false), STOP_ARM_MS);
