@@ -1,6 +1,7 @@
 import { createElement as h, useEffect, useState } from 'react'
 import { BotAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
+import { CheckIcon } from './icons.js'
 import { ModelMenu, modelOf } from './model-menu.js'
 import { isLocalRoute, routeOf } from './agent-routes.js'
 import { SKIP_LOCAL_AGENT, modelRefOf, runModelChange, summarizeModelChange } from './bot-model-batch.js'
@@ -47,6 +48,7 @@ export function BotModelsPage({ roster, actions, run, Section, preset = null }) 
   const [results, setResults] = useState(null)
   const [busy, setBusy] = useState(false)
   const eligible = bots.filter(bot => !isLocalRoute(modelRefOf(bot)))
+  const hasLocal = eligible.length < bots.length
   const resultsById = new Map((results ?? []).map(entry => [entry.id, entry]))
   const toggle = (id) => {
     if (busy) return
@@ -75,45 +77,44 @@ export function BotModelsPage({ roster, actions, run, Section, preset = null }) 
     bot: { id: 'selected-bots', name: t('Selected Bots'), model: target }, roster, actions, run,
     wide: true, withEfforts: false, onPick: apply,
   })
-  return [
-    h(Section, { key: 'change', title: t('Change several Bots'), tour: 'bm-bar' },
-      offered && moving.length > 0 ? h('div', { className: 'bt-set-row bt-bm-offer', role: 'status' },
-        h('span', { className: 'bt-set-copy' }, h('span', null, t('Switch {names} to {model}?', { names: moving.map(bot => bot.name).join(t(', ')), model: modelName(offered, (roster.models ?? []).filter(entry => !entry.needsKey && !isLocalRoute(entry.ref))) }))),
-        h('div', { className: 'bt-set-control bt-bm-actions' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => setOffer(null) }, t('Cancel')),
-          h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => { setOffer(null); apply(offered.ref, moving) } }, t('Switch')))) : null,
-      h('div', { className: 'bt-set-row bt-bm-bar' },
-        h('span', { className: 'bt-set-copy' },
-          h('span', null, t('{selected} of {total} selected', { selected: selected.size, total: bots.length })),
-          h('span', { className: 'bt-set-hint' }, t('Bots on a local agent keep their own model.'))),
-        h('div', { className: 'bt-set-control bt-bm-actions' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || eligible.length === 0 || selected.size === eligible.length, onClick: () => setSelected(new Set(eligible.map(bot => bot.id))) }, t('Select all')),
-          selected.size > 0 ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => setSelected(new Set()) }, t('Clear')) : null,
-          busy ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: true }, t('Changing…'))
-            : selected.size === 0 ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: true }, t('Choose a model')) : picker)),
-      results === null ? null : h('div', { className: 'bt-set-row bt-bm-summary', role: 'status' },
-        h('span', { className: 'bt-set-copy' }, h('span', null, summaryLine(results))))),
-    h(Section, { key: 'bots', title: t('Bots · {count}', { count: bots.length }), tour: 'bm-list' },
-      bots.map((bot) => {
-        const local = isLocalRoute(modelRefOf(bot))
-        const entry = resultsById.get(bot.id)
-        return h('label', { key: bot.id, className: 'bt-set-row bt-bm-row', 'data-selected': selected.has(bot.id) ? '' : undefined, 'data-local': local ? '' : undefined },
-          h('span', { className: 'bt-bm-check' },
-            h('input', {
-              type: 'checkbox', checked: selected.has(bot.id), disabled: local || busy,
-              'aria-label': t('Select {name}', { name: bot.name }),
-              onChange: () => toggle(bot.id),
-            })),
-          h(BotAvatar, { bot, size: 28, badge: false, live: false }),
-          h('span', { className: 'bt-set-copy bt-bm-copy' },
-            h('span', { className: 'bt-bm-name' },
-              h('span', null, bot.name),
-              local ? h('span', { className: 'bt-tag bt-bm-agent' }, h(AgentBadge, { engine: routeOf(modelRefOf(bot)), size: 13 }), t('Local agent')) : null,
-              entry === undefined ? null : h('span', { className: 'bt-bm-out', 'data-state': entry.status }, resultLine(entry))),
-            h('span', { className: 'bt-set-hint bt-bm-model' }, modelLine(bot, roster)),
-            local ? h('span', { className: 'bt-set-hint' }, t("Change it in the Bot's settings.")) : null))
-      })),
-  ]
+  return h(Section, { title: t('Bots · {count}', { count: bots.length }), tour: 'bm-list' },
+    offered && moving.length > 0 ? h('div', { className: 'bt-set-row bt-bm-offer', role: 'status' },
+      h('span', { className: 'bt-set-copy' }, h('span', null, t('Switch {names} to {model}?', { names: moving.map(bot => bot.name).join(t(', ')), model: modelName(offered, (roster.models ?? []).filter(entry => !entry.needsKey && !isLocalRoute(entry.ref))) }))),
+      h('div', { className: 'bt-set-control bt-bm-actions' },
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => setOffer(null) }, t('Cancel')),
+        h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => { setOffer(null); apply(offered.ref, moving) } }, t('Switch')))) : null,
+    h('div', { className: 'bt-set-row bt-bm-bar', 'data-tour': 'bm-bar' },
+      h('span', { className: 'bt-set-copy' },
+        h('span', null, t('{selected} of {total} selected', { selected: selected.size, total: bots.length })),
+        hasLocal ? h('span', { className: 'bt-set-hint' }, t('Bots on a local agent keep their own model.')) : null),
+      h('div', { className: 'bt-set-control bt-bm-actions' },
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || eligible.length === 0 || selected.size === eligible.length, onClick: () => setSelected(new Set(eligible.map(bot => bot.id))) }, t('Select all')),
+        selected.size > 0 ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => setSelected(new Set()) }, t('Clear')) : null,
+        busy ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: true }, t('Changing…'))
+          : selected.size === 0 ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: true }, t('Choose a model')) : picker)),
+    results === null ? null : h('div', { className: 'bt-set-row bt-bm-summary', role: 'status' },
+      h('span', { className: 'bt-set-copy' }, h('span', null, summaryLine(results)))),
+    bots.map((bot) => {
+      const local = isLocalRoute(modelRefOf(bot))
+      const entry = resultsById.get(bot.id)
+      return h('label', { key: bot.id, className: 'bt-set-row bt-bm-row', 'data-selected': selected.has(bot.id) ? '' : undefined, 'data-local': local ? '' : undefined },
+        h('span', { className: 'bt-bm-check' },
+          h('input', {
+            type: 'checkbox', checked: selected.has(bot.id), disabled: local || busy,
+            'aria-label': t('Select {name}', { name: bot.name }),
+            onChange: () => toggle(bot.id),
+          }),
+          h('span', { className: 'bt-bm-box', 'data-on': selected.has(bot.id) ? '' : undefined, 'aria-hidden': true },
+            selected.has(bot.id) ? h(CheckIcon) : null)),
+        h(BotAvatar, { bot, size: 28, badge: false, live: false }),
+        h('span', { className: 'bt-set-copy bt-bm-copy' },
+          h('span', { className: 'bt-bm-name' },
+            h('span', null, bot.name),
+            local ? h('span', { className: 'bt-tag bt-bm-agent' }, h(AgentBadge, { engine: routeOf(modelRefOf(bot)), size: 13 }), t('Local agent')) : null,
+            entry === undefined ? null : h('span', { className: 'bt-bm-out', 'data-state': entry.status }, resultLine(entry))),
+          h('span', { className: 'bt-set-hint bt-bm-model' }, modelLine(bot, roster)),
+          local ? h('span', { className: 'bt-set-hint' }, t("Change it in the Bot's settings.")) : null))
+    }))
 }
 
 // The list keeps the settings page's card look; only the selection row and the per-Bot
@@ -124,9 +125,14 @@ export const BOT_MODELS_CSS = `
 .bt-bm-row{cursor:pointer;gap:10px}
 .bt-bm-row[data-local]{cursor:default}
 .bt-bm-row[data-selected]{background:var(--bt-active)}
-.bt-bm-check{flex:none;display:inline-flex;align-items:center}
-.bt-bm-check input{width:15px;height:15px;margin:0;accent-color:var(--bt-accent);cursor:inherit}
-.bt-bm-check input:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-bm-check{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center}
+.bt-bm-check input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:inherit}
+.bt-bm-box{width:18px;height:18px;border-radius:6px;border:.5px solid var(--bt-line-2);background:var(--bt-main);color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;transition:background-color .12s ease,border-color .12s ease}
+.bt-bm-box svg{width:12px;height:12px}
+.bt-bm-box[data-on]{background:var(--bt-accent);border-color:var(--bt-accent)}
+.bt-bm-row:not([data-local]):hover .bt-bm-box:not([data-on]){border-color:color-mix(in srgb,var(--bt-ink) 32%,transparent);background:var(--bt-hover)}
+.bt-bm-row[data-local] .bt-bm-box{opacity:.4}
+.bt-bm-check input:focus-visible+.bt-bm-box{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-bm-copy{gap:2px}
 .bt-bm-name{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
 .bt-bm-agent{display:inline-flex;align-items:center;gap:4px}

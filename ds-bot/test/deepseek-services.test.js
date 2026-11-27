@@ -503,6 +503,57 @@ test('the speech provider registers through inject', async () => {
   assert.equal((await rt.servicesStatus()).speech.registered, true)
 })
 
+test('startup ASR credential checks coalesce across registration and key-change events', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const listeners = new Map()
+  const effects = []
+  let describes = 0
+  let configured = false
+  let provider
+  let mount
+  const ctx = {
+    get: name => ({
+      credentials: { describe: async () => { describes++; return { configured } } },
+      speechToText: { register: value => { provider = value; return () => {} } },
+    })[name],
+    on(name, listener) {
+      listeners.set(name, listener)
+      return () => listeners.delete(name)
+    },
+    effect: execute => { effects.push(execute()) },
+    inject: (_deps, run) => { mount = () => run(ctx); mount() },
+  }
+  install({ ctx, state: { prefs: {} }, teamTools: [] })
+  const events = ['credentials/reference-updated', 'settings/document-updated', 'llm/adapters-updated']
+  for (const name of events) listeners.get(name)()
+  t.mock.timers.tick(99)
+  assert.equal(describes, 0)
+  configured = true
+  listeners.get(events[0])()
+  t.mock.timers.tick(1)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(describes, 1)
+  assert.equal(provider.preparation.snapshot().phase, 'ready')
+  t.mock.timers.tick(100)
+  assert.equal(describes, 1)
+
+  configured = false
+  provider.preparation.prepare()
+  assert.equal(describes, 2)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(provider.preparation.snapshot().phase, 'unprepared')
+
+  listeners.get(events[0])()
+  await effects[1]()
+  t.mock.timers.tick(100)
+  assert.equal(describes, 2)
+  mount()
+  await effects[0]()
+  listeners.get(events[0])()
+  t.mock.timers.tick(100)
+  assert.equal(describes, 2)
+})
+
 test('ASR readiness follows the key, and transcribe posts the audio', async (t) => {
   const registered = []
   const inject = (deps, fn) => fn({ effect: execute => execute() })
@@ -511,8 +562,11 @@ test('ASR readiness follows the key, and transcribe posts the audio', async (t) 
   const provider = registered[0]
   assert.equal(provider.preparation.snapshot().phase, 'unprepared')
   await assert.rejects(() => provider.transcribe({ audio: wav16() }), /API key|key/)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
   setup({ keys: { DEEPSEEK_API_KEY: 'sk-1' }, speechToText, inject })
   const ready = registered[1]
+  t.mock.timers.tick(100)
+  t.mock.timers.reset()
   await new Promise(resolve => setTimeout(resolve, 0))
   assert.equal(ready.preparation.snapshot().phase, 'ready')
   const calls = stubFetch(t, () => json({ request_id: 'r1', text: 'hello there', duration_ms: 3200 }))
@@ -523,6 +577,41 @@ test('ASR readiness follows the key, and transcribe posts the audio', async (t) 
   assert.equal(call.url, 'https://api.deepseek.com/v1/tools/asr')
   assert.ok(call.init.body instanceof FormData)
   assert.equal(call.init.body.get('file').name, 'speech.wav')
+})
+
+test('ASR transcribes when a scheduled key check overtakes its own lookup', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const own = Promise.withResolvers()
+  const scheduled = Promise.withResolvers()
+  let describes = 0
+  let provider
+  const ctx = {
+    get: name => ({
+      credentials: {
+        describe: async () => [own.promise, scheduled.promise][describes++] ?? { configured: true },
+        resolve: async () => ({ value: 'sk-1' }),
+      },
+      speechToText: { register: value => { provider = value; return () => {} } },
+    })[name],
+    on: () => () => {},
+    effect: execute => execute(),
+    inject: (_deps, mount) => mount(ctx),
+  }
+  install({ ctx, state: { prefs: {} }, teamTools: [] })
+  const calls = stubFetch(t, () => json({ text: 'hello there' }))
+
+  const result = provider.transcribe({ audio: wav16() })
+  assert.equal(describes, 1)
+  t.mock.timers.tick(100)
+  assert.equal(describes, 2)
+  own.resolve({ configured: true })
+  assert.equal((await result).text, 'hello there')
+  assert.equal(calls.length, 1)
+  assert.equal(provider.preparation.snapshot().phase, 'unprepared')
+
+  scheduled.resolve({ configured: true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(provider.preparation.snapshot().phase, 'ready')
 })
 
 test('ASR refuses over-length audio before upload', async (t) => {
@@ -537,7 +626,7 @@ test('ASR refuses over-length audio before upload', async (t) => {
   assert.equal(calls.length, 0)
 })
 
-test('an out-of-order key describe cannot roll readiness back, in either direction', async () => {
+test('an out-of-order key describe cannot roll readiness back, in either direction', async (t) => {
   // refresh #1 (install) and #2 (prepare) race: whichever resolves later must
   // win, and the stale answer — ready or not-ready — must not roll back.
   const deferred = () => { let resolve; return { promise: new Promise(r => { resolve = r }), resolve } }
@@ -565,7 +654,10 @@ test('an out-of-order key describe cannot roll readiness back, in either directi
     inject,
   }
   const rt = { ctx, state: { prefs: {} }, teamTools: [], warn: () => {}, load: async () => {}, save: async () => {}, selfOf: () => 'b', isBotSession: () => true, roomOf: () => undefined, inData: async () => false, real: async p => p }
+  t.mock.timers.enable({ apis: ['setTimeout'] })
   install(rt)
+  t.mock.timers.tick(100)
+  t.mock.timers.reset()
   const provider = registered[0]
   // refresh #2 begins through the provider's own prepare hook.
   provider.preparation.prepare()
@@ -595,7 +687,10 @@ test('an out-of-order key describe cannot roll readiness back, in either directi
     effect: execute => execute(),
     inject,
   }
+  t.mock.timers.enable({ apis: ['setTimeout'] })
   install({ ctx: ctx2, state: { prefs: {} }, teamTools: [], warn: () => {}, load: async () => {}, save: async () => {}, selfOf: () => 'b', isBotSession: () => true, roomOf: () => undefined, inData: async () => false, real: async p => p })
+  t.mock.timers.tick(100)
+  t.mock.timers.reset()
   registered[1].preparation.prepare()
   d4.resolve({ configured: false })
   await new Promise(r => setTimeout(r, 0))

@@ -9,13 +9,14 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { isAckLikeText, LATE_ANSWER, PAIR_LOOP_TTL_MS, TEXT_KEPT, WORK_ASK_BACK_LIMIT, WORK_REWORK_CHECKPOINT } from './constants.js'
+import { isAckLikeText, LATE_ANSWER, PAIR_LOOP_TTL_MS, TEXT_KEPT, WORK_ASK_BACK_LIMIT } from './constants.js'
 import { normalizeImOrigin, sameImOrigin } from './im/origin.js'
 import { headOf } from './text.js'
 import { isActiveTask, ownChatSessions, threadCurrentOfPart, threadOfPart } from './threads.js'
 
 const own = (obj, key) => (obj != null && typeof key === 'string' && Object.hasOwn(obj, key) ? obj[key] : undefined)
 const safeKey = key => typeof key === 'string' && key !== '' && key !== '__proto__' && key !== 'constructor' && key !== 'prototype'
+const contentKey = text => createHash('sha256').update(String(text ?? '').trim()).digest('hex')
 
 const minutes = since => {
   const count = Math.floor((Date.now() - since) / 60_000)
@@ -95,6 +96,14 @@ export function install(rt) {
   const keptName = file => (typeof file === 'string' && /^[A-Za-z0-9_-]+\.txt$/.test(file) ? file : undefined)
   const writes = () => rt.readOnly?.() === undefined
   let savedWrites = 0
+  let startupSweepDone = typeof ctx?.effect !== 'function'
+  // Files written by this process before the one-shot startup orphan sweep finishes
+  // belong to live dropResults() bookkeeping, not to a prior crashed host.
+  const createdBeforeStartupSweep = new Set()
+  const finishStartupSweep = () => {
+    startupSweepDone = true
+    createdBeforeStartupSweep.clear()
+  }
   const tracksSaved = typeof rt.onSaved === 'function'
   if (tracksSaved) rt.onSaved(() => { savedWrites += 1 })
 
@@ -109,6 +118,7 @@ export function install(rt) {
       mkdirSync(resultsDir, { recursive: true })
       writeFileSync(temp, text, 'utf8')
       renameSync(temp, path)
+      if (!startupSweepDone) createdBeforeStartupSweep.add(name)
       return name
     } catch (error) {
       rt.warn('ds-bot: result of work %s not kept whole: %s', id, error)
@@ -159,18 +169,22 @@ export function install(rt) {
 
   // Startup async sweep for orphan `handoff-results/*.txt` files left behind by a crash.
   async function pruneOrphanResultFiles() {
-    if (!writes()) return
-    let entries
     try {
-      entries = await readdir(resultsDir)
-    } catch {
-      return
-    }
-    const referenced = referencedInWorks(works())
-    for (const file of entries) {
-      const name = keptName(file)
-      if (name === undefined || referenced.has(name)) continue
-      await rm(resultPath(name), { force: true }).catch(() => {})
+      if (!writes()) return
+      let entries
+      try {
+        entries = await readdir(resultsDir)
+      } catch {
+        return
+      }
+      const referenced = referencedInWorks(works())
+      for (const file of entries) {
+        const name = keptName(file)
+        if (name === undefined || referenced.has(name) || createdBeforeStartupSweep.has(name)) continue
+        await rm(resultPath(name), { force: true }).catch(() => {})
+      }
+    } finally {
+      finishStartupSweep()
     }
   }
 
@@ -224,7 +238,7 @@ export function install(rt) {
       ...(name ? { name } : {}),
       ...(child ? { child } : {}),
       ...(cleanOrigin ? { imOrigin: cleanOrigin } : {}),
-      ...(typeof goal === 'string' && goal.trim() !== '' ? { goal: headOf(goal.trim().replace(/\s+/g, ' '), 80) } : {}),
+      ...(typeof goal === 'string' && goal.trim() !== '' ? { goal: headOf(goal.trim().replace(/\s+/g, ' '), 80), goalKey: contentKey(goal) } : {}),
       ...(paused !== undefined ? { paused } : {}),
       rounds: 0,
       worked: false,
@@ -262,10 +276,9 @@ export function install(rt) {
   // Pair loop guard: tracks consecutive Bot-to-Bot delegations between (a, b) since the
   // last user message to either Bot, expiring after PAIR_LOOP_TTL_MS of inactivity.
   // Reciprocal zero-work bounces (B -> A right after A -> B) or ACK/wrap-up ping-pong
-  // pause immediately at 2 (after 1 empty round-trip); same-direction substantive
-  // pure-LLM delegations (neither call nor reply is ack-like) are governed by
-  // WORK_REWORK_CHECKPOINT (4) so multi-section drafting/translation/review runs smoothly.
-  function noteWorkCompleted(fromId, toId, { worked = false, id, text = '' } = {}) {
+  // pause immediately after one empty round-trip. Rework compares both the assignment
+  // and its result hash so distinct steps of a long pure-LLM chain keep going.
+  function noteWorkCompleted(fromId, toId, { worked = false, id, goalKey, text = '' } = {}) {
     if (!fromId || !toId || fromId === toId) return
     const key = pairKey(fromId, toId)
     const map = pairLoops()
@@ -276,7 +289,11 @@ export function install(rt) {
     const prev = own(map, key)
     const fresh = prev !== undefined && now - (prev.lastAt ?? 0) <= PAIR_LOOP_TTL_MS
     const entry = fresh ? prev : { idleBounces: 0, reworkBounces: 0, lastAt: 0 }
-    entry.reworkBounces = (entry.reworkBounces ?? 0) + 1
+    const resultKey = contentKey(text)
+    const repeated = goalKey !== undefined && entry.lastFrom === fromId && entry.goalKey === goalKey && entry.resultKey === resultKey
+    entry.reworkBounces = repeated ? (entry.reworkBounces ?? 1) + 1 : 1
+    entry.goalKey = goalKey
+    entry.resultKey = resultKey
     entry.idleBounces = worked === true ? 0 : (entry.idleBounces ?? 0) + 1
     entry.lastWorked = worked === true
     entry.lastFrom = fromId
@@ -307,7 +324,7 @@ export function install(rt) {
     }
     if (changed) save()
   }
-  function checkPairLoop(fromId, toId, { callerWorked = false, text = '' } = {}) {
+  function checkPairLoop(fromId, toId, { callerWorked = false, text = '', followUp = false } = {}) {
     if (!fromId || !toId || fromId === toId) return { ok: true }
     for (const [id, work] of Object.entries(works())) {
       if (work?.state === 'paused' && ((work.from === fromId && work.to === toId) || (work.from === toId && work.to === fromId))) {
@@ -317,14 +334,14 @@ export function install(rt) {
     const entry = own(pairLoops(), pairKey(fromId, toId))
     if (entry === undefined) return { ok: true }
     if (Date.now() - (entry.lastAt ?? 0) > PAIR_LOOP_TTL_MS) return { ok: true }
-    if (!callerWorked) {
+    if (!callerWorked && !followUp) {
       const idleBounces = entry.idleBounces ?? 0
       const reciprocalOrAck = entry.lastFrom === toId || entry.lastAck === true || isAckLikeText(text)
       if (idleBounces >= 1 && reciprocalOrAck) {
         return { pause: 'idle_loop', bounces: idleBounces + 1 }
       }
     }
-    if ((entry.reworkBounces ?? 0) >= WORK_REWORK_CHECKPOINT) {
+    if (!callerWorked && entry.reworkBounces >= 2 && entry.lastFrom === fromId && entry.goalKey === contentKey(text)) {
       return { pause: 'rework_limit', bounces: entry.reworkBounces }
     }
     return { ok: true }
@@ -397,6 +414,7 @@ export function install(rt) {
     const above = own(works(), parent)
     if (above !== undefined) above.open = above.open.filter(other => other !== id)
     for (const result of work.results ?? []) whole.delete(result.id)
+    rt.clearWorkNotes?.(id)
     const savedBefore = savedWrites
     void rt.save().then(() => {
       dropResults(work.results, savedBefore)
@@ -438,8 +456,13 @@ export function install(rt) {
     const summary = `Delegated work${label} to ${targetName} was cancelled by ${byLabel}${why ? ` (${why})` : ''}. Continue with your own work without waiting for ${targetName}.`
     if (snapshot?.parent === undefined) {
       const waitingTask = activeTaskThreadOf(snapshot)
-      if (waitingTask === undefined) return Promise.resolve(false)
-      const { callerBot, targetSession } = waitingTask
+      const workerStopped = by === snapshot.to && by !== snapshot.from
+      if (waitingTask === undefined && (!workerStopped || (snapshot.fromPart && threadOfPart(rt.botOf(snapshot.from), snapshot.fromPart)?.thread === 'task'))) {
+        return Promise.resolve(false)
+      }
+      const callerBot = waitingTask?.callerBot ?? rt.botOf(snapshot.from)
+      if (callerBot === undefined) return Promise.resolve(false)
+      const targetSession = waitingTask?.targetSession ?? rt.chatOf(callerBot.id)
       if (by === callerBot.id && targetSession !== undefined && bySession === targetSession && rt.live?.get(targetSession)?.turn !== undefined) {
         return Promise.resolve(false)
       }
@@ -664,6 +687,7 @@ export function install(rt) {
     if (waiting === undefined || rt.botOf(waiting) === undefined) return
     void rt.deliver({
       fromName: late.name ?? 'the subagent', toId: waiting, text: LATE_ANSWER + text, role: 'reply',
+      replyTo: id, ...(late.ref ? { workRef: late.ref } : {}),
       exchangeId: randomUUID(), recordExchange: false,
     }).catch(error => rt.warn('ds-bot: the late result of %s did not reach %s: %s', late.name ?? 'a subagent', waiting, error))
   }
@@ -685,6 +709,7 @@ export function install(rt) {
     const above = own(works(), parent)
     if (above !== undefined) above.open = above.open.filter(other => other !== id)
     for (const result of work.results ?? []) whole.delete(result.id)
+    rt.clearWorkNotes?.(id)
     const savedBefore = savedWrites
     void rt.save().then(() => {
       dropResults(work.results, savedBefore)
@@ -744,8 +769,10 @@ export function install(rt) {
       if (result.failed === true) return `${result.name} could not send its reply to you; what it had answered:\n${text}${cut}`
       return `${result.name}:\n${text}${cut}`
     })
-    const body = results.length === 0 ? said || `${botName} finished without a reply.`
+    let body = results.length === 0 ? said || `${botName} finished without a reply.`
       : [said || `${botName} finished and wrote nothing more.`, `[Handed back to ${botName} for this work]`, ...results].join('\n\n')
+    const unreadNotes = rt.unreadWorkNotes?.(workId, work)
+    if (unreadNotes > 0) body += `\n\n[${botName} finished before reading ${unreadNotes} queued work update(s). They were not applied.]`
     // The request reached its target only after a restart; the answer says so.
     return work?.late === true ? `[This request reached ${botName} only after DeepSeek Harness restarted.]\n\n${body}` : body
   }
@@ -932,9 +959,11 @@ export function install(rt) {
           return pruneOrphanResultFiles()
         })
         .catch(error => rt.warn('ds-bot: lost waits not settled: %s', error))
+        .finally(finishStartupSweep)
     }, 0)
     return () => {
       clearTimeout(timer)
+      finishStartupSweep()
       offAdopted?.()
       whole.clear()
     }

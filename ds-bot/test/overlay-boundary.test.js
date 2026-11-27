@@ -340,6 +340,36 @@ test('Overlays wraps every overlay and watcher child in an OverlayBoundary', () 
     'notifications', 'opening', 'panel', 'new-chat', 'palette',
     'group-search', 'exchange', 'voice', 'menu', 'settings', 'memory',
   ])
+  const openingBoundary = children.find(child => child.props.name === 'opening')
+  assert.equal(openingBoundary.props.children.props.onNewSession, undefined)
+})
+
+test('Overlays passes actions.recoverOpening as onNewSession through the opening OverlayBoundary', () => {
+  const { react } = createRuntime()
+  const { Overlays, OverlayBoundary } = loadModule(react)
+  const recoverOpening = () => {}
+  const roster = { bots: [], rooms: [], byId: { 'bot-1': { id: 'bot-1', name: 'Chief' } }, roomsById: {}, exchangeTurns: {}, prefs: {} }
+  const tree = Overlays({
+    useRoster: select => select(roster),
+    useUi: select => select({ pendingOpen: { target: 'bot-1', id: 'bot-1', name: 'Chief', failed: true }, leftDrawer: false, panelYield: false }),
+    useSessions: select => select({ byId: {} }),
+    useSessionStatus: select => select(new Map()),
+    useActivity: select => select({}),
+    useWork: select => select({}),
+    useComputer: select => select({}),
+    useRegistry: select => select({}),
+    useBrowserPages: select => select({}),
+    useBrowserTabs: select => select({}),
+    useBrowserHolds: select => select({}),
+    useUpdate: select => select({}),
+    useFrame: select => select({ viewport: 1400, sidebarWidth: 280, collapsedWidth: 0 }),
+    useSidebarPref: select => select('open'),
+    useSettingsShellHeld: select => select(false),
+    actions: { recoverOpening },
+  })
+  const openingBoundary = tree.props.children.filter(Boolean).find(child => child.type === OverlayBoundary && child.props.name === 'opening')
+  assert.ok(openingBoundary, 'opening OverlayBoundary is mounted')
+  assert.equal(openingBoundary.props.children.props.onNewSession, recoverOpening)
 })
 
 test('Overlays derives distinct panel reset keys for different background tasks', () => {
@@ -376,6 +406,40 @@ test('Overlays derives distinct panel reset keys for different background tasks'
   assert.ok(!resetA.includes('[object Object]'))
   assert.ok(resetA.includes('bot-1:task-1'))
   assert.ok(resetB.includes('bot-1:task-2'))
+})
+
+test('Overlays forwards optional workspace prop to BotPanel without a remounting key', () => {
+  const { react } = createRuntime()
+  const { Overlays, OverlayBoundary } = loadModule(react)
+
+  const roster = { bots: [], rooms: [], byId: { 'bot-1': { id: 'bot-1', name: 'Chief' } }, roomsById: {}, exchangeTurns: {}, prefs: {} }
+  const workspace = { tabs: [{ id: 'terminal', label: 'Terminal' }], active: 'terminal', onSelect() {}, onCloseTab() {}, render: () => null }
+  const tree = Overlays({
+    useRoster: select => select(roster),
+    useUi: select => select({ details: 'bot-1', view: 'workspace', renaming: false, tab: null, side: null, task: null, leftDrawer: false, panelYield: false }),
+    useSessions: select => select({ byId: {} }),
+    useSessionStatus: select => select(new Map()),
+    useActivity: select => select({}),
+    useWork: select => select({ approvals: [], rooms: {}, waiting: {} }),
+    useComputer: select => select({ asks: {} }),
+    useRegistry: select => select(0),
+    useBrowserPages: select => select({}),
+    useBrowserTabs: select => select({}),
+    useBrowserHolds: select => select({}),
+    useUpdate: select => select({}),
+    useFrame: select => select({ viewport: 1400, sidebarWidth: 280, collapsedWidth: 0 }),
+    useSidebarPref: select => select('open'),
+    useSettingsShellHeld: select => select(false),
+    actions: {},
+    workspace,
+  })
+  const panelBoundary = tree.props.children.filter(Boolean).find(node => node.type === OverlayBoundary && node.props.name === 'panel')
+  assert.ok(panelBoundary, 'panel boundary renders for workspace view')
+  assert.ok(panelBoundary.props.reset.endsWith(':terminal'))
+  const botPanelNode = panelBoundary.props.children
+  assert.equal(botPanelNode.key ?? null, null, 'BotPanel must not carry a remounting React key across workspace/view switches')
+  assert.equal(botPanelNode.props.key, undefined, 'BotPanel props must not pass a remounting React key')
+  assert.equal(botPanelNode.props.workspace, workspace)
 })
 
 test('SettingsShell wraps its SettingsDialog portal in an OverlayBoundary', () => {

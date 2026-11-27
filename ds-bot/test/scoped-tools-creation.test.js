@@ -778,6 +778,14 @@ test('a Session the load itself scoped still gets its tools into the step\'s lis
   assert.deepEqual(assembled.tools.map(tool => tool.name), ['read', 'group_relay'])
 })
 
+test('a hybrid group Session keeps run_code and receives its native relay schema', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  const assembled = await assemble(host, host.agentOf('r1'), { tools: [{ name: 'read' }, { name: 'run_code' }], sections: [] })
+  assert.deepEqual(assembled.tools.map(tool => tool.name), ['read', 'run_code', 'group_relay'])
+})
+
 test('a PTC group Session gets its relay scoped but keeps run_code alone in the list', async (t) => {
   // A group made under the PTC preset relays through run_code; adding the scoped
   // group_relay to the list would make the hook pick the call it cannot declare.
@@ -951,9 +959,19 @@ test('role and context tool pruning adapts across groupless/group, Main/Worker, 
     assert.equal(workerZero.includes(drop), false, `Groupless Worker must prune ${drop}`)
   }
 
-  // 3) Main Bot creates the first group -> Main Bot and added Workers gain group tools on sync.
+  // 3) Main Bot creates the first group -> Main Bot and added Workers gain group tools on sync,
+  // while own-chat-only prepare_ds_bot_issue stays on own chats and is pruned in group sessions.
   const createdRoom = await host.tool('create_group', { members: ['Writer', 'Scout'], name: 'Ops' }, 'a')
   assert.match(createdRoom, /Created group "Ops"/)
+  assert.equal(scopedNames(host, 'a').includes('prepare_ds_bot_issue'), true, 'Main Bot own chat keeps prepare_ds_bot_issue')
+  assert.equal(scopedNames(host, 'b').includes('prepare_ds_bot_issue'), true, 'Worker own chat keeps prepare_ds_bot_issue')
+  const roomId = Object.keys(rt.state.rooms)[0]
+  rt.state.rooms[roomId].sessions ??= {}
+  rt.state.rooms[roomId].sessions.b = 'group-b'
+  await rt.save()
+  await host.agentCreated('group-b')
+  assert.equal(scopedNames(host, 'group-b').includes('prepare_ds_bot_issue'), false, 'Group session must prune prepare_ds_bot_issue')
+  assert.match(await host.tool('prepare_ds_bot_issue', { title: 't', what: 'w', steps: 's' }, 'group-b'), /own chat/)
   for (const name of [...GROUP_ONLY_TOOLS, 'delete_group']) {
     assert.equal(scopedNames(host, 'a').includes(name), true, `Main Bot must unlock ${name} once a group exists`)
   }
@@ -965,7 +983,6 @@ test('role and context tool pruning adapts across groupless/group, Main/Worker, 
   }
 
   // 4) Removing Worker from its last group prunes all 6 group-only tools again.
-  const roomId = Object.keys(rt.state.rooms)[0]
   assert.equal((await host.call('update-room', { id: roomId, remove: ['b'] })).ok, true)
   for (const name of GROUP_ONLY_TOOLS) {
     assert.equal(scopedNames(host, 'b').includes(name), false, `Worker leaving last group must prune ${name}`)

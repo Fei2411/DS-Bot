@@ -72,10 +72,14 @@ export function PinMarkIcon({ size = 12, color }: IconProps) {
     h(Path, { d: 'M8 2.5h4a.9.9 0 0 1 0 1.8h-.4v4.1c0 1.4 1.1 2.6 2.6 3.1l.7.3v1.5H5.1v-1.5l.7-.3c1.5-.5 2.6-1.7 2.6-3.1V4.3H8a.9.9 0 0 1 0-1.8z', transform: 'rotate(45 10 10)' }),
     h(Path, { d: 'M9.35 13.3h1.3v3.6L10 18l-.65-1.1z', transform: 'rotate(45 10 10)' }))
 }
-export function MainStarIcon({ size = 16, color }: IconProps) {
+const MAIN_STAR = 'M10 2.4l2.29 5.04 5.51.63-4.09 3.74 1.11 5.42L10 14.5l-4.82 2.73 1.11-5.42L2.2 8.07l5.51-.63z'
+// `outline`: an opaque color drawn as a rim that sets the star off from the avatar
+// under it (ui-standard section 8; the desktop's stroke with paint-order stroke).
+export function MainStarIcon({ size = 16, color, outline }: IconProps & { outline?: string }) {
   const { p } = useTheme()
-  return h(Svg, { width: size, height: size, viewBox: '0 0 20 20', fill: use(color, p.star) },
-    h(Path, { d: 'M10 2.4l2.29 5.04 5.51.63-4.09 3.74 1.11 5.42L10 14.5l-4.82 2.73 1.11-5.42L2.2 8.07l5.51-.63z' }))
+  return h(Svg, { width: size, height: size, viewBox: '0 0 20 20' },
+    outline ? h(Path, { d: MAIN_STAR, fill: outline, stroke: outline, strokeWidth: 2.6, strokeLinejoin: 'round' }) : null,
+    h(Path, { d: MAIN_STAR, fill: use(color, p.star) }))
 }
 export function StopIcon({ size = 14, color }: IconProps) {
   const { p } = useTheme()

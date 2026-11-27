@@ -1,69 +1,16 @@
-import { Children, Fragment, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useInSheet } from '../nav/sheet.tsx'
 import { readPrefs, writePrefs } from '../store.ts'
 import { formatMegabytes, LATEST_RELEASE_URL } from '../team/app-update.ts'
 import { saveUpdateMirror, useAppUpdate } from '../team/app-update-store.ts'
 import { t } from '../ui/i18n.ts'
-import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
-import { radius, shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
-
-function Screen({ children }: { children: React.ReactNode }) {
-  const { p } = useTheme()
-  const insets = useSafeAreaInsets()
-  const inSheet = useInSheet()
-  return <View style={{ flex: 1, backgroundColor: p.main, paddingTop: inSheet ? 0 : insets.top }}>{children}</View>
-}
-
-function Back({ title, onBack }: { title: string; onBack: () => void }) {
-  const { p } = useTheme()
-  return (
-    <View style={styles.backRow}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('Back')} onPress={onBack} hitSlop={8} style={styles.backBtn}>
-        <ChevronLeftIcon size={20} color={p.ink2} />
-      </Pressable>
-      <Text style={[typeScale.rowName, { color: p.ink, flex: 1, textAlign: 'center' }]}>{title}</Text>
-      <View style={styles.backBtn} />
-    </View>
-  )
-}
-
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
-  const { p } = useTheme()
-  const items = Children.toArray(children).filter(Boolean)
-  if (items.length === 0) return null
-  return (
-    <View style={{ marginTop: 16 }}>
-      <Text style={[typeScale.caption, { color: p.ink3, paddingHorizontal: 18, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.6, fontSize: 11 }]}>{label}</Text>
-      <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-        {items.map((child, i) => (
-          <Fragment key={i}>
-            {i > 0 ? <View style={[styles.divider, { backgroundColor: p.line }]} /> : null}
-            {child}
-          </Fragment>
-        ))}
-      </View>
-    </View>
-  )
-}
-
-function Row({ label, value, valueColor, onPress, end }: { label: string; value?: string; valueColor?: string; onPress?: () => void; end?: React.ReactNode }) {
-  const { p } = useTheme()
-  const body = (
-    <View style={styles.row}>
-      <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1, minWidth: 96 }]}>{label}</Text>
-      {value !== undefined ? (
-        <Text style={[typeScale.settingsRow, { color: valueColor ?? p.ink2, flexShrink: 1, maxWidth: '55%', textAlign: 'right' }]} numberOfLines={1}>
-          {value}
-        </Text>
-      ) : null}
-      {end}
-      {onPress ? <View style={{ flexShrink: 0 }}><ChevronRightIcon size={16} color={p.ink3} /></View> : null}
-    </View>
-  )
-  return onPress ? <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => pressed ? { backgroundColor: p.hover } : null}>{body}</Pressable> : body
-}
+import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
+import {
+  SettingsBack as Back,
+  SettingsRow as Row,
+  SettingsScreen as Screen,
+  SettingsSection as Section,
+} from './settings-primitives.tsx'
 
 export function AppUpdate({ navigation }: any) {
   const { p } = useTheme()
@@ -98,6 +45,7 @@ export function AppUpdate({ navigation }: any) {
     setMirror(res.value ?? '')
     setMirrorDraft(res.value ?? '')
     setEditingMirror(false)
+    void update.check()
   }
 
   const clearMirror = async () => {
@@ -106,6 +54,7 @@ export function AppUpdate({ navigation }: any) {
     setMirror('')
     setMirrorDraft('')
     setEditingMirror(false)
+    void update.check()
   }
 
   const pct = update.progress >= 0 ? Math.round(update.progress * 100) : null
@@ -179,12 +128,23 @@ export function AppUpdate({ navigation }: any) {
           />
           {update.phase === 'downloading' ? (
             <View style={styles.progressWrap}>
-              <View style={[styles.track, { backgroundColor: p.hover }]}>
-                <View style={[styles.fill, { backgroundColor: p.accent, width: `${Math.max(4, pct ?? 12)}%` }]} />
-              </View>
-              <Text style={[typeScale.small, { color: p.ink2, marginTop: 6 }]}>
-                {writtenLabel && totalLabel ? `${writtenLabel} / ${totalLabel}` : t('Downloading…')}
-              </Text>
+              {pct !== null ? (
+                <>
+                  <View style={[styles.track, { backgroundColor: p.hover }]}>
+                    <View style={[styles.fill, { backgroundColor: p.accent, width: `${Math.max(4, pct)}%` }]} />
+                  </View>
+                  <Text style={[typeScale.small, { color: p.ink2, marginTop: 6 }]}>
+                    {writtenLabel && totalLabel ? `${writtenLabel} / ${totalLabel}` : t('Downloading…')}
+                  </Text>
+                </>
+              ) : (
+                <View style={styles.indeterminateRow}>
+                  <ActivityIndicator size="small" color={p.accent} />
+                  <Text style={[typeScale.small, { color: p.ink2 }]}>
+                    {writtenLabel ? `${writtenLabel}` : t('Downloading…')}
+                  </Text>
+                </View>
+              )}
             </View>
           ) : null}
           {shortSha !== undefined && (update.hasUpdate || update.phase === 'ready') ? (
@@ -271,12 +231,8 @@ export function AppUpdate({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  backRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8 },
-  backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  card: { marginHorizontal: 14, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', ...shadow(1) },
-  divider: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, minHeight: 50, gap: 10 },
   progressWrap: { paddingHorizontal: 16, paddingVertical: 12 },
+  indeterminateRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   track: { height: 6, borderRadius: 3, overflow: 'hidden' },
   fill: { height: 6, borderRadius: 3 },
   errorBox: { paddingHorizontal: 16, paddingVertical: 10 },
@@ -284,7 +240,7 @@ const styles = StyleSheet.create({
   cta: { minHeight: 48, borderRadius: radius.pill, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
   notesWrap: { paddingHorizontal: 16, paddingVertical: 12 },
   mirrorBox: { paddingHorizontal: 16, paddingVertical: 12 },
-  field: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, minHeight: 42, paddingVertical: 6 },
+  field: { borderWidth: 1, borderRadius: radius.input, paddingHorizontal: 12, minHeight: 42, paddingVertical: 6 },
   mirrorActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 10 },
-  smallBtn: { borderRadius: 10, paddingHorizontal: 14, minHeight: 36, alignItems: 'center', justifyContent: 'center' },
+  smallBtn: { borderRadius: radius.input, paddingHorizontal: 14, minHeight: 36, alignItems: 'center', justifyContent: 'center' },
 })

@@ -8,6 +8,7 @@ import { RelayTransport, RpcClient, SecureTransport, deviceIdFor, generateKeyPai
 import { startRelayServer } from '../../link/server/server.ts'
 import { fakeContext } from './fake-ctx.js'
 import { BROWSER_ALLOWED, DEFAULT_SERVER, install as installPhone, remoteAccessError } from '../src/host/phone.js'
+import { COMPUTER_ONLY_ENDPOINTS, COMPUTER_ONLY_PREFIXES, TEAM_COMPUTER_PREFIX_EXCEPTIONS, TEAM_ENDPOINTS, isClassifiedEndpoint, isComputerOnlyEndpoint, isTeamEndpoint } from '../src/shared/remote-endpoints.js'
 
 const TEAM = {
   version: 1,
@@ -25,6 +26,7 @@ after(() => server.close())
 
 function open(home) {
   const ctx = fakeContext()
+  ctx.workspaceRegistry = { get: () => undefined, list: () => [] }
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
   apply(ctx, { home, github: false })
@@ -168,11 +170,47 @@ test('remote state and live polls never disclose pairing offers, including attac
 test('the host enforces a default-deny browser allowlist across every channel route, and fails closed on unknown devices', async t => {
   const channelSrc = readFileSync(new URL('../src/host/channel.js', import.meta.url), 'utf8')
   const computerSrc = readFileSync(new URL('../src/host/computer/index.js', import.meta.url), 'utf8')
+  const workspaceSrc = readFileSync(new URL('../src/host/workspace-panel.js', import.meta.url), 'utf8')
+  const engineSrc = readFileSync(new URL('../src/host/engine-settings.js', import.meta.url), 'utf8')
+  const feedbackSrc = readFileSync(new URL('../src/host/message-feedback.js', import.meta.url), 'utf8')
+  const pluginsSrc = readFileSync(new URL('../src/host/plugins/index.js', import.meta.url), 'utf8')
+  const sessionSrc = readFileSync(new URL('../src/host/session-follow.js', import.meta.url), 'utf8')
+  const sessionControlsSrc = readFileSync(new URL('../src/host/session-controls.js', import.meta.url), 'utf8')
+  const connectorsSrc = readFileSync(new URL('../src/host/connectors/index.js', import.meta.url), 'utf8')
   const gatedSrc = readFileSync(new URL('../../mobile/src/team/gated.ts', import.meta.url), 'utf8')
   const channelRoutes = new Set([...channelSrc.matchAll(/case\s+'([^']+)':/g)].map(match => match[1]))
   const computerRoutes = [...computerSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `computer-${match[1]}`)
+  const workspaceBody = workspaceSrc.slice(workspaceSrc.indexOf('async function workspaceEndpoint'), workspaceSrc.indexOf('async function terminalEndpoint'))
+  const terminalBody = workspaceSrc.slice(workspaceSrc.indexOf('async function terminalEndpoint'), workspaceSrc.indexOf('async function terminalDispose'))
+  const workspaceRoutes = [...workspaceBody.matchAll(/name === '([^']+)'/g)].map(match => `workspace-${match[1]}`)
+  const terminalRoutes = [...terminalBody.matchAll(/name === '([^']+)'/g)].map(match => `terminal-${match[1]}`)
+  const engineRoutes = [...engineSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `engine-${match[1]}`)
+  const feedbackRoutes = [...feedbackSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `engine-feedback-${match[1]}`)
+  const pluginRoutes = [...pluginsSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `plugins-${match[1]}`)
+  const sessionRoutes = [...sessionSrc.matchAll(/name !== '([^']+)'/g)].map(match => `session-${match[1]}`)
+  const sessionControlRoutes = [...sessionControlsSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `session-${match[1]}`)
+  const connectorRoutes = [...connectorsSrc.matchAll(/async '([^']+)'\(/g)].map(match => match[1])
   const gatedRoutes = new Set([...gatedSrc.matchAll(/'([^']+)'/g)].map(match => match[1]))
-  const allHostRoutes = new Set([...channelRoutes, ...computerRoutes])
+  const allHostRoutes = new Set([...channelRoutes, ...computerRoutes, ...workspaceRoutes, ...terminalRoutes, ...engineRoutes, ...feedbackRoutes, ...pluginRoutes, ...sessionRoutes, ...sessionControlRoutes, ...connectorRoutes])
+
+  // Every host endpoint is explicitly classified. A new endpoint fails here until a
+  // maintainer decides whether it acts on the team or on this computer.
+  for (const endpoint of allHostRoutes) {
+    assert.equal(isClassifiedEndpoint(endpoint), true, `${endpoint} is not classified in shared/remote-endpoints.js`)
+    assert.equal(TEAM_ENDPOINTS.has(endpoint) && COMPUTER_ONLY_ENDPOINTS.has(endpoint), false, `${endpoint} is classified twice`)
+  }
+  for (const endpoint of TEAM_ENDPOINTS) {
+    if (COMPUTER_ONLY_PREFIXES.some(prefix => endpoint.startsWith(prefix))) {
+      assert.equal(TEAM_COMPUTER_PREFIX_EXCEPTIONS.has(endpoint), true, `${endpoint} matches a computer-only prefix without being a named exception`)
+      assert.equal(isComputerOnlyEndpoint(endpoint), false, `${endpoint} is a named team exception`)
+    }
+  }
+  assert.equal(isComputerOnlyEndpoint('computer-not-an-endpoint'), true, 'an accidental computer-* team entry must still fail closed')
+  TEAM_ENDPOINTS.add('computer-not-an-endpoint')
+  assert.equal(isComputerOnlyEndpoint('computer-not-an-endpoint'), true, 'computer-* prefix wins over the team set outside named exceptions')
+  TEAM_ENDPOINTS.delete('computer-not-an-endpoint')
+  for (const endpoint of BROWSER_ALLOWED) assert.equal(isTeamEndpoint(endpoint), true, `browser endpoint ${endpoint} is not a team endpoint`)
+  for (const endpoint of TEAM_ENDPOINTS) assert.equal(allHostRoutes.has(endpoint) || endpoint === 'hello' || endpoint === 'notices' || endpoint === 'push-register' || endpoint === 'push-unregister', true, `team endpoint ${endpoint} is not a real host route`)
 
   // Every allowlisted endpoint must be a real host route and strictly disjoint from GATED.
   for (const endpoint of BROWSER_ALLOWED) {
@@ -202,6 +240,29 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'api-set'), { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} })
   assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'api-token-create'), { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} })
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-add'), undefined)
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'session-page').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'folder-pick').message, 'Folders are chosen in a window on the computer')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'computer-open-settings').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'computer-shot').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'browser-wait').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'chatgpt-sign-in').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'computer-stop'), undefined)
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'computer-app-answer'), undefined)
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'computer-app-answer').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-import-scan').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-import').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'engine-feedback-list').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'engine-feedback-put').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'engine-feedback-delete').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'future-unlisted-endpoint').code, 'bot/refused')
+  assert.equal(BROWSER_ALLOWED.has('session-page'), false)
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'job-list').message, 'Background jobs are available on the computer')
+  assert.equal(sessionControlRoutes.length >= 10, true, 'session-controls routes are included in remote boundary checks')
+  for (const localOnly of ['job-list', 'job-read', 'job-kill', ...sessionControlRoutes, 'workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open', 'terminal-read', 'engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe', 'telemetry-status', 'telemetry-update', 'telemetry-reset-id', 'telemetry-clear-log', 'telemetry-client-error']) {
+    assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, localOnly).code, 'bot/refused')
+    assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, localOnly).code, 'bot/refused')
+    assert.equal(BROWSER_ALLOWED.has(localOnly), false)
+  }
 
   const home = mkdtempSync(join(tmpdir(), 'dsb-gated-'))
   const ctx = fakeContext()
@@ -213,7 +274,7 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   await rt.phoneEndpoint('phone-set', { server: server.url, on: true })
   await until(async () => rt.phoneView(), view => view.status === 'online')
 
-  const deniedEndpoints = [...allHostRoutes].filter(endpoint => !endpoint.startsWith('phone-') && !endpoint.startsWith('api-') && !BROWSER_ALLOWED.has(endpoint))
+  const deniedEndpoints = [...allHostRoutes].filter(endpoint => !endpoint.startsWith('phone-') && !endpoint.startsWith('api-') && !endpoint.startsWith('speech-') && !endpoint.startsWith('telemetry-') && !BROWSER_ALLOWED.has(endpoint))
   deniedEndpoints.push('future-unlisted-endpoint')
   for (const kind of ['browser', 'phone']) {
     const view = await rt.phoneEndpoint('phone-pair', {})
@@ -223,8 +284,12 @@ test('the host enforces a default-deny browser allowlist across every channel ro
     for (const endpoint of deniedEndpoints) {
       const payload = endpoint === 'connector-add' ? { name: 'pwn', command: 'id', args: [] } : {}
       const answer = await link.client.rpc('bot', { endpoint, payload })
-      if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
-      else assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
+      if (kind === 'browser') {
+        const legacyComputerMessage = endpoint.startsWith('phone-') || endpoint.startsWith('session-') || endpoint.startsWith('api-')
+        if (!legacyComputerMessage) assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
+        else assert.equal(answer.ok, false, endpoint)
+      } else if (isTeamEndpoint(endpoint)) assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
+      else assert.equal(answer.ok, false, endpoint)
     }
     // DSH Agent chats are phone-only, and so is their media.
     for (const endpoint of ['image', 'file-download', 'markdown-image']) {
@@ -232,6 +297,10 @@ test('the host enforces a default-deny browser allowlist across every channel ro
       if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
       else assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
     }
+    // Subagent image reads via `parent` are computer-only (prevents paired-browser Classic Agent bypass).
+    const subImgAnswer = await link.client.rpc('bot', { endpoint: 'image', payload: { sessionId: 'sub-child-1', parent: 'agent-s1', attachmentId: 'att-1' } })
+    assert.equal(subImgAnswer.ok, false)
+    assert.equal(subImgAnswer.error.code, 'bot/refused')
     for (const endpoint of ['state', 'send', 'chat', 'secret-cancel', 'connector-request-cancel']) {
       assert.equal((await link.client.rpc('bot', { endpoint })).ok, true, `${kind} should reach ${endpoint}`)
     }
@@ -276,9 +345,13 @@ test('the link strips pairing offers from feed events without changing the deskt
     assert.ok(data.phone.pairing.uri)
     assert.ok(data.phone.pairing.browserUri)
     for (const uri of [pairing.uri, pairing.browserUri]) assert.equal(JSON.stringify(event).includes(parsePairingUri(uri).code), false)
+    // Terminal output and exit events are computer-local only and must never cross the link.
+    tap('terminal', { id: 't1', chunk: 'secret-shell-output\n' })
+    tap('terminal-exit', { id: 't1', code: 0 })
     tap('message', application)
     const message = await until(async () => events[1], Boolean)
     assert.deepEqual(message, { event: 'message', data: application })
+    assert.equal(events.some(e => e.event === 'terminal' || e.event === 'terminal-exit'), false)
     off()
     assert.deepEqual(await link.client.rpc('bot', { endpoint: 'chat' }), { ok: true, value: application })
     await link.client.close()
@@ -316,6 +389,21 @@ test('a phone write that moved the team carries the new state in its reply', asy
   assert.equal(failed.ok, false)
   assert.equal(failed.state, undefined)
 
+  // Phone link refuses plugins-* and speech-* endpoints and strips `data` from `folders`.
+  const pluginDenied = await link.client.rpc('bot', { endpoint: 'plugins-install', payload: { id: 'x' } })
+  assert.equal(pluginDenied.ok, false)
+  assert.equal(pluginDenied.error.code, 'bot/refused')
+  for (const speechEndpoint of ['speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe']) {
+    const speechDenied = await link.client.rpc('bot', { endpoint: speechEndpoint, payload: {} })
+    assert.equal(speechDenied.ok, false, `${speechEndpoint} must be refused over phone link`)
+    assert.equal(speechDenied.error.code, 'bot/refused')
+  }
+  const localFolders = await desk.call('folders', {})
+  assert.equal(typeof localFolders.value.data, 'string')
+  const remoteFolders = await link.client.rpc('bot', { endpoint: 'folders', payload: {} })
+  assert.equal(remoteFolders.ok, true)
+  assert.equal('data' in remoteFolders.value, false, 'paired phone must not see protected data path')
+
   await link.client.close()
 })
 
@@ -342,4 +430,94 @@ test('a bare Server host means the link path; a dead Server shows why', async (t
   await desk.call('phone-set', { on: false })
   await desk.call('phone-set', { server: '' })
   assert.equal((await desk.call('state', {})).value.phone.server, DEFAULT_SERVER)
+})
+
+test('paired browsers cannot see or answer Classic Agent approvals in state, live events, or approval-answer, while paired phones can', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-browser-approvals-'))
+  const ctx = fakeContext()
+  let tap
+  const botApproval = { id: 'appr-bot', sessionId: 'm1', botId: 'm1', tool: 'write', reason: 'Bot write', answerable: true, alwaysAllow: { kind: 'extra-dir', dirs: ['/tmp/ext'], scope: 'bot' } }
+  const agentApproval = { id: 'appr-agent', sessionId: 'agent-s1', tool: 'write', reason: 'Classic write', answerable: true, alwaysAllow: { kind: 'extra-dir', dirs: ['/tmp/ext'], scope: 'bot' } }
+  const approvals = [botApproval, agentApproval]
+  const answered = []
+  const rt = {
+    home,
+    ctx,
+    state: { revision: 1 },
+    load: async () => {},
+    readOnly: () => undefined,
+    feedTap: (listener) => { tap = listener; return () => { tap = undefined } },
+    agentOf: id => (id === 'agent-s1' ? { id: 'a1' } : undefined),
+    approvalsView: () => approvals,
+    approvalById: id => approvals.find(entry => entry.id === id),
+  }
+  installPhone(rt)
+  rt.phoneServe(async (endpoint, payload) => {
+    if (endpoint === 'state') return { ok: true, value: { revision: 1, work: { approvals } } }
+    if (endpoint === 'approval-answer') {
+      answered.push(payload)
+      return { ok: true, value: true }
+    }
+    return { ok: true, value: null }
+  })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.phoneEndpoint('phone-set', { server: server.url, on: true })
+  await until(async () => rt.phoneView(), view => view.status === 'online')
+
+  const pair1 = await rt.phoneEndpoint('phone-pair', {})
+  const browserLink = phone(parsePairingUri(pair1.pairing.browserUri), { pairingCode: parsePairingUri(pair1.pairing.browserUri).code, name: 'Chrome' })
+  await browserLink.client.connect()
+
+  const pair2 = await rt.phoneEndpoint('phone-pair', {})
+  const phoneLink = phone(parsePairingUri(pair2.pairing.uri), { pairingCode: parsePairingUri(pair2.pairing.uri).code, name: 'Pixel' })
+  await phoneLink.client.connect()
+
+  await until(async () => tap, callback => typeof callback === 'function')
+
+  // `state` strips Classic Agent approvals for browser, keeps them for phone, and strips `alwaysAllow` for ALL remote devices.
+  const browserState = await browserLink.client.rpc('bot', { endpoint: 'state', payload: {} })
+  assert.deepEqual(browserState.value.work.approvals.map(a => a.id), ['appr-bot'])
+  assert.equal(browserState.value.work.approvals[0].alwaysAllow, undefined)
+  const phoneState = await phoneLink.client.rpc('bot', { endpoint: 'state', payload: {} })
+  assert.deepEqual(phoneState.value.work.approvals.map(a => a.id), ['appr-bot', 'appr-agent'])
+  assert.equal(phoneState.value.work.approvals.every(a => a.alwaysAllow === undefined), true)
+
+  // `live` feed events also filter per device and strip `alwaysAllow` for all remote devices.
+  const browserEvents = []
+  const phoneEvents = []
+  const offBrowser = browserLink.client.onEvent(e => browserEvents.push(e))
+  const offPhone = phoneLink.client.onEvent(e => phoneEvents.push(e))
+  tap('live', { work: { approvals } })
+  const bEvt = await until(async () => browserEvents.find(e => e.event === 'live'), Boolean)
+  const pEvt = await until(async () => phoneEvents.find(e => e.event === 'live'), Boolean)
+  offBrowser()
+  offPhone()
+  assert.deepEqual(bEvt.data.work.approvals.map(a => a.id), ['appr-bot'])
+  assert.equal(bEvt.data.work.approvals[0].alwaysAllow, undefined)
+  assert.deepEqual(pEvt.data.work.approvals.map(a => a.id), ['appr-bot', 'appr-agent'])
+  assert.equal(pEvt.data.work.approvals.every(a => a.alwaysAllow === undefined), true)
+
+  // Both paired browsers AND paired phones are refused `choice: 'always'` (Always allow is computer-only).
+  const browserAlways = await browserLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-bot', choice: 'always' } })
+  assert.equal(browserAlways.ok, false)
+  assert.equal(browserAlways.error.code, 'bot/refused')
+  const phoneAlways = await phoneLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-bot', choice: 'always' } })
+  assert.equal(phoneAlways.ok, false)
+  assert.equal(phoneAlways.error.code, 'bot/refused')
+  assert.equal(answered.length, 0)
+
+  // Browser is refused when trying to answer a Classic Agent approval, but may still answer a Bot approval.
+  const denied = await browserLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-agent', choice: 'allow' } })
+  assert.equal(denied.ok, false)
+  assert.equal(denied.error.code, 'bot/refused')
+  assert.equal(answered.length, 0)
+
+  const allowedBot = await browserLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-bot', choice: 'allow' } })
+  assert.equal(allowedBot.ok, true)
+  const allowedAgentOnPhone = await phoneLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-agent', choice: 'allow' } })
+  assert.equal(allowedAgentOnPhone.ok, true)
+  assert.deepEqual(answered.map(entry => entry.id), ['appr-bot', 'appr-agent'])
+
+  await browserLink.client.close()
+  await phoneLink.client.close()
 })

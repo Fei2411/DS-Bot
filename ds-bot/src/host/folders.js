@@ -10,7 +10,12 @@ import { unquote } from './text.js'
 
 const PICK_TIMEOUT_MS = 10 * 60_000
 
-export const within = (inner, outer) => inner === outer || inner.startsWith(outer.endsWith(sep) ? outer : outer + sep)
+const foldPath = path => (process.platform === 'win32' ? path.toLowerCase() : path)
+export const within = (inner, outer) => {
+  const a = foldPath(inner)
+  const b = foldPath(outer)
+  return a === b || a.startsWith(b.endsWith(sep) ? b : b + sep)
+}
 
 const expandHome = text => (text === '~' ? homedir() : /^~[\\/]/.test(text) ? join(homedir(), text.slice(2)) : text)
 
@@ -253,8 +258,10 @@ export function install(rt) {
         }
         const present = await Promise.all([...known].map(async ([path, title]) => (await isFolder(path) ? { path, title } : undefined)))
         const kind = picker()?.kind
+        const data = rt.dshHome && resolve(rt.home) === resolve(rt.dshHome, 'bot') ? rt.dshHome : rt.home
         return {
           team,
+          data,
           picker: kind === 'native' || kind === 'browse' ? kind : null,
           folders: present.filter(Boolean),
         }

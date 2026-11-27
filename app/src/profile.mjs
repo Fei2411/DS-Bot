@@ -4,15 +4,16 @@ import { LEGACY_ENGINE } from './legacy.mjs'
 import { initProfile, loadProfileDirectory, readProfileManifest, resolveProfileDir, writeProfileBundles } from '@deepseek-ai/dsh-app-boot'
 
 export const PROFILE = 'ds-bot'
-// DSH's shared core, DSH's web front end (the window) and voice input, then the Bot team.
-// Bundles the user installs follow.
-export const BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-experimental-voice-input-bundle', 'ds-bot']
+// DSH's shared core, DS Bot's own pure-engine layer (../engine, serving ../ui/dist without
+// any DSH Web front-end rows), voice input, then the Bot team. User-installed bundles follow.
+export const BUNDLES = ['@deepseek-ai/dsh-base', 'dsbot-engine', '@deepseek-ai/dsh-experimental-voice-input-bundle', 'ds-bot']
 // The first-run check reads a copy of the team's chats without the Bot team running on them.
 // DSH reads a log the same way whatever the profile mounts.
 export const CHECK_PROFILE = 'import-check'
-export const CHECK_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
-// Bundles that earlier builds of the app put in its profile: the engine layer of its own window (../engine).
-const RETIRED_BUNDLES = [LEGACY_ENGINE, 'dsbot-engine']
+export const CHECK_BUNDLES = ['@deepseek-ai/dsh-base', 'dsbot-engine']
+// Bundles that earlier builds of the app put in its profile: the legacy engine and DSH Web,
+// both replaced by dsbot-engine + DS Bot's own frontend (docs/plans/2026-11-21-own-frontend.md).
+const RETIRED_BUNDLES = [LEGACY_ENGINE, '@deepseek-ai/dsh-web-app']
 // The app's own manifest is the installation: DSH imports plugins only from the installation's dependency
 // graph, resolves bundles there first, and keeps the bundles it names as direct dependencies from removal.
 export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))

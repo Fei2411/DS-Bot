@@ -188,6 +188,32 @@ test('roomItems turns a group Session into speaker-attributed items, oldest firs
   assert.deepEqual(open, [{ callId: 'r2', at: 7 }])
 })
 
+test('roomItems reads group_relay results prefixed with a §N§ handle', () => {
+  const seenRanges = []
+  const events = [
+    user(1, 'First round'),
+    relayCall(2, 'r1'),
+    relayResult(3, 'r1', '§38§ {"from":80,"anchor":"a1"}'),
+    user(4, 'Legacy round'),
+    relayCall(5, 'r2'),
+    relayResult(6, 'r2', '§7§ {"replies":[{"botId":"m1","name":"Chief","text":"legacy reply","time":30}],"passed":[]}'),
+    // Non-handle text that happens to contain JSON must not be parsed as a relay range.
+    relayResult(7, 'other', 'Error: {"from":99,"anchor":"nope"}'),
+  ]
+  const { items, open } = roomItems(events, (range) => {
+    seenRanges.push(range)
+    return [{ botId: 'b2', name: 'Writer', text: 'ledger reply', time: 20 }]
+  })
+  assert.deepEqual(seenRanges, [{ from: 80, anchor: 'a1' }])
+  assert.deepEqual(open, [])
+  assert.deepEqual(items, [
+    { id: '1', kind: 'user', text: 'First round', time: 1 },
+    { id: 'r1:0', kind: 'bot', botId: 'b2', name: 'Writer', text: 'ledger reply', time: 20 },
+    { id: '4', kind: 'user', text: 'Legacy round', time: 4 },
+    { id: 'r2:0', kind: 'bot', botId: 'm1', name: 'Chief', text: 'legacy reply', time: 30 },
+  ])
+})
+
 test('a group round logs notices a returning client reads back, and the feed says the group changed', async (t) => {
   const { call, emit, relay, answer, sent, history, routes, ctx, rt, stop } = start()
   t.after(stop)
@@ -517,6 +543,91 @@ test('a phone stages photos one by one, then send puts them in one message with 
   assert.equal((await call('send', { sessionId: chief, text: '', images: [third] })).ok, true)
   assert.deepEqual(sent.at(-1).prompt.content, [{ type: 'image', mediaType: 'image/jpeg', data: pixel }])
   assert.equal((await call('hello', {})).value.capabilities.includes('send-images'), true)
+  await stop()
+})
+
+test('stage-file validates inputs, uploads via fileUploads after handoffForeground rollover, and retains staged files on prompt failure', async () => {
+  const { ctx, rt, call, sent, stop } = start()
+  const { chief } = await team(call)
+  const payload = Buffer.from('hello world\n', 'utf8').toString('base64')
+
+  // Without fileUploads service, stage-file fails closed with bot/refused.
+  assert.equal((await call('stage-file', { name: 'notes.txt', data: payload })).error.code, 'bot/refused')
+
+  const uploads = []
+  const prevGet = ctx.get
+  ctx.get = name => (name === 'fileUploads'
+    ? {
+      uploadStream: async ({ sessionId, name: fileName, data }) => {
+        const chunks = []
+        for await (const chunk of data) chunks.push(Buffer.from(chunk))
+        const receiptId = `rcpt-${uploads.length + 1}`
+        uploads.push({ sessionId, name: fileName, bytes: Buffer.concat(chunks).toString('utf8'), receiptId })
+        return { receiptId }
+      },
+    }
+    : prevGet(name))
+
+  // Invalid names and oversized payloads are refused.
+  assert.equal((await call('stage-file', { name: '..', data: payload })).error.code, 'bot/invalid')
+  assert.equal((await call('stage-file', { name: 'bad.txt', data: 'not-base64!' })).error.code, 'bot/invalid')
+  const staged = await call('stage-file', { name: '../dir/report.txt', data: payload })
+  assert.equal(staged.ok, true)
+  const fileId = staged.value.id
+
+  // Prompt failure keeps the staged file so a retry succeeds.
+  const origPrompt = ctx.sessionController.prompt
+  let failOnce = true
+  ctx.sessionController.prompt = async (request) => {
+    if (failOnce) { failOnce = false; throw new Error('temporary failure') }
+    return origPrompt(request)
+  }
+  const failed = await call('send', { sessionId: chief, text: '', files: [fileId] })
+  assert.equal(failed.ok, false)
+
+  // Simulate foreground rollover: uploadStream MUST receive the new segment sessionId.
+  rt.mustIsolateHiddenWork = () => true
+  rt.handoffForeground = async () => 's-rolled-over'
+  const before = sent.length
+  const sentOk = await call('send', { sessionId: chief, text: 'check this', files: [fileId] })
+  assert.equal(sentOk.ok, true)
+  assert.equal(uploads.at(-1).sessionId, 's-rolled-over')
+  assert.equal(uploads.at(-1).name, 'report.txt')
+  assert.equal(uploads.at(-1).bytes, 'hello world\n')
+  const prompt = sent.slice(before).find(entry => entry.prompt !== undefined).prompt
+  assert.equal(prompt.sessionId, 's-rolled-over')
+  assert.deepEqual(prompt.content, [
+    { type: 'text', text: 'check this' },
+    { type: 'file', receiptId: uploads.at(-1).receiptId },
+  ])
+
+  // Once sent, the file id is consumed and cannot be replayed.
+  assert.equal((await call('send', { sessionId: chief, text: '', files: [fileId] })).error.code, 'bot/stale')
+  await stop()
+})
+
+test('image endpoint passes throughSeq from resolveAgent to sessionController.page for strict DSH compatibility', async () => {
+  const { ctx, call, history, stop } = start()
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const ref = await ctx.get('attachments').saveImage({
+    mediaType: 'image/png',
+    data: Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63f80f00000101000518d84e0000000049454e44ae426082', 'hex'),
+  })
+  history[sessionId] = [
+    { seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'image', attachment: ref }] } },
+  ]
+  const pageRequests = []
+  const origPage = ctx.sessionController.page
+  ctx.sessionController.page = async (req, signal) => {
+    pageRequests.push(req)
+    assert.equal(Number.isSafeInteger(req.throughSeq) && req.throughSeq >= -1, true, 'image must pass valid throughSeq')
+    return origPage(req, signal)
+  }
+  const got = await call('image', { sessionId, attachmentId: ref.attachmentId, preview: true })
+  assert.equal(got.ok, true)
+  assert.equal(got.value.mime, 'image/png')
+  assert.equal(pageRequests.length, 1)
   await stop()
 })
 
@@ -1137,4 +1248,204 @@ test('browser handoff open and settle emit live feed events and clear browserHol
   assert.equal(nextState.unchanged, true)
   assert.notEqual(nextState.liveKey, openState.liveKey)
   assert.deepEqual(nextState.browserHolds, {})
+})
+
+test('stage-file and stage-image enforce canonical base64, size caps, 64MB eviction, and atomic concurrent claim', async (t) => {
+  const { call, ctx, rt, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const prevGet = ctx.get
+  ctx.get = name => (name === 'fileUploads'
+    ? {
+      uploadStream: async ({ data }) => {
+        let total = 0
+        for await (const chunk of data) total += chunk.length
+        return { receiptId: `rcpt-${total}-${randomUUID()}` }
+      },
+    }
+    : prevGet(name))
+
+  // Non-canonical base64 rejected on both stage-file and stage-image.
+  assert.equal((await call('stage-file', { name: 'bad.txt', data: 'A' })).error.code, 'bot/invalid')
+  assert.equal((await call('stage-file', { name: 'bad2.txt', data: 'AB==' })).error.code, 'bot/invalid')
+  assert.equal((await call('stage-image', { mediaType: 'image/png', data: 'A' })).error.code, 'bot/invalid')
+  assert.equal((await call('stage-image', { mediaType: 'image/png', data: '' })).error.code, 'bot/invalid')
+
+  // 0-byte file accepted on stage-file.
+  const emptyFile = await call('stage-file', { name: 'empty.txt', data: '' })
+  assert.equal(emptyFile.ok, true)
+  assert.equal(typeof emptyFile.value.id, 'string')
+
+  // Oversized payload (>16MB) pre-rejected cleanly with bot/refused even when host imageLimits is 50 MB (real DSH default).
+  const attachmentsSvc = ctx.get('attachments')
+  attachmentsSvc.imageLimits = { maxImageBytes: 50 * 1024 * 1024 }
+  const over = 'A'.repeat(Math.ceil((16 * 1024 * 1024 + 1) / 3) * 4)
+  assert.equal((await call('stage-file', { name: 'huge.bin', data: over })).error.code, 'bot/refused')
+  assert.equal((await call('stage-image', { mediaType: 'image/png', data: over })).error.code, 'bot/refused')
+
+  // Duplicate attachment IDs in one send are rejected cleanly.
+  const dup = (await call('stage-file', { name: 'dup.txt', data: Buffer.from('ok').toString('base64') })).value
+  assert.equal((await call('send', { sessionId: chief, text: '', files: [dup.id, dup.id] })).error.code, 'bot/invalid')
+
+  // Shared 64MB budget evicts oldest staged entry when exceeded.
+  const chunk15 = Buffer.alloc(15 * 1024 * 1024, 1).toString('base64')
+  const f1 = (await call('stage-file', { name: 'f1.bin', data: chunk15 })).value
+  const f2 = (await call('stage-file', { name: 'f2.bin', data: chunk15 })).value
+  const f3 = (await call('stage-file', { name: 'f3.bin', data: chunk15 })).value
+  const f4 = (await call('stage-file', { name: 'f4.bin', data: chunk15 })).value
+  const f5 = (await call('stage-file', { name: 'f5.bin', data: chunk15 })).value
+  assert.ok(f1.id && f2.id && f3.id && f4.id && f5.id)
+  // f1 must have been evicted to stay within 64MB; sending f1 now fails with bot/stale.
+  assert.equal((await call('send', { sessionId: chief, text: '', files: [f1.id] })).error.code, 'bot/stale')
+
+  // Atomic claim: two concurrent sends with the same staged file ID — only one succeeds!
+  const small = (await call('stage-file', { name: 'once.txt', data: Buffer.from('hi').toString('base64') })).value
+  let releaseSend
+  const origSendUser = rt.sendUser.bind(rt)
+  rt.sendUser = async (...args) => {
+    await new Promise(resolve => { releaseSend = resolve })
+    return origSendUser(...args)
+  }
+  const first = call('send', { sessionId: chief, text: 'a', files: [small.id] })
+  await waitFor(() => typeof releaseSend === 'function')
+  const second = await call('send', { sessionId: chief, text: 'b', files: [small.id] })
+  assert.equal(second.ok, false)
+  assert.equal(second.error.code, 'bot/stale')
+  releaseSend()
+  assert.equal((await first).ok, true)
+})
+
+test('image and file-download pass throughSeq, skip empty seq=0 parts, and roomItems preserves user fileRefs + sessionId', async (t) => {
+  const { call, ctx, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  const currentSession = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const olderSession = 'older-part-1'
+  rt.state.bots[chief].segments = [{ sessionId: olderSession, endedAt: 10 }]
+  rt.pastOwners.set(olderSession, { botId: chief })
+
+  const ref = await ctx.get('attachments').saveFile({ data: Buffer.from('hello'), name: 'doc.txt' })
+  // Current session is empty (`seq: 0`), older session has the file at `seq: 1`.
+  history[currentSession] = []
+  history[olderSession] = [{ seq: 1, time: 10, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'file', attachment: ref }] } }]
+  ctx.sessions.get = (id) => (id === currentSession ? { seq: 0 } : { seq: 2 })
+  const seenCalls = []
+  const origPage = ctx.sessionController.page
+  ctx.sessionController.page = async (args) => {
+    seenCalls.push(args)
+    if (args.throughSeq !== undefined && args.throughSeq < 0) throw new Error('throughSeq must be >= 0')
+    return origPage(args)
+  }
+  const dl = await call('file-download', { sessionId: currentSession, attachmentId: ref.attachmentId, offset: 0 })
+  assert.equal(dl.ok, true)
+  assert.equal(Buffer.from(dl.value.bytes, 'base64').toString('utf8'), 'hello')
+  assert.equal(seenCalls.some(c => c.address.sessionId === currentSession), false, 'empty seq=0 segment must be skipped')
+  assert.equal(seenCalls[0].throughSeq, 1, 'older segment receives throughSeq = seq - 1')
+
+  // roomItems preserves fileRefs on user messages (never numeric `files`, which mobile maps as an array),
+  // and room-chat attaches sessionId to user items.
+  const roomFileRef = { attachmentId: 'att-room-file', name: 'deck.pdf', bytes: 1024 }
+  history[room.id] = [
+    { seq: 1, time: 100, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'file', attachment: roomFileRef }, { type: 'text', text: 'check deck' }] } },
+  ]
+  const parsed = roomItems(history[room.id])
+  assert.equal(parsed.items[0].files, undefined, 'roomItems must not emit numeric files (mobile calls .map on files)')
+  assert.deepEqual(parsed.items[0].fileRefs, [roomFileRef])
+  const chat = (await call('room-chat', { roomId: room.id })).value
+  assert.equal(chat.items[0].sessionId, room.id)
+  assert.deepEqual(chat.items[0].fileRefs, [roomFileRef])
+})
+
+test('room-chat emits FileRef-compliant files with name and locator for group presented files and downloads bytes', async (t) => {
+  const { call, ctx, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-mob-presented-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const reportPath = join(dir, 'summary.md')
+  writeFileSync(reportPath, '# Summary\nAll good.')
+  const memberSession = 'member-room-s1'
+  ;(rt.state.rooms[room.id].sessions ??= {})[chief] = memberSession
+  rt.groupOwners.set(memberSession, { botId: chief, roomId: room.id })
+  history[memberSession] = [
+    { seq: 7, time: 200, type: 'deliverables/presented', data: { turn: 1, files: [{ path: reportPath, description: 'Final summary' }] } },
+  ]
+  ctx.sessions.get = id => (id === memberSession ? { seq: 8 } : { seq: 5 })
+  history[room.id] = [
+    {
+      seq: 1, time: 210, type: 'user/message',
+      data: {
+        source: {
+          kind: 'bot', role: 'post', senderSessionId: chief, senderName: 'Chief', late: true,
+          presented: [{ path: reportPath, description: 'Final summary', sessionId: memberSession, seq: 7, index: 0 }],
+        },
+        content: [{ type: 'text', text: '[Group post from Chief]\nReport attached.' }],
+      },
+    },
+  ]
+  const chat = (await call('room-chat', { roomId: room.id })).value
+  assert.equal(chat.items.length, 1)
+  assert.deepEqual(chat.items[0].files, [{
+    name: 'summary.md',
+    path: reportPath,
+    description: 'Final summary',
+    sessionId: memberSession,
+    seq: 7,
+    index: 0,
+  }])
+  const dl = await call('file-download', { sessionId: memberSession, seq: 7, index: 0, offset: 0 })
+  assert.equal(dl.ok, true)
+  assert.equal(dl.value.name, 'summary.md')
+  assert.equal(Buffer.from(dl.value.bytes, 'base64').toString('utf8'), '# Summary\nAll good.')
+})
+
+test('file-download rejects presented files in private Bot folders, protected data roots, and unowned sessions', async (t) => {
+  const { call, ctx, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const privateDir = mkdtempSync(join(tmpdir(), 'ds-bot-mob-priv-'))
+  t.after(() => rmSync(privateDir, { recursive: true, force: true }))
+  const privateFile = join(privateDir, 'diary.txt')
+  writeFileSync(privateFile, 'top secret')
+  rt.state.bots[writer.id].private = true
+  rt.state.bots[writer.id].workDir = privateDir
+
+  const dataFile = join(rt.home, 'state.json')
+  writeFileSync(dataFile, '{"secret":true}')
+
+  const memberSession = 'member-room-sec-1'
+  ;(rt.state.rooms[room.id].sessions ??= {})[chief] = memberSession
+  rt.groupOwners.set(memberSession, { botId: chief, roomId: room.id })
+  history[memberSession] = [
+    {
+      seq: 3, time: 300, type: 'deliverables/presented',
+      data: { turn: 1, files: [{ path: privateFile }, { path: dataFile }] },
+    },
+  ]
+  ctx.sessions.get = id => (id === memberSession ? { seq: 4 } : { seq: 2 })
+
+  const privDl = await call('file-download', { sessionId: memberSession, seq: 3, index: 0, offset: 0 })
+  assert.equal(privDl.ok, false)
+  assert.equal(privDl.error.code, 'bot/not-found')
+  assert.match(privDl.error.message, /no longer available/)
+
+  const dataDl = await call('file-download', { sessionId: memberSession, seq: 3, index: 1, offset: 0 })
+  assert.equal(dataDl.ok, false)
+  assert.equal(dataDl.error.code, 'bot/not-found')
+  assert.match(dataDl.error.message, /no longer available/)
+
+  const unownedDl = await call('file-download', { sessionId: 'foreign-session', seq: 3, index: 0, offset: 0 })
+  assert.equal(unownedDl.ok, false)
+  assert.equal(unownedDl.error.code, 'bot/not-found')
+  assert.match(unownedDl.error.message, /Unknown session/)
+
+  // A session owned by a group member that is no longer in owned parts of that room is refused.
+  rt.pastOwners.set('orphan-part', { botId: chief, roomId: room.id })
+  history['orphan-part'] = [
+    { seq: 1, time: 100, type: 'deliverables/presented', data: { turn: 1, files: [{ path: dataFile }] } },
+  ]
+  const orphanDl = await call('file-download', { sessionId: 'orphan-part', seq: 1, index: 0, offset: 0 })
+  assert.equal(orphanDl.ok, false)
+  assert.equal(orphanDl.error.code, 'bot/not-found')
+  assert.match(orphanDl.error.message, /no longer available/)
 })

@@ -372,17 +372,15 @@ function devtools(url, problems) {
   return { opened, call, close: () => { socket.close() } }
 }
 
-// material.css and macos.css style DSH's own page, which can change with a DSH upgrade; every
-// rule must still find an element, on every platform, so the change shows here and not as a
-// broken window. The page is not in fullscreen here, so a rule's html:not([data-fullscreen])
-// is dropped before the look. DSH draws its session tree only in the classic Agent view, which
-// the check does not open, so the rules for the tree are not looked for.
+// material.css and macos.css style the app's own frame; every rule must still match an element
+// on every platform so selector drift shows here rather than as a broken window. The page is
+// not in fullscreen here, so html:not([data-fullscreen]) is stripped before checking.
 const frameSheets = ['material.css', 'macos.css']
 function frameRules(file) {
   const css = readFileSync(join(root, 'src', file), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
   return [...css.matchAll(/([^{}]+)\{/gu)].map(([, selectors]) => selectors.split(',')
     .map(selector => selector.trim().replace(/::(?:before|after)$/u, '').replace(/^html(?::not\(\[data-fullscreen\]\))?\s*/u, ''))
-    .filter(selector => selector !== '' && selector !== 'body' && !selector.includes('_treeBody') && !selector.includes('_scrollRegion')))
+    .filter(selector => selector !== '' && selector !== 'body'))
     .filter(rule => rule.length > 0)
 }
 
@@ -396,27 +394,37 @@ async function chat(cdp) {
     }
     throw new Error(`timed out waiting for ${label}`)
   }
-  // DSH shows a preview notice once per profile; it would keep the focus away from the composer.
-  const dismissNotice = () => evaluate("[...document.querySelectorAll('[role=dialog] button')].find(node => /^(Continue|继续)$/u.test(node.textContent.trim()))?.click()")
   const text = needle => `document.body.innerText.includes(${JSON.stringify(needle)})`
   await cdp.call('Runtime.enable')
   await cdp.call('Log.enable')
   await until("document.querySelector('.bt-tile, .bt-row')", 'the team')
   for (const file of frameSheets) {
     const stale = await evaluate(`${JSON.stringify(frameRules(file))}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
-    if (stale.length > 0) throw new Error(`src/${file} no longer matches DSH's page: ${stale.join(' | ')}`)
+    if (stale.length > 0) throw new Error(`src/${file} no longer matches the page: ${stale.join(' | ')}`)
   }
-  await dismissNotice()
   const main = await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'state', payload: {} }) }).then(r => r.json()).then(r => r.value.mainBotId)")
   await evaluate(`document.querySelector(${JSON.stringify(`[data-bot-id="${main}"]`)}).click()`)
-  await until("document.querySelector('.bt-model-chip:not(.bt-model-chip-quiet)')", 'the model choice')
-  await evaluate("document.querySelector('.bt-model-chip:not(.bt-model-chip-quiet)').click()")
-  // The mock model's greeting for a new team.
-  await until(text('先让团队帮你做哪块'), 'the greeting')
-  await dismissNotice()
+  await until("document.querySelector('.bt-model-chip[aria-label]')", 'the model choice')
+  // Wait for a real model chip: setup actions share the chip class while the catalog is
+  // still loading, but only model choices carry an aria-label. The chip is rebound while the
+  // first team state arrives, so retry while the unchosen chip is still there.
+  const greeting = text('先让团队帮你做哪块')
+  const greetingDeadline = Date.now() + 120_000
+  let modelClicks = 0
+  let nextModelClick = 0
+  for (;;) {
+    if (await evaluate(`(async () => Boolean(await (${greeting})))()`)) break
+    if (Date.now() >= greetingDeadline) throw new Error(`timed out waiting for the greeting after ${modelClicks} model-choice click(s)`)
+    if (Date.now() >= nextModelClick && await evaluate("(() => { const chip = document.querySelector('.bt-model-chip[aria-label]:not(:disabled)'); if (chip === null || chip.disabled) return false; chip.click(); return true })()")) {
+      modelClicks += 1
+      nextModelClick = Date.now() + 5_000
+    }
+    await sleep(250)
+  }
   // Click the composer through the input pipeline. A bare focus() is not enough where no window
   // manager gives the window focus (xvfb in CI): the text and the Enter would go nowhere.
   const box = "[...document.querySelectorAll('[role=textbox][contenteditable=true], textarea')].at(-1)"
+  const readDraft = `String((() => { const el = ${box}; return el?.tagName === 'TEXTAREA' ? el.value : (el?.innerText ?? '') })())`
   const focusCheck = "document.hasFocus() && ((document.activeElement?.isContentEditable ?? false) || document.activeElement?.tagName === 'TEXTAREA')"
   // A greeting that just arrived leaves the composer rebinding: for a moment the field is
   // not editable, so a click lands on it but does not focus it. The probe and the click are
@@ -468,23 +476,23 @@ async function chat(cdp) {
     throw new Error(`timed out waiting for the focused composer; page state: ${state}`)
   }
   await cdp.call('Input.insertText', { text: 'packaged app check' })
-  await until(text('packaged app check'), 'the typed message', 10_000)
-  // DSH's composer drops an Enter while it cannot send: while it is busy, or before it has taken
-  // in the inserted text. Its send button is disabled under the same conditions, so press Enter
-  // once a user could click the button, as a user who sees it greyed out would wait.
+  await until(`${readDraft}.includes('packaged app check')`, 'the typed message', 10_000)
+  // Wait until the composer's send button is enabled before pressing Enter.
   const send = `(() => {
     let node = ${box}
-    while (node && !node.querySelector?.('button[aria-busy]')) node = node.parentElement
-    return node?.querySelector('button[aria-busy]') ?? null
+    while (node && !node.querySelector?.('button.dsb-send, button[aria-busy]')) node = node.parentElement
+    return node?.querySelector('button.dsb-send, button[aria-busy]') ?? null
   })()`
   const snapshot = `(() => {
     const el = ${box}
     const button = ${send}
     return {
       at: performance.now(), focused: document.hasFocus(), visibility: document.visibilityState,
-      active: document.activeElement?.tagName ?? null, editable: document.activeElement?.isContentEditable ?? null,
+      active: document.activeElement?.tagName ?? null,
+      editable: (document.activeElement?.isContentEditable ?? false) || document.activeElement?.tagName === 'TEXTAREA',
       editorComposing: el?.hasAttribute('data-composer-composing') ?? false, popup: document.querySelector('[role=listbox]') !== null,
-      draft: el?.innerText ?? null, send: button === null ? null : { label: button.getAttribute('aria-label'), disabled: button.disabled },
+      draft: el === undefined ? null : (el.tagName === 'TEXTAREA' ? el.value : (el.innerText ?? null)),
+      send: button === null ? null : { label: button.getAttribute('aria-label'), disabled: button.disabled },
     }
   })()`
   const composerState = () => evaluate(`JSON.stringify({ ...${snapshot}, enter: window.__packedEnter ?? null, tail: document.body.innerText.slice(-300) })`)
@@ -512,7 +520,7 @@ async function chat(cdp) {
     throw new Error(`${error.message}; composer: ${await composerState()}`)
   }
   const message = 'packaged app check'
-  const draft = `String(${box}?.innerText ?? '')`
+  const draft = readDraft
   let previousDraft = null
   let sent = false
   for (let press = 1; press <= 3 && !sent; press += 1) {
@@ -610,6 +618,7 @@ try {
   Object.assign(env, {
     DS_BOT_HOME: join(work, 'home'), DS_BOT_SHELL_DATA: join(work, 'shell'),
     DEEPSEEK_BASE_URL: modelUrl, DEEPSEEK_API_KEY: 'mock-key',
+    DS_BOT_TELEMETRY_DISABLED: '1',
   })
   // Never touch the host macOS login keychain with an ad-hoc temporary copy of DS Bot.app.
   const macArgs = mockKeychainArgs()
@@ -682,7 +691,14 @@ try {
   console.log('check-packed: passed')
 } catch (error) {
   failed = true
-  console.error(`check-packed: FAILED: ${error instanceof Error ? error.message : String(error)}`)
+  let detail = error instanceof Error ? error.message : String(error)
+  try {
+    if (existsSync(join(work, 'mock.log'))) {
+      const log = readFileSync(join(work, 'mock.log'), 'utf8')
+      detail += `; mock model log tail: ${log.length === 0 ? '<empty>' : log.slice(-4000)}`
+    } else detail += '; mock model log: <missing>'
+  } catch {}
+  console.error(`check-packed: FAILED: ${detail}`)
 }
 stopChildren()
 await sleep(500)

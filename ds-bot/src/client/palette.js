@@ -2,11 +2,13 @@ import { createElement as h, Fragment, useEffect, useState } from 'react'
 import { FishLogo } from './dsh-primitives.js'
 import { isMainOf } from './sources.js'
 import { currentPart, stripHeader } from './text.js'
-import { PlusIcon, SearchIcon, PeopleIcon, CloseIcon, GearIcon } from './icons.js'
+import { PlusIcon, SearchIcon, PeopleIcon, CloseIcon, GearIcon, FolderIcon, GlobeIcon, KeyboardIcon, SwitchIcon, UnreadIcon } from './icons.js'
 import { BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
 import { QUICK_EDGES, useFlip, useGlide } from './motion.js'
 import { t } from './i18n.js'
+import { effectiveBinding, formatBindingCaps, isMacPlatform, shortcutsStore } from './shortcuts-model.js'
+import { KeyCaps, useShortcutOverrides } from './shortcuts-page.js'
 
 // Search is a command palette: a 560px dialog, a search header, and 49px
 // rows (24px avatar, title, subtitle). Bots and groups match on name and role; past
@@ -77,12 +79,62 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
     }
   })
   if (messages.length) sections.push([t('Messages'), messages])
+  const overrides = useShortcutOverrides(shortcutsStore)
+  const mac = isMacPlatform()
+  // Only show local shortcut store keycaps in the desktop own-frontend (where ShortcutsDialog exists);
+  // in DSH plugin mode DSH manages its own shortcut bindings.
+  const showLocalCaps = typeof actions.openShortcuts === 'function'
+  const capsFor = (id) => (showLocalCaps ? formatBindingCaps(effectiveBinding(id, overrides), mac) : [])
+  const inAgentMode = typeof actions.surfaceMode === 'function' && actions.surfaceMode() === 'agent'
+  const activeSessionId = useSessions((list) => {
+    for (const [sid, info] of Object.entries(list.byId ?? {})) {
+      if ((info?.retainedBy?.mainView ?? 0) > 0) return sid
+    }
+    return null
+  })
+  const activeBotId = (activeSessionId && roster.byId?.[activeSessionId]?.id) || roster.mainBotId || roster.bots?.[0]?.id || null
+  const canToggleBrowser = roster.browser !== false && (typeof actions.toggleBrowser === 'function' || typeof actions.openBrowser === 'function')
   const commands = [
-    { key: 'cmd:new', icon: h(PlusIcon), title: t('New chat'), run: () => actions.openNewChat('new') },
+    {
+      key: 'cmd:new',
+      icon: h(PlusIcon),
+      title: t('New chat'),
+      shortcut: 'new-chat',
+      run: () => (inAgentMode && typeof actions.createClassicSession === 'function'
+        ? actions.createClassicSession()
+        : actions.openNewChat('new')),
+    },
     { key: 'cmd:bot', icon: h(PlusIcon), title: t('Create Bot'), run: () => actions.openNewChat('create') },
     { key: 'cmd:group', icon: h(PeopleIcon), title: t('Create group chat'), run: () => actions.openNewChat('group') },
-    { key: 'cmd:settings', icon: h(GearIcon), title: t('Settings'), run: () => actions.openSettings('overview') },
-  ].filter(command => matchesName(command.title))
+    !inAgentMode && typeof actions.openInbox === 'function'
+      ? { key: 'cmd:inbox', icon: h(UnreadIcon), title: t('Open Inbox'), shortcut: 'inbox', run: () => actions.openInbox() }
+      : null,
+    typeof actions.setSurface === 'function'
+      ? {
+        key: 'cmd:surface',
+        icon: h(SwitchIcon),
+        title: inAgentMode ? t('Switch to Bot mode') : t('Switch to classic Agent mode'),
+        shortcut: 'switch-surface',
+        run: () => actions.setSurface(inAgentMode ? 'bot' : 'agent'),
+      }
+      : null,
+    !inAgentMode && canToggleBrowser && activeBotId
+      ? {
+        key: 'cmd:browser',
+        icon: h(GlobeIcon),
+        title: t('Toggle Bot browser'),
+        shortcut: 'browser',
+        run: () => (typeof actions.toggleBrowser === 'function' ? actions.toggleBrowser(activeBotId) : actions.openBrowser(activeBotId)),
+      }
+      : null,
+    typeof actions.saveSection === 'function'
+      ? { key: 'cmd:section', icon: h(FolderIcon), title: t('New section'), run: () => Promise.resolve(actions.saveSection({})).then((sec) => { if (sec?.id) actions.beginSectionRename?.(sec.id) }) }
+      : null,
+    { key: 'cmd:settings', icon: h(GearIcon), title: t('Settings'), run: () => actions.openSettings('overview'), shortcut: 'settings' },
+    typeof actions.openShortcuts === 'function'
+      ? { key: 'cmd:shortcuts', icon: h(KeyboardIcon), title: t('Keyboard shortcuts'), shortcut: 'shortcuts', run: () => actions.openShortcuts() }
+      : null,
+  ].filter(command => command && matchesName(command.title))
   if (commands.length) sections.push([t('Commands'), commands])
   const rows = sections.flatMap(([, items]) => items)
   const active = Math.min(cursor, Math.max(rows.length - 1, 0))
@@ -136,6 +188,7 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
                 h('span', { className: 'bt-palette-text' },
                   h('span', { className: 'bt-palette-title' }, row.title),
                   row.subtitle ? h('span', { className: 'bt-palette-sub' }, row.subtitle) : null),
-                row.badge ? h('span', { className: 'bt-palette-badge' }, row.badge) : null)
+                row.badge ? h('span', { className: 'bt-palette-badge' }, row.badge) : null,
+                row.shortcut ? h(KeyCaps, { caps: capsFor(row.shortcut), className: 'bt-palette-kbd' }) : null)
               }))))))
 }

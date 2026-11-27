@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { demoUsage } from './demo-usage.ts'
 import type { TeamState } from '../connection.ts'
 import { demoData } from './demo-team.ts'
 import { demoFolderListing, demoUpdateRoom } from './demo-folders.ts'
@@ -72,12 +73,38 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         // Same check as the computer, so a wrong answer shape fails here too.
         const checked = pending === undefined ? { error: 'This view is no longer open' } : validateViewAnswer(pending.view, body.action, body.values)
         if (checked.error !== undefined) throw Object.assign(new Error(checked.error), { code: 'bot/invalid' })
-        delete state.views![sid]; touch()
+        const pages = chatOf(sid)
+        if (pages?.[0] !== undefined) {
+          const items = pages[0].items.filter(item => !(item.kind === 'view' && item.id === pending!.id))
+          items.push({
+            kind: 'answer',
+            views: [{ id: pending!.id ?? sid, title: pending!.title ?? '', view: pending!.view }],
+            answers: [{ id: pending!.id ?? sid, action: String(body.action ?? ''), values: body.values as never }],
+            time: Date.now(),
+            seq: (pages[0].items.at(-1)?.seq ?? 0) + 1,
+          })
+          pages[0] = { ...pages[0], items }
+        }
+        const { [sid]: _settled, ...restViews } = state.views ?? {}
+        state.views = restViews
+        touch()
         return { ok: true }
       }
       case 'dismiss-view': {
         const sid = String(body.sessionId ?? '')
-        if (state.views?.[sid] !== undefined) { delete state.views[sid]; touch() }
+        const pending = state.views?.[sid]
+        if (pending !== undefined) {
+          const pages = chatOf(sid)
+          if (pages?.[0] !== undefined) {
+            const items = pages[0].items.map(item => (item.kind === 'view' && item.id === pending.id
+              ? { kind: 'closed' as const, closed: 'dismissed', title: pending.title, view: pending.view, callId: pending.callId, time: item.time, seq: item.seq }
+              : item))
+            pages[0] = { ...pages[0], items }
+          }
+          const { [sid]: _dismissed, ...restViews } = state.views ?? {}
+          state.views = restViews
+          touch()
+        }
         return { ok: true }
       }
       case 'image': {
@@ -296,16 +323,7 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         return { ok: true }
       }
       case 'file-text': return { text: '# Release notes\n\n- Drawer lands today\n- Mobile cards render natively\n- Needs-you groups the queue\n', truncated: false }
-      case 'usage': return {
-        total: { input: 402100, output: 90300 },
-        bots: [
-          { name: 'Chief', input: 152100, output: 40100 }, { name: 'Writer', input: 120100, output: 30400 },
-          { name: 'Coder', input: 80000, output: 13000 }, { name: 'Researcher', input: 50000, output: 6800 },
-        ],
-        models: [
-          { name: 'DeepSeek v4.1', input: 300100, output: 70100 }, { name: 'DeepSeek Flash', input: 102000, output: 20200 },
-        ],
-      }
+      case 'usage': return demoUsage(bots)
       case 'update-check': return { update: { phase: 'current', latest: '0.1.2', available: false, checkedAt: Date.now() - 3600e3, source: 'registry' }, dsh: { phase: 'installed', installed: '0.0.1', available: false } }
       case 'update-install': case 'dsh-update-install': return { ok: true }
       case 'diagnostics': return { size: 48200, entries: 214, last: 'Turn 96 on Coder failed once and retried.' }

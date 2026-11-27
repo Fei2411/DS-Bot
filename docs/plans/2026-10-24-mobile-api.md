@@ -14,7 +14,7 @@
 
 取舍：
 
-- **传输与 Remote 方法。** 本地 / LAN / SSH 仍走 `POST api/bot` 和 `GET api/bot/feed`，使用 DSH 会话 cookie 鉴权，和桌面应用的窗口一样。当客户端只能经由转发 DSH Typert Gateway Remote 方法的链路到达主机时，插件额外以源码模式注册两个 Gateway Remote 方法复用同一通道与事件流（纯 JS 插件不带 Typert 生成器）：`dsBot/call { endpoint, payload }` 返回与 `POST api/bot` 相同的 `{ ok, value | error }`（和手机配对链路一样，拒绝仅限电脑本机执行的 `phone-*` 配对管理与 `folder-pick` 原生弹窗，`bot/refused`），`dsBot/feed {}` 以流的形式推送 `{ event, data }`（首条为 `hello`）。代价：若中继自身带有接口允许列表（如 `ds-harness-remote`），需同时放行 `dsBot/call` 与 `dsBot/feed`，见「已知限制」。
+- **传输与 Remote 方法。** 本地 / LAN / SSH 仍走 `POST api/bot` 和 `GET api/bot/feed`，使用 DSH 会话 cookie 鉴权，和桌面应用的窗口一样。当客户端只能经由转发 DSH Typert Gateway Remote 方法的链路到达主机时，插件额外以源码模式注册两个 Gateway Remote 方法复用同一通道与事件流（纯 JS 插件不带 Typert 生成器）：`dsBot/call { endpoint, payload }` 返回与 `POST api/bot` 相同的 `{ ok, value | error }`（和手机配对链路一样，拒绝仅限电脑本机执行的 `phone-*` 配对管理、`folder-pick` 原生弹窗与 `session-*` 会话日志，`bot/refused`），`dsBot/feed {}` 以流的形式推送 `{ event, data }`（首条为 `hello`）。代价：若中继自身带有接口允许列表（如 `ds-harness-remote`），需同时放行 `dsBot/call` 与 `dsBot/feed`，见「已知限制」。
 - **显示用的条目，不是原始事件。** 群聊和 Bot 私聊都给「谁、说了什么、什么时候」的条目，客户端不需要懂 DSH 的会话事件和 DS Bot 的内部来源标记。
 - **提醒放内存。** 提醒只是「回来时补上」的索引，不是记录本身；真正的内容还在会话和 `state.json` 里。所以不落盘，重启后从头计数（`boot` 变了），客户端重新读一遍团队即可。
 
@@ -75,9 +75,9 @@
 - `notices`：`{ boot?, since? }` → `{ boot, seq, reset, notices }`。`boot` 不一致（重启过）或者 `since` 之后的提醒已经被挤掉时，`reset` 为真，客户端重读团队。内存里最多留 200 条。
 - 提醒只说「有事」，不记已读。已读和通知怎么弹由客户端决定。
 - 离线推送登记（仅原生手机 App，能力标识 `push-register`，浏览器端拒绝）：
-  - `push-register`：`{ kind: 'unifiedpush', endpoint }`（仅允许 `https://`）或 `{ kind: 'fcm', token }` → `{ registered: true, kind, relayFcm }`。
+  - `push-register`：`{ kind: 'unifiedpush', endpoint }`（仅允许指向公网地址的 `https://`）→ `{ registered: true, kind: 'unifiedpush' }`。
   - `push-unregister`：`{}` → `{ registered: false }`。
-  - 手机离线且登记了推送时，宿主用手机的 X25519 公钥（HKDF-SHA256 + ChaCha20-Poly1305）将提醒密封为 `{ v: 1, h, p }` 密文信封发出；收到 `404`/`410` 或 `UNREGISTERED` 时自动清理失效登记。
+  - 手机离线且登记了推送时，宿主使用手机与宿主双方的 X25519 密钥（`es || ss` 认证密钥协商 + HKDF-SHA256 + ChaCha20-Poly1305）将提醒密封为 `{ v: 1, h, p }` 密文信封发往 UnifiedPush 端点；收到 `404`/`410` 时自动清理失效登记。
 
 ### 直播（feed）
 

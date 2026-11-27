@@ -1,29 +1,34 @@
 # The engine layer of the desktop app's profile, over dsh-base and under
 # ds-bot. It adds the loopback transport for ds-bot's channel, the host
-# services ds-bot uses, and the agent preset that Bot Sessions run on. It has
-# no DSH Web front-end rows: the window is the app's own page (../ui), which
-# talks only to ds-bot.
+# services ds-bot uses, the static dist server for DS Bot's own frontend
+# (../ui/dist), and the agent preset that Bot Sessions run on. It has no DSH
+# Web front-end rows: the window talks only to ds-bot's channel.
 #
-# The rows follow @deepseek-ai/dsh-web-app's bundle patch (MIT; see NOTICE).
+# The host rows follow @deepseek-ai/dsh-web-app's bundle patch (MIT; see NOTICE).
 # When the app moves to another DSH version, compare this file and
 # preset-standard.patch.yml with that version's dsh-web-app bundle patch and
 # standard preset.
 
 - id: system-prompt
   config:
-    personaSuffix: Your working directory is {{cwd}}.
     personaPrefix: >-
       You are a coding agent powered by the {{model}} model.
 
+# Full-text session search stays opt-in to keep startup quiet.
+- id: session-query-sqlite
+  config:
+    path: ':memory:'
+    openAt: never
+
 - insert:
-    # The shell is the only client: it trades the launch token for the Host
-    # cookie and forwards the window's /api/ requests. Port 0 lets the system
-    # choose a free port, which the Host reports to the shell.
+    # Loopback HTTP transport for the desktop window and ds-bot's /api/bot
+    # channel. Binds the sticky port chosen by the Electron shell (DS_BOT_PORT)
+    # or an OS-assigned port when unset.
     - id: webserver
       name: '@deepseek-ai/dsh-host-webserver'
       config:
         host: 127.0.0.1
-        port: 0
+        port: !!js "Number(process.env.DS_BOT_PORT) || 0"
         compression: gzip
         compressionLevel: 1
         compressionThresholdBytes: 1024
@@ -33,7 +38,8 @@
       config:
         trustedHosts: []
 
-    # This package's own plugin (index.js): the launch-token exchange.
+    # This package's own plugin (index.js): launch-token exchange and static
+    # asset server for DS Bot's built frontend (app/ui/dist).
     - id: engine-index
       name: dsbot-engine
 
@@ -47,19 +53,53 @@
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 
+    - id: workspace-changes
+      name: '@deepseek-ai/dsh-workspace-changes'
+
     - id: session-controller
       name: '@deepseek-ai/dsh-api-session-controller'
 
-    # ds-bot's folder chooser for Bot and group working folders.
-    - id: directory-picker
-      name: '@deepseek-ai/dsh-host-directory-picker-auto'
+    # Host-only Cordis runtime & inspect providers for the cordis preset (Creator Mode).
+    - id: cordis-host-runner
+      name: '@deepseek-ai/dsh-cordis-host-runner'
 
-    # The sessionStats projection: the turns and output speed in a Bot's
-    # details.
+    - id: cordis-inspect-providers
+      name: '@deepseek-ai/dsh-tool-cordis/host'
+
+    # Session projections read by DS Bot's own UI and sidebar.
     - id: session-stats
       name: '@deepseek-ai/dsh-session-stats'
 
-    # Read by the standard preset's subagent tool (modelSelectionSettings).
+    - id: session-turn-outline
+      name: '@deepseek-ai/dsh-session-turn-outline'
+
+    - id: session-reference
+      name: '@deepseek-ai/dsh-session-reference'
+
+    - id: file-reference-local
+      name: '@deepseek-ai/dsh-file-reference-local'
+
+    - id: deliverable-file-references
+      name: '@deepseek-ai/dsh-deliverable-file-references'
+
+    - id: message-feedback
+      name: '@deepseek-ai/dsh-message-feedback'
+      config:
+        maxNoteBytes: 8192
+
+    - id: schedule
+      name: '@deepseek-ai/dsh-schedule'
+
+    - id: office-kit
+      name: '@deepseek-ai/dsh-office-kit'
+      config:
+        outputDirectory: !!js dshHomePath('office-kit', 'outputs')
+
+    - id: mcp-manager
+      name: '@deepseek-ai/dsh-mcp-manager'
+      inject: [credentials]
+
+    # Host-owned authorization sampled at Agent creation.
     - id: subagent-model-selection-settings
       name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
 
@@ -112,9 +152,6 @@
 - id: tool-subagent-control
   disabled: true
 
-- id: tool-subagent-list-agents
-  disabled: true
-
 - id: tool-subagent
   disabled: true
 
@@ -125,11 +162,6 @@
   disabled: true
 
 - id: tool-workflow
-  disabled: true
-
-# The preset gate reads declared row ids whether or not they are disabled, so
-# this row stays to keep tool-ralph off the host plane.
-- id: tool-ralph
   disabled: true
 
 - id: agent-instructions

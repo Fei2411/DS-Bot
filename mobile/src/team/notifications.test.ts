@@ -11,6 +11,8 @@ import {
 } from './notifications.ts'
 
 test('androidNotificationStatus reports runtime state on API 33+, system disabled below API 33, and avoids misreporting', () => {
+  assert.equal(androidNotificationStatus(33, undefined), undefined)
+  assert.equal(androidNotificationStatus(33, undefined, false), undefined)
   assert.equal(androidNotificationStatus(31, true), undefined)
   assert.equal(androidNotificationStatus(32, false), undefined)
   assert.equal(androidNotificationStatus(31, true, false), 'Off')
@@ -51,7 +53,7 @@ test('classifyNotice routes urgent cards to needs_you channel and messages/group
   assert.equal(classifyNotice({ kind: 'message', botId: '' }), null)
 })
 
-test('shouldPostSystemNotification honors toggles, muted chats, and foreground suppression', () => {
+test('shouldPostSystemNotification honors toggles and foreground suppression', () => {
   const defaults = readNotifyPrefsFromRecord({})
   assert.equal(defaults.enabled, true)
   assert.equal(defaults.bgMode, 'periodic')
@@ -64,22 +66,19 @@ test('shouldPostSystemNotification honors toggles, muted chats, and foreground s
   assert.equal(shouldPostSystemNotification(msg, noReplies, { appActive: false, activeChat: null }), null)
   assert.ok(shouldPostSystemNotification({ kind: 'approval', botId: 'b1', text: 'rm' }, noReplies, { appActive: false, activeChat: null }))
 
-  const muted = readNotifyPrefsFromRecord({ notifyMuted: JSON.stringify(['bot:b1']) })
-  assert.equal(shouldPostSystemNotification(msg, muted, { appActive: false, activeChat: null }), null)
-
   const disabled = readNotifyPrefsFromRecord({ notifyEnabled: 'off' })
   assert.equal(shouldPostSystemNotification({ kind: 'approval', botId: 'b1', text: 'rm' }, disabled, { appActive: false, activeChat: null }), null)
 })
 
-test('formatNoticeNotification respects message preview privacy and localizes EN and ZH', () => {
+test('formatNoticeNotification respects message preview privacy, optional hostName, and localizes EN and ZH', () => {
   setLang('zh')
   assert.deepEqual(
     formatNoticeNotification({ kind: 'approval', name: 'Chief', text: 'write_file' }, { preview: true }),
     { title: 'Chief', body: '等待批准：write_file' },
   )
   assert.deepEqual(
-    formatNoticeNotification({ kind: 'approval', name: 'Chief', text: 'write_file' }, { preview: false }),
-    { title: 'Chief', body: '等待你的批准' },
+    formatNoticeNotification({ kind: 'approval', name: 'Chief', text: 'write_file' }, { preview: false, hostName: 'Studio Mac' }),
+    { title: 'Chief (Studio Mac)', body: '等待你的批准' },
   )
   assert.deepEqual(
     formatNoticeNotification({ kind: 'group', title: '研发群', name: 'Coder', text: '已修复' }, { preview: false }),
@@ -95,6 +94,28 @@ test('formatNoticeNotification respects message preview privacy and localizes EN
     formatNoticeNotification({ kind: 'message', name: 'Chief', text: 'All green' }, { preview: false }),
     { title: 'Chief', body: 'New reply' },
   )
+  setLang('system')
+})
+
+test('every kind the inbox announces goes to Needs you, and says nothing of its text without preview', () => {
+  setLang('en')
+  const defaults = readNotifyPrefsFromRecord({})
+  for (const [kind, text, shown, hidden] of [
+    ['mail', 'Weekly report', 'Wants to send “Weekly report”', 'Wants to send an email'],
+    ['computer', 'Finder', 'Wants to use Finder', 'Needs your approval'],
+    ['goal', 'Ship it', 'Waiting for you · Ship it', 'Waiting for you'],
+    ['blocked', 'RATE_LIMIT', 'Needs a fix', 'Needs a fix'],
+    ['paused', 'Which version?', 'Which version?', 'Paused'],
+    ['alert', 'No progress for 20 minutes', 'No progress for 20 minutes', 'Waiting for you'],
+  ]) {
+    const notice = { kind, botId: 'b1', name: 'Chief', text }
+    assert.equal(classifyNotice(notice)?.channel, 'needs_you', kind)
+    assert.ok(shouldPostSystemNotification(notice, defaults, { appActive: false, activeChat: null }), kind)
+    assert.equal(formatNoticeNotification(notice, { preview: true }).body, shown, kind)
+    assert.equal(formatNoticeNotification(notice, { preview: false }).body, hidden, kind)
+  }
+  // A group's item opens the group.
+  assert.deepEqual(classifyNotice({ kind: 'goal', botId: 'b1', roomId: 'r1', text: '' })?.target, { kind: 'room', id: 'r1' })
   setLang('system')
 })
 

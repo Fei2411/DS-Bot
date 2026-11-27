@@ -15,15 +15,18 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import { useTeam } from '../team/context.tsx'
 import { memorySummaryText } from '../team/memory.ts'
 import { avatarPhoto } from '../team/avatar-photo.ts'
+import { botMarkState } from '../team/mark-state.ts'
 import { t, timeLabel, weekdayShort } from '../ui/i18n.ts'
+import { roomTitle } from '../ui/phrases.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
+import { lookOf, PICKER_SHAPES } from '../../../ds-bot/src/client/characters.js'
 import { Avatar, COLOR_PAINT, RoomAvatar } from '../ui/marks.tsx'
 import { inkColor, radius, shadow, type as typeScale, useTheme, type Palette } from '../ui/tokens.ts'
 import type { Bot, Room, TeamState } from '../connection.ts'
 import { capabilityStatusText } from '../team/capabilities.ts'
 import { ModelMenu, ModelPicker } from './model-menu.tsx'
 
-export const SHAPES = ['acorn', 'berry', 'bunny', 'gem', 'gumdrop', 'kitty', 'moon', 'peanut', 'star', 'wave']
+export const SHAPES = PICKER_SHAPES
 export const COLORS = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta', 'gray', 'aurora']
 
 export const pickPhoto = async (): Promise<string | null> => {
@@ -227,7 +230,7 @@ export function BotDetails({ route, navigation }: any) {
       </View>
       <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }}>
         <View style={{ alignItems: 'center', paddingTop: 4 }}>
-          <Avatar bot={bot} dark={dark} size={64} ring={p.main} main={main} />
+          <Avatar bot={bot} dark={dark} size={64} ring={p.main} main={main} state={botMarkState(team, bot)} live pokeable />
           <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18 }]}>{bot.name}</Text>
           {bot.role ? <Text style={[typeScale.caption, { color: p.ink3, marginTop: 2 }]}>{bot.role}</Text> : null}
         </View>
@@ -422,15 +425,16 @@ export function BotEdit({ route, navigation }: any) {
       if (image !== null) save({ avatar: { ...bot.avatar, image } })
     } catch (err) { setPhotoError(err instanceof Error ? err.message : String(err)) }
   }
-  const shape = bot.avatar?.shape ?? 'star'
-  const color = bot.color ?? 'blue'
+  const look = lookOf(bot)
+  const shape = look.shape
+  const color = look.color
   const main = isMain(team, bot.id)
   return (
     <Screen title={bot.name}>
       <BackRow title={t('Settings')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={{ alignItems: 'center', paddingTop: 12 }}>
-          <Avatar bot={bot} dark={dark} size={56} ring={p.main} />
+          <Avatar bot={bot} dark={dark} size={56} ring={p.main} live />
         </View>
         {error || photoError ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error || photoError}</Text> : null}
         <Section label={t('Profile')}>
@@ -565,8 +569,9 @@ export function GroupDetails({ route, navigation }: any) {
   const admin = botOf(team, room.admin ?? '')
   const mode = admin !== undefined ? (room.mode ?? 'admin') : 'everyone'
   const notice = (room as { notice?: string }).notice
+  const title = roomTitle(room)
   return (
-    <Screen title={room.name}>
+    <Screen title={title}>
       <View style={[styles.detailTop, { paddingTop: 8 }]}>
         <RoundButton label={t('Back')} onPress={() => navigation.goBack()}><ChevronLeftIcon color={p.ink2} /></RoundButton>
         <View style={{ flex: 1 }} />
@@ -575,7 +580,7 @@ export function GroupDetails({ route, navigation }: any) {
       <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }}>
         <View style={{ alignItems: 'center', paddingTop: 4 }}>
           <RoomAvatar room={room} bots={bots} dark={dark} size={56} ring={p.main} />
-          <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18, textAlign: 'center' }]}>{room.name}</Text>
+          <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18, textAlign: 'center' }]}>{title}</Text>
           <Text style={[typeScale.caption, { color: p.ink3, marginTop: 2 }]}>{[t('{count} members', { count: members.length }), admin ? t('Admin {name}', { name: admin.name }) : t('No admin')].join(' · ')}</Text>
         </View>
         {notice
@@ -601,7 +606,7 @@ export function GroupDetails({ route, navigation }: any) {
         {team?.memory === false ? null : (
           <>
             <DetailTitle text={t('Memory')} />
-            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Memory', { id: room.id, name: room.name, group: true })}
+            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Memory', { id: room.id, name: title, group: true })}
               style={[styles.dropdown, { backgroundColor: p.card, borderColor: p.line }]}>
               <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{t('Memory')}</Text>
               <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Manage')}</Text>
@@ -636,8 +641,9 @@ export function GroupSettings({ route, navigation }: any) {
     }
   }
   const mode = room.admin !== undefined && bots.some(b => b.id === room.admin) ? (room.mode ?? 'admin') : 'everyone'
+  const title = roomTitle(room)
   return (
-    <Screen title={room.name}>
+    <Screen title={title}>
       <BackRow title={t('Group settings')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         {error || photoError ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error || photoError}</Text> : null}
@@ -694,7 +700,7 @@ export function GroupSettings({ route, navigation }: any) {
           })}
         </Section>
         <Section label={t('Danger')}>
-          <DangerRow label={t('Delete group')} confirm={t('Delete {name}?', { name: room.name })} onConfirm={() => void run('delete-room', { id: room.id }, () => openChat(navigation))} />
+          <DangerRow label={t('Delete group')} confirm={t('Delete {name}?', { name: title })} onConfirm={() => void run('delete-room', { id: room.id }, () => openChat(navigation))} />
         </Section>
       </ScrollView>
     </Screen>

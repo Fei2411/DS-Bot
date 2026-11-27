@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, isSilentTurnText, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
-import { relayRange } from '../shared/group-replies.js'
+import { addressOf } from './session-follow.js'
+import { presentedFileName, presentedFiles, relayRange, stripRelayPrefix } from '../shared/group-replies.js'
 import { textOf } from './text.js'
 import { hourKeys } from './usage.js'
 
@@ -55,7 +56,13 @@ export const CAPABILITIES = [
   'write-state',
   'push-register',
 ]
-export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval', 'secret', 'connector', 'handoff', 'learning']
+export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval', 'secret', 'connector', 'handoff', 'learning', 'mail', 'computer', 'goal', 'blocked', 'paused', 'alert']
+// The notice each kind of inbox item sends (inbox.js). A source's own kinds send 'alert'.
+const INBOX_NOTICE_KIND = {
+  question: 'question', view: 'view', approval: 'approval', secret: 'secret', connector: 'connector',
+  handoff: 'handoff', learning: 'learning', mail: 'mail', computer: 'computer', goal: 'goal',
+  blocked: 'blocked', model: 'blocked', paused: 'paused', 'room-paused': 'paused',
+}
 
 // Notices live in memory: a client away longer than this many notices, or across a
 // restart (a new `boot`), reads the team again instead.
@@ -107,6 +114,15 @@ function reminderText(text) {
   }
 }
 
+const presentedFileRefs = value => presentedFiles(value).map(file => ({
+  name: presentedFileName(file.path),
+  path: file.path,
+  ...(file.description ? { description: file.description } : {}),
+  ...(file.sessionId ? { sessionId: file.sessionId } : {}),
+  ...(Number.isInteger(file.seq) ? { seq: file.seq } : {}),
+  ...(Number.isInteger(file.index) ? { index: file.index } : {}),
+}))
+
 // One reply of a round as an item: a member's message, the user's message that came in
 // while the round ran, or an event of the round. `id` names it the same while the round
 // runs and once its result is logged, so a client can swap the one for the other.
@@ -114,7 +130,10 @@ function replyItem(reply, id, extra = {}) {
   const who = { ...(reply.botId ? { botId: reply.botId } : {}), ...(reply.name ? { name: reply.name } : {}), ...(reply.color ? { color: reply.color } : {}) }
   const time = Number.isFinite(reply.time) ? reply.time : null
   if (reply.kind === 'user') return { id, kind: 'user', text: String(reply.text ?? ''), time, ...extra }
-  if (reply.kind === undefined) return { id, kind: 'bot', ...who, text: String(reply.text ?? ''), time, ...(Number.isFinite(reply.duration) ? { duration: reply.duration } : {}), ...extra }
+  if (reply.kind === undefined) {
+    const files = presentedFileRefs(reply.presented)
+    return { id, kind: 'bot', ...who, text: String(reply.text ?? ''), time, ...(Number.isFinite(reply.duration) ? { duration: reply.duration } : {}), ...(reply.changes ? { changes: reply.changes } : {}), ...(files.length > 0 ? { files } : {}), ...extra }
+  }
   if (!ROUND_EVENTS.has(reply.kind)) return undefined
   return {
     id, kind: 'event', event: reply.kind, ...who,
@@ -139,7 +158,14 @@ export function roomItems(events, rowsOf = () => []) {
       if (source?.kind === 'user') {
         const imageBlocks = content.filter(block => block?.type === 'image' && block.attachment !== undefined)
         const imageRefs = imageBlocks.map(block => ({ attachmentId: block.attachment.attachmentId, mime: mediaOf(block.attachment), name: block.attachment.name }))
-        items.push({ id: `${seq}`, kind: 'user', text: textOf(content), ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}), time: event.time ?? null })
+        const fileBlocks = content.filter(block => block?.type === 'file' && block.attachment !== undefined)
+        const fileRefs = fileBlocks.map(block => ({ attachmentId: block.attachment.attachmentId, name: block.attachment.name, bytes: block.attachment.bytes }))
+        items.push({
+          id: `${seq}`, kind: 'user', text: textOf(content),
+          ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}),
+          ...(fileBlocks.length > 0 ? { fileRefs } : {}),
+          time: event.time ?? null,
+        })
       } else if (source?.kind === 'schedule') {
         items.push({ id: `${seq}`, kind: 'event', event: 'schedule', text: reminderText(textOf(content)), time: event.time ?? null })
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
@@ -147,10 +173,12 @@ export function roomItems(events, rowsOf = () => []) {
         // picked-up work, stopped work or finished work is an event of the round it opens.
         if (source.logged !== undefined || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true || source.resumedPause === true) continue
         const file = source.length === undefined ? undefined : content.find(block => block?.type === 'file')?.attachment
+        const files = presentedFileRefs(source.presented)
         items.push({
           id: `${seq}`, kind: 'bot', botId: source.senderSessionId ?? null, name: source.senderName ?? null,
           text: textOf(content).replace(POST_HEADER, ''), time: event.time ?? null,
           ...(file ? { whole: { length: source.length, file } } : {}),
+          ...(files.length > 0 ? { files } : {}),
         })
       }
       continue
@@ -166,7 +194,7 @@ export function roomItems(events, rowsOf = () => []) {
     let replies
     if (range !== undefined) replies = rowsOf(range)
     else {
-      try { replies = JSON.parse(text)?.replies } catch { continue }
+      try { replies = JSON.parse(stripRelayPrefix(text))?.replies } catch { continue }
     }
     if (!Array.isArray(replies)) continue
     relays.delete(callId)
@@ -225,25 +253,24 @@ export function install(rt) {
     roomChanged(room.id)
     if (line.botId === undefined || line.who === 'User') return
     const base = { roomId: room.id, title: room.name }
-    if (line.kind === undefined) botNotice(line.botId, { kind: 'group', ...base, text: line.text })
+    if (line.kind === undefined) {
+      const summary = line.text || (Array.isArray(line.presented) ? line.presented.map(file => presentedFileName(file.path)).join(', ') : '')
+      botNotice(line.botId, { kind: 'group', ...base, text: summary })
+    }
     else if (line.kind === 'done') botNotice(line.botId, { kind: 'done', ...base, text: '' })
   }
 
-  // A card in a Bot's own chat waits for the user.
-  rt.cardShown = (sessionId, kind, text) => {
-    const botId = rt.chatOwners.get(sessionId)
-    if (botId !== undefined) botNotice(botId, { kind, sessionId, text })
-  }
-  rt.approvalWaiting = (entry) => {
-    const room = rt.roomOf(entry.roomId)
-    botNotice(entry.botId, { kind: 'approval', sessionId: entry.sessionId, ...(room ? { roomId: room.id, title: room.name } : {}), text: entry.tool })
-  }
-  rt.learningProposed = (proposal) => {
-    if (!proposal?.botId) return
-    const label = proposal.kind === 'agents' ? `${proposal.folder}/AGENTS.md` : `skills/${proposal.name}/SKILL.md`
-    const sessionId = rt.chatOf?.(proposal.botId)
-    botNotice(proposal.botId, { kind: 'learning', ...(sessionId ? { sessionId } : {}), text: label })
-  }
+  // Whatever waits on the user, wherever it was asked: a new inbox item (inbox.js) is
+  // one notice. The kind names what waits; the text is the item's own summary, and the
+  // phone decides how much of it a notification shows.
+  const offInbox = rt.onInboxAdded?.((item) => {
+    const kind = INBOX_NOTICE_KIND[item.kind] ?? 'alert'
+    const room = item.roomId === undefined ? undefined : rt.roomOf(item.roomId)
+    const text = item.kind === 'approval' ? item.tool ?? '' : item.text ?? ''
+    const entry = { kind, ...(item.sessionId ? { sessionId: item.sessionId } : {}), ...(room ? { roomId: room.id, title: room.name } : {}), text }
+    if (item.botId !== undefined && rt.botOf(item.botId) !== undefined) botNotice(item.botId, entry)
+    else if (room !== undefined) addNotice({ name: room.name, ...entry })
+  })
 
   ctx.on('session/event', (session, event) => {
     const id = session?.id
@@ -273,18 +300,8 @@ export function install(rt) {
     }, LIVE_SIGNAL_MS)
   }
   const offApproval = rt.onApproval?.(() => liveChanged())
-  const seenHolds = new Map()
-  const offHolds = rt.browserChannel?.subscribeHolds?.((botId, hold) => {
-    liveChanged()
-    if (hold === null || hold?.callId === undefined) {
-      seenHolds.delete(botId)
-      return
-    }
-    if (seenHolds.get(botId) === hold.callId) return
-    seenHolds.set(botId, hold.callId)
-    const sessionId = hold.sessionId ?? rt.chatOf?.(botId)
-    botNotice(botId, { kind: 'handoff', ...(sessionId ? { sessionId } : {}), text: hold.note || hold.reason || '' })
-  })
+  const offHolds = rt.browserChannel?.subscribeHolds?.(() => liveChanged())
+  const offInboxChange = rt.onInboxChanged?.(() => liveChanged())
 
   ctx.effect(() => () => {
     for (const timer of roomTimers.values()) clearTimeout(timer)
@@ -293,6 +310,8 @@ export function install(rt) {
     liveTimer = undefined
     offApproval?.()
     offHolds?.()
+    offInboxChange?.()
+    offInbox?.()
     clearAvatarRefCache()
   }, 'ds-bot: mobile room signals')
 
@@ -375,7 +394,7 @@ export function install(rt) {
     const events = page.records.map(record => record.event)
     const { items, open } = roomItems(events, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [])
     for (const item of items) {
-      if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post')) item.sessionId = part.sessionId
+      if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
     }
     if (body.steps === true) await rt.applySteps?.(items, events, part.sessionId, { atTip: !Number.isInteger(cursor?.beforeSeq) && index === parts.length - 1 })
     const running = [...rt.roomProgress.entries()].filter(([, round]) => round.roomId === room.id)
@@ -432,54 +451,175 @@ export function install(rt) {
     return { mime: 'image/jpeg', data: small.toString('base64'), preview: true }
   }
 
+  const throughSeqOf = async (targetId) => {
+    const live = ctx.sessions?.get?.(targetId)
+    const rawLive = live?.seq
+    if (typeof rawLive === 'number' && Number.isSafeInteger(rawLive) && rawLive >= 0) return rawLive - 1
+    if (typeof rt.resolveAgent !== 'function') return undefined
+    const agent = await rt.resolveAgent(targetId).catch(() => undefined)
+    const rawSeq = agent?.session?.seq
+    return typeof rawSeq === 'number' && Number.isSafeInteger(rawSeq) && rawSeq >= 0 ? rawSeq - 1 : undefined
+  }
+
+  const eventContentBlocks = (event) => {
+    const out = []
+    if (Array.isArray(event?.data?.content)) out.push(...event.data.content)
+    if (Array.isArray(event?.data?.message?.content)) out.push(...event.data.message.content)
+    return out
+  }
+
+  const resolveKnownOwner = (id) => {
+    const room = rt.roomOf(id) ?? rt.roomOf(rt.pastOwners.get(id)?.roomId)
+    const botId = room === undefined
+      ? rt.chatOwners.get(id) ?? rt.pastOwners.get(id)?.botId ?? rt.taskOwners?.get(id)?.botId ?? rt.groupOwners?.get(id)?.botId
+      : undefined
+    const ok = botId !== undefined || room !== undefined || rt.agentOf?.(id) !== undefined
+    return { room, botId, ok }
+  }
+
+  async function serveImageBlock(block, wantPreview, attachments) {
+    const key = String(block.attachment.attachmentId)
+    const hasCachedPreview = wantPreview && previews.has(key)
+    if (hasCachedPreview) {
+      if (previews.get(key) !== null) return shown(key)
+      keep(key, null)
+    }
+    // An image block's ref names no file: DSH reads it as an image, not a file.
+    const bytes = Buffer.from((await attachments.readImage(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))).data)
+    const mime = mediaOf(block.attachment) ?? 'image/png'
+    const { width, height } = block.attachment
+    if (wantPreview && !hasCachedPreview && !(Math.max(width, height) <= PREVIEW_EDGE)) {
+      // A photo that cannot be shrunk is sent as it is, and remembered as such.
+      const small = await previewImage(bytes, mime).catch(() => null)
+      keep(key, small)
+      if (small !== null) return shown(key)
+    }
+    return { mime, data: bytes.toString('base64') }
+  }
+
+  async function scanAddressForImage(address, throughSeq, attachmentId, wantPreview, attachments) {
+    let beforeSeq
+    for (;;) {
+      const page = await ctx.sessionController.page({
+        address,
+        ...(throughSeq !== undefined ? { throughSeq } : {}),
+        ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+        maxMessages: 500,
+      }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+      for (const record of page.records) {
+        for (const block of eventContentBlocks(record.event)) {
+          if (block?.type === 'image' && String(block.attachment?.attachmentId) === String(attachmentId)) {
+            return await serveImageBlock(block, wantPreview, attachments)
+          }
+        }
+      }
+      if (page.hasMore !== true) break
+      beforeSeq = page.records[0]?.event?.seq
+      if (beforeSeq === undefined) break
+    }
+    return null
+  }
+
+  const MAX_SUBAGENT_DEPTH = 16
+
+  async function verifySubagentAncestry(parent, rawAncestors) {
+    if (resolveKnownOwner(parent).ok) return true
+
+    // Fast passive fallback for live nested subagents already in memory.
+    let currentId = parent
+    const seen = new Set()
+    while (currentId && seen.size < MAX_SUBAGENT_DEPTH) {
+      if (resolveKnownOwner(currentId).ok) return true
+      if (seen.has(currentId)) break
+      seen.add(currentId)
+      const live = ctx.sessions?.get?.(currentId)
+      const up = live?.header?.parentSession
+      if (typeof up !== 'string' || up === '' || live?.header?.origin !== 'subagent') break
+      currentId = up
+    }
+
+    // Passive verified ancestry chain from a known root session down to `parent`:
+    // every hop is validated by DSH's sessionController without waking any agent.
+    if (!Array.isArray(rawAncestors) || rawAncestors.length < 2 || rawAncestors.length > MAX_SUBAGENT_DEPTH) {
+      return false
+    }
+    const hops = rawAncestors.map((item) => {
+      if (typeof item === 'string') return { sessionId: item.trim(), mode: undefined }
+      return {
+        sessionId: typeof item?.sessionId === 'string' ? item.sessionId.trim() : '',
+        mode: typeof item?.mode === 'string' && item.mode.trim() !== '' ? item.mode.trim() : undefined,
+      }
+    })
+    if (hops.some(hop => hop.sessionId === '') || hops.at(-1)?.sessionId !== parent) return false
+    if (!resolveKnownOwner(hops[0].sessionId).ok) return false
+    for (let i = 1; i < hops.length; i += 1) {
+      const hopAddr = addressOf({ sessionId: hops[i].sessionId, parent: hops[i - 1].sessionId, mode: hops[i].mode })
+      try {
+        await ctx.sessionController.page({ address: hopAddr, maxMessages: 1 }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+      } catch {
+        return false
+      }
+    }
+    return true
+  }
+
   async function image(body) {
     const sessionId = String(body.sessionId ?? '')
-    const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
-    const botId = room === undefined ? rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId : undefined
-    if (botId === undefined && room === undefined && rt.agentOf?.(sessionId) === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    const parent = typeof body.parent === 'string' && body.parent.trim() !== '' ? body.parent.trim() : undefined
+    const mode = typeof body.mode === 'string' && body.mode.trim() !== '' ? body.mode.trim() : undefined
     const attachments = ctx.get?.('attachments')
     if (attachments === undefined) throw Object.assign(new Error('Attachments unavailable'), { code: 'bot/refused' })
+
+    if (parent !== undefined) {
+      const allowed = await verifySubagentAncestry(parent, body.ancestors)
+      if (!allowed) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+      const address = addressOf({ sessionId, parent, mode })
+      const found = await scanAddressForImage(address, undefined, body.attachmentId, body.preview === true, attachments)
+      if (found) return found
+      throw Object.assign(new Error('Unknown attachment'), { code: 'bot/not-found' })
+    }
+
+    const { room, botId, ok } = resolveKnownOwner(sessionId)
+    if (!ok) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    const wantedId = String(body.attachmentId)
     const sessions = [...new Set([
       ...(room !== undefined ? [rt.sessionOfRoom(room)] : []),
       sessionId,
       ...rt.partsOf(botId, room?.id).map(part => part.sessionId).reverse(),
     ])]
+    // Check live and retained session inboxes first so queued images render previews
+    // before the agent claims them into the paged transcript.
+    const liveAgents = ctx.get?.('agents') ?? ctx.agents
+    const projections = ctx.get?.('sessionProjections') ?? ctx.sessionProjections
+    const liveSessions = ctx.get?.('sessions') ?? ctx.sessions
     for (const targetId of sessions) {
-      let beforeSeq
-      for (;;) {
-        const page = await ctx.sessionController.page({
-          address: { kind: 'session', sessionId: targetId },
-          ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-          maxMessages: 500,
-        }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
-        for (const record of page.records) {
-          const content = Array.isArray(record.event?.data?.content) ? record.event.data.content : []
-          for (const block of content) {
-            if (block?.type === 'image' && String(block.attachment?.attachmentId) === String(body.attachmentId)) {
-              const key = String(block.attachment.attachmentId)
-              const hasCachedPreview = body.preview === true && previews.has(key)
-              if (hasCachedPreview) {
-                if (previews.get(key) !== null) return shown(key)
-                keep(key, null)
-              }
-              // An image block's ref names no file: DSH reads it as an image, not a file.
-              const bytes = Buffer.from((await attachments.readImage(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))).data)
-              const mime = mediaOf(block.attachment) ?? 'image/png'
-              const { width, height } = block.attachment
-              if (body.preview === true && !hasCachedPreview && !(Math.max(width, height) <= PREVIEW_EDGE)) {
-                // A photo that cannot be shrunk is sent as it is, and remembered as such.
-                const small = await previewImage(bytes, mime).catch(() => null)
-                keep(key, small)
-                if (small !== null) return shown(key)
-              }
-              return { mime, data: bytes.toString('base64') }
+      const liveAgent = liveAgents?.get?.(targetId)
+      const queuedMsgs = liveAgent
+        ? [...(liveAgent.inbox?.nextTurn ?? []), ...(liveAgent.inbox?.nextStep ?? [])]
+        : (() => {
+            const retained = liveSessions?.list?.()?.find?.(item => item?.id === targetId)
+            if (!retained || typeof projections?.snapshot !== 'function') return []
+            try {
+              const inbox = projections.snapshot(retained, ['inbox']).values?.inbox
+              return [...(inbox?.['next-turn'] ?? []), ...(inbox?.['next-step'] ?? [])]
+            } catch {
+              return []
             }
+          })()
+      for (const msg of queuedMsgs) {
+        const content = Array.isArray(msg?.content) ? msg.content : []
+        for (const block of content) {
+          if (block?.type === 'image' && String(block.attachment?.attachmentId) === wantedId) {
+            return await serveImageBlock(block, body.preview === true, attachments)
           }
         }
-        if (page.hasMore !== true) break
-        beforeSeq = page.records[0]?.event?.seq
-        if (beforeSeq === undefined) break
       }
+    }
+    for (const targetId of sessions) {
+      const throughSeq = await throughSeqOf(targetId)
+      if (throughSeq !== undefined && throughSeq < 0) continue
+      const found = await scanAddressForImage({ kind: 'session', sessionId: targetId }, throughSeq, body.attachmentId, body.preview === true, attachments)
+      if (found) return found
     }
     throw Object.assign(new Error('Unknown attachment'), { code: 'bot/not-found' })
   }
@@ -566,10 +706,13 @@ export function install(rt) {
       return attachmentChunk(attachments, locator.ref, offset)
     }
     for (const targetId of sessions) {
+      const throughSeq = await throughSeqOf(targetId)
+      if (throughSeq !== undefined && throughSeq < 0) continue
       let beforeSeq
       for (;;) {
         const page = await ctx.sessionController.page({
           address: { kind: 'session', sessionId: targetId },
+          ...(throughSeq !== undefined ? { throughSeq } : {}),
           ...(beforeSeq !== undefined ? { beforeSeq } : {}),
           maxMessages: 500,
         }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
@@ -580,6 +723,7 @@ export function install(rt) {
             if (typeof file?.path !== 'string') continue
             const realPath = await rt.real?.(file.path)
             if (realPath && await rt.inData?.(realPath)) throw unavailable()
+            if (await rt.isPrivatePathBlocked?.(realPath ?? file.path, memberBotId ?? botId)) throw unavailable()
             const info = await stat(realPath ?? file.path).catch(() => undefined)
             if (info?.isFile() !== true) throw unavailable()
             if (chunked) {

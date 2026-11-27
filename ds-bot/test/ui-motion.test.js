@@ -18,7 +18,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { effectsTier, reducedEffects, reducedMotion, useViewport } from './src/client/motion.js'",
+      "export { effectsTier, fitSegmented, reducedEffects, reducedMotion, useGlide, useViewport } from './src/client/motion.js'",
       "export { SHELL_CSS, botOwnCss } from './src/client/styles.js'",
       "export { SettingsDialog } from './src/client/settings.js'",
       "export { BotMark } from './src/client/mark.js'",
@@ -37,6 +37,7 @@ const makeReact = (overrides = {}) => {
     useContext: ctx => ctx.value,
     useCallback: fn => fn,
     useEffect() {},
+    useId: () => 'ui-motion-id',
     useLayoutEffect() {},
     useMemo: make => make(),
     useRef: current => ({ current }),
@@ -209,7 +210,11 @@ test('botOwnCss preserves effects tokens, backdrop relief and off-tier rules whi
   const own = botOwnCss(SHELL_CSS)
   assert.match(own, /body\[data-bt-effects=reduced\],body\[data-bt-effects=off\],body\[data-bt-os=windows\]\{--dsw-menu-backdrop-filter:none;--dsw-mask-blur:none;/)
   assert.match(SHELL_CSS, /body\[data-bt-os=windows\] :is\(\[data-composer-card\],[^)]*\)\{-webkit-backdrop-filter:none!important;backdrop-filter:none!important\}/)
-  assert.match(own, /body\[data-bt-effects=reduced\] \.bt-mark\[data-gaze\] \.bt-gaze/)
+  assert.match(own, /body\[data-bt-effects=reduced\] :is\(\.bt-badge-alert,/)
+  // The system setting beats the lively ride: same selector, later rule.
+  const ride = SHELL_CSS.indexOf('body[data-bt-motion=lively] .bt-badge-alert{right:auto')
+  const still = SHELL_CSS.indexOf('@media (prefers-reduced-motion:reduce){body[data-bt-motion=lively] .bt-badge-alert{animation:none}}')
+  assert.ok(ride >= 0 && still > ride)
   assert.match(own, /--bt-fx-blur-6:none/)
   assert.match(own, /\.bt-pill[^}]*backdrop-filter:none!important/)
   assert.match(own, /\.bt-settings-layer[^}]*animation:none!important;transition:none!important/)
@@ -249,40 +254,42 @@ test('SettingsDialog renders Interface motion choices in Appearance and updates 
   const buttons = []
   walk(group, (node) => { if (node.type === 'button') buttons.push(node) })
   assert.deepEqual(buttons.map(btn => [textOf(btn), btn.props['aria-pressed']]), [
-    ['Full', false],
-    ['Reduced', true],
     ['None', false],
+    ['Reduced', true],
+    ['Full', false],
   ])
-  buttons[2].props.onClick()
+  buttons[0].props.onClick()
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ effects: 'off' }])
 })
 
-test('BotMark gaze listeners and offsets respond dynamically to data-bt-effects changes', async () => {
+test('BotMark follows the pointer through its engine and lets go when interface motion is reduced', async () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>')
   const { window } = dom
   const { document } = window
   document.body.dataset.btEffects = 'full'
+  // A page in view: JSDOM reports itself hidden unless told otherwise.
+  Object.defineProperty(document, 'hidden', { value: false })
 
+  // Frames are queued and run by hand; the mark's own clock queues frames too.
   let rafId = 0
-  let queued = new Map()
-  let rafCalls = 0
+  const queued = new Map()
   window.matchMedia = () => ({ matches: false })
   const globals = {
     window,
     document,
     MutationObserver: window.MutationObserver,
-    requestAnimationFrame: (fn) => {
-      rafCalls += 1
-      const id = ++rafId
-      queued.set(id, fn)
-      return id
-    },
+    performance,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    requestAnimationFrame: (fn) => { const id = ++rafId; queued.set(id, fn); return id },
     cancelAnimationFrame: (id) => { queued.delete(id) },
   }
   const flushRaf = () => {
     const callbacks = [...queued.values()]
     queued.clear()
-    for (const fn of callbacks) fn()
+    for (const fn of callbacks) fn(0)
   }
 
   const node = document.createElement('span')
@@ -297,40 +304,222 @@ test('BotMark gaze listeners and offsets respond dynamically to data-bt-effects 
   })
 
   client.BotMark({ bot: { id: 'b1' }, look: { shape: 'orb', color: '#4f7' }, gaze: true })
-  assert.equal(effects.length, 1)
-  const dispose = effects[0]()
-
+  const disposers = effects.map(fn => fn())
+  const engine = node.__btLive.engine
   const move = (x, y) => {
     const ev = new window.Event('pointermove')
     ev.clientX = x
     ev.clientY = y
     window.dispatchEvent(ev)
   }
-  rafCalls = 0
   move(100, 60)
-  assert.equal(rafCalls, 1)
   flushRaf()
-  assert.notEqual(node.style.getPropertyValue('--bt-gx'), '')
+  // In mark radii from its middle: (100 - 20) / 20 across, (60 - 20) / 20 down.
+  assert.deepEqual({ ...engine.gazeTarget }, { x: 4, y: 2 })
 
-  // Switching to reduced clears existing gaze offsets and stops scheduling RAF
+  // Reduced interface motion lets go of the pointer and ignores it after.
   document.body.dataset.btEffects = 'reduced'
   await new Promise(r => setTimeout(r, 20))
-  assert.equal(node.style.getPropertyValue('--bt-gx'), '')
-  assert.equal(node.style.getPropertyValue('--bt-gy'), '')
-  rafCalls = 0
+  assert.equal(engine.gazeTarget, null)
   move(180, 140)
-  assert.equal(rafCalls, 0)
+  flushRaf()
+  assert.equal(engine.gazeTarget, null)
 
-  // Switching back to full re-attaches without remounting the mark
+  // Back to full, it follows again without remounting.
   document.body.dataset.btEffects = 'full'
   await new Promise(r => setTimeout(r, 20))
   move(180, 140)
-  assert.equal(rafCalls, 1)
   flushRaf()
-  assert.notEqual(node.style.getPropertyValue('--bt-gx'), '')
+  assert.deepEqual({ ...engine.gazeTarget }, { x: 8, y: 6 })
 
-  dispose()
-  rafCalls = 0
-  move(10, 10)
-  assert.equal(rafCalls, 0)
+  for (const dispose of disposers) dispose?.()
+  assert.equal(node.__btLive, undefined)
+})
+
+test('fitSegmented picks single row, grid-2, grid-3, wrap or stack from button geometry without thumb interference', () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>')
+  const { window } = dom
+  const { document } = window
+  const { fitSegmented } = loadClient({ window, document, getComputedStyle: () => ({ paddingRight: '2px' }) }).exports
+
+  function makeSeg(containerW, specs) {
+    const node = document.createElement('div')
+    const thumb = document.createElement('span')
+    thumb.className = 'bt-thumb'
+    node.appendChild(thumb)
+    // Intentionally report a stale, wide scrollWidth on the container (as when a gliding
+    // thumb sits at a previous wide coordinate) to verify fitSegmented ignores it.
+    Object.defineProperty(node, 'clientWidth', { get: () => containerW, configurable: true })
+    Object.defineProperty(node, 'scrollWidth', { get: () => containerW + 300, configurable: true })
+    const buttons = specs.map((spec, idx) => {
+      const btn = document.createElement('button')
+      Object.defineProperty(btn, 'offsetLeft', { get: () => spec(node.dataset.layout, idx).left, configurable: true })
+      Object.defineProperty(btn, 'offsetWidth', { get: () => spec(node.dataset.layout, idx).width, configurable: true })
+      Object.defineProperty(btn, 'clientWidth', { get: () => spec(node.dataset.layout, idx).width, configurable: true })
+      Object.defineProperty(btn, 'scrollWidth', { get: () => spec(node.dataset.layout, idx).scrollWidth, configurable: true })
+      node.appendChild(btn)
+      return btn
+    })
+    return { node, buttons }
+  }
+
+  // 4 buttons: overflows in 1 row (320 > 288), fits cleanly in grid-2 even with stale container scrollWidth.
+  const four = makeSeg(288, Array.from({ length: 4 }, () => (layout, i) => {
+    if (!layout) return { left: 2 + i * 80, width: 78, scrollWidth: 78 }
+    if (layout === 'grid-2') return { left: 2 + (i % 2) * 143, width: 141, scrollWidth: 90 }
+    return { left: 2, width: 284, scrollWidth: 90 }
+  }))
+  assert.equal(fitSegmented(four.node), 'grid-2')
+  assert.equal(four.node.dataset.layout, 'grid-2')
+
+  // Widened: same 4 buttons fit in 1 row -> clears data-layout.
+  Object.defineProperty(four.node, 'clientWidth', { get: () => 400, configurable: true })
+  assert.equal(fitSegmented(four.node), undefined)
+  assert.equal(four.node.dataset.layout, undefined)
+
+  // 6 buttons: overflows 1 row, fits in grid-3 (3x2).
+  const six = makeSeg(311, Array.from({ length: 6 }, () => (layout, i) => {
+    if (!layout) return { left: 2 + i * 58, width: 56, scrollWidth: 56 }
+    if (layout === 'grid-3') return { left: 2 + (i % 3) * 103, width: 101, scrollWidth: 68 }
+    return { left: 2, width: 307, scrollWidth: 68 }
+  }))
+  assert.equal(fitSegmented(six.node), 'grid-3')
+
+  // 3 buttons: overflows 1 row -> uses wrap (no empty grid corner).
+  const three = makeSeg(240, Array.from({ length: 3 }, () => (layout, i) => {
+    if (!layout) return { left: 2 + i * 100, width: 98, scrollWidth: 98 }
+    if (layout === 'wrap') return i < 2 ? { left: 2 + i * 119, width: 117, scrollWidth: 90 } : { left: 2, width: 236, scrollWidth: 160 }
+    return { left: 2, width: 236, scrollWidth: 160 }
+  }))
+  assert.equal(fitSegmented(three.node), 'wrap')
+
+  // Unbreakable word wider than a 2-col cell -> promotes from grid-2 to stack.
+  const narrow = makeSeg(200, Array.from({ length: 2 }, () => (layout, i) => {
+    if (!layout) return { left: 2 + i * 150, width: 148, scrollWidth: 148 }
+    if (layout === 'grid-2') return { left: 2 + i * 99, width: 97, scrollWidth: 132 }
+    return { left: 2, width: 196, scrollWidth: 132 }
+  }))
+  assert.equal(fitSegmented(narrow.node), 'stack')
+})
+
+test('useGlide axis=both tracks 2D thumb rect, snaps on syncKey, recovers from data-hidden, and resets cleanly on axis switch', () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>')
+  const { window } = dom
+  const { document } = window
+  window.matchMedia = () => ({ matches: false })
+  let rafCount = 0
+  let clock = 0
+  const queued = new Map()
+  const refs = []
+  let refIdx = 0
+  let layoutFn = null
+  const { exports: client } = loadClient(
+    {
+      window, document,
+      requestAnimationFrame: (fn) => { const id = ++rafCount; queued.set(id, fn); return id },
+      cancelAnimationFrame: (id) => { queued.delete(id) },
+      performance: { now: () => clock },
+    },
+    {
+      useRef: (init) => { const idx = refIdx++; if (!(idx in refs)) refs[idx] = { current: init }; return refs[idx] },
+      useLayoutEffect: (fn) => { layoutFn = fn },
+      useEffect() {},
+    },
+  )
+
+  const box = document.createElement('div')
+  const thumb = document.createElement('span')
+  const b0 = document.createElement('button')
+  const b1 = document.createElement('button')
+  b0.setAttribute('aria-pressed', 'true')
+  const rect = { b0: { l: 2, t: 2, w: 120, h: 30 }, b1: { l: 124, t: 34, w: 120, h: 30 } }
+  for (const [el, key] of [[b0, 'b0'], [b1, 'b1']]) {
+    Object.defineProperty(el, 'offsetLeft', { get: () => rect[key].l })
+    Object.defineProperty(el, 'offsetTop', { get: () => rect[key].t })
+    Object.defineProperty(el, 'offsetWidth', { get: () => rect[key].w })
+    Object.defineProperty(el, 'offsetHeight', { get: () => rect[key].h })
+  }
+  box.append(thumb, b0, b1)
+
+  const runRender = (key, syncKey, axis = 'both') => {
+    refIdx = 0
+    const res = client.useGlide(key, { axis, box: { current: box }, syncKey })
+    res.thumb.current = thumb
+    layoutFn()
+    return res
+  }
+
+  runRender('a', 'en')
+  assert.equal(thumb.style.transform, 'translate3d(2px,2px,0)')
+  assert.equal(thumb.style.width, '120px')
+  assert.equal(thumb.style.height, '30px')
+  assert.equal(rafCount, 0)
+
+  // Locale change (syncKey changes while key stays 'a'): snaps immediately without RAF spring.
+  rect.b0 = { l: 2, t: 2, w: 96, h: 30 }
+  runRender('a', 'zh')
+  assert.equal(thumb.style.transform, 'translate3d(2px,2px,0)')
+  assert.equal(thumb.style.width, '96px')
+  assert.equal(rafCount, 0)
+
+  // Selection change to row 2 (key changes to 'b'): starts 2D spring and settles on b1.
+  b0.setAttribute('aria-pressed', 'false')
+  b1.setAttribute('aria-pressed', 'true')
+  runRender('b', 'zh')
+  assert.equal(rafCount, 1)
+  for (let step = 0; step < 60 && queued.size > 0; step += 1) {
+    clock += 16
+    const fns = [...queued.values()]
+    queued.clear()
+    for (const fn of fns) fn(clock)
+  }
+  assert.equal(thumb.style.transform, 'translate3d(124px,34px,0)')
+  assert.equal(thumb.style.width, '120px')
+  assert.equal(thumb.style.height, '30px')
+
+  // Missing chosen sets data-hidden; reappearing snaps cleanly without springing.
+  b1.setAttribute('aria-pressed', 'false')
+  runRender('none', 'zh')
+  assert.notEqual(thumb.dataset.hidden, undefined)
+  const beforeRecover = rafCount
+  b0.setAttribute('aria-pressed', 'true')
+  runRender('a', 'zh')
+  assert.equal(thumb.dataset.hidden, undefined)
+  assert.equal(rafCount, beforeRecover)
+  assert.equal(thumb.style.transform, 'translate3d(2px,2px,0)')
+
+  // Switching axis from 'both' -> 'x' resets stale 2D keys cleanly.
+  runRender('a', 'zh', 'x')
+  assert.equal(thumb.style.transform, 'translateX(2px)')
+  assert.equal(thumb.style.height, '')
+
+  // Stopping an in-flight spring (StrictMode cleanup / node detach) clears `frame` so
+  // the next selection change after reattach still schedules RAF instead of freezing.
+  b0.setAttribute('aria-pressed', 'false')
+  b1.setAttribute('aria-pressed', 'true')
+  const beforeDetach = rafCount
+  runRender('b', 'zh', 'x')
+  assert.equal(rafCount, beforeDetach + 1)
+  // Detach (null box) stops the in-flight spring.
+  refIdx = 0
+  const detached = client.useGlide('b', { axis: 'x', box: { current: null }, syncKey: 'zh' })
+  detached.thumb.current = thumb
+  layoutFn()
+  // Reattach and move back to 'a': must schedule a fresh RAF.
+  runRender('b', 'zh', 'x')
+  b1.setAttribute('aria-pressed', 'false')
+  b0.setAttribute('aria-pressed', 'true')
+  const afterReattach = rafCount
+  runRender('a', 'zh', 'x')
+  assert.equal(rafCount, afterReattach + 1)
+})
+
+test('SHELL_CSS uses container queries on narrow cards and responsive Segmented layouts', () => {
+  const { SHELL_CSS } = loadClient().exports
+  assert.match(SHELL_CSS, /\.bt-set-card\{[^}]*container-type:inline-size/)
+  assert.match(SHELL_CSS, /@container \(max-width:440px\)\{/)
+  assert.match(SHELL_CSS, /\.bt-seg\[data-layout=grid-2\]\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/)
+  assert.match(SHELL_CSS, /\.bt-seg\[data-layout=grid-3\]\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)\}/)
+  assert.match(SHELL_CSS, /\.bt-seg\[data-layout\] button\{[^}]*justify-content:safe center/)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-seg\.bt-permissions button\{/)
 })

@@ -46,6 +46,29 @@ const SLOT_CHOICES = [
 // (safe across POSIX shells, PowerShell, and Windows Command Prompt).
 const SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/
 
+// Internal DSH profiles, experimental engine bundles, and subagent/agent-team bundles
+// belong only to Engine plugins (or are disallowed in DS Bot) and must never leak into
+// DS Bot's Plugins catalog or Discover section.
+const HIDDEN_ENGINE_BUNDLES = new Set([
+  'dsbot-engine',
+  '@deepseek-ai/dsh-acp-app',
+  '@deepseek-ai/dsh-headless',
+  '@deepseek-ai/dsh-sdk-app',
+  '@deepseek-ai/dsh-sdk-minimal',
+  '@deepseek-ai/dsh-experimental-agent-team-profile',
+  '@deepseek-ai/dsh-experimental-ralph-bundle',
+  '@deepseek-ai/dsh-experimental-terminal-bundle',
+  '@deepseek-ai/dsh-experimental-tool-worktree',
+])
+
+function isHiddenEngineBundle(plugin) {
+  if (plugin.slot) return false
+  if (plugin.sourceId === 'installed' && !plugin.installed) return true
+  const pkg = String(plugin.packageName ?? (String(plugin.id ?? '').startsWith('dsh:') ? String(plugin.id).slice(4) : '')).trim()
+  if (!pkg) return false
+  return HIDDEN_ENGINE_BUNDLES.has(pkg) || pkg.startsWith('@deepseek-ai/dsh-subagent-')
+}
+
 function safeExternalUrl(raw) {
   if (typeof raw !== 'string') return null
   const text = raw.trim()
@@ -231,11 +254,28 @@ function Subview({ title, onBack, end = null, children }) {
     children)
 }
 
-function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy }) {
+function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent }) {
   const name = localizedField(plugin, 'name') || plugin.name || plugin.id
   const isBusy = busyId === plugin.id
   const disabled = readOnly || busyId !== null
   const isSlot = Boolean(plugin.slot)
+
+  // A killed plugin is stopped by the security kill list, and unverifiable bytes are a
+  // security failure: neither is a toggleable preference, so there is no control — the
+  // name-row badge already says why, and a dead switch would promise control that the
+  // gate has deliberately withdrawn.
+  if (plugin.killed || plugin.status === 'unverifiable') return null
+  // Changed code, capabilities, execution tier, entry, or placement invalidates the
+  // stored approval; an explicit Approve is the only path that re-consents, bound
+  // server-side to the plugin exactly as it is now.
+  if (plugin.consentRequired) {
+    return h('button', {
+      type: 'button',
+      className: 'bt-plg-btn bt-plg-btn-approve',
+      disabled,
+      onClick: () => onConsent(plugin.id),
+    }, isBusy ? t('Approving…') : t('Approve'))
+  }
 
   if (isSlot) {
     if (plugin.active && plugin.desired !== false) {
@@ -301,7 +341,7 @@ function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSl
   })
 }
 
-function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActivateSlot, onInstall, onToggle, onCopy }) {
+function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActivateSlot, onInstall, onToggle, onCopy, onConsent }) {
   const name = localizedField(plugin, 'name') || plugin.name || plugin.id
   const desc = localizedField(plugin, 'description') || plugin.description || ''
   const isActive = Boolean(plugin.slot ? (plugin.active && plugin.desired !== false) : (plugin.installed && plugin.enabled))
@@ -311,9 +351,9 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
     : plugin.status === 'restart-required'
       ? t('Restart required')
       : desc
-  const tone = plugin.status === 'error' || plugin.error
+  const tone = plugin.status === 'error' || plugin.killed || plugin.status === 'unverifiable' || (plugin.error && !plugin.consentRequired)
     ? 'error'
-    : plugin.status === 'restart-required' ? 'warn' : undefined
+    : plugin.status === 'restart-required' || plugin.consentRequired ? 'warn' : undefined
 
   return h('div', {
     className: 'bt-plg-tile',
@@ -330,13 +370,17 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
   h(PluginIcon, { plugin }),
   h('span', { className: 'bt-plg-text' },
     h('span', { className: 'bt-plg-name' },
-      name,
-      plugin.custom ? h('span', { className: 'bt-tag' }, t('Added')) : null),
+      h('span', { className: 'bt-plg-label' }, name),
+      plugin.custom && !plugin.killed && !plugin.consentRequired && plugin.status !== 'unverifiable'
+        ? h('span', { className: 'bt-tag' }, t('Added')) : null,
+      plugin.killed ? h('span', { className: 'bt-tag', 'data-tone': 'error' }, t('Stopped')) : null,
+      plugin.consentRequired ? h('span', { className: 'bt-tag', 'data-tone': 'warn' }, t('Approval needed')) : null,
+      plugin.status === 'unverifiable' ? h('span', { className: 'bt-tag', 'data-tone': 'error' }, t('Unverifiable')) : null),
     subtitle ? h('span', { className: 'bt-plg-sub' }, subtitle) : null)),
-  h(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy }))
+  h(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent }))
 }
 
-function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, onBack, onActivateSlot, onInstall, onToggle, onUpdate, onRemove, onBotToggle, onCopy, Section, Row }) {
+function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, onBack, onActivateSlot, onInstall, onToggle, onUpdate, onRemove, onBotToggle, onCopy, onConsent, Section, Row }) {
   const [confirmRemove, setConfirmRemove] = useState(false)
   const name = localizedField(plugin, 'name') || plugin.name || plugin.id
   const desc = localizedField(plugin, 'description') || plugin.description || ''
@@ -373,9 +417,22 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
         h('div', { className: 'bt-plg-detail-title' },
           h('span', { className: 'bt-plg-detail-name' }, name),
           metaParts ? h('span', { className: 'bt-plg-detail-meta' }, metaParts) : null),
-        h(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy })),
-      plugin.error ? h('div', { className: 'bt-plg-detail-err', role: 'alert' }, hostText(plugin.error)) : null),
+        plugin.consentRequired
+          ? null
+          : h(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent })),
+      plugin.error && !plugin.consentRequired ? h('div', { className: 'bt-plg-detail-err', role: 'alert' }, hostText(plugin.error)) : null),
+    plugin.consentRequired ? h('div', { className: 'bt-plg-banner', 'data-tone': 'warn', role: 'alert' },
+      h('span', null, t('This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.')),
+      h('div', { className: 'bt-plg-banner-actions' },
+        h('button', {
+          type: 'button',
+          className: 'bt-send bt-soft-sm',
+          disabled,
+          onClick: () => onConsent(plugin.id),
+        }, busyId === plugin.id ? t('Approving…') : t('Approve')))) : null,
     desc ? h('p', { className: 'bt-plg-about' }, desc) : null,
+    plugin.unpinnedSpec ? h('p', { className: 'bt-plg-note' },
+      t('Runs the latest published version at start time; approval does not pin exact bytes.')) : null,
     plugin.supportsPerBot && plugin.installed && bots.length > 0
       ? h(Section, { title: t('Bot access') },
         bots.map(bot => {
@@ -397,6 +454,7 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
         plugin.mcp?.url ? h(Row, { label: t('URL') }, h('code', { className: 'bt-plg-code' }, plugin.mcp.url)) : null,
         plugin.mcp?.command ? h(Row, { label: t('Command') }, h('code', { className: 'bt-plg-code' }, [plugin.mcp.command, ...(plugin.mcp.args ?? [])].join(' '))) : null,
         plugin.toolPrefixes?.length ? h(Row, { label: t('Tools') }, h('code', { className: 'bt-plg-code' }, plugin.toolPrefixes.join(', '))) : null,
+        plugin.execution ? h(Row, { label: t('Execution tier') }, h('span', { className: 'bt-chip' }, plugin.execution)) : null,
         homepageUrl ? h(Row, { label: t('Homepage') }, h('a', { className: 'bt-plg-link', href: homepageUrl, target: '_blank', rel: 'noopener noreferrer' }, homepageUrl)) : null,
         repoUrl && repoUrl !== homepageUrl ? h(Row, { label: t('Repository') }, h('a', { className: 'bt-plg-link', href: repoUrl, target: '_blank', rel: 'noopener noreferrer' }, repoUrl)) : null,
         (plugin.updatable && plugin.installed) || plugin.removable
@@ -640,7 +698,7 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
     }
   }, [initialFilter])
 
-  const load = useCallback((refresh = false) => {
+  const load = useCallback((refresh = false, { keepError = false } = {}) => {
     if (!actions.pluginsList) {
       setLoading(false)
       return Promise.resolve()
@@ -648,7 +706,7 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
     const seq = ++seqRef.current
     if (refresh) setRefreshing(true)
     else if (!hasViewRef.current) setLoading(true)
-    setError('')
+    if (!keepError) setError('')
     return Promise.resolve(refresh && actions.pluginsCatalogRefresh ? actions.pluginsCatalogRefresh() : actions.pluginsList(refresh))
       .then((next) => {
         if (!aliveRef.current || seq !== seqRef.current) return
@@ -719,14 +777,19 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
     return res
   })
 
-  const handleActivateSlot = (slot, id) => { void exec(id, actions.pluginsSlotSet(slot, id)).catch(() => {}) }
+  const handleActivateSlot = (slot, id) => {
+    void exec(id, actions.pluginsSlotSet(slot, id)).catch(() => { void load(false, { keepError: true }) })
+  }
   const handleInstall = (plugin) => { void runInstall({ id: plugin.id, spec: plugin.installSpec }, plugin.id).catch(() => {}) }
   const handleApproveBuilds = () => {
     if (!pendingApproval) return
     const { body, busyKey, packages } = pendingApproval
     void runInstall({ ...body, approvedBuilds: packages }, busyKey).catch(() => {})
   }
-  const handleToggle = (id, enabled) => { void exec(id, actions.pluginsToggle(id, enabled)).catch(() => {}) }
+  const handleToggle = (id, enabled) => {
+    void exec(id, actions.pluginsToggle(id, enabled)).catch(() => { void load(false, { keepError: true }) })
+  }
+  const handleConsent = (id) => { void exec(id, actions.pluginsConsent(id)).catch(() => {}) }
   const handleUpdate = (id) => { void exec(id, actions.pluginsUpdate(id)).catch(() => {}) }
   const handleRemove = (id) => {
     void exec(id, actions.pluginsRemove(id)).then(() => {
@@ -744,7 +807,10 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
     }, () => {})
   }
 
-  const plugins = view?.plugins ?? []
+  const plugins = useMemo(
+    () => (view?.plugins ?? []).filter(p => !isHiddenEngineBundle(p)),
+    [view],
+  )
   const bots = roster?.bots ?? []
   const browserSlot = view?.slots?.browser
   const activeBrowserPlugin = plugins.find(p => p.id === browserSlot?.active)
@@ -832,6 +898,7 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
         onRemove: handleRemove,
         onBotToggle: handleBotToggle,
         onCopy: handleCopy,
+        onConsent: handleConsent,
         Section,
         Row,
       }))
@@ -879,6 +946,7 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
               onInstall: handleInstall,
               onToggle: handleToggle,
               onCopy: handleCopy,
+              onConsent: handleConsent,
             })))) : null,
         installedOther.length > 0 ? h('section', { className: 'bt-plg-section' },
           h('div', { className: 'bt-plg-sec-head' }, h('h3', null, t('Installed plugins'))),
@@ -894,6 +962,7 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
               onInstall: handleInstall,
               onToggle: handleToggle,
               onCopy: handleCopy,
+              onConsent: handleConsent,
             })))) : null))
   }
 
@@ -971,6 +1040,7 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
               onInstall: handleInstall,
               onToggle: handleToggle,
               onCopy: handleCopy,
+              onConsent: handleConsent,
             })))) : null,
         generalInstalled.length > 0 ? h('section', { key: 'installed-general', className: 'bt-plg-section' },
           h('div', { className: 'bt-plg-sec-head' },
@@ -987,6 +1057,7 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
               onInstall: handleInstall,
               onToggle: handleToggle,
               onCopy: handleCopy,
+              onConsent: handleConsent,
             })))) : null,
         visibleDiscover.length > 0 ? h('section', { key: 'discover', className: 'bt-plg-section' },
           h('div', { className: 'bt-plg-sec-head' },
@@ -1004,6 +1075,7 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
               onInstall: handleInstall,
               onToggle: handleToggle,
               onCopy: handleCopy,
+              onConsent: handleConsent,
             })))) : null,
         !searching && category === 'all' && generalInstalled.length === 0 && visibleDiscover.length === 0
           ? h('section', { key: 'extensions-invite', className: 'bt-plg-section' },

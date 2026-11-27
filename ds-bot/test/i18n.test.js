@@ -172,7 +172,15 @@ test('HOST_ERRORS and DSH_LOCALE_PACKS stay aligned across all locales', () => {
 
 test('user-facing host errors translate across all non-English locales', () => {
   const samples = [
+    // shared/appearance.js: a theme file whose theme is broken
+    'A theme needs a name',
+    'A theme needs a name and its light and dark colors',
+    'Theme light.bg must be a #rrggbb color',
     // channel.js & roster.js
+    'An agent preset must be named by its id',
+    'The agent preset "research" cannot be used for a Bot: DS Bot needs the Bot\'s own prompt, which this preset replaces. Pick another preset in the Bot\'s settings.',
+    'The default agent preset "research" cannot be used for a Bot: DS Bot needs the Bot\'s own prompt, which this preset replaces. Choose a preset for the Bot in its settings.',
+    'The agent preset "research" of Writer cannot run a Bot in this DeepSeek Harness, so it keeps the preset its running conversations were made with. Pick another preset in the Bot\'s settings.',
     'This message is no longer kept',
     'No file named',
     'This file cannot be read here',

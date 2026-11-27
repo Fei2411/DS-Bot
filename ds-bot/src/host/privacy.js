@@ -2,27 +2,486 @@
 // what it sends out waits for the user. DSH does not fence reads, so this closes the
 // tools DS Bot owns and checks the paths that the file tools and the shell are given;
 // a shell can still reach any file the account can (see docs/plans).
+import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { manualDirectory } from './manual-skills.js'
 import { within } from './folders.js'
 import { unquote } from './text.js'
 import { openSessions, retiredTaskSessionIds } from './threads.js'
 
+// Older DSH releases lack @deepseek-ai/dsh-fs-patch; patchPathsOf also scans headers directly.
+const { parsePatch } = await import('@deepseek-ai/dsh-fs-patch').catch(() => ({}))
+
 const FILE_TOOLS = { read: 'file_path', write: 'file_path', edit: 'file_path', read_image: 'file_path', str_replace_editor: 'path', read_document: 'path' }
 const WRITE_TOOLS = ['write', 'edit', 'str_replace_editor']
 const SEARCH_TOOLS = ['glob', 'grep']
-const SHELL_TOOLS = ['bash', 'pwsh', 'terminal_open', 'terminal_send']
+const SHELL_TOOLS = ['bash', 'pwsh', 'terminal_open', 'terminal_send', 'run_code']
 const SESSION_TOOLS = ['session_search', 'session_event_search', 'session_trace', 'session_event_trace', 'session_event_read']
+const SECRET_GUARDED_TOOLS = new Set([
+  ...Object.keys(FILE_TOOLS),
+  'apply_patch',
+  'present',
+  ...SEARCH_TOOLS,
+  ...SHELL_TOOLS,
+  'subagent',
+  'subagent_fork',
+  'working_directory',
+])
+const SEARCH_SHELL_COMMANDS = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'select-string', 'sls'])
+const GREP_PATTERN_FLAGS = new Set(['-e', '--regexp'])
+const GREP_VALUE_FLAGS = new Set([
+  '-f', '--file', '-m', '--max-count', '-A', '-B', '-C', '--context',
+  '--after-context', '--before-context', '--glob', '--iglob',
+  '--type', '--type-not', '--include', '--exclude',
+  '--exclude-dir', '--exclude-from', '--ignore-file', '--color', '--colour',
+  '-d', '--directories', '-D', '--devices', '--max-depth', '--max-filesize',
+  '--threads', '--encoding', '--label', '--replace',
+  '--max-columns', '--path-separator', '--sort', '--sortr',
+])
+const RG_ONLY_VALUE_FLAGS = new Set(['-g', '-t', '-T', '-r', '-M', '-j'])
 
 // Windows and macOS file systems ignore case.
 const fold = text => (process.platform === 'linux' ? text : text.toLowerCase())
 const overlap = (a, b) => within(a, b) || within(b, a)
+const expandHome = (path) => (path === '~' ? homedir() : /^~[\\/]/.test(path) ? join(homedir(), path.slice(2)) : path)
 const strings = value => (typeof value === 'string' ? [value] : Array.isArray(value) ? value.flatMap(strings) : value && typeof value === 'object' ? Object.values(value).flatMap(strings) : [])
-// The same path as a shell writes it: forward slashes, and on Windows both drive forms.
+// The same path as a shell writes it: collapsed forward slashes, and on Windows both drive forms.
+const normalizeSlashes = text => text.replace(/[\\/]+/g, '/')
 const asShell = (path) => {
-  const slashed = path.replace(/\\/g, '/')
+  const slashed = normalizeSlashes(path)
   const drive = /^([a-z]):\//i.exec(slashed)
   return drive ? [slashed, `/${drive[1]}${slashed.slice(2)}`] : [slashed]
+}
+
+// Extract every source and destination path from an apply_patch input.
+function patchPathsOf(args) {
+  const input = args?.input
+  if (typeof input !== 'string' || input === '') return []
+  const paths = new Set()
+  if (typeof parsePatch === 'function') {
+    try {
+      for (const op of parsePatch(input)) {
+        if (typeof op.path === 'string' && op.path !== '') paths.add(expandHome(op.path))
+        if (typeof op.moveTo === 'string' && op.moveTo !== '') paths.add(expandHome(op.moveTo))
+      }
+      return [...paths]
+    } catch {
+      // Fall through to header scan so malformed or partial patches still cannot bypass fences.
+    }
+  }
+  for (const line of input.split(/\r?\n/)) {
+    const match = /^\*\*\*\s+(?:Add File|Update File|Delete File|Move to):\s*(.+?)\s*$/.exec(line)
+    if (match !== null && match[1] !== '') paths.add(expandHome(match[1]))
+  }
+  return [...paths]
+}
+
+const DIRECT_HOST_MODULES = new Set([
+  'fs', 'node:fs', 'fs/promises', 'node:fs/promises',
+  'child_process', 'node:child_process',
+])
+const DIRECT_HOST_EXPLICIT_MODULES = new Set([
+  'node:fs', 'node:fs/promises', 'node:child_process',
+])
+const PROCESS_ESCAPE_PROPS = new Set(['binding', 'dlopen', 'getBuiltinModule'])
+
+// Tokenize JS/TS code enough to detect direct host escape imports/calls (node:fs,
+// child_process, process.binding/dlopen/getBuiltinModule) while ignoring comments and
+// code embedded inside string/template payloads passed to tools.write/edit.
+function hasDirectHostModuleAccess(code) {
+  const tokens = []
+  const templateBraceStack = []
+  let i = 0
+  const len = code.length
+  const prevCanEndExpr = () => {
+    const prev = tokens.at(-1)
+    if (prev === undefined) return false
+    if (prev.kind === 'id') return !['return', 'throw', 'case', 'in', 'of', 'typeof', 'void', 'delete', 'new', 'await', 'yield', 'else', 'do'].includes(prev.value)
+    return prev.kind === 'str' || prev.kind === 'num' || prev.value === ')' || prev.value === ']' || prev.value === '}'
+  }
+  const readTemplateChunk = () => {
+    let val = ''
+    let hasExpr = false
+    while (i < len) {
+      const ch = code[i]
+      if (ch === '\\' && i + 1 < len) {
+        val += code[i + 1]
+        i += 2
+        continue
+      }
+      if (ch === '`') {
+        i += 1
+        return { val, closed: true, hasExpr }
+      }
+      if (ch === '$' && code[i + 1] === '{') {
+        i += 2
+        templateBraceStack.push(0)
+        hasExpr = true
+        return { val, closed: false, hasExpr }
+      }
+      val += ch
+      i += 1
+    }
+    return { val, closed: true, hasExpr }
+  }
+
+  while (i < len) {
+    const ch = code[i]
+    if (/\s/.test(ch)) { i += 1; continue }
+    if (ch === '/' && code[i + 1] === '/') {
+      i += 2
+      while (i < len && code[i] !== '\n') i += 1
+      continue
+    }
+    if (ch === '/' && code[i + 1] === '*') {
+      i += 2
+      while (i < len && !(code[i] === '*' && code[i + 1] === '/')) i += 1
+      i += 2
+      continue
+    }
+    if (ch === '/' && !prevCanEndExpr()) {
+      i += 1
+      let inClass = false
+      while (i < len) {
+        const rc = code[i]
+        if (rc === '\\' && i + 1 < len) { i += 2; continue }
+        if (rc === '[') inClass = true
+        else if (rc === ']') inClass = false
+        else if (rc === '/' && !inClass) { i += 1; break }
+        else if (rc === '\n' || rc === '\r') break
+        i += 1
+      }
+      tokens.push({ kind: 'regex', value: '' })
+      continue
+    }
+    if (ch === '\'' || ch === '"') {
+      const quote = ch
+      i += 1
+      let val = ''
+      while (i < len && code[i] !== quote) {
+        if (code[i] === '\\' && i + 1 < len) {
+          val += code[i + 1]
+          i += 2
+          continue
+        }
+        if (code[i] === '\n' || code[i] === '\r') break
+        val += code[i]
+        i += 1
+      }
+      if (code[i] === quote) i += 1
+      tokens.push({ kind: 'str', value: val })
+      continue
+    }
+    if (ch === '`') {
+      i += 1
+      const chunk = readTemplateChunk()
+      tokens.push({ kind: chunk.closed && !chunk.hasExpr ? 'str' : 'tpl', value: chunk.val })
+      continue
+    }
+    if (ch === '{' && templateBraceStack.length > 0) {
+      templateBraceStack[templateBraceStack.length - 1] += 1
+      tokens.push({ kind: 'punct', value: '{' })
+      i += 1
+      continue
+    }
+    if (ch === '}' && templateBraceStack.length > 0) {
+      if (templateBraceStack[templateBraceStack.length - 1] === 0) {
+        templateBraceStack.pop()
+        i += 1
+        readTemplateChunk()
+        tokens.push({ kind: 'tpl', value: '' })
+        continue
+      }
+      templateBraceStack[templateBraceStack.length - 1] -= 1
+      tokens.push({ kind: 'punct', value: '}' })
+      i += 1
+      continue
+    }
+    if (/[A-Za-z_$]/.test(ch)) {
+      const start = i
+      i += 1
+      while (i < len && /[\w$]/.test(code[i])) i += 1
+      tokens.push({ kind: 'id', value: code.slice(start, i) })
+      continue
+    }
+    if (/[0-9]/.test(ch)) {
+      const start = i
+      i += 1
+      while (i < len && /[\w.]/.test(code[i])) i += 1
+      tokens.push({ kind: 'num', value: code.slice(start, i) })
+      continue
+    }
+    tokens.push({ kind: 'punct', value: ch })
+    i += 1
+  }
+
+  for (let t = 0; t < tokens.length; t += 1) {
+    const tok = tokens[t]
+    const next = tokens[t + 1]
+    const next2 = tokens[t + 2]
+    if (tok.kind === 'str' && DIRECT_HOST_EXPLICIT_MODULES.has(tok.value)) return true
+    if (tok.kind === 'id' && tok.value === 'from' && next?.kind === 'str' && DIRECT_HOST_MODULES.has(next.value)) return true
+    if (tok.kind === 'id' && tok.value === 'import' && next?.kind === 'str' && DIRECT_HOST_MODULES.has(next.value)) return true
+    if (tok.kind === 'id' && (tok.value === 'import' || tok.value === 'require' || tok.value === 'getBuiltinModule')
+      && next?.kind === 'punct' && next.value === '('
+      && next2?.kind === 'str' && DIRECT_HOST_MODULES.has(next2.value)) return true
+    if (tok.kind === 'id' && tok.value === 'process') {
+      if (next?.kind === 'punct' && next.value === '.' && next2?.kind === 'id' && PROCESS_ESCAPE_PROPS.has(next2.value)) return true
+      if (next?.kind === 'punct' && next.value === '?' && next2?.kind === 'punct' && next2.value === '.'
+        && tokens[t + 3]?.kind === 'id' && PROCESS_ESCAPE_PROPS.has(tokens[t + 3].value)) return true
+      if (next?.kind === 'punct' && next.value === '[' && next2?.kind === 'str' && PROCESS_ESCAPE_PROPS.has(next2.value)) return true
+      if (next?.kind === 'punct' && next.value === '?' && next2?.kind === 'punct' && next2.value === '.'
+        && tokens[t + 3]?.kind === 'punct' && tokens[t + 3].value === '['
+        && tokens[t + 4]?.kind === 'str' && PROCESS_ESCAPE_PROPS.has(tokens[t + 4].value)) return true
+    }
+  }
+  return false
+}
+
+// Extract quoted path-like literals from run_code text so relative traversals and symlinks
+// into closed folders are caught alongside literal absolute paths.
+function codePathCandidates(text) {
+  const found = new Set()
+  for (const match of text.matchAll(/(["'`])((?:\\.|(?!\1)[^\\\r\n])*)\1/g)) {
+    const raw = match[2]
+    if (raw === '' || raw.includes('${')) continue
+    const unescaped = raw.replace(/\\([\\'"`])/g, '$1')
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(unescaped)) continue
+    if (/(?:^|[\\/])\.\.(?:$|[\\/])/.test(unescaped) || /^([a-z]:|[\\/]|~)/i.test(unescaped) || /[\\/]/.test(unescaped)) {
+      found.add(expandHome(unescaped))
+    }
+  }
+  return [...found]
+}
+
+// Splits shell command text into simple-command token arrays. Breaks on unquoted
+// `;`, `\n`, `|`, `&`, `(`, `)`, `` ` ``, and `$(` (even inside double quotes) so
+// subshells and command substitutions are inspected independently.
+function splitShellCommands(text) {
+  const segments = []
+  let current = []
+  let buf = ''
+  let hasToken = false
+  let tokenRedir = false
+  let tokenQuoted = false
+  let tokenUnquotedHash = false
+  let nextRedir = false
+  let quote = null
+  const subshellQuotes = []
+
+  const flushToken = () => {
+    if (!hasToken) return
+    current.push({ value: buf, redir: tokenRedir, quoted: tokenQuoted, unquotedHash: tokenUnquotedHash })
+    buf = ''
+    hasToken = false
+    tokenRedir = false
+    tokenQuoted = false
+    tokenUnquotedHash = false
+  }
+  const flushSegment = () => {
+    flushToken()
+    if (current.length > 0) {
+      segments.push(current)
+      current = []
+    }
+    nextRedir = false
+  }
+  const startToken = () => {
+    if (!hasToken) {
+      hasToken = true
+      tokenRedir = nextRedir
+      tokenQuoted = false
+      tokenUnquotedHash = false
+      nextRedir = false
+    }
+  }
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]
+    if (quote === "'") {
+      if (ch === "'") {
+        quote = null
+      } else {
+        startToken()
+        buf += ch
+      }
+      continue
+    }
+    if (quote === '"') {
+      if (ch === '"') {
+        quote = null
+      } else if (ch === '\\' && i + 1 < text.length && (text[i + 1] === '"' || text[i + 1] === '\\' || text[i + 1] === '$' || text[i + 1] === '`')) {
+        startToken()
+        buf += text[i + 1]
+        i += 1
+      } else if (ch === '$' && text[i + 1] === '(') {
+        subshellQuotes.push('"')
+        quote = null
+        flushSegment()
+        i += 1
+      } else if (ch === '`') {
+        quote = null
+        flushSegment()
+      } else {
+        startToken()
+        buf += ch
+      }
+      continue
+    }
+    if (ch === "'" || ch === '"') {
+      startToken()
+      tokenQuoted = true
+      quote = ch
+      continue
+    }
+    if (ch === '$' && text[i + 1] === '(') {
+      subshellQuotes.push(null)
+      flushSegment()
+      i += 1
+      continue
+    }
+    if (ch === ')' && subshellQuotes.length > 0) {
+      flushSegment()
+      quote = subshellQuotes.pop()
+      continue
+    }
+    if (ch === ';' || ch === '\n' || ch === '\r' || ch === '|' || ch === '&' || ch === '(' || ch === ')' || ch === '`') {
+      flushSegment()
+      continue
+    }
+    if (ch === '<' || ch === '>') {
+      if (hasToken && /^\d+$/.test(buf)) {
+        buf = ''
+        hasToken = false
+        tokenRedir = false
+      } else {
+        flushToken()
+      }
+      if (text[i + 1] === ch || text[i + 1] === '&') i += 1
+      nextRedir = true
+      continue
+    }
+    if (/\s/.test(ch)) {
+      flushToken()
+      continue
+    }
+    startToken()
+    if (ch === '#') tokenUnquotedHash = true
+    buf += ch
+  }
+  flushSegment()
+  return segments
+}
+
+// Returns token indices that hold content-search pattern arguments (not file paths)
+// for standard read-only text search commands (`grep`, `rg`, `git grep`, `Select-String`).
+function searchPatternTokenIndices(tokens) {
+  const exempt = new Set()
+  let idx = 0
+  while (idx < tokens.length) {
+    const tok = tokens[idx]
+    if (tok.redir) return exempt
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tok.value)) {
+      idx += 1
+      continue
+    }
+    const base = tok.value.replace(/\\/g, '/').replace(/^.*\//, '').replace(/\.exe$/i, '').toLowerCase()
+    if (base === 'command' || base === 'env' || base === 'time' || base === 'nice' || base === 'nohup') {
+      idx += 1
+      continue
+    }
+    break
+  }
+  if (idx >= tokens.length) return exempt
+  let cmd = tokens[idx].value.replace(/\\/g, '/').replace(/^.*\//, '').replace(/\.exe$/i, '').toLowerCase()
+  idx += 1
+  if (cmd === 'git') {
+    if (idx < tokens.length && !tokens[idx].redir && tokens[idx].value.toLowerCase() === 'grep') {
+      cmd = 'grep'
+      idx += 1
+    } else {
+      return exempt
+    }
+  }
+  if (!SEARCH_SHELL_COMMANDS.has(cmd)) return exempt
+
+  if (cmd === 'select-string' || cmd === 'sls') {
+    let explicit = false
+    let gotPositional = false
+    for (let i = idx; i < tokens.length; i += 1) {
+      const tok = tokens[i]
+      if (tok.redir) continue
+      const lower = tok.value.toLowerCase()
+      if (lower === '-pattern') {
+        explicit = true
+        if (i + 1 < tokens.length && !tokens[i + 1].redir) {
+          exempt.add(i + 1)
+          i += 1
+        }
+        continue
+      }
+      if (lower.startsWith('-pattern:')) {
+        explicit = true
+        exempt.add(i)
+        continue
+      }
+      if (lower.startsWith('-')) {
+        if (lower === '-path' || lower === '-literalpath' || lower === '-exclude' || lower === '-include' || lower === '-encoding' || lower === '-context') {
+          i += 1
+        }
+        continue
+      }
+      if (!explicit && !gotPositional) {
+        gotPositional = true
+        exempt.add(i)
+      }
+    }
+    return exempt
+  }
+
+  const isRg = cmd === 'rg'
+  let sawDoubleDash = false
+  let sawExplicitPattern = false
+  let gotPositional = false
+  for (let i = idx; i < tokens.length; i += 1) {
+    const tok = tokens[i]
+    if (tok.redir) continue
+    const value = tok.value
+    if (!sawDoubleDash && value === '--') {
+      sawDoubleDash = true
+      continue
+    }
+    if (!sawDoubleDash && value.startsWith('-') && value.length > 1) {
+      if (GREP_PATTERN_FLAGS.has(value)) {
+        sawExplicitPattern = true
+        if (i + 1 < tokens.length && !tokens[i + 1].redir) {
+          exempt.add(i + 1)
+          i += 1
+        }
+        continue
+      }
+      if (value.startsWith('--regexp=') || (value.startsWith('-e') && value.length > 2 && !value.startsWith('--'))) {
+        sawExplicitPattern = true
+        exempt.add(i)
+        continue
+      }
+      if (value === '-f' || value === '--file' || value.startsWith('--file=') || (value.startsWith('-f') && value.length > 2 && !value.startsWith('--'))) {
+        sawExplicitPattern = true
+        if (value === '-f' || value === '--file') i += 1
+        continue
+      }
+      if (GREP_VALUE_FLAGS.has(value) || (isRg && RG_ONLY_VALUE_FLAGS.has(value))) {
+        i += 1
+        continue
+      }
+      continue
+    }
+    if (!sawExplicitPattern && !gotPositional) {
+      gotPositional = true
+      exempt.add(i)
+    }
+  }
+  return exempt
 }
 
 export function install(rt) {
@@ -84,12 +543,32 @@ export function install(rt) {
 
   const DATA_ROOTS_TTL_MS = 1_000
   let dataRootsMemo
-  const clearDataRootsMemo = () => { dataRootsMemo = undefined }
+  let secretRootsMemo
+  const clearDataRootsMemo = () => {
+    dataRootsMemo = undefined
+    secretRootsMemo = undefined
+  }
   const offAdopted = rt.onAdopted?.(clearDataRootsMemo)
   ctx.effect?.(() => () => {
     offAdopted?.()
     clearDataRootsMemo()
   }, 'ds-bot: privacy cache')
+
+  const spelledSecretRoots = (memo) => {
+    const now = Date.now()
+    if (secretRootsMemo !== undefined && now - secretRootsMemo.at < DATA_ROOTS_TTL_MS) {
+      return secretRootsMemo.value
+    }
+    const pending = Promise.all([
+      spellings(join(rt.home, 'secret-refs'), memo),
+      spellings(join(rt.home, 'secret-files'), memo),
+    ]).then(([refsRoot, filesRoot]) => ({ refsRoot, filesRoot }), (error) => {
+      if (secretRootsMemo?.value === pending) secretRootsMemo = undefined
+      throw error
+    })
+    secretRootsMemo = { at: now, value: pending }
+    return pending
+  }
 
   // Where a private Bot keeps what must stay closed: its folder and its memory. Its
   // Sessions and its id are in file names under DSH's and the team's data.
@@ -111,6 +590,10 @@ export function install(rt) {
     join(rt.home, 'usage.sqlite'),
     join(rt.home, 'usage.sqlite-wal'),
     join(rt.home, 'usage.sqlite-shm'),
+    join(rt.home, 'coordination.sqlite'),
+    join(rt.home, 'coordination.sqlite-wal'),
+    join(rt.home, 'coordination.sqlite-shm'),
+    join(rt.home, 'coordination.sqlite-journal'),
     join(rt.home, 'inflight.json'),
     join(rt.home, 'learning', 'state.json'),
     join(rt.home, 'ocr.json'),
@@ -127,6 +610,7 @@ export function install(rt) {
     join(rt.home, 'memory', 'journal.torn'),
     join(rt.home, 'memory', 'pending.json'),
     join(rt.home, 'logs', 'diagnostics.jsonl'),
+    join(rt.home, 'telemetry.json'),
   ].filter(Boolean).map(file => spellings(file, memo))).then(list => list.flat())
 
   const spelledDataRoots = (memo) => {
@@ -146,7 +630,8 @@ export function install(rt) {
 
   const openFoldersOf = async (self, ownBot, moving, memo) => {
     const ownRegions = ownBot === undefined ? [] : await regionsOf(ownBot, memo)
-    const open = [rt.workDirOf({ botId: self }), teamFolder(), teamMemory, moving ? undefined : memoryArchive, dirname(manualDirectory())].filter(Boolean)
+    const ownSecretFiles = typeof self === 'string' && self !== '' ? join(rt.home, 'secret-files', self) : undefined
+    const open = [rt.workDirOf({ botId: self }), teamFolder(), teamMemory, moving ? undefined : memoryArchive, dirname(manualDirectory()), ownSecretFiles].filter(Boolean)
     return [...(await Promise.all(open.map(dir => spellings(dir, memo)))).flat(), ...ownRegions]
   }
 
@@ -189,7 +674,7 @@ export function install(rt) {
   // Text a shell runs: a closed path anywhere in it closes the command. A path that the
   // command builds, or reaches by walking up from a folder, is not seen.
   async function ownerInText(text, self, memo = new Map()) {
-    const flat = fold(text.replace(/\\/g, '/'))
+    const flat = fold(normalizeSlashes(text))
     const bots = protectedBots()
     for (const bot of bots) {
       if (bot.id === self) continue
@@ -345,6 +830,10 @@ export function install(rt) {
     }
   }
 
+  const presentPathsOf = (args) => (Array.isArray(args?.files) ? args.files : [])
+    .map(file => (typeof file?.path === 'string' && file.path.trim() !== '' ? expandHome(file.path) : ''))
+    .filter(Boolean)
+
   // The file tools, the shell and the session search: where the path or text names a
   // closed place, the call fails before it runs.
   async function guardFiles(exec, self) {
@@ -353,6 +842,14 @@ export function install(rt) {
     const refuse = (bot) => { throw closed(bot, 'files') }
     const name = exec.name
     const memo = new Map()
+    if (name === 'present') {
+      const base = folder()
+      for (const path of presentPathsOf(args)) {
+        const bot = await ownerOfPath(path, { self, base, memo })
+        if (bot) refuse(bot)
+      }
+      return
+    }
     if (name in FILE_TOOLS) {
       const path = args[FILE_TOOLS[name]]
       if (typeof path !== 'string' || path === '') return
@@ -376,6 +873,50 @@ export function install(rt) {
       }
       return
     }
+    if (name === 'apply_patch') {
+      const paths = patchPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      for (const path of paths) {
+        const bot = await ownerOfPath(path, { self, base, memo })
+        if (bot) refuse(bot)
+      }
+      if (isPrivate(self)) {
+        const own = await spellings(rt.botOf(self).workDir, memo)
+        const outside = []
+        for (const path of paths) {
+          if (!isAbsolute(path) && (typeof base !== 'string' || !isAbsolute(base))) {
+            throw new Error('The file destination cannot be determined, so it was not changed.')
+          }
+          const absolute = resolve(base ?? '.', path)
+          const real = await rt.realBeyond(absolute)
+          const target = [fold(absolute), fold(real)]
+          if (!target.every(key => own.some(root => within(key, root)))) {
+            outside.push({ path, absolute, real })
+          }
+        }
+        if (outside.length > 0) {
+          const list = outside.map(item => item.absolute).join(', ')
+          const botName = rt.botOf(self).name
+          await approve(exec, {
+            en: `Let ${botName} change ${list}? It is outside its own folder.`,
+            zh: `允许 ${botName} 修改 ${list} 吗？它在自己的文件夹之外。`,
+          }, {
+            cwd: base,
+            path: outside[0].absolute,
+            resolvedPath: outside[0].real,
+            ...(outside.length > 1 ? { paths: outside.map(item => item.absolute), resolvedPaths: outside.map(item => item.real) } : {}),
+          })
+          for (const item of outside) {
+            const current = resolve(folder() ?? '.', item.path)
+            if (current !== item.absolute || await rt.realBeyond(current) !== item.real || resolve(folder() ?? '.', item.path) !== item.absolute) {
+              throw new Error('The file destination changed during approval, so it was not changed.')
+            }
+          }
+        }
+      }
+      return
+    }
     if (SEARCH_TOOLS.includes(name)) {
       const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
       const bot = await ownerOfPath(where, { self, search: true, base: folder(), memo })
@@ -384,8 +925,34 @@ export function install(rt) {
       return
     }
     if (SHELL_TOOLS.includes(name)) {
-      const bot = await ownerInText(strings(args).join('\n'), self, memo)
+      const text = strings(args).join('\n')
+      const bot = await ownerInText(text, self, memo)
       if (bot) refuse(bot)
+      if (name === 'run_code') {
+        const base = folder()
+        for (const candidate of codePathCandidates(text)) {
+          const targetBot = await ownerOfPath(candidate, { self, base, memo })
+          if (targetBot) refuse(targetBot)
+        }
+        const otherPrivate = protectedBots().find(found => found.id !== self)
+        if (otherPrivate !== undefined && typeof args.code === 'string' && hasDirectHostModuleAccess(args.code)) {
+          throw new Error(`${otherPrivate.name} is a private Bot, and other Bots cannot import or invoke direct host filesystem or process modules in run_code. Use tools.* instead.`)
+        }
+        if (isPrivate(self)) {
+          const own = await spellings(rt.botOf(self).workDir, memo)
+          const policyMode = args.sandbox_permissions ?? ctx.get?.('sandboxPolicy')?.resolve?.({ session: exec.agent?.session })?.mode
+          const baseOutside = typeof base !== 'string' || !isAbsolute(base)
+            || !(await spellings(base, memo)).every(key => own.some(root => within(key, root)))
+          if (baseOutside || policyMode === 'danger-full-access') {
+            const botName = rt.botOf(self).name
+            const summary = typeof args.description === 'string' && args.description.trim() !== '' ? args.description.trim() : 'run_code'
+            await approve(exec, {
+              en: `Let ${botName} run code (${summary}) outside its own folder fence?`,
+              zh: `允许 ${botName} 在自己的文件夹围栏之外运行代码（${summary}）吗？`,
+            }, { cwd: base, ...(policyMode === undefined ? {} : { sandboxMode: policyMode }) })
+          }
+        }
+      }
       return
     }
     if ((name === 'subagent' || name === 'subagent_fork') && typeof args.cwd === 'string') {
@@ -413,8 +980,8 @@ export function install(rt) {
     }
   }
 
-  // Host-owned API credential/audit files are always off-limits to every Bot, even in teams
-  // with no private Bots.
+  // Host-owned API credential/audit and telemetry consent files are always off-limits
+  // to every Bot, even in teams with no private Bots.
   const apiProtectedFiles = async (memo = new Map()) => (await Promise.all([
     join(rt.home, 'api-'),
     join(rt.home, 'api-endpoint.json'),
@@ -423,20 +990,45 @@ export function install(rt) {
     join(rt.home, 'api-audit.jsonl'),
     join(rt.home, 'api-config.json'),
     join(rt.home, 'api-runs.json'),
+    join(rt.home, 'telemetry.json'),
   ].map(file => spellings(file, memo)))).flat()
 
-  async function guardApiFiles(exec) {
+  async function guardApiFiles(exec, memo = new Map()) {
     const args = exec.arguments ?? {}
     const name = exec.name
     const folder = () => rt.sessionFolder(exec.agent?.session ?? exec.agent)
-    const closedApi = () => new Error('Bots cannot read or modify DS Bot API token or audit files.')
+    const closedApi = () => new Error('Bots cannot read or modify DS Bot API token, audit, or telemetry consent files.')
     if (name in FILE_TOOLS) {
       const path = args[FILE_TOOLS[name]]
       if (typeof path !== 'string' || path === '') return
       const base = folder()
-      const keys = await spellings(base === undefined ? path : resolve(base, path))
-      const protectedPaths = await apiProtectedFiles()
+      const [keys, protectedPaths] = await Promise.all([
+        spellings(base === undefined ? path : resolve(base, path), memo),
+        apiProtectedFiles(memo),
+      ])
       if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+      return
+    }
+    if (name === 'present') {
+      const paths = presentPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      const protectedPaths = await apiProtectedFiles(memo)
+      for (const path of paths) {
+        const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+        if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+      }
+      return
+    }
+    if (name === 'apply_patch') {
+      const paths = patchPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      const protectedPaths = await apiProtectedFiles(memo)
+      for (const path of paths) {
+        const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+        if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+      }
       return
     }
     if (SEARCH_TOOLS.includes(name)) {
@@ -444,17 +1036,343 @@ export function install(rt) {
       const pattern = typeof args.pattern === 'string' ? fold(args.pattern) : ''
       if (pattern.includes('api-') || pattern.includes('mcp.json')) throw closedApi()
       const base = folder()
-      const keys = await spellings(base === undefined ? where : resolve(base, where))
-      const protectedPaths = await apiProtectedFiles()
+      const [keys, protectedPaths] = await Promise.all([
+        spellings(base === undefined ? where : resolve(base, where), memo),
+        apiProtectedFiles(memo),
+      ])
       if (keys.some(key => protectedPaths.some(file => within(file, key) || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
       return
     }
     if (SHELL_TOOLS.includes(name)) {
-      const flat = fold(strings(args).join('\n').replace(/\\/g, '/'))
-      if (flat.includes('api-') || flat.includes('mcp.json')) throw closedApi()
-      const protectedPaths = await apiProtectedFiles()
+      const rawText = strings(args).join('\n')
+      const flat = fold(normalizeSlashes(rawText))
+      if (name !== 'run_code' && (flat.includes('api-') || flat.includes('mcp.json'))) throw closedApi()
+      const protectedPaths = await apiProtectedFiles(memo)
       for (const file of protectedPaths) {
         if (asShell(file).some(spelled => flat.includes(spelled))) throw closedApi()
+      }
+      if (name === 'run_code') {
+        const base = folder()
+        for (const candidate of codePathCandidates(rawText)) {
+          const keys = await spellings(base === undefined ? candidate : resolve(base, candidate), memo)
+          if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+        }
+        if (flat.includes('api-') || flat.includes('mcp.json') || flat.includes('telemetry.json')) {
+          const homeKeys = await spellings(rt.home, memo)
+          const baseKeys = base === undefined ? [] : await spellings(base, memo)
+          if (base === undefined || baseKeys.some(k => homeKeys.some(h => within(h, k)))) throw closedApi()
+        }
+        return
+      }
+      if (flat.includes('telemetry.json')) {
+        const base = folder()
+        const homeKeys = await spellings(rt.home, memo)
+        const baseKeys = base === undefined ? [] : await spellings(base, memo)
+        if (base === undefined || baseKeys.some(k => homeKeys.some(h => overlap(k, h)))) throw closedApi()
+      }
+    }
+  }
+
+  // Per-Bot temporary secret files (`<home>/secret-files/<botId>/`) and host-only secret
+  // storage (`<home>/secret-refs/`, `<home>/secret-files/_op/`) are fenced for every Bot,
+  // regardless of whether any Bot is marked `private: true`.
+  function guardSecretFiles(exec, self, memo = new Map()) {
+    const name = exec.name
+    if (!SECRET_GUARDED_TOOLS.has(name)) return
+    const args = exec.arguments ?? {}
+    if (name in FILE_TOOLS) {
+      const path = args[FILE_TOOLS[name]]
+      if (typeof path !== 'string' || path === '') return
+    } else if (name === 'apply_patch') {
+      if (typeof args.input !== 'string' || args.input === '') return
+    } else if (name === 'present') {
+      if (presentPathsOf(args).length === 0) return
+    } else if (name === 'subagent' || name === 'subagent_fork') {
+      if (typeof args.cwd !== 'string' || args.cwd === '') return
+    } else if (name === 'working_directory') {
+      if (typeof args.cd !== 'string' || args.cd === '') return
+    }
+    return guardSecretFilesAsync(exec, self, memo)
+  }
+
+  async function guardSecretFilesAsync(exec, self, memo) {
+    const args = exec.arguments ?? {}
+    const name = exec.name
+    const folder = () => rt.sessionFolder(exec.agent?.session ?? exec.agent)
+    const closedSecret = () => new Error('Bots cannot access secret reference files or another Bot\'s temporary secret files.')
+    let ownDirPromise
+    const getOwnDir = () => (ownDirPromise ??= (typeof self === 'string' && self !== ''
+      ? spellings(join(rt.home, 'secret-files', self), memo)
+      : Promise.resolve([])))
+    const rootsOf = ({ refsRoot, filesRoot }) => ({
+      refsRoot,
+      filesRoot,
+      inRefs: keys => keys.some(key => refsRoot.some(root => within(key, root))),
+      overlapsRefs: keys => keys.some(key => refsRoot.some(root => overlap(key, root))),
+      inFiles: keys => keys.some(key => filesRoot.some(root => within(key, root))),
+      overlapsFiles: keys => keys.some(key => filesRoot.some(root => overlap(key, root))),
+    })
+    const allOwnSecretFiles = (keys, ownDir) => keys.every(key => ownDir.some(dir => within(key, dir) && key !== dir))
+    const allInOwnSecretDir = (keys, ownDir) => keys.every(key => ownDir.some(dir => within(key, dir)))
+
+    if (name in FILE_TOOLS) {
+      const path = args[FILE_TOOLS[name]]
+      const base = folder()
+      const [roots, keys] = await Promise.all([
+        spelledSecretRoots(memo),
+        spellings(base === undefined ? path : resolve(base, path), memo),
+      ])
+      const { inRefs, inFiles } = rootsOf(roots)
+      if (inRefs(keys)) throw closedSecret()
+      if (inFiles(keys)) {
+        if (WRITE_TOOLS.includes(name)) throw closedSecret()
+        const ownDir = await getOwnDir()
+        if (!allOwnSecretFiles(keys, ownDir)) throw closedSecret()
+      }
+      return
+    }
+    if (name === 'present') {
+      const paths = presentPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      const roots = await spelledSecretRoots(memo)
+      const { inRefs, inFiles } = rootsOf(roots)
+      for (const path of paths) {
+        const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+        if (inRefs(keys) || inFiles(keys)) throw closedSecret()
+      }
+      return
+    }
+    if (name === 'apply_patch') {
+      const paths = patchPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      const roots = await spelledSecretRoots(memo)
+      const { inRefs, inFiles } = rootsOf(roots)
+      for (const path of paths) {
+        const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+        if (inRefs(keys) || inFiles(keys)) throw closedSecret()
+      }
+      return
+    }
+    if (SEARCH_TOOLS.includes(name)) {
+      const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
+      const base = folder()
+      const searchBase = base === undefined ? where : resolve(base, where)
+      const [roots, keys] = await Promise.all([
+        spelledSecretRoots(memo),
+        spellings(searchBase, memo),
+      ])
+      const { overlapsRefs, overlapsFiles } = rootsOf(roots)
+      const checkKeys = async (targetKeys) => {
+        if (overlapsRefs(targetKeys)) throw closedSecret()
+        if (overlapsFiles(targetKeys)) {
+          const ownDir = await getOwnDir()
+          if (!allInOwnSecretDir(targetKeys, ownDir)) throw closedSecret()
+        }
+      }
+      await checkKeys(keys)
+
+      // `grep`'s `pattern` searches file contents, not file paths; only validate
+      // path-like globs (`glob.pattern` or `grep.glob`).
+      const pathPattern = name === 'glob' ? args.pattern : args.glob
+      if (typeof pathPattern === 'string' && pathPattern !== '') {
+        const normalizedPat = pathPattern.replace(/\\/g, '/')
+        const expandedPat = expandHome(normalizedPat)
+        const prefix = expandedPat.replace(/[*?[{].*$/, '')
+        const hasTraversal = /(?:^|\/)\.\.(?:$|\/)/.test(normalizedPat)
+        const isRooted = /^([a-z]:|\/|~)/i.test(normalizedPat)
+        if (prefix !== '') {
+          const patTarget = isAbsolute(prefix) ? prefix : resolve(searchBase, prefix)
+          const patKeys = await spellings(patTarget, memo)
+          await checkKeys(patKeys)
+        }
+        // Catch wildcards placed before `..` (e.g. `*/../secret-refs/*`) where the
+        // static prefix before the first wildcard is empty and cannot be resolved.
+        if (hasTraversal && (prefix === '' || /[*?[{].*\.\./.test(normalizedPat))) {
+          const foldedPat = fold(normalizedPat)
+          if (/(?:^|[^a-z0-9_.-])secret-(?:refs|files)(?:$|[^a-z0-9_.-])/i.test(foldedPat) || isRooted) {
+            throw closedSecret()
+          }
+          const parentKeys = await spellings(resolve(searchBase, '..'), memo)
+          await checkKeys(parentKeys)
+        }
+      }
+      return
+    }
+    if (name === 'subagent' || name === 'subagent_fork') {
+      const base = folder()
+      const [roots, keys] = await Promise.all([
+        spelledSecretRoots(memo),
+        spellings(base === undefined ? args.cwd : resolve(base, args.cwd), memo),
+      ])
+      const { inRefs, inFiles } = rootsOf(roots)
+      if (inRefs(keys) || inFiles(keys)) throw closedSecret()
+      return
+    }
+    if (name === 'working_directory') {
+      const base = folder()
+      const [roots, keys] = await Promise.all([
+        spelledSecretRoots(memo),
+        spellings(base === undefined ? args.cd : resolve(base, args.cd), memo),
+      ])
+      const { inRefs, inFiles } = rootsOf(roots)
+      if (inRefs(keys) || inFiles(keys)) throw closedSecret()
+      return
+    }
+    if (SHELL_TOOLS.includes(name)) {
+      const base = folder()
+      const dirArgs = [args.workdir, args.cwd].filter(value => typeof value === 'string' && value !== '')
+      const effectiveDir = dirArgs.at(-1) ?? base
+      const dirsToCheck = [...dirArgs, ...(effectiveDir !== undefined ? [effectiveDir] : [])]
+      const [roots, ...dirKeyList] = await Promise.all([
+        spelledSecretRoots(memo),
+        ...dirsToCheck.map(dirArg => spellings(base === undefined ? dirArg : resolve(base, dirArg), memo)),
+      ])
+      const { refsRoot, filesRoot, inRefs, overlapsRefs, inFiles, overlapsFiles } = rootsOf(roots)
+      for (let i = 0; i < dirArgs.length; i += 1) {
+        if (inRefs(dirKeyList[i]) || inFiles(dirKeyList[i])) throw closedSecret()
+      }
+      const effectiveKeys = effectiveDir !== undefined ? dirKeyList.at(-1) : undefined
+      let cwdOverlapsProtected = false
+      if (effectiveKeys !== undefined) {
+        if (overlapsRefs(effectiveKeys)) {
+          cwdOverlapsProtected = true
+        } else if (overlapsFiles(effectiveKeys)) {
+          const ownDir = await getOwnDir()
+          if (!allInOwnSecretDir(effectiveKeys, ownDir)) cwdOverlapsProtected = true
+        }
+      }
+      const rawText = strings(args).join('\n')
+      const flat = fold(normalizeSlashes(rawText))
+      const hasRootBoundary = (text, at, len) => {
+        const before = at === 0 ? '' : text[at - 1]
+        if (before !== '' && /[a-z0-9_.-]/i.test(before)) return false
+        const after = at + len >= text.length ? '' : text[at + len]
+        return after === '' || !/[a-z0-9_.-]/i.test(after)
+      }
+      for (const spelled of refsRoot.flatMap(asShell)) {
+        for (let at = flat.indexOf(spelled); at !== -1; at = flat.indexOf(spelled, at + 1)) {
+          if (hasRootBoundary(flat, at, spelled.length)) throw closedSecret()
+        }
+      }
+      if (/dsh_secret_file_/i.test(flat)
+        && (/\bdirname\b/i.test(flat) || /(?:^|[/\\])\.\.(?:$|[/\\\s"'`;|&)])/.test(flat))) {
+        throw closedSecret()
+      }
+      const isSafeSplitPathLeaf = (segment) => {
+        // Allow only unambiguous filename-only `Split-Path -Leaf` / `-LeafBase` calls;
+        // reject PowerShell line/block comments (`#`, `<# ... #>`), ignore redirection
+        // targets, quoted literals, and `-Path` argument values so default `Split-Path`
+        // (parent), `-Parent`, `-Resolve`, `-Qualifier`, etc. stay blocked.
+        let sawLeaf = false
+        let sawDoubleDash = false
+        let expectPathValue = false
+        for (const tok of segment) {
+          if (tok.unquotedHash) return false
+          if (tok.redir) continue
+          if (expectPathValue) {
+            expectPathValue = false
+            continue
+          }
+          const lower = tok.value.toLowerCase()
+          if (!tok.quoted && lower === 'split-path') continue
+          if (!tok.quoted && lower === '--') {
+            sawDoubleDash = true
+            continue
+          }
+          if (!sawDoubleDash && !tok.quoted && (lower === '-leaf' || lower === '-leafbase')) {
+            sawLeaf = true
+            continue
+          }
+          if (!sawDoubleDash && !tok.quoted && lower.startsWith('-')) {
+            if (lower === '-path' || lower === '-literalpath') {
+              expectPathValue = true
+              continue
+            }
+            if (lower.startsWith('-path:') || lower.startsWith('-literalpath:')) continue
+            return false
+          }
+        }
+        return sawLeaf && !expectPathValue
+      }
+      const ownPrefix = `/${fold(self)}/`
+      const checkRestAfterFilesRoot = (rest) => {
+        if (!rest.startsWith(ownPrefix)) throw closedSecret()
+        const afterOwn = rest.slice(ownPrefix.length)
+        const token = afterOwn.match(/^[^\s"'`;|&)><]*/)?.[0] ?? ''
+        if (token === '' || token.includes('/') || token === '.' || token === '..' || token.includes('..') || /[$*?[{`~]/.test(token)) {
+          throw closedSecret()
+        }
+      }
+      for (const spelled of filesRoot.flatMap(asShell)) {
+        for (let at = flat.indexOf(spelled); at !== -1; at = flat.indexOf(spelled, at + 1)) {
+          if (!hasRootBoundary(flat, at, spelled.length)) continue
+          checkRestAfterFilesRoot(flat.slice(at + spelled.length))
+        }
+      }
+      const markerFiles = 'secret-files'
+      const isPlainSearchPattern = (tok, idx, exempt) => {
+        if (cwdOverlapsProtected || tok.redir || !exempt.has(idx)) return false
+        let val = tok.value
+        if (val.startsWith('--regexp=')) val = val.slice('--regexp='.length)
+        else if (/^-pattern:/i.test(val)) val = val.slice('-pattern:'.length)
+        else if (val.startsWith('-e') && val.length > 2 && !val.startsWith('--')) val = val.slice(2)
+        return !/[/\\]|\.\.|[*?[]/.test(val)
+      }
+      const segments = splitShellCommands(rawText)
+      if (/dsh_secret_file_/i.test(flat) && /\bsplit-path\b/i.test(flat)) {
+        for (const segment of segments) {
+          const hasSplitPath = segment.some(tok => !tok.redir && /\bsplit-path\b/i.test(tok.value))
+          if (hasSplitPath && !isSafeSplitPathLeaf(segment)) {
+            throw closedSecret()
+          }
+        }
+      }
+      for (const segment of segments) {
+        const exempt = searchPatternTokenIndices(segment)
+        for (let i = 0; i < segment.length; i += 1) {
+          const tok = segment[i]
+          if (isPlainSearchPattern(tok, i, exempt)) continue
+          const tokFlat = fold(normalizeSlashes(tok.value))
+          if (/(?:^|[^a-z0-9_.-])secret-refs(?:$|[^a-z0-9_.-])/i.test(tokFlat)) {
+            throw closedSecret()
+          }
+          for (let at = tokFlat.indexOf(markerFiles); at !== -1; at = tokFlat.indexOf(markerFiles, at + markerFiles.length)) {
+            const before = at === 0 ? '' : tokFlat[at - 1]
+            if (/[a-z0-9_.-]/i.test(before)) continue
+            const rest = tokFlat.slice(at + markerFiles.length)
+            const first = rest[0] ?? ''
+            if (first !== '' && /[a-z0-9_.-]/i.test(first)) continue
+            checkRestAfterFilesRoot(rest)
+          }
+        }
+      }
+      if (name === 'run_code') {
+        for (const candidate of codePathCandidates(rawText)) {
+          const keys = await spellings(base === undefined ? candidate : resolve(base, candidate), memo)
+          if (inRefs(keys)) throw closedSecret()
+          if (inFiles(keys)) {
+            const ownDir = await getOwnDir()
+            if (!allOwnSecretFiles(keys, ownDir)) throw closedSecret()
+          }
+        }
+      }
+    }
+  }
+
+  async function guardPresentData(exec) {
+    if (exec.name !== 'present' || typeof rt.inData !== 'function') return
+    const paths = presentPathsOf(exec.arguments ?? {})
+    if (paths.length === 0) return
+    const base = exec.agent?.session?.header?.cwd
+    for (const path of paths) {
+      const full = base === undefined ? resolve(path) : resolve(base, path)
+      const candidates = new Set([full])
+      const realPath = await (rt.realBeyond ?? rt.real)?.(full)
+      if (realPath) candidates.add(realPath)
+      for (const candidate of candidates) {
+        if (await rt.inData(candidate)) throw new Error('Files inside DeepSeek Harness data cannot be presented')
       }
     }
   }
@@ -466,7 +1384,12 @@ export function install(rt) {
       await guardTeam(exec, self)
       await guardFiles(exec, self)
     }
-    if (self !== undefined) await guardApiFiles(exec)
+    if (self !== undefined) {
+      const memo = new Map()
+      await guardApiFiles(exec, memo)
+      await guardSecretFiles(exec, self, memo)
+      await guardPresentData(exec)
+    }
     return next()
   })
 
@@ -537,5 +1460,14 @@ export function install(rt) {
   // What the settings list shows. Session ids stay on the host.
   const archivesView = () => (state.privateArchives ?? []).map(({ id, name, workDir }) => ({ id, name, ...(workDir === undefined ? {} : { workDir }) }))
 
-  Object.assign(rt, { isPrivate, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, releaseArchive, archivesView })
+  const isPrivatePathBlocked = async (path, self, base) => (typeof path === 'string' && path !== ''
+    ? (await ownerOfPath(expandHome(path), { self, base })) !== undefined
+    : false)
+
+  Object.assign(rt, {
+    isPrivate, isPrivatePathBlocked, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, releaseArchive, archivesView,
+    // The private Bot a real path belongs to, for callers outside the file tools that read
+    // a file the user names: a photo must not come out of a folder that is closed.
+    privateOwnerOf: (path, options) => ownerOfPath(path, options),
+  })
 }

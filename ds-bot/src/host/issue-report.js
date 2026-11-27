@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { checkShownView } from 'deep-view/core'
-import { cleanText, ISSUES_URL } from './diagnostics.js'
+import { cleanText, DS_BOT_REPO, ISSUES_URL } from './diagnostics.js'
 import { output } from './tools.js'
 
 export const PUBLISH_ISSUE = 'publish_ds_bot_issue'
@@ -50,7 +50,7 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'prepare_ds_bot_issue',
-    description: 'Prepare a public DS Bot bug report for the user to review. Read the report-ds-bot-issue skill first. This does not publish anything.',
+    description: 'Prepare a public DS Bot bug report after the user agrees to file one for a DS Bot defect. Read the report-ds-bot-issue skill first. This does not publish anything.',
     parameters: {
       title: { type: 'string', required: true, description: 'A short issue title (up to 120 characters)' },
       what: { type: 'string', required: true, description: 'What happened, the expected result, and any relevant redacted error' },
@@ -79,7 +79,7 @@ export function install(rt) {
       const view = {
         type: 'stack',
         children: [
-          { type: 'text', tone: 'muted', text: 'This report will be public on Fei2411/DS-Bot. Check that it contains no private information.' },
+          { type: 'text', tone: 'muted', text: `This report will be public on ${DS_BOT_REPO}. Check that it contains no private information.` },
           { type: 'text', text: `${fence}\n${body}\n${fence}` },
           { type: 'confirm', id: PUBLISH_ISSUE, confirmLabel: 'Publish issue', cancelLabel: 'Cancel' },
         ],

@@ -19,10 +19,23 @@ const SERIES = ['accent', 'green', 'magenta', 'violet', 'cyan', 'star']
 // view's inputs and `let`s. A formula that fails under the current values shows
 // a placeholder only where it sits, like the desktop's errored cell.
 // `root` is the blueprint's root node (stack, options, form, …), as the computer stores it.
-export function ViewCard({ sessionId, id, title, root, p, readOnly, bare }: { sessionId: string; id?: string; title?: string; root: unknown; p: Palette; readOnly?: boolean; bare?: boolean }) {
+export function ViewCard({ sessionId, id, title, root, p, readOnly, displayOnly, bare, unframed, onSettled }: {
+  sessionId: string
+  id?: string
+  title?: string
+  root: unknown
+  p: Palette
+  readOnly?: boolean
+  displayOnly?: boolean
+  bare?: boolean
+  unframed?: boolean
+  onSettled?: () => void
+}) {
   const [inputs, setInputs] = useState<Map<string, unknown>>(() => collectInputs(root))
   const [lets] = useState<Map<string, unknown>>(() => collectLets(root))
   const [done, setDone] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const [failed, setFailed] = useState<string | null>(null)
   const { call } = useTeam()
   const lookup = useMemo(() => createScope(inputs, lets), [inputs, lets])
@@ -38,20 +51,35 @@ export function ViewCard({ sessionId, id, title, root, p, readOnly, bare }: { se
   // The answer names the component that sent it (deep-view's validateViewAnswer);
   // the card's inputs ride along so the Bot sees what the slider or choice was set to.
   const answer = (component: string, _kind: string, values: unknown) => {
-    if (readOnly || done !== null) return
+    if (readOnly || displayOnly || done !== null || busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    setFailed(null)
     const sent = { ...(values as Record<string, unknown>), ...(inputs.size > 0 ? { inputs: Object.fromEntries(inputs) } : {}) }
     call('view-reply', { sessionId, viewId: id, action: component, values: sent })
-      .then(() => { void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setFailed(null); setDone(component) })
+      .then(() => { void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); setFailed(null); setDone(component); onSettled?.() })
       .catch((failure: { message?: string }) => setFailed(failure?.message ?? String(failure)))
+      .finally(() => { busyRef.current = false; setBusy(false) })
   }
-  const dismiss = () => void call('dismiss-view', { sessionId }).catch(() => {})
+  const dismiss = () => {
+    if (readOnly || displayOnly || done !== null || busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    setFailed(null)
+    void call('dismiss-view', { sessionId })
+      .then(() => { setDone('dismiss'); onSettled?.() })
+      .catch((failure: { message?: string }) => setFailed(failure?.message ?? String(failure)))
+      .finally(() => { busyRef.current = false; setBusy(false) })
+  }
+  const containerStyle = bare === true ? null : unframed === true ? styles.unframed : [styles.card, { backgroundColor: p.card, borderColor: p.line }]
+  const surfaceBg = unframed === true ? p.main : p.card
   return (
-    <View style={bare === true ? null : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-      {bare !== true && title ? <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{title}</Text> : null}
-      <Node node={root} val={val} p={p} readOnly={readOnly === true || done !== null} inputs={inputs} setInputs={setInputs} answer={answer} done={done} />
-      {done === null && readOnly !== true ? <Pressable accessibilityRole="button" onPress={dismiss} style={styles.dismiss}><Text style={[type.caption, { color: p.ink3 }]}>{t('Dismiss')}</Text></Pressable> : null}
+    <View style={containerStyle}>
+      {bare !== true && title ? <Text style={[unframed === true ? type.small : type.settingsRow, { color: unframed === true ? p.ink2 : p.ink, fontWeight: '600' }]}>{title}</Text> : null}
+      <Node node={root} val={val} p={p} surfaceBg={surfaceBg} readOnly={readOnly === true || busy || done !== null} inputs={inputs} setInputs={setInputs} answer={answer} done={done} />
+      {done === null && readOnly !== true && displayOnly !== true ? <Pressable accessibilityRole="button" disabled={busy} onPress={dismiss} style={[styles.dismiss, busy ? { opacity: 0.4 } : null]}><Text style={[type.caption, { color: p.ink3 }]}>{t('Dismiss')}</Text></Pressable> : null}
       {failed !== null ? <Text style={[type.caption, { color: p.danger, marginTop: 4 }]}>{failed}</Text> : null}
-      {done !== null ? <Text style={[type.caption, { color: p.green, marginTop: 4 }]}>{t('Done')}</Text> : null}
+      {done !== null && done !== 'dismiss' ? <Text style={[type.caption, { color: p.green, marginTop: 4 }]}>{t('Done')}</Text> : null}
     </View>
   )
 }
@@ -80,14 +108,14 @@ function* walk(node: unknown): Generator<Record<string, unknown>> {
   if (Array.isArray(rec.options)) for (const opt of rec.options) yield* walk(opt)
 }
 
-function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
-  node: unknown; val: (v: unknown) => unknown; p: Palette; readOnly: boolean
+function Node({ node, val, p, surfaceBg, readOnly, inputs, setInputs, answer, done }: {
+  node: unknown; val: (v: unknown) => unknown; p: Palette; surfaceBg: string; readOnly: boolean
   inputs: Map<string, unknown>; setInputs: (fn: (m: Map<string, unknown>) => Map<string, unknown>) => void
   answer: (id: string, action: string, values: unknown) => void; done: string | null
 }) {
   if (node === null || typeof node !== 'object') return null
   const n = node as Record<string, unknown>
-  const kids = () => (Array.isArray(n.children) ? n.children.map((c, i) => <Node key={i} node={c} val={val} p={p} readOnly={readOnly} inputs={inputs} setInputs={setInputs} answer={answer} done={done} />) : null)
+  const kids = () => (Array.isArray(n.children) ? n.children.map((c, i) => <Node key={i} node={c} val={val} p={p} surfaceBg={surfaceBg} readOnly={readOnly} inputs={inputs} setInputs={setInputs} answer={answer} done={done} />) : null)
   switch (n.type) {
     case 'stack': return <View style={{ gap: 10 }}>{kids()}</View>
     // Each cell takes an even share and wraps under the others when the card is too narrow.
@@ -117,7 +145,7 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
     case 'chart': {
       const categories = val(n.categories), series = val(n.series)
       if (!Array.isArray(categories) || !Array.isArray(series)) return <Placeholder p={p} />
-      return <Chart kind={String(val(n.kind) ?? 'bar')} categories={categories.map(String)} series={series as { name?: string; values?: unknown[]; data?: unknown[] }[]} unit={String(val(n.unit) ?? '')} caption={n.caption !== undefined ? String(val(n.caption) ?? '') : undefined} p={p} />
+      return <Chart kind={String(val(n.kind) ?? 'bar')} categories={categories.map(String)} series={series as { name?: string; values?: unknown[]; data?: unknown[] }[]} unit={String(val(n.unit) ?? '')} caption={n.caption !== undefined ? String(val(n.caption) ?? '') : undefined} p={p} surfaceBg={surfaceBg} />
     }
     case 'progress': {
       const percent = val(n.percent)
@@ -288,11 +316,16 @@ function Placeholder({ p }: { p: Palette }) {
 // A draggable bar, implemented directly on PanResponder — no new dependency.
 function SliderTrack({ p, percent, disabled, onPercent }: { p: Palette; percent: number; disabled: boolean; onPercent: (v: number) => void }) {
   const width = useRef(1)
+  const disabledRef = useRef(disabled)
+  disabledRef.current = disabled
+  const onPercentRef = useRef(onPercent)
+  onPercentRef.current = onPercent
   const responder = useRef(PanResponder.create({
-    onStartShouldSetPanResponder: () => !disabled,
-    onMoveShouldSetPanResponder: () => !disabled,
-    onPanResponderGrant: e => onPercent(e.nativeEvent.locationX / width.current * 100),
-    onPanResponderMove: e => onPercent(e.nativeEvent.locationX / width.current * 100),
+    onStartShouldSetPanResponder: () => !disabledRef.current,
+    onMoveShouldSetPanResponder: () => !disabledRef.current,
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderGrant: e => { if (!disabledRef.current) onPercentRef.current(e.nativeEvent.locationX / width.current * 100) },
+    onPanResponderMove: e => { if (!disabledRef.current) onPercentRef.current(e.nativeEvent.locationX / width.current * 100) },
   })).current
   return (
     <View style={{ paddingVertical: 8 }} {...responder.panHandlers} onLayout={e => { width.current = e.nativeEvent.layout.width }}>
@@ -307,7 +340,7 @@ function SliderTrack({ p, percent, disabled, onPercent }: { p: Palette; percent:
 // bar/hbar/line/area/donut, theme-colored, first series on the accent. A tap on a
 // category shows its values and dims the rest; a legend tap hides the series;
 // the "…" menu swaps to a table or copies the data as CSV.
-function Chart({ kind, categories, series, unit, caption, p }: { kind: string; categories: string[]; series: { name?: string; values?: unknown[]; data?: unknown[] }[]; unit: string; caption?: string; p: Palette }) {
+function Chart({ kind, categories, series, unit, caption, p, surfaceBg }: { kind: string; categories: string[]; series: { name?: string; values?: unknown[]; data?: unknown[] }[]; unit: string; caption?: string; p: Palette; surfaceBg: string }) {
   const [pinned, setPinned] = useState(-1)
   const [hidden, setHidden] = useState<Set<number>>(new Set())
   const [menu, setMenu] = useState(false)
@@ -336,7 +369,7 @@ function Chart({ kind, categories, series, unit, caption, p }: { kind: string; c
     <View>
       <View style={{ position: 'relative', height: H }}>
         <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}>
-        {kind === 'donut' ? <Donut rows={rows.map((r, i) => hidden.has(i) ? { ...r, values: [0] } : r)} pinned={pinned} p={p} /> :
+        {kind === 'donut' ? <Donut rows={rows.map((r, i) => hidden.has(i) ? { ...r, values: [0] } : r)} pinned={pinned} holeBg={surfaceBg} /> :
          kind === 'line' || kind === 'area' ? visible.map((s, si) => {
           const xs = s.values.map((_, i) => pad + (i + 0.5) * (W - 2 * pad) / categories.length)
           const pts = s.values.map((v, i) => `${xs[i]},${H - pad - (v / max) * (H - 2 * pad)}`)
@@ -384,7 +417,7 @@ function Chart({ kind, categories, series, unit, caption, p }: { kind: string; c
   )
 }
 
-function Donut({ rows, pinned, p }: { rows: { name: string; values: number[]; color: string }[]; pinned: number; p: Palette }) {
+function Donut({ rows, pinned, holeBg }: { rows: { name: string; values: number[]; color: string }[]; pinned: number; holeBg: string }) {
   const total = Math.max(1e-9, rows.reduce((sum, s) => sum + (s.values[0] ?? 0), 0))
   let at = -90
   return (
@@ -397,7 +430,7 @@ function Donut({ rows, pinned, p }: { rows: { name: string; values: number[]; co
         const x2 = 140 + 60 * Math.cos(at * Math.PI / 180), y2 = 80 + 60 * Math.sin(at * Math.PI / 180)
         return <Path key={i} d={`M140 80 L${x1} ${y1} A60 60 0 ${large} 1 ${x2} ${y2} Z`} fill={s.color} opacity={pinned === -1 || pinned === i ? 1 : 0.25} />
       })}
-      <Circle cx={140} cy={80} r={32} fill={p.card} />
+      <Circle cx={140} cy={80} r={32} fill={holeBg} />
     </>
   )
 }
@@ -433,7 +466,8 @@ function DataTable({ columns, rows, p }: { columns: string[]; rows: unknown[][];
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: radius.card, borderWidth: 1, padding: 14, gap: 10, marginVertical: 4 },
+  card: { alignSelf: 'stretch', width: '100%', borderRadius: radius.card, borderWidth: 1, padding: 14, gap: 10, marginVertical: 4 },
+  unframed: { alignSelf: 'stretch', width: '100%', gap: 10, marginVertical: 6 },
   track: { height: 6, borderRadius: 3 },
   knob: { position: 'absolute', top: 4, width: 14, height: 14, borderRadius: 7, marginLeft: -7 },
   callout: { borderLeftWidth: 3, borderRadius: radius.item, padding: 8 },

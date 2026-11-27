@@ -340,6 +340,26 @@ test('an attached Session or Agent cannot use a cold listing and matching witnes
   }
 })
 
+// The host does not inject `agents`, and Cordis throws from the property of a service
+// that is not injected: an optional chain on `ctx.agents` cannot guard that read.
+test('a host without the agents service injected still reads a stored selection', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  for (const attached of [false, true]) {
+    const services = storedSessions({ g1: { selection: route } })
+    if (attached) services.agents = { get: () => ({}) }
+    const { rt, selected } = bench({ services })
+    const warnings = []
+    rt.warn = (...args) => warnings.push(args)
+    Object.defineProperty(rt.ctx, 'agents', {
+      get() { throw new Error('cannot get property "agents" without inject') },
+    })
+    rt.state.sessionModelSelections = { g1: route }
+    await rt.selectSessionModel('g1', route)
+    assert.deepEqual(selected, attached ? ['g1:deepseek/v4-flash'] : [])
+    assert.deepEqual(warnings, [])
+  }
+})
+
 test('a provider registering after fallback selection cannot reuse its stale checkpoint', async () => {
   const route = { provider: 'late', model: 'a' }
   const { rt, selected, providers } = bench({
@@ -741,6 +761,457 @@ test('a group retry that cannot read the catalog logs and keeps the retry, it do
   assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
 })
 
+// #1937: a Bot's model applied at a start can fail transiently, e.g. while its Session is
+// unavailable; only a restart applied it again. It is now retried at the next trigger, so
+// a Session that recovers is fixed without a restart.
+test('a Bot whose model could not be applied is retried at the next sync, though the models are the same', async () => {
+  const { rt, selected } = bench()
+  rt.state.bots = { b1: { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' } }
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+  // The same models, as the next state refresh finds them.
+  await rt.syncModels()
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+  // Applied now, so a later refresh asks for nothing.
+  await rt.syncModels()
+  assert.equal(selected.length, 1)
+})
+
+test('a provider change applies the team\'s models again, so a Session left on a removed provider is fixed without a restart', async () => {
+  const { rt, selected, listeners } = bench()
+  rt.state.bots = { b1: { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' } }
+  await rt.catalog()
+  listeners.get('llm/adapters-updated')()
+  // The registrations of a start settle before the one sync runs; no clock keeps going.
+  for (let i = 0; i < 100 && selected.length === 0; i += 1) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
+test('a Session left on a provider with no adapter is rewritten by applying its model again, even when the record matches', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  rt.state.bots = { b1: bot }
+  await rt.catalog()
+  // The record already matches, so an ordinary apply writes nothing.
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, [])
+  // The failed turn calls this: the Session's own selection is rewritten anyway.
+  await rt.reapplyModel(bot)
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
+test('a model that fails to apply again is kept for the next turn of its Bot to retry', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+  rt.state.bots = { b1: bot }
+  const select = rt.ctx.sessionController.selectModel
+  rt.ctx.sessionController.selectModel = async () => { throw new Error('Session unavailable') }
+  await rt.catalog()
+  await assert.rejects(rt.reapplyModel(bot), /Session unavailable/)
+  // The next turn proves the Session can be reached; the recorded retry runs then.
+  rt.ctx.sessionController.selectModel = select
+  await rt.retryModel('b1')
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+  // A Bot with no recorded failure costs nothing on its next turn.
+  await rt.retryModel('b2')
+  assert.equal(selected.length, 1)
+})
+
+// The case the fix exists for: the record says the model is applied, but the Session's
+// own selection still names the provider that is gone. A forced rewrite that fails must
+// keep its force, or the next retry finds nothing to change and calls it done (#1937).
+test('a forced rewrite that failed is retried with its force, though the record matches', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  rt.state.bots = { b1: bot }
+  await rt.catalog()
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await assert.rejects(rt.reapplyModel(bot), /Session unavailable/)
+  assert.deepEqual(selected, [])
+  // The record matches the model, so only the force the failure carried writes again.
+  await rt.retryModel('b1')
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
+test('a group member Session that failed keeps the Bot for another try, then writes', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+  rt.state.bots = { b1: bot }
+  rt.groupSessionsOf = () => ['g1']
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (request.sessionId === 'g1' && !failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+  // The warning is not success: the group Session is written at the next trigger.
+  await rt.retryModel('b1')
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'g1:deepseek/v4-flash'])
+})
+
+// #2002 review: one Session's failed write forced every part and group Session of the
+// Bot to be rewritten again. A retry now forces only the Sessions it recorded.
+test('a forced retry rewrites only the Session that failed, not every part and group of its Bot', async () => {
+  const { rt, selected } = bench()
+  const bot = {
+    id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x',
+    tasks: [{ id: 't1', sessionId: 'b1-bg', status: 'running', segments: [] }],
+  }
+  rt.state.bots = { b1: bot }
+  rt.groupSessionsOf = () => ['g1', 'g2']
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'b1-bg:deepseek/v4-flash', 'g1:deepseek/v4-flash', 'g2:deepseek/v4-flash'])
+  selected.length = 0
+  // The current part's turn was refused: its own selection names the provider that is
+  // gone, while the Bot's record and the other Sessions are already applied.
+  await rt.reapplyModel(bot, 'b1')
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
+// #2002 review: a successful retry cleared the Bot's whole record even when the failed
+// Session itself was never written. Its own record must survive until its own write.
+test('a failed Session keeps its retry when no model can be written yet, and clears only after its own write', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  rt.state.bots = { b1: bot }
+  await rt.catalog()
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await assert.rejects(rt.reapplyModel(bot, 'b1'), /Session unavailable/)
+  assert.deepEqual(selected, [])
+  // For a moment the Bot has no model to write: the retry trigger must not drop the
+  // record of the Session that still owes its selection.
+  bot.model = undefined
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+  // With the model back, the recorded Session is the one written, and only then cleared.
+  bot.model = 'deepseek/v4-flash'
+  await rt.syncModels()
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+  await rt.syncModels()
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
+// #2002 review: two passes of one Bot overlap. The first took the short Session list
+// and finished, advancing the Bot's record; the second took the longer list, failed on
+// one Session and never reached the next one. A retry that trusted `ownChanged` alone
+// then found the Bot's record applied and skipped both Sessions for good.
+test('a later pass over a longer Session list keeps the Session it failed on and the one it never reached', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'old/x' }
+  rt.state.bots = { b1: bot }
+  await rt.catalog()
+  const select = rt.ctx.sessionController.selectModel
+  // How many passes have taken their Session list, and a way to wait for the second.
+  let lists = 0
+  let secondListTaken
+  const secondList = new Promise(resolve => { secondListTaken = resolve })
+  rt.groupSessionsOf = () => {
+    lists += 1
+    if (lists === 2) secondListTaken()
+    return []
+  }
+  let firstWriteStarted
+  const firstWrite = new Promise(resolve => { firstWriteStarted = resolve })
+  let releaseFirst
+  const released = new Promise(resolve => { releaseFirst = resolve })
+  let calls = 0
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    calls += 1
+    // The first pass holds the short list's only write until the second pass has taken
+    // the longer list, so the two really overlap.
+    if (calls === 1) { firstWriteStarted(); await released }
+    // The second pass hits one Session that is not reachable for a moment.
+    if (request.sessionId === 'b1-bg2' && !failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  // The short list: the own chat's current Session only.
+  const first = rt.applyModel(bot)
+  await firstWrite
+  // A new background task and another one appear while the first pass is in its write;
+  // the second pass takes the longer list.
+  bot.tasks = [
+    { id: 't2', sessionId: 'b1-bg2', status: 'running', segments: [] },
+    { id: 't3', sessionId: 'b1-bg3', status: 'running', segments: [] },
+  ]
+  const second = rt.applyModel(bot)
+  const secondOutcome = second.then(() => 'resolved', error => error)
+  await secondList
+  releaseFirst()
+  await first
+  assert.match(String(await secondOutcome), /Session unavailable/)
+  // The first pass advanced the record, so the second one's failure cannot count on
+  // `ownChanged` to be retried.
+  assert.equal(bot.appliedModel, 'deepseek/v4-flash')
+  const wrote = id => selected.filter(entry => entry.startsWith(`${id}:`)).length
+  // The Session after the failed one was still written by the pass that failed.
+  assert.equal(wrote('b1-bg3'), 1)
+  assert.equal(wrote('b1-bg2'), 0)
+  // The failure recovers. The recorded Session is written even though the Bot's record
+  // already matches the model.
+  await rt.retryModel('b1')
+  assert.equal(wrote('b1-bg2'), 1)
+  assert.equal(wrote('b1-bg3'), 1)
+  // Its own write cleared the record: a later refresh asks for nothing.
+  const total = selected.length
+  await rt.syncModels()
+  assert.equal(selected.length, total)
+})
+
+test('a read-only host never mutates Session models on adapter updates or model sync/retry calls', async () => {
+  const { rt, selected, listeners } = bench()
+  const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+  rt.state.bots = { b1: bot }
+  rt.readOnly = () => 'another dsh holds the team'
+  rt.hasLoaded = () => true
+  await rt.catalog()
+  await listeners.get('llm/adapters-updated')()
+  await new Promise(resolve => setTimeout(resolve, 160))
+  await rt.syncModels()
+  await rt.applyModel(bot, { force: true })
+  await rt.reapplyModel(bot, 'b1')
+  await rt.retryModel('b1')
+  await rt.selectSessionModel('b1', { provider: 'deepseek', model: 'v4-flash' }, { force: true })
+  assert.deepEqual(selected, [])
+  assert.equal(bot.appliedModel, 'gone/x')
+})
+
+test('llm/adapters-updated waits until the store has loaded before syncing models', async () => {
+  const { rt, selected, listeners } = bench()
+  let loaded = false
+  rt.hasLoaded = () => loaded
+  await listeners.get('llm/adapters-updated')()
+  await new Promise(resolve => setTimeout(resolve, 160))
+  assert.deepEqual(selected, [])
+  // Once the store finishes loading, the first sync still runs with the loaded Bots.
+  loaded = true
+  rt.state.bots = { b1: { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' } }
+  await rt.syncModels()
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+})
+
+test('restoring a preferred provider after a partial fallback apply reconciles background parts too', async () => {
+  const { rt, selected, providers } = bench({ providers: { fallback: ['y'] }, fallback: { provider: 'fallback', model: 'y' } })
+  const bot = {
+    id: 'b1', name: 'Writer', model: 'preferred/x', appliedModel: 'preferred/x',
+    tasks: [{ id: 't1', sessionId: 'b1-bg', status: 'running', segments: [] }],
+  }
+  rt.state.bots = { b1: bot }
+  const select = rt.ctx.sessionController.selectModel
+  let failMain = true
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (request.sessionId === 'b1' && failMain) throw new Error('Session unavailable')
+    return select(request)
+  }
+  // preferred/x is absent: applyModel tries fallback/y; b1 fails while b1-bg succeeds,
+  // leaving bot.appliedModel on preferred/x and b1-bg on fallback/y.
+  await assert.rejects(rt.applyModel(bot), /Session unavailable/)
+  assert.equal(bot.appliedModel, 'preferred/x')
+  assert.deepEqual(selected, ['b1-bg:fallback/y'])
+  selected.length = 0
+
+  // preferred/x returns and b1 is reachable again: both b1 and b1-bg must move back to preferred/x.
+  providers.preferred = ['x']
+  failMain = false
+  rt.dropCatalog()
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['b1:preferred/x', 'b1-bg:preferred/x'])
+  // Reconciled now, so a subsequent apply writes nothing.
+  selected.length = 0
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, [])
+})
+
+test('restoring a preferred provider after restart reconciles a background part left on fallback', async () => {
+  const { rt: firstRt, selected: firstSelected } = bench({ providers: { fallback: ['y'] }, fallback: { provider: 'fallback', model: 'y' } })
+  const bot = {
+    id: 'b1', name: 'Writer', model: 'preferred/x', appliedModel: 'preferred/x',
+    tasks: [{ id: 't1', sessionId: 'b1-bg', status: 'running', segments: [] }],
+  }
+  firstRt.state.bots = { b1: bot }
+  const firstSelect = firstRt.ctx.sessionController.selectModel
+  firstRt.ctx.sessionController.selectModel = async (request) => {
+    if (request.sessionId === 'b1') throw new Error('Session unavailable')
+    return firstSelect(request)
+  }
+  await assert.rejects(firstRt.applyModel(bot), /Session unavailable/)
+  assert.equal(bot.appliedModel, 'preferred/x')
+  assert.deepEqual(firstSelected, ['b1-bg:fallback/y'])
+  assert.deepEqual(firstRt.state.sessionModelSelections['b1-bg'].requested, { provider: 'fallback', model: 'y' })
+
+  // Simulate process restart: fresh module instance (empty in-memory sessionSelections and
+  // sessionRetry) loaded with the persisted state, now with preferred/x restored.
+  const persisted = structuredClone(firstRt.state)
+  const { rt: restarted, selected: restartedSelected } = bench({
+    providers: { preferred: ['x'], fallback: ['y'] },
+    fallback: { provider: 'fallback', model: 'y' },
+  })
+  Object.assign(restarted.state, persisted)
+  await restarted.syncModels()
+  assert.deepEqual(restartedSelected, ['b1-bg:preferred/x'])
+  assert.deepEqual(restarted.state.sessionModelSelections['b1-bg'].requested, { provider: 'preferred', model: 'x' })
+
+  // Legacy flat sessionModelSelections shape is also reconciled after restart.
+  const { rt: legacyRt, selected: legacySelected } = bench({
+    providers: { preferred: ['x'], fallback: ['y'] },
+    fallback: { provider: 'fallback', model: 'y' },
+  })
+  Object.assign(legacyRt.state, {
+    bots: {
+      b1: {
+        id: 'b1', name: 'Writer', model: 'preferred/x', appliedModel: 'preferred/x',
+        tasks: [{ id: 't1', sessionId: 'b1-bg', status: 'running', segments: [] }],
+      },
+    },
+    sessionModelSelections: {
+      'b1-bg': { provider: 'fallback', model: 'y' },
+    },
+  })
+  await legacyRt.syncModels()
+  assert.deepEqual(legacySelected, ['b1-bg:preferred/x'])
+})
+
+test('a direct applyModel consumes pending forced sessionRetry for group and cold task Sessions and clears it', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  const { rt, selected } = bench({
+    services: {
+      sessionQuery: {
+        listSessions: async () => [
+          { header: { id: 'b1-task' }, persisted: true, live: false },
+          { header: { id: 'g1' }, persisted: true, live: false },
+        ],
+      },
+      sessionProjectionCache: {
+        cachedSnapshot: () => ({ values: { modelSelection: { next: route } } }),
+      },
+    },
+  })
+  const bot = {
+    id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash',
+    tasks: [{ id: 't1', sessionId: 'b1-task', status: 'running', segments: [] }],
+  }
+  rt.state.bots = { b1: bot }
+  rt.state.sessionModelSelections = {
+    'b1-task': { requested: route, resolved: route },
+    g1: { requested: route, resolved: route },
+  }
+  rt.groupSessionsOf = () => ['g1']
+  // First populate sessionSelections for g1 via the cold fast-path (no RPC).
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, [])
+
+  // Now both b1-task and g1 suffer a failed forced reapply (e.g. after NO_ADAPTER).
+  const select = rt.ctx.sessionController.selectModel
+  let failForced = true
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (failForced) throw new Error('Session unavailable')
+    return select(request)
+  }
+  await assert.rejects(rt.reapplyModel(bot, 'b1-task'), /Session unavailable/)
+  await assert.rejects(rt.reapplyModel(bot, 'g1'), /Session unavailable/)
+  assert.deepEqual(selected, [])
+
+  // A direct applyModel(bot) (without top-level force) must still force-write both
+  // recorded Sessions, bypassing both cold fast-skip and sessionSelections cache.
+  failForced = false
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['b1-task:deepseek/v4-flash', 'g1:deepseek/v4-flash'])
+
+  // Retry entries are settled now: a subsequent applyModel or syncModels writes nothing.
+  selected.length = 0
+  await rt.applyModel(bot)
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+})
+
+test('forgetSessionModel, Bot deletion, and host teardown clear pending sessionRetry records and timers', async () => {
+  const cleanups = []
+  const { rt, selected, listeners } = bench()
+  rt.ctx.effect = (fn) => { cleanups.push(fn()) }
+  install(rt)
+  const b1 = {
+    id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash',
+    tasks: [{ id: 't1', sessionId: 'b1-task', status: 'running', segments: [] }],
+  }
+  const b2 = { id: 'b2', name: 'Helper', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  rt.state.bots = { b1, b2 }
+  await rt.catalog()
+
+  const select = rt.ctx.sessionController.selectModel
+  let fail = true
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (fail) throw new Error('Session unavailable')
+    return select(request)
+  }
+  await assert.rejects(rt.reapplyModel(b1, 'b1-task'), /Session unavailable/)
+  await assert.rejects(rt.reapplyModel(b2, 'b2'), /Session unavailable/)
+
+  // Retiring b1-task via forgetSessionModel drops its pending retry.
+  rt.forgetSessionModel('b1-task')
+  // Deleting b2 drops its orphan retry on syncAll even when catalog changes.
+  delete rt.state.bots.b2
+  fail = false
+  rt.dropCatalog()
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+
+  // Host teardown cancels pending adapter sync timers and clears retries.
+  const b3 = { id: 'b3', name: 'Third', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+  rt.state.bots.b3 = b3
+  listeners.get('llm/adapters-updated')()
+  for (const cleanup of cleanups) cleanup?.()
+  await new Promise(resolve => setTimeout(resolve, 160))
+  assert.deepEqual(selected, [])
+})
+
+test('selectRoomSession with force rewrites a matched room Session and keeps force across a transient failure', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  rt.roomOf = id => rt.state.rooms[id]
+  await rt.catalog()
+  await rt.syncRoomSessions()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+  selected.length = 0
+
+  // A forced room reapply fails once transiently, then recovers on the next syncModels
+  // even though sessionSelections already matched deepseek/v4-flash.
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.selectRoomSession('r1', rt.state.rooms.r1, { force: true })
+  assert.deepEqual(selected, [])
+  await rt.syncModels()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+  selected.length = 0
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+})
+
 test('a group Session picks an image-capable route when the team default is text-only', async () => {
   const selected = []
   const providers = {
@@ -874,4 +1345,182 @@ test('selectRoomSession checks resolveModelInfo when listModels omits inputModal
   ctx.llm.listProviders = listProviders
   await rt.syncModels()
   assert.ok(selected.includes('r1:local-claude-code/default'), selected.join(', '))
+})
+
+test('missing Sessions stop retrying instead of looping in sessionRetry, and heal once back in the library', async () => {
+  const listed = new Set()
+  const lost = new Set(['b1', 'b1-task', 'g1', 'r1'])
+  const attempts = []
+  const kickoffs = []
+  const { rt, selected } = bench({
+    services: {
+      sessionQuery: {
+        listSessions: async () => [...listed].map(id => ({ header: { id }, persisted: true, live: false })),
+      },
+    },
+  })
+  const bot = {
+    id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x',
+    tasks: [{ id: 't1', sessionId: 'b1-task', status: 'running', segments: [] }],
+  }
+  rt.state.bots = { b1: bot }
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: ['b1'] } }
+  rt.groupSessionsOf = () => ['g1']
+  rt.sessionOfRoom = room => room.id
+  rt.roomOf = id => rt.state.rooms[id]
+  rt.releaseKickoff = async (target) => { kickoffs.push(target.id) }
+
+  const select = rt.ctx.sessionController.selectModel
+  rt.ctx.sessionController.selectModel = async (request) => {
+    attempts.push(request.sessionId)
+    if (lost.has(request.sessionId)) {
+      throw Object.assign(new Error(`session "${request.sessionId}" not found`), { code: 'session/not-found' })
+    }
+    return select(request)
+  }
+
+  // First sync encounters missing foreground, task, group member, and room Sessions once.
+  await rt.catalog()
+  await rt.syncModels()
+  assert.equal(bot.sessionMissing, 'b1')
+  assert.equal(bot.appliedModel, 'gone/x')
+  assert.deepEqual(attempts, ['b1', 'b1-task', 'g1', 'r1'])
+  assert.deepEqual(selected, [])
+
+  // Subsequent syncModels / retryModel do NOT loop retrying missing Sessions.
+  await rt.syncModels()
+  await rt.retryModel('b1')
+  assert.deepEqual(attempts, ['b1', 'b1-task', 'g1', 'r1'])
+
+  // Read-only host never heals or mutates missing-Session markers.
+  lost.clear()
+  for (const id of ['b1', 'b1-task', 'g1', 'r1']) listed.add(id)
+  rt.readOnly = () => 'another dsh holds the team'
+  rt.dropCatalog()
+  await rt.syncModels()
+  assert.equal(bot.sessionMissing, 'b1')
+  assert.deepEqual(selected, [])
+  assert.deepEqual(kickoffs, [])
+
+  // Writable host heals sessionMissing, goneParts, and missingRoomSessions, reapplies models, and releases kickoff.
+  rt.readOnly = () => undefined
+  rt.dropCatalog()
+  await rt.syncModels()
+  assert.equal(bot.sessionMissing, undefined)
+  assert.equal(bot.appliedModel, 'deepseek/v4-flash')
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'b1-task:deepseek/v4-flash', 'g1:deepseek/v4-flash', 'r1:deepseek/v4-flash'])
+  assert.deepEqual(kickoffs, ['b1'])
+})
+
+test('a restored Session heals immediately on forced model change and on same-catalog syncModels (#2004 review)', async () => {
+  // Case 1: Bot Settings forces a model change after the Session is restored — must heal via library check without skipping.
+  {
+    const listed = new Set()
+    const lost = new Set(['b1'])
+    const kickoffs = []
+    const { rt, selected } = bench({
+      services: {
+        sessionQuery: {
+          listSessions: async () => [...listed].map(id => ({ header: { id }, persisted: true, live: false })),
+        },
+      },
+    })
+    const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+    rt.state.bots = { b1: bot }
+    rt.releaseKickoff = async (target) => { kickoffs.push(target.id) }
+    const select = rt.ctx.sessionController.selectModel
+    rt.ctx.sessionController.selectModel = async (request) => {
+      if (lost.has(request.sessionId)) {
+        throw Object.assign(new Error(`session "${request.sessionId}" not found`), { code: 'session/not-found' })
+      }
+      return select(request)
+    }
+
+    await rt.catalog()
+    await rt.syncModels()
+    assert.equal(bot.sessionMissing, 'b1')
+    assert.deepEqual(selected, [])
+
+    // Restore Session to library and change model in Bot Settings (force: true) without catalog change.
+    lost.clear()
+    listed.add('b1')
+    bot.model = 'stepfun/step-5'
+    await rt.applyModel(bot, { force: true })
+    assert.equal(bot.sessionMissing, undefined)
+    assert.equal(bot.appliedModel, 'stepfun/step-5')
+    assert.deepEqual(selected, ['b1:stepfun/step-5'])
+    assert.deepEqual(kickoffs, ['b1'])
+  }
+
+  // Case 2: Restored Session heals on a same-catalog syncModels() without requiring a catalog change.
+  {
+    const listed = new Set()
+    const lost = new Set(['b1'])
+    const { rt, selected } = bench({
+      services: {
+        sessionQuery: {
+          listSessions: async () => [...listed].map(id => ({ header: { id }, persisted: true, live: false })),
+        },
+      },
+    })
+    const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+    rt.state.bots = { b1: bot }
+    const select = rt.ctx.sessionController.selectModel
+    rt.ctx.sessionController.selectModel = async (request) => {
+      if (lost.has(request.sessionId)) {
+        throw Object.assign(new Error(`session "${request.sessionId}" not found`), { code: 'session/not-found' })
+      }
+      return select(request)
+    }
+
+    await rt.catalog()
+    await rt.syncModels()
+    assert.equal(bot.sessionMissing, 'b1')
+    assert.deepEqual(selected, [])
+
+    // Restore Session to library; same-catalog syncModels() heals and applies without dropCatalog().
+    lost.clear()
+    listed.add('b1')
+    await rt.syncModels()
+    assert.equal(bot.sessionMissing, undefined)
+    assert.equal(bot.appliedModel, 'deepseek/v4-flash')
+    assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
+  }
+
+  // Case 3: Overlapping same-catalog syncModels() polls while sessionMissing persists coalesce into one library listing.
+  {
+    let listCalls = 0
+    let releaseList
+    const pendingList = new Promise(resolve => { releaseList = resolve })
+    const { rt } = bench({
+      services: {
+        sessionQuery: {
+          listSessions: async () => {
+            listCalls += 1
+            await pendingList
+            return []
+          },
+        },
+      },
+    })
+    const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+    rt.state.bots = { b1: bot }
+    rt.ctx.sessionController.selectModel = async () => {
+      throw Object.assign(new Error('session "b1" not found'), { code: 'session/not-found' })
+    }
+
+    await rt.catalog()
+    await rt.syncModels()
+    assert.equal(bot.sessionMissing, 'b1')
+    assert.equal(listCalls, 0)
+
+    const polls = Array.from({ length: 6 }, () => rt.syncModels())
+    releaseList()
+    await Promise.all(polls)
+    assert.equal(listCalls, 1)
+    // Another immediate poll within the cooldown does not issue another listing.
+    await rt.syncModels()
+    assert.equal(listCalls, 1)
+  }
 })

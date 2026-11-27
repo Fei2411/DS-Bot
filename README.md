@@ -45,6 +45,10 @@ npx @deepseek-ai/dsh@0.2.2-rc.5 web
 
 See [`docker/README.md`](docker/README.md).
 
+**Optional code-mode executor (experimental)**
+
+An opt-in code executor is available as `ds-bot/code-mode` (DSH **0.2.2-rc.1 or newer**; off by default so older hosts and default Bots are unaffected). Enable `config.codeMode.enabled: true` on the active profile's `bot` (`ds-bot`) row, restart the engine, and optionally enable `tool-fs`'s `applyPatch: true` in the agent preset for multi-file patches. See [code-mode setup and limits](docs/plans/2026-11-18-code-mode.md).
+
 ## Setup
 
 The easiest way to set up other bots and group chats is to just talk to your Main Bot.
@@ -157,9 +161,11 @@ In **Settings → Usage**, track token usage by time range, bot and model. In **
 
 ![Usage page](docs/images/usage.png)
 
-## Data
+## Data & privacy
 
 All data stays on your computer: in the data folder chosen for the desktop app (`~/.ds-bot` by default), or in `bot/` and `sessions/` inside your DSH home folder (`~/.dsh` by default) for the plugin. Uninstalling the app or plugin does not delete your data.
+
+Optional anonymous telemetry is gated behind a one-time notice before anything is sent, and can be changed, inspected (raw JSON of the last 20 payloads), or disabled anytime in **Settings → About DS Bot → Privacy** (or via `DS_BOT_TELEMETRY_DISABLED=1` / `DO_NOT_TRACK=1`). Chats, memories, secrets, file paths, Bot names, private Bots, error messages, and IP addresses are never collected. Upstream DSH official API session-log upload and feedback session upload are disabled by default in DS Bot, with private Bots permanently excluded. See [`docs/plans/2026-11-25-telemetry-and-privacy.md`](docs/plans/2026-11-25-telemetry-and-privacy.md) and [`telemetry/`](telemetry/).
 
 ## Documentation & development
 

@@ -3,7 +3,7 @@
 // and "Ask or update", one model call that answers from the entries or changes them.
 // Modeled on ChatGPT's memory summary.
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
-import { useEscape } from './overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { ArrowUpIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, DotsIcon, MemoryIcon, MoveIcon, PinIcon, TrashIcon } from './icons.js'
 import { dateLocale, hostText, t } from './i18n.js'
 import { summaryBlocks } from './text.js'
@@ -33,8 +33,7 @@ function useMenuDismiss(open, menuRef, triggerRef, close) {
       close()
     }
     const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event, triggerRef.current)) return
-      if (event.key === 'Escape') { event.stopPropagation(); close(); triggerRef.current?.focus() }
+      stepMenuFocus(menuRef.current, event, triggerRef.current)
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
@@ -43,6 +42,7 @@ function useMenuDismiss(open, menuRef, triggerRef, close) {
       window.removeEventListener('keydown', onKey, true)
     }
   }, [open])
+  useEscape(() => { close(); triggerRef.current?.focus() }, open, { priority: ESCAPE_PRIORITY.MENU })
 }
 
 export function useMemoryCount(id, actions) {

@@ -3,7 +3,7 @@
 // or group chat it belongs to.
 import { createHash, randomUUID } from 'node:crypto'
 import { copyFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, SECTION_COLORS, SECTION_NAME_MAX, TEXT_KEPT } from './constants.js'
 import { replaceFile } from './files.js'
@@ -11,6 +11,7 @@ import { homeLock } from './home-lock.js'
 import { currentColor, headOf, normalize, unquote } from './text.js'
 import { isActiveTask } from './threads.js'
 import { AMBIGUOUS_OLD_ROUTES, legacyRoute } from './local-agents/engines.js'
+import { cleanSemver } from '../shared/semver.js'
 
 // A table read that sees only the keys the table holds itself. Ids that come from
 // outside (a request body, a tool argument, a name a model gives) go through this, so
@@ -35,10 +36,11 @@ export function segmentNoteFile(sessionId) {
 export function install(rt) {
   const { ctx, home, statePath } = rt
 
-  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, plugins: { slots: {}, enabled: {}, offFor: {}, custom: {}, snapshots: {}, sources: [], knownPrefixes: {} }, exchanges: [], exchangeTurns: {}, works: {}, closedWorks: {}, pairLoops: {}, workSeq: 0, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
+  /** @type {{version:1, lastSeenVersion?:string, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, contextParts:Record<string,any>, revision:number}} */
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, plugins: { slots: {}, enabled: {}, offFor: {}, custom: {}, snapshots: {}, sources: [], knownPrefixes: {} }, exchanges: [], exchangeTurns: {}, works: {}, closedWorks: {}, pairLoops: {}, workSeq: 0, requests: {}, questions: {}, views: {}, closedCards: {}, closedCardSeqs: {}, prefs: {}, switching: {}, contextParts: {}, revision: 0 }
   let loaded = null
   let storeReady = false
+  let hadPersistedTeam = false
   let writing = Promise.resolve()
   const { warn } = rt
   const sessionIdOf = id => (typeof id === 'string' && id !== '' ? id : undefined)
@@ -302,11 +304,29 @@ export function install(rt) {
   const adopt = (parsed) => {
     lockEpoch += 1
     noteCache.clear()
+    hadPersistedTeam = parsed !== null && parsed !== undefined && (
+      Object.keys(parsed.bots ?? {}).length > 0
+      || Object.keys(parsed.rooms ?? {}).length > 0
+      || Object.keys(parsed.agents ?? {}).length > 0
+      || (typeof parsed.workspaceId === 'string' && parsed.workspaceId !== '')
+    )
     const hadCapabilities = parsed !== null && parsed !== undefined && Object.hasOwn(parsed, 'capabilities')
     for (const key of Object.keys(state)) delete state[key]
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
+    let migrated = !hadCapabilities
+    if (state.lastSeenVersion !== undefined) {
+      const cleanVersion = cleanSemver(state.lastSeenVersion)
+      if (cleanVersion === null) {
+        delete state.lastSeenVersion
+        migrated = true
+      } else if (cleanVersion !== state.lastSeenVersion) {
+        state.lastSeenVersion = cleanVersion
+        migrated = true
+      }
+    }
     if (!Array.isArray(state.exchanges)) state.exchanges = []
     state.prefs ??= {}
+    if (state.contextParts === null || typeof state.contextParts !== 'object' || Array.isArray(state.contextParts)) state.contextParts = {}
     // Teams saved before the DSH Agent existed carry no `agents`; corrupt values reset.
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}
     // `computer` is the computer-use switch; absent or corrupt means off.
@@ -330,7 +350,6 @@ export function install(rt) {
         ? `builtin:${legacyActive}`
         : legacyActive
     }
-    let migrated = !hadCapabilities
     if (state.capabilities === null || typeof state.capabilities !== 'object' || Array.isArray(state.capabilities)) {
       state.capabilities = { items: {} }
       migrated = true
@@ -359,6 +378,24 @@ export function install(rt) {
       }
       if (bot.color !== currentColor(bot.color)) {
         bot.color = currentColor(bot.color)
+        migrated = true
+      }
+      // `bot.agentPreset` is a preset id; a corrupt value is dropped so the Bot falls
+      // back to the standard default rather than failing every Session.
+      if (bot.agentPreset !== undefined && (typeof bot.agentPreset !== 'string' || bot.agentPreset.trim() === '')) {
+        delete bot.agentPreset
+        migrated = true
+      }
+      // `bot.agentPresetDefault` marks a pick the user cleared to the default; it only
+      // means anything without an explicit id, and anything but true is corrupt.
+      if (bot.agentPresetDefault !== undefined && (bot.agentPresetDefault !== true || typeof bot.agentPreset === 'string')) {
+        delete bot.agentPresetDefault
+        migrated = true
+      }
+      if (bot.agentPresetDefaultPending !== undefined && (bot.agentPresetDefault !== true
+        || !Array.isArray(bot.agentPresetDefaultPending)
+        || bot.agentPresetDefaultPending.some(id => typeof id !== 'string' || id === ''))) {
+        delete bot.agentPresetDefaultPending
         migrated = true
       }
       // `bot.computer` holds the computer-use level and Always-grant apps; corrupt values reset.
@@ -524,6 +561,7 @@ export function install(rt) {
     }
     if (state.views === null || typeof state.views !== 'object' || Array.isArray(state.views)) state.views = {}
     if (state.closedCards === null || typeof state.closedCards !== 'object' || Array.isArray(state.closedCards)) state.closedCards = {}
+    if (state.closedCardSeqs === null || typeof state.closedCardSeqs !== 'object' || Array.isArray(state.closedCardSeqs)) state.closedCardSeqs = {}
     // LEGACY: v0.3.2 kept closed dock views here, pinning them above the composer.
     if ('closedViews' in state) {
       delete state.closedViews
@@ -602,6 +640,7 @@ export function install(rt) {
   }
 
   const hasLoaded = () => storeReady
+  const hasExistingTeamData = () => hadPersistedTeam
   const notifyStoreSync = () => {
     rt.onStoreSync?.()
     rt.syncDeepseekTools?.()
@@ -618,6 +657,7 @@ export function install(rt) {
   // Finishes what the fold of withdrawn parallel parts left (see adopt): only the host
   // that saves the team does it, and an entry stays listed until both steps succeed.
   let retiring
+  let sweeping
   let waitingForSchedules
   // A part waiting to be retired may still run a turn, so it is not complete yet.
   const isRetiring = sessionId => Array.isArray(state.retiredParts) && state.retiredParts.some(entry => entry?.sessionId === sessionId)
@@ -696,6 +736,19 @@ export function install(rt) {
     storeReady = true
     notifyStoreSync()
     if (holder !== undefined) return
+    if (teamWriteAccess() === 'locked') {
+      const sweep = (async () => {
+        const entries = await readdir(home)
+        if (teamWriteAccess() !== 'locked') return
+        for (const name of entries) {
+          if (teamWriteAccess() !== 'locked') return
+          const match = /^state\.json\.(\d+)(?:\.[a-f0-9]+)?\.tmp$/.exec(name)
+          if (match === null || Number(match[1]) === process.pid) continue
+          await unlink(join(home, name)).catch(() => {})
+        }
+      })().catch(() => {}).finally(() => { if (sweeping === sweep) sweeping = undefined })
+      sweeping = sweep
+    }
     const storageMigrated = stuck === undefined ? await runStorageMigrations() : false
     void retireParts()
     if ((migrated || storageMigrated) && stuck === undefined) {
@@ -870,7 +923,7 @@ export function install(rt) {
       state.revision += 1
       if (state.exchanges.length > MAX_EXCHANGES) state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
       const snapshot = JSON.stringify(state)
-      const temp = `${statePath}.${process.pid}.tmp`
+      const temp = `${statePath}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
       try {
         await mkdir(home, { recursive: true })
         const ensureLock = () => {
@@ -889,7 +942,10 @@ export function install(rt) {
           }
         }
         ensureLock()
-        await writeFile(temp, snapshot, 'utf8')
+        // Flushed before the rename: after a crash or power loss, a renamed file whose
+        // data never reached the disk can come back empty, and an empty state.json loads
+        // as an empty team (#2238).
+        await writeFile(temp, snapshot, { encoding: 'utf8', flush: true })
         ensureLock()
         await replaceFile(temp, statePath, ensureLock)
         seen = stamp()
@@ -919,7 +975,7 @@ export function install(rt) {
   ctx.effect(() => () => {
     stopped = true
     clearTimeout(waitingForSchedules)
-    return Promise.allSettled([writing, retiring, rt.stopRetiringTasks?.(), ...noteOps.values()]).finally(() => lock.release())
+    return Promise.allSettled([writing, retiring, sweeping, rt.stopRetiringTasks?.(), ...noteOps.values()]).finally(() => lock.release())
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))
@@ -1038,9 +1094,21 @@ export function install(rt) {
   const selfOf = id => chatOwners.get(id) ?? groupOwners.get(id)?.botId ?? pastOwners.get(id)?.botId
   // A Session where the Bot speaks now, as opposed to an archived segment.
   const isBotSession = id => chatOwners.has(id) || groupOwners.has(id)
+  // Any Session owned by the team (current or archived): Bot chats, active or settled tasks,
+  // hidden group member Sessions, group room Sessions, and earlier segments/parts of any of them.
+  const isTeamSession = id => typeof id === 'string' && id !== '' && (
+    chatOwners.has(id)
+    || taskOwners.has(id)
+    || groupOwners.has(id)
+    || roomOwners.has(id)
+    || pastOwners.has(id)
+    || botOf(id) !== undefined
+    || roomOf(id) !== undefined
+  )
   const roomsOf = botId => (botId === undefined ? [] : Object.values(state.rooms).filter(room => Array.isArray(room?.members) && room.members.includes(botId)))
   const groupSessionsOf = botId => Object.values(state.rooms).map(room => room.sessions?.[botId]).filter(Boolean)
   const dropGroupSession = (room, botId) => {
+    rt.clearGroupPresented?.(room.id, botId)
     if (room.memberDirs !== undefined) delete room.memberDirs[botId]
     const sessionId = room.sessions?.[botId]
     if (sessionId !== undefined) {
@@ -1065,6 +1133,7 @@ export function install(rt) {
     if (state.questions !== undefined) delete state.questions[sessionId]
     if (state.views !== undefined) delete state.views[sessionId]
     if (state.closedCards !== undefined) delete state.closedCards[sessionId]
+    if (state.closedCardSeqs !== undefined) delete state.closedCardSeqs[sessionId]
     groupOwners.delete(sessionId)
     rt.cancelApprovals?.(sessionId)
     rt.renewMemory?.(sessionId)
@@ -1118,13 +1187,17 @@ export function install(rt) {
     if (typeof card?.callId !== 'string') return
     const target = typeof card.callSessionId === 'string' ? card.callSessionId : sessionId
     state.closedCards[target] = { ...own(state.closedCards, target), [card.callId]: outcome }
+    if (typeof card.callSeq === 'number' && Number.isInteger(card.callSeq)) {
+      state.closedCardSeqs ??= {}
+      state.closedCardSeqs[target] = { ...own(state.closedCardSeqs, target), [`${card.callId}@${card.callSeq}`]: outcome }
+    }
   }
 
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, closeCard,
+    state, load, save, refresh, readOnly, hasLoaded, hasExistingTeamData, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, closeCard,
     readSegmentNote, writeSegmentNote, deleteSegmentNotes,
     teamWriteAccess,
-    botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
+    botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession, isTeamSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, roomsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })
@@ -1135,8 +1208,12 @@ export function install(rt) {
 // the Bot's Sessions are selected again on the new route. An old `opencode/...`
 // ref is also DSH's own OpenCode provider: it moves only for a Bot that ran on
 // the local CLI (a CLI record for one of its Sessions) or on its "CLI default".
-// Returns whether anything changed.
+// The move runs once per team: afterwards a local agent is only saved under
+// `local-`, so an unprefixed CLI name is a provider of that name (#2104). The
+// mark is saved with the team's next write. Returns whether anything changed.
 export function migrateLocalRoutes(state) {
+  if (state.localRoutesMoved === true) return false
+  state.localRoutesMoved = true
   let changed = false
   const ranOn = new Map() // old route -> Session ids the CLI served
   for (const [sessionId, record] of Object.entries(state.localAgents?.sessions ?? {})) {
