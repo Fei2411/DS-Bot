@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { createMacUpdater, parseSha256Sums, resolveMacAppBundle } from '../src/mac-updater.mjs'
-import { watchUpdates } from '../src/updates.mjs'
+import { createMacUpdater, MAC_SWAP_SCRIPT, parseSha256Sums, resolveMacAppBundle } from '../src/mac-updater.mjs'
+import { isNewer, parseVersion, watchUpdates } from '../src/updates.mjs'
 
 const quietLog = () => {
   const lines = []
@@ -183,6 +183,10 @@ describe('createMacUpdater (unit)', () => {
     await updates.install()
     assert.deepEqual(steps, ['stopHost'])
     assert.equal(quitCalls, 1)
+    // With onWillQuit provided, actual swap spawn is deferred until will-quit so a cancelled quit
+    // never starts the detached PID wait prematurely.
+    assert.equal(spawned.length, 0)
+    willQuitHooks[0]()
     assert.equal(spawned.length, 1)
     assert.equal(spawned[0].cmd, '/bin/sh')
     assert.equal(spawned[0].opts.detached, true)
@@ -191,9 +195,107 @@ describe('createMacUpdater (unit)', () => {
     assert.equal(spawned[0].args[4], '/Applications/DS Bot.app')
     assert.equal(spawned[0].args[6], '1')
 
-    // Subsequent will-quit hook must not double-spawn after explicit quitAndInstall.
+    // A second will-quit invocation must never double-spawn.
     willQuitHooks[0]()
     assert.equal(spawned.length, 1)
+  })
+
+  test('shouldInstallOnQuit=false suppresses quit-install (e.g. data move relaunch or OS shutdown)', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'ds-bot-mac-upd-suppress-'))
+    t.after(() => rmSync(root, { recursive: true, force: true }))
+    const zipBytes = Buffer.from('fake-zip-bytes')
+    const rel = makeRelease('0.4.1')
+    const spawned = []
+    const willQuitHooks = []
+    const { execFile } = makeFakeExecFile({
+      plist: { CFBundleIdentifier: 'io.github.fei2411.dsbot', CFBundleShortVersionString: '0.4.1', CFBundleExecutable: 'DS Bot' },
+    })
+
+    const updater = createMacUpdater({
+      current: '0.4.0',
+      arch: 'arm64',
+      appPath: '/Applications/DS Bot.app',
+      stagingRoot: join(root, 'staging'),
+      execFile,
+      spawn: (cmd, args) => { spawned.push({ cmd, args }); return { unref() {} } },
+      onWillQuit: (fn) => { willQuitHooks.push(fn) },
+      shouldInstallOnQuit: () => false,
+      log: quietLog(),
+      fetch: async (url) => {
+        if (url.includes('api.github.com')) return makeResponse([rel], { url })
+        if (url.endsWith('SHA256SUMS.txt')) return makeResponse(`${sha256Hex(zipBytes)}  DS-Bot-0.4.1-mac-arm64.zip\n`, { url })
+        return makeResponse(zipBytes, { url })
+      },
+    })
+
+    const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog() })
+    t.after(updates.stop)
+    const latest = await updates.latest()
+    assert.equal(await latest.downloaded, true)
+    assert.equal(willQuitHooks.length, 1)
+    willQuitHooks[0]()
+    assert.equal(spawned.length, 0, 'suppressed quit must not spawn swap helper')
+  })
+
+  test('rejects non-loopback HTTP feeds, untrusted feed redirects, prerelease path traversal, and directory executables', async (t) => {
+    // SemVer prerelease identifiers must not allow path traversal.
+    assert.equal(parseVersion('9.9.9-rc.1/../../evil'), null)
+    assert.equal(isNewer('9.9.9-rc.1/../../evil', '0.4.0-rc.1'), false)
+    assert.equal(parseVersion('9.9.9-rc.1\\evil'), null)
+
+    const root = mkdtempSync(join(tmpdir(), 'ds-bot-mac-upd-sec-'))
+    t.after(() => rmSync(root, { recursive: true, force: true }))
+    const { execFile } = makeFakeExecFile({
+      plist: { CFBundleIdentifier: 'io.github.fei2411.dsbot', CFBundleShortVersionString: '0.4.1', CFBundleExecutable: 'DS Bot' },
+    })
+
+    // Non-loopback HTTP feed URL is refused before fetch().
+    let fetchCalls = 0
+    const httpFeedUpdater = createMacUpdater({
+      current: '0.4.0', arch: 'arm64', appPath: '/Applications/DS Bot.app',
+      stagingRoot: join(root, 's1'), execFile, log: quietLog(),
+      fetch: async () => { fetchCalls += 1; return makeResponse([]) },
+    })
+    const u1 = watchUpdates({ updater: httpFeedUpdater, feed: 'http://evil.example.com/releases.json', beforeInstall: async () => {}, log: quietLog() })
+    t.after(u1.stop)
+    assert.equal(await u1.latest(), null)
+    assert.equal(fetchCalls, 0)
+    assert.equal(u1.state().phase, 'failed')
+
+    // HTTPS feed that redirects to non-loopback HTTP is refused.
+    const redirectFeedUpdater = createMacUpdater({
+      current: '0.4.0', arch: 'arm64', appPath: '/Applications/DS Bot.app',
+      stagingRoot: join(root, 's2'), execFile, log: quietLog(),
+      fetch: async () => makeResponse([], { url: 'http://mitm.example.com/releases.json' }),
+    })
+    const u2 = watchUpdates({ updater: redirectFeedUpdater, beforeInstall: async () => {}, log: quietLog() })
+    t.after(u2.stop)
+    assert.equal(await u2.latest(), null)
+    assert.equal(u2.state().phase, 'failed')
+
+    // Directory at Contents/MacOS/<executable> must be rejected (access(X_OK) passes on directories).
+    const zipBytes = Buffer.from('dir-exe-zip')
+    const rel = makeRelease('0.4.1')
+    const dirExec = makeFakeExecFile({
+      plist: { CFBundleIdentifier: 'io.github.fei2411.dsbot', CFBundleShortVersionString: '0.4.1', CFBundleExecutable: 'DS Bot' },
+      createApps: (extractDir) => {
+        mkdirSync(join(extractDir, 'DS Bot.app', 'Contents', 'MacOS', 'DS Bot'), { recursive: true })
+      },
+    })
+    const dirUpdater = createMacUpdater({
+      current: '0.4.0', arch: 'arm64', appPath: '/Applications/DS Bot.app',
+      stagingRoot: join(root, 's3'), execFile: dirExec.execFile, log: quietLog(),
+      fetch: async (url) => {
+        if (url.includes('api.github.com')) return makeResponse([rel], { url })
+        if (url.endsWith('SHA256SUMS.txt')) return makeResponse(`${sha256Hex(zipBytes)}  DS-Bot-0.4.1-mac-arm64.zip\n`, { url })
+        return makeResponse(zipBytes, { url })
+      },
+    })
+    const u3 = watchUpdates({ updater: dirUpdater, beforeInstall: async () => {}, log: quietLog() })
+    t.after(u3.stop)
+    const l3 = await u3.latest()
+    assert.equal(await l3.downloaded, false)
+    assert.equal(u3.state().phase, 'failed')
   })
 
   test('autoInstallOnAppQuit swaps with relaunch=0 on quit and respects disabling before quit', async (t) => {
@@ -570,6 +672,33 @@ describe('createMacUpdater (real macOS bundle contract)', { skip: process.platfo
     const latest = await updates.latest()
     assert.equal(await latest.downloaded, false)
     assert.equal(updates.state().phase, 'failed')
+    assert.equal(execFileSync(join(targetApp, 'Contents', 'MacOS', 'DS Bot'), [], { encoding: 'utf8' }).trim(), '0.4.0')
+  })
+
+  test('MAC_SWAP_SCRIPT leaves target app intact and cleans up when parent dir becomes read-only', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'ds-bot-mac-swap-fail-'))
+    const installDir = join(root, 'Applications')
+    const stageDir = join(root, 'stage')
+    const logFile = join(root, 'logs', 'mac-updater.log')
+    t.after(() => {
+      try { chmodSync(installDir, 0o755) } catch { /* ignore */ }
+      rmSync(root, { recursive: true, force: true })
+    })
+    mkdirSync(installDir, { recursive: true })
+    mkdirSync(stageDir, { recursive: true })
+
+    const targetApp = buildRealSignedApp(installDir, '0.4.0')
+    const stagedApp = buildRealSignedApp(stageDir, '0.4.1')
+    // Make parent directory read-only so staging beside target fails.
+    chmodSync(installDir, 0o555)
+
+    const dummy = spawn('/bin/sleep', ['60'])
+    const helper = spawn('/bin/sh', ['-c', MAC_SWAP_SCRIPT, 'ds-bot-mac-updater', String(dummy.pid), targetApp, stagedApp, '0', stageDir, logFile])
+    dummy.kill('SIGTERM')
+    const exitCode = await new Promise(resolve => helper.once('exit', resolve))
+    assert.notEqual(exitCode, 0)
+    chmodSync(installDir, 0o755)
+    assert.deepEqual(readdirSync(installDir), ['DS Bot.app'])
     assert.equal(execFileSync(join(targetApp, 'Contents', 'MacOS', 'DS Bot'), [], { encoding: 'utf8' }).trim(), '0.4.0')
   })
 })

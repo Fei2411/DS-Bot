@@ -161,6 +161,7 @@ let downloadsBound = false
 // Quitting during the first run's import (its card or its copy) or a data move waits for it to
 // stop at a safe point, so that it leaves no half team and no temporary copy.
 let copying
+let relaunching = false
 const copyAbort = new AbortController()
 let browserGuests
 let botViews
@@ -1363,7 +1364,7 @@ async function runMove(to, workspace) {
     const reason = moveReason(to, workspace)
     if (reason !== undefined) {
       await askCard({ ...stay, why: 'place', place: reason, path: to }, { signal })
-      if (!signal.aborted) app.relaunch()
+      if (!signal.aborted) { relaunching = true; app.relaunch() }
       return
     }
     // Another DSH on the same data would go on writing while the copy is made.
@@ -1372,7 +1373,7 @@ async function runMove(to, workspace) {
       const answer = await askCard({ ...stay, why: 'inUse' }, { signal, settle: until(() => !teamInUse(from), free.signal) })
       free.abort()
       if (answer !== 'settled') {
-        if (!signal.aborted) app.relaunch()
+        if (!signal.aborted) { relaunching = true; app.relaunch() }
         return
       }
       startWindow.card(undefined)
@@ -1402,6 +1403,7 @@ async function runMove(to, workspace) {
         setProgress(-1)
       }
     }
+    relaunching = true
     app.relaunch()
   })()
   await copying
@@ -1430,6 +1432,7 @@ function startUpdates() {
         logFile: join(app.getPath('userData'), 'logs', 'mac-updater.log'),
         quit: () => { app.quit() },
         onWillQuit: (fn) => { app.once('will-quit', fn) },
+        shouldInstallOnQuit: () => !relaunching && !shell.isSessionEnding(),
       })
       return watchUpdates({
         updater: macUpdater, feed, autoUpdate, ask: throwaway ? undefined : (version, info) => restartPrompt.prompt(version, info),

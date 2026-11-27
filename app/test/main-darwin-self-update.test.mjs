@@ -4,12 +4,12 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { app, state } from './helpers/fake-electron.mjs'
+import { app, paths, state } from './helpers/fake-electron.mjs'
 import { state as hostState } from './helpers/fake-host-process.mjs'
 import { answerCard, handOff, startApp, waitFor, window, windowCards } from './helpers/app-harness.mjs'
 import { installHooks } from './helpers/register.mjs'
@@ -122,11 +122,24 @@ test('packaged macOS .app bundle downloads update and prompts to restart in main
     assert.equal(updateState.version, '9.9.9')
     assert.equal(updateState.autoInstall, true)
 
-    // Choose "Later" so we don't spawn a live swap helper against this test runner PID.
+    // Choose "Later" (leaving autoInstall=true armed), then perform a data move from Settings.
+    // The data-move relaunch must suppress install-on-quit so the detached swap helper never
+    // races with Electron's app.relaunch().
     answerCard(1, win)
-    await state.ipc.get('ds-bot:app-update-auto')(winEvent, false)
+    const moveDest = join(root, 'moved-data')
+    state.openAnswer = { canceled: false, filePaths: [moveDest] }
+    const moving = state.ipc.get('ds-bot:move-data')(winEvent)
+    await waitFor(() => windowCards(win).length === 2, 'show the move confirmation card')
+    answerCard(0, win)
+    assert.equal(await moving, true)
+    await waitFor(() => state.relaunches.length === 1, 'relaunch after data move')
+    await waitFor(() => state.tray?.destroyed === true, 'quit after data move')
+    assert.equal(existsSync(join(paths.userData, 'logs', 'mac-updater.log')), false, 'data-move relaunch must not spawn swap helper')
+    assert.equal(execFileSync(currentBundle.exe, [], { encoding: 'utf8' }).trim(), '0.2.2', 'bundle stays untouched during data-move relaunch')
   } finally {
-    app.quit()
-    await waitFor(() => state.tray?.destroyed === true, 'take the tray away')
+    if (!state.tray?.destroyed) {
+      app.quit()
+      await waitFor(() => state.tray?.destroyed === true, 'take the tray away')
+    }
   }
 })

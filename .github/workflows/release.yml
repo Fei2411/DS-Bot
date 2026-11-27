@@ -2,7 +2,8 @@ name: Release
 
 # Publishes ds-bot to npm when a GitHub release is published, then attaches the desktop app's
 # Windows installer, macOS zips and Linux packages, and the phone app's Android APK, to the release. Windows and the Linux
-# AppImage update from latest.yml / latest-linux.yml; macOS and the Linux deb open the release
+# AppImage update from latest.yml / latest-linux.yml; macOS self-updates from its zip and SHA256SUMS.txt
+# (falling back to the release page when read-only or translocated); the Linux deb opens the release
 # page for a manual download.
 #
 # npm Trusted Publishing: npm trusts this workflow through GitHub's OIDC token, so the
