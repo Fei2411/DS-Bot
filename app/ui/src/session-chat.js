@@ -533,7 +533,7 @@ function SpeakerHead({ bot, time }) {
 }
 
 const AssistantRow = memo(function AssistantRow({
-  row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic = false,
+  row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic = false, readOnly = false,
   onOpenFile, onRevealFolder, fileMentions,
   feedbackAvailable = false, feedbackItem = null, feedbackPending = false, onSelectFeedback, onRetractFeedback,
 }) {
@@ -596,7 +596,7 @@ const AssistantRow = memo(function AssistantRow({
           messageId: row.messageId,
           item: feedbackItem,
           pending: feedbackPending,
-          readOnly: Boolean(roster?.readOnly),
+          readOnly: Boolean(readOnly || roster?.readOnly),
           onSelect: onSelectFeedback,
           onRetract: onRetractFeedback,
         }) : null,
@@ -835,17 +835,20 @@ function renderTranscriptRows({
       switch (row.kind) {
         case 'user': return h(UserRow, { row, sessionId, parent, mode, ancestors, roster, actions, lang, classic, onOpenFile: openSessionFile, onRevealFolder: revealSessionFolder })
         case 'answer': return h(AnsweredReply, { node: { data: row.data } })
-        case 'assistant': return h(AssistantRow, {
-          row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic,
-          onOpenFile: openSessionFile,
-          onRevealFolder: revealSessionFolder,
-          fileMentions: turnFileMentions.get(row.turn ?? 'none'),
-          feedbackAvailable: classic && feedback.available,
-          feedbackItem: classic && row.messageId ? (feedback.items.get(row.messageId) ?? null) : null,
-          feedbackPending: classic && row.messageId ? feedback.pendingIds.has(row.messageId) : false,
-          onSelectFeedback,
-          onRetractFeedback,
-        })
+        case 'assistant': {
+          const feedbackEnabled = Boolean(classic && !readOnly && !parent)
+          return h(AssistantRow, {
+            row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic, readOnly,
+            onOpenFile: openSessionFile,
+            onRevealFolder: revealSessionFolder,
+            fileMentions: turnFileMentions.get(row.turn ?? 'none'),
+            feedbackAvailable: feedbackEnabled && feedback.available,
+            feedbackItem: feedbackEnabled && row.messageId ? (feedback.items.get(row.messageId) ?? null) : null,
+            feedbackPending: feedbackEnabled && row.messageId ? feedback.pendingIds.has(row.messageId) : false,
+            onSelectFeedback,
+            onRetractFeedback,
+          })
+        }
         case 'tool': return h(SessionToolRow, {
           row, showSpeaker, flat, bot, cwd, sessionId, roster: safeRoster, actions, registry, lang,
           loadImage, feed, readOnly, subagentCatalog, onOpenSubagent,
@@ -988,15 +991,16 @@ export function SessionTranscript({
     return byTurn
   }, [log?.events])
 
-  // Classic Agent reply feedback (strictly Classic sessions; Bot chats keep emoji reactions).
-  const feedback = useSessionFeedback(sessionId, classic)
+  // Classic Agent reply feedback (strictly top-level Classic sessions; read-only child subagent views never show rating controls).
+  const feedbackEnabled = Boolean(classic && !readOnly && !parent)
+  const feedback = useSessionFeedback(sessionId, feedbackEnabled)
   const { retract: retractFeedback, submit: submitFeedback } = feedback
   const [feedbackDraft, setFeedbackDraft] = useState(null)
   const [feedbackError, setFeedbackError] = useState('')
   useEffect(() => {
     setFeedbackDraft(null)
     setFeedbackError('')
-  }, [sessionId, classic])
+  }, [sessionId, feedbackEnabled])
   const handleSelectFeedback = useCallback((messageId, rating) => {
     setFeedbackError('')
     setFeedbackDraft({ messageId, rating })
@@ -1079,7 +1083,7 @@ export function SessionTranscript({
     : renderTranscriptRows({ ...rowProps, rows: rowParts.live, initialSpeakers: committedSpeakers })
   const projected = [...committedElements, ...liveElements]
 
-  const feedbackDialog = classic ? h(ClassicFeedbackDialog, {
+  const feedbackDialog = feedbackEnabled ? h(ClassicFeedbackDialog, {
     key: 'classic-feedback-dialog',
     draft: feedbackDraft,
     current: feedbackDraft ? (feedback.items.get(feedbackDraft.messageId) ?? null) : null,
