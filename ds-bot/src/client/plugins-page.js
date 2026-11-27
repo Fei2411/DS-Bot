@@ -611,7 +611,7 @@ function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstal
               'aria-label': t('Package or repository'),
               disabled,
               value: spec,
-              placeholder: 'dsh-ego-browser / github:owner/repo / /path/to/plugin',
+              placeholder: 'my-dsh-plugin / github:owner/repo / /path/to/plugin',
               onChange: e => setSpec(e.target.value),
             }))
           : [
@@ -643,7 +643,7 @@ function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstal
             'aria-label': t('Tool prefixes'),
             disabled,
             value: prefixes,
-            placeholder: 'ego_, browser_',
+            placeholder: 'my_tool_, browser_',
             onChange: e => setPrefixes(e.target.value),
           })),
         h('div', { className: 'bt-browser-form-foot' },

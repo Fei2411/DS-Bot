@@ -193,9 +193,10 @@ test('parsePluginRegistry validates schemaVersion 1 and merges remote + offline 
     const snap = await manager.load({ force: true })
     assert.equal(snap.offline, false)
     assert.ok(snap.entries.some(e => e.id === 'dsh:custom-tool'))
-    // Offline bundled browser plugins remain included as curated fallback.
-    assert.ok(snap.entries.some(e => e.id === 'dsh:dsh-ego-browser'))
+    // Offline bundled browser plugins remain included as curated fallback, without Ego Lite.
+    assert.equal(snap.entries.some(e => e.id === 'dsh:dsh-ego-browser'), false)
     assert.ok(snap.entries.some(e => e.id === 'mcp:playwright-mcp'))
+    assert.ok(snap.entries.some(e => e.id === 'mcp:chrome-devtools-mcp'))
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
@@ -325,12 +326,37 @@ test('saved native browser provider auto-activates when it registers after start
   assert.equal(rt.teamTools.some(tool => tool.name === 'late_browser_go'), true)
 })
 
-// --- DSH PluginManager contract, manual Ego alias, GitHub remap, tool masking ---
+const TEST_DSH_BROWSER_CATALOG = {
+  schemaVersion: 1,
+  plugins: [
+    {
+      id: 'dsh:acme-dsh-browser',
+      name: 'Acme DSH Browser',
+      description: 'External DSH browser automation plugin for tests.',
+      category: 'browser',
+      slot: 'browser',
+      kind: 'dsh',
+      toolPrefixes: ['acme_b_', 'browser_'],
+      install: {
+        packageName: 'acme-dsh-browser',
+        aliases: ['@acme/dsh-browser'],
+        spec: 'acme-dsh-browser',
+      },
+    },
+  ],
+}
 
-test('DSH PluginManager contract: recognizes manual Ego alias, handles restart-required, and remaps GitHub specs', async (t) => {
+const fakeCatalogFetch = (doc = TEST_DSH_BROWSER_CATALOG) => async () => new Response(JSON.stringify(doc), {
+  status: 200,
+  headers: { 'content-type': 'application/json' },
+})
+
+// --- DSH PluginManager contract, manual alias, GitHub remap, tool masking ---
+
+test('DSH PluginManager contract: recognizes manual alias, handles restart-required, and remaps GitHub specs', async (t) => {
   const bundles = [
     {
-      name: '@dshworks/dsh-ego-browser',
+      name: '@acme/dsh-browser',
       official: false,
       availability: 'profile',
       version: '1.2.0',
@@ -385,31 +411,32 @@ test('DSH PluginManager contract: recognizes manual Ego alias, handles restart-r
   }
 
   const { rt, call, stop } = startRuntime({
+    config: { pluginFetch: fakeCatalogFetch() },
     services: { pluginManager: fakePluginManager },
   })
   t.after(stop)
   await rt.load()
 
-  // 1. Manually installed `@dshworks/dsh-ego-browser` matches bundled catalog entry `dsh:dsh-ego-browser`.
+  // 1. Manually installed `@acme/dsh-browser` matches catalog entry `dsh:acme-dsh-browser`.
   const listRes = await call('plugins-list', {})
   assert.equal(listRes.ok, true)
-  const ego = listRes.value.plugins.find(p => p.id === 'dsh:dsh-ego-browser')
-  assert.ok(ego, 'catalog entry for Ego should exist')
-  assert.equal(ego.installed, true)
-  assert.equal(ego.packageName, '@dshworks/dsh-ego-browser')
+  const extBrowser = listRes.value.plugins.find(p => p.id === 'dsh:acme-dsh-browser')
+  assert.ok(extBrowser, 'catalog entry for DSH browser should exist')
+  assert.equal(extBrowser.installed, true)
+  assert.equal(extBrowser.packageName, '@acme/dsh-browser')
 
-  // While browser slot is builtin:readonly, Ego's tool prefixes are masked.
+  // While browser slot is builtin:readonly, external browser tool prefixes are masked.
   const rulesWhileReadonly = rt.pluginDeniedRules('bot-1')
-  assert.ok(rulesWhileReadonly.prefixes.includes('ego_'))
+  assert.ok(rulesWhileReadonly.prefixes.includes('acme_b_'))
   assert.equal(rulesWhileReadonly.exact.includes('read_browser'), false)
 
-  // Activate Ego in the browser slot → Ego prefixes unmasked, `read_browser` hidden.
-  const actEgo = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:dsh-ego-browser' })
-  assert.equal(actEgo.ok, true)
-  assert.equal(actEgo.value.slots.browser.active, 'dsh:dsh-ego-browser')
-  const rulesWhileEgo = rt.pluginDeniedRules('bot-1')
-  assert.equal(rulesWhileEgo.prefixes.includes('ego_'), false)
-  assert.ok(rulesWhileEgo.exact.includes('read_browser'))
+  // Activate external DSH browser in the browser slot → prefixes unmasked, `read_browser` hidden.
+  const actExt = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:acme-dsh-browser' })
+  assert.equal(actExt.ok, true)
+  assert.equal(actExt.value.slots.browser.active, 'dsh:acme-dsh-browser')
+  const rulesWhileExt = rt.pluginDeniedRules('bot-1')
+  assert.equal(rulesWhileExt.prefixes.includes('acme_b_'), false)
+  assert.ok(rulesWhileExt.exact.includes('read_browser'))
 
   // 2. Custom DSH GitHub spec remaps cleanly to the actual package name and clears obsolete prefixes.
   const customSaved = await call('plugins-custom-save', {
@@ -526,15 +553,15 @@ test('real DSH ToolsService + SystemPromptService + Cordis provide contract', as
   t.after(() => root.fiber.dispose())
   await mountAgentLoopTestDependencies(root)
 
-  // Register an external global tool (like an installed DSH Ego browser plugin).
-  const offEgo = root.tools.register(defineTool({
-    name: 'ego_open',
-    description: 'Open via Ego',
+  // Register an external global tool (like an installed external DSH browser plugin).
+  const offExt = root.tools.register(defineTool({
+    name: 'acme_b_open',
+    description: 'Open via Acme browser',
     parameters: {},
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
-    async execute() { return 'ego' },
+    async execute() { return 'acme-browser' },
   }))
-  t.after(offEgo)
+  t.after(offExt)
 
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-real-contract-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify({
@@ -551,11 +578,11 @@ test('real DSH ToolsService + SystemPromptService + Cordis provide contract', as
   const fakePm = {
     async listBundles() {
       return [{
-        name: 'dsh-ego-browser',
+        name: 'acme-dsh-browser',
         official: false,
         availability: 'profile',
         version: '1.0.0',
-        meta: { title: { en: 'Ego Browser', zh: 'Ego 浏览器' }, description: { en: 'Ego automation' } },
+        meta: { title: { en: 'Acme Browser', zh: 'Acme 浏览器' }, description: { en: 'Browser automation' } },
         enabled: true,
         installed: true,
         optional: false,
@@ -576,9 +603,10 @@ test('real DSH ToolsService + SystemPromptService + Cordis provide contract', as
   const rt = createRuntime(root, {
     home,
     browser: true,
-    pluginFetch: async () => { throw new Error('offline') },
+    pluginFetch: fakeCatalogFetch(),
   })
   await rt.load()
+  await rt.plugins.buildPluginsView({ refreshCatalog: true })
   await rt.reconcilePlugins()
 
   // 1. Real Cordis `provide` exposes dsBotPlugins and dsBotBrowser.
@@ -605,14 +633,14 @@ test('real DSH ToolsService + SystemPromptService + Cordis provide contract', as
 
   const namesOf = agent => root.tools.schemas(agent).map(s => s.name)
 
-  // Under builtin:readonly: `ego_open` (global) is masked, `read_browser` (scoped) is present.
-  assert.equal(namesOf(agentA).includes('ego_open'), false)
+  // Under builtin:readonly: `acme_b_open` (global) is masked, `read_browser` (scoped) is present.
+  assert.equal(namesOf(agentA).includes('acme_b_open'), false)
   assert.equal(namesOf(agentA).includes('read_browser'), true)
 
-  // Switch browser slot to DSH Ego → `ego_open` unmasked, `read_browser` removed from Agent scope,
+  // Switch browser slot to external DSH browser → `acme_b_open` unmasked, `read_browser` removed from Agent scope,
   // and real SystemPromptService renders browser guidance ONLY for Bot sessions.
-  await rt.plugins.setSlot('browser', 'dsh:dsh-ego-browser')
-  assert.equal(namesOf(agentA).includes('ego_open'), true)
+  await rt.plugins.setSlot('browser', 'dsh:acme-dsh-browser')
+  assert.equal(namesOf(agentA).includes('acme_b_open'), true)
   assert.equal(namesOf(agentA).includes('read_browser'), false)
   const assembleText = async agent => (await root.systemPrompt.assemble({ agent })).sections.map(s => s.text).join('\n')
   const promptForBot = await assembleText(agentA)
@@ -620,9 +648,9 @@ test('real DSH ToolsService + SystemPromptService + Cordis provide contract', as
   const promptForNonBot = await assembleText({ id: 'plain-session' })
   assert.doesNotMatch(promptForNonBot, /untrusted data/i)
 
-  // Switch back to builtin:readonly → `read_browser` returns and `ego_open` is masked again.
+  // Switch back to builtin:readonly → `read_browser` returns and `acme_b_open` is masked again.
   await rt.plugins.setSlot('browser', 'builtin:readonly')
-  assert.equal(namesOf(agentA).includes('ego_open'), false)
+  assert.equal(namesOf(agentA).includes('acme_b_open'), false)
   assert.equal(namesOf(agentA).includes('read_browser'), true)
 
   // 3. Native non-slot plugin per-Bot toggle works on real Agent-scoped tools.
@@ -788,32 +816,32 @@ test('removePlugin preserves in-memory state when DSH removeBundle fails and Loc
   assert.ok(rt.state.plugins.custom['dsh:localized-plugin'])
 })
 
-test('inactive Ego Lite does not block active built-in browser tool execution', async (t) => {
+test('inactive external DSH browser plugin does not block active built-in browser tool execution', async (t) => {
   const root = new Context()
   t.after(() => root.fiber.dispose())
   await mountAgentLoopTestDependencies(root)
 
-  // Register global Ego tools using the overlapping `browser_` prefix.
-  let egoOpenCalls = 0
-  let egoTabsCalls = 0
-  const offEgoOpen = root.tools.register(defineTool({
+  // Register global external browser tools using the overlapping `browser_` prefix.
+  let extOpenCalls = 0
+  let extTabsCalls = 0
+  const offExtOpen = root.tools.register(defineTool({
     name: 'browser_open',
-    description: 'Ego browser_open',
+    description: 'External browser_open',
     parameters: {},
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
-    async execute() { egoOpenCalls += 1; return 'ego-open' },
+    async execute() { extOpenCalls += 1; return 'ext-open' },
   }))
-  const offEgoTabs = root.tools.register(defineTool({
-    name: 'browser_ego_tabs',
-    description: 'Ego tabs',
+  const offExtTabs = root.tools.register(defineTool({
+    name: 'browser_ext_tabs',
+    description: 'External tabs',
     parameters: {},
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },
-    async execute() { egoTabsCalls += 1; return 'ego-tabs' },
+    async execute() { extTabsCalls += 1; return 'ext-tabs' },
   }))
-  t.after(offEgoOpen)
-  t.after(offEgoTabs)
+  t.after(offExtOpen)
+  t.after(offExtTabs)
 
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-ego-overlap-'))
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-ext-overlap-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify({
     version: 1,
     mainBotIds: ['bot-1'],
@@ -825,7 +853,7 @@ test('inactive Ego Lite does not block active built-in browser tool execution', 
   const fakePm = {
     async listBundles() {
       return [{
-        name: 'dsh-ego-browser',
+        name: 'acme-dsh-browser',
         official: false,
         availability: 'profile',
         version: '1.0.0',
@@ -849,7 +877,7 @@ test('inactive Ego Lite does not block active built-in browser tool execution', 
   const rt = createRuntime(root, {
     home,
     browser: true,
-    pluginFetch: async () => { throw new Error('offline') },
+    pluginFetch: fakeCatalogFetch(),
   })
   // Register a lightweight built-in browser slot plugin owning `browser_open`.
   rt.plugins.registerBuiltin({
@@ -869,11 +897,12 @@ test('inactive Ego Lite does not block active built-in browser tool execution', 
     },
   })
   await rt.load()
+  await rt.plugins.buildPluginsView({ refreshCatalog: true })
   await rt.plugins.setSlot('browser', 'builtin:test-refs')
 
   let injectedCtx
   await root.plugin({
-    name: 'test-ego-scope',
+    name: 'test-ext-scope',
     inject: ['tools'],
     apply(c) { injectedCtx = c },
   }).await()
@@ -883,19 +912,19 @@ test('inactive Ego Lite does not block active built-in browser tool execution', 
   agent.ctx = scope.ctx
   rt.hideBotUnusedTools(agent)
 
-  // Active built-in `browser_open` is visible and executes without being blocked by inactive Ego's `browser_` prefix.
+  // Active built-in `browser_open` is visible and executes without being blocked by inactive external `browser_` prefix.
   assert.equal(rt.isPluginToolBlockedForBot('bot-1', 'browser_open'), false)
-  assert.equal(rt.isPluginToolBlockedForBot('bot-1', 'browser_ego_tabs'), true)
+  assert.equal(rt.isPluginToolBlockedForBot('bot-1', 'browser_ext_tabs'), true)
   const signal = new AbortController().signal
   const openBatch = await root.tools.execute({ agent, signal, calls: [{ id: 'c1', name: 'browser_open', arguments: {} }] })
   assert.equal(openBatch.results[0].result.isError, false)
   assert.equal(builtinOpenCalls, 1)
-  assert.equal(egoOpenCalls, 0)
+  assert.equal(extOpenCalls, 0)
 
-  // Inactive Ego's own `browser_ego_tabs` is still masked and refused by the guard.
-  const egoBatch = await root.tools.execute({ agent, signal, calls: [{ id: 'c2', name: 'browser_ego_tabs', arguments: {} }] })
-  assert.equal(egoBatch.results[0].result.isError, true)
-  assert.equal(egoTabsCalls, 0)
+  // Inactive external plugin's own `browser_ext_tabs` is still masked and refused by the guard.
+  const extBatch = await root.tools.execute({ agent, signal, calls: [{ id: 'c2', name: 'browser_ext_tabs', arguments: {} }] })
+  assert.equal(extBatch.results[0].result.isError, true)
+  assert.equal(extTabsCalls, 0)
 })
 
 test('persisted non-bundled catalog MCP plugin activates on restart without buildPluginsView', async (t) => {
@@ -1092,7 +1121,7 @@ test('saveCustomPlugin avoids MCP name collisions and installPlugin with customM
       return { changed: true, application: 'applied', stage: 'install', target: spec, bundle: 'custom-pkg' }
     },
   }
-  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  const { rt, call, stop } = startRuntime({ config: { pluginFetch: fakeCatalogFetch() }, services: { pluginManager: fakePm } })
   t.after(stop)
   await rt.load()
 
@@ -1134,18 +1163,18 @@ test('saveCustomPlugin avoids MCP name collisions and installPlugin with customM
   assert.equal(cjk.value.entry.name, '笔记')
 
   // 5. Custom DSH override retains catalog browser slot even when user only provides a custom name (`slot: null`).
-  await call('plugins-custom-save', { kind: 'dsh', name: 'My Ego', spec: 'dsh-ego-browser', packageName: 'dsh-ego-browser', slot: null, toolPrefixes: 'custom_ego_' })
+  await call('plugins-custom-save', { kind: 'dsh', name: 'My Browser', spec: 'acme-dsh-browser', packageName: 'acme-dsh-browser', slot: null, toolPrefixes: 'custom_b_' })
   const listed = await call('plugins-list', {})
-  const egoItem = listed.value.plugins.find(p => p.id === 'dsh:dsh-ego-browser')
-  assert.equal(egoItem.name, 'My Ego')
-  assert.equal(egoItem.slot, 'browser')
-  assert.deepEqual(egoItem.toolPrefixes, ['custom_ego_'])
+  const extItem = listed.value.plugins.find(p => p.id === 'dsh:acme-dsh-browser')
+  assert.equal(extItem.name, 'My Browser')
+  assert.equal(extItem.slot, 'browser')
+  assert.deepEqual(extItem.toolPrefixes, ['custom_b_'])
 })
 
 test('browser slot reports controlsPane, windowMode, and activeName accurately across built-in, external DSH, and native providers', async (t) => {
   const bundles = [
     {
-      name: 'dsh-ego-browser',
+      name: 'acme-dsh-browser',
       official: false,
       availability: 'profile',
       version: '1.2.0',
@@ -1166,9 +1195,10 @@ test('browser slot reports controlsPane, windowMode, and activeName accurately a
       return { application: 'applied' }
     },
   }
-  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  const { rt, call, stop } = startRuntime({ config: { pluginFetch: fakeCatalogFetch() }, services: { pluginManager: fakePm } })
   t.after(stop)
   await rt.load()
+  await call('plugins-list', {})
 
   // 1. Default readonly: controlsPane false, windowMode readonly
   let summary = rt.pluginsSummary()
@@ -1187,19 +1217,19 @@ test('browser slot reports controlsPane, windowMode, and activeName accurately a
   assert.equal(summary.slots.browser.controlsPane, true)
   assert.equal(summary.slots.browser.windowMode, 'pane')
 
-  // 3. External DSH plugin (Ego Lite): controlsPane false, windowMode external
-  const egoRes = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:dsh-ego-browser' })
-  assert.equal(egoRes.ok, true)
-  assert.equal(egoRes.value.slots.browser.controlsPane, false)
-  assert.equal(egoRes.value.slots.browser.windowMode, 'external')
-  assert.equal(egoRes.value.slots.browser.activeName, 'Ego Lite Browser')
-  const egoEntry = egoRes.value.plugins.find(p => p.id === 'dsh:dsh-ego-browser')
-  assert.equal(egoEntry.controlsPane, false)
-  assert.equal(egoEntry.windowMode, 'external')
+  // 3. External DSH plugin: controlsPane false, windowMode external
+  const extRes = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:acme-dsh-browser' })
+  assert.equal(extRes.ok, true)
+  assert.equal(extRes.value.slots.browser.controlsPane, false)
+  assert.equal(extRes.value.slots.browser.windowMode, 'external')
+  assert.equal(extRes.value.slots.browser.activeName, 'Acme DSH Browser')
+  const extEntry = extRes.value.plugins.find(p => p.id === 'dsh:acme-dsh-browser')
+  assert.equal(extEntry.controlsPane, false)
+  assert.equal(extEntry.windowMode, 'external')
   summary = rt.pluginsSummary()
   assert.equal(summary.slots.browser.controlsPane, false)
   assert.equal(summary.slots.browser.windowMode, 'external')
-  assert.equal(summary.slots.browser.activeName, 'Ego Lite Browser')
+  assert.equal(summary.slots.browser.activeName, 'Acme DSH Browser')
 
   // 4. Native provider with custom mount (no controlsPane) vs toolDefs (defaults to controlsPane: true)
   const extProvider = defineBrowserProvider({
@@ -1254,24 +1284,24 @@ test('browser slot reports controlsPane, windowMode, and activeName accurately a
   assert.equal(missingRes.value.slots.browser.windowMode, 'readonly')
   assert.equal(missingRes.value.slots.browser.activeName, 'Read-only Browser')
 
-  // 7. Custom rename on Ego Lite is preserved in activeName with customName: true; nativeFromBundle upgrades controlsPane.
-  await call('plugins-custom-save', { kind: 'dsh', name: 'My Ego', spec: 'dsh-ego-browser', packageName: 'dsh-ego-browser', slot: 'browser', toolPrefixes: 'ego_' })
-  const renamedEgo = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:dsh-ego-browser' })
-  assert.equal(renamedEgo.ok, true)
-  assert.equal(renamedEgo.value.slots.browser.activeName, 'My Ego')
-  assert.equal(renamedEgo.value.slots.browser.customName, true)
-  assert.equal(renamedEgo.value.slots.browser.windowMode, 'external')
+  // 7. Custom rename on external DSH plugin is preserved in activeName with customName: true; nativeFromBundle upgrades controlsPane.
+  await call('plugins-custom-save', { kind: 'dsh', name: 'My Browser', spec: 'acme-dsh-browser', packageName: 'acme-dsh-browser', slot: 'browser', toolPrefixes: 'acme_b_' })
+  const renamedExt = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:acme-dsh-browser' })
+  assert.equal(renamedExt.ok, true)
+  assert.equal(renamedExt.value.slots.browser.activeName, 'My Browser')
+  assert.equal(renamedExt.value.slots.browser.customName, true)
+  assert.equal(renamedExt.value.slots.browser.windowMode, 'external')
 
   rt.plugins.registerNative(defineBrowserProvider({
-    id: 'provider:ego-pane-upgrade',
-    name: 'Ego Pane Upgrade',
-    packageName: 'dsh-ego-browser',
-    toolDefs: [{ name: 'ego_pane_open', description: 'Open', inputSchema: { type: 'object', properties: {} }, run: async () => 'ok' }],
+    id: 'provider:acme-pane-upgrade',
+    name: 'Acme Pane Upgrade',
+    packageName: 'acme-dsh-browser',
+    toolDefs: [{ name: 'acme_pane_open', description: 'Open', inputSchema: { type: 'object', properties: {} }, run: async () => 'ok' }],
   }))
-  const upgraded = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:dsh-ego-browser' })
+  const upgraded = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:acme-dsh-browser' })
   assert.equal(upgraded.ok, true)
   assert.equal(upgraded.value.slots.browser.controlsPane, true)
   assert.equal(upgraded.value.slots.browser.windowMode, 'pane')
-  assert.equal(upgraded.value.slots.browser.activeName, 'My Ego')
+  assert.equal(upgraded.value.slots.browser.activeName, 'My Browser')
   assert.equal(upgraded.value.slots.browser.customName, true)
 })

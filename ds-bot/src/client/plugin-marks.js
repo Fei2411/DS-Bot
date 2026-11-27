@@ -1,6 +1,5 @@
 // Official brand marks and clean domain metadata for DS Bot's Plugins panel.
 // - Playwright mark: official SVG paths from playwright.dev/img/playwright-logo.svg (Apache-2.0)
-// - Ego mark: official geometric three-ellipse mark (evenodd) from citrolabs/ego-lite
 // - Chrome mark: clean 4-color Chrome wheel for Chrome DevTools MCP
 // Marks render in calm grayscale when inactive and bloom into full color on
 // activation, matching Connectors (connectors-page.js).
@@ -18,23 +17,6 @@ const PlaywrightOfficialMark = () => h('svg', { width: 22, height: 22, viewBox: 
   h('path', { d: 'M139.88 246.04L99.3324 257.532C99.3324 257.532 103.737 232.44 133.607 222.496L110.647 136.33L108.663 136.933C80.1918 144.611 57.1742 142.574 47.5704 140.911C33.9554 138.563 26.834 135.572 27.5001 145.929C28.08 155.063 30.2557 169.224 35.2397 187.929C46.0225 228.433 81.6583 306.481 149.005 288.342L150.989 287.719L139.88 246.04ZM61.0848 188.485L108.946 175.876C108.946 175.876 107.551 194.288 89.6087 199.018C71.6615 203.743 61.0848 188.485 61.0848 188.485Z', fill: '#D65348' }),
   h('path', { d: 'M225.27 269.163L223.415 268.712C182.398 256.698 176.072 223.99 176.072 223.99L232.89 239.872L262.971 124.281L262.607 124.185C225.711 114.304 201.232 97.0224 191.532 88.8994C177.783 77.3834 171.735 69.3802 165.783 81.4857C160.526 92.163 153.797 109.54 147.284 133.866C133.171 186.543 122.623 297.706 209.867 321.097L211.655 321.5L225.27 269.163ZM166.497 172.756C166.497 172.756 180.246 151.372 203.565 158C226.899 164.628 228.706 190.425 228.706 190.425L166.497 172.756Z', fill: '#1D8D22' }),
   h('path', { d: 'M141.946 245.451L131.072 248.537C133.641 263.019 138.169 276.917 145.276 289.195C146.513 288.922 147.74 288.687 149 288.342C152.302 287.451 155.364 286.348 158.312 285.145C150.371 273.361 145.118 259.789 141.946 245.451ZM137.7 143.451C132.112 164.307 127.113 194.326 128.489 224.436C130.952 223.367 133.554 222.371 136.444 221.551L138.457 221.101C136.003 188.939 141.308 156.165 147.284 133.866C148.799 128.225 150.318 122.978 151.832 118.085C149.393 119.637 146.767 121.228 143.776 122.867C141.759 129.093 139.722 135.898 137.7 143.451Z', fill: '#C04B41' }),
-)
-
-// Official Ego logo (citrolabs/ego-lite): overlapping circle + oval (evenodd lens cutout) + slim oval.
-const EgoOfficialMark = () => svg(
-  h('path', {
-    fillRule: 'evenodd',
-    clipRule: 'evenodd',
-    fill: 'var(--bt-mark-ink)',
-    d: [
-      // Left circle: cx=7.86, cy=12, rx=6.15, ry=6.12
-      'M1.71 12a6.15 6.12 0 1 0 12.3 0a6.15 6.12 0 1 0 -12.3 0Z',
-      // Middle oval: cx=14.18, cy=12, rx=3.12, ry=6.12 (intersects circle → crisp lens cutout)
-      'M11.06 12a3.12 6.12 0 1 0 6.24 0a3.12 6.12 0 1 0 -6.24 0Z',
-      // Right slim oval: cx=20.70, cy=12, rx=1.57, ry=6.12
-      'M19.13 12a1.57 6.12 0 1 0 3.14 0a1.57 6.12 0 1 0 -3.14 0Z',
-    ].join(' '),
-  }),
 )
 
 // Official-geometry 4-color Chrome wheel for Chrome DevTools MCP (zero SVG IDs).
@@ -102,7 +84,6 @@ const PLUGIN_MARKS = {
   'builtin:refs': PlaywrightOfficialMark,
   'builtin:script': PlaywrightOfficialMark,
   'builtin:task': PlaywrightOfficialMark,
-  'dsh:dsh-ego-browser': EgoOfficialMark,
   'mcp:playwright-mcp': PlaywrightOfficialMark,
   'mcp:chrome-devtools-mcp': ChromeDevtoolsMark,
 }
@@ -153,10 +134,6 @@ const BROWSER_META = {
   'builtin:task': {
     url: 'browser://playwright/task',
     traits: ['Sidebar browser', 'Multi-step', 'Autonomous'],
-  },
-  'dsh:dsh-ego-browser': {
-    url: 'browser://ego-lite',
-    traits: ['External window', 'Requires Ego Lite app', 'Real Chromium'],
   },
   'mcp:playwright-mcp': {
     url: 'browser://playwright-mcp',

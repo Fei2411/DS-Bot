@@ -1732,7 +1732,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     }
 
     // Tools registered by currently active, non-disabled plugins (e.g. built-in `browser_open`
-    // when an installed DSH browser plugin like Ego Lite is inactive) must never be blocked by
+    // when an installed external DSH browser plugin is inactive) must never be blocked by
     // an inactive bundle's overlapping tool prefix.
     const activeOwnedTools = new Set()
     for (const [mountKey, mount] of activeMounts.entries()) {

@@ -12,33 +12,6 @@ export function defaultRegistryUrl(env = process.env) {
 // immediately even when the network is offline or the registry has not been fetched yet.
 export const BUNDLED_PLUGIN_CATALOG = [
   {
-    id: 'dsh:dsh-ego-browser',
-    name: 'Ego Lite Browser',
-    description: 'Controls the standalone Ego Lite app on this computer (opens in an external window, not in DS Bot\'s sidebar).',
-    author: 'Community',
-    category: 'browser',
-    slot: 'browser',
-    kind: 'dsh',
-    execution: 'trusted-worker',
-    capabilities: ['entry', 'process', 'worker'],
-    featured: true,
-    verified: true,
-    tags: ['browser', 'ego', 'automation'],
-    toolPrefixes: ['ego_', 'ego-', 'browser_'],
-    install: {
-      packageName: 'dsh-ego-browser',
-      aliases: ['@dshworks/dsh-ego-browser'],
-      spec: 'dsh-ego-browser',
-    },
-    homepage: 'https://github.com/Fei-Craft/ds-bot-plugins',
-    locales: {
-      zh: {
-        name: 'Ego Lite 浏览器',
-        description: '操控本机独立安装的 Ego Lite 应用（在外部窗口打开，不显示在 DS Bot 侧边栏）。',
-      },
-    },
-  },
-  {
     id: 'mcp:playwright-mcp',
     name: 'Playwright MCP',
     description: 'Official Playwright MCP server (@playwright/mcp). Runs in a separate browser window outside DS Bot\'s sidebar.',
