@@ -142,7 +142,7 @@ async function start({ platform = 'telegram', adapter, seed, home, services = {}
   }
   const stop = async () => {
     await close()
-    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   }
   const flush = async () => { await delay(10) }
   // The host echoes an IM prompt as a user/message whose source carries the request it
@@ -165,14 +165,14 @@ const gm = (s, senderId, text, { mentioned = true, chat = { key: 'g1', kind: 'gr
 })
 
 const waitFor = async (check, options = {}) => {
-  const { timeoutMs = 5000, stepMs = 10, label = 'condition was not reached' } = typeof options === 'number'
+  const { timeoutMs = 10_000, stepMs = 10, label = 'condition was not reached' } = typeof options === 'number'
     ? { timeoutMs: options }
     : options
   const deadline = Date.now() + timeoutMs
-  let value = check()
+  let value = await check()
   while (!value && Date.now() < deadline) {
     await delay(stepMs)
-    value = check()
+    value = await check()
   }
   assert.ok(value, label)
   return value
@@ -549,7 +549,7 @@ test('removing a chat drops the messages kept for quoting it', async (t) => {
 
 test('a runtime file written before sent existed still loads and behaves unchanged', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-im-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }))
   const seed = TEAM()
   seed.im = { connections: {
     im_legacy: { id: 'im_legacy', platform: 'telegram', botId: 'a', account: { id: 'bot1', name: '@fakebot' }, settings: { token: 'tok' }, secrets: {}, enabled: false, paired: [], requests: [], chats: { 'dm-u1': { kind: 'direct', title: 'u1', at: 1 } }, createdAt: 1 },
@@ -665,7 +665,7 @@ test('question card: buttons answer it, a stranger press is ignored, settled els
   s.fake.sent.length = 0
   s.rt.state.questions.a = { id: 'q1', question: 'Which?', options: [{ label: 'yes' }, { label: 'no' }] }
   await s.rt.save()
-  await s.flush()
+  await s.rt.imWhenIdle()
   const card = s.fake.sent.find(entry => entry.buttons !== undefined)
   assert.ok(card, 'question card with buttons')
   assert.match(card.text, /Which\?/)
@@ -674,15 +674,15 @@ test('question card: buttons answer it, a stranger press is ignored, settled els
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: 'q:q1:1', messageId: card.messageId ?? 1 })
   assert.ok(s.rt.state.questions.a === undefined, 'paired press answers')
   assert.equal(s.agents.get('a')?.followed, 1)
-  await s.flush()
+  await s.rt.imWhenIdle()
   assert.equal(s.fake.edited.length, 1)
   // Answered on the computer: the question leaves the state, the card edits shut.
   s.rt.state.questions.a = { id: 'q2', question: 'Again?', options: [{ label: 'x' }] }
   await s.rt.save()
-  await s.flush()
+  await s.rt.imWhenIdle()
   delete s.rt.state.questions.a
   await s.rt.save()
-  await s.flush()
+  await s.rt.imWhenIdle()
   assert.equal(s.fake.edited.length, 2)
 })
 
@@ -1041,7 +1041,7 @@ test('a permanent send error shows in the status and is not retried; a network e
   s.imTurn('a')
   s.fake.fails.push(Object.assign(new Error('forbidden'), { status: 403, permanent: true }))
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'will fail' }] } })
-  await s.flush()
+  await s.rt.imWhenIdle()
   assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
   assert.match(s.rt.imStatusView()[conn.id].error, /forbidden/)
   const before = s.fake.sent.length
@@ -1050,8 +1050,7 @@ test('a permanent send error shows in the status and is not retried; a network e
   s.fake.fails.push(Object.assign(new Error('network down'), {}))
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'first' }] } })
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'second' }] } })
-  await s.flush()
-  await delay(20)
+  await waitFor(() => s.fake.sent.some(job => job.text === 'first'), { label: 'transient failure attempted first send' })
   await s.rt.imEndpoint('im-retry', { id: conn.id })
 })
 
@@ -1610,12 +1609,14 @@ test('expired form codes stay private after pruning, rebinding and restart', asy
     s = await start({ home: s.home })
     await s.rt.imEndpoint('im-retry', { id: one.id })
     await s.rt.save()
-    let pruned
-    for (let attempt = 0; attempt < 200; attempt += 1) {
-      pruned = JSON.parse(readFileSync(path, 'utf8'))
-      if (pruned.cards[`v:${id}`] === undefined) break
-      await delay(10)
-    }
+    const pruned = await waitFor(() => {
+      try {
+        const parsed = JSON.parse(readFileSync(path, 'utf8'))
+        return parsed.cards[`v:${id}`] === undefined ? parsed : undefined
+      } catch {
+        return undefined
+      }
+    }, { timeoutMs: 10_000, stepMs: 50, label: 'the settled delivery must actually be pruned' })
     assert.equal(pruned.cards[`v:${id}`], undefined, 'the settled delivery must actually be pruned')
     assert.equal(pruned.viewCodes, undefined, 'routing no longer retains or relies on expiring per-chat history')
     await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { botId: 'b' } })
@@ -1761,7 +1762,7 @@ test('token reservations recover interrupted sends without replaying completed d
     t.after(async () => {
       child.kill('SIGKILL')
       if (s !== undefined) await s.stop()
-      else rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+      else rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
     })
     const delivery = await new Promise((resolve, reject) => {
       child.once('message', resolve)
@@ -3228,12 +3229,12 @@ test('Try again resends the very job the failed send was given', async (t) => {
   s.imTurn('a')
   s.fake.fails.push(Object.assign(new Error('refused'), { status: 400, permanent: true }))
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'split reply' }] } })
-  await delay(40)
-  assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
+  await waitFor(() => s.rt.imStatusView()[conn.id]?.state === 'error', { label: 'permanent send failure sets error state' })
   await s.rt.imEndpoint('im-retry', { id: conn.id })
-  await delay(40)
-  const jobs = s.fake.jobs.filter(job => job.text === 'split reply')
-  assert.equal(jobs.length, 2)
+  const jobs = await waitFor(() => {
+    const found = s.fake.jobs.filter(job => job.text === 'split reply')
+    return found.length === 2 && s.rt.imStatusView()[conn.id]?.state === 'ready' ? found : undefined
+  }, { label: 'im-retry resends the failed job and restores ready state' })
   assert.equal(jobs[0], jobs[1])
   assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
 })
@@ -3308,26 +3309,30 @@ test('send recovery restores the adapter state, isolates chats, and keeps adapte
   s.fake.handlers.onStatus({ state: 'reconnecting' })
   s.fake.fails.push(Object.assign(new Error('502'), { status: 502, retryAfter: 0.005 }))
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'during-reconnect' }] } })
-  await delay(60)
-  assert.equal(s.rt.imStatusView()[conn.id].state, 'reconnecting')
+  await waitFor(
+    () => s.fake.sent.filter(job => job.text === 'during-reconnect').length === 2 && s.rt.imStatusView()[conn.id]?.state === 'reconnecting',
+    { label: 'retry succeeds and restores reconnecting status' },
+  )
 
   // Chat A's dropped send error survives when Chat B succeeds, and an adapter error is never hidden by send retrying.
   s.fake.handlers.onStatus({ state: 'ready' })
   s.rt.state.im.connections[conn.id].chats['dm-u2'].target = { botId: 'b' }
   await s.rt.save()
+  await dm(s, 'u2', 'hi b')
+  s.imTurn('b')
   s.fake.fails.push(Object.assign(new Error('chat-a-down'), { status: 403, permanent: true }))
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'fails-u1' }] } })
-  await delay(40)
-  assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
+  await waitFor(() => s.rt.imStatusView()[conn.id]?.state === 'error', { label: 'chat A failure sets error status' })
   s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'ok-u2' }] } })
-  await delay(40)
+  await waitFor(() => s.fake.sent.some(job => job.chat.key === 'dm-u2' && job.text === 'ok-u2'), { label: 'chat B message sends' })
+  await s.rt.imWhenIdle()
   assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
   assert.match(s.rt.imStatusView()[conn.id].error, /chat-a-down/)
 
   s.fake.handlers.onStatus({ state: 'error', error: 'handshake refused' })
   s.fake.fails.push(Object.assign(new Error('502'), { status: 502, retryAfter: 0.2 }))
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'retry-under-err' }] } })
-  await delay(40)
+  await waitFor(() => s.fake.sent.some(job => job.text === 'retry-under-err'), { label: 'retry-under-err first attempt ran' })
   assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
   assert.equal(s.rt.imStatusView()[conn.id].error, 'handshake refused')
 })
@@ -3355,8 +3360,10 @@ test('an approval card whose send exhausts retries is retained and re-delivered 
 
   // Try again resumes the original card and its pending delivery callback.
   await s.rt.imEndpoint('im-retry', { id: conn.id })
-  await delay(60)
-  const card = s.fake.sent.at(-1)
+  const card = await waitFor(
+    () => (s.fake.sent.filter(job => /bash/.test(job.text)).length === 5 ? s.fake.sent.at(-1) : undefined),
+    { label: 'im-retry re-delivers the retained approval card' },
+  )
   assert.match(card.text, /bash/)
   assert.equal(s.fake.sent.filter(job => /bash/.test(job.text)).length, 5)
   const approvalId = card.buttons[0].data.split(':')[1]
@@ -3461,7 +3468,7 @@ async function startSwitchHarness(t, { tokens = new Map([['a', 1_000]]), cwd = (
   t.after(async () => {
     adapters.telegram = real
     await ctx.dispose()
-    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   })
   let seq = 0
   const emitEvent = (sessionId, type, data) => {
@@ -3545,9 +3552,7 @@ test('reply origin: a mid-turn part switch keeps delivering the resumed turn bac
   assert.equal(p2Step1.kind, 'enter')
   emitEvent(part2, 'user/message', { source: handoffMsg.source, content: handoffMsg.content })
   const approval = fireApprovals({ agent: agentOf(part2), toolName: 'bash', reason: 'run part 2 command', signal: new AbortController().signal }, () => new Promise(() => {}))
-  await delay(30)
-  const card = fake.sent.find(job => /run part 2 command/.test(job.text))
-  assert.ok(card)
+  const card = await waitFor(() => fake.sent.find(job => /run part 2 command/.test(job.text)), { label: 'part 2 approval card delivered' })
   const approvalId = card.buttons[0].data.split(':')[1]
   await fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: `a:${approvalId}:allow`, messageId: card.messageId ?? 1 })
   assert.equal((await approval)[0], 'allowed-once')
@@ -3555,7 +3560,7 @@ test('reply origin: a mid-turn part switch keeps delivering the resumed turn bac
 
   emitEvent(part2, 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'finished in part 2' }] } })
   emitEvent(part2, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await delay(30)
+  await waitFor(() => fake.sent.some(job => job.text === 'finished in part 2'), { label: 'part 2 reply delivered' })
 
   assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['dm-u1', 'finished in part 2']])
 
@@ -3581,7 +3586,7 @@ test('reply origin: a mid-turn part switch keeps delivering the resumed turn bac
   emitEvent(part2, 'user/message', { source: pauseMsg.source, content: pauseMsg.content })
   emitEvent(part2, 'assistant/message', { turn: 3, message: { content: [{ type: 'text', text: 'finished after pause fallback' }] } })
   emitEvent(part2, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
-  await delay(30)
+  await waitFor(() => fake.sent.some(job => job.text === 'finished after pause fallback'), { label: 'pause fallback reply delivered' })
 
   assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['dm-u1', 'finished after pause fallback']])
 })
@@ -3608,7 +3613,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   emitEvent(part2, 'user/message', { source: handoff2.source, content: handoff2.content })
   emitEvent(part2, 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'recovered after overflow' }] } })
   emitEvent(part2, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await delay(30)
+  await waitFor(() => fake.sent.some(job => job.text === 'recovered after overflow'), { label: 'overflow recovery reply delivered' })
   assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['dm-u1', 'recovered after overflow']])
 
   // 2. Web UI input joining the turn before switching keeps the IM origin across parts.
@@ -3630,7 +3635,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   emitEvent(part3, 'user/message', { source: handoff3.source, content: handoff3.content })
   emitEvent(part3, 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'reply after web steer' }] } })
   emitEvent(part3, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await delay(30)
+  await waitFor(() => fake.sent.some(job => job.text === 'reply after web steer'), { label: 'reply after web steer delivered' })
   assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['dm-u1', 'reply after web steer']])
 
   // 3. A conflicting IM claim after startSwitch held the origin cannot leak to the fresh part.
@@ -3659,7 +3664,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   emitEvent(part4, 'user/message', { source: handoff4.source, content: handoff4.content })
   emitEvent(part4, 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'late mixed stays internal' }] } })
   emitEvent(part4, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await delay(30)
+  await rt.imWhenIdle()
   assert.deepEqual(fake.sent, [])
 
   // 4. A group's own Session moving to its folder keeps delivering member room lines to the IM group chat.
@@ -3689,7 +3694,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   })
   rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'member finished after switch' })
   emitEvent(roomPart2, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await delay(30)
+  await waitFor(() => fake.sent.some(job => job.text === '**Writer**: member finished after switch'), { label: 'room line after switch delivered' })
   assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['g1', '**Writer**: member finished after switch']])
 
   // 5. Web UI takeover during the group folder switch drops the IM origin so subsequent replies stay private.
@@ -3723,7 +3728,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   })
   rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'reply after group web steer' })
   emitEvent(roomPart3, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await delay(30)
+  await rt.imWhenIdle()
   assert.deepEqual(fake.sent, [])
 
   // 6. Group folder switch invalidated by another IM chat while switching does not leak to the old IM chat.
@@ -3767,7 +3772,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   })
   rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'must not leak to g1 after g2 takeover' })
   emitEvent(roomPart4, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await delay(30)
+  await rt.imWhenIdle()
   assert.deepEqual(fake.sent.filter(job => job.chat.key === 'g1'), [])
 
   // 7. Group `!working` pendingReset window after moveOn (before handoff opens) invalidates the held token on Web UI takeover.
@@ -3793,7 +3798,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   emitEvent(roomPart5, 'user/message', { source: roomHandoff5.source, content: roomHandoff5.content })
   rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'must not leak after pendingReset web takeover' })
   emitEvent(roomPart5, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
-  await delay(30)
+  await rt.imWhenIdle()
   assert.deepEqual(fake.sent, [])
 
   // 8. Group `!working` pendingReset window after moveOn (before handoff opens) invalidates the held token when another IM chat claims the part.
@@ -3821,7 +3826,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   emitEvent(roomPart6, 'user/message', { source: roomHandoff6.source, content: roomHandoff6.content })
   rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'must not leak to g1 after pendingReset g2 claim' })
   emitEvent(roomPart6, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
-  await delay(30)
+  await rt.imWhenIdle()
   assert.deepEqual(fake.sent.filter(job => job.chat.key === 'g1'), [])
 })
 
@@ -3843,17 +3848,21 @@ test('im-retry while reconnecting preserves retrying sends and reserved cards in
     { agent: { id: 'a' }, toolName: 'bash', reason: 'queued-card', signal: original.signal },
     () => new Promise(() => {}),
   )
-  await delay(20)
+  await waitFor(() => s.fake.sent.filter(job => /queued-card/.test(job.text)).length === 1 && s.rt.imStatusView()[conn.id]?.state === 'retrying', { label: 'queued-card enters retry backoff' })
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'after-card' }] } })
   s.fake.handlers.onStatus({ state: 'reconnecting' })
-  await delay(20)
+  await waitFor(() => s.rt.imStatusView()[conn.id]?.state === 'reconnecting', { label: 'reconnecting status recorded' })
 
   assert.equal(s.fake.sent.filter(job => /queued-card/.test(job.text)).length, 1)
   assert.equal(s.fake.sent.filter(job => job.text === 'after-card').length, 0)
   s.fake.sent.length = 0
   await s.rt.imEndpoint('im-retry', { id: conn.id })
-  await delay(40)
-  const deliveredCard = s.fake.sent.findLast(job => /queued-card/.test(job.text))
+  const deliveredCard = await waitFor(
+    () => (s.fake.sent.some(job => job.text === 'after-card') && s.rt.imStatusView()[conn.id]?.state === 'ready'
+      ? s.fake.sent.findLast(job => /queued-card/.test(job.text))
+      : undefined),
+    { label: 'im-retry delivers queued card and follower' },
+  )
   const deliveredFollowUp = s.fake.sent.findLast(job => job.text === 'after-card')
   assert.ok(deliveredCard, 'card queued in runner.queues must survive stop() during im-retry')
   assert.ok(deliveredFollowUp, 'queued message behind card must survive stop() during im-retry')
@@ -3888,8 +3897,7 @@ test('im-retry keeps retained failed sends and card reservations when reconnect 
     { agent: { id: 'a' }, toolName: 'bash', reason: 'retry-survives', signal: original.signal },
     () => new Promise(() => {}),
   )
-  await delay(30)
-  assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
+  await waitFor(() => s.rt.imStatusView()[conn.id]?.state === 'error', { label: 'permanent card failure sets error state' })
 
   // Adapter drops to error and the first manual retry cannot connect yet.
   s.fake.handlers.onStatus({ state: 'error', error: 'socket closed' })
@@ -3902,9 +3910,10 @@ test('im-retry keeps retained failed sends and card reservations when reconnect 
   rejectConnect = false
   s.fake.sent.length = 0
   await s.rt.imEndpoint('im-retry', { id: conn.id })
-  await delay(40)
-  const card = s.fake.sent.findLast(job => /retry-survives/.test(job.text))
-  assert.ok(card, 'failed approval card must not be deleted when an earlier im-retry fails to start a runner')
+  const card = await waitFor(
+    () => s.fake.sent.findLast(job => /retry-survives/.test(job.text)),
+    { label: 'failed approval card must not be deleted when an earlier im-retry fails to start a runner' },
+  )
   const approvalId = card.buttons[0].data.split(':')[1]
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: `a:${approvalId}:allow`, messageId: card.messageId ?? 1 })
   assert.equal((await racing)[0], 'allowed-once')
@@ -3949,19 +3958,21 @@ test('stopping a runner mid-send retains the interrupted send and does not resur
 
   fake.holdNextSend()
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'in-flight' }] } })
-  await delay(20)
+  await waitFor(() => releaseSend !== undefined, { label: 'in-flight send entered' })
   await s.rt.imEndpoint('im-update', { id: conn.id, enabled: false })
   releaseSend()
-  await delay(40)
+  await s.rt.imWhenIdle()
+  await delay(30)
   assert.equal(stopRejected, false, 'stopped runner must not schedule another retry send')
 
   await s.rt.imEndpoint('im-update', { id: conn.id, enabled: true })
   assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
   s.fake.sent.length = 0
   await s.rt.imEndpoint('im-retry', { id: conn.id })
-  await delay(40)
-  assert.equal(s.fake.sent.filter(job => job.text === 'in-flight').length, 1)
-  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+  await waitFor(
+    () => s.fake.sent.filter(job => job.text === 'in-flight').length === 1 && s.rt.imStatusView()[conn.id]?.state === 'ready',
+    { label: 'im-retry delivers retained in-flight send' },
+  )
 })
 
 test('im-retry keeps an interrupted in-flight send ahead of queued followers when it rejects after reconnect', async (t) => {
@@ -3999,16 +4010,18 @@ test('im-retry keeps an interrupted in-flight send ahead of queued followers whe
   fake.holdNextSend()
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'first-A' }] } })
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'second-B' }] } })
-  await delay(20)
+  await waitFor(() => releaseSend !== undefined, { label: 'first-A send entered' })
   s.fake.handlers.onStatus({ state: 'reconnecting' })
   await s.rt.imEndpoint('im-retry', { id: conn.id })
   await delay(30)
   assert.deepEqual(s.fake.sent.map(job => job.text), [], 'queued follower must wait until interrupted in-flight send settles')
 
   releaseSend()
-  await delay(40)
+  await waitFor(
+    () => s.fake.sent.length === 2 && s.rt.imStatusView()[conn.id]?.state === 'ready',
+    { label: 'interrupted send and queued follower deliver in order' },
+  )
   assert.deepEqual(s.fake.sent.map(job => job.text), ['first-A', 'second-B'])
-  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
 })
 
 test('im-retry clears retrying status when an interrupted single send drops after reconnect', async (t) => {
@@ -4045,14 +4058,13 @@ test('im-retry clears retrying status when an interrupted single send drops afte
 
   fake.holdNextSend()
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'cancelled-on-stop' }] } })
-  await delay(20)
+  await waitFor(() => releaseSend !== undefined, { label: 'cancelled-on-stop send entered' })
   s.fake.handlers.onStatus({ state: 'reconnecting' })
   await s.rt.imEndpoint('im-retry', { id: conn.id })
   assert.equal(s.rt.imStatusView()[conn.id].state, 'retrying')
 
   releaseSend()
-  await delay(30)
-  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+  await waitFor(() => s.rt.imStatusView()[conn.id]?.state === 'ready', { label: 'status returns to ready after interrupted send drops' })
 })
 
 test('a group attachment uploads under the group current Session, not the id it started with', async (t) => {
@@ -5847,4 +5859,76 @@ test('a group chat title from the platform is stored and refreshed', async (t) =
   await gm(s, 'u1', 'renamed?', { chat: { key: 'g1', kind: 'group', title: '发布群 v2' } })
   s.imTurn('a')
   assert.equal(one.chats.g1.title, '发布群 v2', 'a later title refreshes the stored chat name')
+})
+
+test('dispose drains an in-flight token card send and persists delivered state so restart does not resend it', async (t) => {
+  let enteredFormSend
+  let releaseFormSend
+  const fake = fakeAdapter({ buttons: false })
+  const realConnect = fake.connect.bind(fake)
+  fake.connect = (fields, env, handlers) => {
+    const handle = realConnect(fields, env, handlers)
+    const origSend = handle.send
+    const origStop = handle.stop
+    return {
+      ...handle,
+      send: async (chat, body) => {
+        if (/Card V\d+/.test(body.text)) {
+          enteredFormSend = true
+          await new Promise((resolve) => { releaseFormSend = resolve })
+          fake.sent.push({ chat, messageId: 'dt-form-1', ...body })
+          return { messageId: 'dt-form-1' }
+        }
+        return origSend(chat, body)
+      },
+      stop: () => {
+        origStop()
+        // Simulate an in-flight platform HTTP send that finishes right after stop() begins.
+        if (releaseFormSend !== undefined) {
+          const done = releaseFormSend
+          releaseFormSend = undefined
+          setTimeout(done, 25)
+        }
+      },
+    }
+  }
+
+  let s = await start({ platform: 'dingtalk', adapter: fake })
+  t.after(() => s.stop())
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'form please')
+  s.imTurn('a')
+
+  const view = { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] }
+  await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ view }, { agent: { id: 'a' }, concludeTurn() {} })
+  await waitFor(() => enteredFormSend === true, { label: 'in-flight form card send entered' })
+  const viewId = s.rt.state.views.a.id
+  const runtimePath = join(s.home, 'im', `${conn.id}.json`)
+  await waitFor(() => {
+    try {
+      const saved = JSON.parse(readFileSync(runtimePath, 'utf8'))
+      return saved.cards?.[`v:${viewId}`]?.[0]?.delivered === false
+    } catch {
+      return false
+    }
+  }, { label: 'undelivered reservation persisted before shutdown' })
+
+  await s.close()
+
+  const afterClose = JSON.parse(readFileSync(runtimePath, 'utf8'))
+  assert.equal(afterClose.cards?.[`v:${viewId}`]?.[0]?.delivered, true, 'dispose must drain markCard and persist delivered=true')
+  assert.equal(afterClose.cards?.[`v:${viewId}`]?.[0]?.messageId, 'dt-form-1')
+
+  const fresh = fakeAdapter({ buttons: false })
+  s = await start({ platform: 'dingtalk', home: s.home, adapter: fresh })
+  await s.rt.imWhenIdle()
+  await delay(50)
+  assert.equal(
+    fresh.sent.filter(job => /Card V\d+/.test(job.text)).length,
+    0,
+    'restart must not resend a form card that finished delivering during dispose',
+  )
 })

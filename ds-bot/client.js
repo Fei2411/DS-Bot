@@ -65373,6 +65373,97 @@ function createConnectionFeedback(onChange, {
   };
 }
 
+// src/client/host-service.js
+var EMPTY_SESSION_STATUS = /* @__PURE__ */ new Map();
+function hasContextProperty(ctx, name) {
+  const props = ctx?.reflect?.props;
+  return Boolean(props && Object.prototype.hasOwnProperty.call(props, name));
+}
+function readServiceMember(ctx, serviceName, propName) {
+  const dotted = `${serviceName}.${propName}`;
+  const direct = ctx?.get?.(dotted);
+  if (direct !== void 0) return direct;
+  if (hasContextProperty(ctx, dotted)) return void 0;
+  return ctx?.get?.(serviceName)?.[propName];
+}
+function callServiceMethod(ctx, serviceName, methodName, ...args) {
+  const dotted = `${serviceName}.${methodName}`;
+  const direct = ctx?.get?.(dotted);
+  if (typeof direct === "function") return direct(...args);
+  if (hasContextProperty(ctx, dotted)) return void 0;
+  const service2 = ctx?.get?.(serviceName);
+  return typeof service2?.[methodName] === "function" ? service2[methodName](...args) : void 0;
+}
+function createSessionStatusSource(ctx) {
+  const uiSession = ctx.uiSession;
+  const listeners3 = /* @__PURE__ */ new Set();
+  let disposed = false;
+  let active = null;
+  let unsubActive = null;
+  let dottedSource = null;
+  let fallbackSource = null;
+  const emit = () => {
+    if (disposed) return;
+    for (const listener of Array.from(listeners3)) listener();
+  };
+  const rebind = () => {
+    if (disposed) return;
+    const next = dottedSource ?? fallbackSource ?? null;
+    if (next === active) return;
+    unsubActive?.();
+    unsubActive = null;
+    active = next;
+    if (active && typeof active.subscribe === "function") {
+      unsubActive = active.subscribe(emit);
+    }
+    emit();
+  };
+  const dottedFiber = typeof ctx.inject === "function" ? ctx.inject(["uiSession.sessionStatus"], (scope) => {
+    scope.effect(() => {
+      if (disposed) return () => {
+      };
+      const status = scope["uiSession.sessionStatus"];
+      dottedSource = status && typeof status.getSnapshot === "function" ? status : null;
+      rebind();
+      return () => {
+        dottedSource = null;
+        rebind();
+      };
+    }, "ds-bot: uiSession.sessionStatus");
+  }) : null;
+  if (!hasContextProperty(ctx, "uiSession.sessionStatus")) {
+    const direct = uiSession?.sessionStatus;
+    if (direct && typeof direct.getSnapshot === "function") {
+      fallbackSource = direct;
+      rebind();
+    }
+  }
+  return {
+    source: {
+      getSnapshot: () => disposed ? EMPTY_SESSION_STATUS : active?.getSnapshot?.() ?? EMPTY_SESSION_STATUS,
+      subscribe: (listener) => {
+        if (disposed) return () => {
+        };
+        listeners3.add(listener);
+        return () => {
+          listeners3.delete(listener);
+        };
+      }
+    },
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      unsubActive?.();
+      unsubActive = null;
+      active = null;
+      dottedSource = null;
+      fallbackSource = null;
+      listeners3.clear();
+      dottedFiber?.dispose?.();
+    }
+  };
+}
+
 // src/client/settings-shell.js
 var import_react80 = require("react");
 var import_react_dom12 = require("react-dom");
@@ -65838,13 +65929,13 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
   const carrier = globalThis.dshDesktop;
   const update = desktopUpdateSource(carrier?.protocolVersion === 1 ? carrier.updates : void 0);
   const connectionState = {
-    getSnapshot: () => ctx.get("connection")?.state.getSnapshot(),
-    subscribe: (listener) => ctx.get("connection")?.state.subscribe(listener) ?? (() => {
+    getSnapshot: () => readServiceMember(ctx, "connection", "state")?.getSnapshot(),
+    subscribe: (listener) => readServiceMember(ctx, "connection", "state")?.subscribe(listener) ?? (() => {
     })
   };
   const settingsShortcut = {
-    getSnapshot: () => ctx.get("shortcuts")?.catalog.getSnapshot().find((row) => row.id === "settings.open"),
-    subscribe: (listener) => ctx.get("shortcuts")?.catalog.subscribe(listener) ?? (() => {
+    getSnapshot: () => readServiceMember(ctx, "shortcuts", "catalog")?.getSnapshot().find((row) => row.id === "settings.open"),
+    subscribe: (listener) => readServiceMember(ctx, "shortcuts", "catalog")?.subscribe(listener) ?? (() => {
     })
   };
   const sections = ledgerSource(slots, locale, "settings.section", sectionRows);
@@ -65856,7 +65947,7 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
     return {
       ...base,
       preferences: settingsPreferences(ctx),
-      reconnect: () => ctx.get("connection")?.reconnect(),
+      reconnect: () => callServiceMethod(ctx, "connection", "reconnect"),
       openDesktopUpdate: () => update.open(),
       openOnboarding,
       finishOnboarding,
@@ -65953,7 +66044,7 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
             const timestamp = Date.now();
             await scope.configForms.developerTools.setEnabled(enabled);
             if (previous !== void 0 && previous !== enabled && form.getSnapshot().value?.enabled === enabled) {
-              ctx.get("productAnalytics")?.track("code_work_view_toggle", { is_enabled: enabled }, timestamp);
+              callServiceMethod(ctx, "productAnalytics", "track", "code_work_view_toggle", { is_enabled: enabled }, timestamp);
             }
           }
         })
@@ -65983,7 +66074,10 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
   return {
     openOnboarding,
     dispose: () => {
-      for (const fiber of fibers) fiber.dispose();
+      for (const handle of fibers) {
+        if (typeof handle === "function") handle();
+        else handle?.dispose?.();
+      }
       for (const off of disposers) off();
     }
   };
@@ -74929,11 +75023,31 @@ function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
 }
 
 // src/client/index.js
-var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
+var inject = ["sessions", "uiWorkspace", "uiConversation", "uiSession", "slots", "theme", "layout"];
 var WINDOWS = globalThis.navigator?.userAgentData?.platform === "Windows" || /^Win/u.test(globalThis.navigator?.platform ?? "");
 function apply(ctx) {
   ctx.effect(() => installTitle(document), "ds-bot: window title");
-  ctx.effect(() => installLocale(ctx.get("locale")), "ds-bot: interface copy");
+  ctx.effect(() => {
+    const initialLocale = ctx.get("locale");
+    let offInitial = initialLocale ? installLocale(initialLocale) : null;
+    const releaseInitial = () => {
+      const off = offInitial;
+      offInitial = null;
+      off?.();
+    };
+    const fiber = ctx.inject(["locale"], (scope) => {
+      scope.effect(() => {
+        releaseInitial();
+        return installLocale(scope.locale);
+      }, "ds-bot: interface copy");
+    });
+    return () => {
+      releaseInitial();
+      return fiber.dispose();
+    };
+  }, "ds-bot: interface copy lifecycle");
+  const sessionStatus = createSessionStatusSource(ctx);
+  ctx.effect(() => () => sessionStatus.dispose(), "ds-bot: session status");
   migrateStorage();
   const PREFS_KEY = STORAGE.prefs;
   let savedPrefs = {};
@@ -74966,9 +75080,8 @@ function apply(ctx) {
   const agentNewInFlight = /* @__PURE__ */ new Map();
   const isAgentSessionId = (id) => isAgentSession(roster.getSnapshot(), agentSessionCache, id) || pendingAdopt.has(id);
   const agentOfSession = (id) => roster.getSnapshot().agentOf[id] ?? pendingAdopt.get(id);
-  const workspaces = ctx.get("workspaces");
   const workspaceOf = (sessionId) => {
-    const items = workspaces?.list?.getSnapshot()?.items ?? [];
+    const items = readServiceMember(ctx, "workspaces", "list")?.getSnapshot()?.items ?? [];
     return items.find((item) => item.sessionIds?.includes(sessionId))?.workspaceId;
   };
   let expected2 = null;
@@ -75835,7 +75948,7 @@ function apply(ctx) {
   actions.canSignIn = () => Boolean(actions.signInEntry());
   actions.signIn = () => ui.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
   actions.closeSignIn = () => ui.set((state) => ({ ...state, signIn: null }));
-  actions.accountT = () => ctx.get("locale").bind("settings.account");
+  actions.accountT = () => ctx.get("locale")?.bind?.("settings.account") ?? ((key) => key);
   actions.hasPlugins = () => true;
   actions.openPlugins = (focus = null) => actions.openSettings("plugins", focus);
   actions.speech = () => ctx.get("remote.speech") ?? void 0;
@@ -76095,13 +76208,12 @@ function apply(ctx) {
     const offRoster = roster.subscribe(() => {
       questionDrafts.reconcileRoster(roster.getSnapshot());
     });
-    const sessionStatus = ctx.get("uiSession")?.sessionStatus;
-    const offStatus = sessionStatus?.subscribe?.(() => {
-      questionDrafts.reconcileBlocking(sessionStatus.getSnapshot(), roster.getSnapshot());
+    const offStatus = sessionStatus.source.subscribe(() => {
+      questionDrafts.reconcileBlocking(sessionStatus.source.getSnapshot(), roster.getSnapshot());
     });
     return () => {
       offRoster();
-      offStatus?.();
+      offStatus();
     };
   }, "ds-bot: rescue interrupted question drafts");
   ctx.effect(() => noticeApprovals({
@@ -76190,7 +76302,7 @@ function apply(ctx) {
   actions.newTerminal = () => {
     actions.closePanel();
     try {
-      ctx.get("sidebarRight")?.openTab("terminal");
+      callServiceMethod(ctx, "sidebarRight", "openTab", "terminal");
     } catch (error) {
       actions.reportError(error, "right-sidebar");
     }
@@ -76199,49 +76311,67 @@ function apply(ctx) {
   actions.openFiles = () => {
     actions.closePanel();
     try {
-      ctx.get("sidebarRight")?.openTab("files");
+      callServiceMethod(ctx, "sidebarRight", "openTab", "files");
     } catch (error) {
       actions.reportError(error, "right-sidebar");
     }
   };
-  ctx.effect(() => {
-    const sidebar = ctx.get("sidebarRight");
-    if (!sidebar) return void 0;
-    let open = rightColumnOpen(document);
-    const switchWindow = createSwitchWindow((done) => setTimeout(done, 400));
-    const collapseColumn = () => {
-      try {
-        if (sidebar.isExpanded()) sidebar.toggleExpanded();
-      } catch (error) {
-        actions.reportError(error, "right-sidebar");
+  ctx.inject(["sidebarRight"], (scope) => {
+    scope.effect(() => {
+      let open = rightColumnOpen(document);
+      const switchWindow = createSwitchWindow((done) => setTimeout(done, 400));
+      const collapseColumn = () => {
+        try {
+          if (callServiceMethod(scope, "sidebarRight", "isExpanded")) callServiceMethod(scope, "sidebarRight", "toggleExpanded");
+        } catch (error) {
+          actions.reportError(error, "right-sidebar");
+        }
+      };
+      const observer2 = new MutationObserver(() => {
+        const next = rightColumnOpen(document);
+        const opening = next && !open;
+        open = next;
+        const verdict = opening ? columnOpened(ui.getSnapshot().details !== null, switchWindow.pending) : null;
+        if (verdict === "close-drawer") actions.closePanel();
+        else if (verdict === "collapse-column") collapseColumn();
+      });
+      observer2.observe(document.documentElement, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: RIGHTBAR_ATTRIBUTES
+      });
+      let offDirectMounted = null;
+      const releaseDirectMounted = () => {
+        const off = offDirectMounted;
+        offDirectMounted = null;
+        off?.();
+      };
+      const mountedFiber = scope.inject(["sidebarRight.mounted"], (mountedScope) => {
+        mountedScope.effect(() => {
+          releaseDirectMounted();
+          const off = mountedScope["sidebarRight.mounted"]?.subscribe?.(() => switchWindow.moved());
+          return () => {
+            off?.();
+          };
+        }, "ds-bot: sidebarRight.mounted");
+      });
+      if (!hasContextProperty(scope, "sidebarRight.mounted")) {
+        offDirectMounted = scope.sidebarRight?.mounted?.subscribe?.(() => switchWindow.moved()) ?? null;
       }
-    };
-    const observer2 = new MutationObserver(() => {
-      const next = rightColumnOpen(document);
-      const opening = next && !open;
-      open = next;
-      const verdict = opening ? columnOpened(ui.getSnapshot().details !== null, switchWindow.pending) : null;
-      if (verdict === "close-drawer") actions.closePanel();
-      else if (verdict === "collapse-column") collapseColumn();
-    });
-    observer2.observe(document.documentElement, {
-      subtree: true,
-      attributes: true,
-      attributeFilter: RIGHTBAR_ATTRIBUTES
-    });
-    const offMounted = sidebar.mounted.subscribe(() => switchWindow.moved());
-    let drawer = ui.getSnapshot().details !== null;
-    const offUi = ui.subscribe(() => {
-      const next = ui.getSnapshot().details !== null;
-      if (next && !drawer && drawerOpened(rightColumnOpen(document)) === "collapse-column") collapseColumn();
-      drawer = next;
-    });
-    return () => {
-      observer2.disconnect();
-      offMounted();
-      offUi();
-    };
-  }, "ds-bot: one right panel");
+      let drawer = ui.getSnapshot().details !== null;
+      const offUi = ui.subscribe(() => {
+        const next = ui.getSnapshot().details !== null;
+        if (next && !drawer && drawerOpened(rightColumnOpen(document)) === "collapse-column") collapseColumn();
+        drawer = next;
+      });
+      return () => {
+        observer2.disconnect();
+        releaseDirectMounted();
+        mountedFiber.dispose();
+        offUi();
+      };
+    }, "ds-bot: one right panel");
+  });
   const BOT_PRIORITY = -100;
   const shadow = (name, options, component) => ctx.slots.inject(name, () => ctx.slots.register({
     name,
@@ -76564,7 +76694,7 @@ function apply(ctx) {
   ctx.effect(() => watchBotCompletions({
     roster,
     sessions: ctx.sessions.list,
-    statuses: ctx.get("uiSession")?.sessionStatus,
+    statuses: sessionStatus.source,
     unread: botCompletions,
     ui
   }), "ds-bot: sidebar completions");

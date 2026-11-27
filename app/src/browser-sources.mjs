@@ -405,7 +405,7 @@ export function readDevToolsActivePort(userDataDir) {
 }
 
 /** Fast loopback TCP connect check — confirms a DevToolsActivePort is actually listening without sending WS bytes. */
-export function isLoopbackPortOpen(port, { timeoutMs = 400, signal } = {}) {
+export function isLoopbackPortOpen(port, { timeoutMs = 800, signal } = {}) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) return Promise.resolve(false)
   if (signal?.aborted) return Promise.reject(abortError())
   return new Promise((resolve, reject) => {
@@ -1075,7 +1075,7 @@ export async function harvestLiveChromium(source, opts = {}) {
   // Probe port liveness BEFORE trying to focus/spawn the browser, so a stale DevToolsActivePort
   // left behind by a closed browser never launches the browser or locks the Windows clone path.
   const probe = opts.probePort ?? isLoopbackPortOpen
-  const portAlive = await probe(activePort.port, { signal })
+  const portAlive = await probe(activePort.port, { timeoutMs: opts.probeTimeoutMs ?? 1_500, signal })
   if (!portAlive) {
     const err = new Error('Browser remote debugging port is not listening')
     err.code = 'devtools-stale'

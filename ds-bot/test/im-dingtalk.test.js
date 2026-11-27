@@ -339,3 +339,31 @@ test('DingTalk degrades unsupported BMP, preserves same-chat order, and stop abo
   await until(() => holdAbort)
   assert.equal(holdAbort, true)
 })
+
+test('DingTalk stop aborts in-flight send with stopped=true', async (t) => {
+  const fake = await fakeDingtalk()
+  const base = env(fake)
+  let sendEntered = false
+  let sendAborted = false
+  const fetch = async (url, init) => {
+    if (String(url).endsWith('/v1.0/robot/oToMessages/batchSend')) {
+      sendEntered = true
+      return new Promise((_, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          sendAborted = true
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+        }, { once: true })
+      })
+    }
+    return base.fetch(url, init)
+  }
+  const handle = dingtalk.connect(FIELDS, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.acks.includes('sys1'))
+
+  const sending = handle.send({ key: 'u9', kind: 'direct' }, { text: 'shutdown check' })
+  await until(() => sendEntered)
+  handle.stop()
+  await assert.rejects(() => sending, (err) => err?.stopped === true)
+  assert.equal(sendAborted, true)
+})

@@ -87,6 +87,7 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
   let activeSignIn
   let signingOut = false
   let credentialWriteFailed = false
+  const modelReasoning = new Map()
   let queue = Promise.resolve()
   const exclusive = work => {
     const result = queue.then(work)
@@ -348,6 +349,7 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
         }
       } catch {}
       await clearTokens(false)
+      modelReasoning.clear()
       setState('signed-out')
       return { ...status(), remoteRevocationConfirmed: revoked }
     }).finally(() => { signingOut = false })
@@ -359,8 +361,17 @@ export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
     const body = await json(response)
     if (!Array.isArray(body?.models)) throw fail('temporarily-unavailable', 'invalid-models')
     recoverConnection()
+    modelReasoning.clear()
+    for (const model of body.models) {
+      const slug = typeof model?.slug === 'string' ? model.slug.trim().toLowerCase() : ''
+      if (!slug) continue
+      const efforts = reasoningEffortsOf(model)
+      if (efforts === false) modelReasoning.set(slug, false)
+      else if (efforts !== undefined) modelReasoning.set(slug, true)
+    }
     return body.models.filter(model => model?.visibility === 'list' && typeof model.slug === 'string' && typeof model.display_name === 'string')
       .map(modelSummary)
   }
-  return { signIn, refresh, signOut, getAccessToken, listModels, status }
+  const isReasoningModel = id => (typeof id === 'string' ? modelReasoning.get(id.trim().toLowerCase()) : undefined)
+  return { signIn, refresh, signOut, getAccessToken, listModels, isReasoningModel, status }
 }
