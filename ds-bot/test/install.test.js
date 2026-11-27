@@ -205,6 +205,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: session follow route',
     'route GET /api/bot/session',
     'effect ds-bot: session follows',
+    'effect ds-bot: background jobs',
     'on session/event',
     'effect ds-bot: im',
     'effect ds-bot: external API gateway',

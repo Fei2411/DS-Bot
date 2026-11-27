@@ -552,6 +552,26 @@ test('Classic session renders reply feedback (submit, dialog, retract) and never
     roView.unmount()
   }
 
+  // Read-only Classic Agent subagent child transcript in a writable window must suppress
+  // both the feedback fetch and rating controls even when the feedback service is available.
+  let subagentFeedbackCalls = 0
+  const prevTestCall = sandbox.__testCall
+  sandbox.__testCall = async (ep, body) => {
+    if (ep === 'engine-feedback-list') { subagentFeedbackCalls += 1; return { available: true, items: [] } }
+    return prevTestCall?.(ep, body)
+  }
+  const subagentView = mountDom(React.createElement(SessionTranscript, {
+    log, sessionId: 'child-1', parent: 'as1', readOnly: true, roster, actions, classic: true,
+  }))
+  try {
+    await flush()
+    assert.equal(subagentFeedbackCalls, 0, 'Read-only subagent child transcript must not fetch feedback')
+    assert.equal(subagentView.host.querySelectorAll('.dsb-fb-btn').length, 0, 'Read-only subagent child transcript hides classic feedback buttons')
+  } finally {
+    subagentView.unmount()
+    sandbox.__testCall = prevTestCall
+  }
+
   // Distinct real DSH failure codes map to specific user-facing messages.
   assert.match(feedbackErrorMessage({ code: 'note-too-large', maxBytes: 128 }, 'fallback'), /128/)
   assert.equal(feedbackErrorMessage({ code: 'note-blank' }, 'fallback'), 'Feedback note cannot be blank')

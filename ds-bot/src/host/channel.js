@@ -414,7 +414,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'secret-refresh-external', 'state', 'models', 'presets', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'telemetry-status', 'telemetry-client-error', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'engine-feedback-list', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'secret-refresh-external', 'state', 'models', 'presets', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'telemetry-status', 'telemetry-client-error', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'job-list', 'job-read', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'engine-feedback-list', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
   READS.add('chatgpt')
 
   const modelRequests = { approvalModel: 0, defaultBotModel: 0 }
@@ -604,7 +604,19 @@ export function install(rt) {
           await rt.loadSecrets()
           const answer = liveAnswer()
           const { api: _, telemetryPrompt: _tp, releaseNotes: _rn, ...remoteLive } = answer.value
-          const liveValue = remote ? remoteLive : answer.value
+          const liveValue = remote
+            ? {
+              ...remoteLive,
+              ...(Array.isArray(remoteLive.work?.approvals)
+                ? {
+                  work: {
+                    ...remoteLive.work,
+                    approvals: remoteLive.work.approvals.map(({ alwaysAllow: _aa, ...entry }) => entry),
+                  },
+                }
+                : {}),
+            }
+            : answer.value
           if (body.since === state.revision && (body.models === undefined || body.models === modelsKey())) {
             if (body.live === answer.key) return ok({ revision: state.revision, unchanged: true, liveKey: answer.key })
             return ok({ revision: state.revision, unchanged: true, liveKey: answer.key, ...liveValue })
@@ -932,7 +944,12 @@ export function install(rt) {
           await rt.deleteRoom(body.id)
           return ok(view())
         case 'approval-answer':
-          rt.answerApproval(body.id, body.choice)
+          if (body.choice === 'always') {
+            if (remote) return fail('Always allow is available on the computer', 'bot/refused')
+            const readOnly = rt.readOnly()
+            if (readOnly !== undefined) return fail(readOnly, 'bot/read-only')
+          }
+          await rt.answerApproval(body.id, body.choice)
           return ok(true)
         // A stop that fails partway still parks the goal, or it wakes the admin again.
         case 'stop-member-work':
@@ -1097,12 +1114,17 @@ export function install(rt) {
         case 'notices':
         case 'avatar':
         case 'room-chat':
-        case 'image':
         case 'file-download':
         case 'markdown-image':
         case 'usage-summary':
         case 'memory-edit':
         case 'memory-add':
+          await rt.load()
+          return ok(await rt.mobileEndpoint(endpoint, body))
+        case 'image':
+          if (remote && body?.parent != null && String(body.parent).trim() !== '') {
+            return fail('Session logs are read on the computer', 'bot/refused')
+          }
           await rt.load()
           return ok(await rt.mobileEndpoint(endpoint, body))
         case 'answer-question': {
@@ -1481,6 +1503,7 @@ export function install(rt) {
           return ok(true)
         default:
           if (endpoint.startsWith('session-')) return ok(await rt.sessionEndpoint(endpoint.slice('session-'.length), body, signal))
+          if (endpoint.startsWith('job-')) return ok(await rt.jobEndpoint(endpoint.slice('job-'.length), body, signal))
           if (endpoint.startsWith('workspace-')) return ok(await rt.workspaceEndpoint(endpoint.slice('workspace-'.length), body, signal))
           if (endpoint.startsWith('terminal-')) return ok(await rt.terminalEndpoint(endpoint.slice('terminal-'.length), body, signal))
           if (endpoint.startsWith('engine-feedback-')) return ok(await rt.feedbackEndpoint(endpoint.slice('engine-feedback-'.length), body, signal))
