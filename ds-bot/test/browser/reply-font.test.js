@@ -52,7 +52,7 @@ async function launchBrowser() {
   }
 }
 
-test('Celadon draws Bot replies in its bundled serif under DSH\'s own Markdown styles', async (t) => {
+test('Fei draws Bot replies in its bundled serif under DSH\'s own Markdown styles', async (t) => {
   assert.ok(markdown && tableScroll, 'DSH Markdown classes found')
   let browser
   try {
@@ -69,7 +69,7 @@ test('Celadon draws Bot replies in its bundled serif under DSH\'s own Markdown s
     const fontRequests = []
     await tab.route('http://dsbot.test/**', async (route) => {
       const { pathname } = new URL(route.request().url())
-      if (pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: page(themeCss(allThemes().celadon)) })
+      if (pathname === '/') return route.fulfill({ contentType: 'text/html; charset=utf-8', body: page(themeCss(allThemes().fei)) })
       if (pathname.startsWith('/api/bot/fonts/')) {
         const file = pathname.slice('/api/bot/fonts/'.length)
         fontRequests.push(file)

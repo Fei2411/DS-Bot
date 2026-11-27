@@ -8,7 +8,7 @@ export const EXTRA_COLORS = ['charcoal', 'graphite', 'rose', 'sky', 'tangerine',
 // Renamed color ids, so a Bot saved with an old one keeps its color (LEGACY: old id → new id).
 export const LEGACY_COLORS = { kimi: 'charcoal', zai: 'graphite', minimax: 'rose', stepfun: 'sky', mimo: 'tangerine', qwen: 'cobalt' }
 // Renamed theme ids, so a saved choice keeps its look (LEGACY: old id → new id).
-export const LEGACY_THEMES = { grok: 'mono' }
+export const LEGACY_THEMES = { grok: 'mono', celadon: 'fei' }
 
 export const OCR_PROMPT = [
   'Transcribe all text in this image exactly, in its original language, keeping line breaks and reading order; use Markdown tables for tables.',

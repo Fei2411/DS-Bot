@@ -55,6 +55,14 @@ test('a team saved with the legacy grok theme opens with the mono theme', async 
   assert.equal(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).prefs.theme, 'mono')
 })
 
+test('a team saved with the legacy celadon theme opens with the fei theme', async (t) => {
+  const { call, stop, home } = open(savedTeam({ theme: 'celadon' }))
+  t.after(stop)
+  const team = (await call('state', {})).value
+  assert.deepEqual(team.prefs, { theme: 'fei' })
+  assert.equal(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).prefs.theme, 'fei')
+})
+
 test('a team saved with a current theme keeps it', async (t) => {
   const { call, stop } = open(savedTeam({ theme: 'paper' }))
   t.after(stop)
