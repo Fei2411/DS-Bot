@@ -8,6 +8,7 @@ import { reducedMotion, useGlide } from './motion.js'
 import { dateLocale, language, t } from './i18n.js'
 import { ProviderLogo, matchProviderId } from './provider-logos.js'
 import { ownedPopups } from './popup-ownership.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { SelectMenu } from './select-menu.js'
 import { DAY_MS, HOUR, HOUR_MS, MODEL, OWNER, RANGES, compact, dayKey, hourMs, mondayOf, percent, spanRange, summarize, tokensOf } from './usage-data.js'
 import { memo } from './memo.js'
@@ -332,17 +333,10 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
       const inside = [box.current, near.current, ...ownedPopups([box.current].filter(Boolean))]
       if (!inside.some(node => node?.contains(event.target))) onClose()
     }
-    const onKey = (event) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
-      if (ownedPopups([box.current].filter(Boolean)).length > 0) return
-      event.preventDefault()
-      event.stopPropagation()
-      onClose()
-    }
     window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
+    return () => { window.removeEventListener('mousedown', onDown) }
   }, [])
+  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.MENU })
   const [low, high] = anchor ? [anchor, hover ?? anchor].sort() : span ? [span.from, span.to] : [null, null]
   const press = (key) => {
     if (!anchor) {

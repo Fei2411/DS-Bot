@@ -60,6 +60,7 @@ function mount(Component, firstProps) {
   return {
     get tree() { return self.tree },
     rerender(props) { self.props = props; self.update() },
+    unmount() { for (const entry of self.slots) entry?.cleanup?.() },
   }
 }
 
@@ -310,27 +311,31 @@ function inline({ model = 'official/flash', effort, actions = {}, withEfforts } 
 }
 
 test('the slider sits under the model trigger and under the list once it opens', () => {
-  const { view, calls, attach } = inline()
-  let { root, trigger, list, slider } = view()
-  assert.equal(root.props.className, 'bt-model-inline')
-  assert.equal(trigger.props.className, 'bt-model-trigger')
-  assert.equal(trigger.props['aria-expanded'], false)
-  assert.equal(list.props.open, false)
-  assert.equal(slider.props.open, true)
-  assert.equal(nodes(slider, node => node.type === EffortBar).length, 1)
-  // Trigger first, list next, slider last: the order they stack in.
-  assert.deepEqual(root.children.map(child => child.type === 'button' ? 'trigger' : child === list ? 'list' : 'slider'), ['trigger', 'list', 'slider'])
+  const { menu, view, calls, attach } = inline()
+  try {
+    let { root, trigger, list, slider } = view()
+    assert.equal(root.props.className, 'bt-model-inline')
+    assert.equal(trigger.props.className, 'bt-model-trigger')
+    assert.equal(trigger.props['aria-expanded'], false)
+    assert.equal(list.props.open, false)
+    assert.equal(slider.props.open, true)
+    assert.equal(nodes(slider, node => node.type === EffortBar).length, 1)
+    // Trigger first, list next, slider last: the order they stack in.
+    assert.deepEqual(root.children.map(child => child.type === 'button' ? 'trigger' : child === list ? 'list' : 'slider'), ['trigger', 'list', 'slider'])
 
-  trigger.props.onClick()
-  attach()
-  ;({ root, trigger, list, slider } = view())
-  assert.equal(trigger.props['aria-expanded'], true)
-  assert.equal(list.props.open, true)
-  assert.equal(nodes(list, node => node.props.role === 'menu').length, 1)
-  assert.equal(slider.props.open, true)
-  assert.equal(nodes(slider, node => node.type === EffortBar).length, 1)
-  assert.deepEqual(root.children.map(child => child.type === 'button' ? 'trigger' : child === list ? 'list' : 'slider'), ['trigger', 'list', 'slider'])
-  assert.equal(calls.refreshed, 1)
+    trigger.props.onClick()
+    attach()
+    ;({ root, trigger, list, slider } = view())
+    assert.equal(trigger.props['aria-expanded'], true)
+    assert.equal(list.props.open, true)
+    assert.equal(nodes(list, node => node.props.role === 'menu').length, 1)
+    assert.equal(slider.props.open, true)
+    assert.equal(nodes(slider, node => node.type === EffortBar).length, 1)
+    assert.deepEqual(root.children.map(child => child.type === 'button' ? 'trigger' : child === list ? 'list' : 'slider'), ['trigger', 'list', 'slider'])
+    assert.equal(calls.refreshed, 1)
+  } finally {
+    menu.unmount()
+  }
 })
 
 test('a model without thinking levels shows no slider, and neither does a pick that takes none', () => {

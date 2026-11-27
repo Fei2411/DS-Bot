@@ -734,15 +734,23 @@ test('state rows carry lastAt, lastBotAt, latestTurn and preview from the Bot ow
   assert.equal(row.latestTurn, 1)
   assert.equal(row.preview, 'Ship the list first')
 
-  // A real Bot reply advances both lastAt and lastBotAt.
+  // A real Bot reply advances both lastAt and lastBotAt — AND rides on unchanged-revision live polls.
+  const revBeforeReply = (await call('state', {})).value
   const botReply = { type: 'assistant/message', seq: 3, time: 1100, data: { turn: 1, message: { content: [{ type: 'text', text: 'Done.' }] } } }
   history[sessionId].push(botReply)
   await emit(sessionId, botReply)
+  const sameRevAfterReply = (await call('state', { since: revBeforeReply.revision, live: revBeforeReply.liveKey })).value
+  assert.equal(sameRevAfterReply.unchanged, true)
+  assert.notEqual(sameRevAfterReply.liveKey, revBeforeReply.liveKey)
+  assert.equal(sameRevAfterReply.botTails?.[chief]?.lastAt, 1100)
+  assert.equal(sameRevAfterReply.botTails?.[chief]?.lastBotAt, 1100)
+  assert.equal(sameRevAfterReply.botTails?.[chief]?.preview, 'Done.')
   const afterReply = (await call('state', {})).value.bots.find(candidate => candidate.id === chief)
   assert.equal(afterReply.lastAt, 1100)
   assert.equal(afterReply.lastBotAt, 1100)
 
-  // A subsequent user message + stopped retry advances lastAt and latestTurn without advancing lastBotAt.
+  // A subsequent user message + stopped retry advances lastAt and latestTurn without advancing lastBotAt,
+  // and reaches the phone on an unchanged-revision poll via botTails.
   const retryStart = { type: 'turn/start', seq: 4, time: 1200, data: { turn: 2 } }
   const nextUser = user(5, 'Try again', 1205)
   const retryStop = { type: 'turn/end', seq: 6, time: 1210, data: { turn: 2, reason: { kind: 'stopped' } } }
@@ -750,6 +758,11 @@ test('state rows carry lastAt, lastBotAt, latestTurn and preview from the Bot ow
   await emit(sessionId, retryStart)
   await emit(sessionId, nextUser)
   await emit(sessionId, retryStop)
+  const sameRevAfterStop = (await call('state', { since: sameRevAfterReply.revision, live: sameRevAfterReply.liveKey })).value
+  assert.equal(sameRevAfterStop.unchanged, true)
+  assert.equal(sameRevAfterStop.botTails?.[chief]?.lastAt, 1205)
+  assert.equal(sameRevAfterStop.botTails?.[chief]?.lastBotAt, 1100)
+  assert.equal(sameRevAfterStop.botTails?.[chief]?.latestTurn, 2)
   const afterStop = (await call('state', {})).value.bots.find(candidate => candidate.id === chief)
   assert.equal(afterStop.lastAt, 1205)
   assert.equal(afterStop.lastBotAt, 1100)

@@ -197,12 +197,14 @@ export interface TeamState {
   }
   // One word per Bot from turns.js activityView (thinking, searching, working, sending, orbit, waiting, alert).
   activity?: Record<string, string>
+  // Per-Bot own-chat tail updates carried on live() for unchanged-revision polls.
+  botTails?: Record<string, { lastAt?: number; lastBotAt?: number; latestTurn?: number; preview?: string }>
   exchangeTurns?: Record<string, number[]>
   prefs?: { theme?: string; accent?: string; layout?: string; width?: number; flatWidth?: number; enterToSend?: boolean; motion?: string; effects?: string }
 }
 
 /** A card as the computer keeps it: `view` is the root node of the blueprint. */
-export interface ShownView { id?: string; title?: string; view?: unknown }
+export interface ShownView { id?: string; callId?: string; callSessionId?: string; title?: string; view?: unknown }
 
 /** A pending outgoing email request awaiting the user's confirmation. */
 export interface MailRequest {

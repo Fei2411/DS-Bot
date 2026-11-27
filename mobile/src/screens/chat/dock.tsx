@@ -42,9 +42,10 @@ function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title:
   )
 }
 
-export function Dock({ question, questions, sessionId, questionSessionId, viewSessionId, approvals, learning = [], secrets = [], connectorRequests = [], mailRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, views, call, p, maxHeight, expanded, onExpand }: {
+export function Dock({ question, questions, sessionId, questionSessionId, viewSessionId, approvals, learning = [], secrets = [], connectorRequests = [], mailRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, views, onViewSettled, call, p, maxHeight, expanded, onExpand }: {
   view?: ShownView
   views?: { sessionId: string; view: ShownView }[]
+  onViewSettled?: () => void
   questionSessionId?: string; viewSessionId?: string
   secrets?: SecretRequest[]; connectorRequests?: ConnectorRequest[]; mailRequests?: MailRequest[]; botName?: string; onOpenConnector?: (connectorId: string) => void
   btw?: BtwCardData[]; handoff?: HandoffData; onViewBrowser?: () => void
@@ -98,7 +99,7 @@ export function Dock({ question, questions, sessionId, questionSessionId, viewSe
       title: entry.view.title || t('Card'),
       needs: true,
       order: 4,
-      body: <ViewCard sessionId={entry.sessionId} id={entry.view.id} title={entry.view.title} root={entry.view.view} p={p} bare />,
+      body: <ViewCard sessionId={entry.sessionId} id={entry.view.id} title={entry.view.title} root={entry.view.view} p={p} bare onSettled={onViewSettled} />,
     })
   }
   for (const card of btw) cards.push({ key: `btw-${card.id}`, title: card.question ?? t('Aside'), needs: false, order: 5, body: <BtwCard card={card} sessionId={sessionId} call={call} p={p} bare /> })
@@ -441,6 +442,22 @@ export function HandoffCard({ handoff, botId, onView, call, p , bare = false }: 
   )
 }
 
+export function ViewJumpStrip({ items, p }: { items: { key: string; label: string; onJump: () => void }[]; p: Palette }) {
+  if (items.length === 0) return null
+  return (
+    <View style={styles.jumpWrap}>
+      {items.map(item => (
+        <Pressable key={item.key} accessibilityRole="button" onPress={() => { void Haptics.selectionAsync(); item.onJump() }}
+          style={({ pressed }) => [styles.jumpRow, { backgroundColor: pressed ? p.hover : p.card, borderColor: p.line }]}>
+          <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: p.accent, flexShrink: 0 }} />
+          <Text style={[typeScale.small, { color: p.ink, fontWeight: '500', flex: 1, minWidth: 0 }]} numberOfLines={1}>{item.label}</Text>
+          <ChevronRightIcon size={15} color={p.ink3} />
+        </Pressable>
+      ))}
+    </View>
+  )
+}
+
 export function ActionRow({ bot, doing, state = 'thinking', p, dark, active = true }: { bot: Bot; doing: string; state?: string; p: Palette; dark: boolean; active?: boolean }) {
   const reduced = useReducedMotion()
   const opacityRef = useRef<Animated.Value | null>(null)
@@ -488,6 +505,8 @@ function DockView({ sessionId, view, p, cap, collapsed, onCollapse }: { sessionI
 
 const styles = StyleSheet.create({
   dock: { maxHeight: '55%', flexGrow: 0, marginBottom: 6 },
+  jumpWrap: { gap: 4, marginBottom: 6 },
+  jumpRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 42, marginHorizontal: 12, paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, ...shadow(1) },
   accordion: { marginHorizontal: 12, marginVertical: 5, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', ...shadow(1) },
   card: { marginHorizontal: 12, marginVertical: 6, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingVertical: 14, ...shadow(1) },
   option: { paddingHorizontal: 12, paddingVertical: 10, minHeight: 44, justifyContent: 'center' },

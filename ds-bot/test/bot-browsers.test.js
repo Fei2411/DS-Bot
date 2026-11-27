@@ -506,3 +506,43 @@ test('bt-browser-layer stays 0x0 and app-region-neutral so it never blocks windo
   assert.equal(view.style.visibility, 'hidden')
   assert.equal(view.style.pointerEvents, 'none')
 })
+
+test('Classic browser stays excluded from openPages() and blank tabs do not eagerly spawn an about:blank guest', async () => {
+  const created = []
+  const placed = []
+  const doc = { body: { append() {} }, createElement: () => ({ style: {}, isConnected: true, append() {}, remove() {} }) }
+  const bridge = {
+    views: {
+      subscribe: () => () => {},
+      async sync(botId) {
+        return created.filter(c => c.botId === botId).map(c => ({
+          tabId: c.tabId, url: c.url || 'about:blank', title: '', live: true, loading: false,
+        }))
+      },
+      async create(botId, tabId, url) { created.push({ botId, tabId, url }); return tabId },
+      async place(tabId, rect, visible) { placed.push({ tabId, rect, visible }) },
+      async navigate() {},
+      async command() {},
+      async focus() {},
+      async read() {},
+      async close() {},
+    },
+  }
+  const browsers = createBotBrowsers({ bridge, createSource, storage: fakeDesktop().storage, document: doc })
+  const classicTab = browsers.openTab('classic')
+  // Hiding / measuring a blank tab with box=null must NOT eagerly create a white about:blank guest.
+  await browsers.show(classicTab, null)
+  assert.equal(created.length, 0, 'blank tab with box=null must not eagerly spawn WebContentsView')
+  assert.equal(browsers.pages.getSnapshot()[classicTab].url, '')
+
+  // Even after navigating Classic to a real URL, openPages() excludes 'classic' so serveBrowserReads never churns.
+  await browsers.navigate(classicTab, 'https://example.com')
+  assert.deepEqual(browsers.openPages(), {}, 'classic browser owner must never appear in Bot openPages()')
+
+  // Bot tab with real URL DOES appear in openPages(), while a blank Bot tab synced as about:blank normalizes to ''.
+  const botBlank = browsers.openTab('b1')
+  await browsers.show(botBlank, BOX)
+  assert.equal(browsers.pages.getSnapshot()[botBlank].url, '', 'about:blank from appView sync normalizes to empty string')
+  assert.deepEqual(browsers.openPages(), {})
+  browsers.dispose()
+})

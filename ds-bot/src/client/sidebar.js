@@ -20,7 +20,7 @@ import { showsDshRow } from './dsh-offer.js'
 import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
-import { useEscape } from './overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape } from './overlay-hooks.js'
 import { InboxEntry, waitLineOf, waitsOf } from './inbox.js'
 
 // Maximum retries to collapse DSH's own sidebar before stopping, so a shell that
@@ -993,8 +993,9 @@ export function TeamSidebar(props) {
         onDropSec,
       }))),
     foot)
+  const hideTitleToggle = props.hideTitleToggle === true
   return h(Fragment, null,
-    h(TitleToggle, { hidden: mode === 'hidden', mode, onToggle }),
+    hideTitleToggle ? null : h(TitleToggle, { hidden: mode === 'hidden', mode, onToggle }),
     shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content))
 }
 
@@ -1010,16 +1011,15 @@ function UpdateButton({ useUpdate, actions }) {
   const [error, setError] = useState('')
   const [dshError, setDshError] = useState('')
   const button = useRef(null)
+  useEscape(() => { setOpen(false); button.current?.focus() }, open, { priority: ESCAPE_PRIORITY.MENU })
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => {
       if (event.target instanceof Element && (event.target.closest('.bt-update-pop') || button.current?.contains(event.target))) return
       setOpen(false)
     }
-    const onKey = (event) => { if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); setOpen(false); button.current?.focus() } }
     window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
+    return () => { window.removeEventListener('mousedown', onDown) }
   }, [open])
   const phase = update?.phase ?? 'idle'
   const dsh = update?.dsh
@@ -1133,6 +1133,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
   const button = useRef(null)
   const menuRef = useRef(null)
   useEffect(() => { if (settingsOpen) setOpen(false) }, [settingsOpen])
+  useEscape(() => { setOpen(false); button.current?.focus() }, open, { priority: ESCAPE_PRIORITY.MENU })
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => {
@@ -1140,8 +1141,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       setOpen(false)
     }
     const onKey = (event) => {
-      if (stepMenuFocus(menuRef.current, event, button.current)) return
-      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); setOpen(false); button.current?.focus() }
+      stepMenuFocus(menuRef.current, event, button.current)
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)

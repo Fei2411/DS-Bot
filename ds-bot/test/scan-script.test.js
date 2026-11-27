@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, test } from 'node:test'
@@ -64,14 +64,14 @@ function initMinimalGitRepo() {
   return { work, repo }
 }
 
-function runScan(scannerPath, targetDir) {
+function runScan(scannerPath, targetDir, extraEnv = {}) {
   const outDir = tempDir('ds-bot-scan-out-')
   const jsonPath = join(outDir, 'findings.json')
   const res = spawnSync(process.execPath, [scannerPath, targetDir, '--json', jsonPath], {
     encoding: 'utf8',
-    env: { ...process.env, SCAN_EXTRA_PATTERNS: '' },
+    env: { ...process.env, SCAN_EXTRA_PATTERNS: '', ...extraEnv },
   })
-  const findings = JSON.parse(readFileSync(jsonPath, 'utf8'))
+  const findings = existsSync(jsonPath) ? JSON.parse(readFileSync(jsonPath, 'utf8')) : []
   return { status: res.status, stdout: res.stdout, stderr: res.stderr, findings }
 }
 
@@ -174,4 +174,120 @@ test('scan.mjs fails closed on a rogue .scan-extra in a nested checkout subdirec
   const subIds = mustFixIds(subRes.findings, 'sub/.scan-extra')
   assert.ok(subIds.includes('forbidden-file'), `expected forbidden-file for sub/.scan-extra, got ${JSON.stringify(subIds)}`)
   assert.ok(subIds.includes('secret-github'), `expected secret-github for sub/.scan-extra, got ${JSON.stringify(subIds)}`)
+})
+
+test('scan.mjs redacts extra-pattern matches across all rules and staged .scan-extra in stdout and JSON reports', () => {
+  const { repo } = initMinimalGitRepo()
+  const marker = 'PrivateScanMarkerAlpha99'
+  const shortMarker = 'Xy9zK'
+  const placeholderWordMarker = 'PrivateTestMockMarker88'
+  const boundaryMarker = 'BoundaryMarkerZ77Q'
+  const privateEmail = ['priv99acct', 'gmail.com'].join('@')
+  const privatePath = ['', 'Users', 'privacct99', 'work'].join('/')
+  const draftTag = ['DRAFT', 'for'].join(' ')
+  const scanExtraBody = [
+    marker,
+    shortMarker,
+    placeholderWordMarker,
+    boundaryMarker,
+    privateEmail,
+    privatePath,
+  ].join('\n') + '\n'
+  writeFileSync(join(repo, '.scan-extra'), scanExtraBody)
+  // Include cross-rule same-line triggers (draft-marker next to markers, plus a marker straddling the +40 snippet edge).
+  writeFileSync(join(repo, 'notes.txt'), [
+    `${draftTag} ${marker} and ${shortMarker} and ${placeholderWordMarker}`,
+    `${draftTag} ${'a'.repeat(35)}${boundaryMarker}`,
+  ].join('\n') + '\n')
+
+  const assertNoPrivateLeak = (res, context) => {
+    const combined = `${res.stdout}\n${JSON.stringify(res.findings)}`
+    for (const sensitive of [marker, shortMarker, placeholderWordMarker, boundaryMarker, 'BoundaryMarker', privateEmail, privatePath, 'privacct99']) {
+      assert.ok(!combined.includes(sensitive), `${context}: report must never echo "${sensitive}"`)
+    }
+  }
+
+  // 1. Untracked .scan-extra + leaking file: catches extra-pattern (including short & placeholder-word markers)
+  //    and cross-rule draft-marker, while redacting every marker from both stdout and JSON.
+  const leaked = runScan(join(repo, 'scripts', 'scan.mjs'), repo)
+  assert.equal(leaked.status, 1)
+  const noteFindings = leaked.findings.filter(f => f.level === 'must fix' && f.file === 'notes.txt')
+  const noteIds = noteFindings.map(f => f.id)
+  assert.ok(noteIds.includes('draft-marker'), `expected draft-marker on notes.txt, got ${JSON.stringify(noteIds)}`)
+  assert.equal(noteIds.filter(id => id === 'extra-pattern').length, 4, `expected all 4 extra-pattern markers to match, got ${JSON.stringify(noteIds)}`)
+  assert.ok(noteFindings.filter(f => f.id === 'extra-pattern').every(f => /^<redacted> \(\d+ chars\)$/.test(f.text)), 'extra-pattern findings must use redacted format')
+  assert.ok(noteFindings.filter(f => f.id === 'draft-marker').every(f => f.text.includes('<redacted>')), 'cross-rule snippets must redact neighboring extra-pattern markers')
+  assertNoPrivateLeak(leaked, 'notes.txt cross-rule leak')
+
+  // 2. Staged .scan-extra: flagged as forbidden-file + extra-pattern + personal-email/path, and still prints zero private text.
+  rmSync(join(repo, 'notes.txt'))
+  git(repo, ['add', '-f', '.scan-extra'])
+  const staged = runScan(join(repo, 'scripts', 'scan.mjs'), repo)
+  assert.equal(staged.status, 1)
+  const extraIds = mustFixIds(staged.findings, '.scan-extra')
+  assert.ok(extraIds.includes('forbidden-file'), `expected forbidden-file on staged .scan-extra, got ${JSON.stringify(extraIds)}`)
+  assert.ok(extraIds.includes('extra-pattern'), `expected extra-pattern on staged .scan-extra, got ${JSON.stringify(extraIds)}`)
+  assert.ok(extraIds.includes('personal-email'), `expected personal-email on staged .scan-extra, got ${JSON.stringify(extraIds)}`)
+  assert.ok(extraIds.includes('personal-path'), `expected personal-path on staged .scan-extra, got ${JSON.stringify(extraIds)}`)
+  assertNoPrivateLeak(staged, 'staged .scan-extra')
+})
+
+test('scan.mjs redacts secret prefixes overlapping extra markers, overlapping prefix/longer markers, and invalid regex errors without leaking patterns', () => {
+  const { repo } = initMinimalGitRepo()
+  const tok = syntheticToken()
+  const secretPrefixMarker = tok.slice(0, 6)
+  const shortPrefix = 'OverlapMark'
+  const longerPrefix = 'OverlapMarkTail99'
+  const draftTag = ['DRAFT', 'for'].join(' ')
+  writeFileSync(join(repo, '.scan-extra'), [secretPrefixMarker, shortPrefix, longerPrefix].join('\n') + '\n')
+  writeFileSync(join(repo, 'mixed.txt'), [
+    `token = ${tok}`,
+    `${draftTag} ${longerPrefix}`,
+  ].join('\n') + '\n')
+
+  const res = runScan(join(repo, 'scripts', 'scan.mjs'), repo)
+  assert.equal(res.status, 1)
+  const mixedFindings = res.findings.filter(f => f.level === 'must fix' && f.file === 'mixed.txt')
+  const ghFindings = mixedFindings.filter(f => f.id === 'secret-github')
+  assert.equal(ghFindings.length, 1)
+  assert.equal(ghFindings[0].text, `<redacted> (${tok.length} chars)`)
+  const draftFindings = mixedFindings.filter(f => f.id === 'draft-marker')
+  assert.equal(draftFindings.length, 1)
+  assert.ok(draftFindings[0].text.includes('<redacted>'))
+  const combined = `${res.stdout}\n${res.stderr}\n${JSON.stringify(res.findings)}`
+  for (const sensitive of [secretPrefixMarker, shortPrefix, longerPrefix, 'Tail99']) {
+    assert.ok(!combined.includes(sensitive), `report must never echo "${sensitive}"`)
+  }
+
+  // Invalid regex in SCAN_EXTRA_PATTERNS must fail with exit code 2 without echoing valid markers or raw regex text.
+  const secretBeforeBad = 'PrivateBeforeBrokenRegex77'
+  const badRes = runScan(join(repo, 'scripts', 'scan.mjs'), repo, {
+    SCAN_EXTRA_PATTERNS: `${secretBeforeBad}\n(unclosed-regex-marker-99\n`,
+  })
+  assert.equal(badRes.status, 2)
+  assert.match(badRes.stderr, /invalid extra scan pattern in SCAN_EXTRA_PATTERNS \(line 2\)/)
+  const badOut = `${badRes.stdout}\n${badRes.stderr}`
+  assert.ok(!badOut.includes(secretBeforeBad), 'stderr must never leak valid markers alongside an invalid regex')
+  assert.ok(!badOut.includes('unclosed-regex-marker-99'), 'stderr must never echo the invalid pattern text')
+
+  // Zero-width lookahead extra patterns must still fail with exit code 1 and redact same-line findings.
+  const { repo: zwRepo } = initMinimalGitRepo()
+  const zwMarker = 'ZeroWidthMarker99'
+  writeFileSync(join(zwRepo, 'only-zw.txt'), `clean line ${zwMarker}\n`)
+  const zwOnly = runScan(join(zwRepo, 'scripts', 'scan.mjs'), zwRepo, {
+    SCAN_EXTRA_PATTERNS: `(?=${zwMarker})\n`,
+  })
+  assert.equal(zwOnly.status, 1)
+  const zwFindings = zwOnly.findings.filter(f => f.level === 'must fix' && f.file === 'only-zw.txt')
+  assert.equal(zwFindings.length, 1)
+  assert.equal(zwFindings[0].id, 'extra-pattern')
+  assert.equal(zwFindings[0].text, '<redacted> (0 chars)')
+  assert.ok(!`${zwOnly.stdout}\n${JSON.stringify(zwOnly.findings)}`.includes(zwMarker))
+
+  writeFileSync(join(zwRepo, 'only-zw.txt'), `${draftTag} ${zwMarker}\n`)
+  const zwMixed = runScan(join(zwRepo, 'scripts', 'scan.mjs'), zwRepo, {
+    SCAN_EXTRA_PATTERNS: `(?=${zwMarker})\n`,
+  })
+  assert.equal(zwMixed.status, 1)
+  assert.ok(!`${zwMixed.stdout}\n${JSON.stringify(zwMixed.findings)}`.includes(zwMarker))
 })

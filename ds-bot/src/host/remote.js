@@ -140,6 +140,11 @@ export async function* feedEvents(subscribe, signal, stopSignal) {
 function stripRemoteLive(value) {
   if (!value || typeof value !== 'object') return value
   let next = value
+  if (Object.hasOwn(next, 'userQuestions') || Object.hasOwn(next, 'sessionQueues')) {
+    next = { ...next }
+    delete next.userQuestions
+    delete next.sessionQueues
+  }
   if (next.phone && typeof next.phone === 'object' && Object.hasOwn(next.phone, 'pairing')) {
     const phone = { ...next.phone }
     delete phone.pairing
@@ -195,7 +200,7 @@ export function createRemoteService(rt) {
 
     feed(signal) {
       return feedEvents((listener) => rt.subscribeFeed((event, data) => {
-        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs') return
+        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs' || event === 'workspace-changed') return
         listener(event, event === 'live' ? stripRemoteLive(data) : data)
       }), signal, this[STOP])
     }

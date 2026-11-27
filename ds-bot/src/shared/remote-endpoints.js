@@ -75,11 +75,12 @@ export const COMPUTER_ONLY_ENDPOINTS = new Set([
 // endpoint stays computer-only even if it is accidentally added to the team set.
 export const TEAM_COMPUTER_PREFIX_EXCEPTIONS = new Set(['computer-stop', 'computer-app-answer'])
 
-// Endpoint families whose whole purpose is this computer: pairing, raw Session logs,
-// background jobs, external API tokens, MCP setup, workspace files and terminals,
-// engine/plugin/speech/telemetry settings, and computer-use mediation. `computer-stop`
-// and `computer-app-answer` are the exceptions: the phone may stop computer control and
-// answer the access card while the computer itself stays in charge of that control.
+// Endpoint families whose whole purpose is this computer: pairing, raw Session logs
+// and desktop session controls, background jobs, external API tokens, MCP setup,
+// workspace files and terminals, engine/plugin/speech/telemetry settings, and
+// computer-use mediation. `computer-stop` and `computer-app-answer` are the exceptions:
+// the phone may stop computer control and answer the access card while the computer
+// itself stays in charge of that control.
 export const COMPUTER_ONLY_PREFIXES = Object.freeze([
   'phone-',
   'session-',

@@ -5,6 +5,7 @@ import { IconSettingsOutlineMedium } from './dsh-primitives.js'
 import { modelLine, modelName } from './bot-models-page.js'
 import { isLocalRoute } from './agent-routes.js'
 import { isImeComposing } from './enter-key.js'
+import { ESCAPE_PRIORITY, topEscapePriority, useEscape } from './overlay-hooks.js'
 import { t } from './i18n.js'
 
 // Every page, part, and key control, with English and Chinese keywords.
@@ -176,6 +177,7 @@ export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasS
     h('span', { className: 'bt-set-search-title' }, hit.title),
     hit.meta && hit.meta !== hit.title ? h('span', { className: 'bt-set-search-meta' }, hit.meta) : null))
   })
+  useEscape(onClose, true, { priority: ESCAPE_PRIORITY.PALETTE })
   return h('div', { className: 'bt-set-palette-layer' },
     h('div', { className: 'bt-set-palette-scrim', onMouseDown: onClose }),
     h('div', { className: 'bt-set-palette', role: 'dialog', 'aria-label': t('Search settings') },
@@ -199,6 +201,7 @@ export function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasS
             if (isImeComposing(event)) return
             if (event.key === 'Tab') { event.preventDefault(); return }
             if (event.key === 'Escape') {
+              if (topEscapePriority() > ESCAPE_PRIORITY.PALETTE) return
               event.preventDefault()
               event.stopPropagation()
               event.nativeEvent?.stopPropagation?.()

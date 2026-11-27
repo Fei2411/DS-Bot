@@ -131,9 +131,14 @@ const AGENT_MEDIA = new Set(['image', 'file-download', 'markdown-image'])
 const BROWSER_DENIED = { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
-function remoteState(state, { browser = false } = {}) {
+export function remoteState(state, { browser = false } = {}) {
   if (!state || typeof state !== 'object') return state
   let next = state
+  if (Object.hasOwn(next, 'userQuestions') || Object.hasOwn(next, 'sessionQueues')) {
+    next = { ...next }
+    delete next.userQuestions
+    delete next.sessionQueues
+  }
   if (next.phone && Object.hasOwn(next.phone, 'pairing')) {
     const phone = { ...next.phone }
     delete phone.pairing
@@ -292,7 +297,7 @@ export function install(rt) {
     const wantFeed = running !== null && (readyCount > 0 || hasPushDevices())
     if (wantFeed && feedUntap === null) {
       feedUntap = rt.feedTap((event, payload) => {
-        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs') return
+        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs' || event === 'workspace-changed') return
         if (readyCount > 0) {
           if (event === 'live') {
             running.emit(event, remoteState(payload, { browser: true }), (targetDeviceId) => {

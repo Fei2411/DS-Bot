@@ -33,6 +33,33 @@ export const hasUnreadBotReply = (bot: Pick<Bot, 'lastAt' | 'lastBotAt'>, unread
   && (bot.lastAt === undefined || bot.lastBotAt >= bot.lastAt)
 )
 
+// Merges an unchanged-revision live state poll into the previous snapshot and projects
+// per-Bot live tail metadata (lastAt, lastBotAt, latestTurn, preview) onto bots[].
+export function mergeTeamState(prev: TeamState | null, next: TeamState): TeamState {
+  const merged = next.unchanged === true && prev !== null ? { ...prev, ...next } : next
+  const tails = merged.botTails
+  if (tails === undefined || !Array.isArray(merged.bots)) return merged
+  let changed = false
+  const bots = merged.bots.map((bot) => {
+    const tail = tails[bot.id]
+    if (tail === undefined) return bot
+    const lastAt = tail.lastAt ?? bot.lastAt
+    const lastBotAt = tail.lastBotAt ?? bot.lastBotAt
+    const latestTurn = tail.latestTurn ?? bot.latestTurn
+    const preview = tail.preview ?? bot.preview
+    if (lastAt === bot.lastAt && lastBotAt === bot.lastBotAt && latestTurn === bot.latestTurn && preview === bot.preview) return bot
+    changed = true
+    return {
+      ...bot,
+      ...(lastAt !== undefined ? { lastAt } : {}),
+      ...(lastBotAt !== undefined ? { lastBotAt } : {}),
+      ...(latestTurn !== undefined ? { latestTurn } : {}),
+      ...(preview !== undefined ? { preview } : {}),
+    }
+  })
+  return changed ? { ...merged, bots } : merged
+}
+
 type Requests = Record<string, { status?: string }[] | undefined> | undefined
 const hasPending = (list: { status?: string }[] | undefined) => Array.isArray(list) && list.some(request => request?.status === 'pending')
 
@@ -59,7 +86,7 @@ export function botMarkState(
   const waits = blocking || own.some(entry => entry.taskId !== undefined) || taskWaitingApproval || (team?.learning?.[id]?.length ?? 0) > 0
   // Last-turn failure or active credential/balance block (mark.js lastTurnFailed).
   const failure = bot.failures?.[part]
-  const latestTurn = options?.latestTurn ?? bot.latestTurn
+  const latestTurn = options?.latestTurn ?? team?.botTails?.[id]?.latestTurn ?? bot.latestTurn
   const failed = bot.blocked !== undefined || (failure !== undefined && !(typeof failure.turn === 'number' && failure.turn >= 1 && typeof latestTurn === 'number' && latestTurn > failure.turn))
   // The computer's own word for what the Bot does (thinking, searching, waiting…).
   const said: unknown = team?.activity?.[id]

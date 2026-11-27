@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { isComputerHandoff } from '../../../ds-bot/src/client/mark-states.js'
 import type { Bot, TeamState } from '../connection.ts'
 import { runningActivityOf, workPhrase } from '../ui/phrases.ts'
-import { botMarkState, botPreviewKind, botRunning, hasUnreadBotReply, isTopBlockInView, ownWorkOf, shouldCelebrateSettle, workMarkState } from './mark-state.ts'
+import { botMarkState, botPreviewKind, botRunning, hasUnreadBotReply, isTopBlockInView, mergeTeamState, ownWorkOf, shouldCelebrateSettle, workMarkState } from './mark-state.ts'
 
 const reviewer = { id: 'reviewer', name: 'Reviewer', sessionId: 'reviewer-p2' } as Bot
 const team = (extra: Record<string, unknown>) => ({ bots: [reviewer], ...extra }) as unknown as TeamState
@@ -204,4 +204,27 @@ test('shouldCelebrateSettle matches desktop useSettled transitions', () => {
   assert.equal(shouldCelebrateSettle('failed', 'idle'), false)
   assert.equal(shouldCelebrateSettle('alert', 'idle'), false)
   assert.equal(shouldCelebrateSettle('working', 'failed'), false)
+})
+
+test('mergeTeamState projects live botTails onto bots[] on unchanged-revision polls', () => {
+  const prev = {
+    revision: 5,
+    liveKey: 'run:1',
+    bots: [{ ...reviewer, lastAt: 100, preview: 'Old', failures: { 'reviewer-p2': { turn: 2, code: 'SERVER' } }, latestTurn: 2 }],
+  } as unknown as TeamState
+  assert.equal(botMarkState(prev, prev.bots[0]), 'failed')
+
+  // Unchanged-revision poll after a stopped retry + Bot reply carries botTails without bots[].
+  const next = {
+    revision: 5,
+    unchanged: true,
+    liveKey: 'run:2',
+    botTails: { reviewer: { lastAt: 300, lastBotAt: 300, latestTurn: 3, preview: 'Fixed.' } },
+  } as unknown as TeamState
+  const merged = mergeTeamState(prev, next)
+  assert.equal(merged.bots[0].lastAt, 300)
+  assert.equal(merged.bots[0].lastBotAt, 300)
+  assert.equal(merged.bots[0].latestTurn, 3)
+  assert.equal(merged.bots[0].preview, 'Fixed.')
+  assert.equal(botMarkState(merged, merged.bots[0], { replied: hasUnreadBotReply(merged.bots[0], true) }), 'replied')
 })

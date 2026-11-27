@@ -11,6 +11,7 @@ import { build } from 'esbuild'
 // from the chat's hooks down to the textarea and the plugin's voice buttons.
 const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
 const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
+const deepViewReact = fileURLToPath(import.meta.resolve('deep-view/react'))
 const stubs = {
   'cells.js': 'export const Bubbles = ({ texts }) => ({ type: "bubbles", props: { texts, children: texts } })\nexport const ThinkingRow = ({ text, live }) => ({ type: "thinking", props: { text, live, children: [text] } })\nexport const EarlierParts = () => null\nexport const PartLine = () => null\nexport const ChatRows = (props) => ({ type: "chat-rows", props: { ...props, children: [] } })\nexport const Shimmer = () => null\nexport const Elapsed = () => null\nexport const workPhrase = () => ""\nexport const ToolCell = (props) => ({ type: "tool-cell", props: { ...props, children: [] } })\nexport const isBotTool = name => ["show_view", "ask_user", "request_secret", "message_bot", "computer_handoff"].includes(name)\n',
   'widget-cell.js': 'export const WidgetCell = () => null\nexport const WidgetDock = () => null\nexport const AnsweredReply = () => null\nexport const ViewCard = () => null\n',
@@ -27,6 +28,7 @@ const { outputFiles } = await build({
     setup(bundler) {
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-llm\/assistant-stream$/ }, () => ({ path: assistantStream }))
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-util-values$/ }, () => ({ path: utilValues }))
+      bundler.onResolve({ filter: /^deep-view\/react$/ }, () => ({ path: deepViewReact }))
       bundler.onResolve({ filter: /(src\/client\/(cells|widget-cell|model-menu|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
         const name = args.path.split('/').pop()
         return { path: name === 'dsh-primitives.js' ? 'primitives.js' : name, namespace: 'app-chat-stub' }
