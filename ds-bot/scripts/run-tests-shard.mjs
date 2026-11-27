@@ -139,6 +139,10 @@ function main(argv) {
   }
 
   const allTests = discoverTopLevelTests()
+  if (allTests.length === 0) {
+    console.error('run-tests-shard: no top-level test files found')
+    process.exit(1)
+  }
   const selected = selectShardFiles(allTests, opts.index, opts.total)
   if (opts.listOnly) {
     for (const file of selected) process.stdout.write(`${file}\n`)

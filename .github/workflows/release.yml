@@ -836,7 +836,10 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           node scripts/legacy-release-assets.mjs \
             "$RUNNER_TEMP/packages/DS-Bot-$version-mac-x64.zip"
-          node scripts/release-upload.mjs "$TAG" "$RUNNER_TEMP"/packages/* "$RUNNER_TEMP"/attach/*
+          # Upload updated SHA256SUMS.txt before publishing the macOS x64 archives so
+          # early downloaders never observe an archive missing from the checksum file.
+          node scripts/release-upload.mjs "$TAG" "$RUNNER_TEMP"/attach/*
+          node scripts/release-upload.mjs "$TAG" "$RUNNER_TEMP"/packages/*
       - name: Refresh the download table on the release
         if: github.event_name == 'release'
         run: gh release edit "$TAG" --notes-file "$RUNNER_TEMP/body.md"

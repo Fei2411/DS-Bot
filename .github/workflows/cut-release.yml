@@ -89,14 +89,18 @@ jobs:
             if [[ "$GITHUB_REF_NAME" == hotfix/* || "$GITHUB_REF_NAME" == fix/hot-* ]]; then
               git fetch origin "refs/heads/$GITHUB_REF_NAME:refs/remotes/origin/$GITHUB_REF_NAME"
               base_ref="origin/$GITHUB_REF_NAME"
-            else
+            elif [ "$GITHUB_REF_NAME" = "main" ]; then
               base_ref="origin/main"
+            else
+              echo "::error::Hotfix mode must be dispatched from a hotfix/*, fix/hot-*, or main branch (got '$GITHUB_REF_NAME')."
+              exit 1
             fi
             branch="hotfix/release-$version"
           else
             base_ref="origin/dev"
             branch="chore/release-$version"
           fi
+          base_sha="$(git rev-parse "$base_ref")"
 
           prerelease=false
           if [[ "$version" == *-* ]]; then prerelease=true; fi
@@ -105,6 +109,7 @@ jobs:
             echo "version=$version"
             echo "tag=$tag"
             echo "base_ref=$base_ref"
+            echo "base_sha=$base_sha"
             echo "branch=$branch"
             echo "prerelease=$prerelease"
           } | tee -a "$GITHUB_OUTPUT"
@@ -144,15 +149,32 @@ jobs:
           TARGET_VERSION: ${{ steps.meta.outputs.version }}
           TARGET_BRANCH: ${{ steps.meta.outputs.branch }}
           BASE_REF: ${{ steps.meta.outputs.base_ref }}
+          BASE_SHA: ${{ steps.meta.outputs.base_sha }}
         run: |
           set -euo pipefail
           git config user.name "${GITHUB_ACTOR}"
           git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
           if git ls-remote --exit-code --heads origin "$TARGET_BRANCH" >/dev/null 2>&1; then
             git fetch origin "$TARGET_BRANCH"
+            if [ "$MODE" = "hotfix" ] && [ "$GITHUB_REF_NAME" != "$TARGET_BRANCH" ]; then
+              prev_source="$(git log --format=%B origin/main.."origin/$TARGET_BRANCH" | awk -F': ' '/^Hotfix-Source: / { print $2; exit }')"
+              prev_sha="$(git log --format=%B origin/main.."origin/$TARGET_BRANCH" | awk -F': ' '/^Hotfix-Source-Sha: / { print $2; exit }')"
+              if [ -z "$prev_source" ] || [ "$prev_source" != "$GITHUB_REF_NAME" ]; then
+                echo "::error::Remote branch '$TARGET_BRANCH' already exists (recorded Hotfix-Source: '${prev_source:-unknown}') and does not match dispatch branch '$GITHUB_REF_NAME'. Delete the obsolete branch and close its PR before cutting a replacement hotfix."
+                exit 1
+              fi
+              if [ -z "$prev_sha" ] || ! git merge-base --is-ancestor "$prev_sha" "$BASE_REF" 2>/dev/null; then
+                echo "::error::Dispatch branch '$GITHUB_REF_NAME' ($BASE_SHA) does not descend from the source commit ($prev_sha) already merged into '$TARGET_BRANCH'. Delete the obsolete branch and close its PR before replacing it."
+                exit 1
+              fi
+            fi
             git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
             if ! git merge-base --is-ancestor "$BASE_REF" HEAD; then
-              git merge --no-edit "$BASE_REF"
+              if [ "$MODE" = "hotfix" ]; then
+                git merge --no-edit "$BASE_REF" -m "$(printf 'Merge %s into %s\n\nHotfix-Source: %s\nHotfix-Source-Sha: %s' "$BASE_REF" "$TARGET_BRANCH" "$GITHUB_REF_NAME" "$BASE_SHA")"
+              else
+                git merge --no-edit "$BASE_REF"
+              fi
             fi
           else
             git checkout -B "$TARGET_BRANCH" "$BASE_REF"
@@ -236,6 +258,7 @@ jobs:
         env:
           TARGET_TAG: ${{ steps.meta.outputs.tag }}
           TARGET_BRANCH: ${{ steps.meta.outputs.branch }}
+          BASE_SHA: ${{ steps.meta.outputs.base_sha }}
           RESOLVED_ISSUES: ${{ steps.milestone.outputs.resolved_issues }}
         run: |
           set -euo pipefail
@@ -248,7 +271,7 @@ jobs:
               README.md README.zh.md CHANGELOG.md \
               ds-bot/client.js ds-bot/src/shared/release-notes-generated.js
             if [ "$MODE" = "hotfix" ]; then
-              git commit -m "release: $TARGET_TAG" -m "Hotfix-Release: true"
+              git commit -m "release: $TARGET_TAG" -m "$(printf 'Hotfix-Release: true\nHotfix-Source: %s\nHotfix-Source-Sha: %s' "$GITHUB_REF_NAME" "$BASE_SHA")"
             else
               git commit -m "release: $TARGET_TAG"
             fi

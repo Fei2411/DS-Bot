@@ -385,6 +385,8 @@ describe('CI workflow separation and path classification', () => {
     assert.match(cutAllRuns, /--ignore-pr "\$existing_pr"/u)
     assert.match(cutAllRuns, /git ls-remote --exit-code --heads origin "\$TARGET_BRANCH"/u)
     assert.match(cutAllRuns, /git merge --no-edit "\$BASE_REF"/u)
+    assert.match(cutAllRuns, /Hotfix-Source:/u)
+    assert.match(cutAllRuns, /Hotfix-Source-Sha:/u)
     assert.doesNotMatch(cutAllRuns, /git push[^\n]*--force/u, 'cut-release.yml must reuse existing release branch and never force-push')
     assert.match(cutAllRuns, /<!-- auto-fixes -->/u)
     assert.match(cutAllRuns, /Hotfix-Release: true/u)
