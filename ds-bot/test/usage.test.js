@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { foldCalls, sqliteLedger } from '../src/host/usage.js'
+import { foldCalls, install as installUsage, sqliteLedger } from '../src/host/usage.js'
 import { fakeContext } from './fake-ctx.js'
 
 const header = (provider, model) => ({ type: 'request/header', data: { header: { config: { provider, model } }, reason: 'change' } })
@@ -603,18 +603,95 @@ test('SQLite v5 call_slots triggers and usageView accurately sum, replace, and d
 })
 
 test('usage ledger does not open or leak usage.sqlite while or after disposing', async (t) => {
-  const { existsSync } = await import('node:fs')
-  const { call, meter, home, stop } = start()
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-usage-dispose-'))
   t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
-  // Trigger openLedger() in flight via noteSession() and usageView, then dispose immediately before it settles.
-  const passed = (async function* () { yield { type: 'text', text: 'hi' } })()
-  meter({ sessionId: 'b2', messages: [] }, () => passed)
-  const inflight = call('usage', { timeZone: 'UTC' })
-  await stop()
-  await inflight
-  // Calling meter / usage after dispose must never recreate usage.sqlite in the removed home.
-  const after = (async function* () { yield { type: 'usage', usage: usage(10, 5) } })()
-  await drain(meter({ sessionId: 'b2', purpose: 'compaction', provider: 'deepseek', model: 'v4-flash', messages: [] }, () => after))
-  await call('usage', { timeZone: 'UTC' })
+  const ctx = fakeContext()
+  ctx.sessionController = { list: async () => ({ items: [] }), page: async () => ({ records: [], hasMore: false }), projections: async () => null }
+  const rt = {
+    ctx,
+    home,
+    state: { revision: 1, bots: {}, rooms: {}, agents: {} },
+    load: async () => {},
+    hasLoaded: () => true,
+    chatOf: id => id,
+    roomOf: () => undefined,
+    botOf: () => undefined,
+    own: () => undefined,
+    cachedCatalog: () => [],
+    warn: (...args) => assert.fail(`unexpected warn: ${args.join(' ')}`),
+  }
+  installUsage(rt)
+  // recordUsage() invokes openLedger() synchronously so `opening` is genuinely in flight when dispose() runs.
+  rt.recordUsage({ sessionId: 'b', kind: 'chat', provider: 'deepseek', model: 'v4', usage: usage(10, 5) })
+  const viewInFlight = rt.usageView({ timeZone: 'UTC' })
+  await ctx.dispose()
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  await viewInFlight
+  // Post-dispose calls must fall back cleanly without recreating home or usage.sqlite.
+  rt.recordUsage({ sessionId: 'b', kind: 'chat', provider: 'deepseek', model: 'v4', usage: usage(20, 10) })
+  const after = await rt.usageView({ timeZone: 'UTC' })
+  assert.deepEqual(after.rows, [])
   assert.equal(existsSync(join(home, 'usage.sqlite')), false)
+  assert.equal(existsSync(home), false)
+})
+
+test('usage scan aborting on dispose never touches closed ledger or warns, and active metered streams flush before close', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-usage-scan-dispose-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  let releasePage
+  const ctx = fakeContext()
+  ctx.sessionController = {
+    list: async () => ({ items: [{ sessionId: 's-slow', projections: { kind: 'sequenced', asOfSeq: 1 } }] }),
+    projections: async () => ({ asOfSeq: 1 }),
+    page: async (_req, signal) => new Promise((resolve, reject) => {
+      releasePage = () => resolve({ records: [{ event: header('deepseek', 'v4') }, { event: message(1, 0, usage(50, 5), HOUR) }], hasMore: false })
+      signal?.addEventListener('abort', () => reject(signal.reason ?? new Error('aborted')), { once: true })
+    }),
+  }
+  const rt = {
+    ctx,
+    home,
+    state: { revision: 1, bots: {}, rooms: {}, agents: {} },
+    load: async () => {},
+    hasLoaded: () => true,
+    chatOf: id => id,
+    roomOf: () => undefined,
+    botOf: () => undefined,
+    own: () => undefined,
+    cachedCatalog: () => [],
+    warn: (...args) => assert.fail(`unexpected warn during dispose: ${args.join(' ')}`),
+  }
+  installUsage(rt)
+  // Start a metered auxiliary stream (e.g. image reading) and receive its usage chunk before finalization.
+  const meter = ctx.listeners.get('llm/stream').at(-1)
+  let releaseStream
+  const stream = meter(
+    { sessionId: 'b1', purpose: 'image', provider: 'deepseek', model: 'v4-vision', messages: [] },
+    async function* () {
+      yield { type: 'usage', usage: usage(600, 20) }
+      await new Promise(resolve => { releaseStream = resolve })
+    },
+  )
+  // Kick off usageView() so openLedger() opens usage.sqlite and scan() blocks inside sessionController.page().
+  const scanning = rt.usageView({ timeZone: 'UTC' })
+  const firstChunk = await stream.next()
+  assert.equal(firstChunk.value.type, 'usage')
+  const streamDone = stream.next()
+  while (releasePage === undefined || releaseStream === undefined) await new Promise(resolve => setTimeout(resolve, 5))
+  // Disposing must flush the active meter's 600 tokens before closing SQLite and abort scan() without warning.
+  await ctx.dispose()
+  releasePage()
+  releaseStream()
+  await streamDone
+  await scanning
+
+  // Reopen usage.sqlite directly and verify the 600 tokens from the active metered stream survived unload.
+  const { DatabaseSync } = await import('node:sqlite')
+  const db = new DatabaseSync(join(home, 'usage.sqlite'))
+  try {
+    const row = db.prepare("SELECT input, output FROM calls WHERE kind = 'image'").get()
+    assert.deepEqual({ input: row?.input, output: row?.output }, { input: 600, output: 20 })
+  } finally {
+    db.close()
+  }
 })

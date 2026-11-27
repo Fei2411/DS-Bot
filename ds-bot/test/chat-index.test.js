@@ -122,8 +122,9 @@ test('FTS and indexed history agree, including subsequent catch-up and empty rea
   assert.deepEqual((await rt.searchOwnChat('b', 'message')).lines, [])
 })
 
-test('chat index does not open or leak chat-index.sqlite while or after disposing', async () => {
+test('chat index does not open or leak chat-index.sqlite while or after disposing', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-chat-index-dispose-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
   const disposers = []
   const rt = {
     home,
@@ -150,4 +151,43 @@ test('chat index does not open or leak chat-index.sqlite while or after disposin
   await rt.ownChatBrief({ id: 'b', name: 'Bot' })
   assert.equal(existsSync(indexPath), false)
   assert.equal(existsSync(home), false)
+})
+
+test('disposing during in-flight multi-part catchUp never touches the closed database or warns', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-chat-index-catchup-dispose-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const disposers = []
+  let releasePage
+  let pageCalls = 0
+  const rt = {
+    home,
+    ctx: {
+      effect: fn => disposers.push(fn()),
+      sessionController: {
+        page: async () => {
+          pageCalls += 1
+          if (pageCalls === 1) await new Promise(resolve => { releasePage = resolve })
+          return { records: [{ event: { seq: 0, time: 1, text: 'hello' } }], hasMore: false }
+        },
+      },
+    },
+    partsOf: () => [
+      { sessionId: 's1', number: 1, startedAt: 0 },
+      { sessionId: 's2', number: 2, startedAt: 1 },
+    ],
+    partLines: async function* () {},
+    resolveAgent: async () => ({ session: { seq: 1 } }),
+    historyEntry: event => ({ text: event.text, who: 'user', keepAnswers: true }),
+    clock: time => String(time),
+    warn: (...args) => assert.fail(`unexpected warn during dispose: ${args.join(' ')}`),
+  }
+  install(rt)
+  const pending = rt.latestOwnChat('b', { limit: 5 })
+  // Wait until openIndex() succeeded and part 1 is blocked inside sessionController.page().
+  while (releasePage === undefined) await new Promise(resolve => setTimeout(resolve, 5))
+  await Promise.all(disposers.map(fn => fn()))
+  releasePage()
+  await pending
+  // Second part must never have been indexed against the closed DB.
+  assert.equal(pageCalls, 1)
 })

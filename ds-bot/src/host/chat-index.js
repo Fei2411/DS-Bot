@@ -265,20 +265,24 @@ export function install(rt) {
   const catchingUp = new Map()
   const redactText = text => (typeof rt.redactSecrets === 'function' ? rt.redactSecrets(String(text ?? '')) : String(text ?? ''))
   function catchUp(index, part, { group = false } = {}) {
+    if (disposed || index !== chatIndex) return Promise.resolve()
     const running = catchingUp.get(part.sessionId)
     if (running) return running
     const job = (async () => {
+      if (disposed || index !== chatIndex) return
       const mark = index.mark.get(part.sessionId)
       if (mark?.sealed) return
       const through = mark?.through ?? -1
       const events = []
       for await (const event of eventsBackwards(part.sessionId, AbortSignal.timeout(INDEX_TIMEOUT_MS), Infinity)) {
+        if (disposed || index !== chatIndex) return
         if (event.seq <= through) break
         events.push(event)
       }
+      if (disposed || index !== chatIndex) return
       if (events.length > 0 && events.at(-1).seq !== through + 1) throw new Error(`the history of ${part.sessionId} came back with a gap`)
       events.reverse()
-      if (index !== chatIndex) return
+      if (disposed || index !== chatIndex) return
       let keep = mark ? mark.keep === 1 : false
       let turn = mark?.turn ?? -1
       const seal = part.endedAt !== undefined
@@ -332,20 +336,24 @@ export function install(rt) {
   // existing v5 database still get full tool-output coverage without wiping text rows.
   const catchingUpTools = new Map()
   function catchUpToolOutputs(index, part) {
+    if (disposed || index !== chatIndex) return Promise.resolve()
     const running = catchingUpTools.get(part.sessionId)
     if (running) return running
     const job = (async () => {
+      if (disposed || index !== chatIndex) return
       const mark = index.toolMark.get(part.sessionId)
       if (mark?.sealed) return
       const through = mark?.through ?? -1
       const events = []
       for await (const event of eventsBackwards(part.sessionId, AbortSignal.timeout(INDEX_TIMEOUT_MS), Infinity)) {
+        if (disposed || index !== chatIndex) return
         if (event.seq <= through) break
         events.push(event)
       }
+      if (disposed || index !== chatIndex) return
       if (events.length > 0 && events.at(-1).seq !== through + 1) throw new Error(`the history of ${part.sessionId} came back with a gap`)
       events.reverse()
-      if (index !== chatIndex) return
+      if (disposed || index !== chatIndex) return
       const seal = part.endedAt !== undefined
         && !Number.isInteger(part.throughSeq)
         && rt.isBotSession?.(part.sessionId) !== true
@@ -402,11 +410,14 @@ export function install(rt) {
   // (`hidden`): it is in context, and its own question would match.
   async function indexedParts(botId, askingId, { roomId } = {}) {
     const index = await openIndex()
-    if (index === null) return { index }
+    if (index === null || disposed || index !== chatIndex) return { index: null }
     const parts = resolveParts(botId, askingId, roomId)
     const group = roomId !== undefined
     // A part that cannot be read now is searched as far as it was indexed.
-    for (const part of parts) await catchUp(index, part, { group }).catch(error => rt.warn('ds-bot: indexing %s failed: %s', part.sessionId, error))
+    for (const part of parts) {
+      if (disposed || index !== chatIndex) return { index: null }
+      await catchUp(index, part, { group }).catch(error => rt.warn('ds-bot: indexing %s failed: %s', part.sessionId, error))
+    }
     if (disposed || index !== chatIndex) return { index: null }
     const turn = askingId !== undefined && askingId === parts.at(-1)?.sessionId ? index.mark.get(askingId)?.turn : undefined
     return { index, parts, hidden: turn === undefined || turn < 0 ? undefined : { session: askingId, from: turn } }
@@ -417,7 +428,7 @@ export function install(rt) {
   async function searchOwnChat(botId, query, { askingId, limit = OWN_CHAT_SEARCH, roomId } = {}) {
     const terms = [...new Set(query.toLowerCase().split(/\s+/).filter(Boolean))].slice(0, SEARCH_TERMS_MAX)
     const { index, parts, hidden } = await indexedParts(botId, askingId, { roomId })
-    if (index === null) return { lines: await scanOwnChat(botId, query, limit, askingId, { roomId }), every: true }
+    if (index === null || disposed || index !== chatIndex) return { lines: await scanOwnChat(botId, query, limit, askingId, { roomId }), every: true }
     if (parts.length === 0) return { lines: [], every: true }
     const sessions = parts.map(part => part.sessionId)
     const bounds = parts
@@ -469,7 +480,7 @@ export function install(rt) {
   // The latest messages across all parts, oldest first.
   async function latestOwnChat(botId, { askingId, limit = OWN_CHAT_READ, roomId } = {}) {
     const { index, parts, hidden } = await indexedParts(botId, askingId, { roomId })
-    if (index === null) return scanOwnChat(botId, '', limit, askingId, { roomId })
+    if (index === null || disposed || index !== chatIndex) return scanOwnChat(botId, '', limit, askingId, { roomId })
     const rows = []
     for (const part of [...parts].reverse()) {
       let below = hidden?.session === part.sessionId ? hidden.from : Number.MAX_SAFE_INTEGER
@@ -484,7 +495,7 @@ export function install(rt) {
   // The messages around an anchor, in its part.
   async function aroundOwnChat(botId, anchor, askingId, { roomId } = {}) {
     const { index, parts } = await indexedParts(botId, askingId, { roomId })
-    if (index === null) return { error: 'Anchors need the chat index, which is unavailable here. Search with words instead.' }
+    if (index === null || disposed || index !== chatIndex) return { error: 'Anchors need the chat index, which is unavailable here. Search with words instead.' }
     const found = /(?:part\s*)?(\d+)?\s*#\s*(\d+)/i.exec(anchor)
     if (found === null) return { error: `"${anchor}" is not an anchor. Anchors look like "part 2 #1234", or "#1234" in the current part.` }
     const number = found[1] === undefined ? parts.length : Number(found[1])
@@ -574,9 +585,10 @@ export function install(rt) {
       if (pinnedPart === undefined) return { found: false }
       if (Number.isInteger(pinnedPart.throughSeq) && pinnedSeq > pinnedPart.throughSeq) return { found: false }
     }
-    if (index !== null) {
+    if (index !== null && !disposed && index === chatIndex) {
       const targetParts = pinnedPart !== undefined ? [pinnedPart] : parts
       for (const part of targetParts) {
+        if (disposed || index !== chatIndex) break
         await catchUpToolOutputs(index, part).catch(error => rt.warn('ds-bot: indexing tool outputs for %s failed: %s', part.sessionId, error))
       }
       if (!disposed && index === chatIndex) {
@@ -672,7 +684,7 @@ export function install(rt) {
   }
 
   function forgetChatIndexSession(sessionId) {
-    if (typeof sessionId !== 'string' || sessionId === '' || chatIndex === undefined) return
+    if (disposed || typeof sessionId !== 'string' || sessionId === '' || !chatIndex) return
     const index = chatIndex
     try {
       index.db.exec('BEGIN')
