@@ -354,7 +354,6 @@ const ZH = {
   '{count} models': '{count} 个模型',
   'Refresh models': '刷新模型列表',
   'Refreshing…': '正在刷新…',
-  'Use catalog levels for {model} ({levels})': '对 {model} 使用目录档位（{levels}）',
   'Models from the endpoint': '接口返回的模型',
   "Upstream didn't return": '上游未返回',
   'Keep the ids you still want by hand.': '想保留的 ID 请手动勾选。',

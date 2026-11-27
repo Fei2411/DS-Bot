@@ -596,7 +596,6 @@ var JA = {
   "{count} models": "{count} 個のモデル",
   "Refresh models": "モデル一覧を更新",
   "Refreshing…": "更新中…",
-  "Use catalog levels for {model} ({levels})": "{model} にカタログのレベルを使用（{levels}）",
   "Models from the endpoint": "エンドポイントのモデル",
   "Upstream didn't return": "上流から返されませんでした",
   "Keep the ids you still want by hand.": "残したい ID は手動で選択してください。",
@@ -4221,7 +4220,6 @@ var KO = {
   "{count} models": "모델 {count}개",
   "Refresh models": "모델 새로고침",
   "Refreshing…": "새로고침 중…",
-  "Use catalog levels for {model} ({levels})": "{model}에 카탈로그 단계 사용 ({levels})",
   "Models from the endpoint": "엔드포인트의 모델",
   "Upstream didn't return": "업스트림에서 반환되지 않음",
   "Keep the ids you still want by hand.": "남기고 싶은 ID는 직접 선택하세요.",
@@ -7888,7 +7886,6 @@ var ES = {
   "{count} models": "{count} modelos",
   "Refresh models": "Actualizar modelos",
   "Refreshing…": "Actualizando…",
-  "Use catalog levels for {model} ({levels})": "Usar los niveles del catálogo para {model} ({levels})",
   "Models from the endpoint": "Modelos del endpoint",
   "Upstream didn't return": "No devuelto por el upstream",
   "Keep the ids you still want by hand.": "Marca a mano los ID que quieras conservar.",
@@ -11552,7 +11549,6 @@ var FR = {
   "{count} models": "{count} modèles",
   "Refresh models": "Actualiser les modèles",
   "Refreshing…": "Actualisation…",
-  "Use catalog levels for {model} ({levels})": "Utiliser les niveaux du catalogue pour {model} ({levels})",
   "Models from the endpoint": "Modèles de l’endpoint",
   "Upstream didn't return": "Non renvoyé par l’amont",
   "Keep the ids you still want by hand.": "Cochez à la main les ID que vous voulez garder.",
@@ -15177,7 +15173,6 @@ var DE = {
   "{count} models": "{count} Modelle",
   "Refresh models": "Modelle aktualisieren",
   "Refreshing…": "Wird aktualisiert…",
-  "Use catalog levels for {model} ({levels})": "Katalogstufen für {model} verwenden ({levels})",
   "Models from the endpoint": "Modelle vom Endpunkt",
   "Upstream didn't return": "Vom Upstream nicht zurückgegeben",
   "Keep the ids you still want by hand.": "Behalte gewünschte IDs manuell.",
@@ -18719,7 +18714,6 @@ var ZH = {
   "{count} models": "{count} 个模型",
   "Refresh models": "刷新模型列表",
   "Refreshing…": "正在刷新…",
-  "Use catalog levels for {model} ({levels})": "对 {model} 使用目录档位（{levels}）",
   "Models from the endpoint": "接口返回的模型",
   "Upstream didn't return": "上游未返回",
   "Keep the ids you still want by hand.": "想保留的 ID 请手动勾选。",
@@ -60062,7 +60056,7 @@ function ProviderRow({ provider, apply: apply2, actions, roster, revision, open,
       setConfirmRemove(true);
       return;
     }
-    const models2 = selected.map((row) => row.useCatalogLevels ? { ...row.model, useCatalogLevels: true } : row.returned ? row.model : { id: row.id });
+    const models2 = selected.map((row) => row.returned ? row.model : { id: row.id });
     void apply2(actions.saveProviderModels({ provider: provider.id, models: models2, revision: draft.revision ?? revision })).then((ok) => {
       if (!ok) return;
       setDraft(null);
@@ -60085,19 +60079,10 @@ function ProviderRow({ provider, apply: apply2, actions, roster, revision, open,
         onClick: refresh
       }, refreshing ? t("Refreshing…") : t("Refresh models")) : null
     ),
-    draft !== null ? (0, import_react68.createElement)(ModelDraft, {
-      provider,
-      draft,
-      roster,
-      onToggle: toggle,
-      onCatalog: (id, enabled) => setDraft((current2) => ({ ...current2, rows: current2.rows.map((row) => row.id === id ? { ...row, useCatalogLevels: enabled } : row) })),
-      onSave: save,
-      onCancel: () => {
-        setDraft(null);
-        setConfirmRemove(false);
-      },
-      confirmRemove
-    }) : [
+    draft !== null ? (0, import_react68.createElement)(ModelDraft, { provider, draft, roster, onToggle: toggle, onSave: save, onCancel: () => {
+      setDraft(null);
+      setConfirmRemove(false);
+    }, confirmRemove }) : [
       provider.models.length > 0 ? (0, import_react68.createElement)(
         "div",
         { className: "bt-provider-models" },
@@ -60150,7 +60135,7 @@ function ProviderRow({ provider, apply: apply2, actions, roster, revision, open,
     ) : null
   );
 }
-function ModelDraft({ provider, draft, roster, onToggle, onCatalog, onSave, onCancel, confirmRemove }) {
+function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confirmRemove }) {
   const { selected, added, removed } = draftSummary(draft);
   const { switching, failed, local } = fallbacksFor(provider, draft, roster);
   const localNames = [...new Set(local.map((bot) => bot.name))];
@@ -60178,12 +60163,6 @@ function ModelDraft({ provider, draft, roster, onToggle, onCatalog, onSave, onCa
       (0, import_react68.createElement)("div", { className: "bt-secret-edit-label" }, t("Models from the endpoint")),
       (0, import_react68.createElement)("div", { className: "bt-secret-bots bt-provider-found" }, returned.map(modelButton))
     ) : (0, import_react68.createElement)("div", { className: "bt-set-hint" }, t("The endpoint lists no models.")),
-    ...selected.filter((row) => row.model.hasCustomLevels).map((row) => (0, import_react68.createElement)(
-      "label",
-      { key: "catalog-" + row.id, className: "bt-set-hint" },
-      (0, import_react68.createElement)("input", { type: "checkbox", checked: row.useCatalogLevels === true, onChange: (event) => onCatalog(row.id, event.target.checked) }),
-      t("Use catalog levels for {model} ({levels})", { model: row.id, levels: row.model.catalogLevels.join(", ") })
-    )),
     unreturned.length > 0 ? (0, import_react68.createElement)(
       "div",
       { className: "bt-provider-draft-group" },

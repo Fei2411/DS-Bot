@@ -466,7 +466,6 @@ export const JA = {
   "{count} models": "{count} 個のモデル",
   "Refresh models": "モデル一覧を更新",
   "Refreshing…": "更新中…",
-  'Use catalog levels for {model} ({levels})': '{model} にカタログのレベルを使用（{levels}）',
   "Models from the endpoint": "エンドポイントのモデル",
   "Upstream didn't return": "上流から返されませんでした",
   "Keep the ids you still want by hand.": "残したい ID は手動で選択してください。",

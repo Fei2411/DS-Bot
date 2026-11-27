@@ -470,7 +470,6 @@ export const KO = {
   '{count} models': '모델 {count}개',
   'Refresh models': '모델 새로고침',
   'Refreshing…': '새로고침 중…',
-  'Use catalog levels for {model} ({levels})': '{model}에 카탈로그 단계 사용 ({levels})',
   'Models from the endpoint': '엔드포인트의 모델',
   "Upstream didn't return": '업스트림에서 반환되지 않음',
   'Keep the ids you still want by hand.': '남기고 싶은 ID는 직접 선택하세요.',

@@ -466,7 +466,6 @@ export const FR = {
   "{count} models": "{count} modèles",
   "Refresh models": "Actualiser les modèles",
   "Refreshing…": "Actualisation…",
-  'Use catalog levels for {model} ({levels})': 'Utiliser les niveaux du catalogue pour {model} ({levels})',
   "Models from the endpoint": "Modèles de l’endpoint",
   "Upstream didn't return": "Non renvoyé par l’amont",
   "Keep the ids you still want by hand.": "Cochez à la main les ID que vous voulez garder.",

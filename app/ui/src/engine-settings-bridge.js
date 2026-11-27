@@ -134,7 +134,6 @@ export function registerEngineSettingsPlugin(runtime, { pages, loadEngineSetting
     ...(Array.isArray(pages) ? { pages } : {}),
   }, (ctx) => {
     const loadWithRetry = attempt => loadEngineSettings(attempt + (ctx.retryCount ?? 0))
-    const LazyModelSection = createRetryableLazy(loadWithRetry, mod => mod.ModelThinkingSettingsPage)
     const LazyAccountSection = createRetryableLazy(loadWithRetry, mod => mod.AccountSettingsPage)
     const LazyPluginsSection = createRetryableLazy(loadWithRetry, mod => mod.PluginsSettingsPage)
     const LazyAgentPresetsSection = createRetryableLazy(loadWithRetry, mod => mod.AgentPresetsSettingsPage)
@@ -144,7 +143,6 @@ export function registerEngineSettingsPlugin(runtime, { pages, loadEngineSetting
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'account', priority: 10, meta: { labelKey: 'Account' } }, LazyAccountSection)
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'plugins', priority: 20, meta: { labelKey: 'Plugins' } }, LazyPluginsSection)
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'agent-presets', priority: 30, meta: { labelKey: 'Agent presets' } }, LazyAgentPresetsSection)
-    ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'models', priority: 35, meta: { labelKey: 'Models' } }, LazyModelSection)
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'archived-sessions', priority: 40, meta: { labelKey: 'Archived sessions', surface: 'agent' } }, LazyArchivedSessionsSection)
     ctx.slot({ name: SETTINGS_GENERAL_ITEM_SLOT, id: 'language', priority: 1, meta: { sync: true } }, LanguageGeneralItem)
     ctx.slot({ name: SETTINGS_GENERAL_ITEM_SLOT, id: 'session-log-deepseek', priority: 10 }, LazySessionLogItem)
