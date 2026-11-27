@@ -168,13 +168,20 @@ test('IPC requests correlate replies and use fixed errors rather than remote dia
   assert.equal(ipc.listenerCount('message'), 0)
 })
 
-test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai and relay, preserving Default semantics', async t => {
+test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai and relay, preserving Default semantics and prompt cache prefix', async t => {
   const requests = []
+  let nextResponse
   const upstream = createServer(async (req, res) => {
     const chunks = []
     for await (const chunk of req) chunks.push(chunk)
-    requests.push(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+    requests.push({ headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) })
     res.writeHead(200, { 'content-type': 'text/event-stream' })
+    const custom = nextResponse
+    nextResponse = undefined
+    if (custom) {
+      res.end(custom.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''))
+      return
+    }
     res.end([
       `data: ${JSON.stringify({ type: 'response.completed', response: { id: 'resp_1', status: 'completed', output: [{ type: 'message', id: 'msg_1', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: 'ok', annotations: [] }] }], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } })}`,
       '',
@@ -293,32 +300,94 @@ test('ChatGPT models expose selectable reasoning efforts through real DSH pi-ai 
   const used = catalog.find(entry => entry.ref === 'openai-chatgpt/gpt-5.5')
   assert.deepEqual(used.reasoning.efforts.map(e => e.id), ['low', 'medium', 'high', 'xhigh'])
 
-  const runTurn = async (model, reasoningEffort) => {
+  const runTurn = async (model, reasoningEffort, extra = {}) => {
     const chunks = []
     for await (const chunk of ctx.llm.stream({
       provider: 'openai-chatgpt',
       model,
       system: 'Be brief.',
+      sessionId: 'sess-chatgpt-cache-1',
       ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       messages: [dshLlm.createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })],
+      ...extra,
     })) chunks.push(chunk)
-    assert.ok(chunks.some(chunk => chunk.type === 'finish'))
+    const finish = chunks.find(chunk => chunk.type === 'finish')
+    assert.ok(finish)
+    return { chunks, finish }
   }
 
   // Default (unset effort) on gpt-5.5 omits `reasoning` instead of disabling thinking,
-  // and keeps the developer role intact through the real ChatGPT relay.
+  // requests encrypted reasoning for stateless multi-turn cache continuity, keeps the
+  // system prompt in `input[0]` as `developer` (no uncached top-level `instructions`),
+  // and forwards session affinity headers + prompt_cache_key.
   await runTurn('gpt-5.5', undefined)
-  assert.equal(requests.at(-1).reasoning, undefined)
-  assert.equal(requests.at(-1).input[0].role, 'developer')
+  assert.equal(requests.at(-1).body.reasoning, undefined)
+  assert.deepEqual(requests.at(-1).body.include, ['reasoning.encrypted_content'])
+  assert.equal(requests.at(-1).body.instructions, undefined)
+  assert.equal(requests.at(-1).body.input[0].role, 'developer')
+  assert.equal(requests.at(-1).body.prompt_cache_key, 'sess-chatgpt-cache-1')
+  assert.equal(requests.at(-1).headers['session-id'], 'sess-chatgpt-cache-1')
+  assert.equal(requests.at(-1).headers['x-client-request-id'], 'sess-chatgpt-cache-1')
 
   // Explicit 'xhigh' sends reasoning.effort + reasoning.encrypted_content through the relay.
   await runTurn('gpt-6.2-sol', 'xhigh')
-  assert.deepEqual(requests.at(-1).reasoning, { effort: 'xhigh', summary: 'auto' })
-  assert.deepEqual(requests.at(-1).include, ['reasoning.encrypted_content'])
+  assert.deepEqual(requests.at(-1).body.reasoning, { effort: 'xhigh', summary: 'auto' })
+  assert.deepEqual(requests.at(-1).body.include, ['reasoning.encrypted_content'])
 
-  // Model with default_reasoning_level === 'none' sends effort='none' for explicit 'off'.
+  // Model with default_reasoning_level === 'none' sends effort='none' for explicit 'off'
+  // and omits reasoning.encrypted_content.
   await runTurn('gpt-5.4', 'off')
-  assert.deepEqual(requests.at(-1).reasoning, { effort: 'none' })
+  assert.deepEqual(requests.at(-1).body.reasoning, { effort: 'none' })
+  assert.equal(requests.at(-1).body.include, undefined)
+
+  // Non-reasoning model (gpt-4o) keeps system prompt in `input[0]` as `developer`
+  // (never hoisted to uncached top-level `instructions`) and never adds `include`.
+  await runTurn('gpt-4o', undefined)
+  assert.equal(requests.at(-1).body.instructions, undefined)
+  assert.equal(requests.at(-1).body.input[0].role, 'developer')
+  assert.equal(requests.at(-1).body.include, undefined)
+
+  // Multi-step tool-call replay on Default effort (gpt-6.2-sol): encrypted reasoning
+  // returned in step 1 is replayed verbatim in step 2 alongside the namespaced tool call,
+  // with byte-identical prefix, tools, prompt_cache_key, and session-id headers.
+  const toolDef = { name: 'get_weather', description: 'Look up weather', parameters: { type: 'object', properties: { city: { type: 'string' } } } }
+  const reasoningItem = { type: 'reasoning', id: 'rs_step1', summary: [{ type: 'summary_text', text: 'Checking weather.' }], encrypted_content: 'enc_blob_step1' }
+  const callItem = { type: 'function_call', id: 'fc_step1', call_id: 'call_step1', name: 'get_weather', namespace: 'ds_bot', arguments: '{"city":"Tokyo"}' }
+  nextResponse = [
+    { type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'rs_step1', summary: [] } },
+    { type: 'response.output_item.done', output_index: 0, item: reasoningItem },
+    { type: 'response.output_item.added', output_index: 1, item: { ...callItem, arguments: '' } },
+    { type: 'response.function_call_arguments.done', output_index: 1, item_id: 'fc_step1', arguments: callItem.arguments },
+    { type: 'response.output_item.done', output_index: 1, item: callItem },
+    { type: 'response.completed', response: { id: 'resp_step1', status: 'completed', output: [reasoningItem, callItem], usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 } } },
+  ]
+  const userMsg = dshLlm.createUserMessage({ content: [{ type: 'text', text: 'Weather in Tokyo?' }], source: { kind: 'user' } })
+  const step1 = await runTurn('gpt-6.2-sol', undefined, { tools: [toolDef], messages: [userMsg] })
+  const step1Req = requests.at(-1)
+  assert.deepEqual(step1Req.body.include, ['reasoning.encrypted_content'])
+  const blocks = step1.chunks.filter(chunk => chunk.type === 'block-end').map(chunk => chunk.block)
+  const toolCallBlock = blocks.find(block => block.type === 'tool-call')
+  assert.ok(toolCallBlock)
+  const assistantMsg = dshLlm.createAssistantMessage({
+    content: blocks,
+    source: { provider: 'openai-chatgpt', model: 'gpt-6.2-sol', replayState: step1.finish.replayState },
+  })
+  const toolResultMsg = dshLlm.createToolResultMessage({
+    callId: toolCallBlock.id,
+    content: [{ type: 'text', text: '22C sunny' }],
+    isError: false,
+  })
+  await runTurn('gpt-6.2-sol', undefined, { tools: [toolDef], messages: [userMsg, assistantMsg, toolResultMsg] })
+  const step2Req = requests.at(-1)
+  assert.deepEqual(step2Req.body.input.slice(0, 2), step1Req.body.input)
+  assert.deepEqual(step2Req.body.tools, step1Req.body.tools)
+  assert.equal(step2Req.body.instructions, undefined)
+  assert.equal(step2Req.body.prompt_cache_key, step1Req.body.prompt_cache_key)
+  assert.equal(step2Req.headers['session-id'], step1Req.headers['session-id'])
+  assert.equal(step2Req.headers['x-client-request-id'], step1Req.headers['x-client-request-id'])
+  assert.deepEqual(step2Req.body.input[2], reasoningItem)
+  assert.deepEqual(step2Req.body.input[3], callItem)
+  assert.deepEqual(step2Req.body.input[4], { type: 'function_call_output', call_id: 'call_step1', output: '22C sunny' })
 })
 
 test('first ChatGPT sign-in falls back for omitted reasoning levels with or without an openai route and ignores custom openai gateways', async t => {

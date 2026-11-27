@@ -476,3 +476,31 @@ test('macOS mock keychain fails closed so ChatGPT credentials are never written 
   assert.equal(recovered.status().state, 'connected')
   assert.equal(await recovered.getAccessToken(), 'synthetic-access')
 })
+
+test('isReasoningModel tracks /v1/models reasoning capability and clears on sign-out', async t => {
+  const f = await fixture(t, {
+    models: [
+      { slug: 'gpt-6.2-sol', display_name: 'GPT-6.2 Sol', visibility: 'list', supported_reasoning_levels: ['low', 'medium', 'high'] },
+      { slug: 'gpt-4o', display_name: 'GPT-4o', visibility: 'list', supported_reasoning_levels: [] },
+      { slug: 'hidden-reasoner', display_name: 'Hidden', visibility: 'hidden', supported_reasoning_levels: ['high'] },
+      { slug: 'gpt-unknown', display_name: 'Unknown', visibility: 'list' },
+    ],
+  })
+  await f.login()
+  assert.equal(f.client.isReasoningModel('gpt-6.2-sol'), undefined)
+  await f.client.listModels()
+  assert.equal(f.client.isReasoningModel('gpt-6.2-sol'), true)
+  assert.equal(f.client.isReasoningModel('GPT-6.2-SOL'), true)
+  assert.equal(f.client.isReasoningModel('gpt-4o'), false)
+  assert.equal(f.client.isReasoningModel('hidden-reasoner'), true)
+  assert.equal(f.client.isReasoningModel('gpt-unknown'), undefined)
+
+  // Refresh replaces stale entries; sign-out clears the cache.
+  f.behavior.models = [{ slug: 'gpt-4o', display_name: 'GPT-4o', visibility: 'list', supported_reasoning_levels: [] }]
+  await f.client.listModels()
+  assert.equal(f.client.isReasoningModel('gpt-6.2-sol'), undefined)
+  assert.equal(f.client.isReasoningModel('gpt-4o'), false)
+
+  await f.client.signOut()
+  assert.equal(f.client.isReasoningModel('gpt-4o'), undefined)
+})

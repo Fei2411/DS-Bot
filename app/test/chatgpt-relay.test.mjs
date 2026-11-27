@@ -24,6 +24,7 @@ async function fixture(t, behavior = {}) {
     getAccessToken: async () => { if (behavior.error) throw behavior.error; return refreshes ? 'synthetic-renewed' : 'synthetic-access' },
     refresh: async () => { refreshes++; if (behavior.refreshError) throw behavior.refreshError },
     listModels: async () => { if (behavior.error) throw behavior.error; return behavior.models ?? [{ id: 'model-z', name: 'Z' }, { id: 'model-a', name: 'A' }] },
+    ...(behavior.isReasoningModel ? { isReasoningModel: behavior.isReasoningModel } : {}),
   }
   const relay = await createChatGPTRelay({ signIn, maxBytes: behavior.maxBytes,
     responsesUrl: `http://127.0.0.1:${upstream.address().port}/v1/responses`,
@@ -31,7 +32,15 @@ async function fixture(t, behavior = {}) {
   })
   t.after(async () => { await relay.close(); upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve)) })
   const { baseURL, secret } = relay.route()
-  const post = (body = { input: [] }, options = {}) => fetch(`${baseURL}/responses`, { method: 'POST', headers: { authorization: `Bearer ${secret}` }, body: JSON.stringify(body), ...options })
+  const post = (body = { input: [] }, options = {}) => {
+    const { headers: extraHeaders, ...rest } = options
+    return fetch(`${baseURL}/responses`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${secret}`, ...extraHeaders },
+      body: JSON.stringify(body),
+      ...rest,
+    })
+  }
   return { relay, signIn, baseURL, secret, post, requests, get refreshes() { return refreshes } }
 }
 
@@ -64,22 +73,102 @@ test('relay lists models in OpenAI discovery format, preserving order and empty 
   assert.deepEqual(await (await fetch(`${empty.baseURL}/models`, { headers: { authorization: `Bearer ${empty.secret}` } })).json(), { object: 'list', data: [] })
 })
 
-test('relay applies preview restrictions, moves only system messages and namespaces tools without changing developer messages', async t => {
+test('relay applies preview restrictions, converts system messages in place to developer and namespaces tools', async t => {
   const f = await fixture(t)
-  const omit = ['background', 'conversation', 'max_output_tokens', 'max_tool_calls', 'metadata', 'moderation', 'multi_agent', 'prompt', 'prompt_cache_retention', 'safety_identifier', 'temperature', 'top_logprobs', 'top_p', 'truncation', 'user', 'previous_response_id']
+  const omit = ['background', 'conversation', 'max_output_tokens', 'max_tool_calls', 'metadata', 'moderation', 'multi_agent', 'prompt', 'prompt_cache_options', 'prompt_cache_retention', 'safety_identifier', 'temperature', 'top_logprobs', 'top_p', 'truncation', 'user', 'previous_response_id']
   const developer = { type: 'message', role: 'developer', content: 'developer rules' }
   const tools = [{ type: 'function', name: 'tool', parameters: {} }]
   const response = await f.post({ ...Object.fromEntries(omit.map(key => [key, 'remove'])), store: true, stream: false,
-    instructions: 'existing', model: 'model-z', tools,
+    instructions: 'existing', model: 'model-z', tools, prompt_cache_key: 'sess-1',
     reasoning: { effort: 'high', summary: 'auto' }, include: ['reasoning.encrypted_content'],
-    input: [{ type: 'message', role: 'system', content: [{ type: 'input_text', text: 'system one' }] }, { role: 'system', content: 'system two' }, developer],
-  })
+    input: [
+      { type: 'message', role: 'system', content: [{ type: 'text', text: 'system one' }, { type: 'input_text', text: 'system 1b' }] },
+      { role: 'system', content: 'system two' },
+      developer,
+    ],
+  }, { headers: { 'session-id': 'sess-1', 'x-client-request-id': 'req-1', 'x-untrusted': 'drop-me', cookie: 'secret=1' } })
   assert.equal(response.status, 200)
   assert.equal(await response.text(), 'data: synthetic-event\n\ndata: [DONE]\n\n')
   assert.equal(f.requests[0].headers.authorization, 'Bearer synthetic-access')
-  assert.deepEqual(f.requests[0].body, { store: false, stream: true, model: 'model-z', instructions: 'existing\n\nsystem one\n\nsystem two', reasoning: { effort: 'high', summary: 'auto' }, include: ['reasoning.encrypted_content'], tools: [{ type: 'namespace', name: 'ds_bot', description: 'DS Bot tools.', tools }], input: [developer] })
+  assert.equal(f.requests[0].headers['session-id'], 'sess-1')
+  assert.equal(f.requests[0].headers['x-client-request-id'], 'req-1')
+  assert.equal(f.requests[0].headers['x-untrusted'], undefined)
+  assert.equal(f.requests[0].headers.cookie, undefined)
+  assert.deepEqual(f.requests[0].body, {
+    store: false, stream: true, model: 'model-z', instructions: 'existing', prompt_cache_key: 'sess-1',
+    reasoning: { effort: 'high', summary: 'auto' }, include: ['reasoning.encrypted_content'],
+    tools: [{ type: 'namespace', name: 'ds_bot', description: 'DS Bot tools.', tools }],
+    input: [
+      { type: 'message', role: 'developer', content: [{ type: 'input_text', text: 'system one' }, { type: 'input_text', text: 'system 1b' }] },
+      { role: 'developer', content: 'system two' },
+      developer,
+    ],
+  })
+  // Without explicit top-level instructions, system input becomes a developer message with no top-level instructions field.
+  await (await f.post({ model: 'gpt-4o', input: [{ role: 'system', content: 'Be brief.' }, { role: 'user', content: 'hello' }] })).text()
+  assert.equal(f.requests[1].body.instructions, undefined)
+  assert.deepEqual(f.requests[1].body.input, [{ role: 'developer', content: 'Be brief.' }, { role: 'user', content: 'hello' }])
+  assert.equal(f.requests[1].body.include, undefined)
   await (await f.post({ input: 'hello' })).text()
-  assert.deepEqual(f.requests[1].body.input, [{ role: 'user', content: 'hello' }])
+  assert.deepEqual(f.requests[2].body.input, [{ role: 'user', content: 'hello' }])
+})
+
+test('relay forwards session affinity headers, falls back to prompt_cache_key, and rejects invalid header values', async t => {
+  const f = await fixture(t)
+  // Fallback: prompt_cache_key populates session-id when the HTTP header is absent.
+  await (await f.post({ input: [], prompt_cache_key: 'cache-key-42' })).text()
+  assert.equal(f.requests[0].headers['session-id'], 'cache-key-42')
+  assert.equal(f.requests[0].headers['x-client-request-id'], undefined)
+
+  // Explicit valid headers win over prompt_cache_key.
+  await (await f.post({ input: [], prompt_cache_key: 'cache-key-42' }, {
+    headers: { 'session-id': 'hdr-session', 'x-client-request-id': 'hdr-req' },
+  })).text()
+  assert.equal(f.requests[1].headers['session-id'], 'hdr-session')
+  assert.equal(f.requests[1].headers['x-client-request-id'], 'hdr-req')
+
+  // Invalid / whitespace-containing / oversized values are dropped rather than forwarded.
+  await (await f.post({ input: [], prompt_cache_key: 'has space' }, {
+    headers: { 'session-id': 'bad value', 'x-client-request-id': 'a'.repeat(300) },
+  })).text()
+  assert.equal(f.requests[2].headers['session-id'], undefined)
+  assert.equal(f.requests[2].headers['x-client-request-id'], undefined)
+})
+
+test('relay includes reasoning.encrypted_content for reasoning models on Default effort without breaking non-reasoning or effort=none', async t => {
+  // Known reasoning models get encrypted_content even when reasoning is omitted (Default effort).
+  for (const model of ['gpt-5', 'gpt-5.4', 'gpt-5.5', 'gpt-6.2-sol', 'gpt-daybreak-blue-latest', 'o3', 'o4-mini']) {
+    const out = previewRequest({ model, input: [] })
+    assert.deepEqual(out.include, ['reasoning.encrypted_content'], `expected encrypted_content for ${model}`)
+    assert.deepEqual(previewRequest(out), out, `idempotent for ${model}`)
+  }
+  // Preserves existing include entries without duplicating reasoning.encrypted_content.
+  assert.deepEqual(
+    previewRequest({ model: 'gpt-6.2-sol', input: [], include: ['web_search_call.action.sources'] }).include,
+    ['web_search_call.action.sources', 'reasoning.encrypted_content'],
+  )
+  assert.deepEqual(
+    previewRequest({ model: 'gpt-6.2-sol', input: [], include: ['reasoning.encrypted_content'] }).include,
+    ['reasoning.encrypted_content'],
+  )
+  // Explicit effort='none' never adds encrypted_content.
+  assert.equal(previewRequest({ model: 'gpt-5.4', reasoning: { effort: 'none' }, input: [] }).include, undefined)
+  assert.equal(previewRequest({ model: 'gpt-5.4', reasoning: { effort: ' NONE ' }, input: [] }).include, undefined)
+  // Non-reasoning models never get encrypted_content by default.
+  for (const model of ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-5-chat-latest', 'gpt-5-audio-preview', 'model-z']) {
+    assert.equal(previewRequest({ model, input: [] }).include, undefined, `expected no include for ${model}`)
+  }
+  // Authoritative signIn.isReasoningModel overrides the family heuristic in both directions.
+  const f = await fixture(t, {
+    isReasoningModel: id => (id === 'future-thinker' ? true : id === 'gpt-6-nonreason' ? false : undefined),
+  })
+  await (await f.post({ model: 'future-thinker', input: [] })).text()
+  assert.deepEqual(f.requests[0].body.include, ['reasoning.encrypted_content'])
+  await (await f.post({ model: 'gpt-6-nonreason', input: [] })).text()
+  assert.equal(f.requests[1].body.include, undefined)
+  // Invalid include values are rejected with 400.
+  assert.equal((await f.post({ model: 'gpt-6.2-sol', include: 'reasoning.encrypted_content', input: [] })).status, 400)
+  assert.equal((await f.post({ model: 'gpt-6.2-sol', include: [123], input: [] })).status, 400)
 })
 
 // Wire shapes: https://developers.openai.com/api/docs/guides/function-calling#defining-namespaces
