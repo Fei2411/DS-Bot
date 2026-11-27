@@ -303,15 +303,19 @@ export function install(rt) {
 
   let ledger
   let opening
+  let disposed = false
   // Metered calls that finish before the ledger opens.
   const early = []
   function openLedger() {
+    if (disposed) return Promise.resolve(memoryLedger())
     if (ledger !== undefined) return Promise.resolve(ledger)
     const job = opening ??= (async () => {
       let DatabaseSync
       try {
         ({ DatabaseSync } = await import('node:sqlite'))
+        if (disposed) return memoryLedger()
         await mkdir(home, { recursive: true })
+        if (disposed) return memoryLedger()
       } catch (error) {
         rt.warn('ds-bot: usage is kept in memory only: %s', error)
         return memoryLedger()
@@ -321,8 +325,12 @@ export function install(rt) {
       // ledger would be deleted under it.
       const damaged = error => /malformed|not a database|corrupt/i.test(String(error?.message ?? error))
       for (const fresh of [false, true]) {
+        if (disposed) return memoryLedger()
         try {
-          if (fresh) await unlink(path).catch(() => {})
+          if (fresh) {
+            await unlink(path).catch(() => {})
+            if (disposed) return memoryLedger()
+          }
           return sqliteLedger(DatabaseSync, path)
         } catch (error) {
           if (fresh || !damaged(error)) {
@@ -334,7 +342,7 @@ export function install(rt) {
       return memoryLedger()
     })().then((opened) => {
       // The plugin may have been disposed while the file opened.
-      if (opening !== job) {
+      if (disposed || opening !== job) {
         opened.close()
         return memoryLedger()
       }
@@ -344,12 +352,18 @@ export function install(rt) {
     return job
   }
   ctx.effect(() => () => {
+    disposed = true
+    const pending = opening
+    opening = undefined
     ledger?.close()
     ledger = undefined
-    opening = undefined
     listed = []
     journaled.clear()
     unreadable.clear()
+    return pending?.then(() => {
+      ledger?.close()
+      ledger = undefined
+    }, () => {})
   }, 'ds-bot: usage ledger')
 
   // Who each Session's calls belong to, from the team as it is now. Sessions forked or
@@ -690,17 +704,19 @@ export function install(rt) {
   // here. The journal needs the team state and the ledger; both load behind
   // the request, and `journaled` keeps the repeat calls from writing again.
   const noteSession = (sessionId) => {
-    if (typeof sessionId !== 'string' || sessionId === '') return
+    if (disposed || typeof sessionId !== 'string' || sessionId === '') return
     const cached = journaled.get(sessionId)
     if (ledger !== undefined && rt.hasLoaded?.() !== false && cached !== undefined && cached.rev === (state.revision ?? 0) && cached.listedVersion === listedVersion) return
     void (async () => {
       await rt.load()
+      if (disposed) return
       const book = ledger ?? await openLedger().catch(() => undefined)
-      if (book === undefined) return
+      if (disposed || book === undefined) return
       try { journal(book, sessionId) } catch (error) { rt.warn('ds-bot: usage could not journal %s: %s', sessionId, error) }
     })()
   }
   function record({ sessionId, kind, provider, model, usage }) {
+    if (disposed) return
     noteSession(sessionId)
     const row = { key: `live:${randomUUID()}`, session: sessionId ?? '', time: Date.now(), provider: provider ?? '', model: model ?? '', kind, ...tokensOf(usage) }
     if (ledger !== undefined) {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -120,4 +120,34 @@ test('FTS and indexed history agree, including subsequent catch-up and empty rea
   rt.partsOf = () => []
   assert.deepEqual(await rt.latestOwnChat('b'), [])
   assert.deepEqual((await rt.searchOwnChat('b', 'message')).lines, [])
+})
+
+test('chat index does not open or leak chat-index.sqlite while or after disposing', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-chat-index-dispose-'))
+  const disposers = []
+  const rt = {
+    home,
+    ctx: {
+      effect: fn => disposers.push(fn()),
+      sessionController: { page: async () => ({ records: [], hasMore: false }) },
+    },
+    partsOf: () => [{ sessionId: 's1', number: 1, startedAt: 0 }],
+    partLines: async function* () {},
+    resolveAgent: async () => ({ session: { seq: 0 } }),
+    historyEntry: event => ({ text: event.text, who: 'user', keepAnswers: true }),
+    clock: time => String(time),
+    warn: (...args) => assert.fail(args.join(' ')),
+  }
+  install(rt)
+  const indexPath = join(home, 'chat-index.sqlite')
+  // Trigger openIndex() in flight and dispose immediately before it settles.
+  const inflight = rt.latestOwnChat('b', { limit: 5 })
+  await Promise.all(disposers.map(fn => fn()))
+  rmSync(home, { recursive: true, force: true })
+  await inflight
+  // Late post-dispose reads (e.g. an in-flight groupSessionFor calling ownChatBrief)
+  // must fall back cleanly without recreating home or leaking a new SQLite handle.
+  await rt.ownChatBrief({ id: 'b', name: 'Bot' })
+  assert.equal(existsSync(indexPath), false)
+  assert.equal(existsSync(home), false)
 })

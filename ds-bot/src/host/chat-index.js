@@ -149,13 +149,17 @@ export function install(rt) {
     }
   }
 
+  let disposed = false
   function openIndex() {
+    if (disposed) return Promise.resolve(null)
     if (chatIndex !== undefined) return Promise.resolve(chatIndex)
     const opening = indexOpening ??= (async () => {
       let DatabaseSync
       try {
         ({ DatabaseSync } = await import('node:sqlite'))
+        if (disposed) return null
         await mkdir(home, { recursive: true })
+        if (disposed) return null
       } catch (error) {
         rt.warn('ds-bot: no chat index, read_own_chat scans the logs: %s', error)
         return null
@@ -165,9 +169,11 @@ export function install(rt) {
       // index would be deleted under it.
       const damaged = error => /malformed|not a database|corrupt|SQLITE_CORRUPT|SQLITE_NOTADB/i.test(String(error?.message ?? error))
       for (const fresh of [false, true]) {
+        if (disposed) return null
         try {
           if (fresh) {
             await Promise.all([indexPath, `${indexPath}-wal`, `${indexPath}-shm`].map(file => unlink(file).catch(() => {})))
+            if (disposed) return null
           }
           return createIndex(new DatabaseSync(indexPath))
         } catch (error) {
@@ -180,7 +186,7 @@ export function install(rt) {
       return null
     })().then((index) => {
       // The plugin may have been disposed while the file opened.
-      if (indexOpening !== opening) {
+      if (disposed || indexOpening !== opening) {
         index?.db.close()
         return null
       }
@@ -243,9 +249,15 @@ export function install(rt) {
     }
   }
   ctx.effect(() => () => {
+    disposed = true
+    const pending = indexOpening
+    indexOpening = undefined
     chatIndex?.db.close()
     chatIndex = undefined
-    indexOpening = undefined
+    return pending?.then(() => {
+      chatIndex?.db.close()
+      chatIndex = undefined
+    }, () => {})
   }, 'ds-bot: chat index')
 
   // Adds what a part said since its mark. Reads of one part wait for each other, so no
@@ -395,6 +407,7 @@ export function install(rt) {
     const group = roomId !== undefined
     // A part that cannot be read now is searched as far as it was indexed.
     for (const part of parts) await catchUp(index, part, { group }).catch(error => rt.warn('ds-bot: indexing %s failed: %s', part.sessionId, error))
+    if (disposed || index !== chatIndex) return { index: null }
     const turn = askingId !== undefined && askingId === parts.at(-1)?.sessionId ? index.mark.get(askingId)?.turn : undefined
     return { index, parts, hidden: turn === undefined || turn < 0 ? undefined : { session: askingId, from: turn } }
   }
@@ -566,26 +579,28 @@ export function install(rt) {
       for (const part of targetParts) {
         await catchUpToolOutputs(index, part).catch(error => rt.warn('ds-bot: indexing tool outputs for %s failed: %s', part.sessionId, error))
       }
-      let row
-      if (pinnedPart !== undefined) {
-        row = index.db.prepare(
-          'SELECT call_id, session, seq, time, name, ok, text FROM tool_outputs WHERE call_id = ? AND session = ? AND seq = ? LIMIT 1'
-        ).get(id, pinnedPart.sessionId, pinnedSeq)
-      } else {
-        const sessions = parts.map(part => part.sessionId)
-        const where = ['call_id = ?', sessions.length === 1 ? 'session = ?' : 'session IN (SELECT value FROM json_each(?))']
-        const args = [id, sessions.length === 1 ? sessions[0] : JSON.stringify(sessions)]
-        for (const part of parts) {
-          if (Number.isInteger(part.throughSeq)) {
-            where.push('NOT (session = ? AND seq > ?)')
-            args.push(part.sessionId, part.throughSeq)
+      if (!disposed && index === chatIndex) {
+        let row
+        if (pinnedPart !== undefined) {
+          row = index.db.prepare(
+            'SELECT call_id, session, seq, time, name, ok, text FROM tool_outputs WHERE call_id = ? AND session = ? AND seq = ? LIMIT 1'
+          ).get(id, pinnedPart.sessionId, pinnedSeq)
+        } else {
+          const sessions = parts.map(part => part.sessionId)
+          const where = ['call_id = ?', sessions.length === 1 ? 'session = ?' : 'session IN (SELECT value FROM json_each(?))']
+          const args = [id, sessions.length === 1 ? sessions[0] : JSON.stringify(sessions)]
+          for (const part of parts) {
+            if (Number.isInteger(part.throughSeq)) {
+              where.push('NOT (session = ? AND seq > ?)')
+              args.push(part.sessionId, part.throughSeq)
+            }
           }
+          row = index.db.prepare(
+            `SELECT call_id, session, seq, time, name, ok, text FROM tool_outputs WHERE ${where.join(' AND ')} ORDER BY time DESC, seq DESC LIMIT 1`
+          ).get(...args)
         }
-        row = index.db.prepare(
-          `SELECT call_id, session, seq, time, name, ok, text FROM tool_outputs WHERE ${where.join(' AND ')} ORDER BY time DESC, seq DESC LIMIT 1`
-        ).get(...args)
+        if (row !== undefined) return formatHit(parts, row)
       }
-      if (row !== undefined) return formatHit(parts, row)
     }
     // Scan logs newest-first as fallback (also covers live turns when SQLite is unavailable),
     // skipping pruned surfaceOp replacement events so original full tool outputs are recovered.

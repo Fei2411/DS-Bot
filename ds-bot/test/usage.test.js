@@ -601,3 +601,20 @@ test('SQLite v5 call_slots triggers and usageView accurately sum, replace, and d
   assert.equal(cliRow[7], 6_000)
   assert.equal(cliRow[8], 19)
 })
+
+test('usage ledger does not open or leak usage.sqlite while or after disposing', async (t) => {
+  const { existsSync } = await import('node:fs')
+  const { call, meter, home, stop } = start()
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  // Trigger openLedger() in flight via noteSession() and usageView, then dispose immediately before it settles.
+  const passed = (async function* () { yield { type: 'text', text: 'hi' } })()
+  meter({ sessionId: 'b2', messages: [] }, () => passed)
+  const inflight = call('usage', { timeZone: 'UTC' })
+  await stop()
+  await inflight
+  // Calling meter / usage after dispose must never recreate usage.sqlite in the removed home.
+  const after = (async function* () { yield { type: 'usage', usage: usage(10, 5) } })()
+  await drain(meter({ sessionId: 'b2', purpose: 'compaction', provider: 'deepseek', model: 'v4-flash', messages: [] }, () => after))
+  await call('usage', { timeZone: 'UTC' })
+  assert.equal(existsSync(join(home, 'usage.sqlite')), false)
+})
