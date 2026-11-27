@@ -13,6 +13,8 @@ import { ROUTE } from './constants.js'
 export const FEED_ROUTE = `${ROUTE}/feed`
 // Leave room for Desktop's 10-second update-lock request drain.
 const MAX_LIFETIME_MS = 6_000
+// Brief grace window after server-initiated MAX_LIFETIME_MS SSE rotation while the local window reconnects.
+const LOCAL_ROTATE_GRACE_MS = 5_000
 // Status changes come in bursts (a turn starts several Sessions); one notice covers them.
 const LIVE_DELAY_MS = 150
 // A window that stops reading is dropped once this many events wait for it; it
@@ -89,8 +91,19 @@ export function install(rt) {
     if (listening()) publish(event, data)
   }
   // Computer-local SSE only (never fans out to paired phones, browsers, or remote RPC taps).
+  const localListeners = new Set()
+  const notifyLocalClients = () => {
+    for (const fn of localListeners) {
+      try { fn(clients.size) } catch { /* isolated */ }
+    }
+  }
   rt.publishLocalFeed = (event, data) => {
     publishLocal(event, data)
+  }
+  rt.localFeedClientCount = () => clients.size
+  rt.onLocalFeedClients = (listener) => {
+    localListeners.add(listener)
+    return () => localListeners.delete(listener)
   }
 
   let liveTimer
@@ -101,6 +114,7 @@ export function install(rt) {
       publish('live', {})
     }, LIVE_DELAY_MS)
   }
+  rt.notifyLive = live
   ctx.on('agent/status', ({ agent, status }) => {
     if (status === 'idle') clearWritingFor(agent?.id)
     if (rt.selfOf(agent.id) !== undefined || rt.agentOf?.(agent.id) !== undefined) live()
@@ -149,14 +163,61 @@ export function install(rt) {
   // its Request until it leaves.
   const requests = new Map()
   const lifetimes = new Map()
-  const leave = (controller) => {
-    clients.delete(controller)
+  let rotateGraceUntil = 0
+  let rotateGraceTimer
+  let localConnected = false
+  const localDisconnectListeners = new Set()
+  const localConnectListeners = new Set()
+  const notifyLocalConnected = () => {
+    for (const listener of localConnectListeners) {
+      try { listener() } catch { /* isolate listeners */ }
+    }
+    try { rt.onLocalFeedConnected?.() } catch { /* isolate listeners */ }
+  }
+  const notifyLocalDisconnected = () => {
+    if (!localConnected) return
+    localConnected = false
+    for (const listener of localDisconnectListeners) {
+      try { listener() } catch { /* isolate listeners */ }
+    }
+    try { rt.onLocalFeedLost?.() } catch { /* isolate listeners */ }
+  }
+  const hasLocalFeedClient = () => clients.size > 0 || (rotateGraceUntil > 0 && Date.now() < rotateGraceUntil)
+  rt.hasLocalFeedClient = hasLocalFeedClient
+  rt.onLocalFeedDisconnected = (listener) => {
+    localDisconnectListeners.add(listener)
+    return () => { localDisconnectListeners.delete(listener) }
+  }
+  rt.onLocalFeedReconnected = (listener) => {
+    localConnectListeners.add(listener)
+    return () => { localConnectListeners.delete(listener) }
+  }
+  const leave = (controller, { rotated = false } = {}) => {
+    const had = clients.delete(controller)
     clearTimeout(lifetimes.get(controller))
     lifetimes.delete(controller)
     const connection = requests.get(controller)
     connection?.request.signal.removeEventListener('abort', connection.abort)
     requests.delete(controller)
     try { controller.close() } catch { /* already closed or errored */ }
+    if (had && clients.size === 0) {
+      clearTimeout(rotateGraceTimer)
+      if (rotated) {
+        rotateGraceUntil = Date.now() + LOCAL_ROTATE_GRACE_MS
+        rotateGraceTimer = setTimeout(() => {
+          rotateGraceTimer = undefined
+          if (clients.size === 0) {
+            rotateGraceUntil = 0
+            notifyLocalDisconnected()
+          }
+        }, LOCAL_ROTATE_GRACE_MS)
+        rotateGraceTimer.unref?.()
+      } else {
+        rotateGraceUntil = 0
+        notifyLocalDisconnected()
+      }
+    }
+    if (had) notifyLocalClients()
   }
 
   ctx.effect(() => ctx.connection.fetch.register({
@@ -164,20 +225,32 @@ export function install(rt) {
     methods: ['GET'],
     requestBody: 'buffered',
     fetch: async (request) => {
+      const alreadyAborted = request.signal.aborted
       let controller
       const body = new ReadableStream({
         start(own) {
           controller = own
           clients.add(own)
+          rotateGraceUntil = 0
+          clearTimeout(rotateGraceTimer)
+          rotateGraceTimer = undefined
+          if (!alreadyAborted && !localConnected) {
+            localConnected = true
+            notifyLocalConnected()
+          }
+          notifyLocalClients()
           replay((event, data) => send(own, encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)))
         },
-        cancel() { leave(controller) },
+        cancel() { leave(controller, { rotated: false }) },
       })
-      const abort = () => leave(controller)
+      const abort = () => leave(controller, { rotated: false })
       requests.set(controller, { request, abort })
-      lifetimes.set(controller, setTimeout(abort, MAX_LIFETIME_MS))
+      lifetimes.set(controller, setTimeout(() => {
+        try { controller.enqueue(encoder.encode(': rotate\n\n')) } catch { /* already closed or errored */ }
+        leave(controller, { rotated: true })
+      }, MAX_LIFETIME_MS))
       request.signal.addEventListener('abort', abort, { once: true })
-      if (request.signal.aborted) leave(controller)
+      if (alreadyAborted) leave(controller)
       return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } })
     },
   }), 'ds-bot: live feed route')
@@ -185,8 +258,15 @@ export function install(rt) {
   ctx.effect(() => {
     return () => {
       clearTimeout(liveTimer)
+      clearTimeout(rotateGraceTimer)
+      rotateGraceTimer = undefined
+      rotateGraceUntil = 0
+      localConnected = false
       offSaved()
       for (const controller of clients) leave(controller)
+      localConnectListeners.clear()
+      localDisconnectListeners.clear()
+      localListeners.clear()
       taps.clear()
       writing.clear()
     }

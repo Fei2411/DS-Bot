@@ -4,8 +4,8 @@
 const RETRY_MS = [500, 1000, 2000, 5000]
 const HEALTHY_MS = 5_000
 const MAX_SSE_BUFFER_CHARS = 8 * 1024 * 1024
-// A Session that is gone, refused, or malformed stops the follow loop instead of retrying forever.
-const TERMINAL_SESSION_ERRORS = new Set(['bot/not-found', 'bot/refused', 'bot/invalid'])
+// A Session that is gone, refused, malformed, or stale stops the follow loop instead of retrying forever.
+const TERMINAL_SESSION_ERRORS = new Set(['bot/not-found', 'bot/refused', 'bot/invalid', 'bot/stale'])
 
 function parseEvent(block) {
   let event = 'message'
@@ -18,7 +18,7 @@ function parseEvent(block) {
   try { return { event, data: JSON.parse(data.join('\n')) } } catch { return undefined }
 }
 
-async function readEventStream(body, onParsed) {
+async function readEventStream(body, onParsed, onComment) {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -29,8 +29,13 @@ async function readEventStream(body, onParsed) {
       buffer = (buffer + decoder.decode(value, { stream: true })).replaceAll('\r\n', '\n')
       let start = 0
       for (let end = buffer.indexOf('\n\n', start); end >= 0; end = buffer.indexOf('\n\n', start)) {
-        const parsed = parseEvent(buffer.slice(start, end))
+        const block = buffer.slice(start, end)
         start = end + 2
+        if (block.startsWith(':')) {
+          onComment?.(block.slice(1).trim())
+          continue
+        }
+        const parsed = parseEvent(block)
         if (parsed !== undefined && onParsed(parsed.event, parsed.data) === false) {
           await reader.cancel().catch(() => {})
           return
@@ -61,6 +66,7 @@ export function openFeed(onEvent) {
     for (let failures = 0; !stopped;) {
       controller = new AbortController()
       let receivedEvent = false
+      let rotated = false
       let connectedAt = 0
       try {
         const response = await fetch('api/bot/feed', { signal: controller.signal, cache: 'no-store' })
@@ -70,14 +76,23 @@ export function openFeed(onEvent) {
           receivedEvent = true
           failures = 0
           onEvent(event, data)
+        }, (comment) => {
+          if (comment === 'rotate') rotated = true
         })
       } catch {
+        rotated = false
         // The engine restarted or the window is going away; the loop decides.
       } finally {
         if (receivedEvent || (connectedAt > 0 && Date.now() - connectedAt >= HEALTHY_MS)) failures = 0
         controller.abort()
       }
       if (stopped) return
+      // Reconnect immediately on server-initiated SSE rotation (no setTimeout, so backgrounded
+      // Electron windows never get throttled past the host's rotation grace window).
+      if (rotated && receivedEvent) {
+        failures = 0
+        continue
+      }
       onEvent('lost', {})
       const delay = RETRY_MS[Math.min(failures, RETRY_MS.length - 1)]
       await new Promise((resolve) => {
@@ -103,18 +118,22 @@ export function openFeed(onEvent) {
 /**
  * Follow one DSH Session through `GET api/bot/session` (SSE).
  * Reconnects with backoff on transient drops, stops on terminal errors (`bot/not-found`,
- * `bot/refused`, `bot/invalid`), and supports an immediate `reopen()` when the window sees
+ * `bot/refused`, `bot/invalid`, `bot/stale`), and supports an immediate `reopen()` when the window sees
  * a frame gap or a read-only refresh signal.
- * @param {{ sessionId: string, parent?: string, mode?: string, max?: number }} request
+ * @param {{ sessionId: string, parent?: string, mode?: string, max?: number, after?: () => number }} request
  * @param {(event: 'frame' | 'error' | 'end' | 'lost', data: any) => void} onEvent
  * @returns {{ close: () => void, reopen: () => void }}
  */
-export function openSessionFollow({ sessionId, parent, mode, max }, onEvent) {
-  const params = new URLSearchParams({ id: sessionId })
-  if (parent) params.set('parent', parent)
-  if (mode) params.set('mode', mode)
-  if (max !== undefined) params.set('max', String(max))
-  const url = `api/bot/session?${params.toString()}`
+export function openSessionFollow({ sessionId, parent, mode, max, after }, onEvent) {
+  const followUrl = () => {
+    const params = new URLSearchParams({ id: sessionId })
+    if (parent) params.set('parent', parent)
+    if (mode) params.set('mode', mode)
+    if (max !== undefined) params.set('max', String(max))
+    const cursor = typeof after === 'function' ? after() : after
+    if (Number.isSafeInteger(cursor) && cursor >= 0) params.set('after', String(cursor))
+    return `api/bot/session?${params.toString()}`
+  }
 
   let stopped = false
   let terminal = false
@@ -144,7 +163,7 @@ export function openSessionFollow({ sessionId, parent, mode, max }, onEvent) {
         const myController = controller
         let sawFrame = false
         try {
-          const response = await fetch(url, { signal: myController.signal, cache: 'no-store' })
+          const response = await fetch(followUrl(), { signal: myController.signal, cache: 'no-store' })
           if (!response.ok) {
             let body = null
             try { body = await response.json() } catch { /* plain status */ }

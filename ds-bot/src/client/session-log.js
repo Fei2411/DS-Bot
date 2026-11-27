@@ -18,6 +18,11 @@ const seqOf = event => event.seq
 const changed = (log, change) => ({ ...log, ...change, revision: log.revision + 1 })
 const same = { reopen: false }
 
+// A stream frame never clones the events array: only event frames, snapshots and pages
+// build a new one. Anything downstream that keys its work on the events array (the
+// committed-row cache in the desktop window's transcript) therefore settles a whole
+// stream chunk in O(1), without any further signal from here.
+
 // Events the window holds and an opening's window of the same Session, as one ordered list
 // without repeats. What the window held joins on only when nothing lies between the two.
 function join(log, header, opening) {
@@ -113,9 +118,17 @@ export const pageBefore = log => (log.hasMore && log.events.length > 0 ? seqOf(l
 
 // The committed form of the reply being written has come in order: the conversation shows
 // that one, not both.
-const settled = (log, writing) => log.events.some(event => seqOf(event) > writing.startedAfterSeq
-  && (event.type === 'assistant/message' || event.type === 'assistant/attempt')
-  && event.data?.turn === writing.turn && event.data?.step === writing.step)
+// Events are ordered by seq. The commit that settles a stream can only sit after its
+// start, so read that short tail backwards instead of scanning the whole Session per chunk.
+const settled = (log, writing) => {
+  for (let at = log.events.length - 1; at >= 0; at -= 1) {
+    const event = log.events[at]
+    if (seqOf(event) <= writing.startedAfterSeq) break
+    if ((event.type === 'assistant/message' || event.type === 'assistant/attempt')
+      && event.data?.turn === writing.turn && event.data?.step === writing.step) return true
+  }
+  return false
+}
 
 /** @returns {object[]} the blocks of the reply being written: text, reasoning, tool calls */
 export function writingBlocks(log) {

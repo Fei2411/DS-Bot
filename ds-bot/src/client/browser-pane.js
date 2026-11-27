@@ -10,17 +10,19 @@ import { BotMark } from './mark.js'
 import { STORAGE } from './storage.js'
 import { MIN_CHAT } from './frame-layout.js'
 import { chatRoom } from './frame-watch.js'
-import { SPRING_LEAD, SPRING_SHAPE, SPRING_TRAIL, reducedMotion, stepMenuFocus, useLinger } from './motion.js'
+import { SPRING_LEAD, SPRING_POP, SPRING_SHAPE, SPRING_TAP, SPRING_TRAIL, reducedMotion, spring, stepMenuFocus, useLinger, useMorph } from './motion.js'
 import { FLIGHT_ENDS, INTENT_MS, createFlight, flightEnd, flightStart, planFlight, uniqueIds } from './mark-flight.js'
 import { DetailsDrawer } from './details-drawer.js'
 import { SideChatView } from './side-chat.js'
 import { TaskReaderView } from './bot-tasks.js'
 import { panelHasStrip, sideChatsOf, stripMenuKeys } from './side-model.js'
 import { FolderIcon, SideIcon, TerminalIcon } from './icons.js'
+import { ImportCard, ImportMenu, PreviewCard, RemoteDebugCard, SafariPermissionCard, orderImportSources, siteMatchesHost, useCookieImportFlow } from './cookie-import-ui.js'
 import { t } from './i18n.js'
 import { rectsOverlap } from './browser-overlap.js'
-import { useEscape } from './overlay-hooks.js'
-import { writeClipboard } from './dsh-primitives.js'
+import { ESCAPE_PRIORITY, topEscapePriority, useEscape } from './overlay-hooks.js'
+
+export { ImportCard, ImportMenu, PreviewCard, RemoteDebugCard, SafariPermissionCard, orderImportSources, siteMatchesHost }
 
 export const PANEL_LINGER_MS = 300
 const WIDTH_KEY = STORAGE.browserWidth
@@ -49,43 +51,7 @@ const StopIcon = icon(['M5.5 5.5l9 9M14.5 5.5l-9 9'])
 const CloseIcon = icon(['M5.5 5.5l9 9M14.5 5.5l-9 9'])
 export const PlusTabIcon = icon(['M10 4.5v11M4.5 10h11'], 1.75)
 const LockIcon = icon(['M6.5 9V7a3.5 3.5 0 0 1 7 0v2', 'M5.5 9h9v7h-9z'])
-const ImportIcon = icon(['M10 3.5v8.5', 'M6 8.5l4 4 4-4', 'M4.5 14v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V14'])
-const FileIcon = icon(['M6 3.5h5.5L14.5 6.5v10H6z', 'M11 3.5v3.5h3.5'])
-const WindowIcon = icon(['M4 5h12v9.5H4z', 'M4 7.5h12'])
-const PasteIcon = icon(['M7.5 4.5h5v2h-5z', 'M6 5.5H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-1'])
-
-/** Whether a cookie site belongs to the same host or direct domain hierarchy as the current tab. */
-export function siteMatchesHost(site, host) {
-  const s = String(site ?? '').replace(/^\.+/, '').toLowerCase()
-  const h = String(host ?? '').replace(/^\.+/, '').toLowerCase()
-  if (!s || !h) return false
-  if (s === h) return true
-  // Never match bare single-label TLDs as parents (only real multi-label domains).
-  if (s.includes('.') && h.endsWith(`.${s}`)) return true
-  if (h.includes('.') && s.endsWith(`.${h}`)) return true
-  return false
-}
-
-const hostOfUrl = (url) => {
-  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return null
-  try { return new URL(url).hostname.toLowerCase() } catch { return null }
-}
-
-const lastImportSource = () => {
-  try { return localStorage.getItem(STORAGE.browserImportSource) || null } catch { return null }
-}
-
-const saveLastImportSource = (id) => {
-  if (!id) return
-  try { localStorage.setItem(STORAGE.browserImportSource, String(id)) } catch { /* storage unavailable */ }
-}
-
-export function orderImportSources(sources, lastId) {
-  if (!Array.isArray(sources) || !lastId) return sources ?? []
-  const index = sources.findIndex((s) => s.id === lastId)
-  if (index <= 0) return sources
-  return [sources[index], ...sources.slice(0, index), ...sources.slice(index + 1)]
-}
+const ImportIcon = icon(['M10 3.5v8', 'M6.75 8.5L10 11.75l3.25-3.25', 'M4.5 13.25v1.25A1.5 1.5 0 0 0 6 16h8a1.5 1.5 0 0 0 1.5-1.5v-1.25'])
 
 /** A page's favicon, or the globe while there is none or it fails to load. */
 export function Favicon({ src, className }) {
@@ -111,7 +77,9 @@ const widthRange = (view, room) => (view === 'browser' || view === 'workspace'
 const fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, high)))
 const attrValue = value => String(value ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 // The address as the bar shows it while not editing: no scheme, no trailing slash.
-const shortAddress = url => String(url ?? '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '')
+const isBlankUrl = url => !url || url === 'about:blank' || String(url).startsWith('about:blank#')
+const visibleUrl = url => (isBlankUrl(url) ? '' : String(url))
+const shortAddress = url => visibleUrl(url).replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '')
 
 const tabLabel = page => page.title || shortAddress(page.url) || t('New tab')
 
@@ -124,7 +92,7 @@ export function PanelMenu({ items, className, 'aria-label': label, icon: Trigger
   const wrap = useRef(null)
   const button = useRef(null)
   const pop = useRef(null)
-  useEscape(() => { setOpen(false); button.current?.focus() }, open)
+  useEscape(() => { setOpen(false); button.current?.focus() }, open, { priority: ESCAPE_PRIORITY.MENU })
   useLayoutEffect(() => {
     const el = wrap.current
     const menu = pop.current
@@ -206,7 +174,8 @@ const measureTabSpot = (box, node, isStickyBot) => {
   return { left, right: box.offsetWidth - left - node.offsetWidth, boxWidth: box.offsetWidth }
 }
 
-export function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side, task, workspace, hasSubjectDetails = true, canBrowse, reading, onView, actions, useBrowserPages }) {
+export function PanelStrip({ bot, roomSubject, subject, browserOwner, view, ids, active, sides, side, task, workspace, hasSubjectDetails = true, canBrowse, reading, onView, actions, useBrowserPages }) {
+  const browserId = browserOwner ?? bot?.id ?? subject
   const pages = useBrowserPages(map => map)
   const wsTabs = workspace?.tabs ?? []
   const wsActive = workspace?.active ?? null
@@ -335,7 +304,7 @@ export function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides
     canSide: Boolean(bot),
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true,
-  }).map(key => menuItemFor(key, actions, subject))
+  }).map(key => menuItemFor(key, actions, key === 'browser' || key === 'new-tab' ? browserId : subject))
   // `data-window-drag` is the shell's window drag-row mark on macOS: base.css turns it
   // into the drag geometry, and the shell's watcher re-collects that geometry while the
   // panel slides in. The rule in styles.js declares the same row for a shell without it.
@@ -355,15 +324,15 @@ export function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides
         },
           h('button', {
             type: 'button', role: 'tab', 'aria-selected': on, className: 'bt-ptab bt-ptab-btn',
-            title: page.url || t('New tab'),
-            onClick: () => { actions.browserActivate(bot.id, tabId); onView('browser') },
-            onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); void actions.browserCloseTab(bot.id, tabId) } },
+            title: visibleUrl(page.url) || t('New tab'),
+            onClick: () => { actions.browserActivate(browserId, tabId); onView('browser') },
+            onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); void actions.browserCloseTab(browserId, tabId) } },
           },
             h(Favicon, { src: page.favicon, className: 'bt-ptab-fav' }),
             h('span', { className: 'bt-ptab-title' }, tabLabel(page))),
           h('button', {
             type: 'button', className: 'bt-ptab-x', 'aria-label': t('Close tab'), title: t('Close tab'),
-            onClick: () => { void actions.browserCloseTab(bot.id, tabId) },
+            onClick: () => { void actions.browserCloseTab(browserId, tabId) },
           }, '×'))
       }),
       sides.map((chat) => {
@@ -460,41 +429,38 @@ export function shouldCheckBrowserCover(records) {
 
 // The browser view: toolbar (back, forward, reload/stop, address) over the frame
 // the guest webview covers.
-export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+export function BrowserView({ bot, ownerId, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+  const browserId = ownerId ?? bot?.id ?? ''
   const page = useBrowserPages(pages => pages[tabId ?? '']) ?? EMPTY_PAGE
+  const pageUrl = visibleUrl(page.url)
   const frame = useRef(null)
   const input = useRef(null)
+  const importBoxRef = useRef(null)
   const [draft, setDraft] = useState(null)
   const [covered, setCovered] = useState(false)
 
-  // Cookie imports (the desktop app's bridge only): 'menu' lists browser profiles first,
+  // Cookie imports (the desktop app's bridge only, Bot browser only): 'menu' lists browser profiles first,
   // then file/paste; a card stage runs connecting / remote-debug / running / paste →
   // preview → result | error above the guest.
-  const imports = actions.browserImport
-  const [flow, setFlow] = useState(null)
-  // A mirrored flow: the cleanup on leaving the tab or the panel can still cancel
-  // an unconfirmed pending import or an in-flight live harvest.
-  const flowRef = useRef(null)
-  const reqRef = useRef(0)
-  const liveReqIdRef = useRef(null)
-  const [sources, setSources] = useState(null)
-  const [lastSourceId, setLastSourceId] = useState(lastImportSource)
-  const [busy, setBusy] = useState(false)
-  const setFlowTracked = (next) => {
-    flowRef.current = typeof next === 'function' ? next(flowRef.current) : next
-    setFlow(flowRef.current)
-  }
-  const cancelPendingImport = () => {
-    const liveId = liveReqIdRef.current
-    liveReqIdRef.current = null
-    if (liveId) void imports?.cancel(liveId).catch(() => {})
-    const id = typeof flowRef.current === 'object' && flowRef.current !== null ? flowRef.current.id : null
-    if (id) void imports?.cancel(id).catch(() => {})
-  }
+  const imports = bot ? actions.browserImport : undefined
+  const {
+    flow, sources, loadingSources, lastSourceId, busy, setFlowTracked,
+    openImport, pickFile, openPaste, submitPaste, pickSource, closeAndImport,
+    applyImport, cancelImport, doneImport, retrySource, launchSource, openPermission,
+  } = useCookieImportFlow({
+    imports,
+    botId: bot?.id ?? '',
+    pageUrl,
+    resetKey: tabId,
+    idleFlow: null,
+    onReload: () => actions.browserCommand(tabId, 'reload'),
+  })
+  const importStageKey = flow === null ? null : flow === 'menu' ? 'menu' : flow.stage
+  useMorph(importBoxRef, importStageKey)
 
   // The guest goes on screen once the panel has landed and settled on its width,
   // and only over a page: the empty, error and import states are the panel's own.
-  const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null
+  const showGuest = landed && !leaving && !covered && Boolean(pageUrl) && !page.error && flow === null
 
   useEffect(() => {
     let raf = 0
@@ -515,130 +481,6 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
     return () => { cancelAnimationFrame(raf); observer.disconnect(); window.removeEventListener('resize', schedule) }
   }, [])
 
-  // Leaving the tab or the panel abandons an unconfirmed or in-flight import.
-  useEffect(() => {
-    reqRef.current += 1
-    cancelPendingImport()
-    setFlowTracked(null)
-    return () => {
-      reqRef.current += 1
-      cancelPendingImport()
-    }
-    // The flow controls live in this component; the effect re-runs only per tab.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabId])
-
-  const sourcesReqRef = useRef(0)
-  const refreshSources = () => {
-    if (!imports) return
-    const req = ++sourcesReqRef.current
-    void imports.sources().then(
-      (list) => { if (req === sourcesReqRef.current) setSources(Array.isArray(list) ? list : []) },
-      () => { if (req === sourcesReqRef.current) setSources((prev) => prev ?? []) },
-    )
-  }
-  const openImport = () => {
-    reqRef.current += 1
-    setBusy(false)
-    cancelPendingImport()
-    setFlowTracked('menu')
-    setLastSourceId(lastImportSource())
-    refreshSources()
-  }
-  const showPicked = (r, token) => {
-    if (token !== undefined && token !== reqRef.current) {
-      if (r?.id) void imports?.cancel(r.id).catch(() => {})
-      return
-    }
-    if (r?.canceled) return
-    if (r?.id) setFlowTracked({ stage: 'preview', id: r.id, preview: r.preview, restarted: r.restarted === true, method: r.method ?? null })
-    else if (r?.error) setFlowTracked({ stage: 'error', message: importError(r.error) })
-    else setFlowTracked(null)
-  }
-  const job = async (work) => {
-    const token = ++reqRef.current
-    setBusy(true)
-    try { await work(token) } catch (error) {
-      if (token === reqRef.current) setFlowTracked({ stage: 'error', message: String(error?.message ?? error) })
-    } finally {
-      if (token === reqRef.current) setBusy(false)
-    }
-  }
-  const pickFile = () => job(async (token) => showPicked(await imports.pick(), token))
-  const openPaste = () => {
-    reqRef.current += 1
-    setBusy(false)
-    cancelPendingImport()
-    setFlowTracked({ stage: 'paste', siteUrl: hostOfUrl(page.url) ? page.url : '' })
-  }
-  const submitPaste = (text, siteUrl) => job(async (token) => {
-    if (!imports?.paste) return
-    showPicked(await imports.paste(text, siteUrl || undefined), token)
-  })
-  const runLiveImport = async (source, close, token) => {
-    const prevLive = liveReqIdRef.current
-    if (prevLive) void imports?.cancel(prevLive).catch(() => {})
-    const requestId = `live-${Date.now()}-${token}`
-    liveReqIdRef.current = requestId
-    try {
-      return await imports.live(source.id, close, requestId)
-    } finally {
-      if (liveReqIdRef.current === requestId) liveReqIdRef.current = null
-    }
-  }
-  const pickSource = (source) => job(async (token) => {
-    setFlowTracked({ stage: 'connecting', source })
-    const r = await runLiveImport(source, false, token)
-    if (token !== reqRef.current) {
-      if (r?.id) void imports?.cancel(r.id).catch(() => {})
-      return
-    }
-    if (r?.canceled) return
-    if (r?.needsProfileChoice) {
-      setSources(null)
-      setFlowTracked('menu')
-      refreshSources()
-      return
-    }
-    if (r?.needsFullDiskAccess) setFlowTracked({ stage: 'safari-permission', source, info: r })
-    else if (r?.needsRemoteDebugging) setFlowTracked({ stage: 'remote-debug', source, info: r })
-    else if (r?.running) setFlowTracked({ stage: 'running', source })
-    else showPicked(r, token)
-  })
-  const closeAndImport = () => job(async (token) => {
-    const source = flowRef.current?.source
-    if (!source) return
-    const r = await runLiveImport(source, true, token)
-    if (token !== reqRef.current) {
-      if (r?.id) void imports?.cancel(r.id).catch(() => {})
-      return
-    }
-    if (r?.canceled) return
-    if (r?.needsRemoteDebugging) setFlowTracked({ stage: 'remote-debug', source, info: r })
-    else showPicked(r, token)
-  })
-  const applyImport = (options) => job(async (token) => {
-    const current = flowRef.current
-    if (!current?.id) return
-    const report = await imports.apply(bot.id, current.id, options)
-    if (token !== reqRef.current) return
-    const sourceId = current.preview?.source?.id
-    if (sourceId) { saveLastImportSource(sourceId); setLastSourceId(sourceId) }
-    const shouldReload = Boolean(page.url) && ((report?.stored ?? 0) > 0 || (report?.originsStored ?? 0) > 0)
-    if (shouldReload) void actions.browserCommand(tabId, 'reload')
-    setFlowTracked({
-      stage: 'result',
-      report,
-      label: current.preview?.source?.label ?? null,
-      reloaded: shouldReload,
-    })
-  })
-  const cancelImport = () => {
-    reqRef.current += 1
-    setBusy(false)
-    cancelPendingImport()
-    setFlowTracked(null)
-  }
   useLayoutEffect(() => {
     const element = frame.current
     if (!element || leaving || !tabId) { void actions.browserShow(null); return undefined }
@@ -666,7 +508,7 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
   // A fresh tab starts on its address bar.
   useEffect(() => {
     setDraft(null)
-    if (landed && !page.url) input.current?.focus()
+    if (landed && !pageUrl) input.current?.focus()
   }, [tabId, landed])
 
   const go = (event) => {
@@ -679,10 +521,11 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
   }
 
   const editing = draft !== null
-  useEscape(() => { setDraft(null); input.current?.blur() }, editing)
-  const secure = /^https:/i.test(page.url)
-  return h('div', { className: 'bt-panel-view bt-panel-browser', 'aria-label': t("{name}'s browser", { name: bot.name }) },
-    actions.browserTakeover ? h('div', { className: 'bt-browser-takeover', 'data-held': hold?.by === 'user' || undefined },
+  useEscape(() => { setDraft(null); input.current?.blur() }, editing, { priority: ESCAPE_PRIORITY.INLINE_ACTION })
+  const secure = /^https:/i.test(pageUrl)
+  const viewLabel = bot ? t("{name}'s browser", { name: bot.name }) : t('Browser')
+  return h('div', { className: 'bt-panel-view bt-panel-browser', 'aria-label': viewLabel },
+    bot && actions.browserTakeover ? h('div', { className: 'bt-browser-takeover', 'data-held': hold?.by === 'user' || undefined },
       h('span', null, hold?.by === 'user' ? t('You control this browser') : hold?.by === 'bot' ? t('The Bot handed this browser to you: {reason}', { reason: hold.reason }) : t('The Bot controls this browser')),
       hold?.by
         ? h('button', { type: 'button', onClick: () => void actions.browserGiveBack(bot.id) }, t('Give back'))
@@ -693,7 +536,7 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
       h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Back'), title: t('Back'), disabled: !page.canGoBack, onClick: () => actions.browserCommand(tabId, 'back') }, h(BackIcon)),
       h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Forward'), title: t('Forward'), disabled: !page.canGoForward, onClick: () => actions.browserCommand(tabId, 'forward') }, h(ForwardIcon)),
       h('button', {
-        type: 'button', className: 'bt-icon-btn', disabled: !page.url,
+        type: 'button', className: 'bt-icon-btn', disabled: !pageUrl,
         'aria-label': page.loading ? t('Stop') : t('Reload'), title: page.loading ? t('Stop') : t('Reload'),
         onClick: () => actions.browserCommand(tabId, page.loading ? 'stop' : 'reload'),
       }, h(page.loading ? StopIcon : ReloadIcon)),
@@ -702,12 +545,13 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
         h('input', {
           ref: input, type: 'text', spellCheck: false, autoComplete: 'off', 'aria-label': t('Address'),
           placeholder: t('Search or enter address'),
-          value: editing ? draft : shortAddress(page.url),
-          onFocus: (event) => { setDraft(page.url); const target = event.target; requestAnimationFrame(() => target.select()) },
+          value: editing ? draft : shortAddress(pageUrl),
+          onFocus: (event) => { setDraft(pageUrl); const target = event.target; requestAnimationFrame(() => target.select()) },
           onBlur: () => setDraft(null),
           onChange: event => setDraft(event.target.value),
           onKeyDown: (event) => {
             if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+              if (event.defaultPrevented || topEscapePriority() > ESCAPE_PRIORITY.INLINE_ACTION) return
               event.preventDefault?.()
               event.stopPropagation?.()
               event.nativeEvent?.stopPropagation?.()
@@ -718,431 +562,71 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
         })),
       h('button', {
         type: 'button', className: 'bt-icon-btn', 'aria-label': t('New browser tab'), title: t('New browser tab'),
-        onClick: () => actions.browserNewTab(bot.id),
+        onClick: () => actions.browserNewTab(browserId),
       }, h(PlusTabIcon)),
       imports ? h('button', {
         type: 'button', className: 'bt-icon-btn bt-import-btn', 'aria-label': t('Import cookies'), title: t('Import cookies'),
-        'aria-expanded': flow === 'menu', disabled: busy,
-        onClick: () => { if (flow === 'menu') setFlowTracked(null); else openImport() },
+        'aria-expanded': flow !== null, 'data-open': flow !== null || undefined, disabled: busy,
+        onClick: () => { if (flow !== null) cancelImport(); else openImport() },
       }, h(ImportIcon)) : null,
       page.loading ? h('span', { className: 'bt-browser-progress', 'aria-hidden': true }) : null),
     h('div', { ref: frame, className: 'bt-browser-frame', 'data-guest': showGuest || undefined },
-      flow === 'menu' ? h(ImportMenu, {
-        sources: orderImportSources(sources, lastSourceId),
-        lastSourceId,
-        loading: sources === null,
-        busy,
-        canPaste: Boolean(imports?.paste),
-        onFile: pickFile,
-        onPaste: openPaste,
-        onSource: pickSource,
-        onClose: () => setFlowTracked(null),
-      }) : null,
-      typeof flow === 'object' && flow !== null
-        ? h(ImportCard, {
-          flow,
-          page,
-          busy,
-          imports,
-          onApply: applyImport,
-          onCancel: cancelImport,
-          onCloseAndImport: closeAndImport,
-          onRetrySource: () => { if (flow.source) void pickSource(flow.source) },
-          onLaunchSource: () => { if (flow.source && imports?.launch) void imports.launch(flow.source.id) },
-          onOpenPermission: () => { if (imports?.openPermission) void imports.openPermission() },
-          onFile: pickFile,
-          onSubmitPaste: submitPaste,
-          onDone: () => setFlowTracked(null),
-          onReload: () => actions.browserCommand(tabId, 'reload'),
-        })
-        : null,
+      flow !== null ? h('div', {
+        className: 'bt-import-card',
+        onClick: (event) => {
+          if (event.target !== event.currentTarget || busy) return
+          if (typeof flow === 'object' && flow.stage === 'result') setFlowTracked(null)
+          else cancelImport()
+        },
+      },
+        h('div', { ref: importBoxRef, className: 'bt-import-box', 'data-stage': importStageKey },
+          flow === 'menu'
+            ? h(ImportMenu, {
+              sources,
+              lastSourceId,
+              loading: loadingSources,
+              busy,
+              canPaste: Boolean(imports?.paste),
+              onFile: pickFile,
+              onPaste: openPaste,
+              onSource: pickSource,
+              onClose: cancelImport,
+            })
+            : h(ImportCard, {
+              flow,
+              page,
+              busy,
+              imports,
+              onApply: applyImport,
+              onCancel: cancelImport,
+              onBack: openImport,
+              onCloseAndImport: closeAndImport,
+              onRetrySource: retrySource,
+              onLaunchSource: launchSource,
+              onOpenPermission: openPermission,
+              onFile: pickFile,
+              onSubmitPaste: submitPaste,
+              onDone: doneImport,
+              onReload: () => actions.browserCommand(tabId, 'reload'),
+            }))) : null,
       flow === null && page.error
         ? h('div', { className: 'bt-browser-empty' },
             h('div', { className: 'bt-browser-empty-title' }, t('This page didn’t load')),
             h('div', { className: 'bt-browser-empty-text' }, t(page.error)),
-            page.url ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: () => { void actions.browserNavigate(tabId, page.url) } }, t('Try again')) : null)
-        : flow === null && !page.url
+            pageUrl ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: () => { void actions.browserNavigate(tabId, pageUrl) } }, t('Try again')) : null)
+        : flow === null && !pageUrl
           ? h('div', { className: 'bt-browser-empty' },
-              h(BotMark, { bot, size: 48, state: 'idle', live: true }),
-              h('div', { className: 'bt-browser-empty-title' }, t("{name}'s browser", { name: bot.name })),
-              h('div', { className: 'bt-browser-empty-text' }, t('Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.', { name: bot.name })),
-              imports ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: openImport }, t('Import cookies')) : null)
+              bot
+                ? h(BotMark, { bot, size: 48, state: 'idle', live: true })
+                : h('span', { className: 'bt-browser-empty-icon', 'aria-hidden': true }, h(GlobeIcon)),
+              h('div', { className: 'bt-browser-empty-title' }, bot ? t("{name}'s browser", { name: bot.name }) : t('Browser')),
+              h('div', { className: 'bt-browser-empty-text' }, bot
+                ? t('Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.', { name: bot.name })
+                : t('Open a page beside your session. Enter an address above to get started.')),
+              bot && imports ? h('button', { type: 'button', className: 'bt-browser-retry', onClick: openImport }, t('Import cookies')) : null)
           : null))
 }
 
-
-function importError(error) {
-  if (error === 'too-large') return t('That file is too large to be a cookie export.')
-  if (error === 'unreadable') return t('That file could not be read.')
-  if (error === 'app-bound') return t('This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.')
-  if (error === 'keychain-denied') return t('Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.')
-  if (error === 'devtools-denied') return t('Remote debugging permission was declined in the browser. Try again and click Allow.')
-  if (error === 'devtools-timeout') return t('Timed out waiting for you to click Allow in the browser.')
-  if (error === 'devtools-wrong-profile') return t('Another browser profile is active. Switch to the chosen profile window in your browser, then try again.')
-  if (error === 'browser-locked') return t('This browser’s cookie database is busy. Quit the browser and try again.')
-  if (error === 'safari-corrupt') return t('Safari cookies could not be read. Try again or import from a file.')
-  return String(error)
-}
-
-// The sources popover: installed browser profiles first (most-recent pinned), then file & paste.
-export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
-  useEscape(onClose)
-  return h('div', { className: 'bt-import-menu', role: 'menu', 'aria-label': t('Import cookies') },
-    h('div', { className: 'bt-import-menu-title' }, t('Import from browser')),
-    loading
-      ? h('div', { className: 'bt-import-menu-note' }, t('Loading…'))
-      : sources.length === 0
-        ? h('div', { className: 'bt-import-menu-note' }, t('No browsers found'))
-        : sources.map((source) => {
-          const isLast = source.id === lastSourceId
-          const needsPerm = Boolean(source.needsPermission)
-          const isReady = Boolean(source.liveDebugReady)
-          const hasCount = typeof source.cookieCount === 'number' && !needsPerm && !isReady
-          const showFallback = !isLast && !needsPerm && !isReady && !hasCount && !source.email
-          const hasMeta = isLast || needsPerm || isReady || hasCount || showFallback
-          return h('button', {
-            key: source.id, type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy,
-            title: source.email ? `${source.label} (${source.email})` : source.label,
-            onClick: () => onSource(source),
-          },
-            h(WindowIcon, { className: 'bt-import-item-icon' }),
-            h('span', { className: 'bt-import-item-main' },
-              h('span', { className: 'bt-import-item-name' }, source.label),
-              source.email ? h('span', { className: 'bt-import-item-email' }, source.email) : null),
-            hasMeta ? h('span', { className: 'bt-import-item-meta' },
-              isLast ? h('span', { className: 'bt-import-item-tag' }, t('Last used')) : null,
-              needsPerm ? h('span', { className: 'bt-import-item-sub', 'data-warn': true }, t('Permission needed')) : null,
-              isReady ? h('span', { className: 'bt-import-item-sub', 'data-ready': true }, t('Ready')) : null,
-              hasCount ? h('span', { className: 'bt-import-item-sub' }, t('{count} cookies', { count: source.cookieCount })) : null,
-              showFallback ? h('span', { className: 'bt-import-item-sub' }, t('Browser profile')) : null) : null)
-        }),
-    h('div', { className: 'bt-import-sep', role: 'separator' }),
-    h('button', { type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy, onClick: onFile },
-      h(FileIcon, { className: 'bt-import-item-icon' }),
-      h('span', { className: 'bt-import-item-name' }, t('From a file…')),
-      h('span', { className: 'bt-import-item-sub' }, t('cookies.txt, JSON, storageState'))),
-    canPaste ? h('button', { type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy, onClick: onPaste },
-      h(PasteIcon, { className: 'bt-import-item-icon' }),
-      h('span', { className: 'bt-import-item-name' }, t('Paste cookies or cURL…')),
-      h('span', { className: 'bt-import-item-sub' }, t('JSON, cURL, header'))) : null)
-}
-
-export function SafariPermissionCard({ flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onCancel }) {
-  const { source } = flow
-  const [granted, setGranted] = useState(false)
-  const notifiedRef = useRef(false)
-  const onGrantedRef = useRef(onPermissionGranted)
-  onGrantedRef.current = onPermissionGranted
-
-  useEffect(() => {
-    const canProbe = typeof imports?.probe === 'function'
-    if (!canProbe) return undefined
-    let active = true
-    let timer = null
-    const schedule = () => {
-      if (!active) return
-      timer = setTimeout(poll, 2000)
-    }
-    const poll = () => {
-      void imports.probe(source.id).then(
-        (res) => {
-          if (!active) return
-          const ok = Boolean(res?.permissionGranted)
-          setGranted(ok)
-          if (ok && !notifiedRef.current) {
-            notifiedRef.current = true
-            onGrantedRef.current?.()
-          }
-        },
-        () => {},
-      ).finally(schedule)
-    }
-    schedule()
-    return () => { active = false; clearTimeout(timer) }
-  }, [imports, source.id])
-
-  return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-    h('div', { className: 'bt-import-title' }, t('Allow Safari access')),
-    h('div', { className: 'bt-import-text' },
-      t('macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.')),
-    h('div', { className: 'bt-import-steps' },
-      h('div', { className: 'bt-import-step' }, t('1. Open Full Disk Access in System Settings and turn on DS Bot.')),
-      h('div', { className: 'bt-import-step' }, t('2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.'))),
-    granted ? h('div', { className: 'bt-import-ready-note' }, t('Full Disk Access granted — ready to import.')) : null,
-    h('div', { className: 'bt-import-actions' },
-      h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
-      imports?.openPermission
-        ? h('button', {
-            type: 'button',
-            className: granted ? 'bt-import-plain' : 'bt-import-primary',
-            disabled: busy,
-            onClick: onOpenPermission,
-          }, t('Open System Settings'))
-        : null,
-      h('button', {
-        type: 'button',
-        className: granted || !imports?.openPermission ? 'bt-import-primary' : 'bt-import-plain',
-        disabled: busy,
-        onClick: onRetrySource,
-      }, busy ? t('Reading…') : granted ? t('Import') : t('Try again')))))
-}
-
-export function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel }) {
-  const { source, info } = flow
-  const inspectUrl = info?.inspectUrl || 'chrome://inspect/#remote-debugging'
-  const browserName = info?.browserName || source.name
-  const [copied, setCopied] = useState(false)
-  const [detected, setDetected] = useState(false)
-  const copyTimerRef = useRef(null)
-  const mountedRef = useRef(true)
-
-  useEffect(() => {
-    mountedRef.current = true
-    return () => {
-      mountedRef.current = false
-      clearTimeout(copyTimerRef.current)
-    }
-  }, [])
-
-  useEffect(() => {
-    const canProbe = typeof imports?.probe === 'function'
-    const canList = typeof imports?.sources === 'function'
-    if (!canProbe && !canList) return undefined
-    let active = true
-    let timer = null
-    const schedule = () => {
-      if (!active) return
-      timer = setTimeout(poll, 2000)
-    }
-    const poll = () => {
-      const req = canProbe
-        ? imports.probe(source.id).then((res) => Boolean(res?.liveDebugReady))
-        : imports.sources().then((list) => Array.isArray(list) && Boolean(list.find((s) => s.id === source.id)?.liveDebugReady))
-      void req.then(
-        (ready) => { if (active) setDetected(ready) },
-        () => {},
-      ).finally(schedule)
-    }
-    schedule()
-    return () => { active = false; clearTimeout(timer) }
-  }, [imports, source.id])
-
-  const copyAddress = () => {
-    void Promise.resolve(writeClipboard(inspectUrl)).then((ok) => {
-      if (!ok || !mountedRef.current) return
-      setCopied(true)
-      clearTimeout(copyTimerRef.current)
-      copyTimerRef.current = setTimeout(() => {
-        if (mountedRef.current) setCopied(false)
-      }, 1800)
-    }, () => {})
-  }
-
-  return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-    h('div', { className: 'bt-import-title' }, t('Connect to {name}', { name: browserName })),
-    h('div', { className: 'bt-import-text' },
-      t('{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.', { name: browserName })),
-    h('div', { className: 'bt-import-steps' },
-      h('div', { className: 'bt-import-step' }, t('1. Open this address in {name}:', { name: browserName })),
-      h('div', { className: 'bt-import-copy-row' },
-        h('code', { className: 'bt-import-code' }, inspectUrl),
-        h('button', { type: 'button', className: 'bt-import-mini', onClick: copyAddress }, copied ? t('Copied') : t('Copy'))),
-      h('div', { className: 'bt-import-step' }, t('2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.', { name: browserName }))),
-    detected ? h('div', { className: 'bt-import-ready-note' }, t('Remote debugging detected — ready to import.')) : null,
-    h('div', { className: 'bt-import-actions' },
-      !info?.running && info?.hasExe
-        ? h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onLaunchSource }, t('Open {name}', { name: browserName }))
-        : h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onFile }, t('From a file…')),
-      h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
-      h('button', { type: 'button', className: 'bt-import-primary', disabled: busy, onClick: onRetrySource }, busy ? t('Connecting…') : t('Connect and import')))))
-}
-
-function PasteCard({ flow, busy, onSubmitPaste, onCancel }) {
-  const [text, setText] = useState('')
-  const [siteUrl, setSiteUrl] = useState(flow.siteUrl || '')
-  return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-    h('div', { className: 'bt-import-title' }, t('Paste cookies or cURL')),
-    h('textarea', {
-      className: 'bt-import-textarea',
-      rows: 5,
-      spellCheck: false,
-      placeholder: t('Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…'),
-      value: text,
-      onChange: (event) => setText(event.target.value),
-    }),
-    h('input', {
-      type: 'text',
-      className: 'bt-import-input',
-      spellCheck: false,
-      placeholder: t('Site URL (only needed for plain Cookie headers)'),
-      value: siteUrl,
-      onChange: (event) => setSiteUrl(event.target.value),
-    }),
-    h('div', { className: 'bt-import-actions' },
-      h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
-      h('button', {
-        type: 'button', className: 'bt-import-primary', disabled: busy || !text.trim(),
-        onClick: () => onSubmitPaste(text, siteUrl.trim()),
-      }, busy ? t('Reading…') : t('Continue')))))
-}
-
-export function PreviewCard({ flow, page, busy, onApply, onCancel }) {
-  const { preview } = flow
-  const sites = (preview.sites ?? []).filter((s) => (s.cookies ?? 0) > 0 || (s.localStorage ?? 0) > 0)
-  const currentHost = hostOfUrl(page.url)
-  const matchingCurrent = currentHost
-    ? sites.filter((s) => siteMatchesHost(s.site, currentHost)).map((s) => s.site)
-    : []
-  const [selected, setSelected] = useState(() => new Set(sites.map((s) => s.site)))
-  const [query, setQuery] = useState('')
-  const [persistSession, setPersistSession] = useState(true)
-
-  const hasSession = preview.notes.includes('session-cookies')
-  const allSelected = selected.size === sites.length
-  const currentOnlySelected = matchingCurrent.length > 0
-    && selected.size === matchingCurrent.length
-    && matchingCurrent.every((s) => selected.has(s))
-
-  const visibleSites = query.trim()
-    ? sites.filter((s) => s.site.toLowerCase().includes(query.trim().toLowerCase()))
-    : sites
-  const selectedCookies = sites.reduce((sum, s) => sum + (selected.has(s.site) ? s.cookies : 0), 0)
-  const selectedStorage = sites.reduce((sum, s) => sum + (selected.has(s.site) ? (s.localStorage ?? 0) : 0), 0)
-
-  const toggleSite = (site) => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(site)) next.delete(site)
-      else next.add(site)
-      return next
-    })
-  }
-  const selectAll = () => setSelected(new Set(sites.map((s) => s.site)))
-  const clearAll = () => setSelected(new Set())
-  const selectCurrent = () => setSelected(new Set(matchingCurrent))
-
-  const submit = () => {
-    const chosen = allSelected ? undefined : [...selected]
-    onApply({ sites: chosen, persistSession: hasSession ? persistSession : false })
-  }
-
-  return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-    h('div', { className: 'bt-import-title' }, t('Import {count} cookies', { count: selectedCookies })),
-    h('div', { className: 'bt-import-sub' },
-      preview.source?.label ?? '',
-      flow.restarted ? ` · ${t('the browser was restarted')}` : '',
-      selectedStorage > 0 ? ` · ${t('{count} storage entries', { count: selectedStorage })}` : ''),
-    matchingCurrent.length > 0 && sites.length > 1 ? h('div', { className: 'bt-import-scope' },
-      h('button', {
-        type: 'button', className: 'bt-import-pill', 'aria-pressed': allSelected,
-        onClick: selectAll,
-      }, t('All sites ({count})', { count: sites.length })),
-      h('button', {
-        type: 'button', className: 'bt-import-pill', 'aria-pressed': currentOnlySelected,
-        onClick: selectCurrent,
-      }, t('This site ({host})', { host: currentHost }))) : null,
-    sites.length > 6 ? h('div', { className: 'bt-import-filter-row' },
-      h('input', {
-        type: 'text', className: 'bt-import-input', spellCheck: false,
-        placeholder: t('Filter sites…'),
-        value: query,
-        onChange: (event) => setQuery(event.target.value),
-      }),
-      h('button', {
-        type: 'button', className: 'bt-import-mini',
-        onClick: allSelected ? clearAll : selectAll,
-      }, allSelected ? t('Clear') : t('All'))) : null,
-    sites.length ? h('div', { className: 'bt-import-list' },
-      visibleSites.map((site) => h('label', { key: site.site, className: 'bt-import-line bt-import-check-row' },
-        h('input', {
-          type: 'checkbox',
-          checked: selected.has(site.site),
-          onChange: () => toggleSite(site.site),
-        }),
-        h('span', { className: 'bt-import-line-name' }, site.site),
-        h('span', { className: 'bt-import-line-count' },
-          t('{count}', { count: site.cookies }),
-          site.localStorage > 0 ? ` · ${t('storage')}` : site.session > 0 ? ` · ${t('{count} session', { count: site.session })}` : '')))) : null,
-    preview.skipped.length ? h('div', { className: 'bt-import-list' },
-      h('div', { className: 'bt-import-note' }, t('{count} skipped', { count: preview.skipped.length })),
-      preview.skipped.slice(0, 5).map((item, index) => h('div', { key: index, className: 'bt-import-line' },
-        h('span', { className: 'bt-import-line-name' }, item.name ?? item.where),
-        h('span', { className: 'bt-import-line-reason' }, item.reason))),
-      preview.skipped.length > 5 ? h('div', { className: 'bt-import-line' }, h('span', { className: 'bt-import-line-reason' }, t('and {count} more', { count: preview.skipped.length - 5 }))) : null) : null,
-    preview.warnings.length ? h('details', { className: 'bt-import-warns' },
-      h('summary', null, t('{count} adjusted', { count: preview.warnings.reduce((n, w) => n + w.count, 0) })),
-      preview.warnings.map((w, index) => h('div', { key: index, className: 'bt-import-line' },
-        h('span', { className: 'bt-import-line-reason' }, `${w.count} × ${w.message}`)))) : null,
-    hasSession ? h('label', { className: 'bt-import-toggle' },
-      h('input', { type: 'checkbox', checked: persistSession, onChange: (event) => setPersistSession(event.target.checked) }),
-      h('span', null, t('Keep session logins after app restart'))) : null,
-    preview.notes.includes('local-storage-left') ? h('div', { className: 'bt-import-note' }, t('Some sites also keep sign-in outside cookies; you may need to sign in again there.')) : null,
-    h('div', { className: 'bt-import-actions' },
-      h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
-      h('button', { type: 'button', className: 'bt-import-primary', disabled: busy || (selectedCookies === 0 && selectedStorage === 0), onClick: submit }, busy ? t('Importing…') : t('Import')))))
-}
-
-// The card that runs an import: connecting / safari-permission / remote-debug / running / paste → preview → result | error.
-function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndImport, onRetrySource, onLaunchSource, onOpenPermission, onPermissionGranted, onFile, onSubmitPaste, onDone, onReload }) {
-  const { stage } = flow
-  if (stage === 'connecting') {
-    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-      h('div', { className: 'bt-import-title' }, t('Reading {name}…', { name: flow.source.name })),
-      h('div', { className: 'bt-import-sub' }, flow.source.label),
-      h('div', { className: 'bt-import-text' }, t('If {name} or your system asks for permission, click Allow.', { name: flow.source.name })),
-      h('div', { className: 'bt-import-actions' },
-        h('button', { type: 'button', className: 'bt-import-plain', onClick: onCancel }, t('Cancel')))))
-  }
-  if (stage === 'safari-permission') {
-    return h(SafariPermissionCard, { flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onCancel })
-  }
-  if (stage === 'remote-debug') {
-    return h(RemoteDebugCard, { flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel })
-  }
-  if (stage === 'paste') {
-    return h(PasteCard, { flow, busy, onSubmitPaste, onCancel })
-  }
-  if (stage === 'running') {
-    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-      h('div', { className: 'bt-import-title' }, t('{name} is running', { name: flow.source.name })),
-      h('div', { className: 'bt-import-text' }, t('It must close for a moment so its cookies can be copied. It will reopen with your tabs.')),
-      h('div', { className: 'bt-import-actions' },
-        h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
-        h('button', { type: 'button', className: 'bt-import-primary', disabled: busy, onClick: onCloseAndImport }, busy ? t('Closing…') : t('Close {name} and import', { name: flow.source.name })))))
-  }
-  if (stage === 'error') {
-    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-      h('div', { className: 'bt-import-title' }, t('Import failed')),
-      h('div', { className: 'bt-import-text' }, flow.message),
-      h('div', { className: 'bt-import-actions' }, h('button', { type: 'button', className: 'bt-import-plain', onClick: onCancel }, t('Close')))))
-  }
-  if (stage === 'result') {
-    const { report } = flow
-    const problems = [...(report.dropped ?? []), ...(report.failed ?? [])]
-    const title = report.stored > 0
-      ? t('Imported {count} cookies', { count: report.stored })
-      : (report.originsStored ?? 0) > 0
-        ? t('Imported storage for {count} sites', { count: report.originsStored })
-        : t('No cookies were stored')
-    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-      h('div', { className: 'bt-import-title' }, title),
-      h('div', { className: 'bt-import-sub' },
-        [
-          flow.label,
-          (report.originsStored ?? 0) > 0 ? t('{count} sites storage', { count: report.originsStored }) : null,
-          flow.reloaded ? t('page reloaded') : null,
-        ].filter(Boolean).join(' · ')),
-      problems.length ? h('div', { className: 'bt-import-list' },
-        problems.slice(0, 8).map((item, index) => h('div', { key: index, className: 'bt-import-line' },
-          h('span', { className: 'bt-import-line-name' }, item.name ?? '—'),
-          h('span', { className: 'bt-import-line-reason' }, item.reason))),
-        problems.length > 8 ? h('div', { className: 'bt-import-line' }, h('span', { className: 'bt-import-line-reason' }, t('and {count} more', { count: problems.length - 8 }))) : null) : null,
-      h('div', { className: 'bt-import-actions' },
-        page.url && !flow.reloaded ? h('button', { type: 'button', className: 'bt-import-plain', onClick: onReload }, t('Reload the page')) : null,
-        h('button', { type: 'button', className: 'bt-import-primary', onClick: onDone }, t('Done')))))
-  }
-  return h(PreviewCard, { key: flow.id, flow, page, busy, onApply, onCancel })
-}
 
 /**
  * One aside for the Bot's details, browser, side chats, task viewer, and optional
@@ -1158,7 +642,8 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   const wsTabs = workspace?.tabs ?? []
   const hasWs = wsTabs.length > 0
   const activeWsTab = wsTabs.find(tab => tab.id === workspace?.active)
-  const canBrowse = Boolean(bot && roster.browser === true && actions.browserShow)
+  const browserOwner = bot ? bot.id : (!hasSubjectDetails && workspace?.browserId ? workspace.browserId : null)
+  const canBrowse = Boolean(browserOwner && roster.browser === true && actions.browserShow)
   const sideChats = bot ? sideChatsOf(roster, bot.id) : []
   const sideChat = sideChats.find(chat => chat?.id === pane.side)
   const taskBot = pane.task?.botId ? roster.byId?.[pane.task.botId] : undefined
@@ -1170,7 +655,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
           : hasSubjectDetails ? 'details'
             : hasWs ? 'workspace'
               : 'details'
-  const tabState = useBrowserTabs(map => (bot ? (map[bot.id] ?? EMPTY_TABS) : EMPTY_TABS))
+  const tabState = useBrowserTabs(map => (browserOwner ? (map[browserOwner] ?? EMPTY_TABS) : EMPTY_TABS))
   const active = tabState.active
   const page = useBrowserPages(pages => (active ? pages[active] : null) ?? EMPTY_PAGE)
   const hold = useBrowserHolds?.(map => bot ? map[bot.id] ?? null : null) ?? null
@@ -1218,7 +703,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     if (switched) chatRoom.hold(false)
   }, [view, panelWidth, leaving, overlay])
   const dragCleanup = useRef(null)
-  useEscape(() => actions.closeOverlay(), !leaving, { priority: -1 })
+  useEscape(() => actions.closeOverlay(), !leaving, { priority: ESCAPE_PRIORITY.PANEL })
   useEffect(() => () => { dragCleanup.current?.(); chatRoom.setRight(null); chatRoom.hold(false) }, [])
   // A `room` change (window resize, the left column moving) lands at once.
   const mounted = useRef(false)
@@ -1238,14 +723,16 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     return () => clearTimeout(timer)
   }, [])
 
-  // A Bot's strip restores as soon as the panel opens for it.
-  useEffect(() => { if (canBrowse) actions.browserEnsure(bot.id) }, [bot?.id, canBrowse])
-  // With the last tab closed the browser view folds back into workspace (if open) or details.
+  // A Bot's (or Classic session's) browser strip restores as soon as the panel opens for it.
+  useEffect(() => { if (canBrowse && browserOwner) actions.browserEnsure(browserOwner) }, [browserOwner, canBrowse])
+  // With the last tab closed the browser view folds back into workspace (if open), details, or closes.
   useEffect(() => {
     if (view === 'browser' && (active === null || !tabState.ids.includes(active))) {
-      actions.setPanelView(workspace !== undefined && hasWs ? 'workspace' : 'details')
+      if (workspace !== undefined && hasWs) actions.setPanelView('workspace')
+      else if (hasSubjectDetails) actions.setPanelView('details')
+      else actions.closePanel?.()
     }
-  }, [view, active, tabState.ids.length, workspace, hasWs])
+  }, [view, active, tabState.ids.length, workspace, hasWs, hasSubjectDetails])
   // A side chat closed here or in another window folds back into details too.
   useEffect(() => {
     if (pane.view === 'side' && sideChat === undefined) actions.setPanelView('details')
@@ -1253,19 +740,20 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   useEffect(() => {
     if (pane.view === 'task' && taskEntry === undefined) actions.closeTask?.()
   }, [pane.view, taskEntry])
-  // In standalone desktop mode, close the panel if both subject details and workspace tabs
-  // are gone (e.g. a deleted Bot/room or closing the last workspace tab), or fold workspace
-  // back to details when workspace tabs clear.
+  // In standalone desktop mode, close the panel if subject details, workspace tabs, and
+  // browser tabs are all gone, or fold workspace back to details/browser when workspace tabs clear.
   useEffect(() => {
     if (leaving) return
-    if (workspace !== undefined && !hasSubjectDetails && !hasWs) {
+    const hasBrowser = canBrowse && (pane.view === 'browser' || tabState.ids.length > 0)
+    if (workspace !== undefined && !hasSubjectDetails && !hasWs && !hasBrowser) {
       actions.closePanel?.()
       return
     }
     if (pane.view !== 'workspace' || hasWs) return
-    if (hasSubjectDetails) actions.setPanelView('details')
+    if (canBrowse && tabState.ids.length > 0) actions.setPanelView('browser')
+    else if (hasSubjectDetails) actions.setPanelView('details')
     else actions.closePanel?.()
-  }, [leaving, workspace, pane.view, hasWs, hasSubjectDetails])
+  }, [leaving, workspace, pane.view, hasWs, hasSubjectDetails, canBrowse, tabState.ids.length])
   // The guest leaves the screen while the details view is up, and on close.
   useEffect(() => {
     if (view !== 'browser' || leaving) void actions.browserShow?.(null)
@@ -1402,10 +890,10 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   }
 
   const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length, taskEntry !== undefined, wsTabs.length)
-    || (workspace !== undefined && (!hasSubjectDetails || (leaving && pane.view === 'workspace')))
+    || (workspace !== undefined && (!hasSubjectDetails || (leaving && (pane.view === 'workspace' || pane.view === 'browser'))))
   return h('aside', {
     ref: root, className: 'bt-panel', 'data-view': view,
-    'aria-label': view === 'browser' && bot ? t("{name}'s browser", { name: bot.name })
+    'aria-label': view === 'browser' ? (bot ? t("{name}'s browser", { name: bot.name }) : t('Browser'))
       : view === 'side' ? t('Side chat')
         : view === 'task' && taskEntry ? taskEntry.title
           : view === 'workspace' ? (activeWsTab?.label || t('Workspace'))
@@ -1419,7 +907,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     // pages underneath (the chat, the guest) see no pointer.
     dragging ? createPortal(h('div', { className: 'bt-drag-shield', 'aria-hidden': true }), document.body) : null,
     hasStrip ? h(PanelStrip, {
-      bot, roomSubject, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, task: taskEntry,
+      bot, roomSubject, subject: pane.id, browserOwner, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, task: taskEntry,
       workspace, hasSubjectDetails: hasSubjectDetails || workspace === undefined,
       canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages,
     }) : null,
@@ -1429,8 +917,8 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
       : null,
     view === 'workspace'
       ? (!hasWs ? h('div', { key: 'workspace-empty', className: 'bt-panel-view bt-panel-workspace' }) : null)
-      : view === 'browser' && bot
-        ? h(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold })
+      : view === 'browser' && browserOwner
+        ? h(BrowserView, { key: `browser:${active}`, bot, ownerId: browserOwner, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold })
         : view === 'side' && sideChat
           ? h('div', { key: `side:${sideChat.id}`, className: 'bt-panel-view' }, h(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions }))
           : view === 'task' && taskEntry && taskBot
@@ -1439,7 +927,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
               ? h('div', { key: `details:${subjectId}:${pane.renaming ? 'rename' : ''}:${pane.tab ?? ''}`, className: 'bt-panel-view' },
                   h(DetailsDrawer, {
                     sessionId: pane.id, startRenaming: pane.renaming, startTab: pane.tab, hasStrip,
-                    roster, actions: panelActions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useComputer,
+                    roster, actions: panelActions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer,
                   }))
               : null)
 }
@@ -1537,65 +1025,142 @@ export const BROWSER_CSS = `
 .bt-bcard-new svg{width:14px;height:14px}
 .bt-browser-empty-mark{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* Cookie imports */
-.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:312px;max-width:calc(100% - 12px);max-height:min(360px,calc(100% - 12px));overflow:auto;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
-.bt-import-menu-title{padding:6px 10px 8px;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--bt-ink-3)}
-.bt-import-sep{height:.5px;margin:4px 8px;background:var(--bt-line)}
-.bt-import-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:8px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:12px;text-align:left;cursor:pointer}
+.bt-import-btn[data-open]{background:var(--bt-active);color:var(--bt-ink)}
+.bt-import-card{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:28px 24px;background:var(--bt-main);overflow:auto;animation:bt-fade .14s ease-out}
+.bt-import-box{width:100%;max-width:384px;margin:auto;box-sizing:border-box;overflow:visible}
+.bt-import-box[data-morph]{overflow:hidden}
+.bt-import-stage{display:flex;flex-direction:column;gap:14px;animation:bt-veil-in .18s ease-out}
+.bt-import-head{display:flex;align-items:center;gap:10px;min-width:0}
+.bt-import-head-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.12))}
+.bt-import-head-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.bt-import-head-btn{flex:none;margin-right:-6px}
+.bt-import-head-btn:first-child{margin-left:-6px;margin-right:0}
+.bt-import-title{font-size:15px;line-height:20px;font-weight:600;letter-spacing:-.015em;color:var(--bt-ink);font-variant-numeric:tabular-nums}
+.bt-import-sub{font-size:12px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
+.bt-import-text{font-size:13px;line-height:20px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-import-section{display:flex;flex-direction:column;gap:4px}
+.bt-import-label{padding:0 0 2px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-3)}
+.bt-import-rows{display:flex;flex-direction:column;gap:2px}
+.bt-import-item{position:relative;display:flex;align-items:center;gap:12px;width:calc(100% + 20px);margin:0 -10px;min-width:0;min-height:48px;padding:8px 10px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease,${spring(SPRING_TAP, 'scale')}}
 .bt-import-item:hover{background:var(--bt-hover)}
-.bt-import-item:disabled{opacity:.5;cursor:default}
-.bt-import-item-icon,.bt-import-item svg{flex:none;color:var(--bt-ink-3)}
-.bt-import-item-icon svg,.bt-import-item svg{width:15px;height:15px}
-.bt-import-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
-.bt-import-item-name{flex:none;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-import-item-main .bt-import-item-name{max-width:none}
-.bt-import-item-email{font-size:11px;line-height:15px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item:active:not(:disabled){background:var(--bt-active);scale:.99}
+.bt-import-item:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-import-item:disabled{opacity:.45;cursor:default}
+.bt-import-mark{flex:none;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.14))}
+.bt-import-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.bt-import-item-subrow{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-import-item-name{min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-email{min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.bt-import-item-tag{font-size:11px;line-height:15px;padding:1px 6px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
-.bt-import-item-sub{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-import-item-meta .bt-import-item-sub{flex:none}
-.bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
-.bt-import-item-sub[data-warn]{color:var(--bt-warn);font-weight:500}
-.bt-import-menu-note{padding:8px 10px 10px;font-size:12px;color:var(--bt-ink-3)}
-.bt-import-card{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bt-main);overflow:auto;animation:bt-foot-in .2s ease}
-.bt-import-box{width:100%;max-width:380px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-main);box-shadow:0 12px 36px -12px rgba(0,0,0,.14);overflow:auto}
-.bt-import-title{font-size:15px;line-height:21px;font-weight:600}
-.bt-import-sub{font-size:12px;line-height:17px;color:var(--bt-ink-3);margin-top:-6px}
-.bt-import-text{font-size:13px;line-height:19px;color:var(--bt-ink-2);overflow-wrap:anywhere}
-.bt-import-steps{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--bt-hover)}
-.bt-import-step{font-size:12px;line-height:17px;color:var(--bt-ink-2)}
-.bt-import-copy-row{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-import-code{flex:1;min-width:0;padding:5px 8px;border-radius:6px;border:.5px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
-.bt-import-mini{flex:none;height:28px;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:12px;cursor:pointer}
-.bt-import-mini:hover{background:var(--bt-hover)}
-.bt-import-ready-note{font-size:12px;line-height:17px;font-weight:500;color:var(--bt-green)}
-.bt-import-textarea{width:100%;box-sizing:border-box;min-height:96px;max-height:200px;resize:vertical;padding:8px 10px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-main);color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;outline:none}
-.bt-import-input{width:100%;box-sizing:border-box;height:30px;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:12px;outline:none}
-.bt-import-textarea:focus,.bt-import-input:focus{border-color:var(--bt-accent)}
-.bt-import-input::placeholder,.bt-import-textarea::placeholder{color:var(--bt-ink-3)}
-.bt-import-scope{display:flex;gap:6px;flex-wrap:wrap}
-.bt-import-pill{height:26px;max-width:100%;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-main);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-import-pill:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-import-pill[aria-pressed=true]{border-color:var(--bt-accent);background:var(--bt-accent-soft);color:var(--bt-ink);font-weight:500}
-.bt-import-filter-row{display:flex;align-items:center;gap:6px}
-.bt-import-filter-row .bt-import-input{flex:1;min-width:0;height:28px}
-.bt-import-list{max-height:180px;overflow:auto;border:.5px solid var(--bt-line);border-radius:10px;padding:4px 10px}
-.bt-import-line{display:flex;align-items:baseline;gap:8px;padding:4px 0;min-width:0}
-.bt-import-check-row{align-items:center;cursor:pointer}
-.bt-import-check-row input[type=checkbox]{flex:none;margin:0;accent-color:var(--bt-accent);cursor:pointer}
-.bt-import-line-name{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--bt-ink)}
-.bt-import-line-count{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);white-space:nowrap}
+.bt-import-item-tag{flex:none;font-size:11px;line-height:16px;font-weight:500;padding:0 6px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
+.bt-import-item-sub{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-import-item-sub[data-ready],.bt-import-item-sub[data-missing]{color:var(--bt-ink-2)}
+.bt-import-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3)}
+.bt-import-item-sub[data-ready] .bt-import-dot{background:color-mix(in srgb,var(--bt-green) 72%,var(--bt-ink))}
+.bt-import-item-sub[data-missing] .bt-import-dot{background:var(--bt-danger)}
+.bt-import-chev{flex:none;display:inline-flex;align-items:center;justify-content:flex-end;width:0;margin-left:-12px;overflow:hidden;color:var(--bt-ink-3);opacity:0;transform:translateX(-4px);transition:${spring(SPRING_SHAPE, 'width', 'margin-left', 'transform')},opacity .14s ease}
+.bt-import-chev svg{flex:none;width:14px;height:14px}
+.bt-import-item:hover .bt-import-chev,.bt-import-item:focus-visible .bt-import-chev{width:14px;margin-left:0;opacity:.7;transform:none}
+.bt-import-sep{height:1px;background:var(--bt-line);margin:2px 0}
+.bt-import-item-alt{min-height:40px;padding:7px 10px;border-radius:10px;gap:10px}
+.bt-import-item-alt .bt-import-item-name{font-size:13px;line-height:18px;font-weight:400;flex:none}
+.bt-import-alt-ico{flex:none;width:28px;display:inline-flex;align-items:center;justify-content:center;color:var(--bt-ink-2);transition:color .12s ease}
+.bt-import-alt-ico svg{width:16px;height:16px}
+.bt-import-item-alt:hover .bt-import-alt-ico{color:var(--bt-ink)}
+.bt-import-alt-hint{flex:1;min-width:0;text-align:right;font-size:11px;line-height:16px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-menu-note{padding:16px 0;font-size:13px;line-height:18px;color:var(--bt-ink-3)}
+.bt-import-skel-row{display:flex;align-items:center;gap:12px;padding:10px 0}
+.bt-import-skel-ico{flex:none;width:26px;height:26px;border-radius:50%;corner-shape:round;background:var(--bt-hover);animation:bt-import-pulse 1.4s ease-in-out infinite}
+.bt-import-skel-lines{flex:1;display:flex;flex-direction:column;gap:6px}
+.bt-import-skel-bar{height:10px;border-radius:4px;background:var(--bt-hover);animation:bt-import-pulse 1.4s ease-in-out infinite}
+.bt-import-skel-w1{width:54%}
+.bt-import-skel-w2{width:34%;height:8px}
+.bt-import-skel-w3{width:46%}
+@keyframes bt-import-pulse{0%,100%{opacity:.45}50%{opacity:.9}}
+.bt-import-steps{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:12px;background:var(--bt-hover)}
+.bt-import-step{font-size:13px;line-height:19px;color:var(--bt-ink-2)}
+.bt-import-copy-row{display:flex;align-items:center;gap:8px;padding:5px 5px 5px 12px;border-radius:8px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);min-width:0}
+.bt-import-code{flex:1;min-width:0;color:var(--bt-ink);font-family:var(--bt-mono);font-size:12px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+.bt-import-mini{flex:none;display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-import-mini svg{width:13px;height:13px;color:var(--bt-ink-2)}
+.bt-import-mini:hover{background:var(--bt-active)}
+.bt-import-mini:active{scale:.96}
+.bt-import-mini:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-import-ready-note{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;background:color-mix(in srgb,var(--bt-green) 10%,transparent);font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2)}
+.bt-import-ready-note svg{flex:none;width:15px;height:15px;color:color-mix(in srgb,var(--bt-green) 72%,var(--bt-ink))}
+.bt-import-textarea{width:100%;box-sizing:border-box;min-height:120px;max-height:220px;resize:vertical;padding:12px 14px;border:1px solid transparent;border-radius:12px;background:var(--bt-hover);color:var(--bt-ink);font-family:var(--bt-mono);font-size:12px;line-height:18px;outline:none;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
+.bt-import-input{width:100%;box-sizing:border-box;height:36px;padding:0 12px;border:1px solid transparent;border-radius:10px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;outline:none;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
+.bt-import-textarea:focus,.bt-import-input:focus{background:var(--bt-card);border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
+.bt-import-input::placeholder,.bt-import-textarea::placeholder,.bt-import-search-in::placeholder{color:var(--bt-ink-3)}
+.bt-import-scope{width:100%;box-sizing:border-box}
+.bt-import-scope button{min-width:0;padding:0 10px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-scope button[aria-pressed=true]{background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow)}
+.bt-import-scope>.bt-thumb{background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow)}
+.bt-import-scope[data-glide] button[aria-pressed=true]{background:transparent;box-shadow:none}
+.bt-import-scope>.bt-thumb[data-hidden]{opacity:0}
+.bt-import-search{display:flex;align-items:center;gap:6px;height:34px;padding:0 4px 0 11px;border-radius:10px;background:var(--bt-hover);border:1px solid transparent;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
+.bt-import-search:focus-within{background:var(--bt-card);border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
+.bt-import-search-ico{flex:none;display:inline-flex;color:var(--bt-ink-3)}
+.bt-import-search-ico svg{width:14px;height:14px}
+.bt-import-search-in{flex:1;min-width:0;border:0;background:none;outline:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;padding:0}
+.bt-import-search-btn{flex:none;height:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-import-search-btn:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-import-search-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-import-list{max-height:220px;overflow:auto;margin:0 -8px;padding:2px 0;display:flex;flex-direction:column;gap:1px}
+.bt-import-list-empty{padding:20px 12px;font-size:12px;line-height:16px;color:var(--bt-ink-3);text-align:center}
+.bt-import-line{position:relative;display:flex;align-items:center;gap:10px;min-height:36px;padding:6px 8px;border-radius:8px;min-width:0;box-sizing:border-box;transition:background-color .12s ease}
+.bt-import-check-row{cursor:pointer;user-select:none}
+.bt-import-check-row:hover{background:var(--bt-hover)}
+.bt-import-cb-input{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}
+.bt-import-cb{flex:none;width:16px;height:16px;border-radius:4px;border:1.5px solid var(--bt-line-2);background:transparent;color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;transition:background-color .12s ease,border-color .12s ease}
+.bt-import-cb svg{width:11px;height:11px;stroke-width:2.2;animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+@keyframes bt-import-pop{from{scale:.5;opacity:0}}
+.bt-import-check-row[data-checked] .bt-import-cb{border-color:var(--bt-accent);background:var(--bt-accent)}
+.bt-import-check-row:has(.bt-import-cb-input:focus-visible) .bt-import-cb{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-import-line-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:18px;color:var(--bt-ink-3);transition:color .12s ease}
+.bt-import-check-row[data-checked] .bt-import-line-name{color:var(--bt-ink)}
+.bt-import-line-count{flex:none;text-align:right;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-import-line-reason{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
-.bt-import-toggle{display:flex;align-items:center;gap:8px;font-size:12px;line-height:17px;color:var(--bt-ink-2);cursor:pointer;user-select:none}
-.bt-import-toggle input[type=checkbox]{flex:none;margin:0;accent-color:var(--bt-accent);cursor:pointer}
-.bt-import-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
-.bt-import-warns{font-size:12px;color:var(--bt-ink-3)}
-.bt-import-warns summary{cursor:pointer;padding:2px 0}
+.bt-import-opt-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:12px;border-top:1px solid var(--bt-line)}
+.bt-import-opt-label{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
+.bt-import-meta-group{display:flex;flex-direction:column;gap:2px}
+.bt-import-disclosure{font-size:12px;color:var(--bt-ink-3)}
+.bt-import-disclosure summary{display:flex;align-items:center;gap:4px;padding:3px 0;list-style:none;cursor:pointer;color:var(--bt-ink-3);user-select:none;transition:color .12s ease}
+.bt-import-disclosure summary::-webkit-details-marker{display:none}
+.bt-import-disclosure summary:hover{color:var(--bt-ink-2)}
+.bt-import-disc-chev{display:inline-flex;color:var(--bt-ink-3);transition:${spring(SPRING_SHAPE, 'transform')}}
+.bt-import-disc-chev svg{width:13px;height:13px}
+.bt-import-disclosure[open] .bt-import-disc-chev{transform:rotate(90deg)}
+.bt-import-disc-body{display:flex;flex-direction:column;gap:2px;margin-top:4px;padding:8px 12px;border-radius:10px;background:var(--bt-hover);max-height:112px;overflow:auto}
+.bt-import-detail-line{display:flex;align-items:baseline;gap:8px;padding:2px 0;min-width:0}
+.bt-import-detail-name{flex:none;max-width:52%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:16px;color:var(--bt-ink-2)}
+.bt-import-callout{display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
+.bt-import-callout svg{flex:none;width:14px;height:14px;margin-top:1px;color:var(--bt-ink-3)}
+.bt-import-status{align-items:center;text-align:center}
+.bt-import-status .bt-import-actions{width:100%;justify-content:center;margin-top:6px}
+.bt-import-status-orbit{position:relative;width:54px;height:54px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:4px}
+.bt-import-orbit-ring{position:absolute;inset:0;border-radius:50%;corner-shape:round;border:1.5px solid var(--bt-line);border-top-color:var(--bt-accent);box-sizing:border-box;animation:bt-import-spin .85s linear infinite}
+.bt-import-status-badge{width:44px;height:44px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;margin-bottom:4px;animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+.bt-import-status-badge svg{width:20px;height:20px}
+.bt-import-status-ok{background:color-mix(in srgb,var(--bt-green) 14%,transparent);color:color-mix(in srgb,var(--bt-green) 72%,var(--bt-ink))}
+.bt-import-status-err{background:var(--bt-danger-soft);color:var(--bt-danger)}
+.bt-import-status-muted{background:var(--bt-hover);color:var(--bt-ink-2)}
+@keyframes bt-import-spin{to{transform:rotate(360deg)}}
+.bt-import-problems{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;background:var(--bt-hover);text-align:left;max-height:140px;overflow:auto}
 .bt-import-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:4px}
-.bt-import-primary{height:32px;padding:0 16px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;cursor:pointer}
-.bt-import-primary:disabled{opacity:.55;cursor:default}
-.bt-import-plain{height:32px;padding:0 14px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;cursor:pointer}
-.bt-import-plain:hover{background:var(--bt-hover)}
-.bt-import-plain:disabled{opacity:.55;cursor:default}
+.bt-import-primary{height:36px;padding:0 18px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .12s ease,filter .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-import-primary:hover:not(:disabled){filter:brightness(1.06)}
+.bt-import-primary:active:not(:disabled){scale:.96}
+.bt-import-primary:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-import-primary:disabled{opacity:.4;cursor:default}
+.bt-import-plain{height:36px;padding:0 16px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-import-plain:hover:not(:disabled){background:var(--bt-active)}
+.bt-import-plain:active:not(:disabled){scale:.96}
+.bt-import-plain:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-import-plain:disabled{opacity:.4;cursor:default}
+@media (prefers-reduced-motion:reduce){.bt-import-card,.bt-import-stage,.bt-import-cb svg,.bt-import-status-badge,.bt-import-skel-ico,.bt-import-skel-bar{animation:none!important}.bt-import-item,.bt-import-mini,.bt-import-primary,.bt-import-plain,.bt-import-chev,.bt-import-disc-chev{transition:none!important}}
+.bt-browser-empty-icon{width:44px;height:44px;border-radius:12px;background:var(--bt-hover);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center}
+.bt-browser-empty-icon svg{width:22px;height:22px}
 /* A viewport too narrow to leave the conversation its room: the panel covers it,
    and its close controls get a touch-sized target. */
 .bt-panel[data-overlay]{width:100vw}

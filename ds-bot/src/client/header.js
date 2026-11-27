@@ -2,13 +2,13 @@ import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useSt
 import { createPortal } from 'react-dom'
 import { currentPart, latestMemoryChange } from './text.js'
 import { ArrowUpIcon, CloseIcon, ArrowDownIcon, GoalIcon, MemoryIcon, SearchIcon } from './icons.js'
-import { botState, BotAvatar, RoomAvatar } from './mark.js'
+import { botPendingOf, dmMarkState, lastTurnFailed, latestTurnOf, useBotApprovals, useBotHandoff, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { ActivityIndicator } from './activity-row.js'
 import { clockLabel, newDividerIn, openingTurn, unseenSince } from './cells.js'
 import { GoalIsland, goalView } from './goal.js'
 import { ApprovalIslandPod, roomApprovals } from './member-status.js'
-import { TaskIslandPod, isActiveTask, tasksForChat } from './bot-tasks.js'
+import { TaskIslandPod, isActiveTask, taskCountsOf, tasksForChat } from './bot-tasks.js'
 import { viewBottom } from './motion.js'
 import { t } from './i18n.js'
 
@@ -47,7 +47,7 @@ function MemoryNotice({ shown }) {
     h('span', { className: 'bt-pill-mem-in', ref: inner }, h('span', { className: 'bt-pill-mem-ico' }, h(MemoryIcon)), label))
 }
 
-export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning }) {
+export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useBrowserHolds, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning }) {
   const roster = useRoster(value => value)
   const selectedView = useStore?.(state => state.view)
   const away = useConversationViews?.(views => views.some(view => view.id === selectedView && view.id !== 'chat')) === true
@@ -74,6 +74,21 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const owner = roster.byId[sessionId]?.id ?? sessionId
   const doing = useActivity(map => map[owner])
   const bot = roster.byId[sessionId]
+  const failed = lastTurnFailed(bot, useSessions(list => (bot ? latestTurnOf(list, currentPart(bot)) : undefined)))
+  const { fgApproval, bgApproval } = useBotApprovals(bot?.id, useWork, useComputer)
+  const handoff = useBotHandoff(bot?.id, useBrowserHolds, useComputer)
+  const botTaskCounts = bot ? taskCountsOf({ bot }) : { active: 0, waitingApproval: 0 }
+  const botMarkState = bot ? dmMarkState({
+    running,
+    doing,
+    failed,
+    background: botTaskCounts.active > 0,
+    waitingApproval: botTaskCounts.waitingApproval > 0,
+    fgApproval,
+    bgApproval,
+    handoff,
+    pending: botPendingOf(roster, bot),
+  }) : 'idle'
   const room = roster.roomsById[sessionId]
   const goal = room?.goal
   // Goal panels are keyed by the group, never by its current Session: `composeGoal` and
@@ -169,7 +184,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     title: away ? name : undefined,
     onClick: () => (away ? selectView('chat') : memoryNotice ? actions.openMemory(changed) : actions.toggleDetails(sessionId)),
   },
-    bot ? h(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== undefined), badge: false })
+    bot ? h(BotAvatar, { bot, size: 24, state: botMarkState, badge: false })
       : room ? h(RoomAvatar, { room, roster, size: 24 }) : null,
     goalShown
       ? h('span', { className: 'bt-pill-swap' },
@@ -179,7 +194,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     goalShown && view?.number !== undefined ? h('span', { className: 'bt-pill-count' }, `${view.number}/${view.count}`) : null,
     h(MemoryNotice, { shown: memoryNotice }),
     h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoArrow)))
-  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals: standaloneApprovals, open: approvalOpen, room, targetId: approvalTargetId, actions }) : null
+  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals: standaloneApprovals, open: approvalOpen, room, targetId: approvalTargetId, actions, readOnly: Boolean(roster.readOnly) }) : null
   const taskPod = showTasks ? h(TaskIslandPod, { bot, room, roster, tasks: chatTasks, approvals: taskApprovals, open: taskDeckOpen, focusTaskId: taskDeckState?.taskId ?? null, targetId: approvalTargetId, actions }) : null
   const taskWaiting = Math.max(activeTasks.filter(item => item.status === 'waiting_approval').length, taskApprovals.length)
   const taskBadge = taskHoverReveal

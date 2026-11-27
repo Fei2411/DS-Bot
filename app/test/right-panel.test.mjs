@@ -62,10 +62,11 @@ const stubs = {
 }
 
 const entryCode = `
-  export { parseDelimitedTable, FilePreview } from './ui/src/file-preview.js'
+  export { parseDelimitedTable, FilePreview, HtmlPreviewFrame, HtmlPreviewNotice } from './ui/src/file-preview.js'
   export { createLocalLineEditor, createTerminalKeyHandler, parseAnsiSpans, readXtermTheme, WorkspaceTerminal } from './ui/src/workspace-terminal.js'
   export { ChangesReview } from './ui/src/changes-review.js'
   export { RightPanel, WorkspacePaneBody, buildWorkspaceTabs } from './ui/src/right-panel.js'
+  export { createPluginRuntime } from './ui/src/plugin-runtime.js'
   export { createSlotRegistry, RIGHT_PANE_TAB_SLOT } from './ui/src/slots.js'
   export { createTeam } from './ui/src/team.js'
 `
@@ -151,6 +152,8 @@ const createdUrls = []
 const revokedUrls = []
 const windowEvents = []
 const resizeObservers = []
+const winListeners = new Map()
+const docCaptureListeners = new Map()
 const mod = { exports: {} }
 const sandbox = {
   module: mod,
@@ -183,11 +186,27 @@ const sandbox = {
   },
   window: {
     innerWidth: 1280,
-    addEventListener() {},
-    removeEventListener() {},
+    innerHeight: 800,
+    addEventListener(type, fn) {
+      if (!winListeners.has(type)) winListeners.set(type, new Set())
+      winListeners.get(type).add(fn)
+    },
+    removeEventListener(type, fn) { winListeners.get(type)?.delete(fn) },
     dispatchEvent(event) { windowEvents.push(event?.type); return true },
   },
-  document: { body: {}, addEventListener() {}, removeEventListener() {}, documentElement: { addEventListener() {}, removeEventListener() {} } },
+  document: {
+    body: {},
+    addEventListener(type, fn, capture) {
+      if (capture) {
+        if (!docCaptureListeners.has(type)) docCaptureListeners.set(type, new Set())
+        docCaptureListeners.get(type).add(fn)
+      }
+    },
+    removeEventListener(type, fn, capture) {
+      if (capture) docCaptureListeners.get(type)?.delete(fn)
+    },
+    documentElement: { addEventListener() {}, removeEventListener() {} },
+  },
   navigator: { language: 'en', platform: 'MacIntel' },
   console: { error() {}, warn() {}, log() {} },
   setTimeout: () => 0,
@@ -200,6 +219,8 @@ runInNewContext(outputFiles[0].text, sandbox)
 const {
   parseDelimitedTable,
   FilePreview,
+  HtmlPreviewFrame,
+  HtmlPreviewNotice,
   createLocalLineEditor,
   createTerminalKeyHandler,
   parseAnsiSpans,
@@ -209,6 +230,7 @@ const {
   RightPanel,
   WorkspacePaneBody,
   buildWorkspaceTabs,
+  createPluginRuntime,
   createSlotRegistry,
   RIGHT_PANE_TAB_SLOT,
   createTeam,
@@ -378,8 +400,14 @@ test('FilePreview renders Markdown, CSV table, strictly sandboxed HTML, PDF (Off
     const tree = html.render()
     assert.equal(all(tree, n => n.props?.className === 'dsb-pv-html-wrap').length, 1, 'HTML preview wraps iframe in framed canvas container')
     const iframe = all(tree, n => n.type === 'iframe')[0]
-    assert.equal(iframe.props.sandbox, '', 'HTML preview iframe must be strictly sandboxed with empty sandbox attribute')
-    assert.equal(iframe.props.srcDoc, '<p>Hello</p>')
+    if (typeof DOMParser === 'function') {
+      assert.equal(iframe.props.sandbox, '', 'HTML preview iframe must be strictly sandboxed with empty sandbox attribute')
+      assert.match(iframe.props.srcDoc, /Content-Security-Policy/)
+      assert.match(iframe.props.srcDoc, /<p>Hello<\/p>/)
+    } else {
+      assert.equal(iframe, undefined)
+      assert.match(textOf(tree), /Preview unavailable/)
+    }
   } finally {
     html.unmount()
   }
@@ -405,6 +433,30 @@ test('FilePreview renders Markdown, CSV table, strictly sandboxed HTML, PDF (Off
     pdf.unmount()
   }
   assert.equal(revokedUrls.length, 1, 'PDF blob URL must be revoked on unmount')
+})
+
+test('HtmlPreviewFrame keeps the iframe isolated and the blocked notice outside it without a DOM parser', () => {
+  const framed = mount(HtmlPreviewFrame, { html: '<!doctype html><p>Hello</p>', title: 'demo.html' })
+  try {
+    const tree = framed.render()
+    const iframe = all(tree, n => n.type === 'iframe')[0]
+    assert.equal(iframe.props.sandbox, '', 'HTML preview iframe must be strictly sandboxed with empty sandbox attribute')
+    assert.equal(iframe.props.referrerPolicy, 'no-referrer')
+    assert.equal(iframe.props.srcDoc, '<!doctype html><p>Hello</p>')
+    assert.equal(iframe.props.title, 'demo.html')
+  } finally {
+    framed.unmount()
+  }
+  const notice = mount(HtmlPreviewNotice)
+  try {
+    const tree = notice.render()
+    const banner = all(tree, n => n.props?.className === 'dsb-pv-banner')[0]
+    assert.ok(banner)
+    assert.match(textOf(tree), /external or local resources are blocked/)
+    assert.equal(all(tree, n => n.type === 'iframe').length, 0, 'notice is outside the iframe')
+  } finally {
+    notice.unmount()
+  }
 })
 
 for (const native of [false, true]) {
@@ -722,7 +774,14 @@ test('Unified right sidebar coexists across Details, Side chat, Files, Preview, 
       registry: reg,
       visible: true,
     })
-    assert.match(textOf(tree), /console\.log\(1\)/)
+    const codeCells = all(tree, n => n.type === 'td' && n.props?.className === 'dsb-pv-line')
+    const rawCodeText = (node) => {
+      if (node === null || node === undefined || typeof node === 'boolean') return ''
+      if (typeof node === 'string' || typeof node === 'number') return String(node)
+      if (Array.isArray(node)) return node.map(rawCodeText).join('')
+      return rawCodeText(node.props?.children)
+    }
+    assert.match(codeCells.map(rawCodeText).join('\n'), /console\.log\(1\)/)
 
     // Switch to crashing plugin tab -> isolated fallback with Retry.
     tree = panelInst.render({
@@ -878,6 +937,151 @@ test('ChangesReview renders summary errors before loading state and guards cycli
   }
 })
 
+test('WorkspaceTerminal resumes numbered output after feed reconnects and marks trimmed scrollback', async () => {
+  const listRequests = []
+  const listAnswers = []
+  const openCalls = []
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = (endpoint, body) => {
+    if (endpoint === 'terminal-list') {
+      listRequests.push(body?.positions ?? null)
+      return Promise.resolve(listAnswers.length === 0 ? [] : listAnswers.shift())
+    }
+    if (endpoint === 'terminal-open') openCalls.push(body)
+    return Promise.resolve({})
+  }
+  const entry = (parts, extra = {}) => ({
+    id: 'term-1', cwd: '/repo', title: 'repo', pty: true,
+    start: parts[0]?.seq ?? 1, end: parts.at(-1)?.seq ?? 0,
+    parts, truncated: false, exited: false, exitCode: null, ...extra,
+  })
+  listAnswers.push([entry([{ seq: 1, text: 'line-1\n' }])])
+  const team = createTeam()
+  const inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    inst.render()
+    assert.ok(listRequests.length >= 1)
+    assert.equal(openCalls.length, 0)
+    assert.equal(sandbox.__xterms.length, 1)
+    const xterm = sandbox.__xterms[0]
+    assert.equal(xterm.written.join(''), 'line-1\n')
+
+    // Ordered live parts write once; overlapping replayed parts are dropped by position.
+    team.chat.emit('terminal', { id: 'term-1', chunk: 'line-2\nline-3\n', start: 2, end: 3, parts: [{ seq: 2, text: 'line-2\n' }, { seq: 3, text: 'line-3\n' }] })
+    team.chat.emit('terminal', { id: 'term-1', chunk: 'line-3\n', start: 3, end: 3, parts: [{ seq: 3, text: 'line-3\n' }] })
+    assert.equal(xterm.written.join(''), 'line-1\nline-2\nline-3\n')
+
+    // A feed hello sends the held position and the answer fills exactly the missing tail.
+    listAnswers.push([entry([{ seq: 4, text: 'line-4\n' }, { seq: 5, text: 'line-5\n' }], { start: 4, end: 5 })])
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    assert.equal(listRequests.at(-1)?.['term-1'], 3)
+    assert.equal(xterm.written.join(''), 'line-1\nline-2\nline-3\nline-4\nline-5\n')
+
+    // When the host no longer reaches the held position, the terminal says so quietly and
+    // continues with the retained suffix; no output is duplicated.
+    listAnswers.push([entry([{ seq: 8, text: 'line-8\n' }], { start: 8, end: 8, truncated: true })])
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    const written = xterm.written.join('')
+    assert.match(written, /Earlier output was trimmed/)
+    assert.ok(written.indexOf('line-5') < written.indexOf('Earlier output was trimmed'))
+    assert.ok(written.indexOf('Earlier output was trimmed') < written.indexOf('line-8'))
+    assert.equal((written.match(/line-8/g) ?? []).length, 1)
+
+    // Exit state is part of the same catch-up read when its live event was missed.
+    listAnswers.push([entry([], { start: 8, end: 8, exited: true, exitCode: 7 })])
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    const tree = inst.render()
+    assert.match(textOf(tree), /Process exited \(7\)/)
+  } finally {
+    inst.unmount()
+  }
+})
+
+
+test('WorkspaceTerminal does not auto-open after a list failure, appends reconnected terminals, and syncs early exits', async () => {
+  sandbox.__xterms.length = 0
+  let openCalls = 0
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') return Promise.reject(new Error('host hiccup'))
+    if (endpoint === 'terminal-open') { openCalls += 1; return Promise.resolve({ id: 'never', cwd: '/repo', title: 'repo' }) }
+    return Promise.resolve({})
+  }
+  let team = createTeam()
+  let inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  inst.render()
+  await tick()
+  await tick()
+  assert.equal(openCalls, 0, 'a failed terminal-list is not proof that no terminals exist')
+  inst.unmount()
+
+  // Reconnected discoveries append after existing tabs, keeping tab numbers stable.
+  const entry = (id, title) => ({ id, cwd: '/repo', title, pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null })
+  const answers = [
+    [entry('term-a', 'alpha')],
+    [entry('term-a', 'alpha'), entry('term-b', 'beta')],
+  ]
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') return Promise.resolve(answers.length > 1 ? answers.shift() : answers[0])
+    return Promise.resolve({})
+  }
+  team = createTeam()
+  inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    inst.render()
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    const text = textOf(inst.render())
+    assert.ok(text.indexOf('alpha #1') >= 0 && text.indexOf('alpha #1') < text.indexOf('beta #2'), `tabs keep their order: ${text}`)
+  } finally {
+    inst.unmount()
+  }
+
+  // An exit that wins the race with terminal-open still triggers an immediate positional catch-up.
+  sandbox.__xterms.length = 0
+  let resolveOpen
+  let listCalls = 0
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') {
+      listCalls += 1
+      return Promise.resolve(listCalls === 1 ? [] : [entry('term-fast', 'fast')].map(item => ({ ...item, end: 2, parts: [{ seq: 1, text: 'final-1\n' }, { seq: 2, text: 'final-2\n' }], exited: true, exitCode: 0 })))
+    }
+    if (endpoint === 'terminal-open') return new Promise(resolve => { resolveOpen = resolve })
+    return Promise.resolve({})
+  }
+  team = createTeam()
+  inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    team.chat.emit('terminal-exit', { id: 'term-fast', code: 0, end: 2 })
+    resolveOpen({ id: 'term-fast', cwd: '/repo', title: 'fast', cols: 96, rows: 28, pty: true })
+    await tick()
+    await tick()
+    await tick()
+    assert.ok(listCalls >= 2, 'the early exit end position triggers terminal-list immediately')
+    inst.render()
+    assert.equal(sandbox.__xterms[0]?.written.join(''), 'final-1\nfinal-2\n')
+  } finally {
+    inst.unmount()
+    sandbox.__testCall = async () => ({})
+  }
+})
+
 test('WorkspaceTerminal closes sub-tabs reliably on rapid/concurrent clicks, prevents mousedown scroll-shift, supports wheel scroll, and handles non-PTY & shortcuts cleanly', async () => {
   const closedCalls = []
   const inputCalls = []
@@ -981,8 +1185,26 @@ test('WorkspaceTerminal closes sub-tabs reliably on rapid/concurrent clicks, pre
     assert.equal(handler({ type: 'keydown', metaKey: true, key: 'v', code: 'KeyV' }), false)
     assert.equal(handler({ type: 'keydown', metaKey: true, key: 'k', code: 'KeyK' }), false)
     assert.equal(handler({ type: 'keydown', metaKey: true, key: ',', code: 'Comma' }), false)
+    assert.equal(handler({ type: 'keydown', metaKey: true, shiftKey: true, key: 'M', code: 'KeyM' }), false)
+    assert.equal(handler({ type: 'keydown', ctrlKey: true, key: '`', code: 'Backquote' }), false)
     assert.equal(handler({ type: 'keydown', ctrlKey: true, key: 'c', code: 'KeyC' }), true)
     assert.equal(handler({ type: 'keydown', ctrlKey: true, key: 'd', code: 'KeyD' }), true)
+    // Non-Mac terminal handler bubbles custom F12 / Ctrl+` / Ctrl+Shift+M while preserving Ctrl+C/D/L for PTY,
+    // and mirrors live capabilities so Bot-only bindings pass through to PTY in Classic Agent mode.
+    const winHandler = createTerminalKeyHandler(t1, {
+      mac: false,
+      copy: text => sandbox.__copied.push(text),
+      overrides: {
+        terminal: { code: 'F12', mod: false, ctrl: false, alt: false, shift: false },
+        browser: { code: 'F11', mod: false, ctrl: false, alt: false, shift: false },
+      },
+      getContext: () => ({ capabilities: { hasSurface: true, hasBrowser: false, hasInbox: false } }),
+    })
+    assert.equal(winHandler({ type: 'keydown', key: 'F12', code: 'F12' }), false)
+    assert.equal(winHandler({ type: 'keydown', key: 'F11', code: 'F11' }), true, 'Bot-only F11 binding must pass through to PTY in Classic Agent mode')
+    assert.equal(winHandler({ type: 'keydown', ctrlKey: true, shiftKey: true, key: 'M', code: 'KeyM' }), false)
+    assert.equal(winHandler({ type: 'keydown', ctrlKey: true, key: 'c', code: 'KeyC' }), true)
+    assert.equal(winHandler({ type: 'keydown', ctrlKey: true, key: 'l', code: 'KeyL' }), true)
 
     // Direct unit check on local line editor Ctrl+C/Ctrl+D/Ctrl+L and theme reader fallback.
     const sent = []
@@ -1000,5 +1222,359 @@ test('WorkspaceTerminal closes sub-tabs reliably on rapid/concurrent clicks, pre
     assert.ok(themed.theme.background && themed.theme.foreground && themed.theme.cursor)
   } finally {
     inst.unmount()
+  }
+})
+
+test('FileTree watches workspace changes, refreshes without losing expansion/selection/filter, and exposes context menu actions', async () => {
+  const calls = []
+  sandbox.__copied.length = 0
+  winListeners.clear()
+  docCaptureListeners.clear()
+  let extraFileAdded = false
+  let subDirTruncated = false
+  let rootChanged = false
+  sandbox.__testCall = async (endpoint, body) => {
+    calls.push([endpoint, body])
+    const curRoot = rootChanged ? '/repo-2' : '/repo'
+    if (endpoint === 'workspace-watch') return { watchId: rootChanged ? 'w-2' : 'w-1', root: curRoot, recursive: true }
+    if (endpoint === 'workspace-unwatch') return { ok: true }
+    if (endpoint === 'workspace-open') return { ok: true }
+    if (endpoint === 'workspace-list') {
+      if (body.path === 'src') {
+        const entries = [{ name: 'app.js', path: 'src/app.js', kind: 'file', size: 128, ext: '.js' }]
+        if (extraFileAdded) entries.push({ name: 'added.js', path: 'src/added.js', kind: 'file', size: 64, ext: '.js' })
+        return { root: curRoot, rootName: 'repo', path: 'src', truncated: subDirTruncated, entries }
+      }
+      const entries = [
+        { name: 'src', path: 'src', kind: 'dir', size: 0, ext: '' },
+        { name: 'README.md', path: 'README.md', kind: 'file', size: 42, ext: '.md' },
+      ]
+      if (extraFileAdded) entries.push({ name: 'notes.md', path: 'notes.md', kind: 'file', size: 12, ext: '.md' })
+      return { root: curRoot, rootName: 'repo', path: '', truncated: false, entries }
+    }
+    return {}
+  }
+
+  const team = createTeam()
+  const openedFiles = []
+  team.actions.openFile = target => openedFiles.push(target)
+
+  const panel = mount(WorkspacePaneBody, {
+    sessionId: 'b1',
+    panel: { tabs: ['files'], tab: 'files' },
+    team,
+    visible: true,
+  })
+  try {
+    panel.render()
+    await tick()
+    let tree = panel.render()
+    assert.equal(calls.some(([ep]) => ep === 'workspace-watch'), true, 'subscribes to workspace-watch on mount')
+
+    // Expand `src` directory.
+    const srcBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-row') && /src/.test(textOf(n)))[0]
+    srcBtn.props.onClick()
+    await tick()
+    tree = panel.render()
+    assert.match(textOf(tree), /app\.js/)
+
+    // External file change triggers soft refresh without collapsing `src`.
+    extraFileAdded = true
+    team.chat.emit('workspace-changed', { root: '/repo', path: '' })
+    await tick()
+    await tick()
+    tree = panel.render()
+    assert.match(textOf(tree), /notes\.md/, 'root listing refreshed')
+    assert.match(textOf(tree), /added\.js/, 'expanded subfolder refreshed while preserving expansion')
+
+    // Open context menu on README.md -> verify actions, Show in folder, Copy path, Copy relative path.
+    const readmeBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-row') && /README\.md/.test(textOf(n)))[0]
+    assert.ok(readmeBtn)
+    readmeBtn.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 120, clientY: 160 })
+    tree = panel.render()
+    const menuItems = all(tree, n => n.type === 'button' && n.props?.role === 'menuitem')
+    assert.deepEqual(menuItems.map(item => textOf(item).trim()), ['Open', 'Show in folder', 'Open in default app', 'Copy path', 'Copy relative path'])
+
+    // Show in folder invokes workspace-open reveal WITH expectedRoot.
+    menuItems[1].props.onClick()
+    await tick()
+    tree = panel.render()
+    assert.equal(calls.some(([ep, b]) => ep === 'workspace-open' && b.path === 'README.md' && b.action === 'reveal' && b.expectedRoot === '/repo'), true)
+    assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 0, 'menu closes after action')
+
+    // Reopen context menu, Copy path & Copy relative path.
+    readmeBtn.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 120, clientY: 160 })
+    tree = panel.render()
+    all(tree, n => n.type === 'button' && n.props?.role === 'menuitem')[3].props.onClick()
+    await tick()
+    assert.equal(sandbox.__copied.at(-1), '/repo/README.md')
+
+    readmeBtn.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 120, clientY: 160 })
+    tree = panel.render()
+    all(tree, n => n.type === 'button' && n.props?.role === 'menuitem')[4].props.onClick()
+    await tick()
+    assert.equal(sandbox.__copied.at(-1), 'README.md')
+
+    // Folder context menu offers Collapse/Expand and Escape dismisses menu via useEscape (document capture).
+    const srcRow = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-row') && /src/.test(textOf(n)))[0]
+    srcRow.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 100, clientY: 100 })
+    tree = panel.render()
+    const dirItems = all(tree, n => n.type === 'button' && n.props?.role === 'menuitem')
+    assert.equal(textOf(dirItems[0]).trim(), 'Collapse')
+
+    const escEvt = { key: 'Escape', isComposing: false, keyCode: 27, defaultPrevented: false, preventDefault() { this.defaultPrevented = true }, stopPropagation() {} }
+    for (const fn of [...(docCaptureListeners.get('keydown') ?? [])]) fn(escEvt)
+    for (const fn of [...(winListeners.get('keydown') ?? [])]) fn(escEvt)
+    tree = panel.render()
+    assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 0, 'Escape dismisses file tree context menu')
+
+    // SSE 'hello' reconnect triggers silent refresh so changes across the 6s SSE recycle gap are never missed.
+    const listsBeforeHello = calls.filter(([ep]) => ep === 'workspace-list').length
+    subDirTruncated = true
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    tree = panel.render()
+    assert.ok(calls.filter(([ep]) => ep === 'workspace-list').length > listsBeforeHello, 'SSE hello triggers tree catch-up refresh')
+    assert.match(textOf(tree), /Showing first 500 entries/, 'truncated subfolder renders visible truncation notice')
+
+    // Toggling "Show hidden" must NOT tear down or restart the OS watcher!
+    const watchesBeforeHidden = calls.filter(([ep]) => ep === 'workspace-watch').length
+    const unwatchesBeforeHidden = calls.filter(([ep]) => ep === 'workspace-unwatch').length
+    const hiddenBtn = all(tree, n => n.type === 'button' && /Show hidden|Hide dotfiles/.test(textOf(n)))[0]
+    assert.ok(hiddenBtn)
+    hiddenBtn.props.onClick()
+    await tick()
+    tree = panel.render()
+    assert.equal(calls.filter(([ep]) => ep === 'workspace-watch').length, watchesBeforeHidden, 'Show hidden toggle must not recreate OS watch')
+    assert.equal(calls.filter(([ep]) => ep === 'workspace-unwatch').length, unwatchesBeforeHidden)
+
+    // Hiding the panel stops watching (workspace-unwatch), and showing it again restarts watching.
+    panel.render({ sessionId: 'b1', panel: { tabs: ['files'], tab: 'files' }, team, visible: false })
+    await tick()
+    assert.ok(calls.filter(([ep]) => ep === 'workspace-unwatch').length > unwatchesBeforeHidden, 'hidden panel unsubscribes OS watch')
+  } finally {
+    panel.unmount()
+  }
+  assert.equal(calls.some(([ep]) => ep === 'workspace-unwatch'), true, 'unmount cleans up workspace-unwatch')
+})
+
+test('FilePreview renders SpreadsheetPreview with sheet tabs, merges, formula bar, numeric cells, and truncation notices', () => {
+  const wb = {
+    kind: 'spreadsheet',
+    name: 'budget.xlsx',
+    path: 'budget.xlsx',
+    size: 4096,
+    truncatedSheets: true,
+    totalSheets: 42,
+    sheets: [
+      {
+        name: 'Summary',
+        rowCount: 2,
+        colCount: 3,
+        totalRows: 600,
+        totalCols: 3,
+        truncatedRows: true,
+        truncatedCols: false,
+        merges: [{ r1: 0, c1: 0, r2: 0, c2: 1 }],
+        rows: [
+          [{ v: 'Q4 Report' }, null, { v: 'Status' }],
+          [{ v: '42', num: true }, { v: '84', f: '=A2*2', num: true }, { v: '#DIV/0!', err: true }],
+        ],
+      },
+      {
+        name: 'Details',
+        rowCount: 1,
+        colCount: 2,
+        totalRows: 1,
+        totalCols: 2,
+        truncatedRows: false,
+        truncatedCols: false,
+        merges: [],
+        rows: [
+          [{ v: 'Item' }, { v: 'Notes' }],
+        ],
+      },
+    ],
+  }
+  const view = mount(FilePreview, { file: wb })
+  try {
+    let tree = view.render()
+    const tabs = all(tree, n => n.type === 'button' && n.props?.role === 'tab')
+    assert.deepEqual(tabs.map(tab => textOf(tab).trim()), ['Summary', 'Details'])
+    assert.equal(tabs[0].props['aria-selected'], true)
+
+    // Truncation notices are visible (never silent caps).
+    const bodyText = textOf(tree)
+    assert.match(bodyText, /Showing first 2 of 600 rows/)
+    assert.match(bodyText, /Showing first 2 of 42 sheets/)
+
+    // Merged cell gets colSpan=2, numeric cell gets is-num, formula cell gets has-formula, error cell gets is-err.
+    const cells = all(tree, n => n.type === 'td' && String(n.props?.className ?? '').includes('dsb-pv-sheet-cell'))
+    assert.equal(cells[0].props.colSpan, 2)
+    assert.match(cells[2].props.className, /\bis-num\b/)
+    assert.match(cells[3].props.className, /\bhas-formula\b/)
+    assert.match(cells[4].props.className, /\bis-err\b/)
+
+    // Clicking formula cell shows `B2` and `=A2*2` in the formula bar.
+    cells[3].props.onClick()
+    tree = view.render()
+    assert.match(textOf(tree), /B2/)
+    assert.match(textOf(tree), /=A2\*2/)
+
+    // Switching to Details sheet renders Details cells.
+    const detailsTab = all(tree, n => n.type === 'button' && n.props?.role === 'tab')[1]
+    detailsTab.props.onClick()
+    tree = view.render()
+    assert.match(textOf(tree), /Item/)
+    assert.match(textOf(tree), /Notes/)
+
+    // Switching from populated workbook -> empty workbook (0 sheets) -> populated workbook with size truncation must NOT violate Rules of Hooks!
+    tree = view.render({ file: { kind: 'spreadsheet', name: 'empty.xlsx', path: 'empty.xlsx', size: 128, sheets: [] } })
+    assert.match(textOf(tree), /Empty file/)
+    tree = view.render({
+      file: {
+        kind: 'spreadsheet',
+        name: 'big.xlsx',
+        path: 'big.xlsx',
+        size: 999999,
+        truncatedText: true,
+        sheets: [{
+          name: 'Stream',
+          rowCount: 2,
+          colCount: 1,
+          totalRows: null,
+          totalCols: 1,
+          truncatedRows: true,
+          truncatedCols: false,
+          truncatedBySize: true,
+          merges: [],
+          rows: [[{ v: 'R1' }], [{ v: 'R2' }]],
+        }],
+      },
+    })
+    assert.match(textOf(tree), /Showing first 2 rows/)
+    assert.match(textOf(tree), /Preview truncated for size/)
+  } finally {
+    view.unmount()
+  }
+})
+
+test('WorkspacePaneBody plugin tab Retry calls runtime.retry(), FileTree syncs mid-flight Linux expansions, and pagehide unwatch uses relative credentials fetch', async () => {
+  // 1. Crashing `sidebar.right.pane.tab` plugin registered via runtime.use() recovers when clicking Retry.
+  const reg = createSlotRegistry()
+  const runtime = createPluginRuntime({ slots: reg })
+  let applyCount = 0
+  let onRetryCalls = 0
+  let resetCalls = 0
+  let shouldCrash = true
+
+  runtime.use({ id: 'ext.crash-tab' }, (ctx) => {
+    applyCount += 1
+    const TabComp = () => {
+      if (shouldCrash) throw new Error('right pane plugin crash')
+      return { type: 'div', props: { className: 'recovered-tab', children: [`tab-gen-${applyCount}`] } }
+    }
+    TabComp.reset = () => { resetCalls += 1 }
+    ctx.slot({
+      name: RIGHT_PANE_TAB_SLOT,
+      id: 'crash-tab',
+      meta: { label: 'Crash Tab' },
+      onRetry: () => { onRetryCalls += 1 },
+    }, TabComp)
+  })
+  assert.equal(applyCount, 1)
+
+  const team = createTeam()
+  const tabInst = mount(WorkspacePaneBody, {
+    sessionId: 'b1',
+    panel: { tabs: ['plugin:crash-tab'], tab: 'plugin:crash-tab' },
+    team,
+    registry: reg,
+    visible: true,
+  })
+  try {
+    let tree = tabInst.render()
+    const retryBtn = all(tree, n => n.type === 'button' && /Retry/.test(textOf(n)))[0]
+    assert.ok(retryBtn, 'WorkspacePaneBody renders SlotErrorBoundary Retry button')
+    shouldCrash = false
+    retryBtn.props.onClick()
+    assert.equal(applyCount, 2, 'WorkspacePaneBody Retry must invoke runtime.retry() using top-level entry.pluginId/runtime')
+    assert.equal(resetCalls, 1, 'WorkspacePaneBody Retry calls component.reset()')
+    assert.equal(onRetryCalls, 1, 'WorkspacePaneBody Retry calls entry.onRetry()')
+    tree = tabInst.render()
+    assert.match(textOf(tree), /tab-gen-2/)
+  } finally {
+    tabInst.unmount()
+  }
+
+  // 2. Linux (recursive: false) mid-flight folder expansion syncs immediately when initial workspace-watch resolves,
+  //    and pagehide unwatch uses document-relative `api/bot` with `credentials: 'same-origin'`.
+  const watchCalls = []
+  const fetchCalls = []
+  const prevFetch = sandbox.fetch
+  sandbox.fetch = (url, init) => { fetchCalls.push([url, init]); return Promise.resolve({}) }
+  winListeners.clear()
+  let resolveInitialWatch
+  sandbox.__testCall = (endpoint, body) => {
+    if (endpoint === 'workspace-watch') {
+      watchCalls.push(body)
+      if (!body.watchId) {
+        return new Promise((resolve) => { resolveInitialWatch = resolve })
+      }
+      return Promise.resolve({ watchId: body.watchId, root: '/repo', recursive: false })
+    }
+    if (endpoint === 'workspace-unwatch') return Promise.resolve({ ok: true })
+    if (endpoint === 'workspace-list') {
+      return Promise.resolve({
+        root: '/repo',
+        rootName: 'repo',
+        path: body.path ?? '',
+        truncated: false,
+        entries: body.path === 'src'
+          ? [{ name: 'index.js', path: 'src/index.js', kind: 'file', size: 10, ext: '.js' }]
+          : [{ name: 'src', path: 'src', kind: 'dir', size: 0, ext: '' }],
+      })
+    }
+    return Promise.resolve({})
+  }
+
+  const ftInst = mount(WorkspacePaneBody, {
+    sessionId: 'b1',
+    panel: { tabs: ['files'], tab: 'files' },
+    team,
+    visible: true,
+  })
+  try {
+    ftInst.render()
+    await tick()
+    let tree = ftInst.render()
+    assert.equal(watchCalls.length >= 1, true, 'initial workspace-watch started')
+    // Expand `src` BEFORE initial workspace-watch has resolved!
+    const srcBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-row') && /src/.test(textOf(n)))[0]
+    assert.ok(srcBtn)
+    srcBtn.props.onClick()
+    await tick()
+    tree = ftInst.render()
+    assert.match(textOf(tree), /index\.js/)
+
+    // Now resolve the initial watch as Linux non-recursive -> must immediately send follow-up watch with dirs: ['src']!
+    resolveInitialWatch({ watchId: 'w-linux', root: '/repo', recursive: false })
+    await tick()
+    assert.equal(
+      watchCalls.some(c => c.watchId === 'w-linux' && Array.isArray(c.dirs) && c.dirs.includes('src')),
+      true,
+      'folder expanded while initial Linux watch was in flight must be synced once watchId resolves',
+    )
+
+    // Verify pagehide unwatch uses document-relative `api/bot` and `credentials: 'same-origin'`.
+    for (const fn of [...(winListeners.get('pagehide') ?? [])]) fn()
+    assert.equal(fetchCalls.length, 1)
+    assert.equal(fetchCalls[0][0], 'api/bot')
+    assert.equal(fetchCalls[0][1].credentials, 'same-origin')
+  } finally {
+    ftInst.unmount()
+    if (prevFetch === undefined) delete sandbox.fetch
+    else sandbox.fetch = prevFetch
   }
 })

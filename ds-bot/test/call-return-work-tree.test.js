@@ -430,7 +430,7 @@ test('F1 (real ReactLoopAgent): user steer during <5s zero-tool hidden peer-Bot 
   )
 })
 
-test('F1 (local CLI Bot): user next-step steer during hidden peer-Bot turn demotes to next-turn and steer.js refuses STEER_CUT', async (t) => {
+test('F1 (non-movable runtime): user next-step steer during hidden peer-Bot turn demotes to next-turn and steer.js refuses STEER_CUT', async (t) => {
   const { rt, agents, emit, tool } = await startHost(t, {
     team: makeTeam({
       bots: {
@@ -439,7 +439,9 @@ test('F1 (local CLI Bot): user next-step steer during hidden peer-Bot turn demot
       },
     }),
   })
-  // Mark Writer's model as a local CLI route so foreground handoff is disabled.
+  // Local CLI Bots now support moving hidden peer work to background (D8);
+  // simulate a runtime/state where foreground handoff is disabled to verify the
+  // defensive next-step -> next-turn demotion fallback.
   t.mock.method(rt, 'isLocalAgentRef', ref => ref === 'local-cli/claude')
 
   await tool('delegate_work', { to: 'Writer', goal: 'inspect logs' }, 'dm-a')
@@ -451,9 +453,12 @@ test('F1 (local CLI Bot): user next-step steer during hidden peer-Bot turn demot
   emit('dm-b', 'user/message', { content: req.content, source: req.source })
   emit('dm-b', 'step/start', { turn: 1, step: 1 })
 
+  assert.equal(rt.shouldMoveForeground(rt.botOf('b'), 'dm-b'), true, 'local CLI Bot supports isolating hidden peer work to background')
+
+  t.mock.method(rt.contextRuntime, 'capabilitiesFor', () => ({ isLocal: true, canMoveToBackground: false }))
   assert.equal(rt.shouldMoveForeground(rt.botOf('b'), 'dm-b'), false)
 
-  // User sends a next-step steer while local CLI Bot runs hidden #W1.
+  // User sends a next-step steer while foreground handoff is disabled during hidden #W1.
   const userMsg = createUserMessage({ content: textBlock('User question for Writer'), source: { kind: 'user' } })
   dmB.send(userMsg, 'next-step')
   await realDelay(30)
@@ -640,6 +645,7 @@ test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_
   failEnsureFor = undefined
 
   // 4b) spawnInBackground (reuseWork: true) rollback: must NOT close/delete paused work, must roll back toSession/toTaskId, and must NOT send failure reply to caller!
+  // Also prove startup reconcileOrphanWorks() running concurrently during the openTaskPart/rollback await window never closes the work.
   rt.openWork('w-paused-bg', {
     from: 'a',
     to: 'b',
@@ -652,6 +658,15 @@ test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_
   emit('dm-b', 'tool/call', { callId: 'busy-1', name: 'bash', arguments: '{}' })
   const chiefCallsBeforeBgRollback = agents.get('dm-a').calls.length
   let hitBgTaskSid
+  let orphanSweepRanMidDispatch = false
+  const origOpenTaskPart = rt.openTaskPart
+  rt.openTaskPart = async (...args) => {
+    // Exercise the exact race window where work.state is already 'open' before any
+    // task exists in target.tasks and before any inflight delivery is recorded.
+    await rt.reconcileOrphanWorks()
+    orphanSweepRanMidDispatch = true
+    return origOpenTaskPart(...args)
+  }
   rt.ensureCapabilities = async (sid) => {
     if (sid.startsWith('created-') || sid.startsWith('fork-')) {
       hitBgTaskSid = sid
@@ -660,7 +675,9 @@ test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_
     return origEnsure(sid)
   }
   await assert.rejects(() => rt.resumePausedWork('w-paused-bg'), /task capability mount failed/)
+  rt.openTaskPart = origOpenTaskPart
   rt.ensureCapabilities = origEnsure
+  assert.equal(orphanSweepRanMidDispatch, true, 'test must exercise concurrent reconcileOrphanWorks during dispatch')
   assert.ok(hitBgTaskSid, 'resumePausedWork must have entered spawnBotHandoffTask({ reuseWork: true })')
   assert.ok(rt.state.works['w-paused-bg'], 'spawnInBackground reuseWork rollback must keep work in state.works')
   assert.equal(rt.state.works['w-paused-bg'].state, 'paused', 'spawnInBackground reuseWork rollback must restore paused state')

@@ -11,6 +11,7 @@ Tested with dsh `0.2.2-rc.5` (Web and Desktop).
 - **Long-lived Bots**: each Bot has its own saved profile (name, role, instructions, model, thinking level, folder and permissions). It works in dsh Sessions: its own chat, separate group and background-task Sessions, and fresh parts when needed. This is not a separate DSH installation profile.
 - **Working folders**: a Bot can work in a folder you choose instead of the team workspace, and a group chat can set one folder for all its members there. Pick it in the Bot's settings or details panel or in the group's settings, or ask a Bot (`update_bot`, `update_group`). After a change, the chat goes on in a fresh part that starts in the new folder. When a Bot sets a folder outside the team workspace, or adds a Bot to a group that works in one, it asks for your approval if those Bots can only write in their folder. Folders that hold dsh data (`$DSH_HOME`, the team's data) are refused. The team workspace itself moves in Settings > General > Locations; Bots and groups that work there go on in a fresh part in the new folder, and the old folder keeps its files.
 - **Permission presets**: each Bot runs with its own dsh permission preset (Read only, Workspace or Full access), set in its details panel. A group chat can run all its members with one preset there, in place of their own: turn on **Same for every member** under Permissions in the group's settings. Only you set permissions; Bots cannot change them.
+- **Agent presets**: each Bot runs on one dsh agent preset — the standard one by default, or another preset your dsh profile offers, picked in the Bot's settings or the create form. A preset is the whole tool and prompt composition the Bot's sessions run on; only you can pick it, a preset that is gone or broken fails visibly instead of silently falling back, and a change applies from the next conversation part.
 - **Bots work together**: `message_bot` sends a message to another Bot, `create_bot` and `update_bot` add and set up Bots (including a profile photo from a local image file or a data URL), and `ask_user` asks you a question without blocking the other Bots. `show_view` draws a card in a Bot's own chat — text, metrics, tables, charts, inputs with local formulas, progress, choices, confirmations, short forms and sandboxed HTML; an interactive card waits for your answer. `/side` (or **Side chat** in the panel's `···` menu) opens a side chat in the right panel that answers from a snapshot of the Bot's chat without running tools or interrupting its work. A Bot can also be marked **Private** in its settings: other Bots cannot read its working folder, memory or chat, and its outbound sharing needs your approval.
 - **Group chats**: in admin-first mode the admin answers first and calls in other members with `@Name`; in all-members mode members speak in order. Members `@`-mentioned in the same message start work in parallel. Type `@` to pick a member from a list, or use **+ → Reference a chat** to attach another Bot's chat as context. A member with nothing new to add stays quiet (`[PASS]`). For multi-stage work, the admin can align on and run a group **Goal** (`group_goal`), assigning tasks per stage and checking evidence before advancing. Each member has its own hidden Session per group, so a group never reads a Bot's private chat.
 - **Roles and permissions**:
@@ -81,7 +82,7 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
     workspace: /path/to/workspace   # where the Bots work; default <home>/workspace
     home: /path/to/bot-data         # where the team is saved; default $DSH_HOME/bot
     checkRatio: 0.8                 # share of the model's usable window where the steward decides
-    checkTokens: 380000             # the highest context where it decides, even on a larger window
+    # checkTokens: 380000           # optional absolute token cap on the check line; unset follows the model's window
     browser: true                   # force the Bot browser on or off; default on in Desktop and the desktop app only
     memory: true                    # false turns memory off: no memory tools, section or panel
     memoryReview: true              # false leaves memory to the Bots' own bot_remember calls
@@ -103,7 +104,7 @@ Model providers are set up in DS Bot's **Settings → Models** (or the Main Bot'
 
 **ChatGPT plan (standalone desktop app only)**: in **Models → Providers**, open **OpenAI** or select it under **Add a provider → Known provider**. Choose **Sign in with ChatGPT** and complete sign-in in your browser. If prompted, choose **Enable plan usage** to load the models available through your account, then select one under your Bot's **Model** setting. Use the **ChatGPT (plan)** provider row to refresh models or sign out. The app encrypts the ChatGPT credentials with OS-backed secure storage, separately from OpenAI API keys.
 
-- Give every model a `contextWindow`. DS Bot takes its lines from it: the usable window is the window minus the reply reserve (`maxTokens`), the hard line is 95% of that, and the check line is `checkRatio` of it, capped at `checkTokens` (default 380,000) so a huge window does not keep one part past the point where a provider's prefix cache stops helping. A model without `contextWindow` gets the adapter's default (262,144 tokens for `llm-pi-ai`), which may be wrong for that model; a model that reports no window at all counts as 500,000.
+- Give every model a `contextWindow`. DS Bot takes its lines from it: the usable window is the window minus the reply reserve (`maxTokens`), the hard line is 95% of that, and the check line is `checkRatio` of it (further capped only if you explicitly set `checkTokens`). A model without `contextWindow` gets the adapter's default (262,144 tokens for `llm-pi-ai`), which may be wrong for that model; a model that reports no window at all counts as 500,000.
 - To send images, the provider needs `defaultInput: [ text, image ]`.
 - Keep API keys out of the repository. Use dsh's own key storage or environment variables.
 
@@ -254,7 +255,7 @@ You need Node 24, pnpm and a deepseek-harness checkout with its dependencies ins
 ```sh
 npm ci                                   # the plugin's packages and esbuild, for the client build
 npm ci --prefix ../link                  # the phone link's packages, for link.js and its test
-npm run harness                          # DSH packages and oxlint for tests/lint
+npm run harness                          # locked DSH packages and oxlint for tests/lint
 npm run build                            # build client.js and link.js
 npm test                                 # unit tests
 npm run lint                             # oxlint from dev/harness or DSH_HARNESS (.oxlintrc.json)
@@ -271,7 +272,7 @@ dev/check.sh                             # all checks (see below)
 - **Ports**: every script takes `SLOT=n` (0-9, default 0) so that several people or sessions on one machine do not collide: Web bench `31n0` and mock `88n0`, smoke `31n1` and `88n1`, Desktop mock `88n2`, and so on. A Desktop uses about 1 GB of memory; stop it when you are done.
 - **Real models** (these cost tokens): `dev/steward-eval.mjs` sends hand-written conversation endings through the context steward's own prompt to an OpenAI-compatible route (or, with `--api messages`, an Anthropic Messages route such as DeepSeek's official one) and checks each decision. `dev/llm-tap.mjs <port> <upstream base URL> <log.jsonl> [body dir]` is a logging pass-through for either format: point a provider's `baseURL` at it, and it writes one JSON line per call (steward, checkpoint, handoff note or main turn, the Bot's name, token usage, the answer, and where the request first differs from the same Bot's previous one, which is what a provider's cache can reuse; never headers). With a body dir it also saves every request body. Each file explains its use at the top.
 - **Screenshots**: `dev/ui-shots.mjs` works for both apps (`desktop <dsh repo> <dir> <renderer port>` or `web <dsh repo> <dir> <bench name> <web port>`).
-- `npm test` loads the `@deepseek-ai/*` packages from `dev/harness/` (`npm run harness`) or `DSH_HARNESS`.
+- `npm test` loads the `@deepseek-ai/*` packages from `dev/harness/` (`npm run harness`, installed reproducibly from `dev/harness/package-lock.json`) or `DSH_HARNESS`.
 
 ## Layout
 

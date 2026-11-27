@@ -23,7 +23,7 @@ const LEGACY_PREFIXES = ['dsh-bot:', 'dsh-bot-team:']
 const LEGACY_BROWSER_KEYS = ['ds-bot.browser.v1', 'dsh-bot.browser.v1']
 // The saved theme only paints the first frame before the team loads; it follows the
 // host's rename of the theme ids.
-const LEGACY_THEMES = { grok: 'mono' }
+const LEGACY_THEMES = { grok: 'mono', celadon: 'fei' }
 
 export function legacyKeys(key) {
   if (key === STORAGE.browsers) return LEGACY_BROWSER_KEYS

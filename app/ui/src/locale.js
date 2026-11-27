@@ -1,6 +1,8 @@
 // Reactive locale service for the desktop app's own interface, matching DSH's locale
 // contract (`getLocale`, `register`, `bind`) while adding user language selection and
-// persistence in `localStorage`.
+// persistence in `localStorage`. Kept free of React imports so non-React modules and
+// host-side tests (`ds-bot/test/frontend-audit-regressions.test.js`) can import it directly.
+
 const fill = (text, params) => (params
   ? text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match))
   : text)

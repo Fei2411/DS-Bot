@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking, Modal, Pressable, StyleSheet, Text, View, ScrollView, type ListRenderItem } from 'react-native'
+import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, View, ScrollView, type ListRenderItem } from 'react-native'
 import { useIsFocused, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -8,19 +8,25 @@ import { shareFile } from '../team/share-file'
 import type { Agent, Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache, createChatHistory, refreshChatHistory, roomHeadPart } from '../team/chat-cache.ts'
 import { connectorCanConnectOnMobile } from '../team/connectors.ts'
+import { onPrefsChange, peekPrefs, readPrefs } from '../store.ts'
+import { enterMode, sendsOnEnter } from './chat/enter-key.ts'
 import { useTeam } from '../team/context.tsx'
+import { computerAsksForChat, questionsForChat, viewsForChat } from '../nav/pending.ts'
 import { markSeen } from '../team/seen.ts'
 import { messageClock, t } from '../ui/i18n.ts'
 import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { shadow, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { ArrowDownIcon, FishLogo } from '../ui/icons.tsx'
-import { workPhrase } from '../ui/phrases.ts'
-import { ActionRow, Dock } from './chat/dock.tsx'
+import { roomTitle, workPhrase } from '../ui/phrases.ts'
+import { ActionRow, Dock, ViewJumpStrip } from './chat/dock.tsx'
+import { splitChatViews, viewFocusKey, viewReminderLabel } from './chat/inline-views.ts'
 import { learningForChat } from './chat/learning.ts'
 import { Composer, type Photo } from './chat/composer.tsx'
 import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type FileRef, type ImageRef } from './chat/items.tsx'
 import { bumpMarkdownImageCache } from './chat/markdown.tsx'
+import { isComputerHandoff } from '../../../ds-bot/src/client/mark-states.js'
+import { ownWorkOf, workMarkState } from '../team/mark-state.ts'
 
 // Feed events refresh the chat as things happen; the poll only catches what a
 // dropped event missed, so it runs rarely.
@@ -121,7 +127,7 @@ const sameMessage = (item: ChatItem, sent: ChatItem) =>
 // The shared chat body for both shells: an inverted list (newest at the bottom, older
 // pages load as it scrolls up), the pending dock and the composer. `header` is the
 // shell's own (back row or pill).
-export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; room?: Room; agent?: Agent; header: React.ReactNode; onMissing?: () => void }) {
+export function ChatView({ bot, room, agent, focus, focusToken, header, onMissing }: { bot?: Bot; room?: Room; agent?: Agent; focus?: string; focusToken?: unknown; header: React.ReactNode; onMissing?: () => void }) {
   const navigation = useNavigation<any>()
   const { team, call, refresh: refreshTeam, computer, hello } = useTeam()
   const { p, dark } = useTheme()
@@ -129,6 +135,15 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
   const kind: ChatKind = room !== undefined ? 'room' : agent !== undefined ? 'agent' : 'bot'
   const id = bot?.id ?? room?.id ?? agent?.id ?? ''
   const chatKey = `${computer?.hostDeviceId ?? ''}:${kind}:${id}`
+  const [prefs, setPrefs] = useState(peekPrefs)
+  useEffect(() => {
+    const read = () => void readPrefs().then(setPrefs)
+    read()
+    return onPrefsChange(read)
+  }, [])
+  const mode = enterMode(prefs ?? undefined, Platform.OS)
+  // Do not announce submit behavior to the keyboard before the phone's choice is loaded.
+  const sends = prefs !== null && sendsOnEnter(mode, team?.prefs)
   const cached = pages.get(chatKey)
   const [pageState, setPageState] = useState<{ key: string; page: ChatPage | null; older: ChatItem[] }>(() => ({
     key: chatKey,
@@ -275,7 +290,11 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
   }, [call, id, kind, chatKey])
 
   const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? (agent !== undefined ? agent.sessions.at(-1) ?? '' : id)
-  const question: Question | undefined = team?.questions?.[sessionId]
+  const questions = questionsForChat(team, { room, sessionId })
+  const shownViews = useMemo(
+    () => viewsForChat(team, { room, sessionId }),
+    [team?.views, team?.inbox?.items, room?.id, sessionId],
+  )
   const approvals = (team?.work?.approvals ?? []).filter((entry: Approval) => (
     entry.sessionId === sessionId
     || (entry.roomId !== undefined && entry.roomId === room?.id)
@@ -301,9 +320,10 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
     }
     return []
   }, [bot, room, team?.bots])
-  const doing = bot !== undefined ? team?.work?.bots?.[bot.id] ?? team?.activity?.[bot.id] : undefined
+  const doing = bot !== undefined ? ownWorkOf(team, bot.id) : undefined
   const secrets = (team?.secretRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const connectorRequests = (team?.connectorRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
+  const mailRequests = (team?.mailRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const handoff = (team as { browserHolds?: Record<string, { callId?: string; reason?: string; note?: string }> } | null)?.browserHolds?.[bot?.id ?? '']
   const browserHold = handoff !== undefined && handoff.callId !== undefined ? { callId: handoff.callId, reason: handoff.reason, note: handoff.note } : undefined
   const btw = ((team as { btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string }[]> } | null)?.btwCards?.[bot?.id ?? ''] ?? []).filter(card => card.partId === undefined || card.partId === sessionId)
@@ -315,7 +335,10 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
   const flat = team?.prefs?.layout === 'flat'
   const width = Math.min(100, Math.max(50, team?.prefs?.width ?? 80))
   const [chatWidth, setChatWidth] = useState(() => Math.max(0, Dimensions.get('window').width - 24))
-  const [expandedKey, setExpandedKey] = useState<string | null>(null)
+  const [expandedKey, setExpandedKey] = useState<string | null>(focus ?? null)
+  useEffect(() => {
+    if (focus !== undefined) setExpandedKey(focus)
+  }, [focus, focusToken])
   const [menuText, setMenuText] = useState<string | null>(null)
   const [readerText, setReaderText] = useState<string | null>(null)
   const [readerTitle, setReaderTitle] = useState<string | null>(null)
@@ -379,7 +402,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
     wasOnline.current = online
   }, [online, refresh, refreshTeam])
   const learning = learningForChat(team?.learning, bot?.id, bot?.sessionId ?? bot?.id, sessionId)
-  const hasChatPending = question !== undefined || team?.views?.[sessionId] !== undefined || approvals.length > 0 || secrets.length > 0 || browserHold !== undefined || learning.length > 0
+  const hasChatPending = questions.length > 0 || shownViews.length > 0 || approvals.length > 0 || secrets.length > 0 || connectorRequests.length > 0 || mailRequests.length > 0 || browserHold !== undefined || learning.length > 0
   useEffect(() => {
     if (onFeed === undefined) return
     const gen = generation.current
@@ -472,6 +495,72 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
     // Inverted list: index 0 sits at the bottom, so the newest row comes first.
     return all.map((item, index) => ({ item, key: keys[index], stamp: room !== undefined || item.local !== undefined ? undefined : stampOf(all, index) })).reverse()
   }, [items, pending, room !== undefined])
+  const { inline: inlineViews, dock: dockViews, inlineByKey } = useMemo(
+    () => splitChatViews(rows, shownViews),
+    [rows, shownViews],
+  )
+  // If a pending view arrived on team state before the chat page fetched its tool call,
+  // refresh once per view id so it can render inline at its call site.
+  const fetchedViewIds = useRef(new Set<string>())
+  useEffect(() => { fetchedViewIds.current.clear() }, [chatKey])
+  useEffect(() => {
+    if (page === null || dockViews.length === 0) return
+    const missing = dockViews.filter(entry => {
+      const vid = `${entry.sessionId}:${entry.view.id ?? entry.view.callId ?? ''}`
+      if (fetchedViewIds.current.has(vid)) return false
+      fetchedViewIds.current.add(vid)
+      return true
+    })
+    if (missing.length > 0) void refresh(generation.current)
+  }, [page, dockViews, refresh])
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
+  const scrollRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollRetryCountRef = useRef(0)
+  const scrollRetryRowKeyRef = useRef<string | null>(null)
+  const clearScrollRetry = useCallback(() => {
+    if (scrollRetryTimerRef.current !== null) {
+      clearTimeout(scrollRetryTimerRef.current)
+      scrollRetryTimerRef.current = null
+    }
+    scrollRetryCountRef.current = 0
+    scrollRetryRowKeyRef.current = null
+  }, [])
+  useEffect(() => clearScrollRetry, [chatKey, clearScrollRetry])
+  const jumpToRowKey = useCallback((rowKey: string): boolean => {
+    const index = rowsRef.current.findIndex(row => row.key === rowKey)
+    if (index < 0) return false
+    clearScrollRetry()
+    scrollRetryRowKeyRef.current = rowKey
+    restoredForRef.current = chatKey
+    list.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 })
+    return true
+  }, [chatKey, clearScrollRetry])
+  const handleViewSettled = useCallback(() => {
+    refreshTeam?.()
+    void refresh(generation.current)
+  }, [refreshTeam, refresh])
+  // Opening a chat from Needs you for an inline view scrolls straight to that card.
+  // Compare focusToken by object reference (ShellB passes params object, not a primitive)
+  // and mark handled only once the timer actually runs so a mid-wait refresh reschedules.
+  const jumpedFocusRef = useRef<{ chatKey: string; focus: string; token: unknown } | null>(null)
+  useEffect(() => {
+    if (focus === undefined) return
+    const prev = jumpedFocusRef.current
+    if (prev !== null && prev.chatKey === chatKey && prev.focus === focus && prev.token === focusToken) return
+    const match = inlineViews.find(entry => viewFocusKey(entry) === focus)
+    if (match === undefined) return
+    const targetRowKey = match.rowKey
+    restoredForRef.current = chatKey
+    const timer = setTimeout(() => {
+      if (jumpToRowKey(targetRowKey)) {
+        jumpedFocusRef.current = { chatKey, focus, token: focusToken }
+      }
+    }, 80)
+    return () => clearTimeout(timer)
+  }, [chatKey, focus, focusToken, inlineViews, jumpToRowKey])
+  const inlineViewSig = inlineViews.map(entry => `${entry.rowKey}:${entry.view.id ?? ''}`).join('|')
+  const listExtraData = useMemo(() => ({ openSteps, inlineViewSig }), [openSteps, inlineViewSig])
   // Group rows show each member's name, color and mark; a team refresh that changes
   // none of these keeps the same map, so the rows are not drawn again.
   const memberKey = JSON.stringify((team?.bots ?? []).map(entry => [entry.id, entry.name, entry.color, entry.avatar?.shape, entry.avatar?.imageRef ?? entry.avatar?.image?.length]))
@@ -487,10 +576,11 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
       <ErrorBoundary inline>
         <Item stamp={row.stamp} author={inRoom && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={inRoom && item.botId !== undefined && item.botId === admin}
           item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' || item.kind === 'post' ? botMax : userMax} inRoom={inRoom} sessionId={sessionId}
+          pendingView={inlineByKey.get(row.key)} onViewSettled={handleViewSettled}
           onLongPress={setMenuText} onOpenFile={openFile} onSaveFile={saveFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
       </ErrorBoundary>
     )
-  }, [inRoom, botsById, admin, p, flat, botMax, userMax, sessionId, openFile, retry, openSteps])
+  }, [inRoom, botsById, admin, p, flat, botMax, userMax, sessionId, inlineByKey, handleViewSettled, openFile, saveFile, retry, openSteps])
 
   const empty = page !== null && rows.length === 0
   return (
@@ -516,7 +606,24 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
                 data={rows}
                 keyExtractor={row => row.key}
                 renderItem={renderRow}
-                extraData={openSteps}
+                extraData={listExtraData}
+                onScrollToIndexFailed={info => {
+                  list.current?.scrollToOffset({ offset: Math.max(0, info.averageItemLength * info.index), animated: true })
+                  if (scrollRetryCountRef.current >= 3) return
+                  scrollRetryCountRef.current += 1
+                  if (scrollRetryTimerRef.current !== null) clearTimeout(scrollRetryTimerRef.current)
+                  const targetKey = scrollRetryRowKeyRef.current
+                  const fallbackIndex = info.index
+                  scrollRetryTimerRef.current = setTimeout(() => {
+                    scrollRetryTimerRef.current = null
+                    const targetIndex = targetKey !== null
+                      ? rowsRef.current.findIndex(row => row.key === targetKey)
+                      : fallbackIndex
+                    if (targetIndex >= 0 && targetIndex < rowsRef.current.length) {
+                      list.current?.scrollToIndex({ index: targetIndex, animated: true, viewPosition: 0.5 })
+                    }
+                  }, 120)
+                }}
                 contentContainerStyle={styles.listContent}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="interactive"
@@ -556,12 +663,20 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
         ) : null}
       </View>
       {bot?.blocked !== undefined ? <BlockedCard bot={bot} p={p} /> : null}
-      {bot !== undefined ? <ComputerCards bot={bot} p={p} /> : null}
-      {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
-      <Dock question={question} sessionId={sessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
+      {bot !== undefined || room !== undefined ? <ComputerCards bot={bot} room={room} p={p} /> : null}
+      {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} state={workMarkState(doing ?? roomWork[0])} p={p} dark={dark} /> : null}
+      <ViewJumpStrip
+        items={inlineViews.map(entry => ({
+          key: viewFocusKey(entry),
+          label: viewReminderLabel(bot?.name, entry.view.title, t),
+          onJump: () => { jumpToRowKey(entry.rowKey) },
+        }))}
+        p={p}
+      />
+      <Dock questions={questions} sessionId={sessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} mailRequests={mailRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} views={dockViews} onViewSettled={handleViewSettled} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
-      <Composer name={bot?.name ?? room?.name ?? agent?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
+      <Composer key={chatKey} chatKey={chatKey} name={bot?.name ?? (room && roomTitle(room)) ?? agent?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} sends={sends} onSend={send} onStop={stop} p={p} />
       <Actions visible={menuText !== null} text={menuText ?? ''} p={p}
         onClose={() => setMenuText(null)}
         onSelect={() => { setReaderTitle(null); setReaderText(menuText); setMenuText(null) }} />
@@ -587,7 +702,7 @@ function EmptyChat({ bot, room, agent, bots, p, dark }: { bot?: Bot; room?: Room
   return (
     <View pointerEvents="none" style={styles.empty}>
       {bot !== undefined ? <Avatar bot={bot} dark={dark} size={64} ring={p.main} /> : room !== undefined ? <RoomAvatar room={room} bots={bots} dark={dark} size={64} ring={p.main} /> : agent !== undefined ? <FishLogo size={56} /> : null}
-      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600', marginTop: 12 }]} numberOfLines={1}>{bot?.name ?? room?.name ?? agent?.name ?? ''}</Text>
+      <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600', marginTop: 12 }]} numberOfLines={1}>{bot?.name ?? (room && roomTitle(room)) ?? agent?.name ?? ''}</Text>
       {bot?.role ? <Text style={[type.small, { color: p.ink3, marginTop: 2 }]} numberOfLines={1}>{bot.role}</Text> : null}
       <Text style={[type.caption, { color: p.ink3, marginTop: 10 }]}>{t('No messages yet')}</Text>
     </View>
@@ -688,28 +803,54 @@ function GoalBar({ goal, p }: { goal: Goal; p: ReturnType<typeof useTheme>['p'] 
 
 // Computer use (computer.js): a Bot's ask to use an app, answered Deny / This time /
 // Always, and a bar with Stop while it holds the computer.
-function ComputerCards({ bot, p }: { bot: Bot; p: ReturnType<typeof useTheme>['p'] }) {
+function ComputerCards({ bot, room, p }: { bot?: Bot; room?: Room; p: ReturnType<typeof useTheme>['p'] }) {
   const { team, call } = useTeam()
   const [error, setError] = useState<string | null>(null)
-  const live = (team as { computerLive?: { bots?: Record<string, { state?: string; app?: string }>; asks?: Record<string, { id: string; botId: string; appName?: string }> } } | null)?.computerLive
-  const asks = Object.values(live?.asks ?? {}).filter(ask => ask.botId === bot.id)
-  const control = live?.bots?.[bot.id]
+  const live = (team as {
+    computerLive?: {
+      bots?: Record<string, { state?: string; app?: string }>
+      asks?: Record<string, { id: string; botId: string; appName?: string; roomId?: string }>
+      holds?: Record<string, { id?: string; by?: string; fromBot?: boolean; callId?: string; reason?: string; note?: string }>
+    }
+  } | null)?.computerLive
+  const asks = computerAsksForChat(team, { bot, room })
+  const rawHold = bot !== undefined ? live?.holds?.[bot.id] : undefined
+  const hold = isComputerHandoff(rawHold) ? rawHold : undefined
+  const control = bot !== undefined ? live?.bots?.[bot.id] : undefined
   const acting = control !== undefined && control.state !== undefined && control.state !== 'idle'
   const act = (endpoint: string, body: Record<string, unknown>) => { call(endpoint, body).then(() => setError(null), (failure: Error) => setError(failure?.message ?? String(failure))) }
-  if (asks.length === 0 && !acting) return null
+  if (asks.length === 0 && hold === undefined && !acting) return null
   return (
     <View>
       {asks.map(ask => (
         <View key={ask.id} style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line }]}>
-          <Text style={[type.settingsRow, { color: p.ink }]}>{t('Allow {name} to use {app}?', { name: bot.name, app: ask.appName ?? '' })}</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-            <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'deny' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Deny')}</Text></Pressable>
-            <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'once' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('This time')}</Text></Pressable>
-            <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'always' })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Always')}</Text></Pressable>
-          </View>
+          <Text style={[type.settingsRow, { color: p.ink }]}>{t('Allow {name} to use {app}?', { name: ask.botName, app: ask.appName ?? '' })}</Text>
+          {Platform.OS === 'web' ? (
+            <Text style={[type.small, { color: p.ink2, marginTop: 8 }]}>{t('Not available from a browser. Use the phone app or the computer.')}</Text>
+          ) : (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+              <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'deny' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Deny')}</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'once' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('This time')}</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'always' })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Always')}</Text></Pressable>
+            </View>
+          )}
         </View>
       ))}
-      {acting ? (
+      {bot !== undefined && hold !== undefined ? (
+        <View style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line }]}>
+          <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{t('Computer handoff')}</Text>
+          {hold.note || hold.reason ? <Text style={[type.small, { color: p.ink2, marginTop: 4 }]}>{hold.note || hold.reason}</Text> : null}
+          {Platform.OS === 'web' ? (
+            <Text style={[type.small, { color: p.ink2, marginTop: 8 }]}>{t('Not available from a browser. Use the phone app or the computer.')}</Text>
+          ) : (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+              <Pressable accessibilityRole="button" onPress={() => act('computer-hold-answer', { botId: bot.id, outcome: 'skip' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Skip')}</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={() => act('computer-hold-answer', { botId: bot.id, outcome: 'done' })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t("I'm done")}</Text></Pressable>
+            </View>
+          )}
+        </View>
+      ) : null}
+      {bot !== undefined && acting ? (
         <View style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line, flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }]}>
           <Text style={[type.small, { color: p.ink, flex: 1 }]} numberOfLines={1}>{control?.app ? `${t('Computer use')} · ${control.app}` : t('Computer use')}</Text>
           <Pressable accessibilityRole="button" onPress={() => act('computer-stop', { botId: bot.id })} style={[styles.fix, { backgroundColor: p.hover, minHeight: 36 }]}><Text style={{ color: p.danger }}>{t('Stop')}</Text></Pressable>

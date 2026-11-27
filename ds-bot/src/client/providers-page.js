@@ -467,8 +467,8 @@ export const PROVIDERS_CSS = `
 .bt-provider-models{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .bt-provider-models .bt-tag{max-width:220px}
 .bt-provider-add{gap:12px;animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
-.bt-provider-add .bt-seg{align-self:flex-start}
-.bt-provider-add .bt-seg button{flex:none;padding:0 14px;white-space:nowrap}
+.bt-provider-add .bt-seg:not([data-layout]){align-self:flex-start}
+.bt-provider-add .bt-seg:not([data-layout]) button{padding:0 14px}
 .bt-provider-add .bt-seg button:disabled{opacity:.45;cursor:default}
 .bt-provider-form{display:flex;flex-direction:column;gap:10px}
 .bt-provider-form .bt-secret-field{min-height:36px;align-items:center;gap:8px}

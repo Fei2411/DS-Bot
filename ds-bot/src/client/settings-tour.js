@@ -4,7 +4,7 @@
 // open, can be replayed from About DS Bot, and every section has its own focused guide.
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CloseIcon } from './icons.js'
-import { useEscape } from './overlay-hooks.js'
+import { ESCAPE_PRIORITY, acquireInert, releaseInert, settingsOwnsKeyboard, useEscape } from './overlay-hooks.js'
 import { isImeComposing } from './enter-key.js'
 import { t } from './i18n.js'
 import { ownedPopups } from './popup-ownership.js'
@@ -289,8 +289,8 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     setStepState(prev => ({ key: tourKey, index: Math.max(0, (prev.key === tourKey ? prev.index : 0) - 1) }))
   }, [active, tourKey])
 
-  // Priority 1 catches Escape before SettingsDialog closes.
-  useEscape(dismiss, active, { priority: 1 })
+  // Tour sits above SettingsDialog (0) and below dialogs/sheets opened on top of Settings.
+  useEscape(dismiss, active, { priority: ESCAPE_PRIORITY.TOUR })
 
   useLayoutEffect(() => {
     if (!active) return undefined
@@ -299,30 +299,49 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     const card = cardRef.current
     const layer = layerRef.current
     if (!doc?.body || !card || !layer) return undefined
-    const inert = new Map()
+    const held = new Set()
     let interactive = [card]
     let disposed = false
     const restore = () => {
-      for (const [element, previous] of inert) element.inert = previous
-      inert.clear()
+      for (const element of held) releaseInert(element)
+      held.clear()
     }
+    const externalModalOpen = () => !settingsOwnsKeyboard(dialog, doc)
     const allowed = element => interactive.some(root => root.contains(element))
     const sync = () => {
-      restore()
+      // Yield inertness and focus-trapping while a higher-layer modal (such as
+      // ShortcutsDialog, PresetConfigModal, or a DSH modal) is mounted above Settings.
+      if (externalModalOpen()) {
+        restore()
+        interactive = [card]
+        return
+      }
       const target = !step.page || step.page === currentPage ? resolveStep(dialog, step).targetEl : null
       interactive = [target, card].filter(Boolean)
       interactive.push(...ownedPopups(interactive))
       const roots = [layer, ...interactive]
+      const nextHeld = new Set()
       const isolate = element => {
         if (roots.includes(element)) return
         if (roots.some(root => element.contains(root))) {
           for (const child of element.children) isolate(child)
         } else {
-          inert.set(element, element.inert)
-          element.inert = true
+          nextHeld.add(element)
         }
       }
       isolate(doc.body)
+      for (const element of nextHeld) {
+        if (!held.has(element)) {
+          acquireInert(element)
+          held.add(element)
+        }
+      }
+      for (const element of held) {
+        if (!nextHeld.has(element)) {
+          releaseInert(element)
+          held.delete(element)
+        }
+      }
       if (!allowed(doc.activeElement)) card.focus({ preventScroll: true })
     }
     const onFocus = () => {
@@ -331,6 +350,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     }
     const onTab = event => {
       if (event.key !== 'Tab') return
+      if (externalModalOpen()) return
       sync()
       const selector = 'button,input,select,textarea,a[href],[tabindex],[contenteditable],summary,audio[controls],video[controls]'
       const controls = interactive.flatMap(root => [root, ...root.querySelectorAll(selector)])
@@ -359,6 +379,8 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     if (!active || typeof window === 'undefined') return undefined
     const onKeyDown = (event) => {
       if (event.defaultPrevented || isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return
+      const dialog = dialogRef?.current ?? layerRef.current?.closest?.('.bt-settings')
+      if (!settingsOwnsKeyboard(dialog, dialog?.ownerDocument)) return
       const tag = event.target?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable) return
       if (event.key === 'ArrowRight') { event.preventDefault(); next() }
@@ -366,7 +388,7 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [active, next, prev])
+  }, [active, next, prev, dialogRef])
 
   // Cross-page tour steps switch pages only when entering a step.
   useEffect(() => {

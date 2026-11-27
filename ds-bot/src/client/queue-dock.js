@@ -1,6 +1,9 @@
 import { createElement as h, Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { maskSecrets } from '../shared/secret-mask.js'
+import { isImeComposing } from './enter-key.js'
 import { t } from './i18n.js'
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, PaperclipIcon, PencilIcon, QueueIcon, TrashIcon } from './icons.js'
+import { useEscape } from './overlay-hooks.js'
 
 // The queue dock above the composer, drawn by DS Bot in place of the shell's own
 // (same slot, same id 'queue'). The session inbox also queues the team's mail —
@@ -13,19 +16,25 @@ import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, Pape
 
 // Kinds carrying the user's own queued sends: composer submissions, scheduled
 // sends and an answer filed through a question card.
-const OWN_QUEUE_KINDS = new Set(['user', 'schedule', 'user-question-reply'])
+export const OWN_QUEUE_KINDS = new Set(['user', 'schedule', 'user-question-reply'])
 
 const EMPTY_QUEUE = []
 const QUEUE_TEXT_FACTS = { collapseWhitespace: true, trimWhitespace: true }
 
-const textOf = content => (content.every(block => block.type === 'text') ? content.map(block => block.text).join('') : null)
+export const queueRowText = (content) => (Array.isArray(content)
+  ? content.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('')
+  : '')
+
+const textOf = content => (Array.isArray(content) && content.length > 0 && content.every(block => block?.type === 'text')
+  ? content.map(block => block.text).join('')
+  : null)
 
 // Durable references carried by one queued row. Inbox projections are wire data,
 // so a block without a reference is skipped rather than trusted.
 function queueAttachments(content) {
   const attachments = []
-  for (const block of content) {
-    if (block.type === 'image' || block.type === 'file') {
+  for (const block of Array.isArray(content) ? content : []) {
+    if (block?.type === 'image' || block?.type === 'file') {
       if (block.attachment !== undefined) attachments.push({ type: block.type, attachment: block.attachment })
     }
   }
@@ -36,6 +45,12 @@ const fileSizeText = (bytes) => typeof bytes !== 'number' || !Number.isFinite(by
   : bytes < 1024 ? `${bytes} B`
     : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB`
       : `${(bytes / 1048576).toFixed(1)} MB`
+
+function WithdrawIcon() {
+  return h('svg', { width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+    h('path', { d: 'M7.5 6.5L4 10l3.5 3.5' }),
+    h('path', { d: 'M4.5 10h7a4 4 0 0 1 0 8H9' }))
+}
 
 function QueueFile({ attachment, label }) {
   const size = fileSizeText(attachment.bytes)
@@ -50,8 +65,9 @@ function QueueFile({ attachment, label }) {
 function QueueThumb({ attachment, loadImage, label }) {
   const [url, setUrl] = useState(null)
   useEffect(() => {
+    if (typeof loadImage !== 'function') return undefined
     let alive = true
-    loadImage(attachment).then((resolved) => { if (alive) setUrl(resolved) }, () => {})
+    Promise.resolve(loadImage(attachment)).then((resolved) => { if (alive && resolved) setUrl(resolved) }, () => {})
     return () => { alive = false }
   }, [attachment, loadImage])
   return url === null
@@ -63,11 +79,12 @@ function QueueThumb({ attachment, loadImage, label }) {
 // factory renders it when the shell provides one.
 function Preview({ text, renderFactorySlot }) {
   const rendered = renderFactorySlot?.('conversation.user.text', { text, facts: QUEUE_TEXT_FACTS, interactive: false, ellipsis: true })
-  return h('span', { className: 'bt-queue-preview' }, rendered ?? text)
+  return h('span', { className: 'bt-queue-preview', title: rendered ? undefined : (maskSecrets(text) || undefined) }, rendered ?? maskSecrets(text))
 }
 
 function EditField({ text, onChange, onSave, onCancel }) {
   const field = useRef(null)
+  useEscape(onCancel, true, { priority: 20 })
   useEffect(() => {
     const node = field.current
     if (node === null) return
@@ -83,8 +100,8 @@ function EditField({ text, onChange, onSave, onCancel }) {
     'aria-label': t('Edit queued message'),
     onChange: event => onChange(event.target.value),
     onKeyDown: (event) => {
-      if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.stopPropagation(); onCancel() }
-      else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); onSave() }
+      if (isImeComposing(event)) return
+      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); onSave() }
     },
   })
 }
@@ -93,24 +110,22 @@ function RowButton({ label, title, disabled, onClick, children }) {
   return h('button', { type: 'button', className: 'bt-queue-action', 'aria-label': label, title: title ?? label, disabled, onClick }, children)
 }
 
-// One item renders directly; several default to a collapsible count header; an
-// empty queue renders nothing. Rows still in flight show a sending state with
-// disabled actions until their queue rows arrive.
-export function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFactorySlot, actions }) {
-  const inbox = useProjection?.('inbox')
-  const pendingSubmissions = useSession?.((s) => s.pendingSubmissions) ?? EMPTY_QUEUE
-  const queue = useMemo(() => {
-    const rows = (inbox?.['next-turn'] ?? EMPTY_QUEUE).filter(row => OWN_QUEUE_KINDS.has(row.source?.kind))
-    const inChat = new Set(pendingSubmissions.filter(item => item.placement === 'transcript').map(item => item.requestId))
-    return inChat.size === 0 ? rows : rows.filter(({ source }) => source === null || typeof source !== 'object' || !('rpcId' in source) || !inChat.has(source.rpcId))
-  }, [inbox, pendingSubmissions])
-  const pendingQueue = useMemo(() => {
-    const admitted = new Set(queue.flatMap(({ source }) => (source !== null && typeof source === 'object' && 'rpcId' in source) ? [source.rpcId] : []))
-    return pendingSubmissions.filter(submission => submission.placement === 'queued' && !admitted.has(submission.requestId))
-  }, [pendingSubmissions, queue])
+// Shared queue-dock presenter used by both the DSH plugin QueueDock and the desktop
+// app's DesktopQueueDock so defaults, labels, keyboard handling, and row states stay aligned.
+export function QueueDockPresenter({
+  queue,
+  pendingQueue = EMPTY_QUEUE,
+  running = false,
+  queueMutable = true,
+  updateQueue,
+  loadImage,
+  renderFactorySlot,
+  actions,
+  onWithdraw = null,
+  className = 'bt-queue-dock',
+  actionsClassName = 'bt-queue-actions',
+}) {
   const rowCount = queue.length + pendingQueue.length
-  const running = useSession?.((s) => s.running) === true
-  const queueMutable = useSession?.((s) => s.subagent === null || s.subagent === undefined || s.subagent.address?.mode === 'continuable') ?? true
   const [editing, setEditing] = useState(null)
   const [busy, setBusy] = useState(null)
   const [collapsed, setCollapsed] = useState(true)
@@ -129,25 +144,32 @@ export function QueueDock({ useSession, useProjection, updateQueue, loadImage, r
       const result = await updateQueue(itemId, action)
       // A row the Agent already claimed converges by itself — it left the queue,
       // or goes with the next turn either way.
-      if (result && result.ok === false
-        && result.error?.code !== 'session/queue-item-not-found'
-        && result.error?.code !== 'session/steer-unavailable') {
-        actions.reportError(new Error(failure), 'queue')
-        return false
+      if (result && result.ok === false) {
+        if (result.error?.code !== 'session/queue-item-not-found'
+          && result.error?.code !== 'session/steer-unavailable') {
+          actions?.reportError?.(new Error(failure), 'queue')
+        }
+        return { settled: result.error?.code === 'session/queue-item-not-found' || result.error?.code === 'session/steer-unavailable', accepted: false }
       }
-      return true
+      return { settled: true, accepted: result?.accepted !== false }
     } catch {
-      actions.reportError(new Error(failure), 'queue')
-      return false
+      actions?.reportError?.(new Error(failure), 'queue')
+      return { settled: false, accepted: false }
     } finally {
       setBusy(current => current === itemId ? null : current)
     }
   }
+  const withdrawRow = async (row) => {
+    const text = queueRowText(row.content)
+    const outcome = await applyAction(row.id, { kind: 'remove' }, t('Couldn’t delete the queued message — it may have started already.'))
+    if (outcome.accepted && text !== '') onWithdraw?.(text)
+  }
   const saveEdit = async () => {
     if (editing === null || editing.text.trim() === '') return
-    if (await applyAction(editing.id, { kind: 'edit', content: [{ type: 'text', text: editing.text }] }, t('Couldn’t edit the queued message — it may have started already.'))) setEditing(null)
+    const outcome = await applyAction(editing.id, { kind: 'edit', content: [{ type: 'text', text: editing.text }] }, t('Couldn’t edit the queued message — it may have started already.'))
+    if (outcome.settled) setEditing(null)
   }
-  return h('div', { className: 'bt-queue-dock', 'data-queue-dock': '' },
+  return h('div', { className, 'data-queue-dock': '' },
     h('div', { className: 'bt-queue-panel' },
       rowCount > 1 && h('button', { type: 'button', className: 'bt-queue-head', 'aria-controls': listId, 'aria-expanded': expanded, disabled: interactionActive, onClick: () => setCollapsed(value => !value) },
         h('span', { className: 'bt-queue-lead', 'aria-hidden': true }, h(QueueIcon)),
@@ -158,38 +180,72 @@ export function QueueDock({ useSession, useProjection, updateQueue, loadImage, r
         listVisible && queue.map((row) => {
           const attachments = queueAttachments(row.content)
           const text = textOf(row.content)
-          return h('li', { key: row.id, className: 'bt-queue-row' },
+          const plain = queueRowText(row.content)
+          const canWithdraw = plain.trim() !== '' && attachments.length === 0
+          return h('li', { key: row.id, className: 'bt-queue-row', 'data-queue-id': row.id },
             rowCount === 1 && h('span', { className: 'bt-queue-lead', 'aria-hidden': true }, h(QueueIcon)),
             editing?.id === row.id
-              ? h(EditField, { text: editing.text, onChange: text => setEditing({ id: row.id, text }), onSave: saveEdit, onCancel: () => setEditing(null) })
+              ? h(EditField, { text: editing.text, onChange: next => setEditing({ id: row.id, text: next }), onSave: saveEdit, onCancel: () => setEditing(null) })
               : h(Fragment, null,
                 attachments.length > 0 && h('span', { className: 'bt-queue-attachments' },
                   attachments.map((item, index) => item.type === 'image'
-                    ? h(QueueThumb, { key: `${item.attachment.attachmentId}:${index}`, attachment: item.attachment, loadImage, label: t('Queued image') })
-                    : h(QueueFile, { key: `${item.attachment.attachmentId}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t('Queued file {name}', { name: item.attachment.name }) }))),
-                h(Preview, { text: row.content.filter(block => block.type === 'text').map(block => block.text).join(''), renderFactorySlot })),
-            queueMutable && h('div', { className: 'bt-queue-actions' },
+                    ? h(QueueThumb, { key: `${item.attachment.attachmentId ?? index}:${index}`, attachment: item.attachment, loadImage, label: t('Queued image') })
+                    : h(QueueFile, { key: `${item.attachment.attachmentId ?? item.attachment.name}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t('Queued file {name}', { name: item.attachment.name }) }))),
+                h(Preview, { text: plain, renderFactorySlot })),
+            queueMutable && h('div', { className: actionsClassName },
               editing?.id === row.id
                 ? h(Fragment, null,
                   h(RowButton, { label: t('Save queued message'), disabled: busy !== null || editing.text.trim() === '', onClick: saveEdit }, h(CheckIcon)),
                   h(RowButton, { label: t('Cancel editing'), disabled: busy !== null, onClick: () => setEditing(null) }, h(CloseIcon)))
                 : h(Fragment, null,
+                  typeof onWithdraw === 'function' && h(RowButton, { label: t('Withdraw to input'), title: canWithdraw ? t('Withdraw to input') : t('Contains non-text content'), disabled: busy !== null || !canWithdraw, onClick: () => { void withdrawRow(row) } }, h(WithdrawIcon)),
                   h(RowButton, { label: t('Edit queued message'), title: text === null ? t('Contains non-text content, so editing is not supported yet') : undefined, disabled: busy !== null || text === null, onClick: () => { if (text !== null) setEditing({ id: row.id, text }) } }, h(PencilIcon)),
-                  h(RowButton, { label: t('Delete queued message'), disabled: busy !== null, onClick: () => applyAction(row.id, { kind: 'remove' }, t('Couldn’t delete the queued message — it may have started already.')) }, h(TrashIcon)),
-                  h(RowButton, { label: t('Steer queued message'), title: running ? undefined : t('Only while a turn is running'), disabled: busy !== null || !running, onClick: () => applyAction(row.id, { kind: 'steer' }, t('Couldn’t steer the queued message. Try again.')) }, h(ArrowUpIcon)))))
+                  h(RowButton, { label: t('Delete queued message'), disabled: busy !== null, onClick: () => { void applyAction(row.id, { kind: 'remove' }, t('Couldn’t delete the queued message — it may have started already.')) } }, h(TrashIcon)),
+                  h(RowButton, { label: t('Steer queued message'), title: running ? undefined : t('Only while a turn is running'), disabled: busy !== null || !running, onClick: () => { void applyAction(row.id, { kind: 'steer' }, t('Couldn’t steer the queued message. Try again.')) } }, h(ArrowUpIcon)))))
         }),
         listVisible && pendingQueue.map(submission => h('li', { key: submission.requestId, className: 'bt-queue-row bt-queue-pending' },
           rowCount === 1 && h('span', { className: 'bt-queue-lead', 'aria-hidden': true }, h(QueueIcon)),
           submission.attachments.length > 0 && h('span', { className: 'bt-queue-attachments' },
             submission.attachments.map((attachment, index) => attachment.type === 'image'
               ? h('img', { key: `${attachment.value.previewUrl}:${index}`, className: 'bt-queue-thumb', src: attachment.value.previewUrl, alt: t('Queued image') })
-              : h(QueueFile, { key: `${attachment.value.attachmentId}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t('Queued file {name}', { name: attachment.value.name }) }))),
+              : h(QueueFile, { key: `${attachment.value.attachmentId ?? attachment.value.name}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t('Queued file {name}', { name: attachment.value.name }) }))),
           h(Preview, { text: submission.text, renderFactorySlot }),
           h('span', { className: 'bt-queue-status', role: 'status' }, t('Sending…')),
-          queueMutable && h('div', { className: 'bt-queue-actions' },
+          queueMutable && h('div', { className: actionsClassName },
+            typeof onWithdraw === 'function' && h(RowButton, { label: t('Withdraw to input'), title: t('Sending…'), disabled: true }, h(WithdrawIcon)),
             h(RowButton, { label: t('Edit queued message'), title: t('Sending…'), disabled: true }, h(PencilIcon)),
             h(RowButton, { label: t('Delete queued message'), title: t('Sending…'), disabled: true }, h(TrashIcon)),
             h(RowButton, { label: t('Steer queued message'), title: t('Sending…'), disabled: true }, h(ArrowUpIcon))))))))
+}
+
+// One item renders directly; several default to a collapsible count header; an
+// empty queue renders nothing. Rows still in flight show a sending state with
+// disabled actions until their queue rows arrive.
+export function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFactorySlot, actions }) {
+  const inbox = useProjection?.('inbox')
+  const pendingSubmissions = useSession?.((s) => s.pendingSubmissions) ?? EMPTY_QUEUE
+  const queue = useMemo(() => {
+    const rows = (inbox?.['next-turn'] ?? EMPTY_QUEUE).filter(row => OWN_QUEUE_KINDS.has(row.source?.kind))
+    const inChat = new Set(pendingSubmissions.filter(item => item.placement === 'transcript').map(item => item.requestId))
+    return inChat.size === 0 ? rows : rows.filter(({ source }) => source === null || typeof source !== 'object' || !('rpcId' in source) || !inChat.has(source.rpcId))
+  }, [inbox, pendingSubmissions])
+  const pendingQueue = useMemo(() => {
+    const admitted = new Set(queue.flatMap(({ source }) => (source !== null && typeof source === 'object' && 'rpcId' in source) ? [source.rpcId] : []))
+    return pendingSubmissions.filter(submission => submission.placement === 'queued' && !admitted.has(submission.requestId))
+  }, [pendingSubmissions, queue])
+  const running = useSession?.((s) => s.running) === true
+  const queueMutable = useSession?.((s) => s.subagent === null || s.subagent === undefined || s.subagent.address?.mode === 'continuable') ?? true
+  if (queue.length + pendingQueue.length === 0) return null
+  return h(QueueDockPresenter, {
+    queue,
+    pendingQueue,
+    running,
+    queueMutable,
+    updateQueue,
+    loadImage,
+    renderFactorySlot,
+    actions,
+  })
 }
 
 export const QUEUE_CSS = `

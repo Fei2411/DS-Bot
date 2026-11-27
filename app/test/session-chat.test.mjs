@@ -12,6 +12,7 @@ const fixture = JSON.parse(readFileSync(
 
 const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
 const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
+const deepViewReact = fileURLToPath(import.meta.resolve('deep-view/react'))
 const stubs = {
   'cells.js': `
     export const Bubbles = ({ texts, streaming, msgKey }) => ({ type: 'bubbles', props: { texts, streaming, msgKey, children: texts } })
@@ -84,6 +85,7 @@ const { outputFiles } = await build({
     setup(bundler) {
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-llm\/assistant-stream$/ }, () => ({ path: assistantStream }))
       bundler.onResolve({ filter: /^@deepseek-ai\/dsh-util-values$/ }, () => ({ path: utilValues }))
+      bundler.onResolve({ filter: /^deep-view\/react$/ }, () => ({ path: deepViewReact }))
       bundler.onResolve({ filter: /(src\/client\/(cells|widget-cell|model-menu|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
         const name = args.path.split('/').pop()
         return { path: name === 'dsh-primitives.js' ? 'primitives.js' : name, namespace: 'session-chat-stub' }
@@ -227,7 +229,7 @@ const {
   openSessionFollow,
   createSlotRegistry, TOOL_VIEW_SLOT,
   buildSessionRows, makeToolArgs, argSummary, clipLongText, ToolCallCard,
-  SessionTranscript, Chat, createTeam,
+  SessionTranscript, useSessionFollow, Chat, createTeam,
 } = module.exports
 
 const resolveType = type => (type && typeof type === 'object' && type.$$typeof === MEMO_TYPE ? type.type : type)
@@ -552,8 +554,9 @@ test('openSessionFollow handles split CRLF frames, reader cancel on end, backoff
   recordedTimers.length = 0
   const events = []
   let reopenedOnTerminal = false
+  let cursor = -1
   let handle
-  handle = openSessionFollow({ sessionId: 'b1', max: 20 }, (event, data) => {
+  handle = openSessionFollow({ sessionId: 'b1', max: 20, after: () => cursor }, (event, data) => {
     events.push([event, data])
     // Verify reopen() called synchronously inside a terminal HTTP error callback is NOT swallowed.
     if (event === 'error' && data?.code === 'bot/not-found' && !reopenedOnTerminal) {
@@ -574,6 +577,7 @@ test('openSessionFollow handles split CRLF frames, reader cancel on end, backoff
     await tick()
     assert.equal(events[0][0], 'frame')
     assert.equal(events[0][1].type, 'snapshot')
+    cursor = 7
 
     // Non-terminal SSE error followed by stream close must NOT reset backoff to 500ms on next drop.
     const firstStream = fetchCtrl.latest()
@@ -587,6 +591,7 @@ test('openSessionFollow handles split CRLF frames, reader cancel on end, backoff
     await tick()
     await tick()
     assert.equal(fetchCtrl.calls.length, 2)
+    assert.match(fetchCtrl.calls[1].url, /after=7/, 'a reconnect carries the cursor held when it starts')
 
     // Attempt 2: HTTP 200 SSE returns non-terminal `bot/internal` error without any `frame`, then closes -> backoff 500ms.
     recordedTimers.length = 0
@@ -619,6 +624,71 @@ test('openSessionFollow handles split CRLF frames, reader cancel on end, backoff
     assert.equal(terminalCount, 2, 'reopen() inside terminal error callback must restart once, then stay stopped')
   } finally {
     handle.close()
+    fetchCtrl.reset()
+  }
+})
+
+
+test('useSessionFollow resyncs once without the stale cursor and replaces rows with fresh history', async () => {
+  fetchCtrl.reset()
+  let view
+  const Probe = () => {
+    view = useSessionFollow({ sessionId: 'b1', enabled: true })
+    return null
+  }
+  const inst = mount(Probe, {})
+  try {
+    inst.render()
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 1)
+    const staleEvent = { type: 'user/message', seq: 10, time: 100, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'stale row' }] } }
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 10, hasMore: true,
+      records: [{ type: 'event', event: staleEvent }], assistantStream: { revision: 0 },
+    })
+    await tick()
+    await tick()
+    inst.render()
+    assert.equal(view.log.cursor, 10)
+    assert.equal(view.historyReloaded, false)
+
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'history no longer reaches cursor' })
+    await tick()
+    await tick()
+    assert.equal(fetchCtrl.calls.length, 2, 'stale triggers exactly one intentional resync')
+    assert.equal(fetchCtrl.calls[1].url.includes('after='), false, 'resync never reuses the stale cursor')
+    assert.equal(view.terminalError, null)
+
+    // If even the no-cursor resync is refused as stale, it becomes terminal instead of looping.
+    const before = fetchCtrl.calls.length
+    fetchCtrl.latest().push('error', { code: 'bot/stale', message: 'still stale' })
+    await tick()
+    await tick()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(fetchCtrl.calls.length, before, 'a repeated stale during resync does not loop')
+    inst.render()
+    assert.equal(view.terminalError?.code, 'bot/stale')
+
+    // A later manual retry still resyncs without a cursor; the fresh opening replaces rows.
+    view.retry()
+    await tick()
+    await tick()
+    assert.equal(fetchCtrl.calls.length, before + 1)
+    assert.equal(fetchCtrl.calls.at(-1).url.includes('after='), false)
+    const freshEvents = [3, 4, 5].map(seq => ({ type: 'assistant/message', seq, time: seq, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: `fresh ${seq}` }] } } }))
+    fetchCtrl.latest().push('frame', {
+      type: 'snapshot', header: { id: 'b1', cwd: '/repo' }, cursor: 5, hasMore: true,
+      records: freshEvents.map(event => ({ type: 'event', event })), assistantStream: { revision: 0 },
+    })
+    await tick()
+    await tick()
+    inst.render()
+    assert.equal(view.log.cursor, 5)
+    assert.deepEqual(plain(view.log.events.map(event => event.seq)), [3, 4, 5])
+    assert.equal(view.historyReloaded, true)
+    assert.equal(view.terminalError, null)
+  } finally {
+    inst.unmount()
     fetchCtrl.reset()
   }
 })
@@ -932,20 +1002,24 @@ test('SessionTranscript routes DS Bot tools (including inside PTC run_code) via 
     const botCells = all(tree, n => n.type === 'bot-tool-cell' && n.props?.toolName === 'ask_user')
     assert.equal(botCells.length, 1)
 
-    // Lightbox opens via createPortal(..., document.body), stops Escape propagation, and closes cleanly.
+    // Lightbox opens via createPortal(..., document.body), registers on shared Escape stack, and closes cleanly.
     portalTargets.length = 0
-    let escapeHandler = null
-    sandbox.window.addEventListener = (ev, fn, opts) => { if (ev === 'keydown' && (opts === true || opts?.capture)) escapeHandler = fn }
-    sandbox.window.removeEventListener = (ev, fn) => { if (ev === 'keydown' && fn === escapeHandler) escapeHandler = null }
+    const keydownHandlers = new Set()
+    sandbox.window.addEventListener = (ev, fn) => { if (ev === 'keydown') keydownHandlers.add(fn) }
+    sandbox.window.removeEventListener = (ev, fn) => { if (ev === 'keydown') keydownHandlers.delete(fn) }
     const imgBtn = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-uimg-btn')[0]
     imgBtn.props.onClick()
     await tick()
     const openTree = inst.render()
     assert.equal(all(openTree, n => n.props?.className === 'dsb-lightbox').length, 1)
     assert.equal(portalTargets.includes(sandbox.document.body), true, 'Lightbox must portal to document.body')
-    assert.equal(typeof escapeHandler, 'function', 'Lightbox listens for Escape in capture phase')
+    assert.equal(keydownHandlers.size, 1, 'Lightbox registers on shared useEscape stack')
+    let prevented = false
     let stopped = false
-    escapeHandler({ key: 'Escape', stopPropagation() { stopped = true } })
+    for (const fn of [...keydownHandlers]) {
+      fn({ key: 'Escape', defaultPrevented: false, preventDefault() { prevented = true }, stopPropagation() { stopped = true } })
+    }
+    assert.equal(prevented, true)
     assert.equal(stopped, true)
     assert.equal(all(inst.render(), n => n.props?.className === 'dsb-lightbox').length, 0)
   } finally {
@@ -1422,6 +1496,136 @@ test('createTeam rescues unsubmitted question drafts on external question remova
     team.actions.consumeRescuedDraft('b1', 'b1', 'My half-typed custom answer')
     assert.equal(plain(probe.render().props.rescued).b1, undefined)
     probe.unmount()
+  } finally {
+    stop()
+    sandbox.setInterval = prevSetInterval
+    sandbox.clearInterval = prevClearInterval
+    sandbox.__testCall = async () => ({})
+    fetchCtrl.reset()
+  }
+})
+
+test('buildSessionRows keeps committed row objects identical across 50 stream chunks and rebuilds only on real changes', () => {
+  // A committed history of two turns, then one active attempt streaming text chunks.
+  const history = {
+    type: 'snapshot',
+    header: { id: 's1', cwd: '/repo' },
+    cursor: 6,
+    hasMore: false,
+    records: [
+      { type: 'event', event: { type: 'turn/start', seq: 1, time: 1000, data: { turn: 1 } } },
+      { type: 'event', event: { type: 'user/message', seq: 2, time: 1001, data: { turn: 1, source: { kind: 'user' }, content: [{ type: 'text', text: 'first question' }] } } },
+      { type: 'event', event: { type: 'assistant/message', seq: 3, time: 1002, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'first answer' }] } } } },
+      { type: 'event', event: { type: 'turn/end', seq: 4, time: 1003, data: { turn: 1, reason: { kind: 'completed' } } } },
+      { type: 'event', event: { type: 'turn/start', seq: 5, time: 1100, data: { turn: 2 } } },
+      { type: 'event', event: { type: 'user/message', seq: 6, time: 1101, data: { turn: 2, source: { kind: 'user' }, content: [{ type: 'text', text: 'second question' }] } } },
+    ],
+  }
+  const roster = { bots: [], byId: {}, roomsById: {}, prefs: {}, exchangeTurns: {} }
+  let log = applyFrame(emptyLog(), history).log
+  const committedCount = buildSessionRows(log, { roster, sessionId: 's1' }).length
+
+  const start = { type: 'assistant-stream', frame: { type: 'start', attemptId: 'att-1', revision: 1, turn: 2, step: 1, startedAfterSeq: 6 } }
+  log = applyFrame(log, start).log
+  let revision = 1
+  let index = 0
+  const chunkFrame = (chunk) => {
+    revision += 1
+    const frame = { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'att-1', revision, index, time: 2000 + revision, chunk } }
+    index += 1
+    return frame
+  }
+
+  // 50 text chunks of one growing text block (block-start once, then deltas). The
+  // writing row only appears once real text exists, so the baseline builds after word0.
+  log = applyFrame(log, chunkFrame({ type: 'block-start', index: 0, blockType: 'text' })).log
+  assert.equal(buildSessionRows(log, { roster, sessionId: 's1' }).length, committedCount, 'an empty text block renders no writing row yet')
+  log = applyFrame(log, chunkFrame({ type: 'text-delta', index: 0, text: 'word0 ' })).log
+  const first = buildSessionRows(log, { roster, sessionId: 's1' })
+  assert.equal(first.length, committedCount + 1, 'the live writing row trails the committed rows')
+  const committed = first.slice(0, committedCount)
+  let live = first.at(-1)
+  assert.equal(live.streaming, true)
+  assert.equal(live.key, 'writing:att-1')
+
+  let drift = 0
+  for (let piece = 1; piece < 50; piece += 1) {
+    log = applyFrame(log, chunkFrame({ type: 'text-delta', index: 0, text: `word${piece} ` })).log
+    const rows = buildSessionRows(log, { roster, sessionId: 's1' })
+    assert.equal(rows.length, committedCount + 1)
+    for (let at = 0; at < committedCount; at += 1) {
+      if (rows[at] !== committed[at]) drift += 1
+    }
+    const current = rows.at(-1)
+    if (piece === 1) {
+      // The writing row itself is rebuilt per chunk; only the committed rows hold still.
+      assert.notEqual(current, live)
+    }
+    live = current
+  }
+  assert.equal(drift, 0, 'every committed row object is identical across all 50 chunks')
+  assert.match(live.texts[0], /word48/, 'the live row carries the whole streamed text')
+
+  // The same rows again when the exact same log builds twice (cache hit even with no new frame).
+  const again = buildSessionRows(log, { roster, sessionId: 's1' })
+  for (let at = 0; at < committedCount; at += 1) assert.equal(again[at], committed[at])
+
+  // A new events array (a real event lands) rebuilds the committed rows.
+  const seq7 = { type: 'event', event: { type: 'assistant/message', seq: 7, time: 1200, data: { turn: 2, step: 1, message: { content: [{ type: 'text', text: live.texts[0] }] } } } }
+  log = applyFrame(log, seq7).log
+  const settled = buildSessionRows(log, { roster, sessionId: 's1' })
+  assert.notEqual(settled[2], committed[2], 'a new events array invalidates the committed cache')
+  assert.equal(settled.filter(row => row.kind === 'assistant').at(-1).streaming, false, 'the settled message replaces the live row')
+
+  // The cache validates on the options: a different roster or session id never reuses rows.
+  const otherRoster = { ...roster, exchangeTurns: { s1: [2] } }
+  const hiddenRows = buildSessionRows(log, { roster: otherRoster, sessionId: 's1' })
+  assert.equal(hiddenRows.some(row => row.kind === 'assistant' && row.turn === 2), false, 'hidden exchange turn rows vanish under a changed roster')
+  assert.equal(hiddenRows.length, settled.length - 1, 'only the hidden assistant row drops out')
+  const otherSession = buildSessionRows(log, { roster, sessionId: 'elsewhere' })
+  assert.equal(otherSession.length, settled.length, 'another session id builds fresh rows')
+  for (let at = 0; at < committedCount; at += 1) assert.notEqual(otherSession[at], committed[at], 'rows differ under another session id')
+  // ...and the original cache entry still serves the original caller afterwards.
+  const backAgain = buildSessionRows(log, { roster, sessionId: 's1' })
+  assert.equal(backAgain[0], settled[0], 'the original entry survives foreign lookups')
+})
+
+test('createTeam followWork marks activeRooms running before member turns start and clears once idle', async () => {
+  const prevSetInterval = sandbox.setInterval
+  const prevClearInterval = sandbox.clearInterval
+  let pollStep = 0
+  let intervalFn = null
+  sandbox.setInterval = (fn) => { intervalFn = fn; return 1 }
+  sandbox.clearInterval = () => {}
+  sandbox.__testCall = async (endpoint) => {
+    if (endpoint !== 'state') return {}
+    pollStep += 1
+    if (pollStep === 1) {
+      return {
+        revision: 1,
+        liveKey: 'ar-1',
+        bots: [{ id: 'b1', name: 'Bot', sessionId: 'b1' }],
+        rooms: [{ id: 'r1', name: 'Group', sessionId: 'r1', members: ['b1'] }],
+        work: { bots: {}, rooms: {}, activeRooms: ['r1'], approvals: [] },
+      }
+    }
+    return {
+      revision: 1,
+      unchanged: true,
+      liveKey: 'ar-2',
+      work: { bots: {}, rooms: {}, activeRooms: [], approvals: [] },
+    }
+  }
+  const team = createTeam()
+  const stop = team.start()
+  try {
+    await tick()
+    await tick()
+    assert.equal(team.snapshots.status().get('r1')?.running, true, 'active round with empty member work must mark group running')
+    intervalFn()
+    await tick()
+    await tick()
+    assert.equal(team.snapshots.status().get('r1')?.running, false, 'idle/paused group must clear running')
   } finally {
     stop()
     sandbox.setInterval = prevSetInterval

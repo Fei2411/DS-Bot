@@ -8,6 +8,119 @@ export const RELEASES_URL = 'https://api.github.com/repos/Fei-Craft/DS-Bot/relea
 export const RELEASE_PAGE = 'https://github.com/Fei-Craft/DS-Bot/releases/latest'
 const MB = 1024 * 1024
 
+const NAMED_ENTITIES = {
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  amp: '&',
+}
+
+function decodeEntities(text) {
+  return text.replace(/&(?:#x([0-9a-f]+)|#(\d+)|(lt|gt|quot|apos|nbsp|amp));/giu, (match, hex, dec, named) => {
+    if (named) return NAMED_ENTITIES[named.toLowerCase()] ?? match
+    const cp = hex ? Number.parseInt(hex, 16) : Number.parseInt(dec, 10)
+    return Number.isFinite(cp) && cp > 0 && cp <= 0x10ffff && (cp < 0xd800 || cp > 0xdfff)
+      ? String.fromCodePoint(cp)
+      : match
+  })
+}
+
+function cleanNoteLine(raw) {
+  let text = String(raw ?? '').trim()
+  if (text === '') return ''
+  text = text.replace(/\[([^\]]+)\]\((?:[^()\\]|\\.)*\)/gu, '$1')
+  text = text.replace(/\*\*([^*]+)\*\*/gu, '$1')
+  text = text.replace(/__([^_]+)__/gu, '$1')
+  text = text.replace(/`([^`]+)`/gu, '$1')
+  while (/\s*\((?:[^()]*?(?:#\d+|@\w+|reverts?\b)[^()]*)\)\s*$/iu.test(text)) {
+    text = text.replace(/\s*\((?:[^()]*?(?:#\d+|@\w+|reverts?\b)[^()]*)\)\s*$/iu, '')
+  }
+  return text.replace(/\s+/gu, ' ').replace(/[;,\s]+$/u, '').trim()
+}
+
+/**
+ * Extract a short plain-text highlight summary from GitHub release body Markdown or
+ * electron-updater `releaseNotes` (string or `{ version, note }[]`), stripping the
+ * `<!-- downloads -->` block, download tables, HTML tags, and PR/issue citations.
+ */
+export function summarizeReleaseNotes(raw, { maxItems = 4, maxChars = 280 } = {}) {
+  let text = ''
+  if (typeof raw === 'string') {
+    text = raw
+  } else if (Array.isArray(raw)) {
+    text = raw
+      .map(entry => (typeof entry === 'string' ? entry : typeof entry?.note === 'string' ? entry.note : ''))
+      .filter(Boolean)
+      .join('\n')
+  }
+  if (text.trim() === '') return ''
+  // Strip generated download table blocks first.
+  text = text.replace(/<!--\s*downloads\s*-->[\s\S]*?<!--\s*\/downloads\s*-->/giu, '')
+  // Convert HTML fragments (electron-updater may supply HTML from GitHub releases) to lines,
+  // while preserving inline backtick code spans such as `</DSML …>` or `<ThemedShell />`.
+  const codeSpans = []
+  const protectedText = text.replace(/`([^`\n]+)`/gu, (_, code) => {
+    const idx = codeSpans.length
+    codeSpans.push(code)
+    return `\uE000${idx}\uE001`
+  })
+  if (/<[a-z][\s\S]*>/iu.test(protectedText)) {
+    text = protectedText
+      .replace(/<\s*table\b[^>]*>[\s\S]*?<\s*\/\s*table\s*>/giu, '\n')
+      .replace(/<\s*h([1-6])\b[^>]*>/giu, (_, level) => `\n${'#'.repeat(Number(level))} `)
+      .replace(/<\s*br\s*\/?>/giu, '\n')
+      .replace(/<\s*\/(?:li|p|div|h[1-6]|tr)\s*>/giu, '\n')
+      .replace(/<\s*li\b[^>]*>/giu, '- ')
+      .replace(/<[^>]+>/gu, ' ')
+    text = decodeEntities(text)
+    text = text.replace(/\uE000(\d+)\uE001/gu, (_, idx) => `\`${codeSpans[Number(idx)] ?? ''}\``)
+  }
+
+  const bullets = []
+  const prose = []
+  let inDownloads = false
+  for (const rawLine of text.split(/\r?\n/u)) {
+    const trimmed = rawLine.trim()
+    if (trimmed === '') continue
+    const heading = /^#{1,6}\s+(.+)$/u.exec(trimmed)
+    if (heading !== null) {
+      inDownloads = /^download\b|\u4e0b\u8f7d/iu.test(heading[1].trim())
+      continue
+    }
+    if (inDownloads || trimmed.startsWith('|') || /^[-*_]{3,}$/u.test(trimmed)) continue
+    const bullet = /^(?:[-*•])\s+(.+)$/u.exec(trimmed)
+    if (bullet !== null) {
+      const cleaned = cleanNoteLine(bullet[1])
+      if (cleaned !== '' && !bullets.includes(cleaned)) bullets.push(cleaned)
+    } else {
+      const cleaned = cleanNoteLine(trimmed)
+      if (cleaned !== '' && !prose.includes(cleaned)) prose.push(cleaned)
+    }
+  }
+
+  const chosen = (bullets.length > 0 ? bullets : prose).slice(0, maxItems)
+  if (chosen.length === 0) return ''
+
+  const out = []
+  let used = 0
+  for (const line of chosen) {
+    const item = `• ${line}`
+    const extra = out.length === 0 ? item.length : item.length + 1
+    if (used + extra <= maxChars) {
+      out.push(item)
+      used += extra
+    } else if (out.length === 0) {
+      out.push(`${item.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`)
+      break
+    } else {
+      break
+    }
+  }
+  return out.join('\n')
+}
+
 function parseVersion(version) {
   if (typeof version !== 'string') return null
   const value = version.replace(/^v/u, '')
@@ -119,7 +232,10 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
             log.error('DS Bot: update check failed: release page URL is not HTTPS')
             continue
           }
-          if (found === undefined || isNewer(version, found.version)) found = { version, page: release.html_url }
+          const notes = summarizeReleaseNotes(release.body)
+          if (found === undefined || isNewer(version, found.version)) {
+            found = { version, page: release.html_url, ...(notes ? { notes } : {}) }
+          }
         }
         if (found === undefined) {
           set({ phase: 'current' })
@@ -127,16 +243,16 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
         }
         log.info(`DS Bot: update ${found.version} available`)
         if (!manual && auto && ask !== undefined && asked !== found.version) {
-          const { version, page } = found
+          const { version, page, notes } = found
           void Promise.resolve().then(() => {
             if (!auto || asked === version) return false
             asked = version
-            return ask(version)
+            return notes ? ask(version, { notes }) : ask(version)
           })
             .then(yes => (yes && auto ? open(page) : undefined))
             .catch((error) => { log.error(`DS Bot: update ${version} not opened: ${error instanceof Error ? error.message : String(error)}`) })
         }
-        set({ phase: 'available', version: found.version, page: found.page })
+        set({ phase: 'available', version: found.version, page: found.page, ...(found.notes ? { notes: found.notes } : {}) })
         return found
       } catch (error) {
         log.error(`DS Bot: update check failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -230,6 +346,7 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console,
     updater.quitAndInstall(true, true)
   }
   let asked
+  let pendingNotes = ''
   updater.on('checking-for-update', () => {
     const current = holder.state()
     if (current.phase === 'checking' && current.autoUpdate === auto) return
@@ -238,11 +355,14 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console,
   updater.on('update-not-available', () => {
     activeCancel = null
     activeDownload = null
+    pendingNotes = ''
     set({ phase: 'current' })
   })
   updater.on('update-available', (info) => {
-    if (auto && updater.autoDownload) set({ phase: 'downloading', version: info?.version })
-    else set({ phase: 'available', version: info?.version, canDownload: true })
+    const notes = summarizeReleaseNotes(info?.releaseNotes)
+    pendingNotes = notes
+    if (auto && updater.autoDownload) set({ phase: 'downloading', version: info?.version, ...(notes ? { notes } : {}) })
+    else set({ phase: 'available', version: info?.version, canDownload: true, ...(notes ? { notes } : {}) })
   })
   // The download's progress, for the failure page's update banner: once per whole per cent.
   updater.on('download-progress', (progress) => {
@@ -252,7 +372,9 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console,
     if (current.phase !== 'downloading' || !Number.isFinite(percent) || percent === current.percent) return
     set({ ...current, percent, received: Math.round(Number(progress.transferred) / MB) || 0, total: Math.round(Number(progress.total) / MB) || 0 })
   })
-  updater.on('update-downloaded', ({ version }) => {
+  updater.on('update-downloaded', (info) => {
+    const version = info?.version
+    const notes = summarizeReleaseNotes(info?.releaseNotes) || pendingNotes
     activeCancel = null
     activeDownload = null
     manualDownload = false
@@ -261,10 +383,10 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console,
     // armed and reads autoInstallOnAppQuit dynamically at quit.
     autoInstallReady = autoInstallReady || updater.autoInstallOnAppQuit === true
     log.info(`DS Bot: update ${version} downloaded`)
-    set({ phase: 'downloaded', version, autoInstall: auto && autoInstallReady })
+    set({ phase: 'downloaded', version, autoInstall: auto && autoInstallReady, ...(notes ? { notes } : {}) })
     if (!auto || ask === undefined || asked === version) return
     asked = version
-    void ask(version).then(now => (now ? install() : undefined))
+    void (notes ? ask(version, { notes }) : ask(version)).then(now => (now ? install() : undefined))
       .catch((error) => { log.error(`DS Bot: update ${version} not installed: ${error instanceof Error ? error.message : String(error)}`) })
   })
   // A downloaded update stays ready: a later failed check does not hide it.

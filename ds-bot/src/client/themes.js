@@ -2,11 +2,22 @@ import { ACCENT_INKS, INKS, isHex, luminance } from './inks.js'
 import { SHAPES, markupCache, maskCache } from './characters.js'
 import { createSource } from './sources.js'
 import { BASE_KEYS, cleanTheme, contrast, READABLE, THEME_KEYS, USER_THEME } from '../shared/appearance.js'
+import { FONT_RANGES, FONT_ROUTE, REPLY_FACES, REPLY_FAMILY } from '../shared/reply-fonts.js'
 
 // -------------------------------------------------------------------------
 // Themes. A theme names eight colors per mode; every `--bt-*` variable and the shell
 // tokens derive from them, so a registered theme recolors the whole team UI.
 
+// Bot replies in the bundled serif: Source Serif 4 for Latin, Noto Serif SC for Chinese.
+// DSH resolves its Markdown font tokens on body, so rebinding --dsw-font-family here
+// would not reach them; the reply sets font-family on the Markdown root, headings and
+// table cells instead, which DSH draws with `font` shorthands. Only the Markdown is set:
+// the bubble also holds interface parts (the fold note and button). The model picker's
+// greeting is plain text in a bubble that stands for the Bot's first message, so it is set
+// too. Code keeps its own family, and a text font the user set in Settings still wins.
+const fontFace = ({ file, style, weight, range }) => `@font-face{font-family:"${REPLY_FAMILY}";src:url(${FONT_ROUTE}/${file}) format("woff2");font-style:${style};font-weight:${weight};font-display:swap;unicode-range:${FONT_RANGES[range]}}`
+export const SERIF_REPLIES = `${REPLY_FACES.map(fontFace).join('\n')}
+.bt-look-bot,.bt-model-dock .bt-bubble,.bt-bubble [class*="_markdown"],.bt-bubble [class*="_markdown"] :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default,sans-serif)}`
 const THEMES = {
   deepseek: {
     label: 'DeepSeek',
@@ -27,6 +38,12 @@ const THEMES = {
     label: 'Moonlight',
     light: { bg: '#f7f9fc', sidebar: '#eef2f8', bubble: '#e5ebf5', card: '#ffffff', text: '#121826', user: '#1e3a8a', userText: '#ffffff', accent: '#1e86ff' },
     dark: { bg: '#0b1020', sidebar: '#10172a', bubble: '#1a2340', card: '#141c33', text: '#e8edf7', user: '#3b6fd8', userText: '#ffffff', accent: '#4f9dff' },
+  },
+  fei: {
+    label: 'Fei',
+    light: { bg: '#faf6ee', sidebar: '#f3ede2', bubble: '#efe8db', card: '#fdfbf7', text: '#211f1b', user: '#e2eeec', userText: '#163f46', accent: '#1e8294' },
+    dark: { bg: '#1d1c19', sidebar: '#23221e', bubble: '#2d2b26', card: '#27251f', text: '#f2ede3', user: '#1f4a51', userText: '#e6f1f0', accent: '#3fa9ba' },
+    css: SERIF_REPLIES,
   },
 }
 // Text on the accent: prefer crisp white whenever it reads cleanly (>= 4.2:1, e.g. DeepSeek blue);
@@ -51,6 +68,10 @@ export const surfaceColors = theme => ({ light: { bg: 'transparent', sidebar: rg
 export const veilColors = alpha => ({ light: rgba('#ffffff', alpha), dark: rgba('#000000', alpha) })
 // Where a new background starts when the user picks its kind (appearance-page.js).
 export const BACKGROUND_STARTS = { color: { light: '#dfe6f5', dark: '#1d2433' }, from: '#9ab6ff', to: '#f7c6d9' }
+// What a VS Code theme that names no usable editor background or accent falls back to
+// (vscode-theme-import.js): the canvas of VS Code's own default themes, and the blue of
+// its default button, which is also DeepSeek's accent.
+export const VSCODE_DEFAULTS = { dark: '#1e1e1e', light: '#ffffff', accent: '#4d6bfe' }
 // The basic colors (Settings → Appearance): a new background or text color moves the other
 // surfaces with it. Each surface keeps its place between background and text, channel by
 // channel, so a theme's tint (Paper's warm sidebar) carries over. Your bubble and its text
@@ -110,6 +131,75 @@ export function moveBasics(colors, change) {
   const base = colors.base ?? Object.fromEntries(BASE_KEYS.map(key => [key, colors[key]]))
   const moved = followBasics({ ...colors, ...base }, { bg: colors.bg, text: colors.text, ...change })
   return { ...colors, ...Object.fromEntries(BASE_KEYS.map(key => [key, moved[key]])), base }
+}
+// Deriving a whole mode from two picked colors (the canvas and the accent, in Settings →
+// Appearance): the surfaces are small lightness steps off the canvas in the mode's
+// direction, the text is as soft as the contrast target allows, and your bubble takes the
+// accent with the same ink the accent buttons use.
+const hslOf = (hex) => {
+  const [r, g, b] = channels(hex).map(value => value / 255)
+  const [hi, lo] = [Math.max(r, g, b), Math.min(r, g, b)]
+  const l = (hi + lo) / 2
+  if (hi === lo) return [0, 0, l]
+  const d = hi - lo
+  const s = d / (1 - Math.abs(2 * l - 1))
+  const h = hi === r ? 60 * (((g - b) / d) % 6) : hi === g ? 60 * ((b - r) / d + 2) : 60 * ((r - g) / d + 4)
+  return [h < 0 ? h + 360 : h, s, l]
+}
+const hexOfHsl = (h, s, l) => {
+  const c = (1 - Math.abs(2 * l - 1)) * s
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+  const m = l - c / 2
+  const rgb = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]
+  return toHex(rgb.map(value => (value + m) * 255))
+}
+const toward = (from, to, ratio) => toHex(channels(from).map((value, index) => value + (channels(to)[index] - value) * ratio))
+// Readable text starts soft (the built-in themes' inks); on a mid-tone canvas, where even
+// pure black or pure white barely reads, it strengthens toward the pure endpoint.
+const TEXT_TARGET = 7
+const readableOn = (ink, canvas) => {
+  const pure = contrast('#000000', canvas) >= contrast('#ffffff', canvas) ? '#000000' : '#ffffff'
+  if (contrast(ink, canvas) >= TEXT_TARGET) return ink
+  for (let step = 1; step <= 6; step += 1) {
+    const moved = toward(ink, pure, step / 6)
+    if (contrast(moved, canvas) >= TEXT_TARGET) return moved
+  }
+  return pure
+}
+/**
+ * The eight colors of one mode derived from a canvas and an accent.
+ * @param {string} canvasHex - the main background, `#rrggbb`
+ * @param {string} accentHex - the accent, `#rrggbb`
+ * @param {'light' | 'dark'} [appearance] - force a mode; by default the canvas's lightness decides
+ * @returns {{ accent: string, bg: string, text: string, sidebar: string, bubble: string, card: string, user: string, userText: string }}
+ */
+export function deriveThemeMode(canvasHex, accentHex, appearance) {
+  if (!isHex(canvasHex) || !isHex(accentHex)) throw new TypeError('A canvas and an accent as #rrggbb colors')
+  const canvas = canvasHex.toLowerCase()
+  const accent = accentHex.toLowerCase()
+  const [hue, saturation, lightness] = hslOf(canvas)
+  const dark = appearance === undefined ? lightness < 0.5 : appearance === 'dark'
+  const step = (delta) => hexOfHsl(hue, saturation, Math.min(1, Math.max(0, lightness + delta)))
+  const text = readableOn(dark ? '#f2f2f2' : '#141414', canvas)
+  // Surfaces step off the canvas in the mode's direction; on a mid-tone canvas where a
+  // step toward the chosen text drops below READABLE, step the same distance away instead.
+  const awaySign = contrast(text, '#000000') > contrast(text, '#ffffff') ? -1 : 1
+  const surface = (delta) => {
+    const preferred = step(delta)
+    if (contrast(text, preferred) >= READABLE) return preferred
+    return step(awaySign * Math.abs(delta))
+  }
+  return {
+    accent,
+    bg: canvas,
+    text,
+    sidebar: surface(dark ? 0.03 : -0.03),
+    bubble: surface(dark ? 0.075 : -0.075),
+    // Cards float a little lighter than the canvas in both modes.
+    card: surface(0.045),
+    user: accent,
+    userText: accentInk(accent),
+  }
 }
 export function themeVars(mode, dark, accent = mode.accent) {
   return {
@@ -174,7 +264,7 @@ export function registerShape(id, shape) {
   }
   const refresh = () => {
     markupCache.clear()
-    maskCache.delete(id)
+    maskCache.clear()
     registry.set(value => value + 1)
   }
   refresh()

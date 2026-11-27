@@ -7,9 +7,8 @@ export interface HandshakeHello {
 }
 
 export interface PushSubscription {
-  kind: 'unifiedpush' | 'fcm'
-  endpoint?: string
-  token?: string
+  kind: 'unifiedpush'
+  endpoint: string
   updatedAt: number
 }
 

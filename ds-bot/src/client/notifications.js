@@ -41,10 +41,9 @@ export function changeNotify(change) {
 
 /**
  * Watch every conversation's status and say what the user cannot see: a reply finishing
- * in a chat that is not on screen, or a card starting to wait on them.
+ * in a chat that is not on screen, or something in the inbox starting to wait on them.
  */
-export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, useWork, actions }) {
-  const work = useWork(value => value)
+export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, actions }) {
   const roster = useRoster(value => value)
   const statuses = useSessionStatus(map => map)
   const viewing = useSessions(list => Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null)
@@ -59,7 +58,7 @@ export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, 
   useEffect(() => {
     const prefs = current
     const open = document.hasFocus?.() !== false && document.visibilityState !== 'hidden'
-    const rows = notificationRows({ statuses, roster, approvals: work.approvals })
+    const rows = notificationRows({ statuses, roster })
     const next = new Map()
     for (const row of rows) {
       const { id, sessionId, name, group, status: after } = row
@@ -85,7 +84,7 @@ export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, 
       lastBadge.current = badge
       bridge()?.setBadge?.(badge)
     }
-  }, [statuses, viewing, roster, work])
+  }, [statuses, viewing, roster])
   return null
 }
 

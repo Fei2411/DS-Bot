@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { install, bookFile, parseBook } from '../src/host/ledger.js'
-import { relayRange } from '../src/shared/group-replies.js'
+import { compressedRelayPreview, parseReplies, relayRange } from '../src/shared/group-replies.js'
 
 const host = (t, { home = mkdtempSync(join(tmpdir(), 'ds-bot-ledger-')), readOnly } = {}) => {
   const warnings = []
@@ -141,6 +141,22 @@ test("a round's result names its rows; a result from before the ledger does not"
   assert.deepEqual(relayRange('{"from":3,"to":9,"passed":[]}'), { from: 3, to: 9 })
   assert.equal(relayRange('{"replies":[],"passed":[]}'), undefined)
   assert.equal(relayRange('{"replies":[{"botId":"a","text":"cu'), undefined)
+})
+
+test('a §N§ handle prefix on a group_relay result still parses its range, replies, and compressed preview', () => {
+  assert.deepEqual(relayRange('§38§ {"from":80,"anchor":"a1"}'), { from: 80, anchor: 'a1' })
+  assert.deepEqual(relayRange('§1§  {"from":1,"to":9,"anchor":"a2"}'), { from: 1, to: 9, anchor: 'a2' })
+  assert.equal(relayRange('§38§ {"replies":[],"passed":[]}'), undefined)
+  // Arbitrary prose containing JSON must not be treated as a handle prefix.
+  assert.equal(relayRange('Error: {"from":3,"to":9}'), undefined)
+  assert.deepEqual(parseReplies('§7§ {"replies":[{"botId":"a","text":"hi"}],"passed":[]}'), {
+    replies: [{ botId: 'a', text: 'hi' }],
+    broken: false,
+  })
+  assert.equal(
+    compressedRelayPreview('§7§ {"replies":[{"text":"hi"}]}\n\n[save-token #c123 compressed: 1,000 -> 200 bytes. expand: x]'),
+    '{"replies":[{"text":"hi"}]}',
+  )
 })
 
 // A window that only read a book takes over writing when the other host goes: what that

@@ -1,10 +1,15 @@
 // The window's own versions of the DSH interface primitives the Bot views draw with (see
 // ds-bot/src/client/dsh-primitives.js and vite.config.js).
-import { createElement as h, useMemo, useRef, useState } from 'react'
+import { Fragment, createContext, createElement as h, isValidElement, memo, useContext, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import { splitMarkdownBlocks } from '../../../ds-bot/src/client/markdown-blocks.js'
 import { MENTION_ORIGIN } from '../../../ds-bot/src/client/text.js'
 import { ArchiveIcon, DownloadIcon, GearIcon, PersonIcon, SlidersIcon, SpinnerIcon, StackIcon } from '../../../ds-bot/src/client/icons.js'
+import { renderHighlightedBlock, useHighlightedCode } from './code-highlight.js'
+import { FileRefChip, isInlineCodeFilePath, matchFileMention, parseLocalFileHref, remarkFileReferences } from './file-references.js'
+import { MathExpression, escapeCurrencyDollars, normalizeMathDelimiters, remarkGuardCurrencyMath } from './math-render.js'
 
 // Official DeepSeek Harness FishLogo geometry (@deepseek-ai/dsh-client-ui-primitives).
 export const FISH_LOGO_VIEWBOX = { width: 23.16, height: 17.04 }
@@ -59,35 +64,191 @@ export const writeClipboard = text => (navigator.clipboard === undefined
   ? Promise.resolve(fallbackCopy(text))
   : navigator.clipboard.writeText(text).then(() => true, () => fallbackCopy(text)))
 
-const plugins = [remarkGfm]
+const BASE_PLUGINS = [remarkGfm, remarkMath, remarkGuardCurrencyMath]
+const LINKED_PLUGINS = [remarkGfm, remarkMath, remarkGuardCurrencyMath, remarkFileReferences]
+
+const InPreContext = createContext(false)
+const InLinkContext = createContext(false)
+
+function plainChildrenText(node) {
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(plainChildrenText).join('')
+  if (isValidElement(node)) return plainChildrenText(node.props?.children)
+  return ''
+}
+
+function extractFenceMeta(children) {
+  const child = Array.isArray(children) ? children.find(isValidElement) : (isValidElement(children) ? children : null)
+  if (!child) return { className: '', rawLang: '', isMath: false, codeText: plainChildrenText(children) }
+  const className = typeof child.props?.className === 'string' ? child.props.className : ''
+  const classes = className.split(/\s+/).filter(Boolean)
+  const langClass = classes.find(cls => cls.startsWith('language-')) ?? ''
+  const rawLang = langClass ? langClass.slice('language-'.length) : ''
+  const isMath = classes.includes('math-display') || rawLang.toLowerCase() === 'math'
+  const rawText = plainChildrenText(child.props?.children)
+  const codeText = rawText.endsWith('\n') ? rawText.slice(0, -1) : rawText
+  return { className, rawLang, isMath, codeText }
+}
 
 function CodeBlock({ children, labels }) {
   const [copied, setCopied] = useState(false)
   const block = useRef(null)
+  const { className, rawLang, isMath, codeText } = extractFenceMeta(children)
+  const highlighted = useHighlightedCode(isMath ? '' : codeText, isMath ? '' : rawLang)
+
+  if (isMath) {
+    return h(MathExpression, { tex: codeText.trim(), display: true })
+  }
+
   const copy = () => {
-    void writeClipboard(block.current?.innerText ?? '').then((ok) => {
+    const text = codeText !== '' ? codeText : (block.current?.innerText ?? '')
+    void writeClipboard(text).then((ok) => {
       if (!ok) return
       setCopied(true)
       setTimeout(() => setCopied(false), 1000)
     })
   }
-  return h('div', { className: 'md-code' },
-    h('button', { type: 'button', className: 'md-copy', onClick: copy }, copied ? labels?.code?.copiedLabel : labels?.code?.copyLabel),
-    h('pre', { ref: block }, children))
+  const langLabel = rawLang ? rawLang.toLowerCase() : ''
+  return h('div', { className: 'md-code', 'data-has-lang': langLabel ? '' : undefined },
+    h('div', { className: 'md-code-bar' },
+      langLabel ? h('span', { className: 'md-code-lang' }, langLabel) : null,
+      h('button', { type: 'button', className: 'md-copy', onClick: copy }, copied ? labels?.code?.copiedLabel : labels?.code?.copyLabel)),
+    h(InPreContext.Provider, { value: true },
+      h('pre', { ref: block },
+        highlighted !== null
+          ? h('code', { className: className ? `${className} hljs` : 'hljs' }, renderHighlightedBlock(highlighted))
+          : children)))
 }
 
-// Links open outside the window; mention links stay for the chat's own click handler.
-const elements = labels => ({
-  a: ({ node: _node, ...props }) => h('a', props.href?.startsWith(MENTION_ORIGIN) ? props : { ...props, target: '_blank', rel: 'noreferrer' }),
+function InlineCode({ className, children, onOpenFile, onRevealFolder, fileMentions, ...rest }) {
+  const inPre = useContext(InPreContext)
+  const inLink = useContext(InLinkContext)
+  const text = plainChildrenText(children)
+  const cls = typeof className === 'string' ? className : ''
+  if (!inPre && cls.split(/\s+/).includes('math-inline')) {
+    return h(MathExpression, { tex: text, display: false })
+  }
+  if (!inPre && !inLink && (typeof onOpenFile === 'function' || typeof onRevealFolder === 'function')) {
+    const mention = matchFileMention(text, fileMentions)
+    if (mention) {
+      return h(FileRefChip, {
+        target: { path: mention.path, line: mention.line ?? null, isDir: mention.isDir === true, display: mention.display ?? mention.path },
+        label: text,
+        title: mention.path,
+        onOpenFile: mention.open ? () => mention.open() : onOpenFile,
+        onRevealFolder,
+        className: 'dsb-file-ref-code',
+      })
+    }
+    const parsed = isInlineCodeFilePath(text)
+    if (parsed) {
+      return h(FileRefChip, {
+        target: parsed,
+        label: text,
+        title: parsed.display,
+        onOpenFile,
+        onRevealFolder,
+        className: 'dsb-file-ref-code',
+      })
+    }
+  }
+  return h('code', { className, ...rest }, children)
+}
+
+// Links open outside the window; mention links stay for the chat's own click handler;
+// local file/folder links open in the workspace right panel.
+const elements = ({ labels, onOpenFile, onRevealFolder, fileMentions }) => ({
+  a: ({ node: _node, children, ...props }) => {
+    if (props.href?.startsWith(MENTION_ORIGIN)) {
+      return h(InLinkContext.Provider, { value: true }, h('a', props, children))
+    }
+    if (typeof onOpenFile === 'function' || typeof onRevealFolder === 'function') {
+      const local = parseLocalFileHref(props.href)
+      if (local) {
+        const label = plainChildrenText(children).trim()
+        return h(FileRefChip, {
+          target: local,
+          label: label || undefined,
+          title: props.title || local.display,
+          onOpenFile,
+          onRevealFolder,
+        })
+      }
+    }
+    return h(InLinkContext.Provider, { value: true }, h('a', { ...props, target: '_blank', rel: 'noreferrer' }, children))
+  },
   pre: ({ children }) => h(CodeBlock, { labels }, children),
+  code: ({ node: _node, ...props }) => h(InlineCode, { ...props, onOpenFile, onRevealFolder, fileMentions }),
 })
 
+const SAFE_URL_PROTOCOL_RE = /^(https?|ircs?|mailto|xmpp)$/i
+
+// Matches react-markdown's `defaultUrlTransform` without requiring a named import
+// (test harnesses replace `react-markdown` with a default-export-only stub).
+function defaultSafeUrlTransform(value) {
+  if (typeof value !== 'string') return ''
+  const colon = value.indexOf(':')
+  const questionMark = value.indexOf('?')
+  const numberSign = value.indexOf('#')
+  const slash = value.indexOf('/')
+  if (
+    colon === -1
+    || (slash !== -1 && colon > slash)
+    || (questionMark !== -1 && colon > questionMark)
+    || (numberSign !== -1 && colon > numberSign)
+    || SAFE_URL_PROTOCOL_RE.test(value.slice(0, colon))
+  ) {
+    return value
+  }
+  return ''
+}
+
+// Preserves recognized local file/folder destinations (prose `dsb-file://`, `file://`,
+// Windows drive links including percent-encoded backslashes, and `README.md:42`) ONLY on
+// anchor `href` attributes consumed by our custom `a` renderer; delegates every other URL
+// (including `javascript:`, `data:`, and non-anchor elements like `<img>`) to the safe allowlist.
+export function markdownUrlTransform(url, key, node) {
+  if (typeof url === 'string' && key === 'href' && (!node || node.tagName === 'a') && parseLocalFileHref(url) !== null) {
+    return url
+  }
+  return defaultSafeUrlTransform(url)
+}
+
+// A closed block of a streaming reply. Once the splitter has closed it, later chunks
+// cannot change what it means, so the memo holds for the rest of the stream and the
+// block never re-parses. The Fragment keeps the block's elements flat inside the one
+// outer `.md_markdown` wrapper: the DOM a settled full parse would produce is the same,
+// so nothing jumps when streaming completes.
+const StaticMarkdownBlock = memo(function StaticMarkdownBlock({ text, components, remarkPlugins, urlTransform }) {
+  return h(Fragment, null, h(Markdown, { remarkPlugins, components, urlTransform }, text))
+})
+
+// Short replies cost little enough that splitting them is not worth the extra elements.
+const STREAM_SPLIT_MIN = 512
+
 // The class keeps the `_markdown` stem that the Bot views' styles give DSH's Markdown.
-export function MarkdownText({ text, labels, variant }) {
+export function MarkdownText({ text, labels, variant, streaming = false, onOpenFile, onRevealFolder, fileMentions }) {
+  const linkFiles = typeof onOpenFile === 'function' || typeof onRevealFolder === 'function'
+  const remarkPlugins = linkFiles ? LINKED_PLUGINS : BASE_PLUGINS
+  const urlTransform = linkFiles ? markdownUrlTransform : defaultSafeUrlTransform
   // New element types on every render would remount each code block as a reply streams in.
-  const components = useMemo(() => elements(labels), [labels?.code?.copyLabel, labels?.code?.copiedLabel])
+  const components = useMemo(
+    () => elements({ labels, onOpenFile, onRevealFolder, fileMentions }),
+    [labels?.code?.copyLabel, labels?.code?.copiedLabel, onOpenFile, onRevealFolder, fileMentions],
+  )
+  const source = useMemo(() => escapeCurrencyDollars(normalizeMathDelimiters(text ?? '')), [text])
+  // While streaming, closed blocks parse once and only the live trailing piece re-parses
+  // per chunk, instead of the whole message (which re-parses quadratically over a reply).
+  // `null` from the splitter means the text holds document-wide syntax and stays whole.
+  const blocks = streaming && source.length > STREAM_SPLIT_MIN ? splitMarkdownBlocks(source) : null
+  const split = blocks !== null && blocks.length >= 2
   return h('div', { className: variant === 'compact' ? 'md_markdown md-compact' : 'md_markdown' },
-    h(Markdown, { remarkPlugins: plugins, components }, text ?? ''))
+    split
+      ? [
+        ...blocks.slice(0, -1).map((block, index) => h(StaticMarkdownBlock, { key: index, text: block, components, remarkPlugins, urlTransform })),
+        h(Markdown, { key: blocks.length - 1, remarkPlugins, components, urlTransform }, blocks.at(-1)),
+      ]
+      : h(Markdown, { remarkPlugins, components, urlTransform }, source))
 }
 
 // Settings icons, drawn by DS Bot (ds-bot/src/client/icons.js). DSH's take a `size`.
@@ -110,8 +271,11 @@ export const ConnectionIndicator = () => null
 export const Modal = () => null
 export const Tooltip = () => null
 
-// A user message's files: the extension and the size, written out. The file and JSON views
-// and DSH's reference projection are left out; user-message.js draws its own then.
+// A user message's files: the extension and the size, written out. Exported as undefined
+// so shared `user-message.js` cleanly takes its own fallback paths with zero Vite warnings.
+export const projectUserText = undefined
+export const FileTypeIcon = undefined
+export const JsonBlock = undefined
 export const fileExtension = name => /\.([^./\\]+)$/.exec(String(name ?? ''))?.[1] ?? ''
 const UNITS = ['B', 'KB', 'MB', 'GB']
 export function fileSizeText(bytes) {

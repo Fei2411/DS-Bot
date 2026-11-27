@@ -52,7 +52,7 @@ export function demoData(): DemoData {
       waiting: {},
       turns: {},
     },
-    activity: { 'b-coder': { tool: 'run_command', said: 'Running the test suite' } },
+    activity: { 'b-coder': 'working' },
     browserHolds: {
       'b-coder': { by: 'bot', reason: 'handoff', note: '需要你在浏览器里登录 GitHub 才能继续。', callId: 'hc-1' },
     },
@@ -103,7 +103,7 @@ export function demoData(): DemoData {
     mainBotIds: ['b-chief'],
     views: {
       's-chief': {
-        id: 'v-1', title: 'Release readiness',
+        id: 'v-1', callId: 'vc-1', title: 'Release readiness',
         view: { type: 'stack', children: [
           { type: 'chart', kind: 'bar', categories: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], series: [{ name: 'Merged', values: [3, 5, 2, 7, 4] }, { name: 'Open', values: [6, 4, 5, 3, 2] }], unit: ' PRs' },
           { type: 'slider', id: 'days', label: 'Days to release', min: 1, max: 14, step: 1, value: 5, unit: 'd' },
@@ -162,6 +162,8 @@ export function demoData(): DemoData {
         ], time: T - 1700e3, seq: s() },
         { kind: 'user', text: '看下这个文件', files: [{ name: 'release-notes.md', bytes: 4820, attachmentId: 'att-1' }], time: T - 42 * 60e3 },
       { kind: 'event', role: 'paused', name: 'Coder', text: 'Chief and Writer', ms: 3, time: T - 40 * 60e3 },
+        { kind: 'bot', text: 'Here is the current release readiness breakdown. Adjust the target window and pick when to ship:', time: T - 35 * 60e3, seq: s(), turn: 6 },
+        { kind: 'view', id: 'v-1', callId: 'vc-1', title: 'Release readiness', view: state.views!['s-chief'].view, pending: true, time: T - 34 * 60e3, seq: s(), turn: 6 },
       ] },
       { sessionId: 's-chief-0', cursor: null, items: [
         { kind: 'divider', time: T - 8 * 86400e3, seq: s() },

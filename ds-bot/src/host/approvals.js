@@ -5,10 +5,23 @@ import { cleanText } from './diagnostics.js'
 import { REFERENCE_KIND, REPLY_KIND } from './constants.js'
 import { ReviewError, copyFor, reviewApproval, reviewContext, reviewError, reviewSessionIds, reverifyInspections, REVIEW_TIMEOUT_MS } from './approval-review.js'
 import { isFileTool, resolveFileTargets } from './native-targets.js'
+import { ESCALATION } from './extra-folders.js'
 
 const OUTCOMES = { allow: 'allowed-once', reject: 'rejected' }
+const FILE_ESCALATION_TOOLS = new Set(['write', 'edit', 'apply_patch'])
 const sessionOf = agent => agent?.session?.id ?? agent?.id
 const keyOf = (agent, callId) => JSON.stringify([sessionOf(agent), callId])
+
+function cleanDisplayReason(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out = {}
+  for (const [lang, text] of Object.entries(raw)) {
+    if (typeof lang === 'string' && lang.length <= 16 && typeof text === 'string' && text.trim() !== '') {
+      out[lang] = text.slice(0, 500)
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
 
 async function nativeEvidence(ctx, exec) {
   const evidence = { kind: 'tool', tool: exec.name, arguments: JSON.parse(JSON.stringify(exec.arguments ?? {})) }
@@ -87,7 +100,7 @@ export function install(rt) {
       try { listener(kind, data) } catch (error) { rt.warn('ds-bot: approval listener failed: %s', error) }
     }
   }
-  const view = ({ answer, cancelReview, ownerSessionId, lineageSessionIds, privacy: _, ...entry }) => {
+  const view = ({ answer, cancelReview, toManual, isAborted, ownerSessionId, lineageSessionIds, prepareAlways, answering, privacy: _, ...entry }) => {
     const taskSessionId = rt.taskOwners?.has(entry.sessionId) ? entry.sessionId : ownerSessionId ?? entry.sessionId
     const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(taskSessionId) : undefined
     const liveEntry = liveTask === undefined ? undefined : rt.taskBySession?.(taskSessionId)?.task
@@ -95,6 +108,7 @@ export function install(rt) {
     const liveRoomId = entry.roomId === undefined ? (liveTask?.roomId ?? liveEntry?.roomId) : undefined
     return {
       ...entry,
+      ...(ownerSessionId !== undefined && ownerSessionId !== entry.sessionId ? { ownerSessionId } : {}),
       ...(liveRoomId !== undefined ? { roomId: liveRoomId } : {}),
       ...(liveTask ? { taskId: liveTask.taskId, ...(liveTitle ? { taskTitle: liveTitle } : {}) } : {}),
       answerable: answer !== undefined,
@@ -115,12 +129,21 @@ export function install(rt) {
   // events release both successful and rejected calls, including PTC sub-calls.
   ctx.on('tools/pre-execute', async (exec, next) => {
     const owner = await ownerOf(exec.agent)
-    if (!owner || !enabled(owner)) return next()
-    if (exec.callId !== undefined) {
+    if (!owner) return next()
+    if (enabled(owner)) {
+      if (exec.callId !== undefined) {
+        const key = keyOf(exec.agent, exec.callId)
+        const readEvidence = () => nativeEvidence(ctx, exec)
+        const evidence = await readEvidence().catch(() => ({ kind: 'tool', tool: exec.name }))
+        executions.set(key, { evidence, readEvidence })
+        if (executions.size > 1000) executions.delete(executions.keys().next().value)
+      }
+    } else if (FILE_ESCALATION_TOOLS.has(exec.name) && exec.arguments?.sandbox_permissions !== undefined && exec.callId !== undefined) {
+      // Capture only the file-tool arguments needed to evaluate "Always allow" extra-folder eligibility,
+      // never touching workingDirectory.ensure when automatic review is off.
       const key = keyOf(exec.agent, exec.callId)
-      const readEvidence = () => nativeEvidence(ctx, exec)
-      const evidence = await readEvidence().catch(() => ({ kind: 'tool', tool: exec.name }))
-      executions.set(key, { evidence, readEvidence })
+      const evidence = { kind: 'tool', tool: exec.name, arguments: JSON.parse(JSON.stringify(exec.arguments ?? {})) }
+      executions.set(key, { evidence })
       if (executions.size > 1000) executions.delete(executions.keys().next().value)
     }
     return next()
@@ -222,19 +245,24 @@ export function install(rt) {
     const nativeShell = ['bash', 'pwsh'].includes(request.toolName)
     // Privacy guards can ask before the shell itself; their payload still needs its execution scope.
     const evidence = explicit && nativeShell ? { ...explicit, execution } : explicit ?? execution
-    const validateEvidence = execution ? async () => {
+    // The drift re-check exists only where the capture kept its producer: the
+    // "Always allow" capture carries bare arguments for eligibility evaluation
+    // and is not review evidence.
+    const validateEvidence = execution && typeof captured?.readEvidence === 'function' ? async () => {
       if (JSON.stringify(await captured.readEvidence()) !== JSON.stringify(execution)) throw reviewError('stale-evidence', 'The native execution directory or arguments changed')
     } : undefined
     const id = randomUUID()
     const original = request.signal
     const linked = new AbortController()
     const reviewer = new AbortController()
+    const displayReason = cleanDisplayReason(request.displayReason)
     const entry = {
       id, sessionId: owner.sessionId, ownerSessionId: owner.ownerSessionId, lineageSessionIds: owner.lineageSessionIds,
       ...(owner.botId !== undefined ? { botId: owner.botId } : {}),
       ...(owner.roomId ? { roomId: owner.roomId } : {}),
       ...(owner.taskId ? { taskId: owner.taskId, ...(owner.taskTitle ? { taskTitle: owner.taskTitle } : {}) } : {}),
       tool: String(request.toolName ?? ''), reason: String(request.reason ?? '').slice(0, 500),
+      ...(displayReason ? { displayReason } : {}),
       ...(request.privacy === true ? { privacy: true } : {}),
       detail: rt.callDetail?.(owner.sessionId, request.callId) ?? {}, at: Date.now(),
     }
@@ -271,7 +299,11 @@ export function install(rt) {
         emit('settled', { id, outcome, ...(settledTaskId ? { taskId: settledTaskId } : {}) })
         return true
       }
-      const complete = (outcome) => { if (settle(outcome)) resolve(outcome) }
+      const complete = (outcome) => {
+        const didSettle = settle(outcome)
+        if (didSettle) resolve(outcome)
+        return didSettle
+      }
       // The original request itself ended — a shell kill, a session teardown or
       // the user cancelling. That lifecycle terminal state is audited as
       // `cancelled` exactly once, before the in-memory settlement closes.
@@ -289,14 +321,15 @@ export function install(rt) {
         // model's rationale or internal error text.
         if (automatic) entry.review = { ...entry.review, status: 'manual', reason: copyFor(reasonCode), ...(typeof reasonCode === 'string' ? { reasonCode } : {}) }
         changed(entry)
-        // Group sessions have DS Bot's member card; a background task's card sits
-        // on the member's group Session. Own-chat children still need the host
-        // path, since their Bot may have no group approval controls.
+        // Group sessions and background tasks run in hidden Sessions owned by DS Bot's
+        // cards (group member card or task deck), so they never race DSH's own card.
+        // Own-chat children still need the host path, since their Bot may have no group
+        // approval controls.
         const yieldSession = owner.taskId === undefined || owner.roomId === undefined
           ? owner.ownerSessionId
           : rt.roomOf(owner.roomId)?.sessions?.[owner.botId] ?? owner.ownerSessionId
         rt.yieldRoomTurn?.(yieldSession)
-        if (owner.roomId !== undefined) return
+        if (owner.roomId !== undefined || owner.taskId !== undefined) return
         request.signal = linked.signal
         Promise.resolve().then(next).then(outcome => {
           if (outcome !== 'unavailable' || owner.ownerSessionId !== owner.sessionId) complete(outcome)
@@ -312,11 +345,51 @@ export function install(rt) {
         auditFinal({ decision: 'superseded', reasonCode: 'superseded' })
         reviewer.abort()
       }
+      entry.toManual = () => {
+        if (automatic && pending.has(id) && entry.review?.status === 'reviewing') {
+          manual('superseded')
+        }
+      }
+      entry.isAborted = () => original?.aborted === true
       pending.set(id, entry)
       rt.noteApproval?.(owner.ownerSessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200), ...(entry.privacy ? { privacy: true } : {}) })
-      if (owner.botId !== undefined) rt.approvalWaiting?.(entry)
       original?.addEventListener('abort', abort, { once: true })
       emit('open', view(entry))
+      // "Always allow" is offered only for direct (non-subagent) Bot/group file-tool sandbox
+      // escalations (`extraDirs`), where DS Bot has a visible, revocable folder-grant store and
+      // matching auto-allow escalation handler. Browser write prompts stay one-time (preauthorization
+      // lives in Browser settings); shell commands, privacy gates, private Bots, local agents,
+      // classic sessions, and subagent child sessions stay strictly one-time.
+      if (owner.botId !== undefined
+        && owner.sessionId === owner.ownerSessionId
+        && request.privacy !== true
+        && !explicit
+        && !entry.alwaysAllow
+        && FILE_ESCALATION_TOOLS.has(entry.tool)
+        && entry.reason.startsWith(ESCALATION)
+        && execution?.arguments
+        && typeof rt.resolvableExtraDirs === 'function') {
+        void rt.resolvableExtraDirs({
+          session: request.agent?.session,
+          botId: owner.botId,
+          roomId: owner.roomId,
+          name: entry.tool,
+          args: execution.arguments,
+        }).then((dirs) => {
+          if (!pending.has(id) || entry.answering || !Array.isArray(dirs) || dirs.length === 0) return
+          const scopeRoom = owner.roomId ? rt.roomOf(owner.roomId) : undefined
+          const groupScoped = scopeRoom?.workDir !== undefined
+          const scope = groupScoped ? 'group' : 'bot'
+          entry.alwaysAllow = {
+            kind: 'extra-dir',
+            dirs,
+            scope,
+            ...(groupScoped && scopeRoom?.name ? { scopeName: scopeRoom.name } : {}),
+          }
+          entry.prepareAlways = () => rt.prepareGrantExtraDirs({ botId: owner.botId, roomId: owner.roomId, dirs, scope })
+          changed(entry)
+        }).catch(() => {})
+      }
       if (original?.aborted) { cancelEntry(); return }
       if (!automatic) return manual('policy-manual')
       const timeout = new Promise((_, fail) => {
@@ -336,7 +409,7 @@ export function install(rt) {
         request, owner, evidence, validateEvidence, signal: reviewer.signal,
         onModel: model => { if (pending.has(id)) { entry.review.model = model; changed(entry) } },
       }), timeout]).then(async decision => {
-        if (!pending.has(id)) return
+        if (!pending.has(id) || entry.answering) return
         if (reviewer.signal.aborted || !enabled(owner)) throw reviewError('superseded', 'Automatic review was invalidated')
         if (decision.decision === 'manual') {
           manual(decision.reasonCode)
@@ -350,7 +423,7 @@ export function install(rt) {
         // The observations the verdict relied on must still hold at settlement;
         // the final re-verify and the settlement share this synchronous chain.
         await reverifyInspections(rt, decision.observations, reviewer.signal)
-        if (!pending.has(id)) return
+        if (!pending.has(id) || entry.answering) return
         if (reviewer.signal.aborted || !enabled(owner)) throw reviewError('superseded', 'Automatic review was invalidated')
         // The verdict settles in memory before its record is written: even a
         // save that hangs forever cannot un-decide it, and nothing written
@@ -358,7 +431,7 @@ export function install(rt) {
         complete(OUTCOMES[decision.decision])
         auditFinal(decision)
       }).catch(error => {
-        if (!pending.has(id)) return
+        if (!pending.has(id) || entry.answering) return
         // Every automatic failure opens the human card with its own reason: a
         // review that could not conclude is not a verdict on the action. The
         // card and the audit are idempotent on their own — a superseded audit
@@ -377,7 +450,52 @@ export function install(rt) {
   function answerApproval(id, choice) {
     const entry = pending.get(String(id ?? ''))
     if (!entry?.answer) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+    if (choice === 'always') {
+      if (!entry.alwaysAllow || typeof entry.prepareAlways !== 'function') {
+        throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+      }
+      if (entry.answering) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+      // Two-phase validate -> settle -> commit: reserve the approval and cancel automatic
+      // review synchronously while keeping the tool blocked until Phase 1 validation succeeds.
+      // If validation fails, release the reservation so the approval stays open and answerable.
+      // Only once validation passes and the entry is still live and unaborted do we settle
+      // `allowed-once` synchronously and commit the pre-validated grant.
+      entry.cancelReview()
+      if (entry.isAborted?.()) {
+        entry.cancel()
+        throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+      }
+      entry.answering = true
+      return (async () => {
+        let prepared
+        try {
+          prepared = await entry.prepareAlways()
+        } catch (error) {
+          if (pending.has(id)) {
+            entry.answering = false
+            if (entry.isAborted?.()) entry.cancel()
+            else entry.toManual?.()
+          }
+          throw error
+        }
+        if (!pending.has(id) || entry.isAborted?.()) {
+          if (pending.has(id)) entry.cancel()
+          throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+        }
+        if (typeof prepared?.verifySync === 'function' && !prepared.verifySync()) {
+          entry.answering = false
+          entry.toManual?.()
+          throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+        }
+        const settled = entry.answer('allowed-once')
+        if (!settled) {
+          throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+        }
+        return await prepared.commit()
+      })()
+    }
     if (!Object.hasOwn(OUTCOMES, choice)) throw Object.assign(new Error('Choose allow or reject'), { code: 'bot/invalid' })
+    if (entry.answering) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
     entry.answer(OUTCOMES[choice])
   }
   const cancelApprovals = sessionId => {

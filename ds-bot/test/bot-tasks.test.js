@@ -684,8 +684,7 @@ test('turn/end state machine ignores disposed, switched/blocked, HANDOFF_ACK, ru
   await env.emit(newSid, 'turn/start', { turn: 4 })
   await env.emit(newSid, 'assistant/message', { turn: 4, message: { role: 'assistant', content: [{ type: 'text', text: 'Final verified answer.' }] } })
   await env.emit(newSid, 'turn/end', { turn: 4, reason: { kind: 'completed' } })
-  await waitFor(() => env.deliveries.some(d => d.role === 'task-report'))
-  assert.equal(task.status, 'completed')
+  await waitFor(() => task.status === 'completed' && env.deliveries.some(d => d.role === 'task-report'))
   assert.equal(env.deliveries.filter(d => d.role === 'task-report').length, 1)
   assert.match(env.deliveries.find(d => d.role === 'task-report').text, /Final verified answer\./)
 })
@@ -831,6 +830,14 @@ test('background task approval bubbles directly as answerable with taskId/taskTi
   assert.equal(view[0].taskTitle, 'Deploy check')
   assert.equal(view[0].answerable, true)
   assert.equal(task.status, 'waiting_approval')
+  assert.equal(env.rt.activityView().a, undefined, 'background task approval must not overwrite idle foreground mascot')
+
+  // A foreground DM turn keeps its own activity while the background task approval waits.
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+  await env.emit('dm-a', 'tool/call', { callId: 'dm-1', name: 'bash', arguments: '{}' })
+  assert.equal(env.rt.activityView().a, 'working', 'background task approval must not clobber running foreground DM activity')
+  await env.emit('dm-a', 'tool/result', { callId: 'dm-1' })
+  await env.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
   env.rt.answerApproval(view[0].id, 'allow')
   assert.equal(await pendingApproval, 'allowed-once')

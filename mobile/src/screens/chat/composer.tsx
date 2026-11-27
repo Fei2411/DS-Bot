@@ -4,9 +4,12 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import { useState } from 'react'
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { noteInput } from '../../ui/avatar/host.ts'
 import { t } from '../../ui/i18n.ts'
 import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from '../../ui/icons.tsx'
 import { radius, shadow, type as typeScale, type Palette } from '../../ui/tokens.ts'
+import { enterHandler, submitProps } from './composer.enter'
+import { draftTextOf, keepDraftText } from './draft-text.ts'
 
 // A photo ready to send: shown from `uri`, sent as base64 JPEG.
 export interface Photo { uri: string; mediaType: string; data: string }
@@ -26,11 +29,12 @@ async function prepare(asset: ImagePicker.ImagePickerAsset): Promise<Photo> {
 // shadow; send is a 36px accent circle. While the Bot runs and the draft is
 // empty a stop button shows instead of send. "+" adds photos when the
 // computer takes them.
-export function Composer({ name, running, canStop, canAttach, onSend, onStop, p }: {
-  name: string; running: boolean; canStop: boolean; canAttach: boolean
+export function Composer({ chatKey, name, running, canStop, canAttach, sends, onSend, onStop, p }: {
+  chatKey: string; name: string; running: boolean; canStop: boolean; canAttach: boolean
+  sends: boolean
   onSend: (text: string, photos: Photo[]) => Promise<void>; onStop: () => void; p: Palette
 }) {
-  const [text, setText] = useState('')
+  const [text, setText] = useState(() => draftTextOf(chatKey))
   const [photos, setPhotos] = useState<Photo[]>([])
   const [preparing, setPreparing] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
@@ -41,12 +45,16 @@ export function Composer({ name, running, canStop, canAttach, onSend, onStop, p 
   const bottom = Math.max(insets.bottom, 10)
   const draft = text.trim()
   const ready = (draft !== '' || photos.length > 0) && !preparing
+  const changeText = (value: string) => {
+    keepDraftText(chatKey, value)
+    setText(value)
+  }
   // The message shows in the chat at once; the composer is free for the next one.
   const send = () => {
     if (!ready) return
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
     const sending = photos
-    setText(''); setPhotos([])
+    changeText(''); setPhotos([])
     void onSend(draft, sending)
   }
   const pick = async () => {
@@ -86,8 +94,9 @@ export function Composer({ name, running, canStop, canAttach, onSend, onStop, p 
               <PlusIcon size={20} color={p.ink2} />
             </Pressable>
           ) : null}
-          <TextInput value={text} onChangeText={setText} placeholder={t('Message {name}', { name })} placeholderTextColor={p.ink3}
-            multiline style={[styles.input, { color: p.ink, paddingLeft: canAttach ? 2 : 6 }]} accessibilityLabel={t('Message {name}', { name })} />
+          <TextInput value={text} onChangeText={next => { noteInput(); changeText(next) }} placeholder={t('Message {name}', { name })} placeholderTextColor={p.ink3}
+            multiline {...submitProps(sends)} onKeyPress={enterHandler(sends, send)} onSubmitEditing={sends ? send : undefined}
+            style={[styles.input, { color: p.ink, paddingLeft: canAttach ? 2 : 6 }]} accessibilityLabel={t('Message {name}', { name })} />
           {running && canStop && !ready
             ? <Pressable accessibilityRole="button" accessibilityLabel={t('Stop')} onPress={onStop} hitSlop={6}
                 style={[styles.send, { backgroundColor: p.accent }]}>

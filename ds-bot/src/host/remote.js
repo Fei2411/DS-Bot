@@ -8,6 +8,7 @@
 // A plain-JS plugin has no Typert generator, so the Gateway serves these methods from
 // their `@Remote` markers (its source mode): simple parameter names, JSON values.
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { computerOnlyError, unclassifiedRemoteError } from '../shared/remote-endpoints.js'
 
 export const RPC_NAMESPACE = 'dsBot'
 const RPC_ENDPOINTS = Object.freeze({ call: `${RPC_NAMESPACE}/call`, feed: `${RPC_NAMESPACE}/feed` })
@@ -136,6 +137,33 @@ export async function* feedEvents(subscribe, signal, stopSignal) {
   }
 }
 
+function stripRemoteLive(value) {
+  if (!value || typeof value !== 'object') return value
+  let next = value
+  if (Object.hasOwn(next, 'userQuestions') || Object.hasOwn(next, 'sessionQueues')) {
+    next = { ...next }
+    delete next.userQuestions
+    delete next.sessionQueues
+  }
+  if (next.phone && typeof next.phone === 'object' && Object.hasOwn(next.phone, 'pairing')) {
+    const phone = { ...next.phone }
+    delete phone.pairing
+    next = { ...next, phone }
+  }
+  if (Array.isArray(next.work?.approvals) && next.work.approvals.some(entry => entry && Object.hasOwn(entry, 'alwaysAllow'))) {
+    next = {
+      ...next,
+      work: {
+        ...next.work,
+        approvals: next.work.approvals.map(entry => (entry && Object.hasOwn(entry, 'alwaysAllow')
+          ? (({ alwaysAllow: _, ...rest }) => rest)(entry)
+          : entry)),
+      },
+    }
+  }
+  return next
+}
+
 export function createRemoteService(rt) {
   class DsBotRemote extends TypertRemoteService {
     constructor(ctx) {
@@ -150,33 +178,18 @@ export function createRemoteService(rt) {
     // Computer-only actions (phone pairing, the native desktop folder dialog, Session logs) stay local.
     async call(endpoint, payload, signal) {
       const name = typeof endpoint === 'string' ? endpoint : ''
-      if (name.startsWith('phone-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} } }
-      }
-      if (name.startsWith('api-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} } }
-      }
-      if (name === 'folder-pick') {
-        return { ok: false, error: { code: 'bot/refused', message: 'Folders are chosen in a window on the computer', details: {} } }
-      }
-      // A Session's whole log, any Session's, is for the window on the computer, as on the
-      // phone link (phone.js); a remote client reads the team's chats.
-      if (name.startsWith('session-')) {
+      const denied = computerOnlyError(name) ?? unclassifiedRemoteError(name)
+      if (denied !== undefined) return { ok: false, error: denied }
+      if (name === 'image' && payload?.parent !== undefined && payload?.parent !== null && String(payload.parent).trim() !== '') {
         return { ok: false, error: { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} } }
       }
-      if (name.startsWith('workspace-') || name.startsWith('terminal-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Workspace files and terminals are available on the computer', details: {} } }
-      }
-      if (name.startsWith('engine-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Engine settings are managed on the computer', details: {} } }
-      }
-      if (name.startsWith('plugins-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Plugins are managed on the computer', details: {} } }
-      }
-      if (name.startsWith('speech-')) {
-        return { ok: false, error: { code: 'bot/refused', message: 'Voice input settings and transcription are available on the computer', details: {} } }
+      if (name === 'approval-answer' && payload?.choice === 'always') {
+        return { ok: false, error: { code: 'bot/refused', message: 'Always allow is available on the computer', details: {} } }
       }
       const answer = plain(await rt.channelCall(name, payload ?? {}, signal, true))
+      if (name === 'state' && answer?.ok === true && answer.value && typeof answer.value === 'object') {
+        return { ...answer, value: stripRemoteLive(answer.value) }
+      }
       if (name === 'folders' && answer?.ok === true && answer.value && typeof answer.value === 'object' && Object.hasOwn(answer.value, 'data')) {
         const value = { ...answer.value }
         delete value.data
@@ -187,8 +200,8 @@ export function createRemoteService(rt) {
 
     feed(signal) {
       return feedEvents((listener) => rt.subscribeFeed((event, data) => {
-        if (event === 'terminal' || event === 'terminal-exit') return
-        listener(event, data)
+        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs' || event === 'workspace-changed') return
+        listener(event, event === 'live' ? stripRemoteLive(data) : data)
       }), signal, this[STOP])
     }
   }
