@@ -1,0 +1,201 @@
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { describe, it } from 'node:test'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const PLUGIN_ROOT = join(__dirname, '..')
+const REPO_ROOT = join(PLUGIN_ROOT, '..')
+const WORKFLOWS_DIR = join(REPO_ROOT, '.github', 'workflows')
+const harnessRequire = createRequire(join(PLUGIN_ROOT, 'dev', 'harness', 'package.json'))
+const { parse: parseYaml } = harnessRequire('yaml')
+
+function loadWorkflow(filename) {
+  return parseYaml(readFileSync(join(WORKFLOWS_DIR, filename), 'utf8'))
+}
+
+function runClassifier(workflowFile, filesChanged, envOverrides = {}) {
+  const wf = loadWorkflow(workflowFile)
+  const filterStep = wf.jobs.changes.steps.find((s) => s.id === 'filter')
+  assert.ok(filterStep?.run, `${workflowFile}: missing filter step`)
+
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-ci-filter-'))
+  const outputFile = join(dir, 'github_output.txt')
+  writeFileSync(outputFile, '')
+
+  const git = (args) => {
+    const res = spawnSync('git', args, { cwd: dir, encoding: 'utf8' })
+    if (res.status !== 0) {
+      throw new Error(`git ${args.join(' ')} failed: ${res.stderr}`)
+    }
+    return res.stdout.trim()
+  }
+
+  try {
+    git(['init', '-b', 'dev'])
+    git(['config', 'user.email', 'test@example.com'])
+    git(['config', 'user.name', 'Test'])
+    writeFileSync(join(dir, 'README.md'), 'init\n')
+    git(['add', '.'])
+    git(['commit', '-m', 'base'])
+    const baseSha = git(['rev-parse', 'HEAD'])
+    git(['update-ref', 'refs/remotes/origin/dev', baseSha])
+    git(['update-ref', 'refs/remotes/origin/main', baseSha])
+
+    for (const rel of filesChanged) {
+      const full = join(dir, rel)
+      mkdirSync(dirname(full), { recursive: true })
+      writeFileSync(full, `changed ${rel}\n`)
+    }
+    git(['add', '.'])
+    git(['commit', '--allow-empty', '-m', 'pr change'])
+    const headSha = git(['rev-parse', 'HEAD'])
+
+    const res = spawnSync('bash', ['-c', filterStep.run], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GITHUB_OUTPUT: outputFile,
+        EVENT: 'pull_request',
+        REF: 'refs/pull/1/merge',
+        BASE_REF: 'dev',
+        BEFORE: baseSha,
+        SHA: headSha,
+        PR_FULL_PACKAGE: 'false',
+        ...envOverrides,
+      },
+    })
+    assert.equal(res.status, 0, `${workflowFile} classifier failed: ${res.stderr}`)
+
+    const out = {}
+    for (const rawLine of readFileSync(outputFile, 'utf8').split(/\r?\n/)) {
+      const line = rawLine.trim()
+      const idx = line.indexOf('=')
+      if (idx > 0) out[line.slice(0, idx)] = line.slice(idx + 1)
+    }
+    return out
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+describe('CI workflow separation and path classification', () => {
+  it('parses test.yml, package.yml and pr-triage-labels.yml with matching result job needs', () => {
+    const testWf = loadWorkflow('test.yml')
+    const pkgWf = loadWorkflow('package.yml')
+    const triageWf = loadWorkflow('pr-triage-labels.yml')
+
+    assert.equal(testWf.name, 'Test')
+    assert.equal(pkgWf.name, 'Package & Native')
+    assert.equal(triageWf.permissions.contents, 'read')
+
+    // test.yml must stay fast: no desktop packaging or native mobile build jobs.
+    assert.equal(testWf.jobs['app-package'], undefined)
+    assert.equal(testWf.jobs['app-package-macos'], undefined)
+    assert.equal(testWf.jobs['app-package-linux'], undefined)
+    assert.equal(testWf.jobs['mobile-ios'], undefined)
+    assert.equal(testWf.jobs['mobile-android'], undefined)
+    assert.ok(testWf.jobs['app-windows'])
+
+    // Every non-publish job in test.yml is checked by Test result.
+    const testJobs = Object.keys(testWf.jobs).filter((k) => k !== 'result' && k !== 'publish-docker')
+    assert.deepEqual([...testWf.jobs.result.needs].sort(), [...testJobs].sort())
+
+    // Every job in package.yml is checked by Package result.
+    const pkgJobs = Object.keys(pkgWf.jobs).filter((k) => k !== 'result')
+    assert.deepEqual([...pkgWf.jobs.result.needs].sort(), [...pkgJobs].sort())
+  })
+
+  it('keeps mobile/src PRs on the fast gate without triggering iOS/Android native builds', () => {
+    const fast = runClassifier('test.yml', ['mobile/src/components/LiveMark.tsx'])
+    const heavy = runClassifier('package.yml', ['mobile/src/components/LiveMark.tsx'])
+
+    assert.equal(fast.mobile, 'true')
+    assert.equal(fast.ds_bot, 'false')
+    assert.equal(heavy.mobile_ios, 'false')
+    assert.equal(heavy.mobile_android, 'false')
+    assert.equal(heavy.app_package_full, 'false')
+    assert.equal(heavy.app_package_linux, 'false')
+  })
+
+  it('triggers mobile native builds when native mobile config or lockfile changes', () => {
+    const heavy = runClassifier('package.yml', ['mobile/app.json'])
+    assert.equal(heavy.mobile_ios, 'true')
+    assert.equal(heavy.mobile_android, 'true')
+  })
+
+  it('runs fast UI build + Ubuntu/Windows unit tests for app/ui PRs without 4-OS Electron packaging', () => {
+    const fast = runClassifier('test.yml', ['app/ui/src/App.jsx'])
+    const heavy = runClassifier('package.yml', ['app/ui/src/App.jsx'])
+
+    assert.equal(fast.app_unit, 'true')
+    assert.equal(fast.app_unit_win, 'true')
+    assert.equal(heavy.app_package_full, 'false')
+    assert.equal(heavy.app_package_linux, 'false')
+    assert.equal(heavy.app_update, 'false')
+  })
+
+  it('runs Linux packaged smoke for app/src PRs without blocking on macOS/Windows full packaging', () => {
+    const fast = runClassifier('test.yml', ['app/src/bot-views.mjs'])
+    const heavy = runClassifier('package.yml', ['app/src/bot-views.mjs'])
+
+    assert.equal(fast.app_unit, 'true')
+    assert.equal(fast.app_unit_win, 'true')
+    assert.equal(heavy.app_package_linux, 'true')
+    assert.equal(heavy.app_package_full, 'false')
+    assert.equal(heavy.app_update, 'false')
+  })
+
+  it('runs full 4-OS packaging + update test for updater and packaging config changes', () => {
+    const updater = runClassifier('package.yml', ['app/src/updates.mjs'])
+    assert.equal(updater.app_package_full, 'true')
+    assert.equal(updater.app_package_linux, 'true')
+    assert.equal(updater.app_update, 'true')
+
+    const builder = runClassifier('package.yml', ['app/electron-builder.yml'])
+    assert.equal(builder.app_package_full, 'true')
+    assert.equal(builder.app_update, 'true')
+  })
+
+  it('runs full matrix on release PRs to main, ci/full-package label, and daily schedule', () => {
+    for (const overrides of [
+      { BASE_REF: 'main' },
+      { PR_FULL_PACKAGE: 'true' },
+      { EVENT: 'schedule', REF: 'refs/heads/main', BASE_REF: '' },
+    ]) {
+      const heavy = runClassifier('package.yml', ['README.md'], overrides)
+      assert.equal(heavy.full, 'true')
+      assert.equal(heavy.app_package_full, 'true')
+      assert.equal(heavy.app_package_linux, 'true')
+      assert.equal(heavy.app_update, 'true')
+      assert.equal(heavy.mobile_ios, 'true')
+      assert.equal(heavy.mobile_android, 'true')
+    }
+  })
+
+  it('keeps push to dev and push to main off scarce macOS/Windows runners', () => {
+    const devPush = runClassifier('package.yml', ['ds-bot/index.js'], {
+      EVENT: 'push',
+      REF: 'refs/heads/dev',
+      BASE_REF: '',
+    })
+    assert.equal(devPush.app_package_full, 'false')
+    assert.equal(devPush.app_package_linux, 'true')
+    assert.equal(devPush.mobile_ios, 'false')
+
+    const mainPush = runClassifier('package.yml', ['ds-bot/index.js'], {
+      EVENT: 'push',
+      REF: 'refs/heads/main',
+      BASE_REF: '',
+    })
+    assert.equal(mainPush.app_package_full, 'false')
+    assert.equal(mainPush.app_package_linux, 'true')
+    assert.equal(mainPush.mobile_ios, 'false')
+    assert.equal(mainPush.mobile_android, 'false')
+  })
+})

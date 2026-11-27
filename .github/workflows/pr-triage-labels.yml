@@ -9,6 +9,7 @@ on:
     types: [submitted]
 
 permissions:
+  contents: read
   issues: write
   pull-requests: write
 
@@ -25,8 +26,20 @@ jobs:
       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.issue.state == 'open') ||
       (github.event_name == 'pull_request_review' && github.event.pull_request.state == 'open')
     steps:
+      - name: Checkout pure-sync verifier from trusted base
+        if: github.event_name == 'pull_request_target' && github.event.action == 'synchronize'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/check-pure-base-sync.mjs
+          sparse-checkout-cone-mode: false
       - name: Sync labels from PR metadata and review comments
         uses: actions/github-script@v7
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           script: |
             const AGENT_LABELS = [
@@ -279,6 +292,109 @@ jobs:
                   core.info(`PR #${issueNumber}: no active approved/changes-requested label to invalidate.`);
                   return;
                 }
+
+                // Only an already-approved PR (never changes-requested) may keep its review labels
+                // when the synchronize push is mathematically proven to be a pure base-branch merge
+                // (+ optional deterministic ds-bot/client.js rebuild verified by test.yml).
+                if (current.has('review/approved') && !current.has('review/changes-requested')) {
+                  const fs = require('node:fs');
+                  const os = require('node:os');
+                  const path = require('node:path');
+                  const { pathToFileURL } = require('node:url');
+                  const { spawnSync } = require('node:child_process');
+                  const verifierPath = path.resolve('scripts/check-pure-base-sync.mjs');
+                  const beforeSha = String(context.payload.before || '').trim().toLowerCase();
+                  const afterSha = String(context.payload.after || pr.head?.sha || '').trim().toLowerCase();
+                  const baseRef = String(pr.base?.ref || '').trim();
+                  const safeBaseRef =
+                    baseRef &&
+                    !baseRef.startsWith('-') &&
+                    !/[\s\x00-\x1f\x7f~^:?*[\\]|\.\./.test(baseRef);
+
+                  if (fs.existsSync(verifierPath) && safeBaseRef && /^[0-9a-f]{40}$/.test(beforeSha) && /^[0-9a-f]{40}$/.test(afterSha)) {
+                    let bareDir = null;
+                    try {
+                      const { checkPureBaseSync } = await import(pathToFileURL(verifierPath).href);
+                      bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-pure-sync-'));
+                      const token = process.env.GITHUB_TOKEN || '';
+                      const authHeader = token
+                        ? `Authorization: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`
+                        : null;
+                      const gitConfigArgs = authHeader
+                        ? ['-c', `http.https://github.com/.extraheader=${authHeader}`]
+                        : [];
+                      const runBareGit = (args) =>
+                        spawnSync(
+                          'git',
+                          [
+                            '--git-dir', bareDir,
+                            '-c', 'core.hooksPath=/dev/null',
+                            '-c', 'protocol.file.allow=never',
+                            '-c', 'protocol.ext.allow=never',
+                            ...gitConfigArgs,
+                            ...args,
+                          ],
+                          {
+                            encoding: 'utf8',
+                            env: {
+                              ...process.env,
+                              GIT_CONFIG_NOSYSTEM: '1',
+                              GIT_TERMINAL_PROMPT: '0',
+                            },
+                            maxBuffer: 32 * 1024 * 1024,
+                          },
+                        );
+
+                      const repoUrl = `https://github.com/${owner}/${repo}.git`;
+                      const initRes = runBareGit(['init', '--bare']);
+                      const remoteRes = initRes.status === 0
+                        ? runBareGit(['remote', 'add', 'origin', repoUrl])
+                        : initRes;
+                      const fetchRes = remoteRes.status === 0
+                        ? runBareGit([
+                            'fetch',
+                            '--no-tags',
+                            '--filter=blob:none',
+                            'origin',
+                            `refs/heads/${baseRef}:refs/heads/${baseRef}`,
+                            `refs/pull/${issueNumber}/head:refs/pull/${issueNumber}/head`,
+                          ])
+                        : remoteRes;
+
+                      if (fetchRes.status === 0) {
+                        const verdict = checkPureBaseSync({
+                          gitDir: bareDir,
+                          beforeSha,
+                          afterSha,
+                          baseRef: `refs/heads/${baseRef}`,
+                          gitConfigArgs,
+                        });
+                        if (verdict.pure) {
+                          core.info(
+                            `PR #${issueNumber}: preserved review/approved after pure base sync (${verdict.reason}, base ${String(verdict.baseTip || '').slice(0, 8)}).`,
+                          );
+                          return;
+                        }
+                        core.info(
+                          `PR #${issueNumber}: synchronize is not a pure base sync (${verdict.reason}); invalidating review labels.`,
+                        );
+                      } else {
+                        core.warning(
+                          `PR #${issueNumber}: bare fetch for pure-sync check failed (status ${fetchRes.status}); failing closed to review/re-review.`,
+                        );
+                      }
+                    } catch (err) {
+                      core.warning(
+                        `PR #${issueNumber}: pure-sync check errored (${err?.message || err}); failing closed to review/re-review.`,
+                      );
+                    } finally {
+                      if (bareDir) {
+                        fs.rmSync(bareDir, { recursive: true, force: true });
+                      }
+                    }
+                  }
+                }
+
                 const toRemove = [
                   'review/approved',
                   'review/changes-requested',
