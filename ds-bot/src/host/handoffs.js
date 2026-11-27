@@ -57,6 +57,7 @@ export function install(rt) {
   // In-memory held answer text for turns whose upstream delegation was refused.
   const heldAnswers = new Map()
   let disposed = false
+  const activePrunes = new Set()
 
   let workRefSeq = null
   const resetWorkRefSeq = () => { workRefSeq = null }
@@ -150,41 +151,50 @@ export function install(rt) {
     return { text: fallback, whole: false }
   }
 
-  async function pruneOrphanResultFiles() {
-    if (disposed || !writes()) return
-    let entries
-    try {
-      entries = await readdir(resultsDir)
-    } catch {
-      return
-    }
-    if (entries.length === 0 || disposed || !writes()) return
-    const used = new Set()
-    const dbExistsOnDisk = typeof rt.hasExistingCoordDb === 'function' ? rt.hasExistingCoordDb() : hasCoordDb()
-    if (dbExistsOnDisk) {
-      const db = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
-      if (!db || db.isClosed?.()) return
-      const activeNonFg = new Set()
-      for (const work of db.listWorks({ limit: 5000 })) {
-        const isActive = !TERMINAL_STATUSES.has(work.status)
-        if (isActive && work.kind !== 'foreground') activeNonFg.add(work.workId)
-        if (isActive || work.parentWorkId === null) {
-          const name = keptName(work.resultRef)
+  function pruneOrphanResultFiles() {
+    const run = (async () => {
+      if (disposed || !writes()) return
+      let entries
+      try {
+        entries = await readdir(resultsDir)
+      } catch {
+        return
+      }
+      if (entries.length === 0 || disposed || !writes()) return
+      const used = new Set()
+      const dbExistsOnDisk = typeof rt.hasExistingCoordDb === 'function' ? rt.hasExistingCoordDb() : hasCoordDb()
+      if (dbExistsOnDisk) {
+        const db = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
+        if (!db || db.isClosed?.()) return
+        const activeNonFg = new Set()
+        for (const work of db.listWorks({ limit: 5000 })) {
+          const isActive = !TERMINAL_STATUSES.has(work.status)
+          if (isActive && work.kind !== 'foreground') activeNonFg.add(work.workId)
+          if (isActive || work.parentWorkId === null) {
+            const name = keptName(work.resultRef)
+            if (name !== undefined) used.add(name)
+            for (const legacy of Array.isArray(work.meta?.legacyResults) ? work.meta.legacyResults : []) {
+              const legacyName = keptName(legacy?.file ?? legacy?.resultRef ?? legacy?.bodyRef)
+              if (legacyName !== undefined) used.add(legacyName)
+            }
+          }
+        }
+        for (const call of db.listCalls({ limit: 5000 })) {
+          if (!activeNonFg.has(call.parentWorkId)) continue
+          const name = keptName(call.resultRef)
           if (name !== undefined) used.add(name)
         }
       }
-      for (const call of db.listCalls({ limit: 5000 })) {
-        if (!activeNonFg.has(call.parentWorkId)) continue
-        const name = keptName(call.resultRef)
-        if (name !== undefined) used.add(name)
+      for (const file of entries) {
+        if (disposed || !writes()) return
+        const name = keptName(file)
+        if (name === undefined || used.has(name) || createdBeforeStartupSweep.has(name)) continue
+        await rm(resultPath(name), { force: true }).catch(() => {})
       }
-    }
-    for (const file of entries) {
-      if (disposed || !writes()) return
-      const name = keptName(file)
-      if (name === undefined || used.has(name) || createdBeforeStartupSweep.has(name)) continue
-      await rm(resultPath(name), { force: true }).catch(() => {})
-    }
+    })()
+    activePrunes.add(run)
+    run.finally(() => activePrunes.delete(run))
+    return run
   }
 
   // --- Coordination DB helpers ---
@@ -1401,12 +1411,13 @@ export function install(rt) {
         .finally(finishStartupSweep)
     }, 0)
     timer.unref?.()
-    return () => {
+    return async () => {
       disposed = true
       clearTimeout(timer)
       finishStartupSweep()
       offWorkSettled?.()
       offAdopted?.()
+      if (activePrunes.size > 0) await Promise.allSettled(activePrunes)
       whole.clear()
       heldAnswers.clear()
       transientImOrigins.clear()

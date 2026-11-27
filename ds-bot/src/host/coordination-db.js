@@ -1,7 +1,8 @@
 // SQLite coordination ledger for DS Bot: works, calls, inbox, waits, and ready.
 //
 // Owns scheduling truth without duplicating full chat logs or tool output bodies.
-// Uses Node 24's built-in `node:sqlite` in WAL mode: a single state.lock holder writes
+// Uses Node 24's built-in `node:sqlite` (WAL mode on Unix/macOS; DELETE journal mode on Windows
+// to avoid sidecar `-shm`/`-wal` file-locking conflicts): a single state.lock holder writes
 // atomically via BEGIN IMMEDIATE transactions, while secondary windows open the same
 // file with `{ readonly: true }` and never take write locks or mutate state.
 import { createHash, randomUUID } from 'node:crypto'

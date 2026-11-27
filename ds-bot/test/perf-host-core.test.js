@@ -1197,6 +1197,64 @@ test('handoffs.js startup orphan sweep preserves live unsaved results and finish
   await new Promise(resolve => setTimeout(resolve, 40))
   assert.equal(existsSync(livePath3), true, 'in-flight pruneOrphanResultFiles after ctx.dispose() must not unlink live result files')
 
+  // Legacy migration regression: a result file referenced via `work.meta.legacyResults[*].file`
+  // must survive startup orphan pruning and remain readable via `answerText()`.
+  const legacyHome = tempDir(t, 'ds-bot-perf-handoffs-legacy-')
+  const legacyResultsDir = join(legacyHome, 'handoff-results')
+  mkdirSync(legacyResultsDir, { recursive: true })
+  const legacyBody = 'L'.repeat(5_000)
+  const legacyFile = 'w-legacy-child.txt'
+  const legacyFilePath = join(legacyResultsDir, legacyFile)
+  const legacyStalePath = join(legacyResultsDir, 'w-legacy-orphan.txt')
+  writeFileSync(legacyFilePath, legacyBody)
+  writeFileSync(legacyStalePath, 'orphan')
+  const legacyCtx = fakeContext()
+  const legacyRt = {
+    ctx: legacyCtx,
+    home: legacyHome,
+    state: seedState({
+      revision: 3,
+      bots: {
+        b1: { id: 'b1', name: 'Chief', sessionId: 'dm-b1', createdAt: 1 },
+        b2: { id: 'b2', name: 'Writer', sessionId: 'dm-b2', createdAt: 2 },
+      },
+    }),
+    readOnly: () => undefined,
+    load: async () => {},
+    botOf: id => legacyRt.state.bots[id],
+    chatOf: id => legacyRt.state.bots[id]?.sessionId ?? id,
+    roomOf: () => undefined,
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
+    save: async () => {},
+    warn() {},
+  }
+  installCoordDb(legacyRt)
+  legacyRt.coordDb.importLegacyState({
+    state: {
+      bots: legacyRt.state.bots,
+      works: {
+        'w-legacy-parent': {
+          from: 'b1',
+          to: 'b2',
+          state: 'open',
+          open: [],
+          results: [{ id: 'w-legacy-child', name: 'Tester', text: legacyBody.slice(0, 2000), file: legacyFile, length: legacyBody.length }],
+          at: 1000,
+        },
+      },
+    },
+  })
+  installHandoffs(legacyRt)
+  t.after(() => legacyCtx.dispose())
+  const legacyDeadline = Date.now() + 3000
+  while (existsSync(legacyStalePath) && Date.now() < legacyDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(existsSync(legacyStalePath), false, 'startup sweep still prunes unreferenced orphan file')
+  assert.equal(existsSync(legacyFilePath), true, 'startup sweep must preserve file referenced by work.meta.legacyResults')
+  const legacyAnswer = legacyRt.answerText('handoff:w-legacy-parent', 'done', 'Writer')
+  assert.ok(legacyAnswer.includes(legacyBody), 'answerText restores full body from preserved legacyResults file')
+
   // Startup failure path: if rt.load() rejects before pruneOrphanResultFiles(), the startup
   // chain still settles cleanly without unhandled rejection.
   const failHome = tempDir(t, 'ds-bot-perf-handoffs-loadfail-')

@@ -400,8 +400,14 @@ export function install(rt) {
   const bookOf = roomId => `group-${roomId}`
   const writes = () => rt.readOnly?.() === undefined
   const db = () => rt.coordDb ?? null
+  const existingDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : db())
   const writableDb = () => {
     const handle = db()
+    if (handle === null || handle.isClosed?.() || handle.readonly || !writes()) return null
+    return handle
+  }
+  const existingWritableDb = () => {
+    const handle = existingDb()
     if (handle === null || handle.isClosed?.() || handle.readonly || !writes()) return null
     return handle
   }
@@ -468,7 +474,7 @@ export function install(rt) {
     backfilled.delete(roomId)
     laterPosts.delete(roomId)
     stoppedFinishing.delete(roomId)
-    const handle = writableDb()
+    const handle = existingWritableDb()
     if (handle !== null) {
       const works = handle.listWorks({ kind: 'room_work', roomId, activeOnly: true, limit: 500 })
       for (const work of works) {
@@ -872,7 +878,7 @@ export function install(rt) {
   }
 
   const listActiveRoomWorks = (roomId, { botId } = {}) => {
-    const handle = db()
+    const handle = existingDb()
     if (handle === null || handle.isClosed?.()) return []
     return handle.listWorks({
       kind: 'room_work',
@@ -885,14 +891,14 @@ export function install(rt) {
 
   const getRoomWork = (workId) => {
     if (typeof workId !== 'string' || workId === '') return undefined
-    const handle = db()
+    const handle = existingDb()
     if (handle === null || handle.isClosed?.()) return undefined
     const work = handle.getWork(workId)
     return isDelegationWork(work) && !TERMINAL_STATUSES.has(work.status) ? work : undefined
   }
 
   const openChildWaitsOf = (workId) => {
-    const handle = db()
+    const handle = existingDb()
     if (handle === null || handle.isClosed?.() || !workId) return []
     return handle.listWaits({ workId, kind: 'call', status: 'open', limit: 100 })
   }
@@ -902,7 +908,7 @@ export function install(rt) {
   const hasActiveRoomCalls = (roomId, { memberIds, ignoreTaskId, ignoreBotId, waitingForUser } = {}) => {
     const works = listActiveRoomWorks(roomId)
     const room = rt.roomOf(roomId)
-    const handle = db()
+    const handle = existingDb()
     const ignoredBotIdle = ignoreTaskId !== undefined && ignoreBotId !== undefined && !activeInRoom(room, ignoreBotId, ignoreTaskId)
     for (const work of works) {
       if (isHeldRoomStatus(work.status)) continue
@@ -1043,7 +1049,7 @@ export function install(rt) {
   }
 
   const wakeSnapshotOfParent = (parentWorkId) => {
-    const handle = db()
+    const handle = existingDb()
     if (handle === null || handle.isClosed?.() || !parentWorkId) return undefined
     const work = handle.getWork(parentWorkId)
     if (!work) return undefined
@@ -4014,7 +4020,7 @@ export function install(rt) {
     roomBatchPending: roomId => hasActiveRoomCalls(roomId),
     openRoomCall,
     checkRoomProgressStagnation: checkProgressStagnation,
-    checkRoomCallCycle: (roomId, callerBotId, targetBotId, opts) => waitsOnMember(db(), roomId, callerBotId, targetBotId, opts),
+    checkRoomCallCycle: (roomId, callerBotId, targetBotId, opts) => waitsOnMember(existingDb(), roomId, callerBotId, targetBotId, opts),
     reconcileStoppedRoomTask: async (roomId, botId) => {
       const room = rt.roomOf(roomId)
       const member = rt.botOf(botId)

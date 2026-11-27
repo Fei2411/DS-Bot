@@ -121,8 +121,8 @@ export function install(rt) {
   const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
   const publicCards = cards => Object.fromEntries(Object.entries(cards ?? {}).map(([sessionId, { imOrigin, ...card }]) => [sessionId, card]))
 
-  // Secondary (read-only) windows read coordination.sqlite directly in readonly WAL mode
-  // without ever taking write locks or triggering scheduling.
+  // Secondary (read-only) windows read coordination.sqlite directly in readonly mode
+  // (WAL on Unix/macOS; DELETE journal mode on Windows) without taking write locks or scheduling.
   const existingCoord = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null))
   const readOnlyCoord = () => (rt.readOnly() !== undefined ? existingCoord() : null)
 
