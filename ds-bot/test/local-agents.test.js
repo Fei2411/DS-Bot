@@ -14,7 +14,8 @@ import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
 import { cleanEnv } from '../src/host/local-agents/discover.js'
-import { ENGINES, validateCustom, isLocalAgentRoute, cliMode, acpMode } from '../src/host/local-agents/engines.js'
+import { ENGINES, validateCustom, isLocalAgentRoute, cliMode, acpMode, sortEfforts, isMetaToolCall, localTeamCall } from '../src/host/local-agents/engines.js'
+import { install as installLocalAgents } from '../src/host/local-agents/index.js'
 import { AGENT_BADGES, agentAvatar, badgeOf, isLocalRoute } from '../src/client/agent-routes.js'
 import { INKS } from '../src/client/inks.js'
 import { install as partsInstall } from '../src/host/parts.js'
@@ -739,7 +740,12 @@ test('codex app-server: thread start and resume send the fields Codex reads', as
     assert.ok(start !== undefined, `${preset}: a thread starts`)
     assert.ok(resume !== undefined, `${preset}: the saved thread resumes`)
     // The team instructions travel on the new thread; a resumed one keeps its own.
-    assert.equal(start.developerInstructions, 'You are Kai, a coder.')
+    assert.ok(start.developerInstructions.startsWith('You are Kai, a coder.'), `${preset} start: team instructions first`)
+    assert.match(start.developerInstructions, /## Working inside DS Bot/, `${preset} start: bridge rules appended`)
+    // The bridge names the dsbot schedule tools and bans the CLI's own schedulers,
+    // or the CLI falls back on a scheduler the user's team cannot see.
+    assert.match(start.developerInstructions, /schedule_create/, `${preset} start: the dsbot schedule tools are named`)
+    assert.match(start.developerInstructions, /[Nn]ever use your own built-in scheduler/, `${preset} start: the native scheduler is banned`)
     assert.equal(resume.developerInstructions, undefined, `${preset} resume: keeps the instructions it started with`)
     assert.equal(resume.threadId, records.s1.cliSessionId, `${preset} resume: resumes the saved thread`)
     assert.equal('threadId' in start, false, `${preset} start: no thread id`)
@@ -1801,6 +1807,220 @@ test('ACP session/load falls back to stdio or plain sessions without dropping cl
   }
 })
 
+// --- Grok-shaped regressions: effort order, meta-tool noise, team-call duplication ---
+
+test('sortEfforts normalizes the weak-to-strong ladder without trusting CLI order', () => {
+  const pick = list => sortEfforts(list).map(effort => effort.id)
+  assert.deepEqual(pick([{ id: 'xhigh' }, { id: 'high' }, { id: 'medium' }, { id: 'low' }]), ['low', 'medium', 'high', 'xhigh'])
+  assert.deepEqual(pick([{ id: 'max' }, { id: 'off' }, { id: 'low' }, { id: 'none' }, { id: 'minimal' }, { id: 'high' }, { id: 'xhigh' }, { id: 'medium' }]), ['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+  // Unknown levels keep their relative order behind every known one.
+  assert.deepEqual(pick([{ id: 'zebra' }, { id: 'high' }, { id: 'apple' }, { id: 'low' }]), ['low', 'high', 'zebra', 'apple'])
+  // Case is normalized, the input is not mutated, junk survives as unknown.
+  const source = [{ id: 'HIGH' }, { id: 'low' }]
+  assert.deepEqual(pick(source), ['low', 'HIGH'])
+  assert.deepEqual(source.map(effort => effort.id), ['HIGH', 'low'])
+  assert.deepEqual(sortEfforts(undefined), [])
+})
+
+test('isMetaToolCall matches discovery plumbing in every naming shape, sparing real work', () => {
+  for (const call of [
+    { name: 'search_tool' },
+    { name: 'use_tool' },
+    { name: 'mcp__grok__search_tool' },
+    { name: 'grok:use_tool' },
+    { name: 'grok/search_tool' },
+    { toolName: 'list_tools' },
+    { name: 'tool_search' },
+    { name: 'search_tools' },
+    { name: 'load_tool' },
+    { name: 'discover_tools' },
+    { title: 'search_tool dsbot schedule_create' },
+    { title: 'use_tool' },
+  ]) assert.equal(isMetaToolCall(call), true, JSON.stringify(call))
+  for (const call of [
+    { name: 'Read' },
+    { name: 'scheduler_create' },
+    { name: 'mcp__dsbot__schedule_create' },
+    { name: 'read_file' },
+    { title: 'Searching the repository' },
+    { title: 'Read src/host/acp.js' },
+    undefined,
+    {},
+  ]) assert.equal(isMetaToolCall(call), false, JSON.stringify(call))
+})
+
+test('localTeamCall only marks lines whose leading tool is the dsbot server', () => {
+  for (const text of ['mcp__dsbot__message_bot(x)', 'dsbot:message_bot ping', 'dsbot_schedule_create', 'mcp_dsbot_list_bots']) {
+    assert.equal(localTeamCall(text), true, text)
+  }
+  // A dsbot-looking path inside a shell command is not a team call.
+  assert.equal(localTeamCall('pwsh dsbot/file.js'), false)
+  assert.equal(localTeamCall('mcp__github__issue open'), false)
+  assert.equal(localTeamCall('search_tool(query: x)'), false)
+  assert.equal(localTeamCall(''), false)
+})
+
+test('a CLI reporting thought levels in reverse order exposes them weak-to-strong, per model', async (t) => {
+  // Grok: the shared thought_level descends xhigh → low, and each model's own
+  // _meta.reasoningEfforts descends too — fake-small having no xhigh, like grok-4.5.
+  const adapter = makeAdapter({ acpArgs: ['--grok-thoughts'] })
+  t.after(() => adapter.dispose())
+  const catalog = await adapter.probeModels('local-acp-fake')
+  const large = catalog.find(model => model.id === 'fake-large')
+  const small = catalog.find(model => model.id === 'fake-small')
+  assert.deepEqual(large.reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high', 'xhigh'])
+  // The per-model list wins over the session-wide one: no xhigh leaks in.
+  assert.deepEqual(small.reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high'])
+  // The CLI's own default stays unadvertised, so a Bot without a level keeps it.
+  assert.equal(large.reasoning.defaultEffort, undefined)
+  // Names ride along with the sorted ids.
+  assert.deepEqual(large.reasoning.efforts.map(effort => effort.name), ['Low', 'Medium', 'High', 'XHigh'])
+})
+
+test('a config_option_update without models never widens a model\'s own effort list', async (t) => {
+  // P1: the update carries configOptions but no models. Recomputing the model list
+  // from it alone dropped the per-model _meta.reasoningEfforts the handshake
+  // carried — grok-4.5 got the shared option list back, xhigh included.
+  const adapter = makeAdapter({ acpArgs: ['--grok-thoughts'] })
+  t.after(() => adapter.dispose())
+  await adapter.probeModels('local-acp-fake')
+  assert.deepEqual((await adapter.resolveModel('local-acp-fake', 'fake-small')).reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high'])
+  // The update must travel the production path: a live turn wires the pump that
+  // feeds engine events into adapter.observe() — reading them off the raw session
+  // queue would assert nothing about the cache the catalog resolves against.
+  const first = await collect(adapter.stream(options('s1', [user('m1', 'show-state')], { model: 'fake-large' })))
+  assert.equal(first.finish.kind, 'stop')
+  const before = (await adapter.listModels('local-acp-fake')).find(model => model.id === 'fake-small')
+  const engine = adapter.engine('local-acp-fake')
+  const session = [...engine.sessions.values()][0]
+  assert.ok(session !== undefined, 'the turn left a live CLI session')
+  engine.onNotice('session/update', {
+    sessionId: session.acpSessionId,
+    update: {
+      sessionUpdate: 'config_option_update',
+      configOptions: [
+        { id: 'model', category: 'model', name: 'Model', options: [{ id: 'fake-large', name: 'Fake Large' }, { id: 'fake-small', name: 'Fake Small' }] },
+        { id: 'thought_level', category: 'thought_level', name: 'Thinking Level', currentValue: 'high', options: [{ value: 'xhigh', name: 'XHigh' }, { value: 'high', name: 'High' }, { value: 'medium', name: 'Medium' }, { value: 'low', name: 'Low' }] },
+      ],
+    },
+  })
+  // The pump relays the models event asynchronously; wait until the recorded
+  // models changed (the update republishes them) instead of asserting on a race.
+  let republished
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    republished = (await adapter.listModels('local-acp-fake')).find(model => model.id === 'fake-small')
+    if (republished !== undefined && republished.reasoning.efforts !== before.reasoning.efforts) break
+    await delay(20)
+  }
+  assert.ok(republished !== undefined && republished.reasoning.efforts !== before.reasoning.efforts, 'the update reached the adapter cache through the pump')
+  // fake-small keeps its own three levels: no xhigh is resurrected from the
+  // session-wide thought_level options.
+  assert.deepEqual(republished.reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high'])
+  assert.deepEqual((await adapter.resolveModel('local-acp-fake', 'fake-small')).reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high'])
+  // And the shared list still normalizes to weak-to-strong for the model that has it.
+  assert.deepEqual((await adapter.resolveModel('local-acp-fake', 'fake-large')).reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high', 'xhigh'])
+})
+
+test('recordDiscoveredModels normalizes any reverse-ordered reasoning list at the intake', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const reversed = {
+    provider: 'local-acp-fake', id: 'm1', name: 'M1',
+    reasoning: { efforts: [{ id: 'xhigh', name: 'XHigh' }, { id: 'high', name: 'High' }, { id: 'low', name: 'Low' }] },
+  }
+  assert.equal(adapter.recordDiscoveredModels('local-acp-fake', [reversed]), true)
+  const listed = (await adapter.listModels('local-acp-fake')).find(model => model.id === 'm1')
+  assert.deepEqual(listed.reasoning.efforts.map(effort => effort.id), ['low', 'high', 'xhigh'])
+  // The cheapest-level contract: the first entry of a normalized list is the weakest.
+  const resolved = await adapter.resolveModel('local-acp-fake', 'm1')
+  assert.deepEqual(resolved.reasoning.efforts.map(effort => effort.id), ['low', 'high', 'xhigh'])
+})
+
+test('acp: meta tools stay out of the reasoning stream, real work and failures stay in', async (t) => {
+  const events = []
+  const adapter = makeAdapter({ rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, payload) => events.push(payload) } })
+  t.after(() => adapter.dispose())
+  const out = await collect(adapter.stream(options('s1', [user('m1', 'meta-tools')])))
+  assert.equal(out.finish.kind, 'stop')
+  // The working action stays visible as an activity line.
+  assert.match(out.thinking, /▸ scheduler_create/)
+  // Neither meta call is narrated: the successful search_tool and the in-progress
+  // use_tool. The failed use_tool keeps exactly one diagnostic line.
+  assert.doesNotMatch(out.thinking, /▸ search_tool/)
+  assert.equal((out.thinking.match(/use_tool/g) ?? []).length, 1)
+  assert.match(out.thinking, /▸ use_tool.*— failed/)
+  // The meta calls still reach the live status feed as transient status events,
+  // so the activity indicator can whisper without polluting the transcript — but
+  // the transient is generic: the query and target a meta call names are the
+  // leak this demotion exists to hide, so they stay out of the status feed too.
+  const statuses = events.filter(event => event.type === 'status').map(event => event.text)
+  assert.ok(statuses.some(text => text === 'Working…'), JSON.stringify(statuses))
+  assert.ok(!statuses.some(text => /search_tool|use_tool|schedule_create|dsbot/.test(text ?? '')), JSON.stringify(statuses))
+  const activities = events.filter(event => event.type === 'activity').map(event => event.text)
+  assert.ok(!activities.some(text => text.startsWith('▸ search_tool')), JSON.stringify(activities))
+})
+
+test('acp: a team tool call through the dsbot server never doubles into the reasoning stream', async (t) => {
+  const events = []
+  const adapter = makeAdapter({ rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, payload) => events.push(payload) } })
+  t.after(() => adapter.dispose())
+  const first = await collect(adapter.stream(options('s1', [user('m1', 'please call-tool now')])))
+  assert.equal(first.calls[0]?.name, 'message_bot')
+  // The CLI narrated its MCP call (`mcp dsbot message_bot`); the reasoning must not
+  // carry it: the real call is already the stream's own tool-call.
+  assert.doesNotMatch(first.thinking, /message_bot/)
+  // The narration still reaches the live status feed, marked as the team's own.
+  const teamLines = events.filter(event => event.type === 'activity' && event.team === true)
+  assert.ok(teamLines.length > 0, JSON.stringify(events.map(event => [event.type, event.text])))
+  assert.match(teamLines[0].text, /message_bot/)
+})
+
+test('resolveModel probes a named model before answering, so a saved effort survives a restart', async (t) => {
+  // Before this, the first validation after a restart read no levels at all and
+  // DSH refused the Bot's saved effort as unsupported (UNSUPPORTED_REASONING_EFFORT).
+  const adapter = makeAdapter({ acpArgs: ['--grok-thoughts'] })
+  t.after(() => adapter.dispose())
+  assert.equal(adapter.modelCache.has('local-acp-fake'), false)
+  const resolved = await adapter.resolveModel('local-acp-fake', 'fake-small')
+  assert.ok(resolved.reasoning !== undefined, 'the probe fills the levels before answering')
+  assert.deepEqual(resolved.reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high'])
+  // 'default' stays lazy: asking for it must not start a CLI.
+  const lazy = makeAdapter({ acpArgs: ['--grok-thoughts'] })
+  t.after(() => lazy.dispose())
+  const plain = await lazy.resolveModel('local-acp-fake', 'default')
+  assert.equal(plain.reasoning, undefined)
+  assert.equal(lazy.engines.size, 0, 'no CLI starts for the default model card')
+})
+
+test('the loopback bridge carries the DSH schedule tools alongside the team tools', async (t) => {
+  const ctx = fakeContext()
+  // A custom agent holds its route whether or not a CLI is on this machine, so the
+  // adapter registers synchronously regardless of what the scan finds.
+  const rt = {
+    ctx,
+    state: { bots: {}, localAgents: { custom: [{ id: 'x', name: 'X', command: process.execPath, args: [] }], sessions: {} } },
+    teamTools: [{ name: 'message_bot' }, { name: 'bot_remember' }],
+    warn() {},
+    save: async () => {},
+  }
+  installLocalAgents(rt)
+  t.after(() => ctx.dispose())
+  const adapter = ctx.adapters?.[0]?.adapter
+  assert.ok(adapter !== undefined, 'the local-agent adapter registered')
+  const given = ['message_bot', 'schedule_create', 'schedule_list', 'schedule_view', 'schedule_edit', 'bash', 'read_file', 'delegate_work']
+    .map(name => ({ name, description: name, parameters: { type: 'object', properties: {} } }))
+  const bridged = adapter.deps.toolsFor({ tools: given }).map(tool => tool.name)
+  // DSH's schedule tools cross: without them the CLI only has its native scheduler.
+  for (const name of ['schedule_create', 'schedule_list', 'schedule_view', 'schedule_edit']) {
+    assert.ok(bridged.includes(name), `${name} bridged`)
+  }
+  assert.ok(bridged.includes('message_bot'), 'team tools cross')
+  // The harness's own tools and unlisted Bot-side tools stay out.
+  for (const name of ['bash', 'read_file', 'delegate_work']) {
+    assert.ok(!bridged.includes(name), `${name} stays out`)
+  }
+})
+
 test('clearing reasoningEffort restores ACP thought_level after session/load and Host restart', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'dsb-effort-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
@@ -2576,6 +2796,44 @@ test('codex app-server ignores non-tool items and unwraps shell -lc wrappers', (
   ])
 })
 
+test('claude: meta tools stay out of the reasoning stream, real work stays visible', async (t) => {
+  const events = []
+  const adapter = makeAdapter({ rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, payload) => events.push(payload) } })
+  t.after(() => adapter.dispose())
+  const out = await collect(adapter.stream(options('c1', [user('m1', 'meta-claude')], { provider: 'local-claude-code' })))
+  assert.equal(out.finish.kind, 'stop')
+  assert.doesNotMatch(out.thinking, /search_tool/)
+  assert.doesNotMatch(out.thinking, /use_tool/)
+  assert.match(out.thinking, /▸ Read/)
+  assert.match(out.thinking, /▸ Write/)
+  // Demoted meta calls whisper a generic transient: the raw tool name and the
+  // query it ran are exactly what this demotion exists to hide.
+  const statuses = events.filter(event => event.type === 'status').map(event => event.text)
+  assert.ok(statuses.some(text => text === 'Working…'), JSON.stringify(statuses))
+  assert.ok(!statuses.some(text => /search_tool|use_tool/.test(text ?? '')), JSON.stringify(statuses))
+})
+
+test('codex app-server: discovery items become transient status, dsbot calls keep the team mark', () => {
+  const engine = new CodexEngine('local-codex-cli', { name: 'Codex' }, { findExecutable: () => undefined })
+  const thread = engine.threadFor('s1')
+  thread.threadId = 't1'
+  const pushed = []
+  thread.push = event => pushed.push(event)
+  // A meta tool on another server is discovery plumbing: transient, no activity line.
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'mcpToolCall', server: 'grok', tool: 'search_tool' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'mcpToolCall', server: 'grok', tool: 'use_tool' } })
+  // A call on the team's own server keeps the team mark so the drain never doubles it.
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'mcpToolCall', server: 'dsbot', tool: 'schedule_create' } })
+  // Real work stays a visible activity line.
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'mcpToolCall', server: 'grok', tool: 'read_file' } })
+  assert.deepEqual(pushed, [
+    { type: 'status', text: 'Working…', turnId: 'u1' },
+    { type: 'status', text: 'Working…', turnId: 'u1' },
+    { type: 'activity', text: '▸ schedule_create', turnId: 'u1', team: true },
+    { type: 'activity', text: '▸ read_file', turnId: 'u1' },
+  ])
+})
+
 test('acp: when session/load fails and falls back to session/new, adapter replays history and instructions and resets stale context', async (t) => {
   const record = join(mkdtempSync(join(tmpdir(), 'dsb-acp-resume-drop-')), 'prompts.jsonl')
   t.after(() => rmSync(dirname(record), { recursive: true, force: true }))
@@ -2646,7 +2904,7 @@ test('codex: when thread/resume fails and falls back to thread/start, adapter se
   const turns = calls.filter(call => call.method === 'turn/start')
   assert.equal(resumes.length, 1, 'must attempt thread/resume first')
   assert.equal(starts.length, 2, 'must fall back to a new thread/start')
-  assert.equal(starts[1].params.developerInstructions, 'You are Kai. Team memory: always run lint.', 'fallback thread/start must carry developerInstructions')
+  assert.ok(starts[1].params.developerInstructions.startsWith('You are Kai. Team memory: always run lint.'), 'fallback thread/start must carry developerInstructions')
   const secondInput = turns.at(-1).params.input.map(block => block.text ?? '').join('\n')
   assert.match(secondInput, /The conversation so far \(oldest first\):/)
   assert.match(secondInput, /We are refactoring src\/cache\.js/)

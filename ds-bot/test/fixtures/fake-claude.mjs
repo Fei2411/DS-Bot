@@ -49,7 +49,12 @@ process.stdin.on('data', (chunk) => {
       continue
     }
     const suffix = images.length > 0 ? ` images=${JSON.stringify(images)}` : ''
-    send({ type: 'assistant', message: { content: [{ type: 'thinking', thinking: `thought about: ${text.slice(0, 40)}` }, { type: 'tool_use', name: 'Read' }, { type: 'text', text: `ok: ${text.slice(0, 60)}${suffix}` }] } })
+    // "meta-claude" narrates discovery plumbing among real work: search_tool/use_tool
+    // are the transient noise, Read and Write the visible activity.
+    const tools = text.includes('meta-claude')
+      ? [{ type: 'tool_use', name: 'search_tool', input: { query: 'dsbot schedule_create' } }, { type: 'tool_use', name: 'use_tool', input: { description: 'dsbot__schedule_create' } }, { type: 'tool_use', name: 'Read' }, { type: 'tool_use', name: 'Write', input: { file_path: 'src/b.js' } }]
+      : [{ type: 'tool_use', name: 'Read' }]
+    send({ type: 'assistant', message: { content: [{ type: 'thinking', thinking: `thought about: ${text.slice(0, 40)}` }, ...tools, { type: 'text', text: `ok: ${text.slice(0, 60)}${suffix}` }] } })
     send({ type: 'result', subtype: 'success', session_id: sessionId, result: `ok: ${text.slice(0, 60)}${suffix}`, usage: { input_tokens: 10, output_tokens: 5 } })
   }
 })

@@ -1026,6 +1026,8 @@ export const FR = {
   "Message actions": "Actions sur le message",
   "Download": "Télécharger",
   "Thought it through": "Réflexion",
+  "1 action": "1 action",
+  "{count} actions": "{count} actions",
   "Earlier messages": "Messages précédents",
   "Loading earlier messages…": "Chargement des messages précédents…",
   "Couldn’t load earlier messages · Retry": "Impossible de charger les messages précédents · Réessayer",

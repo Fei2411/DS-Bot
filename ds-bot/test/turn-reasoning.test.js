@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { opensReply, thinkingStep, turnReasoning } from '../src/client/turn-reasoning.js'
+import { opensReply, stepLiveActivity, thinkingStep, turnActivity, turnReasoning } from '../src/client/turn-reasoning.js'
 
 const step = (n, blocks, status = 'settled') => ({ turn: 1, step: n, status, blocks })
 const think = text => ({ kind: 'reasoning', text })
@@ -75,4 +75,48 @@ test("with the reasoning hidden, only a step's own text opens the reply", () => 
   assert.equal(opener([step(1, [think('B'), tool]), step(2, [tool]), step(3, [{ kind: 'text', text: 'Done' }])]), 2)
   assert.equal(opener([step(1, [{ kind: 'text', text: 'Looking' }, tool]), step(2, [think('B'), tool]), step(3, [think('C'), { kind: 'text', text: 'Done' }])]), 0)
   assert.equal(opener([step(1, [think('B'), tool])]), -1)
+})
+
+// A local agent's own tool calls ride its reasoning as lines starting with "▸ ".
+// They leave the reasoning text and collect into one aggregated activity row per Turn.
+test('activity lines leave the reasoning text and collect once per Turn, on its last active step', () => {
+  const act = (n, lines) => step(n, [think(lines.join('\n')), tool])
+  // Lines ride among thinking prose: the prose keeps the reasoning row, the lines leave it.
+  assert.equal(turnReasoning([], step(1, [think('Looking\n▸ read `a.js`\nDone thinking')])), 'Looking\nDone thinking')
+  const steps = [act(1, ['▸ read `a.js`', '▸ grep x']), act(2, []), act(3, ['▸ edit `b.js`'])]
+  // Only the last step with activity carries the row, with every step's lines in order.
+  assert.deepEqual(steps.map(current => turnActivity(steps, current)), [[], [], ['read `a.js`', 'grep x', 'edit `b.js`']])
+  // A Turn whose only activity came first keeps the row there.
+  const early = [act(1, ['▸ read `a.js`']), act(2, []), act(3, [])]
+  assert.deepEqual(early.map(current => turnActivity(early, current)), [['read `a.js`'], [], []])
+  // A step outside the loaded list shows only its own lines.
+  const lone = step(4, [think('▸ edit `c.js`')])
+  assert.deepEqual(turnActivity([], lone), ['edit `c.js`'])
+  assert.deepEqual(turnActivity([], step(5, [think('plain thought')])), [])
+})
+
+test('a step that aggregates the Turn\'s activity opens the reply while thinking shows', () => {
+  const act = lines => [think(lines.join('\n')), tool]
+  // Tools and activity alone open nothing without reasoning; the row's step opens it with reasoning.
+  const steps = [step(1, act(['▸ read `a.js`'])), step(2, [tool]), step(3, [{ kind: 'text', text: 'Done' }])]
+  assert.equal(steps.findIndex(current => opensReply(steps, current)), 0)
+  assert.equal(steps.findIndex(current => opensReply(steps, current, false)), 2)
+  // Activity on the answering step keeps that step the opener.
+  const late = [step(1, [tool]), step(2, act(['▸ edit `b.js`']).concat([{ kind: 'text', text: 'Done' }]))]
+  assert.equal(late.findIndex(current => opensReply(late, current)), 1)
+})
+
+test('the live activity is the trailing action line of a still-running reasoning tail', () => {
+  const running = blocks => ({ turn: 1, step: 1, status: 'running', blocks })
+  // Only the last line of the trailing reasoning block counts, without the "▸ " mark.
+  assert.equal(stepLiveActivity(running([think('thought\n▸ search_tool(query: dsbot)')])), 'search_tool(query: dsbot)')
+  // Thought prose after the action, a tool call or reply text all end the live note.
+  assert.equal(stepLiveActivity(running([think('▸ read `a.js`\nthinking again')])), undefined)
+  assert.equal(stepLiveActivity(running([think('▸ read `a.js`'), tool])), undefined)
+  assert.equal(stepLiveActivity(running([think('▸ read `a.js`'), { kind: 'text', text: 'answering' }])), undefined)
+  // Empty text and reasoning blocks are skipped on the way down.
+  assert.equal(stepLiveActivity(running([think('▸ read `a.js`'), { kind: 'text', text: '' }, think('')])), 'read `a.js`')
+  // No reasoning at all, or a missing step, reports nothing.
+  assert.equal(stepLiveActivity(running([tool])), undefined)
+  assert.equal(stepLiveActivity(undefined), undefined)
 })

@@ -15,7 +15,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { findHost, releaseHost, rowVisible, freshInputAt } from './src/client/activity-row.js'",
+      "export { findHost, releaseHost, rowVisible, pickActivity, freshInputAt } from './src/client/activity-row.js'",
       "export { clientErrors } from './src/client/diagnostics.js'",
     ].join('\n'),
     resolveDir: PLUGIN,
@@ -43,7 +43,7 @@ runInNewContext(outputFiles[0].text, {
   cancelAnimationFrame: id => clearTimeout(id),
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { findHost, releaseHost, rowVisible, freshInputAt, clientErrors } = module.exports
+const { findHost, releaseHost, rowVisible, pickActivity, freshInputAt, clientErrors } = module.exports
 
 // The shell renders its running status inside the flow, before the pending steering
 // rows, so hosting the row there puts it above an interjection's echo until the echo
@@ -176,4 +176,22 @@ test('fresh input ignores queued sends and takes the newest of the rest', () => 
   assert.equal(freshInputAt([{ placement: 'queued', time: 300 }], undefined), 0)
   assert.equal(freshInputAt(undefined, 400), 400)
   assert.equal(freshInputAt([], undefined), 0)
+})
+
+test('pickActivity prefers a newer host activity over an older chat note and hides host-only work while streaming', () => {
+  const olderTool = { label: 'Opening a file', state: 'searching', at: 100 }
+  const newerHost = { label: 'Running shell commands', state: 'working' }
+  const picked = pickActivity({ tools: [olderTool], localNote: newerHost, localAt: 200, streaming: false })
+  assert.equal(picked?.source, 'local')
+  assert.equal(picked?.label, 'Running shell commands')
+  assert.equal(picked?.at, 200)
+
+  // A newer chat tool still wins over an older host activity.
+  const newerTool = { label: 'Writing changes', state: 'working', at: 300 }
+  const toolPicked = pickActivity({ tools: [newerTool], localNote: newerHost, localAt: 200, streaming: false })
+  assert.equal(toolPicked?.source, 'tool')
+  assert.equal(toolPicked?.label, 'Writing changes')
+
+  // Host status alone stays hidden while reply text is already streaming.
+  assert.equal(pickActivity({ tools: [], localNote: newerHost, localAt: 200, streaming: true }), undefined)
 })

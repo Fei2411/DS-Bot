@@ -11,7 +11,7 @@ import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess,
 import { SOURCE_KIND } from '../constants.js'
 import { GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
-import { engineOf, cliMode, signInFor } from './engines.js'
+import { engineOf, cliMode, localTeamCall, signInFor, sortEfforts } from './engines.js'
 import { PROBE_FORCE_KILL_AFTER_MS } from './discover.js'
 import { LoopbackMcp } from './mcp.js'
 
@@ -44,6 +44,19 @@ const APPROVE_TOOL = 'approve_agent_action'
 const COMPACT_START_MS = 15_000
 // What a request DS Bot makes of the CLI for itself answers to a tool call it tries.
 const NO_TOOLS = 'Tools are not available for this request. Answer with text only.'
+
+// Bridge rules appended to the team instructions a CLI session is opened with.
+// Two facts the CLI's own prompt cannot know: the team's tools arrive over the
+// loopback MCP server (a runtime that defers them must search/activate first),
+// and scheduled tasks belong to that server alone — the CLI's native scheduler,
+// cron or reminder tools act outside the user's team and invisibly to it.
+const LOCAL_BRIDGE_RULES = [
+  '',
+  '## Working inside DS Bot',
+  '- The tools of the user\'s team reach you through the MCP server named "dsbot". If they are not listed up front, discover and activate them with your tool-search facilities (such as search_tool/use_tool) before assuming they are missing.',
+  '- Scheduled tasks, reminders and recurring automation for the user are created ONLY with the dsbot tools schedule_create / schedule_list / schedule_view / schedule_edit. Never use your own built-in scheduler, cron, reminder, tasks or automation tools for them: those run outside the user\'s team, and the user can neither see nor manage what they create.',
+].join('\n')
+const withBridgeRules = text => (typeof text !== 'string' || text === '' ? text : `${text}${LOCAL_BRIDGE_RULES}`)
 
 // A title request never reaches the CLI.
 function titleChunk(text) {
@@ -150,7 +163,16 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.probes.delete(route)
     }
     this.modelCache.set(route, (models ?? []).filter(model => model.id !== 'default')
-      .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id, ...(model.reasoning ? { reasoning: model.reasoning } : {}) })))
+      .map(model => ({
+        provider: route,
+        id: model.id,
+        name: model.name ?? model.id,
+        // Every consumer of `reasoning.efforts` — the client's left-to-right
+        // effort bar and this adapter's cheapest-level pick in ask() — assumes a
+        // weak-to-strong list, while CLIs report their own order (Grok lists
+        // xhigh first). The list is normalized here, once, at the intake.
+        ...(model.reasoning ? { reasoning: { ...model.reasoning, efforts: sortEfforts(model.reasoning.efforts ?? []) } } : {}),
+      })))
     return true
   }
 
@@ -207,7 +229,17 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   async resolveModel(route, model) {
     const spec = engineOf(route, this.deps.customAgents())
-    const listed = (await this.listModels(route).catch(() => [])).find(entry => entry.id === model)
+    let listed = (await this.listModels(route).catch(() => [])).find(entry => entry.id === model)
+    // DSH validates the requested reasoning effort on every turn against what this
+    // answers, but 'default' and used-but-unprobed entries carry no levels — after a
+    // restart, before any probe ran, a Bot's saved effort then reads as unsupported.
+    // A named model whose levels are not known yet gets the probe it needs first;
+    // 'default' stays lazy (no CLI starts just for a model-card look). A CLI that is
+    // not there fails the probe silently and the entry stays level-less, as before.
+    if (model !== 'default' && listed?.reasoning === undefined && !this.modelCache.has(route)) {
+      await this.probeModels(route).catch(() => [])
+      listed = (await this.listModels(route).catch(() => [])).find(entry => entry.id === model)
+    }
     const supportsImage = spec?.kind !== 'acp' || this.engines.get(route)?.supportsImages?.() !== false
     return {
       provider: route,
@@ -582,7 +614,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     let freshMemory
     let memoryRefreshed = false
     let appliedMemory = { system: rawSystem, note: '' }
-    let system = rawSystem
+    let system = withBridgeRules(rawSystem)
     let promptHash = system === '' ? undefined : createHash('sha256').update(system).digest('hex')
     let instructions = system === '' ? undefined : system
     const refreshMemory = () => {
@@ -591,7 +623,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       freshMemory = this.deps.freshMemoryView?.(sessionId)
       if (freshMemory === undefined) return
       appliedMemory = applyFreshMemory(rawSystem, freshMemory)
-      system = appliedMemory.system
+      system = withBridgeRules(appliedMemory.system)
       instructions = system === '' ? undefined : system
       promptHash = system === '' ? undefined : createHash('sha256').update(system).digest('hex')
     }
@@ -954,16 +986,23 @@ export class LocalAgentAdapter extends LlmAdapter {
         case 'thought':
         case 'activity': {
           report(event)
-          // An activity line stands on its own line of the reasoning, which is
-          // how the chat tells it from the thought around it.
-          const text = event.type === 'activity' ? `${thinkBuf === '' || thinkBuf.endsWith('\n') ? '' : '\n'}${event.text}\n` : event.text
-          if (thinkIndex === -1) {
-            if (textIndex !== -1) { yield { type: 'block-end', index: textIndex, block: { type: 'text', text: textBuf } }; textIndex = -1; textBuf = '' }
-            yield { type: 'block-start', index: index++, blockType: 'reasoning' }
-            thinkIndex = index - 1
+          // A team tool the CLI runs through DS Bot's own server already lands in
+          // the stream as a real tool call (the loopback 'call' event); writing its
+          // activity line into the reasoning too shows it twice, once raw. The name
+          // fallback covers a CLI that reports the call without the team marker.
+          const isTeam = event.type === 'activity' && (event.team === true || (event.team !== false && localTeamCall(String(event.text ?? '').replace(/^\s*▸\s*/, ''))))
+          if (!isTeam) {
+            // An activity line stands on its own line of the reasoning, which is
+            // how the chat tells it from the thought around it.
+            const text = event.type === 'activity' ? `${thinkBuf === '' || thinkBuf.endsWith('\n') ? '' : '\n'}${event.text}\n` : event.text
+            if (thinkIndex === -1) {
+              if (textIndex !== -1) { yield { type: 'block-end', index: textIndex, block: { type: 'text', text: textBuf } }; textIndex = -1; textBuf = '' }
+              yield { type: 'block-start', index: index++, blockType: 'reasoning' }
+              thinkIndex = index - 1
+            }
+            thinkBuf += text
+            yield { type: 'reasoning-delta', index: thinkIndex, text }
           }
-          thinkBuf += text
-          yield { type: 'reasoning-delta', index: thinkIndex, text }
           break
         }
         case 'status':

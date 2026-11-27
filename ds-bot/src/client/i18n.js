@@ -1119,6 +1119,8 @@ const ZH = {
   'Message actions': '消息操作',
   Download: '下载',
   'Thought it through': '思考过程',
+  '1 action': '1 个操作',
+  '{count} actions': '{count} 个操作',
   'Earlier messages': '更早的消息',
   'Loading earlier messages…': '正在加载更早的消息…',
   'Couldn’t load earlier messages · Retry': '更早的消息没加载出来 · 重试',

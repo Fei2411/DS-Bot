@@ -3,6 +3,7 @@
 // events until a `result` ends the turn.
 import { isAbsolute, resolve } from 'node:path'
 import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
+import { isMetaToolCall } from './engines.js'
 import { lineSplitter } from './lines.js'
 
 // Claude Code tools that only read; the rest may change files or run something.
@@ -198,7 +199,11 @@ class ClaudeSession {
           else if (block.type === 'tool_use') {
             // Shells, subagents and custom tools may change cwd without reporting it.
             if (!READ_TOOLS.has(block.name)) this.cwd = undefined
-            this.emit({ type: 'activity', text: `▸ ${claudeActivity(block)}`, ...(String(block.name ?? '').startsWith('mcp__dsbot__') ? { team: true } : {}) })
+            const team = String(block.name ?? '').startsWith('mcp__dsbot__')
+            // The CLI's own discovery plumbing (search_tool/use_tool and friends) is
+            // noise in the user's chat: a transient status, not an activity line.
+            const meta = !team && isMetaToolCall({ name: block.name })
+            this.emit({ type: meta ? 'status' : 'activity', text: meta ? 'Working…' : `▸ ${claudeActivity(block)}`, ...(team ? { team: true } : {}) })
           }
         }
         break

@@ -31,6 +31,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const [agentModel, setAgentModel] = useState('')
   const [ownLook, setOwnLook] = useState(false)
   const [effort, setEffort] = useState(undefined)
+  const [agentEffort, setAgentEffort] = useState(undefined)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const fileRef = useRef(null)
@@ -39,6 +40,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const [reading, readModels] = useAgentModels(actions)
   const local = mode === 'local'
   const chosen = local ? agentModel : model
+  const chosenEffort = local ? agentEffort : effort
   useEscape(onBack)
   // Inside Settings the form opens below other sections, so it scrolls itself into view.
   useEffect(() => { if (inline) frame.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }) }, [])
@@ -52,7 +54,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     setError('')
     setBusy(true)
     try {
-      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, effort: local ? undefined : effort, brief, ownLook, sectionId: start?.sectionId }))
+      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, effort: chosenEffort, brief, ownLook, sectionId: start?.sectionId }))
       onCreated(bot)
     } catch (failure) {
       setError(failure?.message ?? String(failure))
@@ -65,7 +67,11 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     avatarImage(file).then(setImage, failure => setError(failure?.message ?? String(failure)))
   }
   const pickAgent = (agent) => {
-    setAgentModel(`${agent.route}/default`)
+    const next = `${agent.route}/default`
+    if (next !== agentModel) {
+      setAgentModel(next)
+      setAgentEffort(undefined)
+    }
     readModels(agent.route)
   }
   const worn = local && chosen !== '' && !ownLook ? agentAvatar(routeOf(chosen))?.image : undefined
@@ -106,7 +112,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
       h(CliList, { ...localAgents, selected: routeOf(chosen), onPick: pickAgent, actions })) : null,
     !local || chosen !== '' ? h('div', { className: 'bt-field' },
       h('span', { className: 'bt-field-label' }, t('Model'), local && reading ? h(ReadingModels) : null),
-      h(ModelMenu, { bot: { id: 'new-bot', name: finalName, model: chosen || undefined, effort: local ? undefined : effort }, roster, actions, wide: true, onPick: (ref) => { if (local) { setAgentModel(ref); return } setModel(ref); setEffort(undefined) }, onPickEffort: picked => setEffort(picked ?? null) }),
+      h(ModelMenu, { bot: { id: 'new-bot', name: finalName, model: chosen || undefined, effort: chosenEffort }, roster, actions, wide: true, onPick: (ref) => { if (local) { if (ref !== agentModel) { setAgentModel(ref); setAgentEffort(undefined) } return } if (ref !== model) { setModel(ref); setEffort(undefined) } }, onPickEffort: picked => (local ? setAgentEffort(picked ?? null) : setEffort(picked ?? null)) }),
       h('span', { className: 'bt-note' }, chosen
         ? t('The Bot runs on this model. You can change it later in its details.')
         : modelsFor(roster.models).length > 0

@@ -19,6 +19,10 @@ import { findEngineExecutable, findExecutable, probeEnv, probeSignIn, probeVersi
 const SIGNED_IN_TTL_MS = 60_000
 const SIGNED_IN_RETRY_MS = 20_000
 const VERSION_FAIL_TTL_MS = 30_000
+// DSH's harness-level schedule tools the loopback MCP may carry; DS Bot's own
+// guards (this_session target, no background-task scheduling) still apply when
+// the bridged call executes.
+const BRIDGED_SCHEDULE_TOOLS = ['schedule_create', 'schedule_list', 'schedule_view', 'schedule_edit']
 
 // The preset a Session runs on: its group's, else its Bot's, else DSH's default — the one
 // a Bot without a preset of its own is shown with (permissions.js keeps it applied to the
@@ -181,8 +185,12 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     },
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
     toolsFor: (options) => {
-      // Only DS Bot's own team tools cross the bridge; the CLI keeps its own.
-      const names = new Set([...rt.teamTools.map(def => def.name), 'approve_agent_action'])
+      // DS Bot's own team tools cross the bridge; the CLI keeps its own. DSH's
+      // schedule tools ride along too: they are not team tools (they belong to the
+      // harness preset), but without them the CLI finds no scheduling tool in the
+      // MCP catalog at all and falls back on its own native scheduler — invisible
+      // to the user's team — exactly what the bridge instructions forbid.
+      const names = new Set([...rt.teamTools.map(def => def.name), 'approve_agent_action', ...BRIDGED_SCHEDULE_TOOLS])
       return (options.tools ?? []).filter(tool => names.has(tool.name))
     },
   })

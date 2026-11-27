@@ -8,7 +8,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
 import { PROBE_FORCE_KILL_AFTER_MS, cleanEnv, findEngineExecutable, probeEnv, spawnAgent, terminateChild } from './discover.js'
-import { acpMode } from './engines.js'
+import { EFFORT_ORDER, acpMode, isMetaToolCall, sortEfforts } from './engines.js'
 
 const CLIENT = { name: 'ds-bot', version: '1' }
 // DS Bot's loopback MCP server, which carries the Bot's team tools.
@@ -34,8 +34,7 @@ export function stdioBridgePath(source = BUNDLED_MCP_STDIO) {
   return target
 }
 
-const EFFORT_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
-const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
+const EFFORT_NAMES = { off: 'Off', none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
 const TOOL_CALL_CACHE_MAX = 100
 const REPORTED_TOOL_CALLS_MAX = 1_000
 
@@ -311,18 +310,28 @@ export class AcpEngine {
             session.reportedToolCalls.delete(session.reportedToolCalls.values().next().value)
           }
         }
+        // The CLI's own discovery plumbing (search_tool/use_tool and friends) is
+        // noise in the user's chat: demoted to a transient status unless it fails,
+        // which stays an activity line as a diagnostic.
+        const meta = !team && isMetaToolCall(call)
         if (!reported) {
           if (update.status === 'failed' && !alreadyFailed) {
             markReported()
             session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
           } else if (id === undefined || !isAnonymousMcpPlaceholder(call)) {
             markReported()
-            session.push({ type: 'activity', text: `▸ ${described}`, ...(team ? { team: true } : {}) })
+            // A demoted meta call gets a generic transient: its described line still
+            // names the query and target, which is exactly the leak this demotion
+            // exists to hide. Failures above keep the real line as the diagnostic.
+            session.push({ type: meta ? 'status' : 'activity', text: meta ? 'Working…' : `▸ ${described}`, ...(team ? { team: true } : {}) })
           }
         } else if (update.status === 'failed' && !alreadyFailed) {
           session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
         } else if (update.status !== 'completed' && known !== undefined && described !== describeCall(known)) {
-          session.push({ type: 'status', text: described, ...(team ? { team: true } : {}) })
+          // A follow-up update can complete the call's input (the query arrives
+          // with the second in_progress, not the first). A meta call's refresh
+          // stays generic for the same reason its first line is.
+          session.push({ type: 'status', text: meta ? 'Working…' : described, ...(team ? { team: true } : {}) })
         }
         break
       }
@@ -353,9 +362,16 @@ export class AcpEngine {
           session.configOptions = update.configOptions
           session.modes = update.modes?.availableModes ?? configOptionsOf(update.configOptions, 'mode')?.options ?? session.modes
           if (update.configOptions.length > 0) {
-            this.remember(update)
+            const listed = this.remember(update)
             this.onListedUpdate?.(update)
-            const discovered = modelsFromProbe(update)
+            // The update carries config options but no models; feeding it alone to
+            // modelsFromProbe would drop the per-model effort lists the handshake
+            // carried (grok-4.5 has no xhigh) and widen every model to the shared
+            // option list again. The probe shape is rebuilt from the merged state.
+            const discovered = modelsFromProbe({
+              configOptions: update.configOptions,
+              models: { availableModels: listed.models },
+            })
             if (discovered.length > 0) session.push({ type: 'models', models: discovered })
           }
         }
@@ -924,7 +940,8 @@ export function modelsFromProbe(probe) {
     ...(entry.description ? { description: String(entry.description) } : {}),
   }))
   const thoughtById = new Map(thoughtOptions.map(entry => [entry.id, entry]))
-  const availableIds = new Set(available.map(entry => String(entry.modelId ?? entry.id ?? '')).filter(Boolean))
+  const availableByIds = new Map(available.map(entry => [String(entry.modelId ?? entry.id ?? ''), entry]).filter(([id]) => id !== ''))
+  const availableIds = new Set(availableByIds.keys())
   const knownEfforts = [...new Set([...EFFORT_ORDER, ...thoughtOptions.map(entry => entry.id)])]
   const hasVariantMap = (option?.options ?? []).length > 0
     && availableIds.size > 0
@@ -932,12 +949,24 @@ export function modelsFromProbe(probe) {
   return baseModels.map((model) => {
     // Leave defaultEffort unset so a Bot without a chosen level keeps the CLI's default.
     if (hasVariantMap) {
-      const efforts = knownEfforts
+      const efforts = sortEfforts(knownEfforts
         .filter(effortId => availableIds.has(`${model.id}-${effortId}`))
-        .map(effortId => thoughtById.get(effortId) ?? { id: effortId, name: EFFORT_NAMES[effortId] ?? effortId })
+        .map(effortId => thoughtById.get(effortId) ?? { id: effortId, name: EFFORT_NAMES[effortId] ?? effortId }))
       return efforts.length > 0 ? { ...model, reasoning: { efforts } } : model
     }
-    return thoughtOptions.length > 0 ? { ...model, reasoning: { efforts: thoughtOptions } } : model
+    // A model's own level list wins over the session-wide one: Grok's
+    // availableModels carry `_meta.reasoningEfforts` (descending, and per model —
+    // grok-4.5 has no xhigh), which the shared option cannot say.
+    const own = availableByIds.get(model.id)?._meta?.reasoningEfforts
+    if (Array.isArray(own) && own.length > 0) {
+      const efforts = sortEfforts(own.map(entry => ({
+        id: String(entry.id ?? entry.value ?? entry.name),
+        name: String(entry.name ?? entry.label ?? entry.id ?? entry.value),
+        ...(entry.description ? { description: String(entry.description) } : {}),
+      })).filter(entry => entry.id !== ''))
+      if (efforts.length > 0) return { ...model, reasoning: { efforts } }
+    }
+    return thoughtOptions.length > 0 ? { ...model, reasoning: { efforts: sortEfforts(thoughtOptions) } } : model
   })
 }
 

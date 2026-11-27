@@ -67,11 +67,28 @@ function useEfforts(served, ref, actions) {
   return served?.reasoning ?? fetched
 }
 
+const EFFORT_RANK = new Map(['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((id, rank) => [id, rank]))
+
+function orderedEfforts(efforts) {
+  if (efforts.length < 2) return efforts
+  const rankOf = effort => EFFORT_RANK.get(String(effort?.id ?? '').trim().toLowerCase())
+  if (!efforts.some(effort => rankOf(effort) !== undefined)) return efforts
+  return efforts
+    .map((effort, index) => ({ effort, index, rank: rankOf(effort) }))
+    .sort((a, b) => {
+      if (a.rank !== undefined && b.rank !== undefined) return a.rank - b.rank || a.index - b.index
+      if (a.rank !== undefined) return -1
+      if (b.rank !== undefined) return 1
+      return a.index - b.index
+    })
+    .map(entry => entry.effort)
+}
+
 // The stops along the thinking-level slider: when the model names its default level,
 // the stops are the levels themselves and the reset action clears back to Default;
 // otherwise Default sits at the first stop.
 export function effortStops(reasoning) {
-  const efforts = reasoning?.efforts ?? []
+  const efforts = orderedEfforts(reasoning?.efforts ?? [])
   if (efforts.length === 0) return []
   const hasDefault = efforts.some(effort => effort.id === reasoning.defaultEffort)
   return hasDefault

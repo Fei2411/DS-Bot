@@ -173,3 +173,52 @@ export const acpMode = (preset, advertised, modes) => {
 // Codex and Claude take a fixed mode; an ACP engine maps the preset itself once
 // its session lists the modes (acpMode).
 export const cliMode = (kind, preset) => (kind === 'acp' ? undefined : MODES[preset]?.[kind])
+
+// ---------------------------------------------------------------------------
+// Thinking levels and activity noise shared by every engine driver.
+
+// The canonical weak-to-strong order of known thinking levels. Everything the
+// host and the client assume about `reasoning.efforts` rests on it: the effort
+// bar fills left to right, and the adapter's one-off side requests take
+// `efforts[0]` as the cheapest level. CLIs report their own order — Grok lists
+// `xhigh, high, medium, low` — so every list is normalized, never trusted.
+export const EFFORT_ORDER = ['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+export const effortRank = id => {
+  const rank = EFFORT_ORDER.indexOf(String(id ?? '').toLowerCase())
+  return rank === -1 ? EFFORT_ORDER.length : rank
+}
+// A stable weak-to-strong sort; levels the table does not know keep their
+// original relative order behind the known ones.
+export const sortEfforts = (efforts) => (Array.isArray(efforts) ? [...efforts] : [])
+  .map((effort, index) => ({ effort, index, rank: effortRank(effort?.id) }))
+  .sort((a, b) => a.rank - b.rank || a.index - b.index)
+  .map(entry => entry.effort)
+
+// Meta/discovery tools of a CLI's own runtime: they search the tool catalog or
+// activate deferred tools (Grok's search_tool/use_tool), and they only narrate
+// the agent's plumbing, never its work on the user's behalf. Bare names and
+// the shapes ACP reports (mcp__server__tool, server__tool, server_tool,
+// server:tool, server/tool) are all matched on the tool's own name.
+const META_TOOL_NAMES = new Set(['search_tool', 'use_tool', 'list_tools', 'tool_search', 'search_tools', 'load_tool', 'discover_tools'])
+export const bareToolName = (name) => {
+  const text = String(name ?? '').trim()
+  if (text === '') return ''
+  const withoutMcp = text.replace(/^mcp(?:__|_)/i, '')
+  const parts = withoutMcp.split(/__|[:/]/).filter(part => part !== '')
+  let base = parts.length > 1 ? parts.at(-1) : withoutMcp
+  if (base.startsWith('dsbot_') && base !== 'dsbot') base = base.slice('dsbot_'.length)
+  return base
+}
+export const isMetaToolCall = (call) => {
+  const name = bareToolName(call?.name ?? call?.toolName)
+  if (META_TOOL_NAMES.has(name)) return true
+  // ACP carries no standard tool-name field: some agents only title the call.
+  const title = typeof call?.title === 'string' ? call.title.trim() : ''
+  return META_TOOL_NAMES.has(bareToolName(title.split(/\s+/)[0]))
+}
+
+// An activity line starts with the tool's name, so only that name may mark a
+// team call. Reading the whole line would treat a `dsbot/` path in a shell
+// argument as the team server and hide real work from the group.
+export const LOCAL_TEAM_TOOL = /^(?:mcp(?:__|_)dsbot(?=[_:]|$)|dsbot(?=[_:]|$))/i
+export const localTeamCall = text => LOCAL_TEAM_TOOL.test(String(text ?? '').trim().split(/\s+/)[0] ?? '')
