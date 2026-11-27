@@ -68,8 +68,8 @@ export function Settings({ navigation }: { navigation?: any }) {
         <Row label={t('Computers')} value={computer?.name ?? ''} onPress={() => navigation?.navigate('Computers')} />
         <Choice label={t('Appearance')} value={theme as 'system' | 'light' | 'dark'} onPick={next => set('theme', next)}
           options={[{ id: 'system', label: t('System') }, { id: 'light', label: t('Light') }, { id: 'dark', label: t('Dark') }]} />
-        <Choice label={t('Language')} value={lang as 'system' | 'zh' | 'en'} onPick={next => { set('lang', next); setLang(next); bump(v => v + 1) }}
-          options={[{ id: 'system', label: t('Follow system') }, { id: 'zh', label: '简体中文' }, { id: 'en', label: 'English' }]} />
+        <Choice label={t('Language')} value={lang as 'system' | 'zh' | 'en' | 'ru'} onPick={next => { set('lang', next); setLang(next); bump(v => v + 1) }}
+          options={[{ id: 'system', label: t('Follow system') }, { id: 'zh', label: '简体中文' }, { id: 'ru', label: 'Русский' }, { id: 'en', label: 'English' }]} />
         {Platform.OS === 'android' ? (
           <>
             <Row
