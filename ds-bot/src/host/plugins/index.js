@@ -1732,7 +1732,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
     }
 
     // Tools registered by currently active, non-disabled plugins (e.g. built-in `browser_open`
-    // when an installed DSH browser plugin like Ego Lite is inactive) must never be blocked by
+    // when an installed external DSH browser plugin is inactive) must never be blocked by
     // an inactive bundle's overlapping tool prefix.
     const activeOwnedTools = new Set()
     for (const [mountKey, mount] of activeMounts.entries()) {
@@ -2114,8 +2114,10 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
       seenIds.add(id)
       const installed = isBundleAvailable(bundle)
       const pending = pendingRestartPackages.get(bundle.name)
-      // A bare `dsh:` bundle can still occupy a slot: blocked slot states belong to it too.
-      const slotStatD = [...new Set([...slotDefaults.keys(), ...Object.keys(store.slots)])]
+      // A bare `dsh:` bundle can still occupy a slot: preserve its slot and blocked states.
+      const knownSlots = [...new Set([...slotDefaults.keys(), ...Object.keys(store.slots)])]
+      const occupiedSlot = knownSlots.find(s => activeSlotTarget(s) === id || slotDesired(s) === id) ?? null
+      const slotStatD = knownSlots
         .map(slot => runtimeStatus.get(`slot:${slot}`))
         .find(s => s?.desiredId === id) ?? null
       const statD = runtimeStatus.get(`plugin:${id}`) ?? slotStatD
@@ -2125,13 +2127,13 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         description: resolveLocalizedText(bundle.meta?.description, bundle.description ?? ''),
         author: null,
         version: bundle.version ?? null,
-        category: 'other',
-        slot: null,
+        category: occupiedSlot === 'browser' ? 'browser' : 'other',
+        slot: occupiedSlot,
         kind: 'dsh',
         installed,
-        enabled: Boolean(installed && bundle.enabled),
-        active: Boolean(installed && bundle.enabled),
-        desired: Boolean(bundle.enabled),
+        enabled: occupiedSlot ? activeSlotTarget(occupiedSlot) === id : Boolean(installed && bundle.enabled),
+        active: occupiedSlot ? activeSlotTarget(occupiedSlot) === id : Boolean(installed && bundle.enabled),
+        desired: occupiedSlot ? slotDesired(occupiedSlot) === id : Boolean(bundle.enabled),
         status: pending ? 'restart-required' : (installed && bundle.enabled ? 'ready' : 'inactive'),
         error: bundle.error?.diagnostic ?? null,
         restartReason: pending?.reason ?? null,
@@ -2144,6 +2146,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         updatable: Boolean(bundle.updatable),
         supportsPerBot: false,
         supportsGrants: false,
+        ...(occupiedSlot === 'browser' ? browserSurfaceFor(id, false) : {}),
         offFor: [...(own(store.offFor, id) ?? [])],
         toolPrefixes: [],
         packageName: bundle.name,
