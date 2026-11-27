@@ -269,4 +269,25 @@ test('scan.mjs redacts secret prefixes overlapping extra markers, overlapping pr
   const badOut = `${badRes.stdout}\n${badRes.stderr}`
   assert.ok(!badOut.includes(secretBeforeBad), 'stderr must never leak valid markers alongside an invalid regex')
   assert.ok(!badOut.includes('unclosed-regex-marker-99'), 'stderr must never echo the invalid pattern text')
+
+  // Zero-width lookahead extra patterns must still fail with exit code 1 and redact same-line findings.
+  const { repo: zwRepo } = initMinimalGitRepo()
+  const zwMarker = 'ZeroWidthMarker99'
+  writeFileSync(join(zwRepo, 'only-zw.txt'), `clean line ${zwMarker}\n`)
+  const zwOnly = runScan(join(zwRepo, 'scripts', 'scan.mjs'), zwRepo, {
+    SCAN_EXTRA_PATTERNS: `(?=${zwMarker})\n`,
+  })
+  assert.equal(zwOnly.status, 1)
+  const zwFindings = zwOnly.findings.filter(f => f.level === 'must fix' && f.file === 'only-zw.txt')
+  assert.equal(zwFindings.length, 1)
+  assert.equal(zwFindings[0].id, 'extra-pattern')
+  assert.equal(zwFindings[0].text, '<redacted> (0 chars)')
+  assert.ok(!`${zwOnly.stdout}\n${JSON.stringify(zwOnly.findings)}`.includes(zwMarker))
+
+  writeFileSync(join(zwRepo, 'only-zw.txt'), `${draftTag} ${zwMarker}\n`)
+  const zwMixed = runScan(join(zwRepo, 'scripts', 'scan.mjs'), zwRepo, {
+    SCAN_EXTRA_PATTERNS: `(?=${zwMarker})\n`,
+  })
+  assert.equal(zwMixed.status, 1)
+  assert.ok(!`${zwMixed.stdout}\n${JSON.stringify(zwMixed.findings)}`.includes(zwMarker))
 })

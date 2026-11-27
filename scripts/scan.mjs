@@ -100,8 +100,8 @@ for (const file of files) {
   if (data.includes(0)) continue
   const lines = data.toString('utf8').split('\n')
   lines.forEach((line, index) => {
-    let lineExtraRanges = null
-    const getExtraRanges = () => (lineExtraRanges ??= extraMatchRanges(line))
+    let lineExtra = null
+    const getExtra = () => (lineExtra ??= extraMatchInfo(line))
     for (const rule of TEXT_RULES) {
       if (rule.files && !rule.files.test(file)) continue
       if (rule.notFiles && rule.notFiles.test(file)) continue
@@ -110,8 +110,12 @@ for (const file of files) {
       if (rule.legacyOk && legacy) continue
       if (rule.onlyLegacy && !legacy) continue
       if (rule.patterns) {
-        for (const [mStart, mEnd] of getExtraRanges()) {
+        const { ranges, zeroWidthCount } = getExtra()
+        for (const [mStart, mEnd] of ranges) {
           add(rule.level, rule.id, file, index + 1, `<redacted> (${mEnd - mStart} chars)`, rule.summary)
+        }
+        for (let i = 0; i < zeroWidthCount; i += 1) {
+          add(rule.level, rule.id, file, index + 1, '<redacted> (0 chars)', rule.summary)
         }
         continue
       }
@@ -120,12 +124,14 @@ for (const file of files) {
         if (rule.secret && PLACEHOLDER.test(match[0])) continue
         const mStart = match.index
         const mEnd = mStart + match[0].length
-        const overlapsExtra = extra.length > 0 && hasRangeOverlap(getExtraRanges(), mStart, mEnd)
-        const shown = (rule.redact || isScanExtraFile || (rule.secret && overlapsExtra))
+        const extraInfo = extra.length > 0 ? getExtra() : { ranges: [], zeroWidthCount: 0 }
+        const redactLine = extraInfo.zeroWidthCount > 0
+        const overlapsExtra = redactLine || hasRangeOverlap(extraInfo.ranges, mStart, mEnd)
+        const shown = (rule.redact || isScanExtraFile || redactLine || (rule.secret && overlapsExtra))
           ? `<redacted> (${match[0].length} chars)`
           : rule.secret
             ? `${match[0].slice(0, 6)}… (${match[0].length} chars)`
-            : snippet(line, mStart, match[0].length, getExtraRanges())
+            : snippet(line, mStart, match[0].length, extraInfo.ranges)
         add(rule.level, rule.id, file, index + 1, shown, rule.summary)
       }
     }
@@ -233,17 +239,18 @@ function report() {
   process.exit(byLevel(MUST).length > 0 ? 1 : 0)
 }
 
-function extraMatchRanges(line) {
-  if (!extra.length) return []
+function extraMatchInfo(line) {
+  if (!extra.length) return { ranges: [], zeroWidthCount: 0 }
   const raw = []
+  let zeroWidthCount = 0
   for (const re of extra) {
     re.lastIndex = 0
     for (const m of line.matchAll(re)) {
-      if (m[0].length === 0) continue
-      raw.push([m.index, m.index + m[0].length])
+      if (m[0].length === 0) zeroWidthCount += 1
+      else raw.push([m.index, m.index + m[0].length])
     }
   }
-  if (raw.length <= 1) return raw
+  if (raw.length <= 1) return { ranges: raw, zeroWidthCount }
   raw.sort((a, b) => a[0] - b[0] || b[1] - a[1])
   const merged = [raw[0]]
   for (let i = 1; i < raw.length; i += 1) {
@@ -251,7 +258,7 @@ function extraMatchRanges(line) {
     if (raw[i][0] <= prev[1]) prev[1] = Math.max(prev[1], raw[i][1])
     else merged.push(raw[i])
   }
-  return merged
+  return { ranges: merged, zeroWidthCount }
 }
 
 function hasRangeOverlap(ranges, start, end) {
@@ -273,7 +280,7 @@ function redactExtraInSlice(line, start, end, ranges) {
   return out
 }
 
-function snippet(line, at, length, ranges = extraMatchRanges(line)) {
+function snippet(line, at, length, ranges = extraMatchInfo(line).ranges) {
   const start = Math.max(0, at - 40)
   const end = Math.min(line.length, at + length + 40)
   return `${start > 0 ? '…' : ''}${redactExtraInSlice(line, start, end, ranges).trim()}${end < line.length ? '…' : ''}`
