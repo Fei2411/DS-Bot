@@ -22,7 +22,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -588,7 +588,12 @@ async function runWorker() {
       assert.ok(logFiles.length > 0, 'expected persisted session .jsonl file on disk')
       // Revoke read permission so recovery hits a real OS EACCES / unreadable session log failure.
       for (const file of logFiles) {
-        chmodSync(file, 0o000)
+        if (process.platform === 'win32') {
+          const acl = spawnSync('icacls', [file, '/inheritance:r', '/deny', '*S-1-1-0:(R)'], { stdio: 'ignore' })
+          assert.equal(acl.status, 0, `icacls deny read failed for ${file}`)
+        } else {
+          chmodSync(file, 0o000)
+        }
       }
       process.exit(137)
     }
@@ -1625,7 +1630,7 @@ if (process.env.DSB_CRASH_WORKER === '1') {
     env.DSB_CRASH_SCENARIO = scenario
     env.DSB_CRASH_PHASE = phase
     env.DSB_CRASH_HOME = home
-    return spawnSync(process.execPath, ['--import', HARNESS_RESOLVE, THIS_FILE], {
+    return spawnSync(process.execPath, ['--import', pathToFileURL(HARNESS_RESOLVE).href, THIS_FILE], {
       env,
       encoding: 'utf8',
       timeout: 30_000,
@@ -1636,9 +1641,12 @@ if (process.env.DSB_CRASH_WORKER === '1') {
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop()
       for (const file of walkFiles(dir)) {
+        if (process.platform === 'win32') {
+          try { spawnSync('icacls', [file, '/reset'], { stdio: 'ignore' }) } catch {}
+        }
         try { chmodSync(file, 0o600) } catch {}
       }
-      rmSync(dir, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
     }
   })
 

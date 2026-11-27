@@ -225,7 +225,7 @@ describe('Wave 3 real-runtime end-to-end coordination contracts (Scenarios 2–8
     const dirB = join(home, 'ws-beta')
     mkdirSync(dirA, { recursive: true })
     mkdirSync(dirB, { recursive: true })
-    symlinkSync(dirA, dirALink)
+    symlinkSync(dirA, dirALink, process.platform === 'win32' ? 'junction' : 'dir')
     assert.equal(canonicalizeWorkspaceDir(dirALink), canonicalizeWorkspaceDir(dirA))
 
     const latches = new Map()
