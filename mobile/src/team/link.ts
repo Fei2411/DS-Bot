@@ -6,6 +6,7 @@ import { ensureUnlock } from './gate'
 import { createNoticeCursor, type NoticeCursorAnswer } from './notices.ts'
 import { OPTIMISTIC, optimistic, withWrites, type Write } from './optimistic.ts'
 import { fillTeamPhotos } from './photos.ts'
+import { mergeTeamState } from './mark-state.ts'
 import { acquireTransferHold, hasActiveTransferHolds, onTransferHoldsIdle } from './transfer-hold.ts'
 import { t } from '../ui/i18n.ts'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
@@ -120,7 +121,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity, ho
     revision.current = next.revision
     if (typeof next.liveKey === 'string') liveKey.current = next.liveKey
     setTeam(prev => {
-      const merged = next.unchanged === true && prev !== null ? { ...prev, ...next } : next
+      const merged = mergeTeamState(prev, next)
       return fillPhotos(withWrites(merged, writes.current), prev)
     })
   }, [])

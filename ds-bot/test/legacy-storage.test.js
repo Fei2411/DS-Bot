@@ -63,3 +63,9 @@ test('a saved legacy grok theme becomes the mono theme', () => {
   assert.deepEqual(JSON.parse(storage.getItem(STORAGE.prefs)), { theme: 'mono', accent: '#123456' })
   migrateStorage(memoryStorage({ 'ds-bot:prefs': 'not json' }))
 })
+
+test('a saved legacy celadon theme becomes the fei theme', () => {
+  const storage = memoryStorage({ 'ds-bot:prefs': '{"theme":"celadon"}' })
+  migrateStorage(storage)
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.prefs)), { theme: 'fei' })
+})

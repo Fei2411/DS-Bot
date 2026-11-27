@@ -69,8 +69,8 @@ test('the host serves each reply font on the route the client asks for', async (
   assert.equal(routes.size, Object.keys(FONT_FILES).length)
 })
 
-test('Celadon sets the serif on Bot replies only, and a text font from Settings still wins', () => {
-  const css = themeCss(allThemes().celadon)
+test('Fei sets the serif on Bot replies only, and a text font from Settings still wins', () => {
+  const css = themeCss(allThemes().fei)
   for (const file of Object.values(FONT_FILES)) assert.ok(css.includes(`url(${FONT_ROUTE}/${file})`), `@font-face for ${file}`)
   const rule = css.split('\n').find(line => line.startsWith('.bt-look-bot,'))
   assert.ok(rule, 'reply rule')

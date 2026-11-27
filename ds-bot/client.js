@@ -1054,7 +1054,7 @@ var JA = {
   "Mono": "モノクロ",
   "Paper": "ペーパー",
   "Moonlight": "ムーンライト",
-  "Celadon": "青磁",
+  "Fei": "Fei",
   "General": "一般",
   "Bots": "Bot",
   "Group chats": "グループチャット",
@@ -4695,7 +4695,7 @@ var KO = {
   Mono: "모노",
   Paper: "페이퍼",
   Moonlight: "문라이트",
-  Celadon: "청자",
+  Fei: "Fei",
   // Settings dialog
   General: "일반",
   Bots: "Bot",
@@ -8363,7 +8363,7 @@ var ES = {
   Mono: "Mono",
   Paper: "Papel",
   Moonlight: "Luz de luna",
-  Celadon: "Celadón",
+  Fei: "Fei",
   // Settings dialog
   General: "General",
   Bots: "Bots",
@@ -12013,7 +12013,7 @@ var FR = {
   "Mono": "Mono",
   "Paper": "Papier",
   "Moonlight": "Clair de lune",
-  "Celadon": "Céladon",
+  "Fei": "Fei",
   "General": "Général",
   "Bots": "Bots",
   "Group chats": "Discussions de groupe",
@@ -15654,7 +15654,7 @@ var DE = {
   Mono: "Monochrom",
   Paper: "Papier",
   Moonlight: "Mondlicht",
-  Celadon: "Seladon",
+  Fei: "Fei",
   // Settings dialog
   General: "Allgemein",
   Bots: "Bots",
@@ -19219,7 +19219,7 @@ var ZH = {
   Mono: "黑白",
   Paper: "纸张",
   Moonlight: "月光",
-  Celadon: "天青",
+  Fei: "Fei",
   // Settings dialog
   General: "通用",
   Bots: "Bot",
@@ -21983,7 +21983,7 @@ var STORAGE = {
 };
 var LEGACY_PREFIXES = ["dsh-bot:", "dsh-bot-team:"];
 var LEGACY_BROWSER_KEYS = ["ds-bot.browser.v1", "dsh-bot.browser.v1"];
-var LEGACY_THEMES = { grok: "mono" };
+var LEGACY_THEMES = { grok: "mono", celadon: "fei" };
 function legacyKeys(key) {
   if (key === STORAGE.browsers) return LEGACY_BROWSER_KEYS;
   const name = key.slice(key.indexOf(":") + 1);
@@ -23786,8 +23786,8 @@ var THEMES = {
     light: { bg: "#f7f9fc", sidebar: "#eef2f8", bubble: "#e5ebf5", card: "#ffffff", text: "#121826", user: "#1e3a8a", userText: "#ffffff", accent: "#1e86ff" },
     dark: { bg: "#0b1020", sidebar: "#10172a", bubble: "#1a2340", card: "#141c33", text: "#e8edf7", user: "#3b6fd8", userText: "#ffffff", accent: "#4f9dff" }
   },
-  celadon: {
-    label: "Celadon",
+  fei: {
+    label: "Fei",
     light: { bg: "#faf6ee", sidebar: "#f3ede2", bubble: "#efe8db", card: "#fdfbf7", text: "#211f1b", user: "#e2eeec", userText: "#163f46", accent: "#1e8294" },
     dark: { bg: "#1d1c19", sidebar: "#23221e", bubble: "#2d2b26", card: "#27251f", text: "#f2ede3", user: "#1f4a51", userText: "#e6f1f0", accent: "#3fa9ba" },
     css: SERIF_REPLIES
@@ -30601,9 +30601,13 @@ var LiveMark = class {
 
 // src/client/mark-states.js
 var MARK_STATES = ["idle", "thinking", "searching", "working", "sending", "orbit", "waiting", "background", "alert", "failed", "done", "replied"];
+var RUNNING_STATES = /* @__PURE__ */ new Set(["thinking", "searching", "working", "sending", "orbit", "done"]);
 var BETWEEN = /* @__PURE__ */ new Set(["waiting", "background", "failed", "replied"]);
 var botState = (running, activity, alert, { failed = false, background = false, replied = false } = {}) => running ? MARK_STATES.includes(activity) && !BETWEEN.has(activity) ? activity : "working" : alert ? "alert" : failed ? "failed" : activity === "waiting" ? "waiting" : background ? "background" : replied ? "replied" : "idle";
 var toolState = (name) => /^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
+var avatarBadge = (state, { main = false, admin = false, badge = true } = {}) => !badge ? null : state === "alert" ? "alert" : RUNNING_STATES.has(state) ? "working" : admin ? "admin" : main ? "main" : null;
+var isBrowserHandoff = (hold) => hold?.callId !== void 0;
+var isComputerHandoff = (hold) => hold != null && (hold.by === "bot" || hold.fromBot === true || hold.callId !== void 0 || typeof hold.reason === "string" && hold.reason !== "" && hold.reason !== "takeover");
 
 // src/client/memo.js
 var React = __toESM(require("react"), 1);
@@ -30630,7 +30634,6 @@ function useRosterPick(useRoster, fields) {
 
 // src/client/mark.js
 var import_react2 = require("react");
-var RUNNING = /* @__PURE__ */ new Set(["thinking", "searching", "working", "sending", "orbit", "done"]);
 var latestTurnOf = (list, part) => {
   const outline2 = turnOutlineOf(list, part);
   return Array.isArray(outline2) && outline2.length > 0 ? outline2.at(-1).turn : void 0;
@@ -30661,8 +30664,6 @@ function useBotApprovals(botId, useWork, useComputer) {
   const bgApproval = useReadWork((work) => botId !== void 0 && (work.approvals ?? []).some((entry) => entry.roomId === void 0 && entry.botId === botId && entry.taskId !== void 0 && entry.answerable !== false));
   return { fgApproval: fgTool || fgComputer, bgApproval };
 }
-var isBrowserHandoff = (hold) => hold?.callId !== void 0;
-var isComputerHandoff = (hold) => hold !== void 0 && (hold.by === "bot" || hold.fromBot === true || hold.callId !== void 0 || typeof hold.reason === "string" && hold.reason !== "takeover");
 function useBotHandoff(botId, useBrowserHolds, useComputer) {
   const useReadBrowserHolds = useBrowserHolds ?? useFalse;
   const useReadComputer = useComputer ?? useFalse;
@@ -30775,7 +30776,7 @@ function useSettled(state, id) {
 var BotAvatar = memo(function BotAvatar2({ bot, size, state = "idle", main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
   const settled = useSettled(state, bot?.id);
   if (bot === void 0) return (0, import_react2.createElement)(BotMark, { size });
-  const badgeKind = !badge ? null : state === "alert" ? "alert" : RUNNING.has(state) ? "working" : admin ? "admin" : main ? "main" : null;
+  const badgeKind = avatarBadge(state, { main, admin, badge });
   return (0, import_react2.createElement)(
     "span",
     { className: "bt-mark", style: { width: size, height: size, "--bt-size": `${size}px` } },
@@ -31771,7 +31772,7 @@ function useEscape(onClose, active = true, { priority = 0 } = {}) {
 // src/client/goal.js
 var import_react7 = require("react");
 var REPORTED = /* @__PURE__ */ new Set(["reported", "done"]);
-var RUNNING2 = /* @__PURE__ */ new Set(["active", "paused"]);
+var RUNNING = /* @__PURE__ */ new Set(["active", "paused"]);
 var FACES_MAX = 4;
 var hasGoalAdmin = (room2, roster) => room2 !== void 0 && room2.members?.includes(room2.admin) === true && roster.byId?.[room2.admin] !== void 0;
 var canSetGoal = (room2, roster) => hasGoalAdmin(room2, roster) && room2.goal?.status !== "active" && room2.goal?.status !== "paused";
@@ -31780,7 +31781,7 @@ function goalView(goal, { roster = {}, roomWork = [] } = {}) {
   const stages = goal.stages ?? [];
   const count = stages.length;
   const at2 = goal.current;
-  const current2 = RUNNING2.has(goal.status) ? stages[at2] : void 0;
+  const current2 = RUNNING.has(goal.status) ? stages[at2] : void 0;
   const checking = current2 !== void 0 && (current2.tasks ?? []).every((task) => REPORTED.has(task.status));
   const number = goal.status === "drafting" ? void 0 : goal.status === "stopped" ? stages.filter((stage) => stage.status === "passed").length : current2 !== void 0 ? at2 + 1 : count;
   const barLabel = goal.status === "drafting" ? t("Aligning the goal with you") : goal.status === "stopped" ? t("Stopped") : goal.status === "complete" ? t("Goal reached") : goal.status === "paused" ? current2 ? t("Paused · {title}", { title: current2.title }) : t("Paused") : goal.idle === true ? current2 ? t("Waiting for you · {title}", { title: current2.title }) : t("Waiting for you") : current2 === void 0 ? t("Final check") : checking ? t("Checking · {title}", { title: current2.title }) : current2.title;
@@ -31797,7 +31798,7 @@ function goalView(goal, { roster = {}, roomWork = [] } = {}) {
     title: stage.title,
     acceptance: stage.acceptance,
     status: stage.status,
-    kind: stage.status === "passed" ? "passed" : i === at2 && RUNNING2.has(goal.status) ? "current" : "upcoming",
+    kind: stage.status === "passed" ? "passed" : i === at2 && RUNNING.has(goal.status) ? "current" : "upcoming",
     tasks: (stage.tasks ?? []).map((task) => ({ bot: roster.byId?.[task.botId], task: task.task, status: task.status })),
     evidence: stage.evidence,
     reworks: stage.reworks ?? 0,
@@ -31897,11 +31898,11 @@ function TaskRow({ task, working }) {
 }
 var STOP_ARM_MS = 3e3;
 function GoalPanel({ goal, view, room: room2, roster, actions, working }) {
-  const at2 = RUNNING2.has(view.status) && goal.current < view.stages.length ? goal.current : -1;
+  const at2 = RUNNING.has(view.status) && goal.current < view.stages.length ? goal.current : -1;
   const [selected, setSelected] = (0, import_react7.useState)(at2);
   const [checks, setChecks] = (0, import_react7.useState)(false);
   const [armed, setArmed] = (0, import_react7.useState)(false);
-  (0, import_react7.useEffect)(() => setSelected(RUNNING2.has(view.status) && goal.current < view.stages.length ? goal.current : -1), [view.status, goal.current]);
+  (0, import_react7.useEffect)(() => setSelected(RUNNING.has(view.status) && goal.current < view.stages.length ? goal.current : -1), [view.status, goal.current]);
   (0, import_react7.useEffect)(() => {
     if (!armed) return void 0;
     const timer2 = setTimeout(() => setArmed(false), STOP_ARM_MS);
@@ -64247,6 +64248,46 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
 
 // src/shared/release-notes-generated.js
 var RELEASE_NOTES = [
+  {
+    "version": "0.4.0",
+    "date": "2026-11-27",
+    "notes": {
+      "zh": {
+        "items": [
+          "全新独立桌面端：更轻更快、大幅降低 CPU 与内存消耗，新增 Fei 主题、双色自动配色、VS Code 主题导入与自定义样式",
+          "统一收件箱：所有 Bot 和群聊的待批准、待回答、未读消息集中处理",
+          "全新 20 款动态形象：桌面和手机同步显示每个 Bot 当前状态，支持自定义群头像",
+          "Bot 插件与安全分级：新增插件市场与四级权限安全模型",
+          "隐私与安全升级：默认拦截底层遥测，隐私 Bot 断网保护更安全；新增原子存盘防断电丢数据",
+          "自动审查与权限升级：可选审查模型自动把关审批，支持多文件夹授权与单 Bot 独立预设",
+          "统一外部 API：本机开放 MCP、OpenAI 兼容接口和 CLI，支持外部 Agent 调用，彻底打通工作流",
+          "协作与上下文重构：群聊与消息结构重构，上下文支持工具结果召回且更稳命中缓存，并可选开启代码模式编排多工具",
+          "账号、密钥与快捷键：支持 ChatGPT 登录、同 CLI 多账号、1Password（op://）与多行密钥、全局自定义快捷键",
+          "浏览器增强：新增可热切换的浏览器插件（目前可选 Ego Lite 浏览器、Playwright MCP、Chrome DevTools MCP），优化 Cookie 导入并支持 macOS Safari 批量导入",
+          "手机端升级：Android 支持应用内自动更新、原生通知与完整用量看板；对话内支持直接查看交互卡片、保留输入内容与回车发送",
+          "更多体验与修复：关于页新增自动更新开关与更新日志弹窗，并修复大量 IM、本地 CLI 与稳定性问题"
+        ],
+        "intro": "全新自写桌面前端、统一收件箱、Bot 插件与全新 Bot 形象上线，安全与隐私升级，更轻、更稳、更开放。"
+      },
+      "en": {
+        "items": [
+          "Native desktop frontend: lighter and faster with much lower CPU and memory usage, plus the Fei theme, 2-color themes, VS Code theme import, and custom CSS",
+          "Unified Inbox: handle pending approvals, unanswered questions, and unread messages across all Bots and groups in one view",
+          "20 new live avatars: see each Bot's current status at a glance across desktop and phone, plus custom group avatars",
+          "Bot Plugins & security tiers: new plugin catalog with a 4-tier permission and security model",
+          "Privacy & durability: blocks underlying telemetry by default with fail-closed offline protection for private Bots, plus atomic saves against power loss",
+          "Auto Review & permissions: optional review model for approvals, multi-folder access, and per-Bot Agent presets",
+          "Unified External API: local MCP, OpenAI-compatible API, and CLI so external Agents can plug right into your workflow",
+          "Coordination & context overhaul: cleaner group and message coordination, tool-output recall with steadier prompt caching, and opt-in Code Mode",
+          "Accounts, Secrets & shortcuts: Sign in with ChatGPT, multiple profiles per local CLI, 1Password (op://) and multiline secrets, and customizable shortcuts",
+          "Browser upgrades: hot-swappable browser plugins (Ego Lite Browser, Playwright MCP, Chrome DevTools MCP) plus improved batch Cookie import with macOS Safari support",
+          "Phone upgrades: Android in-app auto-update, native notifications, and full Usage dashboard, plus inline interactive cards, saved drafts, and Enter-to-send",
+          "Polish & fixes: automatic updates toggle and in-app What's New dialog in About, plus stability fixes across IM platforms and local CLIs"
+        ],
+        "intro": "A native DS Bot desktop frontend, unified Inbox, Bot Plugins, redesigned live avatars, and stronger privacy — lighter, steadier, and more open."
+      }
+    }
+  },
   {
     "version": "0.3.10",
     "date": "2026-11-22",
