@@ -6,7 +6,7 @@
       "zh": {
         "intro": "全新自写桌面前端、统一收件箱、Bot 插件与全新 Bot 形象上线，安全与隐私升级，更轻、更稳、更开放。",
         "items": [
-          "全新独立桌面端：更轻更快、大幅降低 CPU 与内存消耗，新增天青主题、双色自动配色、VS Code 主题导入与自定义样式",
+          "全新独立桌面端：更轻更快、大幅降低 CPU 与内存消耗，新增 Fei 主题、双色自动配色、VS Code 主题导入与自定义样式",
           "统一收件箱：所有 Bot 和群聊的待批准、待回答、未读消息集中处理",
           "全新 20 款动态形象：桌面和手机同步显示每个 Bot 当前状态，支持自定义群头像",
           "Bot 插件与安全分级：新增插件市场与四级权限安全模型",
@@ -23,7 +23,7 @@
       "en": {
         "intro": "A native DS Bot desktop frontend, unified Inbox, Bot Plugins, redesigned live avatars, and stronger privacy — lighter, steadier, and more open.",
         "items": [
-          "Native desktop frontend: lighter and faster with much lower CPU and memory usage, plus the Celadon theme, 2-color themes, VS Code theme import, and custom CSS",
+          "Native desktop frontend: lighter and faster with much lower CPU and memory usage, plus the Fei theme, 2-color themes, VS Code theme import, and custom CSS",
           "Unified Inbox: handle pending approvals, unanswered questions, and unread messages across all Bots and groups in one view",
           "20 new live avatars: see each Bot's current status at a glance across desktop and phone, plus custom group avatars",
           "Bot Plugins & security tiers: new plugin catalog with a 4-tier permission and security model",
