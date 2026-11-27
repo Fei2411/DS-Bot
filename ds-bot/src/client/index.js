@@ -87,14 +87,19 @@ import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
 import { installAgentForks } from './agent-fork.js'
 import { createAvatarRefCache } from './avatar-refs.js'
 import { watchBotCompletions } from './bot-completions.js'
+import { callServiceMethod, createSessionStatusSource, readServiceMember } from './host-service.js'
 
-export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
+export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'uiSession', 'slots', 'theme', 'layout']
 
 const WINDOWS = globalThis.navigator?.userAgentData?.platform === 'Windows' || /^Win/u.test(globalThis.navigator?.platform ?? '')
 
 export function apply(ctx) {
   ctx.effect(() => installTitle(document), 'ds-bot: window title')
-  ctx.effect(() => installLocale(ctx.get('locale')), 'ds-bot: interface copy')
+  ctx.inject(['locale'], (scope) => {
+    scope.effect(() => installLocale(scope.locale), 'ds-bot: interface copy')
+  })
+  const sessionStatus = createSessionStatusSource(ctx)
+  ctx.effect(() => () => sessionStatus.dispose(), 'ds-bot: session status')
   migrateStorage()
   // The window's cached prefs stand in until the first pull answers: a saved
   // `enterToSend: false` then already holds, instead of Enter sending meanwhile.
@@ -136,9 +141,8 @@ export function apply(ctx) {
   const isAgentSessionId = id => isAgentSession(roster.getSnapshot(), agentSessionCache, id) || pendingAdopt.has(id)
   const agentOfSession = id => roster.getSnapshot().agentOf[id] ?? pendingAdopt.get(id)
   // The workspace a Session lives in, for follow-up creates and switch detection.
-  const workspaces = ctx.get('workspaces')
   const workspaceOf = (sessionId) => {
-    const items = workspaces?.list?.getSnapshot()?.items ?? []
+    const items = readServiceMember(ctx, 'workspaces', 'list')?.getSnapshot()?.items ?? []
     return items.find(item => item.sessionIds?.includes(sessionId))?.workspaceId
   }
   // A navigation this plugin started: the surface effect trusts the id it lands on.
@@ -1027,7 +1031,7 @@ export function apply(ctx) {
   actions.canSignIn = () => Boolean(actions.signInEntry())
   actions.signIn = () => ui.set(state => ({ ...state, signIn: (state.signIn ?? 0) + 1 }))
   actions.closeSignIn = () => ui.set(state => ({ ...state, signIn: null }))
-  actions.accountT = () => ctx.get('locale').bind('settings.account')
+  actions.accountT = () => ctx.get('locale')?.bind?.('settings.account') ?? (key => key)
   // DS Bot's own Plugins panel works consistently in both the desktop app and plugin mode.
   actions.hasPlugins = () => true
   actions.openPlugins = (focus = null) => actions.openSettings('plugins', focus)
@@ -1278,9 +1282,8 @@ export function apply(ctx) {
   // question disappears externally (never on explicit submit, skip, scroll, or switch).
   ctx.effect(() => {
     const offRoster = roster.subscribe(() => { questionDrafts.reconcileRoster(roster.getSnapshot()) })
-    const sessionStatus = ctx.get('uiSession')?.sessionStatus
-    const offStatus = sessionStatus?.subscribe?.(() => { questionDrafts.reconcileBlocking(sessionStatus.getSnapshot(), roster.getSnapshot()) })
-    return () => { offRoster(); offStatus?.() }
+    const offStatus = sessionStatus.source.subscribe(() => { questionDrafts.reconcileBlocking(sessionStatus.source.getSnapshot(), roster.getSnapshot()) })
+    return () => { offRoster(); offStatus() }
   }, 'ds-bot: rescue interrupted question drafts')
   ctx.effect(() => noticeApprovals({
     work,
@@ -1375,7 +1378,7 @@ export function apply(ctx) {
     // The column takes the drawer's space: hand it over first.
     actions.closePanel()
     try {
-      ctx.get('sidebarRight')?.openTab('terminal')
+      callServiceMethod(ctx, 'sidebarRight', 'openTab', 'terminal')
     } catch (error) {
       actions.reportError(error, 'right-sidebar')
     }
@@ -1385,7 +1388,7 @@ export function apply(ctx) {
   actions.openFiles = () => {
     actions.closePanel()
     try {
-      ctx.get('sidebarRight')?.openTab('files')
+      callServiceMethod(ctx, 'sidebarRight', 'openTab', 'files')
     } catch (error) {
       actions.reportError(error, 'right-sidebar')
     }
@@ -1398,39 +1401,39 @@ export function apply(ctx) {
   // an attribute batch inside it is the switch revealing that Session's own
   // column — the drawer wins and folds it back — while one outside it is the
   // user's own opening and takes the space.
-  ctx.effect(() => {
-    const sidebar = ctx.get('sidebarRight')
-    if (!sidebar) return undefined
-    let open = rightColumnOpen(document)
-    // Long enough for a fullscreen panel's slide, which reports only once it ends.
-    const switchWindow = createSwitchWindow(done => setTimeout(done, 400))
-    const collapseColumn = () => {
-      try {
-        if (sidebar.isExpanded()) sidebar.toggleExpanded()
-      } catch (error) {
-        actions.reportError(error, 'right-sidebar')
+  ctx.inject(['sidebarRight'], (scope) => {
+    scope.effect(() => {
+      let open = rightColumnOpen(document)
+      // Long enough for a fullscreen panel's slide, which reports only once it ends.
+      const switchWindow = createSwitchWindow(done => setTimeout(done, 400))
+      const collapseColumn = () => {
+        try {
+          if (callServiceMethod(scope, 'sidebarRight', 'isExpanded')) callServiceMethod(scope, 'sidebarRight', 'toggleExpanded')
+        } catch (error) {
+          actions.reportError(error, 'right-sidebar')
+        }
       }
-    }
-    const observer = new MutationObserver(() => {
-      const next = rightColumnOpen(document)
-      const opening = next && !open
-      open = next
-      const verdict = opening ? columnOpened(ui.getSnapshot().details !== null, switchWindow.pending) : null
-      if (verdict === 'close-drawer') actions.closePanel()
-      else if (verdict === 'collapse-column') collapseColumn()
-    })
-    observer.observe(document.documentElement, {
-      subtree: true, attributes: true, attributeFilter: RIGHTBAR_ATTRIBUTES,
-    })
-    const offMounted = sidebar.mounted.subscribe(() => switchWindow.moved())
-    let drawer = ui.getSnapshot().details !== null
-    const offUi = ui.subscribe(() => {
-      const next = ui.getSnapshot().details !== null
-      if (next && !drawer && drawerOpened(rightColumnOpen(document)) === 'collapse-column') collapseColumn()
-      drawer = next
-    })
-    return () => { observer.disconnect(); offMounted(); offUi() }
-  }, 'ds-bot: one right panel')
+      const observer = new MutationObserver(() => {
+        const next = rightColumnOpen(document)
+        const opening = next && !open
+        open = next
+        const verdict = opening ? columnOpened(ui.getSnapshot().details !== null, switchWindow.pending) : null
+        if (verdict === 'close-drawer') actions.closePanel()
+        else if (verdict === 'collapse-column') collapseColumn()
+      })
+      observer.observe(document.documentElement, {
+        subtree: true, attributes: true, attributeFilter: RIGHTBAR_ATTRIBUTES,
+      })
+      const offMounted = readServiceMember(scope, 'sidebarRight', 'mounted')?.subscribe?.(() => switchWindow.moved())
+      let drawer = ui.getSnapshot().details !== null
+      const offUi = ui.subscribe(() => {
+        const next = ui.getSnapshot().details !== null
+        if (next && !drawer && drawerOpened(rightColumnOpen(document)) === 'collapse-column') collapseColumn()
+        drawer = next
+      })
+      return () => { observer.disconnect(); offMounted?.(); offUi() }
+    }, 'ds-bot: one right panel')
+  })
 
   // A Bot surface owns the cells it shadows. It starts far below the -10 that plugins
   // commonly use and goes below whatever already holds the cell, so a plugin that
@@ -1769,7 +1772,7 @@ export function apply(ctx) {
   }, 'ds-bot: agent surface')
 
   ctx.effect(() => watchBotCompletions({
-    roster, sessions: ctx.sessions.list, statuses: ctx.get('uiSession')?.sessionStatus, unread: botCompletions, ui,
+    roster, sessions: ctx.sessions.list, statuses: sessionStatus.source, unread: botCompletions, ui,
   }), 'ds-bot: sidebar completions')
 
   ctx.effect(() => {

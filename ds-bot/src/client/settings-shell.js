@@ -22,6 +22,7 @@ import { useLinger } from './motion.js'
 import { t } from './i18n.js'
 import { createConnectionFeedback } from './connection-feedback.js'
 import { settingsPreferences } from './settings-preferences.js'
+import { callServiceMethod, readServiceMember } from './host-service.js'
 
 // The child slots of the seat, as ui-settings declares their types.
 export const SETTINGS_CHILDREN = {
@@ -426,12 +427,12 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
   const update = desktopUpdateSource(carrier?.protocolVersion === 1 ? carrier.updates : undefined)
   // Connection and shortcuts are read lazily: the shell outlets mount after both exist.
   const connectionState = {
-    getSnapshot: () => ctx.get('connection')?.state.getSnapshot(),
-    subscribe: listener => ctx.get('connection')?.state.subscribe(listener) ?? (() => {}),
+    getSnapshot: () => readServiceMember(ctx, 'connection', 'state')?.getSnapshot(),
+    subscribe: listener => readServiceMember(ctx, 'connection', 'state')?.subscribe(listener) ?? (() => {}),
   }
   const settingsShortcut = {
-    getSnapshot: () => ctx.get('shortcuts')?.catalog.getSnapshot().find(row => row.id === 'settings.open'),
-    subscribe: listener => ctx.get('shortcuts')?.catalog.subscribe(listener) ?? (() => {}),
+    getSnapshot: () => readServiceMember(ctx, 'shortcuts', 'catalog')?.getSnapshot().find(row => row.id === 'settings.open'),
+    subscribe: listener => readServiceMember(ctx, 'shortcuts', 'catalog')?.subscribe(listener) ?? (() => {}),
   }
   const sections = ledgerSource(slots, locale, 'settings.section', sectionRows)
   const items = ledgerSource(slots, locale, 'settings.general.item', itemRows)
@@ -442,7 +443,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
     return {
       ...base,
       preferences: settingsPreferences(ctx),
-      reconnect: () => ctx.get('connection')?.reconnect(),
+      reconnect: () => callServiceMethod(ctx, 'connection', 'reconnect'),
       openDesktopUpdate: () => update.open(),
       openOnboarding,
       finishOnboarding,
@@ -524,7 +525,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
             const timestamp = Date.now()
             await scope.configForms.developerTools.setEnabled(enabled)
             if (previous !== undefined && previous !== enabled && form.getSnapshot().value?.enabled === enabled) {
-              ctx.get('productAnalytics')?.track('code_work_view_toggle', { is_enabled: enabled }, timestamp)
+              callServiceMethod(ctx, 'productAnalytics', 'track', 'code_work_view_toggle', { is_enabled: enabled }, timestamp)
             }
           },
         }),
