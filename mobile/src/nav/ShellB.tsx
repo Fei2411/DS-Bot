@@ -29,6 +29,7 @@ import { Side } from '../screens/side.tsx'
 import { BotBrowser } from '../screens/manage.tsx'
 import type { Agent, Bot, Room } from '../connection.ts'
 import { pendingCountOf } from './pending.ts'
+import { botMarkState } from '../team/mark-state.ts'
 import { activeChatTarget, openChat } from './open-chat.ts'
 import { Sheet, SheetHeader } from './sheet.tsx'
 
@@ -152,9 +153,10 @@ function DrawerContent() {
 
 function Pill({ title, bot, room, agent, bots }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; agent?: Agent; bots: Bot[] }) {
   const { p, dark } = useTheme()
+  const { team } = useTeam()
   return (
     <View style={[styles.pill, { backgroundColor: p.card, borderColor: p.line2 }]}>
-      {bot ? <Avatar bot={bot} dark={dark} size={24} ring={p.card} /> : room ? <RoomAvatar room={room} bots={bots} dark={dark} size={24} ring={p.card} /> : agent ? <FishLogo size={22} /> : null}
+      {bot ? <Avatar bot={bot} dark={dark} size={24} ring={p.card} state={botMarkState(team, bot)} live /> : room ? <RoomAvatar room={room} bots={bots} dark={dark} size={24} ring={p.card} /> : agent ? <FishLogo size={22} /> : null}
       <Text style={{ color: p.ink, fontSize: 14, lineHeight: 20, fontWeight: '500', marginLeft: bot || room || agent ? 8 : 0, flexShrink: 1 }} numberOfLines={1}>{title}</Text>
     </View>
   )

@@ -9,6 +9,7 @@ import { threadCurrentOfPart, threadOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { validateOnePasswordConfig } from './secret-providers/onepassword.js'
 import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
+import { presentedFileName } from '../shared/group-replies.js'
 import { COMPUTER_APPEARANCE_FIELDS } from '../shared/appearance.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
@@ -146,7 +147,8 @@ export function install(rt) {
     rooms: Object.values(state.rooms).map(({ log, seen, paused, sessions, segments, parts: ownParts, ...room }) => {
       const parts = [...Object.values(sessions ?? {}), ...Object.values(segments ?? {}).flat().map(segment => segment.sessionId), ...(ownParts ?? []).map(segment => segment.sessionId)]
       const last = (log ?? []).filter(line => line.kind === undefined).at(-1)
-      return { ...room, sessionId: rt.sessionOfRoom(room), ownParts: (ownParts ?? []).map(segment => segment.sessionId), parts, ...(last ? { lastAt: last.time, preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
+      const lastBody = last ? (last.text || (Array.isArray(last.presented) ? last.presented.map(file => presentedFileName(file.path)).join(', ') : '')) : ''
+      return { ...room, sessionId: rt.sessionOfRoom(room), ownParts: (ownParts ?? []).map(segment => segment.sessionId), parts, ...(last ? { lastAt: last.time, preview: last.who === 'User' ? lastBody : `${last.who}：${lastBody}` } : {}) }
     }),
     // Deleted private Bots whose folder, memory and chats stay closed to the others.
     privateArchives: rt.archivesView(),
@@ -239,6 +241,8 @@ export function install(rt) {
     sessionQueues: rt.sessionQueuesView?.() ?? {},
     // True once until the user confirms or declines the telemetry privacy notice.
     telemetryPrompt: rt.telemetry?.shouldPromptNotice?.() === true,
+    // Release notes state for local windows (excluded from remote/relay payloads).
+    releaseNotes: rt.releaseNotesView?.() ?? null,
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -256,7 +260,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'secret-refresh-external', 'state', 'models', 'presets', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'telemetry-status', 'telemetry-client-error', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'session-controls', 'session-commands', 'session-skills', 'session-files', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'secret-refresh-external', 'state', 'models', 'presets', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'telemetry-status', 'telemetry-client-error', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'job-list', 'job-read', 'session-controls', 'session-commands', 'session-skills', 'session-files', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'engine-feedback-list', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
   READS.add('chatgpt')
 
   const modelRequests = { approvalModel: 0, defaultBotModel: 0 }
@@ -442,8 +446,20 @@ export function install(rt) {
           await rt.catalog()
           await rt.loadSecrets()
           const answer = liveAnswer()
-          const { api: _, telemetryPrompt: _tp, userQuestions: _uq, sessionQueues: _sq, ...remoteLive } = answer.value
-          const liveValue = remote ? remoteLive : answer.value
+          const { api: _, telemetryPrompt: _tp, releaseNotes: _rn, userQuestions: _uq, sessionQueues: _sq, ...remoteLive } = answer.value
+          const liveValue = remote
+            ? {
+              ...remoteLive,
+              ...(Array.isArray(remoteLive.work?.approvals)
+                ? {
+                  work: {
+                    ...remoteLive.work,
+                    approvals: remoteLive.work.approvals.map(({ alwaysAllow: _aa, ...entry }) => entry),
+                  },
+                }
+                : {}),
+            }
+            : answer.value
           if (body.since === state.revision && (body.models === undefined || body.models === modelsKey())) {
             if (body.live === answer.key) return ok({ revision: state.revision, unchanged: true, liveKey: answer.key })
             return ok({ revision: state.revision, unchanged: true, liveKey: answer.key, ...liveValue })
@@ -750,9 +766,14 @@ export function install(rt) {
         case 'set-flags':
           await rt.load()
           return ok(await rt.setFlags(body.id, body))
-        case 'section-save':
+        case 'section-save': {
           await rt.load()
-          return ok(await rt.saveSection(body))
+          const saved = await rt.saveSection(body)
+          if (body.withRevision !== true) return ok(saved)
+          // Read the current section and revision together: a concurrent save may have won.
+          const section = state.sections?.find(entry => entry.id === saved.id)
+          return ok({ section: section ? { ...section } : null, revision: state.revision })
+        }
         case 'section-order':
           await rt.load()
           await rt.reorderSections(body.ids)
@@ -766,7 +787,12 @@ export function install(rt) {
           await rt.deleteRoom(body.id)
           return ok(view())
         case 'approval-answer':
-          rt.answerApproval(body.id, body.choice)
+          if (body.choice === 'always') {
+            if (remote) return fail('Always allow is available on the computer', 'bot/refused')
+            const readOnly = rt.readOnly()
+            if (readOnly !== undefined) return fail(readOnly, 'bot/read-only')
+          }
+          await rt.answerApproval(body.id, body.choice)
           return ok(true)
         // A stop that fails partway still parks the goal, or it wakes the admin again.
         case 'stop-member-work':
@@ -915,12 +941,17 @@ export function install(rt) {
         case 'notices':
         case 'avatar':
         case 'room-chat':
-        case 'image':
         case 'file-download':
         case 'markdown-image':
         case 'usage-summary':
         case 'memory-edit':
         case 'memory-add':
+          await rt.load()
+          return ok(await rt.mobileEndpoint(endpoint, body))
+        case 'image':
+          if (remote && body?.parent != null && String(body.parent).trim() !== '') {
+            return fail('Session logs are read on the computer', 'bot/refused')
+          }
           await rt.load()
           return ok(await rt.mobileEndpoint(endpoint, body))
         case 'answer-question': {
@@ -1058,6 +1089,9 @@ export function install(rt) {
         }
         case 'update-install':
           return ok(rt.updateStart())
+        case 'release-notes-claim':
+          if (remote) return fail('Release notes can only be claimed on this computer', 'bot/refused')
+          return ok(await rt.claimReleaseNotes(body.version))
         case 'dsh-update-install':
           return ok(rt.dshUpdateStart?.())
         case 'repo-stars':
@@ -1357,8 +1391,10 @@ export function install(rt) {
             if (rt.hasSessionControlEndpoint?.(name)) return ok(await rt.sessionControlsEndpoint(name, body, signal))
             return ok(await rt.sessionEndpoint(name, body, signal))
           }
+          if (endpoint.startsWith('job-')) return ok(await rt.jobEndpoint(endpoint.slice('job-'.length), body, signal))
           if (endpoint.startsWith('workspace-')) return ok(await rt.workspaceEndpoint(endpoint.slice('workspace-'.length), body, signal))
           if (endpoint.startsWith('terminal-')) return ok(await rt.terminalEndpoint(endpoint.slice('terminal-'.length), body, signal))
+          if (endpoint.startsWith('engine-feedback-')) return ok(await rt.feedbackEndpoint(endpoint.slice('engine-feedback-'.length), body, signal))
           if (endpoint.startsWith('engine-')) return ok(await rt.engineEndpoint(endpoint.slice('engine-'.length), body, signal, meta))
           if (endpoint.startsWith('computer-')) {
             await rt.load()

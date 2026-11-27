@@ -1,6 +1,6 @@
 // Reproducible micro-benchmark for `buildSessionRows` while a reply streams in.
 //
-// A 300-event committed history (user/assistant exchanges with tool calls) plus one
+// A committed history (300 events by default; HISTORY_EVENTS=2000 for the long-session check) (user/assistant exchanges with tool calls) plus one
 // active attempt streaming 200 chunks. Every chunk applies one frame and rebuilds the
 // rows, the same way `SessionTranscript` does per render; only the time inside
 // `buildSessionRows` is measured.
@@ -27,7 +27,7 @@ const stubs = {
 // imports), stubbing only the interface primitives the window substitutes at build time.
 const entryCode = `
   export { applyFrame, emptyLog } from '../ds-bot/src/client/session-log.js'
-  export { buildSessionRows } from './ui/src/session-transcript.js'
+  export { buildSessionRowParts } from './ui/src/session-transcript.js'
 `
 const { outputFiles } = await build({
   stdin: {
@@ -69,7 +69,7 @@ const sandbox = {
   },
 }
 runInNewContext(outputFiles[0].text, sandbox)
-const { applyFrame, emptyLog, buildSessionRows } = module.exports
+const { applyFrame, emptyLog, buildSessionRowParts } = module.exports
 
 // --- fixture: a realistic 300-event history -----------------------------------------
 const paragraph = (seed) => [
@@ -125,8 +125,8 @@ for (let index = 0; index < chunkCount; index += 1) {
 }
 
 // --- drive the log -------------------------------------------------------------------
-function buildLog() {
-  const events = historyEvents(300)
+const benchEvents = historyEvents(Number(process.env.HISTORY_EVENTS ?? 300))
+function buildLog(events = benchEvents) {
   const snapshot = {
     type: 'snapshot',
     header: { id: 'bench-bot', cwd: '/repo' },
@@ -163,7 +163,7 @@ function measure() {
   let warm = buildLog()
   for (const frame of frameList) {
     warm = applyFrame(warm, frame).log
-    buildSessionRows(warm, { roster, sessionId: 'bench-bot' })
+    buildSessionRowParts(warm, { roster, sessionId: 'bench-bot' })
   }
   for (let round = 0; round < 3; round += 1) {
     let log = buildLog()
@@ -171,7 +171,7 @@ function measure() {
     for (const frame of frameList) {
       log = applyFrame(log, frame).log
       const t0 = performance.now()
-      const rows = buildSessionRows(log, { roster, sessionId: 'bench-bot' })
+      const rows = buildSessionRowParts(log, { roster, sessionId: 'bench-bot' }).committed
       roundTimings.push(performance.now() - t0)
       rowsOut = rows.length
     }

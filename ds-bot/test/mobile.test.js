@@ -188,6 +188,32 @@ test('roomItems turns a group Session into speaker-attributed items, oldest firs
   assert.deepEqual(open, [{ callId: 'r2', at: 7 }])
 })
 
+test('roomItems reads group_relay results prefixed with a §N§ handle', () => {
+  const seenRanges = []
+  const events = [
+    user(1, 'First round'),
+    relayCall(2, 'r1'),
+    relayResult(3, 'r1', '§38§ {"from":80,"anchor":"a1"}'),
+    user(4, 'Legacy round'),
+    relayCall(5, 'r2'),
+    relayResult(6, 'r2', '§7§ {"replies":[{"botId":"m1","name":"Chief","text":"legacy reply","time":30}],"passed":[]}'),
+    // Non-handle text that happens to contain JSON must not be parsed as a relay range.
+    relayResult(7, 'other', 'Error: {"from":99,"anchor":"nope"}'),
+  ]
+  const { items, open } = roomItems(events, (range) => {
+    seenRanges.push(range)
+    return [{ botId: 'b2', name: 'Writer', text: 'ledger reply', time: 20 }]
+  })
+  assert.deepEqual(seenRanges, [{ from: 80, anchor: 'a1' }])
+  assert.deepEqual(open, [])
+  assert.deepEqual(items, [
+    { id: '1', kind: 'user', text: 'First round', time: 1 },
+    { id: 'r1:0', kind: 'bot', botId: 'b2', name: 'Writer', text: 'ledger reply', time: 20 },
+    { id: '4', kind: 'user', text: 'Legacy round', time: 4 },
+    { id: 'r2:0', kind: 'bot', botId: 'm1', name: 'Chief', text: 'legacy reply', time: 30 },
+  ])
+})
+
 test('a group round logs notices a returning client reads back, and the feed says the group changed', async (t) => {
   const { call, emit, relay, answer, sent, history, routes, ctx, rt, stop } = start()
   t.after(stop)
@@ -1328,4 +1354,98 @@ test('image and file-download pass throughSeq, skip empty seq=0 parts, and roomI
   const chat = (await call('room-chat', { roomId: room.id })).value
   assert.equal(chat.items[0].sessionId, room.id)
   assert.deepEqual(chat.items[0].fileRefs, [roomFileRef])
+})
+
+test('room-chat emits FileRef-compliant files with name and locator for group presented files and downloads bytes', async (t) => {
+  const { call, ctx, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-mob-presented-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const reportPath = join(dir, 'summary.md')
+  writeFileSync(reportPath, '# Summary\nAll good.')
+  const memberSession = 'member-room-s1'
+  ;(rt.state.rooms[room.id].sessions ??= {})[chief] = memberSession
+  rt.groupOwners.set(memberSession, { botId: chief, roomId: room.id })
+  history[memberSession] = [
+    { seq: 7, time: 200, type: 'deliverables/presented', data: { turn: 1, files: [{ path: reportPath, description: 'Final summary' }] } },
+  ]
+  ctx.sessions.get = id => (id === memberSession ? { seq: 8 } : { seq: 5 })
+  history[room.id] = [
+    {
+      seq: 1, time: 210, type: 'user/message',
+      data: {
+        source: {
+          kind: 'bot', role: 'post', senderSessionId: chief, senderName: 'Chief', late: true,
+          presented: [{ path: reportPath, description: 'Final summary', sessionId: memberSession, seq: 7, index: 0 }],
+        },
+        content: [{ type: 'text', text: '[Group post from Chief]\nReport attached.' }],
+      },
+    },
+  ]
+  const chat = (await call('room-chat', { roomId: room.id })).value
+  assert.equal(chat.items.length, 1)
+  assert.deepEqual(chat.items[0].files, [{
+    name: 'summary.md',
+    path: reportPath,
+    description: 'Final summary',
+    sessionId: memberSession,
+    seq: 7,
+    index: 0,
+  }])
+  const dl = await call('file-download', { sessionId: memberSession, seq: 7, index: 0, offset: 0 })
+  assert.equal(dl.ok, true)
+  assert.equal(dl.value.name, 'summary.md')
+  assert.equal(Buffer.from(dl.value.bytes, 'base64').toString('utf8'), '# Summary\nAll good.')
+})
+
+test('file-download rejects presented files in private Bot folders, protected data roots, and unowned sessions', async (t) => {
+  const { call, ctx, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const privateDir = mkdtempSync(join(tmpdir(), 'ds-bot-mob-priv-'))
+  t.after(() => rmSync(privateDir, { recursive: true, force: true }))
+  const privateFile = join(privateDir, 'diary.txt')
+  writeFileSync(privateFile, 'top secret')
+  rt.state.bots[writer.id].private = true
+  rt.state.bots[writer.id].workDir = privateDir
+
+  const dataFile = join(rt.home, 'state.json')
+  writeFileSync(dataFile, '{"secret":true}')
+
+  const memberSession = 'member-room-sec-1'
+  ;(rt.state.rooms[room.id].sessions ??= {})[chief] = memberSession
+  rt.groupOwners.set(memberSession, { botId: chief, roomId: room.id })
+  history[memberSession] = [
+    {
+      seq: 3, time: 300, type: 'deliverables/presented',
+      data: { turn: 1, files: [{ path: privateFile }, { path: dataFile }] },
+    },
+  ]
+  ctx.sessions.get = id => (id === memberSession ? { seq: 4 } : { seq: 2 })
+
+  const privDl = await call('file-download', { sessionId: memberSession, seq: 3, index: 0, offset: 0 })
+  assert.equal(privDl.ok, false)
+  assert.equal(privDl.error.code, 'bot/not-found')
+  assert.match(privDl.error.message, /no longer available/)
+
+  const dataDl = await call('file-download', { sessionId: memberSession, seq: 3, index: 1, offset: 0 })
+  assert.equal(dataDl.ok, false)
+  assert.equal(dataDl.error.code, 'bot/not-found')
+  assert.match(dataDl.error.message, /no longer available/)
+
+  const unownedDl = await call('file-download', { sessionId: 'foreign-session', seq: 3, index: 0, offset: 0 })
+  assert.equal(unownedDl.ok, false)
+  assert.equal(unownedDl.error.code, 'bot/not-found')
+  assert.match(unownedDl.error.message, /Unknown session/)
+
+  // A session owned by a group member that is no longer in owned parts of that room is refused.
+  rt.pastOwners.set('orphan-part', { botId: chief, roomId: room.id })
+  history['orphan-part'] = [
+    { seq: 1, time: 100, type: 'deliverables/presented', data: { turn: 1, files: [{ path: dataFile }] } },
+  ]
+  const orphanDl = await call('file-download', { sessionId: 'orphan-part', seq: 1, index: 0, offset: 0 })
+  assert.equal(orphanDl.ok, false)
+  assert.equal(orphanDl.error.code, 'bot/not-found')
+  assert.match(orphanDl.error.message, /no longer available/)
 })

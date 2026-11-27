@@ -95,7 +95,7 @@ npm ci
 # The phone link's packages: the build bundles them into link.js, and a unit test builds it.
 npm ci --prefix ../link
 
-# The DSH packages that the unit tests and the linter load, from npm, into dev/harness/.
+# The DSH packages that the unit tests and the linter load, reproducibly from dev/harness/package-lock.json.
 npm run harness
 ```
 
@@ -109,6 +109,8 @@ git -C deepseek-harness checkout dsh-v0.2.2-rc.5
 ```
 
 If your DeepSeek Harness checkout is somewhere else, set `DSH_HARNESS` to its path. `DSH_HARNESS` also takes the place of `dev/harness/` for the unit tests and the linter.
+
+To test another DSH version, run `node scripts/update-harness-lock.mjs <dsh-version>` in `ds-bot/`. It updates `dev/harness/package.json` and resolves `dev/harness/package-lock.json`; shared packages use the versions in `app/package-lock.json` where the app has one unambiguous version, so the tests run against what the desktop app ships.
 
 The `@deepseek-ai/*` packages are peer dependencies: in a real install, the DSH profile supplies them. `ds-bot/.npmrc` keeps npm from installing them into the plugin folder.
 

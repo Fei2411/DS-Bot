@@ -3,6 +3,7 @@ import { BackHandler, Pressable, StyleSheet, View, useWindowDimensions } from 'r
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from 'react-native-reanimated'
 import { ErrorBoundary } from '../ui/error-boundary.tsx'
+import { MarksShown } from '../ui/avatar/LiveMark.tsx'
 import { SPRING_SHAPE } from '../ui/tokens.ts'
 import { t } from '../ui/i18n.ts'
 import { handleDrawerBack } from './drawer-back.ts'
@@ -89,7 +90,7 @@ export function Drawer({ width, edgeEnabled = true, backOpens = true, content, c
           </Animated.View>
           <GestureDetector gesture={drawerPan}>
             <Animated.View style={[styles.panel, { width }, panelStyle]}>
-              <ErrorBoundary>{content}</ErrorBoundary>
+              <ErrorBoundary><MarksShown.Provider value={shown}>{content}</MarksShown.Provider></ErrorBoundary>
             </Animated.View>
           </GestureDetector>
         </View>

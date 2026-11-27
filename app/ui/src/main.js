@@ -47,11 +47,15 @@ import { App } from './app.js'
 import { registerBuiltinToolViews } from './builtin-tool-views.js'
 import { registerClassicPlanView } from './classic-plan-view.js'
 import { registerEngineSettingsPlugin } from './engine-settings-bridge.js'
+import { registerMathStyleLoader } from './math-render.js'
 import { paintMode } from './mode.js'
 import { pluginRuntime } from './plugin-runtime.js'
 import { slots } from './slots.js'
 import './app.css'
 import './composer-classic.css'
+import './message-parity.css'
+
+registerMathStyleLoader(() => import('katex/dist/katex.min.css'))
 
 const appLocale = createLocale(navigator.language)
 setAppLocaleService(appLocale)

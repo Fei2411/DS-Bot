@@ -9,7 +9,7 @@ import { build } from 'esbuild'
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { ToolCell, TriggerCell, callTree, CellEmpty, Bubbles } from './src/client/cells.js'",
+      "export { ToolCell, TriggerCell, ChatRows, callTree, CellEmpty, Bubbles } from './src/client/cells.js'",
       "export { stackReplies } from './src/shared/group-replies.js'",
       "export { QuestionDock, SettledQuestion } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
@@ -70,7 +70,7 @@ runInNewContext(outputFiles[0].text, {
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
-const { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, Bubbles, QuestionDock, SettledQuestion, SecretDock, countCards, ViewMenuList, WidgetView, WidgetDock, SettledView, AnsweredView, ClosedView } = module.exports
+const { ToolCell, TriggerCell, ChatRows, callTree, stackReplies, CellEmpty, Bubbles, QuestionDock, SettledQuestion, SecretDock, countCards, ViewMenuList, WidgetView, WidgetDock, SettledView, AnsweredView, ClosedView } = module.exports
 
 // Runs the effects collected since the last render; returns the cleanups.
 const mount = () => {
@@ -128,6 +128,17 @@ test('a member\'s messages in a row stack under its name, and an event line star
   assert.deepEqual([stacked.time, stacked.duration], [20, 2000])
   assert.deepEqual([event.time, event.duration], [30, undefined])
   assert.deepEqual([single.time, single.duration], [40, 4000])
+})
+
+test('a stacked block shows a path its member presented twice as one card, with the last description', () => {
+  const [block] = stackReplies([
+    { botId: 'writer', text: 'a', presented: [{ path: '/work/a.md', description: 'Draft' }, { path: '/work/b.md' }] },
+    { botId: 'writer', text: 'b', presented: [{ path: '/work/a.md', description: 'Final', sessionId: 's1', seq: 4, index: 0 }] },
+  ])
+  assert.deepEqual(JSON.parse(JSON.stringify(block.files)), [
+    { path: '/work/b.md' },
+    { path: '/work/a.md', description: 'Final', sessionId: 's1', seq: 4, index: 0 },
+  ])
 })
 
 // A time in the machine's own zone, some days back, so the test does not depend on the zone.
@@ -223,8 +234,8 @@ test('a group post drawn from its trigger shows the time it came in', () => {
   effects = []
 })
 
-const props = (root, { sessionId = chief.id, roster = team(), actions = {}, turn = 1, held = {} } = {}) => ({
-  node: { key: 'node', data: { root }, location: { turn: { turn } } }, sessionId,
+const props = (root, { sessionId = chief.id, roster = team(), actions = {}, turn = 1, held = {}, openFile } = {}) => ({
+  node: { key: 'node', data: { root }, location: { turn: { turn } } }, sessionId, openFile,
   useRoster: select => select(roster), useUi: select => select({ reactions: {}, visits: {} }), actions,
   useHeldCards: select => select(held),
 })
@@ -1309,4 +1320,88 @@ test('settled and answered views summarize every outcome cleanly and derive fall
   assert.equal(text(find(formulaDismissed, node => node.props?.className === 'bt-q-title')), 'Budget: 25%')
   const fallbackPrompt = expandCard(SettledView, { title: '', view: { type: 'stack', children: [] }, closed: 'dismissed' })
   assert.equal(text(find(fallbackPrompt, node => node.props?.className === 'bt-q-title')), 'View')
+})
+
+// #975: files a member presented in its group turn render as cards under its message,
+// preserve the member's avatar on files-only replies, open via openFile or actions.openFile,
+// and survive TriggerCell posts and EarlierParts / ChatRows.
+test('a group reply shows presented file cards, preserves avatar on files-only message, and opens files', async () => {
+  const opened = []
+  const windowsPath = 'C:\\work\\notes.md'
+  const replies = [
+    { botId: 'writer', text: 'The report is ready.', presented: [{ path: '/work/report.docx', description: 'Final report' }] },
+    { botId: 'writer', text: '', presented: [{ path: windowsPath }, { path: '' }] },
+  ]
+  const out = show(call('group_relay', 'direct', { content: { replies } }), { sessionId: 'room', openFile: path => { opened.push(path); return Promise.resolve() } })
+  const cards = findAll(out, node => node.type === 'button' && String(node.props?.className).includes('bt-pfile'))
+  assert.deepEqual(cards.map(text), ['report.docxFinal report', 'notes.md'])
+  assert.deepEqual(cards.map(node => node.props.title), ['/work/report.docx', windowsPath])
+  assert.equal(findAll(out, node => node.props?.className === 'bt-group-msg').length, 1)
+  assert.equal(count(text(out), 'The report is ready.'), 1)
+  for (const card of cards) card.props.onClick()
+  await Promise.resolve()
+  assert.deepEqual(opened, ['/work/report.docx', windowsPath])
+
+  // Files-only [PASS] message keeps the member's avatar (.bt-lead) in bubble layout
+  // and falls back to actions.openFile({ path, sessionId }) for the desktop window.
+  const desktopOpened = []
+  const notices = []
+  const filesOnly = [
+    { botId: 'writer', text: '', presented: [{ path: '/work/only.pdf', description: 'Standalone', sessionId: 'member-s1', seq: 3, index: 0 }] },
+  ]
+  const out2 = show(call('group_relay', 'direct', { content: { replies: filesOnly } }), {
+    sessionId: 'room',
+    actions: {
+      openFile: target => { desktopOpened.push(target); return Promise.resolve() },
+      notice: msg => notices.push(msg),
+    },
+  })
+  assert.equal(findAll(out2, node => node.props?.className === 'bt-lead').length, 1, 'files-only message keeps avatar lead in bubble layout')
+  assert.equal(findAll(out2, node => node.props?.className === 'bt-pfiles-row').length, 1)
+  const card2 = find(out2, node => node.type === 'button' && String(node.props?.className).includes('bt-pfile'))
+  card2.props.onClick()
+  await Promise.resolve()
+  assert.deepEqual(JSON.parse(JSON.stringify(desktopOpened)), [{ path: '/work/only.pdf', sessionId: 'member-s1' }])
+
+  // Failed open with no download locator reports a user-visible notice instead of silently swallowing.
+  const out3 = show(call('group_relay', 'direct', { content: { replies: [{ botId: 'writer', text: 'See file', presented: [{ path: '/work/missing.pdf' }] }] } }), {
+    sessionId: 'room',
+    openFile: () => Promise.reject(new Error('not found')),
+    actions: { notice: msg => notices.push(msg) },
+  })
+  find(out3, node => node.type === 'button' && String(node.props?.className).includes('bt-pfile')).props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(notices.length, 1)
+})
+
+test('a group post trigger and ChatRows earlier part pass openFile through to presented file cards', async () => {
+  const opened = []
+  const openFile = path => { opened.push(path); return Promise.resolve() }
+  const node = {
+    key: 'trigger', kind: 'turn-trigger', location: { turn: { turn: 1 } },
+    data: { seq: 8, time: at(0, 16, 42), content: text$('[Group post from Writer]\nHere is the plan.'), source: { kind: 'bot', role: 'post', senderSessionId: 'writer', senderName: 'Writer', late: true, presented: [{ path: '/work/plan.pdf' }] } },
+  }
+  const out = expand(TriggerCell({
+    node, sessionId: 'room', actions: {}, openFile,
+    useRoster: select => select(team()), useSessions: select => select({ byId: {} }),
+    useTurnClock: select => select({}), useUi: select => select({ visits: {}, reactions: {} }),
+  }))
+  effects = []
+  const cards = findAll(out, entry => entry.type === 'button' && String(entry.props?.className).includes('bt-pfile'))
+  assert.deepEqual(cards.map(text), ['plan.pdf'])
+  cards[0].props.onClick()
+  await Promise.resolve()
+  assert.deepEqual(opened, ['/work/plan.pdf'])
+
+  // ChatRows (used by EarlierParts and desktop app group view) renders presented files with openFile.
+  const rowsOut = expand(ChatRows({
+    items: [{ kind: 'post', botId: 'writer', name: 'Writer', texts: ['Earlier report'], presented: [{ path: '/work/old.pdf', description: 'Archived' }], time: at(1, 10, 0) }],
+    sessionId: 'room', roster: team(), actions: {}, openFile,
+  }))
+  effects = []
+  const earlierCards = findAll(rowsOut, entry => entry.type === 'button' && String(entry.props?.className).includes('bt-pfile'))
+  assert.deepEqual(earlierCards.map(text), ['old.pdfArchived'])
+  earlierCards[0].props.onClick()
+  await Promise.resolve()
+  assert.deepEqual(opened, ['/work/plan.pdf', '/work/old.pdf'])
 })

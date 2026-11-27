@@ -172,6 +172,7 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   const computerSrc = readFileSync(new URL('../src/host/computer/index.js', import.meta.url), 'utf8')
   const workspaceSrc = readFileSync(new URL('../src/host/workspace-panel.js', import.meta.url), 'utf8')
   const engineSrc = readFileSync(new URL('../src/host/engine-settings.js', import.meta.url), 'utf8')
+  const feedbackSrc = readFileSync(new URL('../src/host/message-feedback.js', import.meta.url), 'utf8')
   const pluginsSrc = readFileSync(new URL('../src/host/plugins/index.js', import.meta.url), 'utf8')
   const sessionSrc = readFileSync(new URL('../src/host/session-follow.js', import.meta.url), 'utf8')
   const sessionControlsSrc = readFileSync(new URL('../src/host/session-controls.js', import.meta.url), 'utf8')
@@ -184,12 +185,13 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   const workspaceRoutes = [...workspaceBody.matchAll(/name === '([^']+)'/g)].map(match => `workspace-${match[1]}`)
   const terminalRoutes = [...terminalBody.matchAll(/name === '([^']+)'/g)].map(match => `terminal-${match[1]}`)
   const engineRoutes = [...engineSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `engine-${match[1]}`)
+  const feedbackRoutes = [...feedbackSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `engine-feedback-${match[1]}`)
   const pluginRoutes = [...pluginsSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `plugins-${match[1]}`)
   const sessionRoutes = [...sessionSrc.matchAll(/name !== '([^']+)'/g)].map(match => `session-${match[1]}`)
   const sessionControlRoutes = [...sessionControlsSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `session-${match[1]}`)
   const connectorRoutes = [...connectorsSrc.matchAll(/async '([^']+)'\(/g)].map(match => match[1])
   const gatedRoutes = new Set([...gatedSrc.matchAll(/'([^']+)'/g)].map(match => match[1]))
-  const allHostRoutes = new Set([...channelRoutes, ...computerRoutes, ...workspaceRoutes, ...terminalRoutes, ...engineRoutes, ...pluginRoutes, ...sessionRoutes, ...sessionControlRoutes, ...connectorRoutes])
+  const allHostRoutes = new Set([...channelRoutes, ...computerRoutes, ...workspaceRoutes, ...terminalRoutes, ...engineRoutes, ...feedbackRoutes, ...pluginRoutes, ...sessionRoutes, ...sessionControlRoutes, ...connectorRoutes])
 
   // Every host endpoint is explicitly classified. A new endpoint fails here until a
   // maintainer decides whether it acts on the team or on this computer.
@@ -249,10 +251,14 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'computer-app-answer').code, 'bot/refused')
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-import-scan').code, 'bot/refused')
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-import').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'engine-feedback-list').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'engine-feedback-put').code, 'bot/refused')
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'engine-feedback-delete').code, 'bot/refused')
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'future-unlisted-endpoint').code, 'bot/refused')
   assert.equal(BROWSER_ALLOWED.has('session-page'), false)
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'job-list').message, 'Background jobs are available on the computer')
   assert.equal(sessionControlRoutes.length >= 10, true, 'session-controls routes are included in remote boundary checks')
-  for (const localOnly of [...sessionControlRoutes, 'workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open', 'engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe', 'telemetry-status', 'telemetry-update', 'telemetry-reset-id', 'telemetry-clear-log', 'telemetry-client-error']) {
+  for (const localOnly of ['job-list', 'job-read', 'job-kill', ...sessionControlRoutes, 'workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open', 'terminal-read', 'engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe', 'telemetry-status', 'telemetry-update', 'telemetry-reset-id', 'telemetry-clear-log', 'telemetry-client-error']) {
     assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, localOnly).code, 'bot/refused')
     assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, localOnly).code, 'bot/refused')
     assert.equal(BROWSER_ALLOWED.has(localOnly), false)
@@ -291,6 +297,10 @@ test('the host enforces a default-deny browser allowlist across every channel ro
       if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
       else assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
     }
+    // Subagent image reads via `parent` are computer-only (prevents paired-browser Classic Agent bypass).
+    const subImgAnswer = await link.client.rpc('bot', { endpoint: 'image', payload: { sessionId: 'sub-child-1', parent: 'agent-s1', attachmentId: 'att-1' } })
+    assert.equal(subImgAnswer.ok, false)
+    assert.equal(subImgAnswer.error.code, 'bot/refused')
     for (const endpoint of ['state', 'send', 'chat', 'secret-cancel', 'connector-request-cancel']) {
       assert.equal((await link.client.rpc('bot', { endpoint })).ok, true, `${kind} should reach ${endpoint}`)
     }
@@ -426,8 +436,8 @@ test('paired browsers cannot see or answer Classic Agent approvals in state, liv
   const home = mkdtempSync(join(tmpdir(), 'dsb-browser-approvals-'))
   const ctx = fakeContext()
   let tap
-  const botApproval = { id: 'appr-bot', sessionId: 'm1', botId: 'm1', tool: 'bash', reason: 'Bot command', answerable: true }
-  const agentApproval = { id: 'appr-agent', sessionId: 'agent-s1', tool: 'bash', reason: 'Classic command', answerable: true }
+  const botApproval = { id: 'appr-bot', sessionId: 'm1', botId: 'm1', tool: 'write', reason: 'Bot write', answerable: true, alwaysAllow: { kind: 'extra-dir', dirs: ['/tmp/ext'], scope: 'bot' } }
+  const agentApproval = { id: 'appr-agent', sessionId: 'agent-s1', tool: 'write', reason: 'Classic write', answerable: true, alwaysAllow: { kind: 'extra-dir', dirs: ['/tmp/ext'], scope: 'bot' } }
   const approvals = [botApproval, agentApproval]
   const answered = []
   const rt = {
@@ -464,13 +474,15 @@ test('paired browsers cannot see or answer Classic Agent approvals in state, liv
 
   await until(async () => tap, callback => typeof callback === 'function')
 
-  // `state` strips Classic Agent approvals for browser but keeps them for phone.
+  // `state` strips Classic Agent approvals for browser, keeps them for phone, and strips `alwaysAllow` for ALL remote devices.
   const browserState = await browserLink.client.rpc('bot', { endpoint: 'state', payload: {} })
   assert.deepEqual(browserState.value.work.approvals.map(a => a.id), ['appr-bot'])
+  assert.equal(browserState.value.work.approvals[0].alwaysAllow, undefined)
   const phoneState = await phoneLink.client.rpc('bot', { endpoint: 'state', payload: {} })
   assert.deepEqual(phoneState.value.work.approvals.map(a => a.id), ['appr-bot', 'appr-agent'])
+  assert.equal(phoneState.value.work.approvals.every(a => a.alwaysAllow === undefined), true)
 
-  // `live` feed events also filter per device: browser gets only Bot approvals, phone gets both.
+  // `live` feed events also filter per device and strip `alwaysAllow` for all remote devices.
   const browserEvents = []
   const phoneEvents = []
   const offBrowser = browserLink.client.onEvent(e => browserEvents.push(e))
@@ -481,7 +493,18 @@ test('paired browsers cannot see or answer Classic Agent approvals in state, liv
   offBrowser()
   offPhone()
   assert.deepEqual(bEvt.data.work.approvals.map(a => a.id), ['appr-bot'])
+  assert.equal(bEvt.data.work.approvals[0].alwaysAllow, undefined)
   assert.deepEqual(pEvt.data.work.approvals.map(a => a.id), ['appr-bot', 'appr-agent'])
+  assert.equal(pEvt.data.work.approvals.every(a => a.alwaysAllow === undefined), true)
+
+  // Both paired browsers AND paired phones are refused `choice: 'always'` (Always allow is computer-only).
+  const browserAlways = await browserLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-bot', choice: 'always' } })
+  assert.equal(browserAlways.ok, false)
+  assert.equal(browserAlways.error.code, 'bot/refused')
+  const phoneAlways = await phoneLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-bot', choice: 'always' } })
+  assert.equal(phoneAlways.ok, false)
+  assert.equal(phoneAlways.error.code, 'bot/refused')
+  assert.equal(answered.length, 0)
 
   // Browser is refused when trying to answer a Classic Agent approval, but may still answer a Bot approval.
   const denied = await browserLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-agent', choice: 'allow' } })

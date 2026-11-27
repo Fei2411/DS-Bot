@@ -4,6 +4,7 @@
 // (preparing -> start -> result, keeping DSH's ToolCallBlock & PartialArguments contracts),
 // compaction checkpoints, Bot/schedule events, and failed turns.
 import { PartialArguments } from '@deepseek-ai/dsh-util-values'
+import { t } from '../../../ds-bot/src/client/i18n.js'
 import { transcriptOf, writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { contentText, isHiddenTurn, reminderPrompts, stripToolCallTags } from '../../../ds-bot/src/client/text.js'
 import { contentParts, viaOf } from '../../../ds-bot/src/client/user-message.js'
@@ -180,10 +181,10 @@ function turnEndFailure(reason) {
   if (!reason || typeof reason !== 'object') return undefined
   if (reason.kind === 'error') return reason.error ?? {}
   if (reason.kind === 'aborted' && reason.reason?.kind === 'hook' && reason.reason?.reason === 'deepseek-account/signed-out') {
-    return { code: 'ACCOUNT_SIGNED_OUT', message: 'Stopped because you signed out of DeepSeek.' }
+    return { code: 'ACCOUNT_SIGNED_OUT', message: t('Stopped because you signed out of DeepSeek.') }
   }
   if (reason.kind === 'interrupted') {
-    return { code: 'INTERRUPTED', message: 'The DSH process exited before this turn finished.' }
+    return { code: 'INTERRUPTED', message: t('The DSH process exited before this turn finished.') }
   }
   return undefined
 }
@@ -509,6 +510,7 @@ function buildCommittedRows(events, roster, sessionId) {
           kind: 'assistant',
           key: `assistant:${item.seq}`,
           seq: item.seq,
+          messageId: typeof item.data?.message?.id === 'string' && item.data.message.id !== '' ? item.data.message.id : undefined,
           time: item.time,
           turn,
           step,
@@ -719,7 +721,7 @@ function writingRows(log, committed, roster, sessionId) {
   const writingTurn = log.writing?.turn
   const writingStep = log.writing?.step
   if (writing.length === 0 || hiddenTurn(roster, sessionId, writingTurn)) return rows
-  const taken = new Set(committed.callsById.keys())
+  const taken = new Set()
   const attemptId = log.writing?.attemptId ?? 'live'
   const { reasoning, activity } = splitReasoning(writing)
   const texts = writing
@@ -748,7 +750,7 @@ function writingRows(log, committed, roster, sessionId) {
     if (block?.type !== 'tool-call') continue
     const callId = block.id || `writing-${attemptId}-${toolIdx}`
     toolIdx += 1
-    if (taken.has(callId)) continue
+    if (taken.has(callId) || committed.callsById.has(callId)) continue
     taken.add(callId)
     const name = typeof block.name === 'string' ? block.name : ''
     const argsRaw = stringifyArgs(block.arguments)
@@ -783,9 +785,14 @@ function writingRows(log, committed, roster, sessionId) {
  * @param {{ roster?: object, sessionId?: string }} [options]
  * @returns {object[]}
  */
-export function buildSessionRows(log, { roster, sessionId } = {}) {
+export function buildSessionRowParts(log, { roster, sessionId } = {}) {
   const events = Array.isArray(log?.events) ? log.events : []
   const committed = committedRowsOf(events, roster, sessionId)
   const live = writingRows(log, committed, roster, sessionId)
-  return live.length === 0 ? committed.rows : [...committed.rows, ...live]
+  return { committed: committed.rows, live }
+}
+
+export function buildSessionRows(log, { roster, sessionId } = {}) {
+  const { committed, live } = buildSessionRowParts(log, { roster, sessionId })
+  return live.length === 0 ? committed : [...committed, ...live]
 }

@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { loopTurn } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { install } from '../src/host/tasks.js'
 import { fakeContext } from './fake-ctx.js'
@@ -232,7 +233,7 @@ test('finished tasks stay in the board history beyond two hundred deliveries', a
 
 const settle = async (check) => {
   const until = Date.now() + 3000
-  while (!check() && Date.now() < until) await new Promise(resolve => setImmediate(resolve))
+  while (!check() && Date.now() < until) await loopTurn()
   assert.ok(check(), 'condition not reached')
 }
 

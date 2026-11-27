@@ -24,6 +24,7 @@ import { SecretDock } from '../../../ds-bot/src/client/secret-card.js'
 import { writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { STORAGE } from '../../../ds-bot/src/client/storage.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
+import { mentionableBots } from '../../../ds-bot/src/client/user-message.js'
 import { WidgetDock } from '../../../ds-bot/src/client/widget-cell.js'
 import { ApprovalDock } from './approval-dock.js'
 import { ClassicControls } from './classic-controls.js'
@@ -43,6 +44,8 @@ import {
 } from './failed-send-bar.js'
 import { DesktopQueueDock, queueRowText } from './queue-dock.js'
 import { SessionTranscript, UserAttachments, useSessionFollow } from './session-chat.js'
+import { SubagentLineageBar, SubagentReadOnlyBar } from './subagent-viewer.js'
+import { UserMessageText } from './user-text.js'
 
 // The chat follows its end while the user is this close to it.
 const FOLLOW_PX = 80
@@ -132,7 +135,7 @@ async function fileToBase64(file) {
         const comma = result.indexOf(',')
         resolve(comma >= 0 ? result.slice(comma + 1) : result)
       }
-      reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'))
+      reader.onerror = () => reject(reader.error ?? new Error(t('Failed to read file')))
       reader.readAsDataURL(file)
     })
   }
@@ -187,6 +190,7 @@ export function adaptRoomItem(item) {
       time: item.time,
       ...(Number.isFinite(item.duration) ? { duration: item.duration } : {}),
       ...(item.changes ? { changes: item.changes } : {}),
+      ...(Array.isArray(item.files) && item.files.length > 0 ? { presented: item.files } : {}),
       ...(item.whole?.file ? { file: item.whole.file, length: item.whole.length } : {}),
     }
   }
@@ -1469,12 +1473,12 @@ function PendingUserRows({ items, sessionId, classic = false }) {
     return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'dsb-dsh-user' },
       h('div', { className: 'dsb-dsh-user-stack' },
         entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
-        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, entry.text) : null))))
+        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, h(UserMessageText, { text: entry.text, interactive: false })) : null))))
   }
   return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
       entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
-      entry.text !== '' ? h('div', { className: 'bt-ubody' }, entry.text) : null))))
+      entry.text !== '' ? h('div', { className: 'bt-ubody' }, h(UserMessageText, { text: entry.text, interactive: false })) : null))))
 }
 
 // One conversation in the main view, drawn with the Bot views' own rows, cards and docks.
@@ -1497,6 +1501,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
 
   const [pending, setPending] = useState([])
   const [dragging, setDragging] = useState(false)
+  const [subagentStack, setSubagentStack] = useState([])
   const sendGen = useRef(0)
   const dragDepth = useRef(0)
   const addFilesRef = useRef(undefined)
@@ -1512,6 +1517,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     sendGen.current += 1
     keep.current = null
     follow.current = true
+    setSubagentStack([])
     seenQueuedIdsRef.current = new Set()
     setPending((list) => {
       for (const entry of list) {
@@ -1560,13 +1566,41 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     }], initial)
   }, [clearPendingUsers])
 
+  const viewingSubagent = !isRoom && subagentStack.length > 0 ? subagentStack.at(-1) : null
+  const viewedSessionId = viewingSubagent ? viewingSubagent.sessionId : activeSessionId
+  const subagentAncestors = useMemo(() => {
+    if (!viewingSubagent || subagentStack.length <= 1 || !activeSessionId) return undefined
+    return [
+      { sessionId: activeSessionId },
+      ...subagentStack.slice(0, -1).map(item => ({ sessionId: item.sessionId, ...(item.mode ? { mode: item.mode } : {}) })),
+    ]
+  }, [viewingSubagent, subagentStack, activeSessionId])
+  const openSubagent = useCallback((entry) => {
+    if (!entry?.sessionId || !entry?.parentSessionId) return
+    follow.current = true
+    keep.current = null
+    setSubagentStack(prev => (prev.at(-1)?.sessionId === entry.sessionId ? prev : [...prev, entry]))
+  }, [])
+  const popSubagent = useCallback(() => {
+    follow.current = true
+    keep.current = null
+    setSubagentStack(prev => prev.slice(0, -1))
+  }, [])
+  const selectSubagentDepth = useCallback((depth) => {
+    follow.current = true
+    keep.current = null
+    setSubagentStack(prev => prev.slice(0, Math.max(0, depth)))
+  }, [])
+
   const roomChat = useRoomChat(room?.id, sessionId, feed, keep, clearPendingUsers)
   const dmChat = useSessionFollow({
-    sessionId: activeSessionId,
-    enabled: !isRoom && Boolean(activeSessionId),
+    sessionId: viewedSessionId,
+    parent: viewingSubagent?.parentSessionId,
+    mode: viewingSubagent?.mode,
+    enabled: !isRoom && Boolean(viewedSessionId),
     feed,
     readOnly: Boolean(roster.readOnly),
-    onUserMessage: onSessionUser,
+    onUserMessage: viewingSubagent ? undefined : onSessionUser,
     keep,
   })
 
@@ -1747,6 +1781,33 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     return h(UserAttachments, { attachments: blocks, sessionId: row.sessionId ?? activeSessionId })
   }, [activeSessionId])
 
+  const openRoomFile = useMemo(() => (typeof actions?.openFile === 'function'
+    ? target => actions.openFile(typeof target === 'string'
+      ? { path: target, sessionId: activeSessionId }
+      : { ...target, sessionId: target?.sessionId ?? activeSessionId })
+    : undefined), [actions, activeSessionId])
+  const revealRoomFolder = useMemo(() => (typeof actions?.revealFolder === 'function'
+    ? target => actions.revealFolder(typeof target === 'string'
+      ? { path: target, sessionId: activeSessionId }
+      : { ...target, sessionId: target?.sessionId ?? activeSessionId })
+    : openRoomFile
+      ? target => openRoomFile(typeof target === 'string' ? { path: target, isDir: true } : { ...target, isDir: true })
+      : undefined), [actions, activeSessionId, openRoomFile])
+  const roomMentionBots = useMemo(
+    () => (Array.isArray(roster?.bots) ? mentionableBots(roster, activeSessionId) : []),
+    [roster, activeSessionId],
+  )
+  const renderRoomUserText = useCallback(({ text, fullText, revealedSecrets, onToggleSecret }) => h(UserMessageText, {
+    text,
+    fullText,
+    bots: roomMentionBots,
+    revealedSecrets,
+    onToggleSecret,
+    onOpenBot: actions?.openSession,
+    onOpenFile: openRoomFile,
+    onRevealFolder: revealRoomFolder,
+  }), [roomMentionBots, actions, openRoomFile, revealRoomFolder])
+
   const hasAgentMessages = !isRoom && Array.isArray(dmChat.log?.events)
     && dmChat.log.events.some(ev => ev?.type === 'user/message' || ev?.type === 'assistant/message' || ev?.type === 'turn/start' || ev?.type === 'tool/call')
   const showAgentHero = isAgent
@@ -1784,21 +1845,35 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   },
   dragging ? h('div', { className: 'dsb-dropzone', 'aria-hidden': true },
     h('div', { className: 'dsb-dropzone-card' }, t('Drop files to attach'))) : null,
-  h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', 'data-empty-hero': showAgentHero ? '' : undefined, onScroll },
-    showAgentHero ? h(AgentEmptyHero, { cwd: heroCwd, actions, readOnly }) : null,
+  viewingSubagent ? h(SubagentLineageBar, {
+    stack: subagentStack,
+    rootLabel: name || t('Parent session'),
+    running: dmChat.log.writing !== null,
+    onBack: popSubagent,
+    onSelectDepth: selectSubagentDepth,
+  }) : null,
+  h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', 'data-empty-hero': !viewingSubagent && showAgentHero ? '' : undefined, onScroll },
+    !viewingSubagent && showAgentHero ? h(AgentEmptyHero, { cwd: heroCwd, actions, readOnly }) : null,
     h('div', { className: 'dsb-column' },
       earlier ? h('div', { className: 'bt-earlier-top' }, earlier) : null,
       sessionNotice,
       h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
+        !isRoom && dmChat.historyReloaded ? h('div', { key: 'history-reloaded', className: 'bt-time-sep', role: 'separator' }, t('Conversation history was reloaded')) : null,
         isRoom
-          ? h(MemoChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments })
+          ? h(MemoChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments, renderUserText: renderRoomUserText })
           : h(SessionTranscript, {
             log: dmChat.log,
-            sessionId: activeSessionId,
+            sessionId: viewedSessionId,
+            parent: viewingSubagent?.parentSessionId,
+            mode: viewingSubagent?.mode,
+            ancestors: subagentAncestors,
             bot,
             roster,
             actions,
             classic: isClassic,
+            feed,
+            readOnly: readOnly || Boolean(viewingSubagent),
+            onOpenSubagent: openSubagent,
             useUi: hooks.useUi,
             useRoster: hooks.useRoster,
             useWork,
@@ -1812,26 +1887,26 @@ export function Chat({ sessionId, team, registry, classic = false }) {
             hasMore: dmChat.hasMore,
             registry,
           }),
-        h(PendingUserRows, { items: transcriptPending, sessionId: activeSessionId, classic: isClassic }),
+        !viewingSubagent ? h(PendingUserRows, { items: transcriptPending, sessionId: activeSessionId, classic: isClassic }) : null,
         // The Bot views' activity row (from the header pill) draws itself in here.
-        h('div', { 'data-chat-running': '' })))),
+        !viewingSubagent ? h('div', { 'data-chat-running': '' }) : null))),
   h('div', { className: 'dsb-composer-root' },
-    h(MemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }),
-    h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }),
-    h(QuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }),
-    !isRoom ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom ? h(SecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom ? h(ConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom ? h(MailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
-    !isRoom ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
-    !isRoom ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
-    !isRoom ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
-    !isRoom ? h(ApprovalDock, { botId: bot?.id, sessionId: activeSessionId, useWork, actions, readOnly }) : null,
-    !isRoom ? h(ClassicPlanReviewDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
-    !isRoom ? h(ClassicQuestionDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
-    !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(BtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
-    !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
-    h(DesktopQueueDock, {
+    !viewingSubagent ? h(MemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }) : null,
+    !viewingSubagent ? h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    !viewingSubagent ? h(QuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(WidgetDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(SecretDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(ConnectorDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(MailDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,
+    !isRoom && !viewingSubagent ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
+    !isRoom && !viewingSubagent ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+    !isRoom && !viewingSubagent ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
+    !isRoom && !viewingSubagent ? h(ApprovalDock, { botId: bot?.id, sessionId: activeSessionId, useWork, actions, readOnly }) : null,
+    !isRoom && !viewingSubagent ? h(ClassicPlanReviewDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
+    !isRoom && !viewingSubagent ? h(ClassicQuestionDock, { sessionId: activeSessionId, useUserQuestions, useRoster: hooks.useRoster, actions, readOnly }) : null,
+    !isRoom && !viewingSubagent && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(BtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    !isRoom && !viewingSubagent && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
+    !viewingSubagent ? h(DesktopQueueDock, {
       sessionId: activeSessionId,
       running,
       readOnly,
@@ -1840,23 +1915,25 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       actions,
       classic: isClassic,
       onWithdraw: text => withdrawQueuedText({ chatId: activeChatId, chatKey: activeChatKey, sessionId: activeSessionId, text }),
-    }),
-    h(Composer, {
-      sessionId: activeSessionId,
-      disabled: locked,
-      running,
-      placeholder: waiting ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
-      onSend: send,
-      onStop,
-      addFilesRef,
-      withdrawRef,
-      actions,
-      feed,
-      useUi: hooks.useUi,
-      useRoster: hooks.useRoster,
-      useWork,
-      useSessions: hooks.useSessions,
-      useSessionQueues,
-      useRescuedDrafts: hooks.useRescuedDrafts,
-    })))
+    }) : null,
+    viewingSubagent
+      ? h(SubagentReadOnlyBar, { onBack: popSubagent })
+      : h(Composer, {
+        sessionId: activeSessionId,
+        disabled: locked,
+        running,
+        placeholder: waiting ? t('Pick a model and {name} can start.', { name }) : name ? t('Message {name}', { name }) : t('Message'),
+        onSend: send,
+        onStop,
+        addFilesRef,
+        withdrawRef,
+        actions,
+        feed,
+        useUi: hooks.useUi,
+        useRoster: hooks.useRoster,
+        useWork,
+        useSessions: hooks.useSessions,
+        useSessionQueues,
+        useRescuedDrafts: hooks.useRescuedDrafts,
+      })))
 }
