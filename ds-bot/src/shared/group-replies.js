@@ -4,10 +4,15 @@
 // ledger (relayRange); one from before the ledger holds the round's `replies`
 // itself, in the order the live view draws them.
 
+// A logged tool/result can open with a session handle ("§38§ ") before the JSON
+// payload `group_relay` wrote.
+const HANDLE_PREFIX = /^\s*§\d+§\s*/
+export const stripRelayPrefix = text => (typeof text === 'string' ? text.replace(HANDLE_PREFIX, '') : text)
+
 // The seq range of a round's rows, or undefined for a result from before the ledger.
 export function relayRange(text) {
   try {
-    const value = JSON.parse(text)
+    const value = JSON.parse(stripRelayPrefix(text))
     if (Number.isInteger(value?.from)) return { from: value.from, ...(Number.isInteger(value.to) ? { to: value.to } : {}), ...(typeof value.anchor === 'string' ? { anchor: value.anchor } : {}) }
   } catch { /* an older result, or one cut short */ }
   return undefined
@@ -23,13 +28,16 @@ const RELAY_LIST = /"replies"\s*:\s*\[/
 const PRUNE_MARKER = /\[\.\.\. tool result middle pruned \.\.\.\]/
 const SAVE_TOKEN_NOTICE = /\n\n\[save-token #[\da-z]+ (?:compressed|losslessly re-encoded): [\d,]+ -> [\d,]+ bytes[\s\S]*\]$/
 export const compressedRelayPreview = text => {
-  const notice = SAVE_TOKEN_NOTICE.exec(text)
-  return notice === null ? undefined : text.slice(0, notice.index)
+  const body = stripRelayPrefix(text)
+  if (typeof body !== 'string') return undefined
+  const notice = SAVE_TOKEN_NOTICE.exec(body)
+  return notice === null ? undefined : body.slice(0, notice.index)
 }
 export const REPLY_ELISION = / \.\.\.\[\+(\d+) chars\]\.\.\. /
 
 export function parseReplies(text) {
-  const preview = compressedRelayPreview(text)
+  const body = stripRelayPrefix(text)
+  const preview = compressedRelayPreview(body)
   if (preview !== undefined) {
     // The elision can splice two different Bots' text into a single valid JSON string.
     const replies = parseReplies(preview).replies.filter(reply => reply && typeof reply === 'object'
@@ -37,13 +45,13 @@ export function parseReplies(text) {
     return { replies, broken: true }
   }
   try {
-    const replies = JSON.parse(text)?.replies
+    const replies = JSON.parse(body)?.replies
     return { replies: Array.isArray(replies) ? replies : [], broken: false }
   } catch { /* fall through */ }
   const replies = []
-  const head = RELAY_LIST.exec(text)
+  const head = RELAY_LIST.exec(body)
   if (head) {
-    for (const piece of text.slice(head.index + head[0].length).split(PRUNE_MARKER)) {
+    for (const piece of body.slice(head.index + head[0].length).split(PRUNE_MARKER)) {
       // The cut can start inside a string, leaving a fragment that keeps the
       // scanner inside quotes: restart at the first complete reply instead.
       const first = piece.indexOf('{"')

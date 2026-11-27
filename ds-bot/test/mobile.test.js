@@ -188,6 +188,32 @@ test('roomItems turns a group Session into speaker-attributed items, oldest firs
   assert.deepEqual(open, [{ callId: 'r2', at: 7 }])
 })
 
+test('roomItems reads group_relay results prefixed with a §N§ handle', () => {
+  const seenRanges = []
+  const events = [
+    user(1, 'First round'),
+    relayCall(2, 'r1'),
+    relayResult(3, 'r1', '§38§ {"from":80,"anchor":"a1"}'),
+    user(4, 'Legacy round'),
+    relayCall(5, 'r2'),
+    relayResult(6, 'r2', '§7§ {"replies":[{"botId":"m1","name":"Chief","text":"legacy reply","time":30}],"passed":[]}'),
+    // Non-handle text that happens to contain JSON must not be parsed as a relay range.
+    relayResult(7, 'other', 'Error: {"from":99,"anchor":"nope"}'),
+  ]
+  const { items, open } = roomItems(events, (range) => {
+    seenRanges.push(range)
+    return [{ botId: 'b2', name: 'Writer', text: 'ledger reply', time: 20 }]
+  })
+  assert.deepEqual(seenRanges, [{ from: 80, anchor: 'a1' }])
+  assert.deepEqual(open, [])
+  assert.deepEqual(items, [
+    { id: '1', kind: 'user', text: 'First round', time: 1 },
+    { id: 'r1:0', kind: 'bot', botId: 'b2', name: 'Writer', text: 'ledger reply', time: 20 },
+    { id: '4', kind: 'user', text: 'Legacy round', time: 4 },
+    { id: 'r2:0', kind: 'bot', botId: 'm1', name: 'Chief', text: 'legacy reply', time: 30 },
+  ])
+})
+
 test('a group round logs notices a returning client reads back, and the feed says the group changed', async (t) => {
   const { call, emit, relay, answer, sent, history, routes, ctx, rt, stop } = start()
   t.after(stop)

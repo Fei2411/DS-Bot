@@ -394,6 +394,8 @@ export function install(rt) {
     speech: Boolean(ctx.get?.('speechController')),
     // True once until the user confirms or declines the telemetry privacy notice.
     telemetryPrompt: rt.telemetry?.shouldPromptNotice?.() === true,
+    // Release notes state for local windows (excluded from remote/relay payloads).
+    releaseNotes: rt.releaseNotesView?.() ?? null,
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -600,7 +602,7 @@ export function install(rt) {
           await rt.catalog()
           await rt.loadSecrets()
           const answer = liveAnswer()
-          const { api: _, telemetryPrompt: _tp, ...remoteLive } = answer.value
+          const { api: _, telemetryPrompt: _tp, releaseNotes: _rn, ...remoteLive } = answer.value
           const liveValue = remote ? remoteLive : answer.value
           if (body.since === state.revision && (body.models === undefined || body.models === modelsKey())) {
             if (body.live === answer.key) return ok({ revision: state.revision, unchanged: true, liveKey: answer.key })
@@ -908,9 +910,14 @@ export function install(rt) {
         case 'set-flags':
           await rt.load()
           return ok(await rt.setFlags(body.id, body))
-        case 'section-save':
+        case 'section-save': {
           await rt.load()
-          return ok(await rt.saveSection(body))
+          const saved = await rt.saveSection(body)
+          if (body.withRevision !== true) return ok(saved)
+          // Read the current section and revision together: a concurrent save may have won.
+          const section = state.sections?.find(entry => entry.id === saved.id)
+          return ok({ section: section ? { ...section } : null, revision: state.revision })
+        }
         case 'section-order':
           await rt.load()
           await rt.reorderSections(body.ids)
@@ -1232,6 +1239,9 @@ export function install(rt) {
         }
         case 'update-install':
           return ok(rt.updateStart())
+        case 'release-notes-claim':
+          if (remote) return fail('Release notes can only be claimed on this computer', 'bot/refused')
+          return ok(await rt.claimReleaseNotes(body.version))
         case 'dsh-update-install':
           return ok(rt.dshUpdateStart?.())
         case 'repo-stars':

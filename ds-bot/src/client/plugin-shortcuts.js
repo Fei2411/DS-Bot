@@ -109,7 +109,7 @@ export function buildPluginShortcutCommands({ roster, ui, surface, actions, main
       resolve: ({ modal }) => {
         if (surface.getSnapshot().mode !== 'bot') return { status: 'blocked', reason: 'unavailable' }
         if (modal !== null) return { status: 'blocked', reason: 'modal' }
-        const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView())
+        const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView(), ui.getSnapshot().sectionFolds)
         const target = targets[index]
         if (!target) return { status: 'blocked', reason: 'unavailable' }
         return {

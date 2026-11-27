@@ -94,6 +94,14 @@ export function install(rt) {
     const base = file.startsWith('handoff-results/') ? file.slice('handoff-results/'.length) : file
     return /^[A-Za-z0-9_-]+\.txt$/.test(base) ? base : undefined
   }
+  let startupSweepDone = typeof ctx?.effect !== 'function'
+  // Files written by this process before the one-shot startup orphan sweep finishes
+  // belong to live keepResult() writes, not to a prior crashed host.
+  const createdBeforeStartupSweep = new Set()
+  const finishStartupSweep = () => {
+    startupSweepDone = true
+    createdBeforeStartupSweep.clear()
+  }
 
   function keepResult(id, text) {
     const body = String(text ?? '')
@@ -106,6 +114,7 @@ export function install(rt) {
       writeFileSync(temp, body, 'utf8')
       renameSync(temp, path)
       whole.set(id, body)
+      if (!startupSweepDone) createdBeforeStartupSweep.add(name)
       return name
     } catch (error) {
       rt.warn?.('ds-bot: result of work %s not kept whole: %s', id, error)
@@ -140,33 +149,36 @@ export function install(rt) {
   }
 
   async function pruneOrphanResultFiles() {
-    if (!writes()) return
-    let entries
     try {
-      entries = await readdir(resultsDir)
-    } catch {
-      return
-    }
-    if (!hasCoordDb() || !writes()) return
-    const used = new Set()
-    const activeNonFg = new Set()
-    for (const work of rt.coordDb.listWorks({ limit: 5000 })) {
-      const isActive = !TERMINAL_STATUSES.has(work.status)
-      if (isActive && work.kind !== 'foreground') activeNonFg.add(work.workId)
-      if (isActive || work.parentWorkId === null) {
-        const name = keptName(work.resultRef)
+      if (!hasCoordDb() || !writes()) return
+      let entries
+      try {
+        entries = await readdir(resultsDir)
+      } catch {
+        return
+      }
+      const used = new Set()
+      const activeNonFg = new Set()
+      for (const work of rt.coordDb.listWorks({ limit: 5000 })) {
+        const isActive = !TERMINAL_STATUSES.has(work.status)
+        if (isActive && work.kind !== 'foreground') activeNonFg.add(work.workId)
+        if (isActive || work.parentWorkId === null) {
+          const name = keptName(work.resultRef)
+          if (name !== undefined) used.add(name)
+        }
+      }
+      for (const call of rt.coordDb.listCalls({ limit: 5000 })) {
+        if (!activeNonFg.has(call.parentWorkId)) continue
+        const name = keptName(call.resultRef)
         if (name !== undefined) used.add(name)
       }
-    }
-    for (const call of rt.coordDb.listCalls({ limit: 5000 })) {
-      if (!activeNonFg.has(call.parentWorkId)) continue
-      const name = keptName(call.resultRef)
-      if (name !== undefined) used.add(name)
-    }
-    for (const file of entries) {
-      const name = keptName(file)
-      if (name === undefined || used.has(name)) continue
-      await rm(resultPath(name), { force: true }).catch(() => {})
+      for (const file of entries) {
+        const name = keptName(file)
+        if (name === undefined || used.has(name) || createdBeforeStartupSweep.has(name)) continue
+        await rm(resultPath(name), { force: true }).catch(() => {})
+      }
+    } finally {
+      finishStartupSweep()
     }
   }
 
@@ -928,7 +940,6 @@ export function install(rt) {
       ...(work.meta?.fromRoom ? { senderRoomId: work.meta.fromRoom } : {}),
     }
   }
-
   function answerText(workId, reply, botName) {
     const said = reply !== '' ? reply : (heldAnswers.get(workId) ?? '')
     heldAnswers.delete(workId)
@@ -1379,10 +1390,12 @@ export function install(rt) {
           return pruneOrphanResultFiles()
         })
         .catch(error => rt.warn?.('ds-bot: lost waits not settled: %s', error))
+        .finally(finishStartupSweep)
     }, 0)
     timer.unref?.()
     return () => {
       clearTimeout(timer)
+      finishStartupSweep()
       offWorkSettled?.()
       offAdopted?.()
       whole.clear()

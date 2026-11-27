@@ -383,10 +383,10 @@ async function writeModelRows(to, rows) {
  * Everything but the keys, the model settings and the workspace files is put together in a
  * folder beside the data and moved in at the end. A copy that stops or fails removes that
  * folder; one that was killed leaves it behind, and the next copy removes it.
- * @param {{ from: string, to: string, workspace: string, profile?: string, dsh?: string, signal?: AbortSignal,
+ * @param {{ from: string, to: string, workspace: string, profile?: string, dsh?: string, currentVersion?: string, signal?: AbortSignal,
  *   leaveRegenerable?: boolean, skipWork?: boolean, onProgress?: (bytes: number) => void }} options
  */
-export async function importTeam({ from, to, workspace, profile, dsh, signal, leaveRegenerable = false, skipWork = false, onProgress }) {
+export async function importTeam({ from, to, workspace, profile, dsh, currentVersion, signal, leaveRegenerable = false, skipWork = false, onProgress }) {
   const found = findTeam(from)
   if (found === undefined) throw new Error(`There is no Bot team in ${from}`)
   const present = existsSync(join(to, 'bot', 'state.json')) ? readJson(join(to, 'bot', 'state.json')) : undefined
@@ -398,13 +398,13 @@ export async function importTeam({ from, to, workspace, profile, dsh, signal, le
   try {
     let bytes = 0
     const seen = (size) => { bytes += size; onProgress?.(bytes) }
-    return await copyThroughStage({ found, from, to, workspace, profile, dsh, signal, stage, leaveRegenerable, skipWork, seen })
+    return await copyThroughStage({ found, from, to, workspace, profile, dsh, currentVersion, signal, stage, leaveRegenerable, skipWork, seen })
   } finally {
     await rm(stage, { recursive: true, force: true, maxRetries: 5 }).catch((error) => { console.error(error) })
   }
 }
 
-async function copyThroughStage({ found, from, to, workspace, profile, dsh, signal, stage, leaveRegenerable, skipWork, seen }) {
+async function copyThroughStage({ found, from, to, workspace, profile, dsh, currentVersion, signal, stage, leaveRegenerable, skipWork, seen }) {
   const oldBot = join(from, 'bot')
   signal?.throwIfAborted()
   await cpSeen(oldBot, join(stage, 'bot'), { recursive: true, seen, filter: path => !LEFT_BEHIND.has(relative(oldBot, path).split(/[\\/]/u)[0]) })
@@ -413,6 +413,11 @@ async function copyThroughStage({ found, from, to, workspace, profile, dsh, sign
   // to a fresh part, so they would go on working in the old team folder in the user's DSH home.
   delete team.workspaceId
   team.agents = {}
+  // First-time import into the desktop app is not an in-place upgrade; seed the current app
+  // version on the staged copy so the first launch does not pop an unexpected "What's new" dialog.
+  if (typeof currentVersion === 'string' && currentVersion.trim() !== '') {
+    team.lastSeenVersion = currentVersion.trim()
+  }
   await writeFile(join(stage, 'bot', 'state.json'), JSON.stringify(team, null, 2))
   const { found: sessions, missing } = sessionDirs(from, sessionIdsOf(found.team))
   signal?.throwIfAborted()

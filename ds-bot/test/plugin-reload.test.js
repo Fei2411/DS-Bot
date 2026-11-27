@@ -9,6 +9,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { loopTurn } from './relay-rows.js'
 
 // #976: a plugin update replaces the files under a running dsh and loads the plugin
 // again in place. The process keeps its turns and child agents; the plugin's maps do
@@ -34,7 +35,7 @@ const team = () => ({
 
 const settle = async (check, ms = 2000) => {
   const until = Date.now() + ms
-  while (!check() && Date.now() < until) await new Promise(resolve => setImmediate(resolve))
+  while (!check() && Date.now() < until) await loopTurn()
   assert.ok(check(), 'condition not reached')
 }
 // A group post resolves its Agent in another turn of the loop, so waiting with

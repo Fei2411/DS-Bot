@@ -1,6 +1,10 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  "What's new in v{version}": "Nouveautés de la v{version}",
+  "Got it": "Compris",
+  "Full changelog": "Journal complet",
+  "No release notes for this version yet.": "Aucune note de version pour l’instant.",
   "Agent preset": "Préréglage Agent",
   "Agent preset: {preset}": "Préréglage Agent : {preset}",
   "Default (Standard)": "Par défaut (standard)",
@@ -2431,6 +2435,8 @@ export const FR = {
   "Changed files": "Fichiers modifiés",
   "Open file": "Ouvrir le fichier",
   "File is too large for diff preview": "Fichier trop volumineux pour l'aperçu des différences",
+  "Earlier output was trimmed": "La sortie précédente a été omise",
+  "Conversation history was reloaded": "L’historique de la conversation a été rechargé",
   "New terminal": "Nouveau terminal",
   "Terminals are disabled in a read-only window": "Les terminaux sont désactivés en lecture seule",
   "No open terminals": "Aucun terminal ouvert",
