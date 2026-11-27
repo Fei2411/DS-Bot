@@ -64239,6 +64239,28 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
 // src/shared/release-notes-generated.js
 var RELEASE_NOTES = [
   {
+    "version": "0.4.1",
+    "date": "2026-11-27",
+    "notes": {
+      "zh": {
+        "items": [
+          "修复 Bot 私聊误显示底层工具调用卡片（如 MCP、命令等）和压缩分隔条的问题，保留经典模式完整工具卡片与历史电脑截图显示",
+          "优化 Bot 活动状态行：静息态保持简洁，鼠标悬停或触屏点按时平滑浮现「转到后台」操作",
+          "修复单个 Bot 详情页关闭邮箱连接器后开关回弹的问题，关闭后同时隐藏该 Bot 的邮件工具"
+        ],
+        "intro": "快速热修：恢复 Bot 私聊清爽体验，优化进行中状态栏并修复邮箱连接器开关。"
+      },
+      "en": {
+        "items": [
+          "Fixed Bot private chats showing raw tool call cards (such as MCP and shell tools) and compaction bars, while keeping persisted computer-use screenshots and full Classic Agent tool cards",
+          "Refined the Bot activity row to stay quiet at rest and reveal the borderless Move to background action on hover, focus, or touch tap",
+          "Fixed the per-Bot Mailbox switch bouncing back on and ensured turning Mailbox off removes mail tools for that Bot"
+        ],
+        "intro": "A quick hotfix restoring clean Bot private chats, refining the activity row, and fixing the per-Bot Mailbox toggle."
+      }
+    }
+  },
+  {
     "version": "0.4.0",
     "date": "2026-11-27",
     "notes": {
