@@ -117,7 +117,7 @@ jobs:
             mobile_android=false
             # Full cross-OS packaging runs on packaging/installer/runtime/updater/native changes.
             # Pure app/ui/ and app/test/ edits are verified by test.yml (vite build + Ubuntu/Windows unit tests).
-            if has '^(app/(package\.json|package-lock\.json|electron-builder\.yml|\.npmrc|build/|engine/|assets/|scripts/((before-pack|check-lifecycle|check-packed|check-update|dist|prepare-runtime|seed-electron-checksums)\.|primary-runtime\.lock\.json$)|src/update)|ds-bot/(package\.json|package-lock\.json|cordis\.patch\.yml|office\.js|src/office/|src/host/computer/))'; then
+            if has '^(app/(package\.json|package-lock\.json|electron-builder\.yml|\.npmrc|build/|engine/|assets/|scripts/((before-pack|check-lifecycle|check-packed|check-update|dist|prepare-runtime|seed-electron-checksums)\.|primary-runtime\.lock\.json$)|src/(update|mac-updater\.mjs))|ds-bot/(package\.json|package-lock\.json|cordis\.patch\.yml|office\.js|src/office/|src/host/computer/))'; then
               app_package_full=true
             fi
             # Main-process app/src/ and desktop UI bundle config edits get a fast Linux packaged smoke
@@ -125,7 +125,7 @@ jobs:
             if [ "$app_package_full" = "true" ] || has '^(app/src/|app/vite\.config\.js$|app/ui/index\.html$)'; then
               app_package_linux=true
             fi
-            if has '^app/(package\.json|package-lock\.json|electron-builder\.yml|build/|scripts/(before-pack|check-update|dist)\.|src/update)'; then
+            if has '^app/(package\.json|package-lock\.json|electron-builder\.yml|build/|scripts/(before-pack|check-update|dist)\.|src/(update|mac-updater\.mjs))'; then
               app_update=true
             fi
             # Native iOS / Android builds run on native config, icon assets, or version/dependency changes
@@ -545,7 +545,28 @@ jobs:
           if [ "$expected" = x64 ]; then expected=x86_64; fi
           file -b "$exe" | grep -F "$expected"
           node scripts/check-packed.mjs "$exe"
-          node scripts/check-update.mjs "$exe" 99.0.0
+      # The update builds the app a second time, so it runs only for updater/installer changes
+      # (and full runs). The installed app downloads the new zip, verifies SHA-256 + codesign,
+      # and replaces /Applications/DS Bot.app atomically as it quits.
+      - name: Build the next version
+        if: needs.changes.outputs.app_update == 'true'
+        run: |
+          next="$(node -p "const [a, b, c] = require('./package.json').version.split(/[.-]/u); [a, b, Number(c) + 1].join('.')")"
+          echo "NEXT_VERSION=$next" >> "$GITHUB_ENV"
+          npx electron-builder --publish never -c.extraMetadata.version="$next" -c.directories.output=dist-next
+        env:
+          CSC_FOR_PULL_REQUEST: 'true'
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '1'
+      - name: The installed app takes the update
+        if: needs.changes.outputs.app_update == 'true'
+        run: |
+          app="/Applications/DS Bot.app"
+          exe="$app/Contents/MacOS/DS Bot"
+          node scripts/check-update.mjs "$exe" dist-next
+          actual="$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
+          test "$actual" = "$NEXT_VERSION"
+          codesign --verify --deep --strict "$app"
+          node scripts/check-packed.mjs "$exe"
 
   app-package-linux:
     name: Desktop app package (Linux x64)

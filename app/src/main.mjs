@@ -100,7 +100,7 @@ const frameFile = join(app.getPath('userData'), 'start-frame.json')
 let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, applyImportToTargets, seedOriginsInPartition, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
 let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
-let watchReleases, watchUpdates, RELEASE_PAGE, readAutoUpdate, writeAutoUpdate, getDshRuntimeVersion, electronUpdater
+let watchReleases, watchUpdates, RELEASE_PAGE, createMacUpdater, resolveMacAppBundle, readAutoUpdate, writeAutoUpdate, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
 // Settles once the hidden team window exists.
@@ -161,6 +161,7 @@ let downloadsBound = false
 // Quitting during the first run's import (its card or its copy) or a data move waits for it to
 // stop at a safe point, so that it leaves no half team and no temporary copy.
 let copying
+let relaunching = false
 const copyAbort = new AbortController()
 let browserGuests
 let botViews
@@ -333,11 +334,11 @@ async function prepare() {
 }
 
 async function loadModules() {
-  const [browser, views, sources, cookies, cookieFiles, downloads, firstRun, hostProcess, imports, flows, moves, profile, updatesModule, updatePrefsModule, boot, updater] = await Promise.all([
+  const [browser, views, sources, cookies, cookieFiles, downloads, firstRun, hostProcess, imports, flows, moves, profile, updatesModule, macUpdaterModule, updatePrefsModule, boot, updater] = await Promise.all([
     import('./bot-browser.mjs'), import('./bot-views.mjs'), import('./browser-sources.mjs'), import('./cookie-import.mjs'),
     import('./cookie-parse.mjs'), import('./downloads.mjs'), import('./first-run.mjs'), import('./host-process.mjs'),
     import('./import.mjs'), import('./import-flow.mjs'), import('./move-data.mjs'), import('./profile.mjs'), import('./updates.mjs'),
-    import('./update-prefs.mjs'), import('@deepseek-ai/dsh-app-boot'), import('electron-updater'),
+    import('./mac-updater.mjs'), import('./update-prefs.mjs'), import('@deepseek-ai/dsh-app-boot'), import('electron-updater'),
   ])
   ;({ BotBrowserGuests, partitionOf } = browser)
   ;({ BotViews, isBotId } = views)
@@ -352,6 +353,7 @@ async function loadModules() {
   ;({ copyData, copyReason, moveProblem } = moves)
   ;({ BUNDLES, CHECK_PROFILE, PROFILE } = profile)
   ;({ watchReleases, watchUpdates, RELEASE_PAGE } = updatesModule)
+  ;({ createMacUpdater, resolveMacAppBundle } = macUpdaterModule)
   ;({ readAutoUpdate, writeAutoUpdate } = updatePrefsModule)
   ;({ getDshRuntimeVersion } = boot)
   electronUpdater = updater.default
@@ -1362,7 +1364,7 @@ async function runMove(to, workspace) {
     const reason = moveReason(to, workspace)
     if (reason !== undefined) {
       await askCard({ ...stay, why: 'place', place: reason, path: to }, { signal })
-      if (!signal.aborted) app.relaunch()
+      if (!signal.aborted) { relaunching = true; app.relaunch() }
       return
     }
     // Another DSH on the same data would go on writing while the copy is made.
@@ -1371,7 +1373,7 @@ async function runMove(to, workspace) {
       const answer = await askCard({ ...stay, why: 'inUse' }, { signal, settle: until(() => !teamInUse(from), free.signal) })
       free.abort()
       if (answer !== 'settled') {
-        if (!signal.aborted) app.relaunch()
+        if (!signal.aborted) { relaunching = true; app.relaunch() }
         return
       }
       startWindow.card(undefined)
@@ -1401,6 +1403,7 @@ async function runMove(to, workspace) {
         setProgress(-1)
       }
     }
+    relaunching = true
     app.relaunch()
   })()
   await copying
@@ -1410,14 +1413,33 @@ async function runMove(to, workspace) {
 
 const updatePrefsFile = () => join(app.getPath('userData'), 'update-prefs.json')
 
-// Windows and a Linux AppImage update themselves; macOS and a Linux deb ask to download the new
-// version. Throwaway runs check only a given feed and never ask.
+// Windows, writable macOS .app bundles and Linux AppImages update themselves; read-only or
+// translocated macOS installs and Linux debs ask to download the new version. Throwaway runs
+// check only a given feed and never ask.
 function startUpdates() {
   const feed = process.env.DS_BOT_UPDATE_URL || undefined
   const throwaway = Boolean(process.env.DS_BOT_HOME)
   if (!app.isPackaged || (throwaway && feed === undefined)) return undefined
   const autoUpdate = readAutoUpdate(updatePrefsFile())
   if (process.platform === 'darwin') {
+    const bundle = resolveMacAppBundle(process.execPath)
+    if (bundle.eligible) {
+      const macUpdater = createMacUpdater({
+        current: app.getVersion(),
+        arch: process.arch,
+        appPath: bundle.appPath,
+        stagingRoot: join(app.getPath('userData'), 'mac-updates'),
+        logFile: join(app.getPath('userData'), 'logs', 'mac-updater.log'),
+        quit: () => { app.quit() },
+        onWillQuit: (fn) => { app.once('will-quit', fn) },
+        shouldInstallOnQuit: () => !relaunching && !shell.isSessionEnding(),
+      })
+      return watchUpdates({
+        updater: macUpdater, feed, autoUpdate, ask: throwaway ? undefined : (version, info) => restartPrompt.prompt(version, info),
+        beforeInstall: () => { shell.beginQuit(); return stopHost() },
+      })
+    }
+    console.log(`DS Bot: macOS in-place update unavailable (${bundle.reason}); falling back to release page`)
     return watchReleases({
       current: app.getVersion(), arch: process.arch, feed, autoUpdate, ask: throwaway ? undefined : (version, info) => downloadPrompt.prompt(version, info), open: url => electronShell.openExternal(url),
     })
