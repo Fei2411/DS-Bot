@@ -658,14 +658,58 @@ test('displayItems emits a pending show_view inline for visible turns, and omits
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   const call = async (endpoint, payload = {}) => (await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
 
-  // Visible turn: pending view appears inline at its call site.
-  const first = (await call('chat', { botId: 'writer' })).value
+  // Visible turn: pending view appears inline at its call site with turn stamped,
+  // and show_view is excluded from stepsItems so no stray tool-step row sits above it.
+  const first = (await call('chat', { botId: 'writer', steps: true })).value
   const inline = first.items.filter(item => item.kind === 'view')
   assert.equal(inline.length, 1)
   assert.equal(inline[0].id, 'v-vis')
   assert.equal(inline[0].callId, 'call-visible')
   assert.equal(inline[0].pending, true)
+  assert.equal(inline[0].turn, 1)
   assert.equal(inline[0].title, 'Pick')
+  assert.equal(first.items.filter(item => item.kind === 'steps').length, 0)
+
+  // Dismissing the pending view replaces the inline view with a closed card.
+  await call('dismiss-view', { sessionId: 'writer-now' })
+  const afterDismiss = (await call('chat', { botId: 'writer' })).value
+  assert.equal(afterDismiss.items.filter(item => item.kind === 'view').length, 0)
+  const closedRows = afterDismiss.items.filter(item => item.kind === 'closed')
+  assert.equal(closedRows.length, 1)
+  assert.equal(closedRows[0].closed, 'dismissed')
+  assert.equal(closedRows[0].title, 'Pick')
+
+  // Answering a pending view removes the inline pending view and emits the answer row.
+  delete host.state.closedCards?.['writer-now']
+  host.state.views['writer-now'] = { id: 'v-vis', callId: 'call-visible', title: 'Pick', view: CHOICES, askedAt: 1002 }
+  const sentFollowups = []
+  ctx.sessionController.resolveAgent = async sessionId => ({
+    agent: { session: { id: sessionId }, followup: msg => sentFollowups.push(msg) },
+  })
+  const replied = await call('view-reply', { sessionId: 'writer-now', viewId: 'v-vis', action: 'pick', values: { selected: ['A'] } })
+  assert.equal(replied.ok, true)
+  assert.equal(sentFollowups.length, 1)
+  eventsByPart['writer-now'].push({
+    seq: 8,
+    time: 1005,
+    type: 'user/message',
+    data: { content: sentFollowups[0].content, source: sentFollowups[0].source },
+  })
+  const afterReply = (await call('chat', { botId: 'writer' })).value
+  assert.equal(afterReply.items.filter(item => item.kind === 'view').length, 0)
+  const answerRows = afterReply.items.filter(item => item.kind === 'answer')
+  assert.equal(answerRows.length, 1)
+  assert.equal(answerRows[0].views?.[0]?.id, 'v-vis')
+
+  // Refused / invalid show_view calls emit no row at all.
+  eventsByPart['writer-now'].push({
+    seq: 9,
+    time: 1006,
+    type: 'tool/call',
+    data: { name: 'show_view', callId: 'call-bad', arguments: { title: 'Bad', view: { type: 'unknown-widget' } } },
+  })
+  const afterBad = (await call('chat', { botId: 'writer' })).value
+  assert.equal(afterBad.items.filter(item => item.kind === 'view').length, 0)
 
   // Hidden turn: pending view must NOT be emitted into the transcript (stays in Dock).
   host.state.views['writer-now'] = { id: 'v-hid', callId: 'call-hidden', title: 'Hidden', view: CHOICES, askedAt: 2002 }

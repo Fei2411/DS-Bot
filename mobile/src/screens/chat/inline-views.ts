@@ -34,9 +34,9 @@ export function viewHasControls(node: unknown): boolean {
 }
 
 export function matchesPendingView(item: ViewLikeItem, pending: ShownView): boolean {
-  if (item.kind !== 'view') return false
-  if (pending.id !== undefined && item.id !== undefined && item.id === pending.id) return true
-  if (pending.callId !== undefined && item.callId !== undefined && item.callId === pending.callId) return true
+  if (item.kind !== 'view' || item.pending !== true) return false
+  if (pending.id !== undefined && item.id !== undefined) return item.id === pending.id
+  if (pending.callId !== undefined && item.callId !== undefined) return item.callId === pending.callId
   return false
 }
 

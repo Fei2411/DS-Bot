@@ -42,9 +42,10 @@ function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title:
   )
 }
 
-export function Dock({ question, questions, sessionId, questionSessionId, viewSessionId, approvals, learning = [], secrets = [], connectorRequests = [], mailRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, views, call, p, maxHeight, expanded, onExpand }: {
+export function Dock({ question, questions, sessionId, questionSessionId, viewSessionId, approvals, learning = [], secrets = [], connectorRequests = [], mailRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, views, onViewSettled, call, p, maxHeight, expanded, onExpand }: {
   view?: ShownView
   views?: { sessionId: string; view: ShownView }[]
+  onViewSettled?: () => void
   questionSessionId?: string; viewSessionId?: string
   secrets?: SecretRequest[]; connectorRequests?: ConnectorRequest[]; mailRequests?: MailRequest[]; botName?: string; onOpenConnector?: (connectorId: string) => void
   btw?: BtwCardData[]; handoff?: HandoffData; onViewBrowser?: () => void
@@ -98,7 +99,7 @@ export function Dock({ question, questions, sessionId, questionSessionId, viewSe
       title: entry.view.title || t('Card'),
       needs: true,
       order: 4,
-      body: <ViewCard sessionId={entry.sessionId} id={entry.view.id} title={entry.view.title} root={entry.view.view} p={p} bare />,
+      body: <ViewCard sessionId={entry.sessionId} id={entry.view.id} title={entry.view.title} root={entry.view.view} p={p} bare onSettled={onViewSettled} />,
     })
   }
   for (const card of btw) cards.push({ key: `btw-${card.id}`, title: card.question ?? t('Aside'), needs: false, order: 5, body: <BtwCard card={card} sessionId={sessionId} call={call} p={p} bare /> })

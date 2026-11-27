@@ -21,11 +21,17 @@ test('splitChatViews places transcript-backed views inline and falls back missin
   assert.deepEqual(split.dock, [hiddenEntry, rolledOverEntry])
 })
 
-test('matchesPendingView matches by id or callId and ignores non-view rows', () => {
-  assert.equal(matchesPendingView({ kind: 'bot', id: 'v-1' }, { id: 'v-1' }), false)
-  assert.equal(matchesPendingView({ kind: 'view', id: 'v-1' }, { id: 'v-1' }), true)
-  assert.equal(matchesPendingView({ kind: 'view', callId: 'c-9' }, { id: 'v-other', callId: 'c-9' }), true)
-  assert.equal(matchesPendingView({ kind: 'view', callId: 'c-1' }, { id: 'v-1', callId: 'c-2' }), false)
+test('matchesPendingView requires pending=true and never falls back to callId when ids disagree', () => {
+  assert.equal(matchesPendingView({ kind: 'bot', id: 'v-1', pending: true }, { id: 'v-1' }), false)
+  // Historical display-only view with matching callId must never be hijacked by a pending card.
+  assert.equal(matchesPendingView({ kind: 'view', callId: 'c-9' }, { id: 'v-1', callId: 'c-9' }), false)
+  assert.equal(matchesPendingView({ kind: 'view', id: 'v-1' }, { id: 'v-1' }), false)
+  // Pending view matches by id when both carry id; mismatched ids do NOT fall back to callId.
+  assert.equal(matchesPendingView({ kind: 'view', id: 'v-1', pending: true }, { id: 'v-1' }), true)
+  assert.equal(matchesPendingView({ kind: 'view', id: 'v-1', callId: 'c-9', pending: true }, { id: 'v-2', callId: 'c-9' }), false)
+  // Fallback to callId only when id is absent on either side.
+  assert.equal(matchesPendingView({ kind: 'view', callId: 'c-9', pending: true }, { id: 'v-other', callId: 'c-9' }), true)
+  assert.equal(matchesPendingView({ kind: 'view', callId: 'c-1', pending: true }, { id: 'v-1', callId: 'c-2' }), false)
 })
 
 test('viewHasControls distinguishes frameless display views from framed interactive views', () => {

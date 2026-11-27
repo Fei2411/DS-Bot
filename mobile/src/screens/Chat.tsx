@@ -290,7 +290,10 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
 
   const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? (agent !== undefined ? agent.sessions.at(-1) ?? '' : id)
   const questions = questionsForChat(team, { room, sessionId })
-  const shownViews = viewsForChat(team, { room, sessionId })
+  const shownViews = useMemo(
+    () => viewsForChat(team, { room, sessionId }),
+    [team?.views, team?.inbox?.items, room?.id, sessionId],
+  )
   const approvals = (team?.work?.approvals ?? []).filter((entry: Approval) => (
     entry.sessionId === sessionId
     || (entry.roomId !== undefined && entry.roomId === room?.id)
@@ -509,24 +512,41 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
     })
     if (missing.length > 0) void refresh(generation.current)
   }, [page, dockViews, refresh])
+  const rowsLenRef = useRef(rows.length)
+  rowsLenRef.current = rows.length
+  const scrollRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollRetryCountRef = useRef(0)
+  const clearScrollRetry = useCallback(() => {
+    if (scrollRetryTimerRef.current !== null) {
+      clearTimeout(scrollRetryTimerRef.current)
+      scrollRetryTimerRef.current = null
+    }
+    scrollRetryCountRef.current = 0
+  }, [])
+  useEffect(() => clearScrollRetry, [chatKey, clearScrollRetry])
   const jumpToRow = useCallback((index: number) => {
-    if (index < 0 || index >= rows.length) return
+    if (index < 0 || index >= rowsLenRef.current) return
+    clearScrollRetry()
+    restoredForRef.current = chatKey
     list.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 })
-  }, [rows.length])
+  }, [chatKey, clearScrollRetry])
   const handleViewSettled = useCallback(() => {
     refreshTeam?.()
     void refresh(generation.current)
   }, [refreshTeam, refresh])
   // Opening a chat from Needs you for an inline view scrolls straight to that card.
-  const jumpedFocusRef = useRef<string | null>(null)
+  // Compare focusToken by object reference (ShellB passes params object, not a primitive).
+  const jumpedFocusRef = useRef<{ chatKey: string; focus: string; token: unknown } | null>(null)
   useEffect(() => {
     if (focus === undefined) return
-    const tokenKey = `${chatKey}:${focus}:${String(focusToken ?? '')}`
-    if (jumpedFocusRef.current === tokenKey) return
+    const prev = jumpedFocusRef.current
+    if (prev !== null && prev.chatKey === chatKey && prev.focus === focus && prev.token === focusToken) return
     const match = inlineViews.find(entry => viewFocusKey(entry) === focus)
     if (match === undefined) return
-    jumpedFocusRef.current = tokenKey
-    setTimeout(() => jumpToRow(match.rowIndex), 80)
+    jumpedFocusRef.current = { chatKey, focus, token: focusToken }
+    restoredForRef.current = chatKey
+    const timer = setTimeout(() => jumpToRow(match.rowIndex), 80)
+    return () => clearTimeout(timer)
   }, [chatKey, focus, focusToken, inlineViews, jumpToRow])
   const inlineViewSig = inlineViews.map(entry => `${entry.rowKey}:${entry.view.id ?? ''}`).join('|')
   const listExtraData = useMemo(() => ({ openSteps, inlineViewSig }), [openSteps, inlineViewSig])
@@ -578,7 +598,16 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
                 extraData={listExtraData}
                 onScrollToIndexFailed={info => {
                   list.current?.scrollToOffset({ offset: Math.max(0, info.averageItemLength * info.index), animated: true })
-                  setTimeout(() => list.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 }), 120)
+                  if (scrollRetryCountRef.current >= 3) return
+                  scrollRetryCountRef.current += 1
+                  if (scrollRetryTimerRef.current !== null) clearTimeout(scrollRetryTimerRef.current)
+                  const targetIndex = info.index
+                  scrollRetryTimerRef.current = setTimeout(() => {
+                    scrollRetryTimerRef.current = null
+                    if (targetIndex >= 0 && targetIndex < rowsLenRef.current) {
+                      list.current?.scrollToIndex({ index: targetIndex, animated: true, viewPosition: 0.5 })
+                    }
+                  }, 120)
                 }}
                 contentContainerStyle={styles.listContent}
                 keyboardShouldPersistTaps="handled"
@@ -629,7 +658,7 @@ export function ChatView({ bot, room, agent, focus, focusToken, header, onMissin
         }))}
         p={p}
       />
-      <Dock questions={questions} sessionId={sessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} mailRequests={mailRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} views={dockViews} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
+      <Dock questions={questions} sessionId={sessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} mailRequests={mailRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} views={dockViews} onViewSettled={handleViewSettled} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
       <Composer key={chatKey} chatKey={chatKey} name={bot?.name ?? (room && roomTitle(room)) ?? agent?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} sends={sends} onSend={send} onStop={stop} p={p} />

@@ -4080,7 +4080,7 @@ export function install(rt) {
           const isPendingView = pendingView !== undefined && (pendingView.callSessionId ?? partId) === partId && pendingView.callId === callId
           if (isPendingView) {
             if (!hidden.has(event.data?.turn ?? turn)) {
-              items.push({ kind: 'view', id: pendingView.id, title: pendingView.title, view: pendingView.view, callId, pending: true, time: event.time })
+              stamp(event, { kind: 'view', id: pendingView.id, title: pendingView.title, view: pendingView.view, callId, pending: true, time: event.time })
             }
           } else if (shown.error === undefined && !shown.interactive && args?.await_reply !== true) {
             if (!hidden.has(event.data?.turn ?? turn)) items.push({ kind: 'view', title: shown.title, view, callId, time: event.time })
@@ -4321,7 +4321,7 @@ export function install(rt) {
       if (turn === undefined || hidden.has(turn)) continue
       if (event.type === 'tool/call') {
         const name = event.data?.name
-        if (typeof name !== 'string' || name === 'ask_user' || name === 'request_secret' || name === 'group_relay') continue
+        if (typeof name !== 'string' || name === 'ask_user' || name === 'show_view' || name === 'request_secret' || name === 'group_relay') continue
         const list = byTurn.get(turn) ?? byTurn.set(turn, []).get(turn)
         list.push({ callId: event.data?.callId ?? null, name, label: toolLabel(name) ?? null })
         continue
