@@ -2725,6 +2725,42 @@ var JA = {
   "No matching fonts": "一致するフォントがありません",
   'Use "{font}"': "「{font}」を使用",
   "Built-in engine": "内蔵エンジン",
+  "No newline at end of file": "ファイル末尾に改行がありません",
+  "Binary": "バイナリ",
+  "Large": "大容量",
+  "Failed to read file": "ファイルを読み込めませんでした",
+  "Feedback changed elsewhere. Try again.": "フィードバックが別の場所で変更されました。もう一度お試しください。",
+  "Could not submit feedback": "フィードバックを送信できませんでした",
+  "Could not remove feedback": "フィードバックを取り消せませんでした",
+  "Remove positive feedback": "高評価を取り消す",
+  "Good response": "良い回答",
+  "Remove negative feedback": "低評価を取り消す",
+  "Poor response": "改善が必要な回答",
+  "Add an optional note…": "補足メモを追加（任意）…",
+  "Feedback note": "フィードバックのメモ",
+  "Note is too long": "メモが長すぎます",
+  "Submitting…": "送信中…",
+  "Task result": "タスク結果",
+  "Instruction following": "指示の遵守",
+  "Interaction": "操作性",
+  "Stability": "安定性",
+  "Cost & speed": "コストと速度",
+  "Safety & permissions": "安全性と権限",
+  "Column {n}": "列 {n}",
+  "Reveal folder {path}": "フォルダ {path} をツリーで表示",
+  "Open file {path}": "ファイル {path} を開く",
+  "Note is too long (max {bytes} bytes)": "メモが長すぎます（最大 {bytes} バイト）",
+  "Feedback note cannot be blank": "フィードバックメモを空白にすることはできません",
+  "This message can no longer receive feedback": "このメッセージにはフィードバックを送信できません",
+  "This session is no longer available": "このセッションは利用できません",
+  "This window is read-only": "このウィンドウは読み取り専用です",
+  "Message feedback is unavailable": "メッセージフィードバックは利用できません",
+  "Path is outside the workspace folder: {path}": "パスはワークスペースフォルダの外にあります：{path}",
+  "Could not open folder": "フォルダを開けませんでした",
+  "Stopped because you signed out of DeepSeek.": "DeepSeek からサインアウトしたため停止しました。",
+  "The DSH process exited before this turn finished.": "このターンが完了する前に DSH プロセスが終了しました。",
+  "Hide secret": "シークレットを隠す",
+  "Reveal secret": "シークレットを表示",
   // The inbox.
   "Inbox": "受信トレイ",
   "Inbox, {count} waiting for you": "受信トレイ、対応待ち {count} 件",
@@ -6132,6 +6168,42 @@ var KO = {
   "No matching fonts": "일치하는 글꼴 없음",
   'Use "{font}"': '"{font}" 사용',
   "Built-in engine": "내장 엔진",
+  "No newline at end of file": "파일 끝에 줄바꿈이 없습니다",
+  "Binary": "바이너리",
+  "Large": "대용량",
+  "Failed to read file": "파일을 읽지 못했습니다",
+  "Feedback changed elsewhere. Try again.": "피드백이 다른 곳에서 변경되었습니다. 다시 시도하세요.",
+  "Could not submit feedback": "피드백을 제출할 수 없습니다",
+  "Could not remove feedback": "피드백을 삭제할 수 없습니다",
+  "Remove positive feedback": "긍정 피드백 취소",
+  "Good response": "좋은 응답",
+  "Remove negative feedback": "부정 피드백 취소",
+  "Poor response": "아쉬운 응답",
+  "Add an optional note…": "추가 메모 입력(선택)…",
+  "Feedback note": "피드백 메모",
+  "Note is too long": "메모가 너무 깁니다",
+  "Submitting…": "제출 중…",
+  "Task result": "작업 결과",
+  "Instruction following": "지시 준수",
+  "Interaction": "상호작용",
+  "Stability": "안정성",
+  "Cost & speed": "비용 및 속도",
+  "Safety & permissions": "보안 및 권한",
+  "Column {n}": "열 {n}",
+  "Reveal folder {path}": "파일 트리에서 폴더 {path} 표시",
+  "Open file {path}": "파일 {path} 열기",
+  "Note is too long (max {bytes} bytes)": "메모가 너무 깁니다(최대 {bytes}바이트)",
+  "Feedback note cannot be blank": "피드백 메모는 공백일 수 없습니다",
+  "This message can no longer receive feedback": "이 메시지에는 피드백을 보낼 수 없습니다",
+  "This session is no longer available": "이 세션은 더 이상 사용할 수 없습니다",
+  "This window is read-only": "이 창은 읽기 전용입니다",
+  "Message feedback is unavailable": "메시지 피드백을 사용할 수 없습니다",
+  "Path is outside the workspace folder: {path}": "경로가 작업 폴더 밖에 있습니다: {path}",
+  "Could not open folder": "폴더를 열 수 없습니다",
+  "Stopped because you signed out of DeepSeek.": "DeepSeek에서 로그아웃하여 중지되었습니다.",
+  "The DSH process exited before this turn finished.": "이 턴이 끝나기 전에 DSH 프로세스가 종료되었습니다.",
+  "Hide secret": "비밀 값 숨기기",
+  "Reveal secret": "비밀 값 표시",
   // The inbox.
   "Inbox": "받은편지함",
   "Inbox, {count} waiting for you": "받은편지함, 확인 대기 {count}건",
@@ -9540,6 +9612,42 @@ var ES = {
   "No matching fonts": "No hay fuentes coincidentes",
   'Use "{font}"': "Usar «{font}»",
   "Built-in engine": "Motor integrado",
+  "No newline at end of file": "Sin salto de línea al final del archivo",
+  "Binary": "Binario",
+  "Large": "Grande",
+  "Failed to read file": "No se pudo leer el archivo",
+  "Feedback changed elsewhere. Try again.": "Los comentarios cambiaron en otro lugar. Inténtalo de nuevo.",
+  "Could not submit feedback": "No se pudieron enviar los comentarios",
+  "Could not remove feedback": "No se pudieron retirar los comentarios",
+  "Remove positive feedback": "Quitar valoración positiva",
+  "Good response": "Buena respuesta",
+  "Remove negative feedback": "Quitar valoración negativa",
+  "Poor response": "Respuesta mejorable",
+  "Add an optional note…": "Añadir una nota opcional…",
+  "Feedback note": "Nota de comentarios",
+  "Note is too long": "La nota es demasiado larga",
+  "Submitting…": "Enviando…",
+  "Task result": "Resultado de la tarea",
+  "Instruction following": "Seguimiento de instrucciones",
+  "Interaction": "Interacción",
+  "Stability": "Estabilidad",
+  "Cost & speed": "Costo y velocidad",
+  "Safety & permissions": "Seguridad y permisos",
+  "Column {n}": "Columna {n}",
+  "Reveal folder {path}": "Mostrar la carpeta {path}",
+  "Open file {path}": "Abrir el archivo {path}",
+  "Note is too long (max {bytes} bytes)": "La nota es demasiado larga (máx. {bytes} bytes)",
+  "Feedback note cannot be blank": "La nota de comentarios no puede estar en blanco",
+  "This message can no longer receive feedback": "Este mensaje ya no puede recibir comentarios",
+  "This session is no longer available": "Esta sesión ya no está disponible",
+  "This window is read-only": "Esta ventana es de solo lectura",
+  "Message feedback is unavailable": "Los comentarios sobre mensajes no están disponibles",
+  "Path is outside the workspace folder: {path}": "La ruta está fuera de la carpeta de trabajo: {path}",
+  "Could not open folder": "No se pudo abrir la carpeta",
+  "Stopped because you signed out of DeepSeek.": "Se detuvo porque cerraste sesión en DeepSeek.",
+  "The DSH process exited before this turn finished.": "El proceso DSH finalizó antes de que terminara este turno.",
+  "Hide secret": "Ocultar secreto",
+  "Reveal secret": "Mostrar secreto",
   // The inbox.
   "Inbox": "Bandeja de entrada",
   "Inbox, {count} waiting for you": "Bandeja de entrada, {count} esperándote",
@@ -12904,6 +13012,42 @@ var FR = {
   "No matching fonts": "Aucune police correspondante",
   'Use "{font}"': "Utiliser « {font} »",
   "Built-in engine": "Moteur intégré",
+  "No newline at end of file": "Aucune nouvelle ligne en fin de fichier",
+  "Binary": "Binaire",
+  "Large": "Volumineux",
+  "Failed to read file": "Impossible de lire le fichier",
+  "Feedback changed elsewhere. Try again.": "L’avis a été modifié ailleurs. Réessayez.",
+  "Could not submit feedback": "Impossible d’envoyer l’avis",
+  "Could not remove feedback": "Impossible de retirer l’avis",
+  "Remove positive feedback": "Retirer l’avis positif",
+  "Good response": "Bonne réponse",
+  "Remove negative feedback": "Retirer l’avis négatif",
+  "Poor response": "Réponse à améliorer",
+  "Add an optional note…": "Ajouter une note facultative…",
+  "Feedback note": "Note d’avis",
+  "Note is too long": "La note est trop longue",
+  "Submitting…": "Envoi en cours…",
+  "Task result": "Résultat de la tâche",
+  "Instruction following": "Respect des consignes",
+  "Interaction": "Interaction",
+  "Stability": "Stabilité",
+  "Cost & speed": "Coût et rapidité",
+  "Safety & permissions": "Sécurité et autorisations",
+  "Column {n}": "Colonne {n}",
+  "Reveal folder {path}": "Afficher le dossier {path}",
+  "Open file {path}": "Ouvrir le fichier {path}",
+  "Note is too long (max {bytes} bytes)": "La note est trop longue (max. {bytes} octets)",
+  "Feedback note cannot be blank": "La note d’avis ne peut pas être vide",
+  "This message can no longer receive feedback": "Ce message ne peut plus recevoir d’avis",
+  "This session is no longer available": "Cette session n’est plus disponible",
+  "This window is read-only": "Cette fenêtre est en lecture seule",
+  "Message feedback is unavailable": "L’avis sur les messages n’est pas disponible",
+  "Path is outside the workspace folder: {path}": "Le chemin est en dehors du dossier de travail : {path}",
+  "Could not open folder": "Impossible d’ouvrir le dossier",
+  "Stopped because you signed out of DeepSeek.": "Arrêté car vous vous êtes déconnecté de DeepSeek.",
+  "The DSH process exited before this turn finished.": "Le processus DSH s’est arrêté avant la fin de ce tour.",
+  "Hide secret": "Masquer le secret",
+  "Reveal secret": "Afficher le secret",
   // The inbox.
   "Inbox": "Boîte de réception",
   "Inbox, {count} waiting for you": "Boîte de réception, {count} en attente de vous",
@@ -16311,6 +16455,42 @@ var DE = {
   "No matching fonts": "Keine passenden Schriften",
   'Use "{font}"': "„{font}“ verwenden",
   "Built-in engine": "Integrierte Engine",
+  "No newline at end of file": "Kein Zeilenumbruch am Dateiende",
+  "Binary": "Binär",
+  "Large": "Groß",
+  "Failed to read file": "Datei konnte nicht gelesen werden",
+  "Feedback changed elsewhere. Try again.": "Das Feedback wurde anderswo geändert. Bitte erneut versuchen.",
+  "Could not submit feedback": "Feedback konnte nicht gesendet werden",
+  "Could not remove feedback": "Feedback konnte nicht entfernt werden",
+  "Remove positive feedback": "Positives Feedback entfernen",
+  "Good response": "Gute Antwort",
+  "Remove negative feedback": "Negatives Feedback entfernen",
+  "Poor response": "Verbesserungswürdige Antwort",
+  "Add an optional note…": "Optionale Notiz hinzufügen…",
+  "Feedback note": "Feedback-Notiz",
+  "Note is too long": "Notiz ist zu lang",
+  "Submitting…": "Wird gesendet…",
+  "Task result": "Aufgabenergebnis",
+  "Instruction following": "Anweisungsbefolgung",
+  "Interaction": "Interaktion",
+  "Stability": "Stabilität",
+  "Cost & speed": "Kosten & Geschwindigkeit",
+  "Safety & permissions": "Sicherheit & Berechtigungen",
+  "Column {n}": "Spalte {n}",
+  "Reveal folder {path}": "Ordner {path} anzeigen",
+  "Open file {path}": "Datei {path} öffnen",
+  "Note is too long (max {bytes} bytes)": "Notiz ist zu lang (max. {bytes} Bytes)",
+  "Feedback note cannot be blank": "Feedback-Notiz darf nicht leer sein",
+  "This message can no longer receive feedback": "Diese Nachricht kann kein Feedback mehr erhalten",
+  "This session is no longer available": "Diese Sitzung ist nicht mehr verfügbar",
+  "This window is read-only": "Dieses Fenster ist schreibgeschützt",
+  "Message feedback is unavailable": "Nachrichten-Feedback ist nicht verfügbar",
+  "Path is outside the workspace folder: {path}": "Pfad liegt außerhalb des Arbeitsordners: {path}",
+  "Could not open folder": "Ordner konnte nicht geöffnet werden",
+  "Stopped because you signed out of DeepSeek.": "Gestoppt, da du dich bei DeepSeek abgemeldet hast.",
+  "The DSH process exited before this turn finished.": "Der DSH-Prozess wurde vor Abschluss dieser Runde beendet.",
+  "Hide secret": "Geheimnis verbergen",
+  "Reveal secret": "Geheimnis anzeigen",
   // The inbox.
   "Inbox": "Posteingang",
   "Inbox, {count} waiting for you": "Posteingang, {count} warten auf dich",
@@ -19520,6 +19700,42 @@ var ZH = {
   "No matching fonts": "没有匹配的字体",
   'Use "{font}"': "使用「{font}」",
   "Built-in engine": "内置引擎",
+  "No newline at end of file": "文件末尾无换行符",
+  "Binary": "二进制",
+  "Large": "大文件",
+  "Failed to read file": "读取文件失败",
+  "Feedback changed elsewhere. Try again.": "反馈已在别处更新，请重试。",
+  "Could not submit feedback": "无法提交反馈",
+  "Could not remove feedback": "无法撤回反馈",
+  "Remove positive feedback": "撤回好评",
+  "Good response": "回答有帮助",
+  "Remove negative feedback": "撤回差评",
+  "Poor response": "回答待改进",
+  "Add an optional note…": "补充说明（可选）…",
+  "Feedback note": "反馈说明",
+  "Note is too long": "说明内容过长",
+  "Submitting…": "正在提交…",
+  "Task result": "任务结果",
+  "Instruction following": "指令遵循",
+  "Interaction": "交互体验",
+  "Stability": "服务稳定",
+  "Cost & speed": "耗时与消耗",
+  "Safety & permissions": "安全与权限",
+  "Column {n}": "第 {n} 列",
+  "Reveal folder {path}": "在文件树中定位文件夹 {path}",
+  "Open file {path}": "打开文件 {path}",
+  "Note is too long (max {bytes} bytes)": "说明过长（最多 {bytes} 字节）",
+  "Feedback note cannot be blank": "反馈说明不能为空白",
+  "This message can no longer receive feedback": "这条消息无法提交反馈",
+  "This session is no longer available": "该会话已不可用",
+  "This window is read-only": "当前窗口为只读",
+  "Message feedback is unavailable": "消息反馈功能不可用",
+  "Path is outside the workspace folder: {path}": "路径不在当前工作文件夹内：{path}",
+  "Could not open folder": "无法打开文件夹",
+  "Stopped because you signed out of DeepSeek.": "因为你已退出 DeepSeek 账号，回复已停止。",
+  "The DSH process exited before this turn finished.": "本轮完成前 DSH 进程已退出。",
+  "Hide secret": "隐藏敏感内容",
+  "Reveal secret": "显示敏感内容",
   // The inbox.
   "Inbox": "收件箱",
   "Inbox, {count} waiting for you": "收件箱，{count} 件等你处理",
@@ -29397,7 +29613,10 @@ var InfoIcon = lineIcon(["M10 3.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13z", "M10 
 var ShieldIcon = lineIcon(["M10 2.75l6 2.5v4.5c0 3.7-2.55 6.45-6 7.5-3.45-1.05-6-3.8-6-7.5v-4.5z", "M7.5 10.25l1.75 1.75 3.25-3.5"]);
 var StarLineIcon = lineIcon(["M10 3l2.1 4.3 4.7.7-3.4 3.3.8 4.7L10 13.8 5.8 16l.8-4.7L3.2 8l4.7-.7z"]);
 var CopyIcon = lineIcon(["M8.5 7h6A1.5 1.5 0 0 1 16 8.5v6a1.5 1.5 0 0 1-1.5 1.5h-6A1.5 1.5 0 0 1 7 14.5v-6A1.5 1.5 0 0 1 8.5 7z", "M4 12.5V5.5A1.5 1.5 0 0 1 5.5 4H13"]);
+var EyeIcon = lineIcon(["M2.5 10s2.8-4.75 7.5-4.75S17.5 10 17.5 10s-2.8 4.75-7.5 4.75S2.5 10 2.5 10z", "M10 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"]);
 var HideIcon = lineIcon(["M3 3l14 14", "M8.6 5.2A7.6 7.6 0 0 1 10 5c4.5 0 7 5 7 5a12.6 12.6 0 0 1-2 2.6M12.2 14.5A6.8 6.8 0 0 1 10 15c-4.5 0-7-5-7-5a12.4 12.4 0 0 1 3-3.4", "M8.5 8.5a2 2 0 0 0 3 3"]);
+var ThumbUpIcon = lineIcon(["M6.5 9.25v7.25H4a1 1 0 0 1-1-1v-5.25a1 1 0 0 1 1-1z", "M6.5 9.25l2.8-5.5a1.5 1.5 0 0 1 2.7 1.1l-.65 3.15h4.1a1.5 1.5 0 0 1 1.46 1.84l-1.12 4.75a1.5 1.5 0 0 1-1.46 1.16H6.5"]);
+var ThumbDownIcon = lineIcon(["M6.5 10.75V3.5H4a1 1 0 0 0-1 1v5.25a1 1 0 0 0 1 1z", "M6.5 10.75l2.8 5.5a1.5 1.5 0 0 0 2.7-1.1l-.65-3.15h4.1a1.5 1.5 0 0 0 1.46-1.84l-1.12-4.75a1.5 1.5 0 0 0-1.46-1.16H6.5"]);
 var PauseIcon = lineIcon(["M7.5 5v10", "M12.5 5v10"]);
 var ResumeIcon = lineIcon(["M7 4.8v10.4a.5.5 0 0 0 .77.42l8-5.2a.5.5 0 0 0 0-.84l-8-5.2A.5.5 0 0 0 7 4.8z"]);
 var TrashIcon = lineIcon(["M3.5 5.5h13", "M8 5.5V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5", "M5 5.5l.7 10A1.5 1.5 0 0 0 7.2 17h5.6a1.5 1.5 0 0 0 1.5-1.5l.7-10", "M8.5 9v4.5M11.5 9v4.5"]);
@@ -29622,6 +29841,207 @@ function AgentBadge({ engine, size = 15 }) {
     (0, import_react4.createElement)("rect", { x: 1, y: 1, width: 18, height: 18, rx: 5, fill: "currentColor", fillOpacity: 0.16, stroke: "currentColor", strokeWidth: 1.4 }),
     (0, import_react4.createElement)("text", { x: 10, y: 13.6, textAnchor: "middle", fontSize: 7.5, fontWeight: 700, fill: "currentColor" }, glyph)
   );
+}
+
+// src/shared/secret-mask.js
+var VISIBLE_PREFIX_CHARS = 8;
+var WORD_CHAR = /[A-Za-z0-9_]/;
+var PEM_BEGIN_RE = /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY-----/g;
+var PEM_END_RE = /-----END [A-Z0-9 ]{0,40}PRIVATE KEY-----/g;
+var URL_CRED_RE = /([a-z][a-z0-9+.-]{1,15}:\/\/[^\s/:@?#]{0,256}:)([^\s/@?#]+)@/g;
+var TOKEN_PATTERNS = [
+  // OpenAI / DeepSeek / Anthropic-style `sk-` keys: require at least one digit in the first 256 chars.
+  { kind: "token", re: /sk-[A-Za-z0-9_-]{20,}/g, check: (raw) => /\d/.test(raw.slice(0, 256)) },
+  // Google API keys (fixed 39-char length: `AIza` + 35 chars).
+  { kind: "token", re: /AIza[A-Za-z0-9_-]{35}/g },
+  // GitHub classic & fine-grained personal access tokens.
+  { kind: "token", re: /(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}/g },
+  { kind: "token", re: /github_pat_[A-Za-z0-9_]{22,}/g },
+  // GitLab PAT, npm token, HuggingFace token.
+  { kind: "token", re: /glpat-[A-Za-z0-9_-]{20,}/g },
+  { kind: "token", re: /npm_[A-Za-z0-9]{36,}/g },
+  { kind: "token", re: /hf_[A-Za-z0-9]{30,}/g },
+  // AWS, Alibaba Cloud, and Tencent Cloud access key IDs.
+  { kind: "token", re: /(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9_])/g },
+  { kind: "token", re: /LTAI[A-Za-z0-9]{12,20}(?![A-Za-z0-9_])/g },
+  { kind: "token", re: /AKID[A-Za-z0-9]{28,36}(?![A-Za-z0-9_])/g },
+  // Slack tokens.
+  { kind: "token", re: /xox[abprs]-[A-Za-z0-9-]{10,}/g },
+  // Stripe live/test API keys and webhook signing secrets.
+  { kind: "token", re: /(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}/g },
+  { kind: "token", re: /whsec_[A-Za-z0-9]{24,}/g },
+  // JSON Web Tokens (three base64url segments starting with eyJ.eyJ.).
+  { kind: "jwt", re: /eyJ[A-Za-z0-9_-]{8,2048}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g }
+];
+function maskAllCodePoints(value) {
+  let out = "";
+  for (const ch of value) {
+    out += ch === "\n" || ch === "\r" ? ch : "*";
+  }
+  return out;
+}
+function maskPrefixedToken(raw, visible = VISIBLE_PREFIX_CHARS) {
+  let kept = "";
+  let stars = "";
+  let count = 0;
+  for (const ch of raw) {
+    if (count < visible) {
+      kept += ch;
+      count += 1;
+    } else {
+      stars += ch === "\n" || ch === "\r" ? ch : "*";
+    }
+  }
+  return kept + stars;
+}
+function maskPrivateKeyBlock(raw) {
+  PEM_BEGIN_RE.lastIndex = 0;
+  const begin = PEM_BEGIN_RE.exec(raw);
+  if (!begin) return maskAllCodePoints(raw);
+  const bodyStart = begin.index + begin[0].length;
+  PEM_END_RE.lastIndex = bodyStart;
+  const end = PEM_END_RE.exec(raw);
+  const bodyEnd = end ? end.index : raw.length;
+  return raw.slice(0, bodyStart) + maskAllCodePoints(raw.slice(bodyStart, bodyEnd)) + raw.slice(bodyEnd);
+}
+function maskSpan(raw, kind) {
+  if (kind === "private-key") return maskPrivateKeyBlock(raw);
+  if (kind === "url-password") return maskAllCodePoints(raw);
+  return maskPrefixedToken(raw);
+}
+function secretSpanKey(span) {
+  return `${span.start}:${span.raw}`;
+}
+function detectSecrets(text) {
+  if (typeof text !== "string" || text.length < 10) return [];
+  const rawSpans = [];
+  PEM_BEGIN_RE.lastIndex = 0;
+  let pem;
+  while ((pem = PEM_BEGIN_RE.exec(text)) !== null) {
+    const start = pem.index;
+    const afterBegin = start + pem[0].length;
+    PEM_END_RE.lastIndex = afterBegin;
+    const closing = PEM_END_RE.exec(text);
+    const end = closing ? closing.index + closing[0].length : text.length;
+    rawSpans.push({ start, end, kind: "private-key" });
+    PEM_BEGIN_RE.lastIndex = end;
+  }
+  URL_CRED_RE.lastIndex = 0;
+  let urlMatch;
+  while ((urlMatch = URL_CRED_RE.exec(text)) !== null) {
+    const fullStart = urlMatch.index;
+    if (fullStart > 0 && WORD_CHAR.test(text[fullStart - 1])) continue;
+    const pwStart = fullStart + urlMatch[1].length;
+    const pwEnd = pwStart + urlMatch[2].length;
+    if (pwEnd > pwStart) rawSpans.push({ start: pwStart, end: pwEnd, kind: "url-password" });
+  }
+  for (const { kind, re, check } of TOKEN_PATTERNS) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const start = m.index;
+      if (start > 0 && WORD_CHAR.test(text[start - 1])) continue;
+      const raw = m[0];
+      if (check && !check(raw)) continue;
+      rawSpans.push({ start, end: start + raw.length, kind });
+    }
+  }
+  if (rawSpans.length === 0) return [];
+  rawSpans.sort((a, b2) => a.start - b2.start || b2.end - a.end);
+  const merged = [];
+  for (const span of rawSpans) {
+    const prev = merged.at(-1);
+    if (prev && span.start < prev.end) {
+      if (span.end > prev.end) prev.end = span.end;
+      continue;
+    }
+    merged.push({ ...span });
+  }
+  return merged.map((span) => {
+    const raw = text.slice(span.start, span.end);
+    const masked = maskSpan(raw, span.kind);
+    return { ...span, raw, masked, key: `${span.start}:${raw}` };
+  });
+}
+function projectSecretsToSlice(fullText, shownText, fullSpans = null) {
+  if (typeof shownText !== "string" || shownText === "") return [];
+  const source = typeof fullText === "string" ? fullText : shownText;
+  const spans = Array.isArray(fullSpans) ? fullSpans : detectSecrets(source);
+  if (spans.length === 0) return [];
+  let sliceStart = 0;
+  if (shownText !== source) {
+    const strippedOffset = source.length - source.replace(/^(\s*\n)+/, "").length;
+    if (source.startsWith(shownText, strippedOffset)) {
+      sliceStart = strippedOffset;
+    } else {
+      const idx = source.indexOf(shownText);
+      if (idx === -1) return detectSecrets(shownText);
+      sliceStart = idx;
+    }
+  }
+  const sliceEnd = sliceStart + shownText.length;
+  const projected = [];
+  for (const span of spans) {
+    if (span.end <= sliceStart || span.start >= sliceEnd) continue;
+    const visStart = Math.max(span.start, sliceStart);
+    const visEnd = Math.min(span.end, sliceEnd);
+    const start = visStart - sliceStart;
+    const end = visEnd - sliceStart;
+    if (visStart === span.start && visEnd === span.end) {
+      projected.push({ ...span, start, end });
+      continue;
+    }
+    const raw = source.slice(visStart, visEnd);
+    const relStart = visStart - span.start;
+    let masked;
+    if (span.kind === "url-password") {
+      masked = maskAllCodePoints(raw);
+    } else if (span.kind === "private-key") {
+      masked = relStart === 0 ? maskPrivateKeyBlock(raw) : maskAllCodePoints(raw);
+    } else {
+      const remainingPrefix = Math.max(0, VISIBLE_PREFIX_CHARS - relStart);
+      masked = maskPrefixedToken(raw, remainingPrefix);
+    }
+    projected.push({
+      start,
+      end,
+      kind: span.kind,
+      raw,
+      masked,
+      key: span.key,
+      clipped: true
+    });
+  }
+  return projected;
+}
+function maskSecrets(text, revealedKeys = null) {
+  if (typeof text !== "string" || text === "") return "";
+  const spans = detectSecrets(text);
+  if (spans.length === 0) return text;
+  const hasReveal = revealedKeys instanceof Set && revealedKeys.size > 0;
+  let out = "";
+  let cursor = 0;
+  for (const span of spans) {
+    if (span.start > cursor) out += text.slice(cursor, span.start);
+    out += hasReveal && revealedKeys.has(span.key) ? span.raw : span.masked;
+    cursor = span.end;
+  }
+  if (cursor < text.length) out += text.slice(cursor);
+  return out;
+}
+function redactSecretsForLog(text) {
+  if (typeof text !== "string" || text === "") return "";
+  const spans = detectSecrets(text);
+  if (spans.length === 0) return text;
+  let out = "";
+  let cursor = 0;
+  for (const span of spans) {
+    if (span.start > cursor) out += text.slice(cursor, span.start);
+    out += span.raw.startsWith("sk-") ? "sk-[hidden]" : "[hidden]";
+    cursor = span.end;
+  }
+  if (cursor < text.length) out += text.slice(cursor);
+  return out;
 }
 
 // src/client/changes-card.js
@@ -42433,6 +42853,7 @@ var viaIsIm = (via) => typeof via === "string" && imPlatform(via) !== void 0;
 
 // src/client/user-message.js
 var import_react37 = require("react");
+var EMPTY_REVEALED_SECRETS = /* @__PURE__ */ new Set();
 var projects = typeof import_dsh_client_ui_primitives.projectUserText === "function";
 var canDrawUserMessages = (drawsUserContent = false) => projects || drawsUserContent;
 var USER_SOURCE_SLOT = "conversation.chat.user.before";
@@ -42504,13 +42925,54 @@ function userTextParts(text, bots, referenceLabels = []) {
   if (cursor < text.length) parts.push({ text: text.slice(cursor) });
   return parts;
 }
-function UserText({ text, bots, referenceLabels, skillNames, references, actions }) {
+function renderProjectedSegment(text, keyPrefix, bots, referenceLabels, skillNames, references, actions) {
   return userTextParts(text, bots, referenceLabels).map((part, index) => part.bot ? (0, import_react37.createElement)(
     "button",
-    { key: index, type: "button", className: "bt-umention", title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
+    { key: `${keyPrefix}:${index}`, type: "button", className: "bt-umention", title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
     (0, import_react37.createElement)(BotMark, { bot: part.bot, size: 16 }),
     part.label
-  ) : (0, import_react37.createElement)(import_react37.Fragment, { key: index }, import_dsh_client_ui_primitives.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
+  ) : (0, import_react37.createElement)(import_react37.Fragment, { key: `${keyPrefix}:${index}` }, import_dsh_client_ui_primitives.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
+}
+function UserText({ text, fullText, fullSecrets, revealedSecrets, onToggleSecret, bots, referenceLabels, skillNames, references, actions }) {
+  const secretSpans = fullSecrets && fullSecrets.length > 0 ? projectSecretsToSlice(fullText ?? text, text, fullSecrets) : [];
+  if (secretSpans.length === 0) {
+    return renderProjectedSegment(text, "p", bots, referenceLabels, skillNames, references, actions);
+  }
+  const nodes = [];
+  let cursor = 0;
+  for (let i = 0; i < secretSpans.length; i += 1) {
+    const span = secretSpans[i];
+    if (span.start > cursor) {
+      nodes.push(...renderProjectedSegment(text.slice(cursor, span.start), `t${i}`, bots, referenceLabels, skillNames, references, actions));
+    }
+    const isOpen = Boolean(revealedSecrets?.has(span.key));
+    const label = isOpen ? t("Hide secret") : t("Reveal secret");
+    nodes.push((0, import_react37.createElement)(
+      "span",
+      {
+        key: `s:${span.key}:${i}`,
+        className: `dsb-secret${isOpen ? " is-revealed" : ""}`,
+        "data-secret-masked": isOpen ? void 0 : ""
+      },
+      (0, import_react37.createElement)("span", { className: "dsb-secret-val" }, isOpen ? span.raw : span.masked),
+      (0, import_react37.createElement)("button", {
+        type: "button",
+        className: "dsb-secret-toggle",
+        "aria-pressed": isOpen,
+        "aria-label": label,
+        title: label,
+        onClick: (event) => {
+          event?.stopPropagation?.();
+          onToggleSecret?.(span.key);
+        }
+      }, isOpen ? (0, import_react37.createElement)(HideIcon) : (0, import_react37.createElement)(EyeIcon))
+    ));
+    cursor = span.end;
+  }
+  if (cursor < text.length) {
+    nodes.push(...renderProjectedSegment(text.slice(cursor), "end", bots, referenceLabels, skillNames, references, actions));
+  }
+  return nodes;
 }
 function BotMention({ node, raw, interactive, sessionId, useRoster, actions }) {
   const bot = useRoster((roster) => mentionableBots(roster, sessionId).find((item) => item.id === node.data.botId));
@@ -42579,7 +43041,7 @@ function PresentedFiles({ files, openFile, actions }) {
 function CopyButton({ text }) {
   const [copied, setCopied] = (0, import_react37.useState)(false);
   const copy2 = () => {
-    void navigator.clipboard?.writeText(text).then(() => {
+    void navigator.clipboard?.writeText(text)?.then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1e3);
     });
@@ -42605,11 +43067,22 @@ var ViaTag = ({ via }) => {
   }
   return (0, import_react37.createElement)("span", { className: "bt-uvia" }, t("via {platform}", { platform: t(imPlatform(via)?.name ?? via) }));
 };
-function ProjectedContent({ data, text, shown, folded, control, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
+function ProjectedContent({ data, text, shown, folded, control, fullSecrets, revealedSecrets, onToggleSecret, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
   const { attachments, rest } = contentParts(data.content);
   const referenceLabels = data.referenceLabels ?? [];
   const references = openFile && openSkill ? { openFile, openSkill } : void 0;
-  const body = (0, import_react37.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
+  const body = (0, import_react37.createElement)(UserText, {
+    text: shown,
+    fullText: text,
+    fullSecrets,
+    revealedSecrets,
+    onToggleSecret,
+    bots: mentionableBots(roster, sessionId),
+    referenceLabels,
+    skillNames: data.skillNames ?? [],
+    references,
+    actions
+  });
   return (0, import_react37.createElement)(
     import_react37.Fragment,
     null,
@@ -42666,6 +43139,23 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : void 0;
   const via = projects ? (apiName ? `api:${apiName}` : void 0) ?? viaOf2(data.source, roster) ?? roster.imVia?.[sessionId]?.[data.seq] : picked;
   const { shown, folded, control } = useFold(text, { markdown: false });
+  const fullSecrets = (0, import_react37.useMemo)(() => detectSecrets(text), [text]);
+  const [revealedSecrets, setRevealedSecrets] = (0, import_react37.useState)(EMPTY_REVEALED_SECRETS);
+  (0, import_react37.useEffect)(() => {
+    setRevealedSecrets((prev2) => prev2.size === 0 ? prev2 : EMPTY_REVEALED_SECRETS);
+  }, [text]);
+  const toggleSecret = (key) => {
+    setRevealedSecrets((prev2) => {
+      const next = new Set(prev2);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const copyText = (0, import_react37.useMemo)(
+    () => fullSecrets.length > 0 ? maskSecrets(text, revealedSecrets) : text,
+    [text, fullSecrets, revealedSecrets]
+  );
   const row = (0, import_react37.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react37.useState)(false);
   (0, import_react37.useEffect)(() => {
@@ -42691,10 +43181,10 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
     (0, import_react37.createElement)(
       "div",
       { className: "bt-ustack" },
-      prepared === void 0 ? (0, import_react37.createElement)(ProjectedContent, { ...fold, roster, sessionId, actions, renderMessageImages, openFile, openSkill }) : (0, import_react37.createElement)(HostContent, { ...fold, prepared, loadImage, renderFactorySlot }),
+      prepared === void 0 ? (0, import_react37.createElement)(ProjectedContent, { ...fold, fullSecrets, revealedSecrets, onToggleSecret: toggleSecret, roster, sessionId, actions, renderMessageImages, openFile, openSkill }) : (0, import_react37.createElement)(HostContent, { ...fold, prepared, loadImage, renderFactorySlot }),
       sentAt || via ? (0, import_react37.createElement)("div", { className: "bt-utime", title: clockLabel(data.time) }, ...via ? [(0, import_react37.createElement)(ViaTag, { key: "via", via })] : [], sentAt) : null
     ),
-    text === "" ? null : (0, import_react37.createElement)("div", { className: "bt-utools", "data-open": toolsOpen || void 0 }, (0, import_react37.createElement)(CopyButton, { text }))
+    text === "" ? null : (0, import_react37.createElement)("div", { className: "bt-utools", "data-open": toolsOpen || void 0 }, (0, import_react37.createElement)(CopyButton, { text: copyText }))
   );
 }
 var USER_MESSAGE_CSS = `
@@ -42732,6 +43222,14 @@ body:not([data-bt-layout=flat]) .bt-group-msg>.bt-pfiles{margin-left:30px}
 .bt-uvia{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink-3);font-size:11px;line-height:16px;vertical-align:1px}
 .bt-utools{display:flex;flex:none;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
 .bt-umsg:hover .bt-utools,.bt-umsg:focus-within .bt-utools{opacity:1;visibility:visible}
+.dsb-secret{display:inline;border-radius:4px;padding:1px 4px;background:color-mix(in srgb,currentColor 10%,transparent);box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.dsb-secret.is-revealed{background:color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+.dsb-secret-val{font-family:var(--bt-mono,ui-monospace,"SF Mono",Menlo,Consolas,monospace);font-size:.92em;overflow-wrap:anywhere;word-break:break-word}
+.dsb-secret-toggle{position:relative;display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:20px;height:20px;margin-left:3px;padding:0;border:0;border-radius:6px;background:none;color:inherit;opacity:.78;cursor:pointer}
+.dsb-secret-toggle::after{content:"";position:absolute;inset:-4px}
+.dsb-secret-toggle:hover{background:color-mix(in srgb,currentColor 14%,transparent);opacity:1}
+.dsb-secret-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px;opacity:1}
+.dsb-secret-toggle svg{width:13px;height:13px}
 `;
 
 // src/client/cells.js
@@ -42817,9 +43315,19 @@ var Bubble = memo(function Bubble2({ text, index, first = true, last = true, ros
   const key = msgKey ? `${msgKey}:${index}` : void 0;
   const labels2 = mdLabels();
   const linked = (0, import_react38.useMemo)(() => shown === "" ? "" : linkMentions(normalizeFileLinks(shown), roster.bots, selfId), [shown, roster.bots, selfId]);
+  const openFile = (0, import_react38.useMemo)(() => typeof actions?.openFile === "function" ? (target) => actions.openFile(typeof target === "string" ? { path: target, sessionId } : { ...target, sessionId: target?.sessionId ?? sessionId }) : void 0, [actions, sessionId]);
+  const revealFolder = (0, import_react38.useMemo)(() => typeof actions?.revealFolder === "function" ? (target) => actions.revealFolder(typeof target === "string" ? { path: target, sessionId } : { ...target, sessionId: target?.sessionId ?? sessionId }) : void 0, [actions, sessionId]);
   const body = (0, import_react38.useMemo)(
-    () => linked === "" ? null : (0, import_react38.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linked, streaming: live, labels: labels2, variant: "compact", fileMentions: mentions }),
-    [linked, live, labels2, mentions]
+    () => linked === "" ? null : (0, import_react38.createElement)(import_dsh_client_ui_primitives.MarkdownText, {
+      text: linked,
+      streaming: live,
+      labels: labels2,
+      variant: "compact",
+      fileMentions: mentions,
+      ...openFile ? { onOpenFile: openFile } : {},
+      ...revealFolder ? { onRevealFolder: revealFolder } : {}
+    }),
+    [linked, live, labels2, mentions, openFile, revealFolder]
   );
   const row = (0, import_react38.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react38.useState)(false);
@@ -43281,14 +43789,98 @@ var scrollParent = (node) => {
   }
   return null;
 };
-function EarlierUser({ row, actions, renderUserAttachments }) {
-  const { shown, folded, control, code, codeHead } = useFold(row.text ?? "");
-  const body = row.text && shown !== "" ? (0, import_react38.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: shown, labels: mdLabels(), variant: "compact" }) : null;
+function MaskedUserInline({ text, spans, revealed: controlledRevealed = null, onToggle = null }) {
+  const [localRevealed, setLocalRevealed] = (0, import_react38.useState)(() => /* @__PURE__ */ new Set());
+  (0, import_react38.useEffect)(() => {
+    setLocalRevealed((prev) => prev.size === 0 ? prev : /* @__PURE__ */ new Set());
+  }, [text]);
+  const revealed = controlledRevealed instanceof Set ? controlledRevealed : localRevealed;
+  const toggle = (key) => {
+    if (typeof onToggle === "function") {
+      onToggle(key);
+      return;
+    }
+    setLocalRevealed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const nodes = [];
+  let cursor = 0;
+  for (let i = 0; i < spans.length; i += 1) {
+    const span = spans[i];
+    if (span.start > cursor) nodes.push((0, import_react38.createElement)(import_react38.Fragment, { key: `t:${i}` }, text.slice(cursor, span.start)));
+    const isOpen = revealed.has(span.key);
+    const label = isOpen ? t("Hide secret") : t("Reveal secret");
+    nodes.push((0, import_react38.createElement)(
+      "span",
+      {
+        key: `s:${span.key}:${i}`,
+        className: `dsb-secret${isOpen ? " is-revealed" : ""}`,
+        "data-secret-masked": isOpen ? void 0 : ""
+      },
+      (0, import_react38.createElement)("span", { className: "dsb-secret-val" }, isOpen ? span.raw : span.masked),
+      (0, import_react38.createElement)("button", {
+        type: "button",
+        className: "dsb-secret-toggle",
+        "aria-pressed": isOpen,
+        "aria-label": label,
+        title: label,
+        onClick: (event) => {
+          event.stopPropagation();
+          toggle(span.key);
+        }
+      }, isOpen ? (0, import_react38.createElement)(HideIcon) : (0, import_react38.createElement)(EyeIcon))
+    ));
+    cursor = span.end;
+  }
+  if (cursor < text.length) nodes.push((0, import_react38.createElement)(import_react38.Fragment, { key: "t:end" }, text.slice(cursor)));
+  return (0, import_react38.createElement)("div", { className: "bt-umasked", style: { whiteSpace: "pre-wrap" } }, nodes);
+}
+function EarlierUser({ row, sessionId, roster, actions, renderUserAttachments, renderUserText, showTime = false }) {
+  const fullText = row.text ?? "";
+  const customRender = typeof renderUserText === "function" ? renderUserText : typeof actions?.renderUserText === "function" ? actions.renderUserText : null;
+  const fullSecrets = (0, import_react38.useMemo)(() => detectSecrets(fullText), [fullText]);
+  const { shown, folded, control, code, codeHead } = useFold(fullText, {
+    markdown: customRender === null && fullSecrets.length === 0
+  });
+  const [revealedSecrets, setRevealedSecrets] = (0, import_react38.useState)(() => /* @__PURE__ */ new Set());
+  (0, import_react38.useEffect)(() => {
+    setRevealedSecrets((prev) => prev.size === 0 ? prev : /* @__PURE__ */ new Set());
+  }, [fullText]);
+  const toggleSecret = (key) => {
+    setRevealedSecrets((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const secretSpans = (0, import_react38.useMemo)(
+    () => fullSecrets.length > 0 ? projectSecretsToSlice(fullText, shown, fullSecrets) : [],
+    [fullText, shown, fullSecrets]
+  );
+  const body = fullText && shown !== "" ? customRender !== null ? (0, import_react38.createElement)(
+    "div",
+    { className: "bt-umasked", style: { whiteSpace: "pre-wrap" } },
+    customRender({
+      text: shown,
+      fullText,
+      sessionId,
+      roster,
+      actions,
+      revealedSecrets,
+      onToggleSecret: toggleSecret
+    })
+  ) : secretSpans.length > 0 ? (0, import_react38.createElement)(MaskedUserInline, { text: shown, spans: secretSpans, revealed: revealedSecrets, onToggle: toggleSecret }) : (0, import_react38.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: shown, labels: mdLabels(), variant: "compact" }) : null;
   const area = foldArea(body, code, codeHead, actions);
   const hasRich = typeof renderUserAttachments === "function" && ((row.imageRefs?.length ?? 0) > 0 || (row.fileRefs?.length ?? 0) > 0);
   const attachments = hasRich ? renderUserAttachments(row) : null;
   const fileNames = !hasRich && Array.isArray(row.fileRefs) && row.fileRefs.length > 0 ? row.fileRefs.map((file) => file.name).filter(Boolean).join(", ") : "";
   const showBubble = Boolean(body || code !== void 0 || !hasRich && (row.images || fileNames));
+  const hasMeta = row.via !== void 0 || showTime && Number.isFinite(row.time);
   return (0, import_react38.createElement)(
     "div",
     { className: "bt-urow" },
@@ -43301,7 +43893,12 @@ function EarlierUser({ row, actions, renderUserAttachments }) {
       !hasRich && row.images ? (0, import_react38.createElement)("span", { className: "bt-uimages", "data-text-interaction-exclude": "" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null,
       fileNames ? (0, import_react38.createElement)("span", { className: "bt-uimages", "data-text-interaction-exclude": "" }, fileNames) : null
     ) : null,
-    row.via ? (0, import_react38.createElement)("div", { className: "bt-utime" }, (0, import_react38.createElement)(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null
+    hasMeta ? (0, import_react38.createElement)(
+      "div",
+      { className: "bt-utime", title: Number.isFinite(row.time) ? clockLabel(row.time) : void 0 },
+      row.via !== void 0 ? (0, import_react38.createElement)(ViaTag, { via: row.via }) : null,
+      Number.isFinite(row.time) ? messageClock(row.time) : null
+    ) : null
   );
 }
 function earlierClosedKey(botParts, sessionId, closedCards) {
@@ -43329,7 +43926,7 @@ function earlierItems(pages, { cursor, loading } = {}) {
   }
   return { items, hasContent: items.some((item) => item.kind !== "divider") };
 }
-function EarlierParts({ sessionId, roster, actions, openFile }) {
+function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) {
   const [view, setView] = (0, import_react38.useState)({ pages: [], cursor: void 0, loading: true, failed: false, startedAt: null });
   const top = (0, import_react38.useRef)(null);
   const busy = (0, import_react38.useRef)(false);
@@ -43398,11 +43995,11 @@ function EarlierParts({ sessionId, roster, actions, openFile }) {
       { ref: top, className: "bt-earlier-top" },
       view.loading ? (0, import_react38.createElement)(Shimmer, null, t("Loading earlier messages…")) : view.failed ? (0, import_react38.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Couldn’t load earlier messages · Retry")) : view.cursor ? (0, import_react38.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Load earlier")) : null
     ),
-    (0, import_react38.createElement)(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw }),
+    (0, import_react38.createElement)(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw, renderUserText }),
     hasContent ? (0, import_react38.createElement)(PartLine, { time: view.startedAt }) : null
   );
 }
-function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = false, openFile, onBtwDelete, renderUserAttachments }) {
+function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   const selfId = roster.byId[sessionId]?.id;
   const rows2 = [];
   for (const item of items) {
@@ -43417,7 +44014,7 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = fa
   let before;
   return rows2.flatMap((row, index) => {
     const key = rows2.length - index;
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments });
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText });
     if (row.kind === "divider") {
       before = void 0;
       return [shown];
@@ -43427,12 +44024,12 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = fa
     return pause ? [(0, import_react38.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)), shown] : [shown];
   });
 }
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   switch (row.kind) {
     case "divider":
       return (0, import_react38.createElement)(PartLine, { key, time: row.time });
     case "user":
-      return (0, import_react38.createElement)(EarlierUser, { key, row, actions, renderUserAttachments });
+      return (0, import_react38.createElement)(EarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText });
     case "answer":
       return (0, import_react38.createElement)(AnsweredReply, { key, node: { data: row } });
     // A question or view card closed without an answer on it.
@@ -44019,12 +44616,14 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
     stacked.map(({ reply, index, texts: texts2, files, time, duration, claims, changes }, at2) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? "gray" };
       if (reply.kind === "user") {
-        return (0, import_react38.createElement)(
-          "div",
-          { key: `user-${index}`, className: "bt-urow" },
-          (0, import_react38.createElement)("div", { className: "bt-ububble", "data-text-interaction-source": "" }, (0, import_react38.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: reply.text, labels: mdLabels(), variant: "compact" })),
-          reply.via !== void 0 || Number.isFinite(time) ? (0, import_react38.createElement)("div", { className: "bt-utime", title: clockLabel(time) }, ...reply.via !== void 0 ? [(0, import_react38.createElement)(ViaTag, { key: "via", via: reply.via })] : [], Number.isFinite(time) ? messageClock(time) : null) : null
-        );
+        return (0, import_react38.createElement)(EarlierUser, {
+          key: `user-${index}`,
+          row: { ...reply, time },
+          sessionId,
+          roster,
+          actions,
+          showTime: true
+        });
       }
       if (reply.kind === "goal") {
         return (0, import_react38.createElement)(
@@ -71532,7 +72131,7 @@ function QueueThumb({ attachment, loadImage, label }) {
 }
 function Preview({ text, renderFactorySlot }) {
   const rendered = renderFactorySlot?.("conversation.user.text", { text, facts: QUEUE_TEXT_FACTS, interactive: false, ellipsis: true });
-  return (0, import_react96.createElement)("span", { className: "bt-queue-preview" }, rendered ?? text);
+  return (0, import_react96.createElement)("span", { className: "bt-queue-preview" }, rendered ?? maskSecrets(text));
 }
 function EditField({ text, onChange, onSave, onCancel }) {
   const field = (0, import_react96.useRef)(null);

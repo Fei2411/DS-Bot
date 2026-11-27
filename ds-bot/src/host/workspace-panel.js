@@ -358,9 +358,10 @@ export function install(rt) {
       if (typeof body.path !== 'string' || body.path === '') throw invalid('A file path is required')
       const target = await resolveSafeTarget(realRoot, body.path)
       const info = await stat(target)
-      if (!info.isFile()) throw invalid('Path is not a file')
-      const fileName = basename(target)
+      const fileName = basename(target) || basename(realRoot) || realRoot
       const relPath = toPosixRel(realRoot, target)
+      if (info.isDirectory()) return { kind: 'dir', name: fileName, path: relPath, root: realRoot }
+      if (!info.isFile()) throw invalid('Path is not a file')
       const ext = extname(fileName).toLowerCase()
 
       if (ext === '.pdf') {

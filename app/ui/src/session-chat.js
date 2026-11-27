@@ -18,16 +18,19 @@ import { t } from '../../../ds-bot/src/client/i18n.js'
 import { LearningTurnTail } from '../../../ds-bot/src/client/learning-card.js'
 import { BotMark, RoomAvatar } from '../../../ds-bot/src/client/mark.js'
 import { noHover } from '../../../ds-bot/src/client/motion.js'
+import { ReplyGuide } from '../../../ds-bot/src/client/reading.js'
 import { addPage, applyFrame, emptyLog, pageBefore, writingBlocks } from '../../../ds-bot/src/client/session-log.js'
-import { clockLabel, messageClock } from '../../../ds-bot/src/client/text.js'
+import { clockLabel, messageClock, normalizeFileLinks } from '../../../ds-bot/src/client/text.js'
 import { layoutOf, thinkingShown } from '../../../ds-bot/src/client/themes.js'
 import { FailureCell, failureText } from '../../../ds-bot/src/client/turn-error.js'
-import { ViaTag, contentParts, mentionableBots, userTextParts } from '../../../ds-bot/src/client/user-message.js'
+import { ViaTag, contentParts, mentionableBots } from '../../../ds-bot/src/client/user-message.js'
 import { AnsweredReply } from '../../../ds-bot/src/client/widget-cell.js'
 import { openSessionFollow } from './api.js'
+import { ClassicFeedbackActions, ClassicFeedbackDialog, useSessionFeedback } from './classic-feedback.js'
 import { getAppLocale } from './locale.js'
 import { buildSessionRowParts, extractTurnFacts } from './session-transcript.js'
 import { CHAT_NODE_SLOT, SlotOutlet, slots as defaultSlots } from './slots.js'
+import { UserMessageText, copyableUserText } from './user-text.js'
 
 const NO_LOCALE = () => {}
 
@@ -383,10 +386,11 @@ export function UserAttachments({ attachments, sessionId }) {
       return h(UserImageThumb, { key: file.attachmentId ?? file.previewUrl ?? index, sessionId, attachment: file })
     }
     const meta = [fileExtension(file.name)?.toUpperCase().slice(0, 8), fileSizeText(file.bytes)].filter(Boolean).join(' · ')
-    return h('span', { key: file.attachmentId ?? `${file.name ?? 'file'}:${index}`, className: 'bt-ufile', title: file.name },
+    const fallbackName = file.name || t('File')
+    return h('span', { key: file.attachmentId ?? `${fallbackName}:${index}`, className: 'bt-ufile', title: fallbackName },
       h('span', { className: 'dsb-ufile-icon', 'aria-hidden': true }, h(FileIcon)),
       h('span', { className: 'bt-ufile-text' },
-        h('span', { className: 'bt-ufile-name' }, file.name || 'file'),
+        h('span', { className: 'bt-ufile-name' }, fallbackName),
         meta ? h('span', { className: 'bt-ufile-meta' }, meta) : null))
   }))
 }
@@ -396,10 +400,14 @@ export function UserAttachments({ attachments, sessionId }) {
 // session-transcript.js), so a memoized row renders once and the stream never re-renders
 // the history behind it. Roster, actions, bot, hooks and thinkingAt keep their object
 // identity across stream chunks, which is what the memo relies on.
-const UserRow = memo(function UserRow({ row, sessionId, roster, actions, classic = false }) {
+const UserRow = memo(function UserRow({ row, sessionId, roster, actions, classic = false, onOpenFile, onRevealFolder }) {
   const { shown, folded, control } = useFold(row.text ?? '', { markdown: false })
   const container = useRef(null)
   const [toolsOpen, setToolsOpen] = useState(false)
+  const [revealedSecrets, setRevealedSecrets] = useState(() => new Set())
+  useEffect(() => {
+    setRevealedSecrets(prev => (prev.size === 0 ? prev : new Set()))
+  }, [row.text])
   useEffect(() => {
     if (!toolsOpen) return undefined
     const onDown = (event) => { if (!container.current?.contains(event.target)) setToolsOpen(false) }
@@ -407,17 +415,35 @@ const UserRow = memo(function UserRow({ row, sessionId, roster, actions, classic
     window.addEventListener('touchstart', onDown)
     return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('touchstart', onDown) }
   }, [toolsOpen])
+  const toggleSecret = useCallback((key) => {
+    setRevealedSecrets((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+  const copyText = useMemo(() => copyableUserText(row.text ?? '', revealedSecrets), [row.text, revealedSecrets])
+  const bots = useMemo(
+    () => (Array.isArray(roster?.bots) ? mentionableBots(roster, sessionId) : []),
+    [roster, sessionId],
+  )
   const hasAttachments = Array.isArray(row.attachments) && row.attachments.length > 0
   if (row.text === '' && !hasAttachments) return null
   const tapTools = (event) => {
     if (!noHover() || (event.target instanceof Element && event.target.closest('a,button,input,textarea,select,pre,code,[role=button],[role=link]'))) return
     setToolsOpen(value => !value)
   }
-  const bots = Array.isArray(roster?.bots) ? mentionableBots(roster, sessionId) : []
-  const body = userTextParts(shown, bots).map((part, index) => (part.bot
-    ? h('button', { key: index, type: 'button', className: 'bt-umention', title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
-      h(BotMark, { bot: part.bot, size: 16 }), part.label)
-    : h(Fragment, { key: index }, part.text)))
+  const body = h(UserMessageText, {
+    text: shown,
+    fullText: row.text ?? '',
+    bots,
+    revealedSecrets,
+    onToggleSecret: toggleSecret,
+    onOpenBot: actions?.openSession,
+    onOpenFile,
+    onRevealFolder,
+  })
   const hasTime = Number.isFinite(row.time)
   const sentAt = hasTime ? messageClock(row.time) : undefined
   const timeTitle = hasTime ? clockLabel(row.time) : undefined
@@ -441,7 +467,7 @@ const UserRow = memo(function UserRow({ row, sessionId, roster, actions, classic
       control) : null),
     (row.text !== '' || sentAt) ? h('div', { className: 'dsb-dsh-user-actions' },
       sentAt ? h('span', { className: 'dsb-dsh-msg-time', title: timeTitle }, sentAt) : null,
-      row.text !== '' ? h(CopyTextButton, { text: row.text, className: 'dsb-dsh-act-btn' }) : null) : null)
+      row.text !== '' ? h(CopyTextButton, { text: copyText, className: 'dsb-dsh-act-btn' }) : null) : null)
   }
   return h('div', { ref: container, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
@@ -452,7 +478,7 @@ const UserRow = memo(function UserRow({ row, sessionId, roster, actions, classic
       (sentAt || row.via) ? h('div', { className: 'bt-utime', title: timeTitle },
         row.via ? h(ViaTag, { via: row.via }) : null,
         sentAt) : null),
-    row.text === '' ? null : h('div', { className: 'bt-utools', 'data-open': toolsOpen || undefined }, h(CopyTextButton, { text: row.text })))
+    row.text === '' ? null : h('div', { className: 'bt-utools', 'data-open': toolsOpen || undefined }, h(CopyTextButton, { text: copyText })))
 })
 
 const CompactionRow = memo(function CompactionRow({ row }) {
@@ -510,7 +536,11 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
-const AssistantRow = memo(function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic = false }) {
+const AssistantRow = memo(function AssistantRow({
+  row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic = false,
+  onOpenFile, onRevealFolder, fileMentions,
+  feedbackAvailable = false, feedbackItem = null, feedbackPending = false, onSelectFeedback, onRetractFeedback,
+}) {
   const showThinking = thinkingShown(roster.prefs)
   const selfId = bot?.id ?? sessionId
   const flat = layoutOf(roster.prefs) === 'flat'
@@ -521,6 +551,7 @@ const AssistantRow = memo(function AssistantRow({ row, showSpeaker, bot, session
   const useReadUi = typeof useUi === 'function' ? useUi : NO_UI_HOOK
   const hasLegacyReaction = useReadUi(state => Boolean(legacyKey && state?.reactions?.[legacyKey]))
   const msgKey = row.streaming ? undefined : (hasLegacyReaction ? legacyKey : primaryKey)
+  const classicBodyRef = useRef(null)
 
   const hasThinking = showThinking && row.reasoning !== ''
   const hasActivity = row.activity.length > 0
@@ -531,6 +562,7 @@ const AssistantRow = memo(function AssistantRow({ row, showSpeaker, bot, session
     const combinedText = row.texts.join('\n\n')
     const mdLabels = { code: { copyLabel: t('Copy'), copiedLabel: t('Copied') } }
     const hasTime = Number.isFinite(row.time)
+    const showFeedback = !row.streaming && feedbackAvailable && typeof row.messageId === 'string' && row.messageId !== ''
     return h(Fragment, null,
       hasActivity ? h('div', { className: 'bt-agent-activity' }, row.activity.map((line, index) => h('div', { key: index, className: 'bt-agent-act', title: line },
         h('span', { className: 'bt-agent-act-mark', 'aria-hidden': true }),
@@ -547,10 +579,31 @@ const AssistantRow = memo(function AssistantRow({ row, showSpeaker, bot, session
         'data-chat-flow-kind': 'assistant',
         'data-streaming': row.streaming ? '' : undefined,
       },
-      h('div', { className: 'dsb-dsh-asst-body', 'data-text-interaction-source': !row.streaming ? '' : undefined },
-        row.texts.map((text, index) => h(MarkdownText, { key: index, text, labels: mdLabels, streaming: row.streaming && index === row.texts.length - 1 }))),
+      h('div', {
+        ref: classicBodyRef,
+        className: 'dsb-dsh-asst-body',
+        'data-text-interaction-source': !row.streaming ? '' : undefined,
+      },
+      row.texts.map((text, index) => h(MarkdownText, {
+        key: index,
+        text: normalizeFileLinks(text),
+        labels: mdLabels,
+        streaming: row.streaming && index === row.texts.length - 1,
+        onOpenFile,
+        onRevealFolder,
+        fileMentions,
+      }))),
+      h(ReplyGuide, { box: classicBodyRef, active: !row.streaming }),
       !row.streaming ? h('div', { className: 'dsb-dsh-asst-actions' },
         h(CopyTextButton, { text: combinedText, className: 'dsb-dsh-act-btn' }),
+        showFeedback ? h(ClassicFeedbackActions, {
+          messageId: row.messageId,
+          item: feedbackItem,
+          pending: feedbackPending,
+          readOnly: Boolean(roster?.readOnly),
+          onSelect: onSelectFeedback,
+          onRetract: onRetractFeedback,
+        }) : null,
         hasTime ? h('span', { className: 'dsb-dsh-msg-time dsb-dsh-asst-time', title: clockLabel(row.time) }, messageClock(row.time)) : null) : null) : null)
   }
   return h(Fragment, null,
@@ -573,6 +626,7 @@ const AssistantRow = memo(function AssistantRow({ row, showSpeaker, bot, session
       streaming: row.streaming,
       sessionId,
       msgKey,
+      mentions: fileMentions,
       useUi,
       lang,
       fold: FOLD_HUGE,
@@ -731,6 +785,8 @@ function renderTranscriptRows({
   resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
   resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
   selfId, cwd, showThinking, flat,
+  openSessionFile, revealSessionFolder, turnFileMentions, feedback,
+  onSelectFeedback, onRetractFeedback, renderEarlierUserText,
 }) {
   const seenTurnSpeaker = new Set(initialSpeakers)
   let prevTime
@@ -739,7 +795,7 @@ function renderTranscriptRows({
     if (row.kind === 'part-start') {
       prevTime = undefined
       return [canLoadEarlierParts
-        ? h(EarlierParts, { key: row.key, sessionId, roster, actions })
+        ? h(EarlierParts, { key: row.key, sessionId, roster, actions, renderUserText: renderEarlierUserText })
         : h(PartLine, { key: row.key, time: row.time })]
     }
 
@@ -762,9 +818,19 @@ function renderTranscriptRows({
 
     const renderDefault = () => {
       switch (row.kind) {
-        case 'user': return h(UserRow, { row, sessionId, roster, actions, lang, classic })
+        case 'user': return h(UserRow, { row, sessionId, roster, actions, lang, classic, onOpenFile: openSessionFile, onRevealFolder: revealSessionFolder })
         case 'answer': return h(AnsweredReply, { node: { data: row.data } })
-        case 'assistant': return h(AssistantRow, { row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic })
+        case 'assistant': return h(AssistantRow, {
+          row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic,
+          onOpenFile: openSessionFile,
+          onRevealFolder: revealSessionFolder,
+          fileMentions: turnFileMentions.get(row.turn ?? 'none'),
+          feedbackAvailable: classic && feedback.available,
+          feedbackItem: classic && row.messageId ? (feedback.items.get(row.messageId) ?? null) : null,
+          feedbackPending: classic && row.messageId ? feedback.pendingIds.has(row.messageId) : false,
+          onSelectFeedback,
+          onRetractFeedback,
+        })
         case 'tool': return h(SessionToolRow, {
           row, showSpeaker, flat, bot, cwd, sessionId, actions, registry, lang,
           useRoster: resolvedUseRoster, useUi: resolvedUseUi, useWork: resolvedUseWork,
@@ -774,7 +840,7 @@ function renderTranscriptRows({
         })
         case 'compaction': return h(CompactionRow, { row, lang })
         case 'event': return h(SessionEventRow, { row, selfId, roster, actions, lang })
-        case 'deliverables': return h(DeliverablesRow, { row, sessionId, onOpenFile: actions?.openFile, lang })
+        case 'deliverables': return h(DeliverablesRow, { row, sessionId, onOpenFile: openSessionFile, lang })
         case 'changes': return h(SessionChangesRow, { row, sessionId, actions, lang })
         case 'turn-error': return h(TurnErrorRow, { row, bot, sessionId, useRoster, useTurnClock, actions, lang })
         case 'turn-tail': return h(TurnTailRow, { row, sessionId, useRoster: resolvedUseRoster, actions, lang })
@@ -868,6 +934,81 @@ export function SessionTranscript({
   const flat = layoutOf(roster.prefs) === 'flat'
   const canLoadEarlierParts = typeof actions?.earlier === 'function'
   const hasPartStart = useMemo(() => rowParts.committed.some(row => row.kind === 'part-start'), [rowParts.committed])
+  const openSessionFile = useMemo(() => (typeof actions?.openFile === 'function'
+    ? target => actions.openFile(typeof target === 'string'
+      ? { path: target, sessionId }
+      : { ...target, sessionId: target?.sessionId ?? sessionId })
+    : undefined), [actions, sessionId])
+  const revealSessionFolder = useMemo(() => (typeof actions?.revealFolder === 'function'
+    ? target => actions.revealFolder(typeof target === 'string'
+      ? { path: target, sessionId }
+      : { ...target, sessionId: target?.sessionId ?? sessionId })
+    : openSessionFile
+      ? target => openSessionFile(typeof target === 'string' ? { path: target, isDir: true } : { ...target, isDir: true })
+      : undefined), [actions, sessionId, openSessionFile])
+
+  // Build per-turn delivered file maps from committed `log.events` (not `rows`) so stream
+  // chunks keep identical Map references and never invalidate memoized committed rows.
+  const turnFileMentions = useMemo(() => {
+    const byTurn = new Map()
+    for (const item of Array.isArray(log?.events) ? log.events : []) {
+      if (item?.type !== 'deliverables/presented' || !Array.isArray(item.data?.files)) continue
+      const key = item.data?.turn ?? 'none'
+      let map = byTurn.get(key)
+      if (!map) { map = new Map(); byTurn.set(key, map) }
+      for (const file of item.data.files) {
+        if (!file?.path) continue
+        const entry = { path: file.path, display: file.path }
+        map.set(file.path, entry)
+        const base = String(file.path).split(/[\\/]/).filter(Boolean).at(-1)
+        if (base && !map.has(base)) map.set(base, entry)
+      }
+    }
+    return byTurn
+  }, [log?.events])
+
+  // Classic Agent reply feedback (strictly Classic sessions; Bot chats keep emoji reactions).
+  const feedback = useSessionFeedback(sessionId, classic)
+  const { retract: retractFeedback, submit: submitFeedback } = feedback
+  const [feedbackDraft, setFeedbackDraft] = useState(null)
+  const [feedbackError, setFeedbackError] = useState('')
+  useEffect(() => {
+    setFeedbackDraft(null)
+    setFeedbackError('')
+  }, [sessionId, classic])
+  const handleSelectFeedback = useCallback((messageId, rating) => {
+    setFeedbackError('')
+    setFeedbackDraft({ messageId, rating })
+  }, [])
+  const handleRetractFeedback = useCallback(async (messageId) => {
+    const res = await retractFeedback(messageId)
+    if (!res?.ok && res?.message) actions?.notice?.(res.message)
+  }, [retractFeedback, actions])
+  const handleSubmitFeedback = useCallback(async ({ messageId, rating, category, note }) => {
+    setFeedbackError('')
+    const res = await submitFeedback(messageId, { rating, category, note })
+    if (res?.ok) {
+      setFeedbackDraft(null)
+    } else if (res?.message) {
+      setFeedbackError(res.message)
+    }
+  }, [submitFeedback])
+
+  const earlierMentionBots = useMemo(
+    () => (Array.isArray(roster?.bots) ? mentionableBots(roster, sessionId) : []),
+    [roster, sessionId],
+  )
+  const renderEarlierUserText = useCallback(({ text, fullText, revealedSecrets, onToggleSecret }) => h(UserMessageText, {
+    text,
+    fullText,
+    bots: earlierMentionBots,
+    revealedSecrets,
+    onToggleSecret,
+    onOpenBot: actions?.openSession,
+    onOpenFile: openSessionFile,
+    onRevealFolder: revealSessionFolder,
+  }), [earlierMentionBots, actions, openSessionFile, revealSessionFolder])
+
   // `bot.parts` holds only earlier segments (host/channel.js), not current `bot.sessionId`.
   // Wait until the opening snapshot lands (`log.header !== null`) before mounting EarlierParts
   // so we never issue wasted RPCs while loading or duplicate a snapshot's `part-start`.
@@ -888,6 +1029,8 @@ export function SessionTranscript({
     resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
     resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
     selfId, cwd, showThinking, flat,
+    openSessionFile, revealSessionFolder, turnFileMentions, feedback,
+    onSelectFeedback: handleSelectFeedback, onRetractFeedback: handleRetractFeedback, renderEarlierUserText,
   }
 
   // Committed and live rows must be siblings in one keyed list: a live tool call that
@@ -905,13 +1048,27 @@ export function SessionTranscript({
     resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
     resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
     selfId, cwd, showThinking, flat,
+    openSessionFile, revealSessionFolder, turnFileMentions, feedback,
+    handleSelectFeedback, handleRetractFeedback, renderEarlierUserText,
   ])
   const liveElements = rowParts.live.length === 0
     ? []
     : renderTranscriptRows({ ...rowProps, rows: rowParts.live, initialSpeakers: committedSpeakers })
   const projected = [...committedElements, ...liveElements]
 
-  return showTopEarlierParts
-    ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions }), ...projected]
-    : projected
+  const feedbackDialog = classic ? h(ClassicFeedbackDialog, {
+    key: 'classic-feedback-dialog',
+    draft: feedbackDraft,
+    current: feedbackDraft ? (feedback.items.get(feedbackDraft.messageId) ?? null) : null,
+    pending: feedbackDraft ? feedback.pendingIds.has(feedbackDraft.messageId) : false,
+    error: feedbackError,
+    onClose: () => { setFeedbackDraft(null); setFeedbackError('') },
+    onSubmit: handleSubmitFeedback,
+  }) : null
+
+  return [
+    ...(showTopEarlierParts ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions, renderUserText: renderEarlierUserText })] : []),
+    ...projected,
+    ...(feedbackDialog ? [feedbackDialog] : []),
+  ]
 }
