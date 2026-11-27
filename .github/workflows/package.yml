@@ -2,13 +2,19 @@ name: Package & Native
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
   schedule:
     # Daily full cross-platform packaging and mobile native build verification at 19:00 UTC
-    # (03:00 +08:00) so installers, iOS/Android native builds and caches stay verified and warm.
+    # (03:00 +08:00) targeting dev so installers, iOS/Android native builds and caches stay warm.
     - cron: '0 19 * * *'
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or ref to package (defaults to workflow branch)'
+        required: false
+        default: ''
+        type: string
   workflow_call:
     inputs:
       force_full:
@@ -18,13 +24,16 @@ on:
 permissions:
   contents: read
 
-# Heavy packaging and native mobile builds run in their own workflow so unit-test retries in
-# test.yml never have to wait for 30-40 minute desktop/iOS builds to finish first.
+# Heavy packaging and native mobile builds run in their own workflow on the daily dev Nightly,
+# release/hotfix PRs to main, packaging workflow edits, and opt-in `ci/full-package` PRs so
+# everyday PRs to dev stay fast and never saturate macOS/Windows runner queues.
 concurrency:
   group: >-
     ${{ inputs.force_full
         && format('full-package-run-{0}', github.ref)
-        || format('package-{0}', github.ref) }}
+        || (github.event_name == 'schedule'
+            && 'package-nightly-dev'
+            || format('package-{0}', github.ref)) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -41,6 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
           fetch-depth: 0
       - name: Classify changed paths
         id: filter
@@ -110,36 +120,13 @@ jobs:
             mobile_ios=false
             mobile_android=false
           else
+            # Everyday PRs to dev defer heavy installers and native mobile builds to the daily
+            # dev Nightly, release/hotfix PRs to main, or an explicit `ci/full-package` label.
             app_package_full=false
             app_package_linux=false
             app_update=false
             mobile_ios=false
             mobile_android=false
-            # Full cross-OS packaging runs on packaging/installer/runtime/updater/native changes.
-            # Pure app/ui/ and app/test/ edits are verified by test.yml (vite build + Ubuntu/Windows unit tests).
-            if has '^(app/(package\.json|package-lock\.json|electron-builder\.yml|\.npmrc|build/|engine/|assets/|scripts/((before-pack|check-lifecycle|check-packed|check-update|dist|prepare-runtime|seed-electron-checksums)\.|primary-runtime\.lock\.json$)|src/(update|mac-updater\.mjs))|ds-bot/(package\.json|package-lock\.json|cordis\.patch\.yml|office\.js|src/office/|src/host/computer/))'; then
-              app_package_full=true
-            fi
-            # Main-process app/src/ and desktop UI bundle config edits get a fast Linux packaged smoke
-            # without blocking on 40m macOS/Windows queues.
-            if [ "$app_package_full" = "true" ] || has '^(app/src/|app/vite\.config\.js$|app/ui/index\.html$)'; then
-              app_package_linux=true
-            fi
-            if has '^app/(package\.json|package-lock\.json|electron-builder\.yml|build/|scripts/(before-pack|check-update|dist)\.|src/(update|mac-updater\.mjs))'; then
-              app_update=true
-            fi
-            # Native iOS / Android builds run on native config, icon assets, or version/dependency changes
-            # (not pure JS/TS edits in mobile/src/).
-            if has '^(mobile/(app\.json|app\.config\.js|package\.json|package-lock\.json|plugins/|ios/|assets/|eas\.json)|ds-bot/package\.json$)'; then
-              mobile_ios=true
-            fi
-            if has '^(mobile/(app\.json|app\.config\.js|package\.json|package-lock\.json|plugins/|android/|assets/|eas\.json)|ds-bot/package\.json$|\.github/gradle/)'; then
-              mobile_android=true
-            fi
-            # Always keep Linux packaging smoke & caches warm on push to dev without using macOS runners.
-            if [ "$EVENT" = "push" ]; then
-              app_package_linux=true
-            fi
           fi
 
           {
@@ -166,6 +153,8 @@ jobs:
         working-directory: mobile
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -223,6 +212,8 @@ jobs:
         working-directory: mobile
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -315,6 +306,8 @@ jobs:
         working-directory: app
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -472,6 +465,8 @@ jobs:
         working-directory: app
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -580,6 +575,8 @@ jobs:
         working-directory: app
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24

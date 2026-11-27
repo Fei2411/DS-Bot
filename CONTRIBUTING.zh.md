@@ -140,7 +140,7 @@ node scripts/build-client.mjs --check  # client.js 与 src/client 一致
 npm run lint                           # oxlint
 ```
 
-对改动到 `ds-bot/`、`link/` 或 `start.ps1` 的 Pull Request（以及 `dev`/`main` 分支），CI 会在 Linux 和 Windows 上跑 `npm test`（含生成文件一致性校验），在 Linux 上跑 `npm run lint`。它还会扫描入库的文件，查找密钥、token、个人路径和邮箱，以及只应留在本地的材料。想自己扫描，在仓库根目录运行：
+对合向 `dev` 且改动到 `ds-bot/`、`link/` 或 `start.ps1` 的 Pull Request，CI 会在 Linux 上分片运行 `npm test`（含生成文件一致性校验）和 `npm run lint`。Windows 跨平台测试、Node 22、Docker 与桌面/移动端原生打包则统一在每日 `dev` Nightly CI、合向 `main` 的发版/热修 PR 以及按需触发（`ci/full-package` 标签或手动运行）中执行。CI 还会扫描入库的文件，查找密钥、token、个人路径和邮箱，以及只应留在本地的材料。想自己扫描，在仓库根目录运行：
 
 ```sh
 mkdir -p /tmp/ds-bot-tree && git archive HEAD | tar -x -C /tmp/ds-bot-tree && node scripts/scan.mjs /tmp/ds-bot-tree

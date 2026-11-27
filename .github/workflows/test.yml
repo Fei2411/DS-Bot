@@ -5,23 +5,27 @@ on:
     branches: [main, dev]
   pull_request:
   schedule:
-    # Daily full cross-platform verification at 19:00 UTC (03:00 +08:00) on the default branch
-    # so Node 22, Docker and caches stay verified and warm without slowing PRs.
+    # Daily full cross-platform verification at 19:00 UTC (03:00 +08:00) targeting dev
+    # so Windows, Node 22, Docker (:dev), browser tests and caches stay verified and warm.
     - cron: '0 19 * * *'
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or ref to test (defaults to workflow branch)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
 
-# A newer push to a pull request replaces its running checks. A run on main or dev finishes, and
-# of the pushes that wait for it only the newest runs next: a cancelled run never saves the
-# download caches that every pull request restores, and running one at a time keeps the
-# Docker image of an earlier commit from being pushed after a later one.
-# Heavy desktop packaging and native mobile builds live in package.yml so a flaky unit test
-# here can be re-run in minutes instead of waiting for 30-40 minute macOS/Windows installers.
+# Pull requests and dev pushes cancel superseded runs so rapid merges never pile up.
+# Main pushes and the daily dev Nightly run to completion in isolated lanes so Docker
+# publishes and cache saves stay ordered and never block each other.
+# Heavy desktop packaging and native mobile builds live in package.yml.
 concurrency:
-  group: test-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: test-${{ github.event_name == 'schedule' && 'nightly-dev' || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/dev') }}
 
 jobs:
   changes:
@@ -30,6 +34,8 @@ jobs:
     outputs:
       full: ${{ steps.filter.outputs.full }}
       ds_bot: ${{ steps.filter.outputs.ds_bot }}
+      ds_bot_browser: ${{ steps.filter.outputs.ds_bot_browser }}
+      ds_bot_win: ${{ steps.filter.outputs.ds_bot_win }}
       node22: ${{ steps.filter.outputs.node22 }}
       app_unit: ${{ steps.filter.outputs.app_unit }}
       app_unit_win: ${{ steps.filter.outputs.app_unit_win }}
@@ -39,6 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
           fetch-depth: 0
       - name: Classify changed paths
         id: filter
@@ -56,7 +63,7 @@ jobs:
             full=true
           elif [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
             # Release PRs already pass the full matrix on BASE_REF=main before merge, and daily
-            # schedule keeps main caches warm. Running only the fast baseline + Docker publish here
+            # schedule keeps caches warm. Running only the Linux baseline + Docker publish here
             # prevents push:main from competing for runners with the Release workflow.
             main_push=true
           fi
@@ -88,6 +95,8 @@ jobs:
 
           if [ "$full" = "true" ]; then
             ds_bot=true
+            ds_bot_browser=true
+            ds_bot_win=true
             node22=true
             app_unit=true
             app_unit_win=true
@@ -96,6 +105,8 @@ jobs:
             docker=true
           elif [ "$main_push" = "true" ]; then
             ds_bot=true
+            ds_bot_browser=true
+            ds_bot_win=false
             node22=true
             app_unit=true
             app_unit_win=false
@@ -104,6 +115,8 @@ jobs:
             docker=true
           else
             ds_bot=false
+            ds_bot_browser=false
+            ds_bot_win=false
             node22=false
             app_unit=false
             app_unit_win=false
@@ -111,24 +124,26 @@ jobs:
             link=false
             docker=false
             if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$|scripts/check-pure-base-sync\.mjs$|\.github/workflows/(package|full-package|pr-triage-labels)\.yml$)'; then ds_bot=true; fi
+            if has '^(ds-bot/(src/client/|src/host/browser/|src/host/fonts\.js$|src/shared/|assets/|test/browser/|scripts/|dev/harness/|package\.json$|package-lock\.json$)|app/ui/src/html-preview\.js$)'; then ds_bot_browser=true; fi
             if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$)'; then app_unit=true; fi
-            if has '^app/'; then app_unit_win=true; fi
             if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/package\.json$|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest)\.js$|ds-bot/src/client/avatar/)'; then mobile=true; fi
             if has '^link/'; then link=true; fi
-            if has '^(docker/|docker-compose.*\.yml$|\.dockerignore$|ds-bot/package\.json$|ds-bot/package-lock\.json$|ds-bot/\.npmrc$|ds-bot/cordis\.patch\.yml$|ds-bot/plugin\.js$)'; then docker=true; fi
-            # Rapid merges to dev can supersede intermediate queued pushes, so always run the
-            # fast Linux/Windows baseline checks and publish :dev on push to dev.
+            if has '^(docker/|docker-compose.*\.yml$|\.dockerignore$)'; then docker=true; fi
+            # Push to dev stays fast and Linux-only so rapid merges warm Linux caches and catch
+            # cross-PR regressions immediately without hogging Windows or Docker runners; Windows,
+            # Node 22, and Docker :dev publishing run on the daily dev Nightly.
             if [ "$EVENT" = "push" ]; then
               ds_bot=true
-              node22=true
               app_unit=true
-              docker=true
+              docker=false
             fi
           fi
 
           {
             echo "full=$full"
             echo "ds_bot=$ds_bot"
+            echo "ds_bot_browser=$ds_bot_browser"
+            echo "ds_bot_win=$ds_bot_win"
             echo "node22=$node22"
             echo "app_unit=$app_unit"
             echo "app_unit_win=$app_unit_win"
@@ -138,28 +153,27 @@ jobs:
           } | tee -a "$GITHUB_OUTPUT"
 
   test:
-    name: ${{ matrix.os }} · Node ${{ matrix.node }}
+    name: ubuntu-latest · Node 24 (${{ matrix.shard }}/3)
     needs: changes
     if: needs.changes.outputs.ds_bot == 'true'
-    runs-on: ${{ matrix.os }}
-    # The suite takes a few minutes; a test that never settles used to hold the job for the
-    # runner's six-hour limit.
-    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    # Each shard runs roughly one-third of ds-bot's unit tests in ~1–2 minutes.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-latest, node: 24, browser: true, lint: true }
-          - { os: windows-latest, node: 24 }
+        shard: [1, 2, 3]
     defaults:
       run:
         shell: bash
         working-directory: ds-bot
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24
           cache: npm
           cache-dependency-path: |
             ds-bot/package-lock.json
@@ -172,7 +186,108 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ds-bot/dev/harness/node_modules
-          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node${{ matrix.node }}-${{ hashFiles('ds-bot/dev/harness/package.json', 'ds-bot/dev/harness/package-lock.json') }}
+          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('ds-bot/dev/harness/package.json', 'ds-bot/dev/harness/package-lock.json') }}
+      - name: Install DSH test harness
+        if: steps.harness-cache.outputs.cache-hit != 'true'
+        run: npm run harness
+      - name: Save DSH test harness
+        if: matrix.shard == 1 && github.event_name != 'pull_request' && steps.harness-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: ${{ steps.harness-cache.outputs.cache-primary-key }}
+      - name: Run unit tests (shard ${{ matrix.shard }}/3)
+        run: node --import ./test/harness-resolve.mjs --test --test-shard=${{ matrix.shard }}/3 --test-timeout=120000 --test-force-exit "test/*.test.js"
+      - name: Lint
+        if: matrix.shard == 1
+        run: npm run lint
+
+  test-browser:
+    name: Browser tests (ubuntu-latest)
+    needs: changes
+    if: needs.changes.outputs.ds_bot_browser == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: ds-bot
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            ds-bot/package-lock.json
+            link/package-lock.json
+      - run: npm ci --no-fund --no-audit
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
+      - name: Restore DSH test harness
+        id: harness-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('ds-bot/dev/harness/package.json', 'ds-bot/dev/harness/package-lock.json') }}
+      - name: Install DSH test harness
+        if: steps.harness-cache.outputs.cache-hit != 'true'
+        run: npm run harness
+      - name: Save DSH test harness
+        if: needs.changes.outputs.ds_bot != 'true' && github.event_name != 'pull_request' && steps.harness-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: ${{ steps.harness-cache.outputs.cache-primary-key }}
+      - name: Restore Playwright Chromium
+        id: playwright-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ds-bot/package-lock.json') }}
+      - name: Install Chromium for the browser tests
+        run: npx playwright-core install --with-deps --only-shell chromium
+      - name: Save Playwright Chromium
+        if: github.event_name != 'pull_request' && steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
+      - name: Browser tests
+        run: npm run test:browser
+
+  test-windows:
+    name: windows-latest · Node 24
+    needs: changes
+    if: needs.changes.outputs.ds_bot_win == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: ds-bot
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            ds-bot/package-lock.json
+            link/package-lock.json
+      - run: npm ci --no-fund --no-audit
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
+      - name: Restore DSH test harness
+        id: harness-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ds-bot/dev/harness/node_modules
+          key: dsh-harness-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('ds-bot/dev/harness/package.json', 'ds-bot/dev/harness/package-lock.json') }}
       - name: Install DSH test harness
         if: steps.harness-cache.outputs.cache-hit != 'true'
         run: npm run harness
@@ -182,39 +297,11 @@ jobs:
         with:
           path: ds-bot/dev/harness/node_modules
           key: ${{ steps.harness-cache.outputs.cache-primary-key }}
-      - name: Run unit tests
-        run: |
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            # Windows file locking plus several concurrent test-file processes make the same
-            # local asynchronous chains take several times longer; two at a time removes the
-            # contention instead of hiding it behind longer assertions.
-            npm run test:windows
-          else
-            npm test
-          fi
-      - name: Lint
-        if: matrix.lint
-        run: npm run lint
-      # The Bot browser and settings layout tests drive a real Chromium; one Linux run is enough.
-      - name: Restore Playwright Chromium
-        id: playwright-cache
-        if: matrix.browser
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ds-bot/package-lock.json') }}
-      - name: Install Chromium for the browser tests
-        if: matrix.browser
-        run: npx playwright-core install --with-deps --only-shell chromium
-      - name: Save Playwright Chromium
-        if: matrix.browser && github.event_name != 'pull_request' && steps.playwright-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
-      - name: Browser tests
-        if: matrix.browser
-        run: npm run test:browser
+      - name: Run unit tests (Windows)
+        # Windows file locking plus several concurrent test-file processes make the same
+        # local asynchronous chains take several times longer; two at a time removes the
+        # contention instead of hiding it behind longer assertions.
+        run: npm run test:windows
 
   test-node22:
     name: ubuntu-latest · Node 22
@@ -228,6 +315,8 @@ jobs:
         working-directory: ds-bot
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -260,6 +349,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -281,6 +372,8 @@ jobs:
         working-directory: app
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -306,6 +399,8 @@ jobs:
         working-directory: app
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -328,6 +423,8 @@ jobs:
         working-directory: mobile
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -354,6 +451,8 @@ jobs:
         working-directory: link
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -369,8 +468,13 @@ jobs:
     timeout-minutes: 20
     needs: [changes, test, scan]
     if: ${{ !failure() && !cancelled() && needs.changes.result == 'success' && needs.scan.result == 'success' && (needs.test.result == 'success' || needs.test.result == 'skipped') && needs.changes.outputs.docker == 'true' }}
+    outputs:
+      image_sha: ${{ steps.image-meta.outputs.sha }}
+      image_branch: ${{ steps.image-meta.outputs.branch }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.ref || '') }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -400,11 +504,26 @@ jobs:
           cache-from: type=gha,scope=docker-dev
           cache-to: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'type=gha,mode=max,scope=docker-dev' || '' }}
       - run: node docker/test-dev.mjs ds-bot:dev-test ds-bot:test
+      - name: Record tested image target
+        id: image-meta
+        if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule') && github.repository == 'Fei-Craft/DS-Bot'
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          if [ "$EVENT" = "schedule" ]; then
+            branch=dev
+          else
+            branch=main
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
       - name: Save the tested image
-        if: github.event_name == 'push' && github.repository == 'Fei-Craft/DS-Bot'
+        if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule') && github.repository == 'Fei-Craft/DS-Bot'
         run: docker save --output "$RUNNER_TEMP/ds-bot-image.tar" ds-bot:test
       - name: Upload the tested image
-        if: github.event_name == 'push' && github.repository == 'Fei-Craft/DS-Bot'
+        if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule') && github.repository == 'Fei-Craft/DS-Bot'
         uses: actions/upload-artifact@v4
         with:
           name: ds-bot-image
@@ -419,7 +538,7 @@ jobs:
   # and fails unless every job required for the changed paths passed.
   result:
     name: Test result
-    needs: [changes, test, test-node22, scan, app, app-windows, mobile, link, docker]
+    needs: [changes, test, test-browser, test-windows, test-node22, scan, app, app-windows, mobile, link, docker]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -429,6 +548,10 @@ jobs:
           SCAN_RESULT: ${{ needs.scan.result }}
           RUN_DS_BOT: ${{ needs.changes.outputs.ds_bot }}
           TEST_RESULT: ${{ needs.test.result }}
+          RUN_DS_BOT_BROWSER: ${{ needs.changes.outputs.ds_bot_browser }}
+          TEST_BROWSER_RESULT: ${{ needs.test-browser.result }}
+          RUN_DS_BOT_WIN: ${{ needs.changes.outputs.ds_bot_win }}
+          TEST_WIN_RESULT: ${{ needs.test-windows.result }}
           RUN_NODE22: ${{ needs.changes.outputs.node22 }}
           NODE22_RESULT: ${{ needs.test-node22.result }}
           RUN_APP_UNIT: ${{ needs.changes.outputs.app_unit }}
@@ -464,6 +587,8 @@ jobs:
           check "changes" "true" "$CHANGES_RESULT"
           check "scan" "true" "$SCAN_RESULT"
           check "test" "$RUN_DS_BOT" "$TEST_RESULT"
+          check "test-browser" "$RUN_DS_BOT_BROWSER" "$TEST_BROWSER_RESULT"
+          check "test-windows" "$RUN_DS_BOT_WIN" "$TEST_WIN_RESULT"
           check "test-node22" "$RUN_NODE22" "$NODE22_RESULT"
           check "app" "$RUN_APP_UNIT" "$APP_RESULT"
           check "app-windows" "$RUN_APP_UNIT_WIN" "$APP_WIN_UNIT_RESULT"
@@ -475,7 +600,7 @@ jobs:
   publish-docker:
     name: Publish Docker image
     needs: [docker, result]
-    if: ${{ !cancelled() && needs.docker.result == 'success' && needs.result.result == 'success' && github.event_name == 'push' && github.repository == 'Fei-Craft/DS-Bot' }}
+    if: ${{ !cancelled() && needs.docker.result == 'success' && needs.result.result == 'success' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule') && github.repository == 'Fei-Craft/DS-Bot' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -493,8 +618,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GHCR_ACTOR: ${{ github.actor }}
           GHCR_REPOSITORY: ${{ github.repository }}
-          GHCR_BRANCH: ${{ github.ref_name }}
-          GHCR_SHA: ${{ github.sha }}
+          GHCR_BRANCH: ${{ needs.docker.outputs.image_branch }}
+          GHCR_SHA: ${{ needs.docker.outputs.image_sha }}
         run: |
           set -euo pipefail
           image="ghcr.io/${GHCR_REPOSITORY,,}"
