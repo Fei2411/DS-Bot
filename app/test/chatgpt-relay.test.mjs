@@ -71,12 +71,13 @@ test('relay applies preview restrictions, moves only system messages and namespa
   const tools = [{ type: 'function', name: 'tool', parameters: {} }]
   const response = await f.post({ ...Object.fromEntries(omit.map(key => [key, 'remove'])), store: true, stream: false,
     instructions: 'existing', model: 'model-z', tools,
+    reasoning: { effort: 'high', summary: 'auto' }, include: ['reasoning.encrypted_content'],
     input: [{ type: 'message', role: 'system', content: [{ type: 'input_text', text: 'system one' }] }, { role: 'system', content: 'system two' }, developer],
   })
   assert.equal(response.status, 200)
   assert.equal(await response.text(), 'data: synthetic-event\n\ndata: [DONE]\n\n')
   assert.equal(f.requests[0].headers.authorization, 'Bearer synthetic-access')
-  assert.deepEqual(f.requests[0].body, { store: false, stream: true, model: 'model-z', instructions: 'existing\n\nsystem one\n\nsystem two', tools: [{ type: 'namespace', name: 'ds_bot', description: 'DS Bot tools.', tools }], input: [developer] })
+  assert.deepEqual(f.requests[0].body, { store: false, stream: true, model: 'model-z', instructions: 'existing\n\nsystem one\n\nsystem two', reasoning: { effort: 'high', summary: 'auto' }, include: ['reasoning.encrypted_content'], tools: [{ type: 'namespace', name: 'ds_bot', description: 'DS Bot tools.', tools }], input: [developer] })
   await (await f.post({ input: 'hello' })).text()
   assert.deepEqual(f.requests[1].body.input, [{ role: 'user', content: 'hello' }])
 })

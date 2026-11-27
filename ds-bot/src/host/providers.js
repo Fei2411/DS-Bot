@@ -85,6 +85,52 @@ function lookupKnownModel(known, rawId) {
   return known.get(id) ?? known.get(bare) ?? (bare.startsWith('kimi-') ? known.get(bare.slice(5)) : known.get(`kimi-${bare}`))
 }
 
+const THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+
+// DSH's llm-pi-ai schema accepts `false` (explicit non-reasoning) or a dict of
+// pi-ai thinking levels with at least one level beyond `off`.
+function normalizeReasoningEfforts(raw) {
+  if (raw === false) return false
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const mapped = {}
+  for (const [level, wire] of Object.entries(raw)) {
+    if (!THINKING_LEVELS.has(level)) continue
+    if (wire === null && level === 'off') mapped.off = null
+    else if (typeof wire === 'string' && wire.trim() !== '') mapped[level] = wire.trim()
+  }
+  return Object.keys(mapped).some(level => level !== 'off') ? mapped : undefined
+}
+
+function openaiReasoningEfforts(info) {
+  const efforts = info?.reasoning?.efforts
+  if (!Array.isArray(efforts) || efforts.length === 0) return undefined
+  const mapped = {}
+  for (const effort of efforts) {
+    const id = typeof effort?.id === 'string' ? effort.id : ''
+    // Omit 'off' unless the server explicitly confirmed default_reasoning_level === 'none',
+    // so Default (unset effort) keeps omitting `reasoning` instead of sending effort='none'.
+    if (id === 'off' || !THINKING_LEVELS.has(id)) continue
+    mapped[id] = id
+  }
+  return normalizeReasoningEfforts(mapped)
+}
+
+// Conservative fallback for OpenAI Responses reasoning families when /v1/models omits
+// supported_reasoning_levels and no official `openai` route is configured. Never guesses
+// 'off' so Default preserves upstream server defaults, and never matches chat-only models.
+function fallbackChatGPTReasoningEfforts(rawId) {
+  const id = typeof rawId === 'string' ? rawId.trim().toLowerCase() : ''
+  if (id === '' || id.includes('chat-latest') || /^gpt-4\b|^gpt-4[.-]|^gpt-3\b|^gpt-3[.-]/.test(id)) return undefined
+  if (/^gpt-5-pro(?:$|-)/.test(id)) return { high: 'high' }
+  if (/^gpt-5\.[245]-pro(?:$|-)/.test(id)) return { medium: 'medium', high: 'high', xhigh: 'xhigh' }
+  if (/^gpt-5(?:-mini|-nano)?(?:$|-\d)/.test(id)) return { minimal: 'minimal', low: 'low', medium: 'medium', high: 'high' }
+  if (/^gpt-5\.1(?:$|-)/.test(id)) return { low: 'low', medium: 'medium', high: 'high' }
+  if (/^gpt-5\.[2345](?:$|-)/.test(id)) return { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' }
+  if (/^gpt-(?:5\.[6-9]|[6-9](?:\.\d+)?)(?:$|-)/.test(id)) return { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' }
+  if (/^(?:o1|o3|o4-mini)(?:$|-)/.test(id)) return { low: 'low', medium: 'medium', high: 'high' }
+  return undefined
+}
+
 // A model as the route stores it: what discovery told about it, under pi-ai's names,
 // with any missing capacity or modalities filled from a known catalog model of the same id.
 function modelEntry(model, known) {
@@ -100,12 +146,14 @@ function modelEntry(model, known) {
       ? model.input
       : match?.inputModalities
   const input = Array.isArray(rawInput) ? rawInput.filter(kind => typeof kind === 'string') : []
+  const reasoningEfforts = normalizeReasoningEfforts(model?.reasoningEfforts)
   return {
     id,
     ...(typeof model?.name === 'string' && model.name.trim() !== '' ? { name: model.name.trim() } : {}),
     ...(contextWindow ? { contextWindow } : {}),
     ...(maxTokens ? { maxTokens } : {}),
     ...(input.length > 0 ? { input } : {}),
+    ...(reasoningEfforts !== undefined ? { reasoningEfforts } : {}),
   }
 }
 
@@ -405,14 +453,34 @@ export function install(rt) {
     const current = new Map((Array.isArray(profile?.models) ? profile.models : [])
       .map(model => [typeof model === 'string' ? model : model?.id, model])
       .filter(([id]) => typeof id === 'string' && id !== ''))
-    const models = list.map((model) => {
+    const openaiEntry = provider === CHATGPT_PROVIDER ? entryOf('openai') : undefined
+    const openaiProfile = openaiEntry ? profileOf(openaiEntry, map) : undefined
+    const hasOfficialOpenAI = provider === CHATGPT_PROVIDER
+      && typeof ctx.llm.resolveModelInfo === 'function'
+      && (ctx.llm.listProviders?.() ?? []).some(item => item.id === 'openai')
+      && (typeof openaiProfile?.baseURL !== 'string' || openaiProfile.baseURL === '')
+    const models = await Promise.all(list.map(async (model) => {
       const id = typeof model === 'string' ? model.trim() : model?.id?.trim()
       const old = current.get(id)
       const saved = typeof old === 'string' ? { id: old } : old
       const incoming = typeof model === 'string' ? { id: model } : model
-      const next = modelEntry({ ...saved, ...incoming }, known)
-      return { ...saved, ...next }
-    })
+      const incomingHasEfforts = Object.prototype.hasOwnProperty.call(incoming, 'reasoningEfforts') && incoming.reasoningEfforts !== undefined
+      let fallbackEfforts
+      if (provider === CHATGPT_PROVIDER && !incomingHasEfforts && saved?.reasoningEfforts === undefined && id) {
+        if (hasOfficialOpenAI) {
+          const info = await ctx.llm.resolveModelInfo('openai', id).catch(() => undefined)
+          fallbackEfforts = openaiReasoningEfforts(info)
+        }
+        fallbackEfforts ??= fallbackChatGPTReasoningEfforts(id)
+      }
+      const mergedInput = { ...saved, ...incoming, ...(fallbackEfforts !== undefined ? { reasoningEfforts: fallbackEfforts } : {}) }
+      const next = modelEntry(mergedInput, known)
+      const combined = { ...saved, ...next }
+      // If the caller explicitly supplied reasoningEfforts that normalized to nothing
+      // (e.g. invalid keys or off-only), do not resurrect a stale saved.reasoningEfforts.
+      if (incomingHasEfforts && next.reasoningEfforts === undefined) delete combined.reasoningEfforts
+      return combined
+    }))
     if (new Set(models.map(model => model.id)).size !== models.length) throw invalid('Two models have the same id')
     await settings.mutate(PI_AI, [{ op: 'set', path: [...entry.settingsPath, 'models'], value: models }], section?.revision)
     rt.dropCatalog()

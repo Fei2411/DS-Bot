@@ -51,7 +51,7 @@ export function modelOf(bot, roster) {
 // The thinking levels of one model, `{efforts, defaultEffort?}` or undefined when it
 // has none. The catalog carries them for models Bots use; any other ref asks the host.
 export const effortCache = new Map()
-function useEfforts(served, ref, actions) {
+function useEfforts(served, ref, actions, version = 0) {
   const [fetched, setFetched] = useState(undefined)
   useEffect(() => {
     setFetched(undefined)
@@ -64,7 +64,7 @@ function useEfforts(served, ref, actions) {
       if (live) setFetched(reasoning)
     }).catch(() => {})
     return () => { live = false }
-  }, [ref, served?.reasoning !== undefined, actions])
+  }, [ref, served?.reasoning !== undefined, actions, version])
   return served?.reasoning ?? fetched
 }
 
@@ -447,17 +447,15 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
   const shown = modelOf({ ...bot, model: current }, roster)
   const local = isLocalRoute(current)
   const served = servedOf(roster, current)
-  const reasoning = useEfforts(served, withEfforts ? current : undefined, actions)
+  const [opening, setOpening] = useState(0)
+  const [query, setQuery] = useState('')
+  const reasoning = useEfforts(served, withEfforts ? current : undefined, actions, opening)
   // The level the Bot runs on: its pick when the model serves it, else the model's own.
   const picked = reasoning?.efforts?.some(effort => effort.id === bot.effort) ? bot.effort : undefined
   const currentEffort = picked ?? reasoning?.defaultEffort
   const effortLabel = currentEffort === undefined
     ? (reasoning?.efforts?.length > 0 ? t('Default') : undefined)
     : reasoning.efforts.find(effort => effort.id === currentEffort)?.name ?? currentEffort
-  // Each opening is a new number, so the rows start from the current model again even
-  // when the previous menu is still playing its exit animation under a quick reopen.
-  const [opening, setOpening] = useState(0)
-  const [query, setQuery] = useState('')
   const models = modelsFor(roster.models, current)
   return {
     bot, roster, shown, current, inherited, local, reasoning, picked, effortLabel, models, opening, query, setQuery, reading, withEfforts,
@@ -466,7 +464,10 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
     // DSH settings can change the list at any time, so opening asks again.
     opened: () => {
       if (local) readModels(routeOf(current))
-      else void actions?.refreshModels?.()
+      else {
+        effortCache.clear()
+        void actions?.refreshModels?.()
+      }
       setQuery('')
       setOpening(count => count + 1)
     },
