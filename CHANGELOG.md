@@ -4,6 +4,17 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-27
+
+### Changed
+
+- **Cleaner activity row**: replaced the permanently visible bordered "Move to background" pill on the inline activity row with a borderless action revealed smoothly on hover, keyboard focus, or touch tap, keeping the status line quiet at rest. ([#2388](https://github.com/Fei-Craft/DS-Bot/pull/2388))
+
+### Fixed
+
+- **Bot private chat tool cards & compaction bars**: fixed a v0.4.0 desktop frontend regression that showed raw tool call cards (such as MCP and shell tools) and compaction bars in Bot private chats; Bot mode now keeps non-Bot tools quiet while preserving live activity phrases, nested Bot cards, persisted computer-use screenshots across restarts, and full developer tool cards in Classic Agent mode. ([#2386](https://github.com/Fei-Craft/DS-Bot/pull/2386))
+- **Per-Bot Mailbox connector toggle**: fixed the Mailbox switch in Bot details bouncing back on (and overwriting other Bots' disabled states) by returning `offFor` in `mailView()`, and unmounted Agent-scoped `mail_*` tools when Mailbox is turned off for a Bot. ([#2391](https://github.com/Fei-Craft/DS-Bot/pull/2391))
+
 ## [0.4.0] - 2026-11-27
 
 ### Added

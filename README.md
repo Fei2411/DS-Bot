@@ -4,7 +4,7 @@
 
 English | [中文](README.zh.md) · [Docs](docs/README.md) · [Vision](docs/vision.md) · [Known issues](docs/known-issues.md) · [Contributing](CONTRIBUTING.md)
 
-![version](https://img.shields.io/badge/version-v0.4.0-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
+![version](https://img.shields.io/badge/version-v0.4.1-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
 
 DS Bot is an open-source project built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH), available as a standalone desktop app or as a DSH plugin. It turns DSH into a team of long-lived bots that you create, talk to and work with.
 
