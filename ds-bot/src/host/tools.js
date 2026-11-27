@@ -1886,14 +1886,11 @@ export function install(rt) {
       for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
         if (relayOnly && def.name !== 'group_relay') continue
         if (!relayOnly && hiddenScoped.has(def.name)) continue
-        if (!relayOnly && scopedDenied.has(def.name)) {
-          ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
-          continue
-        }
-        if (!relayOnly && connectorDenied(def.name)) {
-          ;(held.connectorHiddenScoped ??= new Set()).add(def.name)
-          continue
-        }
+        const deniedByPlugin = !relayOnly && scopedDenied.has(def.name)
+        const deniedByConnector = !relayOnly && connectorDenied(def.name)
+        if (deniedByPlugin) (held.pluginHiddenScoped ??= new Set()).add(def.name)
+        if (deniedByConnector) (held.connectorHiddenScoped ??= new Set()).add(def.name)
+        if (deniedByPlugin || deniedByConnector) continue
         if (held.added?.has(def.name) === true) continue
         try {
           const dispose = agent.ctx.tools.register(def)
@@ -1937,14 +1934,11 @@ export function install(rt) {
     for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
       if (relayOnly && def.name !== 'group_relay') continue
       if (!relayOnly && hiddenScoped.has(def.name)) continue
-      if (!relayOnly && scopedDenied.has(def.name)) {
-        ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
-        continue
-      }
-      if (!relayOnly && connectorDenied(def.name)) {
-        ;(held.connectorHiddenScoped ??= new Set()).add(def.name)
-        continue
-      }
+      const deniedByPlugin = !relayOnly && scopedDenied.has(def.name)
+      const deniedByConnector = !relayOnly && connectorDenied(def.name)
+      if (deniedByPlugin) (held.pluginHiddenScoped ??= new Set()).add(def.name)
+      if (deniedByConnector) (held.connectorHiddenScoped ??= new Set()).add(def.name)
+      if (deniedByPlugin || deniedByConnector) continue
       try {
         const dispose = agent.ctx.tools.register(def)
         if (typeof dispose === 'function') {
@@ -1993,14 +1987,11 @@ export function install(rt) {
       if (held.relay || held.tools !== true || held.added?.has(def.name) || typeof held.agent?.ctx?.tools?.register !== 'function') continue
       if (hiddenTeamToolsFor(id).has(def.name)) continue
       const botId = rt.selfOf(id)
-      if (botId && rt.pluginDeniedRules?.(botId)?.scopedDenied?.has(def.name)) {
-        ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
-        continue
-      }
-      if (botId && isConnectorDeniedTool(botId, def.name)) {
-        ;(held.connectorHiddenScoped ??= new Set()).add(def.name)
-        continue
-      }
+      const deniedByPlugin = Boolean(botId && rt.pluginDeniedRules?.(botId)?.scopedDenied?.has(def.name))
+      const deniedByConnector = Boolean(botId && isConnectorDeniedTool(botId, def.name))
+      if (deniedByPlugin) (held.pluginHiddenScoped ??= new Set()).add(def.name)
+      if (deniedByConnector) (held.connectorHiddenScoped ??= new Set()).add(def.name)
+      if (deniedByPlugin || deniedByConnector) continue
       try {
         const dispose = held.agent.ctx.tools.register(def)
         if (typeof dispose === 'function') {
@@ -2164,7 +2155,9 @@ export function install(rt) {
             }
           } else if (hiddenScoped.has(def.name)) {
             hiddenScoped.delete(def.name)
-            if (!hiddenTeam.has(def.name) && !isConnectorDeniedTool(botId, def.name) && !held.added?.has(def.name)) {
+            if (isConnectorDeniedTool(botId, def.name)) {
+              ;(held.connectorHiddenScoped ??= new Set()).add(def.name)
+            } else if (!hiddenTeam.has(def.name) && !held.added?.has(def.name)) {
               try {
                 const dispose = agent.ctx.tools.register(def)
                 if (typeof dispose === 'function') {
@@ -2267,13 +2260,24 @@ export function install(rt) {
       maskingTaskGlobals.delete(agent)
     }
   }
+  let reapplyDepth = 0
+  let toolsChangedDuringReapply = false
   const reapplyToolMasks = () => {
-    for (const held of scoped.values()) {
-      if (held.agent === undefined) continue
-      try { rt.refreshShellShadows?.(held.agent) } catch (error) { rt.warn('ds-bot: shell shadow refresh failed: %s', error) }
-      try { maskTaskGlobalTools(held.agent, held) } catch (error) { rt.warn('ds-bot: task tool mask failed: %s', error) }
-      try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
-      try { maskPluginTools(held.agent, held) } catch (error) { rt.warn('ds-bot: plugin mask failed: %s', error) }
+    reapplyDepth += 1
+    try {
+      for (const held of scoped.values()) {
+        if (held.agent === undefined) continue
+        try { rt.refreshShellShadows?.(held.agent) } catch (error) { rt.warn('ds-bot: shell shadow refresh failed: %s', error) }
+        try { maskTaskGlobalTools(held.agent, held) } catch (error) { rt.warn('ds-bot: task tool mask failed: %s', error) }
+        try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
+        try { maskPluginTools(held.agent, held) } catch (error) { rt.warn('ds-bot: plugin mask failed: %s', error) }
+      }
+    } finally {
+      reapplyDepth -= 1
+      if (reapplyDepth === 0 && toolsChangedDuringReapply) {
+        toolsChangedDuringReapply = false
+        rt.notifyLocalAgentToolsChanged?.()
+      }
     }
   }
 
@@ -2338,6 +2342,10 @@ export function install(rt) {
     maskPluginTools(agent, held)
   }
   ctx.on('tools/change', () => {
+    if (reapplyDepth > 0) {
+      toolsChangedDuringReapply = true
+      return
+    }
     reapplyToolMasks()
     rt.notifyLocalAgentToolsChanged?.()
   })
