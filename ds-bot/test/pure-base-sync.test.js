@@ -1,19 +1,30 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { devNull, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { checkPureBaseSync } from '../../scripts/check-pure-base-sync.mjs'
+import { checkPureBaseSync, resolveUniqueCommit } from '../../scripts/check-pure-base-sync.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SCRIPT_PATH = join(__dirname, '..', '..', 'scripts', 'check-pure-base-sync.mjs')
 
 function makeRepo() {
   const dir = mkdtempSync(join(tmpdir(), 'dsb-pure-sync-'))
+  const gitEnv = {
+    ...process.env,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: devNull,
+    GIT_TERMINAL_PROMPT: '0',
+  }
   const git = (args, input) => {
-    const res = spawnSync('git', args, { cwd: dir, encoding: 'utf8', input })
+    const res = spawnSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+      cwd: dir,
+      encoding: 'utf8',
+      input,
+      env: gitEnv,
+    })
     if (res.status !== 0) {
       throw new Error(`git ${args.join(' ')} failed (${res.status}): ${res.stderr}`)
     }
@@ -29,6 +40,8 @@ function makeRepo() {
   git(['config', 'user.name', 'Test User'])
   write('ds-bot/src/client/app.js', 'export const a = 1\n')
   write('ds-bot/client.js', '// bundle v0\n')
+  write('ds-bot/src/shared/release-notes.json', '{"0.3.10":{}}\n')
+  write('ds-bot/src/shared/release-notes-generated.js', 'export const notes = {}\n')
   write('ds-bot/index.js', 'export const host = 1\n')
   write('README.md', '# Base\n')
   git(['add', '.'])
@@ -38,6 +51,7 @@ function makeRepo() {
     dir,
     gitDir: join(dir, '.git'),
     git,
+    gitEnv,
     write,
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   }
@@ -78,20 +92,28 @@ describe('checkPureBaseSync', () => {
     }
   })
 
-  it('accepts a merge that also advances dev further later', () => {
+  it('accepts chained pure merges across multiple dev advances against the original approved SHA', () => {
     const repo = makeRepo()
     try {
       repo.git(['checkout', '-b', 'feat/pr'])
       repo.write('ds-bot/src/host/pr.js', 'export const pr = true\n')
       repo.git(['add', '.'])
       repo.git(['commit', '-m', 'pr work'])
-      const beforeSha = repo.git(['rev-parse', 'HEAD'])
+      const approvedSha = repo.git(['rev-parse', 'HEAD'])
 
       repo.git(['checkout', 'dev'])
       repo.write('ds-bot/src/host/dev1.js', 'export const d = 1\n')
       repo.git(['add', '.'])
       repo.git(['commit', '-m', 'dev 1'])
-      const dev1 = repo.git(['rev-parse', 'HEAD'])
+
+      repo.git(['checkout', 'feat/pr'])
+      repo.git(['merge', '--no-edit', 'dev'])
+
+      repo.git(['checkout', 'dev'])
+      repo.write('ds-bot/src/host/dev2.js', 'export const d = 2\n')
+      repo.git(['add', '.'])
+      repo.git(['commit', '-m', 'dev 2'])
+      const dev2 = repo.git(['rev-parse', 'HEAD'])
 
       repo.git(['checkout', 'feat/pr'])
       repo.git(['merge', '--no-edit', 'dev'])
@@ -99,18 +121,55 @@ describe('checkPureBaseSync', () => {
 
       // Another PR lands on dev before triage runs.
       repo.git(['checkout', 'dev'])
-      repo.write('ds-bot/src/host/dev2.js', 'export const d = 2\n')
+      repo.write('ds-bot/src/host/dev3.js', 'export const d = 3\n')
       repo.git(['add', '.'])
-      repo.git(['commit', '-m', 'dev 2'])
+      repo.git(['commit', '-m', 'dev 3'])
 
       const result = checkPureBaseSync({
         gitDir: repo.gitDir,
-        beforeSha,
+        beforeSha: approvedSha,
         afterSha,
         baseRef: 'refs/heads/dev',
       })
       assert.equal(result.pure, true)
-      assert.equal(result.baseTip, dev1)
+      assert.equal(result.baseTip, dev2)
+    } finally {
+      repo.cleanup()
+    }
+  })
+
+  it('rejects an unreviewed commit followed by a pure dev merge when checked against the approved SHA', () => {
+    const repo = makeRepo()
+    try {
+      repo.git(['checkout', '-b', 'feat/pr'])
+      repo.write('ds-bot/src/host/pr.js', 'export const pr = true\n')
+      repo.git(['add', '.'])
+      repo.git(['commit', '-m', 'approved work'])
+      const approvedSha = repo.git(['rev-parse', 'HEAD'])
+
+      // Unreviewed commit pushed before a pure dev merge (simulates dropped intermediate synchronize run).
+      repo.write('ds-bot/src/host/unreviewed.js', 'export const sneaky = true\n')
+      repo.git(['add', '.'])
+      repo.git(['commit', '-m', 'unreviewed commit'])
+
+      repo.git(['checkout', 'dev'])
+      repo.write('ds-bot/src/host/dev1.js', 'export const d = 1\n')
+      repo.git(['add', '.'])
+      repo.git(['commit', '-m', 'dev advance'])
+
+      repo.git(['checkout', 'feat/pr'])
+      repo.git(['merge', '--no-edit', 'dev'])
+      const liveHeadSha = repo.git(['rev-parse', 'HEAD'])
+
+      const result = checkPureBaseSync({
+        gitDir: repo.gitDir,
+        beforeSha: approvedSha,
+        afterSha: liveHeadSha,
+        baseRef: 'refs/heads/dev',
+      })
+      assert.equal(result.pure, false)
+      assert.equal(result.reason, 'non-base-changes')
+      assert.deepEqual(result.changedFiles, ['ds-bot/src/host/unreviewed.js'])
     } finally {
       repo.cleanup()
     }
@@ -133,7 +192,11 @@ describe('checkPureBaseSync', () => {
       repo.git(['commit', '-m', 'dev client work'])
 
       repo.git(['checkout', 'feat/pr'])
-      const mergeAttempt = spawnSync('git', ['merge', '--no-edit', 'dev'], { cwd: repo.dir, encoding: 'utf8' })
+      const mergeAttempt = spawnSync('git', ['merge', '--no-edit', 'dev'], {
+        cwd: repo.dir,
+        encoding: 'utf8',
+        env: repo.gitEnv,
+      })
       assert.equal(mergeAttempt.status, 1)
       repo.write('ds-bot/client.js', '// bundle rebuilt from pr + dev\n')
       repo.git(['add', 'ds-bot/client.js'])
@@ -154,24 +217,27 @@ describe('checkPureBaseSync', () => {
     }
   })
 
-  it('accepts clean merge followed by a Rebuild client.js commit', () => {
+  it('accepts clean merge + Rebuild client.js and release-notes-generated.js when both sides touch their inputs', () => {
     const repo = makeRepo()
     try {
       repo.git(['checkout', '-b', 'feat/pr'])
       repo.write('ds-bot/src/client/pr.js', 'export const pr = 1\n')
+      repo.write('ds-bot/src/shared/release-notes.json', '{"0.3.10":{},"0.4.0":{"pr":true}}\n')
       repo.git(['add', '.'])
-      repo.git(['commit', '-m', 'pr client work'])
+      repo.git(['commit', '-m', 'pr client and notes work'])
       const beforeSha = repo.git(['rev-parse', 'HEAD'])
 
       repo.git(['checkout', 'dev'])
       repo.write('ds-bot/src/client/dev.js', 'export const dev = 1\n')
+      repo.write('CHANGELOG.md', '## v0.4.0\n')
       repo.git(['add', '.'])
-      repo.git(['commit', '-m', 'dev client work'])
+      repo.git(['commit', '-m', 'dev client and changelog work'])
 
       repo.git(['checkout', 'feat/pr'])
       repo.git(['merge', '--no-edit', 'dev'])
       repo.write('ds-bot/client.js', '// rebuilt after clean merge\n')
-      repo.git(['add', 'ds-bot/client.js'])
+      repo.write('ds-bot/src/shared/release-notes-generated.js', 'export const notes = { v: 2 }\n')
+      repo.git(['add', 'ds-bot/client.js', 'ds-bot/src/shared/release-notes-generated.js'])
       repo.git(['commit', '-m', 'Rebuild client.js after merging dev'])
       const afterSha = repo.git(['rev-parse', 'HEAD'])
 
@@ -183,6 +249,81 @@ describe('checkPureBaseSync', () => {
       })
       assert.equal(result.pure, true)
       assert.equal(result.reason, 'base-merge-with-generated-rebuild')
+    } finally {
+      repo.cleanup()
+    }
+  })
+
+  it('accepts a release-notes-generated.js-only conflict resolved by rebuilding the bundle', () => {
+    const repo = makeRepo()
+    try {
+      repo.git(['checkout', '-b', 'feat/pr'])
+      repo.write('ds-bot/src/shared/release-notes-generated.js', 'export const notes = { a: 1 }\n')
+      repo.git(['add', '.'])
+      repo.git(['commit', '-m', 'pr notes'])
+      const beforeSha = repo.git(['rev-parse', 'HEAD'])
+
+      repo.git(['checkout', 'dev'])
+      repo.write('ds-bot/src/shared/release-notes-generated.js', 'export const notes = { b: 2 }\n')
+      repo.git(['add', '.'])
+      repo.git(['commit', '-m', 'dev notes'])
+
+      repo.git(['checkout', 'feat/pr'])
+      const mergeAttempt = spawnSync('git', ['merge', '--no-edit', 'dev'], {
+        cwd: repo.dir,
+        encoding: 'utf8',
+        env: repo.gitEnv,
+      })
+      assert.equal(mergeAttempt.status, 1)
+      repo.write('ds-bot/src/shared/release-notes-generated.js', 'export const notes = { a: 1, b: 2 }\n')
+      repo.git(['add', 'ds-bot/src/shared/release-notes-generated.js'])
+      repo.git(['commit', '--no-edit'])
+      const afterSha = repo.git(['rev-parse', 'HEAD'])
+
+      const result = checkPureBaseSync({
+        gitDir: repo.gitDir,
+        beforeSha,
+        afterSha,
+        baseRef: 'refs/heads/dev',
+      })
+      assert.equal(result.pure, true)
+      assert.equal(result.reason, 'base-merge-with-generated-rebuild')
+      assert.deepEqual(result.changedFiles, ['ds-bot/src/shared/release-notes-generated.js'])
+    } finally {
+      repo.cleanup()
+    }
+  })
+
+  it('rejects unprompted ds-bot/client.js tampering when base only touched unrelated files', () => {
+    const repo = makeRepo()
+    try {
+      repo.git(['checkout', '-b', 'feat/pr'])
+      repo.write('ds-bot/src/host/pr.js', 'export const pr = true\n')
+      repo.git(['add', '.'])
+      repo.git(['commit', '-m', 'pr host work'])
+      const beforeSha = repo.git(['rev-parse', 'HEAD'])
+
+      repo.git(['checkout', 'dev'])
+      repo.write('README.md', '# Updated docs\n')
+      repo.git(['add', '.'])
+      repo.git(['commit', '-m', 'docs update'])
+
+      repo.git(['checkout', 'feat/pr'])
+      repo.git(['merge', '--no-commit', '--no-ff', 'dev'])
+      repo.write('ds-bot/client.js', '// tampered during unrelated docs merge\n')
+      repo.git(['add', 'ds-bot/client.js'])
+      repo.git(['commit', '-m', 'Merge dev'])
+      const afterSha = repo.git(['rev-parse', 'HEAD'])
+
+      const result = checkPureBaseSync({
+        gitDir: repo.gitDir,
+        beforeSha,
+        afterSha,
+        baseRef: 'refs/heads/dev',
+      })
+      assert.equal(result.pure, false)
+      assert.equal(result.reason, 'unexpected-generated-change')
+      assert.deepEqual(result.changedFiles, ['ds-bot/client.js'])
     } finally {
       repo.cleanup()
     }
@@ -238,7 +379,11 @@ describe('checkPureBaseSync', () => {
       repo.git(['commit', '-m', 'dev edit'])
 
       repo.git(['checkout', 'feat/pr'])
-      const mergeAttempt = spawnSync('git', ['merge', '--no-edit', 'dev'], { cwd: repo.dir, encoding: 'utf8' })
+      const mergeAttempt = spawnSync('git', ['merge', '--no-edit', 'dev'], {
+        cwd: repo.dir,
+        encoding: 'utf8',
+        env: repo.gitEnv,
+      })
       assert.equal(mergeAttempt.status, 1)
       repo.write('ds-bot/index.js', 'export const host = 23\n')
       repo.git(['add', 'ds-bot/index.js'])
@@ -286,7 +431,7 @@ describe('checkPureBaseSync', () => {
     }
   })
 
-  it('rejects force-pushes / rebases where before is no longer an ancestor of after', () => {
+  it('rejects force-pushes / rebases and unsafe flag-like baseRef values', () => {
     const repo = makeRepo()
     try {
       repo.git(['checkout', '-b', 'feat/pr'])
@@ -304,14 +449,23 @@ describe('checkPureBaseSync', () => {
       repo.git(['rebase', 'dev'])
       const afterSha = repo.git(['rev-parse', 'HEAD'])
 
-      const result = checkPureBaseSync({
+      const rebaseRes = checkPureBaseSync({
         gitDir: repo.gitDir,
         beforeSha,
         afterSha,
         baseRef: 'refs/heads/dev',
       })
-      assert.equal(result.pure, false)
-      assert.equal(result.reason, 'before-not-ancestor')
+      assert.equal(rebaseRes.pure, false)
+      assert.equal(rebaseRes.reason, 'before-not-ancestor')
+
+      const badRefRes = checkPureBaseSync({
+        gitDir: repo.gitDir,
+        beforeSha,
+        afterSha,
+        baseRef: '--all',
+      })
+      assert.equal(badRefRes.pure, false)
+      assert.equal(badRefRes.reason, 'invalid-base-ref')
     } finally {
       repo.cleanup()
     }
@@ -356,19 +510,19 @@ describe('checkPureBaseSync', () => {
     }
   })
 
-  it('rejects deleting or replacing ds-bot/client.js with a symlink or executable bit', () => {
+  it('rejects deleting or replacing ds-bot/client.js with a symlink or executable bit even when rebuild is expected', () => {
     const repo = makeRepo()
     try {
       repo.git(['checkout', '-b', 'feat/pr'])
-      repo.write('ds-bot/src/host/pr.js', 'export const pr = true\n')
+      repo.write('ds-bot/src/client/pr.js', 'export const pr = true\n')
       repo.git(['add', '.'])
-      repo.git(['commit', '-m', 'pr work'])
+      repo.git(['commit', '-m', 'pr client work'])
       const beforeSha = repo.git(['rev-parse', 'HEAD'])
 
       repo.git(['checkout', 'dev'])
-      repo.write('ds-bot/src/host/dev.js', 'export const dev = true\n')
+      repo.write('ds-bot/src/client/dev.js', 'export const dev = true\n')
       repo.git(['add', '.'])
-      repo.git(['commit', '-m', 'dev work'])
+      repo.git(['commit', '-m', 'dev client work'])
 
       repo.git(['checkout', 'feat/pr'])
       repo.git(['merge', '--no-edit', 'dev'])
@@ -404,7 +558,7 @@ describe('checkPureBaseSync', () => {
     }
   })
 
-  it('works via CLI and bare repository objects', () => {
+  it('resolves short commit SHAs uniquely and works via CLI on bare repository objects', () => {
     const repo = makeRepo()
     const bare = mkdtempSync(join(tmpdir(), 'dsb-pure-sync-bare-'))
     try {
@@ -423,16 +577,19 @@ describe('checkPureBaseSync', () => {
       repo.git(['merge', '--no-edit', 'dev'])
       const afterSha = repo.git(['rev-parse', 'HEAD'])
 
-      // Populate bare repo with only dev + PR head (mirrors pr-triage-labels.yml fetch).
-      assert.equal(spawnSync('git', ['--git-dir', bare, 'init', '--bare'], { encoding: 'utf8' }).status, 0)
+      assert.equal(spawnSync('git', ['--git-dir', bare, 'init', '--bare'], { encoding: 'utf8', env: repo.gitEnv }).status, 0)
       assert.equal(
         spawnSync(
           'git',
           ['--git-dir', bare, 'fetch', '--no-tags', repo.dir, 'refs/heads/dev:refs/heads/dev', 'refs/heads/feat/pr:refs/pull/42/head'],
-          { encoding: 'utf8' },
+          { encoding: 'utf8', env: repo.gitEnv },
         ).status,
         0,
       )
+
+      assert.equal(resolveUniqueCommit(bare, beforeSha.slice(0, 8)), beforeSha)
+      assert.equal(resolveUniqueCommit(bare, 'deadbeef'), null)
+      assert.equal(resolveUniqueCommit(bare, '--all'), null)
 
       const cli = spawnSync(
         process.execPath,

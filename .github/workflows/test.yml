@@ -110,7 +110,7 @@ jobs:
             mobile=false
             link=false
             docker=false
-            if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$|scripts/check-pure-base-sync\.mjs$)'; then ds_bot=true; fi
+            if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$|scripts/check-pure-base-sync\.mjs$|\.github/workflows/(package|full-package|pr-triage-labels)\.yml$)'; then ds_bot=true; fi
             if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$)'; then app_unit=true; fi
             if has '^app/'; then app_unit_win=true; fi
             if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/package\.json$|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest)\.js$|ds-bot/src/client/avatar/)'; then mobile=true; fi

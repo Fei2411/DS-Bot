@@ -9,6 +9,11 @@ on:
     # (03:00 +08:00) so installers, iOS/Android native builds and caches stay verified and warm.
     - cron: '0 19 * * *'
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      force_full:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -42,11 +47,19 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
-          PR_FULL_PACKAGE: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci/full-package') }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_FULL_PACKAGE: ${{ inputs.force_full || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci/full-package')) }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           full=false
           main_push=false
+          if [ "$EVENT" = "pull_request" ] && [ "$PR_FULL_PACKAGE" != "true" ] && [ -n "$PR_NUMBER" ] && [ -n "$GH_TOKEN" ]; then
+            if gh api "repos/$GH_REPO/issues/$PR_NUMBER/labels" --jq '.[].name' 2>/dev/null | grep -qx 'ci/full-package'; then
+              PR_FULL_PACKAGE=true
+            fi
+          fi
           if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$BASE_REF" = "main" ] || [ "$PR_FULL_PACKAGE" = "true" ]; then
             full=true
           elif [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
@@ -77,7 +90,7 @@ jobs:
             grep -qE "$1" <<< "$changed"
           }
 
-          if [ "$full" = "false" ] && [ "$main_push" = "false" ] && has '^\.github/workflows/(package|release)\.yml$'; then
+          if [ "$full" = "false" ] && [ "$main_push" = "false" ] && has '^\.github/workflows/(package|full-package|release)\.yml$'; then
             full=true
           fi
 
@@ -101,7 +114,7 @@ jobs:
             mobile_android=false
             # Full cross-OS packaging runs on packaging/installer/runtime/updater/native changes.
             # Pure app/ui/ and app/test/ edits are verified by test.yml (vite build + Ubuntu/Windows unit tests).
-            if has '^(app/(package\.json|package-lock\.json|electron-builder\.yml|\.npmrc|build/|engine/|assets/|scripts/(before-pack|check-lifecycle|check-packed|check-update|dist|prepare-runtime|primary-runtime\.lock\.json|seed-electron-checksums)\.|src/update)|ds-bot/(package\.json|package-lock\.json|cordis\.patch\.yml|office\.js|src/office/|src/host/computer/))'; then
+            if has '^(app/(package\.json|package-lock\.json|electron-builder\.yml|\.npmrc|build/|engine/|assets/|scripts/((before-pack|check-lifecycle|check-packed|check-update|dist|prepare-runtime|seed-electron-checksums)\.|primary-runtime\.lock\.json$)|src/update)|ds-bot/(package\.json|package-lock\.json|cordis\.patch\.yml|office\.js|src/office/|src/host/computer/))'; then
               app_package_full=true
             fi
             # Main-process app/src/ edits get a fast Linux packaged smoke without blocking on 40m macOS/Windows queues.
@@ -111,11 +124,12 @@ jobs:
             if has '^app/(package\.json|package-lock\.json|electron-builder\.yml|build/|scripts/(before-pack|check-update|dist)\.|src/update)'; then
               app_update=true
             fi
-            # Native iOS / Android builds run on native config/dependency changes (not pure JS/TS edits in mobile/src/).
-            if has '^(mobile/(app\.json|app\.config\.js|package\.json|package-lock\.json|plugins/|ios/|eas\.json)|ds-bot/package\.json$)'; then
+            # Native iOS / Android builds run on native config, icon assets, or version/dependency changes
+            # (not pure JS/TS edits in mobile/src/).
+            if has '^(mobile/(app\.json|app\.config\.js|package\.json|package-lock\.json|plugins/|ios/|assets/|eas\.json)|ds-bot/package\.json$)'; then
               mobile_ios=true
             fi
-            if has '^(mobile/(app\.json|app\.config\.js|package\.json|package-lock\.json|plugins/|android/|eas\.json)|\.github/gradle/)'; then
+            if has '^(mobile/(app\.json|app\.config\.js|package\.json|package-lock\.json|plugins/|android/|assets/|eas\.json)|ds-bot/package\.json$|\.github/gradle/)'; then
               mobile_android=true
             fi
             # Always keep Linux packaging smoke & caches warm on push to dev without using macOS runners.

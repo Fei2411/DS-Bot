@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
+import { devNull, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -11,8 +11,26 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const PLUGIN_ROOT = join(__dirname, '..')
 const REPO_ROOT = join(PLUGIN_ROOT, '..')
 const WORKFLOWS_DIR = join(REPO_ROOT, '.github', 'workflows')
-const harnessRequire = createRequire(join(PLUGIN_ROOT, 'dev', 'harness', 'package.json'))
+const harnessBase = process.env.DSH_HARNESS
+  ? join(process.env.DSH_HARNESS, 'package.json')
+  : join(PLUGIN_ROOT, 'dev', 'harness', 'package.json')
+const harnessRequire = createRequire(harnessBase)
 const { parse: parseYaml } = harnessRequire('yaml')
+
+function resolveBashExecutable() {
+  if (process.platform !== 'win32') return 'bash'
+  const candidates = [
+    process.env.GIT_BASH,
+    join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin', 'bash.exe'),
+    join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'usr', 'bin', 'bash.exe'),
+  ].filter(Boolean)
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate
+  }
+  return 'bash'
+}
+
+const BASH_EXE = resolveBashExecutable()
 
 function loadWorkflow(filename) {
   return parseYaml(readFileSync(join(WORKFLOWS_DIR, filename), 'utf8'))
@@ -27,8 +45,19 @@ function runClassifier(workflowFile, filesChanged, envOverrides = {}) {
   const outputFile = join(dir, 'github_output.txt')
   writeFileSync(outputFile, '')
 
+  const gitEnv = {
+    ...process.env,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: devNull,
+    GIT_TERMINAL_PROMPT: '0',
+  }
+
   const git = (args) => {
-    const res = spawnSync('git', args, { cwd: dir, encoding: 'utf8' })
+    const res = spawnSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: gitEnv,
+    })
     if (res.status !== 0) {
       throw new Error(`git ${args.join(' ')} failed: ${res.stderr}`)
     }
@@ -55,18 +84,21 @@ function runClassifier(workflowFile, filesChanged, envOverrides = {}) {
     git(['commit', '--allow-empty', '-m', 'pr change'])
     const headSha = git(['rev-parse', 'HEAD'])
 
-    const res = spawnSync('bash', ['-c', filterStep.run], {
+    const res = spawnSync(BASH_EXE, ['-c', filterStep.run], {
       cwd: dir,
       encoding: 'utf8',
       env: {
-        ...process.env,
+        ...gitEnv,
         GITHUB_OUTPUT: outputFile,
         EVENT: 'pull_request',
         REF: 'refs/pull/1/merge',
         BASE_REF: 'dev',
         BEFORE: baseSha,
         SHA: headSha,
+        PR_NUMBER: '',
         PR_FULL_PACKAGE: 'false',
+        GH_TOKEN: '',
+        GH_REPO: '',
         ...envOverrides,
       },
     })
@@ -85,14 +117,20 @@ function runClassifier(workflowFile, filesChanged, envOverrides = {}) {
 }
 
 describe('CI workflow separation and path classification', () => {
-  it('parses test.yml, package.yml and pr-triage-labels.yml with matching result job needs', () => {
+  it('parses test.yml, package.yml, full-package.yml and pr-triage-labels.yml with matching result job needs', () => {
     const testWf = loadWorkflow('test.yml')
     const pkgWf = loadWorkflow('package.yml')
+    const fullLabelWf = loadWorkflow('full-package.yml')
     const triageWf = loadWorkflow('pr-triage-labels.yml')
 
     assert.equal(testWf.name, 'Test')
     assert.equal(pkgWf.name, 'Package & Native')
+    assert.equal(fullLabelWf.name, 'Full Package (on label)')
     assert.equal(triageWf.permissions.contents, 'read')
+    assert.ok(pkgWf.on.workflow_call?.inputs?.force_full)
+    assert.deepEqual(fullLabelWf.on.pull_request.types, ['labeled'])
+    assert.equal(fullLabelWf.jobs.package.uses, './.github/workflows/package.yml')
+    assert.equal(fullLabelWf.jobs.package.with.force_full, true)
 
     // test.yml must stay fast: no desktop packaging or native mobile build jobs.
     assert.equal(testWf.jobs['app-package'], undefined)
@@ -123,10 +161,17 @@ describe('CI workflow separation and path classification', () => {
     assert.equal(heavy.app_package_linux, 'false')
   })
 
-  it('triggers mobile native builds when native mobile config or lockfile changes', () => {
-    const heavy = runClassifier('package.yml', ['mobile/app.json'])
-    assert.equal(heavy.mobile_ios, 'true')
-    assert.equal(heavy.mobile_android, 'true')
+  it('triggers mobile native builds when native config, icon assets, or ds-bot version change', () => {
+    for (const file of [
+      'mobile/app.json',
+      'mobile/assets/icon.png',
+      'mobile/assets/android-icon-foreground.png',
+      'ds-bot/package.json',
+    ]) {
+      const heavy = runClassifier('package.yml', [file])
+      assert.equal(heavy.mobile_ios, 'true', `${file} must trigger mobile_ios`)
+      assert.equal(heavy.mobile_android, 'true', `${file} must trigger mobile_android`)
+    }
   })
 
   it('runs fast UI build + Ubuntu/Windows unit tests for app/ui PRs without 4-OS Electron packaging', () => {
@@ -151,7 +196,7 @@ describe('CI workflow separation and path classification', () => {
     assert.equal(heavy.app_update, 'false')
   })
 
-  it('runs full 4-OS packaging + update test for updater and packaging config changes', () => {
+  it('runs full 4-OS packaging for updater, packaging config, and runtime lockfile changes', () => {
     const updater = runClassifier('package.yml', ['app/src/updates.mjs'])
     assert.equal(updater.app_package_full, 'true')
     assert.equal(updater.app_package_linux, 'true')
@@ -160,6 +205,21 @@ describe('CI workflow separation and path classification', () => {
     const builder = runClassifier('package.yml', ['app/electron-builder.yml'])
     assert.equal(builder.app_package_full, 'true')
     assert.equal(builder.app_update, 'true')
+
+    const runtimeLock = runClassifier('package.yml', ['app/scripts/primary-runtime.lock.json'])
+    assert.equal(runtimeLock.app_package_full, 'true')
+    assert.equal(runtimeLock.app_package_linux, 'true')
+  })
+
+  it('runs workflow contract tests in test.yml when package or triage workflows change', () => {
+    for (const file of [
+      '.github/workflows/package.yml',
+      '.github/workflows/full-package.yml',
+      '.github/workflows/pr-triage-labels.yml',
+    ]) {
+      const fast = runClassifier('test.yml', [file])
+      assert.equal(fast.ds_bot, 'true', `${file} must run ds_bot tests in test.yml`)
+    }
   })
 
   it('runs full matrix on release PRs to main, ci/full-package label, and daily schedule', () => {

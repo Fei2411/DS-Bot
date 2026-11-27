@@ -294,8 +294,9 @@ jobs:
                 }
 
                 // Only an already-approved PR (never changes-requested) may keep its review labels
-                // when the synchronize push is mathematically proven to be a pure base-branch merge
-                // (+ optional deterministic ds-bot/client.js rebuild verified by test.yml).
+                // when the live PR head is mathematically proven to be a pure base-branch merge
+                // on top of the latest trusted approved commit SHA (not payload.before, which can
+                // skip intermediate unreviewed commits if GitHub drops a queued synchronize run).
                 if (current.has('review/approved') && !current.has('review/changes-requested')) {
                   const fs = require('node:fs');
                   const os = require('node:os');
@@ -303,84 +304,169 @@ jobs:
                   const { pathToFileURL } = require('node:url');
                   const { spawnSync } = require('node:child_process');
                   const verifierPath = path.resolve('scripts/check-pure-base-sync.mjs');
-                  const beforeSha = String(context.payload.before || '').trim().toLowerCase();
-                  const afterSha = String(context.payload.after || pr.head?.sha || '').trim().toLowerCase();
                   const baseRef = String(pr.base?.ref || '').trim();
                   const safeBaseRef =
                     baseRef &&
                     !baseRef.startsWith('-') &&
                     !/[\s\x00-\x1f\x7f~^:?*[\\]|\.\./.test(baseRef);
 
-                  if (fs.existsSync(verifierPath) && safeBaseRef && /^[0-9a-f]{40}$/.test(beforeSha) && /^[0-9a-f]{40}$/.test(afterSha)) {
+                  if (fs.existsSync(verifierPath) && safeBaseRef) {
                     let bareDir = null;
                     try {
-                      const { checkPureBaseSync } = await import(pathToFileURL(verifierPath).href);
-                      bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-pure-sync-'));
-                      const token = process.env.GITHUB_TOKEN || '';
-                      const authHeader = token
-                        ? `Authorization: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`
-                        : null;
-                      const gitConfigArgs = authHeader
-                        ? ['-c', `http.https://github.com/.extraheader=${authHeader}`]
-                        : [];
-                      const runBareGit = (args) =>
-                        spawnSync(
-                          'git',
-                          [
-                            '--git-dir', bareDir,
-                            '-c', 'core.hooksPath=/dev/null',
-                            '-c', 'protocol.file.allow=never',
-                            '-c', 'protocol.ext.allow=never',
-                            ...gitConfigArgs,
-                            ...args,
-                          ],
-                          {
-                            encoding: 'utf8',
-                            env: {
-                              ...process.env,
-                              GIT_CONFIG_NOSYSTEM: '1',
-                              GIT_TERMINAL_PROMPT: '0',
-                            },
-                            maxBuffer: 32 * 1024 * 1024,
-                          },
-                        );
+                      const { data: livePr } = await github.rest.pulls.get({
+                        owner,
+                        repo,
+                        pull_number: issueNumber,
+                      });
+                      const liveHeadSha = String(livePr?.head?.sha || '').trim().toLowerCase();
+                      const [comments, reviews] = await Promise.all([
+                        github.paginate(github.rest.issues.listComments, {
+                          owner,
+                          repo,
+                          issue_number: issueNumber,
+                          per_page: 100,
+                        }),
+                        github.paginate(github.rest.pulls.listReviews, {
+                          owner,
+                          repo,
+                          pull_number: issueNumber,
+                          per_page: 100,
+                        }),
+                      ]);
 
-                      const repoUrl = `https://github.com/${owner}/${repo}.git`;
-                      const initRes = runBareGit(['init', '--bare']);
-                      const remoteRes = initRes.status === 0
-                        ? runBareGit(['remote', 'add', 'origin', repoUrl])
-                        : initRes;
-                      const fetchRes = remoteRes.status === 0
-                        ? runBareGit([
-                            'fetch',
-                            '--no-tags',
-                            '--filter=blob:none',
-                            'origin',
-                            `refs/heads/${baseRef}:refs/heads/${baseRef}`,
-                            `refs/pull/${issueNumber}/head:refs/pull/${issueNumber}/head`,
-                          ])
-                        : remoteRes;
-
-                      if (fetchRes.status === 0) {
-                        const verdict = checkPureBaseSync({
-                          gitDir: bareDir,
-                          beforeSha,
-                          afterSha,
-                          baseRef: `refs/heads/${baseRef}`,
-                          gitConfigArgs,
+                      const trustedMarkers = [];
+                      for (const comment of comments) {
+                        if (comment?.user?.type === 'Bot') continue;
+                        if (!TRUSTED_ASSOCIATIONS.has(comment?.author_association)) continue;
+                        const ts = Date.parse(comment.created_at || '');
+                        if (Number.isNaN(ts)) continue;
+                        const parsed = parseReviewComment(comment.body);
+                        if (!parsed) continue;
+                        trustedMarkers.push({
+                          ts,
+                          id: Number(comment.id) || 0,
+                          status: parsed.status,
+                          sha: parsed.reviewedSha || null,
                         });
-                        if (verdict.pure) {
-                          core.info(
-                            `PR #${issueNumber}: preserved review/approved after pure base sync (${verdict.reason}, base ${String(verdict.baseTip || '').slice(0, 8)}).`,
-                          );
-                          return;
+                      }
+                      for (const review of reviews) {
+                        if (review?.user?.type === 'Bot') continue;
+                        if (!TRUSTED_ASSOCIATIONS.has(review?.author_association)) continue;
+                        if (review?.state === 'PENDING' || !review?.submitted_at) continue;
+                        const ts = Date.parse(review.submitted_at);
+                        if (Number.isNaN(ts)) continue;
+                        const parsed = parseReviewComment(review.body);
+                        if (!parsed) continue;
+                        const commitId = review.commit_id
+                          ? String(review.commit_id).trim().toLowerCase()
+                          : null;
+                        let sha = commitId || parsed.reviewedSha || null;
+                        if (commitId && parsed.reviewedSha && !commitId.startsWith(parsed.reviewedSha)) {
+                          sha = null;
                         }
-                        core.info(
-                          `PR #${issueNumber}: synchronize is not a pure base sync (${verdict.reason}); invalidating review labels.`,
-                        );
+                        trustedMarkers.push({
+                          ts,
+                          id: Number(review.id) || 0,
+                          status: parsed.status,
+                          sha,
+                        });
+                      }
+
+                      trustedMarkers.sort((a, b) => (a.ts - b.ts) || (a.id - b.id));
+                      const latestMarker = trustedMarkers[trustedMarkers.length - 1] || null;
+
+                      if (
+                        livePr?.state === 'open' &&
+                        /^[0-9a-f]{40}$/.test(liveHeadSha) &&
+                        latestMarker?.status === 'review/approved' &&
+                        latestMarker.sha
+                      ) {
+                        const { checkPureBaseSync, resolveUniqueCommit } = await import(pathToFileURL(verifierPath).href);
+                        bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-pure-sync-'));
+                        const token = process.env.GITHUB_TOKEN || '';
+                        const authHeader = token
+                          ? `Authorization: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`
+                          : null;
+                        const gitConfigArgs = authHeader
+                          ? ['-c', `http.https://github.com/.extraheader=${authHeader}`]
+                          : [];
+                        const runBareGit = (args) =>
+                          spawnSync(
+                            'git',
+                            [
+                              '--git-dir', bareDir,
+                              '-c', 'core.hooksPath=/dev/null',
+                              '-c', 'protocol.file.allow=never',
+                              '-c', 'protocol.ext.allow=never',
+                              ...gitConfigArgs,
+                              ...args,
+                            ],
+                            {
+                              encoding: 'utf8',
+                              env: {
+                                ...process.env,
+                                GIT_CONFIG_NOSYSTEM: '1',
+                                GIT_CONFIG_GLOBAL: os.devNull,
+                                GIT_TERMINAL_PROMPT: '0',
+                              },
+                              maxBuffer: 32 * 1024 * 1024,
+                            },
+                          );
+
+                        const repoUrl = `https://github.com/${owner}/${repo}.git`;
+                        const initRes = runBareGit(['init', '--bare']);
+                        const remoteRes = initRes.status === 0
+                          ? runBareGit(['remote', 'add', 'origin', repoUrl])
+                          : initRes;
+                        const fetchRes = remoteRes.status === 0
+                          ? runBareGit([
+                              'fetch',
+                              '--no-tags',
+                              '--filter=blob:none',
+                              'origin',
+                              `refs/heads/${baseRef}:refs/heads/${baseRef}`,
+                              `refs/pull/${issueNumber}/head:refs/pull/${issueNumber}/head`,
+                            ])
+                          : remoteRes;
+
+                        if (fetchRes.status === 0) {
+                          const approvedSha = resolveUniqueCommit(bareDir, latestMarker.sha, gitConfigArgs);
+                          if (approvedSha && approvedSha === liveHeadSha) {
+                            core.info(
+                              `PR #${issueNumber}: live head ${liveHeadSha.slice(0, 8)} already matches latest trusted approval; preserving review/approved.`,
+                            );
+                            return;
+                          }
+                          if (approvedSha) {
+                            const verdict = checkPureBaseSync({
+                              gitDir: bareDir,
+                              beforeSha: approvedSha,
+                              afterSha: liveHeadSha,
+                              baseRef: `refs/heads/${baseRef}`,
+                              gitConfigArgs,
+                            });
+                            if (verdict.pure) {
+                              core.info(
+                                `PR #${issueNumber}: preserved review/approved after pure base sync from approved ${approvedSha.slice(0, 8)} to ${liveHeadSha.slice(0, 8)} (${verdict.reason}, base ${String(verdict.baseTip || '').slice(0, 8)}).`,
+                              );
+                              return;
+                            }
+                            core.info(
+                              `PR #${issueNumber}: head ${liveHeadSha.slice(0, 8)} is not a pure base sync from approved ${approvedSha.slice(0, 8)} (${verdict.reason}); invalidating review labels.`,
+                            );
+                          } else {
+                            core.info(
+                              `PR #${issueNumber}: could not uniquely resolve approved SHA ${latestMarker.sha}; invalidating review labels.`,
+                            );
+                          }
+                        } else {
+                          core.warning(
+                            `PR #${issueNumber}: bare fetch for pure-sync check failed (status ${fetchRes.status}); failing closed to review/re-review.`,
+                          );
+                        }
                       } else {
-                        core.warning(
-                          `PR #${issueNumber}: bare fetch for pure-sync check failed (status ${fetchRes.status}); failing closed to review/re-review.`,
+                        core.info(
+                          `PR #${issueNumber}: no verifiable latest trusted review/approved SHA found; failing closed to review/re-review.`,
                         );
                       }
                     } catch (err) {
