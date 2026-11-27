@@ -85,7 +85,9 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
           })
           pages[0] = { ...pages[0], items }
         }
-        delete state.views![sid]; touch()
+        const { [sid]: _settled, ...restViews } = state.views ?? {}
+        state.views = restViews
+        touch()
         return { ok: true }
       }
       case 'dismiss-view': {
@@ -99,7 +101,9 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
               : item))
             pages[0] = { ...pages[0], items }
           }
-          delete state.views![sid]; touch()
+          const { [sid]: _dismissed, ...restViews } = state.views ?? {}
+          state.views = restViews
+          touch()
         }
         return { ok: true }
       }

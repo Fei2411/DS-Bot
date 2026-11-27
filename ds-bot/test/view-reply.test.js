@@ -681,6 +681,7 @@ test('displayItems emits a pending show_view inline for visible turns, and omits
 
   // Answering a pending view removes the inline pending view and emits the answer row.
   delete host.state.closedCards?.['writer-now']
+  delete host.state.closedCardSeqs?.['writer-now']
   host.state.views['writer-now'] = { id: 'v-vis', callId: 'call-visible', callSeq: 3, title: 'Pick', view: CHOICES, askedAt: 1002 }
   const sentFollowups = []
   ctx.sessionController.resolveAgent = async sessionId => ({
@@ -755,4 +756,25 @@ test('displayItems emits a pending show_view inline for visible turns, and omits
   assert.equal(legacy.length, 1)
   assert.equal(legacy[0].title, 'Metric')
   assert.equal(legacy[0].pending, undefined)
+
+  // Dismissing a sequenced call_0 records closedCardSeqs under call_0@14 so a subsequent
+  // reused call_0 at seq 16 (even a legacy pending record without callSeq) is never rendered as closed.
+  host.state.views['writer-now'].callSeq = 14
+  await call('dismiss-view', { sessionId: 'writer-now' })
+  assert.equal(host.state.closedCardSeqs['writer-now']?.['call_0@14'], 'dismissed')
+  eventsByPart['writer-now'].push(
+    { seq: 15, time: 6000, type: 'turn/start', data: { turn: 5 } },
+    { seq: 16, time: 6001, type: 'tool/call', data: { name: 'show_view', callId: 'call_0', arguments: { title: 'Still pending', view: CHOICES } } },
+  )
+  host.state.views['writer-now'] = { id: 'v-leg2', callId: 'call_0', title: 'Still pending', view: CHOICES, askedAt: 6001 }
+  const afterSeqDismiss = (await call('chat', { botId: 'writer' })).value
+  const closedAfterSeq = afterSeqDismiss.items.filter(item => item.kind === 'closed')
+  assert.equal(closedAfterSeq.length, 1)
+  assert.equal(closedAfterSeq[0].title, 'Pick again')
+
+  // Legacy un-sequenced closedCards for call_0 + legacy pending view reusing call_0:
+  // ambiguous legacy closed outcome is suppressed so the pending Dock card is never contradicted.
+  delete host.state.closedCardSeqs['writer-now']
+  const afterLegacyAmbiguous = (await call('chat', { botId: 'writer' })).value
+  assert.equal(afterLegacyAmbiguous.items.filter(item => item.kind === 'closed').length, 0)
 })
