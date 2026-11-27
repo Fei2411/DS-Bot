@@ -1,10 +1,11 @@
 name: Release
 
 # Publishes ds-bot to npm when a GitHub release is published, then attaches the desktop app's
-# Windows installer, macOS zips and Linux packages, and the phone app's Android APK, to the release. Windows and the Linux
-# AppImage update from latest.yml / latest-linux.yml; macOS self-updates from its zip and SHA256SUMS.txt
-# (falling back to the release page when read-only or translocated); the Linux deb opens the release
-# page for a manual download.
+# Windows installer, macOS zips and Linux packages, and (when mobile changed) the phone app's
+# Android APK to the release. Windows and the Linux AppImage update from latest.yml /
+# latest-linux.yml; macOS self-updates from its zip and SHA256SUMS.txt (falling back to the
+# release page when read-only or translocated); the Linux deb opens the release page for a
+# manual download.
 #
 # npm Trusted Publishing: npm trusts this workflow through GitHub's OIDC token, so the
 # repository keeps no npm token, and every version gets a provenance statement. It is set
@@ -15,9 +16,10 @@ name: Release
 # main. A version with a pre-release part (0.2.0-rc.1) goes to the npm tag "next", so that
 # "latest" stays on the last stable version.
 #
-# Publish the release with "Set as latest release" turned off: the last job marks it Latest
-# once every package, the download table and SHA256SUMS.txt are on it, so a releases/latest
-# link never finds a release whose installer is still being built.
+# Publish the release with "Set as latest release" turned off: the downloads job marks it Latest
+# once npm publish, Windows, macOS arm64, Linux, and (when needed) Android succeed (~8-10 min).
+# The Intel macOS (x64) build runs in parallel without blocking Latest, then asynchronously
+# attaches DS-Bot-*-mac-x64.zip and idempotently refreshes the download table and SHA256SUMS.txt.
 
 on:
   release:
@@ -28,23 +30,33 @@ on:
         description: Run every check and pack the package, but do not publish
         type: boolean
         default: true
+      force_android:
+        description: Force rebuilding the Android APK even if mobile files did not change
+        type: boolean
+        default: false
 
 permissions:
   # write: attach the package file to the release.
   contents: write
   id-token: write
+  issues: read
+  pull-requests: read
 
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
-  # Fast pre-flight gate (~5 s) so invalid tags or mismatched versions fail immediately
-  # without blocking the platform build jobs behind npm tests.
+  # Fast pre-flight gate (~5-10 s) so invalid tags, mismatched versions, or unfinished release
+  # Milestones fail immediately, and decides whether Android APK needs rebuilding.
   validate:
     name: Validate release metadata
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      build_android: ${{ steps.android-scope.outputs.build_android }}
+      android_fallback_version: ${{ steps.android-scope.outputs.android_fallback_version }}
+      android_fallback_size: ${{ steps.android-scope.outputs.android_fallback_size }}
     defaults:
       run:
         shell: bash
@@ -78,6 +90,78 @@ jobs:
             echo "::error::app/package.json has version $app, but ds-bot/package.json has $version. Give both the same version."
             exit 1
           fi
+      - name: Check release Milestone
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          args=(--version "v$version" --repo "$GITHUB_REPOSITORY")
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$DRY_RUN" = "true" ]; then
+            args+=(--allow-open)
+          elif grep -Fq '<!-- hotfix -->' <<< "$RELEASE_BODY"; then
+            args+=(--hotfix)
+          fi
+          node ../scripts/check-release-milestone.mjs "${args[@]}"
+      - name: Decide Android APK build scope
+        id: android-scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_ANDROID: ${{ inputs.force_android }}
+          CURRENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          build_android=true
+          fallback_version=""
+          fallback_size=""
+
+          if [ "$FORCE_ANDROID" != "true" ]; then
+            prev_tag="$(git describe --tags --abbrev=0 --match 'v*' --exclude='*-*' HEAD^ 2>/dev/null || true)"
+            if [ -n "$prev_tag" ]; then
+              # Find the most recent stable published release (starting at or before prev_tag)
+              # that already carries a signed Android APK + SHA256SUMS.txt.
+              fallback_json="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=20" 2>/dev/null || echo '[]')"
+              resolved="$(node -e '
+                const releases = JSON.parse(process.argv[1] || "[]");
+                const currentTag = process.argv[2] || "";
+                for (const rel of releases) {
+                  if (!rel || rel.draft || rel.prerelease) continue;
+                  const tag = String(rel.tag_name || "");
+                  if (!tag || tag === currentTag || !/^v\d+\.\d+\.\d+$/u.test(tag)) continue;
+                  const ver = tag.slice(1);
+                  const assets = Array.isArray(rel.assets) ? rel.assets : [];
+                  const apk = assets.find(a => a?.name === `DS-Bot-${ver}-android.apk` && Number(a.size) > 0);
+                  const sums = assets.find(a => a?.name === "SHA256SUMS.txt");
+                  if (apk && sums) {
+                    console.log(`${tag}\t${ver}\t${apk.size}`);
+                    process.exit(0);
+                  }
+                }
+              ' "$fallback_json" "$CURRENT_TAG" || true)"
+
+              if [ -n "$resolved" ]; then
+                IFS=$'\t' read -r apk_tag apk_ver apk_size <<< "$resolved"
+                if git rev-parse --verify "refs/tags/$apk_tag^{commit}" >/dev/null 2>&1; then
+                  changed="$(git -c core.quotepath=false diff --name-only "$apk_tag..HEAD")"
+                  if ! grep -qE '^(mobile/|link/|\.github/gradle/|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest)\.js$|ds-bot/src/client/avatar/)' <<< "$changed"; then
+                    build_android=false
+                    fallback_version="$apk_ver"
+                    fallback_size="$apk_size"
+                    echo "No mobile changes since $apk_tag (signed APK present); skipping Android rebuild."
+                  fi
+                fi
+              fi
+            fi
+          fi
+
+          {
+            echo "build_android=$build_android"
+            echo "android_fallback_version=$fallback_version"
+            echo "android_fallback_size=$fallback_size"
+          } | tee -a "$GITHUB_OUTPUT"
 
   publish:
     name: Check and publish
@@ -205,7 +289,7 @@ jobs:
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
       # Upload as a workflow artifact so nothing lands on the public GitHub Release until
-      # publish and every platform build have succeeded (downloads attaches everything at once).
+      # publish and every primary platform build have succeeded (downloads attaches them at once).
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
@@ -218,17 +302,11 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-  app-macos:
-    name: Desktop app zip (macOS ${{ matrix.arch }})
+  app-macos-arm64:
+    name: Desktop app zip (macOS arm64)
     needs: validate
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-latest
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { arch: arm64, runner: macos-latest }
-          - { arch: x64, runner: macos-26-intel }
     defaults:
       run:
         shell: bash
@@ -257,8 +335,6 @@ jobs:
           restore-keys: ${{ steps.downloads-key.outputs.prefix }}
       - run: npm ci --no-fund --no-audit
         env:
-          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
-          # under dist.mjs retries, avoiding an unused binary download during npm ci.
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: node scripts/seed-electron-checksums.mjs
       - name: Restore the locked runtime archives
@@ -287,21 +363,91 @@ jobs:
           key: ${{ steps.downloads.outputs.cache-primary-key }}
       - name: Check packaged binary architecture
         run: |
-          if [ "${{ matrix.arch }}" = x64 ]; then
-            exe="dist-pack/mac/DS Bot.app/Contents/MacOS/DS Bot"
-            expected=x86_64
-          else
-            exe="dist-pack/mac-arm64/DS Bot.app/Contents/MacOS/DS Bot"
-            expected=arm64
-          fi
-          file -b "$exe" | grep -F "$expected"
+          exe="dist-pack/mac-arm64/DS Bot.app/Contents/MacOS/DS Bot"
+          file -b "$exe" | grep -F "arm64"
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
       - name: Upload zip artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DS-Bot-mac-${{ matrix.arch }}
-          path: app/dist-pack/DS-Bot-*-mac-${{ matrix.arch }}.zip
+          name: DS-Bot-mac-arm64
+          path: app/dist-pack/DS-Bot-*-mac-arm64.zip
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
+
+  # Decoupled from downloads so Intel runner queues never block marking the release Latest.
+  # Once both downloads and app-macos-x64 finish, downloads-macos-x64 attaches the zip and
+  # idempotently refreshes the download table and SHA256SUMS.txt.
+  app-macos-x64:
+    name: Desktop app zip (macOS x64)
+    needs: validate
+    runs-on: macos-26-intel
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Name the download cache
+        id: downloads-key
+        run: |
+          prefix="electron-downloads-${{ runner.os }}-${{ runner.arch }}-$(node -p "const d = require('./package.json').devDependencies; 'electron-' + d.electron + '-builder-' + d['electron-builder']")-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${{ hashFiles('app/electron-builder.yml') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore Electron and the build tools
+        id: downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ steps.downloads-key.outputs.key }}
+          restore-keys: ${{ steps.downloads-key.outputs.prefix }}
+      - run: npm ci --no-fund --no-audit
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: node scripts/seed-electron-checksums.mjs
+      - name: Restore the locked runtime archives
+        id: runtime-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/build/runtime-cache
+          key: runtime-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/scripts/primary-runtime.lock.json') }}
+      - run: npm run dist
+        env:
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '5'
+      - name: Save the locked runtime archives
+        if: github.event_name != 'release' && steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/build/runtime-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
+      - name: Save Electron and the build tools
+        if: github.event_name != 'release' && steps.downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
+      - name: Check packaged binary architecture
+        run: |
+          exe="dist-pack/mac/DS Bot.app/Contents/MacOS/DS Bot"
+          file -b "$exe" | grep -F "x86_64"
+      - name: Check the packaged app
+        run: node scripts/check-packed.mjs
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DS-Bot-mac-x64
+          path: app/dist-pack/DS-Bot-*-mac-x64.zip
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
@@ -339,8 +485,6 @@ jobs:
           restore-keys: ${{ steps.downloads-key.outputs.prefix }}
       - run: npm ci --no-fund --no-audit
         env:
-          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
-          # under dist.mjs retries, avoiding an unused binary download during npm ci.
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: node scripts/seed-electron-checksums.mjs
       - name: Restore the locked runtime archives
@@ -394,6 +538,7 @@ jobs:
   app-android:
     name: Phone app (Android)
     needs: validate
+    if: needs.validate.outputs.build_android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
@@ -517,9 +662,100 @@ jobs:
 
   downloads:
     name: Download table, checksums and Latest
-    needs: [publish, app-windows, app-macos, app-linux, app-android]
+    needs: [validate, publish, app-windows, app-macos-arm64, app-linux, app-android]
+    if: >-
+      ${{ !cancelled() &&
+          needs.validate.result == 'success' &&
+          needs.publish.result == 'success' &&
+          needs.app-windows.result == 'success' &&
+          needs.app-macos-arm64.result == 'success' &&
+          needs.app-linux.result == 'success' &&
+          (needs.app-android.result == 'success' || (needs.validate.outputs.build_android == 'false' && needs.app-android.result == 'skipped')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name }}
+      BUILD_ANDROID: ${{ needs.validate.outputs.build_android }}
+      ANDROID_FALLBACK_VERSION: ${{ needs.validate.outputs.android_fallback_version }}
+      ANDROID_FALLBACK_SIZE: ${{ needs.validate.outputs.android_fallback_size }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Download Windows package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: DS-Bot-win-x64
+          path: ${{ runner.temp }}/packages
+      - name: Download macOS arm64 package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: DS-Bot-mac-arm64
+          path: ${{ runner.temp }}/packages
+      - name: Download Linux package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: DS-Bot-linux-x64
+          path: ${{ runner.temp }}/packages
+      - name: Download Android package artifact
+        if: needs.validate.outputs.build_android == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: DS-Bot-android
+          path: ${{ runner.temp }}/packages
+      - name: Read current release notes
+        if: github.event_name == 'release'
+        run: gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
+      - name: Write the download table and the checksums
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          args=("$version" "$RUNNER_TEMP/packages" "$RUNNER_TEMP/attach")
+          if [ -f "$RUNNER_TEMP/notes.md" ]; then args+=("$RUNNER_TEMP/notes.md"); fi
+          args+=(--pending mac-x64.zip --write-manifest "$RUNNER_TEMP/manifest/release-manifest.json")
+          if [ "$BUILD_ANDROID" = "false" ] && [ -n "$ANDROID_FALLBACK_VERSION" ]; then
+            ext="android.apk=$ANDROID_FALLBACK_VERSION"
+            if [ -n "$ANDROID_FALLBACK_SIZE" ]; then ext="${ext}:${ANDROID_FALLBACK_SIZE}"; fi
+            args+=(--external-package "$ext")
+          fi
+          node scripts/release-notes.mjs "${args[@]}" > "$RUNNER_TEMP/body.md"
+          ls -l "$RUNNER_TEMP/packages" "$RUNNER_TEMP/attach"
+          cat "$RUNNER_TEMP/body.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload release manifest for async macOS x64 attachment
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest
+          path: ${{ runner.temp }}/manifest/release-manifest.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Attach all primary packages, checksums and copies to the release
+        if: github.event_name == 'release'
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          node scripts/legacy-release-assets.mjs \
+            "$RUNNER_TEMP/packages/DS-Bot-$version-mac-arm64.zip" \
+            "$RUNNER_TEMP/packages/DS-Bot-$version-linux-amd64.deb"
+          node scripts/release-upload.mjs "$TAG" "$RUNNER_TEMP"/packages/* "$RUNNER_TEMP"/attach/*
+      - name: Put the download table on top of the notes
+        if: github.event_name == 'release'
+        run: gh release edit "$TAG" --notes-file "$RUNNER_TEMP/body.md"
+      # GitHub cannot make a pre-release Latest.
+      - name: Mark the release as Latest
+        if: github.event_name == 'release' && !github.event.release.prerelease
+        run: gh release edit "$TAG" --latest
+
+  downloads-macos-x64:
+    name: Attach macOS x64 zip and refresh checksums
+    needs: [validate, downloads, app-macos-x64]
+    if: ${{ !cancelled() && needs.downloads.result == 'success' && needs.app-macos-x64.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
@@ -532,36 +768,36 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Download built package artifacts
+      - name: Download release manifest
         uses: actions/download-artifact@v4
         with:
-          pattern: DS-Bot-*
+          name: release-manifest
+          path: ${{ runner.temp }}/manifest
+      - name: Download macOS x64 package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: DS-Bot-mac-x64
           path: ${{ runner.temp }}/packages
-          merge-multiple: true
       - name: Read current release notes
         if: github.event_name == 'release'
         run: gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
-      - name: Write the download table and the checksums
+      - name: Recompute download table and SHA256SUMS.txt idempotently
         run: |
+          set -euo pipefail
           version="$(node -p "require('./package.json').version")"
-          notes=()
-          if [ -f "$RUNNER_TEMP/notes.md" ]; then notes=("$RUNNER_TEMP/notes.md"); fi
-          node scripts/release-notes.mjs "$version" "$RUNNER_TEMP/packages" "$RUNNER_TEMP/attach" "${notes[@]}" > "$RUNNER_TEMP/body.md"
+          args=("$version" "$RUNNER_TEMP/packages" "$RUNNER_TEMP/attach")
+          if [ -f "$RUNNER_TEMP/notes.md" ]; then args+=("$RUNNER_TEMP/notes.md"); fi
+          args+=(--merge-manifest "$RUNNER_TEMP/manifest/release-manifest.json")
+          node scripts/release-notes.mjs "${args[@]}" > "$RUNNER_TEMP/body.md"
           ls -l "$RUNNER_TEMP/packages" "$RUNNER_TEMP/attach"
           cat "$RUNNER_TEMP/body.md" >> "$GITHUB_STEP_SUMMARY"
-      - name: Attach all packages, checksums and copies to the release
+      - name: Attach macOS x64 zip, legacy alias and updated SHA256SUMS.txt
         if: github.event_name == 'release'
         run: |
           version="$(node -p "require('./package.json').version")"
           node scripts/legacy-release-assets.mjs \
-            "$RUNNER_TEMP/packages/DS-Bot-$version-mac-arm64.zip" \
-            "$RUNNER_TEMP/packages/DS-Bot-$version-mac-x64.zip" \
-            "$RUNNER_TEMP/packages/DS-Bot-$version-linux-amd64.deb"
+            "$RUNNER_TEMP/packages/DS-Bot-$version-mac-x64.zip"
           node scripts/release-upload.mjs "$TAG" "$RUNNER_TEMP"/packages/* "$RUNNER_TEMP"/attach/*
-      - name: Put the download table on top of the notes
+      - name: Refresh the download table on the release
         if: github.event_name == 'release'
         run: gh release edit "$TAG" --notes-file "$RUNNER_TEMP/body.md"
-      # GitHub cannot make a pre-release Latest.
-      - name: Mark the release as Latest
-        if: github.event_name == 'release' && !github.event.release.prerelease
-        run: gh release edit "$TAG" --latest

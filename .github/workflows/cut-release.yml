@@ -1,0 +1,294 @@
+name: Cut Release
+
+# One-click release preparation (and optional automated publish) via workflow_dispatch.
+# - Default (auto_publish: false): checks Milestone zero-open (in stable mode), bumps versions
+#   and lockfiles, updates README badges and CHANGELOG.md skeleton, rebuilds release-notes-generated.js
+#   and client.js, runs verification tests + leak scan, and opens the `release: vX.Y.Z` PR to main.
+# - Optional (auto_publish: true): waits for required checks, merges the release PR to main,
+#   publishes the GitHub Release WITHOUT Latest (so release.yml attaches packages and marks Latest),
+#   and opens the `main -> dev` merge-back PR.
+#
+# Tip: set repository secret RELEASE_BOT_TOKEN (PAT with contents/pull_requests/workflows write)
+# if you want PRs and Releases created by this workflow to trigger downstream GitHub Actions.
+# When unset, the workflow falls back cleanly to github.token.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Target release version without leading v (e.g. 0.4.2)
+        required: true
+        type: string
+      mode:
+        description: Release mode (stable enforces Milestone 0 open items; hotfix uses fast-lane)
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - hotfix
+      auto_publish:
+        description: Auto-merge PR after checks pass, create Release (not Latest), and open main->dev PR
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+concurrency:
+  group: cut-release
+  cancel-in-progress: false
+
+jobs:
+  cut-release:
+    name: Cut release v${{ inputs.version }} (${{ inputs.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN || github.token }}
+      INPUT_VERSION: ${{ inputs.version }}
+      MODE: ${{ inputs.mode }}
+      AUTO_PUBLISH: ${{ inputs.auto_publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_BOT_TOKEN || github.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate version and choose release base branch
+        id: meta
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid version '$INPUT_VERSION'; expected semver like 0.4.2 or 0.4.2-rc.1."
+            exit 1
+          fi
+          tag="v$version"
+          if git rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::Tag $tag already exists."
+            exit 1
+          fi
+
+          git fetch origin main dev --tags
+          if [ "$MODE" = "hotfix" ]; then
+            if [[ "$GITHUB_REF_NAME" == hotfix/* ]]; then
+              base_ref="origin/$GITHUB_REF_NAME"
+            else
+              base_ref="origin/main"
+            fi
+            branch="hotfix/release-$version"
+          else
+            base_ref="origin/dev"
+            branch="chore/release-$version"
+          fi
+
+          prerelease=false
+          if [[ "$version" == *-* ]]; then prerelease=true; fi
+
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "base_ref=$base_ref"
+            echo "branch=$branch"
+            echo "prerelease=$prerelease"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      - name: Check release Milestone gate
+        run: |
+          set -euo pipefail
+          args=(--version "${{ steps.meta.outputs.tag }}" --repo "$GITHUB_REPOSITORY")
+          if [ "$MODE" = "hotfix" ]; then
+            args+=(--hotfix)
+          fi
+          node scripts/check-release-milestone.mjs "${args[@]}"
+
+      - name: Create release branch and bump versions, README badges, and CHANGELOG
+        run: |
+          set -euo pipefail
+          version="${{ steps.meta.outputs.version }}"
+          branch="${{ steps.meta.outputs.branch }}"
+          base_ref="${{ steps.meta.outputs.base_ref }}"
+          git checkout -B "$branch" "$base_ref"
+
+          VERSION="$version" node -e '
+            const { execFileSync } = require("node:child_process");
+            const fs = require("node:fs");
+            const version = process.env.VERSION;
+            const today = new Date().toISOString().slice(0, 10);
+
+            function updateJson(file, updater) {
+              const data = JSON.parse(fs.readFileSync(file, "utf8"));
+              updater(data);
+              fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+            }
+
+            updateJson("ds-bot/package.json", (pkg) => { pkg.version = version; });
+            updateJson("ds-bot/package-lock.json", (lock) => {
+              lock.version = version;
+              if (lock.packages && lock.packages[""]) lock.packages[""].version = version;
+            });
+            updateJson("app/package.json", (pkg) => { pkg.version = version; });
+            updateJson("app/package-lock.json", (lock) => {
+              lock.version = version;
+              if (lock.packages && lock.packages[""]) lock.packages[""].version = version;
+              if (lock.packages && lock.packages["../ds-bot"]) lock.packages["../ds-bot"].version = version;
+            });
+
+            const readmeEn = fs.readFileSync("README.md", "utf8")
+              .replace(/badge\/version-v[0-9A-Za-z._-]+-blue/u, `badge/version-v${version.replace(/-/g, "--")}-blue`);
+            fs.writeFileSync("README.md", readmeEn);
+
+            const readmeZh = fs.readFileSync("README.zh.md", "utf8")
+              .replace(/badge\/版本-v[0-9A-Za-z._-]+-blue/u, `badge/版本-v${version.replace(/-/g, "--")}-blue`);
+            fs.writeFileSync("README.zh.md", readmeZh);
+
+            const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
+            const headingRe = new RegExp(`^## \\[${version.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\]`, "mu");
+            if (!headingRe.test(changelog)) {
+              let commits = [];
+              try {
+                const raw = execFileSync("git", ["log", "--no-merges", "--max-count=40", "--pretty=format:- %s", "origin/main..HEAD"], { encoding: "utf8" }).trim();
+                if (raw) commits = raw.split(/\r?\n/);
+              } catch {}
+              const bullets = commits.length > 0 ? commits.join("\n") : `- Release v${version}.`;
+              const section = `## [${version}] - ${today}\n\n### Changed\n\n${bullets}\n`;
+              const updated = changelog.replace(
+                /^(## \[Unreleased\]\s*\n)/mu,
+                `$1\n${section}\n`,
+              );
+              fs.writeFileSync("CHANGELOG.md", updated);
+            }
+          '
+
+      - name: Rebuild bundles and release-notes-generated.js
+        working-directory: ds-bot
+        run: |
+          set -euo pipefail
+          npm ci --no-fund --no-audit
+          npm ci --no-fund --no-audit --prefix ../link
+          npm run harness
+          npm run build
+          node scripts/build-client.mjs --check
+          npm run lint
+          node --import ./test/harness-resolve.mjs --test \
+            test/client-bundle.test.js \
+            test/release-notes.test.js \
+            test/ci-workflows.test.js \
+            test/release-milestone.test.js
+
+      - name: Verify app release-notes contract and leak scan
+        run: |
+          set -euo pipefail
+          (cd app && ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --no-fund --no-audit && node --import ./test/reset-env.mjs --test test/release-notes.test.mjs)
+          git status --short
+
+      - name: Commit, push, and open release PR to main
+        id: pr
+        run: |
+          set -euo pipefail
+          version="${{ steps.meta.outputs.version }}"
+          tag="${{ steps.meta.outputs.tag }}"
+          branch="${{ steps.meta.outputs.branch }}"
+
+          git config user.name "${GITHUB_ACTOR}"
+          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+
+          if ! git diff --quiet; then
+            git add ds-bot/package.json ds-bot/package-lock.json \
+              app/package.json app/package-lock.json \
+              README.md README.zh.md CHANGELOG.md \
+              ds-bot/client.js ds-bot/src/shared/release-notes-generated.js
+            git commit -m "release: $tag"
+          fi
+
+          # Scan the tracked tree as it will be published.
+          mkdir -p "$RUNNER_TEMP/tree"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/tree"
+          node scripts/scan.mjs "$RUNNER_TEMP/tree"
+
+          git push -u origin "$branch"
+
+          existing="$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // ""')"
+          if [ -n "$existing" ]; then
+            pr_num="$existing"
+            echo "Reusing existing release PR #$pr_num"
+          else
+            body_file="$RUNNER_TEMP/pr-body.md"
+            {
+              echo "## Release $tag ($MODE)"
+              echo ""
+              echo "- Version bumped in \`ds-bot/package.json\`, \`app/package.json\`, lockfiles, and README badges."
+              echo "- \`CHANGELOG.md\` and \`ds-bot/src/shared/release-notes-generated.js\` updated and verified."
+              if [ "$MODE" = "hotfix" ]; then
+                echo "- Mode: **hotfix** (fast-lane CI enabled via \`release/hotfix\` label)."
+              else
+                echo "- Mode: **stable** (Milestone \`$tag\` verified at 0 open items)."
+              fi
+            } > "$body_file"
+
+            create_args=(pr create --base main --head "$branch" --title "release: $tag" --body-file "$body_file")
+            if [ "$MODE" = "hotfix" ]; then
+              create_args+=(--label "release/hotfix")
+            fi
+            if gh api "repos/$GITHUB_REPOSITORY/milestones?state=all&per_page=100" --jq '.[].title' | grep -qx "$tag"; then
+              create_args+=(--milestone "$tag")
+            fi
+            pr_url="$(gh "${create_args[@]}")"
+            pr_num="$(gh pr view "$pr_url" --json number --jq .number)"
+          fi
+
+          pr_url="$(gh pr view "$pr_num" --json url --jq .url)"
+          echo "number=$pr_num" >> "$GITHUB_OUTPUT"
+          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+          echo "Opened release PR #$pr_num: $pr_url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Auto-merge, publish GitHub Release (not Latest), and open main->dev merge-back PR
+        if: inputs.auto_publish
+        run: |
+          set -euo pipefail
+          version="${{ steps.meta.outputs.version }}"
+          tag="${{ steps.meta.outputs.tag }}"
+          pr_num="${{ steps.pr.outputs.number }}"
+          prerelease="${{ steps.meta.outputs.prerelease }}"
+
+          gh pr checks "$pr_num" --watch --interval 20
+          gh pr merge "$pr_num" --merge
+
+          # Extract this version's section from CHANGELOG.md for the GitHub Release notes.
+          VERSION="$version" MODE="$MODE" node -e '
+            const fs = require("node:fs");
+            const version = process.env.VERSION;
+            const text = fs.readFileSync("CHANGELOG.md", "utf8");
+            const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const match = new RegExp(`^## \\[${escaped}\\][^\\n]*\\n([\\s\\S]*?)(?=^## \\[|$)`, "mu").exec(text);
+            let body = match ? match[1].trim() : `Release v${version}`;
+            if (process.env.MODE === "hotfix") {
+              body = `<!-- hotfix -->\n\n${body}`;
+            }
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/release-notes.md`, `${body}\n`);
+          '
+
+          release_args=(release create "$tag" --target main --latest=false --title "$tag" --notes-file "$RUNNER_TEMP/release-notes.md")
+          if [ "$prerelease" = "true" ]; then
+            release_args+=(--prerelease)
+          fi
+          gh "${release_args[@]}"
+
+          # Open main -> dev merge-back PR.
+          git fetch origin main dev
+          merge_branch="chore/merge-main-$version"
+          git checkout -B "$merge_branch" origin/dev
+          if git merge --no-edit origin/main; then
+            git push -u origin "$merge_branch"
+            gh pr create --base dev --head "$merge_branch" \
+              --title "chore: merge $tag from main into dev" \
+              --body "Merge release \`$tag\` back from \`main\` into \`dev\`."
+          else
+            echo "::warning::Merging main into dev had conflicts; resolve manually and open the merge-back PR."
+            git merge --abort || true
+          fi

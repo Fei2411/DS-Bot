@@ -29,6 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       full: ${{ steps.filter.outputs.full }}
+      hotfix: ${{ steps.filter.outputs.hotfix }}
+      release_pr: ${{ steps.filter.outputs.release_pr }}
       ds_bot: ${{ steps.filter.outputs.ds_bot }}
       node22: ${{ steps.filter.outputs.node22 }}
       app_unit: ${{ steps.filter.outputs.app_unit }}
@@ -46,13 +48,34 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HOTFIX: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release/hotfix') }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           full=false
           main_push=false
-          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$BASE_REF" = "main" ]; then
+          hotfix=false
+          release_pr=false
+
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            if [[ "$HEAD_REF" == hotfix/* ]] || [ "$PR_HOTFIX" = "true" ]; then
+              hotfix=true
+            elif [ -n "$PR_NUMBER" ] && [ -n "$GH_TOKEN" ]; then
+              if gh api "repos/$GH_REPO/issues/$PR_NUMBER/labels" --jq '.[].name' 2>/dev/null | grep -qx 'release/hotfix'; then
+                hotfix=true
+              fi
+            fi
+            if [ "$hotfix" = "false" ]; then
+              release_pr=true
+            fi
+          fi
+
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] || [ "$release_pr" = "true" ]; then
             full=true
           elif [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
             # Release PRs already pass the full matrix on BASE_REF=main before merge, and daily
@@ -110,8 +133,8 @@ jobs:
             mobile=false
             link=false
             docker=false
-            if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$|scripts/check-pure-base-sync\.mjs$|\.github/workflows/(package|full-package|pr-triage-labels)\.yml$)'; then ds_bot=true; fi
-            if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$)'; then app_unit=true; fi
+            if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$|scripts/(check-pure-base-sync|check-release-milestone)\.mjs$|\.github/workflows/(package|full-package|pr-triage-labels|release|nightly-release|cut-release)\.yml$)'; then ds_bot=true; fi
+            if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$|\.github/workflows/release\.yml$)'; then app_unit=true; fi
             if has '^app/'; then app_unit_win=true; fi
             if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/package\.json$|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest)\.js$|ds-bot/src/client/avatar/)'; then mobile=true; fi
             if has '^link/'; then link=true; fi
@@ -128,6 +151,8 @@ jobs:
 
           {
             echo "full=$full"
+            echo "hotfix=$hotfix"
+            echo "release_pr=$release_pr"
             echo "ds_bot=$ds_bot"
             echo "node22=$node22"
             echo "app_unit=$app_unit"
@@ -138,7 +163,7 @@ jobs:
           } | tee -a "$GITHUB_OUTPUT"
 
   test:
-    name: ${{ matrix.os }} · Node ${{ matrix.node }}
+    name: ${{ matrix.shard && format('{0} · Node {1} (shard {2}/{3})', matrix.os, matrix.node, matrix.shard, matrix.shard_total) || format('{0} · Node {1}', matrix.os, matrix.node) }}
     needs: changes
     if: needs.changes.outputs.ds_bot == 'true'
     runs-on: ${{ matrix.os }}
@@ -150,7 +175,10 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, node: 24, browser: true, lint: true }
-          - { os: windows-latest, node: 24 }
+          - { os: windows-latest, node: 24, shard: 1, shard_total: 4 }
+          - { os: windows-latest, node: 24, shard: 2, shard_total: 4 }
+          - { os: windows-latest, node: 24, shard: 3, shard_total: 4 }
+          - { os: windows-latest, node: 24, shard: 4, shard_total: 4 }
     defaults:
       run:
         shell: bash
@@ -177,17 +205,18 @@ jobs:
         if: steps.harness-cache.outputs.cache-hit != 'true'
         run: npm run harness
       - name: Save DSH test harness
-        if: github.event_name != 'pull_request' && steps.harness-cache.outputs.cache-hit != 'true'
+        if: github.event_name != 'pull_request' && steps.harness-cache.outputs.cache-hit != 'true' && (!matrix.shard || matrix.shard == 1)
         uses: actions/cache/save@v4
         with:
           path: ds-bot/dev/harness/node_modules
           key: ${{ steps.harness-cache.outputs.cache-primary-key }}
       - name: Run unit tests
         run: |
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            # Windows file locking plus several concurrent test-file processes make the same
-            # local asynchronous chains take several times longer; two at a time removes the
-            # contention instead of hiding it behind longer assertions.
+          if [ -n "${{ matrix.shard }}" ]; then
+            # Split Windows unit tests across 4 balanced parallel shards while keeping
+            # --test-concurrency=2 per shard to avoid Windows file-lock contention.
+            npm run test:windows:shard -- --shard "${{ matrix.shard }}/${{ matrix.shard_total }}"
+          elif [ "${{ matrix.os }}" = "windows-latest" ]; then
             npm run test:windows
           else
             npm test
@@ -254,6 +283,39 @@ jobs:
           path: ds-bot/dev/harness/node_modules
           key: ${{ steps.harness-cache.outputs.cache-primary-key }}
       - run: npm test
+
+  release-milestone:
+    name: Release milestone gate
+    needs: changes
+    if: needs.changes.outputs.release_pr == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify target release Milestone has zero open items
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./ds-bot/package.json').version")"
+          args=(--version "v$version" --repo "$GITHUB_REPOSITORY")
+          if [ -n "$PR_NUMBER" ]; then
+            args+=(--ignore-pr "$PR_NUMBER")
+          fi
+          # Fork PRs may receive a restricted token; gracefully skip only on 401/403 without token.
+          if [ "$IS_FORK" = "true" ]; then
+            args+=(--allow-missing-token)
+          fi
+          node scripts/check-release-milestone.mjs "${args[@]}"
 
   scan:
     name: Leak scan
@@ -419,7 +481,7 @@ jobs:
   # and fails unless every job required for the changed paths passed.
   result:
     name: Test result
-    needs: [changes, test, test-node22, scan, app, app-windows, mobile, link, docker]
+    needs: [changes, test, test-node22, release-milestone, scan, app, app-windows, mobile, link, docker]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -431,6 +493,8 @@ jobs:
           TEST_RESULT: ${{ needs.test.result }}
           RUN_NODE22: ${{ needs.changes.outputs.node22 }}
           NODE22_RESULT: ${{ needs.test-node22.result }}
+          RUN_RELEASE_MILESTONE: ${{ needs.changes.outputs.release_pr }}
+          RELEASE_MILESTONE_RESULT: ${{ needs.release-milestone.result }}
           RUN_APP_UNIT: ${{ needs.changes.outputs.app_unit }}
           APP_RESULT: ${{ needs.app.result }}
           RUN_APP_UNIT_WIN: ${{ needs.changes.outputs.app_unit_win }}
@@ -465,6 +529,7 @@ jobs:
           check "scan" "true" "$SCAN_RESULT"
           check "test" "$RUN_DS_BOT" "$TEST_RESULT"
           check "test-node22" "$RUN_NODE22" "$NODE22_RESULT"
+          check "release-milestone" "$RUN_RELEASE_MILESTONE" "$RELEASE_MILESTONE_RESULT"
           check "app" "$RUN_APP_UNIT" "$APP_RESULT"
           check "app-windows" "$RUN_APP_UNIT_WIN" "$APP_WIN_UNIT_RESULT"
           check "mobile" "$RUN_MOBILE" "$MOBILE_RESULT"

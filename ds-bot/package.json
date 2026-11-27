@@ -58,6 +58,7 @@
     "build": "node scripts/build-client.mjs && node scripts/build-link.mjs",
     "test": "node --import ./test/harness-resolve.mjs --test --test-timeout=120000 --test-force-exit \"test/*.test.js\"",
     "test:windows": "node --import ./test/harness-resolve.mjs --test --test-concurrency=2 --test-timeout=120000 --test-force-exit \"test/*.test.js\"",
+    "test:windows:shard": "node scripts/run-tests-shard.mjs",
     "test:browser": "node --import ./test/harness-resolve.mjs --test --test-concurrency=1 --test-timeout=120000 --test-force-exit \"test/browser/*.test.js\"",
     "lint": "node scripts/lint.mjs",
     "harness": "npm ci --prefix dev/harness --legacy-peer-deps=false --no-fund --no-audit",
