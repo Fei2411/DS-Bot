@@ -6,6 +6,7 @@ import { call } from '../../../ds-bot/src/client/api.js'
 import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
 import { createBotBrowsers, serveBrowserReads } from '../../../ds-bot/src/client/bot-browsers.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
+import { pruneDrafts } from '../../../ds-bot/src/client/draft-keep.js'
 import { readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { lookOf, toolState } from '../../../ds-bot/src/client/mark.js'
@@ -20,6 +21,7 @@ import { sectionFoldWrites, teamActions } from '../../../ds-bot/src/client/team-
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { registry } from '../../../ds-bot/src/client/themes.js'
 import { openFeed } from './api.js'
+import { pruneFailedSends } from './failed-send-bar.js'
 
 // Memory news and connector states change without a notice on the feed.
 const CATCH_UP_MS = 15_000
@@ -66,6 +68,28 @@ export function createTeam() {
   const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, releaseNotes: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
   const activity = createSource({})
   const work = createSource(NO_WORK)
+  const userQuestions = createSource([])
+  const sessionQueues = createSource({})
+  const mergeSessionQueues = (nextMap) => {
+    if (!nextMap || typeof nextMap !== 'object') return
+    sessionQueues.set((prev) => {
+      const prevKeys = Object.keys(prev)
+      const nextKeys = Object.keys(nextMap)
+      let changed = prevKeys.length !== nextKeys.length
+      const merged = {}
+      for (const sid of nextKeys) {
+        const prevRows = prev[sid]
+        const nextRows = nextMap[sid]
+        if (prevRows !== undefined && JSON.stringify(prevRows) === JSON.stringify(nextRows)) {
+          merged[sid] = prevRows
+        } else {
+          merged[sid] = nextRows
+          changed = true
+        }
+      }
+      return changed ? merged : prev
+    })
+  }
   const memoryNews = createSource({})
   const live = createSource({})
   const cards = createSource({})
@@ -240,6 +264,8 @@ export function createTeam() {
     if (value.liveKey !== undefined) liveKey = value.liveKey
     if (value.activity !== undefined) setChanged(activity, value.activity)
     if (value.work !== undefined) setChanged(work, value.work)
+    if (value.userQuestions !== undefined) setChanged(userQuestions, value.userQuestions)
+    if (value.sessionQueues !== undefined) mergeSessionQueues(value.sessionQueues)
     if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
     if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
     if (value.memoryNews !== undefined) noteNews(value.memoryNews)
@@ -277,8 +303,13 @@ export function createTeam() {
       const gone = [
         ...Object.keys(current.byId ?? {}).filter(id => indexed.byId[id] === undefined),
         ...Object.keys(current.roomsById ?? {}).filter(id => indexed.roomsById[id] === undefined),
+        ...Object.keys(current.agentOf ?? {}).filter(id => indexed.agentOf?.[id] === undefined),
       ]
-      if (gone.length > 0) questionDrafts.pruneChats(gone)
+      if (gone.length > 0) {
+        questionDrafts.pruneChats(gone)
+        pruneDrafts(gone)
+        pruneFailedSends(gone)
+      }
     }
     roster.set(indexed)
     if ((indexed.agents ?? []).some(agent => (agent.sessions?.length ?? 0) > 0)) {
@@ -569,6 +600,8 @@ export function createTeam() {
     },
     archiveAgentSession: async (agentId, sessionId) => {
       await after(call('agent-archive', { agentId, sessionId }))
+      pruneDrafts([sessionId])
+      pruneFailedSends([sessionId])
       if (lastAgentSession === sessionId) lastAgentSession = null
       if (shown.getSnapshot() === sessionId) {
         const snap = roster.getSnapshot()
@@ -591,6 +624,10 @@ export function createTeam() {
     removeAgent: async (agentId) => {
       const owned = roster.getSnapshot().agentsById?.[agentId]?.sessions ?? []
       const result = await after(call('remove-agent', { agentId }))
+      if (owned.length > 0) {
+        pruneDrafts(owned)
+        pruneFailedSends(owned)
+      }
       if (owned.includes(lastAgentSession)) lastAgentSession = null
       const currentShown = shown.getSnapshot()
       if (currentShown !== null && owned.includes(currentShown)) {
@@ -602,6 +639,33 @@ export function createTeam() {
       return result
     },
     stopAgent: (agentId, sessionId) => after(call('stop-agent', sessionId ? { agentId, sessionId } : { agentId })),
+    sessionControls: sessionId => call('session-controls', { sessionId }),
+    selectSessionModel: (sessionId, ref, effort) => after(call('session-model', {
+      sessionId,
+      ...(ref !== undefined ? { ref } : {}),
+      ...(effort !== undefined ? { effort } : {}),
+    })),
+    setSessionPermission: (sessionId, preset) => after(call('session-permission', { sessionId, preset })),
+    sessionCommands: (sessionId, options) => call('session-commands', {
+      sessionId,
+      ...(options?.wake ? { wake: true } : {}),
+    }),
+    runSessionCommand: (sessionId, line, extra) => after(call('session-command-run', {
+      sessionId,
+      line,
+      ...(extra?.images?.length ? { images: extra.images } : {}),
+      ...(extra?.files?.length ? { files: extra.files } : {}),
+    })),
+    sessionSkills: sessionId => call('session-skills', { sessionId }),
+    sessionFiles: (sessionId, query = '') => call('session-files', { sessionId, query }),
+    answerUserQuestion: (sessionId, requestId, answers) => after(call('session-question-answer', { sessionId, requestId, answers })),
+    dismissUserQuestion: (sessionId, requestId) => after(call('session-question-dismiss', { sessionId, requestId })),
+    updateSessionQueue: (sessionId, itemId, action) => after(call('session-queue-update', { sessionId, itemId, action })),
+    steerSessionQueue: (sessionId, itemIds) => after(call('session-queue-update', {
+      sessionId,
+      ...(Array.isArray(itemIds) && itemIds.length > 0 ? { itemIds } : {}),
+      action: { kind: 'steer-all' },
+    })),
     createClassicSession: (options = {}) => {
       const snap = roster.getSnapshot()
       if (snap.readOnly) return undefined
@@ -1274,6 +1338,8 @@ export function createTeam() {
     useUi: use(ui),
     useActivity: use(activity),
     useWork: use(work),
+    useUserQuestions: use(userQuestions),
+    useSessionQueues: use(sessionQueues),
     useMemoryNews: use(memoryNews),
     useLive: use(live),
     useCards: use(cards),

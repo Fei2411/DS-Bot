@@ -131,6 +131,64 @@ function convertHostErrors(pairs) {
 
 // src/client/locales/ja.js
 var JA = {
+  "Auto review": "自動審査",
+  "Session only": "このセッションのみ",
+  "Permission preset": "権限プリセット",
+  "Permission: {preset}": "権限：{preset}",
+  "Switch to Full access?": "フルアクセスに切り替えますか？",
+  "Switch to Auto review?": "自動審査に切り替えますか？",
+  "Full access lets the agent run commands and edit files outside this workspace without asking.": "フルアクセスでは、エージェントが確認なしでコマンドを実行し、このワークスペース外のファイルを編集できます。",
+  "Auto review uses a model to review actions for this session only.": "自動審査では、このセッションに限りモデルが操作を審査します。",
+  "I understand the risks": "リスクを理解しました",
+  "Switch preset": "プリセットを切り替え",
+  "Plan mode": "プランモード",
+  "Enter plan mode": "プランモードを開始",
+  "Exit plan mode": "プランモードを終了",
+  "Plan before making changes": "変更する前に計画を作成します",
+  "Leave plan mode": "プランモードを終了して通常モードに戻ります",
+  "Read files without editing": "ファイルを編集せずに読み取ります",
+  "Edit inside the workspace; wider actions ask": "ワークスペース内のみ編集し、範囲外の操作は確認します",
+  "Run commands and edit files without asking": "確認なしでコマンド実行とファイル編集を行います",
+  "Model reviews actions for this session only": "このセッションに限りモデルが操作を審査します",
+  "Entering plan mode…": "プランモードに入っています…",
+  "Leaving plan mode…": "プランモードを終了しています…",
+  "Plan review": "プランのレビュー",
+  "Pending review": "レビュー待ち",
+  "Changes requested": "修正依頼済み",
+  "Ask for changes": "修正を依頼",
+  "Describe the changes you want…": "希望する変更内容を入力…",
+  "Send feedback": "フィードバックを送信",
+  "Show full plan": "プラン全文を表示",
+  "Collapse plan": "プランを折りたたむ",
+  "Plan": "プラン",
+  "Question {current} of {total}": "質問 {current} / {total}",
+  "Previous question": "前の質問",
+  "Next question": "次の質問",
+  "Minimize": "最小化",
+  "Expand": "展開",
+  "Withdraw to input": "入力欄に戻す",
+  "Contains non-text content": "テキスト以外の内容を含みます",
+  "Message could not be sent": "メッセージを送信できませんでした",
+  "Restore to input": "入力欄に復元",
+  "Failed to send": "送信失敗",
+  "1 attachment": "添付ファイル 1 件",
+  "{n} attachments": "添付ファイル {n} 件",
+  "Retry send": "再送信",
+  "Restore failed message to input": "送信に失敗したメッセージを入力欄に戻す",
+  "Dismiss failed message": "失敗したメッセージを閉じる",
+  "Skills": "スキル",
+  "Compact conversation": "会話を圧縮",
+  "Switch permission preset": "権限プリセットを切り替え",
+  "Export conversation": "会話をエクスポート",
+  "Summarize earlier messages to free context": "以前のメッセージを要約してコンテキストを空けます",
+  "Change permission level for this session": "このセッションの権限レベルを変更します",
+  "Couldn’t update permission": "権限を更新できませんでした",
+  "Couldn’t submit answer": "回答を送信できませんでした",
+  "Couldn’t dismiss question": "質問を閉じられませんでした",
+  "Copy plan": "プランをコピー",
+  "Submit ({answered}/{total})": "送信 ({answered}/{total})",
+  "Workspace files": "ワークスペースのファイル",
+  "Couldn’t run command": "コマンドを実行できませんでした",
   "What's new in v{version}": "v{version} の新機能",
   "Got it": "わかりました",
   "Full changelog": "完全な更新履歴",
@@ -3658,6 +3716,64 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "Auto review": "자동 검토",
+  "Session only": "이 세션만",
+  "Permission preset": "권한 프리셋",
+  "Permission: {preset}": "권한: {preset}",
+  "Switch to Full access?": "전체 접근으로 전환할까요?",
+  "Switch to Auto review?": "자동 검토로 전환할까요?",
+  "Full access lets the agent run commands and edit files outside this workspace without asking.": "전체 접근을 사용하면 에이전트가 확인 없이 명령을 실행하고 이 작업 공간 밖의 파일을 수정할 수 있습니다.",
+  "Auto review uses a model to review actions for this session only.": "자동 검토는 현재 세션에 한해 모델이 작업을 검토합니다.",
+  "I understand the risks": "위험을 이해했습니다",
+  "Switch preset": "프리셋 전환",
+  "Plan mode": "계획 모드",
+  "Enter plan mode": "계획 모드 시작",
+  "Exit plan mode": "계획 모드 종료",
+  "Plan before making changes": "변경하기 전에 계획을 세웁니다",
+  "Leave plan mode": "계획 모드를 종료하고 기본 모드로 돌아갑니다",
+  "Read files without editing": "파일을 수정하지 않고 읽기만 합니다",
+  "Edit inside the workspace; wider actions ask": "작업 공간 내에서만 편집하고 범위 밖 작업은 확인합니다",
+  "Run commands and edit files without asking": "확인 없이 명령을 실행하고 파일을 편집합니다",
+  "Model reviews actions for this session only": "현재 세션에 한해 모델이 작업을 검토합니다",
+  "Entering plan mode…": "계획 모드 진입 중…",
+  "Leaving plan mode…": "계획 모드 종료 중…",
+  "Plan review": "계획 검토",
+  "Pending review": "검토 대기",
+  "Changes requested": "수정 요청됨",
+  "Ask for changes": "수정 요청",
+  "Describe the changes you want…": "원하는 수정 사항을 입력하세요…",
+  "Send feedback": "피드백 보내기",
+  "Show full plan": "전체 계획 보기",
+  "Collapse plan": "계획 접기",
+  "Plan": "계획",
+  "Question {current} of {total}": "질문 {current} / {total}",
+  "Previous question": "이전 질문",
+  "Next question": "다음 질문",
+  "Minimize": "최소화",
+  "Expand": "펼치기",
+  "Withdraw to input": "입력창으로 되돌리기",
+  "Contains non-text content": "텍스트 외 콘텐츠 포함",
+  "Message could not be sent": "메시지를 보내지 못했습니다",
+  "Restore to input": "입력창으로 복원",
+  "Failed to send": "전송 실패",
+  "1 attachment": "첨부파일 1개",
+  "{n} attachments": "첨부파일 {n}개",
+  "Retry send": "다시 보내기",
+  "Restore failed message to input": "실패한 메시지를 입력창으로 복원",
+  "Dismiss failed message": "실패 알림 닫기",
+  "Skills": "스킬",
+  "Compact conversation": "대화 압축",
+  "Switch permission preset": "권한 프리셋 변경",
+  "Export conversation": "대화 내보내기",
+  "Summarize earlier messages to free context": "이전 메시지를 요약해 컨텍스트를 확보합니다",
+  "Change permission level for this session": "이 세션의 권한 수준을 변경합니다",
+  "Couldn’t update permission": "권한을 변경하지 못했습니다",
+  "Couldn’t submit answer": "답변을 제출하지 못했습니다",
+  "Couldn’t dismiss question": "질문을 닫지 못했습니다",
+  "Copy plan": "계획 복사",
+  "Submit ({answered}/{total})": "제출 ({answered}/{total})",
+  "Workspace files": "작업 공간 파일",
+  "Couldn’t run command": "명령을 실행하지 못했습니다",
   "What's new in v{version}": "v{version} 새로운 기능",
   "Got it": "확인",
   "Full changelog": "전체 변경 내역",
@@ -7230,6 +7346,64 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "Auto review": "Revisión automática",
+  "Session only": "Solo esta sesión",
+  "Permission preset": "Preajuste de permisos",
+  "Permission: {preset}": "Permisos: {preset}",
+  "Switch to Full access?": "¿Cambiar a acceso completo?",
+  "Switch to Auto review?": "¿Cambiar a revisión automática?",
+  "Full access lets the agent run commands and edit files outside this workspace without asking.": "El acceso completo permite al agente ejecutar comandos y editar archivos fuera de este espacio de trabajo sin preguntar.",
+  "Auto review uses a model to review actions for this session only.": "La revisión automática usa un modelo para revisar acciones solo en esta sesión.",
+  "I understand the risks": "Entiendo los riesgos",
+  "Switch preset": "Cambiar preajuste",
+  "Plan mode": "Modo plan",
+  "Enter plan mode": "Activar modo plan",
+  "Exit plan mode": "Salir del modo plan",
+  "Plan before making changes": "Planificar antes de aplicar cambios",
+  "Leave plan mode": "Salir del modo plan y volver al modo normal",
+  "Read files without editing": "Leer archivos sin editar",
+  "Edit inside the workspace; wider actions ask": "Editar dentro del espacio de trabajo; acciones más amplias preguntan",
+  "Run commands and edit files without asking": "Ejecutar comandos y editar archivos sin preguntar",
+  "Model reviews actions for this session only": "Un modelo revisa las acciones solo en esta sesión",
+  "Entering plan mode…": "Entrando en modo plan…",
+  "Leaving plan mode…": "Saliendo del modo plan…",
+  "Plan review": "Revisión del plan",
+  "Pending review": "Pendiente de revisión",
+  "Changes requested": "Cambios solicitados",
+  "Ask for changes": "Pedir cambios",
+  "Describe the changes you want…": "Describe los cambios que quieres…",
+  "Send feedback": "Enviar comentarios",
+  "Show full plan": "Ver plan completo",
+  "Collapse plan": "Contraer plan",
+  "Plan": "Plan",
+  "Question {current} of {total}": "Pregunta {current} de {total}",
+  "Previous question": "Pregunta anterior",
+  "Next question": "Siguiente pregunta",
+  "Minimize": "Minimizar",
+  "Expand": "Expandir",
+  "Withdraw to input": "Devolver al campo de entrada",
+  "Contains non-text content": "Contiene contenido que no es texto",
+  "Message could not be sent": "No se pudo enviar el mensaje",
+  "Restore to input": "Restaurar al campo de entrada",
+  "Failed to send": "Error al enviar",
+  "1 attachment": "1 archivo adjunto",
+  "{n} attachments": "{n} archivos adjuntos",
+  "Retry send": "Reintentar envío",
+  "Restore failed message to input": "Restaurar el mensaje fallido en el campo de entrada",
+  "Dismiss failed message": "Descartar aviso de error",
+  "Skills": "Habilidades",
+  "Compact conversation": "Compactar conversación",
+  "Switch permission preset": "Cambiar preajuste de permisos",
+  "Export conversation": "Exportar conversación",
+  "Summarize earlier messages to free context": "Resumir mensajes anteriores para liberar contexto",
+  "Change permission level for this session": "Cambiar el nivel de permisos de esta sesión",
+  "Couldn’t update permission": "No se pudieron actualizar los permisos",
+  "Couldn’t submit answer": "No se pudo enviar la respuesta",
+  "Couldn’t dismiss question": "No se pudo cerrar la pregunta",
+  "Copy plan": "Copiar plan",
+  "Submit ({answered}/{total})": "Enviar ({answered}/{total})",
+  "Workspace files": "Archivos del espacio de trabajo",
+  "Couldn’t run command": "No se pudo ejecutar el comando",
   "What's new in v{version}": "Novedades en v{version}",
   "Got it": "Entendido",
   "Full changelog": "Registro completo",
@@ -10802,6 +10976,64 @@ var DSH_ES = {
 
 // src/client/locales/fr.js
 var FR = {
+  "Auto review": "Validation automatique",
+  "Session only": "Cette session uniquement",
+  "Permission preset": "Préréglage de permissions",
+  "Permission: {preset}": "Permissions : {preset}",
+  "Switch to Full access?": "Passer en accès complet ?",
+  "Switch to Auto review?": "Passer en validation automatique ?",
+  "Full access lets the agent run commands and edit files outside this workspace without asking.": "L’accès complet permet à l’agent d’exécuter des commandes et de modifier des fichiers hors de cet espace sans demander.",
+  "Auto review uses a model to review actions for this session only.": "La validation automatique utilise un modèle pour vérifier les actions uniquement pour cette session.",
+  "I understand the risks": "Je comprends les risques",
+  "Switch preset": "Changer de préréglage",
+  "Plan mode": "Mode plan",
+  "Enter plan mode": "Activer le mode plan",
+  "Exit plan mode": "Quitter le mode plan",
+  "Plan before making changes": "Planifier avant de faire des modifications",
+  "Leave plan mode": "Quitter le mode plan et revenir au mode normal",
+  "Read files without editing": "Lire les fichiers sans les modifier",
+  "Edit inside the workspace; wider actions ask": "Modifier dans l’espace de travail ; demander pour le reste",
+  "Run commands and edit files without asking": "Exécuter des commandes et modifier des fichiers sans demander",
+  "Model reviews actions for this session only": "Un modèle vérifie les actions uniquement pour cette session",
+  "Entering plan mode…": "Activation du mode plan…",
+  "Leaving plan mode…": "Sortie du mode plan…",
+  "Plan review": "Revue du plan",
+  "Pending review": "En attente de revue",
+  "Changes requested": "Modifications demandées",
+  "Ask for changes": "Demander des modifications",
+  "Describe the changes you want…": "Décrivez les modifications souhaitées…",
+  "Send feedback": "Envoyer le retour",
+  "Show full plan": "Afficher le plan complet",
+  "Collapse plan": "Réduire le plan",
+  "Plan": "Plan",
+  "Question {current} of {total}": "Question {current} sur {total}",
+  "Previous question": "Question précédente",
+  "Next question": "Question suivante",
+  "Minimize": "Réduire",
+  "Expand": "Déplier",
+  "Withdraw to input": "Renvoyer dans la saisie",
+  "Contains non-text content": "Contient du contenu non textuel",
+  "Message could not be sent": "Impossible d’envoyer le message",
+  "Restore to input": "Restaurer dans la saisie",
+  "Failed to send": "Échec de l’envoi",
+  "1 attachment": "1 pièce jointe",
+  "{n} attachments": "{n} pièces jointes",
+  "Retry send": "Réessayer l’envoi",
+  "Restore failed message to input": "Restaurer le message en échec dans la saisie",
+  "Dismiss failed message": "Fermer l’avis d’échec",
+  "Skills": "Compétences",
+  "Compact conversation": "Compacter la conversation",
+  "Switch permission preset": "Changer le préréglage de permissions",
+  "Export conversation": "Exporter la conversation",
+  "Summarize earlier messages to free context": "Résumer les anciens messages pour libérer du contexte",
+  "Change permission level for this session": "Modifier le niveau de permissions de cette session",
+  "Couldn’t update permission": "Impossible de mettre à jour les permissions",
+  "Couldn’t submit answer": "Impossible d’envoyer la réponse",
+  "Couldn’t dismiss question": "Impossible de fermer la question",
+  "Copy plan": "Copier le plan",
+  "Submit ({answered}/{total})": "Envoyer ({answered}/{total})",
+  "Workspace files": "Fichiers de l’espace de travail",
+  "Couldn’t run command": "Impossible d’exécuter la commande",
   "What's new in v{version}": "Nouveautés de la v{version}",
   "Got it": "Compris",
   "Full changelog": "Journal complet",
@@ -14329,6 +14561,64 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "Auto review": "Automatische Prüfung",
+  "Session only": "Nur diese Sitzung",
+  "Permission preset": "Berechtigungsprofil",
+  "Permission: {preset}": "Berechtigung: {preset}",
+  "Switch to Full access?": "Zu Vollzugriff wechseln?",
+  "Switch to Auto review?": "Zu Automatischer Prüfung wechseln?",
+  "Full access lets the agent run commands and edit files outside this workspace without asking.": "Mit Vollzugriff darf der Agent ohne Rückfrage Befehle ausführen und Dateien außerhalb dieses Arbeitsbereichs ändern.",
+  "Auto review uses a model to review actions for this session only.": "Die automatische Prüfung lässt Aktionen nur für diese Sitzung durch ein Modell prüfen.",
+  "I understand the risks": "Ich verstehe die Risiken",
+  "Switch preset": "Profil wechseln",
+  "Plan mode": "Planmodus",
+  "Enter plan mode": "Planmodus starten",
+  "Exit plan mode": "Planmodus beenden",
+  "Plan before making changes": "Vor Änderungen zuerst planen",
+  "Leave plan mode": "Planmodus verlassen und zum Standardmodus zurückkehren",
+  "Read files without editing": "Dateien lesen, ohne sie zu ändern",
+  "Edit inside the workspace; wider actions ask": "Im Arbeitsbereich bearbeiten; weitergehende Aktionen fragen nach",
+  "Run commands and edit files without asking": "Befehle ausführen und Dateien ohne Rückfrage ändern",
+  "Model reviews actions for this session only": "Modell prüft Aktionen nur für diese Sitzung",
+  "Entering plan mode…": "Planmodus wird gestartet…",
+  "Leaving plan mode…": "Planmodus wird beendet…",
+  "Plan review": "Planprüfung",
+  "Pending review": "Prüfung ausstehend",
+  "Changes requested": "Änderungen angefordert",
+  "Ask for changes": "Änderungen anfordern",
+  "Describe the changes you want…": "Gewünschte Änderungen beschreiben…",
+  "Send feedback": "Feedback senden",
+  "Show full plan": "Vollständigen Plan anzeigen",
+  "Collapse plan": "Plan einklappen",
+  "Plan": "Plan",
+  "Question {current} of {total}": "Frage {current} von {total}",
+  "Previous question": "Vorherige Frage",
+  "Next question": "Nächste Frage",
+  "Minimize": "Minimieren",
+  "Expand": "Ausklappen",
+  "Withdraw to input": "In das Eingabefeld zurückziehen",
+  "Contains non-text content": "Enthält Nicht-Text-Inhalte",
+  "Message could not be sent": "Nachricht konnte nicht gesendet werden",
+  "Restore to input": "In Eingabefeld wiederherstellen",
+  "Failed to send": "Senden fehlgeschlagen",
+  "1 attachment": "1 Anhang",
+  "{n} attachments": "{n} Anhänge",
+  "Retry send": "Erneut senden",
+  "Restore failed message to input": "Fehlgeschlagene Nachricht ins Eingabefeld holen",
+  "Dismiss failed message": "Fehlerhinweis schließen",
+  "Skills": "Skills",
+  "Compact conversation": "Unterhaltung komprimieren",
+  "Switch permission preset": "Berechtigungsprofil wechseln",
+  "Export conversation": "Unterhaltung exportieren",
+  "Summarize earlier messages to free context": "Frühere Nachrichten zusammenfassen, um Kontext freizugeben",
+  "Change permission level for this session": "Berechtigungsstufe für diese Sitzung ändern",
+  "Couldn’t update permission": "Berechtigung konnte nicht geändert werden",
+  "Couldn’t submit answer": "Antwort konnte nicht gesendet werden",
+  "Couldn’t dismiss question": "Frage konnte nicht geschlossen werden",
+  "Copy plan": "Plan kopieren",
+  "Submit ({answered}/{total})": "Senden ({answered}/{total})",
+  "Workspace files": "Arbeitsbereich-Dateien",
+  "Couldn’t run command": "Befehl konnte nicht ausgeführt werden",
   "What's new in v{version}": "Neu in v{version}",
   "Got it": "Verstanden",
   "Full changelog": "Vollständiges Änderungsprotokoll",
@@ -17902,6 +18192,64 @@ var DSH_DE = {
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "Auto review": "自动审批",
+  "Session only": "仅本次会话",
+  "Permission preset": "权限模式",
+  "Permission: {preset}": "权限：{preset}",
+  "Switch to Full access?": "切换到完全访问？",
+  "Switch to Auto review?": "切换到自动审批？",
+  "Full access lets the agent run commands and edit files outside this workspace without asking.": "完全访问允许 Agent 直接运行命令并修改此工作区外的文件，不再逐项询问。",
+  "Auto review uses a model to review actions for this session only.": "自动审批会由模型代审本次会话中的操作，仅对当前会话生效。",
+  "I understand the risks": "我了解相关风险",
+  "Switch preset": "切换模式",
+  "Plan mode": "规划模式",
+  "Enter plan mode": "进入规划模式",
+  "Exit plan mode": "退出规划模式",
+  "Plan before making changes": "先制定方案再执行改动",
+  "Leave plan mode": "退出规划模式并恢复默认模式",
+  "Read files without editing": "仅读取文件，不作修改",
+  "Edit inside the workspace; wider actions ask": "可在工作区内编辑，超出范围需确认",
+  "Run commands and edit files without asking": "无需确认即可运行命令并编辑文件",
+  "Model reviews actions for this session only": "由模型代审操作，仅对当前会话生效",
+  "Entering plan mode…": "正在进入规划模式…",
+  "Leaving plan mode…": "正在退出规划模式…",
+  "Plan review": "方案审阅",
+  "Pending review": "待审阅",
+  "Changes requested": "已要求修改",
+  "Ask for changes": "提出修改意见",
+  "Describe the changes you want…": "描述你希望调整的地方…",
+  "Send feedback": "发送意见",
+  "Show full plan": "展开完整方案",
+  "Collapse plan": "收起方案",
+  "Plan": "方案",
+  "Question {current} of {total}": "第 {current} / {total} 题",
+  "Previous question": "上一题",
+  "Next question": "下一题",
+  "Minimize": "收起",
+  "Expand": "展开",
+  "Withdraw to input": "撤回到输入框",
+  "Contains non-text content": "包含非文本内容",
+  "Message could not be sent": "消息发送失败",
+  "Restore to input": "放回输入框",
+  "Failed to send": "发送失败",
+  "1 attachment": "1 个附件",
+  "{n} attachments": "{n} 个附件",
+  "Retry send": "重新发送",
+  "Restore failed message to input": "将失败的消息放回输入框",
+  "Dismiss failed message": "关闭失败提示",
+  "Skills": "技能",
+  "Compact conversation": "压缩对话上下文",
+  "Switch permission preset": "切换权限模式",
+  "Export conversation": "导出对话",
+  "Summarize earlier messages to free context": "总结较早的消息以释放上下文",
+  "Change permission level for this session": "修改当前会话的权限级别",
+  "Couldn’t update permission": "未能更新权限模式",
+  "Couldn’t submit answer": "未能提交回答",
+  "Couldn’t dismiss question": "未能关闭问题",
+  "Copy plan": "复制方案",
+  "Submit ({answered}/{total})": "提交 ({answered}/{total})",
+  "Workspace files": "工作区文件",
+  "Couldn’t run command": "未能执行命令",
   "Direct value": "直接输入",
   "1Password (op://)": "1Password (op://)",
   "Secret source": "密钥来源",
@@ -22053,11 +22401,33 @@ function chatOfSession(roster, sessionId) {
   if (bot !== void 0) return { id: bot.id, part: currentPart(bot) };
   const room2 = roster?.roomsById?.[sessionId] ?? rooms.find((item) => (item.sessionId ?? item.id) === sessionId || item.ownParts?.includes(sessionId));
   if (room2 !== void 0) return { id: room2.id, part: room2.sessionId ?? room2.id };
+  if (roster?.agentOf?.[sessionId] !== void 0 || roster?.agents?.some?.((agent) => agent?.sessions?.includes?.(sessionId))) {
+    return { id: sessionId, part: sessionId };
+  }
   return void 0;
 }
 function keepDraftFiles({ chatId, part, files }) {
   if (files.length === 0) keptFiles.delete(chatId);
   else keptFiles.set(chatId, { part, files: [...files] });
+}
+function keepDraftText({ chatId, part, text }, storage = globalThis.localStorage) {
+  const entry = entryFor(storage, { sync: true });
+  const texts2 = entry.texts;
+  const before = texts2[chatId];
+  let changed = false;
+  if (text === "") {
+    if (before !== void 0) {
+      delete texts2[chatId];
+      changed = true;
+    }
+  } else if (before?.part !== part || before?.text !== text) {
+    texts2[chatId] = { part, text };
+    changed = true;
+  }
+  if (changed) {
+    entry.dirtyKeys.add(chatId);
+    writeEntry(storage, entry);
+  }
 }
 function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage, { deferMs = 0 } = {}) {
   keepDraftFiles({ chatId, part, files });
@@ -37280,7 +37650,7 @@ function ModelRows({ roster, current: current2, onPick, query = "", filtering = 
   });
 }
 var Caret = () => (0, import_react22.createElement)("svg", { className: "bt-model-caret", width: 12, height: 12, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react22.createElement)("path", { d: "M5.5 8l4.5 4.5L14.5 8" }));
-function useAnchoredMenu(minWidth = 240) {
+function useAnchoredMenu(minWidth = 240, align = "right") {
   const [anchor, setAnchor] = (0, import_react22.useState)(null);
   const [place, setPlace] = (0, import_react22.useState)(null);
   const [shownPlace, leaving] = useLinger(place, MENU_EXIT_MS2);
@@ -37323,10 +37693,12 @@ function useAnchoredMenu(minWidth = 240) {
     if (anchor === null || !button.current) return;
     const rect = button.current.getBoundingClientRect();
     const width = Math.min(Math.max(minWidth, rect.width), window.innerWidth - 16);
-    const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+    const rawLeft = align === "left" ? rect.left : rect.right - width;
+    const left = Math.max(8, Math.min(rawLeft, window.innerWidth - width - 8));
     const below = viewBottom() - rect.bottom;
-    setPlace(below >= 260 || below >= rect.top ? { left, width, top: rect.bottom + 4, maxHeight: below - 16, "--bt-origin": "top right" } : { left, width, bottom: viewBottom() - rect.top + 4, maxHeight: rect.top - 16, "--bt-origin": "bottom right" });
-  }, [anchor, tick, minWidth]);
+    const originX = align === "left" ? "left" : "right";
+    setPlace(below >= 260 || below >= rect.top ? { left, width, top: rect.bottom + 4, maxHeight: below - 16, "--bt-origin": `top ${originX}` } : { left, width, bottom: viewBottom() - rect.top + 4, maxHeight: rect.top - 16, "--bt-origin": `bottom ${originX}` });
+  }, [anchor, tick, minWidth, align]);
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close };
 }
 function useInlineMenu() {
@@ -37430,8 +37802,30 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     chooseEffort: (effort) => onPickEffort ? onPickEffort(effort) : run2(actions.updateBot(bot.id, { effort: effort ?? null }))
   };
 }
-var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
+var modelTrigger = (picker, { wide, compact: compact2, disabled, button, isOpen, onClick }) => {
   const { shown, models: models2, withEfforts, effortLabel, inherited } = picker;
+  if (compact2) {
+    const sub2 = withEfforts && effortLabel !== void 0 ? effortLabel : null;
+    return (0, import_react22.createElement)(
+      "button",
+      {
+        ref: button,
+        type: "button",
+        className: "bt-model-trigger bt-model-trigger-compact",
+        disabled,
+        "aria-haspopup": "menu",
+        "aria-expanded": isOpen,
+        "aria-label": t("Model: {model}", { model: shown?.name ?? t("none") }),
+        title: shown ? sub2 ? `${shown.name} · ${sub2}` : shown.name : t("Choose a model"),
+        "data-missing": shown !== void 0 && !shown.served && models2.length > 0 ? "" : void 0,
+        "data-empty": !shown || void 0,
+        onClick
+      },
+      (0, import_react22.createElement)("span", { className: "bt-model-name" }, shown?.name ?? t("Choose a model")),
+      sub2 ? (0, import_react22.createElement)("span", { className: "bt-model-compact-effort" }, sub2) : null,
+      (0, import_react22.createElement)(Caret)
+    );
+  }
   return (0, import_react22.createElement)(
     "button",
     {
@@ -37439,6 +37833,7 @@ var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
       type: "button",
       className: "bt-model-trigger",
       "data-wide": wide || void 0,
+      disabled,
       "aria-haspopup": "menu",
       "aria-expanded": isOpen,
       "aria-label": t("Model: {model}", { model: shown?.name ?? t("none") }),
@@ -37499,8 +37894,8 @@ var modelMenuLabel = (bot) => t("Model for {name}", { name: bot.name });
 function ModelMenu(props) {
   return props.inline ? (0, import_react22.createElement)(InlineModelMenu, props) : (0, import_react22.createElement)(PopupModelMenu, props);
 }
-function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true, fallbackModel }) {
-  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu(wide ? 260 : 240);
+function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, compact: compact2 = false, disabled = false, align = "right", onPick, onPickEffort, withEfforts = true, fallbackModel }) {
+  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu(wide ? 260 : 240, align);
   const picker = useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort, withEfforts, fallbackModel });
   const { manage, hasEfforts } = picker;
   const hasModels = picker.models.length > 0;
@@ -37515,6 +37910,7 @@ function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick,
     return () => observer2.disconnect();
   }, [wide, button, picker.shown?.provider, picker.shown?.served, picker.effortLabel, withEfforts, hasModels]);
   const toggle = () => {
+    if (disabled) return;
     if (isOpen) {
       close();
       return;
@@ -37529,7 +37925,7 @@ function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick,
   return (0, import_react22.createElement)(
     import_react22.Fragment,
     null,
-    modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
+    modelTrigger(picker, { wide, compact: compact2, disabled, button, isOpen, onClick: toggle }),
     shownPlace ? (0, import_react_dom2.createPortal)((0, import_react22.createElement)(
       "div",
       { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, "data-wide": wide || void 0, role: "menu", "aria-label": modelMenuLabel(bot), style: shownPlace, "data-leaving": leaving || void 0 },
@@ -65645,7 +66041,7 @@ function useDictation(onText) {
   const stop = () => recognition.current?.stop();
   return { listening, note, start, stop };
 }
-function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
+function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster, voiceChat = true, disabled = false }) {
   const enterToSend = useRoster((state) => sendsOnEnter(state.prefs));
   const composerRoot = (0, import_react82.useRef)(null);
   (0, import_react82.useEffect)(() => {
@@ -65817,25 +66213,27 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
   return (0, import_react82.createElement)(
     import_react82.Fragment,
     null,
-    pluginMic ? null : (0, import_react82.createElement)("button", {
+    pluginMic ? voiceChat ? null : (0, import_react82.createElement)("span", { ref: composerRoot, hidden: true }) : (0, import_react82.createElement)("button", {
+      ref: voiceChat ? void 0 : composerRoot,
       type: "button",
       className: "bt-mic",
       "aria-label": listening ? t("Stop dictation") : t("Dictate"),
       "aria-pressed": listening,
       title: listening ? t("Stop dictation") : t("Dictate"),
-      disabled: hostBusy,
+      disabled: disabled || hostBusy,
       onMouseDown: keepComposerFocus,
       onClick: toggleMic
     }, (0, import_react82.createElement)(MicIcon)),
-    (0, import_react82.createElement)("button", {
+    voiceChat ? (0, import_react82.createElement)("button", {
       ref: composerRoot,
       type: "button",
       className: "bt-voice",
       "aria-label": t("Start voice chat"),
       title: t("Voice chat"),
+      disabled,
       onMouseDown: keepComposerFocus,
       onClick: openVoiceChat
-    }, (0, import_react82.createElement)(WaveIcon, { size: 18 })),
+    }, (0, import_react82.createElement)(WaveIcon, { size: 18 })) : null,
     note ? (0, import_react82.createElement)("span", { className: "bt-mic-note", role: "status" }, note) : null
   );
 }
@@ -72890,17 +73288,26 @@ var import_react98 = require("react");
 var OWN_QUEUE_KINDS = /* @__PURE__ */ new Set(["user", "schedule", "user-question-reply"]);
 var EMPTY_QUEUE = [];
 var QUEUE_TEXT_FACTS = { collapseWhitespace: true, trimWhitespace: true };
-var textOf = (content) => content.every((block) => block.type === "text") ? content.map((block) => block.text).join("") : null;
+var queueRowText = (content) => Array.isArray(content) ? content.filter((block) => block?.type === "text" && typeof block.text === "string").map((block) => block.text).join("") : "";
+var textOf = (content) => Array.isArray(content) && content.length > 0 && content.every((block) => block?.type === "text") ? content.map((block) => block.text).join("") : null;
 function queueAttachments(content) {
   const attachments = [];
-  for (const block of content) {
-    if (block.type === "image" || block.type === "file") {
+  for (const block of Array.isArray(content) ? content : []) {
+    if (block?.type === "image" || block?.type === "file") {
       if (block.attachment !== void 0) attachments.push({ type: block.type, attachment: block.attachment });
     }
   }
   return attachments;
 }
 var fileSizeText2 = (bytes) => typeof bytes !== "number" || !Number.isFinite(bytes) ? "" : bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+function WithdrawIcon() {
+  return (0, import_react98.createElement)(
+    "svg",
+    { width: 15, height: 15, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+    (0, import_react98.createElement)("path", { d: "M7.5 6.5L4 10l3.5 3.5" }),
+    (0, import_react98.createElement)("path", { d: "M4.5 10h7a4 4 0 0 1 0 8H9" })
+  );
+}
 function QueueFile({ attachment, label }) {
   const size = fileSizeText2(attachment.bytes);
   return (0, import_react98.createElement)(
@@ -72914,9 +73321,10 @@ function QueueFile({ attachment, label }) {
 function QueueThumb({ attachment, loadImage, label }) {
   const [url, setUrl] = (0, import_react98.useState)(null);
   (0, import_react98.useEffect)(() => {
+    if (typeof loadImage !== "function") return void 0;
     let alive = true;
-    loadImage(attachment).then((resolved) => {
-      if (alive) setUrl(resolved);
+    Promise.resolve(loadImage(attachment)).then((resolved) => {
+      if (alive && resolved) setUrl(resolved);
     }, () => {
     });
     return () => {
@@ -72927,10 +73335,11 @@ function QueueThumb({ attachment, loadImage, label }) {
 }
 function Preview({ text, renderFactorySlot }) {
   const rendered = renderFactorySlot?.("conversation.user.text", { text, facts: QUEUE_TEXT_FACTS, interactive: false, ellipsis: true });
-  return (0, import_react98.createElement)("span", { className: "bt-queue-preview" }, rendered ?? maskSecrets(text));
+  return (0, import_react98.createElement)("span", { className: "bt-queue-preview", title: rendered ? void 0 : maskSecrets(text) || void 0 }, rendered ?? maskSecrets(text));
 }
 function EditField({ text, onChange, onSave, onCancel }) {
   const field = (0, import_react98.useRef)(null);
+  useEscape(onCancel, true, { priority: 20 });
   (0, import_react98.useEffect)(() => {
     const node = field.current;
     if (node === null) return;
@@ -72946,10 +73355,8 @@ function EditField({ text, onChange, onSave, onCancel }) {
     "aria-label": t("Edit queued message"),
     onChange: (event) => onChange(event.target.value),
     onKeyDown: (event) => {
-      if (event.key === "Escape" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
-        event.stopPropagation();
-        onCancel();
-      } else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+      if (isImeComposing(event)) return;
+      if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         onSave();
       }
@@ -72959,21 +73366,20 @@ function EditField({ text, onChange, onSave, onCancel }) {
 function RowButton({ label, title, disabled, onClick, children }) {
   return (0, import_react98.createElement)("button", { type: "button", className: "bt-queue-action", "aria-label": label, title: title ?? label, disabled, onClick }, children);
 }
-function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFactorySlot, actions }) {
-  const inbox = useProjection?.("inbox");
-  const pendingSubmissions = useSession?.((s) => s.pendingSubmissions) ?? EMPTY_QUEUE;
-  const queue2 = (0, import_react98.useMemo)(() => {
-    const rows2 = (inbox?.["next-turn"] ?? EMPTY_QUEUE).filter((row) => OWN_QUEUE_KINDS.has(row.source?.kind));
-    const inChat = new Set(pendingSubmissions.filter((item) => item.placement === "transcript").map((item) => item.requestId));
-    return inChat.size === 0 ? rows2 : rows2.filter(({ source }) => source === null || typeof source !== "object" || !("rpcId" in source) || !inChat.has(source.rpcId));
-  }, [inbox, pendingSubmissions]);
-  const pendingQueue = (0, import_react98.useMemo)(() => {
-    const admitted = new Set(queue2.flatMap(({ source }) => source !== null && typeof source === "object" && "rpcId" in source ? [source.rpcId] : []));
-    return pendingSubmissions.filter((submission) => submission.placement === "queued" && !admitted.has(submission.requestId));
-  }, [pendingSubmissions, queue2]);
+function QueueDockPresenter({
+  queue: queue2,
+  pendingQueue = EMPTY_QUEUE,
+  running = false,
+  queueMutable = true,
+  updateQueue,
+  loadImage,
+  renderFactorySlot,
+  actions,
+  onWithdraw = null,
+  className = "bt-queue-dock",
+  actionsClassName = "bt-queue-actions"
+}) {
   const rowCount = queue2.length + pendingQueue.length;
-  const running = useSession?.((s) => s.running) === true;
-  const queueMutable = useSession?.((s) => s.subagent === null || s.subagent === void 0 || s.subagent.address?.mode === "continuable") ?? true;
   const [editing, setEditing] = (0, import_react98.useState)(null);
   const [busy, setBusy] = (0, import_react98.useState)(null);
   const [collapsed, setCollapsed] = (0, import_react98.useState)(true);
@@ -72990,25 +73396,33 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
     setBusy(itemId);
     try {
       const result = await updateQueue(itemId, action);
-      if (result && result.ok === false && result.error?.code !== "session/queue-item-not-found" && result.error?.code !== "session/steer-unavailable") {
-        actions.reportError(new Error(failure), "queue");
-        return false;
+      if (result && result.ok === false) {
+        if (result.error?.code !== "session/queue-item-not-found" && result.error?.code !== "session/steer-unavailable") {
+          actions?.reportError?.(new Error(failure), "queue");
+        }
+        return { settled: result.error?.code === "session/queue-item-not-found" || result.error?.code === "session/steer-unavailable", accepted: false };
       }
-      return true;
+      return { settled: true, accepted: result?.accepted !== false };
     } catch {
-      actions.reportError(new Error(failure), "queue");
-      return false;
+      actions?.reportError?.(new Error(failure), "queue");
+      return { settled: false, accepted: false };
     } finally {
       setBusy((current2) => current2 === itemId ? null : current2);
     }
   };
+  const withdrawRow = async (row) => {
+    const text = queueRowText(row.content);
+    const outcome = await applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already."));
+    if (outcome.accepted && text !== "") onWithdraw?.(text);
+  };
   const saveEdit = async () => {
     if (editing === null || editing.text.trim() === "") return;
-    if (await applyAction(editing.id, { kind: "edit", content: [{ type: "text", text: editing.text }] }, t("Couldn’t edit the queued message — it may have started already."))) setEditing(null);
+    const outcome = await applyAction(editing.id, { kind: "edit", content: [{ type: "text", text: editing.text }] }, t("Couldn’t edit the queued message — it may have started already."));
+    if (outcome.settled) setEditing(null);
   };
   return (0, import_react98.createElement)(
     "div",
-    { className: "bt-queue-dock", "data-queue-dock": "" },
+    { className, "data-queue-dock": "" },
     (0, import_react98.createElement)(
       "div",
       { className: "bt-queue-panel" },
@@ -73026,23 +73440,25 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
         listVisible && queue2.map((row) => {
           const attachments = queueAttachments(row.content);
           const text = textOf(row.content);
+          const plain = queueRowText(row.content);
+          const canWithdraw = plain.trim() !== "" && attachments.length === 0;
           return (0, import_react98.createElement)(
             "li",
-            { key: row.id, className: "bt-queue-row" },
+            { key: row.id, className: "bt-queue-row", "data-queue-id": row.id },
             rowCount === 1 && (0, import_react98.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react98.createElement)(QueueIcon)),
-            editing?.id === row.id ? (0, import_react98.createElement)(EditField, { text: editing.text, onChange: (text2) => setEditing({ id: row.id, text: text2 }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react98.createElement)(
+            editing?.id === row.id ? (0, import_react98.createElement)(EditField, { text: editing.text, onChange: (next) => setEditing({ id: row.id, text: next }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react98.createElement)(
               import_react98.Fragment,
               null,
               attachments.length > 0 && (0, import_react98.createElement)(
                 "span",
                 { className: "bt-queue-attachments" },
-                attachments.map((item, index) => item.type === "image" ? (0, import_react98.createElement)(QueueThumb, { key: `${item.attachment.attachmentId}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react98.createElement)(QueueFile, { key: `${item.attachment.attachmentId}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
+                attachments.map((item, index) => item.type === "image" ? (0, import_react98.createElement)(QueueThumb, { key: `${item.attachment.attachmentId ?? index}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react98.createElement)(QueueFile, { key: `${item.attachment.attachmentId ?? item.attachment.name}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
               ),
-              (0, import_react98.createElement)(Preview, { text: row.content.filter((block) => block.type === "text").map((block) => block.text).join(""), renderFactorySlot })
+              (0, import_react98.createElement)(Preview, { text: plain, renderFactorySlot })
             ),
             queueMutable && (0, import_react98.createElement)(
               "div",
-              { className: "bt-queue-actions" },
+              { className: actionsClassName },
               editing?.id === row.id ? (0, import_react98.createElement)(
                 import_react98.Fragment,
                 null,
@@ -73051,11 +73467,18 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
               ) : (0, import_react98.createElement)(
                 import_react98.Fragment,
                 null,
+                typeof onWithdraw === "function" && (0, import_react98.createElement)(RowButton, { label: t("Withdraw to input"), title: canWithdraw ? t("Withdraw to input") : t("Contains non-text content"), disabled: busy !== null || !canWithdraw, onClick: () => {
+                  void withdrawRow(row);
+                } }, (0, import_react98.createElement)(WithdrawIcon)),
                 (0, import_react98.createElement)(RowButton, { label: t("Edit queued message"), title: text === null ? t("Contains non-text content, so editing is not supported yet") : void 0, disabled: busy !== null || text === null, onClick: () => {
                   if (text !== null) setEditing({ id: row.id, text });
                 } }, (0, import_react98.createElement)(PencilIcon)),
-                (0, import_react98.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already.")) }, (0, import_react98.createElement)(TrashIcon)),
-                (0, import_react98.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again.")) }, (0, import_react98.createElement)(ArrowUpIcon))
+                (0, import_react98.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => {
+                  void applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already."));
+                } }, (0, import_react98.createElement)(TrashIcon)),
+                (0, import_react98.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => {
+                  void applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again."));
+                } }, (0, import_react98.createElement)(ArrowUpIcon))
               )
             )
           );
@@ -73067,13 +73490,14 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
           submission.attachments.length > 0 && (0, import_react98.createElement)(
             "span",
             { className: "bt-queue-attachments" },
-            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react98.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react98.createElement)(QueueFile, { key: `${attachment.value.attachmentId}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
+            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react98.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react98.createElement)(QueueFile, { key: `${attachment.value.attachmentId ?? attachment.value.name}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
           ),
           (0, import_react98.createElement)(Preview, { text: submission.text, renderFactorySlot }),
           (0, import_react98.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
           queueMutable && (0, import_react98.createElement)(
             "div",
-            { className: "bt-queue-actions" },
+            { className: actionsClassName },
+            typeof onWithdraw === "function" && (0, import_react98.createElement)(RowButton, { label: t("Withdraw to input"), title: t("Sending…"), disabled: true }, (0, import_react98.createElement)(WithdrawIcon)),
             (0, import_react98.createElement)(RowButton, { label: t("Edit queued message"), title: t("Sending…"), disabled: true }, (0, import_react98.createElement)(PencilIcon)),
             (0, import_react98.createElement)(RowButton, { label: t("Delete queued message"), title: t("Sending…"), disabled: true }, (0, import_react98.createElement)(TrashIcon)),
             (0, import_react98.createElement)(RowButton, { label: t("Steer queued message"), title: t("Sending…"), disabled: true }, (0, import_react98.createElement)(ArrowUpIcon))
@@ -73082,6 +73506,32 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
       )
     )
   );
+}
+function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFactorySlot, actions }) {
+  const inbox = useProjection?.("inbox");
+  const pendingSubmissions = useSession?.((s) => s.pendingSubmissions) ?? EMPTY_QUEUE;
+  const queue2 = (0, import_react98.useMemo)(() => {
+    const rows2 = (inbox?.["next-turn"] ?? EMPTY_QUEUE).filter((row) => OWN_QUEUE_KINDS.has(row.source?.kind));
+    const inChat = new Set(pendingSubmissions.filter((item) => item.placement === "transcript").map((item) => item.requestId));
+    return inChat.size === 0 ? rows2 : rows2.filter(({ source }) => source === null || typeof source !== "object" || !("rpcId" in source) || !inChat.has(source.rpcId));
+  }, [inbox, pendingSubmissions]);
+  const pendingQueue = (0, import_react98.useMemo)(() => {
+    const admitted = new Set(queue2.flatMap(({ source }) => source !== null && typeof source === "object" && "rpcId" in source ? [source.rpcId] : []));
+    return pendingSubmissions.filter((submission) => submission.placement === "queued" && !admitted.has(submission.requestId));
+  }, [pendingSubmissions, queue2]);
+  const running = useSession?.((s) => s.running) === true;
+  const queueMutable = useSession?.((s) => s.subagent === null || s.subagent === void 0 || s.subagent.address?.mode === "continuable") ?? true;
+  if (queue2.length + pendingQueue.length === 0) return null;
+  return (0, import_react98.createElement)(QueueDockPresenter, {
+    queue: queue2,
+    pendingQueue,
+    running,
+    queueMutable,
+    updateQueue,
+    loadImage,
+    renderFactorySlot,
+    actions
+  });
 }
 var QUEUE_CSS = `
 .bt-queue-dock{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));max-width:calc(var(--dsh-composer-card-max-width,748px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));margin:0 auto calc(0px - var(--dsh-composer-stack-gap,8px) - 3px);padding:0 var(--dsh-composer-dock-inset,0px);flex:none}
