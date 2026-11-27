@@ -36,6 +36,7 @@ export function createRoomReports(rt, deps) {
   } = deps
 
   const db = () => rt.coordDb ?? null
+  const existingDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : db())
   const writableDb = () => {
     const handle = db()
     if (handle === null || handle.isClosed?.() || handle.readonly || rt.readOnly?.() !== undefined) return null
@@ -137,7 +138,7 @@ export function createRoomReports(rt, deps) {
   }
 
   const listActiveReports = (roomId) => {
-    const handle = db()
+    const handle = existingDb()
     if (handle === null || handle.isClosed?.()) return []
     const works = handle.listWorks({ kind: 'room_work', ...(roomId !== undefined ? { roomId } : {}), activeOnly: true, limit: 500 })
     const out = []
@@ -150,7 +151,7 @@ export function createRoomReports(rt, deps) {
 
   const getReportById = (id) => {
     if (typeof id !== 'string' || id === '') return undefined
-    const handle = db()
+    const handle = existingDb()
     if (handle === null || handle.isClosed?.()) return undefined
     const work = handle.getWork(reportWorkId(id))
     if (!work || ['done', 'failed', 'stopped'].includes(work.status)) return undefined
@@ -353,7 +354,7 @@ export function createRoomReports(rt, deps) {
   const waitingForUser = (room, botId) => {
     const sid = room.sessions?.[botId]
     if (sid !== undefined && (rt.state.questions?.[sid] !== undefined || rt.state.views?.[sid] !== undefined)) return true
-    const handle = db()
+    const handle = existingDb()
     if (handle === null || handle.isClosed?.()) return false
     const works = handle.listWorks({ botId, kind: 'room_work', roomId: room.id, activeOnly: true, limit: 20 })
     for (const work of works) {
@@ -634,7 +635,7 @@ export function createRoomReports(rt, deps) {
   }
 
   const hasPausedRoomWork = (roomId) => {
-    const handle = db()
+    const handle = existingDb()
     if (handle === null || handle.isClosed?.()) return false
     return handle.listWorks({ kind: 'room_work', roomId, status: 'paused', limit: 20 })
       .some(work => !isReportWork(work))

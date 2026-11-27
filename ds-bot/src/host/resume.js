@@ -163,14 +163,30 @@ export function install(rt) {
   // 2. When holding `state.lock` (RW): runs idempotent legacy migration, ensures foreground works,
   //    reconciles every interrupted work against DSH D2 `queryDeliveryStatus` (never routing
   //    failed/unstarted background tasks into foreground private chat), and kicks the scheduler.
-  function adoptLiveWork() {
-    if (adopting !== null) return adopting
+  let adoptingLazy = false
+  function adoptLiveWork({ lazy = false } = {}) {
+    if (adopting !== null) {
+      if (lazy || !adoptingLazy) return adopting
+      return adopting.then(() => adoptLiveWork({ lazy: false }))
+    }
+    adoptingLazy = lazy
     adopting = (async () => {
       await rt.load()
       rt.refreshCoordDb?.()
       await rt.adoptLiveTurnMaps?.()
 
       if (rt.readOnly?.() !== undefined) return
+      if (lazy && typeof rt.hasExistingCoordDb === 'function' && !rt.hasExistingCoordDb()) {
+        const hasLegacyWorkData = Object.keys(rt.state?.works ?? {}).length > 0
+          || Object.keys(rt.state?.roomBatches ?? {}).length > 0
+          || Object.keys(rt.state?.roomReports ?? {}).length > 0
+          || existsSync(inflightPath)
+          || existsSync(apiRunsPath)
+        const hasOpenBotTasks = Object.values(rt.state?.bots ?? {}).some(
+          bot => Array.isArray(bot?.tasks) && bot.tasks.some(t => t && !['done', 'cancelled', 'failed', 'interrupted', 'stopped'].includes(t.status)),
+        )
+        if (!hasLegacyWorkData && !hasOpenBotTasks) return
+      }
       const coordDb = rt.coordDb
       if (!coordDb || coordDb.readonly || coordDb.isClosed()) return
 
@@ -363,10 +379,11 @@ export function install(rt) {
   }
 
   // Compatibility helpers backed by `rt.coordDb` + process-local pending direct deliveries (zero `inflight.json`).
+  const existingCoordDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null))
   const hasPendingRecovery = (sessionId) => {
     if (!sessionId) return false
     if ((pendingDirectBySession.get(sessionId)?.size ?? 0) > 0) return true
-    const coordDb = rt.coordDb
+    const coordDb = existingCoordDb()
     if (!coordDb || coordDb.isClosed()) return false
     const work = coordDb.getWorkBySessionId(sessionId)
     if (!work) return false
@@ -381,7 +398,7 @@ export function install(rt) {
         }
       }
     }
-    const coordDb = rt.coordDb
+    const coordDb = existingCoordDb()
     if (!coordDb || coordDb.isClosed()) return false
     const work = coordDb.getWork(`task:${taskId}`) ?? coordDb.getWork(taskId)
     if (!work) return false
@@ -394,7 +411,7 @@ export function install(rt) {
     if (direct !== undefined) {
       for (const entry of direct.values()) out.push(entry)
     }
-    const coordDb = rt.coordDb
+    const coordDb = existingCoordDb()
     if (coordDb && !coordDb.isClosed()) {
       const work = coordDb.getWorkBySessionId(sessionId)
       if (work && !['done', 'failed', 'stopped'].includes(work.status)) {

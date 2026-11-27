@@ -123,7 +123,8 @@ export function install(rt) {
 
   // Secondary (read-only) windows read coordination.sqlite directly in readonly WAL mode
   // without ever taking write locks or triggering scheduling.
-  const readOnlyCoord = () => (rt.readOnly() !== undefined && rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null)
+  const existingCoord = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null))
+  const readOnlyCoord = () => (rt.readOnly() !== undefined ? existingCoord() : null)
 
   const coordTaskStatus = (work, openWaits) => {
     if (work.status === 'done') return 'completed'
@@ -225,7 +226,7 @@ export function install(rt) {
   // Closes any open `waits(kind='user_question')` matching a question or view card when the
   // user submits or dismisses it. Runs only on the writable lock-holding host.
   const resolveUserQuestionWait = ({ sessionId, kind, cardId, status = 'resolved', resolution }) => {
-    const db = rt.coordDb
+    const db = existingCoord()
     if (!db || db.readonly || db.isClosed?.()) return
     try {
       const candidateTargets = new Set([
@@ -592,7 +593,7 @@ export function install(rt) {
       await rt.refresh()
       const readOnly = rt.readOnly()
       if (readOnly !== undefined) {
-        if (!rt.coordDb || rt.coordDb.isClosed?.() || !rt.coordDb.readonly) rt.refreshCoordDb?.()
+        rt.refreshCoordDb?.()
         if (!READS.has(endpoint)) return fail(readOnly, 'bot/read-only')
       }
       switch (endpoint) {
@@ -1383,9 +1384,10 @@ export function install(rt) {
           const hasTask = (bot.tasks ?? []).some(item => item?.id === taskId)
             || rt.taskById?.(taskId)?.bot?.id === bot.id
             || (() => {
-              if (!rt.coordDb || rt.coordDb.isClosed?.()) return false
+              const db = existingCoord()
+              if (!db || db.isClosed?.()) return false
               try {
-                const work = rt.coordDb.getWork(`task:${taskId}`) ?? rt.coordDb.getWork(taskId)
+                const work = db.getWork(`task:${taskId}`) ?? db.getWork(taskId)
                 return work !== undefined && work.botId === bot.id
               } catch {
                 return false

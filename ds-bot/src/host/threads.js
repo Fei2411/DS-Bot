@@ -212,13 +212,15 @@ function findTaskRecord(state, rawTaskId) {
 // Part rollovers update `bot.sessionId`, `task.sessionId`, or `room.sessions[botId]`
 // without changing the logical address.
 //
+const existingCoordDbOf = rtOrState => (typeof rtOrState?.existingCoordDb === 'function' ? rtOrState.existingCoordDb() : rtOrState?.coordDb)
+
 // HARD INVARIANT: A settled/missing task or a deleted/removed room membership NEVER
 // falls back to a Bot's foreground private chat — it returns `undefined`.
 export function resolveLogicalSession(rtOrState, logicalAddress) {
   const parsed = parseLogicalAddress(logicalAddress)
   if (parsed === undefined) return undefined
   const state = stateOf(rtOrState)
-  const coordDb = rtOrState?.coordDb
+  const coordDb = existingCoordDbOf(rtOrState)
   const hasStateBots = state?.bots != null && Object.keys(state.bots).length > 0
 
   if (parsed.kind === 'foreground') {
@@ -302,7 +304,7 @@ export function logicalAddressOf(rtOrState, sessionId) {
   const chatOwner = rtOrState?.chatOwners?.get?.(sessionId)
   if (chatOwner) return foregroundAddress(chatOwner)
 
-  const coordDb = rtOrState?.coordDb
+  const coordDb = existingCoordDbOf(rtOrState)
   if (coordDb && !coordDb.isClosed?.()) {
     const work = coordDb.getWorkBySessionId?.(sessionId)
     if (work?.logicalAddress) return work.logicalAddress
@@ -354,7 +356,7 @@ export function returnAddress(rtOrState, {
   if (typeof effectiveRoom === 'string' && effectiveRoom !== '' && typeof botId === 'string' && botId !== '') {
     return roomMemberAddress(effectiveRoom, botId)
   }
-  const coordDb = rtOrState?.coordDb
+  const coordDb = existingCoordDbOf(rtOrState)
   if (typeof workId === 'string' && workId !== '' && coordDb && !coordDb.isClosed?.()) {
     const work = coordDb.getWork?.(workId)
     if (work?.logicalAddress) return work.logicalAddress

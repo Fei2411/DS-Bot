@@ -9,11 +9,23 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as realDelay } from 'node:timers/promises'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { SOURCE_KIND } from '../src/host/constants.js'
 import { openCoordinationDb } from '../src/host/coordination-db.js'
 import { fakeContext } from './fake-ctx.js'
+
+const tempHomes = []
+after(() => {
+  for (const dir of tempHomes) {
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }) } catch {}
+  }
+})
+const tempHome = (prefix) => {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tempHomes.push(dir)
+  return dir
+}
 
 const textOf = content => (Array.isArray(content) ? content.map(block => block?.text ?? '').join('\n') : String(content ?? ''))
 
@@ -141,8 +153,7 @@ function seedCoord(home, fn) {
 }
 
 test('empty inflight: orphan leaf work settles visibly, wakes parent without killing parent, frees result files and upstreamOf', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-leaf-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const home = tempHome('ds-bot-orphan-leaf-')
   const resultsDir = join(home, 'handoff-results')
   mkdirSync(resultsDir, { recursive: true })
   const pinnedFile = join(resultsDir, 'w-sub-old.txt')
@@ -202,8 +213,7 @@ test('empty inflight: orphan leaf work settles visibly, wakes parent without kil
 })
 
 test('empty inflight: orphan leaf work with existing D2 completed log recovers cleanly instead of abandoning', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-ledger-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const home = tempHome('ds-bot-orphan-ledger-')
 
   seedCoord(home, (db) => {
     db.ensureForegroundWork({ botId: 'a', workId: 'fg:a', logicalAddress: 'foreground:a', sessionId: 'dm-a' })
@@ -291,8 +301,7 @@ test('empty inflight: orphan leaf work with existing D2 completed log recovers c
 })
 
 test('empty inflight: top-level orphan leaf and waiting_work background task handoff notify their callers visibly', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-bg-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const home = tempHome('ds-bot-orphan-bg-')
   const team = seedTeam({
     bots: {
       a: {
@@ -354,8 +363,7 @@ test('empty inflight: top-level orphan leaf and waiting_work background task han
 })
 
 test('strict conservatism: never aborts paused, needs_verification, need_input, non-leaf, group room_work, live running, queued inbox, question, approval, or secret works', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-strict-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const home = tempHome('ds-bot-orphan-strict-')
   const team = seedTeam({
     bots: {
       a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1 },
@@ -455,8 +463,7 @@ test('strict conservatism: never aborts paused, needs_verification, need_input, 
 })
 
 test('non-empty inflight: legacy inflight.json migration protects live running work via D2 while settling lost orphan work', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-inflight-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const home = tempHome('ds-bot-orphan-inflight-')
   const team = seedTeam({
     works: {
       'w-resumed': { from: 'a', to: 'b', toSession: 'dm-b', name: 'Writer', ref: 'W10', state: 'open', open: [], results: [], at: 1000 },
@@ -510,8 +517,7 @@ test('non-empty inflight: legacy inflight.json migration protects live running w
 })
 
 test('reconcileLostWorks protects living Bots across part switches while abandoning works whose target Bot or group was deleted', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-lost-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const home = tempHome('ds-bot-orphan-lost-')
   const team = seedTeam({
     bots: {
       a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1 },
@@ -543,8 +549,7 @@ test('reconcileLostWorks protects living Bots across part switches while abandon
 })
 
 test('multi-child D2 recovery delivers EVERY child reply for the same parent, skips already-settled duplicates, and clears parent waits', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-multi-child-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const home = tempHome('ds-bot-orphan-multi-child-')
 
   seedCoord(home, (db) => {
     db.ensureForegroundWork({ botId: 'a', workId: 'fg:a', logicalAddress: 'foreground:a', sessionId: 'dm-a' })
@@ -609,8 +614,7 @@ test('multi-child D2 recovery delivers EVERY child reply for the same parent, sk
 })
 
 test('top-level child work with D2 completed log wakes waiting_work background task session without spamming foreground', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-bg-ledger-'))
-  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const home = tempHome('ds-bot-orphan-bg-ledger-')
 
   const team = seedTeam({
     bots: {

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import {
   CoordinationError,
   SCHEMA_VERSION,
@@ -12,8 +12,20 @@ import {
   openCoordinationDb,
 } from '../src/host/coordination-db.js'
 
+const tempDirs = []
+after(() => {
+  for (const dir of tempDirs) {
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }) } catch {}
+  }
+})
+function tempDir(prefix = 'dsb-coord-db-') {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tempDirs.push(dir)
+  return dir
+}
+
 function makeDb(t, opts = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'dsb-coord-db-'))
+  const dir = tempDir('dsb-coord-db-')
   let tick = 1_700_000_000_000
   const db = openCoordinationDb({
     home: dir,
@@ -25,7 +37,6 @@ function makeDb(t, opts = {}) {
   })
   t.after(() => {
     db.close()
-    rmSync(dir, { recursive: true, force: true })
   })
   return { db, dir, path: join(dir, 'coordination.sqlite') }
 }
@@ -37,7 +48,7 @@ test('schema initialization, WAL mode, foreground uniqueness, and logical addres
 
   const raw = new DatabaseSync(path)
   t.after(() => raw.close())
-  assert.equal(raw.prepare('PRAGMA journal_mode').get().journal_mode, 'wal')
+  assert.equal(raw.prepare('PRAGMA journal_mode').get().journal_mode, process.platform === 'win32' ? 'delete' : 'wal')
 
   const fg1 = db.ensureForegroundWork({ botId: 'botA', sessionId: 'sess-1' })
   assert.equal(fg1.created, true)
@@ -706,8 +717,7 @@ test('readonly mode safely reads WAL snapshot from active writer, blocks all mut
 })
 
 test('crash/restart persistence and idempotent replay across reopened database handles', (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'dsb-coord-crash-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const dir = tempDir('dsb-coord-crash-')
 
   const db1 = openCoordinationDb({ home: dir })
   const parent = db1.createWork({ workId: 'w-parent', botId: 'botA', kind: 'task' }).work
@@ -951,8 +961,7 @@ test('verifier regressions: foreground chain isolation, reconcileDeliveryStatus 
   assert.equal(tailClaim.work.workId, tailRead.workId)
 
   // Readonly schema version guard: newer user_version throws structured coordination/schema_newer.
-  const futureDir = mkdtempSync(join(tmpdir(), 'dsb-coord-future-'))
-  t.after(() => rmSync(futureDir, { recursive: true, force: true }))
+  const futureDir = tempDir('dsb-coord-future-')
   const futurePath = join(futureDir, 'coordination.sqlite')
   const rawFuture = new DatabaseSync(futurePath)
   rawFuture.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 5}`)
@@ -1113,4 +1122,37 @@ test('verifier regressions: foreground chain isolation, reconcileDeliveryStatus 
   })
   assert.equal(recRoom.action, 'settled')
   assert.equal(db.listInbox(ddRoom.workId, { unreadOnly: true }).length, 0)
+})
+
+test('install(rt) keeps coordination.sqlite lazy until written and exposes existingCoordDb/hasExistingCoordDb', () => {
+  const dir = tempDir('dsb-coord-lazy-')
+  const dbPath = join(dir, 'coordination.sqlite')
+  let roReason
+  const disposes = []
+  const rt = {
+    home: dir,
+    readOnly: () => roReason,
+    hasLoaded: () => true,
+    onAdopted: () => () => {},
+    ctx: { effect: (fn) => { disposes.push(fn()) } },
+  }
+  install(rt)
+  assert.equal(rt.hasExistingCoordDb(), false, 'fresh home has no coordination.sqlite yet')
+  assert.equal(rt.existingCoordDb(), null, 'existingCoordDb does not create file on disk')
+  assert.equal(existsSync(dbPath), false, 'coordination.sqlite stays uncreated after install + existingCoordDb')
+  assert.equal(rt.refreshCoordDb(), null, 'refreshCoordDb stays lazy when no file exists')
+  assert.equal(existsSync(dbPath), false, 'coordination.sqlite still uncreated after refreshCoordDb')
+
+  // First explicit rt.coordDb access lazily creates and opens the DB.
+  const db = rt.coordDb
+  assert.ok(db && !db.isClosed())
+  assert.equal(existsSync(dbPath), true)
+  assert.equal(rt.hasExistingCoordDb(), true)
+  assert.equal(rt.existingCoordDb(), db)
+
+  // Clean disposal closes the handle so temp directories can be removed on Windows without EPERM.
+  for (const fn of disposes) fn()
+  assert.equal(db.isClosed(), true)
+  assert.equal(rt.existingCoordDb(), null)
+  assert.equal(rt.hasExistingCoordDb(), false)
 })

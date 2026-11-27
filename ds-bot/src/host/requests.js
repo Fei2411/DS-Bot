@@ -26,6 +26,7 @@ export function install(rt) {
   const callerCache = new Map()
 
   const hasCoordDb = () => rt.coordDb != null && !rt.coordDb.isClosed?.()
+  const existingCoordDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (hasCoordDb() ? rt.coordDb : null))
   const writableCoordDb = () => hasCoordDb() && rt.coordDb.readonly !== true
   const legacyReceipts = () => (state.requests ??= {})
 
@@ -44,21 +45,22 @@ export function install(rt) {
   })
 
   const syncCallerFromDb = (caller) => {
-    if (!hasCoordDb() || typeof caller !== 'string' || caller === '') return undefined
+    const db = existingCoordDb()
+    if (!db || typeof caller !== 'string' || caller === '') return undefined
     let bucket = callerCache.get(caller)
     if (bucket === undefined) {
       bucket = { loaded: false, lastSeq: 0, records: new Map() }
       callerCache.set(caller, bucket)
     }
     const workId = reqWorkId(caller)
-    if (rt.coordDb.getWork(workId) === undefined) {
+    if (db.getWork(workId) === undefined) {
       bucket.loaded = true
       return bucket
     }
     // Pull any new rows since lastSeq (supports read-only windows seeing new commits).
     let afterSeq = bucket.lastSeq
     while (true) {
-      const rows = rt.coordDb.listInbox(workId, { afterSeq, limit: 500 })
+      const rows = db.listInbox(workId, { afterSeq, limit: 500 })
       if (rows.length === 0) break
       for (const row of rows) {
         if (row.seq > afterSeq) afterSeq = row.seq

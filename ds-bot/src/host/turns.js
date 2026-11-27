@@ -637,11 +637,12 @@ export function install(rt) {
       setActivity(id, undefined)
     }
     // Stop all non-terminal SQLite works owned by this deleted Bot so parent callers wake immediately.
-    if (rt.coordDb && !rt.coordDb.readonly && !rt.coordDb.isClosed()) {
-      for (const work of rt.coordDb.listWorks({ botId })) {
+    const existingDb = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
+    if (existingDb && !existingDb.readonly && !existingDb.isClosed()) {
+      for (const work of existingDb.listWorks({ botId })) {
         if (['done', 'failed', 'stopped'].includes(work.status)) continue
         const tag = work.workRef ? ` #${work.workRef}` : ''
-        const res = rt.coordDb.stopWork(work.workId, {
+        const res = existingDb.stopWork(work.workId, {
           reason: cancelReason,
           by: 'system',
           cascadeChildren: true,

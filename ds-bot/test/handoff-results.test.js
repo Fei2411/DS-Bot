@@ -362,31 +362,39 @@ test('closing or dropping work keeps durable result files in coordination.sqlite
   db1.close()
 
   const db2 = openCoordinationDb({ home })
-  t.after(() => { try { db2.close() } catch {} })
   const restarted = { home, coordDb: db2, state: {}, botOf: () => undefined, readOnly: () => undefined, warn() {}, save: async () => {} }
-  installHandoffs(restarted)
-  assert.ok(restarted.answerText('parent', 'done', 'Writer').includes(LONG))
-  restarted.dropWork('parent')
-  assert.deepEqual(keptIn(home), ['child.txt'])
+  try {
+    installHandoffs(restarted)
+    assert.ok(restarted.answerText('parent', 'done', 'Writer').includes(LONG))
+    restarted.dropWork('parent')
+    assert.deepEqual(keptIn(home), ['child.txt'])
+  } finally {
+    db2.close()
+  }
 })
 
 test('a durable result written on closeWork survives process restart in handoff-results', async (t) => {
   const { home } = bench(t)
   const db1 = openCoordinationDb({ home })
-  t.after(() => { try { db1.close() } catch {} })
-  const rt = { home, coordDb: db1, state: {}, botOf: () => undefined, readOnly: () => undefined, warn() {}, save: async () => {} }
-  installHandoffs(rt)
-  rt.openWork('parent', { from: 'a', to: 'b' })
-  rt.openWork('child', { from: 'b', to: 'c', parent: 'parent' })
-  rt.closeWork('child', 'Tester', LONG)
-  assert.deepEqual(keptIn(home), ['child.txt'])
-  db1.close()
+  try {
+    const rt = { home, coordDb: db1, state: {}, botOf: () => undefined, readOnly: () => undefined, warn() {}, save: async () => {} }
+    installHandoffs(rt)
+    rt.openWork('parent', { from: 'a', to: 'b' })
+    rt.openWork('child', { from: 'b', to: 'c', parent: 'parent' })
+    rt.closeWork('child', 'Tester', LONG)
+    assert.deepEqual(keptIn(home), ['child.txt'])
+  } finally {
+    db1.close()
+  }
 
   const db2 = openCoordinationDb({ home })
-  t.after(() => { try { db2.close() } catch {} })
-  const restarted = { home, coordDb: db2, state: {}, botOf: () => undefined, readOnly: () => undefined, warn() {}, save: async () => {} }
-  installHandoffs(restarted)
-  assert.ok(restarted.answerText('parent', 'done', 'Writer').includes(LONG))
+  try {
+    const restarted = { home, coordDb: db2, state: {}, botOf: () => undefined, readOnly: () => undefined, warn() {}, save: async () => {} }
+    installHandoffs(restarted)
+    assert.ok(restarted.answerText('parent', 'done', 'Writer').includes(LONG))
+  } finally {
+    db2.close()
+  }
 })
 
 test('a team saved before the result was kept whole still answers, and says what is missing', async (t) => {

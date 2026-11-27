@@ -671,7 +671,7 @@ export function install(rt) {
       taintedCoordWorks.delete(taintedCoordWorks.values().next().value)
     }
   }
-  const readableCoordDb = () => (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null)
+  const readableCoordDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null))
   const normalizeCoordImOrigin = (raw) => {
     if (!raw || typeof raw !== 'object') return undefined
     if (raw.mixed === true) return { mixed: true }

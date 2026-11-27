@@ -1141,6 +1141,7 @@ test('handoffs.js startup orphan sweep preserves live unsaved results and finish
   writeFileSync(stalePath, 'left behind by crashed host', 'utf8')
 
   const ctx = fakeContext()
+  const workSettledListeners = new Set()
   let releaseLoad
   const loadGate = new Promise(resolve => { releaseLoad = resolve })
   const rt = {
@@ -1149,6 +1150,7 @@ test('handoffs.js startup orphan sweep preserves live unsaved results and finish
     state: seedState({ revision: 2 }),
     readOnly: () => undefined,
     load: () => loadGate,
+    onWorkSettled: fn => { workSettledListeners.add(fn); return () => workSettledListeners.delete(fn) },
     botOf: id => rt.state.bots[id],
     chatOf: id => rt.state.bots[id]?.sessionId ?? id,
     roomOf: () => undefined,
@@ -1167,6 +1169,16 @@ test('handoffs.js startup orphan sweep preserves live unsaved results and finish
   const livePath = join(resultsDir, liveFile)
   assert.equal(existsSync(livePath), true, 'live result written before startup sweep')
 
+  // An intermediate work-settled prune before the startup sweep finishes must NOT end
+  // startup-sweep protection or delete live files written before or after that settled event.
+  for (const fn of workSettledListeners) fn({ work: { workId: 'w-other' }, outcome: 'done', settledCalls: [] })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const liveFile2 = rt.keepResultFile('w-live-after-settled', longText)
+  assert.ok(liveFile2, 'second keepResultFile returns filename')
+  const livePath2 = join(resultsDir, liveFile2)
+  assert.equal(existsSync(livePath), true, 'intermediate settled prune must not delete live file 1')
+  assert.equal(existsSync(livePath2), true, 'live file 2 written before startup sweep finishes')
+
   // Release startup load so pruneOrphanResultFiles() runs now.
   releaseLoad()
   const sweepDeadline = Date.now() + 3000
@@ -1174,7 +1186,16 @@ test('handoffs.js startup orphan sweep preserves live unsaved results and finish
     await new Promise(resolve => setTimeout(resolve, 10))
   }
   assert.equal(existsSync(stalePath), false, 'startup orphan sweep removes genuine prior-crash orphan')
-  assert.equal(existsSync(livePath), true, 'startup orphan sweep must not delete live file created before sweep finished')
+  assert.equal(existsSync(livePath), true, 'startup orphan sweep must not delete live file 1 created before sweep finished')
+  assert.equal(existsSync(livePath2), true, 'startup orphan sweep must not delete live file 2 created after intermediate settled prune')
+
+  // Disposing the host while a settled-work prune is in flight must NEVER delete live result files on disk.
+  const liveFile3 = rt.keepResultFile('w-live-before-dispose', longText)
+  const livePath3 = join(resultsDir, liveFile3)
+  for (const fn of workSettledListeners) fn({ work: { workId: 'w-dispose-race' }, outcome: 'done', settledCalls: [] })
+  await ctx.dispose()
+  await new Promise(resolve => setTimeout(resolve, 40))
+  assert.equal(existsSync(livePath3), true, 'in-flight pruneOrphanResultFiles after ctx.dispose() must not unlink live result files')
 
   // Startup failure path: if rt.load() rejects before pruneOrphanResultFiles(), the startup
   // chain still settles cleanly without unhandled rejection.

@@ -910,7 +910,6 @@ test('P1 #2, P1 #3, P1 #5: hard-signal stagnation pause/resume, client HEADER/RE
 
 test('P0 #3: reload reconciliation keeps need_input work open instead of prematurely closing it, and skips cancelled works', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-reload-callret-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
   const seed = team()
   seed.works = {
     'w-need': { ref: 'W1', state: 'need_input', from: 'a', to: 'b', question: '哪台机器？', rounds: 1, worked: false, open: [], results: [], at: Date.now() },
@@ -975,7 +974,10 @@ test('P0 #3: reload reconciliation keeps need_input work open instead of prematu
     sessions: { flush: async () => {}, messageProjections: [], get: id => agentOf(id).session },
   })
   const rt = createRuntime(ctx, { home })
-  t.after(async () => { await ctx.dispose() })
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
   await rt.adoptLiveWork()
   await delay(50)
 

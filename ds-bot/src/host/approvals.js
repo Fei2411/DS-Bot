@@ -40,7 +40,7 @@ export function install(rt) {
   const approvalListeners = new Set()
   const clean = text => cleanText(text, { redact: rt.redactSecrets }).slice(0, 1000)
   const writableCoordDb = () => (rt.coordDb && !rt.coordDb.readonly && !rt.coordDb.isClosed?.() ? rt.coordDb : null)
-  const readableCoordDb = () => (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null)
+  const readableCoordDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null))
 
   const emit = (kind, data) => {
     for (const listener of approvalListeners) {

@@ -403,7 +403,7 @@ export function install(rt) {
       return decision
     }
     if (dshCapabilities(agent).zeroWakeNote) return decision
-    const coordDb = rt.coordDb
+    const coordDb = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
     if (!coordDb || coordDb.isClosed()) return decision
     const noteWorks = []
     const seenWorkIds = new Set()
@@ -470,6 +470,21 @@ export function install(rt) {
         const bySess = byAddr ?? coordDb.getWorkBySessionId(target)
         workId = bySess?.workId
         sessionId ??= bySess?.sessionId
+        if (!workId && !coordDb.readonly) {
+          const fgBotId = target.startsWith('fg:') ? target.slice(3)
+            : (target.startsWith('foreground:') ? target.slice('foreground:'.length) : undefined)
+          const fgBot = fgBotId ? rt.botOf?.(fgBotId) : undefined
+          if (fgBot !== undefined) {
+            const ensured = coordDb.ensureForegroundWork({
+              botId: fgBot.id,
+              sessionId: sessionId ?? rt.chatOf?.(fgBot.id) ?? fgBot.sessionId ?? null,
+              privacyScoped: fgBot.private === true,
+              visibility: fgBot.private === true ? 'private' : 'private',
+            }).work
+            workId = ensured.workId
+            sessionId ??= ensured.sessionId
+          }
+        }
       }
     }
     if (!sessionId && typeof target === 'string') {
@@ -999,7 +1014,7 @@ export function install(rt) {
 
   function kickScheduler({ botId, workId, throwOnError = false } = {}) {
     if (disposed || rt.readOnly?.() !== undefined) return Promise.resolve()
-    const coordDb = rt.coordDb
+    const coordDb = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
     if (isStopped(coordDb)) return Promise.resolve()
 
     if (typeof workId === 'string' && workId !== '') pendingWorkIds.add(workId)
@@ -1093,7 +1108,7 @@ export function install(rt) {
 
   // Normalized turn lifecycle handler invoked by `turns.js`.
   function notifyTurnLifecycle(event) {
-    const coordDb = rt.coordDb
+    const coordDb = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
     if (!coordDb || coordDb.readonly || coordDb.isClosed()) return
     const sessionId = event?.sessionId
     if (typeof sessionId !== 'string' || sessionId === '') return
@@ -1490,7 +1505,7 @@ export function install(rt) {
     let sessionId = typeof workOrId === 'object' ? (workOrId?.sessionId ?? workOrId?.toSession) : undefined
     let settledResult
 
-    const coordDb = rt.coordDb
+    const coordDb = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
     if (workId && coordDb && !coordDb.readonly && !coordDb.isClosed()) {
       const existing = coordDb.getWork(workId)
       if (existing) {
@@ -1617,7 +1632,7 @@ export function install(rt) {
   // zero-wake notes survive part switches and missing-session recovery (#2004).
   const moveSilentNotes = async (fromSessionId, toSessionId) => {
     if (typeof fromSessionId !== 'string' || fromSessionId === '' || typeof toSessionId !== 'string' || toSessionId === '' || fromSessionId === toSessionId) return
-    const coordDb = rt.coordDb
+    const coordDb = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
     if (!coordDb || coordDb.readonly || coordDb.isClosed()) return
     try {
       const works = coordDb.listWorks({ limit: 500 }).filter(w => w.sessionId === fromSessionId)

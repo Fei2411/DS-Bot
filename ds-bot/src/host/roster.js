@@ -65,7 +65,7 @@ export function install(rt) {
   // deleted group, or removed group member, notifies/wakes upstream callers, and aborts
   // any live DSH execution BEFORE sessions are archived.
   async function stopCoordWorks({ botId, botIds, roomId, reason, by } = {}) {
-    const db = rt.coordDb
+    const db = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
     if (!db || db.readonly || db.isClosed?.()) return { stoppedWorkIds: [], wokenWorkIds: [] }
     const targetBots = botIds !== undefined ? new Set(botIds) : (botId !== undefined ? new Set([botId]) : undefined)
     const stoppedWorkIds = new Set()

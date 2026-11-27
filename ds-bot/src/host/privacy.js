@@ -491,10 +491,12 @@ export function install(rt) {
   const privateBots = () => Object.values(state.bots).filter(bot => bot.private === true)
   // Deleting a private Bot does not make the files and memory it leaves behind public.
   const protectedBots = () => [...new Map([...(state.privateArchives ?? []), ...privateBots()].map(bot => [bot.id, bot])).values()]
+  const existingCoordDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null))
   const coordSessionsOf = (botId) => {
-    if (!rt.coordDb || rt.coordDb.isClosed?.()) return []
+    const db = existingCoordDb()
+    if (!db) return []
     try {
-      return rt.coordDb.listWorks({ botId, limit: 200 }).map(work => work.sessionId).filter(Boolean)
+      return db.listWorks({ botId, limit: 200 }).map(work => work.sessionId).filter(Boolean)
     } catch {
       return []
     }
@@ -721,24 +723,26 @@ export function install(rt) {
 
   // Read-only lookup against coordination.sqlite for privacy checks on works & calls.
   const coordWorkFor = (refOrSessionId) => {
-    if (!rt.coordDb || rt.coordDb.isClosed?.() || typeof refOrSessionId !== 'string' || refOrSessionId === '') return undefined
+    const db = existingCoordDb()
+    if (!db || typeof refOrSessionId !== 'string' || refOrSessionId === '') return undefined
     try {
       const clean = refOrSessionId.replace(/^#/, '')
-      return rt.coordDb.getWork(clean)
-        ?? rt.coordDb.getWorkByRef(clean)
-        ?? rt.coordDb.getWork(`handoff:${clean}`)
-        ?? rt.coordDb.getWork(`task:${clean}`)
-        ?? rt.coordDb.getWorkBySessionId(refOrSessionId)
+      return db.getWork(clean)
+        ?? db.getWorkByRef(clean)
+        ?? db.getWork(`handoff:${clean}`)
+        ?? db.getWork(`task:${clean}`)
+        ?? db.getWorkBySessionId(refOrSessionId)
     } catch {
       return undefined
     }
   }
   const coordCallsOf = (workId) => {
-    if (!rt.coordDb || rt.coordDb.isClosed?.() || !workId) return { incoming: [], outgoing: [] }
+    const db = existingCoordDb()
+    if (!db || !workId) return { incoming: [], outgoing: [] }
     try {
       return {
-        incoming: rt.coordDb.listCalls({ childWorkId: workId, limit: 50 }),
-        outgoing: rt.coordDb.listCalls({ parentWorkId: workId, limit: 50 }),
+        incoming: db.listCalls({ childWorkId: workId, limit: 50 }),
+        outgoing: db.listCalls({ parentWorkId: workId, limit: 50 }),
       }
     } catch {
       return { incoming: [], outgoing: [] }
@@ -842,12 +846,15 @@ export function install(rt) {
           const cw = (explicit ? coordWorkFor(explicit) : undefined) ?? (turnAskWork ? coordWorkFor(turnAskWork) : undefined)
           if (cw) {
             toBotId = cw.botId
-          } else if (activeCoordWork && rt.coordDb && !rt.coordDb.isClosed?.()) {
-            try {
-              const incomingAsks = rt.coordDb.listWaits({ kind: 'ask', targetWorkId: activeCoordWork.workId, status: 'open', limit: 10 })
-              const asker = incomingAsks[0] ? rt.coordDb.getWork(incomingAsks[0].workId) : undefined
-              toBotId = asker?.botId
-            } catch { /* ignore */ }
+          } else if (activeCoordWork) {
+            const db = existingCoordDb()
+            if (db) {
+              try {
+                const incomingAsks = db.listWaits({ kind: 'ask', targetWorkId: activeCoordWork.workId, status: 'open', limit: 10 })
+                const asker = incomingAsks[0] ? db.getWork(incomingAsks[0].workId) : undefined
+                toBotId = asker?.botId
+              } catch { /* ignore */ }
+            }
           }
         }
         const to = toBotId ? rt.botOf(toBotId) : undefined

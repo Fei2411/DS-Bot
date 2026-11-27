@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { setTimeout as realDelay } from 'node:timers/promises'
 import { format } from 'node:util'
 import { Context } from '@deepseek-ai/cordis'
@@ -16,6 +16,18 @@ import { openCoordinationDb } from '../src/host/coordination-db.js'
 import { install as installLedger, bookFile, parseBook } from '../src/host/ledger.js'
 import weixin from '../src/host/im/platforms/weixin.js'
 import { fakeContext } from './fake-ctx.js'
+
+const tempHomes = []
+after(() => {
+  for (const dir of tempHomes) {
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }) } catch {}
+  }
+})
+const tempHome = (prefix) => {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tempHomes.push(dir)
+  return dir
+}
 
 const textOf = content => (Array.isArray(content) ? content.map(block => block?.text ?? '').join('\n') : String(content ?? ''))
 const textBlock = text => [{ type: 'text', text }]
@@ -354,8 +366,7 @@ test('F4 (turns.js): deferred later/joined preserve attachments and defer takenW
 })
 
 test('F4 (resume.js): one-time inflight.json migration + D2 reconciliation guards completed/paused/need_input/interrupted-tool works with zero leftover inflight.json', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-f4-resume-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const home = tempHome('ds-bot-f4-resume-')
 
   const team = makeTeam({
     works: {
@@ -417,8 +428,7 @@ test('F4 (resume.js): one-time inflight.json migration + D2 reconciliation guard
 })
 
 test('G-08 & G-09: unseen completed/failed/interrupted group room_works reconcile via D2 without double-posting, aborted turn keeps non-stopped joined room call', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-g08-g09-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const home = tempHome('ds-bot-g08-g09-')
 
   const team = makeTeam({
     rooms: {
@@ -627,8 +637,7 @@ test('F6 (real ReactLoopAgent + durability): pre-step orders silent notes before
 
   // 2) >50 silent notes buffered while busy (no silent 50-item cap!), persisted in SQLite coordination.sqlite
   //    (zero inflight.json), and survive restart WITHOUT waking!
-  const home2 = mkdtempSync(join(tmpdir(), 'ds-bot-f6-persist-'))
-  t.after(() => rmSync(home2, { recursive: true, force: true, maxRetries: 5 }))
+  const home2 = tempHome('ds-bot-f6-persist-')
   const host1 = await startHost(t, { home: home2, team: makeTeam() })
   host1.emit('dm-b', 'turn/start', { turn: 1 })
   host1.emit('dm-b', 'user/message', { content: textBlock('busy'), source: { kind: 'user' } })
@@ -736,8 +745,7 @@ test('F6 (real ReactLoopAgent + durability): pre-step orders silent notes before
 test('F9 (ledger.js, delivery.js, handoffs.js): torn newline & prepend race fixes, drop clears lastWrite, incremental pairCache, disposed resolveAgent, async dropResults + orphan sweep', async (t) => {
   // 1) ledger.js: failed append sets entry.torn = true -> next queued append prepends `\n`,
   //    prepend queued behind a failed append does NOT resurrect the rolled-back record, and drop() clears lastWrite!
-  const ledgerHome = mkdtempSync(join(tmpdir(), 'ds-bot-f9-ledger-'))
-  t.after(() => rmSync(ledgerHome, { recursive: true, force: true, maxRetries: 5 }))
+  const ledgerHome = tempHome('ds-bot-f9-ledger-')
   const lrt = { home: ledgerHome, readOnly: () => undefined, warn() {} }
   installLedger(lrt)
   const bookPath = join(ledgerHome, 'ledger', bookFile('pair-a-b'))
@@ -793,8 +801,7 @@ test('F9 (ledger.js, delivery.js, handoffs.js): torn newline & prepend race fixe
   await assert.rejects(() => host.rt.resolveAgent('dm-a'), error => error.code === 'plugin/disposed')
 
   // 3) handoffs.js startup orphan handoff-results/*.txt sweep keeps referenced coordDb files and removes orphans.
-  const orphanHome = mkdtempSync(join(tmpdir(), 'ds-bot-f9-orphans-'))
-  t.after(() => rmSync(orphanHome, { recursive: true, force: true, maxRetries: 5 }))
+  const orphanHome = tempHome('ds-bot-f9-orphans-')
   mkdirSync(join(orphanHome, 'handoff-results'), { recursive: true })
   writeFileSync(join(orphanHome, 'handoff-results', 'kept-1.txt'), 'x'.repeat(2500), 'utf8')
   writeFileSync(join(orphanHome, 'handoff-results', 'orphan-old.txt'), 'stale orphan', 'utf8')
@@ -1022,8 +1029,7 @@ test('P1 merge regression (turns.js): aborted turn settles live roomWaiter witho
 })
 
 test('P1 merge regression (resume.js): SQLite restart recovery delivers pending child replies and reports targeting task:<id> with attachments isolated per Bot', async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-task-work-recover-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const home = tempHome('ds-bot-task-work-recover-')
 
   const attachment = { attachmentId: 'att-task-sub-1', mediaType: 'text/plain', name: 'build.log' }
   const team = makeTeam({

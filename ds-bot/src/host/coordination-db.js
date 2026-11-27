@@ -3298,8 +3298,12 @@ export function openCoordinationDb({
 export function install(rt) {
   const dbPath = join(rt.home, 'coordination.sqlite')
   let handle = null
+  let disposed = false
+  let overridden = false
+  let overrideValue
 
   const openHandle = () => {
+    if (disposed) return null
     const isReadOnly = rt.readOnly?.() !== undefined
     if (handle !== null && !handle.isClosed() && handle.readonly === isReadOnly) {
       return handle
@@ -3311,30 +3315,72 @@ export function install(rt) {
     if (isReadOnly && !existsSync(dbPath)) {
       return null
     }
-    handle = openCoordinationDb({ path: dbPath, readonly: isReadOnly, onWarn: rt.warn })
+    try {
+      handle = openCoordinationDb({ path: dbPath, readonly: isReadOnly, onWarn: rt.warn })
+    } catch (error) {
+      rt.warn?.('ds-bot: coordination database unavailable: %s', error?.message ?? error)
+      handle = null
+    }
     return handle
   }
 
-  const refreshCoordDb = () => {
-    try {
-      rt.coordDb = openHandle()
-    } catch (error) {
-      rt.warn?.('ds-bot: coordination database unavailable: %s', error?.message ?? error)
-      rt.coordDb = null
-    }
-    return rt.coordDb
+  const hasExistingCoordDb = () => {
+    if (overridden) return overrideValue != null && !overrideValue.isClosed?.()
+    if (disposed) return false
+    if (handle !== null && !handle.isClosed()) return true
+    return existsSync(dbPath)
   }
 
-  if (typeof rt.hasLoaded !== 'function' || rt.hasLoaded()) refreshCoordDb()
+  const existingCoordDb = () => {
+    if (overridden) return overrideValue && !overrideValue.isClosed?.() ? overrideValue : null
+    if (disposed) return null
+    if (handle === null && !existsSync(dbPath)) return null
+    return openHandle()
+  }
+
+  const refreshCoordDb = () => {
+    overridden = false
+    overrideValue = undefined
+    if (disposed) return null
+    const isReadOnly = rt.readOnly?.() !== undefined
+    // Keep SQLite lazy when no coordination.sqlite exists yet so hosts/tests that never
+    // use coordination do not create an OS-locked DB handle during startup/load.
+    if (handle === null && !existsSync(dbPath)) {
+      return null
+    }
+    if (handle !== null && !handle.isClosed() && handle.readonly === isReadOnly) {
+      return handle
+    }
+    return openHandle()
+  }
+
+  Object.defineProperty(rt, 'coordDb', {
+    configurable: true,
+    enumerable: true,
+    get() {
+      if (overridden) return overrideValue
+      return openHandle()
+    },
+    set(value) {
+      overridden = true
+      overrideValue = value
+    },
+  })
+
+  if (existsSync(dbPath) && (typeof rt.hasLoaded !== 'function' || rt.hasLoaded())) {
+    refreshCoordDb()
+  }
   const offAdopted = rt.onAdopted?.(() => { refreshCoordDb() })
   rt.ctx?.effect?.(() => () => {
+    disposed = true
     offAdopted?.()
     if (handle !== null) {
       handle.close()
       handle = null
     }
-    rt.coordDb = null
+    overridden = false
+    overrideValue = undefined
   }, 'ds-bot: coordination db')
 
-  Object.assign(rt, { refreshCoordDb })
+  Object.assign(rt, { refreshCoordDb, hasExistingCoordDb, existingCoordDb })
 }

@@ -1912,6 +1912,7 @@ export function install(rt) {
   // restarts recover completed results, adopt queued/running turns via group-owned observers,
   // or visibly pause yielded/interrupted work as `needs_verification` instead of blindly stopping.
   rt.settleRoomBatches = async () => {
+    if (typeof rt.hasExistingCoordDb === 'function' && !rt.hasExistingCoordDb()) return
     const handle = writableDb()
     if (handle === null) return
     const active = handle.listWorks({ kind: 'room_work', activeOnly: true, limit: 500 }).filter(isDelegationWork)

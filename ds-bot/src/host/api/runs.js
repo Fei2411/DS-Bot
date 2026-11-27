@@ -58,7 +58,7 @@ export function createRunCoordinator(rt, auth) {
   let disposed = false
 
   const writes = () => rt.readOnly?.() === undefined
-  const readableDb = () => (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null)
+  const readableDb = () => (typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : (rt.coordDb && !rt.coordDb.isClosed?.() ? rt.coordDb : null))
   const writableDb = () => (writes() && rt.coordDb && !rt.coordDb.readonly && !rt.coordDb.isClosed?.() ? rt.coordDb : null)
 
   function serializeMeta(record, extra = {}) {
@@ -395,6 +395,9 @@ export function createRunCoordinator(rt, auth) {
   //   when D2 `rt.queryDeliveryStatus` is present, non-terminal chat Runs wait for async D2 check
   //   (showing `needs_verification` rather than falsely claiming `stopped`).
   function reconcileInterruptedApiRuns() {
+    if (typeof rt.hasExistingCoordDb === 'function' && !rt.hasExistingCoordDb() && !existsSync(join(rt.home, 'api-runs.json'))) {
+      return
+    }
     const db = writableDb()
     if (!db) return
     reconciled = true
@@ -437,6 +440,9 @@ export function createRunCoordinator(rt, auth) {
   // Queries cold DSH D2 `queryDeliveryStatus` for interrupted chat-mode API Runs and refreshes
   // task-mode linkage so clients see honest final/needs_verification status instead of fake `stopped`.
   async function reconcileInterruptedApiRunsAsync() {
+    if (typeof rt.hasExistingCoordDb === 'function' && !rt.hasExistingCoordDb() && !existsSync(join(rt.home, 'api-runs.json'))) {
+      return
+    }
     const db = writableDb()
     if (!db) return
     if (!reconciled) reconcileInterruptedApiRuns()

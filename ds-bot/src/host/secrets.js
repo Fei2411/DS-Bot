@@ -218,6 +218,10 @@ export function install(rt) {
   const { ctx, home, state } = rt
   const path = join(home, 'secrets.json')
   const writableCoordDb = () => (rt.coordDb && !rt.coordDb.readonly && !rt.coordDb.isClosed?.() ? rt.coordDb : null)
+  const existingWritableCoordDb = () => {
+    const db = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
+    return db && !db.readonly && !db.isClosed?.() ? db : null
+  }
 
   // How the file holds the values. `plaintext` is the default and the format older
   // versions wrote; `encrypted` is the optional envelope. The passphrase lives only in
@@ -747,7 +751,7 @@ export function install(rt) {
     } catch (error) {
       rt.warn('ds-bot: secret note to %s failed: %s', botId, error)
     }
-    const db = writableCoordDb()
+    const db = existingWritableCoordDb()
     if (!db || !request?.id) return
     let wokeWorkId
     try {
@@ -1282,7 +1286,7 @@ export function install(rt) {
   function forgetBotSecrets(botId) {
     return mutate(async () => {
       await loadSecrets()
-      const db = writableCoordDb()
+      const db = existingWritableCoordDb()
       if (db) {
         try {
           const open = db.listWaits({ kind: 'secret', status: 'open', limit: 200 })

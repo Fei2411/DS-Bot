@@ -43,6 +43,7 @@ export function install(rt) {
   const nameOf = id => rt.botOf(id)?.name
   const writes = () => rt.readOnly?.() === undefined
   const hasCoordDb = () => rt.coordDb != null && !rt.coordDb.isClosed?.()
+  const hasExistingCoordDb = () => (typeof rt.hasExistingCoordDb === 'function' ? rt.hasExistingCoordDb() : true) && hasCoordDb()
   const writableCoordDb = () => hasCoordDb() && rt.coordDb.readonly !== true && writes()
 
   // In-memory cache of full result bodies written during this process lifetime,
@@ -55,6 +56,7 @@ export function install(rt) {
   const ABANDONED_CACHE_MAX = 100
   // In-memory held answer text for turns whose upstream delegation was refused.
   const heldAnswers = new Map()
+  let disposed = false
 
   let workRefSeq = null
   const resetWorkRefSeq = () => { workRefSeq = null }
@@ -149,17 +151,21 @@ export function install(rt) {
   }
 
   async function pruneOrphanResultFiles() {
+    if (disposed || !writes()) return
+    let entries
     try {
-      if (!hasCoordDb() || !writes()) return
-      let entries
-      try {
-        entries = await readdir(resultsDir)
-      } catch {
-        return
-      }
-      const used = new Set()
+      entries = await readdir(resultsDir)
+    } catch {
+      return
+    }
+    if (entries.length === 0 || disposed || !writes()) return
+    const used = new Set()
+    const dbExistsOnDisk = typeof rt.hasExistingCoordDb === 'function' ? rt.hasExistingCoordDb() : hasCoordDb()
+    if (dbExistsOnDisk) {
+      const db = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
+      if (!db || db.isClosed?.()) return
       const activeNonFg = new Set()
-      for (const work of rt.coordDb.listWorks({ limit: 5000 })) {
+      for (const work of db.listWorks({ limit: 5000 })) {
         const isActive = !TERMINAL_STATUSES.has(work.status)
         if (isActive && work.kind !== 'foreground') activeNonFg.add(work.workId)
         if (isActive || work.parentWorkId === null) {
@@ -167,18 +173,17 @@ export function install(rt) {
           if (name !== undefined) used.add(name)
         }
       }
-      for (const call of rt.coordDb.listCalls({ limit: 5000 })) {
+      for (const call of db.listCalls({ limit: 5000 })) {
         if (!activeNonFg.has(call.parentWorkId)) continue
         const name = keptName(call.resultRef)
         if (name !== undefined) used.add(name)
       }
-      for (const file of entries) {
-        const name = keptName(file)
-        if (name === undefined || used.has(name) || createdBeforeStartupSweep.has(name)) continue
-        await rm(resultPath(name), { force: true }).catch(() => {})
-      }
-    } finally {
-      finishStartupSweep()
+    }
+    for (const file of entries) {
+      if (disposed || !writes()) return
+      const name = keptName(file)
+      if (name === undefined || used.has(name) || createdBeforeStartupSweep.has(name)) continue
+      await rm(resultPath(name), { force: true }).catch(() => {})
     }
   }
 
@@ -244,7 +249,7 @@ export function install(rt) {
   }
 
   function findDbWork(refOrId) {
-    if (!hasCoordDb()) return undefined
+    if (!hasExistingCoordDb()) return undefined
     const key = String(refOrId ?? '').trim()
     if (key === '') return undefined
     const direct = rt.coordDb.getWork(key)
@@ -301,7 +306,8 @@ export function install(rt) {
   }
 
   function resolveWorkForSession(sessionId, { ensureForeground = true } = {}) {
-    if (!hasCoordDb() || typeof sessionId !== 'string' || sessionId === '') return undefined
+    if (typeof sessionId !== 'string' || sessionId === '') return undefined
+    if (ensureForeground ? !hasCoordDb() : !hasExistingCoordDb()) return undefined
     const liveInfo = rt.live?.get(sessionId)?.info
     const activeId = workOf(liveInfo)
     if (activeId !== undefined) {
@@ -333,7 +339,7 @@ export function install(rt) {
   // (directly or transitively) on any work in `workIds`.
   function upstreamOf(workIds) {
     const bots = new Set()
-    if (!hasCoordDb()) return bots
+    if (!hasExistingCoordDb()) return bots
     const queue = []
     const visited = new Set()
     for (const rawId of workIds ?? []) {
@@ -910,7 +916,7 @@ export function install(rt) {
   }
 
   const waits = (workId) => {
-    if (!hasCoordDb() || !workId) return false
+    if (!hasExistingCoordDb() || !workId) return false
     const work = findDbWork(workId)
     if (work === undefined || TERMINAL_STATUSES.has(work.status)) return false
     return rt.coordDb.listWaits({ workId: work.workId, status: 'open', limit: 1 }).length > 0
@@ -943,7 +949,7 @@ export function install(rt) {
   function answerText(workId, reply, botName) {
     const said = reply !== '' ? reply : (heldAnswers.get(workId) ?? '')
     heldAnswers.delete(workId)
-    if (!hasCoordDb()) return said || `${botName} finished without a reply.`
+    if (!hasExistingCoordDb()) return said || `${botName} finished without a reply.`
     const work = findDbWork(workId)
     if (work === undefined) return said || `${botName} finished without a reply.`
     const formatEntry = (label, resObj) => {
@@ -983,7 +989,7 @@ export function install(rt) {
   }
 
   const needInputWorksFor = (callerId) => {
-    if (!hasCoordDb() || !callerId) return []
+    if (!hasExistingCoordDb() || !callerId) return []
     const openAsks = rt.coordDb.listWaits({ kind: 'ask', status: 'open', limit: 200 })
     const out = []
     for (const askWait of openAsks) {
@@ -997,7 +1003,7 @@ export function install(rt) {
   }
 
   const openWorksBetween = (fromId, toId) => {
-    if (!hasCoordDb() || !fromId || !toId) return []
+    if (!hasExistingCoordDb() || !fromId || !toId) return []
     const openCalls = rt.coordDb.listCalls({ status: 'open', limit: 500 })
       .filter(call => call.callerBotId === fromId && call.calleeBotId === toId)
     const out = []
@@ -1056,7 +1062,7 @@ export function install(rt) {
   // Per Bot, the Bots and groups it waits for, and the Bots it does that work for.
   function waitingView() {
     const view = {}
-    if (!hasCoordDb()) return view
+    if (!hasExistingCoordDb()) return view
     const add = (list, id) => { if (id !== undefined && !list.includes(id)) list.push(id) }
     const openWaits = rt.coordDb.listWaits({ status: 'open', limit: 500 })
     for (const wait of openWaits) {
@@ -1084,7 +1090,7 @@ export function install(rt) {
   function pausedWorksView() {
     const out = []
     const seenIds = new Set()
-    if (hasCoordDb()) {
+    if (hasExistingCoordDb()) {
       const paused = rt.coordDb.listWorks({ statuses: ['paused', 'needs_verification'], limit: 200 })
       for (const work of paused) {
         if (work.originKind === 'request_dedup') continue
@@ -1139,7 +1145,7 @@ export function install(rt) {
 
   // Startup sweep for works whose target Bot or group no longer exists.
   function reconcileLostWorks() {
-    if (!writableCoordDb()) return
+    if (!hasExistingCoordDb() || !writableCoordDb()) return
     const active = rt.coordDb.listWorks({ activeOnly: true, limit: 1000 })
     for (const work of active) {
       if (work.kind === 'foreground' || work.originKind === 'request_dedup') continue
@@ -1150,7 +1156,7 @@ export function install(rt) {
 
   // A deleted Bot answers no more work and waits for none.
   function forgetBot(botId, { onOutgoing } = {}) {
-    if (!writableCoordDb() || !botId) return []
+    if (!hasExistingCoordDb() || !writableCoordDb() || !botId) return []
     const active = rt.coordDb.listWorks({ botId, activeOnly: true, limit: 500 })
     const waiting = []
     for (const work of active) {
@@ -1206,7 +1212,7 @@ export function install(rt) {
       const entry = rt.live.get(sessionId)
       lines.push(`working ${place(sessionId)} ${minutes(entry.since ?? Date.now())}${forWhom(sessionId, entry.info)}${doing(entry)}`)
     }
-    if (hasCoordDb()) {
+    if (hasExistingCoordDb()) {
       const activeWorks = rt.coordDb.listWorks({ botId, activeOnly: true, limit: 100 })
       for (const work of activeWorks) {
         if (work.originKind === 'request_dedup') continue
@@ -1234,7 +1240,7 @@ export function install(rt) {
     for (const [kind, card] of [['question', state.questions?.[chat]], ['view', state.views?.[chat]]]) {
       if (card !== undefined) lines.push(`a ${kind} card in its own chat has waited for the user's answer ${forHowLong(card.askedAt)}`)
     }
-    if (hasCoordDb()) {
+    if (hasExistingCoordDb()) {
       const fg = rt.coordDb.getForegroundWork(botId)
       if (fg !== undefined) {
         const unread = new Map()
@@ -1303,7 +1309,7 @@ export function install(rt) {
 
   // Subagent sub-work lifecycle helpers backed by `coordDb` (`meta.child`).
   const findSubWork = (childId, { activeOnly = false, exclude } = {}) => {
-    if (!hasCoordDb() || typeof childId !== 'string' || childId === '') return undefined
+    if (!hasExistingCoordDb() || typeof childId !== 'string' || childId === '') return undefined
     const candidates = rt.coordDb.listWorks({ activeOnly, limit: 500 })
       .filter(w => w.meta?.child === childId && !(exclude?.has?.(w.workId)))
     return candidates.at(-1)
@@ -1383,8 +1389,10 @@ export function install(rt) {
   })
   ctx?.effect?.(() => {
     const timer = setTimeout(() => {
-      void (typeof rt.adoptLiveWork === 'function' ? rt.adoptLiveWork() : rt.load())
+      if (disposed) return
+      void (typeof rt.adoptLiveWork === 'function' ? rt.adoptLiveWork({ lazy: true }) : rt.load())
         .then(() => {
+          if (disposed) return
           reconcileLostWorks()
           rt.pruneOrphanRequests?.()
           return pruneOrphanResultFiles()
@@ -1394,6 +1402,7 @@ export function install(rt) {
     }, 0)
     timer.unref?.()
     return () => {
+      disposed = true
       clearTimeout(timer)
       finishStartupSweep()
       offWorkSettled?.()

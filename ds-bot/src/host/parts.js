@@ -4836,9 +4836,10 @@ export function install(rt) {
       // never strands persisted silent notes under an unowned `freshId`.
       await rt.save({ required: true })
       try {
-        if (rt.coordDb && !rt.coordDb.readonly && !rt.coordDb.isClosed?.()) {
-          const fg = rt.coordDb.getForegroundWork(bot.id)
-          if (fg !== undefined) rt.coordDb.rebindSession(fg.workId, freshId)
+        const existingDb = typeof rt.existingCoordDb === 'function' ? rt.existingCoordDb() : rt.coordDb
+        if (existingDb && !existingDb.readonly && !existingDb.isClosed?.()) {
+          const fg = existingDb.getForegroundWork(bot.id)
+          if (fg !== undefined) existingDb.rebindSession(fg.workId, freshId)
         }
         await rt.moveSilentNotes?.(lostId, freshId, { awaitFlush: true, rethrow: true })
         await rt.moveSchedules?.(lostId, freshId, { resolveTarget: () => rt.chatOf(bot.id) })

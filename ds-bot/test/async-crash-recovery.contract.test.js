@@ -556,7 +556,7 @@ async function runWorker() {
     return
   }
 
-  // ---- B6b: Unreadable DSH Session JSONL on disk (EACCES chmod 0o000) ----
+  // ---- B6b: Unreadable DSH Session JSONL on disk (EACCES chmod 0o000 / Windows NTFS ACL) ----
   if (scenario === 'B6b') {
     if (phase === 'crash') {
       const { ctx, rt } = await bootRealWorkerRuntime(home)
@@ -1799,7 +1799,7 @@ if (process.env.DSB_CRASH_WORKER === '1') {
       }
     })
 
-    it('B6b: unreadable DSH session JSONL on disk (EACCES chmod 0o000) -> pauses as needs_verification(delivery_status_unreadable), never reruns', () => {
+    it('B6b: unreadable DSH session JSONL on disk (EACCES chmod 0o000 / Windows NTFS ACL) -> pauses as needs_verification(delivery_status_unreadable), never reruns', () => {
       const home = makeHome('b6b')
       const crash = spawnPhase(home, 'B6b', 'crash')
       assert.equal(crash.status, 137, `expected hard crash 137, got ${crash.status}: ${crash.stderr}`)

@@ -1605,6 +1605,8 @@ describe('Wave 3 real-runtime end-to-end coordination contracts (Scenarios 2–8
       },
     })
 
+    // Touch rt.coordDb lazily before opening an independent readonly WAL handle.
+    assert.ok(rt.coordDb && !rt.coordDb.isClosed())
     const ro = openCoordinationDb({ home, readonly: true })
     try {
       await ensureSession('sess-s6-fg')

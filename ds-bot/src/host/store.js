@@ -831,7 +831,7 @@ export function install(rt) {
           void save().catch(error => warn('ds-bot: saving the migrated Bot team failed: %s', error))
         }
         if (!stopped && stuck === undefined) {
-          void rt.adoptLiveWork?.().catch(error => warn('ds-bot: adopting work after lock takeover failed: %s', error))
+          void rt.adoptLiveWork?.({ lazy: true }).catch(error => warn('ds-bot: adopting work after lock takeover failed: %s', error))
         }
         return
       }
