@@ -91,7 +91,7 @@ const entryCode = `
   export { openSessionFollow } from './ui/src/api.js'
   export { createSlotRegistry, SlotErrorBoundary, TOOL_VIEW_SLOT, CHAT_NODE_SLOT } from './ui/src/slots.js'
   export { buildSessionRows, makeToolArgs, splitReasoning, streamReasoningMs } from './ui/src/session-transcript.js'
-  export { ToolCallCard, argSummary, clipLongText, formatArgs, formatResult } from './ui/src/tool-card.js'
+  export { ToolCallCard, argSummary, clipLongText, formatArgs, formatResult, formatToolLabel } from './ui/src/tool-card.js'
   export { SessionTranscript, useSessionFollow } from './ui/src/session-chat.js'
   export { Chat } from './ui/src/chat.js'
   export { createTeam } from './ui/src/team.js'
@@ -252,7 +252,7 @@ const {
   applyFrame, addPage, emptyLog,
   openSessionFollow,
   createSlotRegistry, TOOL_VIEW_SLOT,
-  buildSessionRows, makeToolArgs, argSummary, clipLongText, ToolCallCard,
+  buildSessionRows, makeToolArgs, argSummary, clipLongText, formatToolLabel, ToolCallCard,
   SessionTranscript, useSessionFollow, Chat, createTeam,
 } = module.exports
 
@@ -1720,4 +1720,21 @@ test('Bot mode hides internal/MCP tools and compaction, preserves live activity 
   } finally {
     classicInst.unmount()
   }
+
+  // Bot subagent child transcript (`classic: false, parent: 'b1'`) still shows tool cards for inspection.
+  const subInst = mount(SessionTranscript, { log, sessionId: 'sub-1', parent: 'b1', roster, actions, classic: false, readOnly: true })
+  try {
+    const tree = subInst.render()
+    assert.ok(all(tree, n => n.props?.className === 'dsb-tool').length >= 4, 'Subagent viewer renders child tool cards even when parent is Bot mode')
+  } finally {
+    subInst.unmount()
+  }
+
+  // formatToolLabel boundary cases.
+  assert.deepEqual(plain(formatToolLabel('')), { server: '', name: '', raw: '' })
+  assert.deepEqual(plain(formatToolLabel('mcp__')), { server: '', name: 'mcp__', raw: 'mcp__' })
+  assert.deepEqual(plain(formatToolLabel('mcp__github__')), { server: '', name: 'mcp__github__', raw: 'mcp__github__' })
+  assert.deepEqual(plain(formatToolLabel('mcp____tool')), { server: '', name: 'mcp____tool', raw: 'mcp____tool' })
+  assert.deepEqual(plain(formatToolLabel('mcp__srv__a__b')), { server: 'srv', name: 'a__b', raw: 'mcp__srv__a__b' })
+  assert.deepEqual(plain(formatToolLabel('bash')), { server: '', name: 'bash', raw: 'bash' })
 })

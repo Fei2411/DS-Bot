@@ -1501,7 +1501,7 @@ function useShownCards(actions, sessionId, callIds) {
   }, [sessionId, key])
 }
 
-function renderCall(call, { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks, openFile }) {
+function renderCall(call, { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks, openFile, loadImage }) {
   const tool = toolName(call)
   const done = call.kind === 'tool-result'
   const { text: arg, value: argValue } = toolArgs(call)
@@ -1610,14 +1610,14 @@ function renderCall(call, { sessionId, roster, actions, useRoster, useUi, useWor
     default:
       if (isComputerCall(tool)) {
         return h(Fragment, null,
-          h(ComputerCallRow, { sessionId, call, roster, actions, hooks }),
+          h(ComputerCallRow, { sessionId, call, roster, actions, hooks, loadImage }),
           h(AppAccessCall, { sessionId, callId: call.callId, roster, actions, heldCards, hooks }))
       }
       return h(CellEmpty)
   }
 }
 
-export function ToolCell({ node, sessionId, openFile, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
+export function ToolCell({ node, sessionId, openFile, loadImage, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
   const roster = useRosterPick(useRoster, TOOL_ROSTER_FIELDS)
   const heldCards = useHeldCards?.(state => state[sessionId])
   const root = node.data.root
@@ -1638,6 +1638,6 @@ export function ToolCell({ node, sessionId, openFile, useRoster, useUi, useWork,
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note)
   useShownCards(actions, sessionId, drawn.filter(call => (CARDS.has(toolName(call)) || isComputerCall(toolName(call))) && call.callId).map(call => call.callId))
   if (drawn.length === 0) return h(CellEmpty)
-  const env = { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, openFile, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } }
+  const env = { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, openFile, loadImage, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } }
   return h(Fragment, null, drawn.map((call, index) => h(Fragment, { key: call.callId ?? index }, renderCall(call, env))))
 }

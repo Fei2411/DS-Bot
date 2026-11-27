@@ -36230,7 +36230,7 @@ var actionName = (method) => {
   const words = String(method ?? "").replace(/^cua_driver_native__/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").trim();
   return words === "" ? "Computer" : words[0].toUpperCase() + words.slice(1);
 };
-function ComputerCallRow({ sessionId, call: call2, roster, actions, hooks }) {
+function ComputerCallRow({ sessionId, call: call2, roster, actions, hooks, loadImage }) {
   const { value: argValue } = toolArgs(call2);
   const method = argValue("method") ?? String(call2?.name ?? "").replace(/^cua_driver_native__/, "");
   const stepApp = hooks?.useComputer?.((map) => (map.bots?.[roster.byId[sessionId]?.id]?.steps ?? []).find((step) => step.callId === call2?.callId)?.app);
@@ -36239,21 +36239,37 @@ function ComputerCallRow({ sessionId, call: call2, roster, actions, hooks }) {
   const shot = (call2?.content ?? []).find((block) => (block?.type === "image" || block?.type === "file") && block.attachment !== void 0)?.attachment;
   const [url, setUrl] = (0, import_react18.useState)(null);
   const [open, setOpen] = (0, import_react18.useState)(false);
+  const computerShot = actions?.computerShot;
   (0, import_react18.useEffect)(() => {
     const id = shot?.attachmentId;
-    if (id === void 0 || !actions.computerShot) {
+    if (id === void 0 || typeof computerShot !== "function" && typeof loadImage !== "function") {
       setUrl(null);
       return void 0;
     }
     let current2 = true;
-    void Promise.resolve(actions.computerShot(id)).then((value) => {
-      if (current2) setUrl(value?.dataUrl ?? null);
-    }, () => {
-    });
+    const resolve2 = async () => {
+      let dataUrl = null;
+      if (typeof computerShot === "function") {
+        try {
+          const value = await computerShot(id);
+          if (typeof value?.dataUrl === "string" && value.dataUrl !== "") dataUrl = value.dataUrl;
+        } catch {
+        }
+      }
+      if (dataUrl === null && typeof loadImage === "function") {
+        try {
+          const fallback = await loadImage(id, { preview: true });
+          if (typeof fallback === "string" && fallback !== "") dataUrl = fallback;
+        } catch {
+        }
+      }
+      if (current2) setUrl(dataUrl);
+    };
+    void resolve2();
     return () => {
       current2 = false;
     };
-  }, [shot?.attachmentId]);
+  }, [shot?.attachmentId, computerShot, loadImage]);
   return (0, import_react18.createElement)(
     "div",
     { className: "bt-cstep" },
@@ -46243,7 +46259,7 @@ function useShownCards(actions, sessionId, callIds) {
     return () => actions.noteCards(sessionId, ids, -1);
   }, [sessionId, key]);
 }
-function renderCall(call2, { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks, openFile }) {
+function renderCall(call2, { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks, openFile, loadImage }) {
   const tool = toolName(call2);
   const done = call2.kind === "tool-result";
   const { text: arg, value: argValue } = toolArgs(call2);
@@ -46357,14 +46373,14 @@ function renderCall(call2, { sessionId, roster, actions, useRoster, useUi, useWo
         return (0, import_react39.createElement)(
           import_react39.Fragment,
           null,
-          (0, import_react39.createElement)(ComputerCallRow, { sessionId, call: call2, roster, actions, hooks }),
+          (0, import_react39.createElement)(ComputerCallRow, { sessionId, call: call2, roster, actions, hooks, loadImage }),
           (0, import_react39.createElement)(AppAccessCall, { sessionId, callId: call2.callId, roster, actions, heldCards, hooks })
         );
       }
       return (0, import_react39.createElement)(CellEmpty);
   }
 }
-function ToolCell({ node, sessionId, openFile, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
+function ToolCell({ node, sessionId, openFile, loadImage, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
   const roster = useRosterPick(useRoster, TOOL_ROSTER_FIELDS);
   const heldCards = useHeldCards?.((state) => state[sessionId]);
   const root = node.data.root;
@@ -46379,7 +46395,7 @@ function ToolCell({ node, sessionId, openFile, useRoster, useUi, useWork, useHel
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note);
   useShownCards(actions, sessionId, drawn.filter((call2) => (CARDS.has(toolName(call2)) || isComputerCall(toolName(call2))) && call2.callId).map((call2) => call2.callId));
   if (drawn.length === 0) return (0, import_react39.createElement)(CellEmpty);
-  const env = { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, openFile, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } };
+  const env = { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, openFile, loadImage, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } };
   return (0, import_react39.createElement)(import_react39.Fragment, null, drawn.map((call2, index) => (0, import_react39.createElement)(import_react39.Fragment, { key: call2.callId ?? index }, renderCall(call2, env))));
 }
 

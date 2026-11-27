@@ -436,6 +436,90 @@ test('real ToolCell in Bot mode hides MCP/internal tools, drives and clears live
   container.remove()
 })
 
+test('real ToolCell handles PTC run_code transitions (internal-only hidden; Bot sub-call drawn) and CUA screenshot fallback to loadImage', async () => {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  const liveNotes = []
+  const shotCalls = []
+  const origFetch = globalThis.fetch
+  const imageRequests = []
+  globalThis.fetch = async (url, init) => {
+    const parsed = JSON.parse(String(init?.body ?? '{}'))
+    if (parsed.endpoint === 'image') {
+      imageRequests.push(parsed.payload)
+      return {
+        ok: true,
+        json: async () => ({ ok: true, value: { mime: 'image/png', data: 'iVBORw0KGgo=' } }),
+      }
+    }
+    return { ok: true, json: async () => ({ ok: true, value: {} }) }
+  }
+  const botActions = {
+    noteLive: (sid, key, note) => liveNotes.push({ sid, key, note }),
+    computerShot: async (id) => { shotCalls.push(id); return null },
+    openSession() {},
+  }
+  try {
+    // 1) PTC run_code with only internal sub-calls (bash) finishes -> 0 .dsb-tool cards, 0 DOM nodes.
+    // 2) PTC run_code starting with empty subCalls -> running mounts ToolCell (noteLive), then receives bot_remember sub-call and draws it.
+    // 3) Historical CUA screenshot whose in-memory computerShot returns null falls back to persistent session image RPC.
+    let log = applyFrame(emptyLog(), {
+      type: 'snapshot',
+      header: { id: sessionId, cwd: '/tmp/bench' },
+      cursor: 7,
+      hasMore: false,
+      records: [
+        ev(1, T0, 'turn/start', { turn: 1 }),
+        ev(2, T0 + 1, 'tool/call', { turn: 1, callId: 'ptc-internal', name: 'run_code', arguments: '{"code":"bash()"}' }),
+        ev(3, T0 + 2, 'tool/ptc-dispatch-start', { turn: 1, subCallId: 'sub-bash', parentCallId: 'ptc-internal', rootCallId: 'ptc-internal', name: 'bash', arguments: '{"command":"ls"}' }),
+        ev(4, T0 + 3, 'tool/ptc-dispatch', { turn: 1, subCallId: 'sub-bash', parentCallId: 'ptc-internal', rootCallId: 'ptc-internal', name: 'bash', isError: false, content: [{ type: 'text', text: 'ok' }] }),
+        ev(5, T0 + 4, 'tool/result', { turn: 1, message: { toolCallId: 'ptc-internal', isError: false, content: [{ type: 'text', text: 'done' }] } }),
+        ev(6, T0 + 5, 'tool/call', { turn: 1, callId: 'ptc-grow', name: 'run_code', arguments: '{"code":"..."}' }),
+        ev(7, T0 + 6, 'tool/call', { turn: 1, callId: 'cua-1', name: 'cua', arguments: '{"method":"screenshot"}' }),
+      ],
+      assistantStream: { revision: 0 },
+    }).log
+    log = applyFrame(log, ev(8, T0 + 7, 'tool/result', {
+      turn: 1,
+      message: {
+        toolCallId: 'cua-1',
+        isError: false,
+        content: [{ type: 'image', attachment: { attachmentId: 'att-shot-1', name: 'shot.png' } }],
+      },
+    })).log
+
+    const render = () => act(() => root.render(h(SessionTranscript, {
+      log, sessionId, roster, actions: botActions, classic: false, bot,
+    })))
+    render()
+    await act(async () => { await new Promise(r => setTimeout(r, 30)) })
+
+    assert.equal(container.querySelectorAll('.dsb-tool').length, 0, 'Bot mode renders zero .dsb-tool cards')
+    assert.equal(container.querySelector('[data-chat-call-id="ptc-internal"]'), null, 'finished internal-only PTC run_code leaves zero DOM nodes')
+    assert.ok(liveNotes.some(e => e.key === 'tool:ptc-grow' && e.note !== null), 'running empty-subCalls run_code emits live note')
+    assert.deepEqual(shotCalls, ['att-shot-1'], 'ComputerCallRow tried computerShot first')
+    assert.equal(imageRequests.length, 1, 'ComputerCallRow fell back to persistent session image RPC when computerShot returned null')
+    assert.equal(imageRequests[0].attachmentId, 'att-shot-1')
+    const shotBtn = container.querySelector('.bt-cstep-shot')
+    const shotImg = shotBtn?.querySelector('img')
+    assert.ok(shotImg && shotImg.getAttribute('src') === 'data:image/png;base64,iVBORw0KGgo=', 'CUA historical screenshot thumbnail renders via fallback loadImage')
+
+    // Now ptc-grow dispatches a Bot tool (bot_remember) and finishes: Bot event renders cleanly with no outer run_code card.
+    log = applyFrame(log, ev(9, T0 + 8, 'tool/ptc-dispatch-start', { turn: 1, subCallId: 'sub-mem', parentCallId: 'ptc-grow', rootCallId: 'ptc-grow', name: 'bot_remember', arguments: '{"scope":"team","fact":"hi"}' })).log
+    log = applyFrame(log, ev(10, T0 + 9, 'tool/ptc-dispatch', { turn: 1, subCallId: 'sub-mem', parentCallId: 'ptc-grow', rootCallId: 'ptc-grow', name: 'bot_remember', isError: false, content: [{ type: 'text', text: 'Saved to team memory.' }] })).log
+    log = applyFrame(log, ev(11, T0 + 10, 'tool/result', { turn: 1, message: { toolCallId: 'ptc-grow', isError: false, content: [{ type: 'text', text: 'done' }] } })).log
+    render()
+
+    assert.equal(container.querySelectorAll('.dsb-tool').length, 0, 'PTC Bot sub-call renders without any outer run_code .dsb-tool card')
+    assert.ok(container.querySelector('.bt-event'), 'PTC Bot sub-call (bot_remember) renders cleanly after incremental dispatch')
+  } finally {
+    globalThis.fetch = origFetch
+    act(() => root.unmount())
+    container.remove()
+  }
+})
+
 after(() => {
   rmSync(dir, { recursive: true, force: true })
 })

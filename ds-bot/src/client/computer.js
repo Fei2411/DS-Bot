@@ -184,7 +184,7 @@ const actionName = (method) => {
   const words = String(method ?? '').replace(/^cua_driver_native__/, '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').trim()
   return words === '' ? 'Computer' : words[0].toUpperCase() + words.slice(1)
 }
-export function ComputerCallRow({ sessionId, call, roster, actions, hooks }) {
+export function ComputerCallRow({ sessionId, call, roster, actions, hooks, loadImage }) {
   const { value: argValue } = toolArgs(call)
   const method = argValue('method') ?? String(call?.name ?? '').replace(/^cua_driver_native__/, '')
   const stepApp = hooks?.useComputer?.(map => (map.bots?.[roster.byId[sessionId]?.id]?.steps ?? []).find(step => step.callId === call?.callId)?.app)
@@ -194,13 +194,30 @@ export function ComputerCallRow({ sessionId, call, roster, actions, hooks }) {
   const shot = (call?.content ?? []).find(block => (block?.type === 'image' || block?.type === 'file') && block.attachment !== undefined)?.attachment
   const [url, setUrl] = useState(null)
   const [open, setOpen] = useState(false)
+  const computerShot = actions?.computerShot
   useEffect(() => {
     const id = shot?.attachmentId
-    if (id === undefined || !actions.computerShot) { setUrl(null); return undefined }
+    if (id === undefined || (typeof computerShot !== 'function' && typeof loadImage !== 'function')) { setUrl(null); return undefined }
     let current = true
-    void Promise.resolve(actions.computerShot(id)).then(value => { if (current) setUrl(value?.dataUrl ?? null) }, () => {})
+    const resolve = async () => {
+      let dataUrl = null
+      if (typeof computerShot === 'function') {
+        try {
+          const value = await computerShot(id)
+          if (typeof value?.dataUrl === 'string' && value.dataUrl !== '') dataUrl = value.dataUrl
+        } catch { /* fall back to persistent session attachment when available */ }
+      }
+      if (dataUrl === null && typeof loadImage === 'function') {
+        try {
+          const fallback = await loadImage(id, { preview: true })
+          if (typeof fallback === 'string' && fallback !== '') dataUrl = fallback
+        } catch { /* leave thumbnail omitted */ }
+      }
+      if (current) setUrl(dataUrl)
+    }
+    void resolve()
     return () => { current = false }
-  }, [shot?.attachmentId])
+  }, [shot?.attachmentId, computerShot, loadImage])
   return h('div', { className: 'bt-cstep' },
     h('span', { className: 'bt-cstep-label' }, app !== undefined ? `${app} · ${actionName(method)}` : actionName(method)),
     url !== null ? h('button', { type: 'button', className: open ? 'bt-cstep-shot bt-cstep-shot-open' : 'bt-cstep-shot', onClick: () => setOpen(value => !value) },
