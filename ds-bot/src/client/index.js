@@ -87,7 +87,7 @@ import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
 import { installAgentForks } from './agent-fork.js'
 import { createAvatarRefCache } from './avatar-refs.js'
 import { watchBotCompletions } from './bot-completions.js'
-import { callServiceMethod, createSessionStatusSource, readServiceMember } from './host-service.js'
+import { callServiceMethod, createSessionStatusSource, hasContextProperty, readServiceMember } from './host-service.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'uiSession', 'slots', 'theme', 'layout']
 
@@ -95,9 +95,28 @@ const WINDOWS = globalThis.navigator?.userAgentData?.platform === 'Windows' || /
 
 export function apply(ctx) {
   ctx.effect(() => installTitle(document), 'ds-bot: window title')
-  ctx.inject(['locale'], (scope) => {
-    scope.effect(() => installLocale(scope.locale), 'ds-bot: interface copy')
-  })
+  // Install synchronously when `locale` is already active so cold-start `state` pulls
+  // and desktop tray labels use the user's language on the first tick, while the child
+  // `ctx.inject(['locale'], ...)` fiber handles late arrival and reloads.
+  ctx.effect(() => {
+    const initialLocale = ctx.get('locale')
+    let offInitial = initialLocale ? installLocale(initialLocale) : null
+    const releaseInitial = () => {
+      const off = offInitial
+      offInitial = null
+      off?.()
+    }
+    const fiber = ctx.inject(['locale'], (scope) => {
+      scope.effect(() => {
+        releaseInitial()
+        return installLocale(scope.locale)
+      }, 'ds-bot: interface copy')
+    })
+    return () => {
+      releaseInitial()
+      return fiber.dispose()
+    }
+  }, 'ds-bot: interface copy lifecycle')
   const sessionStatus = createSessionStatusSource(ctx)
   ctx.effect(() => () => sessionStatus.dispose(), 'ds-bot: session status')
   migrateStorage()
@@ -1424,14 +1443,29 @@ export function apply(ctx) {
       observer.observe(document.documentElement, {
         subtree: true, attributes: true, attributeFilter: RIGHTBAR_ATTRIBUTES,
       })
-      const offMounted = readServiceMember(scope, 'sidebarRight', 'mounted')?.subscribe?.(() => switchWindow.moved())
+      let offDirectMounted = null
+      const releaseDirectMounted = () => {
+        const off = offDirectMounted
+        offDirectMounted = null
+        off?.()
+      }
+      const mountedFiber = scope.inject(['sidebarRight.mounted'], (mountedScope) => {
+        mountedScope.effect(() => {
+          releaseDirectMounted()
+          const off = mountedScope['sidebarRight.mounted']?.subscribe?.(() => switchWindow.moved())
+          return () => { off?.() }
+        }, 'ds-bot: sidebarRight.mounted')
+      })
+      if (!hasContextProperty(scope, 'sidebarRight.mounted')) {
+        offDirectMounted = scope.sidebarRight?.mounted?.subscribe?.(() => switchWindow.moved()) ?? null
+      }
       let drawer = ui.getSnapshot().details !== null
       const offUi = ui.subscribe(() => {
         const next = ui.getSnapshot().details !== null
         if (next && !drawer && drawerOpened(rightColumnOpen(document)) === 'collapse-column') collapseColumn()
         drawer = next
       })
-      return () => { observer.disconnect(); offMounted?.(); offUi() }
+      return () => { observer.disconnect(); releaseDirectMounted(); mountedFiber.dispose(); offUi() }
     }, 'ds-bot: one right panel')
   })
 

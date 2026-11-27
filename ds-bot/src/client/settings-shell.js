@@ -546,7 +546,10 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
   return {
     openOnboarding,
     dispose: () => {
-      for (const fiber of fibers) fiber.dispose()
+      for (const handle of fibers) {
+        if (typeof handle === 'function') handle()
+        else handle?.dispose?.()
+      }
       for (const off of disposers) off()
     },
   }

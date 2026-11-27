@@ -51,6 +51,7 @@ function observable(initial) {
       value = typeof next === 'function' ? next(value) : next
       for (const listener of Array.from(listeners)) listener()
     },
+    listenerCount: () => listeners.size,
   }
 }
 
@@ -206,7 +207,7 @@ function sampleRosterPayload() {
   }
 }
 
-function installDomGlobals(t, { statePayload = sampleRosterPayload() } = {}) {
+function installDomGlobals(t, { statePayload = sampleRosterPayload(), dsBotApp } = {}) {
   const dom = new JSDOM(
     '<!doctype html><html><head><title>DSH</title></head><body><div data-frame><div id="root"></div></div></body></html>',
     { url: 'http://localhost:3000/' },
@@ -217,10 +218,12 @@ function installDomGlobals(t, { statePayload = sampleRosterPayload() } = {}) {
   win.requestAnimationFrame = () => 0
   win.cancelAnimationFrame = () => {}
 
+  const apiCalls = []
   const fetchMock = async (url, init) => {
     let body = {}
     try { body = JSON.parse(init?.body ?? '{}') } catch {}
     const endpoint = typeof url === 'string' && url.includes('api/bot') ? (body.endpoint ?? '') : ''
+    if (endpoint) apiCalls.push({ endpoint, payload: body.payload })
     let value = {}
     if (endpoint === 'state') value = statePayload
     else if (endpoint === 'update-check') value = { available: false, phase: 'idle' }
@@ -238,7 +241,7 @@ function installDomGlobals(t, { statePayload = sampleRosterPayload() } = {}) {
     'window', 'document', 'localStorage', 'sessionStorage', 'navigator',
     'MutationObserver', 'ResizeObserver', 'HTMLElement', 'SVGElement', 'Element', 'Node',
     'Event', 'CustomEvent', 'MouseEvent', 'KeyboardEvent', 'DOMParser', 'getComputedStyle',
-    'requestAnimationFrame', 'cancelAnimationFrame', 'fetch', 'IS_REACT_ACT_ENVIRONMENT',
+    'requestAnimationFrame', 'cancelAnimationFrame', 'fetch', 'IS_REACT_ACT_ENVIRONMENT', 'dsBotApp',
   ]
   const saved = new Map()
   for (const key of keys) {
@@ -266,6 +269,7 @@ function installDomGlobals(t, { statePayload = sampleRosterPayload() } = {}) {
     cancelAnimationFrame: win.cancelAnimationFrame,
     fetch: fetchMock,
     IS_REACT_ACT_ENVIRONMENT: true,
+    dsBotApp,
   }
   for (const [key, value] of Object.entries(values)) {
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true })
@@ -282,7 +286,7 @@ function installDomGlobals(t, { statePayload = sampleRosterPayload() } = {}) {
     dom.window.close()
   }
 
-  return { dom, window: win, document: win.document, dispose }
+  return { dom, window: win, document: win.document, apiCalls, dispose }
 }
 
 // Build a strict Cordis host whose services are all provided from sibling plugin fibers,
@@ -290,6 +294,8 @@ function installDomGlobals(t, { statePayload = sampleRosterPayload() } = {}) {
 async function createStrictClientHost(t, {
   splitDotted = true,
   provideDottedSessionStatus = splitDotted,
+  provideDottedSidebarMounted = splitDotted,
+  activeLocale = 'en',
 } = {}) {
   const root = new Context()
   const calls = {
@@ -304,6 +310,29 @@ async function createStrictClientHost(t, {
     themeOverrides: [],
     fiberErrors: [],
   }
+
+  // Capture failed child fibers (`FiberState.FAILED === 3`) and Cordis logger errors so
+  // errors inside child `ctx.inject(...)` scopes can never be silently swallowed.
+  root.on('internal/status', (fiber) => {
+    if (fiber?.state === 3 || fiber?._error) {
+      calls.fiberErrors.push({
+        source: 'status',
+        name: fiber.name,
+        message: fiber._error instanceof Error ? fiber._error.message : String(fiber._error ?? 'failed'),
+      })
+    }
+  })
+  root.logger.exporter({
+    export: (message) => {
+      if (message?.type === 'error') {
+        calls.fiberErrors.push({
+          source: 'logger',
+          name: message.name,
+          message: message.args.map(arg => (arg instanceof Error ? arg.message : String(arg))).join(' '),
+        })
+      }
+    },
+  })
 
   const sessionList = observable({
     ids: ['bot-main', 'bot-helper', 'room-1'],
@@ -507,14 +536,34 @@ async function createStrictClientHost(t, {
   class MockLocaleService extends Service {
     constructor(ctx) {
       super(ctx, 'locale')
-      this._source = observable({ active: 'en', locales: [{ id: 'en', label: 'English' }, { id: 'zh', label: '中文' }] })
+      this._source = observable({ active: activeLocale, locales: [{ id: 'en', label: 'English' }, { id: 'zh', label: '中文' }] })
+      this._dicts = new Map()
     }
     getSnapshot() { return this._source.getSnapshot() }
     subscribe(listener) { return this._source.subscribe(listener) }
     getLocale() { return this._source.getSnapshot() }
-    setLocale() {}
-    register() { return () => {} }
-    bind(ns) { return key => `${ns}:${key}` }
+    setLocale(next) { this._source.set(prev => ({ ...prev, active: next })) }
+    register(ns, langId, dict) {
+      const key = String(langId).toLowerCase()
+      let map = this._dicts.get(ns)
+      if (!map) {
+        map = new Map()
+        this._dicts.set(ns, map)
+      }
+      map.set(key, dict)
+      return () => {
+        if (map.get(key) === dict) map.delete(key)
+      }
+    }
+    bind(ns) {
+      return (key, params) => {
+        const active = String(this._source.getSnapshot().active ?? 'en').toLowerCase()
+        const map = this._dicts.get(ns)
+        const raw = map?.get(active)?.[key] ?? (ns === 'ds-bot' ? key : `${ns}:${key}`)
+        if (!params || typeof raw !== 'string') return raw
+        return raw.replace(/\{(\w+)\}/g, (_, k) => (k in params ? String(params[k]) : `{${k}}`))
+      }
+    }
     resolveText(text) { return typeof text === 'string' ? text : String(text ?? '') }
   }
 
@@ -669,16 +718,50 @@ async function createStrictClientHost(t, {
   })
 
   // Dotted sub-services matching DSH 0.2.3-alpha.2+ / #2383 / #2384.
-  let provideSessionStatusNow = async () => {
-    await root.plugin({
+  let sessionStatusFiber = null
+  const mountSessionStatus = async (store = sessionStatusStore) => {
+    if (sessionStatusFiber) {
+      await sessionStatusFiber.dispose()
+      sessionStatusFiber = null
+    }
+    sessionStatusFiber = await root.plugin({
       name: 'host:uiSession.sessionStatus',
-      apply(c) { c.provide('uiSession.sessionStatus', sessionStatusStore) },
+      apply(c) { c.provide('uiSession.sessionStatus', store) },
     })
+    return sessionStatusFiber
+  }
+  const unmountSessionStatus = async () => {
+    if (!sessionStatusFiber) return
+    const f = sessionStatusFiber
+    sessionStatusFiber = null
+    await f.dispose()
   }
   if (provideDottedSessionStatus) {
-    await provideSessionStatusNow()
-    provideSessionStatusNow = async () => {}
+    await mountSessionStatus(sessionStatusStore)
   }
+
+  let sidebarMountedFiber = null
+  const mountSidebarRightMounted = async (store = sidebarRightMountedStore) => {
+    if (sidebarMountedFiber) {
+      await sidebarMountedFiber.dispose()
+      sidebarMountedFiber = null
+    }
+    sidebarMountedFiber = await root.plugin({
+      name: 'host:sidebarRight.mounted',
+      apply(c) { c.provide('sidebarRight.mounted', store) },
+    })
+    return sidebarMountedFiber
+  }
+  const unmountSidebarRightMounted = async () => {
+    if (!sidebarMountedFiber) return
+    const f = sidebarMountedFiber
+    sidebarMountedFiber = null
+    await f.dispose()
+  }
+  if (provideDottedSidebarMounted) {
+    await mountSidebarRightMounted(sidebarRightMountedStore)
+  }
+
   if (splitDotted) {
     await root.plugin({
       name: 'host:dotted-subservices',
@@ -687,7 +770,6 @@ async function createStrictClientHost(t, {
         c.provide('connection.reconnect', () => { calls.reconnected += 1 })
         c.provide('shortcuts.catalog', shortcutsCatalogStore)
         c.provide('sidebarRight.openTab', (kind, options) => { calls.openedTabs.push({ kind, options }) })
-        c.provide('sidebarRight.mounted', sidebarRightMountedStore)
         c.provide('sidebarRight.isExpanded', () => false)
         c.provide('sidebarRight.toggleExpanded', () => {})
         c.provide('workspaces.list', workspacesListStore)
@@ -703,9 +785,13 @@ async function createStrictClientHost(t, {
     slots: root.get('slots'),
     sessionList,
     sessionStatusStore,
+    sidebarRightMountedStore,
     connectionStateStore,
     shortcutsCatalogStore,
-    provideSessionStatusNow,
+    mountSessionStatus,
+    unmountSessionStatus,
+    mountSidebarRightMounted,
+    unmountSidebarRightMounted,
   }
 }
 
@@ -807,6 +893,25 @@ test('strict Cordis host faithfully reproduces #2383 / #2384 when reading undecl
       new RegExp(`cannot get property "${serviceName}\\.${propName}" without inject`),
     )
   }
+
+  // Self-verify that a throwing child `ctx.inject(...)` fiber is captured in `calls.fiberErrors`
+  // rather than silently swallowed.
+  const beforeCount = host.calls.fiberErrors.length
+  const parentFiber = await host.root.plugin({
+    name: 'repro-child-inject-failure',
+    inject: [],
+    apply(ctx) {
+      ctx.inject(['shortcuts'], () => {
+        throw new Error('child-inject-boom')
+      })
+    },
+  })
+  await delay(20)
+  assert.ok(
+    host.calls.fiberErrors.slice(beforeCount).some(entry => /child-inject-boom/.test(entry.message)),
+    'failing child ctx.inject fiber must be captured in host.calls.fiberErrors',
+  )
+  await parentFiber.dispose()
 })
 
 test('regression guard: removing uiSession from built client.js inject must fail mount', async (t) => {
@@ -838,19 +943,17 @@ test('built client.js mounts cleanly on strict split-service DSH host (#2383/#23
   const domEnv = installDomGlobals(t)
   const { window, document } = domEnv
   const host = await createStrictClientHost(t, { splitDotted: true })
-  t.after(async () => {
-    await host.root.fiber.dispose()
-    domEnv.dispose()
-  })
-  const built = loadBuiltClientBundle(window)
+  try {
+    const built = loadBuiltClientBundle(window)
 
-  const fiber = await host.root.plugin({
-    name: 'ds-bot',
-    inject: built.inject,
-    apply: built.apply,
-  })
-  // Allow initial roster pull + child inject fibers to settle.
-  await delay(40)
+    const fiber = await host.root.plugin({
+      name: 'ds-bot',
+      inject: built.inject,
+      apply: built.apply,
+    })
+    // Allow initial roster pull + child inject fibers to settle.
+    await delay(40)
+    assert.deepEqual(host.calls.fiberErrors, [], 'no child fiber errors should occur on mount')
 
   // Core shell, settings, overlay, sidebar, and conversation slots must all be mounted.
   const requiredSlots = [
@@ -1027,23 +1130,28 @@ test('built client.js mounts cleanly on strict split-service DSH host (#2383/#23
   assert.ok(openSettingsHtml.length > 0, 'SettingsShell should render when settings dialog is open')
   actions.closeSettings()
 
-  // 4. Overlays & Modals
-  const overlayEntry = findEntry('shell.overlay', e => e.options.id === 'bot')
-  renderInDom(document, overlayEntry.component, buildSlotProps(host, overlayEntry).props)
-  actions.notice('Smoke toast')
-  const toastEntry = findEntry('shell.overlay', e => e.options.id === 'bot-toast')
-  const toastHtml = renderInDom(document, toastEntry.component, buildSlotProps(host, toastEntry).props)
-  assert.match(toastHtml, /Smoke toast/, 'ErrorToast should render active toast message')
-  for (const id of ['bot-computer', 'bot-signin']) {
-    const entry = findEntry('shell.overlay', e => e.options.id === id)
-    renderInDom(document, entry.component, buildSlotProps(host, entry).props)
-  }
+    // 4. Overlays & Modals
+    const overlayEntry = findEntry('shell.overlay', e => e.options.id === 'bot')
+    renderInDom(document, overlayEntry.component, buildSlotProps(host, overlayEntry).props)
+    actions.notice('Smoke toast')
+    const toastEntry = findEntry('shell.overlay', e => e.options.id === 'bot-toast')
+    const toastHtml = renderInDom(document, toastEntry.component, buildSlotProps(host, toastEntry).props)
+    assert.match(toastHtml, /Smoke toast/, 'ErrorToast should render active toast message')
+    for (const id of ['bot-computer', 'bot-signin']) {
+      const entry = findEntry('shell.overlay', e => e.options.id === id)
+      renderInDom(document, entry.component, buildSlotProps(host, entry).props)
+    }
 
-  await fiber.dispose()
-  await host.root.fiber.dispose()
+    assert.deepEqual(host.calls.fiberErrors, [], 'no child fiber errors should occur during slot execution or rendering')
+    await fiber.dispose()
+    assert.deepEqual(host.calls.fiberErrors, [], 'no child fiber errors should occur during dispose')
+  } finally {
+    await host.root.fiber.dispose()
+    domEnv.dispose()
+  }
 })
 
-test('built client.js also activates cleanly on DSH 0.2.2-rc.5 host without dotted uiSession.sessionStatus and supports late dotted arrival', async (t) => {
+test('built client.js also activates cleanly on DSH 0.2.2-rc.5 host without dotted uiSession.sessionStatus and handles late arrival, reload, and dispose', async (t) => {
   // 1. Pinned 0.2.2-rc.5 host: uiSession exposes plain `.sessionStatus`, no dotted service exists.
   {
     const domEnv = installDomGlobals(t)
@@ -1057,6 +1165,7 @@ test('built client.js also activates cleanly on DSH 0.2.2-rc.5 host without dott
         apply: built.apply,
       })
       await delay(40)
+      assert.deepEqual(host.calls.fiberErrors, [], 'no fiber errors on 0.2.2-rc.5 host mount')
 
       const sidebarEntry = host.slots.entries('sidebar.workspaces')[0]
       assert.ok(sidebarEntry, 'ds-bot must activate on DSH 0.2.2-rc.5 where uiSession.sessionStatus is not a separate service')
@@ -1072,17 +1181,23 @@ test('built client.js also activates cleanly on DSH 0.2.2-rc.5 host without dott
       const html = renderInDom(domEnv.document, sidebarEntry.component, buildSlotProps(host, sidebarEntry).props)
       assert.match(html, /DeepSeek/)
       await fiber.dispose()
+      assert.equal(host.sessionStatusStore.listenerCount(), 0, 'plain sessionStatus listeners must drop to zero on dispose')
+      assert.deepEqual(host.calls.fiberErrors, [], 'no fiber errors on 0.2.2-rc.5 host dispose')
     } finally {
       await host.root.fiber.dispose()
       domEnv.dispose()
     }
   }
 
-  // 2. Late-arriving dotted `uiSession.sessionStatus`: host declares split mode, but the
-  //    dotted service mounts AFTER `ds-bot` activates.
+  // 2. Late-arriving dotted `uiSession.sessionStatus` + unload/remount with a new observable +
+  //    reactive dotted `sidebarRight.mounted` late arrival/reload + listener cleanup on dispose.
   {
     const domEnv = installDomGlobals(t)
-    const host = await createStrictClientHost(t, { splitDotted: true, provideDottedSessionStatus: false })
+    const host = await createStrictClientHost(t, {
+      splitDotted: true,
+      provideDottedSessionStatus: false,
+      provideDottedSidebarMounted: false,
+    })
     try {
       const built = loadBuiltClientBundle(domEnv.window)
 
@@ -1092,24 +1207,118 @@ test('built client.js also activates cleanly on DSH 0.2.2-rc.5 host without dott
         apply: built.apply,
       })
       await delay(40)
+      assert.deepEqual(host.calls.fiberErrors, [], 'no fiber errors before late dotted services arrive')
 
       const sidebarEntry = host.slots.entries('sidebar.workspaces')[0]
       assert.ok(sidebarEntry, 'ds-bot must still activate before late uiSession.sessionStatus arrives')
       const { hooks } = sidebarEntry.options.inject()
 
-      // Now provide the dotted service late and push an update.
-      await host.provideSessionStatusNow()
+      // Provide first dotted sessionStatus store late and verify propagation.
+      await host.mountSessionStatus(host.sessionStatusStore)
       await delay(20)
+      assert.ok(host.sessionStatusStore.listenerCount() > 0, 'first dotted sessionStatus should be subscribed')
       host.sessionStatusStore.set(new Map([
         ['bot-main', { running: false, pendingInteraction: undefined, completionUnread: false }],
         ['bot-helper', { running: false, pendingInteraction: undefined, completionUnread: true }],
       ]))
       assert.equal(hooks.botCompletions.getSnapshot()['bot-helper'], true, 'late-arriving dotted uiSession.sessionStatus must bind reactively')
+
+      // Unload the first dotted sessionStatus and remount a brand new observable.
+      await host.unmountSessionStatus()
+      await delay(20)
+      assert.equal(host.sessionStatusStore.listenerCount(), 0, 'old dotted sessionStatus listeners must drop to zero on unload')
+
+      const replacementStatus = observable(new Map([
+        ['bot-main', { running: false, pendingInteraction: undefined, completionUnread: false }],
+        ['bot-helper', { running: false, pendingInteraction: undefined, completionUnread: false }],
+      ]))
+      await host.mountSessionStatus(replacementStatus)
+      await delay(20)
+      assert.ok(replacementStatus.listenerCount() > 0, 'replacement dotted sessionStatus should be subscribed')
+      replacementStatus.set(new Map([
+        ['bot-main', { running: false, pendingInteraction: undefined, completionUnread: false }],
+        ['bot-helper', { running: false, pendingInteraction: undefined, completionUnread: true }],
+      ]))
+      assert.equal(hooks.botCompletions.getSnapshot()['bot-helper'], true, 'remounted dotted uiSession.sessionStatus must propagate updates')
+
+      // Late arrival and reload of dotted `sidebarRight.mounted`.
+      await host.mountSidebarRightMounted(host.sidebarRightMountedStore)
+      await delay(20)
+      assert.equal(host.sidebarRightMountedStore.listenerCount(), 1, 'late-arriving dotted sidebarRight.mounted must subscribe reactively')
+      const replacementMounted = observable(true)
+      await host.mountSidebarRightMounted(replacementMounted)
+      await delay(20)
+      assert.equal(host.sidebarRightMountedStore.listenerCount(), 0, 'old sidebarRight.mounted listener must clean up on reload')
+      assert.equal(replacementMounted.listenerCount(), 1, 'reloaded sidebarRight.mounted must subscribe')
+
       await fiber.dispose()
+      assert.equal(host.sessionStatusStore.listenerCount(), 0, 'original sessionStatus must have zero listeners after plugin dispose')
+      assert.equal(replacementStatus.listenerCount(), 0, 'replacement sessionStatus must have zero listeners after plugin dispose')
+      assert.equal(replacementMounted.listenerCount(), 0, 'replacement sidebarRight.mounted must have zero listeners after plugin dispose')
+      assert.deepEqual(host.calls.fiberErrors, [], 'no fiber errors across late arrival, reload, and dispose')
     } finally {
       await host.root.fiber.dispose()
       domEnv.dispose()
     }
+  }
+})
+
+test('createSessionStatusSource is a no-op after dispose', async () => {
+  const { createSessionStatusSource } = await import('../src/client/host-service.js')
+  const plainStatus = observable(new Map([['s1', { running: true }]]))
+  const ctx = {
+    uiSession: { sessionStatus: plainStatus },
+    reflect: { props: {} },
+  }
+  const bridge = createSessionStatusSource(ctx)
+  let fired = 0
+  const unsub = bridge.source.subscribe(() => { fired += 1 })
+  assert.equal(plainStatus.listenerCount(), 1)
+  assert.equal(bridge.source.getSnapshot().get('s1')?.running, true)
+
+  bridge.dispose()
+  assert.equal(plainStatus.listenerCount(), 0, 'dispose must detach active source listener')
+  assert.equal(bridge.source.getSnapshot().size, 0, 'getSnapshot after dispose must return empty map')
+
+  // Subscribing or emitting after dispose must remain a strict no-op.
+  const lateUnsub = bridge.source.subscribe(() => { fired += 1 })
+  plainStatus.set(new Map([['s1', { running: false }]]))
+  assert.equal(fired, 0, 'no listeners may fire after dispose')
+  assert.equal(plainStatus.listenerCount(), 0)
+  lateUnsub()
+  unsub()
+})
+
+test('cold start applies active locale synchronously before first state pull and desktop computer labels', async (t) => {
+  const computerCalls = []
+  const domEnv = installDomGlobals(t, {
+    dsBotApp: {
+      computer: payload => computerCalls.push(payload),
+    },
+  })
+  const host = await createStrictClientHost(t, { splitDotted: true, activeLocale: 'zh' })
+  try {
+    const built = loadBuiltClientBundle(domEnv.window)
+    const fiber = await host.root.plugin({
+      name: 'ds-bot',
+      inject: built.inject,
+      apply: built.apply,
+    })
+    await delay(40)
+
+    const firstState = domEnv.apiCalls.find(entry => entry.endpoint === 'state')
+    assert.ok(firstState, 'cold start must issue an initial state pull')
+    assert.equal(firstState.payload?.locale, 'zh', 'first state pull must use active locale zh synchronously on cold start')
+
+    assert.ok(computerCalls.length > 0, 'ds-bot: computer indicator must push initial labels on cold start')
+    assert.equal(computerCalls[0].labels?.stop, '停止', 'initial desktop computer labels must use Chinese on cold start')
+    assert.deepEqual(host.calls.fiberErrors, [], 'no fiber errors during zh cold start')
+
+    await fiber.dispose()
+    assert.deepEqual(host.calls.fiberErrors, [], 'no fiber errors after zh cold start dispose')
+  } finally {
+    await host.root.fiber.dispose()
+    domEnv.dispose()
   }
 })
 

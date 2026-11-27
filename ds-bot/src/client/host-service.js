@@ -41,16 +41,19 @@ export function callServiceMethod(ctx, serviceName, methodName, ...args) {
 export function createSessionStatusSource(ctx) {
   const uiSession = ctx.uiSession
   const listeners = new Set()
+  let disposed = false
   let active = null
   let unsubActive = null
   let dottedSource = null
   let fallbackSource = null
 
   const emit = () => {
+    if (disposed) return
     for (const listener of Array.from(listeners)) listener()
   }
 
   const rebind = () => {
+    if (disposed) return
     const next = dottedSource ?? fallbackSource ?? null
     if (next === active) return
     unsubActive?.()
@@ -65,6 +68,7 @@ export function createSessionStatusSource(ctx) {
   const dottedFiber = typeof ctx.inject === 'function'
     ? ctx.inject(['uiSession.sessionStatus'], (scope) => {
       scope.effect(() => {
+        if (disposed) return () => {}
         const status = scope['uiSession.sessionStatus']
         dottedSource = status && typeof status.getSnapshot === 'function' ? status : null
         rebind()
@@ -86,13 +90,16 @@ export function createSessionStatusSource(ctx) {
 
   return {
     source: {
-      getSnapshot: () => active?.getSnapshot?.() ?? EMPTY_SESSION_STATUS,
+      getSnapshot: () => (disposed ? EMPTY_SESSION_STATUS : active?.getSnapshot?.() ?? EMPTY_SESSION_STATUS),
       subscribe: (listener) => {
+        if (disposed) return () => {}
         listeners.add(listener)
         return () => { listeners.delete(listener) }
       },
     },
     dispose: () => {
+      if (disposed) return
+      disposed = true
       unsubActive?.()
       unsubActive = null
       active = null

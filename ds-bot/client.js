@@ -65445,14 +65445,17 @@ function callServiceMethod(ctx, serviceName, methodName, ...args) {
 function createSessionStatusSource(ctx) {
   const uiSession = ctx.uiSession;
   const listeners3 = /* @__PURE__ */ new Set();
+  let disposed = false;
   let active = null;
   let unsubActive = null;
   let dottedSource = null;
   let fallbackSource = null;
   const emit = () => {
+    if (disposed) return;
     for (const listener of Array.from(listeners3)) listener();
   };
   const rebind = () => {
+    if (disposed) return;
     const next = dottedSource ?? fallbackSource ?? null;
     if (next === active) return;
     unsubActive?.();
@@ -65465,6 +65468,8 @@ function createSessionStatusSource(ctx) {
   };
   const dottedFiber = typeof ctx.inject === "function" ? ctx.inject(["uiSession.sessionStatus"], (scope) => {
     scope.effect(() => {
+      if (disposed) return () => {
+      };
       const status = scope["uiSession.sessionStatus"];
       dottedSource = status && typeof status.getSnapshot === "function" ? status : null;
       rebind();
@@ -65483,8 +65488,10 @@ function createSessionStatusSource(ctx) {
   }
   return {
     source: {
-      getSnapshot: () => active?.getSnapshot?.() ?? EMPTY_SESSION_STATUS,
+      getSnapshot: () => disposed ? EMPTY_SESSION_STATUS : active?.getSnapshot?.() ?? EMPTY_SESSION_STATUS,
       subscribe: (listener) => {
+        if (disposed) return () => {
+        };
         listeners3.add(listener);
         return () => {
           listeners3.delete(listener);
@@ -65492,6 +65499,8 @@ function createSessionStatusSource(ctx) {
       }
     },
     dispose: () => {
+      if (disposed) return;
+      disposed = true;
       unsubActive?.();
       unsubActive = null;
       active = null;
@@ -66113,7 +66122,10 @@ function installSettingsShell(ctx, { face, actions, ui, held }) {
   return {
     openOnboarding,
     dispose: () => {
-      for (const fiber of fibers) fiber.dispose();
+      for (const handle of fibers) {
+        if (typeof handle === "function") handle();
+        else handle?.dispose?.();
+      }
       for (const off of disposers) off();
     }
   };
@@ -75063,9 +75075,25 @@ var inject = ["sessions", "uiWorkspace", "uiConversation", "uiSession", "slots",
 var WINDOWS = globalThis.navigator?.userAgentData?.platform === "Windows" || /^Win/u.test(globalThis.navigator?.platform ?? "");
 function apply(ctx) {
   ctx.effect(() => installTitle(document), "ds-bot: window title");
-  ctx.inject(["locale"], (scope) => {
-    scope.effect(() => installLocale(scope.locale), "ds-bot: interface copy");
-  });
+  ctx.effect(() => {
+    const initialLocale = ctx.get("locale");
+    let offInitial = initialLocale ? installLocale(initialLocale) : null;
+    const releaseInitial = () => {
+      const off = offInitial;
+      offInitial = null;
+      off?.();
+    };
+    const fiber = ctx.inject(["locale"], (scope) => {
+      scope.effect(() => {
+        releaseInitial();
+        return installLocale(scope.locale);
+      }, "ds-bot: interface copy");
+    });
+    return () => {
+      releaseInitial();
+      return fiber.dispose();
+    };
+  }, "ds-bot: interface copy lifecycle");
   const sessionStatus = createSessionStatusSource(ctx);
   ctx.effect(() => () => sessionStatus.dispose(), "ds-bot: session status");
   migrateStorage();
@@ -76360,7 +76388,24 @@ function apply(ctx) {
         attributes: true,
         attributeFilter: RIGHTBAR_ATTRIBUTES
       });
-      const offMounted = readServiceMember(scope, "sidebarRight", "mounted")?.subscribe?.(() => switchWindow.moved());
+      let offDirectMounted = null;
+      const releaseDirectMounted = () => {
+        const off = offDirectMounted;
+        offDirectMounted = null;
+        off?.();
+      };
+      const mountedFiber = scope.inject(["sidebarRight.mounted"], (mountedScope) => {
+        mountedScope.effect(() => {
+          releaseDirectMounted();
+          const off = mountedScope["sidebarRight.mounted"]?.subscribe?.(() => switchWindow.moved());
+          return () => {
+            off?.();
+          };
+        }, "ds-bot: sidebarRight.mounted");
+      });
+      if (!hasContextProperty(scope, "sidebarRight.mounted")) {
+        offDirectMounted = scope.sidebarRight?.mounted?.subscribe?.(() => switchWindow.moved()) ?? null;
+      }
       let drawer = ui.getSnapshot().details !== null;
       const offUi = ui.subscribe(() => {
         const next = ui.getSnapshot().details !== null;
@@ -76369,7 +76414,8 @@ function apply(ctx) {
       });
       return () => {
         observer2.disconnect();
-        offMounted?.();
+        releaseDirectMounted();
+        mountedFiber.dispose();
         offUi();
       };
     }, "ds-bot: one right panel");
