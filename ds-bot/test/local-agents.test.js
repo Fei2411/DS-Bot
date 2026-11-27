@@ -3214,6 +3214,15 @@ test('failed CLI resume preserves a >2000-char request followed by a clock messa
   assert.match(freshPrompt, /Active release: v2/, 'current group memory must appear in replacement CLI replay')
   assert.doesNotMatch(freshPrompt, /Memory update #0:/, 'historical memory delta messages must not be replayed when fresh snapshot was applied')
 
+  // The memory refresh rebuilds the instructions in place: the bridge rules must
+  // still arrive exactly once in what the prompt actually carried, and the recorded
+  // hash must cover that refreshed shape — recomputed here byte for byte, so a
+  // doubled injection or a hash over the pre-refresh system both fail.
+  assert.equal(freshPrompt.split('## Working inside DS Bot').length - 1, 1, 'bridge rules appear exactly once after the memory refresh')
+  assert.equal(freshPrompt.split('schedule_create / schedule_list / schedule_view / schedule_edit').length - 1, 1, 'the schedule bridge line is not duplicated after the memory refresh')
+  const refreshedInstructions = `You are Kai.\n\n${currentSnap}\n## Working inside DS Bot\n- The tools of the user's team reach you through the MCP server named "dsbot". If they are not listed up front, discover and activate them with your tool-search facilities (such as search_tool/use_tool) before assuming they are missing.\n- Scheduled tasks, reminders and recurring automation for the user are created ONLY with the dsbot tools schedule_create / schedule_list / schedule_view / schedule_edit. Never use your own built-in scheduler, cron, reminder, tasks or automation tools for them: those run outside the user's team, and the user can neither see nor manage what they create.`
+  assert.equal(records.s1.promptHash, createHash('sha256').update(refreshedInstructions).digest('hex'), 'promptHash covers the refreshed instructions exactly once')
+
   // On Codex fallback thread/start (after thread/resume fails), startup developerInstructions
   // itself must already carry the refreshed memory (excluding deleted entries and preserving $&/$$).
   const codexRecord = join(mkdtempSync(join(tmpdir(), 'dsb-codex-fresh-mem-')), 'params.jsonl')
