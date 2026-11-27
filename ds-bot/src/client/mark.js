@@ -1,7 +1,7 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
 import { LiveMark } from './avatar/live.js'
-import { MARK_STATES as STATES, botState, toolState } from './mark-states.js'
+import { MARK_STATES as STATES, avatarBadge, botState, isBrowserHandoff, isComputerHandoff, toolState } from './mark-states.js'
 import { memo } from './memo.js'
 import { currentPart, turnOutlineOf } from './text.js'
 import { t } from './i18n.js'
@@ -17,9 +17,7 @@ export { colorOf, lookOf } from './characters.js'
 
 // Mark states (mark-states.js, shared with the phone app): what the Bot is doing picks
 // the motion.
-export { botState, toolState }
-// States that wear the working badge.
-const RUNNING = new Set(['thinking', 'searching', 'working', 'sending', 'orbit', 'done'])
+export { avatarBadge, botState, isBrowserHandoff, isComputerHandoff, toolState }
 // The newest turn a part's live outline lists, or undefined while the list holds none.
 export const latestTurnOf = (list, part) => {
   const outline = turnOutlineOf(list, part)
@@ -69,9 +67,6 @@ export function useBotApprovals(botId, useWork, useComputer) {
   const bgApproval = useReadWork(work => botId !== undefined && (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === botId && entry.taskId !== undefined && entry.answerable !== false))
   return { fgApproval: fgTool || fgComputer, bgApproval }
 }
-
-export const isBrowserHandoff = hold => hold?.callId !== undefined
-export const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.fromBot === true || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))
 
 // Active browser/computer handoff hold waiting for the user on one Bot.
 export function useBotHandoff(botId, useBrowserHolds, useComputer) {
@@ -216,7 +211,7 @@ function useSettled(state, id) {
 export const BotAvatar = memo(function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
   const settled = useSettled(state, bot?.id)
   if (bot === undefined) return h(BotMark, { size })
-  const badgeKind = !badge ? null : state === 'alert' ? 'alert' : RUNNING.has(state) ? 'working' : admin ? 'admin' : main ? 'main' : null
+  const badgeKind = avatarBadge(state, { main, admin, badge })
   return h('span', { className: 'bt-mark', style: { width: size, height: size, '--bt-size': `${size}px` } },
     h(BotMark, { bot, size, state: settled ? 'done' : state, live, gaze, pokeable }),
     badgeKind === 'working' ? h('span', { className: 'bt-badge bt-badge-working', 'aria-label': t('Working'), role: 'img' }) : null,

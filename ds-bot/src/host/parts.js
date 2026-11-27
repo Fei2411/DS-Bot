@@ -4376,11 +4376,50 @@ export function install(rt) {
   const PREVIEWABLE = new Set(['bot', 'user', 'answer', 'post', 'view'])
   const tails = new Map()
   const previewText = item => String(item.text || item.title || item.texts?.join(' ') || (Array.isArray(item.presented) ? item.presented.map(file => presentedFileName(file.path)).join(', ') : '')).replace(/\s+/g, ' ').trim()
-  const applyTail = (sessionId, item) => tails.set(sessionId, { lastAt: item.time ?? 0, preview: previewText(item) })
+  const isBotReplyItem = item => item.kind === 'bot' || (item.kind === 'view' && item.pending !== true)
+  const positiveTurn = value => (typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : undefined)
+  const maxTurn = (a, b) => (a !== undefined && b !== undefined ? Math.max(a, b) : (a ?? b))
+  const projectionLatestTurn = async (sessionId) => {
+    let latest
+    const liveSession = ctx.get?.('agents')?.get?.(sessionId)?.session ?? ctx.get?.('sessions')?.get?.(sessionId)
+    if (liveSession !== undefined) {
+      const projections = ctx.get?.('sessionProjections')
+      try {
+        latest = maxTurn(latest, positiveTurn(projections?.stateOf?.(liveSession, 'dsBotAnchor')?.turn))
+      } catch { /* projection unavailable */ }
+      if (latest !== undefined) return latest
+    }
+    if (typeof ctx.sessionController?.projections === 'function') {
+      try {
+        const res = await ctx.sessionController.projections({ sessionId }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+        const values = res?.values ?? res
+        const outline = values?.turnOutline
+        if (Array.isArray(outline) && outline.length > 0) latest = maxTurn(latest, positiveTurn(outline.at(-1)?.turn))
+        latest = maxTurn(latest, positiveTurn(values?.dsBotAnchor?.turn))
+      } catch { /* fall back to page scan */ }
+    }
+    return latest
+  }
+  const applyTail = (sessionId, item) => {
+    const prev = tails.get(sessionId)
+    const lastBotAt = isBotReplyItem(item) ? (item.time ?? 0) : prev?.lastBotAt
+    const latestTurn = maxTurn(prev?.latestTurn, positiveTurn(item.turn))
+    tails.set(sessionId, {
+      lastAt: item.time ?? 0,
+      preview: previewText(item),
+      ...(lastBotAt !== undefined ? { lastBotAt } : {}),
+      ...(latestTurn !== undefined ? { latestTurn } : {}),
+    })
+  }
   const fillTail = async sessionId => {
-    // Newest page back until a row shows; chats almost always have it on page one.
+    // Newest page back until both a previewable row and the latest turn number are known;
+    // chats almost always find both on page one, and a long tool turn that splits across
+    // the 60-event boundary keeps walking until it recovers its turn number.
     try {
       let beforeSeq
+      let latest
+      let lastBotAt
+      let latestTurn = await projectionLatestTurn(sessionId)
       for (let pages = 0; pages < 10; pages += 1) {
         const page = await ctx.sessionController.page({
           address: { kind: 'session', sessionId },
@@ -4388,12 +4427,34 @@ export function install(rt) {
           maxMessages: EARLIER_PAGE,
         }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
         const events = page.records.map(record => record.event)
-        const last = [...displayItems(sessionId, events)].reverse().find(item => PREVIEWABLE.has(item.kind))
-        if (last !== undefined) { applyTail(sessionId, last); return }
+        for (const event of events) {
+          latestTurn = maxTurn(latestTurn, positiveTurn(event?.data?.turn))
+        }
+        if (latest === undefined) {
+          const reversed = [...displayItems(sessionId, events)].reverse()
+          const found = reversed.find(item => PREVIEWABLE.has(item.kind))
+          if (found !== undefined) {
+            latest = { lastAt: found.time ?? 0, preview: previewText(found) }
+            const botRow = reversed.find(isBotReplyItem)
+            if (botRow !== undefined) lastBotAt = botRow.time ?? 0
+          }
+        }
+        if (latest !== undefined && latestTurn !== undefined) break
         if (!page.hasMore || events.length === 0) break
         beforeSeq = events[0]?.seq
       }
-      tails.set(sessionId, { lastAt: 0, preview: '' })
+      const prev = tails.get(sessionId)
+      const mergedTurn = maxTurn(prev?.latestTurn, latestTurn)
+      const usePrev = prev !== null && prev !== undefined && (latest === undefined || prev.lastAt > latest.lastAt)
+      const base = usePrev ? { lastAt: prev.lastAt, preview: prev.preview } : (latest ?? { lastAt: 0, preview: '' })
+      const mergedBotAt = prev?.lastBotAt !== undefined && lastBotAt !== undefined
+        ? Math.max(prev.lastBotAt, lastBotAt)
+        : (prev?.lastBotAt ?? lastBotAt)
+      tails.set(sessionId, {
+        ...base,
+        ...(mergedBotAt !== undefined ? { lastBotAt: mergedBotAt } : {}),
+        ...(mergedTurn !== undefined ? { latestTurn: mergedTurn } : {}),
+      })
     } catch { tails.set(sessionId, { lastAt: 0, preview: '' }) }
   }
   rt.chatTail = sessionId => {
@@ -4403,6 +4464,13 @@ export function install(rt) {
   ctx.on('session/event', (session, event) => {
     if (!tails.has(session.id)) return
     try {
+      const eventTurn = positiveTurn(event?.data?.turn)
+      if (eventTurn !== undefined) {
+        const prev = tails.get(session.id)
+        if (prev !== null) {
+          tails.set(session.id, { ...prev, latestTurn: maxTurn(prev?.latestTurn, eventTurn) })
+        }
+      }
       for (const item of displayItems(session.id, [event], session)) if (PREVIEWABLE.has(item.kind)) applyTail(session.id, item)
     } catch { /* a tail miss must never take out the other listeners */ }
   })

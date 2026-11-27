@@ -120,6 +120,18 @@ export function install(rt) {
   // changes the view without a new revision.
   const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
   const publicCards = cards => Object.fromEntries(Object.entries(cards ?? {}).map(([sessionId, { imOrigin, ...card }]) => [sessionId, card]))
+  const botTailOf = (botId) => {
+    const partId = rt.chatOf?.(botId) ?? botId
+    const tail = rt.chatTail?.(partId)
+    const liveTurn = rt.latestTurnOf?.(partId)
+    const latestTurn = tail?.latestTurn !== undefined && liveTurn !== undefined
+      ? Math.max(tail.latestTurn, liveTurn)
+      : (liveTurn ?? tail?.latestTurn)
+    return {
+      ...(tail ? { lastAt: tail.lastAt, preview: tail.preview, ...(tail.lastBotAt !== undefined ? { lastBotAt: tail.lastBotAt } : {}) } : {}),
+      ...(latestTurn !== undefined ? { latestTurn } : {}),
+    }
+  }
   const view = () => ({
     revision: state.revision,
     workspaceId: state.workspaceId ?? null,
@@ -130,15 +142,15 @@ export function install(rt) {
     // `waiting`: the Bot holds its greeting until the user picks its model or fixes
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
     bots: Object.values(state.bots).map(({ segments, kickoff, agentPresetDefault, agentPresetDefaultPending, tasks: _rawTasks, ...bot }) => {
-      const tail = rt.chatTail(rt.chatOf(bot.id))
+      const partId = rt.chatOf(bot.id)
       const botTasks = rt.taskViewOf?.(state.bots[bot.id]) ?? []
       return {
-        ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId),
+        ...bot, sessionId: partId, parts: (segments ?? []).map(segment => segment.sessionId),
         ...(botTasks.length > 0 ? { tasks: botTasks } : {}),
         ...(kickoff ? { waiting: true } : {}),
         // `engine` is the Bot's local-agent route, present only on abots.
         ...(rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined ? { engine: rt.localAgentBadge(bot.model ?? bot.appliedModel) } : {}),
-        ...(tail ? { lastAt: tail.lastAt, preview: tail.preview } : {}),
+        ...botTailOf(bot.id),
       }
     }),
     // `sessionId` is the group's own Session's current part, `ownParts` its earlier
@@ -239,6 +251,18 @@ export function install(rt) {
     userQuestions: rt.userQuestionsView?.() ?? [],
     // User-authored queued messages per active Session (`next-turn` inbox).
     sessionQueues: rt.sessionQueuesView?.() ?? {},
+    // Per-Bot own-chat tail metadata (lastAt, lastBotAt, latestTurn, preview) changes on
+    // normal turns and stopped retries without bumping state.revision, so it rides on live()
+    // for unchanged-revision mobile polls. Empty sessions stay omitted so cold fillTail
+    // resolving `{ lastAt: 0, preview: '' }` never churns liveKey.
+    botTails: Object.fromEntries(Object.values(state.bots).flatMap((bot) => {
+      const entry = botTailOf(bot.id)
+      const hasData = (entry.lastAt ?? 0) > 0
+        || (entry.preview ?? '') !== ''
+        || entry.lastBotAt !== undefined
+        || entry.latestTurn !== undefined
+      return hasData ? [[bot.id, entry]] : []
+    })),
     // True once until the user confirms or declines the telemetry privacy notice.
     telemetryPrompt: rt.telemetry?.shouldPromptNotice?.() === true,
     // Release notes state for local windows (excluded from remote/relay payloads).

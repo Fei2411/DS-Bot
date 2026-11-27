@@ -364,6 +364,15 @@ export function install(rt) {
 
   /** @type {Map<string, {turn?:number, pending?:any, pendingText?:string, info?:any, texts:string[], opened?:boolean, joined?:{info:any, from:number}[]}>} */
   const live = new Map()
+  // Highest numbered turn/start seen per Session in this process, so mobile clients
+  // can tell a stopped retry superseded an earlier turn failure just like desktop's outline.
+  /** @type {Map<string, number>} */
+  const latestTurns = new Map()
+  const recordTurn = (id, turn) => {
+    if (typeof turn === 'number' && Number.isInteger(turn) && turn >= 1) {
+      latestTurns.set(id, Math.max(latestTurns.get(id) ?? 0, turn))
+    }
+  }
   /** @type {Map<string, {sessionId:string, resolve:(text:string|null)=>void, fail:(failure:any)=>void, touch:()=>void, approval:()=>void}>} member turn waiters keyed by exchange id */
   const roomWaiters = new Map()
   /** @type {Map<string, {roomId:string, replies:any[], members:string[], speaking:string|null}>} */
@@ -1210,6 +1219,7 @@ export function install(rt) {
         if (rt.readOnly?.() === undefined) void rt.retryModel?.(rt.selfOf?.(id))
         setActivity(id, 'thinking')
         entry.turn = event.data.turn
+        recordTurn(id, event.data?.turn)
         entry.since = event.time ?? Date.now()
         entry.texts = []
         entry.shown = 0
@@ -2085,6 +2095,7 @@ export function install(rt) {
     if (typeof sessionId !== 'string' || sessionId === '') return
     const entry = live.get(sessionId)
     if (entry !== undefined && entry.turn === undefined && entry.carry === undefined && entry.pending === undefined) live.delete(sessionId)
+    latestTurns.delete(sessionId)
     stoppedSubagentParents.delete(sessionId)
   }
   ctx.on?.('agent/disposed', ({ agent }) => {
@@ -2094,5 +2105,5 @@ export function install(rt) {
 
   const callSeq = (sessionId, callId) => live.get(sessionId)?.calls?.get(callId)?.seq
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, callSeq, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, forgetSessionTurn, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork, isHiddenBotWorkTurn })
+  Object.assign(rt, { live, liveOf, latestTurnOf: id => latestTurns.get(id), roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, callSeq, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, forgetSessionTurn, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork, isHiddenBotWorkTurn })
 }
