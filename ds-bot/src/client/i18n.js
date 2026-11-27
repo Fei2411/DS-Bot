@@ -7,6 +7,7 @@ import { DSH_KO, HOST_ERRORS_KO, KO } from './locales/ko.js'
 import { DSH_ES, HOST_ERRORS_ES, ES } from './locales/es.js'
 import { DSH_FR, HOST_ERRORS_FR, FR } from './locales/fr.js'
 import { DSH_DE, HOST_ERRORS_DE, DE } from './locales/de.js'
+import { DSH_RU, HOST_ERRORS_RU, RU } from './locales/ru.js'
 
 export const NAMESPACE = 'ds-bot'
 
@@ -3055,6 +3056,7 @@ const ZH_TW = convertDict(ZH)
 const HOST_ERRORS_ZH_TW = convertHostErrors(HOST_ERRORS)
 
 export const LANGUAGES = [
+  { id: 'ru', label: 'Русский', fallback: 'en' },
   { id: 'zh-TW', label: '繁體中文', fallback: 'zh' },
   { id: 'ja', label: '日本語', fallback: 'en' },
   { id: 'ko', label: '한국어', fallback: 'en' },
@@ -3064,6 +3066,7 @@ export const LANGUAGES = [
 ]
 
 export const DICTIONARY = {
+  ru: RU,
   zh: ZH,
   'zh-TW': ZH_TW,
   ja: JA,
@@ -3074,6 +3077,7 @@ export const DICTIONARY = {
 }
 
 const HOST_ERROR_TABLE = {
+  ru: HOST_ERRORS_RU,
   zh: HOST_ERRORS,
   'zh-TW': HOST_ERRORS_ZH_TW,
   ja: HOST_ERRORS_JA,
@@ -3084,6 +3088,7 @@ const HOST_ERROR_TABLE = {
 }
 
 const DSH_LOCALE_PACKS = {
+  ru: DSH_RU,
   ja: DSH_JA,
   ko: DSH_KO,
   es: ES && DSH_ES,
