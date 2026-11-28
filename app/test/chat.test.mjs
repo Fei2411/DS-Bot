@@ -353,6 +353,7 @@ function mountRoom(callImpl) {
     roomsById: { r1: { id: 'r1', name: 'Design', members: ['b1', 'b2'], admin: 'b1' } },
     questions: {},
   }
+  roster.bots = Object.values(roster.byId)
   const team = {
     actions: {
       noteSent() {},
@@ -382,11 +383,25 @@ function mountRoom(callImpl) {
   return {
     sent,
     instance,
+    roster,
     rowsOf,
     emit: (event, data) => { for (const listener of listeners) listener(event, data) },
     unmount: () => { instance.unmount(); sandbox.__testCall = defaultCall },
   }
 }
+
+test('group message mention marks follow avatar changes without a name change', () => {
+  const room = mountRoom(async () => ({ roomId: 'r1', items: [], cursor: null }))
+  const css = () => all(room.rowsOf().tree, node => node.type === 'style')[0]?.props.children[0]
+  const image = 'data:image/png;base64,iVBORw0KGgo='
+  try {
+    assert.match(css(), /a\[href="https:\/\/bots\.local\/b2"\]::before\{[^}]*mask-image:/)
+    room.roster.bots = room.roster.bots.map(bot => bot.id === 'b2' ? { ...bot, avatar: { image } } : bot)
+    assert.ok(css().includes(`a[href="https://bots.local/b2"]::before{background:center/cover url("${image}");-webkit-mask:none;mask:none`))
+  } finally {
+    room.unmount()
+  }
+})
 
 test('group chat adapts room-chat bot/event items to post/relay and preserves earlier pages across room SSE refreshes', async () => {
   let latestItems = [
