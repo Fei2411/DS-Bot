@@ -50939,7 +50939,10 @@ function TeamSidebar(props) {
   const wideContent = shown !== "rail";
   const updated = useSessions((list) => {
     const stamps = {};
-    for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0;
+    for (const id of list.ids) {
+      const at2 = list.byId[id]?.updatedAt;
+      if (Number.isFinite(at2)) stamps[id] = at2;
+    }
     return JSON.stringify(stamps);
   });
   const order = (0, import_react47.useMemo)(() => {
@@ -53702,7 +53705,7 @@ function visibleSidebarTargets(roster, sessionsById = {}, activeId = null, secti
   if (!roster) return [];
   const stamps = {};
   for (const [id, entry] of Object.entries(sessionsById ?? {})) {
-    stamps[id] = entry?.updatedAt ?? 0;
+    if (Number.isFinite(entry?.updatedAt)) stamps[id] = entry.updatedAt;
   }
   const stampOf2 = (item, kind) => {
     if (kind === "agent") {
