@@ -298,20 +298,25 @@ export function install(rt) {
     return map
   }
 
+  function safeService(name) {
+    if (typeof ctx.get === 'function') return ctx.get(name)
+    return ctx[name]
+  }
+
   function settingsService() {
-    return ctx.get?.('settings') ?? ctx.settings
+    return safeService('settings')
   }
 
   function accountService() {
-    return ctx.get?.('deepseekAccount') ?? ctx.deepseekAccount
+    return safeService('deepseekAccount')
   }
 
   function pluginManagerService() {
-    return ctx.get?.('pluginManager') ?? ctx.pluginManager
+    return safeService('pluginManager')
   }
 
   function pluginInventoryService() {
-    return ctx.get?.('pluginInventory') ?? ctx.pluginInventory
+    return safeService('pluginInventory')
   }
 
   let pluginInventoryPromise = null
@@ -333,19 +338,19 @@ export function install(rt) {
   }
 
   function agentPresetsService() {
-    return ctx.get?.('agentPresets') ?? ctx.agentPresets
+    return safeService('agentPresets')
   }
 
   function webService() {
-    return ctx.get?.('web') ?? ctx.web
+    return safeService('web')
   }
 
   function llmService() {
-    return ctx.get?.('llm') ?? ctx.llm
+    return safeService('llm')
   }
 
   function credentialsService() {
-    return ctx.get?.('credentials') ?? ctx.credentials
+    return safeService('credentials')
   }
 
   function validateCredentialRef(raw) {
@@ -371,7 +376,7 @@ export function install(rt) {
   }
 
   function profileContextService() {
-    return ctx.get?.('profileContext') ?? ctx.profileContext ?? null
+    return safeService('profileContext') ?? null
   }
 
   function resolveUiPluginsPath() {
@@ -676,11 +681,20 @@ export function install(rt) {
         }
       }
       case 'plugins-inventory': {
+        const fiberPhaseOf = (phase, state) => {
+          if (typeof phase === 'string' || phase === null) return phase
+          if (state === 0) return 'pending'
+          if (state === 1) return 'loading'
+          if (state === 2) return 'active'
+          if (state === 3) return 'failed'
+          if (state === 5) return 'unloading'
+          return null
+        }
         const cleanInventoryEntry = entry => ({
           entryId: String(entry?.entryId ?? entry?.id ?? ''),
           moduleName: String(entry?.moduleName ?? ''),
           enabled: entry?.enabled !== false,
-          fiberPhase: entry?.fiberPhase ?? null,
+          fiberPhase: fiberPhaseOf(entry?.fiberPhase, entry?.fiberState),
           ...(typeof entry?.diagnostic === 'string' && entry.diagnostic !== '' ? { diagnostic: entry.diagnostic } : {}),
           ...(entry?.meta === undefined ? {} : { meta: entry.meta }),
         })
@@ -695,7 +709,7 @@ export function install(rt) {
               moduleName: String(row?.moduleName ?? ''),
               enabled: row?.enabled === 'conditional' ? 'conditional' : Boolean(row?.enabled),
               ...(typeof row?.condition === 'string' && row.condition !== '' ? { condition: row.condition } : {}),
-              fiberPhase: row?.fiberPhase ?? null,
+              fiberPhase: fiberPhaseOf(row?.fiberPhase, row?.fiberState),
               ...(row?.meta === undefined ? {} : { meta: row.meta }),
             }))
             : [],
@@ -710,8 +724,9 @@ export function install(rt) {
           }
         }
         const readFn = await loadPluginInventory()
-        if (typeof readFn === 'function' && ctx.loader && typeof ctx.loader.entries === 'function') {
-          const snap = await readFn(ctx)
+        const loader = safeService('loader')
+        if (typeof readFn === 'function' && loader && typeof loader.entries === 'function') {
+          const snap = await readFn({ get: safeService, loader, baseUrl: ctx.baseUrl })
           return {
             available: true,
             entries: Array.isArray(snap?.entries) ? snap.entries.map(cleanInventoryEntry) : [],

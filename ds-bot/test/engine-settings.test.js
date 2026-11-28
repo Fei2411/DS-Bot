@@ -929,6 +929,27 @@ test('engine-plugins-inventory reads pluginInventory service or falls back to pl
   assert.equal(roRes.ok, true)
   assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, 'engine-plugins-inventory')?.code, 'bot/refused')
   assert.equal(remoteAccessError({ deviceId: 'b1', kind: 'browser' }, 'engine-plugins-inventory')?.code, 'bot/refused')
+
+  // Strict Cordis-like Context that throws on un-injected property reads must never throw when pluginInventory is absent.
+  const strictServices = {
+    pluginManager: { async listPlugins() { return [{ entryId: 's1', moduleName: 'pkg-strict', enabled: true, fiberPhase: 'active' }] } },
+    agentPresets: { async compositionInventory() { return [{ id: 'standard', isDefault: true, rows: [{ entryId: 'p1', moduleName: 'pkg-strict', enabled: true, fiberState: 2 }] }] } },
+  }
+  const strictCtx = new Proxy({ get: name => strictServices[name] }, {
+    get(target, prop) {
+      if (prop in target) return target[prop]
+      if (typeof prop === 'string' && prop !== 'then' && prop !== 'baseUrl') {
+        throw new Error(`cannot get property "${prop}" without inject`)
+      }
+      return undefined
+    },
+  })
+  const strictRt = { ctx: strictCtx, state: {}, readOnly: false, load: async () => {} }
+  installEngineSettings(strictRt)
+  const strictSnap = await strictRt.engineEndpoint('plugins-inventory', {})
+  assert.equal(strictSnap.available, true)
+  assert.equal(strictSnap.entries[0].entryId, 's1')
+  assert.equal(strictSnap.agentPresets[0].rows[0].fiberPhase, 'active')
 })
 
 test('engine-account-running-tasks inspects deepseekAccount and active workView while staying computer-only and read-only-safe', async () => {
