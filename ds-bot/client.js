@@ -2131,6 +2131,12 @@ var init_zh = __esm({
       "SMTP host": "SMTP 服务器",
       "Sign in with Google": "使用 Google 登录",
       "Verifying…": "正在验证…",
+      "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail 在 20 秒内没有响应。请检查你的网络或代理能否访问 Gmail，然后重试。",
+      "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "无法连接 Gmail。请检查网络、防火墙或代理，然后重试。",
+      "Gmail refused the sign-in. Check your app password, then try again.": "Gmail 拒绝了登录。请检查应用专用密码，然后重试。",
+      "Could not verify Gmail. Try again, or copy the diagnostics for support.": "无法验证 Gmail。请重试，或复制诊断信息发给支持人员。",
+      "Checking Gmail. This can take up to 20 seconds.": "正在检查 Gmail，最长可能需要 20 秒。",
+      "Copy diagnostics": "复制诊断信息",
       "Import from other apps": "从其他应用导入",
       "Server address": "服务器地址",
       "Command, e.g. npx -y some-mcp": "命令,例如 npx -y some-mcp",
@@ -5222,6 +5228,12 @@ var init_ja = __esm({
       "SMTP host": "SMTP サーバー",
       "Sign in with Google": "Google でサインイン",
       "Verifying…": "確認中…",
+      "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail から 20 秒以内に応答がありませんでした。ネットワークまたはプロキシから Gmail に接続できるか確認して、もう一度お試しください。",
+      "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "Gmail に接続できませんでした。ネットワーク、ファイアウォール、またはプロキシを確認して、もう一度お試しください。",
+      "Gmail refused the sign-in. Check your app password, then try again.": "Gmail がサインインを拒否しました。アプリ パスワードを確認して、もう一度お試しください。",
+      "Could not verify Gmail. Try again, or copy the diagnostics for support.": "Gmail を確認できませんでした。もう一度お試しいただくか、診断情報をコピーしてサポートに送ってください。",
+      "Checking Gmail. This can take up to 20 seconds.": "Gmail を確認しています。最大 20 秒かかることがあります。",
+      "Copy diagnostics": "診断情報をコピー",
       "Import from other apps": "他のアプリからインポート",
       "Server address": "サーバーアドレス",
       "Command, e.g. npx -y some-mcp": "コマンド（例: npx -y some-mcp）",
@@ -8947,6 +8959,12 @@ var init_ko = __esm({
       "SMTP host": "SMTP 서버",
       "Sign in with Google": "Google로 로그인",
       "Verifying…": "확인 중…",
+      "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail이 20초 안에 응답하지 않았습니다. 네트워크나 프록시에서 Gmail에 연결할 수 있는지 확인한 뒤 다시 시도하세요.",
+      "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "Gmail에 연결할 수 없습니다. 네트워크, 방화벽 또는 프록시를 확인한 뒤 다시 시도하세요.",
+      "Gmail refused the sign-in. Check your app password, then try again.": "Gmail이 로그인을 거부했습니다. 앱 비밀번호를 확인한 뒤 다시 시도하세요.",
+      "Could not verify Gmail. Try again, or copy the diagnostics for support.": "Gmail을 확인할 수 없습니다. 다시 시도하거나 진단 정보를 복사해 지원팀에 보내세요.",
+      "Checking Gmail. This can take up to 20 seconds.": "Gmail을 확인하는 중입니다. 최대 20초가 걸릴 수 있습니다.",
+      "Copy diagnostics": "진단 정보 복사",
       "Import from other apps": "다른 앱에서 가져오기",
       "Server address": "서버 주소",
       "Command, e.g. npx -y some-mcp": "명령어 (예: npx -y some-mcp)",
@@ -12675,6 +12693,12 @@ var init_es = __esm({
       "SMTP host": "Servidor SMTP",
       "Sign in with Google": "Iniciar sesión con Google",
       "Verifying…": "Verificando…",
+      "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail no respondió en 20 segundos. Comprueba que tu red o proxy puede llegar a Gmail y vuelve a intentarlo.",
+      "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "No se pudo conectar con Gmail. Revisa tu red, cortafuegos o proxy y vuelve a intentarlo.",
+      "Gmail refused the sign-in. Check your app password, then try again.": "Gmail rechazó el inicio de sesión. Revisa tu contraseña de aplicación y vuelve a intentarlo.",
+      "Could not verify Gmail. Try again, or copy the diagnostics for support.": "No se pudo verificar Gmail. Vuelve a intentarlo o copia el diagnóstico para el soporte.",
+      "Checking Gmail. This can take up to 20 seconds.": "Comprobando Gmail. Puede tardar hasta 20 segundos.",
+      "Copy diagnostics": "Copiar diagnóstico",
       "Import from other apps": "Importar desde otras aplicaciones",
       "Server address": "Dirección del servidor",
       "Command, e.g. npx -y some-mcp": "Comando, p. ej., npx -y some-mcp",
@@ -16361,6 +16385,12 @@ var init_fr = __esm({
       "SMTP host": "Serveur SMTP",
       "Sign in with Google": "Se connecter avec Google",
       "Verifying…": "Vérification…",
+      "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail n'a pas répondu en 20 secondes. Vérifiez que votre réseau ou proxy peut joindre Gmail, puis réessayez.",
+      "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "Impossible de joindre Gmail. Vérifiez votre réseau, pare-feu ou proxy, puis réessayez.",
+      "Gmail refused the sign-in. Check your app password, then try again.": "Gmail a refusé la connexion. Vérifiez votre mot de passe d'application, puis réessayez.",
+      "Could not verify Gmail. Try again, or copy the diagnostics for support.": "Impossible de vérifier Gmail. Réessayez ou copiez le diagnostic pour l'assistance.",
+      "Checking Gmail. This can take up to 20 seconds.": "Vérification de Gmail. Cela peut prendre jusqu'à 20 secondes.",
+      "Copy diagnostics": "Copier le diagnostic",
       "Import from other apps": "Importer depuis d’autres applications",
       "Server address": "Adresse du serveur",
       "Command, e.g. npx -y some-mcp": "Commande, ex. npx -y some-mcp",
@@ -20086,6 +20116,12 @@ var init_de = __esm({
       "SMTP host": "SMTP-Server",
       "Sign in with Google": "Mit Google anmelden",
       "Verifying…": "Wird überprüft…",
+      "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.": "Gmail hat nicht innerhalb von 20 Sekunden geantwortet. Prüfe, ob dein Netzwerk oder Proxy Gmail erreicht, und versuche es erneut.",
+      "Could not reach Gmail. Check your network, firewall, or proxy, then try again.": "Gmail ist nicht erreichbar. Prüfe Netzwerk, Firewall oder Proxy und versuche es erneut.",
+      "Gmail refused the sign-in. Check your app password, then try again.": "Gmail hat die Anmeldung abgelehnt. Prüfe dein App-Passwort und versuche es erneut.",
+      "Could not verify Gmail. Try again, or copy the diagnostics for support.": "Gmail konnte nicht überprüft werden. Versuche es erneut oder kopiere die Diagnose für den Support.",
+      "Checking Gmail. This can take up to 20 seconds.": "Gmail wird geprüft. Das kann bis zu 20 Sekunden dauern.",
+      "Copy diagnostics": "Diagnose kopieren",
       "Import from other apps": "Aus anderen Apps importieren",
       "Server address": "Serveradresse",
       "Command, e.g. npx -y some-mcp": "Befehl, z. B. npx -y some-mcp",
@@ -44108,10 +44144,29 @@ var guessProvider = (address) => {
   if (["icloud.com", "me.com", "mac.com"].includes(domain)) return "icloud";
   return "";
 };
+var GMAIL_FAILURES = {
+  "bot/mail-gmail-timeout": "Gmail did not answer within 20 seconds. Check that your network or proxy can reach Gmail, then try again.",
+  "bot/mail-gmail-network": "Could not reach Gmail. Check your network, firewall, or proxy, then try again.",
+  "bot/mail-gmail-auth": "Gmail refused the sign-in. Check your app password, then try again.",
+  "bot/mail-gmail-verification": "Could not verify Gmail. Try again, or copy the diagnostics for support."
+};
+function mailDiagnostics(code, provider) {
+  const facts = clientFacts();
+  return [
+    "DS Bot mailbox add diagnostics",
+    `Code: ${code}`,
+    `Provider: ${provider}`,
+    `Surface: ${facts.surface}`,
+    `Language: ${facts.language}`,
+    `User agent: ${facts.userAgent}`,
+    `Time: ${(/* @__PURE__ */ new Date()).toISOString()}`
+  ].join("\n");
+}
 function MailForm({ mail, actions, onClose }) {
   const [fields, setFields] = (0, import_react34.useState)({ address: "", password: "", provider: "", imapHost: "", smtpHost: "" });
   const [busy, setBusy] = (0, import_react34.useState)(false);
   const [error, setError] = (0, import_react34.useState)(null);
+  const [copies, setCopies] = (0, import_react34.useState)(0);
   const busyRef = (0, import_react34.useRef)(false);
   const set = (key, value) => setFields((current2) => ({ ...current2, [key]: value }));
   const chosen = fields.provider || guessProvider(fields.address) || "qq";
@@ -44122,11 +44177,18 @@ function MailForm({ mail, actions, onClose }) {
     busyRef.current = true;
     setBusy(true);
     setError(null);
+    setCopies(0);
     void Promise.resolve().then(task).then(done, (failure) => {
-      setError(failure?.message ?? String(failure));
+      const code = typeof failure?.code === "string" ? failure.code : void 0;
+      setError({ message: failure?.message ?? String(failure), code, provider: chosen });
     }).finally(() => {
       busyRef.current = false;
       setBusy(false);
+    });
+  };
+  const gmailFailure = error && Object.hasOwn(GMAIL_FAILURES, error.code ?? "") ? GMAIL_FAILURES[error.code] : null;
+  const copyDiagnostics = () => {
+    void navigator.clipboard?.writeText(mailDiagnostics(error.code, error.provider)).then(() => setCopies((n) => n + 1), () => {
     });
   };
   const add = () => go(() => actions.mailAccountAdd({ address: fields.address.trim(), password: fields.password, provider: chosen, imapHost: fields.imapHost.trim(), smtpHost: fields.smtpHost.trim() }), onClose);
@@ -44165,7 +44227,18 @@ function MailForm({ mail, actions, onClose }) {
     input("address", t("Email address"), { type: "email" }),
     (0, import_react34.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react34.createElement)(MaskedInput, { value: fields.password, onChange: (value) => set("password", value), onEnter: add, label: t(guide?.label ?? "Password or app password"), disabled: busy })),
     chosen === "other" ? (0, import_react34.createElement)("div", { className: "bt-provider-pair" }, input("imapHost", t("IMAP host")), input("smtpHost", t("SMTP host"))) : null,
-    error ? (0, import_react34.createElement)("div", { className: "bt-mail-error", role: "alert" }, hostText(error)) : null,
+    busy && chosen === "gmail" ? (0, import_react34.createElement)("div", { className: "bt-set-hint", role: "status" }, t("Checking Gmail. This can take up to 20 seconds.")) : null,
+    error ? (0, import_react34.createElement)("div", { className: "bt-mail-error", role: "alert" }, gmailFailure ? t(gmailFailure) : hostText(error.message)) : null,
+    gmailFailure ? (0, import_react34.createElement)(
+      "div",
+      { className: "bt-mail-links" },
+      (0, import_react34.createElement)("button", { type: "button", className: "bt-connector-link", onClick: copyDiagnostics }, t("Copy diagnostics")),
+      (0, import_react34.createElement)(
+        "span",
+        { className: "bt-connector-copied", role: "status" },
+        copies > 0 ? (0, import_react34.createElement)("span", { key: copies, className: "bt-connector-copied-text" }, (0, import_react34.createElement)(CheckIcon), t("Copied to clipboard")) : null
+      )
+    ) : null,
     (0, import_react34.createElement)(
       "div",
       { className: "bt-secret-row-actions" },

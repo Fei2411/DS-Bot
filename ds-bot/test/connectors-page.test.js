@@ -263,6 +263,75 @@ test('a failed mail add shows the host message inside the form', async () => {
   assert.ok(String(collect(n => String(n.props?.className ?? '').includes('bt-mail-form'))[0]?.props?.className ?? '').includes('bt-mail-form'), 'form stays open')
 })
 
+test('a Gmail add says it is checking and maps a host failure code to a next step', async () => {
+  let reject = null
+  const actions = {
+    mailAccountAdd: () => new Promise((_, no) => { reject = no }),
+    mailAccountRemove: () => Promise.resolve(true),
+  }
+  props = { mail: { accounts: [] }, actions }
+  slots.length = 0
+  render()
+  click('Connect')
+  fill('Email address', addressAt('gmail.com'))
+  fill('App password', 'abcd efgh ijkl mnop')
+  click('Add')
+  await flush()
+  const status = collect(n => n.props?.role === 'status' && /Checking Gmail/.test(flatten(n).join('')))[0]
+  assert.ok(status, 'the click is acknowledged while the host verifies')
+  reject(Object.assign(new Error('Gmail verification timed out. Check your network or proxy can reach Gmail and try again.'), { code: 'bot/mail-gmail-timeout' }))
+  await flush()
+  assert.equal(collect(n => n.props?.role === 'status' && /Checking Gmail/.test(flatten(n).join(''))).length, 0)
+  assert.match(flatten(collect(n => n.props?.role === 'alert')[0]).join(''), /did not answer within 20 seconds.*network or proxy/)
+})
+
+test('copied Gmail diagnostics carry the failure code and no account details', async () => {
+  const copied = []
+  const writeText = clipboard.writeText
+  clipboard.writeText = (text) => { copied.push(text); return Promise.resolve() }
+  try {
+    const actions = {
+      mailAccountAdd: () => Promise.reject(Object.assign(new Error('Gmail refused the sign-in for someone'), { code: 'bot/mail-gmail-auth' })),
+      mailAccountRemove: () => Promise.resolve(true),
+    }
+    props = { mail: { accounts: [] }, actions }
+    slots.length = 0
+    render()
+    click('Connect')
+    fill('Email address', addressAt('gmail.com'))
+    fill('App password', 'secretapppassword')
+    click('Add')
+    await flush()
+    assert.match(flatten(collect(n => n.props?.role === 'alert')[0]).join(''), /app password/)
+    click('Copy diagnostics')
+    await flush()
+    assert.equal(copied.length, 1)
+    assert.match(copied[0], /Code: bot\/mail-gmail-auth/)
+    assert.match(copied[0], /Provider: gmail/)
+    assert.doesNotMatch(copied[0], /gmail\.com|secretapppassword|someone/)
+    assert.ok(collect(n => n.props?.className === 'bt-connector-copied-text').length > 0, 'the copy is confirmed')
+  } finally {
+    clipboard.writeText = writeText
+  }
+})
+
+test('a mail failure without a Gmail code offers no diagnostics copy', async () => {
+  const actions = {
+    mailAccountAdd: () => Promise.reject(Object.assign(new Error('Could not verify Gmail.'), { code: 'bot/refused' })),
+    mailAccountRemove: () => Promise.resolve(true),
+  }
+  props = { mail: { accounts: [] }, actions }
+  slots.length = 0
+  render()
+  click('Connect')
+  fill('Email address', addressAt('gmail.com'))
+  fill('App password', 'pw')
+  click('Add')
+  await flush()
+  assert.match(flatten(collect(n => n.props?.role === 'alert')[0]).join(''), /Could not verify Gmail\./)
+  assert.equal(collect(n => n.type === 'button' && flatten(n).join('') === 'Copy diagnostics').length, 0)
+})
+
 // Your own MCP servers: an address may sign in with OAuth, a command cannot.
 test('the add form offers OAuth only for an address and sends the flag', async () => {
   const adds = []
