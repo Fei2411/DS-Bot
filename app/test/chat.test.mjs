@@ -144,7 +144,7 @@ const sandbox = {
   document: { querySelector: () => null, body: { toggleAttribute() {}, removeAttribute() {} }, activeElement: null, addEventListener() {}, removeEventListener() {}, documentElement: { addEventListener() {}, removeEventListener() {} } },
   navigator: { language: 'en' },
   setTimeout: () => 0, clearTimeout() {},
-  requestAnimationFrame: () => 0, cancelAnimationFrame() {}, performance: { now: () => 0 },
+  requestAnimationFrame: fn => setImmediate(() => fn(0)), cancelAnimationFrame: id => clearImmediate(id), performance: { now: () => 0 },
   fetch: (...args) => sse.fetch(...args),
 }
 runInNewContext(outputFiles[0].text, sandbox)

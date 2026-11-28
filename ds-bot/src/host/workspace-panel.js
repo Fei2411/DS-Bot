@@ -15,6 +15,7 @@ import { StringDecoder } from 'node:string_decoder'
 import { pathToFileURL } from 'node:url'
 import { within } from './folders.js'
 import { createWorkspaceSearcher } from './workspace-search.js'
+import { isInjectedGitConfigEnvKey } from './git-config-env.js'
 import { parseXlsxBuffer } from './xlsx-preview.js'
 
 const MAX_LIST_ENTRIES = 500
@@ -129,7 +130,7 @@ function defaultShell() {
 function ptyEnvOverrides() {
   const overrides = { COLORTERM: 'truecolor' }
   for (const key of Object.keys(process.env)) {
-    if (STRIPPED_ENV_RE.test(key)) overrides[key] = undefined
+    if (STRIPPED_ENV_RE.test(key) || isInjectedGitConfigEnvKey(key)) overrides[key] = undefined
   }
   return overrides
 }
@@ -139,7 +140,7 @@ function fallbackTerminalEnv() {
   const out = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (typeof value !== 'string') continue
-    if (SENSITIVE_ENV_RE.test(key) || STRIPPED_ENV_RE.test(key)) continue
+    if (SENSITIVE_ENV_RE.test(key) || STRIPPED_ENV_RE.test(key) || isInjectedGitConfigEnvKey(key)) continue
     out[key] = value
   }
   out.TERM = 'xterm-256color'
@@ -201,7 +202,7 @@ function scrubbedOpenEnv(extra = {}) {
   const out = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (typeof value !== 'string') continue
-    if (SENSITIVE_ENV_RE.test(key) || STRIPPED_ENV_RE.test(key)) continue
+    if (SENSITIVE_ENV_RE.test(key) || STRIPPED_ENV_RE.test(key) || isInjectedGitConfigEnvKey(key)) continue
     out[key] = value
   }
   for (const [key, value] of Object.entries(extra)) {

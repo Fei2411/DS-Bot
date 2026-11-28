@@ -285,30 +285,66 @@ const hiddenTurn = (roster, sessionId, turn) => (roster?.exchangeTurns && sessio
 
 // Committed rows of one events array never change afterwards: a stream chunk only grows
 // the reply being written, it never touches the events the window already holds. They
-// are cached on the events array itself, and inside it once more on the roster (two
-// nested WeakMaps, so a dropped log or roster takes its entries with it): a stream-only
-// frame finds its rows in O(1) as the very same objects, and interleaving rosters never
-// evict each other. The roster and the session id shape the rows, so a cached entry only
-// serves a call whose roster and session id are the ones it was built with.
+// are cached on the events array alone (`WeakMap<events, Map<rosterVersion, entry>>`),
+// while the narrow roster fields that actually shape committed rows for `sessionId`
+// (`exchangeTurns`, `closedCards`, `apiVia`, `imVia`, `api.tokens`) are versioned
+// independently. Stream chunks and unrelated roster updates (other Bots, prefs,
+// revision, plugins, etc.) both hit in O(1) and return the exact same row objects.
 const committedRowsCache = new WeakMap()
-const NO_ROSTER = {}
+const valueKeyCache = new WeakMap()
+const apiTokensKeyCache = new WeakMap()
+
+function stableValueKey(value) {
+  if (value === undefined || value === null) return ''
+  if (typeof value !== 'object') return String(value)
+  let key = valueKeyCache.get(value)
+  if (key === undefined) {
+    if (Array.isArray(value)) {
+      key = value.length === 0 ? '[]' : JSON.stringify(value)
+    } else {
+      const keys = Object.keys(value)
+      if (keys.length === 0) {
+        key = '{}'
+      } else {
+        keys.sort()
+        key = JSON.stringify(keys.map(k => [k, value[k]]))
+      }
+    }
+    valueKeyCache.set(value, key)
+  }
+  return key
+}
+
+function apiTokensKey(tokens) {
+  if (!Array.isArray(tokens) || tokens.length === 0) return ''
+  let key = apiTokensKeyCache.get(tokens)
+  if (key === undefined) {
+    key = tokens.map(item => `${item?.keyId ?? ''}:${item?.name ?? ''}`).join('\0')
+    apiTokensKeyCache.set(tokens, key)
+  }
+  return key
+}
+
+function committedRosterVersion(roster, sessionId) {
+  const sid = sessionId ?? ''
+  return `${sid}\u0001${stableValueKey(sid ? roster?.exchangeTurns?.[sid] : undefined)}\u0001${stableValueKey(sid ? roster?.closedCards?.[sid] : undefined)}\u0001${stableValueKey(sid ? roster?.apiVia?.[sid] : undefined)}\u0001${stableValueKey(sid ? roster?.imVia?.[sid] : undefined)}\u0001${apiTokensKey(roster?.api?.tokens)}`
+}
 
 function committedRowsOf(events, roster, sessionId) {
-  let byRoster = committedRowsCache.get(events)
-  if (byRoster === undefined) {
-    byRoster = new WeakMap()
-    committedRowsCache.set(events, byRoster)
+  let byVersion = committedRowsCache.get(events)
+  if (byVersion === undefined) {
+    byVersion = new Map()
+    committedRowsCache.set(events, byVersion)
   }
-  const key = typeof roster === 'object' && roster !== null ? roster : NO_ROSTER
-  // One roster almost always means one session here, so the slot holds a short list of
-  // entries and a lookup scans it; building never evicts another session id's rows.
-  const entries = byRoster.get(key) ?? []
-  const cached = entries.find(entry => entry.roster === roster && entry.sessionId === sessionId)
+  const version = committedRosterVersion(roster, sessionId)
+  const cached = byVersion.get(version)
   if (cached !== undefined) return cached
   const entry = buildCommittedRows(events, roster, sessionId)
-  entries.push(entry)
-  if (entries.length > 4) entries.shift()
-  byRoster.set(key, entries)
+  byVersion.set(version, entry)
+  if (byVersion.size > 8) {
+    const oldest = byVersion.keys().next().value
+    if (oldest !== undefined) byVersion.delete(oldest)
+  }
   return entry
 }
 
@@ -736,7 +772,7 @@ function buildCommittedRows(events, roster, sessionId) {
     }
   }
 
-  return { rows, callsById, roster, sessionId }
+  return { rows, callsById }
 }
 
 // Live in-progress reply rows from DSH's BlockAssembler, rebuilt per stream chunk. They

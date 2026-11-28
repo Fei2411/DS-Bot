@@ -483,6 +483,7 @@ body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) .d
 .dsb-pv-sheet-tab:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .dsb-pv-image-shell{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
 .dsb-pv-image-bar,.dsb-pv-pdf-bar{flex:none}
+.dsb-pv-image-actions{display:inline-flex;align-items:center;gap:6px;flex:none}
 .dsb-pv-pdf-left{display:inline-flex;align-items:center;gap:8px;min-width:0}
 .dsb-pv-image-dims{font-family:var(--bt-mono);font-size:11px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
 .dsb-pv-zoom{display:inline-flex;align-items:center;gap:2px;flex:none}

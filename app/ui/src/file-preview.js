@@ -217,7 +217,7 @@ function computeTargetScrollTop({ targetLine, lineCount, isVirtualized, wrapOffs
   return Math.max(0, Math.round(lineY - viewportHeight / 2))
 }
 
-function CodeLines({ text, language = '', targetLine = null, wordWrap = false, fileKey = '' }) {
+function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, wordWrap = false, fileKey = '' }) {
   const source = String(text ?? '')
   const fileScope = fileKey || source
   const lines = useMemo(() => source.split(/\r?\n/), [source])
@@ -288,7 +288,7 @@ function CodeLines({ text, language = '', targetLine = null, wordWrap = false, f
       }
       return
     }
-    const jumpKey = `${fileScope}\0${targetLine}`
+    const jumpKey = `${fileScope}\0${targetLine}\0${lineNonce}`
     if (jumpedKeyRef.current === jumpKey) return
     jumpedKeyRef.current = jumpKey
     if (isVirtualized) {
@@ -306,7 +306,7 @@ function CodeLines({ text, language = '', targetLine = null, wordWrap = false, f
     } else {
       targetRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
     }
-  }, [fileScope, targetLine, isVirtualized])
+  }, [fileScope, targetLine, lineNonce, isVirtualized])
 
   const onScroll = useCallback((event) => {
     if (!isVirtualized) return
@@ -625,10 +625,24 @@ function ImagePreview({ file }) {
   const blobUrl = useBlobUrl(file.base64, file.mime)
   const [zoom, setZoom] = useState(null)
   const [natural, setNatural] = useState({ w: 0, h: 0 })
+  const wrapRef = useRef(null)
 
   useEffect(() => {
     setZoom(null)
     setNatural({ w: 0, h: 0 })
+  }, [file?.path, file?.base64])
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el || typeof el.addEventListener !== 'function') return undefined
+    const onWheel = (event) => {
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+      const delta = event.deltaY < 0 ? 1 : -1
+      setZoom(current => stepZoom(IMAGE_ZOOM_STEPS, current, delta))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => { el.removeEventListener('wheel', onWheel) }
   }, [file?.path, file?.base64])
 
   const src = blobUrl ?? (file.base64 ? `data:${file.mime};base64,${file.base64}` : '')
@@ -640,21 +654,15 @@ function ImagePreview({ file }) {
       ? { width: `${Math.round((natural.w * zoom) / 100)}px`, height: 'auto', maxWidth: 'none', maxHeight: 'none' }
       : { width: `${zoom}%`, maxWidth: 'none', maxHeight: 'none' })
 
-  const onWheel = (event) => {
-    if (!event.ctrlKey && !event.metaKey) return
-    event.preventDefault()
-    const delta = event.deltaY < 0 ? 1 : -1
-    setZoom(current => stepZoom(IMAGE_ZOOM_STEPS, current, delta))
-  }
-
   return h('div', { className: 'dsb-pv-image-shell' },
     h('div', { className: 'dsb-pv-banner dsb-pv-image-bar' },
       natural.w > 0 ? h('span', { className: 'dsb-pv-image-dims' }, `${natural.w} × ${natural.h}`) : h('span', null),
-      h(ZoomControls, { zoom, steps: IMAGE_ZOOM_STEPS, onChange: setZoom, allowFit: true })),
+      h('div', { className: 'dsb-pv-image-actions' },
+        h(ZoomControls, { zoom, steps: IMAGE_ZOOM_STEPS, onChange: setZoom, allowFit: true }))),
     h('div', {
+      ref: wrapRef,
       className: zoom === null ? 'dsb-pv-image-wrap' : 'dsb-pv-image-wrap is-zoomed',
       'data-zoom': zoom === null ? 'fit' : String(zoom),
-      onWheel,
     },
     h('img', {
       className: zoom === null ? 'dsb-pv-image' : 'dsb-pv-image is-zoomed',
@@ -684,6 +692,7 @@ export function HtmlPreviewFrame({ html, title }) {
 export function FilePreview({
   file,
   line = null,
+  lineNonce = 0,
   loading,
   error,
   onRetry,
@@ -799,28 +808,28 @@ export function FilePreview({
     file.kind === 'html' && mode === 'preview' && htmlPreview?.blocked === true ? h(HtmlPreviewNotice) : null,
     h('div', { className: 'dsb-pv-body' },
       file.kind === 'markdown'
-        ? (mode === 'source' ? h(CodeLines, { text: file.text, language: 'markdown', targetLine: line, wordWrap, fileKey: file.path || file.name }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
+        ? (mode === 'source' ? h(CodeLines, { text: file.text, language: 'markdown', targetLine: line, lineNonce, wordWrap, fileKey: file.path || file.name }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
           text: file.text,
           labels: { code: { copyLabel: t('Copy'), copiedLabel: t('Copied') } },
         })))
         : file.kind === 'table'
-          ? (mode === 'source' ? h(CodeLines, { text: file.text, targetLine: line, wordWrap, fileKey: file.path || file.name }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
+          ? (mode === 'source' ? h(CodeLines, { text: file.text, targetLine: line, lineNonce, wordWrap, fileKey: file.path || file.name }) : h(TablePreview, { text: file.text, delimiter: file.delimiter }))
           : file.kind === 'spreadsheet'
             ? h(SpreadsheetPreview, { file })
             : file.kind === 'html'
             ? (mode === 'source'
-                ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line, wordWrap, fileKey: file.path || file.name })
+                ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line, lineNonce, wordWrap, fileKey: file.path || file.name })
                 : htmlPreview === null
                   ? h('div', { className: 'dsb-pv-html-wrap' }, h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment')))
                   : h(HtmlPreviewFrame, { html: htmlPreview.html, title: file.name }))
             : file.kind === 'svg'
-              ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line, wordWrap, fileKey: file.path || file.name }) : h(ImagePreview, { file }))
+              ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text, language: 'xml', targetLine: line, lineNonce, wordWrap, fileKey: file.path || file.name }) : h(ImagePreview, { file }))
               : file.kind === 'image'
                 ? h(ImagePreview, { file })
                 : file.kind === 'pdf'
                   ? h(PdfPreview, { file })
                   : file.kind === 'code' || file.kind === 'text'
-                    ? h(CodeLines, { text: file.text, language: file.language || '', targetLine: line, wordWrap, fileKey: file.path || file.name })
+                    ? h(CodeLines, { text: file.text, language: file.language || '', targetLine: line, lineNonce, wordWrap, fileKey: file.path || file.name })
                     : h('div', { className: 'dsb-pv-fallback' },
                       h('span', { className: 'dsb-pv-fallback-ico', 'aria-hidden': true }, h(FileIcon)),
                       h('strong', null, file.name),

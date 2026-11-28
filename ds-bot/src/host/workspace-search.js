@@ -144,7 +144,7 @@ function compileGlobNfa(glob) {
   return { ops, chars, classes, acceptState: ops.length - 1 }
 }
 
-function matchGlobNfa(nfa, str, anchored, requireTrailingSlash) {
+function matchGlobNfa(nfa, str, anchored) {
   const { ops, chars, classes, acceptState } = nfa
   const stateCount = acceptState + 1
   let cur = new Uint8Array(stateCount)
@@ -167,7 +167,6 @@ function matchGlobNfa(nfa, str, anchored, requireTrailingSlash) {
   for (let i = 0; i < str.length; i += 1) {
     expandEpsilon(cur)
     const ch = str[i]
-    if (cur[acceptState] && ch === '/') return true
     next.fill(0)
     let anyNext = false
     for (let s = 0; s < acceptState; s += 1) {
@@ -209,7 +208,7 @@ function matchGlobNfa(nfa, str, anchored, requireTrailingSlash) {
   }
 
   expandEpsilon(cur)
-  return !requireTrailingSlash && cur[acceptState] === 1
+  return cur[acceptState] === 1
 }
 
 function stripUnescapedTrailingSpaces(line) {
@@ -263,29 +262,37 @@ export function parseGitignore(text, baseRel = '') {
   return rules
 }
 
-/**
- * Evaluates layered `.gitignore` rules against a workspace-relative POSIX path.
- */
-export function isGitignored(rules, relPath, isDir) {
-  if (!Array.isArray(rules) || rules.length === 0 || !relPath) return false
+function isDirectlyGitignored(rules, relPath, isDir) {
   let ignored = false
   for (const rule of rules) {
+    if (rule.dirOnly && !isDir) continue
     let scoped = relPath
     if (rule.prefix !== '') {
       if (!relPath.startsWith(rule.prefix)) continue
       scoped = relPath.slice(rule.prefix.length)
       if (scoped === '') continue
     }
-    if (rule.dirOnly && !isDir) {
-      if (!scoped.includes('/')) continue
-      if (matchGlobNfa(rule.nfa, scoped, rule.anchored, true)) ignored = !rule.negated
-      continue
-    }
-    if (matchGlobNfa(rule.nfa, scoped, rule.anchored, false)) {
+    if (matchGlobNfa(rule.nfa, scoped, rule.anchored)) {
       ignored = !rule.negated
     }
   }
   return ignored
+}
+
+/**
+ * Evaluates layered `.gitignore` rules against a workspace-relative POSIX path,
+ * matching Git semantics: if any parent directory is ignored, descendants cannot
+ * be re-included, and a negated directory rule permits traversing that directory
+ * without overriding ignore rules on descendant files.
+ */
+export function isGitignored(rules, relPath, isDir) {
+  if (!Array.isArray(rules) || rules.length === 0 || !relPath) return false
+  let slash = relPath.indexOf('/')
+  while (slash !== -1) {
+    if (isDirectlyGitignored(rules, relPath.slice(0, slash), true)) return true
+    slash = relPath.indexOf('/', slash + 1)
+  }
+  return isDirectlyGitignored(rules, relPath, isDir)
 }
 
 async function readIgnoreFile(filePath, realRoot, withinRoot, isProtectedData) {
@@ -403,6 +410,8 @@ export function createWorkspaceSearcher({ withinRoot, isProtectedData }) {
         maxDepth: depthCap,
         // Queue items: { dirAbs, relDir, depth, rules }
         queue: [{ dirAbs: realRoot, relDir: '', depth: 0, rules: rootRules }],
+        // In-progress directory cursor so wide directories obey `batchMs` slicing without duplicates.
+        activeDir: null,
         scannedDirs: 0,
         scannedFiles: 0,
         incompleteReasons: new Set(),
@@ -416,9 +425,9 @@ export function createWorkspaceSearcher({ withinRoot, isProtectedData }) {
     session.lastActiveAt = Date.now()
     const batch = []
     const deadline = Date.now() + sliceMs
-    let iterations = 0
+    let processed = 0
 
-    while (session.queue.length > 0) {
+    while (session.activeDir !== null || session.queue.length > 0) {
       if (disposed || session.cancelled || signal?.aborted) {
         session.cancelled = true
         session.incompleteReasons.add('cancelled')
@@ -436,40 +445,64 @@ export function createWorkspaceSearcher({ withinRoot, isProtectedData }) {
           truncated: true,
         }
       }
-      if (iterations > 0 && Date.now() >= deadline) break
-      iterations += 1
+      if (processed > 0 && Date.now() >= deadline) break
 
-      const current = session.queue.shift()
-      session.scannedDirs += 1
+      if (session.activeDir === null) {
+        const current = session.queue.shift()
+        session.scannedDirs += 1
+        processed += 1
 
-      let rules = current.rules
-      if (session.respectGitignore) {
-        const localIgnore = await readIgnoreFile(join(current.dirAbs, '.gitignore'), realRoot, withinRoot, isProtectedData)
-        if (localIgnore) {
-          const parsed = parseGitignore(localIgnore, current.relDir)
-          if (parsed.length > 0) rules = [...rules, ...parsed]
+        let rules = current.rules
+        if (session.respectGitignore) {
+          const localIgnore = await readIgnoreFile(join(current.dirAbs, '.gitignore'), realRoot, withinRoot, isProtectedData)
+          if (localIgnore) {
+            const parsed = parseGitignore(localIgnore, current.relDir)
+            if (parsed.length > 0) rules = [...rules, ...parsed]
+          }
+        }
+
+        let rawEntries
+        try {
+          rawEntries = await readdir(current.dirAbs, { withFileTypes: true })
+        } catch (err) {
+          if (err?.code === 'EACCES' || err?.code === 'EPERM') session.incompleteReasons.add('permission')
+          else session.incompleteReasons.add('unreadable')
+          continue
+        }
+
+        rawEntries.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+        session.activeDir = {
+          dirAbs: current.dirAbs,
+          relDir: current.relDir,
+          depth: current.depth,
+          rules,
+          entries: rawEntries,
+          index: 0,
         }
       }
 
-      let rawEntries
-      try {
-        rawEntries = await readdir(current.dirAbs, { withFileTypes: true })
-      } catch (err) {
-        if (err?.code === 'EACCES' || err?.code === 'EPERM') session.incompleteReasons.add('permission')
-        else session.incompleteReasons.add('unreadable')
-        continue
-      }
-
-      rawEntries.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
-
-      for (const entry of rawEntries) {
+      const active = session.activeDir
+      while (active.index < active.entries.length) {
         if (disposed || session.cancelled || signal?.aborted) break
+        if (processed > 0 && Date.now() >= deadline) break
+        const entry = active.entries[active.index]
+        active.index += 1
+        processed += 1
+
         const name = entry.name
         if (ALWAYS_IGNORED_DIRS.has(name)) continue
         if (!session.includeHidden && name.startsWith('.')) continue
 
-        const full = join(current.dirAbs, name)
-        const relPath = current.relDir ? `${current.relDir}/${name}` : name
+        const full = join(active.dirAbs, name)
+        const relPath = active.relDir ? `${active.relDir}/${name}` : name
+
+        const isSymlink = entry.isSymbolicLink()
+        if (!isSymlink && session.respectGitignore) {
+          const quickDir = entry.isDirectory()
+          if (quickDir || entry.isFile()) {
+            if (isGitignored(active.rules, relPath, quickDir)) continue
+          }
+        }
 
         let realEntry
         try {
@@ -487,10 +520,10 @@ export function createWorkspaceSearcher({ withinRoot, isProtectedData }) {
         }
         const kind = info.isDirectory() ? 'dir' : info.isFile() ? 'file' : null
         if (kind === null) continue
-        if (entry.isSymbolicLink() && kind === 'dir') continue
+        if (isSymlink && kind === 'dir') continue
 
         const isDir = kind === 'dir'
-        if (session.respectGitignore && isGitignored(rules, relPath, isDir)) continue
+        if (isSymlink && session.respectGitignore && isGitignored(active.rules, relPath, isDir)) continue
 
         if (!isDir) session.scannedFiles += 1
 
@@ -506,17 +539,23 @@ export function createWorkspaceSearcher({ withinRoot, isProtectedData }) {
         }
 
         if (isDir) {
-          if (current.depth + 1 >= session.maxDepth) {
+          if (active.depth + 1 >= session.maxDepth) {
             session.incompleteReasons.add('depth')
           } else {
             session.queue.push({
               dirAbs: full,
               relDir: relPath,
-              depth: current.depth + 1,
-              rules,
+              depth: active.depth + 1,
+              rules: active.rules,
             })
           }
         }
+      }
+
+      if (active.index >= active.entries.length) {
+        session.activeDir = null
+      } else {
+        break
       }
     }
 
@@ -538,7 +577,7 @@ export function createWorkspaceSearcher({ withinRoot, isProtectedData }) {
       }
     }
 
-    const done = session.queue.length === 0
+    const done = session.activeDir === null && session.queue.length === 0
     if (done) {
       session.done = true
       sessions.delete(session.id)

@@ -348,7 +348,7 @@ export function normalizeRevealPath(raw, rootPath) {
   return collapsed === null ? { status: 'outside', raw: p } : { status: 'ok', path: collapsed }
 }
 
-function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, onOpenDefault, onCopyPath, onCopyRelativePath, onClose }) {
+function FileTreeContextMenu({ menu, expanded, isSearchMode = false, onOpen, onToggleDir, onOpenSearchDir = null, onReveal, onOpenDefault, onCopyPath, onCopyRelativePath, onClose }) {
   const open = Boolean(menu)
   const [shown, leaving] = useLinger(open, 120)
   const lastMenuRef = useRef(menu)
@@ -413,7 +413,9 @@ function FileTreeContextMenu({ menu, expanded, onOpen, onToggleDir, onReveal, on
 
   const items = isDir
     ? [
-        { key: 'toggle', icon: ChevronRightIcon, label: isOpen ? t('Collapse') : t('Expand'), onClick: run(() => onToggleDir(entry.path)) },
+        isSearchMode && onOpenSearchDir
+          ? { key: 'open-in-tree', icon: FolderIcon, label: t('Open'), onClick: run(() => onOpenSearchDir(entry.path)) }
+          : { key: 'toggle', icon: ChevronRightIcon, label: isOpen ? t('Collapse') : t('Expand'), onClick: run(() => onToggleDir(entry.path)) },
         { key: 'reveal', icon: FolderIcon, label: t('Show in folder'), onClick: run(() => onReveal(entry.path, activeMenu.root)) },
         { sep: true },
         { key: 'copy-path', icon: CopyIcon, label: t('Copy path'), onClick: run(() => onCopyPath(entry.path, activeMenu.root)) },
@@ -513,6 +515,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
   const [loadingDirs, setLoadingDirs] = useState(() => new Set())
   const [includeHidden, setIncludeHidden] = useState(false)
   const [filter, setFilter] = useState('')
+  const [searchRefreshNonce, setSearchRefreshNonce] = useState(0)
   const [searchState, setSearchState] = useState({
     query: '',
     entries: [],
@@ -1053,7 +1056,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
         cancelActiveSearch(false)
       }
     }
-  }, [filter, sessionId, includeHidden, rootInfo.root, cancelActiveSearch])
+  }, [filter, sessionId, includeHidden, rootInfo.root, searchRefreshNonce, cancelActiveSearch])
 
   const openFileTarget = useCallback((path) => {
     setRevealNotice('')
@@ -1156,6 +1159,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
           onClick: () => {
             setRevealNotice('')
             void refreshTree({ silent: false, reset: false })
+            if (isSearchingMode) setSearchRefreshNonce(n => n + 1)
           },
         }, h(RefreshIcon)))),
     h('div', { className: 'dsb-ft-search' },
@@ -1199,8 +1203,10 @@ function FileTree({ sessionId, feed, actions, selectedPath, revealDir = null, re
     h(FileTreeContextMenu, {
       menu,
       expanded,
+      isSearchMode: isSearchingMode,
       onOpen: openFileTarget,
       onToggleDir: toggleDir,
+      onOpenSearchDir: openSearchDir,
       onReveal: (path, root) => runOpenAction(path, 'reveal', root),
       onOpenDefault: (path, root) => runOpenAction(path, 'open', root),
       onCopyPath: (path, root) => copyPath(path, false, root),
@@ -1371,25 +1377,84 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
     if (!visible || !activePreviewId || !activePreviewPath) return undefined
     let alive = true
     let watchId = null
+    let watchReq = 0
     const dirs = activePreviewWatchParent ? [activePreviewWatchParent] : []
-    void call('workspace-watch', {
-      sessionId: activePreviewSessionId,
-      dirs,
-      ...(activePreviewRoot ? { expectedRoot: activePreviewRoot } : {}),
-    })
-      .then((res) => {
-        if (!alive) {
-          if (res?.watchId) void call('workspace-unwatch', { watchId: res.watchId }).catch(() => {})
-          return
-        }
-        watchId = res?.watchId ?? null
-        previewWatchRootRef.current = res?.root ?? activePreviewRoot ?? ''
+
+    const previewDataChanged = (prev, next) => {
+      if (!prev || !next) return Boolean(prev || next)
+      if (prev.kind !== next.kind || prev.size !== next.size || prev.truncated !== next.truncated) return true
+      if (typeof prev.text === 'string' || typeof next.text === 'string') return prev.text !== next.text
+      if (typeof prev.base64 === 'string' || typeof next.base64 === 'string') return prev.base64 !== next.base64
+      if (prev.sheets || next.sheets) return JSON.stringify(prev.sheets) !== JSON.stringify(next.sheets)
+      return false
+    }
+
+    const registerWatch = () => {
+      const req = ++watchReq
+      const prevWatchId = watchId
+      watchId = null
+      if (prevWatchId) void call('workspace-unwatch', { watchId: prevWatchId }).catch(() => {})
+      void call('workspace-watch', {
+        sessionId: activePreviewSessionId,
+        dirs,
+        ...(activePreviewRoot ? { expectedRoot: activePreviewRoot } : {}),
       })
-      .catch(() => {})
+        .then((res) => {
+          if (!alive || req !== watchReq) {
+            if (res?.watchId) void call('workspace-unwatch', { watchId: res.watchId }).catch(() => {})
+            return
+          }
+          watchId = res?.watchId ?? null
+          previewWatchRootRef.current = res?.root ?? activePreviewRoot ?? ''
+        })
+        .catch(() => {})
+    }
+    registerWatch()
+
+    const checkPreviewAfterReconnect = () => {
+      const entry = previewEntriesRef.current.find(item => item.id === activePreviewId)
+      if (!entry) return
+      if (autoRefreshRef.current) {
+        loadPreviewEntryRef.current(entry, { silent: true, retry: true })
+        return
+      }
+      const prevState = fileStatesRef.current[entry.id]
+      if (!prevState?.data || prevState.updated) return
+      const effectiveSessionId = entry.sessionId ?? sessionId
+      void call('workspace-read', { sessionId: effectiveSessionId, path: entry.path })
+        .then((res) => {
+          if (!alive) return
+          const latest = fileStatesRef.current[entry.id]
+          if (!latest?.data || latest.updated) return
+          if (previewDataChanged(latest.data, res)) {
+            setFileStates((current) => {
+              const prev = current[entry.id]
+              if (!prev || prev.updated) return current
+              return { ...current, [entry.id]: { ...prev, updated: true } }
+            })
+          }
+        })
+        .catch(() => {
+          if (!alive) return
+          setFileStates((current) => {
+            const prev = current[entry.id]
+            if (!prev || prev.updated) return current
+            return { ...current, [entry.id]: { ...prev, updated: true } }
+          })
+        })
+    }
 
     const off = typeof feed?.on === 'function'
       ? feed.on((event, data) => {
-        if (!alive || event !== 'workspace-changed') return
+        if (!alive) return
+        if (event === 'hello') {
+          if (data?.resumed !== true) {
+            registerWatch()
+            checkPreviewAfterReconnect()
+          }
+          return
+        }
+        if (event !== 'workspace-changed') return
         const entries = previewEntriesRef.current
         const states = fileStatesRef.current
         for (const entry of entries) {
@@ -1409,10 +1474,11 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
 
     return () => {
       alive = false
+      watchReq += 1
       off()
       if (watchId) void call('workspace-unwatch', { watchId }).catch(() => {})
     }
-  }, [visible, activePreviewId, activePreviewPath, activePreviewWatchParent, activePreviewSessionId, activePreviewRoot, feed])
+  }, [visible, activePreviewId, activePreviewPath, activePreviewWatchParent, activePreviewSessionId, activePreviewRoot, sessionId, feed])
 
   // Lazily mount plugin tabs only once opened/activated, keep them mounted while open,
   // and unmount them as soon as their tab is closed or unregistered.
@@ -1488,6 +1554,7 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
       h(FilePreview, {
         file: state.data,
         line: entry.line ?? null,
+        lineNonce: entry.lineNonce ?? 0,
         loading: state.loading,
         error: state.error,
         updated: state.updated === true,

@@ -478,7 +478,46 @@ export function createTeam() {
   // chats, and tasks inside one shared `BotPanel` strip.
   const EMPTY_RIGHT_PANEL = { tabs: [], tab: 'files', previews: {}, file: null, fileLine: null, fileSessionId: null, fileRoot: null, fileFallback: null, revealDir: null, revealNonce: 0, changes: null, terminalNonce: 0 }
   const isPreviewTabId = id => id === 'preview' || (typeof id === 'string' && id.startsWith('preview:'))
-  const previewTabIdFor = (path, sessionId, root) => `preview:${sessionId ?? ''}:${root ?? ''}:${path}`
+  const normalizePreviewPosix = (raw) => {
+    if (typeof raw !== 'string' || raw === '') return ''
+    const isUnc = raw.startsWith('\\\\') || raw.startsWith('//')
+    let s = raw.replace(/\\/g, '/')
+    let prefix = ''
+    if (isUnc) {
+      prefix = '//'
+      s = s.replace(/^\/+/, '')
+    } else if (/^[A-Za-z]:\//.test(s)) {
+      prefix = `${s[0].toLowerCase()}:/`
+      s = s.slice(3)
+    } else if (s.startsWith('/')) {
+      prefix = '/'
+      s = s.slice(1)
+    }
+    const out = []
+    for (const part of s.split('/')) {
+      if (part === '' || part === '.') continue
+      if (part === '..') {
+        if (out.length > 0 && out.at(-1) !== '..') out.pop()
+        else if (!prefix) out.push('..')
+      } else {
+        out.push(part)
+      }
+    }
+    return prefix + out.join('/')
+  }
+  const canonicalPreviewPath = (target, root = null) => {
+    const normTarget = normalizePreviewPosix(target)
+    if (!normTarget) return ''
+    if (normTarget.startsWith('/') || /^[a-z]:\//.test(normTarget)) return normTarget
+    const normRoot = normalizePreviewPosix(root)
+    if (!normRoot) return normTarget
+    return normalizePreviewPosix(`${normRoot}/${normTarget}`)
+  }
+  const previewTabIdFor = (path, sessionId, root) => {
+    const canon = canonicalPreviewPath(path, root)
+    if (canon.startsWith('/') || /^[a-z]:\//.test(canon)) return `preview:${canon}`
+    return `preview:${sessionId ?? ''}:${root ?? ''}:${canon || path}`
+  }
   const syncActivePreviewFields = (panel) => {
     const activePreview = isPreviewTabId(panel.tab) ? (panel.previews?.[panel.tab] ?? null) : null
     if (activePreview) {
@@ -1351,17 +1390,29 @@ export function createTeam() {
       const fileRoot = typeof path?.root === 'string' && path.root !== '' ? path.root : null
       const fileLine = Number.isInteger(path?.line) && path.line > 0 ? path.line : null
       const fileFallback = typeof path?.onUnavailable === 'function' ? path.onUnavailable : null
-      const tabId = previewTabIdFor(target, fileSessionId, fileRoot)
+      const currentPanel = ui.getSnapshot().rightPanel
+      const existingEntries = Object.values(currentPanel?.previews ?? {})
+      const inferredRoot = fileRoot ?? existingEntries.find(e => typeof e?.root === 'string' && e.root !== '')?.root ?? null
+      const targetCanon = canonicalPreviewPath(target, inferredRoot)
+      const matchedExisting = existingEntries.find((entry) => {
+        if (!entry) return false
+        const entryCanon = canonicalPreviewPath(entry.path, entry.root ?? inferredRoot)
+        return entryCanon !== '' && entryCanon === targetCanon
+      })
+      const tabId = matchedExisting?.id ?? previewTabIdFor(target, fileSessionId, inferredRoot)
       openWorkspaceTab(tabId, (prev) => {
+        const prevEntry = prev.previews?.[tabId] ?? null
+        const nextLineNonce = fileLine !== null ? ((prevEntry?.lineNonce ?? 0) + 1) : (prevEntry?.lineNonce ?? 0)
         const nextPreviews = {
           ...prev.previews,
           [tabId]: {
             id: tabId,
-            path: target,
-            line: fileLine,
-            sessionId: fileSessionId,
-            root: fileRoot,
-            fallback: fileFallback,
+            path: prevEntry?.root && !fileRoot ? prevEntry.path : target,
+            line: fileLine ?? prevEntry?.line ?? null,
+            lineNonce: nextLineNonce,
+            sessionId: fileSessionId ?? prevEntry?.sessionId ?? null,
+            root: fileRoot ?? prevEntry?.root ?? null,
+            fallback: fileFallback ?? prevEntry?.fallback ?? null,
           },
         }
         return syncActivePreviewFields({ ...prev, previews: nextPreviews })

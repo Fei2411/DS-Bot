@@ -155,7 +155,7 @@
   - `start.html` 里 `data-act="pick"` 的按钮，键的中文以 … 结尾。
   - 主进程三个文件里 `tx('…')` 用到的键都在表里；`first-run.mjs` 和 `updates.mjs` 里没有自己的字符串表。
   - `t()` 的单复数：`{bots|Bot|Bots}` 在 1 和 6 上各填对。
-  - `voice` 层只有三个键（`voice.failed / viewFailed / watchdog`），`hint` 层只有 `hint.space`，没有 `status.elapsed`。
+  - `voice` 层只有四个键（`voice.failed / stopped / viewFailed / watchdog`），`hint` 层只有 `hint.space`，没有 `status.elapsed`。
 
 ## 改动的已定设计
 
@@ -203,3 +203,4 @@
 - 2026-11-02：团队界面没加载出来的卡（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.viewFailed.lead / do`。
 - 2026-11-02：复制失败的卡（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `card.importFailed.do`。
 - 2026-11-02：找不到放数据的文件夹（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：加 `reason.start.missing` 和 `card.failed.do.missing`。
+- 2026-11-28：运行中本机引擎意外停止与启动失败区分文案：加 `voice.stopped`（「本机引擎停下了」）和 `reason.start.stopped`（「本机引擎在运行中意外停下了。」），避免已进入团队界面后引擎停止被误报成「DS Bot 没能启动 / 启动到一半停下了」。

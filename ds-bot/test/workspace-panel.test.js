@@ -1361,3 +1361,130 @@ test('workspace-search refuses symlinked .gitignore outside workspace root and a
     )
   }
 })
+
+test('isGitignored and workspace-search match git check-ignore across negated directory and nested rule sets', async (t) => {
+  const { execFileSync } = await import('node:child_process')
+  let hasGit = true
+  try {
+    execFileSync('git', ['--version'], { stdio: 'ignore' })
+  } catch {
+    hasGit = false
+  }
+
+  const cases = [
+    {
+      name: 'negated dir with trailing slash must not un-ignore descendant files',
+      gitignore: '*.log\n!logs/\n',
+      files: ['logs/debug.log', 'logs/keep.txt', 'root.log', 'src/app.js'],
+      expectedIgnored: { 'logs/debug.log': true, 'logs/keep.txt': false, 'root.log': true, 'src/app.js': false },
+    },
+    {
+      name: 'negated dir without trailing slash must not un-ignore descendant files',
+      gitignore: '*.log\n!logs\n',
+      files: ['logs/debug.log', 'logs/keep.txt', 'root.log'],
+      expectedIgnored: { 'logs/debug.log': true, 'logs/keep.txt': false, 'root.log': true },
+    },
+    {
+      name: 'wildcard child ignore + negated subdir + file ignore inside subdir',
+      gitignore: 'logs/*\n!logs/keep/\n*.log\n',
+      files: ['logs/drop.txt', 'logs/keep/info.txt', 'logs/keep/debug.log'],
+      expectedIgnored: { 'logs/drop.txt': true, 'logs/keep/info.txt': false, 'logs/keep/debug.log': true },
+    },
+    {
+      name: 'cannot re-include file inside excluded directory',
+      gitignore: 'build/\n!build/keep.txt\n',
+      files: ['build/keep.txt', 'build/out.js', 'src/main.js'],
+      expectedIgnored: { 'build/keep.txt': true, 'build/out.js': true, 'src/main.js': false },
+    },
+    {
+      name: 'allowlist pattern with * + !*/ + !*.js',
+      gitignore: '*\n!*/\n!*.js\n',
+      files: ['src/app.js', 'src/readme.txt', 'nested/deep/util.js', 'nested/deep/note.md'],
+      expectedIgnored: { 'src/app.js': false, 'src/readme.txt': true, 'nested/deep/util.js': false, 'nested/deep/note.md': true },
+    },
+    {
+      name: 'globstar subdir ignore with file negation',
+      gitignore: 'dist/**\n!dist/keep.txt\n',
+      files: ['dist/keep.txt', 'dist/bundle.js', 'dist/sub/chunk.js'],
+      expectedIgnored: { 'dist/keep.txt': false, 'dist/bundle.js': true, 'dist/sub/chunk.js': true },
+    },
+  ]
+
+  for (const tc of cases) {
+    const repo = mkdtempSync(join(tmpdir(), 'dsb-wp-gitignore-'))
+    const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-gitignore-dsh-'))
+    t.after(() => {
+      rmSync(repo, { recursive: true, force: true })
+      rmSync(dshHome, { recursive: true, force: true })
+    })
+    writeFileSync(join(repo, '.gitignore'), tc.gitignore)
+    for (const rel of tc.files) {
+      const full = join(repo, rel)
+      mkdirSync(join(full, '..'), { recursive: true })
+      writeFileSync(full, 'content\n')
+    }
+    const rules = parseGitignore(tc.gitignore, '')
+    if (hasGit) {
+      execFileSync('git', ['init', '-q'], { cwd: repo })
+    }
+    for (const rel of tc.files) {
+      const ours = isGitignored(rules, rel, false)
+      assert.equal(ours, tc.expectedIgnored[rel], `${tc.name}: isGitignored(${rel})`)
+      if (hasGit) {
+        let gitIgnored = false
+        try {
+          execFileSync('git', ['check-ignore', '-q', '--no-index', rel], { cwd: repo, stdio: 'ignore' })
+          gitIgnored = true
+        } catch (err) {
+          assert.equal(err.status, 1, `git check-ignore unexpected exit status for ${rel}`)
+          gitIgnored = false
+        }
+        assert.equal(ours, gitIgnored, `${tc.name}: must match git check-ignore for ${rel}`)
+      }
+    }
+
+    // Also verify end-to-end workspace-search matches the exact non-ignored file set.
+    const { rt } = createRuntime(repo, { dshHome })
+    t.after(() => rt.terminalDispose())
+    const expectedVisible = tc.files.filter(f => !tc.expectedIgnored[f]).sort()
+    const res = await rt.workspaceEndpoint('search', { sessionId: 'b1', query: '.' })
+    const foundFiles = res.entries.filter(e => e.kind === 'file').map(e => e.path).sort()
+    assert.deepEqual(foundFiles, expectedVisible, `${tc.name}: workspace-search must match non-ignored files`)
+  }
+})
+
+test('workspace-search time-slices inside a single wide directory without skipping or duplicating entries', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-wide-'))
+  const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-wide-dsh-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+
+  const total = 1500
+  for (let i = 0; i < total; i += 1) {
+    writeFileSync(join(workDir, `wide-${String(i).padStart(4, '0')}.txt`), 'x')
+  }
+
+  const { rt } = createRuntime(workDir, { dshHome })
+  t.after(() => rt.terminalDispose())
+
+  const seen = []
+  let batches = 0
+  let searchId = ''
+  for (let guard = 0; guard < 200; guard += 1) {
+    const page = await rt.workspaceEndpoint(
+      'search',
+      searchId ? { sessionId: 'b1', searchId, batchMs: 10 } : { sessionId: 'b1', query: 'wide-', batchMs: 10 },
+    )
+    batches += 1
+    seen.push(...page.entries.map(e => e.path))
+    if (page.done) break
+    assert.ok(page.searchId, 'non-final batch must return a searchId cursor')
+    searchId = page.searchId
+  }
+
+  assert.equal(seen.length, total, 'must return all 1500 wide-directory matches across batches')
+  assert.equal(new Set(seen).size, total, 'must not duplicate entries when resuming inside a wide directory')
+  assert.ok(batches >= 2, `wide directory with ${total} entries should slice across >=2 batches at batchMs=10 (got ${batches})`)
+})

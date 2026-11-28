@@ -2360,3 +2360,177 @@ test('Absolute chat file links use canonical workspace-relative paths for worksp
     sandbox.localStorage.removeItem('dsb.preview.autoRefresh')
   }
 })
+
+test('Active preview renews workspace-watch and detects edits on unresumed hello reconnect, search-mode context menu opens folder in tree, Refresh re-runs search, and team.openFile deduplicates tabs with lineNonce re-jumps', async () => {
+  sandbox.localStorage.removeItem('dsb.preview.autoRefresh')
+  // 1. Unresumed `hello` reconnect re-registers preview watch and detects edits made during disconnect.
+  let version = 1
+  const watchCalls = []
+  let searchCalls = 0
+  const revealedFolders = []
+  sandbox.__testCall = async (endpoint, body) => {
+    if (endpoint === 'workspace-watch') {
+      watchCalls.push(body)
+      return { watchId: `w-hello-${watchCalls.length}`, root: '/repo', recursive: true }
+    }
+    if (endpoint === 'workspace-unwatch') return { ok: true }
+    if (endpoint === 'workspace-read') {
+      return {
+        kind: 'code',
+        language: 'javascript',
+        name: 'app.js',
+        path: 'src/app.js',
+        root: '/repo',
+        size: 10 + version,
+        text: `// version-${version}\n`,
+      }
+    }
+    if (endpoint === 'workspace-list') {
+      return { root: '/repo', rootName: 'repo', path: body?.path ?? '', entries: [{ name: 'src', path: 'src', kind: 'dir' }], truncated: false }
+    }
+    if (endpoint === 'workspace-search') {
+      searchCalls += 1
+      return {
+        root: '/repo',
+        searchId: null,
+        done: true,
+        entries: [
+          { name: 'nested', path: 'src/nested', kind: 'dir', size: 0, mtimeMs: 1, ext: '' },
+          { name: `hit-${searchCalls}.js`, path: `src/nested/hit-${searchCalls}.js`, kind: 'file', size: 12, mtimeMs: 1, ext: '.js' },
+        ],
+        incomplete: false,
+        incompleteReasons: [],
+      }
+    }
+    return {}
+  }
+
+  const team = createTeam()
+  team.actions.openSession('b1')
+  const origReveal = team.actions.revealFolder
+  team.actions.revealFolder = (arg) => {
+    revealedFolders.push(arg)
+    return origReveal(arg)
+  }
+
+  // Open from FileTree (relative + root), then open same file from chat link (absolute + sessionId) -> single deduplicated tab!
+  team.actions.openFile({ path: 'src/app.js', root: '/repo' })
+  team.actions.openFile({ path: '/repo/src/app.js', sessionId: 'b1', line: 2 })
+  const uiProbe = mount(() => ({ type: 'probe', props: team.hooks.useUi(s => s.rightPanel) }), {})
+  try {
+    let rp = uiProbe.render().props
+    const previewTabs = rp.tabs.filter(id => id.startsWith('preview:'))
+    assert.equal(previewTabs.length, 1, 'opening same file via FileTree relative+root and chat absolute path must deduplicate into one tab')
+    const tabId = previewTabs[0]
+    const firstNonce = rp.previews[tabId].lineNonce
+    assert.equal(firstNonce, 1)
+
+    // Re-clicking the same file:line increments lineNonce so CodeLines jumps back.
+    team.actions.openFile({ path: '/repo/src/app.js', sessionId: 'b1', line: 2 })
+    rp = uiProbe.render().props
+    assert.equal(rp.previews[tabId].lineNonce, 2, 're-clicking the same file:line must increment lineNonce')
+
+    const body = mount(WorkspacePaneBody, { sessionId: 'b1', panel: rp, team, visible: true })
+    try {
+      body.render()
+      await tick()
+      let tree = body.render()
+      assert.match(textOf(tree), /\/\/ version-1/)
+      const watchesBeforeHello = watchCalls.length
+      assert.ok(watchesBeforeHello >= 1)
+
+      // Host restarts (unresumed hello) while file changed on disk to version 2 -> watch re-registered & Updated · Reload appears!
+      version = 2
+      team.chat.emit('hello', { resumed: false })
+      await tick()
+      await tick()
+      tree = body.render()
+      assert.ok(watchCalls.length > watchesBeforeHello, 'unresumed hello must re-register preview workspace-watch')
+      assert.ok(all(tree, n => n.type === 'button' && /Updated · Reload/.test(textOf(n))).length === 1, 'unresumed hello must detect file change during disconnect')
+
+      // Enable Auto-refresh and simulate another unresumed hello with version 3 -> reloads automatically!
+      const autoSwitch = all(tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Auto-refresh')[0]
+      autoSwitch.props.onClick()
+      body.render()
+      version = 3
+      team.chat.emit('hello', { resumed: false })
+      await tick()
+      await tick()
+      tree = body.render()
+      assert.match(textOf(tree), /\/\/ version-3/, 'unresumed hello with Auto-refresh enabled must reload active preview')
+
+      // Switch to Files tab -> search -> verify Refresh re-runs search and folder context menu triggers openSearchDir.
+      team.actions.openFiles()
+      rp = uiProbe.render().props
+      tree = body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      await tick()
+      tree = body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      const searchInput = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-ft-search-input')[0]
+      assert.ok(searchInput)
+      searchInput.props.onChange({ target: { value: 'hit' } })
+      body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      await tick()
+      tree = body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      assert.equal(searchCalls, 1)
+      assert.match(textOf(tree), /hit-1\.js/)
+
+      // Clicking header Refresh while in search mode must re-run the active search query!
+      const refreshBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Refresh')[0]
+      assert.ok(refreshBtn)
+      refreshBtn.props.onClick()
+      body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      await tick()
+      tree = body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      assert.equal(searchCalls, 2, 'header Refresh in search mode must re-run active search')
+      assert.match(textOf(tree), /hit-2\.js/)
+
+      // Right-clicking a folder hit in search mode exposes Open wired to openSearchDir (revealFolder), not Expand/Collapse.
+      const dirHit = all(tree, n => n.type === 'button' && n.props?.['data-path'] === 'src/nested')[0]
+      assert.ok(dirHit)
+      dirHit.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 40, clientY: 60, currentTarget: {} })
+      tree = body.render({ sessionId: 'b1', panel: rp, team, visible: true })
+      const openDirItem = all(tree, n => n.type === 'button' && n.props?.['data-ft-action'] === 'open-in-tree')[0]
+      assert.ok(openDirItem, 'search-mode folder context menu must render open-in-tree action')
+      assert.equal(all(tree, n => n.type === 'button' && n.props?.['data-ft-action'] === 'toggle').length, 0, 'search-mode folder menu must not show no-op Expand/Collapse')
+      openDirItem.props.onClick()
+      assert.ok(revealedFolders.some(item => item?.path === 'src/nested'), 'open-in-tree must call openSearchDir -> revealFolder')
+    } finally {
+      body.unmount()
+    }
+  } finally {
+    uiProbe.unmount()
+    sandbox.localStorage.removeItem('dsb.preview.autoRefresh')
+  }
+
+  // 2. Re-jumping to the SAME line via incremented lineNonce scrolls back to targetLine after scrolling away.
+  const lineCount = 2400
+  const bigFile = {
+    kind: 'code',
+    language: 'javascript',
+    name: 'rejump.js',
+    path: 'src/rejump.js',
+    size: lineCount * 20,
+    text: Array.from({ length: lineCount }, (_, i) => `const v${i + 1} = ${i + 1}`).join('\n'),
+  }
+  const scrollEl = { scrollTop: 0, clientHeight: 380, clientWidth: 640 }
+  const view = mount(FilePreview, { file: bigFile, line: 1000, lineNonce: 1 })
+  try {
+    let tree = view.render({ file: bigFile, line: 1000, lineNonce: 1 })
+    const wrapDiv = all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    if (wrapDiv.props?.ref && typeof wrapDiv.props.ref === 'object') wrapDiv.props.ref.current = scrollEl
+    tree = view.render({ file: bigFile, line: 1000, lineNonce: 1 })
+    // Scroll away to line 100.
+    scrollEl.scrollTop = 19 * 100
+    all(tree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onScroll({
+      currentTarget: { scrollTop: 19 * 100, scrollHeight: 19 * lineCount, clientHeight: 380 },
+    })
+    tree = view.render({ file: bigFile, line: 1000, lineNonce: 1 })
+    assert.equal(all(tree, n => n.type === 'tr' && n.props?.['data-line'] === 1000).length, 0)
+    // Increment lineNonce with the same line 1000 -> jumps right back to line 1000!
+    view.render({ file: bigFile, line: 1000, lineNonce: 2 })
+    tree = view.render({ file: bigFile, line: 1000, lineNonce: 2 })
+    assert.equal(all(tree, n => n.type === 'tr' && n.props?.['data-line'] === 1000).length, 1, 'incremented lineNonce must re-jump to the same targetLine')
+  } finally {
+    view.unmount()
+  }
+})

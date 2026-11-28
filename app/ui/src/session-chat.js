@@ -166,6 +166,8 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
   }))
   const logRef = useRef(emptyLog())
   const followRef = useRef(null)
+  const flushFramesRef = useRef(null)
+  const reopenFollowRef = useRef(null)
   const genRef = useRef(0)
   const gapGenRef = useRef(0)
   const pagingRef = useRef(false)
@@ -188,6 +190,8 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     readOnlyUpdatedAtRef.current = readOnlyUpdatedAt
     const fresh = emptyLog()
     logRef.current = fresh
+    flushFramesRef.current = null
+    reopenFollowRef.current = null
     setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null, historyReloaded: false, quietSeq: -1, reloadEpoch: 0 })
     if (!enabled || !sessionId) return undefined
 
@@ -195,6 +199,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
       const isCurrent = () => genRef.current === myGen && gapGenRef.current === myGapGen
       const fallbackToOpening = () => {
         if (!isCurrent()) return
+        flushFramesRef.current?.()
         const cur = logRef.current
         const kept = cur.events.filter(ev => ev.seq >= openingFirstSeq)
         const replaced = { ...cur, events: kept, hasMore: snapshotHasMore, revision: cur.revision + 1 }
@@ -241,6 +246,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
       }
       if (!isCurrent()) return
       if (bridged) {
+        flushFramesRef.current?.()
         const cur = logRef.current
         const gapEvents = pages.flat().filter(ev => ev.seq > prevLastSeq && ev.seq < openingFirstSeq)
         for (const userEv of collectUserEvents(gapEvents)) {
@@ -260,15 +266,55 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
       }
     }
 
-    const handle = openFollowRef.current({
-      sessionId,
-      ...(parent ? { parent } : {}),
-      ...(mode ? { mode } : {}),
-      max: PAGE_SIZE,
-      after: () => (resyncRef.current ? undefined : logRef.current.cursor),
-    }, (event, data) => {
-      if (genRef.current !== myGen) return
-      if (event === 'frame') {
+    // Buffer high-frequency `assistant-stream` frames and commit state at most once per
+    // animation frame in the foreground. While hidden/minimized/occluded (when Chromium
+    // suspends rAF), a low-frequency fallback timer keeps buffering bounded and lossless,
+    // and returning to visible flushes immediately. Authoritative `snapshot` frames and
+    // any reopen/end clear stale buffered stream frames so old chunks can never drop a
+    // fresh snapshot or leak across reconnects.
+    const BACKGROUND_FLUSH_MS = 250
+    const pendingFrames = []
+    let rafId = null
+    let timerId = null
+    let microScheduled = false
+    const cancelScheduled = () => {
+      if (rafId !== null) {
+        if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      if (timerId !== null) {
+        clearTimeout(timerId)
+        timerId = null
+      }
+      microScheduled = false
+    }
+    const clearPending = () => {
+      cancelScheduled()
+      pendingFrames.length = 0
+    }
+    const reopenFollow = () => {
+      clearPending()
+      followRef.current?.reopen()
+    }
+    reopenFollowRef.current = reopenFollow
+    const flushFrames = () => {
+      cancelScheduled()
+      if (genRef.current !== myGen || pendingFrames.length === 0) {
+        pendingFrames.length = 0
+        return
+      }
+      const rawBatch = pendingFrames.splice(0, pendingFrames.length)
+      // An authoritative snapshot carries the full cursor and active stream state, so drop
+      // any older buffered frames preceding the latest snapshot in the same batch.
+      let startIndex = 0
+      for (let i = rawBatch.length - 1; i >= 0; i -= 1) {
+        if (rawBatch[i]?.type === 'snapshot') { startIndex = i; break }
+      }
+      const batch = startIndex > 0 ? rawBatch.slice(startIndex) : rawBatch
+      let anySnapshot = false
+      let anyReloaded = false
+      let needReopen = false
+      for (const data of batch) {
         if (data?.type === 'snapshot') gapGenRef.current += 1
         const resyncing = data?.type === 'snapshot' && resyncRef.current
         let next
@@ -308,6 +354,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
         // Notify new user messages so optimistic pending bubbles clear one-for-one without
         // matching historical duplicates or dropping messages on a gap-reopen frame.
         if (data?.type === 'snapshot') {
+          anySnapshot = true
           const initial = !openedRef.current
           openedRef.current = true
           const users = collectUserEvents(data.records?.map(record => record.event))
@@ -324,29 +371,97 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
             onUserRef.current?.(summary.text, data.event.time, false, summary)
           }
         }
-        const now = Date.now()
-        const isSnapshot = data?.type === 'snapshot'
-        const nextCursor = Number.isFinite(next.log.cursor) ? next.log.cursor : -1
-        setState(current => ({
-          ...current,
-          log: next.log,
-          thinkingAt: reasoningStartFrom(next.log, current.thinkingAt, now),
-          loading: false,
-          failed: false,
-          terminalError: null,
-          historyReloaded: current.historyReloaded || reloaded,
-          reloadEpoch: reloaded ? current.reloadEpoch + 1 : current.reloadEpoch,
-          quietSeq: reloaded ? Math.max(0, nextCursor) : (isSnapshot ? Math.max(current.quietSeq, nextCursor) : current.quietSeq),
-        }))
-        if (next.reopen) followRef.current?.reopen()
+        if (reloaded) anyReloaded = true
+        if (next.reopen) {
+          needReopen = true
+          break
+        }
+      }
+      const committedLog = logRef.current
+      const now = Date.now()
+      const nextCursor = Number.isFinite(committedLog.cursor) ? committedLog.cursor : -1
+      setState(current => ({
+        ...current,
+        log: committedLog,
+        thinkingAt: reasoningStartFrom(committedLog, current.thinkingAt, now),
+        loading: false,
+        failed: false,
+        terminalError: null,
+        historyReloaded: current.historyReloaded || anyReloaded,
+        reloadEpoch: anyReloaded ? current.reloadEpoch + 1 : current.reloadEpoch,
+        quietSeq: anyReloaded ? Math.max(0, nextCursor) : (anySnapshot ? Math.max(current.quietSeq, nextCursor) : current.quietSeq),
+      }))
+      if (needReopen) reopenFollow()
+    }
+    flushFramesRef.current = flushFrames
+    const scheduleFlush = () => {
+      if (rafId !== null || timerId !== null || microScheduled) return
+      const hidden = typeof document !== 'undefined' && document.hidden === true
+      if (hidden) {
+        timerId = setTimeout(() => {
+          timerId = null
+          flushFrames()
+        }, BACKGROUND_FLUSH_MS)
+        return
+      }
+      if (typeof requestAnimationFrame === 'function') {
+        rafId = requestAnimationFrame(() => {
+          rafId = null
+          flushFrames()
+        })
+        // Fallback timer for occluded windows (e.g. macOS) where rAF is suspended even
+        // while `document.hidden` remains false; cancelled on every foreground rAF tick.
+        timerId = setTimeout(() => {
+          timerId = null
+          flushFrames()
+        }, BACKGROUND_FLUSH_MS)
+      } else {
+        microScheduled = true
+        queueMicrotask(() => {
+          if (microScheduled) flushFrames()
+        })
+      }
+    }
+    const onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden && pendingFrames.length > 0) {
+        flushFrames()
+      }
+    }
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', onVisibilityChange)
+    }
+
+    const handle = openFollowRef.current({
+      sessionId,
+      ...(parent ? { parent } : {}),
+      ...(mode ? { mode } : {}),
+      max: PAGE_SIZE,
+      after: () => (resyncRef.current ? undefined : logRef.current.cursor),
+    }, (event, data) => {
+      if (genRef.current !== myGen) return
+      if (event === 'frame') {
+        if (data?.type === 'snapshot') {
+          clearPending()
+          pendingFrames.push(data)
+          flushFrames()
+        } else if (data?.type === 'assistant-stream') {
+          pendingFrames.push(data)
+          scheduleFlush()
+        } else {
+          pendingFrames.push(data)
+          flushFrames()
+        }
+      } else if (event === 'end') {
+        clearPending()
       } else if (event === 'error') {
         if (data?.code === 'bot/stale' && !resyncRef.current) {
           // The durable log no longer reaches this window's cursor. Reopen once without
           // `after` and keep any already-loaded earlier pages by paging only the missing gap.
           resyncRef.current = true
-          followRef.current?.reopen()
+          reopenFollow()
           return
         }
+        if (pendingFrames.length > 0) flushFrames()
         const terminal = data?.code === 'bot/not-found'
           || data?.code === 'bot/refused'
           || data?.code === 'bot/invalid'
@@ -359,6 +474,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
           terminalError: terminal ? data : current.terminalError,
         }))
       } else if (event === 'lost') {
+        if (pendingFrames.length > 0) flushFrames()
         setState(current => (openedRef.current ? current : { ...current, failed: true, loading: false }))
       }
     })
@@ -366,6 +482,12 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     return () => {
       if (genRef.current === myGen) genRef.current += 1
       gapGenRef.current += 1
+      clearPending()
+      if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+        document.removeEventListener('visibilitychange', onVisibilityChange)
+      }
+      if (flushFramesRef.current === flushFrames) flushFramesRef.current = null
+      if (reopenFollowRef.current === reopenFollow) reopenFollowRef.current = null
       handle.close()
       if (followRef.current === handle) followRef.current = null
     }
@@ -377,7 +499,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
   useEffect(() => {
     if (!enabled || !sessionId || !feed) return undefined
     return feed.on((event, data) => {
-      if (readOnly && (event === 'revision' || (event === 'hello' && data?.resumed !== true))) followRef.current?.reopen()
+      if (readOnly && (event === 'revision' || (event === 'hello' && data?.resumed !== true))) reopenFollowRef.current?.()
     })
   }, [enabled, sessionId, parent, mode, feed, readOnly])
 
@@ -386,7 +508,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
     readOnlyUpdatedAtRef.current = readOnlyUpdatedAt
     if (!enabled || !readOnly || !sessionId) return
     if (Number.isFinite(readOnlyUpdatedAt) && Number.isFinite(prev) && readOnlyUpdatedAt > prev) {
-      followRef.current?.reopen()
+      reopenFollowRef.current?.()
     }
   }, [enabled, readOnly, sessionId, readOnlyUpdatedAt])
 
@@ -406,6 +528,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
         maxMessages: PAGE_SIZE,
       })
       if (genRef.current !== myGen) return
+      flushFramesRef.current?.()
       const next = addPage(logRef.current, page)
       if (next !== logRef.current) {
         for (const userEv of collectUserEvents(page?.records?.map(record => record.event))) {
@@ -426,7 +549,7 @@ export function useSessionFollow({ sessionId, parent, mode, enabled, feed, readO
 
   const retry = useCallback(() => {
     setState(current => ({ ...current, loading: true, failed: false, terminalError: null }))
-    followRef.current?.reopen()
+    reopenFollowRef.current?.()
   }, [])
 
   return {
@@ -1132,7 +1255,14 @@ export function SessionTranscript({
   // a switch re-renders them in the new language, and a stream chunk never changes it.
   const lang = useUiLanguage()
   const rowParts = useMemo(() => buildSessionRowParts(log, { roster, sessionId }), [log, roster, sessionId])
-  const subagentCatalog = useMemo(() => resolveSubagentCatalog(log), [log])
+  const subagentProjection = log?.projections?.values?.subagentCatalog
+  const subagentCatalog = useMemo(
+    () => resolveSubagentCatalog({
+      events: log?.events,
+      projections: subagentProjection === undefined ? null : { values: { subagentCatalog: subagentProjection } },
+    }),
+    [log?.events, subagentProjection],
+  )
   const loadImage = useCallback(
     (attachmentId, options) => loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors, preview: options?.preview ?? true }),
     [sessionId, parent, mode, ancestors],
