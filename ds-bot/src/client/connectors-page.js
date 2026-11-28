@@ -46,7 +46,7 @@ function tileStatus(app) {
   return null
 }
 
-function AppTile({ app, actions, onOpen, showsSignIn, onSignIn }) {
+function AppTile({ app, actions, onOpen, showsSignIn, onSignIn, readOnly = false }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const fresh = useJustConnected(app.state)
@@ -57,6 +57,7 @@ function AppTile({ app, actions, onOpen, showsSignIn, onSignIn }) {
   // Connects in place when no form is needed; a browser sign-in gets its window
   // inside the click so it is not blocked.
   const connect = () => {
+    if (readOnly) return undefined
     const auth = app.auth ?? {}
     if (app.id === 'mail' || auth.kind === 'key' || (auth.kind === 'oauth' && auth.token && !auth.client?.id)) return onOpen()
     if (auth.kind === 'oauth') {
@@ -71,6 +72,7 @@ function AppTile({ app, actions, onOpen, showsSignIn, onSignIn }) {
   const status = error ? hostText(error) : tileStatus(app)
   const label = busy ? t('Connecting…') : ready ? t('Connected') : off ? t('Connect') : app.state === 'error' ? t('Try again') : app.state === 'needs-sign-in' ? t('Sign in again') : t('Open')
   const press = () => {
+    if (readOnly && (off || app.state === 'error')) return undefined
     if (off) return connect()
     if (app.state === 'error') return void run(actions.connectorRetry(app.id))
     return onOpen()
@@ -84,30 +86,30 @@ function AppTile({ app, actions, onOpen, showsSignIn, onSignIn }) {
       h('span', { className: 'bt-app-text' },
         h('span', { className: 'bt-app-name' }, app.name, app.custom ? h('span', { className: 'bt-tag' }, t('Added')) : null),
         status ? h('span', { className: 'bt-app-status' }, status) : null)),
-    signIn ? null : h('button', { type: 'button', className: ready ? 'bt-app-btn bt-app-btn-done' : 'bt-app-btn', disabled: busy, onClick: press },
+    signIn ? null : h('button', { type: 'button', className: ready ? 'bt-app-btn bt-app-btn-done' : 'bt-app-btn', disabled: busy || (readOnly && (off || app.state === 'error')), onClick: press },
       ready ? h(CheckIcon) : null, label),
     signIn ? h(SignInPanel, { connector: app, actions, run }) : null)
 }
 
 // An app can be listed in two sections. Only one tile draws the sign-in: the one
 // that was clicked, or after a reload the first one on the page.
-function Grid({ apps, actions, open, place = null, signInPlaces }) {
+function Grid({ apps, actions, open, place = null, signInPlaces, readOnly = false }) {
   const homePlace = app => (FEATURED.includes(app.id) ? 'featured' : app.category)
   return h('div', { className: 'bt-app-grid' }, apps.map(app => h(AppTile, {
-    key: app.id, app, actions,
+    key: app.id, app, actions, readOnly,
     onOpen: () => open(app.id),
     showsSignIn: place === null || place === (signInPlaces.current[app.id] ?? homePlace(app)),
     onSignIn: () => { signInPlaces.current[app.id] = place },
   })))
 }
 
-function Section({ title, apps, actions, open, onAll, place, signInPlaces, tour = null }) {
+function Section({ title, apps, actions, open, onAll, place, signInPlaces, readOnly = false, tour = null }) {
   if (apps.length === 0) return null
   return h('section', { className: 'bt-app-section', 'data-tour': tour || undefined },
     h('div', { className: 'bt-app-section-head' },
       h('h3', null, title),
       onAll && apps.length > PREVIEW ? h('button', { type: 'button', className: 'bt-app-all', onClick: onAll }, t('See all')) : null),
-    h(Grid, { apps: onAll ? apps.slice(0, PREVIEW) : apps, actions, open, place, signInPlaces }))
+    h(Grid, { apps: onAll ? apps.slice(0, PREVIEW) : apps, actions, open, place, signInPlaces, readOnly }))
 }
 
 function Subview({ title, onBack, children }) {
@@ -126,6 +128,7 @@ function ConnectedSummary({ apps, count, onClick }) {
 }
 
 export function ConnectorsPage({ roster, actions }) {
+  const readOnly = Boolean(roster?.readOnly)
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('')
   const [view, setView] = useState(null)
@@ -184,16 +187,16 @@ export function ConnectorsPage({ roster, actions }) {
   if (searching || category !== '') {
     body = found.length === 0
       ? h('p', { className: 'bt-app-empty' }, t('Nothing matches'))
-      : h(Grid, { apps: found, actions, open, signInPlaces })
+      : h(Grid, { apps: found, actions, open, signInPlaces, readOnly })
   } else {
     const featured = FEATURED.map(id => apps.find(app => app.id === id)).filter(Boolean)
     body = [
-      h(Section, { key: 'featured', place: 'featured', signInPlaces, title: t('Recommended'), apps: featured, actions, open, tour: 'conn-grid' }),
-      ...CATEGORIES.map(([id, label]) => h(Section, { key: id, place: id, signInPlaces, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) })),
+      h(Section, { key: 'featured', place: 'featured', signInPlaces, readOnly, title: t('Recommended'), apps: featured, actions, open, tour: 'conn-grid' }),
+      ...CATEGORIES.map(([id, label]) => h(Section, { key: id, place: id, signInPlaces, readOnly, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) })),
       // An added server has no catalog category. Without its own section a new OAuth
       // entry, which stays off until its sign-in finishes, would be on neither the
       // default page nor Connected, leaving Connect and Remove reachable by search only.
-      h(Section, { key: 'custom', place: 'custom', signInPlaces, title: t('Other MCP server'), apps: inCategory('custom'), actions, open, onAll: () => setCategory('custom') }),
+      h(Section, { key: 'custom', place: 'custom', signInPlaces, readOnly, title: t('Other MCP server'), apps: inCategory('custom'), actions, open, onAll: () => setCategory('custom') }),
     ]
   }
   return h('div', { className: 'bt-apps' },
@@ -202,7 +205,7 @@ export function ConnectorsPage({ roster, actions }) {
       h('label', { className: 'bt-app-search' },
         h(SearchIcon),
         h('input', { type: 'search', 'aria-label': t('Search connectors'), placeholder: t('Search connectors'), value: query, onChange: e => setQuery(e.target.value) })),
-      h('button', { type: 'button', className: 'bt-app-pill', onClick: () => setView('custom') }, h(PlusIcon), t('Custom')),
+      h('button', { type: 'button', className: 'bt-app-pill', disabled: readOnly, onClick: () => { if (!readOnly) setView('custom') } }, h(PlusIcon), t('Custom')),
       h(ConnectedSummary, { apps: marks, count, onClick: () => setView('connected') })),
     h('div', { className: 'bt-app-chips', role: 'group', 'aria-label': t('Category') },
       [['', 'All'], ...CATEGORIES].map(([id, label]) => h('button', { key: id || 'all', type: 'button', 'aria-pressed': category === id, onClick: () => setCategory(id) }, t(label)))),

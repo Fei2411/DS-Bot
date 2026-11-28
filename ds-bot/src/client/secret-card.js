@@ -322,58 +322,58 @@ export function SecretDock({ sessionId, useRoster, useCards, useHeldCards, actio
 // -------------------------------------------------------------------------
 // Settings page
 
-function ScopeEditor({ secret, roster, onSave }) {
+function ScopeEditor({ secret, roster, onSave, disabled = false }) {
   const [mode, setMode] = useState(secret.scope === 'all' ? 'all' : 'some')
   const [picked, setPicked] = useState(secret.scope === 'all' ? [] : secret.scope)
-  const toggle = id => setPicked(list => (list.includes(id) ? list.filter(item => item !== id) : [...list, id]))
+  const toggle = id => { if (!disabled) setPicked(list => (list.includes(id) ? list.filter(item => item !== id) : [...list, id])) }
   const same = mode === 'all' ? secret.scope === 'all' : secret.scope !== 'all' && [...picked].sort().join() === [...secret.scope].sort().join()
   return h('div', { className: 'bt-secret-edit-block' },
     h('div', { className: 'bt-secret-edit-label' }, t('Who may use it')),
     h('div', { className: 'bt-secret-radios', role: 'radiogroup', 'aria-label': t('Who may use {name}', { name: secret.name }) },
       [['all', t('All Bots')], ['some', t('Chosen Bots')]].map(([id, text]) => h('label', { key: id, className: 'bt-secret-radio' },
-        h('input', { type: 'radio', name: `scope-${secret.name}`, checked: mode === id, onChange: () => setMode(id) }), text))),
+        h('input', { type: 'radio', name: `scope-${secret.name}`, checked: mode === id, disabled, onChange: () => { if (!disabled) setMode(id) } }), text))),
     mode === 'some' ? h('div', { className: 'bt-secret-bots' }, roster.bots.map(bot => h('button', {
-      key: bot.id, type: 'button', className: 'bt-secret-bot', 'aria-pressed': picked.includes(bot.id), onClick: () => toggle(bot.id),
+      key: bot.id, type: 'button', className: 'bt-secret-bot', disabled, 'aria-pressed': picked.includes(bot.id), onClick: () => toggle(bot.id),
     }, h(BotAvatar, { bot, size: 20, badge: false, live: false }), bot.name, picked.includes(bot.id) ? h(CheckIcon) : null))) : null,
     h('div', { className: 'bt-secret-row-actions' },
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: same, onClick: () => onSave(mode === 'all' ? 'all' : picked) }, t('Save access'))))
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: disabled || same, onClick: () => { if (!disabled) onSave(mode === 'all' ? 'all' : picked) } }, t('Save access'))))
 }
 
-function PurposeEditor({ secret, onSave }) {
+function PurposeEditor({ secret, onSave, disabled = false }) {
   const [purpose, setPurpose] = useState(secret.purpose ?? '')
   const same = purpose.trim() === (secret.purpose ?? '')
   return h('div', { className: 'bt-secret-edit-block' },
     h('div', { className: 'bt-secret-edit-label' }, t('What it is for')),
     h('div', { className: 'bt-secret-inline' },
-      h('input', { className: 'bt-input', 'aria-label': t('What it is for'), placeholder: t('What it is for'), value: purpose, spellCheck: false, autoComplete: 'off', onChange: event => setPurpose(event.target.value) }),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: same, onClick: () => onSave(purpose.trim()) }, t('Save'))))
+      h('input', { className: 'bt-input', disabled, 'aria-label': t('What it is for'), placeholder: t('What it is for'), value: purpose, spellCheck: false, autoComplete: 'off', onChange: event => { if (!disabled) setPurpose(event.target.value) } }),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: disabled || same, onClick: () => { if (!disabled) onSave(purpose.trim()) } }, t('Save'))))
 }
 
-function ValueEditor({ secret, onSave }) {
+function ValueEditor({ secret, onSave, disabled = false }) {
   const [value, setValue] = useState('')
   const [replaced, setReplaced] = useState(false)
   const long = value.trim().length >= MIN_VALUE
   const save = () => {
-    if (!long) return
+    if (disabled || !long) return
     void Promise.resolve(onSave(value)).then(ok => { if (ok) { setValue(''); setReplaced(true) } })
   }
-  const edit = next => { setValue(next); setReplaced(false) }
+  const edit = next => { if (disabled) return; setValue(next); setReplaced(false) }
   return h('div', { className: 'bt-secret-edit-block' },
     h('div', { className: 'bt-secret-edit-label' }, t('Replace the value')),
     h('div', { className: 'bt-secret-inline bt-secret-inline-multi' },
-      h('label', { className: 'bt-q-field bt-secret-field bt-secret-field-multi' }, h(MaskedInput, { value, onChange: edit, onEnter: save, label: t('New value of {name}', { name: secret.name }), multiline: true })),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !long, onClick: save }, t('Replace'))),
+      h('label', { className: 'bt-q-field bt-secret-field bt-secret-field-multi' }, h(MaskedInput, { value, onChange: edit, onEnter: save, label: t('New value of {name}', { name: secret.name }), multiline: true, disabled })),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: disabled || !long, onClick: save }, t('Replace'))),
     value !== '' && !long ? h('div', { className: 'bt-set-hint' }, t('At least {count} characters.', { count: MIN_VALUE }))
       : replaced ? h('div', { className: 'bt-set-hint bt-secret-ok', role: 'status' }, h(CheckIcon), t('Replaced. Bots get the new value from their next command.')) : null)
 }
 
-function ReferenceEditor({ secret, onSave }) {
+function ReferenceEditor({ secret, onSave, disabled = false }) {
   const [reference, setReference] = useState(secret.reference ?? '')
   const [saved, setSaved] = useState(false)
   const trimmed = reference.trim()
   const ready = validOpRef(trimmed) && trimmed !== (secret.reference ?? '')
   const save = () => {
-    if (!ready) return
+    if (disabled || !ready) return
     void Promise.resolve(onSave(trimmed)).then(ok => { if (ok) setSaved(true) })
   }
   return h('div', { className: 'bt-secret-edit-block' },
@@ -381,20 +381,21 @@ function ReferenceEditor({ secret, onSave }) {
     h('div', { className: 'bt-secret-inline' },
       h('input', {
         className: 'bt-input bt-secret-ref-input',
+        disabled,
         'aria-label': t('1Password reference'),
         placeholder: 'op://vault/item/field',
         value: reference,
         spellCheck: false,
         autoComplete: 'off',
-        onChange: event => { setReference(event.target.value); setSaved(false) },
+        onChange: event => { if (!disabled) { setReference(event.target.value); setSaved(false) } },
       }),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !ready, onClick: save }, t('Save'))),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: disabled || !ready, onClick: save }, t('Save'))),
     trimmed !== '' && !validOpRef(trimmed) ? h('div', { className: 'bt-set-hint' }, t('Use op://vault/item/field.'))
       : secret.externalError ? h('div', { className: 'bt-secret-error', role: 'alert' }, secret.externalError)
         : saved ? h('div', { className: 'bt-set-hint bt-secret-ok', role: 'status' }, h(CheckIcon), t('Updated.')) : null)
 }
 
-function SecretRow({ secret, roster, actions, run, open, onToggle }) {
+function SecretRow({ secret, roster, actions, run, open, onToggle, readOnly = false }) {
   const [confirm, setConfirm] = useState(false)
   useEffect(() => { if (!open) setConfirm(false) }, [open])
   const asker = secret.requestedBy ? roster.byId[secret.requestedBy]?.name ?? t('a deleted Bot') : t('you')
@@ -416,19 +417,19 @@ function SecretRow({ secret, roster, actions, run, open, onToggle }) {
           : allowed.length === 0 ? h('span', { className: 'bt-tag' }, t('No Bot'))
             : h('span', { className: 'bt-secret-faces', title: allowed.map(bot => bot.name).join(', ') }, allowed.slice(0, 5).map(bot => h(BotAvatar, { key: bot.id, bot, size: 20, badge: false, live: false }))))),
     open ? h('div', { className: 'bt-secret-edit' },
-      h(ScopeEditor, { key: JSON.stringify(secret.scope), secret, roster, onSave: scope => run(actions.secretUpdate(secret.name, { scope })) }),
-      h(PurposeEditor, { key: secret.purpose ?? '', secret, onSave: purpose => run(actions.secretUpdate(secret.name, { purpose })) }),
+      h(ScopeEditor, { key: JSON.stringify(secret.scope), secret, roster, disabled: readOnly, onSave: scope => run(actions.secretUpdate(secret.name, { scope })) }),
+      h(PurposeEditor, { key: secret.purpose ?? '', secret, disabled: readOnly, onSave: purpose => run(actions.secretUpdate(secret.name, { purpose })) }),
       external
-        ? h(ReferenceEditor, { key: secret.reference ?? '', secret, onSave: reference => run(actions.secretSet({ name: secret.name, reference })) })
-        : h(ValueEditor, { secret, onSave: value => run(actions.secretSet({ name: secret.name, value })) }),
+        ? h(ReferenceEditor, { key: secret.reference ?? '', secret, disabled: readOnly, onSave: reference => run(actions.secretSet({ name: secret.name, reference })) })
+        : h(ValueEditor, { secret, disabled: readOnly, onSave: value => run(actions.secretSet({ name: secret.name, value })) }),
       h('div', { className: 'bt-secret-row-actions' },
         confirm
           ? [
               h('span', { key: 'q', className: 'bt-set-hint' }, t('Delete {name}? Bots lose it at once.', { name: secret.name })),
               h('button', { key: 'no', type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setConfirm(false) }, t('Keep')),
-              h('button', { key: 'yes', type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', onClick: () => run(actions.secretDelete(secret.name)) }, t('Delete')),
+              h('button', { key: 'yes', type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', disabled: readOnly, onClick: () => { if (!readOnly) void run(actions.secretDelete(secret.name)) } }, t('Delete')),
             ]
-          : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', onClick: () => setConfirm(true) }, h(TrashIcon), t('Delete')))) : null)
+          : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', disabled: readOnly, onClick: () => { if (!readOnly) setConfirm(true) } }, h(TrashIcon), t('Delete')))) : null)
 }
 
 function AddSecret({ actions, run, onDone }) {
@@ -478,7 +479,7 @@ function AddSecret({ actions, run, onDone }) {
 // and keeps today's file; on rewrites the same secrets.json as a passphrase-locked
 // envelope. A start without a passphrase shows the locked state here, with the way to
 // unlock it and the environment source for unattended runs.
-function SecretStoreCard({ store, actions, run, Section }) {
+function SecretStoreCard({ store, actions, run, Section, readOnly = false }) {
   const mode = store?.mode ?? 'plaintext'
   const locked = store?.locked === true
   const [passphrase, setPassphrase] = useState('')
@@ -487,12 +488,12 @@ function SecretStoreCard({ store, actions, run, Section }) {
   const [busy, setBusy] = useState(false)
   const reset = () => { setPassphrase(''); setConfirm(''); setForm(null) }
   const submit = action => {
-    if (busy || passphrase.length < 8) return
+    if (readOnly || busy || passphrase.length < 8) return
     setBusy(true)
     void run(action(passphrase)).then(ok => { if (ok) reset() }).finally(() => setBusy(false))
   }
   const field = (label, value, onChange, autoFocus) => h('label', { className: 'bt-q-field bt-secret-field' },
-    h(MaskedInput, { value, onChange, label, autoFocus }))
+    h(MaskedInput, { value, onChange, label, autoFocus, disabled: readOnly }))
   const row = children => h('div', { className: 'bt-secret-row-actions' }, children)
   if (locked) {
     const reason = store?.reason
@@ -507,29 +508,29 @@ function SecretStoreCard({ store, actions, run, Section }) {
           h('span', { className: 'bt-bs-label' }, t('Secrets are locked')),
           h('span', { className: 'bt-set-hint' }, why)),
         field(t('Passphrase'), passphrase, setPassphrase, true),
-        row(h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretUnlock) }, t('Unlock')))))
+        row(h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: readOnly || busy || passphrase.length < 8, onClick: () => submit(actions.secretUnlock) }, t('Unlock')))))
   }
   if (mode === 'encrypted') {
     const desc = t('Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.')
     return h(Section, { title: t('Encryption at rest'), tour: 'secret-encrypt' },
-      form === 'decrypt'
+      form === 'decrypt' && !readOnly
         ? [
             h('div', { key: 'hint', className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, desc)),
             h('div', { key: 'form', className: 'bt-set-row bt-bs-stack' },
               field(t('Passphrase'), passphrase, setPassphrase, true),
               row([
                 h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
-                h('button', { key: 'off', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretDecrypt) }, t('Turn off encryption')),
+                h('button', { key: 'off', type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly || busy || passphrase.length < 8, onClick: () => submit(actions.secretDecrypt) }, t('Turn off encryption')),
               ])),
           ]
         : h('div', { className: 'bt-set-row' },
           h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-set-hint' }, desc)),
           h('span', { className: 'bt-set-control' },
-            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setForm('decrypt'); setPassphrase('') } }, t('Turn off encryption')))))
+            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => { if (!readOnly) { setForm('decrypt'); setPassphrase('') } } }, t('Turn off encryption')))))
   }
   const desc = t('Keys are stored in a file only this user can read, but the values are not encrypted.')
   return h(Section, { title: t('Encryption at rest'), tour: 'secret-encrypt' },
-    form === 'encrypt'
+    form === 'encrypt' && !readOnly
       ? [
           h('div', { key: 'hint', className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, desc)),
           h('div', { key: 'form', className: 'bt-set-row bt-bs-stack' },
@@ -538,16 +539,16 @@ function SecretStoreCard({ store, actions, run, Section }) {
             confirm !== '' && confirm !== passphrase ? h('div', { className: 'bt-set-hint' }, t('The passphrases do not match.')) : null,
             row([
               h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
-              h('button', { key: 'on', type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || passphrase.length < 8 || passphrase !== confirm, onClick: () => submit(actions.secretEncrypt) }, t('Turn on encryption')),
+              h('button', { key: 'on', type: 'button', className: 'bt-send bt-soft-sm', disabled: readOnly || busy || passphrase.length < 8 || passphrase !== confirm, onClick: () => submit(actions.secretEncrypt) }, t('Turn on encryption')),
             ])),
         ]
       : h('div', { className: 'bt-set-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-set-hint' }, desc)),
         h('span', { className: 'bt-set-control' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setForm('encrypt') }, t('Encrypt keys at rest')))))
+          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => { if (!readOnly) setForm('encrypt') } }, t('Encrypt keys at rest')))))
 }
 
-function SecretOptionsCard({ prefs, hasExternal, actions, run, Section }) {
+function SecretOptionsCard({ prefs, hasExternal, actions, run, Section, readOnly = false }) {
   const shellMode = prefs?.secretShellMode === 'file' ? 'file' : 'env'
   const savedAccount = prefs?.secretProviders?.onepassword?.account ?? ''
   const [account, setAccount] = useState(savedAccount)
@@ -556,15 +557,15 @@ function SecretOptionsCard({ prefs, hasExternal, actions, run, Section }) {
   const accountText = typeof account === 'string' ? account : savedAccount
   const accountChanged = accountText.trim() !== savedAccount
   const setMode = (next) => {
-    if (next === shellMode || typeof actions.setPrefs !== 'function') return
+    if (readOnly || next === shellMode || typeof actions.setPrefs !== 'function') return
     void run(actions.setPrefs({ secretShellMode: next }))
   }
   const saveAccount = () => {
-    if (!accountChanged || typeof actions.setPrefs !== 'function') return
+    if (readOnly || !accountChanged || typeof actions.setPrefs !== 'function') return
     void run(actions.setPrefs({ secretProviders: { onepassword: { account: accountText.trim() } } }))
   }
   const refreshExternal = () => {
-    if (typeof actions.secretRefreshExternal !== 'function') return
+    if (readOnly || typeof actions.secretRefreshExternal !== 'function') return
     setRefreshed(false)
     void run(actions.secretRefreshExternal()).then(ok => { if (ok) setRefreshed(true) })
   }
@@ -575,47 +576,49 @@ function SecretOptionsCard({ prefs, hasExternal, actions, run, Section }) {
         h('div', { className: 'bt-secret-scope', role: 'radiogroup', 'aria-label': t('Shell exposure') },
           h('span', { className: 'bt-secret-glide', 'data-at': shellMode === 'env' ? 0 : 1, 'aria-hidden': true }),
           [['env', t('Environment')], ['file', t('Temp file')]].map(([id, text]) => h('button', {
-            key: id, type: 'button', role: 'radio', 'aria-checked': shellMode === id, className: 'bt-secret-seg', onClick: () => setMode(id),
+            key: id, type: 'button', role: 'radio', 'aria-checked': shellMode === id, disabled: readOnly, className: 'bt-secret-seg', onClick: () => setMode(id),
           }, text))))),
     h('div', { className: 'bt-set-row' },
       h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('1Password account'))),
       h('span', { className: 'bt-set-control bt-secret-account-ctrl' },
         h('input', {
           className: 'bt-input bt-secret-account-input',
+          disabled: readOnly,
           'aria-label': t('1Password account'),
           placeholder: t('Default account'),
           value: accountText,
           spellCheck: false,
           autoComplete: 'off',
-          onChange: event => setAccount(event.target.value),
+          onChange: event => { if (!readOnly) setAccount(event.target.value) },
           onKeyDown: (event) => {
             if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.keyCode === 229) return
             event.preventDefault()
             saveAccount()
           },
         }),
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !accountChanged, onClick: saveAccount }, t('Save')))),
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly || !accountChanged, onClick: saveAccount }, t('Save')))),
     hasExternal || refreshed ? h('div', { className: 'bt-set-row' },
       h('span', { className: 'bt-set-copy' },
         h('span', { className: 'bt-bs-label' }, t('External secrets')),
         refreshed ? h('span', { className: 'bt-set-hint bt-secret-ok', role: 'status' }, h(CheckIcon), t('External cache cleared.')) : null),
       h('span', { className: 'bt-set-control' },
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: refreshExternal }, t('Refresh external secrets')))) : null)
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: refreshExternal }, t('Refresh external secrets')))) : null)
 }
 
 export function SecretsPage({ roster, actions, run, Section }) {
+  const readOnly = Boolean(roster?.readOnly)
   const [open, setOpen] = useState(null)
   const [adding, setAdding] = useState(false)
   const secrets = roster.secrets ?? []
   const hasExternal = secrets.some(secret => secret.kind === 'external')
-  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'secret-add', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a key'))
+  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'secret-add', disabled: readOnly, onClick: () => { if (!readOnly) setAdding(true) } }, h(PlusIcon), t('Add a key'))
   return [
-    h(SecretStoreCard, { key: 'store', store: roster.secretStore, actions, run, Section }),
+    h(SecretStoreCard, { key: 'store', store: roster.secretStore, actions, run, Section, readOnly }),
     h(Section, { key: 'list', title: t('Saved keys · {count}', { count: secrets.length }), action: addBtn },
       secrets.length === 0 && !adding ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No keys yet.'))) : null,
-      secrets.map(secret => h(SecretRow, { key: secret.name, secret, roster, actions, run, open: open === secret.name, onToggle: () => setOpen(open === secret.name ? null : secret.name) })),
-      adding ? h(AddSecret, { actions, run, onDone: () => setAdding(false) }) : null),
-    h(SecretOptionsCard, { key: 'options', prefs: roster.prefs, hasExternal, actions, run, Section }),
+      secrets.map(secret => h(SecretRow, { key: secret.name, secret, roster, actions, run, readOnly, open: open === secret.name, onToggle: () => setOpen(open === secret.name ? null : secret.name) })),
+      adding && !readOnly ? h(AddSecret, { actions, run, onDone: () => setAdding(false) }) : null),
+    h(SecretOptionsCard, { key: 'options', prefs: roster.prefs, hasExternal, actions, run, Section, readOnly }),
   ]
 }
 

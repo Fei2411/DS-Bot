@@ -42,6 +42,7 @@ export const summaryLine = (results) => {
 
 // `preset`: a model search offered to switch to; the page asks before it moves any Bot.
 export function BotModelsPage({ roster, actions, run, Section, preset = null }) {
+  const readOnly = Boolean(roster?.readOnly)
   const bots = roster.bots ?? []
   const [selected, setSelected] = useState(() => new Set())
   const [target, setTarget] = useState(undefined)
@@ -51,7 +52,7 @@ export function BotModelsPage({ roster, actions, run, Section, preset = null }) 
   const hasLocal = eligible.length < bots.length
   const resultsById = new Map((results ?? []).map(entry => [entry.id, entry]))
   const toggle = (id) => {
-    if (busy) return
+    if (busy || readOnly) return
     setSelected((previous) => {
       const next = new Set(previous)
       if (next.has(id)) next.delete(id)
@@ -65,7 +66,7 @@ export function BotModelsPage({ roster, actions, run, Section, preset = null }) 
   // Only the Bots that would change: one already on the model is not counted.
   const moving = offered ? eligible.filter(bot => modelRefOf(bot) !== offered.ref) : []
   const apply = (ref, chosen = bots.filter(bot => selected.has(bot.id))) => {
-    if (busy) return
+    if (busy || readOnly) return
     if (chosen.length === 0) return
     setTarget(ref)
     setBusy(true)
@@ -75,21 +76,21 @@ export function BotModelsPage({ roster, actions, run, Section, preset = null }) 
   }
   const picker = h(ModelMenu, {
     bot: { id: 'selected-bots', name: t('Selected Bots'), model: target }, roster, actions, run,
-    wide: true, withEfforts: false, onPick: apply,
+    wide: true, withEfforts: false, disabled: readOnly, onPick: apply,
   })
   return h(Section, { title: t('Bots · {count}', { count: bots.length }), tour: 'bm-list' },
     offered && moving.length > 0 ? h('div', { className: 'bt-set-row bt-bm-offer', role: 'status' },
       h('span', { className: 'bt-set-copy' }, h('span', null, t('Switch {names} to {model}?', { names: moving.map(bot => bot.name).join(t(', ')), model: modelName(offered, (roster.models ?? []).filter(entry => !entry.needsKey && !isLocalRoute(entry.ref))) }))),
       h('div', { className: 'bt-set-control bt-bm-actions' },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => setOffer(null) }, t('Cancel')),
-        h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: () => { setOffer(null); apply(offered.ref, moving) } }, t('Switch')))) : null,
+        h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || readOnly, onClick: () => { setOffer(null); apply(offered.ref, moving) } }, t('Switch')))) : null,
     h('div', { className: 'bt-set-row bt-bm-bar', 'data-tour': 'bm-bar' },
       h('span', { className: 'bt-set-copy' },
         h('span', null, t('{selected} of {total} selected', { selected: selected.size, total: bots.length })),
         hasLocal ? h('span', { className: 'bt-set-hint' }, t('Bots on a local agent keep their own model.')) : null),
       h('div', { className: 'bt-set-control bt-bm-actions' },
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || eligible.length === 0 || selected.size === eligible.length, onClick: () => setSelected(new Set(eligible.map(bot => bot.id))) }, t('Select all')),
-        selected.size > 0 ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => setSelected(new Set()) }, t('Clear')) : null,
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly || busy || eligible.length === 0 || selected.size === eligible.length, onClick: () => setSelected(new Set(eligible.map(bot => bot.id))) }, t('Select all')),
+        selected.size > 0 ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly || busy, onClick: () => setSelected(new Set()) }, t('Clear')) : null,
         busy ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: true }, t('Changing…'))
           : selected.size === 0 ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: true }, t('Choose a model')) : picker)),
     results === null ? null : h('div', { className: 'bt-set-row bt-bm-summary', role: 'status' },
@@ -100,7 +101,7 @@ export function BotModelsPage({ roster, actions, run, Section, preset = null }) 
       return h('label', { key: bot.id, className: 'bt-set-row bt-bm-row', 'data-selected': selected.has(bot.id) ? '' : undefined, 'data-local': local ? '' : undefined },
         h('span', { className: 'bt-bm-check' },
           h('input', {
-            type: 'checkbox', checked: selected.has(bot.id), disabled: local || busy,
+            type: 'checkbox', checked: selected.has(bot.id), disabled: readOnly || local || busy,
             'aria-label': t('Select {name}', { name: bot.name }),
             onChange: () => toggle(bot.id),
           }),

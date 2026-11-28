@@ -1416,25 +1416,84 @@ test('SettingsDialog passes dsh?.ownWindow to PluginsPage so plugin fallback wit
   })
 })
 
-test('readOnly roster disables General, Team, and Privacy mutating controls', async () => {
+test('readOnly roster disables mutating controls across all Settings pages while preserving navigation and inspection', async () => {
   const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
   await withGlobals(async () => {
-    const mountPage = async (page) => {
+    const readOnlyRoster = {
+      ...baseRoster,
+      readOnly: 'locked',
+      bots: [
+        {
+          id: 'chief', name: 'Chief', role: 'Lead', workDir: '/work/chief', extraDirs: ['/extra'],
+          instructions: 'Lead the team', capabilities: ['docs'], computer: { level: 'background', apps: { safari: { name: 'Safari' } } },
+          browserGrants: [{ site: 'example.com', kinds: ['post'], until: Date.now() + 3_600_000 }],
+        },
+        { id: 'writer', name: 'Writer', workDir: '/work/writer' },
+      ],
+      byId: {
+        chief: {
+          id: 'chief', name: 'Chief', role: 'Lead', workDir: '/work/chief', extraDirs: ['/extra'],
+          instructions: 'Lead the team', capabilities: ['docs'], computer: { level: 'background', apps: { safari: { name: 'Safari' } } },
+          browserGrants: [{ site: 'example.com', kinds: ['post'], until: Date.now() + 3_600_000 }],
+        },
+        writer: { id: 'writer', name: 'Writer', workDir: '/work/writer' },
+      },
+      rooms: [{ id: 'r1', name: 'Design', named: true, notice: 'Be kind', members: ['chief', 'writer'], admin: 'chief', mode: 'admin', permission: 'workspace-write', extraDirs: ['/extra'] }],
+      roomsById: { r1: { id: 'r1', name: 'Design', named: true, notice: 'Be kind', members: ['chief', 'writer'], admin: 'chief', mode: 'admin', permission: 'workspace-write', extraDirs: ['/extra'] } },
+      permissions: { defaultPreset: 'workspace-write', options: [{ value: 'read-only', name: 'Read only' }, { value: 'workspace-write', name: 'Workspace' }] },
+      privateArchives: [{ id: 'priv-1', name: 'Vault', workDir: '/work/vault' }],
+      capabilities: [{ name: 'docs', kind: 'mcp', transport: 'stdio', approved: false, description: 'Docs server' }],
+      computer: { enabled: true, macos: true, provider: { state: 'ready' } },
+      connectors: { connectors: [{ id: 'github', name: 'GitHub', category: 'dev', state: 'off', auth: { kind: 'oauth' } }], mail: { accounts: [] } },
+      im: { connections: [{ id: 'tg-1', platform: 'telegram', enabled: true, botId: 'chief', requests: [{ id: 'req-1', name: 'Alice' }], paired: [], chats: {} }], platforms: ['telegram'] },
+      imStatus: { 'tg-1': { state: 'ready' } },
+      phone: { on: true, status: 'online', server: '', phones: [{ id: 'p1', name: 'Pixel', pairedAt: Date.now(), connected: false }], pairing: null },
+      secrets: [{ name: 'GH_TOKEN', scope: 'all', purpose: 'GitHub', createdAt: Date.now() }],
+      secretStore: { mode: 'plaintext' },
+      prefs: {
+        theme: 'custom-1',
+        themes: { 'custom-1': { label: 'My Theme', light: { accent: '#2563eb', bg: '#ffffff', text: '#111111', sidebar: '#f5f5f5', bubble: '#eef2ff', card: '#ffffff', user: '#2563eb', userText: '#ffffff' }, dark: { accent: '#60a5fa', bg: '#111111', text: '#f5f5f5', sidebar: '#181818', bubble: '#1e293b', card: '#1f2937', user: '#2563eb', userText: '#ffffff' } } },
+        defaultBotModel: 'deepseek-official/deepseek-flash',
+        approvalModel: 'deepseek-official/deepseek-flash',
+        appearance: { background: { kind: 'color', color: '#223344', dim: 10, surface: 90 } },
+      },
+    }
+    const mountPage = async (page, id = null) => {
       const harness = makeStatefulReact()
       const mod = { exports: {} }
-      new Function('module', 'exports', 'require', code)(mod, mod.exports, () => harness.React)
+      new Function('module', 'exports', 'require', code)(mod, mod.exports, dep => (
+        dep === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : dep === 'react-dom' ? { createPortal: el => el } : harness.React
+      ))
       const { SettingsDialog } = mod.exports
-      const readOnlyRoster = {
-        ...baseRoster,
-        readOnly: true,
-        prefs: { defaultBotModel: 'deepseek-official/deepseek-flash', approvalModel: 'deepseek-official/deepseek-flash' },
-      }
       const actions = {
         openSettings: () => {},
         closeSettings: () => {},
+        openMemory: () => {},
+        openSession: () => {},
         setPrefs: () => Promise.resolve(),
         setMain: () => Promise.resolve(),
+        updateBot: () => Promise.resolve(),
+        updateRoom: () => Promise.resolve(),
+        deleteBot: () => Promise.resolve(),
+        deleteRoom: () => Promise.resolve(),
+        duplicateBot: () => Promise.resolve({ id: 'copy' }),
+        setFlags: () => Promise.resolve(),
+        setChatBackground: () => Promise.resolve(),
+        releasePrivate: () => Promise.resolve(),
         folders: () => Promise.resolve({ team: '/work', data: '/data' }),
+        presets: () => Promise.resolve({ presets: [] }),
+        providers: () => Promise.resolve({
+          available: true,
+          revision: 1,
+          providers: [{ id: 'deepseek', name: 'DeepSeek', key: { configured: false, writable: true }, models: [{ id: 'deepseek-chat', ref: 'deepseek/deepseek-chat' }] }],
+        }),
+        schedules: () => Promise.resolve({
+          available: true,
+          canPause: true,
+          tasks: [{ id: 't1', sessionId: 'chief', botId: 'chief', title: 'Daily', prompt: 'Check', kind: 'daily', time: '09:00', status: 'active', scheduledAt: new Date(Date.now() + 3_600_000).toISOString() }],
+        }),
+        schedulePause: () => Promise.resolve({ available: true, tasks: [] }),
+        scheduleDelete: () => Promise.resolve({ available: true, tasks: [] }),
         telemetryStatus: () => Promise.resolve({
           noticeAccepted: true, usage: true, errors: false, dshSessionLog: true, dshFeedbackTelemetry: false,
           anonId: 'anon-1', anonMonth: '2026-11', envDisabled: false, recentSent: [{ type: 'daily' }],
@@ -1447,7 +1506,7 @@ test('readOnly roster disables General, Team, and Privacy mutating controls', as
         repoStars: () => Promise.resolve(0),
       }
       const draw = () => harness.render(harness.React.createElement(SettingsDialog, {
-        page, id: null, roster: readOnlyRoster, actions, dsh: { ownWindow: true, sections: [], renderSlot: () => null }, useUpdate: sel => sel({}),
+        page, id, roster: readOnlyRoster, actions, dsh: { ownWindow: true, sections: [], renderSlot: () => null }, useUpdate: sel => sel({}),
       }))
       draw()
       await new Promise(r => setTimeout(r, 0))
@@ -1455,28 +1514,268 @@ test('readOnly roster disables General, Team, and Privacy mutating controls', as
       return { tree, unmount: () => harness.unmount() }
     }
 
-    const gen = await mountPage('general')
-    const enterSwitch = findAll(gen.tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Enter sends message')[0]
-    assert.equal(enterSwitch?.props?.disabled, true, 'General Enter sends message switch disabled in readOnly')
-    const resetBtn = findAll(gen.tree, n => n.type === 'button' && textOf(n) === 'Reset')[0]
-    assert.equal(resetBtn?.props?.disabled, true, 'General Default model Reset disabled in readOnly')
-    gen.unmount()
+    const mounted = []
+    const open = async (page, id = null) => {
+      const m = await mountPage(page, id)
+      mounted.push(m)
+      return m
+    }
+    try {
+      // Overview: New Bot disabled, missing-key Attention renders read-only Open button instead of inline KeyEditor.
+      const ov = await open('overview')
+      assert.equal(findAll(ov.tree, n => n.type === 'button' && n.props?.className === 'bt-ov-bot bt-ov-new')[0]?.props?.disabled, true, 'Overview New Bot disabled')
+      assert.equal(findAll(ov.tree, n => n.type === 'input' && n.props?.type === 'password').length, 0, 'Overview hides inline KeyEditor in readOnly')
 
-    const bots = await mountPage('bots')
-    const newBotBtn = findAll(bots.tree, n => n.type === 'button' && n.props?.['data-tour'] === 'new-bot')[0]
-    assert.equal(newBotBtn?.props?.disabled, true, 'Team New Bot button disabled in readOnly')
-    const newGroupBtn = findAll(bots.tree, n => n.type === 'button' && n.props?.['data-tour'] === 'new-group')[0]
-    assert.equal(newGroupBtn?.props?.disabled, true, 'Team Create group chat button disabled in readOnly')
-    bots.unmount()
+      // General: switches, number inputs, Reset disabled.
+      const gen = await open('general')
+      assert.equal(findAll(gen.tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Enter sends message')[0]?.props?.disabled, true)
+      assert.equal(findAll(gen.tree, n => n.type === 'button' && textOf(n) === 'Reset')[0]?.props?.disabled, true)
 
-    const priv = await mountPage('privacy')
-    const privSwitches = findAll(priv.tree, n => n.type === 'button' && n.props?.role === 'switch')
-    assert.ok(privSwitches.length >= 4, 'Privacy switches render')
-    assert.equal(privSwitches.every(s => s.props?.disabled === true), true, 'all Privacy switches disabled in readOnly')
-    const clearBtn = findAll(priv.tree, n => n.type === 'button' && textOf(n) === 'Clear')[0]
-    assert.equal(clearBtn?.props?.disabled, true, 'Privacy Clear button disabled in readOnly')
-    const showBtn = findAll(priv.tree, n => n.type === 'button' && textOf(n) === 'Show')[0]
-    assert.equal(showBtn?.props?.disabled, false, 'Privacy Show log inspection stays enabled in readOnly')
-    priv.unmount()
+      // Appearance: theme cards, swatches, color/range/file inputs, textarea, switches, Restore all disabled; Export & mode inspection stay enabled.
+      const app = await open('appearance')
+      const appPage = findAll(app.tree, n => n.props?.['data-page'] === 'appearance')[0]
+      for (const input of findAll(appPage, n => n.type === 'input' || n.type === 'textarea')) {
+        assert.equal(input.props?.disabled, true, `Appearance input ${input.props?.['aria-label'] ?? input.props?.type} should be disabled in readOnly`)
+      }
+      for (const sw of findAll(appPage, n => n.type === 'button' && n.props?.role === 'switch')) {
+        assert.equal(sw.props?.disabled, true, `Appearance switch ${sw.props?.['aria-label']} should be disabled in readOnly`)
+      }
+      assert.equal(findAll(appPage, n => n.type === 'button' && textOf(n) === 'New theme')[0]?.props?.disabled, true)
+      assert.equal(findAll(appPage, n => n.type === 'button' && textOf(n) === 'Restore')[0]?.props?.disabled, true)
+      assert.equal(findAll(appPage, n => n.type === 'button' && textOf(n) === 'Derive')[0]?.props?.disabled, true)
+      assert.equal(findAll(appPage, n => n.type === 'button' && textOf(n) === 'Export')[0]?.props?.disabled, undefined, 'Export theme stays enabled in readOnly')
+      assert.equal(findAll(appPage, n => n.type === 'button' && n.props?.className === 'bt-set-row bt-look-more')[0]?.props?.disabled, undefined, 'More settings toggle stays enabled in readOnly')
+
+      // Team (Bots, Groups, Schedules, KeptPrivateSection): New Bot, Create group, New task, Pause/Delete task, Remove protection disabled.
+      const team = await open('bots')
+      assert.equal(findAll(team.tree, n => n.type === 'button' && n.props?.['data-tour'] === 'new-bot')[0]?.props?.disabled, true)
+      assert.equal(findAll(team.tree, n => n.type === 'button' && n.props?.['data-tour'] === 'new-group')[0]?.props?.disabled, true)
+      assert.equal(findAll(team.tree, n => n.type === 'button' && n.props?.['data-tour'] === 'new-task')[0]?.props?.disabled, true)
+      assert.equal(findAll(team.tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Pause task')[0]?.props?.disabled, true)
+      assert.equal(findAll(team.tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Delete task')[0]?.props?.disabled, true)
+      assert.equal(findAll(team.tree, n => n.type === 'button' && textOf(n) === 'Remove protection')[0]?.props?.disabled, true)
+
+      // Bot detail form: avatar, inputs, textarea, switches, menus, capabilities, computer level/revoke, new task, duplicate/delete disabled; Memory stays enabled.
+      const botDetail = await open('bots', 'chief')
+      const botForm = findAll(botDetail.tree, n => n.props?.className === 'bt-bs')[0]
+      for (const input of findAll(botForm, n => n.type === 'input' || n.type === 'textarea')) {
+        assert.equal(input.props?.disabled, true, `Bot form input ${input.props?.['aria-label'] ?? input.props?.type} disabled in readOnly`)
+      }
+      for (const sw of findAll(botForm, n => n.type === 'button' && n.props?.role === 'switch')) {
+        assert.equal(sw.props?.disabled, true, `Bot form switch ${sw.props?.['aria-label']} disabled in readOnly`)
+      }
+      assert.equal(findAll(botForm, n => n.type === 'button' && n.props?.className === 'bt-avatar-trigger')[0]?.props?.disabled, true)
+      assert.equal(findAll(botForm, n => n.type === 'button' && textOf(n).includes('Duplicate'))[0]?.props?.disabled, true)
+      assert.equal(findAll(botForm, n => n.type === 'button' && textOf(n) === 'Revoke')[0]?.props?.disabled, true)
+      assert.equal(findAll(botForm, n => n.type === 'button' && textOf(n).includes('New task'))[0]?.props?.disabled, true)
+      assert.equal(findAll(botForm, n => n.type === 'button' && n.props?.['aria-label']?.includes("Chief's memory"))[0]?.props?.disabled, undefined, 'Memory navigation stays enabled')
+
+      // Group detail form: avatar, inputs, Who answers, folder, permissions, Unset/Make admin, Add member, sidebar switches, Delete group disabled; member chat nav enabled.
+      const groupDetail = await open('groups', 'r1')
+      const groupForm = findAll(groupDetail.tree, n => n.props?.className === 'bt-bs')[0]
+      for (const input of findAll(groupForm, n => n.type === 'input' || n.type === 'textarea')) {
+        assert.equal(input.props?.disabled, true, `Group form input ${input.props?.['aria-label'] ?? input.props?.type} disabled in readOnly`)
+      }
+      for (const sw of findAll(groupForm, n => n.type === 'button' && n.props?.role === 'switch')) {
+        assert.equal(sw.props?.disabled, true, `Group form switch ${sw.props?.['aria-label']} disabled in readOnly`)
+      }
+      assert.equal(findAll(groupForm, n => n.type === 'button' && n.props?.className === 'bt-avatar-trigger')[0]?.props?.disabled, true)
+      assert.equal(findAll(groupForm, n => n.type === 'button' && textOf(n) === 'Unset')[0]?.props?.disabled, true)
+      assert.equal(findAll(groupForm, n => n.type === 'button' && textOf(n) === 'Make admin')[0]?.props?.disabled, true)
+      assert.equal(findAll(groupForm, n => n.type === 'button' && textOf(n).includes('Delete group'))[0]?.props?.disabled, true)
+      assert.equal(findAll(groupForm, n => n.type === 'button' && n.props?.className === 'bt-gs-who')[0]?.props?.disabled, undefined, 'Member chat navigation stays enabled')
+
+      // Connect & Tools pages: mutating controls disabled while search/filter/show stay enabled.
+      const conn = await open('connectors')
+      assert.equal(findAll(conn.tree, n => n.type === 'button' && textOf(n).includes('Custom'))[0]?.props?.disabled, true)
+      assert.equal(findAll(conn.tree, n => n.type === 'button' && textOf(n) === 'Allow')[0]?.props?.disabled, true, 'IM Allow disabled')
+      assert.equal(findAll(conn.tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Phone access')[0]?.props?.disabled, true)
+
+      const tools = await open('computer')
+      assert.equal(findAll(tools.tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props?.['aria-label'] === 'Let Bots use the computer')[0]?.props?.disabled, true)
+      assert.equal(findAll(tools.tree, n => n.type === 'button' && n.props?.['data-tour'] === 'browser-allow')[0]?.props?.disabled, true)
+      assert.equal(findAll(tools.tree, n => n.type === 'button' && n.props?.['data-tour'] === 'cap-add')[0]?.props?.disabled, true)
+      assert.equal(findAll(tools.tree, n => n.type === 'button' && n.props?.['data-tour'] === 'secret-add')[0]?.props?.disabled, true)
+      assert.equal(findAll(tools.tree, n => n.type === 'button' && textOf(n) === 'Encrypt keys at rest')[0]?.props?.disabled, true)
+
+      // Privacy: switches & Clear disabled; Show inspection stays enabled.
+      const priv = await open('privacy')
+      const privSwitches = findAll(priv.tree, n => n.type === 'button' && n.props?.role === 'switch')
+      assert.ok(privSwitches.length >= 4, 'Privacy switches render')
+      assert.equal(privSwitches.every(s => s.props?.disabled === true), true, 'all Privacy switches disabled in readOnly')
+      assert.equal(findAll(priv.tree, n => n.type === 'button' && textOf(n) === 'Clear')[0]?.props?.disabled, true)
+      assert.equal(findAll(priv.tree, n => n.type === 'button' && textOf(n) === 'Show')[0]?.props?.disabled, false)
+    } finally {
+      for (const m of mounted) m.unmount()
+    }
+  })
+})
+
+test('⌘K Advanced jump stays anchored when ResizeObserver fires past 450 ms and works when parts === null after prior scroll', async () => {
+  const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
+  await withGlobals(async () => {
+    const origRO = globalThis.ResizeObserver
+    const roCallbacks = []
+    globalThis.ResizeObserver = class {
+      constructor(cb) { this.cb = cb; roCallbacks.push(cb) }
+      observe() {}
+      disconnect() { this.disconnected = true }
+    }
+    try {
+      const harness = makeStatefulReact()
+      const mod = { exports: {} }
+      new Function('module', 'exports', 'require', code)(mod, mod.exports, dep => (
+        dep === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : dep === 'react-dom' ? { createPortal: el => el } : harness.React
+      ))
+      const { SettingsDialog } = mod.exports
+
+      let currentPage = 'bots'
+      const scrollCalls = []
+      const makeBox = () => ({
+        scrollTop: 0,
+        clientHeight: 500,
+        scrollHeight: 1800,
+        getBoundingClientRect: () => ({ top: 0 }),
+        querySelector: (sel) => (sel === '[data-tour="advanced"]'
+          ? { getBoundingClientRect: () => ({ top: 640 }) }
+          : sel === '[data-part="general"]'
+            ? { getBoundingClientRect: () => ({ top: 0 }) }
+            : null),
+        querySelectorAll: () => [{ dataset: { part: 'general' }, getBoundingClientRect: () => ({ top: 0 }) }],
+        scrollTo: (opts) => { scrollCalls.push(opts.top) },
+      })
+      const box = makeBox()
+      const actions = {
+        openSettings: (page) => { currentPage = page },
+        closeSettings: () => {},
+        providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
+        folders: () => Promise.resolve({ team: '/work' }),
+        schedules: () => Promise.resolve({ available: true, tasks: [] }),
+        setPrefs: () => Promise.resolve(),
+      }
+      const draw = () => {
+        const tree = harness.render(harness.React.createElement(SettingsDialog, {
+          page: currentPage, id: null, roster: baseRoster, actions, dsh: { ownWindow: true, sections: [], renderSlot: () => null }, useUpdate: sel => sel({}),
+        }))
+        const scroller = findAll(tree, n => typeof n.props?.className === 'string' && n.props.className.includes('bt-settings-scroll'))[0]
+        if (scroller?.props?.ref) scroller.props.ref.current = box
+        const dialog = findAll(tree, n => n.props?.className === 'bt-settings')[0]
+        if (dialog?.props?.ref) dialog.props.ref.current = { querySelector: sel => (sel === '.bt-settings-scroll' ? box : null) }
+        return tree
+      }
+
+      // Simulate user scrolling on another page before opening ⌘K.
+      let tree = draw()
+      const scroller = findAll(tree, n => typeof n.props?.className === 'string' && n.props.className.includes('bt-settings-scroll'))[0]
+      scroller.props.onWheel?.()
+
+      // Open search palette, pick Memory (General → Advanced).
+      const searchBtn = findAll(tree, n => n.type === 'button' && n.props?.['data-tour'] === 'search')[0]
+      searchBtn.props.onClick()
+      tree = draw()
+      const paletteInput = findAll(tree, n => n.type === 'input' && n.props?.role === 'combobox')[0]
+      paletteInput.props.onChange({ target: { value: 'Memory' } })
+      tree = draw()
+      const memHit = findAll(tree, n => n.type === 'button' && n.props?.role === 'option' && textOf(n).includes('Memory'))[0]
+      assert.ok(memHit, 'Memory search hit found')
+      memHit.props.onClick()
+      tree = draw()
+      assert.equal(currentPage, 'general')
+
+      // Wait > 500 ms (past the old 450 ms timer race), then fire ResizeObserver as if a sibling expanded.
+      await new Promise(r => setTimeout(r, 520))
+      scrollCalls.length = 0
+      for (const cb of roCallbacks) cb()
+      assert.ok(scrollCalls.length > 0, 'ResizeObserver still re-anchors after 450 ms')
+      assert.ok(scrollCalls.every(top => top > 0), `expected Advanced scroll (>0), never snapping back to 0: ${JSON.stringify(scrollCalls)}`)
+      // Also verify single-part General (parts === null, e.g. when Shortcuts is unavailable) scrolls to Advanced even after prior scroll.
+      currentPage = 'bots'
+      tree = draw()
+      findAll(tree, n => typeof n.props?.className === 'string' && n.props.className.includes('bt-settings-scroll'))[0]?.props?.onWheel?.()
+      const drawSinglePart = () => {
+        const t2 = harness.render(harness.React.createElement(SettingsDialog, {
+          page: currentPage, id: null, roster: baseRoster, actions, dsh: { ownWindow: false, sections: [], renderSlot: () => null }, useUpdate: sel => sel({}),
+        }))
+        const scroller2 = findAll(t2, n => typeof n.props?.className === 'string' && n.props.className.includes('bt-settings-scroll'))[0]
+        if (scroller2?.props?.ref) scroller2.props.ref.current = box
+        const dialog2 = findAll(t2, n => n.props?.className === 'bt-settings')[0]
+        if (dialog2?.props?.ref) dialog2.props.ref.current = { querySelector: sel => (sel === '.bt-settings-scroll' ? box : null) }
+        return t2
+      }
+      scrollCalls.length = 0
+      tree = drawSinglePart()
+      findAll(tree, n => n.type === 'button' && n.props?.['data-tour'] === 'search')[0].props.onClick()
+      tree = drawSinglePart()
+      findAll(tree, n => n.type === 'input' && n.props?.role === 'combobox')[0].props.onChange({ target: { value: 'Memory' } })
+      tree = drawSinglePart()
+      findAll(tree, n => n.type === 'button' && n.props?.role === 'option' && textOf(n).includes('Memory'))[0].props.onClick()
+      tree = drawSinglePart()
+      await new Promise(r => setTimeout(r, 480))
+      assert.ok(scrollCalls.some(top => top > 0), `single-part General should scroll to Advanced after prior scroll: ${JSON.stringify(scrollCalls)}`)
+      harness.unmount()
+    } finally {
+      globalThis.ResizeObserver = origRO
+    }
+  })
+})
+
+test('Overview tiles/links and anchor bar goPart dismiss an active walkthrough tour', async () => {
+  const code = await loadBundle("export { SettingsDialog } from './src/client/settings.js'")
+  await withGlobals(async () => {
+    const harness = makeStatefulReact()
+    const mod = { exports: {} }
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, dep => (
+      dep === '@deepseek-ai/dsh-client-ui-primitives' ? primitivesStub : dep === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { SettingsDialog } = mod.exports
+
+    let currentPage = 'overview'
+    let currentId = null
+    const actions = {
+      openSettings: (page, id) => { currentPage = page; currentId = id ?? null },
+      closeSettings: () => {},
+      providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
+      folders: () => Promise.resolve({ team: '/work' }),
+      schedules: () => Promise.resolve({ available: true, tasks: [] }),
+      diagnostics: () => Promise.resolve({ entries: [], total: 0, markdown: '' }),
+      telemetryStatus: () => Promise.resolve(null),
+      repoStars: () => Promise.resolve(0),
+      setPrefs: () => Promise.resolve(),
+    }
+    const draw = () => harness.render(harness.React.createElement(SettingsDialog, {
+      page: currentPage, id: currentId, roster: baseRoster, actions, dsh: { ownWindow: true, sections: [], renderSlot: () => null }, useUpdate: sel => sel({}),
+    }))
+
+    // Start tour from About → Settings guide, then return to Overview and click a tile.
+    try {
+      currentPage = 'about'
+      let tree = draw()
+      const startBtn = findAll(tree, n => n.type === 'button' && textOf(n).includes('Start'))[0]
+      assert.ok(startBtn, 'Settings guide Start button renders')
+      startBtn.props.onClick()
+      currentPage = 'overview'
+      tree = draw()
+      const ovLink = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-ov-link')[0]
+      assert.ok(ovLink, 'Overview team link renders')
+      ovLink.props.onClick()
+      assert.equal(currentPage, 'bots', 'Overview team link navigates to bots')
+      tree = draw()
+      // Tour should be dismissed (no tour card rendered).
+      assert.equal(findAll(tree, n => typeof n.props?.className === 'string' && n.props.className.includes('bt-tour-card')).length, 0, 'Overview navigation dismissed active tour')
+
+      // Start section tour on bots, then click anchor tab `groups` (goPart).
+      const guideBtn = findAll(tree, n => n.type === 'button' && typeof n.props?.className === 'string' && n.props.className.includes('bt-tour-trigger'))[0]
+      assert.ok(guideBtn, 'Guide button renders on bots')
+      guideBtn.props.onClick()
+      tree = draw()
+      const groupsAnchor = findAll(tree, n => n.type === 'button' && n.props?.id === 'bt-anchor-groups')[0]
+      assert.ok(groupsAnchor, 'Groups anchor tab renders')
+      groupsAnchor.props.onClick()
+      assert.equal(currentPage, 'groups')
+      tree = draw()
+      assert.equal(findAll(tree, n => typeof n.props?.className === 'string' && n.props.className.includes('bt-tour-card')).length, 0, 'goPart dismissed active tour')
+    } finally {
+      harness.unmount()
+    }
   })
 })

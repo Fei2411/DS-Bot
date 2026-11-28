@@ -60,7 +60,9 @@ const needsKey = (bot, roster) => {
 
 // Without the providers' view (no Providers page here) a Bot on a keyless model still
 // shows, from the roster alone, and leads to its model.
-function Attention({ roster, actions, run, view, setView, loaded, needsModel, keyMissing }) {
+function Attention({ roster, actions, run, view, setView, loaded, needsModel, keyMissing, onNavigate }) {
+  const readOnly = Boolean(roster?.readOnly)
+  const navigate = onNavigate ?? actions.openSettings
   const missing = (view?.providers ?? [])
     .filter(provider => provider.key && !provider.key.configured)
     .map(provider => ({ provider, users: usersOf(provider, roster) }))
@@ -77,20 +79,22 @@ function Attention({ roster, actions, run, view, setView, loaded, needsModel, ke
       h('span', { className: 'bt-ov-alert-copy' },
         h('span', { className: 'bt-ov-alert-title' }, t('{provider} needs an API key', { provider: provider.name })),
         h('span', { className: 'bt-ov-alert-meta' }, h(UsedBy, { bots: users, size: 16, max: 3 }), t('Used by {names}', { names: users.map(bot => bot.name).join(t(', ')) }))),
-      provider.key.writable
+      provider.key.writable && !readOnly
         ? h(KeyEditor, { provider, apply, actions, compact: true })
-        : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('models') }, t('Open')))),
+        : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => navigate('models') }, t('Open')))),
     missing.length === 0 && needsModel ? h('div', { className: 'bt-ov-alert' },
       h('span', { className: 'bt-ov-alert-icon', 'aria-hidden': true }, h(KeyIcon)),
       h('span', { className: 'bt-ov-alert-copy' }, h('span', { className: 'bt-ov-alert-title' }, t('Add a model provider'))),
-      h('button', { type: 'button', className: 'bt-send bt-soft-sm', onClick: () => actions.openSettings('models') }, t('Set up'))) : null,
+      h('button', { type: 'button', className: 'bt-send bt-soft-sm', onClick: () => navigate('models') }, t('Set up'))) : null,
     missing.length === 0 && !needsModel && blind ? h('div', { className: 'bt-ov-alert' },
       h('span', { className: 'bt-ov-alert-icon', 'aria-hidden': true }, h(KeyIcon)),
       h('span', { className: 'bt-ov-alert-copy' }, h('span', { className: 'bt-ov-alert-title' }, t('Needs an API key'))),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('bot-models') }, t('Open'))) : null)
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => navigate('bot-models') }, t('Open'))) : null)
 }
 
-function Team({ roster, actions }) {
+function Team({ roster, actions, onNavigate }) {
+  const readOnly = Boolean(roster?.readOnly)
+  const navigate = onNavigate ?? actions.openSettings
   const bots = roster.bots ?? []
   const room = bots.length + 1 > TEAM_SLOTS
   const shown = room ? bots.slice(0, TEAM_SLOTS - 2) : bots
@@ -98,20 +102,20 @@ function Team({ roster, actions }) {
   return h('section', { className: 'bt-ov-section' },
     h('div', { className: 'bt-ov-head' },
       h('h3', null, t('Team')),
-      h('button', { type: 'button', className: 'bt-ov-link', onClick: () => actions.openSettings('bots') },
+      h('button', { type: 'button', className: 'bt-ov-link', onClick: () => navigate('bots') },
         h('span', null, t('Bots · {count}', { count: bots.length })),
         h('span', null, t('Group chats · {count}', { count: (roster.rooms ?? []).length })))),
     h('div', { className: 'bt-ov-team' },
-      shown.map(bot => h('button', { key: bot.id, type: 'button', className: 'bt-ov-bot', onClick: () => actions.openSettings('bots', bot.id) },
+      shown.map(bot => h('button', { key: bot.id, type: 'button', className: 'bt-ov-bot', onClick: () => navigate('bots', bot.id) },
         h('span', { className: 'bt-ov-face' },
           h(BotAvatar, { bot, size: 40, main: main.has(bot.id), live: false }),
           needsKey(bot, roster) ? h('span', { className: 'bt-ov-face-dot', role: 'img', 'aria-label': t('Needs an API key') }) : null),
         h('span', { className: 'bt-ov-bot-name' }, bot.name),
         h('span', { className: 'bt-ov-bot-model' }, modelLine(bot, roster)))),
-      room ? h('button', { type: 'button', className: 'bt-ov-bot bt-ov-more', onClick: () => actions.openSettings('bots') },
+      room ? h('button', { type: 'button', className: 'bt-ov-bot bt-ov-more', onClick: () => navigate('bots') },
         h('span', { className: 'bt-ov-more-count' }, `+${bots.length - shown.length}`),
         h('span', { className: 'bt-ov-bot-name' }, t('All Bots'))) : null,
-      h('button', { type: 'button', className: 'bt-ov-bot bt-ov-new', onClick: () => actions.openSettings('bots', 'new') },
+      h('button', { type: 'button', className: 'bt-ov-bot bt-ov-new', disabled: readOnly, onClick: () => { if (!readOnly) navigate('bots', 'new') } },
         h(PlusIcon), h('span', { className: 'bt-ov-bot-name' }, t('New Bot')))))
 }
 
@@ -130,7 +134,8 @@ function Tile({ icon: Icon, title, onOpen, value, unit, children, extra = null }
 
 const uniq = list => [...new Set(list.filter(Boolean))]
 
-function Tiles({ roster, actions, icons, view, hasProviders, narrow }) {
+function Tiles({ roster, actions, icons, view, hasProviders, narrow, onNavigate }) {
+  const navigate = onNavigate ?? actions.openSettings
   const week = useWeek(actions, !narrow)
   const schedules = useSchedules(actions)
   const prefs = roster.prefs ?? {}
@@ -159,16 +164,16 @@ function Tiles({ roster, actions, icons, view, hasProviders, narrow }) {
   const peak = week ? Math.max(1, ...week.days) : 1
 
   return h('section', { className: 'bt-ov-tiles', 'aria-label': t('Overview') },
-    h(Tile, { icon: icons.models, title: t('Models'), onOpen: () => actions.openSettings(hasProviders ? 'models' : 'bot-models'), value: usable.length, unit: t('models') },
+    h(Tile, { icon: icons.models, title: t('Models'), onOpen: () => navigate(hasProviders ? 'models' : 'bot-models'), value: usable.length, unit: t('models') },
       providers.slice(0, 3).map(name => h(Chip, { key: name }, name)),
       keyless.map(name => h(Chip, { key: `k:${name}`, tone: 'warn' }, name)),
       local > 0 ? h(Chip, null, t('Local {count}', { count: local })) : null),
-    h(Tile, { icon: icons.connectors, title: t('Connect'), onOpen: () => actions.openSettings('connectors'), value: connected, unit: t('connected') },
+    h(Tile, { icon: icons.connectors, title: t('Connect'), onOpen: () => navigate('connectors'), value: connected, unit: t('connected') },
       phone.on ? h(Chip, { tone: phoneOnline ? 'ok' : null }, t('Phone')) : null,
       uniq(im.map(conn => t(platformOf(conn.platform).name))).slice(0, 2).map(name => h(Chip, { key: `im:${name}` }, name)),
       apps.slice(0, 2).map(app => h(Chip, { key: app.id }, app.name)),
       mail.length > 0 ? h(Chip, null, t('Mailbox')) : null),
-    h(Tile, { icon: icons.capabilities, title: t('Tools'), onOpen: () => actions.openSettings('computer'), value: capabilities.length, unit: t('capabilities') },
+    h(Tile, { icon: icons.capabilities, title: t('Tools'), onOpen: () => navigate('computer'), value: capabilities.length, unit: t('capabilities') },
       roster.browser ? h(Chip, null, t('Browser')) : null,
       roster.computer?.enabled ? h(Chip, null, t('Computer use')) : null,
       (roster.plugins?.installedCount ?? 0) > 0
@@ -176,16 +181,16 @@ function Tiles({ roster, actions, icons, view, hasProviders, narrow }) {
         : null,
       secrets.length > 0 ? h(Chip, null, t('Secrets {count}', { count: secrets.length })) : null),
     h(Tile, {
-      icon: icons.usage, title: t('Last 7 days'), onOpen: () => actions.openSettings('usage'),
+      icon: icons.usage, title: t('Last 7 days'), onOpen: () => navigate('usage'),
       value: week ? compact(week.total) : '–', unit: t('tokens'),
       extra: week ? h('span', { className: 'bt-ov-bars', 'aria-hidden': true }, week.days.map((day, at) => h('span', {
         key: at, className: 'bt-ov-bar', 'data-today': at === week.days.length - 1 || undefined, style: { height: `${Math.max(8, Math.round((day / peak) * 100))}%` },
       }))) : null,
     }, week ? t('Today {count}', { count: compact(week.days.at(-1) ?? 0) }) : null),
-    h(Tile, { icon: icons.schedules, title: t('Scheduled tasks'), onOpen: () => actions.openSettings('schedules'), value: tasks.length, unit: t('active') },
+    h(Tile, { icon: icons.schedules, title: t('Scheduled tasks'), onOpen: () => navigate('schedules'), value: tasks.length, unit: t('active') },
       soonest ? h('span', { className: 'bt-ov-meta' }, nextText(soonest)) : null),
     h(Tile, {
-      icon: icons.appearance, title: t('Appearance'), onOpen: () => actions.openSettings('appearance'),
+      icon: icons.appearance, title: t('Appearance'), onOpen: () => navigate('appearance'),
       value: theme.own ? theme.label : t(theme.label),
       extra: h('span', { className: 'bt-ov-swatch', 'aria-hidden': true },
         h('span', { style: { background: theme.light.bg } }, h('i', { style: { background: theme.light.accent } })),
@@ -204,13 +209,13 @@ function HomeList({ groups, icons, status, onOpen }) {
         h(ChevronRightIcon))))))
 }
 
-export function OverviewPage({ roster, actions, run, icons, hasProviders, needsModel, keyMissing = false, narrow = false, homeGroups, homeStatus, onHomeOpen, onSearch }) {
+export function OverviewPage({ roster, actions, run, icons, hasProviders, needsModel, keyMissing = false, narrow = false, homeGroups, homeStatus, onHomeOpen, onNavigate, onSearch }) {
   const [view, setView, loaded] = useProviders(actions)
   return [
     h('button', { key: 'search', type: 'button', className: 'bt-ov-search', 'data-tour': 'search', onClick: onSearch }, h(SearchIcon), h('span', null, t('Search'))),
-    h(Attention, { key: 'attention', roster, actions, run, view, setView, loaded, needsModel, keyMissing }),
-    h(Team, { key: 'team', roster, actions }),
-    h(Tiles, { key: 'tiles', roster, actions, icons, view, hasProviders, narrow }),
+    h(Attention, { key: 'attention', roster, actions, run, view, setView, loaded, needsModel, keyMissing, onNavigate }),
+    h(Team, { key: 'team', roster, actions, onNavigate }),
+    h(Tiles, { key: 'tiles', roster, actions, icons, view, hasProviders, narrow, onNavigate }),
     h(HomeList, { key: 'home', groups: homeGroups, icons, status: homeStatus, onOpen: onHomeOpen }),
   ]
 }
