@@ -412,6 +412,7 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
         import { AGENT_PRESET_CSS } from './src/client/agent-preset-menu.js'
         import { MODEL_CSS } from './src/client/model-menu.js'
         import { FOLDER_CSS } from './src/client/folder-menu.js'
+        import { PERMISSION_CSS } from './src/client/permission-picker.js'
         import { BOT_SETTINGS_CSS } from './src/client/bot-settings.js'
         import { GROUP_SETTINGS_CSS } from './src/client/group-settings.js'
         import { SCHEDULE_CSS } from './src/client/schedules.js'
@@ -424,7 +425,7 @@ test('narrow Bot/group/task/IM settings cards stack inputs and pickers instead o
           SHELL_CSS,
           SECRET_CSS + PROVIDERS_CSS,
           AGENT_PRESET_CSS,
-          MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + GROUP_SETTINGS_CSS,
+          MODEL_CSS + FOLDER_CSS + PERMISSION_CSS + BOT_SETTINGS_CSS + GROUP_SETTINGS_CSS,
           SCHEDULE_CSS,
           IM_CSS,
         ]

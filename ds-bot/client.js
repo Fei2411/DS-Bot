@@ -137,6 +137,11 @@ var init_zh = __esm({
       "Approvals": "审批",
       "Approval model": "审批模型",
       "Review for me": "替我审批",
+      "Permissions: {permission}": "权限：{permission}",
+      "Read files only; changes require approval.": "只读文件；任何修改都需审批。",
+      "Edit inside the workspace; wider access asks you.": "可修改工作区内文件；超出范围需你审批。",
+      "Workspace access with model review; uncertain cases ask you.": "工作区内可修改，超出范围由模型先审；不确定时问你。",
+      "Edit files and run commands without asking.": "直接修改文件并运行命令，不再询问。",
       "Follow team default": "跟随团队默认模型",
       "Reviews pending approval requests; uncertain decisions come back to you.": "审核待批准的操作；无法确定时交回给你。",
       "Recent approval reviews": "最近的代审记录",
@@ -3368,6 +3373,11 @@ var init_ja = __esm({
       "Approvals": "承認",
       "Approval model": "承認モデル",
       "Review for me": "代わりに審査",
+      "Permissions: {permission}": "権限：{permission}",
+      "Read files only; changes require approval.": "ファイルの閲覧のみ。変更には承認が必要です。",
+      "Edit inside the workspace; wider access asks you.": "ワークスペース内のみ編集可。範囲外は確認します。",
+      "Workspace access with model review; uncertain cases ask you.": "ワークスペース内で編集し、範囲外はモデルが審査します。迷う場合は確認します。",
+      "Edit files and run commands without asking.": "確認なしでファイルの編集とコマンド実行を行います。",
       "Follow team default": "チームの既定モデルに従う",
       "Reviews pending approval requests; uncertain decisions come back to you.": "承認待ちの操作を審査します。判断が難しい場合は、あなたに確認します。",
       "Recent approval reviews": "最近の承認審査",
@@ -7051,6 +7061,11 @@ var init_ko = __esm({
       "Approvals": "승인",
       "Approval model": "승인 모델",
       "Review for me": "대신 검토",
+      "Permissions: {permission}": "권한: {permission}",
+      "Read files only; changes require approval.": "파일 읽기만 가능하며 변경 시 승인이 필요합니다.",
+      "Edit inside the workspace; wider access asks you.": "작업 공간 내 편집 가능, 범위 밖 접근은 확인을 요청합니다.",
+      "Workspace access with model review; uncertain cases ask you.": "작업 공간 내 편집 및 모델 검토, 불확실한 경우 확인을 요청합니다.",
+      "Edit files and run commands without asking.": "확인 없이 파일 편집과 명령 실행을 허용합니다.",
       "Follow team default": "팀 기본 모델 사용",
       "Reviews pending approval requests; uncertain decisions come back to you.": "승인 대기 중인 작업을 검토합니다. 판단이 어려우면 사용자에게 확인을 요청합니다.",
       "Recent approval reviews": "최근 승인 검토",
@@ -10779,6 +10794,11 @@ var init_es = __esm({
       "Approvals": "Aprobaciones",
       "Approval model": "Modelo de aprobación",
       "Review for me": "Revisar por mí",
+      "Permissions: {permission}": "Permisos: {permission}",
+      "Read files only; changes require approval.": "Solo lectura; los cambios requieren aprobación.",
+      "Edit inside the workspace; wider access asks you.": "Edita en el espacio de trabajo; fuera te pide confirmación.",
+      "Workspace access with model review; uncertain cases ask you.": "Acceso al espacio de trabajo con revisión del modelo; si hay dudas, te pregunta.",
+      "Edit files and run commands without asking.": "Edita archivos y ejecuta comandos sin preguntar.",
       "Follow team default": "Usar el modelo predeterminado del equipo",
       "Reviews pending approval requests; uncertain decisions come back to you.": "Revisa las solicitudes de aprobación pendientes; si hay dudas, te pide que decidas.",
       "Recent approval reviews": "Revisiones de aprobación recientes",
@@ -14507,6 +14527,11 @@ var init_fr = __esm({
       "Approvals": "Approbations",
       "Approval model": "Modèle d’approbation",
       "Review for me": "Examiner pour moi",
+      "Permissions: {permission}": "Autorisations : {permission}",
+      "Read files only; changes require approval.": "Lecture seule ; toute modification demande votre accord.",
+      "Edit inside the workspace; wider access asks you.": "Modifie dans l’espace de travail ; au-delà, demande confirmation.",
+      "Workspace access with model review; uncertain cases ask you.": "Accès à l’espace de travail avec vérification par modèle ; les cas douteux vous sont soumis.",
+      "Edit files and run commands without asking.": "Modifie les fichiers et exécute les commandes sans demander.",
       "Follow team default": "Utiliser le modèle par défaut de l’équipe",
       "Reviews pending approval requests; uncertain decisions come back to you.": "Examine les demandes d’approbation en attente ; en cas de doute, vous demande de décider.",
       "Recent approval reviews": "Examens d’approbation récents",
@@ -18190,6 +18215,11 @@ var init_de = __esm({
       "Approvals": "Genehmigungen",
       "Approval model": "Genehmigungsmodell",
       "Review for me": "Für mich prüfen",
+      "Permissions: {permission}": "Berechtigungen: {permission}",
+      "Read files only; changes require approval.": "Nur Lesen; Änderungen erfordern eine Genehmigung.",
+      "Edit inside the workspace; wider access asks you.": "Bearbeitet im Arbeitsbereich; darüber hinaus wird nachgefragt.",
+      "Workspace access with model review; uncertain cases ask you.": "Arbeitsbereich-Zugriff mit Modellprüfung; unsichere Fälle werden nachgefragt.",
+      "Edit files and run commands without asking.": "Bearbeitet Dateien und führt Befehle ohne Rückfrage aus.",
       "Follow team default": "Team-Standardmodell verwenden",
       "Reviews pending approval requests; uncertain decisions come back to you.": "Prüft ausstehende Genehmigungsanfragen; bei Unsicherheit wirst du um eine Entscheidung gebeten.",
       "Recent approval reviews": "Letzte Genehmigungsprüfungen",
@@ -26264,7 +26294,7 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-drawer-model{display:flex;flex-direction:column}
 .bt-drawer-model .bt-note{margin-top:6px}
 .bt-drawer-permission{display:flex;flex-direction:column}
-.bt-seg button.bt-perm-danger,.bt-seg button.bt-perm-danger[aria-pressed=true],.bt-kv span.bt-perm-danger{color:var(--bt-danger)}
+.bt-kv span.bt-perm-danger{color:var(--bt-danger)}
 
 /* Settings dialog: a 212px searchable nav rail beside the page. */
 .bt-settings-layer{position:fixed;inset:var(--bt-chrome-top,0px) 0 0;z-index:60;display:flex;align-items:center;justify-content:center;font-family:var(--bt-font)}
@@ -56579,17 +56609,58 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
 
 // src/client/permission-picker.js
 var import_react59 = require("react");
-var LABELS2 = { "read-only": "Read only", "workspace-write": "Workspace", "danger-full-access": "Full access", review: "Review for me" };
+var import_react_dom11 = require("react-dom");
+var LABELS2 = {
+  "read-only": "Read only",
+  "workspace-write": "Workspace",
+  "danger-full-access": "Full access",
+  review: "Review for me"
+};
+var DESCRIPTIONS = {
+  "read-only": "Read files only; changes require approval.",
+  "workspace-write": "Edit inside the workspace; wider access asks you.",
+  review: "Workspace access with model review; uncertain cases ask you.",
+  "danger-full-access": "Edit files and run commands without asking."
+};
 var DANGER = /* @__PURE__ */ new Set(["danger-full-access"]);
 var presetDanger = (value) => DANGER.has(value);
 var presetName = (value, catalog) => LABELS2[value] ? t(LABELS2[value]) : catalog?.options?.find((option) => option.value === value)?.name ?? value;
-function PermissionPicker({ catalog, saved, onPick, repick = false }) {
+var presetDescription = (option) => DESCRIPTIONS[option.value] ? t(DESCRIPTIONS[option.value]) : option.description;
+function PresetIcon({ value }) {
+  const props = { width: 15, height: 15, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
+  if (value === "read-only") {
+    return (0, import_react59.createElement)(
+      "svg",
+      props,
+      (0, import_react59.createElement)("rect", { x: 4.5, y: 9, width: 11, height: 8, rx: 1.5 }),
+      (0, import_react59.createElement)("path", { d: "M6.75 9V6.75a3.25 3.25 0 0 1 6.5 0V9" })
+    );
+  }
+  const shield = (0, import_react59.createElement)("path", { d: "M10 2.75l6 2.5v4.5c0 3.7-2.55 6.45-6 7.5-3.45-1.05-6-3.8-6-7.5v-4.5z" });
+  if (value === "review") return (0, import_react59.createElement)("svg", props, shield, (0, import_react59.createElement)("path", { d: "M7.4 10.1l1.8 1.8 3.5-3.6" }));
+  if (presetDanger(value)) return (0, import_react59.createElement)("svg", props, shield, (0, import_react59.createElement)("path", { d: "M10 6.75v3.5" }), (0, import_react59.createElement)("path", { d: "M10 13.25h.01" }));
+  return (0, import_react59.createElement)("svg", props, shield);
+}
+function orderedPermissionOptions(options = []) {
+  const safe2 = [];
+  const danger = [];
+  for (const option of options) {
+    if (presetDanger(option.value)) danger.push(option);
+    else safe2.push(option);
+  }
+  return { safe: safe2, danger };
+}
+function PermissionPicker({ catalog, saved, onPick, repick = false, wide = false, disabled = false }) {
+  const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu(wide ? 260 : 240);
   const [pending, setPending] = (0, import_react59.useState)(null);
   const flight = (0, import_react59.useRef)({ value: void 0, latest: void 0 });
   (0, import_react59.useEffect)(() => {
     const flying = flight.current.value;
     if (pending === saved && (flying === void 0 || flying === pending)) setPending(null);
   }, [pending, saved]);
+  (0, import_react59.useEffect)(() => {
+    if (disabled && isOpen) close();
+  }, [disabled, isOpen]);
   const send = (value) => {
     flight.current.value = value;
     void Promise.resolve(onPick(value)).then((done) => done !== false, () => false).then((ok) => {
@@ -56604,7 +56675,11 @@ function PermissionPicker({ catalog, saved, onPick, repick = false }) {
     });
   };
   const current2 = pending ?? saved;
+  const currentLabel = presetName(current2, catalog);
+  const currentDanger = presetDanger(current2);
   const pick2 = (value) => {
+    close();
+    button.current?.focus?.({ preventScroll: true });
     if (value === current2 && !repick) return;
     setPending(value);
     if (flight.current.value !== void 0) {
@@ -56613,19 +56688,107 @@ function PermissionPicker({ catalog, saved, onPick, repick = false }) {
     }
     send(value);
   };
+  const toggle = () => {
+    if (disabled) return;
+    if (isOpen) close();
+    else open();
+  };
+  const { safe: safe2, danger } = orderedPermissionOptions(catalog?.options);
+  const renderOption = (option) => {
+    const selected = option.value === current2;
+    const isDanger = presetDanger(option.value);
+    const description = presetDescription(option);
+    return (0, import_react59.createElement)(
+      "button",
+      {
+        key: option.value,
+        type: "button",
+        role: "menuitemradio",
+        "aria-checked": selected,
+        className: "bt-perm-item",
+        "data-value": option.value,
+        "data-danger": isDanger || void 0,
+        title: description ?? option.description,
+        onClick: () => pick2(option.value)
+      },
+      (0, import_react59.createElement)("span", { className: "bt-perm-icon", "aria-hidden": true }, (0, import_react59.createElement)(PresetIcon, { value: option.value })),
+      (0, import_react59.createElement)(
+        "span",
+        { className: "bt-perm-copy" },
+        (0, import_react59.createElement)("span", { className: "bt-perm-name" }, presetName(option.value, catalog)),
+        description ? (0, import_react59.createElement)("span", { className: "bt-perm-desc" }, description) : null
+      ),
+      (0, import_react59.createElement)("span", { className: "bt-model-tick", "aria-hidden": true }, selected ? (0, import_react59.createElement)(CheckIcon) : null)
+    );
+  };
+  const portalTarget = typeof document === "undefined" ? null : document.body;
   return (0, import_react59.createElement)(
-    Segmented,
-    { label: t("Permissions"), value: current2, className: "bt-permissions" },
-    catalog.options.map((option) => (0, import_react59.createElement)("button", {
-      key: option.value,
-      type: "button",
-      "aria-pressed": option.value === current2,
-      title: option.description,
-      onClick: () => pick2(option.value),
-      className: presetDanger(option.value) ? "bt-perm-danger" : void 0
-    }, presetName(option.value, catalog)))
+    import_react59.Fragment,
+    null,
+    (0, import_react59.createElement)(
+      "button",
+      {
+        ref: button,
+        type: "button",
+        className: "bt-model-trigger bt-perm-trigger",
+        "data-wide": wide || void 0,
+        "data-danger": currentDanger || void 0,
+        "aria-haspopup": "menu",
+        "aria-expanded": isOpen,
+        "aria-label": t("Permissions: {permission}", { permission: currentLabel }),
+        disabled,
+        onClick: toggle,
+        onKeyDown: (event) => {
+          if (!isOpen && !disabled && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+            event.preventDefault();
+            open();
+          }
+        }
+      },
+      (0, import_react59.createElement)("span", { className: "bt-perm-lead", "aria-hidden": true }, (0, import_react59.createElement)(PresetIcon, { value: current2 })),
+      (0, import_react59.createElement)(
+        "span",
+        { className: "bt-model-copy" },
+        (0, import_react59.createElement)("span", { className: "bt-model-name" }, currentLabel)
+      ),
+      (0, import_react59.createElement)(Caret)
+    ),
+    shownPlace && portalTarget ? (0, import_react_dom11.createPortal)((0, import_react59.createElement)("div", {
+      ref: menu,
+      className: `bt-menu bt-model-menu bt-perm-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`,
+      role: "menu",
+      "aria-label": t("Permissions"),
+      style: shownPlace,
+      "data-leaving": leaving || void 0
+    }, (0, import_react59.createElement)(
+      "div",
+      { className: "bt-model-scroll bt-perm-list" },
+      safe2.map(renderOption),
+      safe2.length > 0 && danger.length > 0 ? (0, import_react59.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
+      danger.map(renderOption)
+    )), portalTarget) : null
   );
 }
+var PERMISSION_CSS = `
+.bt-drawer-permission .bt-model-trigger[data-wide]{width:100%;max-width:100%}
+.bt-perm-trigger{gap:8px}
+.bt-perm-lead{flex:none;display:inline-flex;align-items:center;justify-content:center;color:var(--bt-ink-2);transition:color .12s ease}
+.bt-perm-trigger:hover .bt-perm-lead,.bt-perm-trigger[aria-expanded=true] .bt-perm-lead{color:var(--bt-ink)}
+.bt-perm-trigger[data-danger]{color:var(--bt-danger);border-color:color-mix(in srgb,var(--bt-danger) 30%,var(--bt-line-2));background:color-mix(in srgb,var(--bt-danger) 7%,var(--bt-hover))}
+.bt-perm-trigger[data-danger]:hover,.bt-perm-trigger[data-danger][aria-expanded=true]{background:color-mix(in srgb,var(--bt-danger) 12%,var(--bt-active))}
+.bt-perm-trigger[data-danger] .bt-perm-lead,.bt-perm-trigger[data-danger]:hover .bt-perm-lead,.bt-perm-trigger[data-danger][aria-expanded=true] .bt-perm-lead{color:var(--bt-danger)}
+.bt-perm-list{padding:6px;gap:2px}
+.bt-menu .bt-perm-item{align-items:flex-start;min-height:40px;padding:7px 8px;gap:8px}
+.bt-perm-icon{flex:none;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;color:var(--bt-ink-2);transition:color .12s ease}
+.bt-menu .bt-perm-item:hover .bt-perm-icon{color:var(--bt-ink)}
+.bt-menu .bt-perm-item[aria-checked=true] .bt-perm-icon,.bt-menu .bt-perm-item[aria-checked=true] .bt-model-tick{color:var(--bt-accent)}
+.bt-perm-copy{flex:1;display:flex;flex-direction:column;min-width:0;gap:1px}
+.bt-perm-name{font-size:13px;line-height:18px;font-weight:500;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-perm-desc{font-size:11px;line-height:15px;color:var(--bt-ink-3);white-space:normal;overflow-wrap:anywhere}
+.bt-menu .bt-perm-item .bt-model-tick{margin-top:1px}
+.bt-menu .bt-perm-item[data-danger] .bt-perm-icon,.bt-menu .bt-perm-item[data-danger] .bt-perm-name,.bt-menu .bt-perm-item[data-danger] .bt-model-tick{color:var(--bt-danger)}
+.bt-menu .bt-perm-item[data-danger]:hover{background:color-mix(in srgb,var(--bt-danger) 10%,transparent)}
+`;
 
 // src/client/group-settings.js
 var import_react60 = require("react");
@@ -56653,7 +56816,7 @@ function GroupPermission({ room: room2, catalog, update }) {
     shared2 ? (0, import_react60.createElement)(
       "div",
       { className: "bt-set-row bt-bs-row bt-bs-stack bt-gs-perm bt-veil" },
-      (0, import_react60.createElement)(PermissionPicker, { catalog, saved: room2.permission, onPick: (permission) => update({ permission }) })
+      (0, import_react60.createElement)(PermissionPicker, { catalog, saved: room2.permission, wide: true, onPick: (permission) => update({ permission }) })
     ) : null
   );
 }
@@ -58599,7 +58762,7 @@ var stringToBytes = qrcode.stringToBytes;
 
 // src/client/im-page.js
 var import_react61 = require("react");
-var import_react_dom11 = require("react-dom");
+var import_react_dom12 = require("react-dom");
 var BRAND = { telegram: "telegram", weixin: "wechat", qq: "qq", discord: "discord", slack: "slack" };
 var MONO = { feishu: "飞", dingtalk: "钉", wecom: "企" };
 var GUIDES = {
@@ -58688,7 +58851,7 @@ function TargetMenu({ value, roster, rooms = false, label, onPick, disabled = fa
       (0, import_react61.createElement)("span", { className: "bt-model-name" }, bot?.name ?? room2?.name ?? t("Not bound")),
       (0, import_react61.createElement)(Caret)
     ),
-    shownPlace ? (0, import_react_dom11.createPortal)((0, import_react61.createElement)(
+    shownPlace ? (0, import_react_dom12.createPortal)((0, import_react61.createElement)(
       "div",
       { ref: menu, className: `bt-menu bt-model-menu bt-im-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": label, style: shownPlace, "data-leaving": leaving || void 0 },
       rooms ? (0, import_react61.createElement)("button", { type: "button", role: "menuitemradio", "aria-checked": !bot && !room2, onClick: () => pick2(null) }, (0, import_react61.createElement)("span", { className: "bt-menu-label" }, t("Not bound")), (0, import_react61.createElement)(Tick2, { on: !bot && !room2 })) : null,
@@ -66915,7 +67078,7 @@ function createSessionStatusSource(ctx) {
 
 // src/client/settings-shell.js
 var import_react80 = require("react");
-var import_react_dom12 = require("react-dom");
+var import_react_dom13 = require("react-dom");
 var SETTINGS_CHILDREN = {
   "settings.launcher": { kind: "single", scope: "root" },
   "settings.trigger": { kind: "single", scope: "root" },
@@ -67195,7 +67358,7 @@ function SettingsShell(props) {
       reset: `${kept.page}:${kept.id ?? ""}`,
       onDismiss: () => actions.closeSettings?.(),
       actions
-    }, (0, import_react_dom12.createPortal)((0, import_react80.createElement)(SettingsDialog, {
+    }, (0, import_react_dom13.createPortal)((0, import_react80.createElement)(SettingsDialog, {
       page: kept.page,
       id: kept.id,
       roster,
@@ -67211,7 +67374,7 @@ function SettingsShell(props) {
       reset: `${rnKept.mode ?? "manual"}:${rnKept.current ?? roster.releaseNotes?.current ?? ""}`,
       onDismiss: () => actions.closeReleaseNotes?.(),
       actions
-    }, (0, import_react_dom12.createPortal)((0, import_react80.createElement)(ReleaseNotesDialog, {
+    }, (0, import_react_dom13.createPortal)((0, import_react80.createElement)(ReleaseNotesDialog, {
       mode: rnKept.mode ?? "manual",
       current: rnKept.current ?? roster.releaseNotes?.current ?? null,
       notesUrl: rnKept.notesUrl ?? updateNotesUrl,
@@ -67652,7 +67815,7 @@ function installFrameWatch(frame3) {
 
 // src/client/header.js
 var import_react81 = require("react");
-var import_react_dom13 = require("react-dom");
+var import_react_dom14 = require("react-dom");
 var GoArrow = () => (0, import_react81.createElement)("svg", { width: 14, height: 14, viewBox: "-12 -12 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react81.createElement)("path", { d: "M-7 0H7M2 -5L7 0L2 5" }));
 var MEMORY_NOTICE_MS = 3200;
 var noNews = (select) => select({});
@@ -67993,7 +68156,7 @@ function NewMessagePills({ sessionId, headRef, useSessions, useUi, useTurnClock 
     const scroller = document.querySelector("[data-bt-scroll]");
     if (scroller) newDividerIn(scroller)?.scrollIntoView({ block: "center", behavior: "smooth" });
   };
-  return (0, import_react_dom13.createPortal)(
+  return (0, import_react_dom14.createPortal)(
     (0, import_react81.createElement)(
       import_react81.Fragment,
       null,
@@ -68224,7 +68387,7 @@ function turnDetector({ loud = 0.12, quiet = 0.06, quietMs = 1200 } = {}) {
 
 // src/client/composer.js
 var import_react82 = require("react");
-var import_react_dom14 = require("react-dom");
+var import_react_dom15 = require("react-dom");
 var speechApi = () => window.SpeechRecognition ?? window.webkitSpeechRecognition;
 var keepComposerFocus = (event) => event.preventDefault();
 var WORD_EDGE = /[\p{L}\p{N}]/u;
@@ -68647,7 +68810,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, a
       onMouseDown: keepComposerFocus,
       onClick: toggle
     }, (0, import_react82.createElement)(PlusIcon)),
-    shown ? (0, import_react_dom14.createPortal)((0, import_react82.createElement)(
+    shown ? (0, import_react_dom15.createPortal)((0, import_react82.createElement)(
       "div",
       {
         ref: menu,
@@ -71951,7 +72114,7 @@ function PermissionRow({ bot, roster, actions, run: run2 }) {
     { className: "bt-drawer-permission" },
     (0, import_react94.createElement)("div", { className: "bt-section-title" }, t("Permissions")),
     // A Bot without its own preset may run on another one set in DSH, so its first pick always applies.
-    (0, import_react94.createElement)(PermissionPicker, { catalog, saved: bot.permission ?? catalog.defaultPreset, repick: bot.permission === void 0, onPick: (permission) => run2(actions.updateBot(bot.id, { permission })) })
+    (0, import_react94.createElement)(PermissionPicker, { catalog, saved: bot.permission ?? catalog.defaultPreset, repick: bot.permission === void 0, wide: true, onPick: (permission) => run2(actions.updateBot(bot.id, { permission })) })
   );
 }
 function RunStats({ bot, part, running, actions }) {
@@ -72427,7 +72590,7 @@ function rectsOverlap(a, b2) {
 
 // src/client/browser-pane.js
 var import_react95 = require("react");
-var import_react_dom15 = require("react-dom");
+var import_react_dom16 = require("react-dom");
 var PANEL_LINGER_MS = 300;
 var WIDTH_KEY = STORAGE.browserWidth;
 var DEFAULT_WIDTH = 520;
@@ -73456,7 +73619,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     leaving || overlay ? null : (0, import_react95.createElement)("div", { className: "bt-panel-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize panel"), onPointerDown: startResize }),
     // Over the whole window while dragging: the cursor stays a resize cursor and the
     // pages underneath (the chat, the guest) see no pointer.
-    dragging ? (0, import_react_dom15.createPortal)((0, import_react95.createElement)("div", { className: "bt-drag-shield", "aria-hidden": true }), document.body) : null,
+    dragging ? (0, import_react_dom16.createPortal)((0, import_react95.createElement)("div", { className: "bt-drag-shield", "aria-hidden": true }), document.body) : null,
     hasStrip ? (0, import_react95.createElement)(PanelStrip, {
       bot,
       roomSubject,
@@ -73873,7 +74036,7 @@ var OPENING_CSS = `
 
 // src/client/overlays.js
 var import_react97 = require("react");
-var import_react_dom16 = require("react-dom");
+var import_react_dom17 = require("react-dom");
 var DIALOG_EXIT_MS2 = 160;
 var MENU_EXIT_MS4 = 120;
 var useDefaultFrame = () => ({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 });
@@ -74040,7 +74203,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     opening ? (0, import_react97.createElement)(
       OverlayBoundary,
       { name: "opening", reset: opening.id, notify: false },
-      (0, import_react_dom16.createPortal)((0, import_react97.createElement)(OpeningCover, { model: opening, column: layout.column, onNewSession: actions?.recoverOpening, onRetry: actions?.retryOpening }), document.body)
+      (0, import_react_dom17.createPortal)((0, import_react97.createElement)(OpeningCover, { model: opening, column: layout.column, onNewSession: actions?.recoverOpening, onRetry: actions?.retryOpening }), document.body)
     ) : null,
     pane ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "panel",
@@ -74049,43 +74212,43 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       reset: `${roster.byId[pane.id]?.id ?? roster.roomsById[pane.id]?.id ?? pane.id}:${pane.view}:${pane.tab ?? ""}:${pane.side ?? ""}:${pane.task?.botId ?? ""}:${pane.task?.taskId ?? ""}:${workspace?.active ?? ""}`,
       onDismiss: () => actions.closePanel?.(),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds, workspace }), document.body)) : null,
+    }, (0, import_react_dom17.createPortal)((0, import_react97.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds, workspace }), document.body)) : null,
     ui.newChat ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "new-chat",
       reset: `${ui.newChat}:${ui.newChatSection ?? ""}`,
       onDismiss: () => (actions.closeNewChat ?? actions.closeOverlay)?.(),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(NewChat, { key: `${ui.newChat}:${ui.newChatSection ?? ""}`, mode: ui.newChat, sectionId: ui.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body)) : null,
+    }, (0, import_react_dom17.createPortal)((0, import_react97.createElement)(NewChat, { key: `${ui.newChat}:${ui.newChatSection ?? ""}`, mode: ui.newChat, sectionId: ui.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body)) : null,
     ui.inbox === true && !ui.newChat ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "inbox",
       reset: "inbox",
       onDismiss: () => actions.closeInbox?.(),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(InboxPane, { paneLeft: layout.column, roster, actions, useSessions, useWork, useComputer, useSessionStatus, useBotCompletions, useBrowserHolds, useBrowserTabs, useBrowserPages }), document.body)) : null,
+    }, (0, import_react_dom17.createPortal)((0, import_react97.createElement)(InboxPane, { paneLeft: layout.column, roster, actions, useSessions, useWork, useComputer, useSessionStatus, useBotCompletions, useBrowserHolds, useBrowserTabs, useBrowserPages }), document.body)) : null,
     ui.palette ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "palette",
       reset: paletteToken,
       onDismiss: () => actions.closePalette?.(paletteToken),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body)) : null,
+    }, (0, import_react_dom17.createPortal)((0, import_react97.createElement)(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body)) : null,
     ui.groupSearch && roster.roomsById[ui.groupSearch.roomId] ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "group-search",
       reset: groupSearchToken,
       onDismiss: () => actions.closeGroupSearch?.(groupSearchToken),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(GroupSearch, { key: ui.groupSearch.token, room: roster.roomsById[ui.groupSearch.roomId], roster, token: ui.groupSearch.token, actions }), document.body)) : null,
+    }, (0, import_react_dom17.createPortal)((0, import_react97.createElement)(GroupSearch, { key: ui.groupSearch.token, room: roster.roomsById[ui.groupSearch.roomId], roster, token: ui.groupSearch.token, actions }), document.body)) : null,
     ui.exchange ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "exchange",
       reset: Array.isArray(ui.exchange) ? ui.exchange.join(":") : String(ui.exchange),
       onDismiss: () => (actions.closeExchange ?? actions.closeOverlay)?.(),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions, useWork }), document.body)) : null,
+    }, (0, import_react_dom17.createPortal)((0, import_react97.createElement)(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions, useWork }), document.body)) : null,
     ui.voice ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "voice",
       reset: ui.voice,
       onDismiss: () => actions.closeVoice?.(),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(VoiceMode, { key: ui.voice, sessionId: ui.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body)) : null,
+    }, (0, import_react_dom17.createPortal)((0, import_react97.createElement)(VoiceMode, { key: ui.voice, sessionId: ui.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body)) : null,
     menu ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "menu",
       active: !menuLeaving,
@@ -74093,7 +74256,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       reset: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`,
       onDismiss: () => actions.closeMenu?.(),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body)) : null,
+    }, (0, import_react_dom17.createPortal)((0, import_react97.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body)) : null,
     settings ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "settings",
       active: !settingsLeaving,
@@ -74101,7 +74264,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       reset: `${settings.page}:${settings.id ?? ""}`,
       onDismiss: () => actions.closeSettings?.(),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, dsh, leaving: settingsLeaving }), document.body)) : null,
+    }, (0, import_react_dom17.createPortal)((0, import_react97.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, dsh, leaving: settingsLeaving }), document.body)) : null,
     owner ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "memory",
       active: !memoryLeaving,
@@ -74109,14 +74272,14 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       reset: owner.id,
       onDismiss: () => actions.closeMemory?.(),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body)) : null,
+    }, (0, import_react_dom17.createPortal)((0, import_react97.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body)) : null,
     noticeOpen ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "telemetry-notice",
       active: !noticeLeaving,
       notify: false,
       onDismiss: () => setNoticeDismissed(true),
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(TelemetryNotice, { actions, leaving: noticeLeaving, onDone: () => setNoticeDismissed(true) }), document.body)) : null,
+    }, (0, import_react_dom17.createPortal)((0, import_react97.createElement)(TelemetryNotice, { actions, leaving: noticeLeaving, onDone: () => setNoticeDismissed(true) }), document.body)) : null,
     releaseNotesOpen ? (0, import_react97.createElement)(OverlayBoundary, {
       name: "release-notes",
       active: !releaseNotesLeaving,
@@ -74124,7 +74287,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       reset: `${releaseNotesOpen.mode ?? "manual"}:${releaseNotesOpen.current ?? rnCurrent ?? ""}`,
       onDismiss: closeReleaseNotes,
       actions
-    }, (0, import_react_dom16.createPortal)((0, import_react97.createElement)(ReleaseNotesDialog, {
+    }, (0, import_react_dom17.createPortal)((0, import_react97.createElement)(ReleaseNotesDialog, {
       mode: releaseNotesOpen.mode ?? "manual",
       current: releaseNotesOpen.current ?? rnCurrent,
       notesUrl: releaseNotesOpen.notesUrl ?? updateNotesUrl,
@@ -78004,7 +78167,7 @@ function apply(ctx) {
     [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS + PROVIDERS_CSS, "secrets"],
     [LEARNING_CSS, "learning"],
     [AGENT_PRESET_CSS, "agent-presets"],
-    [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, "models"],
+    [MODEL_CSS + FOLDER_CSS + PERMISSION_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, "models"],
     [USAGE_CSS, "usage"],
     [SCHEDULE_CSS, "schedules"],
     [APPEARANCE_PAGE_CSS, "appearance-page"],

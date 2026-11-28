@@ -21,6 +21,7 @@ import { MODEL_CSS } from '../../../ds-bot/src/client/model-menu.js'
 import { installMotionRest } from '../../../ds-bot/src/client/motion-rest.js'
 import { OPENING_CSS } from '../../../ds-bot/src/client/opening.js'
 import { PASTE_CSS } from '../../../ds-bot/src/client/paste-card.js'
+import { PERMISSION_CSS } from '../../../ds-bot/src/client/permission-picker.js'
 import { PRIVACY_CSS } from '../../../ds-bot/src/client/privacy-page.js'
 import { QUEUE_CSS } from '../../../ds-bot/src/client/queue-dock.js'
 import { SCHEDULE_CSS } from '../../../ds-bot/src/client/schedules.js'
@@ -90,7 +91,7 @@ for (const [tag, text] of [
   ['shell', SHELL_CSS], ['sidebar', SIDEBAR_CSS + RETURN_CSS + INBOX_CSS],
   ['conversation', CONVERSATION_CSS + PASTE_CSS + OPENING_CSS + USER_MESSAGE_CSS + WIDGET_CSS + CHANGES_CSS + HANDOFF_CSS + TURN_ERROR_CSS + QUEUE_CSS + ANNOTATION_CSS],
   ['secrets', SECRET_CSS], ['connectors', CONNECTOR_CSS],
-  ['models', MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + AVATAR_LIBRARY_CSS + GROUP_SETTINGS_CSS],
+  ['models', MODEL_CSS + FOLDER_CSS + PERMISSION_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + AVATAR_LIBRARY_CSS + GROUP_SETTINGS_CSS],
   ['panel', BROWSER_CSS + COMPUTER_CSS + SIDE_CSS + GOAL_CSS + TASK_CSS + TASKS_CSS + LEARNING_CSS],
   ['schedules', SCHEDULE_CSS],
   ['feedback', FEEDBACK_CSS], ['privacy', PRIVACY_CSS], ['members', MEMBER_CSS],

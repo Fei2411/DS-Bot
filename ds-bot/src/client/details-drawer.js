@@ -48,7 +48,7 @@ function PermissionRow({ bot, roster, actions, run }) {
   return h('div', { className: 'bt-drawer-permission' },
     h('div', { className: 'bt-section-title' }, t('Permissions')),
     // A Bot without its own preset may run on another one set in DSH, so its first pick always applies.
-    h(PermissionPicker, { catalog, saved: bot.permission ?? catalog.defaultPreset, repick: bot.permission === undefined, onPick: permission => run(actions.updateBot(bot.id, { permission })) }))
+    h(PermissionPicker, { catalog, saved: bot.permission ?? catalog.defaultPreset, repick: bot.permission === undefined, wide: true, onPick: permission => run(actions.updateBot(bot.id, { permission })) }))
 }
 
 // The current part's turns, speed, cache hits and context, refreshed when a turn starts or ends.

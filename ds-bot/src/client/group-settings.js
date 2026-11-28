@@ -34,7 +34,7 @@ function GroupPermission({ room, catalog, update }) {
       onChange: on => update({ permission: on ? catalog.defaultPreset ?? catalog.options[0].value : null }),
     }),
     shared ? h('div', { className: 'bt-set-row bt-bs-row bt-bs-stack bt-gs-perm bt-veil' },
-      h(PermissionPicker, { catalog, saved: room.permission, onPick: permission => update({ permission }) })) : null)
+      h(PermissionPicker, { catalog, saved: room.permission, wide: true, onPick: permission => update({ permission }) })) : null)
 }
 
 // A group's shared to-do list, shown in its details: every member sees the same items,
