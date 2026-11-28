@@ -1,15 +1,17 @@
 // The window's own versions of the DSH interface primitives the Bot views draw with (see
 // ds-bot/src/client/dsh-primitives.js and vite.config.js).
-import { Fragment, createContext, createElement as h, isValidElement, memo, useContext, useMemo, useRef, useState } from 'react'
+import { Fragment, createContext, createElement as h, isValidElement, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { splitMarkdownBlocks } from '../../../ds-bot/src/client/markdown-blocks.js'
 import { MENTION_ORIGIN } from '../../../ds-bot/src/client/text.js'
-import { ArchiveIcon, DownloadIcon, GearIcon, PersonIcon, SlidersIcon, SpinnerIcon, StackIcon } from '../../../ds-bot/src/client/icons.js'
+import { ArchiveIcon, DownloadIcon, GearIcon, ImageIcon, PersonIcon, SlidersIcon, SpinnerIcon, StackIcon } from '../../../ds-bot/src/client/icons.js'
 import { renderHighlightedBlock, useHighlightedCode } from './code-highlight.js'
 import { FileRefChip, isInlineCodeFilePath, matchFileMention, parseLocalFileHref, remarkFileReferences } from './file-references.js'
-import { MathExpression, escapeCurrencyDollars, normalizeMathDelimiters, remarkGuardCurrencyMath } from './math-render.js'
+import { buildImageUrl, fileSizeText, previewImageCache } from './image-cache.js'
+import { ImageLightbox } from './image-lightbox.js'
+import { MathExpression, escapeCurrencyDollars, normalizeMathDelimiters, prepareCjkStrong, remarkGuardCurrencyMath, remarkStripCjkStrongSentinel, serializeMathCopySelection } from './math-render.js'
 
 // Official DeepSeek Harness FishLogo geometry (@deepseek-ai/dsh-client-ui-primitives).
 export const FISH_LOGO_VIEWBOX = { width: 23.16, height: 17.04 }
@@ -64,8 +66,140 @@ export const writeClipboard = text => (navigator.clipboard === undefined
   ? Promise.resolve(fallbackCopy(text))
   : navigator.clipboard.writeText(text).then(() => true, () => fallbackCopy(text)))
 
-const BASE_PLUGINS = [remarkGfm, remarkMath, remarkGuardCurrencyMath]
-const LINKED_PLUGINS = [remarkGfm, remarkMath, remarkGuardCurrencyMath, remarkFileReferences]
+const REMARK_GFM = [remarkGfm, { singleTilde: false }]
+const BASE_PLUGINS = [REMARK_GFM, remarkMath, remarkGuardCurrencyMath, remarkStripCjkStrongSentinel]
+const LINKED_PLUGINS = [REMARK_GFM, remarkMath, remarkGuardCurrencyMath, remarkStripCjkStrongSentinel, remarkFileReferences]
+
+let markdownImageLoader = null
+const markdownImageInflight = new Map()
+
+/**
+ * Registers the host loader for local Markdown images (`call('markdown-image', ...)`).
+ * Returns `{ mime, bytes }` (base64) or `{ url }`, or `null` when unavailable.
+ */
+export function registerMarkdownImageLoader(fn) {
+  markdownImageLoader = typeof fn === 'function' ? fn : null
+}
+
+const WINDOWS_IMG_DRIVE_RE = /^[A-Za-z]:[\\/]/
+const SCHEME_PREFIX_RE = /^[A-Za-z][A-Za-z0-9+.-]*:/
+
+/**
+ * Returns true when an `<img src>` references a local workspace/file path or `file://` URL
+ * that must be fetched via the host `markdown-image` channel instead of direct browser loading.
+ */
+export function isLocalMarkdownImageSrc(raw) {
+  if (typeof raw !== 'string') return false
+  const trimmed = raw.trim()
+  if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('?') || trimmed.startsWith('//')) return false
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) return false
+  if (/^file:\/\//i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed)
+      return !url.hostname || url.hostname.toLowerCase() === 'localhost'
+    } catch {
+      return false
+    }
+  }
+  if (WINDOWS_IMG_DRIVE_RE.test(trimmed)) return true
+  if (SCHEME_PREFIX_RE.test(trimmed)) return false
+  return true
+}
+
+function loadLocalMarkdownImage(path, { sessionId, botId, resolveImage }) {
+  const key = `mdimg:${sessionId ?? ''}:${botId ?? ''}:${path}`
+  if (previewImageCache.has(key)) return Promise.resolve(previewImageCache.get(key))
+  const inflight = markdownImageInflight.get(key)
+  if (inflight) return inflight
+  const run = typeof resolveImage === 'function'
+    ? () => resolveImage(path, { sessionId, botId })
+    : (markdownImageLoader && sessionId
+      ? () => markdownImageLoader({ sessionId, path, ...(botId ? { botId } : {}) })
+      : null)
+  if (!run) return Promise.resolve(null)
+  const promise = Promise.resolve()
+    .then(run)
+    .then((res) => {
+      if (!res) return null
+      if (typeof res === 'string') {
+        return previewImageCache.set(key, { url: res, bytes: Math.max(1, res.length), isBlob: res.startsWith('blob:') })
+      }
+      if (typeof res.url === 'string' && res.url !== '') {
+        return previewImageCache.set(key, { url: res.url, bytes: Math.max(1, res.url.length), isBlob: res.url.startsWith('blob:') })
+      }
+      const b64 = typeof res.bytes === 'string' ? res.bytes : (typeof res.data === 'string' ? res.data : '')
+      if (!res.mime || b64 === '') return null
+      const built = buildImageUrl(res.mime, b64, { blob: false })
+      return previewImageCache.set(key, built)
+    })
+    .catch(() => null)
+    .finally(() => { markdownImageInflight.delete(key) })
+  markdownImageInflight.set(key, promise)
+  return promise
+}
+
+function MarkdownImage({ src, alt, title, sessionId, botId, resolveImage }) {
+  const rawSrc = typeof src === 'string' ? src.trim() : ''
+  const isLocal = isLocalMarkdownImageSrc(rawSrc)
+  const canLoadLocal = isLocal && (typeof resolveImage === 'function' || (markdownImageLoader !== null && Boolean(sessionId)))
+  const cacheKey = canLoadLocal ? `mdimg:${sessionId ?? ''}:${botId ?? ''}:${rawSrc}` : ''
+  const [resolvedUrl, setResolvedUrl] = useState(() => (cacheKey ? previewImageCache.peek(cacheKey) : null))
+  const [failed, setFailed] = useState(false)
+  const [zoomed, setZoomed] = useState(false)
+
+  useEffect(() => {
+    if (!canLoadLocal) {
+      setResolvedUrl(null)
+      setFailed(false)
+      return undefined
+    }
+    let alive = true
+    let release = () => {}
+    const bind = (url) => {
+      release()
+      release = previewImageCache.acquire(cacheKey, url)
+      setResolvedUrl(url)
+      setFailed(false)
+    }
+    const cached = previewImageCache.get(cacheKey)
+    if (cached) {
+      bind(cached)
+      return () => { alive = false; release() }
+    }
+    setFailed(false)
+    void loadLocalMarkdownImage(rawSrc, { sessionId, botId, resolveImage }).then((url) => {
+      if (!alive) return
+      if (url) bind(url)
+      else setFailed(true)
+    })
+    return () => { alive = false; release() }
+  }, [canLoadLocal, cacheKey, rawSrc, sessionId, botId, resolveImage])
+
+  if (rawSrc === '') return null
+  if (!isLocal) {
+    return h('img', { src: rawSrc, alt: alt ?? '', title: title || undefined, loading: 'lazy' })
+  }
+  if (!resolvedUrl) {
+    return h('span', {
+      className: 'dsb-md-img-fallback',
+      'data-md-img-src': rawSrc,
+      'data-md-img-failed': failed ? '' : undefined,
+      title: title || rawSrc,
+    },
+    h('span', { className: 'dsb-md-img-ico', 'aria-hidden': true }, h(ImageIcon)),
+    h('span', { className: 'dsb-md-img-label' }, alt || rawSrc))
+  }
+  const label = alt || title || rawSrc
+  return h(Fragment, null,
+    h('button', {
+      type: 'button',
+      className: 'dsb-md-img-btn',
+      title: label,
+      'aria-label': label,
+      onClick: () => setZoomed(true),
+    }, h('img', { className: 'dsb-md-img', src: resolvedUrl, alt: alt ?? '', title: title || undefined, loading: 'lazy' })),
+    h(ImageLightbox, { open: zoomed, src: resolvedUrl, alt: label, onClose: () => setZoomed(false) }))
+}
 
 const InPreContext = createContext(false)
 const InLinkContext = createContext(false)
@@ -335,8 +469,9 @@ function InlineCode({ className, children, onOpenFile, onRevealFolder, fileMenti
 }
 
 // Links open outside the window; mention links stay for the chat's own click handler;
-// local file/folder links open in the workspace right panel.
-const elements = ({ labels, onOpenFile, onRevealFolder, fileMentions }) => ({
+// local file/folder links open in the workspace right panel; local images load through
+// the host `markdown-image` channel.
+const elements = ({ labels, onOpenFile, onRevealFolder, fileMentions, sessionId, botId, resolveImage }) => ({
   a: ({ node: _node, children, ...props }) => {
     if (props.href?.startsWith(MENTION_ORIGIN)) {
       return h(InLinkContext.Provider, { value: true }, h('a', props, children))
@@ -356,6 +491,7 @@ const elements = ({ labels, onOpenFile, onRevealFolder, fileMentions }) => ({
     }
     return h(InLinkContext.Provider, { value: true }, h('a', { ...props, target: '_blank', rel: 'noreferrer' }, children))
   },
+  img: ({ node: _node, src, alt, title }) => h(MarkdownImage, { src, alt, title, sessionId, botId, resolveImage }),
   pre: ({ node, children }) => h(CodeBlock, { labels, startLine: node?.position?.start?.line }, children),
   code: ({ node: _node, ...props }) => h(InlineCode, { ...props, onOpenFile, onRevealFolder, fileMentions }),
 })
@@ -383,17 +519,28 @@ function defaultSafeUrlTransform(value) {
 }
 
 // Preserves recognized local file/folder destinations (prose `dsb-file://`, `file://`,
-// Windows drive links including percent-encoded backslashes, and `README.md:42`) ONLY on
-// anchor `href` attributes consumed by our custom `a` renderer; delegates every other URL
-// (including `javascript:`, `data:`, and non-anchor elements like `<img>`) to the safe allowlist.
+// Windows drive links including percent-encoded backslashes, and `README.md:42`) on
+// anchor `href` attributes consumed by our custom `a` renderer, and local image paths
+// (`file://`, relative/absolute/Windows paths) on `img[src]` consumed by `MarkdownImage`;
+// delegates every other URL (including `javascript:` and `data:`) to the safe allowlist.
 export function markdownUrlTransform(url, key, node) {
   if (typeof url === 'string' && key === 'href' && (!node || node.tagName === 'a') && parseLocalFileHref(url) !== null) {
+    return url
+  }
+  if (typeof url === 'string' && key === 'src' && node?.tagName === 'img' && isLocalMarkdownImageSrc(url)) {
     return url
   }
   return defaultSafeUrlTransform(url)
 }
 
-const preprocessMarkdown = text => escapeCurrencyDollars(normalizeMathDelimiters(text ?? ''))
+function imageOnlyUrlTransform(url, key, node) {
+  if (typeof url === 'string' && key === 'src' && node?.tagName === 'img' && isLocalMarkdownImageSrc(url)) {
+    return url
+  }
+  return defaultSafeUrlTransform(url)
+}
+
+const preprocessMarkdown = text => prepareCjkStrong(escapeCurrencyDollars(normalizeMathDelimiters(text ?? '')))
 
 // A closed block of a streaming reply. Once the splitter has closed it, later chunks
 // cannot change what it means, so the memo holds for the rest of the stream and the
@@ -414,15 +561,22 @@ const STREAM_SPLIT_MIN = 512
 const DESKTOP_SPLIT_OPTIONS = { allowDuplicateHeadings: true }
 
 // The class keeps the `_markdown` stem that the Bot views' styles give DSH's Markdown.
-export function MarkdownText({ text, labels, variant, streaming = false, onOpenFile, onRevealFolder, fileMentions }) {
+export function MarkdownText({ text, labels, variant, streaming = false, onOpenFile, onRevealFolder, fileMentions, sessionId, botId, resolveImage }) {
   const linkFiles = typeof onOpenFile === 'function' || typeof onRevealFolder === 'function'
   const remarkPlugins = linkFiles ? LINKED_PLUGINS : BASE_PLUGINS
-  const urlTransform = linkFiles ? markdownUrlTransform : defaultSafeUrlTransform
+  const urlTransform = linkFiles ? markdownUrlTransform : imageOnlyUrlTransform
   // New element types on every render would remount each code block as a reply streams in.
   const components = useMemo(
-    () => elements({ labels, onOpenFile, onRevealFolder, fileMentions }),
-    [labels?.code?.copyLabel, labels?.code?.copiedLabel, onOpenFile, onRevealFolder, fileMentions],
+    () => elements({ labels, onOpenFile, onRevealFolder, fileMentions, sessionId, botId, resolveImage }),
+    [labels?.code?.copyLabel, labels?.code?.copiedLabel, onOpenFile, onRevealFolder, fileMentions, sessionId, botId, resolveImage],
   )
+  const onCopy = useCallback((event) => {
+    const selection = typeof window !== 'undefined' && typeof window.getSelection === 'function' ? window.getSelection() : null
+    const restored = serializeMathCopySelection(selection, event.currentTarget)
+    if (restored === null || !event.clipboardData) return
+    event.clipboardData.setData('text/plain', restored)
+    event.preventDefault()
+  }, [])
   const raw = text ?? ''
   // Incremental prefix cache: while a reply grows monotonically, closed blocks stay intact
   // and only the unclosed suffix is scanned, keeping per-chunk split cost O(|tail|). Also
@@ -502,7 +656,7 @@ export function MarkdownText({ text, labels, variant, streaming = false, onOpenF
       ? h(StaticMarkdownBlock, { key: tailKey, text: tailRaw, components, remarkPlugins, urlTransform })
       : h(Markdown, { remarkPlugins, components, urlTransform }, tailState.source))
 
-  return h('div', { className: variant === 'compact' ? 'md_markdown bt-md md-compact' : 'md_markdown bt-md' },
+  return h('div', { className: variant === 'compact' ? 'md_markdown bt-md md-compact' : 'md_markdown bt-md', onCopy },
     split
       ? [
         ...blocks.slice(0, -1).map((block, index) => h(StaticMarkdownBlock, { key: index, text: block, components, remarkPlugins, urlTransform })),
@@ -537,11 +691,4 @@ export const projectUserText = undefined
 export const FileTypeIcon = undefined
 export const JsonBlock = undefined
 export const fileExtension = name => /\.([^./\\]+)$/.exec(String(name ?? ''))?.[1] ?? ''
-const UNITS = ['B', 'KB', 'MB', 'GB']
-export function fileSizeText(bytes) {
-  if (!Number.isFinite(bytes) || bytes < 0) return ''
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < UNITS.length - 1) { value /= 1024; unit += 1 }
-  return `${unit === 0 ? value : value.toFixed(value < 10 ? 1 : 0)} ${UNITS[unit]}`
-}
+export { fileSizeText }

@@ -3,11 +3,10 @@
 // without triggering approval or composer shortcuts underneath.
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { fileSizeText } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { CloseIcon, ImageIcon } from '../../../ds-bot/src/client/icons.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
-import { previewImageCache, revokeBlobUrl } from './image-cache.js'
+import { fileSizeText, previewImageCache, revokeBlobUrl } from './image-cache.js'
 
 /**
  * Full-screen image viewer portaled to `document.body`, dismissed via Esc, backdrop click, or close button.

@@ -318,6 +318,58 @@ function walkMarkdownProse(text, onProseChar) {
   return out.join('')
 }
 
+export const CJK_STRONG_SENTINEL = '\u200A'
+const CJK_LETTER_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u
+const CJK_PUNCT_SYM_RE = /[\p{P}\p{S}]/u
+
+/**
+ * Inserts a transient Unicode `Zs` space sentinel (`\u200A`) at CJK+punctuation emphasis
+ * boundaries (e.g. `这是**“重要”**内容`) outside code blocks and inline code spans so
+ * CommonMark's flanking rules pair `**...**` accurately; `remarkStripCjkStrongSentinel`
+ * removes every inserted sentinel from parsed AST text nodes so copied text stays exact.
+ */
+export function prepareCjkStrong(text) {
+  if (typeof text !== 'string' || !text.includes('**') || !CJK_LETTER_RE.test(text) || text.includes(CJK_STRONG_SENTINEL)) {
+    return text
+  }
+  return walkMarkdownProse(text, (src, i, out, _quoteDepth, flushSeg) => {
+    const ch = src[i]
+    if (ch === '\\' && i + 1 < src.length) return i + 2
+    if (ch !== '*') return i
+    let run = 1
+    while (i + run < src.length && src[i + run] === '*') run += 1
+    if (run !== 2 && run !== 3) return i + run
+    const prev = i > 0 ? src[i - 1] : ''
+    const next = i + run < src.length ? src[i + run] : ''
+    const needBefore = prev !== '' && next !== '' && CJK_LETTER_RE.test(prev) && CJK_PUNCT_SYM_RE.test(next)
+    const needAfter = prev !== '' && next !== '' && CJK_PUNCT_SYM_RE.test(prev) && CJK_LETTER_RE.test(next)
+    if (!needBefore && !needAfter) return i + run
+    flushSeg(i)
+    out.push(`${needBefore ? CJK_STRONG_SENTINEL : ''}${src.slice(i, i + run)}${needAfter ? CJK_STRONG_SENTINEL : ''}`)
+    return i + run
+  })
+}
+
+/**
+ * Remark plugin paired with `prepareCjkStrong`: strips transient `\u200A` sentinels from
+ * prose text nodes after CommonMark emphasis parsing completes.
+ */
+export function remarkStripCjkStrongSentinel() {
+  const SKIP = new Set(['code', 'inlineCode', 'math', 'inlineMath', 'html', 'definition', 'yaml', 'toml'])
+  function walk(node) {
+    if (!node || typeof node !== 'object') return
+    if (SKIP.has(node.type)) return
+    if (node.type === 'text' && typeof node.value === 'string' && node.value.includes(CJK_STRONG_SENTINEL)) {
+      node.value = node.value.replaceAll(CJK_STRONG_SENTINEL, '')
+      return
+    }
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) walk(child)
+    }
+  }
+  return tree => { walk(tree) }
+}
+
 /**
  * Converts LaTeX `\(...\)` and `\[...\]` math delimiters into `$...$` / `$$...$$`
  * outside fenced code blocks (` ``` ` / `~~~`), CommonMark indented code blocks,
@@ -584,3 +636,89 @@ export const MathExpression = memo(function MathExpression({ tex, display = fals
     ? h('pre', { className: 'dsb-math-block dsb-math-fallback', 'data-math-display': '', 'data-tex': tex }, h('code', null, tex))
     : h('code', { className: 'dsb-math-inline dsb-math-fallback', 'data-math-inline': '', 'data-tex': tex }, tex)
 })
+
+const BLOCK_COPY_TAGS = new Set(['ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DD', 'DIV', 'DL', 'DT', 'FIGCAPTION', 'FIGURE', 'FOOTER', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HEADER', 'HR', 'LI', 'MAIN', 'NAV', 'OL', 'P', 'PRE', 'SECTION', 'TABLE', 'TR', 'UL'])
+
+function closestMathElement(node, boundary) {
+  let cur = node
+  while (cur && cur !== boundary) {
+    if (cur.nodeType === 1 && typeof cur.hasAttribute === 'function' && cur.hasAttribute('data-tex')) {
+      return cur
+    }
+    cur = cur.parentNode
+  }
+  if (cur === boundary && cur?.nodeType === 1 && typeof cur.hasAttribute === 'function' && cur.hasAttribute('data-tex')) {
+    return cur
+  }
+  return null
+}
+
+function formatCopiedMath(el) {
+  const tex = el.getAttribute('data-tex') ?? ''
+  return el.hasAttribute('data-math-display') ? `$$${tex}$$` : `$${tex}$`
+}
+
+function extractPlainText(node, state) {
+  if (!node) return ''
+  if (node.nodeType === 3) return node.nodeValue ?? ''
+  if (node.nodeType !== 1 && node.nodeType !== 11) return ''
+  if (node.nodeType === 1 && typeof node.hasAttribute === 'function' && node.hasAttribute('data-tex')) {
+    if (state) state.touchedMath = true
+    return formatCopiedMath(node)
+  }
+  if (node.nodeType === 1 && node.tagName === 'BR') return '\n'
+  const parts = []
+  const children = node.childNodes ?? []
+  for (let i = 0; i < children.length; i += 1) {
+    const child = children[i]
+    const chunk = extractPlainText(child, state)
+    if (chunk === '') continue
+    const isBlock = child.nodeType === 1 && BLOCK_COPY_TAGS.has(child.tagName)
+    if (isBlock && parts.length > 0 && !parts.at(-1).endsWith('\n')) {
+      parts.push('\n')
+    }
+    parts.push(chunk)
+    if (isBlock && i < children.length - 1 && !chunk.endsWith('\n')) {
+      parts.push('\n')
+    }
+  }
+  return parts.join('')
+}
+
+/**
+ * Serializes the active selection inside `container` with rendered KaTeX nodes restored
+ * to `$...$` (inline) or `$$...$$` (display) TeX delimiters. Returns `null` when the
+ * selection does not intersect any math element so native copy stays untouched.
+ */
+export function serializeMathCopySelection(selection, container) {
+  if (!selection || selection.isCollapsed || !Number.isInteger(selection.rangeCount) || selection.rangeCount <= 0) {
+    return null
+  }
+  const ownerDoc = container?.ownerDocument ?? (typeof document !== 'undefined' ? document : null)
+  if (!ownerDoc) return null
+  const state = { touchedMath: false }
+  const rangeTexts = []
+  for (let r = 0; r < selection.rangeCount; r += 1) {
+    const range = selection.getRangeAt(r)
+    if (!range) continue
+    const commonMath = closestMathElement(range.commonAncestorContainer, container)
+    if (commonMath) {
+      state.touchedMath = true
+      rangeTexts.push(formatCopiedMath(commonMath))
+      continue
+    }
+    const startMath = closestMathElement(range.startContainer, container)
+    const endMath = closestMathElement(range.endContainer, container)
+    let workRange = range
+    if ((startMath || endMath) && typeof range.cloneRange === 'function') {
+      workRange = range.cloneRange()
+      if (startMath && typeof workRange.setStartBefore === 'function') workRange.setStartBefore(startMath)
+      if (endMath && typeof workRange.setEndAfter === 'function') workRange.setEndAfter(endMath)
+    }
+    const fragment = typeof workRange.cloneContents === 'function' ? workRange.cloneContents() : null
+    if (!fragment) continue
+    rangeTexts.push(extractPlainText(fragment, state))
+  }
+  if (!state.touchedMath) return null
+  return rangeTexts.join('\n')
+}

@@ -27365,11 +27365,16 @@ body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-s
 var CONVERSATION_CSS = `
 .bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:calc(var(--bt-msg-w) * 100%)}
 body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
-.bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
+.bt-think summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;max-width:100%;min-width:0}
 .bt-think summary::-webkit-details-marker{display:none}
-.bt-think-time{font-variant-numeric:tabular-nums;white-space:nowrap}
-/* Five lines of the 18px line height; the rest scrolls inside the box. */
-.bt-think-text{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:6px;padding-left:10px;border-left:2px solid var(--bt-line-2);max-height:90px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;outline:none}
+.bt-think-time{flex:none;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-think-preview{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-3)}
+/* Expanded reasoning scrolls inside a compact bordered panel rendered as Markdown. */
+.bt-think-text{overflow-wrap:anywhere;margin-top:6px;padding-left:10px;border-left:2px solid var(--bt-line-2);max-height:140px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;outline:none}
+.bt-think-text .md_markdown{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
+.bt-think-text .md_markdown>:first-child{margin-top:0}
+.bt-think-text .md_markdown>:last-child{margin-bottom:0}
+.bt-think-text .md_markdown p{margin:4px 0}
 .bt-think-text:focus-visible{border-left-color:var(--bt-ink-2)}
 .bt-think-text[data-fade=top]{mask-image:linear-gradient(to bottom,transparent,#000 18px)}
 .bt-think-text[data-fade=bottom]{mask-image:linear-gradient(to top,transparent,#000 18px)}
@@ -45971,10 +45976,12 @@ var Bubble = memo(function Bubble2({ text, index, first = true, last = true, ros
       labels: labels2,
       variant: "compact",
       fileMentions: mentions,
+      ...sessionId ? { sessionId } : {},
+      ...selfId ? { botId: selfId } : {},
       ...openFile ? { onOpenFile: openFile } : {},
       ...revealFolder ? { onRevealFolder: revealFolder } : {}
     }),
-    [linked, live, labels2, mentions, openFile, revealFolder]
+    [linked, live, labels2, mentions, sessionId, selfId, openFile, revealFolder]
   );
   const row = (0, import_react39.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react39.useState)(false);
@@ -46057,11 +46064,14 @@ function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
     const below = rect.bottom + 220 < viewBottom();
     return panel.kind === "react" ? { left: Math.min(Math.max(rect.left + rect.width / 2, STRIP_HALF), window.innerWidth - STRIP_HALF), top: rect.top - 6, "--bt-origin": "bottom center" } : { left: Math.min(rect.left, window.innerWidth - 208), ...below ? { top: rect.bottom + 4 } : { bottom: viewBottom() - rect.top + 4, "--bt-origin": "bottom left" } };
   }, [panel, tick]);
-  const copy2 = () => {
-    void navigator.clipboard?.writeText(text).then(() => {
+  const copy2 = async () => {
+    try {
+      if (!await (0, import_dsh_client_ui_primitives.writeClipboard)(text)) throw new Error("Could not copy the message");
       setCopied(true);
       setTimeout(() => setCopied(false), 1e3);
-    });
+    } catch (error) {
+      actions?.reportError?.(error, "copy");
+    }
   };
   const download3 = () => {
     const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
@@ -46121,6 +46131,13 @@ function useThinkingMs({ sessionId, turn, settledSteps, skip }) {
   }, [key, settledSteps, skip]);
   return ms;
 }
+function thinkingPreviewLine(text) {
+  if (typeof text !== "string" || text.trim() === "") return "";
+  const paragraphs = text.split(/\r?\n[ \t]*\r?\n/).map((part) => part.trim()).filter(Boolean);
+  const latest = paragraphs.at(-1) ?? "";
+  const firstLine = latest.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? "";
+  return firstLine.replace(/^(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/, "").replace(/\*\*|__|~~|`/g, "").replace(/\s+/g, " ").trim();
+}
 var MAX_ROW_VIEWS = 200;
 var rowViews = /* @__PURE__ */ new Map();
 function ThinkingRow({ text, live, at: at2, ms, viewKey, textInteractionSource }) {
@@ -46134,6 +46151,7 @@ function ThinkingRow({ text, live, at: at2, ms, viewKey, textInteractionSource }
   };
   const measure = () => {
     const el = box.current;
+    if (!el) return;
     atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 2;
     remember({ atEnd: atEnd.current, top: el.scrollTop });
     const above = el.scrollTop > 0;
@@ -46148,6 +46166,7 @@ function ThinkingRow({ text, live, at: at2, ms, viewKey, textInteractionSource }
   (0, import_react39.useLayoutEffect)(() => {
     if (!open) return;
     const el = box.current;
+    if (!el) return;
     const restore = view.current;
     view.current = void 0;
     if (atEnd.current) el.scrollTop = el.scrollHeight;
@@ -46155,6 +46174,8 @@ function ThinkingRow({ text, live, at: at2, ms, viewKey, textInteractionSource }
     measure();
   }, [text, open]);
   const title = live ? t("Thinking") : t("Thought it through");
+  const preview = (0, import_react39.useMemo)(() => open ? "" : thinkingPreviewLine(text), [open, text]);
+  const safeText = typeof text === "string" ? text : "";
   return (0, import_react39.createElement)(
     "details",
     { className: "bt-think", open, onToggle: toggle },
@@ -46163,9 +46184,14 @@ function ThinkingRow({ text, live, at: at2, ms, viewKey, textInteractionSource }
       null,
       title,
       live && at2 !== void 0 ? (0, import_react39.createElement)(Elapsed, { at: at2, className: "bt-think-time" }) : null,
-      !live && ms !== void 0 ? (0, import_react39.createElement)("span", { className: "bt-think-time" }, `· ${elapsedLabel(Math.max(1e3, ms))}`) : null
+      !live && ms !== void 0 ? (0, import_react39.createElement)("span", { className: "bt-think-time" }, `· ${elapsedLabel(Math.max(1e3, ms))}`) : null,
+      !open && preview !== "" ? (0, import_react39.createElement)("span", { className: "bt-think-preview", title: preview }, preview) : null
     ),
-    (0, import_react39.createElement)("div", { ref: box, className: "bt-think-text", role: "region", "aria-label": title, tabIndex: 0, "data-fade": fade, "data-text-interaction-source": textInteractionSource && !live ? "" : void 0, onScroll: measure }, text)
+    (0, import_react39.createElement)(
+      "div",
+      { ref: box, className: "bt-think-text", role: "region", "aria-label": title, tabIndex: 0, "data-fade": fade, "data-text-interaction-source": textInteractionSource && !live ? "" : void 0, onScroll: measure },
+      open && safeText !== "" ? (0, import_react39.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: safeText, streaming: live, labels: mdLabels(), variant: "compact" }) : null
+    )
   );
 }
 function useFileMentions({ node, openFile, fileMentions, useTurnData }) {
