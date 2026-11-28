@@ -377,6 +377,7 @@ export function install(rt) {
     const room = rt.roomOf(String(body.roomId ?? ''))
     if (room === undefined) throw Object.assign(new Error('Unknown group chat'), { code: 'bot/not-found' })
     const cursor = body.cursor ?? undefined
+    const after = cursor === undefined && body.after && typeof body.after === 'object' ? body.after : null
     const parts = rt.partsOf(undefined, room.id)
     const index = Number.isInteger(cursor?.part) ? cursor.part : parts.length - 1
     if (index < 0 || index >= parts.length) return { roomId: room.id, items: [], cursor: null, running: false, speaking: null }
@@ -385,9 +386,115 @@ export function install(rt) {
       if (index === parts.length - 1) throw error
       return undefined
     })
+    const running = [...rt.roomProgress.entries()].filter(([, round]) => round.roomId === room.id)
+    const speaking = running.map(([, round]) => round.slots?.find(slot => slot.status === 'speaking')?.id ?? round.speaking).find(Boolean) ?? null
+    const currentSeq = agent && Number.isInteger(Number(agent.session.seq)) ? Number(agent.session.seq) - 1 : -1
+    const currentRoomSeq = Number.isInteger(room.seq) ? room.seq : 0
+
+    // Collect live replies of active rounds with per-call counts for incremental tail tracking.
+    const collectOpenCounts = (entries) => {
+      const counts = {}
+      for (const [callId, round] of entries) {
+        const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from, undefined, round.anchor) ?? [] : round.replies ?? []
+        counts[callId] = said.length
+      }
+      return counts
+    }
+
+    // Incremental fast path: when the client already holds up to `after` on the current part,
+    // send only newly arrived items instead of re-reading and re-serializing the whole page.
+    if (
+      after !== null
+      && body.steps !== true
+      && index === parts.length - 1
+      && after.part === index
+      && Number.isInteger(after.seq)
+      && Number.isInteger(after.roomSeq)
+      && currentSeq >= after.seq
+    ) {
+      const prevOpenCounts = after.openCounts && typeof after.openCounts === 'object' ? after.openCounts : {}
+      const nextOpenCounts = collectOpenCounts(running)
+      if (currentSeq === after.seq) {
+        // No new session events: only emit newly appended live round rows (zero page I/O).
+        const delta = []
+        for (const [callId, round] of running) {
+          const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from, undefined, round.anchor) ?? [] : round.replies ?? []
+          const start = Number.isInteger(prevOpenCounts[callId]) ? prevOpenCounts[callId] : 0
+          for (let idx = start; idx < said.length; idx += 1) {
+            const item = replyItem(said[idx], `${callId}:${idx}`, { live: true })
+            if (item) {
+              if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
+              delta.push(item)
+            }
+          }
+        }
+        return {
+          roomId: room.id,
+          sessionId: part.sessionId,
+          items: delta,
+          incremental: true,
+          tip: { part: index, seq: currentSeq, roomSeq: currentRoomSeq, openCounts: nextOpenCounts },
+          running: running.length > 0,
+          speaking,
+        }
+      }
+      const seqGap = currentSeq - after.seq
+      if (seqGap <= ROOM_PAGE) {
+        const deltaPage = await ctx.sessionController.page({
+          address: { kind: 'session', sessionId: part.sessionId },
+          ...(agent ? { throughSeq: currentSeq } : {}),
+          maxMessages: Math.min(ROOM_PAGE, seqGap + 4),
+        }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+        const rawEvents = deltaPage.records.map(record => record.event)
+        const covered = !deltaPage.hasMore || (rawEvents.length > 0 && rawEvents[0].seq <= after.seq + 1)
+        if (covered) {
+          const newEvents = rawEvents.filter(ev => Number.isInteger(ev?.seq) && ev.seq > after.seq)
+          const { items: deltaItems, open: deltaOpen } = roomItems(newEvents, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [])
+          for (const item of deltaItems) {
+            if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
+          }
+          // Splice live rows for any newly opened relays in this delta, plus any newly added rows
+          // for relays that were already open before `after.seq`.
+          const splicedCalls = new Set()
+          for (const { callId, at } of deltaOpen.reverse()) {
+            const round = rt.roomProgress.get(callId)
+            if (round === undefined) continue
+            splicedCalls.add(callId)
+            const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from, undefined, round.anchor) ?? [] : round.replies ?? []
+            const live = said.map((reply, idx) => replyItem(reply, `${callId}:${idx}`, { live: true })).filter(Boolean)
+            for (const item of live) {
+              if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
+            }
+            deltaItems.splice(at, 0, ...live)
+          }
+          for (const [callId, round] of running) {
+            if (splicedCalls.has(callId)) continue
+            const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from, undefined, round.anchor) ?? [] : round.replies ?? []
+            const start = Number.isInteger(prevOpenCounts[callId]) ? prevOpenCounts[callId] : 0
+            for (let idx = start; idx < said.length; idx += 1) {
+              const item = replyItem(said[idx], `${callId}:${idx}`, { live: true })
+              if (item) {
+                if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
+                deltaItems.push(item)
+              }
+            }
+          }
+          return {
+            roomId: room.id,
+            sessionId: part.sessionId,
+            items: deltaItems,
+            incremental: true,
+            tip: { part: index, seq: currentSeq, roomSeq: currentRoomSeq, openCounts: nextOpenCounts },
+            running: running.length > 0,
+            speaking,
+          }
+        }
+      }
+    }
+
     const page = await ctx.sessionController.page({
       address: { kind: 'session', sessionId: part.sessionId },
-      ...(agent ? { throughSeq: Number(agent.session.seq) - 1 } : {}),
+      ...(agent ? { throughSeq: currentSeq } : {}),
       ...(Number.isInteger(cursor?.beforeSeq) ? { beforeSeq: cursor.beforeSeq } : {}),
       maxMessages: ROOM_PAGE,
     }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
@@ -397,24 +504,24 @@ export function install(rt) {
       if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post' || item.kind === 'user')) item.sessionId = part.sessionId
     }
     if (body.steps === true) await rt.applySteps?.(items, events, part.sessionId, { atTip: !Number.isInteger(cursor?.beforeSeq) && index === parts.length - 1 })
-    const running = [...rt.roomProgress.entries()].filter(([, round]) => round.roomId === room.id)
     // The newest page shows what the running round has said so far, where its call sits.
     if (cursor === undefined) {
       for (const { callId, at } of open.reverse()) {
         const round = rt.roomProgress.get(callId)
         if (round === undefined) continue
         const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from, undefined, round.anchor) ?? [] : round.replies ?? []
-        const live = said.map((reply, index) => replyItem(reply, `${callId}:${index}`, { live: true })).filter(Boolean)
+        const live = said.map((reply, idx) => replyItem(reply, `${callId}:${idx}`, { live: true })).filter(Boolean)
         items.splice(at, 0, ...live)
       }
     }
     const more = page.hasMore && events.length > 0
     return {
       roomId: room.id,
+      ...(cursor === undefined ? { sessionId: part.sessionId, tip: { part: index, seq: currentSeq, roomSeq: currentRoomSeq, openCounts: collectOpenCounts(running) } } : {}),
       items,
       cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null,
       running: running.length > 0,
-      speaking: running.map(([, round]) => round.slots?.find(slot => slot.status === 'speaking')?.id ?? round.speaking).find(Boolean) ?? null,
+      speaking,
     }
   }
 

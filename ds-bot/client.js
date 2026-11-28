@@ -46310,10 +46310,10 @@ function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) 
     observer2.observe(node);
     return () => observer2.disconnect();
   }, [view.cursor, view.loading, view.failed]);
-  const removeBtw = (cardId) => setView((current2) => ({
+  const removeBtw = (0, import_react39.useCallback)((cardId) => setView((current2) => ({
     ...current2,
     pages: current2.pages.map((page) => ({ ...page, btw: page.btw.filter((card) => card?.id !== cardId) }))
-  }));
+  })), []);
   const { items, hasContent } = earlierItems(view.pages, view);
   return (0, import_react39.createElement)(
     "div",
@@ -46328,53 +46328,79 @@ function EarlierParts({ sessionId, roster, actions, openFile, renderUserText }) 
   );
 }
 var NOOP_UI = () => void 0;
-function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock: clock5 = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
-  const selfId = roster.byId[sessionId]?.id;
-  const visit = useUi((state) => state?.visits?.[sessionId]);
-  const rows2 = [];
-  for (const item of items) {
-    const last = rows2.at(-1);
-    if (item.kind === "divider" && last?.kind === "divider") {
-      rows2[rows2.length - 1] = item;
-    } else if (item.kind === "bot" && last?.kind === "bot") {
-      last.texts.push(item.text);
-      last.end = item.time;
-    } else rows2.push(item.kind === "bot" ? { kind: "bot", texts: [item.text], time: item.time, end: item.time } : item);
+function stableChatRowBaseKey(row) {
+  if (row.id !== void 0 && row.id !== null) return `${row.kind}:id:${row.id}`;
+  switch (row.kind) {
+    case "post":
+      return `post:${row.seq ?? row.time ?? ""}:${row.botId ?? ""}`;
+    case "view":
+      return `view:${row.callId ?? row.time ?? ""}`;
+    case "btw":
+      return `btw:${row.card?.id ?? row.time ?? ""}`;
+    case "divider":
+      return `divider:${row.time ?? ""}`;
+    case "bot":
+      return `bot:${row.time ?? ""}`;
+    case "relay":
+      return `relay:${row.reply?.botId ?? ""}:${row.reply?.kind ?? ""}:${row.time ?? row.reply?.time ?? ""}`;
+    case "event":
+      return `event:${row.role ?? ""}:${row.botId ?? row.roomId ?? ""}:${row.time ?? ""}`;
+    case "user":
+      return `user:${row.seq ?? row.time ?? ""}`;
+    default:
+      return `${row.kind ?? "row"}:${row.seq ?? row.time ?? ""}`;
   }
-  (0, import_react39.useEffect)(() => {
-    if (!clock5 || typeof actions?.noteTurnTime !== "function") return;
-    rows2.forEach((row, index) => {
-      if (row.kind !== "divider" && Number.isFinite(row.time)) {
-        actions.noteTurnTime(sessionId, row.seq ?? `row:${index}`, "first", row.time);
-      }
-    });
-  }, [clock5, sessionId, items, actions]);
-  let before;
-  let newShown = false;
-  return rows2.flatMap((row, index) => {
-    const key = rows2.length - index;
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText });
-    if (row.kind === "divider") {
-      before = void 0;
-      return [shown];
-    }
-    const pause = clock5 && Number.isFinite(row.time) && (before === void 0 || row.time - before >= SEPARATOR_GAP_MS);
-    if (Number.isFinite(row.end ?? row.time)) before = row.end ?? row.time;
-    const showNew = clock5 && !newShown && unseenSince(visit, row.time);
-    if (showNew) newShown = true;
-    const out = [];
-    if (showNew) out.push((0, import_react39.createElement)(NewDivider, { key: `${key}:new` }));
-    if (pause) out.push((0, import_react39.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)));
-    out.push(shown);
-    return out;
-  });
+}
+var MemoEarlierUser = memo(EarlierUser, void 0, "EarlierUser");
+var MemoGroupMessage = memo(GroupMessage, void 0, "GroupMessage");
+var MemoPartLine = memo(PartLine, void 0, "PartLine");
+var MemoEventLine = memo(EventLine, void 0, "EventLine");
+var MemoGroupEvent = memo(GroupEvent, void 0, "GroupEvent");
+var MemoBubbles = memo(Bubbles, void 0, "Bubbles");
+var MemoRelayEvent = memo(RelayEvent, void 0, "RelayEvent");
+var fallbackBotCache = /* @__PURE__ */ new WeakMap();
+var wholeLoaderCache = /* @__PURE__ */ new WeakMap();
+var viewArgsCache = /* @__PURE__ */ new WeakMap();
+function stableFallbackBot(row, id, name, color) {
+  let cached = fallbackBotCache.get(row);
+  if (!cached || cached.id !== id || cached.name !== name || cached.color !== color) {
+    cached = { id, name, color };
+    fallbackBotCache.set(row, cached);
+  }
+  return cached;
+}
+function stableWhole(row, actions) {
+  if (!row.file) return void 0;
+  let cached = wholeLoaderCache.get(row);
+  if (!cached || cached.file !== row.file || cached.length !== row.length || cached.actions !== actions) {
+    cached = {
+      file: row.file,
+      length: row.length,
+      actions,
+      value: { length: row.length, load: () => actions.fileText(row.file) }
+    };
+    wholeLoaderCache.set(row, cached);
+  }
+  return cached.value;
+}
+function stableViewArgs(row) {
+  let cached = viewArgsCache.get(row);
+  if (!cached || cached.title !== row.title || cached.view !== row.view) {
+    cached = {
+      title: row.title,
+      view: row.view,
+      value: { text: (name) => name === "title" ? row.title : void 0, value: (name) => name === "view" ? row.view : void 0 }
+    };
+    viewArgsCache.set(row, cached);
+  }
+  return cached.value;
 }
 function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   switch (row.kind) {
     case "divider":
-      return (0, import_react39.createElement)(PartLine, { key, time: row.time });
+      return (0, import_react39.createElement)(MemoPartLine, { key, time: row.time });
     case "user":
-      return (0, import_react39.createElement)(EarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText });
+      return (0, import_react39.createElement)(MemoEarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText });
     case "answer":
       return (0, import_react39.createElement)(AnsweredReply, { key, node: { data: row } });
     // A question or view card closed without an answer on it.
@@ -46382,17 +46408,17 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
       return row.view === void 0 ? (0, import_react39.createElement)("div", { key, className: "bt-q-inline" }, (0, import_react39.createElement)(SettledQuestion, { question: row.question, closed: row.closed })) : (0, import_react39.createElement)(ClosedView, { key, title: row.title, view: row.view, closed: row.closed });
     // A display-only view replays from the blueprint the host kept on the call.
     case "view":
-      return (0, import_react39.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: { text: (name) => name === "title" ? row.title : void 0, value: (name) => name === "view" ? row.view : void 0 }, done: true, isError: false, roster, actions });
+      return (0, import_react39.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: stableViewArgs(row), done: true, isError: false, roster, actions });
     case "bot": {
-      const bubbles = (0, import_react39.createElement)(Bubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE, textInteractionSource: true });
+      const bubbles = (0, import_react39.createElement)(MemoBubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE, textInteractionSource: true });
       const speaker = layoutOf(roster.prefs) === "flat" ? roster.byId[selfId] : void 0;
       return speaker ? (0, import_react39.createElement)(import_react39.Fragment, { key }, (0, import_react39.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles;
     }
     case "btw":
       return (0, import_react39.createElement)(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete });
     case "post": {
-      const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: row.color ?? "gray" };
-      return (0, import_react39.createElement)(GroupMessage, {
+      const poster = roster.byId[row.botId] ?? stableFallbackBot(row, row.botId, row.name ?? t("a Bot"), row.color ?? "gray");
+      return (0, import_react39.createElement)(MemoGroupMessage, {
         key,
         bot: poster,
         text: row.file ? stripLongNote(row.text) : row.text,
@@ -46409,17 +46435,17 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
         claims: row.claims,
         changes: row.changes,
         useUi,
-        whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : void 0
+        whole: stableWhole(row, actions)
       });
     }
     case "relay": {
       const reply = row.reply;
-      const speaker = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name ?? t("a Bot"), color: reply.color ?? "gray" };
-      return (0, import_react39.createElement)(RelayEvent, { key, reply, bot: speaker, sessionId, actions });
+      const speaker = roster.byId[reply.botId] ?? stableFallbackBot(row, reply.botId, reply.name ?? t("a Bot"), reply.color ?? "gray");
+      return (0, import_react39.createElement)(MemoRelayEvent, { key, reply, bot: speaker, sessionId, actions });
     }
     case "event": {
-      if (row.role === "report") return (0, import_react39.createElement)(GroupEvent, { key, prefix: t("Replies from"), room: roster.roomsById[row.roomId], name: t("a group chat"), roster, actions });
-      const other = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: "gray" };
+      if (row.role === "report") return (0, import_react39.createElement)(MemoGroupEvent, { key, prefix: t("Replies from"), room: roster.roomsById[row.roomId], name: t("a group chat"), roster, actions });
+      const other = roster.byId[row.botId] ?? stableFallbackBot(row, row.botId, row.name ?? t("a Bot"), "gray");
       const prefix = {
         stopped: t("Stopped by"),
         cancelled: t("Cancelled by"),
@@ -46428,13 +46454,79 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile
         answer: t("Answer from"),
         reply: t("Reply from")
       }[row.role] ?? t("Message from");
-      return (0, import_react39.createElement)(EventLine, { key, prefix, bots: [other], onOpen: () => {
+      return (0, import_react39.createElement)(MemoEventLine, { key, prefix, bots: [other], onOpen: () => {
         if (selfId && other.id) actions.openExchange(selfId, other.id);
       }, whole: true });
     }
     default:
       return null;
   }
+}
+function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock: clock5 = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
+  const selfId = roster.byId[sessionId]?.id;
+  const visit = useUi((state) => state?.visits?.[sessionId]);
+  const botRunCacheRef = (0, import_react39.useRef)(/* @__PURE__ */ new Map());
+  const rows2 = (0, import_react39.useMemo)(() => {
+    const prevCache = botRunCacheRef.current;
+    const nextCache = /* @__PURE__ */ new Map();
+    const out = [];
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      const last = out.at(-1);
+      if (item.kind === "divider" && last?.kind === "divider") {
+        out[out.length - 1] = item;
+      } else if (item.kind === "bot") {
+        const texts2 = [item.text];
+        let end = item.time;
+        while (i + 1 < items.length && items[i + 1].kind === "bot") {
+          i += 1;
+          texts2.push(items[i].text);
+          end = items[i].time;
+        }
+        const runKey = `${item.id ?? ""}:${item.time ?? ""}:${end ?? ""}:${texts2.length}`;
+        const cached = prevCache.get(runKey);
+        const same = cached && cached.texts.length === texts2.length && cached.texts.every((value, idx) => value === texts2[idx]);
+        const merged = same ? cached : { ...item.id !== void 0 ? { id: item.id } : {}, kind: "bot", texts: texts2, time: item.time, end };
+        nextCache.set(runKey, merged);
+        out.push(merged);
+      } else {
+        out.push(item);
+      }
+    }
+    botRunCacheRef.current = nextCache;
+    return out;
+  }, [items]);
+  (0, import_react39.useEffect)(() => {
+    if (!clock5 || typeof actions?.noteTurnTime !== "function") return;
+    rows2.forEach((row, index) => {
+      if (row.kind !== "divider" && Number.isFinite(row.time)) {
+        actions.noteTurnTime(sessionId, row.seq ?? `row:${index}`, "first", row.time);
+      }
+    });
+  }, [clock5, sessionId, rows2, actions]);
+  let before;
+  let newShown = false;
+  const seenKeys = /* @__PURE__ */ new Map();
+  return rows2.flatMap((row) => {
+    const baseKey = stableChatRowBaseKey(row);
+    const count = seenKeys.get(baseKey) ?? 0;
+    seenKeys.set(baseKey, count + 1);
+    const key = count === 0 ? baseKey : `${baseKey}#${count}`;
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments, renderUserText });
+    if (row.kind === "divider") {
+      before = void 0;
+      return [shown];
+    }
+    const pause = clock5 && Number.isFinite(row.time) && (before === void 0 || row.time - before >= SEPARATOR_GAP_MS);
+    if (Number.isFinite(row.end ?? row.time)) before = row.end ?? row.time;
+    const showNew = clock5 && !newShown && unseenSince(visit, row.time);
+    if (showNew) newShown = true;
+    const out = [];
+    if (showNew) out.push((0, import_react39.createElement)(NewDivider, { key: `${key}:new` }));
+    if (pause) out.push((0, import_react39.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)));
+    out.push(shown);
+    return out;
+  });
 }
 function TriggerCell({ node, sessionId, openFile, useRoster, useSessions, useTurnClock, useUi, actions }) {
   const roster = useRosterPick(useRoster, TRIGGER_ROSTER_FIELDS);

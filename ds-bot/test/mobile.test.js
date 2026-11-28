@@ -1539,3 +1539,61 @@ test('file-download rejects presented files in private Bot folders, protected da
   assert.equal(orphanDl.error.code, 'bot/not-found')
   assert.match(orphanDl.error.message, /no longer available/)
 })
+
+test('room-chat serves incremental deltas via `after` without re-reading the whole page and falls back on part rollover', async (t) => {
+  const { call, ctx, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  history[room.id] = [
+    { seq: 1, time: 100, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'hello' }] } },
+    { seq: 2, time: 110, type: 'tool/call', data: { callId: 'call-1', name: 'group_relay' } },
+  ]
+  ctx.sessions.get = () => ({ seq: 3 })
+  rt.roomProgress.set('call-1', {
+    roomId: room.id,
+    replies: [{ botId: chief, name: 'Chief', text: 'first live reply', time: 115 }],
+  })
+
+  let pageCalls = 0
+  const origPage = ctx.sessionController.page
+  ctx.sessionController.page = async (...args) => {
+    pageCalls += 1
+    return origPage(...args)
+  }
+
+  // Initial load returns items + tip.
+  const first = (await call('room-chat', { roomId: room.id })).value
+  assert.equal(first.items.length, 2)
+  assert.ok(first.tip, 'initial room-chat returns tip metadata')
+  assert.equal(pageCalls, 1)
+
+  // Live round appends a second reply without advancing session.seq -> zero sessionController.page calls!
+  rt.roomProgress.get('call-1').replies.push({ botId: chief, name: 'Chief', text: 'second live reply', time: 120 })
+  rt.state.rooms[room.id].seq = (rt.state.rooms[room.id].seq ?? 0) + 1
+  const liveDelta = (await call('room-chat', { roomId: room.id, after: first.tip })).value
+  assert.equal(liveDelta.incremental, true)
+  assert.equal(pageCalls, 1, 'live round append skips sessionController.page completely')
+  assert.deepEqual(liveDelta.items.map(i => [i.id, i.text]), [['call-1:1', 'second live reply']])
+
+  // New committed user message advances session.seq -> fetches delta only, returning only the new item.
+  history[room.id].push({
+    seq: 3, time: 130, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'follow-up' }] },
+  })
+  ctx.sessions.get = () => ({ seq: 4 })
+  const seqDelta = (await call('room-chat', { roomId: room.id, after: liveDelta.tip })).value
+  assert.equal(seqDelta.incremental, true)
+  assert.deepEqual(seqDelta.items.map(i => [i.id, i.text]), [['3', 'follow-up']])
+
+  // Part rollover -> `after.part` no longer matches current part -> falls back to full page (`incremental` absent).
+  const nextPart = 'room-part-2'
+  rt.state.rooms[room.id].ownParts = [room.id]
+  rt.state.rooms[room.id].sessionId = nextPart
+  history[nextPart] = [
+    { seq: 1, time: 200, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'fresh part' }] } },
+  ]
+  ctx.sessions.get = () => ({ seq: 2 })
+  const rollover = (await call('room-chat', { roomId: room.id, after: seqDelta.tip })).value
+  assert.equal(rollover.incremental, undefined)
+  assert.equal(rollover.sessionId, nextPart)
+  assert.deepEqual(rollover.items.map(i => i.text), ['fresh part'])
+})

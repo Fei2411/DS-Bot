@@ -7,14 +7,25 @@ import { fileSizeText } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { CloseIcon, ImageIcon } from '../../../ds-bot/src/client/icons.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { previewImageCache, revokeBlobUrl } from './image-cache.js'
 
 /**
  * Full-screen image viewer portaled to `document.body`, dismissed via Esc, backdrop click, or close button.
+ * Any full-size `blob:` URL returned by `loadFull` is owned by the lightbox and revoked on close or unmount.
  */
 export function ImageLightbox({ open, src, loadFull, alt, caption, onClose }) {
   const [fullSrc, setFullSrc] = useState(null)
+  const ownedFullUrlRef = useRef(null)
   const closeBtn = useRef(null)
   const returnFocus = useRef(null)
+
+  const releaseOwnedFullUrl = useCallback(() => {
+    const owned = ownedFullUrlRef.current
+    if (owned !== null) {
+      ownedFullUrlRef.current = null
+      revokeBlobUrl(owned)
+    }
+  }, [])
 
   useEscape(() => onClose?.(), open, { priority: ESCAPE_PRIORITY.LIGHTBOX })
 
@@ -24,6 +35,7 @@ export function ImageLightbox({ open, src, loadFull, alt, caption, onClose }) {
       closeBtn.current?.focus?.()
       return undefined
     }
+    releaseOwnedFullUrl()
     setFullSrc(null)
     const prev = returnFocus.current
     returnFocus.current = null
@@ -33,7 +45,9 @@ export function ImageLightbox({ open, src, loadFull, alt, caption, onClose }) {
       prev.focus()
     }
     return undefined
-  }, [open])
+  }, [open, releaseOwnedFullUrl])
+
+  useEffect(() => () => { releaseOwnedFullUrl() }, [releaseOwnedFullUrl])
 
   const loadFullRef = useRef(loadFull)
   loadFullRef.current = loadFull
@@ -42,7 +56,18 @@ export function ImageLightbox({ open, src, loadFull, alt, caption, onClose }) {
     if (!open || typeof loadFullRef.current !== 'function') return undefined
     let alive = true
     void Promise.resolve(loadFullRef.current())
-      .then((next) => { if (alive && typeof next === 'string' && next !== '') setFullSrc(next) })
+      .then((next) => {
+        if (typeof next !== 'string' || next === '') return
+        if (!alive) {
+          revokeBlobUrl(next)
+          return
+        }
+        if (ownedFullUrlRef.current !== null && ownedFullUrlRef.current !== next) {
+          revokeBlobUrl(ownedFullUrlRef.current)
+        }
+        ownedFullUrlRef.current = next.startsWith('blob:') ? next : null
+        setFullSrc(next)
+      })
       .catch(() => {})
     return () => { alive = false }
   }, [open])
@@ -115,6 +140,7 @@ export function ToolImageThumb({
       return undefined
     }
     let alive = true
+    let releasePreview = () => {}
     setState('loading')
     const run = async () => {
       let resolved = null
@@ -132,6 +158,7 @@ export function ToolImageThumb({
       }
       if (!alive) return
       if (resolved) {
+        releasePreview = previewImageCache.acquireUrl(resolved)
         setSrc(resolved)
         setState('ready')
       } else {
@@ -140,7 +167,7 @@ export function ToolImageThumb({
       }
     }
     void run()
-    return () => { alive = false }
+    return () => { alive = false; releasePreview() }
   }, [direct, attachmentId, loadImage, fallbackLoader])
 
   const loadFull = useCallback(() => {
