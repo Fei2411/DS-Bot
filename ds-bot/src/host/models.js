@@ -2,6 +2,7 @@
 // only in its settings or by a Main Bot. The team's first Main Bot has none until the
 // user picks one in its chat. The Session keeps the selection durably.
 import { BlockAssembler, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import { ALWAYS_AUX_RETRY_MAX, ALWAYS_RETRY_MAX } from './constants.js'
 import { normalize, splitRef } from './text.js'
 import { serviceOf } from './services.js'
 import { isMissingSessionError, ownChatSessions } from './threads.js'
@@ -15,6 +16,19 @@ const ADAPTERS_SYNC_MS = 100
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
 const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE'])
 const MALFORMED_RETRIES = 2
+// Fatal or deterministic failures that must never spin under `retryPolicy.mode === 'always'`.
+const NON_RETRYABLE_ALWAYS_CODES = new Set([
+  'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'INVALID_CREDENTIAL', 'MISSING_CREDENTIAL',
+  'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID',
+  'INVALID_REQUEST', 'CONTENT_POLICY', 'CONTENT_REFUSED', 'CONTEXT_WINDOW_EXCEEDED',
+  'NO_ADAPTER', 'UNKNOWN_MODEL', 'HOSTED_ENGINE_ROUTE',
+  'ABORTED', 'CLIENT_UPGRADE_REQUIRED', 'MODEL_UNSUPPORTED', 'UNSUPPORTED_CONTENT',
+  'UNSUPPORTED_OPTION', 'UNSUPPORTED_REASONING_EFFORT', 'INVALID_CONFIG',
+  'NO_CREDENTIAL_STORE', 'INVALID_REPLAY_STATE', 'IMAGE_OFFLOAD_REQUIRED',
+  'LOCAL_AGENT_MISSING', 'LOCAL_AGENT_SIGNIN', 'LOCAL_AGENT_QUOTA',
+  'LOCAL_AGENT_EXIT', 'LOCAL_AGENT_ERROR', 'LOCAL_AGENT_SESSION_LOST',
+  'TURN_PAUSED_LOOP', 'TURN_PAUSED_SWITCH_LIMIT',
+])
 // pi-ai's Google adapters end a Gemini stream that stops on a malformed tool call or response
 // with exactly one of these errors, which dsh-llm-pi-ai classifies as PI_AI_ERROR. It is the
 // same transient failure.
@@ -80,8 +94,9 @@ function abortedAssembler(failure) {
 
 function canRetryPolicy(policy, code, retry) {
   if (policy?.mode !== 'normal' && policy?.mode !== 'always') return false
+  if (NON_RETRYABLE_ALWAYS_CODES.has(code)) return false
   if (code === 'MALFORMED_RESPONSE') return retry <= (policy.mode === 'normal' ? Math.min(MALFORMED_RETRIES, policy.maxRetries) : MALFORMED_RETRIES)
-  if (policy.mode === 'always') return true
+  if (policy.mode === 'always') return retry <= ALWAYS_AUX_RETRY_MAX
   if (policy.mode !== 'normal') return false
   return Array.isArray(policy.retryableCodes) && policy.retryableCodes.includes(code) && retry <= policy.maxRetries
 }
@@ -131,6 +146,7 @@ export function install(rt) {
   const { ctx, state } = rt
 
   const malformedRetries = new WeakMap()
+  const alwaysRetries = new WeakMap()
   const singleToolRetries = new WeakMap()
   serviceOf(ctx, 'systemPrompt')?.context?.({
     name: 'ds-bot:single-tool-retry',
@@ -143,17 +159,42 @@ export function install(rt) {
     },
   })
   ctx.on?.('agent/request-error', async (payload, next) => {
-    const decided = await next()
     const { agent, turn, step, signal, failure } = payload
     const code = failureCode(failure)
+    const policy = payload.retryPolicy ?? retryPolicyOf(ctx, payload.provider)
+    // DSH's `retryPolicy.mode === 'always'` ignores both retryableCodes and maxRetries,
+    // which turns fatal quota/auth errors or persistent provider failures into an endless
+    // loop. Short-circuit fatal codes and cap transient retries per step for Bot sessions,
+    // while handling `MALFORMED_RESPONSE` directly below so its independent cap and
+    // `singleToolRetries` hint always stay active.
+    let decided
+    if (!signal?.aborted && rt.isBotSession(agent.id) && policy?.mode === 'always') {
+      if (NON_RETRYABLE_ALWAYS_CODES.has(code)) return undefined
+      if (code === 'MALFORMED_RESPONSE') {
+        decided = undefined
+      } else {
+        let retries = alwaysRetries.get(agent)
+        if (retries?.turn !== turn || retries?.step !== step) {
+          retries = { turn, step, count: 0 }
+          alwaysRetries.set(agent, retries)
+        }
+        if (retries.count >= ALWAYS_RETRY_MAX) {
+          rt.warn(`Stopping retry loop for ${agent.id} after ${retries.count} attempts (turn ${turn}, step ${step}, code ${code ?? 'UNKNOWN'})`)
+          return undefined
+        }
+        retries.count += 1
+        decided = await next()
+      }
+    } else {
+      decided = await next()
+    }
     if (decided !== undefined || code !== 'MALFORMED_RESPONSE' || signal?.aborted || !rt.isBotSession(agent.id)) return decided
     let retries = malformedRetries.get(agent)
     if (retries?.turn !== turn || retries?.step !== step) {
       retries = { turn, step, count: 0 }
       malformedRetries.set(agent, retries)
     }
-    const policy = payload.retryPolicy ?? retryPolicyOf(ctx, payload.provider)
-    if (code !== failure.code && dshRetries(policy, failure.code)) return undefined
+    if (code !== failure.code && policy?.mode !== 'always' && dshRetries(policy, failure.code)) return undefined
     if (!canRetryPolicy(policy, code, retries.count + 1)) return undefined
     retries.count += 1
     rt.warn(`Retrying malformed model response for ${agent.id} (turn ${turn}, step ${step}, retry ${retries.count}/${MALFORMED_RETRIES})`)
