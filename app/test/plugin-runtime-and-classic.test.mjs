@@ -268,11 +268,21 @@ test('plugin slot registrations are scoped and unsupported slots allow settings 
   const View = () => null
   runtime.provide('slots', slots)
   const unload = runtime.use({ id: 'sidebar-plugin', inject: ['slots'] }, (ctx) => {
-    assert.equal(ctx.get('slots'), ctx.slots)
+    const service = ctx.get('slots')
+    assert.equal(service, ctx.slots)
+    assert.equal(service.list('settings.section').length, 0)
+    assert.equal(service.resolve('settings.section'), undefined)
+    assert.equal(service.resolveEntry('settings.section'), undefined)
+    let updates = 0
+    ctx.effect(() => service.subscribe('settings.section', () => { updates += 1 }))
     assert.equal(ctx.slots.spec('sidebar.panellist').kind, 'list')
     ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'view' }, View))
     ctx.slots.inject('plugins.tab', () => assert.fail('unsupported slot fired'))
     ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'view' }, View))
+    assert.equal(service.list('settings.section').length, 1)
+    assert.equal(service.resolve('settings.section'), View)
+    assert.equal(service.resolveEntry('settings.section').component, View)
+    assert.equal(updates, 1)
   })
   assert.equal(runtime.getSnapshot()[0].status, 'active')
   assert.equal(slots.entries('sidebar.panellist')[0].pluginId, 'sidebar-plugin')

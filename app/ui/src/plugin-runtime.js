@@ -216,9 +216,9 @@ export function createPluginRuntime({
 
     const registerSlot = (spec, component) => track(slots.register({ ...spec, pluginId: entry.id, runtime: runtimeRef.api }, component))
     const pluginSlots = Object.freeze({
+      ...slots,
       register: registerSlot,
-      spec: slots.spec,
-      entries: slots.entries,
+      ...(slots.declare && { declare: (name, spec) => track(slots.declare(name, spec)) }),
       inject: (name, callback) => {
         if (entry.disposed || entry.generation !== gen) return () => {}
         let installing = true
