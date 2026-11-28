@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 import { runInNewContext } from 'node:vm'
 import { checkDesktopSelectors, scanFile } from '../../scripts/check-desktop-selectors.mjs'
-import { SPRING_SETTLE } from '../../ds-bot/src/client/motion.js'
+import { SPRING_SLIDE } from '../../ds-bot/src/client/motion.js'
 import { SHELL_CSS } from '../../ds-bot/src/client/styles.js'
 import { teamActions } from '../../ds-bot/src/client/team-actions.js'
 import { createSource } from '../../ds-bot/src/client/sources.js'
@@ -116,14 +116,14 @@ test('#2416 toggleDetails sets panelYield when opening on a narrow viewport wher
   assert.equal(ui.getSnapshot().details, null)
 })
 
-test('#2412 SPRING_SETTLE has zero overshoot and app.css clips root overflow', () => {
-  const samples = SPRING_SETTLE.easing.match(/linear\(([^)]+)\)/)?.[1]?.split(',').map(Number) ?? []
-  assert.ok(samples.length === 25, 'SPRING_SETTLE should have 25 samples')
+test('#2412 SPRING_SLIDE has zero overshoot and app.css clips root overflow', () => {
+  const samples = SPRING_SLIDE.easing.match(/linear\(([^)]+)\)/)?.[1]?.split(',').map(Number) ?? []
+  assert.ok(samples.length === 25, 'SPRING_SLIDE should have 25 samples')
   for (let i = 0; i < samples.length; i += 1) {
     assert.ok(samples[i] <= 1.0001, `sample ${i} (${samples[i]}) must not overshoot 1`)
     if (i > 0) assert.ok(samples[i] >= samples[i - 1] - 0.0001, `sample ${i} must be monotonic`)
   }
-  assert.match(SHELL_CSS, new RegExp(`\\[data-bt-center\\]\\{transition:margin-right ${SPRING_SETTLE.duration}ms`))
+  assert.match(SHELL_CSS, new RegExp(`\\[data-bt-center\\]\\{transition:margin-right ${SPRING_SLIDE.duration}ms`))
   const appCss = readFileSync(join(APP_ROOT, 'ui', 'src', 'app.css'), 'utf8')
   assert.match(appCss, /html,body,#root\{height:100%;margin:0;overflow:hidden\}/)
 })

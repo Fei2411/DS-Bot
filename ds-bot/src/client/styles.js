@@ -2,7 +2,7 @@ import { scaleCss } from './css-scale.js'
 import { INKS } from './inks.js'
 import { DEFAULT_MASK } from './characters.js'
 import { MENTION_ORIGIN } from './text.js'
-import { SPRING_SETTLE, SPRING_SHAPE, SPRING_TAP, SPRING_STRETCH, SPRING_POP, spring } from './motion.js'
+import { SPRING_SHAPE, SPRING_SLIDE, SPRING_TAP, SPRING_STRETCH, SPRING_POP, spring } from './motion.js'
 import { DSH_NARROW } from './frame-layout.js'
 
 // The pill stretches for "Memory updated" on SPRING_STRETCH, and its icon pops on
@@ -101,10 +101,9 @@ body[data-bt-motion=lively] :is(.bt-row,.bt-tile)>.bt-mark:hover .bt-badge-alert
    and the floating drawer keeps the opaque fill over the conversation. */
 .bt-leftcol{position:fixed;left:0;top:0;bottom:0;z-index:25;display:flex;--bt-lc-clear:var(--bt-top-clearance,var(--bt-titlebar-h,0px));background:var(--bt-leftcol-fill,var(--bt-sidebar));border-right:.5px solid var(--bt-line);box-sizing:border-box;padding:calc(var(--bt-lc-clear) + 6px) 12px 6px;color:var(--bt-ink);font-family:var(--bt-font)}
 html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{border-right:none}
-.bt-leftcol[data-entering]{animation:bt-leftcol-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
-.bt-leftcol[data-leaving]{transform:translateX(-100%);transition:transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing};pointer-events:none}
-@keyframes bt-leftcol-in{from{transform:translateX(-100%)}}
-@media (prefers-reduced-motion:reduce){.bt-leftcol[data-entering]{animation:none}.bt-leftcol[data-leaving],[data-bt-center]{transition:none}}
+.bt-leftcol[data-sliding]{will-change:transform}
+.bt-leftcol[data-leaving]{pointer-events:none}
+@media (prefers-reduced-motion:reduce){.bt-leftcol[data-folding],[data-bt-center]{transition:none}}
 .bt-leftcol-grip{position:absolute;right:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:3;touch-action:none}
 .bt-leftcol-grip:hover,.bt-leftcol-grip:active{background:linear-gradient(to right,transparent 3px,var(--bt-line-2) 3px,var(--bt-line-2) 5px,transparent 5px)}
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
@@ -129,7 +128,7 @@ html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{b
 .bt-leftcol-foot-rail{flex-direction:column;gap:8px}
 /* A drag that crosses the rail's snap line rides the spring to its target: the
    content is pinned at the target size so only the column's edge moves. */
-.bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
+.bt-leftcol[data-folding]{overflow:hidden;transition:width ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}}
 .bt-leftcol[data-folding]>.bt-side{flex:none;width:calc(var(--bt-lc-w) - 24px)}
 .bt-leftcol[data-left=rail][data-folding]>.bt-side{width:var(--bt-lc-w);margin-inline:auto}
 .bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
@@ -422,10 +421,10 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(.bt-ptabs-in,a,butto
 .bt-panel[data-instant]{transition:none}
 @keyframes bt-pane-in{from{transform:translateX(100%)}}
 @media (prefers-reduced-motion:reduce){.bt-panel{animation:none;transition:none}.bt-panel[data-leaving]{transition:none}}
-/* The conversation's margins glide with the Bot panel's slide and with our left
-   column's slide in and out. Critically damped (zero overshoot) so closing never
-   pushes margin-right past 0 and flashes window scrollbars (issue 2412). */
-[data-bt-center]{transition:margin-right ${SPRING_SETTLE.duration}ms ${SPRING_SETTLE.easing},margin-left ${SPRING_SETTLE.duration}ms ${SPRING_SETTLE.easing}}
+/* The conversation's right margin glides with the Bot panel on a critically damped
+   spring (zero overshoot, issue 2412); the left margin is driven atomically with
+   .bt-leftcol by TeamSidebar's spring so both stay locked. */
+[data-bt-center]{transition:margin-right ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}}
 .bt-panel-grip{position:absolute;left:-5px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:3;touch-action:none}
 .bt-panel-grip:hover,.bt-panel[data-dragging] .bt-panel-grip{background:linear-gradient(to right,transparent 4px,var(--bt-line-2) 4px,var(--bt-line-2) 6px,transparent 6px)}
 .bt-drag-shield{position:fixed;inset:0;z-index:45;cursor:col-resize}

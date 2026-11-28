@@ -2,7 +2,7 @@
 // Loaded only by the DSH plugin entry (`ds-bot/src/client/index.js`);
 // never imported by the desktop app (`app/ui/src/main.js`).
 import { DSH_NARROW } from './frame-layout.js'
-import { SPRING_POP, SPRING_SETTLE, SPRING_TAP, spring } from './motion.js'
+import { SPRING_POP, SPRING_SLIDE, SPRING_TAP, spring } from './motion.js'
 import { REPLY_FAMILY } from '../shared/reply-fonts.js'
 import { SERIF_REPLIES } from './themes.js'
 
@@ -25,7 +25,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-bubble [class*="_markdown"] li::marker{color:var(--bt-ink-2)}
 .bt-bubble [class*="_markdown"] :not(pre)>code{line-height:1;-webkit-box-decoration-break:clone;box-decoration-break:clone}
 [data-chat-flow] [class*="_bubble"] :is(img,video){max-width:100%;height:auto}
-[class*="_centerCol"]{transition:margin-right ${SPRING_SETTLE.duration}ms ${SPRING_SETTLE.easing},margin-left ${SPRING_SETTLE.duration}ms ${SPRING_SETTLE.easing}}
+[class*="_centerCol"]{transition:margin-right ${SPRING_SLIDE.duration}ms ${SPRING_SLIDE.easing}}
 .bt-settings-icon>[data-slot="settings.section.icon"]>svg{display:block!important}
 .bt-dsh-section>[data-slot]>*>h2:first-child,.bt-dsh-section>[data-slot]>*>:first-child>h2:first-child{display:none}
 .bt-dsh-item>[data-slot]>*{padding-left:16px;padding-right:16px;border-bottom-width:0}
