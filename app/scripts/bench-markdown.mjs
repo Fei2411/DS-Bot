@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 // Reproducible streaming Markdown benchmark (W4 / #2472).
 //
-// Measures total main-thread parse + render time for 2k / 10k / 40k character replies
-// containing prose, lists, fenced code blocks, inline math, and display math (`\[...\]`
-// and `$$...$$`), streamed incrementally through the real React 19 + react-markdown +
-// KaTeX + highlight.js pipeline (`app/ui/src/primitives.js`).
+// Measures end-to-end React 19 `flushSync` + `react-markdown` + KaTeX + `highlight.js` +
+// `mini-dom` reconciliation time for 2k / 10k / 40k character replies containing prose,
+// lists, fenced code blocks, inline math, and display math (`\[...\]` and `$$...$$`),
+// streamed incrementally in `CHUNK_CHARS=80` chunks through `app/ui/src/primitives.js`.
+//
+// Methodology note: the W4 plan baseline (`28.5 ms / 247 ms / 3647 ms`) measured raw
+// Markdown parsing alone; this benchmark measures full React reconciliation + KaTeX +
+// highlight.js rendering (where the pre-PR merge-base takes tens of seconds on 40k chars
+// and the linearized pipeline completes in ~1.0–1.2 s wall / ~1.4–1.6 s CPU).
 //
 // Run from repo root or `app/`:
 //   node app/scripts/bench-markdown.mjs

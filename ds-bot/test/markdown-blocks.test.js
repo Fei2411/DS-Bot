@@ -68,6 +68,11 @@ test('unsafe input falls back: empty, CRLF, BOM, link definitions, footnotes, ht
   // A streaming `- ` or `-` line right after a list item is a new list item, not a Setext underline.
   assert.deepEqual(splitMarkdownBlocks('intro\n\n- first\n- '), ['intro\n\n', '- first\n- '])
   assert.deepEqual(splitMarkdownBlocks('intro\n\n- first\n-'), ['intro\n\n', '- first\n-'])
+  // ...but an indented `-` inside a list item is a CommonMark Setext heading (`<li><h2>item</h2></li>`),
+  // so default-mode duplicate heading slug protection must still bail.
+  assert.equal(splitMarkdownBlocks('## item\n\n- item\n  -\n\nNext.\n'), null)
+  assert.equal(splitMarkdownBlocks('- item\n  -\n\nNext.\n'), null)
+  assert.equal(splitMarkdownBlocks('- item\n -\n\nNext.\n'), null)
   // ...but a thematic break after a blank line is not an underline and splits fine.
   assert.deepEqual(splitMarkdownBlocks('one\n\n---\n\ntwo\n'), ['one\n\n', '---\n\n', 'two\n'])
   assert.deepEqual(splitMarkdownBlocks('one\n\n***\n\ntwo\n'), ['one\n\n', '***\n\n', 'two\n'])
@@ -107,6 +112,40 @@ test('display math blocks ($$...$$ and \\[...\\]) stay intact across blank lines
   // Container-prefixed display math (`> $$`, `- \[`) bails conservatively to whole-document parse.
   assert.equal(splitMarkdownBlocks('intro\n\n> $$\n> x^2\n> $$\n\nafter\n'), null)
   assert.equal(splitMarkdownBlocks('intro\n\n- \\[\n  x^2\n  \\]\n\nafter\n'), null)
+
+  // Single-line `$$...$$` followed by CJK punctuation or trailing text closes on the same line
+  // and must never invert a subsequent real `$$` block or swallow link definitions.
+  assert.deepEqual(
+    splitMarkdownBlocks('intro\n\n$$x^2$$。\n\nafter\n'),
+    ['intro\n\n', '$$x^2$$。\n\n', 'after\n'],
+  )
+  assert.equal(
+    splitMarkdownBlocks('See [x].\n\n$$x^2$$。\n$$\na + b\n$$\n\n[x]: https://example.com\n'),
+    null,
+  )
+
+  // Unclosed `\[` (literal, inside multi-line inline code, or before a code fence containing `\]`)
+  // must never hide document-wide link definitions or invert fences.
+  assert.equal(
+    splitMarkdownBlocks('See [x].\n\nHere is a literal \\[ bracket.\n\n[x]: https://example.com\n'),
+    null,
+  )
+  assert.equal(
+    splitMarkdownBlocks('See [x].\n\nHere is `multi-line\ncode with \\[ inside` end.\n\n[x]: https://example.com\n'),
+    null,
+  )
+  assert.equal(
+    splitMarkdownBlocks('See [x].\n\nStart \\[ unclosed\n\n```js\nconst s = "\\\\]"\n```\n\n[x]: https://example.com\n'),
+    null,
+  )
+  assert.equal(
+    splitMarkdownBlocks('See [x].\n\nLiteral \\[ open\n\n[x]: https://example.com\n\n`\\]`\n'),
+    null,
+  )
+
+  // A bare trailing digit after an open list defers splitting until the next char clarifies
+  // whether it becomes an ordered list item (`2. Second`) or plain text (`2 apples`).
+  assert.deepEqual(splitMarkdownBlocks('intro\n\n1. First item\n\n2'), ['intro\n\n', '1. First item\n\n2'])
 })
 
 test('never splits inside a fence: blank lines, fence lookalikes and boundaries inside it all stay whole', () => {

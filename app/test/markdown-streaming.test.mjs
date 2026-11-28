@@ -610,6 +610,182 @@ test('MathExpression is memoized and skips re-render when tex and display are un
   }
 })
 
+test('differential streaming contract: final streaming:false DOM matches whole-document render byte-for-byte across adversarial and random Markdown corpuses', async () => {
+  await ensureKatex()
+  await ensureLanguage('javascript')
+  await ensureLanguage('python')
+  const fold = html => html.replace(/>\n</g, '><')
+  const pad = 'Introductory prose long enough to cross the 512-byte streaming split threshold cleanly. '.repeat(7).trim()
+
+  const corpus = [
+    ['orderedListSplitMidDigit2', `${pad}\n\n1. First item\n\n2. Second item\n\nAfter.\n`],
+    ['orderedListSplitMidDigit1', `${pad}\n\n1. First item\n\n1. Second item\n\nAfter.\n`],
+    ['unclosedLiteralLatexBeforeLinkDef', `See [x]. ${pad}\n\nHere is a literal \\[ bracket.\n\n[x]: https://example.com\n`],
+    ['multilineInlineCodeLatexBeforeLinkDef', `See [x]. ${pad}\n\nHere is \`multi-line\ncode with \\[ inside\` end.\n\n[x]: https://example.com\n`],
+    ['unclosedLatexBeforeFenceWithCloseBracket', `See [x]. ${pad}\n\nStart \\[ unclosed\n\n\`\`\`js\nconst s = "\\\\]"\n\`\`\`\n\n[x]: https://example.com\n`],
+    ['literalLatexClosedInInlineCodeAfterLinkDef', `See [x]. ${pad}\n\nLiteral \\[ open\n\n[x]: https://example.com\n\n\`\\]\`\n`],
+    ['inlineDollarWithCjkPunctBeforeDisplayAndDef', `See [x]. ${pad}\n\n$$x^2$$。\n$$\na + b\n$$\n\n[x]: https://example.com\n`],
+    ['inlineDollarWithProseThenPara', `${pad}\n\n$$x^2$$ and more prose.\n\nNext paragraph with $y = 2$.\n`],
+    ['indentedSetextInList', `${pad}\n\n## item\n\n- item\n  -\n\nNext.\n`],
+    ['nestedLooseLists', `${pad}\n\n- outer 1\n\n  - inner a\n\n  - inner b\n\n- outer 2\n\nDone.\n`],
+    ['codeFenceContainingMathTokens', `${pad}\n\n\`\`\`js\nconst a = "$$x^2$$"\nconst b = "\\\\[y\\\\]"\nconst c = "$5"\n\`\`\`\n\nAfter.\n`],
+    ['inlineCodeContainingDollars', `${pad}\n\nUse \`$$raw$$\` and \`\\[raw\\]\` inline.\n\nNext.\n`],
+    ['currencyAndEscapedDollars', `${pad}\n\nItems cost $5 and $10, or \\$20 total, while $x + y = z$.\n\nNext.\n`],
+    ['tableWithMathAndCurrency', `${pad}\n\n| expr | price |\n| --- | --- |\n| $a^2$ | $5 |\n| \\(b^2\\) | $10 |\n\nAfter.\n`],
+    ['blockquoteWithDisplayMath', `${pad}\n\n> $$\n> x^2 + 1\n> $$\n\n> \\[\n> y^2\n> \\]\n\nAfter.\n`],
+    ['rawHtmlBlock', `${pad}\n\n<div>\n<p>raw</p>\n</div>\n\nAfter.\n`],
+    ['footnoteAcrossBlocks', `${pad} with note[^1].\n\nMiddle paragraph.\n\n[^1]: Footnote body.\n`],
+    ['crlfDocument', `${pad}\r\n\r\n$$\r\nx^2\r\n$$\r\n\r\nAfter.\r\n`],
+    ['cjkAndEmoji', `${pad}\n\n中文段落 🚀 与行内公式 $E=mc^2$ 和 $$a+b$$。\n\n下一段。\n`],
+    ['unclosedFenceAtEof', `${pad}\n\n\`\`\`javascript\nconst a = 1\nexport function f() {`],
+    ['unclosedIndentedFenceAtEof', `${pad}\n\n  \`\`\`javascript\n  const a = 1\n  return a`],
+    ['unclosedLatexAtEof', `${pad}\n\n\\[\n\\sum_{k=1}^n k`],
+    ['unclosedMultilineDollarWithMetaText', `${pad}\n\n$$x^2 + y\n+ z`],
+    ['closedMultilineDollarWithBody', `${pad}\n\n$$\n\\frac{1}{2}\n\n+ \\frac{1}{3}\n$$\n\nAfter.\n`],
+    ['closedLatexDisplayWithBlankLine', `${pad}\n\n\\[\n\\int_0^1 x\\,dx\n\n= \\frac{1}{2}\n\\]\n\nAfter.\n`],
+    ['duplicateCodeBlocksNoSplit', `See [x]. ${pad}\n\n\`\`\`javascript\nconst dup = 1\n\`\`\`\n\n\`\`\`javascript\nconst dup = 1\n\`\`\`\n\n[x]: https://example.com\n`],
+    ['lazyContinuationList', `${pad}\n\n1. First line\nlazy second line\n\n2. Second item\n\nDone.\n`],
+    ['indentedCodeContinuation', `${pad}\n\n    line one\n\n    line two\n\nPlain.\n`],
+    ['listWithIndentedFence', `${pad}\n\n1. Step\n\n   \`\`\`python\n   x = 1\n   \`\`\`\n\n2. Step two\n\nDone.\n`],
+    ['thematicBreakAndSetext', `${pad}\n\nHeading\n---\n\n***\n\nAfter.\n`],
+    ['containerDirective', `${pad}\n\n::: note\ninside\n:::\n\nAfter.\n`],
+    ['inlineLatexDisplayMidParagraph', `${pad}\n\nBefore \\[a^2 + b^2\\] after.\n\nDone.\n`],
+  ]
+
+  // Deterministic seeded pseudo-random Markdown generator to catch unexpected boundary interactions.
+  let seed = 0x5eed1234
+  const rand = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return seed / 0x100000000
+  }
+  const fragments = [
+    'Plain paragraph with $E = mc^2$ and $5 currency.',
+    '## Section Heading',
+    '1. Ordered item one\n\n2. Ordered item two',
+    '- Bullet item one\n\n- Bullet item two',
+    '```javascript\nconst k = 42\nreturn k + 1\n```',
+    '$$\n\\sum_{i=1}^n i = \\frac{n(n+1)}{2}\n$$',
+    '\\[\n\\int_0^1 x^2\\,dx\n\\]',
+    '$$x^2$$。',
+    'Literal \\[ without close.',
+    'See [ref] in text.',
+    '[ref]: https://example.com/ref',
+    '> Quoted line\n> second line',
+  ]
+  for (let i = 0; i < 8; i += 1) {
+    const parts = [pad]
+    const count = 4 + Math.floor(rand() * 5)
+    for (let j = 0; j < count; j += 1) {
+      parts.push(fragments[Math.floor(rand() * fragments.length)])
+    }
+    corpus.push([`randomDoc_${i}`, `${parts.join('\n\n')}\n`])
+  }
+
+  for (const [name, doc] of corpus) {
+    const settled = mounted()
+    settled.render(h(MarkdownText, { text: doc, streaming: false, labels }))
+    const expected = fold(settled.container.innerHTML)
+    settled.unmount()
+
+    // Test multiple chunking schedules including prime sizes and randomized variable steps.
+    const schedules = [
+      () => {
+        const cuts = []
+        for (let at = 17; at < doc.length; at += 17) cuts.push(at)
+        return cuts
+      },
+      () => {
+        const cuts = []
+        let at = 0
+        while (at < doc.length) {
+          at += 1 + Math.floor(rand() * 37)
+          if (at < doc.length) cuts.push(at)
+        }
+        return cuts
+      },
+    ]
+
+    for (let sIdx = 0; sIdx < schedules.length; sIdx += 1) {
+      const view = mounted()
+      try {
+        for (const cut of schedules[sIdx]()) {
+          view.render(h(MarkdownText, { text: doc.slice(0, cut), streaming: true, labels }))
+        }
+        view.render(h(MarkdownText, { text: doc, streaming: true, labels }))
+        view.render(h(MarkdownText, { text: doc, streaming: false, labels }))
+        assert.equal(
+          fold(view.container.innerHTML),
+          expected,
+          `differential mismatch on ${name} (schedule ${sIdx})`,
+        )
+      } finally {
+        view.unmount()
+      }
+    }
+  }
+
+  // Exact targeted boundary repros:
+  // (a) Chunk cut right after bare digit `2` in loose ordered list.
+  const orderedDoc = `${pad}\n\n1. First item\n\n2. Second item\n\nAfter.\n`
+  const orderedCut = orderedDoc.indexOf('2. Second') + 1
+  const settledOrdered = mounted()
+  settledOrdered.render(h(MarkdownText, { text: orderedDoc, streaming: false, labels }))
+  const expectedOrdered = fold(settledOrdered.container.innerHTML)
+  settledOrdered.unmount()
+
+  const streamedOrdered = mounted()
+  streamedOrdered.render(h(MarkdownText, { text: orderedDoc.slice(0, orderedCut), streaming: true, labels }))
+  streamedOrdered.render(h(MarkdownText, { text: orderedDoc, streaming: true, labels }))
+  streamedOrdered.render(h(MarkdownText, { text: orderedDoc, streaming: false, labels }))
+  assert.equal(fold(streamedOrdered.container.innerHTML), expectedOrdered, 'exact bare-digit cut keeps single loose <ol>')
+  streamedOrdered.unmount()
+
+  // (b) Tail rewrite from plain text to `- second item`.
+  const rewriteBefore = `${pad}\n\n- first item\n\nplain text`
+  const rewriteAfter = `${pad}\n\n- first item\n\n- second item\n`
+  const settledRewrite = mounted()
+  settledRewrite.render(h(MarkdownText, { text: rewriteAfter, streaming: false, labels }))
+  const expectedRewrite = fold(settledRewrite.container.innerHTML)
+  settledRewrite.unmount()
+
+  const streamedRewrite = mounted()
+  streamedRewrite.render(h(MarkdownText, { text: rewriteBefore, streaming: true, labels }))
+  streamedRewrite.render(h(MarkdownText, { text: rewriteAfter, streaming: true, labels }))
+  streamedRewrite.render(h(MarkdownText, { text: rewriteAfter, streaming: false, labels }))
+  assert.equal(fold(streamedRewrite.container.innerHTML), expectedRewrite, 'tail rewrite to list item keeps single loose <ul>')
+  streamedRewrite.unmount()
+})
+
+test('unclosed streaming code fence targets only the last block by position, defers indented fences, and keeps multi-line $$ opening text visible', async () => {
+  await ensureLanguage('javascript')
+  await ensureKatex()
+
+  const view = mounted()
+  try {
+    // 1. Duplicate code block (split === false): an unclosed second fence with identical text
+    //    must NOT strip syntax highlighting from the earlier closed code block.
+    const dupStreaming = 'Short doc\n\n```javascript\nconst x = 1\n```\n\n```javascript\nconst x = 1'
+    view.render(h(MarkdownText, { text: dupStreaming, streaming: true, labels }))
+    const codeBlocks = view.container.querySelectorAll('.md-code')
+    assert.equal(codeBlocks.length, 2)
+    assert.ok(codeBlocks[0].querySelectorAll('.hljs-keyword').length > 0, 'earlier closed duplicate code block keeps highlighting')
+    assert.equal(codeBlocks[1].querySelectorAll('.hljs-keyword').length, 0, 'only the trailing unclosed code block defers highlighting')
+
+    // 2. Indented unclosed code fence (2 spaces) still defers highlighting while streaming.
+    const indentedStreaming = 'Short doc\n\n  ```javascript\n  const y = 2\n  return y'
+    view.render(h(MarkdownText, { text: indentedStreaming, streaming: true, labels }))
+    assert.equal(view.container.querySelectorAll('.hljs-keyword').length, 0, 'indented unclosed fence defers highlighting')
+
+    // 3. Multi-line unclosed `$$x^2 + y\n+ z` keeps `x^2 + y` visible instead of swallowing it as meta.
+    const multiLineUnclosedMath = 'Short doc\n\n$$x^2 + y\n+ z'
+    view.render(h(MarkdownText, { text: multiLineUnclosedMath, streaming: true, labels }))
+    assert.ok(view.container.textContent.includes('x^2 + y'), 'multi-line unclosed $$ keeps opening-line body visible')
+    assert.equal(view.container.innerHTML.includes('class="katex"'), false, 'unclosed multi-line $$ skips KaTeX')
+  } finally {
+    view.unmount()
+  }
+})
+
 after(() => {
   rmSync(dir, { recursive: true, force: true })
 })

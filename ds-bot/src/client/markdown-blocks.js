@@ -21,6 +21,7 @@
 // items with unindented lazy continuation lines — still form one loose list).
 
 const LIST_MARKER = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?=[ \t]|$)/
+const BARE_ORDERED_PREFIX = /^ {0,3}\d{1,9}$/
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
 const INDENTED_FENCE_CLOSE = /^ {4,}(`+|~+)[ \t]*$/
 const THEMATIC_BREAK = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/
@@ -120,12 +121,35 @@ const fenceClose = (line, fence) => {
   return match[1][0] === fence.char && match[1].length >= fence.length
 }
 
+// Returns true if `rest` contains an unescaped closing dollar run of at least `markerLen`
+// after non-empty math content (e.g. `x^2$$。` or `x^2$$ trailing text`).
+function hasUnescapedClosingDollars(rest, markerLen) {
+  let i = 0
+  while (i < rest.length) {
+    const ch = rest[i]
+    if (ch === '\\') {
+      i += 2
+      continue
+    }
+    if (ch === '$') {
+      let run = 1
+      while (i + run < rest.length && rest[i + run] === '$') run += 1
+      if (run >= markerLen && i > 0) return true
+      i += run
+      continue
+    }
+    i += 1
+  }
+  return false
+}
+
 // Display math `$$` fence opener:
 // - `$$` followed only by whitespace opens a multi-line flow math block (spans blank lines).
-// - `$$...$$` on a single line (closed by matching `$`s at line end) is self-contained.
-// - `$$text` without closing `$` on the same line (e.g. a streaming inline display math
-//   line) is tracked as `inlineCandidate` so it stays unsplit through EOF unless a blank
-//   line appears inside it, in which case the splitter bails conservatively.
+// - `$$...$$` on a single line (including trailing punctuation/prose like `$$x^2$$。`) is
+//   self-contained inline/paragraph math and never opens a multi-line flow block.
+// - `$$text` without a closing `$` run on the same line (e.g. a streaming inline display
+//   math line) is tracked as `inlineCandidate` so it stays unsplit through EOF unless a
+//   blank line appears inside it, in which case the splitter bails conservatively.
 const mathFenceOpen = (line) => {
   const match = MATH_FENCE_OPEN.exec(line)
   if (match === null) return null
@@ -134,9 +158,7 @@ const mathFenceOpen = (line) => {
   if (BLANK.test(rest)) {
     return { length: marker.length, indent: leadingSpaces(line), inlineCandidate: false }
   }
-  // Single-line `$$ ... $$` closes on the same line and never spans blank lines.
-  const trimmed = rest.trimEnd()
-  if (trimmed.length > marker.length && trimmed.endsWith(marker) && !trimmed.endsWith(`\\${marker}`)) {
+  if (hasUnescapedClosingDollars(rest, marker.length)) {
     return null
   }
   return { length: marker.length, indent: leadingSpaces(line), inlineCandidate: true }
@@ -148,27 +170,24 @@ const mathFenceClose = (line, mathFence) => {
   return match[1].length >= mathFence.length
 }
 
-// Tracks unescaped `\[` ... `\]` LaTeX display math balance on a line (skipping inline
-// backtick code spans). Returns `'open'` if the line leaves `\[` open, `'closed'` if an
-// open `\[` closes on this line, or `'same'` when state is unchanged.
-function scanLatexDisplayLine(line, currentlyOpen) {
+// Tracks unescaped `\[` ... `\]` LaTeX display math balance on a line while carrying
+// multi-line inline backtick code-span state across lines within a paragraph.
+function scanLatexDisplayLine(line, currentlyOpen, initialCodeTicks = 0) {
   let open = currentlyOpen
+  let codeTicks = initialCodeTicks
   let i = 0
   while (i < line.length) {
     const ch = line[i]
     if (!open && ch === '`') {
       let ticks = 0
       while (i + ticks < line.length && line[i + ticks] === '`') ticks += 1
-      const needle = '`'.repeat(ticks)
-      let close = line.indexOf(needle, i + ticks)
-      let found = -1
-      while (close !== -1) {
-        const beforeOk = close === 0 || line[close - 1] !== '`'
-        const afterOk = close + ticks >= line.length || line[close + ticks] !== '`'
-        if (beforeOk && afterOk) { found = close + ticks; break }
-        close = line.indexOf(needle, close + 1)
-      }
-      i = found !== -1 ? found : i + ticks
+      if (codeTicks === 0) codeTicks = ticks
+      else if (codeTicks === ticks) codeTicks = 0
+      i += ticks
+      continue
+    }
+    if (codeTicks > 0) {
+      i += 1
       continue
     }
     if (ch === '\\' && i + 1 < line.length) {
@@ -180,7 +199,19 @@ function scanLatexDisplayLine(line, currentlyOpen) {
     }
     i += 1
   }
-  return open
+  return { open, codeTicks }
+}
+
+// True when `rest` (already container-stripped) contains an explicit `]:` link definition
+// delimiter (as opposed to an unclosed `[` at EOL that might simply be multi-line math).
+function hasExplicitLinkDefColon(rest) {
+  if (!rest.startsWith('[')) return false
+  for (let i = 1; i < rest.length; i += 1) {
+    const ch = rest[i]
+    if (ch === '\\') { i += 1; continue }
+    if (ch === ']') return rest[i + 1] === ':'
+  }
+  return false
 }
 
 /**
@@ -206,6 +237,8 @@ export function splitMarkdownBlocks(text, options = {}) {
   let fence = null
   let mathFence = null
   let latexMathOpen = false
+  let sawUnsafeInLatex = false
+  let inlineCodeTicks = 0
   let previousBlank = true
   let inList = false
   let previousLineIndented = false
@@ -229,6 +262,7 @@ export function splitMarkdownBlocks(text, options = {}) {
       if (fenceClose(line, fence)) {
         const wasIndented = fence.indent > 0
         fence = null
+        inlineCodeTicks = 0
         // A top-level fence (indent 0) always ends any open list, whereas an indented
         // fence may belong to a list item whose next marker (`1. Step two`) continues the
         // same loose list. Preserve list / indentation state across an indented fence close.
@@ -249,6 +283,7 @@ export function splitMarkdownBlocks(text, options = {}) {
       if (mathFenceClose(line, mathFence)) {
         const wasIndented = mathFence.indent > 0
         mathFence = null
+        inlineCodeTicks = 0
         previousBlank = false
         if (!wasIndented) inList = false
         previousLineIndented = wasIndented
@@ -256,11 +291,48 @@ export function splitMarkdownBlocks(text, options = {}) {
       continue
     }
     if (latexMathOpen) {
-      if (!scanLatexDisplayLine(line, true)) {
+      const blankInside = BLANK.test(line)
+      if (!blankInside) {
+        const stripped = stripContainerPrefixes(line)
+        // A code fence inside an unclosed `\[` risks state inversion if `\]` appears inside
+        // the fence; bail immediately to whole-document parse.
+        if (fenceOpen(line) !== null || (stripped !== line && fenceOpen(stripped) !== null)) return null
+        // Explicit document-wide definitions / HTML / directives never belong inside display
+        // math and would corrupt earlier frozen blocks if `\[` was literal or closed inside
+        // inline code later.
+        if (
+          hasExplicitLinkDefColon(stripped)
+          || (line.includes('[^') && FOOTNOTE_REFERENCE.test(line))
+          || (line.includes('<') && RAW_HTML_BLOCK.test(line))
+          || (line.includes(':::') && CONTAINER_DIRECTIVE.test(line))
+        ) {
+          return null
+        }
+        // Ambiguous guards (e.g. unclosed `[` at EOL, Setext underlines, duplicate headings)
+        // are recorded and force whole-document fallback if `\[` stays unclosed at EOF.
+        if (
+          opensLinkDefinitionStripped(stripped)
+          || (!previousBlank && (SETEXT_EQUALS.test(line) || SETEXT_DASHES.test(line)))
+        ) {
+          sawUnsafeInLatex = true
+        } else if (slugs !== null) {
+          const heading = ATX_HEADING.exec(line)
+          if (heading !== null) {
+            const slug = slugOf(line.slice(heading[0].length))
+            if (slug !== '' && slugs.has(slug)) sawUnsafeInLatex = true
+          }
+        }
+      }
+      const scanned = scanLatexDisplayLine(line, true, 0)
+      if (!scanned.open) {
         latexMathOpen = false
+        sawUnsafeInLatex = false
+        inlineCodeTicks = scanned.codeTicks
         previousBlank = false
         inList = false
         previousLineIndented = false
+      } else {
+        previousBlank = blankInside
       }
       continue
     }
@@ -270,23 +342,31 @@ export function splitMarkdownBlocks(text, options = {}) {
       const opening = fenceOpen(line)
       if (opening !== null) {
         fence = opening
+        inlineCodeTicks = 0
         if (opening.indent === 0) inList = false
       } else {
         const mathOpening = mathFenceOpen(line)
         if (mathOpening !== null) {
           mathFence = mathOpening
+          inlineCodeTicks = 0
           if (mathOpening.indent === 0) inList = false
         } else {
           // A fence or display math nested behind a container prefix (`- ```js`, `> $$`)
           // cannot be tracked safely without container state. Fall back to whole-doc parse.
           if (stripped !== line && (fenceOpen(stripped) !== null || MATH_FENCE_OPEN.test(stripped))) return null
-          if (line.includes('\\[') && scanLatexDisplayLine(line, false)) {
-            if (stripped !== line) return null
-            latexMathOpen = true
-            inList = false
-            previousBlank = false
-            previousLineIndented = false
-            continue
+          const needsLatexScan = inlineCodeTicks > 0 || line.includes('`') || line.includes('\\[')
+          if (needsLatexScan) {
+            const scanned = scanLatexDisplayLine(line, false, inlineCodeTicks)
+            inlineCodeTicks = scanned.codeTicks
+            if (scanned.open) {
+              if (stripped !== line) return null
+              latexMathOpen = true
+              sawUnsafeInLatex = false
+              inList = false
+              previousBlank = false
+              previousLineIndented = false
+              continue
+            }
           }
           // Duplicate ATX heading slugs are resolved document-wide (`# A` then `# A` again
           // becomes `a` and `a-1`); checking them in the same pass keeps fence state identical.
@@ -308,23 +388,31 @@ export function splitMarkdownBlocks(text, options = {}) {
       if (line.includes('<') && RAW_HTML_BLOCK.test(line)) return null
       if (line.includes(':::') && CONTAINER_DIRECTIVE.test(line)) return null
       const isListMarker = LIST_MARKER.test(line)
-      if (!previousBlank && (SETEXT_EQUALS.test(line) || (SETEXT_DASHES.test(line) && !(inList && isListMarker)))) return null
+      const isUnindentedListDash = leadingSpaces(line) === 0 && inList && isListMarker
+      if (!previousBlank && (SETEXT_EQUALS.test(line) || (SETEXT_DASHES.test(line) && !isUnindentedListDash))) return null
       previousBlank = false
       if (isListMarker) inList = true
-      else if (ATX_HEADING.test(line) || THEMATIC_BREAK.test(line)) inList = false
+      else if (ATX_HEADING.test(line) || THEMATIC_BREAK.test(line)) {
+        inList = false
+        inlineCodeTicks = 0
+      }
       previousLineIndented = line.startsWith(' ') || line.startsWith('\t')
       continue
     }
+    inlineCodeTicks = 0
     // A run of blank lines: only the last one can close a block, and only when the next
     // line is real content that cannot continue what came before. The final line never
     // has a successor, so no boundary opens after it.
     if (index + 1 < lines.length && !BLANK.test(lines[index + 1])) {
       const next = lines[index + 1]
       const indented = next.startsWith(' ') || next.startsWith('\t')
-      // A list marker on the far side threatens the split whenever the near side belongs
-      // to an open list (including lazy continuation lines) or an indented line. After
-      // plain text outside any list, the marker plainly starts a new list.
-      const continuesList = LIST_MARKER.test(next) && (inList || previousLineIndented)
+      const isFinalLine = index + 1 === lines.length - 1
+      const pendingOrderedMarker = isFinalLine && BARE_ORDERED_PREFIX.test(next)
+      // A list marker (or trailing bare digit that may become `2.` on the next stream chunk)
+      // on the far side threatens the split whenever the near side belongs to an open list
+      // (including lazy continuation lines) or an indented line. After plain text outside
+      // any list, the marker plainly starts a new list.
+      const continuesList = (LIST_MARKER.test(next) || pendingOrderedMarker) && (inList || previousLineIndented)
       if (!indented && !continuesList) {
         ends.push(starts[index + 1])
         inList = false
@@ -332,6 +420,7 @@ export function splitMarkdownBlocks(text, options = {}) {
     }
     previousBlank = true
   }
+  if (latexMathOpen && sawUnsafeInLatex) return null
   if (ends.length === 0) return [text]
   const blocks = []
   let from = 0
