@@ -501,6 +501,7 @@ export async function createProxyBridge({
       if (!upstreamReq) throw lastError ?? new Error('No proxy candidate succeeded')
 
       upstreamReq.on('response', (upstreamRes) => {
+        upstreamReq.setTimeout(0)
         if (res.headersSent || res.destroyed) { upstreamRes.resume(); upstreamReq.destroy(); upstreamSocket?.destroy(); return }
         res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers)
         res.once('finish', () => { upstreamSocket?.destroy() })

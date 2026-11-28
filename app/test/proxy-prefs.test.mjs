@@ -93,6 +93,14 @@ test('isLoopbackHost and matchesBypass cover loopback, wildcards, suffixes, port
   assert.deepEqual(parseAuthority('127.1:8080'), { host: '127.0.0.1', port: 8080 })
   assert.deepEqual(parseAuthority('2130706433:8080'), { host: '127.0.0.1', port: 8080 })
   assert.deepEqual(parseAuthority('[0:0:0:0:0:0:0:1]:8080'), { host: '::1', port: 8080 })
+  assert.deepEqual(parseAuthority('example.com:80'), { host: 'example.com', port: 80 })
+  assert.deepEqual(parseAuthority('[::1]:80'), { host: '::1', port: 80 })
+  assert.equal(parseAuthority('example.com'), null)
+  assert.equal(parseAuthority('::1'), null)
+  assert.deepEqual(parsePacProxyList('PROXY proxy.corp:80; DIRECT'), [
+    { type: 'http', host: 'proxy.corp', port: 80, username: '', password: '' },
+    { type: 'direct' },
+  ])
 
   assert.equal(matchesBypass('127.0.0.1', 3080, ''), true)
   assert.equal(matchesBypass('api.corp.local', 443, '.corp.local, 10.0.0.0/8, *.internal.net:8443'), true)

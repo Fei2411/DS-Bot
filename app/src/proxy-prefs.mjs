@@ -275,6 +275,13 @@ export function matchesBypass(hostname, port, bypassList, { bypassLoopback = tru
 export function parseAuthority(raw) {
   const trimmed = String(raw ?? '').trim()
   if (!trimmed || WHITESPACE_OR_CONTROL.test(trimmed)) return null
+  // Require an explicit `:port` suffix before WHATWG URL parsing strips default port 80.
+  const portMatch = trimmed.startsWith('[')
+    ? trimmed.match(/\]:(\d+)$/u)
+    : (trimmed.indexOf(':') === trimmed.lastIndexOf(':') ? trimmed.match(/:(\d+)$/u) : null)
+  if (!portMatch) return null
+  const explicitPort = Number(portMatch[1])
+  if (!Number.isInteger(explicitPort) || explicitPort < 1 || explicitPort > 65535) return null
   let parsed
   try {
     parsed = new URL(`http://${trimmed}`)
@@ -282,10 +289,9 @@ export function parseAuthority(raw) {
     return null
   }
   if (parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.pathname && parsed.pathname !== '/')) return null
-  if (!parsed.port) return null
   const host = stripBrackets(parsed.hostname)
-  const port = Number(parsed.port)
-  if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null
+  const port = parsed.port ? Number(parsed.port) : explicitPort
+  if (!host || port !== explicitPort) return null
   return { host, port }
 }
 
