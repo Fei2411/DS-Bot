@@ -82,10 +82,14 @@ describe('searchSelectorPatch', () => {
     assert.deepEqual(overlay, [{ id: 'web', name: DSH_WEB, config: { searchProvider: 'auto', fetchProvider: 'http' } }])
   })
 
-  test('clears searchProvider when the base web row has no config object', () => {
+  test('clears searchProvider when the base web row has no config object while preserving explicit fetchProvider', () => {
     assert.deepEqual(searchSelectorPatch(track([disabledAuto], { baseConfig: null })), [
-      { id: 'web', name: DSH_WEB, config: {} },
+      { id: 'web', name: DSH_WEB, config: { fetchProvider: 'http' } },
     ])
+    assert.deepEqual(
+      searchSelectorPatch(track([disabledAuto, { id: 'web', config: { searchProvider: 'auto', fetchProvider: 'deepseek-fetch-api' } }], { baseConfig: null })),
+      [{ id: 'web', name: DSH_WEB, config: { fetchProvider: 'deepseek-fetch-api' } }],
+    )
   })
 
   test('does nothing when base bundles select auto or provide no web row', () => {

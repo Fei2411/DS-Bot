@@ -1013,7 +1013,8 @@ function buildWebProviderOptions(kind, registered, currentId, baseId = '') {
   const sorted = [...list].sort((a, b) => (rank(a.id) - rank(b.id)) || a.id.localeCompare(b.id))
   const hasAutoProvider = list.some(item => item?.id === 'auto')
   const includeUnsetAuto = (!baseId && !hasAutoProvider) || currentId === ''
-  const options = includeUnsetAuto ? [{ value: '', label: t('Automatic') }] : []
+  const unsetLabel = hasAutoProvider ? t('Default') : t('Automatic')
+  const options = includeUnsetAuto ? [{ value: '', label: unsetLabel }] : []
   const seen = new Set(includeUnsetAuto ? [''] : [])
   for (const item of sorted) {
     if (!item?.id || seen.has(item.id)) continue

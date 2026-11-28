@@ -165,7 +165,7 @@ Each result starts with a `Search backend: …` line that names the path it took
   name: '@deepseek-ai/dsh-web'
   config:
     searchProvider: deepseek-official
-    fetchProvider: http
+    fetchProvider: auto
 ```
 
 Another plugin can also set the search provider while dsh runs, after the profile patch. When you turn such a plugin off, check this setting again.

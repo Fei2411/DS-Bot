@@ -39,14 +39,14 @@ export function searchSelectorPatch(profile) {
   const fixSearch = searchStale && original.config?.searchProvider !== 'auto'
   const fixFetch = fetchStale && original.config?.fetchProvider !== 'auto'
   if (!fixSearch && !fixFetch) return undefined
-  const nextConfig = { ...(original.config ?? {}) }
-  if (!fixSearch && web?.config?.searchProvider !== undefined) {
-    nextConfig.searchProvider = web.config.searchProvider
+  const nextConfig = { ...(web?.config ?? {}) }
+  if (fixSearch) {
+    if (original.config?.searchProvider !== undefined) nextConfig.searchProvider = original.config.searchProvider
+    else delete nextConfig.searchProvider
   }
-  if (!fixFetch && web?.config?.fetchProvider !== undefined) {
-    if (original.config !== undefined || web.config.fetchProvider === 'auto') {
-      nextConfig.fetchProvider = web.config.fetchProvider
-    }
+  if (fixFetch) {
+    if (original.config?.fetchProvider !== undefined) nextConfig.fetchProvider = original.config.fetchProvider
+    else delete nextConfig.fetchProvider
   }
   return [{ id: 'web', name: original.name, config: nextConfig }]
 }

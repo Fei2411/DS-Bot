@@ -1,12 +1,14 @@
 // Electron main-process bridge for `ds-bot/web-fetch`'s isolated browser fallback.
 //
-// Each request runs in a fresh, non-persistent (in-memory) Electron session and a hidden
-// sandboxed BrowserWindow, so no user or Bot cookies/storage are ever read or written.
-// Electron's Chromium automatically inherits the OS system proxy, real Chromium TLS/HTTP2
-// stack, and full JavaScript execution for SPA / WAF-protected pages, while passively
-// reading the rendered page (never clicking or solving CAPTCHAs).
-import { randomUUID } from 'node:crypto'
-import { classifyContentType, isPrivateHost, validateFetchUrl } from 'ds-bot/web-fetch'
+// Each request borrows an exclusive slot from a bounded pool of non-persistent (in-memory)
+// Electron partitions and runs in a hidden, muted, non-focusable, sandboxed BrowserWindow.
+// Partition storage, cache, auth cache, and request listeners are cleaned before the slot
+// returns to the pool, so no user or Bot cookies/storage are ever read or leaked and
+// ElectronBrowserContext instances stay bounded. Passively reads rendered DOM (never clicks
+// or solves CAPTCHAs).
+import { lookup as dnsLookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
+import { classifyContentType, isPrivateHost, isPrivateIP, validateFetchUrl } from 'ds-bot/web-fetch'
 
 const DEFAULT_MAX_CONCURRENT = 3
 const MIN_TIMEOUT_MS = 1_000
@@ -16,6 +18,8 @@ const MAX_BODY_CHARS = 500_000
 const SETTLE_POLL_MS = 350
 const MAX_SETTLE_WAIT_MS = 2_500
 const STABLE_TEXT_CHARS = 300
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+const BLOCKED_STATUSES = new Set([403, 406, 429, 503, 520, 521, 522, 523, 524, 525, 526])
 
 const clamp = (value, min, max, fallback) => {
   const n = Number(value)
@@ -41,53 +45,107 @@ const EXTRACT_SCRIPT = `(() => {
 
 const TEXT_LEN_SCRIPT = `(() => (document.body ? (document.body.innerText || '').trim().length : 0))()`
 
+function readHeaderValue(headers, name) {
+  if (!headers || typeof headers !== 'object') return ''
+  const target = name.toLowerCase()
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === target) {
+      return Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '')
+    }
+  }
+  return ''
+}
+
+async function resolvesToPrivate(hostname, lookupImpl) {
+  let host = hostname.trim().toLowerCase()
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1)
+  if (isIP(host) !== 0) return isPrivateIP(host)
+  try {
+    const records = await lookupImpl(host, { all: true, verbatim: true })
+    return Array.isArray(records) && records.some(r => typeof r?.address === 'string' && isPrivateIP(r.address))
+  } catch {
+    // Allow Electron's proxy DNS to resolve; onHeadersReceived also inspects details.ip.
+    return false
+  }
+}
+
 /**
  * Create the IPC handler for `ds-bot:web-fetch` and `ds-bot:web-fetch-abort`.
- * @param {{ BrowserWindow: any, session: any, maxConcurrent?: number, settlePollMs?: number, maxSettleWaitMs?: number }} deps
+ * @param {{ BrowserWindow: any, session: any, lookup?: Function, maxConcurrent?: number, settlePollMs?: number, maxSettleWaitMs?: number }} deps
  */
 export function createWebFetchBridge({
   BrowserWindow,
   session,
+  lookup = dnsLookup,
   maxConcurrent = DEFAULT_MAX_CONCURRENT,
   settlePollMs = SETTLE_POLL_MS,
   maxSettleWaitMs = MAX_SETTLE_WAIT_MS,
 }) {
   let closed = false
-  let running = 0
+  const freeSlots = Array.from({ length: maxConcurrent }, (_, index) => `web-fetch-slot-${index}`)
   const queue = []
   const active = new Map()
 
   const pump = () => {
-    while (!closed && running < maxConcurrent && queue.length > 0) {
+    while (!closed && freeSlots.length > 0 && queue.length > 0) {
       const next = queue.shift()
       if (!next || next.aborted) continue
-      running += 1
-      void runTask(next).finally(() => {
-        running -= 1
+      const partition = freeSlots.shift()
+      void runTask(next, partition).finally(() => {
+        freeSlots.push(partition)
         pump()
       })
     }
   }
 
-  async function runTask(task) {
-    const { id, url, timeoutMs, maxBodyChars, initialPrivate, reply } = task
+  async function runTask(task, partition) {
+    const { id, url, timeoutMs, maxBodyChars, reply } = task
+    const parsedInitial = new URL(url)
+    let initialPrivate = isPrivateHost(parsedInitial.hostname)
     let win
     let ses
     let timer
+    let settleTimer
     let settled = false
     let blockedRedirectHost
+    let unsupportedContentType
+    let downloadTriggered = false
+    let onDownload = null
+    let abortPendingWait = null
+    let cleaned = false
 
-    const cleanup = () => {
+    const destroyWindowAndListeners = () => {
       clearTimeout(timer)
+      clearTimeout(settleTimer)
+      abortPendingWait?.()
+      abortPendingWait = null
       if (win && !win.isDestroyed?.()) {
         try { win.destroy() } catch {}
       }
       win = undefined
-      if (ses) {
-        const target = ses
-        ses = undefined
-        void Promise.resolve(target.clearStorageData?.()).catch(() => {})
-        void Promise.resolve(target.clearCache?.()).catch(() => {})
+    }
+
+    const releaseSession = async () => {
+      if (cleaned) return
+      cleaned = true
+      destroyWindowAndListeners()
+      const target = ses
+      ses = undefined
+      if (target) {
+        try { target.webRequest?.onBeforeRequest?.(null) } catch {}
+        try { target.webRequest?.onHeadersReceived?.(null) } catch {}
+        try { target.webRequest?.onCompleted?.(null) } catch {}
+        try { target.setPermissionRequestHandler?.(null) } catch {}
+        try { target.setPermissionCheckHandler?.(null) } catch {}
+        if (onDownload) {
+          try { target.off?.('will-download', onDownload) } catch {}
+          onDownload = null
+        }
+        await Promise.allSettled([
+          Promise.resolve(target.clearStorageData?.()),
+          Promise.resolve(target.clearCache?.()),
+          Promise.resolve(target.clearAuthCache?.()),
+        ])
       }
       active.delete(id)
     }
@@ -95,7 +153,7 @@ export function createWebFetchBridge({
     const finish = (payload) => {
       if (settled) return
       settled = true
-      cleanup()
+      destroyWindowAndListeners()
       reply(payload)
     }
 
@@ -106,6 +164,7 @@ export function createWebFetchBridge({
 
     if (task.aborted || closed) {
       finish({ type: 'ds-bot:web-fetch-response', id, code: 'WEB_ABORTED', error: 'web fetch aborted' })
+      await releaseSession()
       return
     }
 
@@ -116,17 +175,37 @@ export function createWebFetchBridge({
     }, timeoutMs)
 
     try {
-      // Ephemeral (non-persistent) partition: no `persist:` prefix means memory-only, zero shared cookies.
-      ses = session.fromPartition(`web-fetch-${randomUUID()}`)
+      if (!initialPrivate && isIP(parsedInitial.hostname.replace(/^\[|\]$/g, '')) === 0) {
+        try {
+          const records = await lookup(parsedInitial.hostname, { all: true, verbatim: true })
+          if (Array.isArray(records) && records.length > 0 && records.every(r => typeof r?.address === 'string' && isPrivateIP(r.address))) {
+            initialPrivate = true
+          }
+        } catch {}
+      }
+      // Bounded non-persistent partition pool: memory-only, isolated per slot, cleared on release.
+      ses = session.fromPartition(partition)
       ses.setPermissionRequestHandler?.((_wc, _permission, callback) => { callback(false) })
-      ses.on?.('will-download', (_event, item) => { try { item.cancel() } catch {} })
+      ses.setPermissionCheckHandler?.(() => false)
 
       let mainStatusCode
       let mainContentType = ''
 
+      onDownload = (_event, item) => {
+        try { item.cancel() } catch {}
+        downloadTriggered = true
+        abortPendingWait?.(new Error('download rejected'))
+      }
+      ses.on?.('will-download', onDownload)
+
       ses.webRequest?.onBeforeRequest?.((details, callback) => {
         const reqUrl = String(details?.url ?? '')
-        if (reqUrl.startsWith('data:') || reqUrl.startsWith('blob:') || reqUrl === 'about:blank') {
+        const isMain = details?.resourceType === 'mainFrame'
+        if (reqUrl === 'about:blank') {
+          callback({ cancel: false })
+          return
+        }
+        if (!isMain && (reqUrl.startsWith('data:') || reqUrl.startsWith('blob:'))) {
           callback({ cancel: false })
           return
         }
@@ -141,10 +220,45 @@ export function createWebFetchBridge({
           callback({ cancel: true })
           return
         }
-        if (!initialPrivate && isPrivateHost(parsed.hostname)) {
-          if (details?.resourceType === 'mainFrame') blockedRedirectHost = parsed.hostname
+        if (parsed.username.length > 0 || parsed.password.length > 0) {
           callback({ cancel: true })
           return
+        }
+        if (!initialPrivate) {
+          if (isPrivateHost(parsed.hostname)) {
+            if (isMain) blockedRedirectHost = parsed.hostname
+            callback({ cancel: true })
+            return
+          }
+          if (isIP(parsed.hostname.replace(/^\[|\]$/g, '')) === 0) {
+            void resolvesToPrivate(parsed.hostname, lookup).then((priv) => {
+              if (priv) {
+                if (isMain) blockedRedirectHost = parsed.hostname
+                callback({ cancel: true })
+              } else {
+                callback({ cancel: false })
+              }
+            }, () => callback({ cancel: false }))
+            return
+          }
+        }
+        callback({ cancel: false })
+      })
+
+      ses.webRequest?.onHeadersReceived?.((details, callback) => {
+        const isMain = details?.resourceType === 'mainFrame'
+        if (!initialPrivate && typeof details?.ip === 'string' && details.ip.length > 0 && isPrivateIP(details.ip)) {
+          if (isMain) blockedRedirectHost = details.ip
+          callback({ cancel: true })
+          return
+        }
+        if (isMain && typeof details?.statusCode === 'number' && !REDIRECT_STATUSES.has(details.statusCode)) {
+          const ct = readHeaderValue(details.responseHeaders, 'content-type')
+          if (ct && classifyContentType(ct) === undefined && !BLOCKED_STATUSES.has(details.statusCode)) {
+            unsupportedContentType = ct
+            callback({ cancel: true })
+            return
+          }
         }
         callback({ cancel: false })
       })
@@ -152,17 +266,14 @@ export function createWebFetchBridge({
       ses.webRequest?.onCompleted?.((details) => {
         if (details?.resourceType !== 'mainFrame') return
         if (typeof details.statusCode === 'number') mainStatusCode = details.statusCode
-        const headers = details.responseHeaders ?? {}
-        for (const [key, value] of Object.entries(headers)) {
-          if (key.toLowerCase() === 'content-type') {
-            mainContentType = Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '')
-            break
-          }
-        }
+        const ct = readHeaderValue(details.responseHeaders, 'content-type')
+        if (ct) mainContentType = ct
       })
 
       win = new BrowserWindow({
         show: false,
+        skipTaskbar: true,
+        focusable: false,
         width: 1280,
         height: 900,
         webPreferences: {
@@ -177,31 +288,46 @@ export function createWebFetchBridge({
         },
       })
       const wc = win.webContents
+      wc.setAudioMuted?.(true)
       wc.setWindowOpenHandler?.(() => ({ action: 'deny' }))
       wc.on?.('login', (event) => { event.preventDefault?.() })
+      wc.on?.('select-client-certificate', (event) => { event.preventDefault?.() })
 
       await new Promise((resolve, reject) => {
-        if (task.aborted) { reject(new Error('aborted')); return }
-        const onFinish = () => {
+        if (task.aborted || settled) { reject(new Error('aborted')); return }
+        let done = false
+        const settleLoad = (fn, value) => {
+          if (done) return
+          done = true
+          abortPendingWait = null
+          wc.off?.('did-finish-load', onFinish)
           wc.off?.('did-fail-load', onFail)
-          resolve()
+          wc.off?.('destroyed', onGone)
+          wc.off?.('render-process-gone', onGone)
+          fn(value)
         }
+        const onFinish = () => settleLoad(resolve)
+        const onGone = () => settleLoad(reject, new Error('renderer closed'))
         const onFail = (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
           if (isMainFrame === false) return
-          // -3 is ERR_ABORTED, emitted routinely when a page redirects mid-load.
-          if (errorCode === -3 && !blockedRedirectHost) return
-          wc.off?.('did-finish-load', onFinish)
-          reject(new Error(blockedRedirectHost
+          // -3 is ERR_ABORTED, emitted routinely during redirects unless we deliberately blocked/cancelled.
+          if (errorCode === -3 && !blockedRedirectHost && !unsupportedContentType && !downloadTriggered && !task.aborted) return
+          settleLoad(reject, new Error(blockedRedirectHost
             ? `redirect from public host to private address (${blockedRedirectHost}) is blocked`
-            : `load failed (${errorCode}): ${errorDescription || 'network error'}`))
+            : unsupportedContentType
+              ? `unsupported content type "${unsupportedContentType}"`
+              : downloadTriggered
+                ? 'unsupported downloadable content'
+                : `load failed (${errorCode}): ${errorDescription || 'network error'}`))
         }
+        abortPendingWait = (err) => settleLoad(reject, err ?? new Error('aborted'))
         wc.once('did-finish-load', onFinish)
         wc.on('did-fail-load', onFail)
+        wc.once?.('destroyed', onGone)
+        wc.once?.('render-process-gone', onGone)
         void Promise.resolve(wc.loadURL(url)).catch((error) => {
-          if (error?.code === 'ERR_ABORTED' && !blockedRedirectHost) return
-          wc.off?.('did-finish-load', onFinish)
-          wc.off?.('did-fail-load', onFail)
-          reject(error)
+          if (error?.code === 'ERR_ABORTED' && !blockedRedirectHost && !unsupportedContentType && !downloadTriggered && !task.aborted) return
+          settleLoad(reject, error)
         })
       })
 
@@ -219,17 +345,27 @@ export function createWebFetchBridge({
           prevLen = len
           const wait = Math.min(settlePollMs, settleDeadline - Date.now())
           if (wait <= 0) break
-          await new Promise(resolve => setTimeout(resolve, wait))
+          await new Promise((resolve) => {
+            const doneWait = () => {
+              clearTimeout(settleTimer)
+              abortPendingWait = null
+              resolve()
+            }
+            abortPendingWait = doneWait
+            settleTimer = setTimeout(doneWait, wait)
+          })
         }
       }
 
       if (task.aborted || settled) return
 
       const extracted = await wc.executeJavaScript(EXTRACT_SCRIPT, true)
+      if (task.aborted || settled) return
+
       const finalUrl = String(extracted?.url || wc.getURL?.() || url)
+      const parsedFinal = validateFetchUrl(finalUrl)
       if (!initialPrivate) {
-        const parsedFinal = validateFetchUrl(finalUrl)
-        if (isPrivateHost(parsedFinal.hostname)) {
+        if (isPrivateHost(parsedFinal.hostname) || await resolvesToPrivate(parsedFinal.hostname, lookup)) {
           finish({
             type: 'ds-bot:web-fetch-response',
             id,
@@ -241,7 +377,17 @@ export function createWebFetchBridge({
       }
 
       const effectiveContentType = mainContentType || String(extracted?.contentType ?? '')
-      const kind = classifyContentType(effectiveContentType) === 'text' ? 'text' : 'html'
+      const classified = classifyContentType(effectiveContentType)
+      if (effectiveContentType && classified === undefined) {
+        finish({
+          type: 'ds-bot:web-fetch-response',
+          id,
+          code: 'WEB_UNSUPPORTED_CONTENT_TYPE',
+          error: `unsupported content type "${effectiveContentType}"`,
+        })
+        return
+      }
+      const kind = classified === 'text' ? 'text' : 'html'
       const raw = kind === 'text' ? String(extracted?.text ?? '') : String(extracted?.html ?? '')
       const truncated = raw.length > maxBodyChars
       const content = truncated ? raw.slice(0, maxBodyChars) : raw
@@ -257,13 +403,19 @@ export function createWebFetchBridge({
       })
     } catch (error) {
       if (task.aborted || settled) return
-      const code = blockedRedirectHost ? 'WEB_REDIRECT_BLOCKED' : 'WEB_PROVIDER_ERROR'
+      const code = blockedRedirectHost
+        ? 'WEB_REDIRECT_BLOCKED'
+        : (unsupportedContentType || downloadTriggered)
+          ? 'WEB_UNSUPPORTED_CONTENT_TYPE'
+          : 'WEB_PROVIDER_ERROR'
       finish({
         type: 'ds-bot:web-fetch-response',
         id,
         code,
         error: error?.message ?? String(error),
       })
+    } finally {
+      await releaseSession()
     }
   }
 
@@ -298,7 +450,7 @@ export function createWebFetchBridge({
       const task = {
         id: message.id,
         url: parsedUrl.toString(),
-        timeoutMs: clamp(message.timeoutMs, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, 20_000),
+        timeoutMs: clamp(message.timeoutMs, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, 15_000),
         maxBodyChars: clamp(message.maxBodyChars, MIN_BODY_CHARS, MAX_BODY_CHARS, 100_000),
         initialPrivate: isPrivateHost(parsedUrl.hostname),
         aborted: false,
