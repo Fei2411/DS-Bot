@@ -853,8 +853,7 @@ export function install(rt) {
     if (botId === undefined && room === undefined && rt.agentOf?.(sessionId) === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
     const requestedAuthorId = trustedAuthorId ?? body.botId
     const authorId = room !== undefined && typeof requestedAuthorId === 'string' && rt.botOf(requestedAuthorId) !== undefined
-      && (botId === undefined || botId === requestedAuthorId)
-      && (room.members.includes(requestedAuthorId) || botId === requestedAuthorId || trustedAuthorId === requestedAuthorId)
+      && (room.members?.includes(requestedAuthorId) || rt.botOf(requestedAuthorId)?.private !== true)
       ? requestedAuthorId
       : undefined
     const targetSessionId = room !== undefined
@@ -908,7 +907,7 @@ export function install(rt) {
         // A room's shared Session does not prove which Bot supplied a link.
         if (!allowed && roomId !== undefined && botId === undefined && typeof requestedAuthorId === 'string'
           && rt.extraDirsOf({ botId: requestedAuthorId, roomId }).some(containsImage)) {
-          allowed = (trustedAuthorId === requestedAuthorId && authorId === requestedAuthorId)
+          allowed = trustedAuthorId === requestedAuthorId
             || await roomHasImageReply(roomId, targetSessionId, requestedAuthorId, raw)
         }
       }

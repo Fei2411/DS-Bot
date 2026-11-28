@@ -1181,6 +1181,23 @@ test('markdown-image opens images from the chat and group author’s configured 
   assert.equal((await read(groupId, roomImage, chief)).value?.bytes, bytes.toString('base64'))
 })
 
+test('markdown-image still opens workspace images from a nonmember Main Bot in a group', async (t) => {
+  const { call, rt, stop } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-md-main-workspace-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const plot = join(root, 'plot.png')
+  writeFileSync(plot, 'main workspace')
+  rt.state.bots[chief].workDir = root
+  rt.state.rooms[room.id].members = [writer.id]
+  const sessionId = rt.sessionOfRoom(rt.state.rooms[room.id])
+  for (const path of [plot, './plot.png']) {
+    const image = await call('markdown-image', { sessionId, botId: chief, path })
+    assert.equal(image.value?.bytes, Buffer.from('main workspace').toString('base64'))
+  }
+})
+
 test('markdown-image keeps configured extra-folder roots anchored after symlink replacement (#2405)', async (t) => {
   const { call, rt, stop } = start()
   t.after(stop)
