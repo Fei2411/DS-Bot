@@ -2975,13 +2975,7 @@ export const ES = {
   "Filter by Bot or group chat": "Filtrar por Bot o chat de grupo",
   "Engine settings are read-only in this profile.": "Los ajustes del motor son de solo lectura en este perfil.",
   "Overridden by {fields}": "Anulado por {fields}",
-  "Max response bytes": "Bytes máximos de respuesta",
-  "Max body chars": "Caracteres máximos del cuerpo",
-  "Max redirects": "Redirecciones máximas",
-  "User agent": "User-Agent",
-  "Max session log bytes": "Bytes máximos del registro de sesión",
   "Managed by environment": "Gestionado por el entorno",
-  "Enter a positive integer": "Introduce un entero positivo",
 }
 
 export const HOST_ERRORS_ES = [

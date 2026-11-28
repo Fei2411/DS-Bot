@@ -60,7 +60,6 @@ const ENGINE_NAMESPACE_META = {
   'web-search-deepseek': { titleKey: 'Web search', order: 20 },
   'web-deepseek-api': { titleKey: 'Web search API', order: 21 },
   web: { titleKey: 'Web', order: 22 },
-  'web-fetch-http': { titleKey: 'Direct HTTP', order: 23 },
   'bash-sandbox': { titleKey: 'Shell (Bash)', order: 30 },
   'bash-local': { titleKey: 'Shell (Bash)', order: 30 },
   'pwsh-sandbox': { titleKey: 'Shell (PowerShell)', order: 31 },
@@ -115,7 +114,7 @@ const BUILTIN_CONFIG_GROUPS = [
     id: 'web-search',
     titleKey: 'Web search',
     icon: GlobeIcon,
-    namespaces: ['web-search-deepseek', 'web-deepseek-api', 'web', 'web-fetch-http'],
+    namespaces: ['web-search-deepseek', 'web-deepseek-api', 'web'],
   },
   {
     id: 'shell',
@@ -213,10 +212,6 @@ const ENGINE_FIELD_LABELS = {
   searchBilling: 'Search billing',
   fetchBilling: 'Fetch billing',
   searchRequestsPerSecond: 'Search requests per second',
-  maxResponseBytes: 'Max response bytes',
-  maxBodyChars: 'Max body chars',
-  maxRedirects: 'Max redirects',
-  userAgent: 'User agent',
   cwd: 'Working directory',
   timeout: 'Timeout',
   timeoutMs: 'Timeout (ms)',
@@ -1260,7 +1255,7 @@ function CredentialRefRow({ refName, readOnly = false, fallbackField = null, fal
   }
 
   const clearKey = async () => {
-    if (locked || !state.configured) return
+    if (locked || !state.configured || state.source === 'env') return
     setBusy(true)
     setErr('')
     try {
@@ -1279,7 +1274,8 @@ function CredentialRefRow({ refName, readOnly = false, fallbackField = null, fal
     }
   }
 
-  const statusTag = !state.writable
+  const envManaged = !state.writable || state.source === 'env'
+  const statusTag = envManaged
     ? t('Managed by environment')
     : state.configured ? t('Configured') : t('Not set')
 
@@ -1304,7 +1300,7 @@ function CredentialRefRow({ refName, readOnly = false, fallbackField = null, fal
           disabled: locked || draft.trim() === '',
           onClick: () => { void saveKey() },
         }, t('Save')),
-        state.configured && state.writable
+        state.configured && state.writable && state.source !== 'env'
           ? h('button', {
             type: 'button',
             className: 'bt-soft bt-soft-sm',
@@ -1320,7 +1316,6 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
   const webEntry = byNs.get('web')
   const apiEntry = byNs.get('web-deepseek-api')
   const legacyEntry = byNs.get('web-search-deepseek')
-  const httpFetchEntry = byNs.get('web-fetch-http')
 
   const [providers, setProviders] = useState({ loaded: false, available: false, search: [], fetch: [], error: '' })
   const loadProviders = useCallback(async () => {
@@ -1373,17 +1368,6 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
     ? legacyEntry.descriptor.value.apiKeyEnv.trim()
     : 'DEEPSEEK_API_KEY'
 
-  const storedHttpMaxBytes = httpFetchEntry?.descriptor?.value?.maxResponseBytes
-  const baseHttpMaxBytes = readPath(httpFetchEntry?.descriptor?.base, ['maxResponseBytes']) ?? 5_000_000
-  const storedHttpMaxChars = httpFetchEntry?.descriptor?.value?.maxBodyChars
-  const baseHttpMaxChars = readPath(httpFetchEntry?.descriptor?.base, ['maxBodyChars']) ?? 100_000
-  const storedHttpTimeout = httpFetchEntry?.descriptor?.value?.timeoutMs
-  const baseHttpTimeout = readPath(httpFetchEntry?.descriptor?.base, ['timeoutMs']) ?? 30_000
-  const storedHttpMaxRedirects = httpFetchEntry?.descriptor?.value?.maxRedirects
-  const baseHttpMaxRedirects = readPath(httpFetchEntry?.descriptor?.base, ['maxRedirects']) ?? 5
-  const storedHttpUserAgent = httpFetchEntry?.descriptor?.value?.userAgent ?? ''
-  const baseHttpUserAgent = readPath(httpFetchEntry?.descriptor?.base, ['userAgent']) ?? ''
-
   const searchOverrideFields = [
     ...(typeof apiEntry?.descriptor?.value?.searchBaseURL === 'string' && apiEntry.descriptor.value.searchBaseURL.trim() !== '' ? ['searchBaseURL'] : []),
     ...(typeof apiEntry?.descriptor?.value?.searchApiKeyEnv === 'string' && apiEntry.descriptor.value.searchApiKeyEnv.trim() !== '' ? ['searchApiKeyEnv'] : []),
@@ -1425,8 +1409,19 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
     setResetFlags(prev => ({ ...prev, [key]: true }))
   }
 
-  const searchProvider = hasOv('web:searchProvider') ? overrides['web:searchProvider'] : storedSearchProvider
-  const fetchProvider = hasOv('web:fetchProvider') ? overrides['web:fetchProvider'] : storedFetchProvider
+  const baseSearchProvider = typeof webEntry?.descriptor?.base?.searchProvider === 'string'
+    ? webEntry.descriptor.base.searchProvider
+    : ''
+  const baseFetchProvider = typeof webEntry?.descriptor?.base?.fetchProvider === 'string'
+    ? webEntry.descriptor.base.fetchProvider
+    : ''
+
+  const searchProvider = resetFlags['web:searchProvider']
+    ? baseSearchProvider
+    : hasOv('web:searchProvider') ? overrides['web:searchProvider'] : storedSearchProvider
+  const fetchProvider = resetFlags['web:fetchProvider']
+    ? baseFetchProvider
+    : hasOv('web:fetchProvider') ? overrides['web:fetchProvider'] : storedFetchProvider
   const countText = resetFlags['web-deepseek-api:count']
     ? String(baseCount)
     : hasOv('web-deepseek-api:count') ? overrides['web-deepseek-api:count'] : fieldInputString(storedCount ?? baseCount)
@@ -1458,33 +1453,11 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
     ? String(baseLegacyMaxTokens)
     : hasOv('web-search-deepseek:maxTokens') ? overrides['web-search-deepseek:maxTokens'] : fieldInputString(storedLegacyMaxTokens ?? baseLegacyMaxTokens)
 
-  const httpMaxBytesText = resetFlags['web-fetch-http:maxResponseBytes']
-    ? String(baseHttpMaxBytes)
-    : hasOv('web-fetch-http:maxResponseBytes') ? overrides['web-fetch-http:maxResponseBytes'] : fieldInputString(storedHttpMaxBytes ?? baseHttpMaxBytes)
-  const httpMaxCharsText = resetFlags['web-fetch-http:maxBodyChars']
-    ? String(baseHttpMaxChars)
-    : hasOv('web-fetch-http:maxBodyChars') ? overrides['web-fetch-http:maxBodyChars'] : fieldInputString(storedHttpMaxChars ?? baseHttpMaxChars)
-  const httpTimeoutText = resetFlags['web-fetch-http:timeoutMs']
-    ? String(baseHttpTimeout)
-    : hasOv('web-fetch-http:timeoutMs') ? overrides['web-fetch-http:timeoutMs'] : fieldInputString(storedHttpTimeout ?? baseHttpTimeout)
-  const httpMaxRedirectsText = resetFlags['web-fetch-http:maxRedirects']
-    ? String(baseHttpMaxRedirects)
-    : hasOv('web-fetch-http:maxRedirects') ? overrides['web-fetch-http:maxRedirects'] : fieldInputString(storedHttpMaxRedirects ?? baseHttpMaxRedirects)
-  const httpUserAgentText = resetFlags['web-fetch-http:userAgent']
-    ? String(baseHttpUserAgent)
-    : hasOv('web-fetch-http:userAgent') ? overrides['web-fetch-http:userAgent'] : storedHttpUserAgent
-
   const resetDraft = useCallback(() => {
     setOverrides({})
     setResetFlags({})
   }, [])
 
-  const baseSearchProvider = typeof webEntry?.descriptor?.base?.searchProvider === 'string'
-    ? webEntry.descriptor.base.searchProvider
-    : ''
-  const baseFetchProvider = typeof webEntry?.descriptor?.base?.fetchProvider === 'string'
-    ? webEntry.descriptor.base.fetchProvider
-    : ''
   const searchOptions = useMemo(
     () => buildWebProviderOptions('search', providers.search, searchProvider, baseSearchProvider),
     [providers.search, searchProvider, baseSearchProvider],
@@ -1494,10 +1467,12 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
     [providers.fetch, fetchProvider, baseFetchProvider],
   )
 
-  const showSearchApiFields = Boolean(apiEntry) && (searchProvider === 'deepseek-search-api' || searchProvider === 'auto' || searchProvider === '' || !providers.available)
-  const showLegacyFields = Boolean(legacyEntry) && (searchProvider === 'deepseek-official' || searchProvider === 'auto' || searchProvider === '' || !providers.available)
-  const showFetchApiFields = Boolean(apiEntry) && (fetchProvider === 'deepseek-fetch-api' || fetchProvider === 'auto' || fetchProvider === '' || !providers.available)
-  const showHttpFetchFields = Boolean(httpFetchEntry) && (fetchProvider === 'http' || fetchProvider === 'auto' || fetchProvider === '' || !providers.available)
+  // Only show provider-specific fields for the provider that will actually read them.
+  // DS Bot's default `auto` runs `web-search-auto` / `web-fetch-auto`, which do not read
+  // `web-deepseek-api` or `web-search-deepseek`.
+  const showSearchApiFields = Boolean(apiEntry) && (searchProvider === 'deepseek-search-api' || (!providers.available && searchProvider === ''))
+  const showLegacyFields = Boolean(legacyEntry) && (searchProvider === 'deepseek-official' || (!providers.available && searchProvider === ''))
+  const showFetchApiFields = Boolean(apiEntry) && (fetchProvider === 'deepseek-fetch-api' || (!providers.available && fetchProvider === ''))
 
   const hasSearchRpsField = storedSearchRps !== undefined || readPath(apiEntry?.descriptor?.base, ['searchRequestsPerSecond']) !== undefined
   const hasSendOriginalField = storedSendOriginal !== undefined || readPath(apiEntry?.descriptor?.base, ['sendOriginalQuestion']) !== undefined
@@ -1511,13 +1486,8 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
   const searchRpsCheck = showSearchApiFields && hasSearchRpsField ? validateNumberText(searchRpsText, { min: 1, integer: true }) : { ok: true, empty: true }
   const maxUsesCheck = showLegacyFields ? validateNumberText(maxUsesText, { min: 1, integer: true }) : { ok: true, empty: true }
   const legacyMaxTokensCheck = showLegacyFields && hasLegacyMaxTokensField ? validateNumberText(legacyMaxTokensText, { min: 1, integer: true }) : { ok: true, empty: true }
-  const httpMaxBytesCheck = showHttpFetchFields ? validateNumberText(httpMaxBytesText, { min: 1, integer: true }) : { ok: true, empty: true }
-  const httpMaxCharsCheck = showHttpFetchFields ? validateNumberText(httpMaxCharsText, { min: 1, integer: true }) : { ok: true, empty: true }
-  const httpTimeoutCheck = showHttpFetchFields ? validateNumberText(httpTimeoutText, { min: 1, integer: true }) : { ok: true, empty: true }
-  const httpMaxRedirectsCheck = showHttpFetchFields ? validateNumberText(httpMaxRedirectsText, { min: 0, integer: true }) : { ok: true, empty: true }
 
   const invalid = !countCheck.ok || !searchRpsCheck.ok || !maxUsesCheck.ok || !legacyMaxTokensCheck.ok
-    || !httpMaxBytesCheck.ok || !httpMaxCharsCheck.ok || !httpTimeoutCheck.ok || !httpMaxRedirectsCheck.ok
 
   // Build ordered mutations: provider config namespaces first, then `web` selection last.
   // Track exact field keys per namespace so saving visible fields never discards unsaved edits
@@ -1638,50 +1608,25 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
     if (ops.length > 0) pendingByNs.push({ descriptor: legacyEntry.descriptor, ops, keys })
   }
 
-  if (httpFetchEntry && showHttpFetchFields) {
-    const ops = []
-    const keys = [
-      'web-fetch-http:maxResponseBytes',
-      'web-fetch-http:maxBodyChars',
-      'web-fetch-http:timeoutMs',
-      'web-fetch-http:maxRedirects',
-      'web-fetch-http:userAgent',
-    ]
-    for (const k of keys) visibleKeys.add(k)
-    const numFields = [
-      ['maxResponseBytes', httpMaxBytesCheck, storedHttpMaxBytes, baseHttpMaxBytes],
-      ['maxBodyChars', httpMaxCharsCheck, storedHttpMaxChars, baseHttpMaxChars],
-      ['timeoutMs', httpTimeoutCheck, storedHttpTimeout, baseHttpTimeout],
-      ['maxRedirects', httpMaxRedirectsCheck, storedHttpMaxRedirects, baseHttpMaxRedirects],
-    ]
-    for (const [name, check, stored, base] of numFields) {
-      const k = `web-fetch-http:${name}`
-      if (resetFlags[k]) {
-        if (hasPath(httpFetchEntry.descriptor.user, [name]) || stored !== base) ops.push({ op: 'unset', path: [name] })
-      } else if (check.ok) {
-        if (check.empty && stored !== undefined) ops.push({ op: 'unset', path: [name] })
-        else if (!check.empty && check.value !== stored) ops.push({ op: 'set', path: [name], value: check.value })
-      }
-    }
-    if (resetFlags['web-fetch-http:userAgent']) {
-      if (hasPath(httpFetchEntry.descriptor.user, ['userAgent']) || storedHttpUserAgent !== baseHttpUserAgent) ops.push({ op: 'unset', path: ['userAgent'] })
-    } else if (httpUserAgentText !== storedHttpUserAgent) {
-      ops.push(httpUserAgentText.trim() === '' ? { op: 'unset', path: ['userAgent'] } : { op: 'set', path: ['userAgent'], value: httpUserAgentText.trim() })
-    }
-    if (ops.length > 0) pendingByNs.push({ descriptor: httpFetchEntry.descriptor, ops, keys })
-  }
-
   if (webEntry) {
     const ops = []
     const keys = ['web:searchProvider', 'web:fetchProvider']
     visibleKeys.add('web:searchProvider')
     visibleKeys.add('web:fetchProvider')
-    if (searchProvider !== storedSearchProvider) {
+    if (resetFlags['web:searchProvider']) {
+      if (hasPath(webEntry.descriptor.user, ['searchProvider']) || storedSearchProvider !== baseSearchProvider) {
+        ops.push({ op: 'unset', path: ['searchProvider'] })
+      }
+    } else if (searchProvider !== storedSearchProvider) {
       ops.push(searchProvider === '' || searchProvider === baseSearchProvider
         ? { op: 'unset', path: ['searchProvider'] }
         : { op: 'set', path: ['searchProvider'], value: searchProvider })
     }
-    if (fetchProvider !== storedFetchProvider) {
+    if (resetFlags['web:fetchProvider']) {
+      if (hasPath(webEntry.descriptor.user, ['fetchProvider']) || storedFetchProvider !== baseFetchProvider) {
+        ops.push({ op: 'unset', path: ['fetchProvider'] })
+      }
+    } else if (fetchProvider !== storedFetchProvider) {
       ops.push(fetchProvider === '' || fetchProvider === baseFetchProvider
         ? { op: 'unset', path: ['fetchProvider'] }
         : { op: 'set', path: ['fetchProvider'], value: fetchProvider })
@@ -1721,6 +1666,41 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
     } finally {
       setSaving(false)
     }
+  }
+
+  const resettableKeys = []
+  const pushResettable = (key, overridden, differs) => {
+    if (!resetFlags[key] && (overridden || differs)) resettableKeys.push(key)
+  }
+  if (webEntry) {
+    pushResettable('web:searchProvider', hasPath(webEntry.descriptor.user, ['searchProvider']), searchProvider !== baseSearchProvider)
+    pushResettable('web:fetchProvider', hasPath(webEntry.descriptor.user, ['fetchProvider']), fetchProvider !== baseFetchProvider)
+  }
+  if (showSearchApiFields && apiEntry) {
+    pushResettable('web-deepseek-api:count', hasPath(apiEntry.descriptor.user, ['count']), countText !== String(baseCount))
+    if (hasSearchRpsField) pushResettable('web-deepseek-api:searchRequestsPerSecond', hasPath(apiEntry.descriptor.user, ['searchRequestsPerSecond']), searchRpsText !== String(baseSearchRps))
+    if (hasSendOriginalField) pushResettable('web-deepseek-api:sendOriginalQuestion', hasPath(apiEntry.descriptor.user, ['sendOriginalQuestion']), sendOriginalVal !== Boolean(baseSendOriginal))
+    if (!hasCustomSearchEndpoint) pushResettable('web-deepseek-api:searchBilling', hasPath(apiEntry.descriptor.user, ['searchBilling']), searchBilling !== baseSearchBilling)
+  }
+  if (showFetchApiFields && apiEntry && !hasCustomFetchEndpoint) {
+    pushResettable('web-deepseek-api:fetchBilling', hasPath(apiEntry.descriptor.user, ['fetchBilling']), fetchBilling !== baseFetchBilling)
+  }
+  if (showLegacyFields && legacyEntry) {
+    pushResettable('web-search-deepseek:maxUses', hasPath(legacyEntry.descriptor.user, ['maxUses']), maxUsesText !== String(baseMaxUses))
+    pushResettable('web-search-deepseek:baseURL', hasPath(legacyEntry.descriptor.user, ['baseURL']), baseUrlText !== String(baseBaseUrl))
+    if (hasLegacyModelField) pushResettable('web-search-deepseek:model', hasPath(legacyEntry.descriptor.user, ['model']), legacyModelText !== String(baseLegacyModel))
+    if (hasLegacyApiVersionField) pushResettable('web-search-deepseek:apiVersion', hasPath(legacyEntry.descriptor.user, ['apiVersion']), legacyApiVersionText !== String(baseLegacyApiVersion))
+    if (hasLegacyMaxTokensField) pushResettable('web-search-deepseek:maxTokens', hasPath(legacyEntry.descriptor.user, ['maxTokens']), legacyMaxTokensText !== String(baseLegacyMaxTokens))
+  }
+  const handleResetAll = () => {
+    if (resettableKeys.length === 0) return
+    setSaved(false)
+    setOverrides(prev => dropKeysFromMap(prev, new Set(resettableKeys)))
+    setResetFlags((prev) => {
+      const next = { ...prev }
+      for (const key of resettableKeys) next[key] = true
+      return next
+    })
   }
 
   const legacySecretField = legacyEntry?.fields?.find(f => f.kind === 'secret') ?? null
@@ -1879,12 +1859,12 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
           !legacyMaxTokensCheck.ok ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, legacyMaxTokensCheck.error) : null) : null,
         h(CredentialRefRow, {
           refName: legacyApiKeyRef,
-          readOnly: readOnly || saving,
+          readOnly: disabled || saving,
           fallbackField: legacySecretField,
           fallbackDisabled: disabled || saving,
           onFallbackMutate: op => onSecretMutate(legacyEntry.descriptor, op),
         })) : null),
-    (webEntry || showFetchApiFields || showHttpFetchFields) ? h(EngineSection, { title: t('Web fetch') },
+    (webEntry || showFetchApiFields) ? h(EngineSection, { title: t('Web fetch') },
       webEntry ? h('div', { className: 'dsb-engine-field-wrap' },
         h(EngineRow, { label: t('Fetch provider') },
           h(SelectMenu, {
@@ -1906,47 +1886,15 @@ function WebSearchDetailForm({ entries, disabled, readOnly = false, writable = t
               disabled: disabled || saving || hasCustomFetchEndpoint,
               options: billingChoices,
               onChange: next => setField('web-deepseek-api:fetchBilling', next),
-            })))) : null,
-      showHttpFetchFields ? h(Fragment, null,
-        [
-          ['maxResponseBytes', t('Max response bytes'), httpMaxBytesText, baseHttpMaxBytes, httpMaxBytesCheck, 1],
-          ['maxBodyChars', t('Max body chars'), httpMaxCharsText, baseHttpMaxChars, httpMaxCharsCheck, 1],
-          ['timeoutMs', t('Timeout (ms)'), httpTimeoutText, baseHttpTimeout, httpTimeoutCheck, 1],
-          ['maxRedirects', t('Max redirects'), httpMaxRedirectsText, baseHttpMaxRedirects, httpMaxRedirectsCheck, 0],
-        ].map(([fieldKey, label, text, baseVal, check, minVal]) => h('div', { key: fieldKey, className: 'dsb-engine-field-wrap' },
-          h(EngineRow, { label },
-            h('div', { className: 'dsb-engine-inline' },
-              resetBtnFor(`web-fetch-http:${fieldKey}`, hasPath(httpFetchEntry.descriptor.user, [fieldKey]), text !== String(baseVal)),
-              h('input', {
-                className: 'bt-input bt-set-number',
-                type: 'number',
-                min: minVal,
-                step: 1,
-                disabled: disabled || saving,
-                'aria-label': label,
-                'aria-invalid': !check.ok ? true : undefined,
-                value: text,
-                onChange: event => setField(`web-fetch-http:${fieldKey}`, event.target.value),
-              }))),
-          !check.ok ? h('div', { className: 'dsb-engine-field-err', role: 'alert' }, check.error) : null)),
-        h('div', { className: 'dsb-engine-field-wrap' },
-          h(EngineRow, { label: t('User agent') },
-            h('div', { className: 'dsb-engine-inline' },
-              resetBtnFor('web-fetch-http:userAgent', hasPath(httpFetchEntry.descriptor.user, ['userAgent']), httpUserAgentText !== String(baseHttpUserAgent)),
-              h('input', {
-                className: 'bt-input dsb-engine-text',
-                type: 'text',
-                disabled: disabled || saving,
-                'aria-label': t('User agent'),
-                value: httpUserAgentText,
-                onChange: event => setField('web-fetch-http:userAgent', event.target.value),
-              }))))) : null) : null,
+            })))) : null) : null,
     h(EngineFormBar, {
       dirty,
       invalid,
       saving,
       saved,
       disabled,
+      canResetAll: resettableKeys.length > 0,
+      onResetAll: handleResetAll,
       onSave: () => { void handleSave() },
       onDiscard: () => { resetDraft(); setSaved(false) },
     }))
@@ -1989,6 +1937,23 @@ function AgentDefaultModelDetailForm({ entry, disabled, readOnly = false, writab
     setSaved(false)
     setOverrides(prev => { if (!Object.prototype.hasOwnProperty.call(prev, k)) return prev; const n = { ...prev }; delete n[k]; return n })
     setResets(prev => ({ ...prev, [k]: true }))
+    if (k === 'provider') {
+      const baseGroup = (Array.isArray(catalog?.groups) ? catalog.groups : []).find(g => g.id === baseProvider)
+      const curModel = resets.model ? baseModel : (hasOv('model') ? overrides.model : storedModel)
+      if (baseGroup?.models?.length > 0) {
+        if (!baseGroup.models.some(m => m.id === curModel)) {
+          if (baseModel && baseGroup.models.some(m => m.id === baseModel)) {
+            setOverrides(prev => { if (!Object.prototype.hasOwnProperty.call(prev, 'model')) return prev; const n = { ...prev }; delete n.model; return n })
+            setResets(prev => ({ ...prev, model: true }))
+          } else {
+            setField('model', baseGroup.models[0].id)
+          }
+        }
+      } else if (baseModel && curModel !== baseModel) {
+        setOverrides(prev => { if (!Object.prototype.hasOwnProperty.call(prev, 'model')) return prev; const n = { ...prev }; delete n.model; return n })
+        setResets(prev => ({ ...prev, model: true }))
+      }
+    }
   }
 
   const provider = resets.provider ? baseProvider : (hasOv('provider') ? overrides.provider : storedProvider)
@@ -2029,7 +1994,7 @@ function AgentDefaultModelDetailForm({ entry, disabled, readOnly = false, writab
     }
   }
   const invalid = provider.trim() === '' || model.trim() === ''
-  const dirty = ops.length > 0 || invalid
+  const dirty = ops.length > 0
 
   const resettable = [
     ['provider', hasPath(descriptor?.user, ['provider']) || provider !== baseProvider],

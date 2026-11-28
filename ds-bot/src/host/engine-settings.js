@@ -336,6 +336,45 @@ export function install(rt) {
     return ref
   }
 
+  function allowedWebCredentialRefs() {
+    const allowed = new Set()
+    const settings = settingsService()
+    if (settings && typeof settings.describe === 'function') {
+      let descriptors = []
+      try {
+        const listed = settings.describe({ redactSecrets: true })
+        if (Array.isArray(listed)) descriptors = listed
+      } catch { /* fall back to default ref below */ }
+      const addRef = (raw) => {
+        if (typeof raw === 'string') {
+          const trimmed = raw.trim()
+          if (CREDENTIAL_REF_RE.test(trimmed)) allowed.add(trimmed)
+        }
+      }
+      for (const desc of descriptors) {
+        const ns = String(desc?.ns ?? '')
+        if (ns === 'web-search-deepseek') {
+          addRef(desc?.value?.apiKeyEnv)
+          addRef(desc?.base?.apiKeyEnv)
+          allowed.add('DEEPSEEK_API_KEY')
+        } else if (ns === 'web-deepseek-api') {
+          addRef(desc?.value?.searchApiKeyEnv)
+          addRef(desc?.base?.searchApiKeyEnv)
+          addRef(desc?.value?.fetchApiKeyEnv)
+          addRef(desc?.base?.fetchApiKeyEnv)
+        }
+      }
+    }
+    if (allowed.size === 0) allowed.add('DEEPSEEK_API_KEY')
+    return allowed
+  }
+
+  function assertAllowedCredentialRef(ref) {
+    if (!allowedWebCredentialRefs().has(ref)) {
+      throw refused(`Credential reference "${ref}" is not managed by web search settings`)
+    }
+  }
+
   function cleanCredentialInfo(info) {
     return {
       configured: Boolean(info?.configured),
@@ -833,6 +872,7 @@ export function install(rt) {
           throw invalid('Credential describe requires 1 to 16 references')
         }
         const unique = [...new Set(rawRefs.map(validateCredentialRef))]
+        for (const ref of unique) assertAllowedCredentialRef(ref)
         const views = {}
         for (const ref of unique) {
           const info = await creds.describe(ref)
@@ -842,14 +882,25 @@ export function install(rt) {
       }
       case 'credentials-set': {
         writeCheck()
+        const settings = settingsService()
+        if (settings !== undefined && !settings.writable) {
+          throw refused('Engine settings are read-only in this profile')
+        }
         const creds = credentialsService()
         if (creds === undefined || typeof creds.set !== 'function') {
           throw refused('Credential storage is not available on this host')
         }
         const ref = validateCredentialRef(body.ref)
+        assertAllowedCredentialRef(ref)
         const value = typeof body.value === 'string' ? body.value.trim() : ''
         if (value === '' || Buffer.byteLength(value, 'utf8') > MAX_CREDENTIAL_VALUE_BYTES) {
           throw invalid('A non-empty credential value is required')
+        }
+        if (typeof creds.describe === 'function') {
+          const current = await creds.describe(ref)
+          if (current?.writable === false) {
+            throw refused(`Credential "${ref}" is managed externally and cannot be modified here`)
+          }
         }
         await creds.set(ref, value)
         const info = typeof creds.describe === 'function' ? await creds.describe(ref) : { configured: true, writable: true }
@@ -857,11 +908,22 @@ export function install(rt) {
       }
       case 'credentials-unset': {
         writeCheck()
+        const settings = settingsService()
+        if (settings !== undefined && !settings.writable) {
+          throw refused('Engine settings are read-only in this profile')
+        }
         const creds = credentialsService()
         if (creds === undefined || typeof creds.unset !== 'function') {
           throw refused('Credential storage is not available on this host')
         }
         const ref = validateCredentialRef(body.ref)
+        assertAllowedCredentialRef(ref)
+        if (typeof creds.describe === 'function') {
+          const current = await creds.describe(ref)
+          if (current?.writable === false) {
+            throw refused(`Credential "${ref}" is managed externally and cannot be cleared here`)
+          }
+        }
         await creds.unset(ref)
         const info = typeof creds.describe === 'function' ? await creds.describe(ref) : { configured: false, writable: true }
         return { ref, ...cleanCredentialInfo(info) }

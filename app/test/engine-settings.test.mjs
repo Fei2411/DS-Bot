@@ -516,7 +516,8 @@ test('PluginsSettingsPage renders 3 clean sections, hides internal/banned subage
   builtinBtns[0].props.onClick()
   const detailTree = harness.render()
   assert.equal(detailTree.props['data-plugin-detail'], 'web-search')
-  assert.ok(textOf(detailTree).includes('Max searches per request'))
+  assert.ok(textOf(detailTree).includes('Search provider'))
+  assert.equal(textOf(detailTree).includes('Max searches per request'), false, 'auto search provider hides unrelated legacy fields')
   const stickyBar = findAll(detailTree, n => n.props?.className === 'dsb-plug-detail-sticky')[0]
   assert.ok(stickyBar, 'sticky detail header bar rendered')
   const backBtn = findAll(stickyBar, n => n.type === 'button' && n.props?.className === 'dsb-plug-back')[0]
@@ -1163,27 +1164,6 @@ test('Engine settings staged forms preserve unsaved drafts across revalidation, 
   await new Promise(resolve => setTimeout(resolve, 20))
   let tree = harness.render({ readOnly: false, subTarget: 'web-search' })
 
-  // 1. Edit Base URL, then save secret API key -> revision bumps, unsaved Base URL draft MUST survive!
-  const baseUrlInput = () => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Base URL')[0]
-  baseUrlInput().props.onChange({ target: { value: 'https://custom.example' } })
-  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
-  const secretInput = findAll(tree, n => n.type === 'input' && n.props?.type === 'password')[0]
-  secretInput.props.onChange({ target: { value: 'sk-secret-123' } })
-  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
-  // First Save button belongs to SchemaSecretField inline control.
-  const secretSaveBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Save')[0]
-  secretSaveBtn.props.onClick()
-  await new Promise(resolve => setTimeout(resolve, 20))
-  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
-  assert.equal(baseUrlInput().props.value, 'https://custom.example', 'secret save must NOT wipe unsaved Base URL draft')
-
-  // 2. Enter invalid Results per search ('999'), then switch Search provider to DeepSeek Messages -> hidden invalid count must NOT block Save!
-  const countInput = () => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Results per search')[0]
-  countInput().props.onChange({ target: { value: '999' } })
-  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
-  const formSaveBtn = () => findAll(tree, n => n.type === 'button' && textOf(n) === 'Save').at(-1)
-  assert.equal(formSaveBtn().props.disabled, true, 'visible invalid count disables Save')
-
   const pickSearchProvider = (label) => {
     const trigger = findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Search provider')[0]
     if (trigger.props.ref) {
@@ -1197,6 +1177,30 @@ test('Engine settings staged forms preserve unsaved drafts across revalidation, 
     opt.props.onClick()
     tree = harness.render({ readOnly: false, subTarget: 'web-search' })
   }
+
+  // 1. Switch to DeepSeek Messages search, edit Base URL, then save secret API key -> revision bumps, unsaved Base URL draft MUST survive!
+  pickSearchProvider('DeepSeek Messages search')
+  const baseUrlInput = () => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Base URL')[0]
+  baseUrlInput().props.onChange({ target: { value: 'https://custom.example' } })
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  const secretInput = findAll(tree, n => n.type === 'input' && n.props?.type === 'password')[0]
+  secretInput.props.onChange({ target: { value: 'sk-secret-123' } })
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  // First Save button belongs to SchemaSecretField inline control.
+  const secretSaveBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Save')[0]
+  secretSaveBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  assert.equal(baseUrlInput().props.value, 'https://custom.example', 'secret save must NOT wipe unsaved Base URL draft')
+
+  // 2. Switch to DeepSeek Search API, enter invalid Results per search ('999'), then switch back to DeepSeek Messages -> hidden invalid count must NOT block Save!
+  pickSearchProvider('DeepSeek Search API')
+  const countInput = () => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Results per search')[0]
+  countInput().props.onChange({ target: { value: '999' } })
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  const formSaveBtn = () => findAll(tree, n => n.type === 'button' && textOf(n) === 'Save').at(-1)
+  assert.equal(formSaveBtn().props.disabled, true, 'visible invalid count disables Save')
+
   pickSearchProvider('DeepSeek Messages search')
   assert.equal(formSaveBtn().props.disabled, false, 'switching away from provider hides its error and unblocks Save')
 
@@ -1858,10 +1862,11 @@ test('PluginsSettingsPage surfaces custom profile plugins, DSH Web UI-only label
   assert.equal(folderRows.length, 1, 'empty Window plugins card uses standard padded bt-set-row with Folder label')
 })
 
-test('WebSearchDetailForm exposes all fields on auto provider, manages credentials via ctx.credentials, shows YAML billing overrides, and AgentDefaultModelDetailForm edits agent-default-model', async () => {
+test('WebSearchDetailForm gates provider-specific fields strictly, handles env-managed/read-only credentials & Reset all, and AgentDefaultModelDetailForm stays clean & reconciles provider reset', async () => {
   const credCalls = []
-  let credConfigured = false
+  let credView = { configured: false, writable: true, source: '' }
   const mutated = []
+  let profileWritable = true
   const { mod } = loadMod(async (endpoint, payload) => {
     if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
     if (endpoint === 'engine-web-providers') {
@@ -1873,41 +1878,43 @@ test('WebSearchDetailForm exposes all fields on auto provider, manages credentia
     }
     if (endpoint === 'engine-credentials-describe') {
       credCalls.push([endpoint, payload])
-      return { available: true, views: { DEEPSEEK_API_KEY: { configured: credConfigured, writable: true } } }
+      return { available: true, views: { DEEPSEEK_API_KEY: { ...credView } } }
     }
     if (endpoint === 'engine-credentials-set') {
       credCalls.push([endpoint, payload])
-      credConfigured = true
-      return { ref: payload.ref, configured: true, writable: true }
+      credView = { configured: true, writable: true, source: 'file' }
+      return { ref: payload.ref, ...credView }
     }
     if (endpoint === 'engine-credentials-unset') {
       credCalls.push([endpoint, payload])
-      credConfigured = false
-      return { ref: payload.ref, configured: false, writable: true }
+      credView = { configured: false, writable: true, source: '' }
+      return { ref: payload.ref, ...credView }
     }
     if (endpoint === 'engine-model-catalog') {
       return {
         available: true,
         partial: false,
-        groups: [{ id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash' }, { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' }] }],
+        groups: [
+          { id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash' }, { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' }] },
+          { id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-sonnet', name: 'Claude Sonnet' }] },
+        ],
       }
     }
     if (endpoint === 'engine-settings-list') {
       return {
         available: true,
-        writable: true,
+        writable: profileWritable,
         namespaces: [
           { ns: 'web', autoGenerate: true, revision: 1, value: { searchProvider: 'auto', fetchProvider: 'auto' }, base: { searchProvider: 'auto', fetchProvider: 'auto' }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
           { ns: 'web-deepseek-api', autoGenerate: true, revision: 1, value: { count: 10, searchRequestsPerSecond: 5, sendOriginalQuestion: true, searchBilling: 'auto', fetchBilling: 'auto', searchBaseURL: 'https://override.example' }, base: { count: 10, searchRequestsPerSecond: 5, sendOriginalQuestion: true, searchBilling: 'auto', fetchBilling: 'auto' }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
           { ns: 'web-search-deepseek', autoGenerate: true, revision: 1, value: { apiKeyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-v4-flash', apiVersion: '2023-06-01', maxTokens: 4096, maxUses: 5 }, base: { apiKeyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-v4-flash', apiVersion: '2023-06-01', maxTokens: 4096, maxUses: 5 }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
-          { ns: 'web-fetch-http', autoGenerate: true, revision: 1, value: { maxResponseBytes: 5000000, maxBodyChars: 100000, timeoutMs: 30000, maxRedirects: 5, userAgent: 'dsh' }, base: { maxResponseBytes: 5000000, maxBodyChars: 100000, timeoutMs: 30000, maxRedirects: 5, userAgent: 'dsh' }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
-          { ns: 'agent-default-model', autoGenerate: false, revision: 1, value: { provider: 'deepseek-official', model: 'deepseek-flash' }, base: { provider: 'deepseek-official', model: 'deepseek-flash' }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+          { ns: 'agent-default-model', autoGenerate: false, revision: 1, value: { provider: 'anthropic', model: 'claude-sonnet' }, base: { provider: 'deepseek-official', model: 'deepseek-flash' }, user: { provider: 'anthropic', model: 'claude-sonnet' }, secrets: [], schema: { type: 'object', dict: {} } },
         ],
       }
     }
     if (endpoint === 'engine-settings-mutate') {
       mutated.push(payload)
-      return { ns: payload.ns, autoGenerate: false, revision: 2, value: { provider: 'deepseek-official', model: 'deepseek-v4-pro', reasoningEffort: 'high' }, base: { provider: 'deepseek-official', model: 'deepseek-flash' }, user: { model: 'deepseek-v4-pro', reasoningEffort: 'high' }, secrets: [], schema: { type: 'object', dict: {} } }
+      return { ns: payload.ns, autoGenerate: false, revision: 2, value: { provider: 'deepseek-official', model: 'deepseek-flash' }, base: { provider: 'deepseek-official', model: 'deepseek-flash' }, user: {}, secrets: [], schema: { type: 'object', dict: {} } }
     }
     return {}
   })
@@ -1919,17 +1926,46 @@ test('WebSearchDetailForm exposes all fields on auto provider, manages credentia
   await new Promise(resolve => setTimeout(resolve, 25))
   tree = harness.render({ readOnly: false, subTarget: 'web-search' })
 
-  // Under default `auto`, Results per search, Search RPS, Max searches per request, Direct HTTP fields, and override badge all render!
-  assert.ok(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Results per search').length === 1, 'Results per search visible under auto')
-  assert.ok(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Search requests per second').length === 1, 'Search requests per second visible under auto')
-  assert.ok(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Max searches per request').length === 1, 'Max searches per request visible under auto')
-  assert.ok(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Max response bytes').length === 1, 'Direct HTTP Max response bytes visible under auto')
-  assert.match(textOf(tree), /Overridden by searchBaseURL/, 'custom searchBaseURL shows billing override badge')
+  // 1. Under DS Bot's default `auto`, ONLY Search provider and Fetch provider render — no unrelated provider fields or non-volatile web-fetch-http!
+  assert.equal(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Results per search').length, 0, 'Results per search hidden under auto')
+  assert.equal(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Max searches per request').length, 0, 'Legacy fields hidden under auto')
+  assert.equal(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Max response bytes').length, 0, 'Non-volatile web-fetch-http removed')
 
-  // Legacy credential row uses engine-credentials-describe / set / unset.
-  const credRow = findAll(tree, n => n.props?.['data-credential-ref'] === 'DEEPSEEK_API_KEY')[0]
-  assert.ok(credRow, 'DEEPSEEK_API_KEY credential row rendered')
-  const credInput = findAll(credRow, n => n.type === 'input' && n.props?.type === 'password')[0]
+  const pickMenu = (ariaLabel, optionLabel) => {
+    const trigger = findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === ariaLabel)[0]
+    assert.ok(trigger, `${ariaLabel} trigger exists`)
+    if (trigger.props.ref) {
+      trigger.props.ref.current = { getBoundingClientRect: () => ({ left: 400, right: 620, top: 180, bottom: 212, width: 220, height: 32 }), focus() {} }
+    }
+    trigger.props.onClick({ detail: 1 })
+    tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+    tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+    const opt = findAll(tree, n => n.props?.role === 'option' && textOf(n) === optionLabel)[0]
+    assert.ok(opt, `option ${optionLabel} exists`)
+    opt.props.onClick()
+    tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  }
+
+  // 2. Switching Search provider to DeepSeek Search API exposes Results per search, Search RPS, billing override badge, and Reset all!
+  pickMenu('Search provider', 'DeepSeek Search API')
+  assert.equal(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Results per search').length, 1)
+  assert.equal(findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Search requests per second').length, 1)
+  assert.match(textOf(tree), /Overridden by searchBaseURL/)
+  const resetAllBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Reset all')[0]
+  assert.ok(resetAllBtn, 'WebSearchDetailForm wires Reset all in EngineFormBar')
+
+  // 3. Switching to DeepSeek Messages search exposes legacy credential row; source === 'env' shows Managed by environment and hides Clear!
+  credView = { configured: true, writable: true, source: 'env' }
+  pickMenu('Search provider', 'DeepSeek Messages search')
+  await new Promise(resolve => setTimeout(resolve, 25))
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  const envCredRow = findAll(tree, n => n.props?.['data-credential-ref'] === 'DEEPSEEK_API_KEY')[0]
+  assert.ok(envCredRow, 'DEEPSEEK_API_KEY credential row rendered on DeepSeek Messages search')
+  assert.match(textOf(envCredRow), /Managed by environment/, 'source=env shows Managed by environment')
+  assert.equal(findAll(envCredRow, n => n.type === 'button' && textOf(n) === 'Clear').length, 0, 'source=env hides no-op Clear button')
+
+  // Save a file-backed key -> shows Configured & Clear.
+  const credInput = findAll(envCredRow, n => n.type === 'input' && n.props?.type === 'password')[0]
   credInput.props.onChange({ target: { value: 'sk-new-key' } })
   tree = harness.render({ readOnly: false, subTarget: 'web-search' })
   const credSave = findAll(findAll(tree, n => n.props?.['data-credential-ref'] === 'DEEPSEEK_API_KEY')[0], n => n.type === 'button' && textOf(n) === 'Save')[0]
@@ -1937,18 +1973,54 @@ test('WebSearchDetailForm exposes all fields on auto provider, manages credentia
   await new Promise(resolve => setTimeout(resolve, 20))
   tree = harness.render({ readOnly: false, subTarget: 'web-search' })
   assert.ok(credCalls.some(([ep, p]) => ep === 'engine-credentials-set' && p?.ref === 'DEEPSEEK_API_KEY' && p?.value === 'sk-new-key'))
-  assert.match(textOf(findAll(tree, n => n.props?.['data-credential-ref'] === 'DEEPSEEK_API_KEY')[0]), /Configured/)
+  const fileCredRow = findAll(tree, n => n.props?.['data-credential-ref'] === 'DEEPSEEK_API_KEY')[0]
+  assert.match(textOf(fileCredRow), /Configured/)
+  assert.equal(findAll(fileCredRow, n => n.type === 'button' && textOf(n) === 'Clear').length, 1, 'file-backed credential shows Clear')
 
-  // Default model (`agent-default-model`, autoGenerate: false) opens cleanly and saves reasoningEffort.
+  // 4. Read-only profile (writable: false) disables CredentialRefRow input and buttons even when readOnly prop is false!
+  profileWritable = false
+  const roHarness = createHarness(mod.PluginsSettingsPage, { readOnly: false, subTarget: 'web-search' })
+  roHarness.render()
+  await new Promise(resolve => setTimeout(resolve, 25))
+  let roTree = roHarness.render({ readOnly: false, subTarget: 'web-search' })
+  assert.match(textOf(roTree), /Engine settings are read-only in this profile/)
+  profileWritable = true
+
+  // 5. AgentDefaultModelDetailForm: resetting provider reconciles model against baseProvider (never saving cross-provider pair).
   harness.render({ readOnly: false, subTarget: 'default-model', jump: 2 })
-  await new Promise(resolve => setTimeout(resolve, 20))
+  await new Promise(resolve => setTimeout(resolve, 25))
+  harness.render({ readOnly: false, subTarget: 'default-model', jump: 2 })
+  await new Promise(resolve => setTimeout(resolve, 25))
   tree = harness.render({ readOnly: false, subTarget: 'default-model', jump: 2 })
-  const effortInput = findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Reasoning effort')[0]
-  assert.ok(effortInput, 'AgentDefaultModelDetailForm renders Reasoning effort input')
-  effortInput.props.onChange({ target: { value: 'high' } })
+  const providerResetBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Reset')[0]
+  assert.ok(providerResetBtn, 'Provider Reset button renders')
+  providerResetBtn.props.onClick()
   tree = harness.render({ readOnly: false, subTarget: 'default-model', jump: 2 })
+  const modelTrigger = findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Model')[0]
+  assert.match(textOf(modelTrigger), /DeepSeek-V4\.1-Flash/, 'resetting provider reconciles model to baseProvider model')
   const saveBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Save').at(-1)
   saveBtn.props.onClick()
   await new Promise(resolve => setTimeout(resolve, 20))
-  assert.ok(mutated.some(m => m.ns === 'agent-default-model' && m.ops.some(op => op.op === 'set' && op.path[0] === 'reasoningEffort' && op.value === 'high')))
+  assert.ok(mutated.some(m => m.ns === 'agent-default-model'
+    && m.ops.some(op => op.op === 'unset' && op.path[0] === 'provider')
+    && m.ops.some(op => op.op === 'unset' && op.path[0] === 'model')), 'provider reset also resets mismatched model')
+
+  // 6. AgentDefaultModelDetailForm with empty initial state mounts clean (Discard disabled).
+  const { mod: emptyMod } = loadMod(async (endpoint) => {
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-model-catalog') return { available: true, partial: false, groups: [] }
+    if (endpoint === 'engine-settings-list') {
+      return {
+        available: true,
+        writable: true,
+        namespaces: [{ ns: 'agent-default-model', autoGenerate: false, revision: 1, value: {}, base: {}, user: {}, secrets: [], schema: { type: 'object', dict: {} } }],
+      }
+    }
+    return {}
+  })
+  const emptyDefHarness = createHarness(emptyMod.PluginsSettingsPage, { readOnly: false, subTarget: 'default-model' })
+  emptyDefHarness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const emptyDefTree = emptyDefHarness.render({ readOnly: false, subTarget: 'default-model' })
+  assert.equal(findAll(emptyDefTree, n => n.type === 'button' && textOf(n) === 'Discard')[0]?.props?.disabled, true, 'empty AgentDefaultModelDetailForm mounts clean')
 })

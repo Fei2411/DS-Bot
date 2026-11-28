@@ -2975,13 +2975,7 @@ export const KO = {
   "Filter by Bot or group chat": "Bot 또는 그룹 채팅으로 필터",
   "Engine settings are read-only in this profile.": "이 프로필의 엔진 설정은 읽기 전용입니다.",
   "Overridden by {fields}": "{fields}에 의해 재정의됨",
-  "Max response bytes": "최대 응답 바이트",
-  "Max body chars": "최대 본문 문자 수",
-  "Max redirects": "최대 리디렉션 횟수",
-  "User agent": "User-Agent",
-  "Max session log bytes": "최대 세션 로그 바이트",
   "Managed by environment": "환경 변수로 관리됨",
-  "Enter a positive integer": "양의 정수를 입력하세요",
 }
 
 export const HOST_ERRORS_KO = [

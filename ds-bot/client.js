@@ -3143,13 +3143,7 @@ var init_zh = __esm({
       "Open folder": "打开文件夹",
       "Engine settings are read-only in this profile.": "当前配置的引擎设置为只读。",
       "Overridden by {fields}": "已被 {fields} 覆盖",
-      "Max response bytes": "最大响应字节数",
-      "Max body chars": "最大正文字符数",
-      "Max redirects": "最大重定向次数",
-      "User agent": "User-Agent",
-      "Max session log bytes": "单次会话日志最大字节数",
-      "Managed by environment": "由环境变量管理",
-      "Enter a positive integer": "请输入正整数"
+      "Managed by environment": "由环境变量管理"
     };
     Object.assign(ZH, HOST_ZH);
   }
@@ -6207,13 +6201,7 @@ var init_ja = __esm({
       "Filter by Bot or group chat": "Bot またはグループチャットで絞り込む",
       "Engine settings are read-only in this profile.": "このプロファイルのエンジン設定は読み取り専用です。",
       "Overridden by {fields}": "{fields} により上書き済み",
-      "Max response bytes": "最大レスポンスバイト数",
-      "Max body chars": "最大本文文字数",
-      "Max redirects": "最大リダイレクト回数",
-      "User agent": "User-Agent",
-      "Max session log bytes": "最大セッションログバイト数",
-      "Managed by environment": "環境変数で管理",
-      "Enter a positive integer": "正の整数を入力してください"
+      "Managed by environment": "環境変数で管理"
     };
     HOST_ERRORS_JA = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
@@ -9943,13 +9931,7 @@ var init_ko = __esm({
       "Filter by Bot or group chat": "Bot 또는 그룹 채팅으로 필터",
       "Engine settings are read-only in this profile.": "이 프로필의 엔진 설정은 읽기 전용입니다.",
       "Overridden by {fields}": "{fields}에 의해 재정의됨",
-      "Max response bytes": "최대 응답 바이트",
-      "Max body chars": "최대 본문 문자 수",
-      "Max redirects": "최대 리디렉션 횟수",
-      "User agent": "User-Agent",
-      "Max session log bytes": "최대 세션 로그 바이트",
-      "Managed by environment": "환경 변수로 관리됨",
-      "Enter a positive integer": "양의 정수를 입력하세요"
+      "Managed by environment": "환경 변수로 관리됨"
     };
     HOST_ERRORS_KO = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
@@ -13680,13 +13662,7 @@ var init_es = __esm({
       "Filter by Bot or group chat": "Filtrar por Bot o chat de grupo",
       "Engine settings are read-only in this profile.": "Los ajustes del motor son de solo lectura en este perfil.",
       "Overridden by {fields}": "Anulado por {fields}",
-      "Max response bytes": "Bytes máximos de respuesta",
-      "Max body chars": "Caracteres máximos del cuerpo",
-      "Max redirects": "Redirecciones máximas",
-      "User agent": "User-Agent",
-      "Max session log bytes": "Bytes máximos del registro de sesión",
-      "Managed by environment": "Gestionado por el entorno",
-      "Enter a positive integer": "Introduce un entero positivo"
+      "Managed by environment": "Gestionado por el entorno"
     };
     HOST_ERRORS_ES = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Estos ajustes de apariencia solo se pueden cambiar en este ordenador: $1"],
@@ -17373,13 +17349,7 @@ var init_fr = __esm({
       "Filter by Bot or group chat": "Filtrer par Bot ou discussion de groupe",
       "Engine settings are read-only in this profile.": "Les paramètres du moteur sont en lecture seule dans ce profil.",
       "Overridden by {fields}": "Remplacé par {fields}",
-      "Max response bytes": "Octets max de réponse",
-      "Max body chars": "Caractères max du corps",
-      "Max redirects": "Redirections max",
-      "User agent": "User-Agent",
-      "Max session log bytes": "Octets max du journal de session",
-      "Managed by environment": "Géré par l'environnement",
-      "Enter a positive integer": "Saisissez un entier positif"
+      "Managed by environment": "Géré par l'environnement"
     };
     HOST_ERRORS_FR = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
@@ -21109,13 +21079,7 @@ var init_de = __esm({
       "Filter by Bot or group chat": "Nach Bot oder Gruppenchat filtern",
       "Engine settings are read-only in this profile.": "Engine-Einstellungen sind in diesem Profil schreibgeschützt.",
       "Overridden by {fields}": "Überschrieben durch {fields}",
-      "Max response bytes": "Max. Antwort-Bytes",
-      "Max body chars": "Max. Textzeichen",
-      "Max redirects": "Max. Weiterleitungen",
-      "User agent": "User-Agent",
-      "Max session log bytes": "Max. Sitzungsprotokoll-Bytes",
-      "Managed by environment": "Durch Umgebung verwaltet",
-      "Enter a positive integer": "Positive ganze Zahl eingeben"
+      "Managed by environment": "Durch Umgebung verwaltet"
     };
     HOST_ERRORS_DE = [
       [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
@@ -61443,7 +61407,6 @@ var linkProps2 = (href) => ({ className: "bt-soft bt-soft-sm bt-about-link", hre
 function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4, readOnly = false }) {
   const [state, setState] = (0, import_react67.useState)(null);
   const [showLog, setShowLog] = (0, import_react67.useState)(false);
-  const [maxBytesText, setMaxBytesText] = (0, import_react67.useState)("");
   const [note, setNote] = (0, import_react67.useState)("");
   const noteTimer = (0, import_react67.useRef)(0);
   const mounted2 = (0, import_react67.useRef)(true);
@@ -61454,11 +61417,6 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4, readOnl
       clearTimeout(noteTimer.current);
     };
   }, []);
-  (0, import_react67.useEffect)(() => {
-    if (Number.isInteger(state?.dshSessionLogMaxBytes)) {
-      setMaxBytesText(String(state.dshSessionLogMaxBytes));
-    }
-  }, [state?.dshSessionLogMaxBytes]);
   const flashNote = (message) => {
     clearTimeout(noteTimer.current);
     setNote(message);
@@ -61481,15 +61439,6 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4, readOnl
       setState(next);
       flashNote(t("Saved"));
     }));
-  };
-  const commitMaxBytes = () => {
-    if (readOnly || state?.dshSessionLogWritable === false) return;
-    const parsed = Number(maxBytesText.trim());
-    if (Number.isInteger(parsed) && parsed >= 1 && parsed !== state?.dshSessionLogMaxBytes) {
-      void save({ dshSessionLogMaxBytes: parsed });
-    } else if (Number.isInteger(state?.dshSessionLogMaxBytes)) {
-      setMaxBytesText(String(state.dshSessionLogMaxBytes));
-    }
   };
   const resetId = () => {
     flashNote("");
@@ -61579,30 +61528,6 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4, readOnl
           onChange: (dshSessionLog) => save({ dshSessionLog })
         })
       ),
-      Number.isInteger(state?.dshSessionLogMaxBytes) ? (0, import_react67.createElement)(
-        Row4,
-        { label: t("Max session log bytes") },
-        state?.dshSessionLogMaxBytesOverridden === true ? (0, import_react67.createElement)("button", {
-          type: "button",
-          className: "bt-mini",
-          disabled: readOnly || state?.dshSessionLogWritable === false,
-          onClick: () => save({ dshSessionLogMaxBytes: null })
-        }, t("Reset")) : null,
-        (0, import_react67.createElement)("input", {
-          className: "bt-input bt-set-number",
-          type: "number",
-          min: 1,
-          step: 1,
-          "aria-label": t("Max session log bytes"),
-          disabled: readOnly || state?.dshSessionLogWritable === false,
-          value: maxBytesText,
-          onChange: (event) => setMaxBytesText(event.target.value),
-          onBlur: commitMaxBytes,
-          onKeyDown: (event) => {
-            if (event.key === "Enter") event.target.blur();
-          }
-        })
-      ) : null,
       (0, import_react67.createElement)(Row4, {
         label: t("Send feedback sessions to DeepSeek"),
         hint: t("Only used when submitting feedback in Classic Agent mode. Private Bots and secrets are excluded. Restart to apply fully.")

@@ -2941,13 +2941,7 @@ export const JA = {
   "Filter by Bot or group chat": "Bot またはグループチャットで絞り込む",
   "Engine settings are read-only in this profile.": "このプロファイルのエンジン設定は読み取り専用です。",
   "Overridden by {fields}": "{fields} により上書き済み",
-  "Max response bytes": "最大レスポンスバイト数",
-  "Max body chars": "最大本文文字数",
-  "Max redirects": "最大リダイレクト回数",
-  "User agent": "User-Agent",
-  "Max session log bytes": "最大セッションログバイト数",
   "Managed by environment": "環境変数で管理",
-  "Enter a positive integer": "正の整数を入力してください",
 }
 
 export const HOST_ERRORS_JA = [
