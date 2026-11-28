@@ -7,7 +7,7 @@ import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
 import { createBotBrowsers, serveBrowserReads } from '../../../ds-bot/src/client/bot-browsers.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
 import { pruneDrafts } from '../../../ds-bot/src/client/draft-keep.js'
-import { readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
+import { frameLayout, readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { lookOf, toolState } from '../../../ds-bot/src/client/mark.js'
 import { needsIdleSample } from '../../../ds-bot/src/client/polling.js'
@@ -131,6 +131,8 @@ export function createTeam() {
   let classicSeq = 0
   const sessionHooks = new Map()
   const streamingReply = new Set()
+  const lastFeedReplySeq = new Map()
+  const lastGroupNoticeSeq = new Map()
 
   const isAgentSessionId = id => Boolean(id && roster.getSnapshot().agentOf?.[id] !== undefined)
   const latestAgentSession = (agentId) => {
@@ -246,6 +248,8 @@ export function createTeam() {
       return next
     })
     for (const id of [...sessionHooks.keys()]) if (!keep(id)) sessionHooks.delete(id)
+    for (const id of [...lastFeedReplySeq.keys()]) if (!keep(id)) lastFeedReplySeq.delete(id)
+    for (const id of [...lastGroupNoticeSeq.keys()]) if (!keep(id)) lastGroupNoticeSeq.delete(id)
     for (const id of [...streamingReply]) {
       if (!keep(id)) {
         streamingReply.delete(id)
@@ -364,8 +368,26 @@ export function createTeam() {
     }
   }
 
+  const panelFolded = (view) => {
+    const state = ui.getSnapshot()
+    const rawViewport = typeof window === 'undefined' ? 1280 : window.innerWidth
+    const isNarrow = rawViewport <= 768
+    const lay = layout.getSnapshot()
+    const effectiveSideW = isNarrow
+      ? Math.min(lay.width, Math.max(264, Math.round(rawViewport * 0.84)))
+      : Math.min(lay.width, Math.max(264, rawViewport - 420))
+    const viewport = isNarrow ? Math.min(rawViewport, 680) : rawViewport
+    const pref = isNarrow ? (state.leftDrawer ? 'open' : 'hidden') : lay.pref
+    return frameLayout({
+      viewport,
+      sidebarWidth: effectiveSideW,
+      pref,
+      drawer: state.leftDrawer === true,
+      panel: { view: view ?? state.view, yielded: state.panelYield === true },
+    }).panel === 'folded'
+  }
   const questionDrafts = createQuestionDrafts()
-  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, questionDrafts, foldWrites })
+  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites })
   const speechCall = (endpoint, payload, signal) => call(endpoint, payload, signal).then(
     value => ({ ok: true, value }),
     error => ({ ok: false, error: { code: error?.code ?? 'speech/error', message: error?.message ?? String(error) } }),
@@ -950,6 +972,10 @@ export function createTeam() {
     openOwnApp: async () => { await globalThis.dsBotApp?.updates?.open?.() },
     downloadOwnApp: async () => { await globalThis.dsBotApp?.updates?.download?.() },
     setOwnAppAutoUpdate: async (enabled) => { await globalThis.dsBotApp?.updates?.setAutoUpdate?.(enabled === true) },
+    noteReplyArrival: (sessionId, delta) => {
+      if (!sessionId || !Number.isFinite(delta) || delta <= 0) return
+      editRow(sessionId, row => ({ ...row, replyCount: (row.replyCount ?? 0) + delta }))
+    },
     reconnectFeed: () => { restartFeed() },
   }
 
@@ -1112,13 +1138,26 @@ export function createTeam() {
     if (event === 'hello' && data?.resumed !== true) {
       for (const sessionId of streamingReply) actions.noteLive(sessionId, 'reply', null)
       streamingReply.clear()
+      // Notice seq restarts from 1 on a fresh host boot; session log seq is durable.
+      lastGroupNoticeSeq.clear()
     }
     if (event === 'message' && data?.sessionId && data.item) {
       const { sessionId, item } = data
       const text = item.kind === 'bot' || item.kind === 'user' ? item.text : ''
+      let countReply = false
+      if (item.kind === 'bot') {
+        const hasSeq = Number.isFinite(item.seq)
+        const prevSeq = hasSeq ? (lastFeedReplySeq.get(sessionId) ?? -1) : -1
+        const isReplay = hasSeq && item.seq <= prevSeq
+        if (hasSeq && !isReplay) lastFeedReplySeq.set(sessionId, item.seq)
+        // Active DM Sessions count tail arrivals via SessionTranscript's monotonic seq watermark
+        // so "Load earlier", gap fills, and replays never inflate replyCount or double-count.
+        countReply = !isReplay && shown.getSnapshot() !== sessionId
+      }
       editRow(sessionId, row => ({
         ...row,
         updatedAt: Math.max(row.updatedAt ?? 0, item.time ?? 0),
+        ...(countReply ? { replyCount: (row.replyCount ?? 0) + 1 } : {}),
         // The sidebar's preview line; turn -1 is never a hidden exchange turn.
         projectionValues: text ? { turnOutline: [{ turn: -1, [item.kind === 'bot' ? 'response' : 'prompt']: text }] } : row.projectionValues,
       }))
@@ -1133,9 +1172,14 @@ export function createTeam() {
       const roomSession = room ? currentPart(room) : data.roomId
       if (shown.getSnapshot() !== roomSession || isCovered(ui.getSnapshot())) setStatus(roomSession, { completionUnread: true })
       if (data.text) {
+        const hasSeq = Number.isFinite(data.seq)
+        const prevSeq = hasSeq ? (lastGroupNoticeSeq.get(roomSession) ?? -1) : -1
+        const isReplay = hasSeq && data.seq <= prevSeq
+        if (hasSeq && !isReplay) lastGroupNoticeSeq.set(roomSession, data.seq)
         editRow(roomSession, row => ({
           ...row,
           updatedAt: Math.max(row.updatedAt ?? 0, data.time ?? 0),
+          ...(!isReplay ? { replyCount: (row.replyCount ?? 0) + 1 } : {}),
           projectionValues: { turnOutline: [{ turn: -1, response: data.text }] },
         }))
       }

@@ -1434,7 +1434,15 @@ export function install(rt) {
       const code = errorCode(error)
       const message = error?.message ?? String(error)
       const details = error?.details && typeof error.details === 'object' ? error.details : {}
-      if (code === 'bot/internal') rt.noteFailure?.({ source: 'api', text: `${endpoint}: ${message}`, code: error?.code ?? error?.name, stack: error?.stack })
+      if (code === 'bot/internal') {
+        rt.noteFailure?.({
+          source: 'api',
+          text: `${endpoint}: ${message}`,
+          errorName: typeof error?.name === 'string' && error.name !== '' ? error.name : undefined,
+          code: error?.code ?? error?.name,
+          stack: error?.stack,
+        })
+      }
       return fail(message, code, details)
     }
   }

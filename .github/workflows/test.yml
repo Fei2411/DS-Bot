@@ -157,7 +157,7 @@ jobs:
             docker=false
             if has '^(ds-bot/|link/|start\.ps1$|CHANGELOG\.md$|scripts/(check-pure-base-sync|check-release-milestone)\.mjs$|\.github/workflows/(package|full-package|pr-triage-labels|pr-merge-guard|release|nightly-release|cut-release)\.yml$)'; then ds_bot=true; fi
             if has '^(ds-bot/(src/client/|src/host/browser/|src/host/fonts\.js$|src/shared/|assets/|test/(browser/|harness-resolve\.mjs$)|scripts/|dev/harness/|package\.json$|package-lock\.json$)|app/ui/src/html-preview\.js$)'; then ds_bot_browser=true; fi
-            if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$|\.github/workflows/release\.yml$)'; then app_unit=true; fi
+            if has '^(app/|ds-bot/|link/|README\.md$|README\.zh\.md$|scripts/check-desktop-selectors\.mjs$|\.github/workflows/release\.yml$)'; then app_unit=true; fi
             if has '^(mobile/|link/|CHANGELOG\.md$|ds-bot/(package\.json|link\.js)$|ds-bot/src/shared/|ds-bot/src/host/phone\.js$|ds-bot/src/client/(i18n|themes|sources|inks|characters|usage-data|lru|learning-card-model|mark-states|motion-rest|inbox-text|effects)\.js$|ds-bot/src/client/(avatar|locales)/)'; then mobile=true; fi
             if has '^link/'; then link=true; fi
             if has '^(docker/|docker-compose.*\.yml$|\.dockerignore$)'; then docker=true; fi
@@ -474,6 +474,8 @@ jobs:
       - run: npm ci --no-fund --no-audit
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Check desktop selectors
+        run: node ../scripts/check-desktop-selectors.mjs
       - name: Build desktop UI bundle
         run: npm run build
       - run: npm test

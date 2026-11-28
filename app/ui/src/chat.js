@@ -11,11 +11,11 @@ import { fileExtension, fileSizeText } from '../../../ds-bot/src/client/dsh-prim
 import { isImeComposing, sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { HandoffDock } from '../../../ds-bot/src/client/handoff-card.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
-import { ArrowUpIcon, CloseIcon, FileIcon, FolderIcon, PaperclipIcon, PlusIcon, StopIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
+import { ArrowDownIcon, ArrowUpIcon, CloseIcon, FileIcon, FolderIcon, PaperclipIcon, PlusIcon, StopIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
 import { LearningDock } from '../../../ds-bot/src/client/learning-card.js'
 import { MemberDock } from '../../../ds-bot/src/client/member-status.js'
 import { ModelChoiceDock } from '../../../ds-bot/src/client/model-menu.js'
-import { stepMenuFocus, useLinger, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
+import { reducedMotion, stepMenuFocus, useLinger, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
 import { hasEscapeLayer } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { PasteCard, foldPastedText, pastedName } from '../../../ds-bot/src/client/paste-card.js'
 import { mergeRescuedDraft, readRescuedForChat } from '../../../ds-bot/src/client/question-draft.js'
@@ -460,7 +460,7 @@ function AgentComposerPlus({ disabled, fileInput, actions }) {
   const place = useMemo(() => {
     if (!shown || !buttonRef.current?.getBoundingClientRect) return null
     const rect = buttonRef.current.getBoundingClientRect()
-    const cardTop = buttonRef.current.closest?.('[data-composer-card]')?.getBoundingClientRect?.().top
+    const cardTop = buttonRef.current.closest?.('[data-bt-composer]')?.getBoundingClientRect?.().top
     const anchorTop = Number.isFinite(cardTop) ? Math.min(rect.top, cardTop) : rect.top
     return { left: rect.left, bottom: viewBottom() - anchorTop + 8 }
   }, [shown, open, tick])
@@ -1344,7 +1344,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       disabled,
       placeholder: effectivePlaceholder,
       'aria-label': effectivePlaceholder,
-      'data-composer-input': '',
+      'data-bt-composer-input': '',
       onChange: (event) => {
         draftEditSeqRef.current += 1
         setText(event.target.value)
@@ -1479,7 +1479,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     }) : null,
     h('div', {
       className: 'dsb-composer',
-      'data-composer-card': '',
+      'data-bt-composer': '',
       'data-multiline': (text.includes('\n') || attachments.length > 0) || undefined,
       'data-running': (running && typeof onStop === 'function') || undefined,
       onMouseDown: (event) => {
@@ -1565,8 +1565,12 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   const withdrawRef = useRef(undefined)
   const pendingRef = useRef(undefined)
   pendingRef.current = pending
+  const chatRef = useRef(null)
+  const composerRootRef = useRef(null)
   const scroller = useRef(null)
   const follow = useRef(true)
+  const smoothScrollRef = useRef(null)
+  const [following, setFollowing] = useState(true)
   const keep = useRef(null)
   const seenQueuedIdsRef = useRef(new Set())
 
@@ -1574,6 +1578,8 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     sendGen.current += 1
     keep.current = null
     follow.current = true
+    smoothScrollRef.current = null
+    setFollowing(true)
     setSubagentStack([])
     seenQueuedIdsRef.current = new Set()
     setPending((list) => {
@@ -1635,16 +1641,19 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   const openSubagent = useCallback((entry) => {
     if (!entry?.sessionId || !entry?.parentSessionId) return
     follow.current = true
+    setFollowing(true)
     keep.current = null
     setSubagentStack(prev => (prev.at(-1)?.sessionId === entry.sessionId ? prev : [...prev, entry]))
   }, [])
   const popSubagent = useCallback(() => {
     follow.current = true
+    setFollowing(true)
     keep.current = null
     setSubagentStack(prev => prev.slice(0, -1))
   }, [])
   const selectSubagentDepth = useCallback((depth) => {
     follow.current = true
+    setFollowing(true)
     keep.current = null
     setSubagentStack(prev => prev.slice(0, Math.max(0, depth)))
   }, [])
@@ -1688,17 +1697,64 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       node.scrollTop = node.scrollHeight - keep.current
       keep.current = null
     } else if (follow.current) node.scrollTop = node.scrollHeight
+    if (!follow.current && node.scrollHeight - node.scrollTop - node.clientHeight < FOLLOW_PX) {
+      follow.current = true
+      setFollowing(true)
+    }
   }, [contentRevision, pending, running, question])
+
+  useEffect(() => {
+    const root = composerRootRef.current
+    const chatEl = chatRef.current
+    if (!root || !chatEl) return undefined
+    const writeHeight = () => {
+      const hPx = Math.round(root.getBoundingClientRect?.().height ?? root.offsetHeight ?? 0)
+      if (hPx > 0) chatEl.style.setProperty('--bt-composer-h', `${hPx}px`)
+    }
+    writeHeight()
+    if (typeof ResizeObserver !== 'function') return undefined
+    const observer = new ResizeObserver(writeHeight)
+    observer.observe(root)
+    return () => observer.disconnect()
+  }, [])
 
   const onScroll = () => {
     const node = scroller.current
     if (!node) return
-    follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < FOLLOW_PX
+    const atBottom = node.scrollHeight - node.scrollTop - node.clientHeight < FOLLOW_PX
+    if (atBottom) {
+      smoothScrollRef.current = null
+    } else if (smoothScrollRef.current !== null) {
+      // Keep following during an in-flight smooth scroll to bottom unless the user scrolls back up.
+      if (node.scrollTop < smoothScrollRef.current.lastTop - 2 || Date.now() > smoothScrollRef.current.until) {
+        smoothScrollRef.current = null
+      } else {
+        smoothScrollRef.current.lastTop = node.scrollTop
+        return
+      }
+    }
+    follow.current = atBottom
+    setFollowing(prev => (prev === atBottom ? prev : atBottom))
+  }
+
+  const scrollToBottom = () => {
+    follow.current = true
+    setFollowing(true)
+    const node = scroller.current
+    if (!node) return
+    if (typeof node.scrollTo === 'function' && !reducedMotion()) {
+      smoothScrollRef.current = { lastTop: node.scrollTop, until: Date.now() + 1500 }
+      node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
+    } else {
+      smoothScrollRef.current = null
+      node.scrollTop = node.scrollHeight
+    }
   }
 
   // Shown at once: the message can arrive on the follow/feed before the request returns.
   const send = async (text, items = []) => {
     follow.current = true
+    setFollowing(true)
     const myGen = sendGen.current
     const pendingAttachments = items.map(item => (item.isImage
       ? { type: 'image', attachment: { name: item.name, previewUrl: item.previewUrl } }
@@ -1899,6 +1955,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   )
 
   return h('div', {
+    ref: chatRef,
     className: isClassic ? 'dsb-chat dsb-classic-chat' : 'dsb-chat',
     'data-classic': isClassic ? '' : undefined,
     'data-dragging': dragging || undefined,
@@ -1916,12 +1973,12 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     onBack: popSubagent,
     onSelectDepth: selectSubagentDepth,
   }) : null,
-  h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', 'data-empty-hero': !viewingSubagent && showAgentHero ? '' : undefined, onScroll },
+  h('div', { ref: scroller, className: 'dsb-scroll', 'data-bt-scroll': '', 'data-bt-following-tail': following ? 'true' : 'false', 'data-empty-hero': !viewingSubagent && showAgentHero ? '' : undefined, onScroll },
     !viewingSubagent && showAgentHero ? h(AgentEmptyHero, { cwd: heroCwd, actions, readOnly }) : null,
     h('div', { className: 'dsb-column' },
       earlier ? h('div', { className: 'bt-earlier-top' }, earlier) : null,
       sessionNotice,
-      h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
+      h('div', { className: 'dsb-flow', 'data-bt-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
         !isRoom && dmChat.historyReloaded ? h('div', { key: 'history-reloaded', className: 'bt-time-sep', role: 'separator' }, t('Conversation history was reloaded')) : null,
         isRoom
           ? h(MemoChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments, renderUserText: renderRoomUserText })
@@ -1949,12 +2006,22 @@ export function Chat({ sessionId, team, registry, classic = false }) {
             useComputer,
             thinkingAt: dmChat.thinkingAt,
             hasMore: dmChat.hasMore,
+            quietSeq: dmChat.quietSeq,
+            reloadEpoch: dmChat.reloadEpoch,
             registry,
           }),
         !viewingSubagent ? h(PendingUserRows, { items: transcriptPending, sessionId: activeSessionId, classic: isClassic, reconnecting: feedDisconnected }) : null,
         // The Bot views' activity row (from the header pill) draws itself in here.
-        !viewingSubagent ? h('div', { 'data-chat-running': '' }) : null))),
-  h('div', { className: 'dsb-composer-root' },
+        !viewingSubagent ? h('div', { 'data-bt-running': '' }) : null))),
+  !following && !viewingSubagent ? h('button', {
+    type: 'button',
+    className: 'bt-to-bottom',
+    'data-bt-to-bottom': '',
+    'aria-label': t('Back to bottom'),
+    title: t('Back to bottom'),
+    onClick: scrollToBottom,
+  }, h(ArrowDownIcon)) : null,
+  h('div', { ref: composerRootRef, className: 'dsb-composer-root' },
     !viewingSubagent ? h(MemberDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useWork, useComputer, actions }) : null,
     !viewingSubagent ? h(ModelChoiceDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
     !viewingSubagent ? h(QuestionDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, actions }) : null,

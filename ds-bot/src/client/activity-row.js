@@ -42,13 +42,13 @@ let mountMissed = false
 let runningSlot = null
 export function findHost() {
   const kept = runningSlot?.slot
-  if (kept?.ownerDocument === document && kept?.isConnected && runningSlot.host?.isConnected && kept.hasAttribute('data-chat-running') && kept.closest('[data-chat-flow]') === runningSlot.host) return runningSlot.host
-  const slot = document.querySelector('[data-chat-flow] [data-chat-running]')
-  const node = slot?.closest('[data-chat-flow]') ?? document.querySelector('[data-chat-flow]')
+  if (kept?.ownerDocument === document && kept?.isConnected && runningSlot.host?.isConnected && kept.hasAttribute('data-bt-running') && kept.closest('[data-bt-flow]') === runningSlot.host) return runningSlot.host
+  const slot = document.querySelector('[data-bt-flow] [data-bt-running]')
+  const node = slot?.closest('[data-bt-flow]') ?? document.querySelector('[data-bt-flow]')
   runningSlot = slot ? { slot, host: node } : null
   if (node === null && !mountMissed) {
     mountMissed = true
-    noteClientError('activity row', new Error('[data-chat-flow] not found'))
+    noteClientError('activity row', new Error('[data-bt-flow] not found'))
   }
   return node
 }
@@ -72,10 +72,10 @@ function useRunningHost(active) {
       setHost(prev => (prev === node ? prev : node))
     }
     const observer = new MutationObserver(() => {
-      if (currentHost?.isConnected && currentSlot?.isConnected && currentSlot.hasAttribute('data-chat-running') && currentHost.contains(currentSlot)) return
+      if (currentHost?.isConnected && currentSlot?.isConnected && currentSlot.hasAttribute('data-bt-running') && currentHost.contains(currentSlot)) return
       if (!frame) frame = requestAnimationFrame(find)
     })
-    observer.observe(document.querySelector('[data-conversation-scroll]') ?? document.body, { childList: true, subtree: true })
+    observer.observe(document.querySelector('[data-bt-scroll]') ?? document.body, { childList: true, subtree: true })
     find()
     return () => { cancelAnimationFrame(frame); observer.disconnect(); releaseHost() }
   }, [active])
@@ -100,7 +100,7 @@ function useRowEntrances(replacing) {
     }
     const scan = () => {
       frame = 0
-      const next = column?.isConnected ? column : document.querySelector('[data-chat-flow]')
+      const next = column?.isConnected ? column : document.querySelector('[data-bt-flow]')
       if (next !== column) {
         observer.disconnect()
         column = next
@@ -112,13 +112,13 @@ function useRowEntrances(replacing) {
       if (!column) {
         if (!waiting) {
           waiting = true
-          observer.observe(document.querySelector('[data-conversation-scroll]') ?? document.body, { childList: true, subtree: true })
+          observer.observe(document.querySelector('[data-bt-scroll]') ?? document.body, { childList: true, subtree: true })
         }
         return
       }
       const items = []
       for (const child of column.children) {
-        if (child.hasAttribute('data-chat-flow-key')) items.push(child)
+        if (child.hasAttribute('data-bt-flow-key')) items.push(child)
       }
       let last = -1
       for (let index = 0; index < items.length; index += 1) {
@@ -141,7 +141,7 @@ function useRowEntrances(replacing) {
       if (fresh.length > 3) return
       for (const { item, index } of fresh) {
         if (index < last) continue
-        const reply = [undefined, 'assistant-step', 'tool-call'].includes(item.dataset.chatFlowKind)
+        const reply = [undefined, 'assistant-step', 'tool-call'].includes(item.dataset.btFlowKind)
         item.dataset.btEnter = reply && check.current() ? 'after-collapse' : 'new'
         item.addEventListener('animationend', settle)
       }
@@ -225,7 +225,7 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
     if (visible) { setPhase('in'); return undefined }
     setPhase(current => (current === 'in' ? 'out' : current))
     const timer = setTimeout(() => {
-      shift.current = document.querySelector('[data-conversation-scroll]')?.scrollTop ?? null
+      shift.current = document.querySelector('[data-bt-scroll]')?.scrollTop ?? null
       setPhase(current => (current === 'out' ? null : current))
     }, reducedMotion() ? 0 : 140)
     return () => clearTimeout(timer)
@@ -238,10 +238,10 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
     setShown(null)
     const before = shift.current
     shift.current = null
-    const scroller = document.querySelector('[data-conversation-scroll]')
+    const scroller = document.querySelector('[data-bt-scroll]')
     if (before === null || !scroller || reducedMotion()) return
     const delta = before - scroller.scrollTop
-    if (delta > 0) scroller.querySelector('[data-chat-flow]')?.animate([{ transform: `translateY(${-delta}px)` }, { transform: 'none' }], { duration: 140, easing: 'cubic-bezier(.23,1,.32,1)' })
+    if (delta > 0) scroller.querySelector('[data-bt-flow]')?.animate([{ transform: `translateY(${-delta}px)` }, { transform: 'none' }], { duration: 140, easing: 'cubic-bezier(.23,1,.32,1)' })
   }, [phase])
   // Cancelled tools never report a result, so their notes end with the run.
   useEffect(() => { if (!running) actions.clearLive(sessionId) }, [running, sessionId])

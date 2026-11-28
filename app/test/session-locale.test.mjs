@@ -416,13 +416,13 @@ test('Bot DM mode hides compaction checkpoints and non-Bot/MCP tool cards while 
 
     // Real ToolCell still emitted a live activity note for the running bash call and renders only hidden CellEmpty.
     assert.ok(liveNotes.some(([sid, id, entry]) => sid === sessionId && id === 'tool:bash-live' && entry !== null), 'running non-Bot tool reports live activity note')
-    const bashWrap = [...container.querySelectorAll('.dsb-tool-wrap')].find(el => el.getAttribute('data-chat-call-id') === 'bash-live')
+    const bashWrap = [...container.querySelectorAll('.dsb-tool-wrap')].find(el => el.getAttribute('data-bt-call-id') === 'bash-live')
     assert.ok(bashWrap && bashWrap.children.length === 1 && bashWrap.children[0].getAttribute('data-bt-empty') !== null, 'running non-Bot tool renders only hidden CellEmpty inside .dsb-tool-wrap')
 
     // Once the running bash call settles, it unmounts and cleans up its live note.
     log = applyFrame(log, ev(24, T0 + 24, 'tool/result', { turn: 4, step: 5, message: { toolCallId: 'bash-live', isError: false, content: [{ type: 'text', text: 'ok' }] } })).log
     render(log)
-    const afterBashWrap = [...container.querySelectorAll('.dsb-tool-wrap')].find(el => el.getAttribute('data-chat-call-id') === 'bash-live')
+    const afterBashWrap = [...container.querySelectorAll('.dsb-tool-wrap')].find(el => el.getAttribute('data-bt-call-id') === 'bash-live')
     assert.equal(afterBashWrap, undefined, 'settled non-Bot tool leaves zero wrapper nodes in Bot DM')
     assert.deepEqual(liveNotes.at(-1), [sessionId, 'tool:bash-live', null], 'unmounting settled non-Bot tool clears live note')
   } finally {

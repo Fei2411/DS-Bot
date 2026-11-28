@@ -109,14 +109,12 @@ export function registerEngineSettingsPlugin(runtime, { pages, loadEngineSetting
     const LazyPluginsSection = createRetryableLazy(loadWithRetry, mod => mod.PluginsSettingsPage)
     const LazyAgentPresetsSection = createRetryableLazy(loadWithRetry, mod => mod.AgentPresetsSettingsPage)
     const LazyArchivedSessionsSection = createRetryableLazy(loadWithRetry, mod => mod.ArchivedSessionsPage)
-    const LazySessionLogItem = createRetryableLazy(loadWithRetry, mod => mod.SessionLogGeneralItem)
 
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'account', priority: 10, meta: { labelKey: 'Account' } }, LazyAccountSection)
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'plugins', priority: 20, meta: { labelKey: 'Plugins' } }, LazyPluginsSection)
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'agent-presets', priority: 30, meta: { labelKey: 'Agent presets' } }, LazyAgentPresetsSection)
     ctx.slot({ name: SETTINGS_SECTION_SLOT, id: 'archived-sessions', priority: 40, meta: { labelKey: 'Archived sessions', surface: 'agent' } }, LazyArchivedSessionsSection)
     ctx.slot({ name: SETTINGS_GENERAL_ITEM_SLOT, id: 'language', priority: 1, meta: { sync: true } }, LanguageGeneralItem)
-    ctx.slot({ name: SETTINGS_GENERAL_ITEM_SLOT, id: 'session-log-deepseek', priority: 10 }, LazySessionLogItem)
   })
 }
 
@@ -163,6 +161,7 @@ export function useDshSettingsBridge(registry = defaultSlots, extraProps = {}) {
 
     return {
       ownWindow: true,
+      pluginSubTarget: true,
       surfaceMode,
       sections,
       items,

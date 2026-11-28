@@ -187,7 +187,7 @@ test('mounting and unmounting compiled styles twice leaves no extra nodes', asyn
 })
 
 test('the chat-room rule is installed through installStyles, so it is owned too', () => {
-  const pane = readFileSync(new URL('../src/client/frame-watch.js', import.meta.url), 'utf8')
+  const pane = readFileSync(new URL('../src/client/chat-room.js', import.meta.url), 'utf8')
   assert.match(pane, /installStyles\(.*'chat-room'/)
   assert.equal(pane.includes("dataset.dshBot = 'chat-room'"), false)
 })
@@ -276,17 +276,18 @@ test('the panel strip and strip-less drawer top rows carry the shell window drag
   assert.match(drawer, /className: 'bt-subhead'[^}]*'data-window-drag': !hasStrip \|\| undefined/)
 })
 
-test('dsh-mobile conversation header is opaque and catches hits without altering desktop', () => {
+test('dsh-mobile conversation header is opaque and catches hits without altering desktop', async () => {
   const { window, module } = bench([])
-  const { CONVERSATION_CSS, botOwnCss, installCompiledStyles } = module.exports
+  const { botOwnCss, installCompiledStyles } = module.exports
+  const { DSH_CONVERSATION_CSS } = await import('../src/client/styles-dsh.js')
   const { document } = window
   const hostSheet = document.createElement('style')
   hostSheet.textContent = '.wSkVaW_header{display:grid;border-bottom:.5px solid rgba(0,0,0,.1)}'
   document.head.appendChild(hostSheet)
 
-  const dispose = installCompiledStyles(CONVERSATION_CSS, 'conversation')
+  const dispose = installCompiledStyles(DSH_CONVERSATION_CSS, 'dsh-conversation')
   try {
-    const [compiled] = tagged(document, 'conversation')
+    const [compiled] = tagged(document, 'dsh-conversation')
     const text = compiled.textContent
     // Desktop floating header keeps its transparent canvas, click-through hit policy, and ::before fade.
     assert.match(text, /header:is\(\.wSkVaW_header\):has\(\.bt-head\)\{[^}]*background:transparent!important;pointer-events:none/)
@@ -314,31 +315,32 @@ test('dsh-mobile conversation header is opaque and catches hits without altering
     )
 
     // Host header rules stay excluded from botOwnCss so Agent mode never inherits them.
-    assert.equal(botOwnCss(CONVERSATION_CSS).includes('dsh-native-mobile-active'), false)
-    assert.equal(botOwnCss(CONVERSATION_CSS).includes('data-dsh-mobile-header'), false)
+    assert.equal(botOwnCss(DSH_CONVERSATION_CSS).includes('dsh-native-mobile-active'), false)
+    assert.equal(botOwnCss(DSH_CONVERSATION_CSS).includes('data-dsh-mobile-header'), false)
   } finally {
     dispose()
   }
 })
 
 test('trigger menu descriptions stay beside their row labels', () => {
-  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../src/client/styles-dsh.js', import.meta.url), 'utf8')
   assert.match(css, /\[data-trigger-menu\] \[role=option\]>span\{text-align:left\}/)
 })
 
 test('send and voice buttons tint background-color on hover, matching their transition', () => {
   const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const dshCss = readFileSync(new URL('../src/client/styles-dsh.js', import.meta.url), 'utf8')
   const send = '[data-composer-card] button[class*="_primary"]'
-  for (const selector of [`${send}:hover:not(:disabled)`, '.bt-voice:hover']) {
-    const start = css.indexOf(`${selector}{`)
+  for (const [sheet, selector] of [[dshCss, `${send}:hover:not(:disabled)`], [css, '.bt-voice:hover']]) {
+    const start = sheet.indexOf(`${selector}{`)
     assert.ok(start >= 0, `${selector} rule exists`)
-    const body = css.slice(start + selector.length + 1, css.indexOf('}', start))
+    const body = sheet.slice(start + selector.length + 1, sheet.indexOf('}', start))
     assert.match(body, /(^|;)background-color:color-mix\(in srgb,var\(--bt-accent\) 90%,transparent\)/)
     assert.doesNotMatch(body, /(^|;)background:/)
     assert.doesNotMatch(body, /opacity/)
   }
   // The transition lists the property the hover changes, so the tint animates.
-  assert.match(css, /_primary"\]\{[^}]*transition:background-color \.15s ease/)
+  assert.match(dshCss, /_primary"\]\{[^}]*transition:background-color \.15s ease/)
   assert.match(css, /\.bt-voice\{[^}]*;transition:background-color \.15s ease|\.bt-mic,\.bt-voice\{[^}]*transition:background-color \.15s ease/)
 })
 
@@ -418,8 +420,8 @@ test('full-window modal layers keep a top drag strip in frameless windows while 
   assert.equal(linuxWin.document.querySelector('.bt-settings-layer > .bt-scrim').matches(hostSelector), false)
 
   // Narrow-viewport fullscreen settings and memory dialogs keep top drag strips, shift overlays, and clear drag on exit.
-  assert.match(css, /--bt-modal-drag-h:max\(0px,calc\(var\(--dsh-windows-titlebar-height,0px\) - var\(--dsh-frame-chrome-top,0px\)\)\)/)
-  assert.match(css, /--bt-modal-drag-h:max\(0px,calc\(40px - var\(--dsh-frame-chrome-top,0px\)\)\)/)
+  assert.match(css, /--bt-modal-drag-h:max\(0px,calc\(var\(--bt-titlebar-h,0px\) - var\(--bt-chrome-top,0px\)\)\)/)
+  assert.match(css, /--bt-modal-drag-h:max\(0px,calc\(40px - var\(--bt-chrome-top,0px\)\)\)/)
   assert.match(css, /\.bt-tour-layer\{-webkit-app-region:initial;app-region:initial\}/)
   assert.match(css, /:is\(\.bt-set-palette,\.bt-tour-card\)\{z-index:2;-webkit-app-region:no-drag;app-region:no-drag\}/)
   assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-settings::before\{[^}]*-webkit-app-region:drag/)
