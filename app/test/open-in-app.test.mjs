@@ -11,7 +11,7 @@ test('detectInstalledApps detects macOS bundles/CLI, Windows programs/JetBrains/
   const macPaths = new Set([
     '/Applications/Cursor.app',
     '/Applications/Visual Studio Code.app',
-    '/Users/dev/Applications/Zed.app',
+    '/mock-home/Applications/Zed.app',
     '/Applications/WebStorm.app',
     '/Applications/iTerm.app',
     '/Applications/Ghostty.app',
@@ -19,7 +19,7 @@ test('detectInstalledApps detects macOS bundles/CLI, Windows programs/JetBrains/
   ])
   const macApps = detectInstalledApps({
     platform: 'darwin',
-    home: '/Users/dev',
+    home: '/mock-home',
     env: { PATH: '/usr/bin:/bin' },
     existsFn: p => macPaths.has(p),
   })
@@ -38,16 +38,16 @@ test('detectInstalledApps detects macOS bundles/CLI, Windows programs/JetBrains/
 
   // 2. Windows
   const winPaths = new Set([
-    'c:\\users\\dev\\appdata\\local\\programs\\microsoft vs code\\code.exe',
-    'c:\\users\\dev\\appdata\\local\\programs\\cursor\\cursor.exe',
+    'x:\\mockhome\\appdata\\local\\programs\\microsoft vs code\\code.exe',
+    'x:\\mockhome\\appdata\\local\\programs\\cursor\\cursor.exe',
     'c:\\program files\\jetbrains',
     'c:\\program files\\jetbrains\\intellij idea 2026.1\\bin\\idea64.exe',
-    'c:\\users\\dev\\appdata\\local\\microsoft\\windowsapps\\wt.exe',
+    'x:\\mockhome\\appdata\\local\\microsoft\\windowsapps\\wt.exe',
   ])
   const winApps = detectInstalledApps({
     platform: 'win32',
     env: {
-      LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local',
+      LOCALAPPDATA: 'X:\\MockHome\\AppData\\Local',
       ProgramFiles: 'C:\\Program Files',
       'ProgramFiles(x86)': 'C:\\Program Files (x86)',
       SystemRoot: 'C:\\Windows',
