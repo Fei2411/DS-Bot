@@ -315,6 +315,7 @@ const mount = (Component, props) => {
       current = inst
       const out = expand(react.createElement(Component, next))
       current = undefined
+      inst.onCommit?.(out)
       for (const run of inst.effects.splice(0)) run()
       return out
     },
@@ -2608,6 +2609,154 @@ test('computeCodeWindow clamps scrollTop past maxScroll, and CodeLines preserves
     const shrunkRows = all(tree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line'])).map(n => n.props['data-line'])
     assert.ok(shrunkRows.length > 0, 'shrunk live-reloaded file must never render blank')
     assert.ok(shrunkRows.includes(300), 'shrunk file clamps to bottom lines')
+  } finally {
+    view.unmount()
+    sandbox.localStorage.removeItem('dsb.preview.wrap')
+  }
+})
+
+test('CodeLines has zero anchor drift across 20 wrap toggles + width resize under realistic DOM height mismatch, never resets to line 1 after a big jump, and does not fight active scrolling during resize', async () => {
+  const longText = Array.from({ length: 1000 }, (_, i) => `L${String(i + 1).padStart(4, '0')} ${'x'.repeat(394)}`).join('\n')
+  const wideFile = { kind: 'code', language: 'text', name: 'drift.txt', path: 'drift.txt', size: longText.length, text: longText }
+  sandbox.localStorage.removeItem('dsb.preview.wrap')
+
+  // Helper that simulates realistic Chromium DOM geometry where wrapped lines render at 152px
+  // (8 visual rows) even when CodeLines' model estimates 171px (9 visual rows) — reproducing the
+  // exact ~12% mismatch that caused cumulative drift across repeated toggles.
+  let latestTree = null
+  let currentWrapped = false
+  const realRowH = (w) => (currentWrapped ? (w <= 360 ? 190 : 152) : 19)
+  const makeDomMock = (scrollEl) => {
+    scrollEl.clientWidth = 440
+    scrollEl.clientHeight = 500
+    scrollEl.getBoundingClientRect = () => ({ top: 100, bottom: 100 + scrollEl.clientHeight, height: scrollEl.clientHeight, width: scrollEl.clientWidth })
+    const buildRows = () => {
+      if (!latestTree) return []
+      const topSpacer = all(latestTree, n => n.type === 'tr' && n.props?.className === 'dsb-pv-spacer' && n.props?.key === 'pad-top')[0]
+      const topPadPx = topSpacer ? Number.parseFloat(topSpacer.props.children?.[0]?.props?.style?.height || '0') : 0
+      const lineNodes = all(latestTree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line']))
+      const rh = realRowH(scrollEl.clientWidth)
+      let y = topPadPx
+      return lineNodes.map((n) => {
+        const lineNum = n.props['data-line']
+        const rowTopDoc = y
+        const rowBottomDoc = y + rh
+        y += rh
+        return {
+          getAttribute: (attr) => (attr === 'data-line' ? String(lineNum) : null),
+          getBoundingClientRect: () => ({
+            top: 100 + rowTopDoc - scrollEl.scrollTop,
+            bottom: 100 + rowBottomDoc - scrollEl.scrollTop,
+            height: rh,
+          }),
+        }
+      })
+    }
+    scrollEl.querySelectorAll = (sel) => (sel === 'tr[data-line]' ? buildRows() : [])
+    scrollEl.querySelector = (sel) => {
+      const m = /^tr\[data-line="(\d+)"\]$/.exec(sel)
+      if (!m) return null
+      return buildRows().find(r => r.getAttribute('data-line') === m[1]) ?? null
+    }
+    Object.defineProperty(scrollEl, 'scrollHeight', {
+      configurable: true,
+      get: () => {
+        if (!latestTree) return 19_000
+        const spacers = all(latestTree, n => n.type === 'tr' && n.props?.className === 'dsb-pv-spacer')
+        const linesCount = all(latestTree, n => n.type === 'tr' && Number.isInteger(n.props?.['data-line'])).length
+        const padSum = spacers.reduce((s, sp) => s + Number.parseFloat(sp.props.children?.[0]?.props?.style?.height || '0'), 0)
+        return padSum + linesCount * realRowH(scrollEl.clientWidth)
+      },
+    })
+  }
+  const firstVisibleDomLineInMock = (scrollEl) => {
+    for (const r of scrollEl.querySelectorAll('tr[data-line]')) {
+      const rect = r.getBoundingClientRect()
+      if (rect.bottom > 101 && rect.top < 100 + scrollEl.clientHeight) {
+        return { line: Number(r.getAttribute('data-line')), subOffset: Math.max(0, Math.round(100 - rect.top)) }
+      }
+    }
+    return null
+  }
+
+  const prevObsCount = resizeObservers.length
+  const view = mount(FilePreview, { file: wideFile })
+  view.onCommit = (tree) => { latestTree = tree }
+  try {
+    latestTree = view.render({ file: wideFile })
+    const wrapDiv = all(latestTree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0]
+    const scrollEl = wrapDiv.props.ref.current
+    makeDomMock(scrollEl)
+    const obs = resizeObservers[prevObsCount]
+    obs?.cb?.()
+    latestTree = view.render({ file: wideFile })
+
+    // Turn wrap ON and scroll to line 699 with 7px sub-line offset.
+    all(latestTree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0].props.onClick()
+    currentWrapped = true
+    latestTree = view.render({ file: wideFile })
+    // Settle scroll cleanly onto line 699 with 7px sub-line offset (2 passes settle topPad in mock DOM).
+    scrollEl.scrollTop = 119_358
+    all(latestTree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onScroll({ currentTarget: scrollEl })
+    latestTree = view.render({ file: wideFile })
+    for (let pass = 0; pass < 2; pass += 1) {
+      const row699 = scrollEl.querySelector('tr[data-line="699"]')
+      assert.ok(row699, 'line 699 mounted for setup')
+      scrollEl.scrollTop += (row699.getBoundingClientRect().top - 100) + 7
+      all(latestTree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onScroll({ currentTarget: scrollEl })
+      latestTree = view.render({ file: wideFile })
+    }
+    const initialVis = firstVisibleDomLineInMock(scrollEl)
+    assert.deepEqual(initialVis, { line: 699, subOffset: 7 }, 'starting at line 699 +7px sub-line offset')
+
+    // 1. Toggle Word Wrap 20 times in a row -> MUST stay locked at line 699 (+7px), 0 drift!
+    for (let i = 0; i < 20; i += 1) {
+      all(latestTree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0].props.onClick()
+      currentWrapped = !currentWrapped
+      latestTree = view.render({ file: wideFile })
+      latestTree = view.render({ file: wideFile })
+      const vis = firstVisibleDomLineInMock(scrollEl)
+      assert.equal(vis?.line, 699, `toggle #${i + 1} (${currentWrapped ? 'wrap ON' : 'wrap OFF'}) must stay on line 699 (got ${vis?.line})`)
+      assert.equal(vis?.subOffset, 7, `toggle #${i + 1} must preserve 7px sub-line offset (got ${vis?.subOffset})`)
+    }
+
+    // 2a. Panel width resize 440px -> 360px while wrapped (after quiet window) -> MUST stay on line 699 (+7px), 0 drift!
+    assert.equal(currentWrapped, true)
+    await new Promise(r => setTimeout(r, 270))
+    scrollEl.clientWidth = 360
+    obs?.cb?.()
+    latestTree = view.render({ file: wideFile })
+    latestTree = view.render({ file: wideFile })
+    const afterResize = firstVisibleDomLineInMock(scrollEl)
+    assert.equal(afterResize?.line, 699, `width resize 440->360 after quiet window must stay on line 699 (got ${afterResize?.line})`)
+    assert.equal(afterResize?.subOffset, 7, `width resize 440->360 must preserve 7px sub-line offset (got ${afterResize?.subOffset})`)
+
+    // 2b. Width resize DURING active user scroll -> MUST NOT overwrite scrollTop!
+    all(latestTree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onWheel?.()
+    const scrollDuringUserDrag = scrollEl.scrollTop
+    scrollEl.clientWidth = 400
+    obs?.cb?.()
+    latestTree = view.render({ file: wideFile })
+    assert.equal(scrollEl.scrollTop, scrollDuringUserDrag, 'width resize during active user scroll must not overwrite scrollTop')
+
+    // 3. Big jump from top (scrollTop = 0) straight to 0.7 depth (outside overscan) + IMMEDIATE wrap toggle ->
+    //    MUST NOT reset to line 1 / scrollTop = 0!
+    scrollEl.scrollTop = 0
+    all(latestTree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onScroll({ currentTarget: scrollEl })
+    latestTree = view.render({ file: wideFile })
+    assert.equal(firstVisibleDomLineInMock(scrollEl)?.line, 1)
+
+    // Jump straight to 120,000px in one shot (rows in DOM are still [1..30], NONE intersect viewport!)
+    // and toggle wrap OFF immediately BEFORE React re-renders for 120,000px!
+    scrollEl.scrollTop = 120_000
+    all(latestTree, n => n.type === 'div' && n.props?.className === 'dsb-pv-code-wrap')[0].props.onScroll({ currentTarget: scrollEl })
+    all(latestTree, n => n.type === 'button' && n.props?.['aria-label'] === 'Wrap lines')[0].props.onClick()
+    currentWrapped = false
+    latestTree = view.render({ file: wideFile })
+    latestTree = view.render({ file: wideFile })
+    const afterJumpToggle = firstVisibleDomLineInMock(scrollEl)
+    assert.ok(afterJumpToggle && afterJumpToggle.line > 500, `big jump + immediate wrap toggle must land deep (>500), not reset to line 1 (got ${afterJumpToggle?.line})`)
+    assert.ok(scrollEl.scrollTop > 9000, `scrollTop must stay deep after big jump + wrap toggle (got ${scrollEl.scrollTop})`)
   } finally {
     view.unmount()
     sandbox.localStorage.removeItem('dsb.preview.wrap')

@@ -241,8 +241,10 @@ function scrollTopForLine({ lineIndex, lineCount, viewportHeight = DEFAULT_VIEWP
 }
 
 // Binary-searches rendered `tr[data-line]` rows in a live DOM container to find the exact
-// 0-based line index currently at the top of the viewport (returns null outside a real DOM).
-function firstVisibleDomLine(el) {
+// 0-based line index and sub-line offset (`containerTop - rowTop`) currently intersecting the
+// top of the viewport. Returns `null` when no rendered row intersects the viewport (e.g. right
+// after a large scroll jump before React commits the new virtual window).
+function measureVisibleDomAnchor(el) {
   if (!el || typeof el.querySelectorAll !== 'function' || typeof el.getBoundingClientRect !== 'function') return null
   const containerRect = el.getBoundingClientRect()
   if (!containerRect || containerRect.height <= 0) return null
@@ -250,20 +252,29 @@ function firstVisibleDomLine(el) {
   if (!rows || rows.length === 0) return null
   let lo = 0
   let hi = rows.length - 1
-  let best = rows[0]
+  let best = null
+  let bestRect = null
   while (lo <= hi) {
     const mid = (lo + hi) >>> 1
     const rect = rows[mid].getBoundingClientRect()
     if (rect.bottom > containerRect.top + 1) {
       best = rows[mid]
+      bestRect = rect
       hi = mid - 1
     } else {
       lo = mid + 1
     }
   }
-  const lineNum = Number(best?.getAttribute?.('data-line'))
-  return Number.isInteger(lineNum) && lineNum > 0 ? lineNum - 1 : null
+  if (!best || !bestRect || bestRect.top >= containerRect.bottom) return null
+  const lineNum = Number(best.getAttribute?.('data-line'))
+  if (!Number.isInteger(lineNum) || lineNum <= 0) return null
+  return {
+    line: lineNum - 1,
+    subOffset: Math.max(0, containerRect.top - bestRect.top),
+  }
 }
+
+const ACTIVE_USER_SCROLL_GUARD_MS = 250
 
 function computeTargetScrollTop({ targetLine, lineCount, isVirtualized, wrapOffsets, viewportHeight }) {
   if (!isVirtualized || !Number.isInteger(targetLine) || targetLine <= 0 || targetLine > lineCount) return 0
@@ -314,28 +325,71 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
   viewportHeightRef.current = viewport.height
   const liveScrollTopRef = useRef(scrollTop)
   const domAnchorRef = useRef(null)
-  const prevLayoutRef = useRef({ fileScope, wrapOffsets, lineCount: lines.length })
+  const pendingAnchorRef = useRef(null)
+  const committedWindowRef = useRef({ start: 0, end: 0, scrollTop })
+  const lastUserScrollTsRef = useRef(0)
+  const programmaticScrollTopRef = useRef(null)
+  const anchorRafRef = useRef(null)
+  const prevLayoutRef = useRef({ fileScope, wrapOffsets, wordWrap, width: viewport.width, lineCount: lines.length })
 
-  const computeAnchoredScroll = useCallback((prevLayout) => {
+  const resolveAnchor = useCallback((prevLayout) => {
     const rawSt = liveScrollTopRef.current
     const domAnchor = domAnchorRef.current
-    const anchorLine = domAnchor !== null && Math.abs(domAnchor.scrollTop - rawSt) <= 2
-      ? domAnchor.line
-      : firstVisibleLineOf({
+    // Validate any cached DOM anchor against the model/committed window covering `rawSt`
+    // so a stale pre-render measurement after a big scroll jump can never poison the anchor.
+    let anchorLine = null
+    let subOffset = 0
+    if (domAnchor !== null && Math.abs(domAnchor.scrollTop - rawSt) <= 2) {
+      const modelWin = computeCodeWindow({
+        lineCount: prevLayout.lineCount,
+        scrollTop: rawSt,
+        viewportHeight: viewport.height,
+        lineHeight: CODE_LINE_HEIGHT,
+        overscan: CODE_OVERSCAN,
+        offsets: prevLayout.wrapOffsets,
+      })
+      const cw = committedWindowRef.current
+      const inModel = domAnchor.line >= modelWin.start && domAnchor.line < modelWin.end
+      const inCommitted = Math.abs(cw.scrollTop - rawSt) <= CODE_LINE_HEIGHT && domAnchor.line >= cw.start && domAnchor.line < cw.end
+      if (inModel || inCommitted) {
+        anchorLine = domAnchor.line
+        subOffset = Math.max(0, domAnchor.subOffset ?? 0)
+      }
+    }
+    if (anchorLine === null) {
+      // If the currently committed DOM still covers `rawSt` (e.g. a small sub-line scroll
+      // before rAF ran), measure it on demand; otherwise fall back purely to the model.
+      const cw = committedWindowRef.current
+      if (Math.abs(cw.scrollTop - rawSt) <= CODE_LINE_HEIGHT) {
+        const liveDom = measureVisibleDomAnchor(wrapRef.current)
+        if (liveDom !== null && liveDom.line >= cw.start && liveDom.line < cw.end) {
+          anchorLine = liveDom.line
+          subOffset = liveDom.subOffset
+        }
+      }
+    }
+    if (anchorLine === null) {
+      anchorLine = firstVisibleLineOf({
         lineCount: prevLayout.lineCount,
         scrollTop: rawSt,
         viewportHeight: viewport.height,
         lineHeight: CODE_LINE_HEIGHT,
         offsets: prevLayout.wrapOffsets,
       })
-    const nextScroll = scrollTopForLine({
-      lineIndex: anchorLine,
+      subOffset = 0
+    }
+    const clampedLine = Math.min(anchorLine, Math.max(0, lines.length - 1))
+    const baseScroll = scrollTopForLine({
+      lineIndex: clampedLine,
       lineCount: lines.length,
       viewportHeight: viewport.height,
       lineHeight: CODE_LINE_HEIGHT,
       offsets: wrapOffsets,
     })
-    return { anchorLine: Math.min(anchorLine, Math.max(0, lines.length - 1)), nextScroll }
+    const totalHeight = wrapOffsets ? wrapOffsets[lines.length] : lines.length * CODE_LINE_HEIGHT
+    const maxScroll = Math.max(0, totalHeight - viewport.height)
+    const nextScroll = Math.min(maxScroll, baseScroll + Math.min(subOffset, Math.max(0, CODE_LINE_HEIGHT - 4)))
+    return { anchorLine: clampedLine, subOffset, nextScroll }
   }, [lines.length, viewport.height, wrapOffsets])
 
   useEffect(() => {
@@ -353,32 +407,12 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
     return () => observer.disconnect()
   }, [fileScope])
 
-  // Preserve the first visible line when word wrap, viewport width, or line count changes
-  // `totalHeight` on the same file, and clamp `scrollTop` synchronously before paint so the
-  // browser never cascades scroll-clamping events through empty render windows.
-  useLayoutEffect(() => {
-    const prevLayout = prevLayoutRef.current
-    const nextLayout = { fileScope, wrapOffsets, lineCount: lines.length }
-    prevLayoutRef.current = nextLayout
-    if (!isVirtualized || prevLayout.fileScope !== fileScope) return
-    const layoutChanged = prevLayout.wrapOffsets !== wrapOffsets || prevLayout.lineCount !== lines.length
-    if (layoutChanged) {
-      const { anchorLine, nextScroll } = computeAnchoredScroll(prevLayout)
-      liveScrollTopRef.current = nextScroll
-      domAnchorRef.current = { line: anchorLine, scrollTop: nextScroll }
-      if (wrapRef.current) wrapRef.current.scrollTop = nextScroll
-      setScrollTop(nextScroll)
-      return
+  useEffect(() => () => {
+    if (anchorRafRef.current !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(anchorRafRef.current)
+      anchorRafRef.current = null
     }
-    const totalHeight = wrapOffsets ? wrapOffsets[lines.length] : lines.length * CODE_LINE_HEIGHT
-    const maxScroll = Math.max(0, totalHeight - viewport.height)
-    if (liveScrollTopRef.current > maxScroll) {
-      liveScrollTopRef.current = maxScroll
-      domAnchorRef.current = null
-      if (wrapRef.current) wrapRef.current.scrollTop = maxScroll
-      setScrollTop(maxScroll)
-    }
-  }, [isVirtualized, fileScope, wrapOffsets, lines.length, viewport.height, computeAnchoredScroll])
+  }, [])
 
   // Jump at most once per unique `(fileScope, targetLine)` so subsequent user scrolling,
   // viewport resizes, and word-wrap toggles stay at the user's current scroll position.
@@ -392,6 +426,8 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
       if (fileChanged) {
         liveScrollTopRef.current = 0
         domAnchorRef.current = null
+        pendingAnchorRef.current = null
+        programmaticScrollTopRef.current = 0
         if (wrapRef.current) wrapRef.current.scrollTop = 0
         setScrollTop(0)
       }
@@ -412,6 +448,8 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
       })
       liveScrollTopRef.current = nextScroll
       domAnchorRef.current = null
+      pendingAnchorRef.current = null
+      programmaticScrollTopRef.current = nextScroll
       if (el) el.scrollTop = nextScroll
       setScrollTop(nextScroll)
     } else {
@@ -419,30 +457,72 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
     }
   }, [fileScope, targetLine, lineNonce, isVirtualized])
 
+  const markUserScrollIntent = useCallback(() => {
+    lastUserScrollTsRef.current = Date.now()
+    pendingAnchorRef.current = null
+  }, [])
+
   const onScroll = useCallback((event) => {
     if (!isVirtualized) return
     const el = event.currentTarget
     const next = Math.max(0, el?.scrollTop ?? 0)
+    if (programmaticScrollTopRef.current !== null && Math.abs(next - programmaticScrollTopRef.current) <= 2) {
+      programmaticScrollTopRef.current = null
+      return
+    }
+    programmaticScrollTopRef.current = null
+    lastUserScrollTsRef.current = Date.now()
+    pendingAnchorRef.current = null
     liveScrollTopRef.current = next
-    const domLine = firstVisibleDomLine(el)
-    domAnchorRef.current = domLine !== null ? { line: domLine, scrollTop: next } : null
+    // Never measure DOM rows synchronously during `onScroll`: after a large jump, React has not
+    // yet rendered the new virtual window. Post-render `useLayoutEffect` (or rAF for sub-line
+    // scrolls that do not re-render) records the anchor once the rendered window covers `next`.
+    domAnchorRef.current = null
+    let willRerender = false
     setScrollTop((cur) => {
       if (cur === next) return cur
-      if (next === 0 || Math.abs(cur - next) >= CODE_LINE_HEIGHT) return next
+      if (next === 0 || Math.abs(cur - next) >= CODE_LINE_HEIGHT) {
+        willRerender = true
+        return next
+      }
       if (el && Number.isFinite(el.scrollHeight) && Number.isFinite(el.clientHeight) && el.scrollHeight > 0 && next + el.clientHeight >= el.scrollHeight - 1) {
+        willRerender = true
         return next
       }
       return cur
     })
+    if (!willRerender && typeof requestAnimationFrame === 'function') {
+      if (anchorRafRef.current !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(anchorRafRef.current)
+      }
+      anchorRafRef.current = requestAnimationFrame(() => {
+        anchorRafRef.current = null
+        const node = wrapRef.current
+        if (!node || Math.abs(node.scrollTop - liveScrollTopRef.current) > 2) return
+        const cw = committedWindowRef.current
+        if (Math.abs(cw.scrollTop - liveScrollTopRef.current) > CODE_LINE_HEIGHT) return
+        const measured = measureVisibleDomAnchor(node)
+        if (measured !== null && measured.line >= cw.start && measured.line < cw.end) {
+          domAnchorRef.current = { line: measured.line, subOffset: measured.subOffset, scrollTop: liveScrollTopRef.current }
+        }
+      })
+    }
   }, [isVirtualized])
 
-  // On the exact render where layout changes (e.g. toggling word wrap), derive the remapped
-  // scrollTop purely from the previous layout so frame 0 renders the anchored line immediately.
+  // On the exact render where layout changes (e.g. toggling word wrap or width resize),
+  // derive the remapped scrollTop purely from the previous layout so frame 0 renders the
+  // anchored line immediately with zero blank frames.
   const prevLayout = prevLayoutRef.current
-  const effectiveScrollTop = isVirtualized
+  const layoutWillChange = isVirtualized
     && prevLayout.fileScope === fileScope
     && (prevLayout.wrapOffsets !== wrapOffsets || prevLayout.lineCount !== lines.length)
-    ? computeAnchoredScroll(prevLayout).nextScroll
+  const widthResizeDuringActiveScroll = layoutWillChange
+    && prevLayout.wordWrap === wordWrap
+    && prevLayout.lineCount === lines.length
+    && prevLayout.width !== viewport.width
+    && (Date.now() - lastUserScrollTsRef.current < ACTIVE_USER_SCROLL_GUARD_MS)
+  const effectiveScrollTop = layoutWillChange && !widthResizeDuringActiveScroll
+    ? resolveAnchor(prevLayout).nextScroll
     : scrollTop
 
   const { start, end, topPad, bottomPad } = isVirtualized
@@ -455,6 +535,131 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
       offsets: wrapOffsets,
     })
     : { start: 0, end: lines.length, topPad: 0, bottomPad: 0 }
+
+  // Synchronously commit layout remaps, apply in-place DOM anchor correction before paint
+  // (eliminating cumulative drift from model-vs-DOM wrapped height differences), and record
+  // fresh post-render DOM anchors only when the rendered window covers `liveScrollTop`.
+  useLayoutEffect(() => {
+    const prev = prevLayoutRef.current
+    const nextLayout = { fileScope, wrapOffsets, wordWrap, width: viewport.width, lineCount: lines.length }
+    prevLayoutRef.current = nextLayout
+    committedWindowRef.current = { start, end, scrollTop: effectiveScrollTop }
+    if (!isVirtualized || prev.fileScope !== fileScope) return
+
+    const el = wrapRef.current
+    const totalHeight = wrapOffsets ? wrapOffsets[lines.length] : lines.length * CODE_LINE_HEIGHT
+    const maxModelScroll = Math.max(0, totalHeight - viewport.height)
+    const alignAnchorInDom = (anchorLine, desiredSubOffset, fallbackScroll, remainingPasses) => {
+      let targetScroll = fallbackScroll
+      let appliedSub = Math.max(0, desiredSubOffset)
+      if (el) {
+        programmaticScrollTopRef.current = targetScroll
+        el.scrollTop = targetScroll
+        const anchorRow = el.querySelector?.(`tr[data-line="${anchorLine + 1}"]`)
+        const cRect = el.getBoundingClientRect?.()
+        if (anchorRow && cRect && cRect.height > 0) {
+          const rowRect = anchorRow.getBoundingClientRect?.()
+          if (rowRect) {
+            appliedSub = Math.max(0, Math.min(desiredSubOffset, Math.max(0, Math.floor(rowRect.height) - 4)))
+            const delta = (rowRect.top - cRect.top) + appliedSub
+            const maxDomScroll = Number.isFinite(el.scrollHeight) && Number.isFinite(el.clientHeight) && el.scrollHeight > el.clientHeight
+              ? el.scrollHeight - el.clientHeight
+              : maxModelScroll
+            if (Math.abs(delta) > 0.5) {
+              targetScroll = Math.max(0, Math.min(maxDomScroll, el.scrollTop + delta))
+              programmaticScrollTopRef.current = targetScroll
+              el.scrollTop = targetScroll
+            }
+          }
+        }
+      }
+      liveScrollTopRef.current = targetScroll
+      domAnchorRef.current = { line: anchorLine, subOffset: appliedSub, scrollTop: targetScroll }
+      if (remainingPasses > 0 && Math.abs(targetScroll - effectiveScrollTop) >= CODE_LINE_HEIGHT) {
+        pendingAnchorRef.current = { line: anchorLine, subOffset: appliedSub, remaining: remainingPasses }
+      } else {
+        pendingAnchorRef.current = null
+      }
+      setScrollTop(targetScroll)
+    }
+
+    const layoutChanged = prev.wrapOffsets !== wrapOffsets || prev.lineCount !== lines.length
+    if (layoutChanged) {
+      const pureWidthResize = prev.wordWrap === wordWrap && prev.lineCount === lines.length && prev.width !== viewport.width
+      if (pureWidthResize && Date.now() - lastUserScrollTsRef.current < ACTIVE_USER_SCROLL_GUARD_MS) {
+        domAnchorRef.current = null
+        if (liveScrollTopRef.current > maxModelScroll) {
+          liveScrollTopRef.current = maxModelScroll
+          programmaticScrollTopRef.current = maxModelScroll
+          if (el) el.scrollTop = maxModelScroll
+          setScrollTop(maxModelScroll)
+          return
+        }
+        if (el && Math.abs(el.scrollTop - liveScrollTopRef.current) <= 2) {
+          const measured = measureVisibleDomAnchor(el)
+          if (measured !== null && measured.line >= start && measured.line < end) {
+            domAnchorRef.current = { line: measured.line, subOffset: measured.subOffset, scrollTop: liveScrollTopRef.current }
+          }
+        }
+        return
+      }
+      const { anchorLine, subOffset, nextScroll } = resolveAnchor(prev)
+      alignAnchorInDom(anchorLine, subOffset, nextScroll, 3)
+      return
+    }
+
+    // Converge any pending 2nd-order DOM anchor correction (when `topPad` shifted on re-render)
+    // synchronously before browser paint.
+    if (pendingAnchorRef.current !== null) {
+      const pending = pendingAnchorRef.current
+      if (pending.remaining > 0 && el) {
+        const anchorRow = el.querySelector?.(`tr[data-line="${pending.line + 1}"]`)
+        const cRect = el.getBoundingClientRect?.()
+        if (anchorRow && cRect && cRect.height > 0) {
+          const rowRect = anchorRow.getBoundingClientRect?.()
+          if (rowRect) {
+            const appliedSub = Math.max(0, Math.min(pending.subOffset, Math.max(0, Math.floor(rowRect.height) - 4)))
+            const delta = (rowRect.top - cRect.top) + appliedSub
+            if (Math.abs(delta) > 0.5) {
+              const maxDomScroll = Number.isFinite(el.scrollHeight) && Number.isFinite(el.clientHeight) && el.scrollHeight > el.clientHeight
+                ? el.scrollHeight - el.clientHeight
+                : maxModelScroll
+              const corrected = Math.max(0, Math.min(maxDomScroll, el.scrollTop + delta))
+              programmaticScrollTopRef.current = corrected
+              el.scrollTop = corrected
+              liveScrollTopRef.current = corrected
+              domAnchorRef.current = { line: pending.line, subOffset: appliedSub, scrollTop: corrected }
+              if (Math.abs(corrected - scrollTop) >= CODE_LINE_HEIGHT) {
+                pendingAnchorRef.current = { line: pending.line, subOffset: appliedSub, remaining: pending.remaining - 1 }
+                setScrollTop(corrected)
+                return
+              }
+              pendingAnchorRef.current = null
+              return
+            }
+          }
+        }
+      }
+      pendingAnchorRef.current = null
+    }
+
+    if (liveScrollTopRef.current > maxModelScroll) {
+      liveScrollTopRef.current = maxModelScroll
+      domAnchorRef.current = null
+      programmaticScrollTopRef.current = maxModelScroll
+      if (el) el.scrollTop = maxModelScroll
+      setScrollTop(maxModelScroll)
+      return
+    }
+
+    // Record a fresh post-render DOM anchor only when the committed window covers `liveScrollTop`.
+    if (el && Math.abs(el.scrollTop - liveScrollTopRef.current) <= 2) {
+      const measured = measureVisibleDomAnchor(el)
+      if (measured !== null && measured.line >= start && measured.line < end) {
+        domAnchorRef.current = { line: measured.line, subOffset: measured.subOffset, scrollTop: liveScrollTopRef.current }
+      }
+    }
+  }, [isVirtualized, fileScope, wrapOffsets, wordWrap, viewport.width, lines.length, viewport.height, start, end, scrollTop, effectiveScrollTop, resolveAnchor])
 
   const visibleRows = []
   if (topPad > 0) {
@@ -487,6 +692,11 @@ function CodeLines({ text, language = '', targetLine = null, lineNonce = 0, word
     'data-virtualized': isVirtualized ? '' : undefined,
     'data-total-lines': lines.length,
     onScroll,
+    onWheel: isVirtualized ? markUserScrollIntent : undefined,
+    onTouchStart: isVirtualized ? markUserScrollIntent : undefined,
+    onTouchMove: isVirtualized ? markUserScrollIntent : undefined,
+    onPointerDown: isVirtualized ? markUserScrollIntent : undefined,
+    onKeyDown: isVirtualized ? markUserScrollIntent : undefined,
   },
   h('table', { className: highlighted ? 'dsb-pv-code hljs' : 'dsb-pv-code' },
     h('tbody', null, visibleRows)))
