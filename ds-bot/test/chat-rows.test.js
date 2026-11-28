@@ -13,22 +13,29 @@ const bundle = await build({
 const module = { exports: {} }
 runInNewContext(bundle.outputFiles[0].text, {
   module, exports: module.exports, Intl, Date, TextEncoder,
+  window: { innerWidth: 1200, addEventListener() {}, removeEventListener() {} },
+  document: { body: {} },
+  setTimeout,
+  clearTimeout,
   require: (name) => {
     const platform = {
       react: { Fragment: 'fragment', createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useCallback: fn => fn, useId: () => 'dv-id', useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(), 
         createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
-        useState: initial => [initial, () => {}], useRef: current => ({ current }),
+        useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}], useRef: current => ({ current }),
         useLayoutEffect() {}, useEffect() {}, useMemo: make => make(),
       },
-      'react-dom': {},
-      '@deepseek-ai/dsh-client-ui-primitives': {},
+      'react-dom': { createPortal: node => node },
+      '@deepseek-ai/dsh-client-ui-primitives': {
+        MarkdownText: props => ({ type: 'markdown', props, children: [] }),
+        writeClipboard: async () => true,
+      },
     }
     if (!(name in platform)) throw new Error(`no platform module ${name}`)
     return platform[name]
   },
   queueMicrotask,
 })
-const { Bubbles, ChatRows, ThinkingRow, syncGroupChains, claimLines, GroupMessage, TriggerCell, earlierClosedKey, mergeEarlierPage, earlierItems } = module.exports
+const { Bubbles, ChatRows, ThinkingRow, thinkingPreviewLine, syncGroupChains, claimLines, GroupMessage, TriggerCell, earlierClosedKey, mergeEarlierPage, earlierItems } = module.exports
 
 const roster = { byId: { b: { id: 'b', name: 'Writer' } }, roomsById: {} }
 const MINUTE = 60_000
@@ -98,16 +105,29 @@ test('a reasoning row the reader opened stays open when the turn moves it to a l
   assert.equal(ThinkingRow({ text: 'other', viewKey: 's:8' }).props.open, false)
 })
 
-test('the reasoning row is a closed details that opens to the text', () => {
-  const row = ThinkingRow({ text: 'one\ntwo' })
+test('the reasoning row is a closed details with latest paragraph preview and renders Markdown when opened', () => {
+  const row = ThinkingRow({ text: 'first paragraph\n\n**Latest** reasoning\nsecond line' })
   assert.equal(row.type, 'details')
   assert.equal(row.props.className, 'bt-think')
   assert.equal(row.props.open, false)
   assert.equal(typeof row.props.onToggle, 'function')
   const [title, box] = row.children
   assert.equal(title.type, 'summary')
-  assert.equal(title.children.join(''), 'Thought it through')
+  assert.equal(title.children[0], 'Thought it through')
+  const preview = title.children.find(child => child?.props?.className === 'bt-think-preview')
+  assert.equal(preview?.children.join(''), 'Latest reasoning')
   assert.equal(box.props.className, 'bt-think-text')
+  assert.equal(box.children.filter(Boolean).length, 0, 'collapsed reasoning defers Markdown rendering until expanded')
+
+  // Opening hides the collapsed preview and renders MarkdownText inside .bt-think-text.
+  const opened = ThinkingRow({ text: 'first paragraph\n\n**Latest** reasoning\nsecond line', viewKey: 's:open-md' })
+  opened.props.onToggle({ currentTarget: { open: true } })
+  const expanded = ThinkingRow({ text: 'first paragraph\n\n**Latest** reasoning\nsecond line', viewKey: 's:open-md' })
+  assert.equal(expanded.props.open, true)
+  const [openTitle, openBox] = expanded.children
+  assert.equal(openTitle.children.find(child => child?.props?.className === 'bt-think-preview'), undefined)
+  assert.equal(openBox.children.filter(Boolean).length, 1)
+  assert.equal(openBox.children[0]?.props?.text, 'first paragraph\n\n**Latest** reasoning\nsecond line')
 })
 
 test('a live reasoning row titles "Thinking" with a ticking clock', () => {
@@ -122,10 +142,11 @@ test('a settled reasoning row shows the turn’s thinking time when known', () =
   const timed = ThinkingRow({ text: 'one\ntwo', ms: 12_000 })
   const [title] = timed.children
   assert.equal(title.children[0], 'Thought it through')
-  const time = title.children.find(child => child?.type === 'span')
+  const time = title.children.find(child => child?.props?.className === 'bt-think-time')
   assert.equal(time?.children.join(''), '· 12s')
   const untimed = ThinkingRow({ text: 'one\ntwo' })
-  assert.equal(untimed.children[0].children.join(''), 'Thought it through')
+  assert.equal(untimed.children[0].children[0], 'Thought it through')
+  assert.equal(untimed.children[0].children.find(child => child?.props?.className === 'bt-think-time'), undefined)
 })
 
 test('consecutive group messages from the same Bot chain together, and cards or user rows break the chain', () => {
@@ -251,4 +272,85 @@ test('earlierClosedKey stays stable when newer parts without closed cards append
   // A closed card added to an earlier part still invalidates the key.
   const k4 = earlierClosedKey(['p1', 'p2', 'p3'], 'p3', { ...closed, p2: { c2: true } })
   assert.notEqual(k3, k4)
+})
+
+test('thinkingPreviewLine extracts cleaned first line of the latest reasoning paragraph', () => {
+  assert.equal(thinkingPreviewLine(''), '')
+  assert.equal(thinkingPreviewLine('First para\n\n### **Step 2:** inspect `cells.js`\nMore detail'), 'Step 2: inspect cells.js')
+  assert.equal(thinkingPreviewLine('- bullet item\n\n> quoted note'), 'quoted note')
+})
+
+test('MessageTools copy uses writeClipboard fallback and reports clipboard failures', async () => {
+  const findAll = (node, pred, out = []) => {
+    if (!node || typeof node !== 'object') return out
+    if (Array.isArray(node)) { node.forEach(item => findAll(item, pred, out)); return out }
+    if (pred(node)) out.push(node)
+    if (Array.isArray(node.children)) node.children.forEach(item => findAll(item, pred, out))
+    return out
+  }
+  const reported = []
+  const actions = { reportError: (err, kind) => reported.push([err?.message, kind]), quote() {}, toggleReaction() {} }
+  const copyMod = { exports: {} }
+  const copyCalls = []
+  let shouldSucceed = true
+  let toolsMode = false
+  let sIdx = 0
+  runInNewContext(bundle.outputFiles[0].text, {
+    module: copyMod, exports: copyMod.exports, Intl, Date, TextEncoder,
+    window: { innerWidth: 1200, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
+    document: { body: {} },
+    setTimeout,
+    clearTimeout,
+    require: (name) => {
+      if (name === 'react') {
+        return {
+          Fragment: 'fragment',
+          createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
+          useContext: ctx => ctx.value,
+          useCallback: fn => fn,
+          useId: () => 'id',
+          useSyncExternalStore: (sub, snap) => snap(),
+          createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+          useState: (initial) => {
+            if (toolsMode) {
+              const idx = sIdx++
+              if (idx === 0) return [{ kind: 'more', node: { getBoundingClientRect: () => ({ left: 10, top: 100, bottom: 120, width: 28 }) } }, () => {}]
+            }
+            return [typeof initial === 'function' ? initial() : initial, () => {}]
+          },
+          useRef: current => ({ current }),
+          useLayoutEffect() {},
+          useEffect() {},
+          useMemo: make => make(),
+        }
+      }
+      if (name === 'react-dom') return { createPortal: node => node }
+      if (name === '@deepseek-ai/dsh-client-ui-primitives') {
+        return {
+          MarkdownText: props => ({ type: 'markdown', props, children: [] }),
+          writeClipboard: async (val) => { copyCalls.push(val); return shouldSucceed },
+        }
+      }
+      throw new Error(`no module ${name}`)
+    },
+    queueMicrotask,
+  })
+  const b2 = copyMod.exports.Bubbles({ texts: ['Copy me'], roster, selfId: 'b', actions, sessionId: 'b' })
+  const bubble2 = findAll(b2, n => n.type?.name === 'Bubble')[0]
+  const tools2 = findAll(bubble2.type(bubble2.props), n => n.type?.name === 'MessageTools')[0]
+  toolsMode = true
+  sIdx = 0
+  const renderedTools = tools2.type(tools2.props)
+  const copyBtn = findAll(renderedTools, n => n.type === 'button' && n.props.role === 'menuitem' && n.children.includes('Copy'))[0]
+  assert.ok(copyBtn, 'Copy menu item renders')
+  shouldSucceed = true
+  copyBtn.props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(copyCalls, ['Copy me'])
+  assert.equal(reported.length, 0)
+  shouldSucceed = false
+  copyBtn.props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(reported.length, 1)
+  assert.equal(reported[0][1], 'copy')
 })

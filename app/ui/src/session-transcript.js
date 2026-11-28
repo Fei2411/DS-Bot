@@ -57,6 +57,17 @@ export function streamReasoningMs(stream) {
   return first === undefined ? undefined : Math.max(0, last - first)
 }
 
+export function extractImageBlocks(blocks) {
+  const out = []
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    if (block?.type !== 'image') continue
+    if (block.attachment?.attachmentId || (typeof block.data === 'string' && block.data !== '' && typeof block.mediaType === 'string' && block.mediaType !== '')) {
+      out.push(block)
+    }
+  }
+  return out
+}
+
 function stringifyArgs(raw) {
   if (typeof raw === 'string') return raw
   if (raw === undefined || raw === null) return ''
@@ -356,6 +367,9 @@ function buildCommittedRows(events, roster, sessionId) {
   // and PTC nested dispatches update the exact ToolCallBlock in place without wrapper drift.
   const callsById = new Map()
   const turnStarts = new Map()
+  const turnReasoningTotals = new Map()
+  const startsAtZero = events[0]?.seq === 0
+  let minSeenTurn
   let currentTurn
   let currentStep
   const hidden = turn => hiddenTurn(roster, sessionId, turn)
@@ -467,6 +481,7 @@ function buildCommittedRows(events, roster, sessionId) {
     if (item.type === 'turn/start') {
       if (Number.isInteger(item.data?.turn)) {
         currentTurn = item.data.turn
+        if (minSeenTurn === undefined || currentTurn < minSeenTurn) minSeenTurn = currentTurn
         if (!turnStarts.has(currentTurn)) {
           turnStarts.set(currentTurn, Number.isFinite(item.time) ? { seq: item.seq, time: item.time } : { seq: item.seq })
         }
@@ -561,16 +576,24 @@ function buildCommittedRows(events, roster, sessionId) {
     if (item.type === 'assistant/message') {
       const turn = item.data?.turn ?? currentTurn
       const step = item.data?.step ?? currentStep
+      if (Number.isInteger(turn) && (minSeenTurn === undefined || turn < minSeenTurn)) minSeenTurn = turn
       if (hidden(turn)) continue
       const content = Array.isArray(item.data?.message?.content) ? item.data.message.content : []
       const { reasoning, activity } = splitReasoning(content)
-      const reasoningMs = streamReasoningMs(item.data?.stream)
+      const stepReasoningMs = streamReasoningMs(item.data?.stream)
+      const images = extractImageBlocks(content)
+      if (Number.isInteger(turn) && stepReasoningMs !== undefined) {
+        let bucket = turnReasoningTotals.get(turn)
+        if (!bucket) { bucket = { ms: 0, timed: false, rows: [] }; turnReasoningTotals.set(turn, bucket) }
+        bucket.ms += stepReasoningMs
+        bucket.timed = true
+      }
       const texts = content
         .filter(block => block?.type === 'text' && typeof block.text === 'string')
         .map(block => stripToolCallTags(block.text))
         .filter(text => text.trim() !== '')
-      if (reasoning !== '' || activity.length > 0 || texts.length > 0) {
-        rows.push({
+      if (reasoning !== '' || activity.length > 0 || texts.length > 0 || images.length > 0) {
+        const row = {
           kind: 'assistant',
           key: `assistant:${item.seq}`,
           seq: item.seq,
@@ -579,12 +602,21 @@ function buildCommittedRows(events, roster, sessionId) {
           turn,
           step,
           reasoning,
-          reasoningMs,
+          reasoningMs: stepReasoningMs,
+          turnReasoningMs: undefined,
+          turnHasStart: !Number.isInteger(turn) || startsAtZero || turnStarts.has(turn) || (minSeenTurn !== undefined && minSeenTurn < turn),
           activity,
           texts,
+          images,
           streaming: false,
           thinkingLive: false,
-        })
+        }
+        if (Number.isInteger(turn) && reasoning !== '') {
+          let bucket = turnReasoningTotals.get(turn)
+          if (!bucket) { bucket = { ms: 0, timed: false, rows: [] }; turnReasoningTotals.set(turn, bucket) }
+          bucket.rows.push(row)
+        }
+        rows.push(row)
       }
       // Keep tool-call blocks committed on assistant/message in `preparing` until `tool/call`
       // arrives so cards never unmount and flicker between assistant/message and tool/call.
@@ -772,7 +804,16 @@ function buildCommittedRows(events, roster, sessionId) {
     }
   }
 
-  return { rows, callsById }
+  for (const [turn, bucket] of turnReasoningTotals) {
+    if (!bucket.timed) continue
+    const hasStart = startsAtZero || turnStarts.has(turn) || (minSeenTurn !== undefined && minSeenTurn < turn)
+    for (const row of bucket.rows) {
+      row.turnReasoningMs = bucket.ms
+      row.turnHasStart = hasStart
+    }
+  }
+
+  return { rows, callsById, turnReasoningTotals }
 }
 
 // Live in-progress reply rows from DSH's BlockAssembler, rebuilt per stream chunk. They
@@ -788,11 +829,14 @@ function writingRows(log, committed, roster, sessionId) {
   const taken = new Set()
   const attemptId = log.writing?.attemptId ?? 'live'
   const { reasoning, activity } = splitReasoning(writing)
+  const images = extractImageBlocks(writing)
+  const priorBucket = Number.isInteger(writingTurn) ? committed.turnReasoningTotals?.get(writingTurn) : undefined
+  const priorReasoningMs = priorBucket?.timed ? priorBucket.ms : 0
   const texts = writing
     .filter(block => block?.type === 'text' && typeof block.text === 'string')
     .map(block => stripToolCallTags(block.text))
     .filter(text => text.trim() !== '')
-  if (reasoning !== '' || activity.length > 0 || texts.length > 0) {
+  if (reasoning !== '' || activity.length > 0 || texts.length > 0 || images.length > 0) {
     rows.push({
       kind: 'assistant',
       key: `writing:${attemptId}`,
@@ -803,10 +847,14 @@ function writingRows(log, committed, roster, sessionId) {
       attemptId,
       reasoning,
       reasoningMs: undefined,
+      turnReasoningMs: undefined,
+      priorReasoningMs,
+      turnHasStart: true,
       activity,
       texts,
+      images,
       streaming: true,
-      thinkingLive: reasoning !== '' && texts.length === 0,
+      thinkingLive: reasoning !== '' && texts.length === 0 && images.length === 0,
     })
   }
   let toolIdx = 0

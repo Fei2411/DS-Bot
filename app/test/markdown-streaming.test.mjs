@@ -894,6 +894,40 @@ test('seeded differential fuzz guard: 160 random/adversarial Markdown docs (char
   }
 })
 
+test('W6 Markdown additions (CJK punctuation strong, single-tilde off, local image fallback) preserve streaming === settled DOM parity', () => {
+  const fold = html => html.replace(/>\n</g, '><')
+  const pad = 'Introductory prose long enough to cross the 512-byte streaming split threshold cleanly. '.repeat(7).trim()
+  const doc = [
+    pad,
+    '',
+    '这是**“重要”**内容，还有中文**（说明）**和**「含`code`标题」**以及\\*\\*“转义”\\*\\*。',
+    '',
+    '耗时约~100ms到~200ms，而~~已删除~~保留删除线。',
+    '',
+    '![chart](./charts/plot.png)',
+    '',
+    '收尾段落。',
+  ].join('\n')
+
+  const settled = mounted()
+  settled.render(h(MarkdownText, { text: doc, streaming: false, labels }))
+  const expected = fold(settled.container.innerHTML)
+  settled.unmount()
+
+  const streamed = mounted()
+  try {
+    for (let at = 13; at < doc.length; at += 13) {
+      streamed.render(h(MarkdownText, { text: doc.slice(0, at), streaming: true, labels }))
+    }
+    streamed.render(h(MarkdownText, { text: doc, streaming: true, labels }))
+    streamed.render(h(MarkdownText, { text: doc, streaming: false, labels }))
+    assert.equal(fold(streamed.container.innerHTML), expected, 'W6 Markdown additions match settled DOM byte-for-byte')
+    assert.equal(streamed.container.innerHTML.includes('\u200A'), false, 'transient CJK strong sentinel is completely stripped from DOM')
+  } finally {
+    streamed.unmount()
+  }
+})
+
 after(() => {
   rmSync(dir, { recursive: true, force: true })
 })

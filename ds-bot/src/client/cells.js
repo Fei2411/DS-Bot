@@ -171,10 +171,12 @@ const Bubble = memo(function Bubble({ text, index, first = true, last = true, ro
       labels,
       variant: 'compact',
       fileMentions: mentions,
+      ...(sessionId ? { sessionId } : {}),
+      ...(selfId ? { botId: selfId } : {}),
       ...(openFile ? { onOpenFile: openFile } : {}),
       ...(revealFolder ? { onRevealFolder: revealFolder } : {}),
     })),
-    [linked, live, labels, mentions, openFile, revealFolder],
+    [linked, live, labels, mentions, sessionId, selfId, openFile, revealFolder],
   )
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its tools, a tap elsewhere
@@ -251,8 +253,14 @@ function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
       ? { left: Math.min(Math.max(rect.left + rect.width / 2, STRIP_HALF), window.innerWidth - STRIP_HALF), top: rect.top - 6, '--bt-origin': 'bottom center' }
       : { left: Math.min(rect.left, window.innerWidth - 208), ...(below ? { top: rect.bottom + 4 } : { bottom: viewBottom() - rect.top + 4, '--bt-origin': 'bottom left' }) }
   }, [panel, tick])
-  const copy = () => {
-    void navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1000) })
+  const copy = async () => {
+    try {
+      if (!await writeClipboard(text)) throw new Error('Could not copy the message')
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1000)
+    } catch (error) {
+      actions?.reportError?.(error, 'copy')
+    }
   }
   const download = () => {
     const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown' }))
@@ -301,6 +309,19 @@ function useThinkingMs({ sessionId, turn, settledSteps, skip }) {
 // the settled steps too); settled, it shows the turn's exact thinking time if known.
 // A live turn's row moves to the step that reasons now, so whether the reader opened it
 // and where they scrolled is kept per turn (`viewKey`), not per row.
+// Extracts the first visible line of the latest reasoning paragraph for the collapsed summary preview.
+export function thinkingPreviewLine(text) {
+  if (typeof text !== 'string' || text.trim() === '') return ''
+  const paragraphs = text.split(/\r?\n[ \t]*\r?\n/).map(part => part.trim()).filter(Boolean)
+  const latest = paragraphs.at(-1) ?? ''
+  const firstLine = latest.split(/\r?\n/).map(line => line.trim()).find(Boolean) ?? ''
+  return firstLine
+    .replace(/^(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/, '')
+    .replace(/\*\*|__|~~|`/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 const MAX_ROW_VIEWS = 200
 export const rowViews = new Map()
 export function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource }) {
@@ -312,6 +333,7 @@ export function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource
   const remember = patch => { if (viewKey !== undefined) lruSet(rowViews, viewKey, { ...rowViews.get(viewKey), ...patch }, MAX_ROW_VIEWS) }
   const measure = () => {
     const el = box.current
+    if (!el) return
     atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 2
     remember({ atEnd: atEnd.current, top: el.scrollTop })
     const above = el.scrollTop > 0
@@ -326,6 +348,7 @@ export function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource
   useLayoutEffect(() => {
     if (!open) return
     const el = box.current
+    if (!el) return
     const restore = view.current
     view.current = undefined
     if (atEnd.current) el.scrollTop = el.scrollHeight
@@ -333,11 +356,15 @@ export function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource
     measure()
   }, [text, open])
   const title = live ? t('Thinking') : t('Thought it through')
+  const preview = useMemo(() => (open ? '' : thinkingPreviewLine(text)), [open, text])
+  const safeText = typeof text === 'string' ? text : ''
   return h('details', { className: 'bt-think', open, onToggle: toggle },
     h('summary', null, title,
       live && at !== undefined ? h(Elapsed, { at, className: 'bt-think-time' }) : null,
-      !live && ms !== undefined ? h('span', { className: 'bt-think-time' }, `· ${elapsedLabel(Math.max(1000, ms))}`) : null),
-    h('div', { ref: box, className: 'bt-think-text', role: 'region', 'aria-label': title, tabIndex: 0, 'data-fade': fade, 'data-text-interaction-source': textInteractionSource && !live ? '' : undefined, onScroll: measure }, text))
+      !live && ms !== undefined ? h('span', { className: 'bt-think-time' }, `· ${elapsedLabel(Math.max(1000, ms))}`) : null,
+      !open && preview !== '' ? h('span', { className: 'bt-think-preview', title: preview }, preview) : null),
+    h('div', { ref: box, className: 'bt-think-text', role: 'region', 'aria-label': title, tabIndex: 0, 'data-fade': fade, 'data-text-interaction-source': textInteractionSource && !live ? '' : undefined, onScroll: measure },
+      open && safeText !== '' ? h(MarkdownText, { text: safeText, streaming: live, labels: mdLabels(), variant: 'compact' }) : null))
 }
 
 // The files a finished turn changed or delivered, linked from inline code in its

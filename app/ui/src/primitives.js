@@ -1,6 +1,6 @@
 // The window's own versions of the DSH interface primitives the Bot views draw with (see
 // ds-bot/src/client/dsh-primitives.js and vite.config.js).
-import { Fragment, createContext, createElement as h, isValidElement, memo, useContext, useMemo, useRef, useState } from 'react'
+import { Fragment, createContext, createElement as h, isValidElement, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -9,8 +9,9 @@ import { MENTION_ORIGIN } from '../../../ds-bot/src/client/text.js'
 import { ArchiveIcon, DownloadIcon, GearIcon, PersonIcon, SlidersIcon, SpinnerIcon, StackIcon } from '../../../ds-bot/src/client/icons.js'
 import { renderHighlightedBlock, useHighlightedCode } from './code-highlight.js'
 import { FileRefChip, isInlineCodeFilePath, matchFileMention, parseLocalFileHref, remarkFileReferences } from './file-references.js'
+import { fileSizeText } from './image-cache.js'
 import { MarkdownImage, MarkdownImageSession, isLocalMarkdownImage } from './markdown-image.js'
-import { MathExpression, escapeCurrencyDollars, normalizeMathDelimiters, remarkGuardCurrencyMath } from './math-render.js'
+import { MathExpression, escapeCurrencyDollars, normalizeMathDelimiters, prepareCjkStrong, remarkGuardCurrencyMath, remarkStripCjkStrongSentinel, serializeMathCopySelection } from './math-render.js'
 
 // Official DeepSeek Harness FishLogo geometry (@deepseek-ai/dsh-client-ui-primitives).
 export const FISH_LOGO_VIEWBOX = { width: 23.16, height: 17.04 }
@@ -65,8 +66,9 @@ export const writeClipboard = text => (navigator.clipboard === undefined
   ? Promise.resolve(fallbackCopy(text))
   : navigator.clipboard.writeText(text).then(() => true, () => fallbackCopy(text)))
 
-const BASE_PLUGINS = [remarkGfm, remarkMath, remarkGuardCurrencyMath]
-const LINKED_PLUGINS = [remarkGfm, remarkMath, remarkGuardCurrencyMath, remarkFileReferences]
+const REMARK_GFM = [remarkGfm, { singleTilde: false }]
+const BASE_PLUGINS = [REMARK_GFM, remarkMath, remarkGuardCurrencyMath, remarkStripCjkStrongSentinel]
+const LINKED_PLUGINS = [REMARK_GFM, remarkMath, remarkGuardCurrencyMath, remarkStripCjkStrongSentinel, remarkFileReferences]
 
 const InPreContext = createContext(false)
 const InLinkContext = createContext(false)
@@ -385,9 +387,9 @@ function defaultSafeUrlTransform(value) {
 }
 
 // Preserves recognized local file/folder destinations (prose `dsb-file://`, `file://`,
-// Windows drive links including percent-encoded backslashes, and `README.md:42`) ONLY on
-// anchor `href` attributes consumed by our custom `a` renderer; delegates every other URL
-// (including `javascript:`, `data:`, and non-anchor elements like `<img>`) to the safe allowlist.
+// Windows drive links including percent-encoded backslashes, and `README.md:42`) on
+// anchor `href` attributes consumed by our custom `a` renderer; delegates every other
+// URL (including `javascript:` and `data:`) to the safe allowlist.
 export function markdownUrlTransform(url, key, node) {
   if (typeof url === 'string' && key === 'href' && (!node || node.tagName === 'a') && parseLocalFileHref(url) !== null) {
     return url
@@ -401,7 +403,7 @@ const withWorkspaceImages = transform => (url, key, node) => (
 const workspaceImageUrlTransform = withWorkspaceImages(defaultSafeUrlTransform)
 const linkedWorkspaceImageUrlTransform = withWorkspaceImages(markdownUrlTransform)
 
-const preprocessMarkdown = text => escapeCurrencyDollars(normalizeMathDelimiters(text ?? ''))
+const preprocessMarkdown = text => prepareCjkStrong(escapeCurrencyDollars(normalizeMathDelimiters(text ?? '')))
 
 // A closed block of a streaming reply. Once the splitter has closed it, later chunks
 // cannot change what it means, so the memo holds for the rest of the stream and the
@@ -434,6 +436,13 @@ export function MarkdownText({ text, labels, variant, streaming = false, onOpenF
     () => elements({ labels, onOpenFile, onRevealFolder, fileMentions, workspaceImages }),
     [labels?.code?.copyLabel, labels?.code?.copiedLabel, onOpenFile, onRevealFolder, fileMentions, workspaceImages],
   )
+  const onCopy = useCallback((event) => {
+    const selection = typeof window !== 'undefined' && typeof window.getSelection === 'function' ? window.getSelection() : null
+    const restored = serializeMathCopySelection(selection, event.currentTarget)
+    if (restored === null || !event.clipboardData) return
+    event.clipboardData.setData('text/plain', restored)
+    event.preventDefault()
+  }, [])
   const raw = text ?? ''
   // Incremental prefix cache: while a reply grows monotonically, closed blocks stay intact
   // and only the unclosed suffix is scanned, keeping per-chunk split cost O(|tail|). Also
@@ -513,7 +522,7 @@ export function MarkdownText({ text, labels, variant, streaming = false, onOpenF
       ? h(StaticMarkdownBlock, { key: tailKey, text: tailRaw, components, remarkPlugins, urlTransform })
       : h(Markdown, { remarkPlugins, components, urlTransform }, tailState.source))
 
-  return h('div', { className: variant === 'compact' ? 'md_markdown bt-md md-compact' : 'md_markdown bt-md' },
+  return h('div', { className: variant === 'compact' ? 'md_markdown bt-md md-compact' : 'md_markdown bt-md', onCopy },
     split
       ? [
         ...blocks.slice(0, -1).map((block, index) => h(StaticMarkdownBlock, { key: index, text: block, components, remarkPlugins, urlTransform })),
@@ -548,11 +557,4 @@ export const projectUserText = undefined
 export const FileTypeIcon = undefined
 export const JsonBlock = undefined
 export const fileExtension = name => /\.([^./\\]+)$/.exec(String(name ?? ''))?.[1] ?? ''
-const UNITS = ['B', 'KB', 'MB', 'GB']
-export function fileSizeText(bytes) {
-  if (!Number.isFinite(bytes) || bytes < 0) return ''
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < UNITS.length - 1) { value /= 1024; unit += 1 }
-  return `${unit === 0 ? value : value.toFixed(value < 10 ? 1 : 0)} ${UNITS[unit]}`
-}
+export { fileSizeText }

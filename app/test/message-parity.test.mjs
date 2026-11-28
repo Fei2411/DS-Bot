@@ -10,15 +10,17 @@ import { installMiniDom } from './mini-dom.mjs'
 const entryCode = `
   export {
     MarkdownText,
+    markdownUrlTransform,
     projectUserText,
     FileTypeIcon,
     JsonBlock,
   } from './ui/src/primitives.js'
   export { ensureLanguage, isLanguageLoaded, highlightSync } from './ui/src/code-highlight.js'
-  export { ensureKatex, normalizeMathDelimiters, escapeCurrencyDollars } from './ui/src/math-render.js'
+  export { ensureKatex, normalizeMathDelimiters, escapeCurrencyDollars, serializeMathCopySelection } from './ui/src/math-render.js'
   export { parseFileTarget, parseLocalFileHref, isInlineCodeFilePath, extractUserFileRefs, matchFileMention } from './ui/src/file-references.js'
   export { UserMessageText, tokenizeUserText, copyableUserText } from './ui/src/user-text.js'
   export { SessionTranscript } from './ui/src/session-chat.js'
+  export { buildSessionRows } from './ui/src/session-transcript.js'
   export { feedbackErrorMessage } from './ui/src/classic-feedback.js'
   export { FilePreview } from './ui/src/file-preview.js'
   export { WorkspacePaneBody, normalizeRevealPath } from './ui/src/right-panel.js'
@@ -124,6 +126,7 @@ runInNewContext(outputFiles[0].text, sandbox)
 
 const {
   MarkdownText,
+  markdownUrlTransform,
   projectUserText,
   FileTypeIcon,
   JsonBlock,
@@ -131,6 +134,7 @@ const {
   ensureKatex,
   normalizeMathDelimiters,
   escapeCurrencyDollars,
+  serializeMathCopySelection,
   parseFileTarget,
   parseLocalFileHref,
   isInlineCodeFilePath,
@@ -139,6 +143,7 @@ const {
   UserMessageText,
   copyableUserText,
   SessionTranscript,
+  buildSessionRows,
   feedbackErrorMessage,
   FilePreview,
   WorkspacePaneBody,
@@ -1041,5 +1046,218 @@ test('every t() key in app/ui/src exists across all supported locales and previo
     assert.equal(t('Large'), '大文件')
   } finally {
     off()
+  }
+})
+
+test('W6 Markdown details: CJK punctuation strong, single-tilde disabled, and math copy restores $...$ / $$...$$', async () => {
+  await ensureKatex()
+
+  // 1. CJK flanking strong emphasis + single-tilde disabled + double-tilde kept.
+  const md = [
+    '这是**“重要”**内容，还有中文**（说明）**和**「含`code`标题」**以及\\*\\*“转义”\\*\\*。',
+    '',
+    '耗时约~100ms到~200ms，而~~已删除~~保留删除线。',
+    '',
+    '行内公式 $E = mc^2$ 与块级公式：',
+    '',
+    '$$',
+    'a^2 + b^2 = c^2',
+    '$$',
+  ].join('\n')
+
+  const view = mountDom(React.createElement(MarkdownText, {
+    text: md,
+    labels: { code: { copyLabel: 'Copy', copiedLabel: 'Copied' } },
+  }))
+  try {
+    await flush()
+    const strongs = Array.from(view.host.querySelectorAll('strong')).map(el => el.textContent)
+    assert.deepEqual(strongs, ['“重要”', '（说明）', '「含code标题」'])
+    assert.ok(view.host.textContent.includes('**“转义”**'), 'escaped asterisks stay literal')
+    const dels = Array.from(view.host.querySelectorAll('del')).map(el => el.textContent)
+    assert.deepEqual(dels, ['已删除'], 'single ~ never triggers strikethrough while ~~ still works')
+    assert.ok(view.host.textContent.includes('~100ms到~200ms'))
+
+    // 2. Copy selection restores `$...$` and `$$...$$` for math nodes, returns null for plain text.
+    const mdRoot = view.host.querySelector('.md_markdown')
+    const inlineMath = mdRoot.querySelector('[data-math-inline]')
+    const blockMath = mdRoot.querySelector('[data-math-display]')
+    assert.ok(inlineMath && blockMath)
+
+    // Selection inside a single inline math node.
+    const insideSel = {
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: inlineMath, startContainer: inlineMath, endContainer: inlineMath }),
+    }
+    assert.equal(serializeMathCopySelection(insideSel, mdRoot), '$E = mc^2$')
+
+    // Selection inside a display math node.
+    const blockSel = {
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: blockMath, startContainer: blockMath, endContainer: blockMath }),
+    }
+    assert.equal(serializeMathCopySelection(blockSel, mdRoot), '$$a^2 + b^2 = c^2$$')
+
+    // Selection spanning prose + inline math + display math via cloned fragment.
+    const mixedFrag = document.createElement('div')
+    mixedFrag.appendChild(document.createTextNode('Formula: '))
+    const clonedInline = document.createElement('span')
+    clonedInline.setAttribute('data-math-inline', '')
+    clonedInline.setAttribute('data-tex', 'E = mc^2')
+    clonedInline.textContent = 'rendered'
+    mixedFrag.appendChild(clonedInline)
+    mixedFrag.appendChild(document.createTextNode(' end'))
+    const mixedSel = {
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({
+        commonAncestorContainer: mdRoot,
+        startContainer: mdRoot,
+        endContainer: mdRoot,
+        cloneContents: () => mixedFrag,
+      }),
+    }
+    assert.equal(serializeMathCopySelection(mixedSel, mdRoot), 'Formula: $E = mc^2$ end')
+
+    // Plain-text selection without any math leaves native copy untouched.
+    const plainFrag = document.createElement('div')
+    plainFrag.appendChild(document.createTextNode('Just plain prose'))
+    const plainSel = {
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({
+        commonAncestorContainer: mdRoot,
+        startContainer: mdRoot,
+        endContainer: mdRoot,
+        cloneContents: () => plainFrag,
+      }),
+    }
+    assert.equal(serializeMathCopySelection(plainSel, mdRoot), null)
+  } finally {
+    view.unmount()
+  }
+})
+
+test('W6 assistant image blocks and cumulative turn thinking duration work across multi-step and paginated turns', async () => {
+  const tinyPngB64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0s0AAAAASUVORK5CYII='
+  const imageRpcCalls = []
+  const thinkingRpcCalls = []
+  sandbox.__testCall = async (ep, body) => {
+    if (ep === 'image') {
+      imageRpcCalls.push(body)
+      return { mime: 'image/png', data: tinyPngB64 }
+    }
+    if (ep === 'thinking') {
+      thinkingRpcCalls.push(body)
+      return { ms: 9000 }
+    }
+    if (ep === 'engine-feedback-list') return { available: false, items: [] }
+    return {}
+  }
+
+  // 1. Multi-step turn accumulates reasoningMs across committed steps and feeds priorReasoningMs to live writing.
+  const multiStepLog = {
+    header: { cwd: '/repo' },
+    events: [
+      { seq: 1, time: 1000, type: 'turn/start', data: { turn: 1 } },
+      {
+        seq: 2, time: 3000, type: 'assistant/message',
+        data: {
+          turn: 1, step: 1,
+          message: { content: [{ type: 'reasoning', text: 'Step 1 thought' }] },
+          stream: [{ type: 'reasoning-chunks', time0: 1000, dt: [1000, 1000], texts: ['a', 'b'] }],
+        },
+      },
+      {
+        seq: 3, time: 7000, type: 'assistant/message',
+        data: {
+          turn: 1, step: 2,
+          message: {
+            content: [
+              { type: 'reasoning', text: 'Step 2 thought\n\n**Final** check' },
+              { type: 'text', text: 'Here is the generated image:' },
+              { type: 'image', attachment: { attachmentId: 'att-asst-1', name: 'chart.png' } },
+            ],
+          },
+          stream: [{ type: 'reasoning-chunks', time0: 4000, dt: [1500, 1500], texts: ['c', 'd'] }],
+        },
+      },
+      // Image-only assistant reply (no text block).
+      {
+        seq: 4, time: 8000, type: 'assistant/message',
+        data: {
+          turn: 1, step: 3,
+          message: { content: [{ type: 'image', attachment: { attachmentId: 'att-asst-2', name: 'only.png' } }] },
+        },
+      },
+    ],
+    writing: null,
+  }
+  const rows = buildSessionRows(multiStepLog, { sessionId: 'b1' })
+  const asstRows = rows.filter(r => r.kind === 'assistant')
+  assert.equal(asstRows.length, 3)
+  assert.equal(asstRows[0].turnReasoningMs, 5000, 'turn cumulative reasoning sums step 1 (2000ms) + step 2 (3000ms)')
+  assert.equal(asstRows[1].turnReasoningMs, 5000)
+  assert.equal(asstRows[1].images.length, 1)
+  assert.equal(asstRows[1].images[0].attachment.attachmentId, 'att-asst-1')
+  assert.equal(asstRows[2].texts.length, 0)
+  assert.equal(asstRows[2].images.length, 1, 'image-only assistant message is preserved')
+
+  const roster = { bots: [{ id: 'b1', name: 'Chief', sessions: ['b1'] }], byId: { b1: { id: 'b1', name: 'Chief' } }, rooms: [], roomsById: {}, prefs: { thinking: true } }
+  const actions = { openSession() {}, openFile() {}, revealFolder() {}, notice() {}, toggleReaction() {} }
+  const view = mountDom(React.createElement(SessionTranscript, {
+    log: multiStepLog,
+    sessionId: 'b1',
+    bot: roster.byId.b1,
+    roster,
+    actions,
+    classic: false,
+  }))
+  try {
+    await flush(40)
+    assert.deepEqual(imageRpcCalls.map(c => c.attachmentId), ['att-asst-1', 'att-asst-2'])
+    const asstImgContainers = Array.from(view.host.querySelectorAll('.dsb-asst-images'))
+    const asstImgs = asstImgContainers.flatMap(el => Array.from(el.querySelectorAll('img')))
+    assert.equal(asstImgs.length, 2, 'both assistant images render in Bot mode')
+    const thinkTimes = Array.from(view.host.querySelectorAll('.bt-think-time')).map(el => el.textContent)
+    assert.ok(thinkTimes.some(txt => txt.includes('5s')), `expected cumulative 5s thinking time, got ${thinkTimes.join(', ')}`)
+    const previews = Array.from(view.host.querySelectorAll('.bt-think-preview')).map(el => el.textContent)
+    assert.ok(previews.includes('Final check'), `collapsed thinking preview shows latest paragraph first line, got ${previews.join(', ')}`)
+  } finally {
+    view.unmount()
+  }
+
+  // 2. Paginated turn missing its start fetches authoritative cumulative thinking duration from host.
+  const slicedLog = {
+    header: { cwd: '/repo' },
+    events: [
+      {
+        seq: 20, time: 9000, type: 'assistant/message',
+        data: {
+          turn: 3, step: 2,
+          message: { content: [{ type: 'reasoning', text: 'Later step' }, { type: 'text', text: 'Done' }] },
+          stream: [{ type: 'reasoning-chunks', time0: 8000, dt: [1000], texts: ['x'] }],
+        },
+      },
+    ],
+    writing: null,
+  }
+  const slicedView = mountDom(React.createElement(SessionTranscript, {
+    log: slicedLog,
+    sessionId: 'b1',
+    bot: roster.byId.b1,
+    roster,
+    actions,
+    classic: false,
+  }))
+  try {
+    await flush(40)
+    assert.equal(thinkingRpcCalls.length, 1)
+    assert.deepEqual(plain(thinkingRpcCalls[0]), { sessionId: 'b1', turn: 3 })
+    assert.ok(slicedView.host.querySelector('.bt-think-time')?.textContent.includes('9s'))
+  } finally {
+    slicedView.unmount()
   }
 })

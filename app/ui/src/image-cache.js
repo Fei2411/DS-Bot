@@ -179,3 +179,12 @@ export function createImageCache({ maxBytes = computeImageCacheBudgetBytes(), re
 }
 
 export const previewImageCache = createImageCache()
+
+const SIZE_UNITS = ['B', 'KB', 'MB', 'GB']
+export function fileSizeText(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return ''
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < SIZE_UNITS.length - 1) { value /= 1024; unit += 1 }
+  return `${unit === 0 ? value : value.toFixed(value < 10 ? 1 : 0)} ${SIZE_UNITS[unit]}`
+}

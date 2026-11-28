@@ -789,8 +789,28 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
+function AssistantImages({ images, sessionId, parent, mode, ancestors }) {
+  if (!Array.isArray(images) || images.length === 0) return null
+  return h('div', { className: 'dsb-asst-images' }, images.map((block, index) => {
+    const file = block?.attachment
+      ? block.attachment
+      : (typeof block?.data === 'string' && typeof block?.mediaType === 'string'
+        ? { name: block.name || t('Image'), previewUrl: buildImageUrl(block.mediaType, block.data, { blob: false }).url }
+        : null)
+    if (!file) return null
+    return h(UserImageThumb, {
+      key: file.attachmentId ?? file.previewUrl ?? `asst-img:${index}`,
+      sessionId,
+      parent,
+      mode,
+      ancestors,
+      attachment: file,
+    })
+  }))
+}
+
 const AssistantRow = memo(function AssistantRow({
-  row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic = false, readOnly = false,
+  row, showSpeaker, bot, sessionId, parent, mode, ancestors, roster, actions, useUi, thinkingAt, lang, classic = false, readOnly = false,
   onOpenFile, onRevealFolder, fileMentions,
   feedbackAvailable = false, feedbackItem = null, feedbackPending = false, onSelectFeedback, onRetractFeedback,
 }) {
@@ -809,8 +829,27 @@ const AssistantRow = memo(function AssistantRow({
   const hasThinking = showThinking && row.reasoning !== ''
   const hasActivity = row.activity.length > 0
   const hasTexts = row.texts.length > 0
-  if (!hasThinking && !hasActivity && !hasTexts) return null
-  const liveAt = row.thinkingLive ? thinkingAt?.[row.attemptId ?? 'live'] : undefined
+  const hasImages = Array.isArray(row.images) && row.images.length > 0
+  // When a multi-step turn was sliced by window pagination (`turnHasStart === false`),
+  // fetch the host's exact cumulative turn thinking duration so the settled total is never undercounted.
+  const needHostThinkingMs = hasThinking && !row.thinkingLive && !classic && row.turnHasStart === false && Number.isInteger(row.turn) && Boolean(sessionId)
+  const [fetchedTurnMs, setFetchedTurnMs] = useState(undefined)
+  useEffect(() => {
+    if (!needHostThinkingMs) { setFetchedTurnMs(undefined); return undefined }
+    const control = typeof AbortController === 'function' ? new AbortController() : null
+    let alive = true
+    void Promise.resolve(call('thinking', { sessionId, turn: row.turn }, control?.signal))
+      .then((res) => {
+        if (alive && Number.isFinite(res?.ms)) setFetchedTurnMs(res.ms)
+      })
+      .catch(() => {})
+    return () => { alive = false; control?.abort() }
+  }, [needHostThinkingMs, sessionId, row.turn, row.seq])
+  if (!hasThinking && !hasActivity && !hasTexts && !hasImages) return null
+  const rawLiveAt = row.thinkingLive ? thinkingAt?.[row.attemptId ?? 'live'] : undefined
+  const liveAt = typeof rawLiveAt === 'number' ? rawLiveAt - (row.priorReasoningMs ?? 0) : undefined
+  const settledThinkingMs = fetchedTurnMs ?? row.turnReasoningMs ?? row.reasoningMs
+  const imageNodes = hasImages ? h(AssistantImages, { images: row.images, sessionId, parent, mode, ancestors }) : null
   if (classic) {
     const combinedText = row.texts.join('\n\n')
     const mdLabels = { code: { copyLabel: t('Copy'), copiedLabel: t('Copied') } }
@@ -825,9 +864,9 @@ const AssistantRow = memo(function AssistantRow({
         live: row.thinkingLive,
         viewKey: `${sessionId}:${row.turn ?? 't'}:${row.step ?? row.seq ?? row.attemptId ?? 'live'}`,
         textInteractionSource: !row.streaming,
-        ...(row.thinkingLive ? { at: liveAt } : { ms: row.reasoningMs }),
+        ...(row.thinkingLive ? { at: liveAt } : { ms: settledThinkingMs }),
       }) : null,
-      hasTexts ? h('div', {
+      (hasTexts || hasImages) ? h('div', {
         className: 'dsb-dsh-asst',
         'data-bt-flow-kind': 'assistant',
         'data-streaming': row.streaming ? '' : undefined,
@@ -835,20 +874,22 @@ const AssistantRow = memo(function AssistantRow({
       h('div', {
         ref: classicBodyRef,
         className: 'dsb-dsh-asst-body',
-        'data-text-interaction-source': !row.streaming ? '' : undefined,
+        'data-text-interaction-source': !row.streaming && hasTexts ? '' : undefined,
       },
-      row.texts.map((text, index) => h(MarkdownText, {
-        key: index,
-        text: normalizeFileLinks(text),
-        labels: mdLabels,
-        streaming: row.streaming && index === row.texts.length - 1,
-        onOpenFile,
-        onRevealFolder,
-        fileMentions,
-      }))),
-      h(ReplyGuide, { box: classicBodyRef, active: !row.streaming }),
+      h(MarkdownImageSession.Provider, { value: sessionId },
+        row.texts.map((text, index) => h(MarkdownText, {
+          key: index,
+          text: normalizeFileLinks(text),
+          labels: mdLabels,
+          streaming: row.streaming && index === row.texts.length - 1,
+          onOpenFile,
+          onRevealFolder,
+          fileMentions,
+        }))),
+      imageNodes),
+      hasTexts ? h(ReplyGuide, { box: classicBodyRef, active: !row.streaming }) : null,
       !row.streaming ? h('div', { className: 'dsb-dsh-asst-actions' },
-        h(CopyTextButton, { text: combinedText, className: 'dsb-dsh-act-btn' }),
+        hasTexts ? h(CopyTextButton, { text: combinedText, className: 'dsb-dsh-act-btn' }) : null,
         showFeedback ? h(ClassicFeedbackActions, {
           messageId: row.messageId,
           item: feedbackItem,
@@ -869,7 +910,7 @@ const AssistantRow = memo(function AssistantRow({
       live: row.thinkingLive,
       viewKey: `${sessionId}:${row.turn ?? 't'}:${row.step ?? row.seq ?? row.attemptId ?? 'live'}`,
       textInteractionSource: !row.streaming,
-      ...(row.thinkingLive ? { at: liveAt } : { ms: row.reasoningMs }),
+      ...(row.thinkingLive ? { at: liveAt } : { ms: settledThinkingMs }),
     }) : null,
     hasTexts ? h(MarkdownImageSession.Provider, { value: sessionId }, h(Bubbles, {
       texts: row.texts,
@@ -883,9 +924,14 @@ const AssistantRow = memo(function AssistantRow({
       useUi,
       lang,
       fold: FOLD_HUGE,
-      time: flat || row.streaming ? undefined : row.time,
+      time: flat || row.streaming || hasImages ? undefined : row.time,
       textInteractionSource: !row.streaming,
-    })) : null)
+    })) : null,
+    imageNodes ? h('div', { className: 'bt-astack dsb-asst-img-stack' },
+      imageNodes,
+      !flat && !row.streaming && Number.isFinite(row.time)
+        ? h('div', { className: 'bt-utime', title: clockLabel(row.time) }, messageClock(row.time))
+        : null) : null)
 })
 
 const TurnErrorRow = memo(function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions }) {
@@ -1142,7 +1188,7 @@ function renderTranscriptRows({
     // Track whether a flat-layout turn still needs its opening Bot avatar+name line.
     let showSpeaker = false
     if (row.kind === 'assistant') {
-      const visible = row.texts.length > 0 || row.activity.length > 0 || (showThinking && row.reasoning !== '')
+      const visible = row.texts.length > 0 || (row.images?.length ?? 0) > 0 || row.activity.length > 0 || (showThinking && row.reasoning !== '')
       if (!visible) return []
       const turnKey = row.turn ?? row.key
       if (!seenTurnSpeaker.has(turnKey)) {
@@ -1161,7 +1207,7 @@ function renderTranscriptRows({
         case 'assistant': {
           const feedbackEnabled = Boolean(classic && !readOnly && !parent)
           return h(AssistantRow, {
-            row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic, readOnly,
+            row, showSpeaker, bot, sessionId, parent, mode, ancestors, roster, actions, useUi, thinkingAt, lang, classic, readOnly,
             onOpenFile: openSessionFile,
             onRevealFolder: revealSessionFolder,
             fileMentions: turnFileMentions.get(row.turn ?? 'none'),
@@ -1225,7 +1271,7 @@ export function advanceReplyWatermark(state, sessionId, ready, rows, options = {
     : { sessionId, maxSeq: null, reloadEpoch }
   let highestRowSeq = 0
   for (const row of rows) {
-    if (row.kind === 'assistant' && row.texts.length > 0 && Number.isFinite(row.seq) && row.seq > highestRowSeq) {
+    if (row.kind === 'assistant' && (row.texts.length > 0 || (row.images?.length ?? 0) > 0) && Number.isFinite(row.seq) && row.seq > highestRowSeq) {
       highestRowSeq = row.seq
     }
   }
@@ -1238,7 +1284,7 @@ export function advanceReplyWatermark(state, sessionId, ready, rows, options = {
   let maxSeq = (rewound || reloaded) ? Math.max(0, floorSeq) : Math.max(current.maxSeq, floorSeq)
   let added = 0
   for (const row of rows) {
-    if (row.kind === 'assistant' && row.texts.length > 0 && Number.isFinite(row.seq) && row.seq > maxSeq) {
+    if (row.kind === 'assistant' && (row.texts.length > 0 || (row.images?.length ?? 0) > 0) && Number.isFinite(row.seq) && row.seq > maxSeq) {
       added += 1
       maxSeq = row.seq
     }
@@ -1416,7 +1462,7 @@ export function SessionTranscript({
     const speakers = new Set()
     for (const row of rowParts.committed) {
       if (row.kind !== 'assistant') continue
-      if (row.texts.length === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
+      if (row.texts.length === 0 && (row.images?.length ?? 0) === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
       speakers.add(row.turn ?? row.key)
     }
     return speakers
@@ -1451,7 +1497,7 @@ export function SessionTranscript({
       for (const row of list) {
         if (row.kind === 'part-start' || row.kind === 'compaction' || row.kind === 'turn-tail') continue
         if (row.kind === 'tool' && !hasBotToolInTree(row.block)) continue
-        if (row.kind === 'assistant' && row.texts.length === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
+        if (row.kind === 'assistant' && row.texts.length === 0 && (row.images?.length ?? 0) === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
         if (unseenSince(visit, row.time)) return row.key
       }
     }

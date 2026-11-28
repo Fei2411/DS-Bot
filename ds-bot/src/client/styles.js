@@ -1616,11 +1616,16 @@ body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-s
 export const CONVERSATION_CSS = `
 .bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:calc(var(--bt-msg-w) * 100%)}
 body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
-.bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
+.bt-think summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;max-width:100%;min-width:0}
 .bt-think summary::-webkit-details-marker{display:none}
-.bt-think-time{font-variant-numeric:tabular-nums;white-space:nowrap}
-/* Five lines of the 18px line height; the rest scrolls inside the box. */
-.bt-think-text{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:6px;padding-left:10px;border-left:2px solid var(--bt-line-2);max-height:90px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;outline:none}
+.bt-think-time{flex:none;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-think-preview{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-3)}
+/* Expanded reasoning scrolls inside a compact bordered panel rendered as Markdown. */
+.bt-think-text{overflow-wrap:anywhere;margin-top:6px;padding-left:10px;border-left:2px solid var(--bt-line-2);max-height:140px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;outline:none}
+.bt-think-text .md_markdown{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
+.bt-think-text .md_markdown>:first-child{margin-top:0}
+.bt-think-text .md_markdown>:last-child{margin-bottom:0}
+.bt-think-text .md_markdown p{margin:4px 0}
 .bt-think-text:focus-visible{border-left-color:var(--bt-ink-2)}
 .bt-think-text[data-fade=top]{mask-image:linear-gradient(to bottom,transparent,#000 18px)}
 .bt-think-text[data-fade=bottom]{mask-image:linear-gradient(to top,transparent,#000 18px)}
