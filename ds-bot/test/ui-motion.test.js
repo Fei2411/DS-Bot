@@ -209,7 +209,7 @@ test('botOwnCss preserves effects tokens, backdrop relief and off-tier rules whi
   assert.match(SHELL_CSS, /@keyframes bt-veil-in\{from\{opacity:0;filter:var\(--bt-fx-blur-6,blur\(6px\)\)\}\}/)
   const own = botOwnCss(SHELL_CSS)
   assert.match(own, /body\[data-bt-effects=reduced\],body\[data-bt-effects=off\],body\[data-bt-os=windows\]\{--dsw-menu-backdrop-filter:none;--dsw-mask-blur:none;/)
-  assert.match(SHELL_CSS, /body\[data-bt-os=windows\] :is\(\[data-composer-card\],[^)]*\)\{-webkit-backdrop-filter:none!important;backdrop-filter:none!important\}/)
+  assert.match(SHELL_CSS, /body\[data-bt-os=windows\] :is\(\[data-bt-composer\],[^)]*\)\{-webkit-backdrop-filter:none!important;backdrop-filter:none!important\}/)
   assert.match(own, /body\[data-bt-effects=reduced\] :is\(\.bt-badge-alert,/)
   // The system setting beats the lively ride: same selector, later rule.
   const ride = SHELL_CSS.indexOf('body[data-bt-motion=lively] .bt-badge-alert{right:auto')

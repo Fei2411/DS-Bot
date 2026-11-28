@@ -1575,3 +1575,26 @@ test('cancelApprovals denies pending group app asks, pre-aborted signals do not 
   assert.deepEqual(await p2, { answers: [{ id: 'cua-app-access', selected: ['Allow for this session'] }] })
   assert.equal(rt.computerLive().bots.w1?.waitingFor, undefined)
 })
+
+test('computerLive reports foreground leases with appKey: null and appName: null without throwing', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'foreground' })
+  const w1 = rt.botOf('w1')
+  w1.computer = { ...w1.computer, apps: { notes: { name: 'Notes', grantedAt: 0 } } }
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  await track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent: { id: 'w1' }, callId: 'g-fg' },
+    async () => ({ isError: false, value: { appHandle: 'h-w1', authorization: { name: 'Notes' } } }))
+  await rt.computerEndpoint('user-active', { idleSeconds: 10 })
+  assert.equal(await gate({ name: 'cua', arguments: { method: 'activate', params: { appHandle: 'h-w1' } }, agent: { id: 'w1' }, callId: 'c-fg' }, async () => 'allowed'), 'allowed')
+  const live = rt.computerLive()
+  const fg = live.leases.find(entry => entry.kind === 'foreground')
+  const app = live.leases.find(entry => entry.kind === 'app')
+  assert.ok(fg, 'expected a foreground lease')
+  assert.equal(fg.appKey, null)
+  assert.equal(fg.appName, null)
+  assert.equal(app?.appName, 'Notes')
+})

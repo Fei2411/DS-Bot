@@ -411,7 +411,7 @@ function canStealFocusForTerminal(hostEl) {
   if (!activeEl || activeEl === document.body || activeEl === document.documentElement) return true
   if (hostEl && typeof hostEl.contains === 'function' && hostEl.contains(activeEl)) return true
   if (typeof activeEl.closest === 'function'
-    && activeEl.closest('[data-composer-input], [data-composer-card], textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
+    && activeEl.closest('[data-bt-composer-input], [data-bt-composer], textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
     return false
   }
   return true
@@ -670,6 +670,7 @@ export function WorkspaceTerminal({
   const positionsRef = useRef(new Map())
   const syncRunningRef = useRef(false)
   const syncAgainRef = useRef(false)
+  const syncFailedRef = useRef(false)
   const syncPromiseRef = useRef(null)
   const syncRef = useRef(null)
   const { terms, activeId } = state
@@ -836,8 +837,10 @@ export function WorkspaceTerminal({
           if (!mountedRef.current) return count
           count = Math.max(count, applySyncList(list))
           ok = true
+          syncFailedRef.current = false
         } while (syncAgainRef.current)
       } catch {
+        syncFailedRef.current = true
         // The next feed hello tries again; terminal output itself never replaces what is held.
       } finally {
         syncRunningRef.current = false
@@ -955,7 +958,7 @@ export function WorkspaceTerminal({
     }
     return feed.on((event, data) => {
       if (event === 'hello') {
-        void syncRef.current?.()
+        if (data?.resumed !== true || syncFailedRef.current) void syncRef.current?.()
         return
       }
       if (!data?.id || closedIdsRef.current.has(data.id)) return

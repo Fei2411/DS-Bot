@@ -1,6 +1,10 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  'Reconnecting…': '다시 연결하는 중…',
+  'Reconnect': '다시 연결',
+  'Waiting to confirm…': '확인 대기 중…',
+  'Live updates paused: message too large': '실시간 업데이트 일시 중지됨: 메시지가 너무 큽니다',
   'Auto review': '자동 검토',
   'Session only': '이 세션만',
   'Permission preset': '권한 프리셋',
@@ -252,6 +256,7 @@ export const KO = {
   Search: '검색',
   'New chat': '새 대화',
   'Back to chat': '대화로 돌아가기',
+  'Back to bottom': '맨 아래로 이동',
   'New…': '새로 만들기…',
   'New section': '새 섹션',
   'Rename section': '섹션 이름 변경',
@@ -2668,6 +2673,7 @@ export const KO = {
   "Usage details": "사용 내역",
   "Web": "웹",
   "Web search API": "웹 검색 API",
+  "Edit in config file": "설정 파일에서 편집",
   "Chat background": "채팅 배경",
   "While this chat is open, its background takes the place of the team background.": "이 채팅을 여는 동안 팀 배경 대신 이 배경을 씁니다.",
   "This chat uses the team background.": "이 채팅은 팀 배경을 씁니다.",

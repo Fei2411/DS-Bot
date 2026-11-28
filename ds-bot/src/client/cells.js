@@ -10,6 +10,7 @@ import { SideAppCard } from './side-app-card.js'
 import { goalEventText } from './goal.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { CellEmpty } from './cell-empty.js'
+import { syncHostAncestors } from './chat-room.js'
 import { AskUserCell, SettledQuestion } from './questions.js'
 import { AnsweredReply, ClosedView, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
@@ -442,7 +443,7 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
-const CHAIN_BREAK_SEL = '.bt-group-msg, .bt-umsg, .bt-urow, [data-chat-flow-kind=user], [data-chat-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card'
+const CHAIN_BREAK_SEL = '.bt-group-msg, .bt-umsg, .bt-urow, [data-bt-flow-kind=user], [data-bt-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card'
 export function syncGroupChains(flow) {
   const items = [...flow.querySelectorAll(CHAIN_BREAK_SEL)]
   for (let i = 0; i < items.length; i += 1) {
@@ -455,7 +456,8 @@ export function syncGroupChains(flow) {
     const chainNext = Boolean(botId && next?.classList.contains('bt-group-msg') && next.dataset.botId === botId)
     if (chainPrev) curr.dataset.chainPrev = ''; else delete curr.dataset.chainPrev
     if (chainNext) curr.dataset.chainNext = ''; else delete curr.dataset.chainNext
-    const turn = curr.closest('[data-chat-group-key]')
+    syncHostAncestors(curr)
+    const turn = curr.closest('[data-bt-group-key]')
     if (turn) {
       if (chainPrev) turn.dataset.btChainPrev = ''; else delete turn.dataset.btChainPrev
       if (chainNext) turn.dataset.btChainNext = ''; else delete turn.dataset.btChainNext
@@ -497,7 +499,8 @@ export function GroupMessage({ bot, text, texts = [text], files = [], openFile, 
   useLayoutEffect(() => {
     const el = ref.current
     if (!el?.closest) return undefined
-    const flow = el.closest('[data-chat-flow]')
+    syncHostAncestors(el)
+    const flow = el.closest('[data-bt-flow]')
     if (!flow) return undefined
     scheduleGroupChains(flow)
     return () => scheduleGroupChains(flow)
@@ -828,8 +831,11 @@ export function EarlierParts({ sessionId, roster, actions, openFile, renderUserT
 // A Bot chat's entries as the host lists them (the `earlier` and `chat` endpoints): the
 // Bot's messages in a row are one block, and a thin line marks where a part begins.
 // `clock` adds the time separators: one above the first entry, and one after each pause.
-export function ChatRows({ items, sessionId, roster, actions, useUi, clock = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
+const NOOP_UI = () => undefined
+
+export function ChatRows({ items, sessionId, roster, actions, useUi = NOOP_UI, clock = false, openFile, onBtwDelete, renderUserAttachments, renderUserText }) {
   const selfId = roster.byId[sessionId]?.id
+  const visit = useUi(state => state?.visits?.[sessionId])
   const rows = []
   for (const item of items) {
     const last = rows.at(-1)
@@ -841,7 +847,16 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
       last.end = item.time
     } else rows.push(item.kind === 'bot' ? { kind: 'bot', texts: [item.text], time: item.time, end: item.time } : item)
   }
+  useEffect(() => {
+    if (!clock || typeof actions?.noteTurnTime !== 'function') return
+    rows.forEach((row, index) => {
+      if (row.kind !== 'divider' && Number.isFinite(row.time)) {
+        actions.noteTurnTime(sessionId, row.seq ?? `row:${index}`, 'first', row.time)
+      }
+    })
+  }, [clock, sessionId, items, actions])
   let before
+  let newShown = false
   return rows.flatMap((row, index) => {
     // Pages are prepended, so a row keeps its distance from the end.
     const key = rows.length - index
@@ -853,7 +868,13 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
     }
     const pause = clock && Number.isFinite(row.time) && (before === undefined || row.time - before >= SEPARATOR_GAP_MS)
     if (Number.isFinite(row.end ?? row.time)) before = row.end ?? row.time
-    return pause ? [h('div', { key: `${key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)), shown] : [shown]
+    const showNew = clock && !newShown && unseenSince(visit, row.time)
+    if (showNew) newShown = true
+    const out = []
+    if (showNew) out.push(h(NewDivider, { key: `${key}:new` }))
+    if (pause) out.push(h('div', { key: `${key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)))
+    out.push(shown)
+    return out
   })
 }
 

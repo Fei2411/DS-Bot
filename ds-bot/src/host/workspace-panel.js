@@ -10,8 +10,9 @@ import { randomUUID } from 'node:crypto'
 import { watch as fsWatch } from 'node:fs'
 import { copyFile, mkdtemp, open, readdir, realpath, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, posix as posixPath, relative, resolve, sep, win32 as win32Path } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
+import { pathToFileURL } from 'node:url'
 import { within } from './folders.js'
 import { parseXlsxBuffer } from './xlsx-preview.js'
 
@@ -222,16 +223,42 @@ const WIN_OPEN_COMMAND = [
   "try { if ([string]::IsNullOrEmpty($p) -or -not (Test-Path -LiteralPath $p)) { [Console]::Error.WriteLine('Cannot find path: ' + $p); exit 1 }; Invoke-Item -LiteralPath $p -ErrorAction Stop; if (-not $?) { [Console]::Error.WriteLine('Failed to open path: ' + $p); exit 1 } } catch { $m = $null; if ($_.Exception -and $_.Exception.ErrorRecord -and $_.Exception.ErrorRecord.Exception) { $m = $_.Exception.ErrorRecord.Exception.Message } elseif ($_.Exception) { $m = $_.Exception.Message }; if ([string]::IsNullOrWhiteSpace($m)) { $m = $_.ToString() }; if ([string]::IsNullOrWhiteSpace($m)) { $m = 'Failed to open path: ' + $p }; [Console]::Error.WriteLine($m); exit 1 }",
 ].join('; ')
 
+// Encode a Windows path as a file URI Explorer accepts verbatim: keep non-ASCII characters
+// literal (Explorer rejects percent-encoded non-ASCII in file URIs) and escape `,` and `=`,
+// which Explorer otherwise splits on its own command line.
+function windowsExplorerFileUri(windowsPath) {
+  const href = pathToFileURL(windowsPath, { windows: true }).href
+  return href
+    .replace(/(?:%[89A-F][0-9A-F])+/gi, escaped => decodeURIComponent(escaped))
+    .replaceAll(',', '%2C')
+    .replaceAll('=', '%3D')
+}
+
 export function buildOpenOsCommand(target, action, isDirectory, platform = process.platform) {
+  const validAbsolute = typeof target === 'string' && target.trim() !== ''
+    && (platform === 'win32' ? win32Path.isAbsolute(target) : posixPath.isAbsolute(target))
+  if (!validAbsolute) {
+    throw Object.assign(new Error('Target path must be absolute'), { code: 'bot/invalid' })
+  }
   if (platform === 'darwin') {
     return {
       command: 'open',
-      args: action === 'reveal' ? ['-R', target] : [target],
+      args: action === 'reveal' ? ['-R', target] : action === 'edit' ? ['-t', target] : [target],
       options: { detached: true, stdio: ['ignore', 'ignore', 'pipe'], shell: false, env: scrubbedOpenEnv() },
       waitForExit: true,
     }
   }
   if (platform === 'win32') {
+    if (action === 'edit') {
+      // Hand an encoded file URI to Explorer so Windows uses shell default-application
+      // resolution and displays the "Open with" chooser when `.yml` has no association.
+      return {
+        command: 'explorer.exe',
+        args: [windowsExplorerFileUri(target)],
+        options: { detached: true, stdio: ['ignore', 'ignore', 'pipe'], shell: false, env: scrubbedOpenEnv() },
+        allowExit1: true,
+      }
+    }
     if (action === 'reveal') {
       if (isDirectory) {
         return {
@@ -446,6 +473,7 @@ export function install(rt) {
       orphanWatchTimer = setTimeout(() => {
         orphanWatchTimer = null
         if (typeof rt.localFeedClientCount === 'function' && rt.localFeedClientCount() > 0) return
+        if (rootWatches.size > 0) rt.invalidateFeedReplay?.()
         void closeAllWatches()
       }, graceMs)
       orphanWatchTimer.unref?.()

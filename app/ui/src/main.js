@@ -58,7 +58,24 @@ import './message-parity.css'
 
 registerMathStyleLoader(() => import('katex/dist/katex.min.css'))
 
-const appLocale = createLocale(navigator.language)
+// Keep liveSystemTag empty until main-process IPC reports an OS language so browser
+// `navigator.language` updates on `languagechange` are never shadowed when IPC is absent.
+let liveSystemTag = ''
+const refreshSystemTag = typeof globalThis.dsBotApp?.systemLanguage === 'function'
+  ? () => Promise.resolve(globalThis.dsBotApp.systemLanguage()).then((tag) => {
+    if (typeof tag === 'string' && tag.trim() !== '') liveSystemTag = tag
+    return tag
+  }).catch(() => undefined)
+  : null
+const appLocale = createLocale(navigator.language, {
+  getSystemTag: () => liveSystemTag || navigator.language,
+  refreshSystemTag,
+})
+globalThis.dsBotApp?.onSystemLanguage?.((tag) => {
+  if (typeof tag !== 'string' || tag.trim() === '') return
+  liveSystemTag = tag
+  appLocale.syncSystemTag(tag)
+})
 setAppLocaleService(appLocale)
 installLocale(appLocale)
 installMotionRest()
@@ -85,4 +102,18 @@ for (const [tag, text] of [
 // Light or dark before the team arrives; then the team's choice (mode.js).
 paintMode(undefined)
 
-createRoot(document.getElementById('root')).render(h(App))
+const root = createRoot(document.getElementById('root'))
+const initialSystemLanguage = refreshSystemTag
+  ? Promise.race([
+    refreshSystemTag().then((tag) => {
+      if (typeof tag === 'string' && tag.trim() !== '') appLocale.syncSystemTag(tag)
+    }),
+    new Promise(resolve => { setTimeout(resolve, 150) }),
+  ])
+  : null
+const mount = () => {
+  document.documentElement.lang = appLocale.getLocale().active
+  root.render(h(App))
+}
+if (initialSystemLanguage) void initialSystemLanguage.finally(mount)
+else mount()

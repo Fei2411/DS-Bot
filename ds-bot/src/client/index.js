@@ -5,9 +5,12 @@ import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sourc
 import { sectionFoldWrites, teamActions } from './team-actions.js'
 import { themeCss, shellTokens, surfaceColors, registry, registerShape, registerTheme, allThemes, themesOf, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
 import { appearanceCss, backgroundShown, onSafeAppearance, pictureUrl, safeAppearance, userCss, watchSafeAppearance } from './appearance.js'
+import { dshAppearanceCss } from './appearance-dsh.js'
 import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
 import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installLastStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
+import { DSH_CONVERSATION_CSS, DSH_SHELL_CSS, dshThemeCss } from './styles-dsh.js'
+import { installDshAdapter } from './adapter-dsh.js'
 import { lookOf } from './mark.js'
 import { TeamSidebar, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
 import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
@@ -76,7 +79,8 @@ import { TASKS_CSS } from './bot-tasks.js'
 import { BotMention, USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages, installUserBubble } from './user-message.js'
 import { BOT_MENTION_ID, installBotMentionRule } from './user-text-rule.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
-import { PASTE_CSS, PasteDock, PasteGuard } from './paste-card.js'
+import { PASTE_CSS } from './paste-card.js'
+import { DSH_PASTE_CSS, PasteDock, PasteGuard } from './paste-card-dsh.js'
 import { pruneDrafts } from './draft-keep.js'
 import { createQuestionDrafts } from './question-draft.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
@@ -564,7 +568,10 @@ export function apply(ctx) {
       const open = shownSessionId()
       const chat = open === undefined ? undefined : snapshot.byId?.[open] ?? snapshot.roomsById?.[open]
       const safe = safeAppearance()
-      const lookCss = appearanceCss({ appearance: prefs.appearance, theme: themes[id], background: chat?.background, pictureUrl: picture => pictureUrl(picture, call, render), safe, user: false })
+      const lookCss = [
+        appearanceCss({ appearance: prefs.appearance, theme: themes[id], background: chat?.background, pictureUrl: picture => pictureUrl(picture, call, render), safe, user: false }),
+        dshAppearanceCss({ appearance: prefs.appearance, fonts: false }),
+      ].filter(Boolean).join('\n')
       if (look.textContent !== lookCss) look.textContent = lookCss
       const mine = userCss(prefs.appearance, safe)
       if (userSheet.textContent !== mine) userSheet.textContent = mine
@@ -587,7 +594,7 @@ export function apply(ctx) {
       if (document.body.style.getPropertyValue('--bt-msg-w') !== msgW) document.body.style.setProperty('--bt-msg-w', msgW)
       const flatW = String(flatWidth / 100)
       if (document.body.style.getPropertyValue('--bt-flat-w') !== flatW) document.body.style.setProperty('--bt-flat-w', flatW)
-      style.textContent = themeCss(themes[id], accent)
+      style.textContent = themeCss(themes[id], accent) + dshThemeCss(themes[id])
       activeTheme = themes[id]
       skin.apply()
       const release = releaseTokens
@@ -736,7 +743,6 @@ export function apply(ctx) {
   // the column already yielded is not folded, so its opener closes it.
   const panelFolded = (view) => {
     const state = ui.getSnapshot()
-    if (state.details === null) return false
     const f = frame.getSnapshot()
     return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true, layout: panelLayoutOf(roster.getSnapshot(), state.details, view ?? state.view) } }).panel === 'folded'
   }
@@ -1565,6 +1571,7 @@ export function apply(ctx) {
   // The shell group's sheets. Strip and panel styles also serve the side-chat tabs, which need no bridge.
   const SHELL_SHEETS = [
     [SHELL_CSS, 'shell'],
+    [DSH_SHELL_CSS, 'dsh-shell'],
     [SIDEBAR_CSS, 'sidebar'],
     [INBOX_CSS, 'inbox'],
     [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS + PROVIDERS_CSS, 'secrets'],
@@ -1580,7 +1587,7 @@ export function apply(ctx) {
     [ABOUT_CSS, 'about'],
     [MEMBER_CSS, 'members'],
     [TASK_CSS, 'tasks'],
-    [PASTE_CSS, 'paste'],
+    [PASTE_CSS + DSH_PASTE_CSS, 'paste'],
     [OPENING_CSS, 'opening'],
     [IM_CSS, 'im'],
     [GOAL_CSS, 'goal'],
@@ -1622,6 +1629,7 @@ export function apply(ctx) {
   const installShell = () => [
     () => { shellSheets += 1; return () => { shellSheets -= 1 } },
     ...SHELL_SHEETS.map(([text, tag]) => () => installCompiledStyles(text, tag)),
+    () => installDshAdapter(document),
     () => installFrameWatch(frame),
     () => installFrameSync(),
     () => installTheme(),
@@ -1640,6 +1648,7 @@ export function apply(ctx) {
   ]
   const installConversation = () => [
     () => installCompiledStyles(CONVERSATION_CSS, 'conversation'),
+    () => installCompiledStyles(DSH_CONVERSATION_CSS, 'dsh-conversation'),
     () => installCompiledStyles(TURN_ERROR_CSS, 'turn-errors'),
     () => installCompiledStyles(QUEUE_CSS, 'queue'),
     () => installCompiledStyles(ANNOTATION_CSS, 'text-annotation'),

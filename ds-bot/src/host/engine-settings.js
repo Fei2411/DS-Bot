@@ -1,5 +1,9 @@
 // Computer-only engine settings & Classic Agent metadata bridge (`engine-*` endpoints).
 // Keeps the desktop window talking solely to `api/bot`, never calling DSH services directly.
+import { existsSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute } from 'node:path'
+import { openOsPath } from './workspace-panel.js'
 
 const MAX_OPS = 64
 const MAX_PATH_DEPTH = 16
@@ -264,11 +268,41 @@ export function install(rt) {
         const settings = settingsService()
         if (settings === undefined) return { available: false, writable: false, namespaces: [] }
         const descriptors = settings.describe({ redactSecrets: true })
+        const documentPath = typeof settings.documentPath === 'string' && settings.documentPath.trim() !== ''
+          ? settings.documentPath.trim()
+          : null
         return {
           available: true,
           writable: Boolean(settings.writable),
+          ...(documentPath ? { documentPath } : {}),
           namespaces: Array.isArray(descriptors) ? descriptors.map(namespaceView) : [],
         }
+      }
+      case 'settings-open-file': {
+        writeCheck()
+        const settings = settingsService()
+        if (settings === undefined) throw refused('Engine settings are not available on this host')
+        if (!settings.writable) throw refused('Engine settings are read-only in this profile')
+        const rawPath = typeof settings.prepareDocument === 'function'
+          ? await settings.prepareDocument()
+          : settings.documentPath
+        const target = typeof rawPath === 'string' ? rawPath.trim() : ''
+        if (target === '') throw notFound('No configuration file is available for this profile')
+        if (!isAbsolute(target)) throw refused('Configuration file path must be absolute')
+        if (!existsSync(target)) {
+          await mkdir(dirname(target), { recursive: true })
+          try {
+            await writeFile(target, '[]\n', { flag: 'wx', mode: 0o600 })
+          } catch (error) {
+            if (error?.code !== 'EEXIST') throw error
+          }
+        }
+        if (typeof rt.openConfigFile === 'function') {
+          await rt.openConfigFile(target)
+        } else {
+          await openOsPath(target, 'edit', false)
+        }
+        return { ok: true, path: target }
       }
       case 'settings-mutate': {
         writeCheck()

@@ -115,7 +115,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         // A folded panel is open but not shown: its opener then means "show it"
         // (the column yields it room), not "close it".
         if (details === null && panelFolded?.('details') === true) return { ...state, renaming: false, tab: null, details: id, view: 'details', panelYield: true }
-        return { ...state, renaming: false, tab: null, details, view: 'details', ...(details === null && state.rightPanel !== undefined ? { rightPanel: null } : {}) }
+        return { ...state, renaming: false, tab: null, details, view: 'details', ...(details !== null ? { panelYield: yieldTo(state, 'details') } : {}), ...(details === null && state.rightPanel !== undefined ? { rightPanel: null } : {}) }
       })
     },
     // The open panel follows the main view; a subject with no browser (a group

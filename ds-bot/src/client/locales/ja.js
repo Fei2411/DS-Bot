@@ -1,6 +1,10 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  'Reconnecting…': '再接続中…',
+  'Reconnect': '再接続',
+  'Waiting to confirm…': '確認待ち…',
+  'Live updates paused: message too large': 'ライブ更新が一時停止されました：メッセージが大きすぎます',
   'Auto review': '自動審査',
   'Session only': 'このセッションのみ',
   'Permission preset': '権限プリセット',
@@ -251,6 +255,7 @@ export const JA = {
   "Search": "検索",
   "New chat": "新しいチャット",
   "Back to chat": "チャットに戻る",
+  "Back to bottom": "一番下へ戻る",
   "New…": "新規…",
   "New section": "新しいセクション",
   "Rename section": "セクション名を変更",
@@ -2635,6 +2640,7 @@ export const JA = {
   "Usage details": "利用状況の詳細",
   "Web": "Web",
   "Web search API": "Web 検索 API",
+  "Edit in config file": "設定ファイルで編集",
   "Chat background": "チャットの背景",
   "While this chat is open, its background takes the place of the team background.": "このチャットを開いている間は、チームの背景の代わりにこの背景を使います。",
   "This chat uses the team background.": "このチャットはチームの背景を使います。",

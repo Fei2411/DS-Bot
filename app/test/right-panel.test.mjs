@@ -974,6 +974,13 @@ test('WorkspaceTerminal resumes numbered output after feed reconnects and marks 
     team.chat.emit('terminal', { id: 'term-1', chunk: 'line-3\n', start: 3, end: 3, parts: [{ seq: 3, text: 'line-3\n' }] })
     assert.equal(xterm.written.join(''), 'line-1\nline-2\nline-3\n')
 
+    // Clean resumed hello does NOT trigger a redundant terminal-list sync.
+    const listsBeforeResumed = listRequests.length
+    team.chat.emit('hello', { resumed: true })
+    await tick()
+    await tick()
+    assert.equal(listRequests.length, listsBeforeResumed, 'hello { resumed: true } must not re-sync terminal-list')
+
     // A feed hello sends the held position and the answer fills exactly the missing tail.
     listAnswers.push([entry([{ seq: 4, text: 'line-4\n' }, { seq: 5, text: 'line-5\n' }], { start: 4, end: 5 })])
     team.chat.emit('hello', {})
@@ -1328,14 +1335,25 @@ test('FileTree watches workspace changes, refreshes without losing expansion/sel
     tree = panel.render()
     assert.equal(all(tree, n => n.props?.role === 'menu' && n.props?.['data-leaving'] === undefined).length, 0, 'Escape dismisses file tree context menu')
 
-    // SSE 'hello' reconnect triggers silent refresh so changes across the 6s SSE recycle gap are never missed.
+    // Clean resumed hello does NOT trigger a redundant full tree refresh or watch re-registration.
+    const listsBeforeResumed = calls.filter(([ep]) => ep === 'workspace-list').length
+    const watchesBeforeResumed = calls.filter(([ep]) => ep === 'workspace-watch').length
+    team.chat.emit('hello', { resumed: true })
+    await tick()
+    await tick()
+    assert.equal(calls.filter(([ep]) => ep === 'workspace-list').length, listsBeforeResumed, 'hello { resumed: true } must not refresh file tree')
+    assert.equal(calls.filter(([ep]) => ep === 'workspace-watch').length, watchesBeforeResumed, 'hello { resumed: true } must not re-register workspace watch')
+
+    // SSE 'hello' (resumed: false) renews workspace-watch (in case orphan cleanup expired it) and refreshes tree.
     const listsBeforeHello = calls.filter(([ep]) => ep === 'workspace-list').length
+    const watchesBeforeHello = calls.filter(([ep]) => ep === 'workspace-watch').length
     subDirTruncated = true
     team.chat.emit('hello', {})
     await tick()
     await tick()
     tree = panel.render()
     assert.ok(calls.filter(([ep]) => ep === 'workspace-list').length > listsBeforeHello, 'SSE hello triggers tree catch-up refresh')
+    assert.ok(calls.filter(([ep]) => ep === 'workspace-watch').length > watchesBeforeHello, 'unresumed SSE hello renews workspace watch')
     assert.match(textOf(tree), /Showing first 500 entries/, 'truncated subfolder renders visible truncation notice')
 
     // Toggling "Show hidden" must NOT tear down or restart the OS watcher!
@@ -1614,7 +1632,7 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
   //    and once an explicit focusNonce is consumed, later synced terminals must not steal focus either.
   sandbox.__xterms.length = 0
   const prevActive = sandbox.document.activeElement
-  sandbox.document.activeElement = { closest: sel => (sel.includes('data-composer-input') ? {} : null) }
+  sandbox.document.activeElement = { closest: sel => (sel.includes('data-bt-composer-input') ? {} : null) }
   const visibleTerm = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat, active: true, focusNonce: 1 })
   try {
     visibleTerm.render()
@@ -1691,7 +1709,7 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
     if (parentFocusNonce === nonce) parentFocusNonce = 0
   }
   const prevActive4 = sandbox.document.activeElement
-  sandbox.document.activeElement = { closest: sel => (sel.includes('data-composer-input') ? {} : null) }
+  sandbox.document.activeElement = { closest: sel => (sel.includes('data-bt-composer-input') ? {} : null) }
   const firstMount = mount(WorkspaceTerminal, {
     sessionId: 'b1',
     feed: team.chat,
@@ -1751,7 +1769,7 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
   const firstNonce = uiProbe5.render().props.terminalNonce
   assert.ok(firstNonce > 0)
   const prevActive5 = sandbox.document.activeElement
-  sandbox.document.activeElement = { closest: sel => (sel.includes('data-composer-input') ? {} : null) }
+  sandbox.document.activeElement = { closest: sel => (sel.includes('data-bt-composer-input') ? {} : null) }
   const autoInst = mount(WorkspaceTerminal, {
     sessionId: 'b1',
     feed: team5.chat,

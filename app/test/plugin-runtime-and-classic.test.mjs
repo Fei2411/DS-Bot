@@ -361,7 +361,7 @@ test('extractSchemaFields decodes Schemastery toJSON graphs including enums, nes
   assert.equal(fields.find(f => f.path.join('.') === 'nested.timeout').value, 45)
 })
 
-test('Engine settings plugin registers all sections + session-log item, and AppearancePage disables Window material when a background is set', () => {
+test('Engine settings plugin registers all sections + language item, and AppearancePage disables Window material when a background is set', () => {
   const { mod } = loadMod()
   const slots = mod.createSlotRegistry()
   const runtime = mod.createPluginRuntime({ slots })
@@ -369,7 +369,7 @@ test('Engine settings plugin registers all sections + session-log item, and Appe
 
   const sectionIds = Array.from(slots.list(mod.SETTINGS_SECTION_SLOT), entry => entry.id)
   assert.deepEqual(sectionIds, ['account', 'plugins', 'agent-presets', 'archived-sessions'])
-  assert.deepEqual(Array.from(slots.list(mod.SETTINGS_GENERAL_ITEM_SLOT), entry => entry.id), ['language', 'session-log-deepseek'])
+  assert.deepEqual(Array.from(slots.list(mod.SETTINGS_GENERAL_ITEM_SLOT), entry => entry.id), ['language'])
 
   // Bot mode hides Archived sessions from the Settings bridge; Classic Agent mode exposes it.
   const Probe = ({ surfaceMode }) => {
@@ -378,7 +378,7 @@ test('Engine settings plugin registers all sections + session-log item, and Appe
   }
   const botBridge = renderTree(Probe, { surfaceMode: 'bot' })
   assert.deepEqual(Array.from(botBridge.props.ids), ['account', 'plugins', 'agent-presets'])
-  assert.deepEqual(Array.from(botBridge.props.items), ['language', 'session-log-deepseek'])
+  assert.deepEqual(Array.from(botBridge.props.items), ['language'])
   const agentBridge = renderTree(Probe, { surfaceMode: 'agent' })
   assert.deepEqual(Array.from(agentBridge.props.ids), ['account', 'plugins', 'agent-presets', 'archived-sessions'])
 

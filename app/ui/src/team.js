@@ -7,7 +7,7 @@ import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
 import { createBotBrowsers, serveBrowserReads } from '../../../ds-bot/src/client/bot-browsers.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
 import { pruneDrafts } from '../../../ds-bot/src/client/draft-keep.js'
-import { readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
+import { frameLayout, readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { lookOf, toolState } from '../../../ds-bot/src/client/mark.js'
 import { needsIdleSample } from '../../../ds-bot/src/client/polling.js'
@@ -26,7 +26,7 @@ import { pruneFailedSends } from './failed-send-bar.js'
 
 // Memory news and connector states change without a notice on the feed.
 const CATCH_UP_MS = 15_000
-const READ_AGAIN = new Set(['hello', 'revision', 'live'])
+const RECONNECT_NOTICE_MS = 2_000
 const NO_WORK = { bots: {}, approvals: [] }
 const EMPTY_PENDING = Object.freeze([])
 export const CLASSIC_BROWSER_OWNER = 'classic'
@@ -114,6 +114,8 @@ export function createTeam() {
   const heldCards = createSource({})
   const turnClock = createSource({})
   const update = createSource({ available: false, phase: 'idle' })
+  const connection = createSource({ status: 'connected', error: null, code: null })
+  let restartFeed = () => {}
   const mergeUpdate = (value) => {
     if (!value || typeof value !== 'object') return
     update.set(previous => ({ ...previous, ...value, app: previous.app, ownApp: previous.ownApp }))
@@ -146,6 +148,8 @@ export function createTeam() {
   let classicSeq = 0
   const sessionHooks = new Map()
   const streamingReply = new Set()
+  const lastFeedReplySeq = new Map()
+  const lastGroupNoticeSeq = new Map()
 
   const isAgentSessionId = id => Boolean(id && roster.getSnapshot().agentOf?.[id] !== undefined)
   const latestAgentSession = (agentId) => {
@@ -261,6 +265,8 @@ export function createTeam() {
       return next
     })
     for (const id of [...sessionHooks.keys()]) if (!keep(id)) sessionHooks.delete(id)
+    for (const id of [...lastFeedReplySeq.keys()]) if (!keep(id)) lastFeedReplySeq.delete(id)
+    for (const id of [...lastGroupNoticeSeq.keys()]) if (!keep(id)) lastGroupNoticeSeq.delete(id)
     for (const id of [...streamingReply]) {
       if (!keep(id)) {
         streamingReply.delete(id)
@@ -280,39 +286,43 @@ export function createTeam() {
     const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
     if (order < applied) return
     applied = order
+    const liveSame = liveKey !== undefined && value.liveKey !== undefined && value.liveKey === liveKey
     if (value.liveKey !== undefined) liveKey = value.liveKey
-    if (value.activity !== undefined) setChanged(activity, value.activity)
-    if (value.work !== undefined) setChanged(work, value.work)
-    if (value.userQuestions !== undefined) setChanged(userQuestions, value.userQuestions)
-    if (value.sessionQueues !== undefined) mergeSessionQueues(value.sessionQueues)
-    if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
-    if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
-    if (value.memoryNews !== undefined) noteNews(value.memoryNews)
+    if (!liveSame) {
+      if (value.activity !== undefined) setChanged(activity, value.activity)
+      if (value.work !== undefined) setChanged(work, value.work)
+      if (value.userQuestions !== undefined) setChanged(userQuestions, value.userQuestions)
+      if (value.sessionQueues !== undefined) mergeSessionQueues(value.sessionQueues)
+      if (value.computerLive !== undefined) setChanged(computer, value.computerLive)
+      if (value.browserHolds !== undefined) setChanged(browserHolds, value.browserHolds)
+      if (value.memoryNews !== undefined) noteNews(value.memoryNews)
+    }
     const current = roster.getSnapshot()
-    const changed = {}
-    if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) changed.readOnly = value.readOnly
-    if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) changed.connectors = value.connectors
-    if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) changed.capabilityStatuses = value.capabilityStatuses
-    if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) changed.learning = value.learning
-    // What waits for the user across the team (ds-bot/src/host/inbox.js).
-    if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(current.inbox ?? null)) changed.inbox = value.inbox
-    if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) changed.learningSettled = value.learningSettled
-    if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) changed.btwCards = value.btwCards
-    if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) changed.sideChats = value.sideChats
-    if (value.sideAppOpens !== undefined && JSON.stringify(value.sideAppOpens) !== JSON.stringify(current.sideAppOpens ?? {})) changed.sideAppOpens = value.sideAppOpens
-    if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) changed.phone = value.phone
-    if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(current.api ?? null)) changed.api = value.api
-    if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) changed.apiVia = value.apiVia
-    if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) changed.imStatus = value.imStatus
-    if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) changed.imVia = value.imVia
-    if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) changed.secrets = value.secrets
-    if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) changed.secretStore = value.secretStore
-    if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
-    if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) changed.plugins = value.plugins
-    if (value.speech !== undefined && Boolean(value.speech) !== Boolean(current.speech)) changed.speech = Boolean(value.speech)
-    if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(current.telemetryPrompt)) changed.telemetryPrompt = Boolean(value.telemetryPrompt)
-    if (value.releaseNotes !== undefined && JSON.stringify(value.releaseNotes) !== JSON.stringify(current.releaseNotes ?? null)) changed.releaseNotes = value.releaseNotes
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+      if (liveSame) return
+      const changed = {}
+      if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) changed.readOnly = value.readOnly
+      if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) changed.connectors = value.connectors
+      if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) changed.capabilityStatuses = value.capabilityStatuses
+      if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) changed.learning = value.learning
+      // What waits for the user across the team (ds-bot/src/host/inbox.js).
+      if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(current.inbox ?? null)) changed.inbox = value.inbox
+      if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) changed.learningSettled = value.learningSettled
+      if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) changed.btwCards = value.btwCards
+      if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) changed.sideChats = value.sideChats
+      if (value.sideAppOpens !== undefined && JSON.stringify(value.sideAppOpens) !== JSON.stringify(current.sideAppOpens ?? {})) changed.sideAppOpens = value.sideAppOpens
+      if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) changed.phone = value.phone
+      if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(current.api ?? null)) changed.api = value.api
+      if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) changed.apiVia = value.apiVia
+      if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) changed.imStatus = value.imStatus
+      if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) changed.imVia = value.imVia
+      if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) changed.secrets = value.secrets
+      if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) changed.secretStore = value.secretStore
+      if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
+      if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) changed.plugins = value.plugins
+      if (value.speech !== undefined && Boolean(value.speech) !== Boolean(current.speech)) changed.speech = Boolean(value.speech)
+      if (value.telemetryPrompt !== undefined && Boolean(value.telemetryPrompt) !== Boolean(current.telemetryPrompt)) changed.telemetryPrompt = Boolean(value.telemetryPrompt)
+      if (value.releaseNotes !== undefined && JSON.stringify(value.releaseNotes) !== JSON.stringify(current.releaseNotes ?? null)) changed.releaseNotes = value.releaseNotes
       if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
       return
     }
@@ -376,8 +386,26 @@ export function createTeam() {
     }
   }
 
+  const panelFolded = (view) => {
+    const state = ui.getSnapshot()
+    const rawViewport = typeof window === 'undefined' ? 1280 : window.innerWidth
+    const isNarrow = rawViewport <= 768
+    const lay = layout.getSnapshot()
+    const effectiveSideW = isNarrow
+      ? Math.min(lay.width, Math.max(264, Math.round(rawViewport * 0.84)))
+      : Math.min(lay.width, Math.max(264, rawViewport - 420))
+    const viewport = isNarrow ? Math.min(rawViewport, 680) : rawViewport
+    const pref = isNarrow ? (state.leftDrawer ? 'open' : 'hidden') : lay.pref
+    return frameLayout({
+      viewport,
+      sidebarWidth: effectiveSideW,
+      pref,
+      drawer: state.leftDrawer === true,
+      panel: { view: view ?? state.view, yielded: state.panelYield === true },
+    }).panel === 'folded'
+  }
   const questionDrafts = createQuestionDrafts()
-  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, questionDrafts, foldWrites })
+  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites })
   const speechCall = (endpoint, payload, signal) => call(endpoint, payload, signal).then(
     value => ({ ok: true, value }),
     error => ({ ok: false, error: { code: error?.code ?? 'speech/error', message: error?.message ?? String(error) } }),
@@ -962,6 +990,11 @@ export function createTeam() {
     openOwnApp: async () => { await globalThis.dsBotApp?.updates?.open?.() },
     downloadOwnApp: async () => { await globalThis.dsBotApp?.updates?.download?.() },
     setOwnAppAutoUpdate: async (enabled) => { await globalThis.dsBotApp?.updates?.setAutoUpdate?.(enabled === true) },
+    noteReplyArrival: (sessionId, delta) => {
+      if (!sessionId || !Number.isFinite(delta) || delta <= 0) return
+      editRow(sessionId, row => ({ ...row, replyCount: (row.replyCount ?? 0) + delta }))
+    },
+    reconnectFeed: () => { restartFeed() },
   }
 
   // Without the Desktop bridge these stay undefined, and no browser control renders.
@@ -1120,16 +1153,29 @@ export function createTeam() {
   })
 
   const onFeed = (event, data) => {
-    if (event === 'hello') {
+    if (event === 'hello' && data?.resumed !== true) {
       for (const sessionId of streamingReply) actions.noteLive(sessionId, 'reply', null)
       streamingReply.clear()
+      // Notice seq restarts from 1 on a fresh host boot; session log seq is durable.
+      lastGroupNoticeSeq.clear()
     }
     if (event === 'message' && data?.sessionId && data.item) {
       const { sessionId, item } = data
       const text = item.kind === 'bot' || item.kind === 'user' ? item.text : ''
+      let countReply = false
+      if (item.kind === 'bot') {
+        const hasSeq = Number.isFinite(item.seq)
+        const prevSeq = hasSeq ? (lastFeedReplySeq.get(sessionId) ?? -1) : -1
+        const isReplay = hasSeq && item.seq <= prevSeq
+        if (hasSeq && !isReplay) lastFeedReplySeq.set(sessionId, item.seq)
+        // Active DM Sessions count tail arrivals via SessionTranscript's monotonic seq watermark
+        // so "Load earlier", gap fills, and replays never inflate replyCount or double-count.
+        countReply = !isReplay && shown.getSnapshot() !== sessionId
+      }
       editRow(sessionId, row => ({
         ...row,
         updatedAt: Math.max(row.updatedAt ?? 0, item.time ?? 0),
+        ...(countReply ? { replyCount: (row.replyCount ?? 0) + 1 } : {}),
         // The sidebar's preview line; turn -1 is never a hidden exchange turn.
         projectionValues: text ? { turnOutline: [{ turn: -1, [item.kind === 'bot' ? 'response' : 'prompt']: text }] } : row.projectionValues,
       }))
@@ -1144,9 +1190,14 @@ export function createTeam() {
       const roomSession = room ? currentPart(room) : data.roomId
       if (shown.getSnapshot() !== roomSession || isCovered(ui.getSnapshot())) setStatus(roomSession, { completionUnread: true })
       if (data.text) {
+        const hasSeq = Number.isFinite(data.seq)
+        const prevSeq = hasSeq ? (lastGroupNoticeSeq.get(roomSession) ?? -1) : -1
+        const isReplay = hasSeq && data.seq <= prevSeq
+        if (hasSeq && !isReplay) lastGroupNoticeSeq.set(roomSession, data.seq)
         editRow(roomSession, row => ({
           ...row,
           updatedAt: Math.max(row.updatedAt ?? 0, data.time ?? 0),
+          ...(!isReplay ? { replyCount: (row.replyCount ?? 0) + 1 } : {}),
           projectionValues: { turnOutline: [{ turn: -1, response: data.text }] },
         }))
       }
@@ -1169,6 +1220,9 @@ export function createTeam() {
   const start = () => {
     let stopped = false
     let timer
+    let lostTimer
+    let lostSince = 0
+    let closeFeed = () => {}
     const read = () => {
       void pull().catch((error) => {
         if (stopped) return
@@ -1188,7 +1242,61 @@ export function createTeam() {
     const onVisibility = () => {
       if (stopped) return
       if (document.hidden) stopTimer()
-      else { read(); startTimer() }
+      else {
+        read()
+        startTimer()
+      }
+    }
+    const clearLost = () => {
+      if (lostTimer !== undefined) { clearTimeout(lostTimer); lostTimer = undefined }
+      lostSince = 0
+      if (connection.getSnapshot().status !== 'connected') {
+        connection.set({ status: 'connected', error: null, code: null })
+      }
+    }
+    const noteLost = () => {
+      if (stopped || lostSince > 0 || connection.getSnapshot().status === 'error') return
+      lostSince = Date.now()
+      lostTimer = setTimeout(() => {
+        lostTimer = undefined
+        if (!stopped && lostSince > 0) {
+          connection.set({ status: 'reconnecting', error: null, code: null })
+        }
+      }, RECONNECT_NOTICE_MS)
+    }
+    const handleFeedEvent = (event, data) => {
+      if (stopped) return
+      if (event === 'lost') {
+        noteLost()
+        onFeed(event, data)
+        return
+      }
+      if (event === 'error' && data?.fatal === true) {
+        if (lostTimer !== undefined) { clearTimeout(lostTimer); lostTimer = undefined }
+        lostSince = 0
+        connection.set({ status: 'error', error: data?.message ?? null, code: data?.code ?? null })
+        onFeed(event, data)
+        return
+      }
+      clearLost()
+      if (event === 'revision') read()
+      else if (event === 'live') {
+        if (typeof document === 'undefined' || !document.hidden) read()
+      } else if (event === 'hello' && data?.resumed !== true) {
+        if (typeof document === 'undefined' || !document.hidden) read()
+      }
+      onFeed(event, data)
+    }
+    const connectFeed = () => {
+      closeFeed()
+      closeFeed = openFeed(handleFeedEvent)
+    }
+    restartFeed = () => {
+      if (stopped) return
+      if (lostTimer !== undefined) { clearTimeout(lostTimer); lostTimer = undefined }
+      lostSince = Date.now()
+      connection.set({ status: 'reconnecting', error: null, code: null })
+      connectFeed()
     }
     read()
     let updateTimer
@@ -1217,10 +1325,7 @@ export function createTeam() {
       void Promise.resolve(ownAppUpdates.state()).then(takeOwnApp, () => {})
       unsubscribeOwnApp = ownAppUpdates.subscribe(takeOwnApp)
     }
-    const closeFeed = openFeed((event, data) => {
-      if (READ_AGAIN.has(event)) read()
-      onFeed(event, data)
-    })
+    connectFeed()
     const stopApprovalNotices = noticeApprovals({
       work,
       roster,
@@ -1403,8 +1508,12 @@ export function createTeam() {
     return () => {
       stopped = true
       clearTimeout(updateTimer)
+      clearTimeout(lostTimer)
+      lostTimer = undefined
+      lostSince = 0
       wakeUpdate = () => {}
       scheduleUpdate = () => {}
+      restartFeed = () => {}
       unsubscribeOwnApp?.()
       closeFeed()
       stopApprovalNotices()
@@ -1431,6 +1540,7 @@ export function createTeam() {
     useRescuedDrafts: use(questionDrafts.rescued),
     useTurnClock: use(turnClock),
     useUpdate: use(update),
+    useConnection: use(connection),
     useRegistry: use(registry),
     useComputer: use(computer),
     useBrowserHolds: use(browserHolds),
@@ -1468,6 +1578,7 @@ export function createTeam() {
     shown: () => shown.getSnapshot(),
     surface: () => surface.getSnapshot(),
     status: () => status.getSnapshot(),
+    connection: () => connection.getSnapshot(),
   }
   return { actions, hooks, snapshots, sessionHook, chat, start }
 }
