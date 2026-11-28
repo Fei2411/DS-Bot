@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { LEGACY_PRODUCT_NAME } from '../src/legacy.mjs'
 
 const include = readFileSync(new URL('../build/installer.nsh', import.meta.url), 'utf8')
 
@@ -21,7 +22,8 @@ test('a silent Windows update must publish a complete backup before the old unin
 
 test('a silent update backs up the legacy executable in the registered installation directory', () => {
   const body = macro('customInit')
-  assert.match(body, /StrCpy \$R8 "\$\{APP_EXECUTABLE_FILENAME\}"\s+\$\{IfNot\} \$\{FileExists\} "\$INSTDIR\\\$R8"\s+StrCpy \$R8 "DeepSeek Bot\.exe"/)
+  assert.ok(include.includes(`!define DSB_LEGACY_EXECUTABLE "${LEGACY_PRODUCT_NAME}.exe"`))
+  assert.match(body, /StrCpy \$R8 "\$\{APP_EXECUTABLE_FILENAME\}"\s+\$\{IfNot\} \$\{FileExists\} "\$INSTDIR\\\$R8"\s+StrCpy \$R8 "\$\{DSB_LEGACY_EXECUTABLE\}"/)
   assert.match(body, /\$\{AndIf\} \$\{FileExists\} "\$INSTDIR\\\$R8"/)
   assert.match(body, /IfFileExists "\$\{DSB_ROLLBACK_STAGING\}\\\$R8" 0 rollbackBackupFailed/)
 })

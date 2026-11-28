@@ -6,6 +6,7 @@
 
 !define DSB_ROLLBACK "$LOCALAPPDATA\dsbot-updater\rollback"
 !define DSB_ROLLBACK_STAGING "$LOCALAPPDATA\dsbot-updater\rollback-staging"
+!define DSB_LEGACY_EXECUTABLE "DeepSeek Bot.exe"
 
 ; The old uninstaller may remove $INSTDIR before the new payload is extracted.
 ; Publish the fallback outside $INSTDIR and $PLUGINSDIR before that can happen.
@@ -14,7 +15,7 @@
   ${AndIf} ${isUpdated}
     StrCpy $R8 "${APP_EXECUTABLE_FILENAME}"
     ${IfNot} ${FileExists} "$INSTDIR\$R8"
-      StrCpy $R8 "DeepSeek Bot.exe"
+      StrCpy $R8 "${DSB_LEGACY_EXECUTABLE}"
     ${EndIf}
 
     ; A retry must not replace the fallback with a partially installed version.
