@@ -730,10 +730,9 @@ function updatesBridge() {
 function frameless(height, material) {
   const root = document.documentElement
   root.dataset.windowsTitlebar = ''
-  root.style.setProperty('--dsh-windows-titlebar-height', `${height}px`)
-  // DSH keeps the dialog mask off the caption band, which then stays bright above a dimmed
-  // page; here the band is part of the page, so the mask covers it too.
-  root.style.setProperty('--dsh-frame-chrome-top', '0px')
+  root.style.setProperty('--bt-titlebar-h', `${height}px`)
+  // The band is part of the page, so dialog masks cover it too.
+  root.style.setProperty('--bt-chrome-top', '0px')
   // The traffic lights take their colors from the system.
   if (process.platform === 'win32') captionColors(material === 'mica')
 }

@@ -210,8 +210,8 @@ function ToolCallBranch({
     })
   const anchor = {
     className: subCalls.length > 0 ? 'dsb-tool-tree' : 'dsb-tool-wrap',
-    'data-chat-anchor-key': callId ? `call:${callId}` : undefined,
-    'data-chat-call-id': callId || undefined,
+    'data-bt-anchor-key': callId ? `call:${callId}` : undefined,
+    'data-bt-call-id': callId || undefined,
   }
   if (subCalls.length === 0) return h('div', anchor, card)
   return h('div', anchor,

@@ -92,7 +92,7 @@ test('the pill shows only inside a reply taller than the band whose start has sc
 
 test('the band starts under DS Bot\'s header over the scroller and ends above DSH\'s composer', () => {
   const scroller = document.createElement('div')
-  scroller.style.setProperty('--dsh-composer-height', '140px')
+  scroller.style.setProperty('--bt-composer-inset', '140px')
   const head = document.createElement('div')
   head.className = 'bt-head'
   document.body.append(scroller, head)
@@ -100,7 +100,7 @@ test('the band starts under DS Bot\'s header over the scroller and ends above DS
   head.getBoundingClientRect = () => ({ top: 10, bottom: 50, left: 300, right: 1200, height: 40 })
   assert.deepEqual(readingBand(scroller), { top: 58, bottom: 660, left: 300, right: 1200 })
   // The desktop app's composer sits below its scroller, so nothing is taken off.
-  scroller.style.removeProperty('--dsh-composer-height')
+  scroller.style.removeProperty('--bt-composer-inset')
   // A header beside the scroller (another pane's) is not this chat's.
   head.getBoundingClientRect = () => ({ top: 10, bottom: 50, left: 0, right: 280, height: 40 })
   assert.deepEqual(readingBand(scroller), { top: 8, bottom: 800, left: 300, right: 1200 })

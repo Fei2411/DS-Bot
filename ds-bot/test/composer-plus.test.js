@@ -114,7 +114,7 @@ test('rapid double Cmd/Ctrl+Enter on empty draft still intercepts second keydown
     require: name => (name === 'react' ? localReact : name === 'react-dom' ? { createPortal: node => node } : {}),
   })
   const card = { style: { getPropertyValue: () => '', setProperty: () => {}, removeProperty: () => {} } }
-  const btnEl = { closest: sel => (sel === '[data-composer-card]' ? card : null) }
+  const btnEl = { closest: sel => (sel === '[data-bt-composer]' ? card : null) }
   let resolveSteer
   let steerCalls = 0
   mod.exports.ComposerPlus({
@@ -148,8 +148,8 @@ test('rapid double Cmd/Ctrl+Enter on empty draft still intercepts second keydown
     target: {
       ownerDocument: { querySelector: () => null },
       closest(sel) {
-        if (sel === '[data-composer-card]') return card
-        if (sel === '[contenteditable=true]') return this
+        if (sel === '[data-bt-composer]') return card
+        if (sel === '[data-bt-composer-input]') return this
         return null
       },
     },
