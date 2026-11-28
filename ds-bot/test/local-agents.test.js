@@ -3023,6 +3023,10 @@ process.stdin.on('data', (chunk) => {
     send({ type: 'assistant', parent_tool_use_id: null, message: { id, content: [{ type: 'text', text: 'reply:' + text + ':resume=' + resumed }], stop_reason: null, usage: { input_tokens: 12, output_tokens: 1 } } })
     send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_stop', index: 0 } })
     send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 7 } } })
+    if (text.includes('hang-no-stop')) {
+      // Simulate Claude Code hanging after message_delta(end_turn) without message_stop or result.
+      continue
+    }
     send({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_stop' } })
     if (text.includes('hang-no-result')) {
       // Simulate Claude Code hanging after message_stop with no closing result event.
@@ -3056,6 +3060,11 @@ process.stdin.on('data', (chunk) => {
   const t3 = await collect(adapter.stream(options('s1', [user('m1', 'first'), user('m2', 'hang-no-result'), user('m3', 'after-hang')], { provider: 'local-claude-code', signal: AbortSignal.timeout(5_000) })))
   assert.equal(t3.finish?.kind, 'stop')
   assert.match(t3.text, new RegExp(`reply:[\\s\\S]*after-hang:resume=${savedId}`))
+
+  // Turn 4: message_delta(end_turn) without message_stop or result also finishes cleanly.
+  const t4 = await collect(adapter.stream(options('s1', [user('m1', 'first'), user('m2', 'hang-no-result'), user('m3', 'after-hang'), user('m4', 'hang-no-stop')], { provider: 'local-claude-code', signal: AbortSignal.timeout(5_000) })))
+  assert.equal(t4.finish?.kind, 'stop')
+  assert.match(t4.text, new RegExp(`reply:[\\s\\S]*hang-no-stop:resume=${savedId}`))
 })
 
 test('claude: completes turn without result on clean exit 0 or non-partial assistant fallback (#2382)', async (t) => {

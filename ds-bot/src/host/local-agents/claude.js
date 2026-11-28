@@ -338,6 +338,7 @@ class ClaudeSession {
             this.cancelResultTimer()
             if (typeof inner.delta?.stop_reason === 'string') this.messageStopReason = inner.delta.stop_reason
             this.recordTurnUsage(inner.usage)
+            this.maybeScheduleResultFallback()
             break
           case 'message_stop':
             this.inMessage = false
@@ -499,7 +500,7 @@ class ClaudeSession {
   canFinishWithoutResult() {
     if (this.running !== true || this.retired) return false
     if (!this.turnHasAssistantOutput) return false
-    if (this.inMessage || this.messageHasToolUse) return false
+    if ((this.inMessage && !TERMINAL_STOP_REASONS.has(this.messageStopReason)) || this.messageHasToolUse) return false
     if (this.messageStopReason !== null && !TERMINAL_STOP_REASONS.has(this.messageStopReason)) return false
     if (this.pendingToolUses.size > 0 || this.awaitingToolResult) return false
     if (this.pendingPermissions.size > 0 || this.pendingHooks.size > 0 || this.compacting) return false
