@@ -523,7 +523,8 @@ test('SHELL_CSS uses container queries on narrow cards and responsive Segmented 
   assert.match(SHELL_CSS, /\.bt-seg\[data-layout\] button\{[^}]*justify-content:safe center/)
   assert.doesNotMatch(SHELL_CSS, /\.bt-seg\.bt-permissions button\{/)
   assert.match(SHELL_CSS, /\.bt-drop-list:not\(\[data-glide\]\)>\.bt-option:not\(\[aria-selected=true\]\):hover\{background:var\(--bt-hover\)\}/)
-  assert.match(SHELL_CSS, /\.bt-drop-list\{[^}]*overflow:hidden/)
+  assert.match(SHELL_CSS, /\.bt-drop-list\{[^}]*overflow:hidden;isolation:isolate;contain:layout paint/)
+  assert.match(SHELL_CSS, /\.bt-palette-list>\.bt-thumb,\.bt-drop-list>\.bt-thumb\{[^}]*will-change:transform/)
 })
 
 test('useGlide QUICK_EDGES keeps equal-height list thumbs steady without overshoot or mid-flight inversion', () => {
@@ -606,4 +607,14 @@ test('useGlide QUICK_EDGES keeps equal-height list thumbs steady without oversho
   assert.equal(heightWrites, writesAfterInit, 'equal-height QUICK_EDGES glide must not rewrite height on every frame')
   assert.ok(maxY <= 152.05, `critically damped thumb should not overshoot target (got ${maxY})`)
   assert.equal(thumb.style.transform, 'translateY(152px)')
+
+  // First rAF arriving with a VSync timestamp earlier than performance.now() must not
+  // stall at 1ms (~0.05px); it advances a real frame immediately.
+  clock = 1000.8
+  select(0)
+  const firstFns = [...queued.values()]
+  queued.clear()
+  for (const fn of firstFns) fn(998.4)
+  const yAfterFirst = Number.parseFloat(/translateY\(([^)]+)px\)/.exec(thumb.style.transform)?.[1] ?? '152')
+  assert.ok(yAfterFirst < 145, `first frame should make real progress instead of stalling (got ${yAfterFirst})`)
 })

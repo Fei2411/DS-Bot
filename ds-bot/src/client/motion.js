@@ -67,11 +67,11 @@ export const SPRING_GLIDE = springEasing(1000, 63)
 // Critically damped pane slide (ω=28, ζ=1, zero overshoot) for bounded edge surfaces
 // like the left sidebar and conversation margins (#2412).
 export const SPRING_SLIDE = springEasing(784, 56)
-// A highlight that follows the keyboard and pointer down a list tracks on one
-// critically damped spring (ω=36, ζ=1, zero overshoot) so equal-height rows glide
-// without stretching, wobbling, or writing layout height every frame.
-const QUICK_GLIDE = springEasing(1296, 72)
-export const QUICK_EDGES = { lead: QUICK_GLIDE, trail: QUICK_GLIDE }
+// A highlight that follows the keyboard and pointer down a list shares SPRING_SLIDE
+// (ω=28, ζ=1): critically damped so equal-height rows glide without stretching or
+// layout height writes, and paced so multi-row moves stay under one row per 60Hz frame
+// without stroboscopic gaps.
+export const QUICK_EDGES = { lead: SPRING_SLIDE, trail: SPRING_SLIDE }
 
 export const spring = (curve, ...properties) => properties.map(property => `${property} ${curve.duration}ms ${curve.easing}`).join(',')
 
@@ -84,13 +84,19 @@ export function liveSprings(apply) {
   const current = {}
   let frame = 0
   let last = 0
+  let fresh = false
   const cancel = () => {
     if (frame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
     frame = 0
+    fresh = false
   }
   const step = (now) => {
     const stamp = Number.isFinite(now) ? now : performance.now()
-    const dt = Math.min(0.5, Math.max(0.001, (stamp - last) / 1000))
+    const elapsed = (stamp - last) / 1000
+    // Chromium's rAF timestamp is the VSync start time, which can predate the input
+    // event's performance.now(); avoid stalling the first frame at 1ms when starting from rest.
+    const dt = Math.min(0.5, fresh && elapsed < 0.004 ? 1 / 60 : Math.max(0.001, elapsed))
+    fresh = false
     last = stamp
     const steps = Math.ceil(dt * 240)
     const h = dt / steps
@@ -133,7 +139,7 @@ export function liveSprings(apply) {
         else Object.assign(value, { to, k, c })
       }
       if (immediate) { cancel(); apply(current, false); return }
-      if (!frame) { last = performance.now(); frame = requestAnimationFrame(step) }
+      if (!frame) { fresh = true; last = performance.now(); frame = requestAnimationFrame(step) }
     },
     reset: () => { values.clear(); for (const key of Object.keys(current)) delete current[key]; cancel() },
     stop: cancel,

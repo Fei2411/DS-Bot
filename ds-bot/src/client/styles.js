@@ -1217,7 +1217,7 @@ body[data-ds-dark-theme] .bt-menu{background:color-mix(in srgb,var(--bt-card) 96
 .bt-palette-clear:hover{color:var(--bt-ink)}
 .bt-palette-clear svg{width:12px;height:12px}
 .bt-palette-list{position:relative;height:402px;height:min(402px,54vh);height:min(402px,54dvh);overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:2px;box-sizing:border-box}
-.bt-palette-list>.bt-thumb,.bt-drop-list>.bt-thumb{left:0;right:0;border-radius:8px;background:var(--bt-active)}
+.bt-palette-list>.bt-thumb,.bt-drop-list>.bt-thumb{left:0;right:0;border-radius:8px;background:var(--bt-active);will-change:transform}
 .bt-palette-list>.bt-thumb{left:8px;right:8px}
 :is(.bt-palette-list,.bt-drop-list)[data-glide] [aria-selected=true]{background:transparent}
 :is(.bt-palette-row,.bt-palette-section,.bt-drop-list>.bt-option){position:relative;z-index:1}
@@ -1274,7 +1274,7 @@ body[data-ds-dark-theme] .bt-menu{background:color-mix(in srgb,var(--bt-card) 96
 @keyframes bt-check-pop{from{opacity:0;scale:.4}}
 @media (prefers-reduced-motion:reduce){.bt-menu,.bt-avedit,.bt-react-strip{animation:bt-fade .1s ease-out}.bt-react-strip button,.bt-q-check,.bt-color[aria-pressed=true] span,.bt-sel-tick svg{animation:none}.bt-sel-caret{transition:none}}
 .bt-brand:hover{background:var(--bt-hover)}
-.bt-drop-list{position:relative;flex:none;display:flex;flex-direction:column;gap:2px;overflow:hidden}
+.bt-drop-list{position:relative;flex:none;display:flex;flex-direction:column;gap:2px;overflow:hidden;isolation:isolate;contain:layout paint}
 .bt-sel{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;width:auto;min-width:min(148px,100%);max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background:var(--bt-card);color:var(--bt-ink);padding:0 10px 0 12px;font:inherit;font-size:13px;line-height:18px;font-weight:450;text-align:left;cursor:pointer;outline:none;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
 .bt-sel:hover:not(:disabled),.bt-sel[aria-expanded=true]{background:var(--bt-hover);border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
 .bt-sel:disabled{opacity:.45;cursor:default}
