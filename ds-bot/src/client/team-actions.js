@@ -536,6 +536,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     pluginsSourceRemove: id => after(call('plugins-source-remove', { id })),
     pluginsRetry: () => after(call('plugins-retry', {})),
     schedules: () => call('schedules'),
+    scheduleEnable: () => call('schedule-enable'),
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),
     schedulePause: (sessionId, id, active) => call('schedule-pause', { sessionId, id, active }),

@@ -79,6 +79,8 @@ export const COMPUTER_ONLY_ENDPOINTS = new Set([
   'side-app-preview',
   'side-app-opened',
   'side-app-bytes',
+  // Enables the host's DSH schedule plugin via pluginManager; engine plugin changes stay on this computer.
+  'schedule-enable',
 ])
 
 // The only computer-prefixed endpoints a paired phone may use. Every other computer-*
