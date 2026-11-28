@@ -106,6 +106,22 @@ function bundleMatchesCatalog(bundleName, catalogEntry) {
   return Array.isArray(catalogEntry.install?.aliases) && catalogEntry.install.aliases.includes(bundleName)
 }
 
+function formatBundleError(error) {
+  if (!error || typeof error !== 'object') return null
+  if (typeof error.diagnostic === 'string' && error.diagnostic.trim() !== '') return error.diagnostic.trim()
+  if (error.code === 'incompatible-version' && Array.isArray(error.incompatible) && error.incompatible.length > 0) {
+    const item = error.incompatible[0]
+    const reqs = Object.entries(item?.requirements ?? {}).map(([k, v]) => `${k} ${v}`).join(', ')
+    if (item?.name && item?.version && item?.runtimeVersion) {
+      return reqs
+        ? `Incompatible with DSH ${item.runtimeVersion}: ${item.name}@${item.version} requires ${reqs}`
+        : `Incompatible with DSH ${item.runtimeVersion}: ${item.name}@${item.version}`
+    }
+    return 'Incompatible with the running DSH version.'
+  }
+  return typeof error.code === 'string' && error.code.trim() !== '' ? error.code.trim() : null
+}
+
 function isBundleAvailable(bundle) {
   return Boolean(bundle && (bundle.availability === 'installation' || bundle.availability === 'profile')
     && (bundle.installed || bundle.enabled))
@@ -2135,7 +2151,7 @@ function unverifiableMessage(hashError, { action = 'run' } = {}) {
         active: occupiedSlot ? activeSlotTarget(occupiedSlot) === id : Boolean(installed && bundle.enabled),
         desired: occupiedSlot ? slotDesired(occupiedSlot) === id : Boolean(bundle.enabled),
         status: pending ? 'restart-required' : (installed && bundle.enabled ? 'ready' : 'inactive'),
-        error: bundle.error?.diagnostic ?? null,
+        error: formatBundleError(bundle.error),
         restartReason: pending?.reason ?? null,
         builtin: false,
         custom: false,

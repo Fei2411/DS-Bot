@@ -196,6 +196,28 @@ test('namespace conversion preserves schemas, hosted tools, existing namespaces 
   assert.deepEqual(previewRequest({ input: [], tools: [namespace([functionTool]), customTool] }).tools, [namespace([functionTool, customTool])])
 })
 
+test('incremental additional_tools and tool_search_output items wrap local tools idempotently and unwrap on SSE', async t => {
+  const additional = { type: 'additional_tools', tools: [functionTool, { type: 'web_search' }, customTool] }
+  const searchOut = { type: 'tool_search_output', call_id: 'ts_1', tools: [functionTool] }
+  const body = { input: [additional, searchOut], tools: [functionTool] }
+  const converted = previewRequest(body)
+  assert.deepEqual(converted.input, [
+    { type: 'additional_tools', tools: [{ type: 'web_search' }, namespace([functionTool, customTool])] },
+    { type: 'tool_search_output', call_id: 'ts_1', tools: [namespace([functionTool])] },
+  ])
+  assert.deepEqual(previewRequest(converted), converted)
+  assert.throws(() => previewRequest({ input: [{ type: 'additional_tools', tools: 'bad' }] }), /Invalid ChatGPT request/)
+
+  const sseItem = { type: 'tool_search_output', call_id: 'ts_1', tools: [namespace([functionTool])] }
+  const f = await fixture(t, { handle: (_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.end(`data: ${JSON.stringify({ type: 'response.output_item.done', item: sseItem })}\n\ndata: [DONE]\n\n`)
+  } })
+  const text = await (await f.post({ input: [searchOut], tools: [functionTool] })).text()
+  const firstEvent = JSON.parse(text.split('\n\n')[0].slice(6))
+  assert.deepEqual(firstEvent.item, { type: 'tool_search_output', call_id: 'ts_1', tools: [functionTool] })
+})
+
 for (const choice of ['auto', 'none', 'required', { type: 'custom', name: 'run_query' }, { type: 'allowed_tools', mode: 'required', tools: [{ type: 'function', name: 'get_weather' }] }]) {
   test(`namespacing keeps documented tool_choice ${JSON.stringify(choice)} unchanged`, () => {
     assert.deepEqual(previewRequest({ input: [], tools: [functionTool, customTool], tool_choice: choice }).tool_choice, choice)

@@ -78,3 +78,4 @@
 
 - 2026-11-21：定下设计，初版在集成分支 `feat/own-frontend` 上实现。
 - 2026-11-26：已合入 `dev`；记录已落地的窄窗口抽屉（`<= 768px` 至 `508px`）、快捷键自定义与模式过滤、统一弹层 Esc 栈、按页加载与失败重试、文件树监听与右键菜单、Excel 工作表预览、引擎设置显式保存/提供方选择/经典模式子代理设置，以及经典模式浏览器面板。
+- 2026-11-27：补齐桌面端插件透明化与本地 UI/主题插件加载器（`app/engine/ui-plugins.js`、`app/ui/src/ui-plugin-loader.js`）：引擎插件页展示 `cordis.patch.yml` 自定义非 bundle 插件、标注仅支持 DSH 网页前端的包与版本不兼容豁免入口，并支持通过 `<DSH_HOME>/ui-plugins/` 与已启用 bundle 的 `dsBot.ui` 热加载桌面端 UI 与主题插件。

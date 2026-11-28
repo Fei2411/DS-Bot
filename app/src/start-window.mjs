@@ -281,6 +281,9 @@ export class StartWindow {
   #handing = false
   #under = false
   #revealed = false
+  #boundsReady = false
+  #pendingReveal
+  #savedBounds
   // Whether the engine of this attempt is up; the stages done say where the whale is, which a
   // retry never moves back.
   #engineUp = false
@@ -331,13 +334,19 @@ export class StartWindow {
   /** Whether the team window has shown at this start's hand-off. */
   get revealed() { return this.#revealed }
 
+  /** Whether initial hand-off and any deferred maximized restoration have settled. */
+  get boundsReady() { return this.#boundsReady }
+
   /** Opens the window, unless one is open, with a fresh state for this kind of start. */
   open(kind) {
     if (this.#open()) return
     const { BrowserWindow, screen, nativeTheme } = this.#o.electron
     const start = START_KINDS.includes(kind) ? kind : 'later'
     this.#reset(start)
-    const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+    const saved = this.#resolveSavedBounds({ refresh: true })
+    const area = saved !== undefined
+      ? screen.getDisplayMatching({ x: saved.x, y: saved.y, width: saved.width, height: saved.height }).workArea
+      : screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
     const win32 = process.platform === 'win32'
     const { material } = this.#o
     const colors = this.#colors()
@@ -697,8 +706,17 @@ export class StartWindow {
     this.#update({ update: update === undefined ? undefined : { ...update } })
   }
 
-  /** The team window's rect: centred on the start window, inside that display's work area. */
+  #resolveSavedBounds({ refresh = false } = {}) {
+    if (refresh || this.#savedBounds === undefined) {
+      this.#savedBounds = this.#o.savedBounds?.() ?? null
+    }
+    return this.#savedBounds ?? undefined
+  }
+
+  /** The team window's rect: saved bounds clamped to current displays, or centred on the start window. */
   mainBounds() {
+    const saved = this.#open() ? this.#resolveSavedBounds() : this.#o.savedBounds?.()
+    if (saved !== undefined) return { x: saved.x, y: saved.y, width: saved.width, height: saved.height }
     const { screen } = this.#o.electron
     if (!this.#open()) return centred(clampInto({ x: 0, y: 0, ...MAIN_SIZE }, screen.getPrimaryDisplay().workArea), screen.getPrimaryDisplay().workArea)
     const start = this.#window.getNormalBounds()
@@ -714,11 +732,15 @@ export class StartWindow {
     const main = this.#o.mainWindow()
     if (main === undefined || main.isDestroyed() || this.#window.isMinimized()) return undefined
     if (report === undefined) { note('no place to land: the whale dives'); return undefined }
+    if (this.#resolveSavedBounds()?.maximized === true) return undefined
     try {
       const measured = main.getContentBounds()
       const rect = this.placeMain(main)
       const team = main.getContentBounds()
       const outer = this.#window.getBounds()
+      const overlaps = outer.x < rect.x + rect.width && outer.x + outer.width > rect.x
+        && outer.y < rect.y + rect.height && outer.y + outer.height > rect.y
+      if (!overlaps) return undefined
       const inner = this.#window.getContentBounds()
       const landing = landingOf(report, { team: { x: team.x, y: team.y, width: measured.width }, start: { x: rect.x + inner.x - outer.x, y: rect.y + inner.y - outer.y } })
       const inside = landing !== undefined && landing.x >= 0 && landing.y >= 0 && landing.x + landing.size <= rect.width && landing.y + landing.size <= rect.height
@@ -747,9 +769,11 @@ export class StartWindow {
 
   #reset(start) {
     this.#clearTimers()
+    this.#clearPendingReveal()
     this.#handing = false
     this.#under = false
     this.#revealed = false
+    this.#boundsReady = false
     this.#engineUp = false
     this.#holdsOff()
     this.#watchAt = WATCHDOG_MS
@@ -940,20 +964,60 @@ export class StartWindow {
     this.#clear('teamWait')
     const win = this.#window
     const how = win.isMinimized() ? 'minimized' : win.isFocused() ? 'focused' : 'behind'
-    if (this.#under && how !== 'minimized') { this.#crossfade(main, win, how); return }
+    const savedMaximized = this.#resolveSavedBounds()?.maximized === true
+    if (this.#under && how !== 'minimized') {
+      if (savedMaximized && how === 'focused') main.maximize?.()
+      this.#crossfade(main, win, how, savedMaximized)
+      return
+    }
     if (this.#under) this.#unlay(main)
     if (how === 'focused') {
+      if (savedMaximized) main.maximize?.()
       main.show()
       main.focus()
+      this.#boundsReady = true
     } else if (how === 'minimized') {
       main.minimize()
+      main.flashFrame(true)
+      const onFocus = () => { if (!main.isDestroyed()) main.flashFrame(false) }
+      let onRestore
+      main.once('focus', onFocus)
+      if (savedMaximized) {
+        onRestore = () => {
+          if (!main.isDestroyed() && !main.isFullScreen?.()) main.maximize?.()
+          this.#boundsReady = true
+        }
+        main.once('restore', onRestore)
+      } else {
+        this.#boundsReady = true
+      }
+      this.#setPendingReveal(() => {
+        if (main.isDestroyed()) return
+        main.off?.('focus', onFocus)
+        if (onRestore !== undefined) main.off?.('restore', onRestore)
+      })
     } else {
       main.showInactive()
       try { main.moveAbove(win.getMediaSourceId()) } catch { /* the order stays the system's */ }
-    }
-    if (how !== 'focused') {
-      main.flashFrame(true)
-      main.once('focus', () => { main.flashFrame(false) })
+      if (main.isFocused?.()) {
+        if (savedMaximized && !main.isMinimized?.() && !main.isFullScreen?.()) main.maximize?.()
+        this.#boundsReady = true
+      } else {
+        main.flashFrame(true)
+        if (!savedMaximized) this.#boundsReady = true
+        const onFocus = () => {
+          this.#clearPendingReveal()
+          if (!main.isDestroyed()) {
+            main.flashFrame(false)
+            if (savedMaximized && !main.isMinimized?.() && !main.isFullScreen?.()) main.maximize?.()
+          }
+          this.#boundsReady = true
+        }
+        main.once('focus', onFocus)
+        this.#setPendingReveal(() => {
+          if (!main.isDestroyed()) main.off?.('focus', onFocus)
+        })
+      }
     }
     // Leaves the taskbar only now, so the app's button never goes away.
     win.setSkipTaskbar(true)
@@ -964,11 +1028,40 @@ export class StartWindow {
   // The team window, on its rect around and under the start window, fades in while the start
   // window fades out over it. With a whale handed over, the team page holds it where the start
   // page's whale is through this fade, so the two stay on each other.
-  #crossfade(main, win, how) {
+  #crossfade(main, win, how, savedMaximized = false) {
     // A team window hidden while it waited (closed to the tray) comes back for the fade.
     if (!main.isVisible()) main.showInactive()
     main.setSkipTaskbar(false)
     win.setSkipTaskbar(true)
+    // Register the behind-mode focus handler before the first fade frame: the team window is
+    // visible and focusable as soon as the fade starts, so focus arriving mid-fade must apply
+    // any deferred maximize and flip `boundsReady` without leaving a stale focus listener behind.
+    let focusedDuringFade = false
+    let flashing = false
+    let settled = false
+    const applyBehindFocus = () => {
+      if (settled) return
+      settled = true
+      this.#clearPendingReveal()
+      if (!main.isDestroyed()) {
+        if (flashing) {
+          flashing = false
+          main.flashFrame(false)
+        }
+        if (savedMaximized && !main.isMinimized?.() && !main.isFullScreen?.()) main.maximize?.()
+      }
+      this.#boundsReady = true
+    }
+    if (how !== 'focused') {
+      const onFocus = () => {
+        focusedDuringFade = true
+        applyBehindFocus()
+      }
+      main.once('focus', onFocus)
+      this.#setPendingReveal(() => {
+        if (!main.isDestroyed()) main.off?.('focus', onFocus)
+      })
+    }
     note(`cross-fade at ready + ${String(Date.now() - this.#readyAt)} ms`)
     const began = Date.now()
     const step = () => {
@@ -982,16 +1075,32 @@ export class StartWindow {
       if (how === 'focused') {
         main.focus()
         main.webContents?.focus?.()
+        this.#boundsReady = true
+      } else if (focusedDuringFade || main.isFocused?.()) {
+        applyBehindFocus()
       } else {
+        flashing = true
         main.flashFrame(true)
-        main.once('focus', () => { main.flashFrame(false) })
+        if (!savedMaximized) this.#boundsReady = true
       }
       note(`team window shown (${how}) at ready + ${String(Date.now() - this.#readyAt)} ms`)
     }
     step()
   }
 
+  #setPendingReveal(cleanup) {
+    this.#clearPendingReveal()
+    this.#pendingReveal = cleanup
+  }
+
+  #clearPendingReveal() {
+    const cleanup = this.#pendingReveal
+    this.#pendingReveal = undefined
+    try { cleanup?.() } catch { /* window already gone */ }
+  }
+
   #cancelHandoff() {
+    this.#clearPendingReveal()
     const main = this.#o.mainWindow()
     if (this.#under && !this.#revealed && main !== undefined) this.#unlay(main)
     if (!this.#handing || this.#revealed) return

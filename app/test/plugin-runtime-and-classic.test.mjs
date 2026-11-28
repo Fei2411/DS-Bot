@@ -21,7 +21,14 @@ const stubs = {
 }
 
 const entryCode = `
-  export { bustImportUrl, createPluginRuntime } from './ui/src/plugin-runtime.js'
+  export { bustImportUrl, createPluginRuntime, sanitizePluginCss } from './ui/src/plugin-runtime.js'
+  export {
+    getUiPluginsMeta,
+    loadExternalUiPlugins,
+    reloadExternalUiPlugins,
+    resetExternalUiPluginsForTest,
+    syncExternalUiPlugins,
+  } from './ui/src/ui-plugin-loader.js'
   export {
     createSlotRegistry,
     ShellOverlayHost,
@@ -41,6 +48,7 @@ const entryCode = `
   export { AppearancePage } from '../ds-bot/src/client/appearance-page.js'
   export { Switch } from '../ds-bot/src/client/bot-settings.js'
   export { allThemes } from '../ds-bot/src/client/themes.js'
+  export { SHAPES } from '../ds-bot/src/client/characters.js'
 `
 
 const { outputFiles } = await build({
@@ -361,7 +369,7 @@ test('extractSchemaFields decodes Schemastery toJSON graphs including enums, nes
   assert.equal(fields.find(f => f.path.join('.') === 'nested.timeout').value, 45)
 })
 
-test('Engine settings plugin registers all sections + session-log item, and AppearancePage disables Window material when a background is set', () => {
+test('Engine settings plugin registers all sections + language item, and AppearancePage disables Window material when a background is set', () => {
   const { mod } = loadMod()
   const slots = mod.createSlotRegistry()
   const runtime = mod.createPluginRuntime({ slots })
@@ -369,7 +377,7 @@ test('Engine settings plugin registers all sections + session-log item, and Appe
 
   const sectionIds = Array.from(slots.list(mod.SETTINGS_SECTION_SLOT), entry => entry.id)
   assert.deepEqual(sectionIds, ['account', 'plugins', 'agent-presets', 'archived-sessions'])
-  assert.deepEqual(Array.from(slots.list(mod.SETTINGS_GENERAL_ITEM_SLOT), entry => entry.id), ['language', 'session-log-deepseek'])
+  assert.deepEqual(Array.from(slots.list(mod.SETTINGS_GENERAL_ITEM_SLOT), entry => entry.id), ['language'])
 
   // Bot mode hides Archived sessions from the Settings bridge; Classic Agent mode exposes it.
   const Probe = ({ surfaceMode }) => {
@@ -378,7 +386,7 @@ test('Engine settings plugin registers all sections + session-log item, and Appe
   }
   const botBridge = renderTree(Probe, { surfaceMode: 'bot' })
   assert.deepEqual(Array.from(botBridge.props.ids), ['account', 'plugins', 'agent-presets'])
-  assert.deepEqual(Array.from(botBridge.props.items), ['language', 'session-log-deepseek'])
+  assert.deepEqual(Array.from(botBridge.props.items), ['language'])
   const agentBridge = renderTree(Probe, { surfaceMode: 'agent' })
   assert.deepEqual(Array.from(agentBridge.props.ids), ['account', 'plugins', 'agent-presets', 'archived-sessions'])
 
@@ -895,4 +903,525 @@ test('ShellOverlayHost Retry calls runtime.retry() and resets plugin overlay com
 
   const recoveredTree = renderTree(mod.ShellOverlayHost, { registry: slots, views: {} })
   assert.equal(findAll(recoveredTree, node => node.props?.className === 'recovered-overlay').length, 1)
+})
+
+test('plugin-runtime sanitizes ctx.theme and ctx.style offline via adoptedStyleSheets, supports ctx.shape, and keeps initialError on retry', () => {
+  class FakeStyleDeclaration {
+    constructor(raw) {
+      this._props = []
+      for (const part of raw.split(';')) {
+        const idx = part.indexOf(':')
+        if (idx <= 0) continue
+        const name = part.slice(0, idx).trim()
+        const value = part.slice(idx + 1).trim()
+        if (name) this._props.push({ name, value })
+      }
+    }
+    get length() { return this._props.length }
+    item(i) { return this._props[i]?.name ?? '' }
+    getPropertyValue(name) { return this._props.find(p => p.name === name)?.value ?? '' }
+    removeProperty(name) { this._props = this._props.filter(p => p.name !== name) }
+    get cssText() { return this._props.map(p => `${p.name}: ${p.value};`).join(' ') }
+  }
+  class FakeCSSStyleRule {
+    constructor(selector, declRaw) {
+      this.selectorText = selector
+      this.style = new FakeStyleDeclaration(declRaw)
+    }
+    get cssText() { return `${this.selectorText} { ${this.style.cssText} }` }
+  }
+  class FakeCSSImportRule {
+    constructor(raw) { this._raw = raw }
+    get cssText() { return this._raw }
+  }
+  const replaceLog = []
+  class FakeCSSStyleSheet {
+    constructor() { this.cssRules = [] }
+    replaceSync(text) {
+      replaceLog.push(text)
+      this.cssRules = []
+      const src = String(text ?? '').trim()
+      if (!src) return
+      for (const m of src.matchAll(/@import\s+[^;]+;/gi)) {
+        this.cssRules.push(new FakeCSSImportRule(m[0]))
+      }
+      const cleaned = src.replace(/@import\s+[^;]+;/gi, '')
+      for (const m of cleaned.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+        this.cssRules.push(new FakeCSSStyleRule(m[1].trim(), m[2]))
+      }
+    }
+    deleteRule(index) { this.cssRules.splice(index, 1) }
+  }
+
+  let headAppended = 0
+  const fakeWindow = {
+    location: { origin: 'http://127.0.0.1:41901' },
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    CSSStyleSheet: FakeCSSStyleSheet,
+    CSSStyleRule: FakeCSSStyleRule,
+    CSSImportRule: FakeCSSImportRule,
+  }
+  const fakeDoc = {
+    defaultView: fakeWindow,
+    adoptedStyleSheets: [],
+    head: { appendChild: () => { headAppended += 1 } },
+    body: { dataset: {}, style: { setProperty: () => {}, removeProperty: () => {} } },
+    documentElement: { dataset: {} },
+  }
+
+  const { mod } = loadMod(async () => ({}), {
+    window: fakeWindow,
+    document: fakeDoc,
+    CSSStyleSheet: FakeCSSStyleSheet,
+  })
+  const importerCalls = []
+  const runtime = mod.createPluginRuntime({
+    slots: mod.createSlotRegistry(),
+    importer: async (spec) => { importerCalls.push(spec); return { apply: () => {} } },
+  })
+
+  // Offline sanitization strips @import BEFORE replaceSync and strips remote url() declarations.
+  const disposeStyled = runtime.use({ id: 'local:styled' }, (ctx) => {
+    ctx.theme('sanitized-theme', {
+      label: 'Sanitized',
+      light: { bg: '#ffffff', sidebar: '#f5f5f5', bubble: '#eeeeee', card: '#ffffff', text: '#111111', user: '#111111', userText: '#ffffff', accent: '#0066cc' },
+      dark: { bg: '#111111', sidebar: '#181818', bubble: '#222222', card: '#1a1a1a', text: '#eeeeee', user: '#eeeeee', userText: '#111111', accent: '#4da3ff' },
+      css: '@import url("https://evil.example/a.css"); .bt-bubble { background-image: url("https://evil.example/bg.png"); letter-spacing: 0.02em; }',
+    })
+    ctx.style('@import "https://evil.example/b.css"; .custom-box { background: url(https://evil.example/x.png); color: red; }')
+    ctx.shape('star-custom', {
+      label: 'Star',
+      body: paint => `<circle cx="50" cy="50" r="40" fill="${paint}"/>`,
+      eyes: { at: [[36, 46], [64, 46]] },
+    })
+  })
+
+  assert.equal(headAppended, 0, 'ctx.style/ctx.theme must never insert <style> into document.head')
+  assert.ok(replaceLog.every(css => !/@import/i.test(css)), '@import must be stripped before replaceSync')
+  assert.doesNotMatch(mod.allThemes()['sanitized-theme']?.css ?? '', /evil\.example|@import/i)
+  assert.match(mod.allThemes()['sanitized-theme']?.css ?? '', /letter-spacing:\s*0\.02em/)
+  assert.equal(fakeDoc.adoptedStyleSheets.length, 1, 'ctx.style mounts via document.adoptedStyleSheets')
+  assert.doesNotMatch(fakeDoc.adoptedStyleSheets[0].cssRules[0].cssText, /evil\.example/)
+  assert.match(fakeDoc.adoptedStyleSheets[0].cssRules[0].cssText, /color:\s*red/)
+  assert.equal(mod.SHAPES['star-custom']?.label, 'Star')
+
+  // Unloading detaches adoptedStyleSheets and clears the sheet & shape & theme.
+  const mountedSheet = fakeDoc.adoptedStyleSheets[0]
+  disposeStyled()
+  assert.equal(fakeDoc.adoptedStyleSheets.length, 0)
+  assert.equal(mountedSheet.cssRules.length, 0)
+  assert.equal(mod.SHAPES['star-custom'], undefined)
+  assert.equal(mod.allThemes()['sanitized-theme'], undefined)
+
+  // Retrying an initialError-only plugin preserves the original error and NEVER calls importer('').
+  runtime.use({ id: 'local:bad-manifest', initialError: 'Manifest missing entry' })
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:bad-manifest')?.status, 'error')
+  assert.equal(runtime.retry('local:bad-manifest'), false)
+  const afterRetry = runtime.getSnapshot().find(p => p.id === 'local:bad-manifest')
+  assert.equal(afterRetry?.status, 'error')
+  assert.equal(afterRetry?.error, 'Manifest missing entry')
+  assert.equal(importerCalls.length, 0, 'initialError-only retry must never invoke importer("")')
+
+  // Fail-closed when CSSStyleSheet is unavailable: sanitizePluginCss returns '' and ctx.style mounts nothing.
+  const { mod: noSheetMod } = loadMod()
+  assert.equal(noSheetMod.sanitizePluginCss('.bt-bubble { color: red; }'), '')
+  const noSheetRuntime = noSheetMod.createPluginRuntime({ slots: noSheetMod.createSlotRegistry() })
+  noSheetRuntime.use({ id: 'local:no-sheet' }, (ctx) => { ctx.style('.a { color: blue; }') })
+  assert.equal(noSheetRuntime.getSnapshot().find(p => p.id === 'local:no-sheet')?.status, 'active')
+})
+
+test('ui-plugin-loader releases inFlight, serializes concurrent syncs in FIFO order, isolates targeted retry, and validates combined url+theme modules', async () => {
+  const { mod } = loadMod()
+  mod.resetExternalUiPluginsForTest()
+
+  const imported = []
+  const healthyEvents = []
+  let brokenShouldFail = true
+  const customImporter = async (spec) => {
+    imported.push(spec)
+    if (spec.includes('healthy.js')) {
+      return {
+        apply: () => {
+          healthyEvents.push('mount')
+          return () => healthyEvents.push('dispose')
+        },
+      }
+    }
+    if (spec.includes('broken.js')) {
+      if (brokenShouldFail) throw new Error('broken plugin load failed')
+      return { apply: () => {} }
+    }
+    if (spec.includes('bad-combo.js')) {
+      return { notApply: true }
+    }
+    if (spec.includes('good-combo.js')) {
+      return { apply: () => {} }
+    }
+    throw new Error(`Unexpected module ${spec}`)
+  }
+
+  const runtime = mod.createPluginRuntime({
+    slots: mod.createSlotRegistry(),
+    importer: customImporter,
+  })
+
+  const baseManifest = {
+    uiPluginsDir: '/tmp/ui-plugins',
+    plugins: [
+      { id: 'local:healthy', name: 'Healthy', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Ahealthy/healthy.js' },
+      { id: 'local:broken', name: 'Broken', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Abroken/broken.js' },
+    ],
+  }
+  let fetchCount = 0
+  const okFetch = async () => {
+    fetchCount += 1
+    return { ok: true, status: 200, json: async () => baseManifest }
+  }
+
+  // 1. loadExternalUiPlugins releases inFlight cleanly so subsequent load calls re-fetch.
+  await mod.loadExternalUiPlugins(runtime, { fetchImpl: okFetch, importer: customImporter })
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(fetchCount, 1)
+  assert.deepEqual(healthyEvents, ['mount'])
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:healthy')?.status, 'active')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:broken')?.status, 'error')
+
+  // 2. Targeted reloadExternalUiPlugins({ onlyId }) reloads ONLY local:broken without tearing down local:healthy.
+  brokenShouldFail = false
+  await mod.reloadExternalUiPlugins(runtime, { onlyId: 'local:broken', fetchImpl: okFetch, importer: customImporter })
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(fetchCount, 2)
+  assert.deepEqual(healthyEvents, ['mount'], 'targeted retry must NOT dispose or remount healthy external plugins')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:broken')?.status, 'active')
+  assert.ok(imported.some(u => u.includes('broken.js?v=1')), 'targeted retry cache-busts the retried plugin URL')
+
+  // 3. Subsequent non-forced loadExternalUiPlugins after reload must release inFlight and keep healthy mounted.
+  await mod.loadExternalUiPlugins(runtime, { fetchImpl: okFetch, importer: customImporter })
+  assert.equal(fetchCount, 3, 'inFlight must be released after reloadExternalUiPlugins finishes')
+  assert.deepEqual(healthyEvents, ['mount'], 'non-forced sync after targeted reload must not remount unchanged plugins')
+
+  // 4. Concurrent syncExternalUiPlugins calls run in FIFO order so an earlier slow sync never overwrites a newer one.
+  let resolveSlow
+  let slowStartedResolve
+  const slowStarted = new Promise((r) => { slowStartedResolve = r })
+  const slowPromise = new Promise((r) => { resolveSlow = r })
+  const slowSync = mod.syncExternalUiPlugins(runtime, {
+    fetchImpl: () => {
+      slowStartedResolve()
+      return slowPromise
+    },
+    importer: customImporter,
+  })
+  await slowStarted
+
+  const fastManifest = {
+    uiPluginsDir: '/tmp/ui-plugins-v2',
+    plugins: [
+      ...baseManifest.plugins,
+      {
+        id: 'local:bad-combo',
+        name: 'Bad Combo',
+        source: 'local',
+        kind: 'esm',
+        url: '/api/ui-plugins/files/local%3Abad-combo/bad-combo.js',
+        theme: {
+          id: 'bad-combo-theme',
+          label: 'Bad Combo',
+          light: { bg: '#ffffff', sidebar: '#eeeeee', bubble: '#dddddd', card: '#ffffff', text: '#000000', user: '#000000', userText: '#ffffff', accent: '#0066cc' },
+          dark: { bg: '#000000', sidebar: '#111111', bubble: '#222222', card: '#111111', text: '#ffffff', user: '#ffffff', userText: '#000000', accent: '#44aaff' },
+        },
+      },
+      {
+        id: 'local:good-combo',
+        name: 'Good Combo',
+        source: 'local',
+        kind: 'esm',
+        url: '/api/ui-plugins/files/local%3Agood-combo/good-combo.js',
+        theme: {
+          id: 'good-combo-theme',
+          label: 'Good Combo',
+          light: { bg: '#ffffff', sidebar: '#eeeeee', bubble: '#dddddd', card: '#ffffff', text: '#000000', user: '#000000', userText: '#ffffff', accent: '#0066cc' },
+          dark: { bg: '#000000', sidebar: '#111111', bubble: '#222222', card: '#111111', text: '#ffffff', user: '#ffffff', userText: '#000000', accent: '#44aaff' },
+        },
+      },
+    ],
+  }
+  let fastFetchCalled = false
+  const fastSync = mod.syncExternalUiPlugins(runtime, {
+    fetchImpl: async () => {
+      fastFetchCalled = true
+      return { ok: true, status: 200, json: async () => fastManifest }
+    },
+    importer: customImporter,
+  })
+  await Promise.resolve()
+  assert.equal(fastFetchCalled, false, 'later sync must wait in FIFO queue behind in-flight sync')
+
+  resolveSlow({ ok: true, status: 200, json: async () => ({ uiPluginsDir: '/tmp/stale', plugins: [] }) })
+  await Promise.all([slowSync, fastSync])
+  await new Promise(resolve => setTimeout(resolve, 15))
+
+  assert.equal(fastFetchCalled, true)
+  assert.equal(mod.getUiPluginsMeta().uiPluginsDir, '/tmp/ui-plugins-v2', 'later queued sync must apply after earlier sync settles')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:healthy')?.status, 'active')
+  // Combined url+theme plugin without apply/default export fails cleanly; valid combo registers theme + apply.
+  const badCombo = runtime.getSnapshot().find(p => p.id === 'local:bad-combo')
+  assert.equal(badCombo?.status, 'error')
+  assert.match(badCombo?.error ?? '', /did not export an apply function/)
+  assert.equal(mod.allThemes()['bad-combo-theme'], undefined)
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:good-combo')?.status, 'active')
+  assert.equal(mod.allThemes()['good-combo-theme']?.label, 'Good Combo')
+
+  mod.resetExternalUiPluginsForTest()
+})
+
+test('ui-plugin-loader serializes targeted retry behind in-flight full refresh without dropping other plugins', async () => {
+  const { mod } = loadMod()
+  mod.resetExternalUiPluginsForTest()
+
+  const imported = []
+  const healthyEvents = []
+  const fetchOrder = []
+  let brokenShouldFail = true
+  const customImporter = async (spec) => {
+    imported.push(spec)
+    if (spec.includes('healthy.js')) {
+      return {
+        apply: () => {
+          healthyEvents.push('mount')
+          return () => healthyEvents.push('dispose')
+        },
+      }
+    }
+    if (spec.includes('broken.js')) {
+      if (brokenShouldFail) throw new Error('broken plugin load failed')
+      return { apply: () => {} }
+    }
+    if (spec.includes('other.js')) {
+      return { apply: () => {} }
+    }
+    throw new Error(`Unexpected module ${spec}`)
+  }
+
+  const runtime = mod.createPluginRuntime({
+    slots: mod.createSlotRegistry(),
+    importer: customImporter,
+  })
+
+  const initialManifest = {
+    uiPluginsDir: '/tmp/ui-plugins',
+    plugins: [
+      { id: 'local:healthy', name: 'Healthy', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Ahealthy/healthy.js' },
+      { id: 'local:broken', name: 'Broken', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Abroken/broken.js' },
+    ],
+  }
+  const refreshedManifest = {
+    uiPluginsDir: '/tmp/ui-plugins-refreshed',
+    plugins: [
+      ...initialManifest.plugins,
+      { id: 'local:other', name: 'Other', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Aother/other.js' },
+    ],
+  }
+
+  await mod.loadExternalUiPlugins(runtime, {
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => initialManifest }),
+    importer: customImporter,
+  })
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:healthy')?.status, 'active')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:broken')?.status, 'error')
+
+  // Suspend a full refresh mid-fetch, then trigger a targeted retry for local:broken.
+  let resolveFullFetch
+  let fullStartedResolve
+  const fullStarted = new Promise((r) => { fullStartedResolve = r })
+  const fullPromise = new Promise((r) => { resolveFullFetch = r })
+  const fullRefresh = mod.reloadExternalUiPlugins(runtime, {
+    fetchImpl: () => {
+      fetchOrder.push('full')
+      fullStartedResolve()
+      return fullPromise
+    },
+    importer: customImporter,
+  })
+  await fullStarted
+
+  let resolveRetryFetch
+  let retryStartedResolve
+  let retryStartedFlag = false
+  const retryStarted = new Promise((r) => { retryStartedResolve = r })
+  const retryPromise = new Promise((r) => { resolveRetryFetch = r })
+  const retryTask = mod.reloadExternalUiPlugins(runtime, {
+    onlyId: 'local:broken',
+    fetchImpl: () => {
+      retryStartedFlag = true
+      fetchOrder.push('retry')
+      retryStartedResolve()
+      return retryPromise
+    },
+    importer: customImporter,
+  })
+  await Promise.resolve()
+  assert.equal(retryStartedFlag, false, 'targeted retry must queue behind in-flight full refresh')
+
+  // Resolve full refresh first while broken is still failing; full refresh must update other plugins.
+  resolveFullFetch({ ok: true, status: 200, json: async () => refreshedManifest })
+  await fullRefresh
+  await retryStarted
+  await new Promise(resolve => setTimeout(resolve, 15))
+
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:other')?.status, 'active', 'full refresh must NOT be dropped by queued targeted retry')
+  assert.equal(mod.getUiPluginsMeta().uiPluginsDir, '/tmp/ui-plugins-refreshed')
+  const healthyEventsAfterFull = [...healthyEvents]
+
+  // Now allow broken to succeed and resolve the queued targeted retry.
+  brokenShouldFail = false
+  resolveRetryFetch({ ok: true, status: 200, json: async () => refreshedManifest })
+  await retryTask
+  await new Promise(resolve => setTimeout(resolve, 15))
+
+  assert.deepEqual(fetchOrder, ['full', 'retry'])
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:other')?.status, 'active')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:healthy')?.status, 'active')
+  assert.deepEqual(healthyEvents, healthyEventsAfterFull, 'targeted retry must not remount healthy plugins refreshed in the preceding full sync')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:broken')?.status, 'active')
+  assert.ok(imported.some(u => u.includes('broken.js?v=2')), 'targeted retry cache-busts after full refresh')
+
+  mod.resetExternalUiPluginsForTest()
+})
+
+test('ui-plugin-loader serializes full refresh behind in-flight targeted retry and isolates test resets', async () => {
+  const { mod } = loadMod()
+  mod.resetExternalUiPluginsForTest()
+
+  const fetchOrder = []
+  let brokenShouldFail = true
+  const customImporter = async (spec) => {
+    if (spec.includes('healthy.js') || spec.includes('fresh.js')) {
+      return { apply: () => {} }
+    }
+    if (spec.includes('broken.js')) {
+      if (brokenShouldFail) throw new Error('broken plugin load failed')
+      return { apply: () => {} }
+    }
+    throw new Error(`Unexpected module ${spec}`)
+  }
+
+  const runtime = mod.createPluginRuntime({
+    slots: mod.createSlotRegistry(),
+    importer: customImporter,
+  })
+
+  const initialManifest = {
+    uiPluginsDir: '/tmp/ui-plugins',
+    plugins: [
+      { id: 'local:healthy', name: 'Healthy', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Ahealthy/healthy.js' },
+      { id: 'local:broken', name: 'Broken', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Abroken/broken.js' },
+    ],
+  }
+  const freshManifest = {
+    uiPluginsDir: '/tmp/ui-plugins-fresh',
+    plugins: [
+      ...initialManifest.plugins,
+      { id: 'local:fresh', name: 'Fresh', source: 'local', kind: 'esm', url: '/api/ui-plugins/files/local%3Afresh/fresh.js' },
+    ],
+  }
+
+  // Coalescing check: two concurrent non-forced loads share one fetch.
+  let initFetches = 0
+  let resolveInit
+  const initPromise = new Promise((r) => { resolveInit = r })
+  const loadA = mod.loadExternalUiPlugins(runtime, {
+    fetchImpl: () => {
+      initFetches += 1
+      return initPromise
+    },
+    importer: customImporter,
+  })
+  const loadB = mod.loadExternalUiPlugins(runtime, {
+    fetchImpl: () => {
+      initFetches += 1
+      return initPromise
+    },
+    importer: customImporter,
+  })
+  assert.equal(loadA, loadB, 'concurrent non-forced loadExternalUiPlugins calls must coalesce')
+  resolveInit({ ok: true, status: 200, json: async () => initialManifest })
+  await Promise.all([loadA, loadB])
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(initFetches, 1)
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:broken')?.status, 'error')
+
+  // Suspend a targeted retry mid-fetch, then trigger a full refresh.
+  brokenShouldFail = false
+  let resolveRetryFetch
+  let retryStartedResolve
+  const retryStarted = new Promise((r) => { retryStartedResolve = r })
+  const retryPromise = new Promise((r) => { resolveRetryFetch = r })
+  const retryTask = mod.reloadExternalUiPlugins(runtime, {
+    onlyId: 'local:broken',
+    fetchImpl: () => {
+      fetchOrder.push('retry')
+      retryStartedResolve()
+      return retryPromise
+    },
+    importer: customImporter,
+  })
+  await retryStarted
+
+  let resolveFullFetch
+  let fullStartedFlag = false
+  let fullStartedResolve
+  const fullStarted = new Promise((r) => { fullStartedResolve = r })
+  const fullPromise = new Promise((r) => { resolveFullFetch = r })
+  const fullRefresh = mod.reloadExternalUiPlugins(runtime, {
+    fetchImpl: () => {
+      fullStartedFlag = true
+      fetchOrder.push('full')
+      fullStartedResolve()
+      return fullPromise
+    },
+    importer: customImporter,
+  })
+  await Promise.resolve()
+  assert.equal(fullStartedFlag, false, 'full refresh must wait behind in-flight targeted retry')
+
+  resolveRetryFetch({ ok: true, status: 200, json: async () => initialManifest })
+  await retryTask
+  await fullStarted
+  resolveFullFetch({ ok: true, status: 200, json: async () => freshManifest })
+  await fullRefresh
+  await new Promise(resolve => setTimeout(resolve, 15))
+
+  assert.deepEqual(fetchOrder, ['retry', 'full'])
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:broken')?.status, 'active')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:fresh')?.status, 'active')
+  assert.equal(mod.getUiPluginsMeta().uiPluginsDir, '/tmp/ui-plugins-fresh')
+
+  // Reset isolation: an in-flight sync from before resetExternalUiPluginsForTest() must not block or pollute after reset.
+  let resolveDangling
+  let danglingStartedResolve
+  const danglingStarted = new Promise((r) => { danglingStartedResolve = r })
+  const danglingPromise = new Promise((r) => { resolveDangling = r })
+  const danglingSync = mod.loadExternalUiPlugins(runtime, {
+    fetchImpl: () => {
+      danglingStartedResolve()
+      return danglingPromise
+    },
+    importer: customImporter,
+  })
+  await danglingStarted
+  mod.resetExternalUiPluginsForTest()
+
+  await mod.loadExternalUiPlugins(runtime, {
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ uiPluginsDir: '/tmp/post-reset', plugins: [] }) }),
+    importer: customImporter,
+  })
+  resolveDangling({ ok: true, status: 200, json: async () => ({ uiPluginsDir: '/tmp/leaked-from-prior-test', plugins: initialManifest.plugins }) })
+  await danglingSync
+  assert.equal(mod.getUiPluginsMeta().uiPluginsDir, '/tmp/post-reset', 'in-flight sync from before reset must be ignored')
+  assert.equal(runtime.getSnapshot().length, 0)
+
+  mod.resetExternalUiPluginsForTest()
 })
