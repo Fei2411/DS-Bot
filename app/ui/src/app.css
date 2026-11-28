@@ -808,8 +808,13 @@ button.dsb-plug-row:hover .dsb-plug-chev{color:var(--bt-ink-2)}
 .dsb-selection-host{position:fixed;z-index:60;pointer-events:auto}
 
 /* DeepSeek account sign-in dialog (`DesktopDeepSeekSignInModal`). */
-.dsb-signin-mask{position:fixed;inset:0;z-index:68;display:grid;place-items:center;padding:24px;background:var(--bt-palette-scrim);box-sizing:border-box}
+.dsb-signin-mask{position:fixed;inset:0;z-index:68;display:grid;place-items:center;padding:24px;background:var(--bt-palette-scrim);box-sizing:border-box;transition:opacity .16s ease-in}
+.dsb-signin-mask[data-leaving]{opacity:0;pointer-events:none}
 .dsb-signin-dialog{width:min(420px,calc(100vw - 32px));padding:18px 20px;border-radius:16px;border:.5px solid var(--bt-line-2);background:var(--bt-card);box-shadow:var(--bt-dialog-shadow);color:var(--bt-ink);box-sizing:border-box;display:flex;flex-direction:column;gap:14px}
+.dsb-signin-mask[data-leaving]>.dsb-signin-dialog{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
+@media (prefers-reduced-motion:reduce){.dsb-signin-mask{transition:none}.dsb-signin-mask[data-leaving]>.dsb-signin-dialog{animation:none}}
+body[data-bt-effects=off] .dsb-signin-mask{transition:none}
+body[data-bt-effects=off] .dsb-signin-mask[data-leaving]>.dsb-signin-dialog{animation:none}
 .dsb-signin-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .dsb-signin-title{margin:0;font-size:15px;line-height:20px;font-weight:600;color:var(--bt-ink)}
 .dsb-signin-body{display:flex;flex-direction:column;gap:8px;min-height:0}

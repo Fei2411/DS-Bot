@@ -81,10 +81,34 @@ function useTheme(prefs, chat, actions, registryVersion) {
 
 // Bot mentions in rendered replies (`.bt-bubble a[href="https://bot.mention.invalid/<id>"]`)
 // wear each Bot's accent color and silhouette/avatar mark, matching plugin mode without DSH selectors.
+// Reuses one `<style>` element and skips DOM writes when no Bot look changed.
 function useMentions(bots, registryVersion) {
+  const styleRef = useRef(null)
+  const lastSigRef = useRef(null)
+  const lastCssRef = useRef('')
+
   useEffect(() => {
     if (typeof document === 'undefined' || !document.head) return undefined
-    const css = (Array.isArray(bots) ? bots : []).map((bot) => {
+    const style = installStyles('', 'mentions')
+    styleRef.current = style
+    lastSigRef.current = null
+    lastCssRef.current = ''
+    return () => {
+      style.remove()
+      if (styleRef.current === style) styleRef.current = null
+      lastSigRef.current = null
+      lastCssRef.current = ''
+    }
+  }, [])
+
+  useEffect(() => {
+    const style = styleRef.current
+    if (!style) return
+    const list = Array.isArray(bots) ? bots : []
+    const sig = `${registryVersion}|${list.map(b => `${b?.id ?? ''}:${b?.color ?? ''}:${b?.avatar?.shape ?? ''}:${b?.avatar?.color ?? ''}:${b?.avatar?.image ?? ''}`).join(';')}`
+    if (sig === lastSigRef.current) return
+    lastSigRef.current = sig
+    const css = list.map((bot) => {
       if (!bot?.id) return ''
       const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`
       const look = lookOf(bot)
@@ -93,8 +117,10 @@ function useMentions(bots, registryVersion) {
         : `${anchor}::before{background:${paintCss(look.color)};-webkit-mask-image:${maskOf(look.shape)};mask-image:${maskOf(look.shape)}}`
       return `${anchor}{color:${inkText(look.color)}}${mark}`
     }).filter(Boolean).join('\n')
-    const style = installStyles(css, 'mentions')
-    return () => style.remove()
+    if (css !== lastCssRef.current) {
+      style.textContent = css
+      lastCssRef.current = css
+    }
   }, [bots, registryVersion])
 }
 

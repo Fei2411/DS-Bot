@@ -58,6 +58,8 @@ const DESKTOP_HOOK_ALLOWLIST = {
   useSidebarPref: 'Supplied by app/ui/src/app.js as useOwnSidebarPref rather than createTeam().hooks.',
   useSettingsShellHeld: 'Plugin-only DSH SettingsShell seat state; desktop renders SettingsDialog directly in Overlays.',
   useDisclosure: 'Local prop passed by ToolCallCard to built-in tool views, not a team store hook.',
+  useAccount: 'Injected by SignInHost (model-menu.js) from signInEntry().inject().hooks.account into DesktopDeepSeekSignInModal, not a team store hook.',
+  useApiKey: 'Callback prop (not a React hook) passed by SignInHost (model-menu.js) into DesktopDeepSeekSignInModal.',
 }
 
 const PLUGIN_HOOK_ALLOWLIST = {
@@ -89,58 +91,164 @@ function walkAst(node, visit) {
   }
 }
 
-function isNamedRef(node, targetName) {
+function isNamedRef(node, targetName, aliases = null) {
   if (!node) return false
-  if (node.type === 'ChainExpression') return isNamedRef(node.expression, targetName)
-  if (node.type === 'Identifier' && node.name === targetName) return true
+  if (node.type === 'ChainExpression') return isNamedRef(node.expression, targetName, aliases)
+  if (node.type === 'LogicalExpression' && (node.operator === '??' || node.operator === '||')) {
+    return isNamedRef(node.left, targetName, aliases)
+  }
+  if (node.type === 'Identifier') {
+    return node.name === targetName || Boolean(aliases?.has(node.name))
+  }
   if (node.type === 'MemberExpression' && !node.computed && node.property?.type === 'Identifier' && node.property.name === targetName) {
     return true
   }
   return false
 }
 
+function unwrapPattern(node) {
+  return node?.type === 'AssignmentPattern' ? node.left : node
+}
+
+function extractPatternKeys(pattern, onKey) {
+  const unwrapped = unwrapPattern(pattern)
+  if (!unwrapped || unwrapped.type !== 'ObjectPattern') return
+  for (const prop of unwrapped.properties) {
+    if (prop.type === 'Property' && !prop.computed && prop.key?.type === 'Identifier') {
+      onKey(prop.key.name, prop)
+    }
+  }
+}
+
+function collectComponentParam(fnNode, recordAction, recordHook, rel) {
+  const first = unwrapPattern(fnNode?.params?.[0])
+  if (!first || first.type !== 'ObjectPattern') return
+  extractPatternKeys(first, (name, prop) => {
+    if (/^use[A-Z]/.test(name)) recordHook(name, rel, prop.loc.start.line)
+    if (name === 'actions') {
+      extractPatternKeys(prop.value, (actionName, nested) => {
+        recordAction(actionName, rel, nested.loc.start.line)
+      })
+    }
+    if (name === 'hooks') {
+      extractPatternKeys(prop.value, (hookName, nested) => {
+        if (/^use[A-Z]/.test(hookName)) recordHook(hookName, rel, nested.loc.start.line)
+      })
+    }
+  })
+}
+
+function collectSourceReferences(source, rel, actions, hooks) {
+  const record = (map, name, r, line) => {
+    let list = map.get(name)
+    if (!list) { list = []; map.set(name, list) }
+    list.push(`${r}:${line}`)
+  }
+  const recordAction = (name, r, line) => record(actions, name, r, line)
+  const recordHook = (name, r, line) => record(hooks, name, r, line)
+  const ast = acorn.parse(source, { ecmaVersion: 'latest', sourceType: 'module', locations: true })
+
+  // Pass 1: collect simple identifier aliases (e.g. `const a = actions`, `const h = hooks`).
+  const actionAliases = new Set()
+  const hookAliases = new Set()
+  walkAst(ast, (node) => {
+    if (node.type === 'VariableDeclarator' && node.id?.type === 'Identifier' && node.init) {
+      if (isNamedRef(node.init, 'actions', actionAliases)) actionAliases.add(node.id.name)
+      if (isNamedRef(node.init, 'hooks', hookAliases)) hookAliases.add(node.id.name)
+    }
+  })
+
+  // Pass 2: collect member accesses, computed literal/loop indexing, destructuring, and component props.
+  walkAst(ast, (node) => {
+    if (node.type === 'MemberExpression') {
+      if (!node.computed && node.property?.type === 'Identifier') {
+        if (isNamedRef(node.object, 'actions', actionAliases)) {
+          recordAction(node.property.name, rel, node.loc.start.line)
+        }
+        if (isNamedRef(node.object, 'hooks', hookAliases) && /^use[A-Z]/.test(node.property.name)) {
+          recordHook(node.property.name, rel, node.loc.start.line)
+        }
+        if (node.object?.type === 'Identifier' && node.object.name === 'props' && /^use[A-Z]/.test(node.property.name)) {
+          recordHook(node.property.name, rel, node.loc.start.line)
+        }
+      } else if (node.computed && node.property?.type === 'Literal' && typeof node.property.value === 'string') {
+        if (isNamedRef(node.object, 'actions', actionAliases)) {
+          recordAction(node.property.value, rel, node.loc.start.line)
+        }
+        if (isNamedRef(node.object, 'hooks', hookAliases) && /^use[A-Z]/.test(node.property.value)) {
+          recordHook(node.property.value, rel, node.loc.start.line)
+        }
+      }
+    }
+
+    // Static `for (const name of ['openBrowser', ...]) { ... actions[name] ... }` loops.
+    if (node.type === 'ForOfStatement' && node.right?.type === 'ArrayExpression') {
+      const names = node.right.elements
+        .filter(el => el?.type === 'Literal' && typeof el.value === 'string')
+        .map(el => el.value)
+      const loopVar = node.left?.type === 'VariableDeclaration'
+        ? node.left.declarations?.[0]?.id?.name
+        : (node.left?.type === 'Identifier' ? node.left.name : null)
+      if (loopVar && names.length > 0) {
+        walkAst(node.body, (inner) => {
+          if (inner.type === 'MemberExpression' && inner.computed && inner.property?.type === 'Identifier' && inner.property.name === loopVar) {
+            if (isNamedRef(inner.object, 'actions', actionAliases)) {
+              for (const n of names) recordAction(n, rel, inner.loc.start.line)
+            }
+            if (isNamedRef(inner.object, 'hooks', hookAliases)) {
+              for (const n of names) {
+                if (/^use[A-Z]/.test(n)) recordHook(n, rel, inner.loc.start.line)
+              }
+            }
+          }
+        })
+      }
+    }
+
+    // Object destructuring from `actions` / `hooks` (including `actions ?? {}` / `hooks || {}`).
+    if (node.type === 'VariableDeclarator' && node.id?.type === 'ObjectPattern' && node.init) {
+      if (isNamedRef(node.init, 'actions', actionAliases)) {
+        extractPatternKeys(node.id, (name, prop) => recordAction(name, rel, prop.loc.start.line))
+      }
+      if (isNamedRef(node.init, 'hooks', hookAliases)) {
+        extractPatternKeys(node.id, (name, prop) => {
+          if (/^use[A-Z]/.test(name)) recordHook(name, rel, prop.loc.start.line)
+        })
+      }
+    }
+
+    // Component parameter destructuring: `function Comp({...})`, `export const Comp = ({...}) =>`,
+    // `memo(function Comp({...}) {})`, `memo(({...}) => ...)`, `forwardRef(...)`.
+    if (node.type === 'FunctionDeclaration' && node.id?.name && /^[A-Z]/.test(node.id.name)) {
+      collectComponentParam(node, recordAction, recordHook, rel)
+    }
+    if (node.type === 'VariableDeclarator' && node.id?.type === 'Identifier' && /^[A-Z]/.test(node.id.name)) {
+      const init = node.init
+      if (init?.type === 'ArrowFunctionExpression' || init?.type === 'FunctionExpression') {
+        collectComponentParam(init, recordAction, recordHook, rel)
+      }
+    }
+    if (node.type === 'CallExpression') {
+      const calleeName = node.callee?.type === 'Identifier'
+        ? node.callee.name
+        : (node.callee?.type === 'MemberExpression' && !node.callee.computed ? node.callee.property?.name : null)
+      if ((calleeName === 'memo' || calleeName === 'forwardRef') && node.arguments?.[0]) {
+        const arg = node.arguments[0]
+        if (arg.type === 'FunctionExpression' || arg.type === 'ArrowFunctionExpression') {
+          collectComponentParam(arg, recordAction, recordHook, rel)
+        }
+      }
+    }
+  })
+}
+
 function collectReferences(files) {
   const actions = new Map()
   const hooks = new Map()
-  const record = (map, name, rel, line) => {
-    let list = map.get(name)
-    if (!list) { list = []; map.set(name, list) }
-    list.push(`${rel}:${line}`)
-  }
   for (const file of files) {
     const rel = path.relative(REPO_ROOT, file).replace(/\\/g, '/')
     const source = fs.readFileSync(file, 'utf8')
-    const ast = acorn.parse(source, { ecmaVersion: 'latest', sourceType: 'module', locations: true })
-    walkAst(ast, (node) => {
-      if (node.type === 'MemberExpression' && !node.computed && node.property?.type === 'Identifier') {
-        if (isNamedRef(node.object, 'actions')) {
-          record(actions, node.property.name, rel, node.loc.start.line)
-        }
-        if (isNamedRef(node.object, 'hooks') && /^use[A-Z]/.test(node.property.name)) {
-          record(hooks, node.property.name, rel, node.loc.start.line)
-        }
-        if (node.object?.type === 'Identifier' && node.object.name === 'props' && /^use[A-Z]/.test(node.property.name)) {
-          record(hooks, node.property.name, rel, node.loc.start.line)
-        }
-      }
-      if (node.type === 'VariableDeclarator' && node.id?.type === 'ObjectPattern' && isNamedRef(node.init, 'actions')) {
-        for (const prop of node.id.properties) {
-          if (prop.type === 'Property' && !prop.computed && prop.key?.type === 'Identifier') {
-            record(actions, prop.key.name, rel, prop.loc.start.line)
-          }
-        }
-      }
-      if (node.type === 'ExportNamedDeclaration' && node.declaration?.type === 'FunctionDeclaration') {
-        const param = node.declaration.params[0]
-        if (param?.type === 'ObjectPattern') {
-          for (const prop of param.properties) {
-            if (prop.type === 'Property' && !prop.computed && prop.key?.type === 'Identifier' && /^use[A-Z]/.test(prop.key.name)) {
-              record(hooks, prop.key.name, rel, prop.loc.start.line)
-            }
-          }
-        }
-      }
-    })
+    collectSourceReferences(source, rel, actions, hooks)
   }
   return { actions, hooks }
 }
@@ -236,7 +344,17 @@ async function createDesktopHarness({ callHandler, storageData = {}, dshUpdates 
   const sandbox = {
     module: mod,
     exports: mod.exports,
-    require: id => (id === 'react' ? realReact : id === 'react-dom' ? realReactDom : {}),
+    require: id => (
+      id === 'react'
+        ? {
+            ...realReact,
+            useRef: initial => ({ current: initial }),
+            useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
+          }
+        : id === 'react-dom'
+          ? realReactDom
+          : {}
+    ),
     __vcCall: async (endpoint, body, signal) => {
       calls.push({ endpoint, body })
       if (typeof callHandler === 'function') return callHandler(endpoint, body, signal)
@@ -298,6 +416,7 @@ async function createDesktopHarness({ callHandler, storageData = {}, dshUpdates 
     kv,
     emitFeed: (event, data) => emitFeed(event, data),
     publishDesktopAccountState: mod.exports.publishDesktopAccountState,
+    subscribeDesktopAccountState: mod.exports.subscribeDesktopAccountState,
   }
 }
 
@@ -403,7 +522,17 @@ async function instantiatePluginFace() {
   const sandbox = {
     module: mod,
     exports: mod.exports,
-    require: id => (id === 'react' ? realReact : id === 'react-dom' ? realReactDom : {}),
+    require: id => (
+      id === 'react'
+        ? {
+            ...realReact,
+            useRef: initial => ({ current: initial }),
+            useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
+          }
+        : id === 'react-dom'
+          ? realReactDom
+          : {}
+    ),
     localStorage: storage,
     window: fakeWin,
     document: fakeDoc,
@@ -598,42 +727,110 @@ test('desktop team keeps monotonic turnOutline across two voice rounds and serve
     const syncedOutline = team.snapshots.sessions().byId['sess-a']?.projectionValues?.turnOutline
     assert.deepEqual(Array.from(syncedOutline, entry => entry.turn), [0, 1, 2, 3])
     assert.equal(syncedOutline[3].response, undefined)
+
+    // Blocking #4: while a turn's canonical status is 'open', closingReply must return undefined
+    // (never leak intermediate progress text) and only resolve once the turn closes.
+    emitFeed('message', { sessionId: 'sess-a', item: { kind: 'bot', text: 'progress msg', turn: 4, seq: 110, time: 4000 } })
+    team.actions.noteTurnFacts('sess-a', {
+      turns: new Map([
+        [0, { turn: 0, status: 'closed' }],
+        [1, { turn: 1, status: 'closed' }],
+        [2, { turn: 2, status: 'closed' }],
+        [3, { turn: 3, status: 'closed' }],
+        [4, { turn: 4, status: 'open' }],
+      ]),
+      closingReplies: new Map([
+        [0, 'reply round 1'],
+        [1, 'reply round 2'],
+        [2, 'The build passed.\n\nAll 12 checks passed.'],
+        [3, ''],
+      ]),
+    })
+    assert.equal(team.actions.closingReply('sess-a', 4), undefined, 'open turn must not leak intermediate progress text')
+    team.actions.noteTurnFacts('sess-a', {
+      turns: new Map([
+        [0, { turn: 0, status: 'closed' }],
+        [1, { turn: 1, status: 'closed' }],
+        [2, { turn: 2, status: 'closed' }],
+        [3, { turn: 3, status: 'closed' }],
+        [4, { turn: 4, status: 'closed' }],
+      ]),
+      closingReplies: new Map([
+        [0, 'reply round 1'],
+        [1, 'reply round 2'],
+        [2, 'The build passed.\n\nAll 12 checks passed.'],
+        [3, ''],
+        [4, 'final reply'],
+      ]),
+    })
+    assert.equal(team.actions.closingReply('sess-a', 4), 'final reply')
   } finally {
     stop()
   }
 })
 
-test('desktop account bridge stays in sync with Settings Account state updates', async () => {
-  const { team, publishDesktopAccountState } = await createDesktopHarness({
-    callHandler: async (endpoint) => {
+test('desktop account bridge syncs bidirectionally with Settings Account and fetches details on sign-in', async () => {
+  let accountStateCalls = []
+  const { team, publishDesktopAccountState, subscribeDesktopAccountState } = await createDesktopHarness({
+    callHandler: async (endpoint, body) => {
       if (endpoint === 'state') return { revision: 1, modelsKey: 'm1', bots: [], rooms: [] }
-      if (endpoint === 'engine-account-state') return { available: true, view: { status: 'signed-out', attempt: null } }
+      if (endpoint === 'engine-account-state') {
+        accountStateCalls.push(body)
+        if (body?.details === true) {
+          return { available: true, view: { status: 'credential-stored', attempt: null, profile: { name: 'Tester' }, balance: { total: '10' } } }
+        }
+        return { available: true, view: { status: 'signed-out', attempt: null } }
+      }
+      if (endpoint === 'engine-account-signout') {
+        return { available: true, view: { status: 'signed-out', attempt: null } }
+      }
       return {}
     },
   })
   const stop = team.start()
+  const received = []
+  const offExternal = typeof subscribeDesktopAccountState === 'function'
+    ? subscribeDesktopAccountState(reply => received.push(reply))
+    : () => {}
   try {
     await new Promise(resolve => setImmediate(resolve))
-    const accountHook = team.actions.signInEntry().inject().hooks.account
+    const ops = team.actions.signInEntry().inject()
+    const accountHook = ops.hooks.account
     assert.equal(accountHook.getSnapshot().view?.status, 'signed-out')
 
-    // Simulate Settings → Account finishing sign-in, then signing out.
+    // Settings → sidebar: sign-in updates sidebar bridge and triggers details: true if profile/balance missing.
     publishDesktopAccountState({ available: true, view: { status: 'credential-stored', attempt: null } })
+    await new Promise(resolve => setImmediate(resolve))
     assert.equal(accountHook.getSnapshot().view?.status, 'credential-stored')
+    assert.equal(accountStateCalls.some(body => body?.details === true), true, 'signing in triggers details: true fetch')
 
-    publishDesktopAccountState({ available: true, view: { status: 'signed-out', attempt: null } })
+    // Sidebar → Settings: signOut broadcasts signed-out state back to external subscribers (AccountSettingsPage).
+    received.length = 0
+    await ops.signOut()
     assert.equal(accountHook.getSnapshot().view?.status, 'signed-out')
+    assert.equal(received.some(entry => entry?.view?.status === 'signed-out'), true, 'sidebar signOut broadcasts to Settings subscribers')
   } finally {
+    offExternal()
     stop()
   }
 })
 
-test('desktop team wires watchBotCompletions, selectPanel, draft files, openAppUpdates, navSeq, and DeepSeek sign-in', async () => {
+test('desktop team wires watchBotCompletions, selectPanel union, File[] draftFiles, openAppUpdates, mixed-queue steerQueued, navSeq, and DeepSeek sign-in', async () => {
   let dshOpened = false
+  let ownAppOpened = false
   const { team, calls, emitFeed } = await createDesktopHarness({
     dshUpdates: {
       status: async () => ({ phase: 'available', version: '0.2.5' }),
       open: async () => { dshOpened = true },
+      subscribe: () => () => {},
+    },
+    ownAppUpdates: {
+      state: async () => ({}),
+      check: async () => {},
+      install: async () => {},
+      open: async () => { ownAppOpened = true },
+      download: async () => {},
+      setAutoUpdate: async () => {},
       subscribe: () => () => {},
     },
     callHandler: async (endpoint, body) => {
@@ -647,7 +844,10 @@ test('desktop team wires watchBotCompletions, selectPanel, draft files, openAppU
           ],
           rooms: [],
           sessionQueues: {
-            'sess-a': [{ id: 'q-1', source: 'user', content: [{ type: 'text', text: 'hi' }] }],
+            'sess-a': [
+              { id: 'q-bot', source: { kind: 'ds-bot', role: 'reply' }, content: [{ type: 'text', text: 'relay' }] },
+              { id: 'q-user', source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] },
+            ],
           },
         }
       }
@@ -668,32 +868,62 @@ test('desktop team wires watchBotCompletions, selectPanel, draft files, openAppU
     team.actions.openSession('bot-a')
     assert.equal(team.actions.navSeq(), seq0 + 1)
 
-    // Background completion on bot-b marks completionUnread before turnOutline updates.
-    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'done in bg', turn: 0, time: 3000 } })
+    // Blocking #3: inflated background synthetic turns -> open chat -> canonical noteTurnFacts prunes
+    // phantom turn -> switch away -> next real background completion MUST still light up the unread dot.
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'bg step 1', seq: 10, time: 3000 } })
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'bg step 2', seq: 11, time: 3050 } })
     assert.equal(team.snapshots.status().get('sess-b')?.completionUnread, true)
+    assert.equal(team.hooks.useBotCompletions(v => v)['sess-b'], true)
 
-    // selectPanel('schedules') routes to Settings -> schedules.
+    // Open bot-b (seen advances on inflated outline [0, 1]), then reconcile to canonical turn [0].
+    team.actions.openSession('bot-b')
+    assert.equal(team.hooks.useBotCompletions(v => v)['sess-b'], undefined)
+    team.actions.noteTurnFacts('sess-b', {
+      turns: new Map([[0, { turn: 0, status: 'closed' }]]),
+      closingReplies: new Map([[0, 'bg step 2']]),
+    })
+
+    // Switch back to bot-a, then bot-b finishes real turn 1 in the background.
+    team.actions.openSession('bot-a')
+    emitFeed('message', { sessionId: 'sess-b', item: { kind: 'bot', text: 'real turn 1', turn: 1, seq: 20, time: 4000 } })
+    assert.equal(team.hooks.useBotCompletions(v => v)['sess-b'], true, 'unread dot must light up on real turn 1 after phantom cleanup')
+
+    // Blocking #5: selectPanel union routes workspace tabs, explicit settings pages, and unknown -> overview.
+    team.actions.selectPanel('files')
+    assert.equal(team.snapshots.ui().rightPanel?.tab, 'files')
     team.actions.selectPanel('schedules')
     assert.equal(team.snapshots.ui().settings?.page, 'schedules')
+    team.actions.selectPanel('plugins')
+    assert.equal(team.snapshots.ui().settings?.page, 'plugins')
+    team.actions.selectPanel('connectors')
+    assert.equal(team.snapshots.ui().settings?.page, 'connectors')
+    team.actions.selectPanel('unknown-panel-xyz')
+    assert.equal(team.snapshots.ui().settings?.page, 'overview')
 
-    // draftFiles roundtrip.
-    const fakeFile = { name: 'note.txt', size: 12 }
-    const ids = team.actions.restoreDraftFiles('sess-a', [{ kind: 'file', file: fakeFile }])
-    assert.equal(ids.length, 1)
+    // Blocking #1: restoreDraftFiles accepts real File[] as passed by composer.js:581 and derives image/file kind.
+    const txtFile = new File(['hello'], 'note.txt', { type: 'text/plain' })
+    const pngFile = new File([new Uint8Array([1, 2, 3])], 'shot.png', { type: 'image/png' })
+    const ids = team.actions.restoreDraftFiles('sess-a', [txtFile, pngFile])
+    assert.equal(ids.length, 2)
     const resolved = team.actions.draftFiles(ids)
-    assert.equal(resolved.length, 1)
+    assert.equal(resolved.length, 2)
     assert.equal(resolved[0].kind, 'file')
-    assert.equal(resolved[0].file, fakeFile)
+    assert.equal(resolved[0].file, txtFile)
+    assert.equal(resolved[1].kind, 'image')
+    assert.equal(resolved[1].file, pngFile)
     team.actions.releaseDraftFiles(ids)
     assert.equal(team.actions.draftFiles(ids).length, 0)
 
-    // openAppUpdates opens only when verified version matches.
+    // openAppUpdates opens DSH updates only when verified version matches.
     await team.actions.openAppUpdates('0.2.5')
     assert.equal(dshOpened, true)
+    assert.equal(ownAppOpened, false)
 
-    // steerQueued delegates to bot-steer-queue for Bot DM.
+    // Blocking #2: steerQueued filters real `{ kind }` source objects and only sends user rows.
     await team.actions.steerQueued('sess-a')
-    assert.equal(calls.some(entry => entry.endpoint === 'bot-steer-queue'), true)
+    const steerCall = calls.find(entry => entry.endpoint === 'bot-steer-queue')
+    assert.ok(steerCall)
+    assert.deepEqual(Array.from(steerCall.body?.ids ?? []), ['q-user'])
 
     // watchAgentTerminals subscribes and returns a cleanup disposer without throwing.
     const stopTerminals = team.actions.watchAgentTerminals('sess-a')
@@ -711,4 +941,44 @@ test('desktop team wires watchBotCompletions, selectPanel, draft files, openAppU
   } finally {
     stop()
   }
+})
+
+test('openAppUpdates is a no-op when DSH appUpdates bridge is unavailable', async () => {
+  let ownAppOpened = false
+  const { team } = await createDesktopHarness({
+    ownAppUpdates: {
+      state: async () => ({}),
+      check: async () => {},
+      install: async () => {},
+      open: async () => { ownAppOpened = true },
+      download: async () => {},
+      setAutoUpdate: async () => {},
+      subscribe: () => () => {},
+    },
+    callHandler: async () => ({ revision: 1, modelsKey: 'm1', bots: [], rooms: [] }),
+  })
+  await team.actions.openAppUpdates('0.2.5')
+  assert.equal(ownAppOpened, false)
+})
+
+test('AST collector detects computed indexing, memo/arrow components, hooks destructuring, fallback destructuring, nested params, and aliases', () => {
+  const sample = `
+    export const A = memo(function A({ useAlpha, actions: { nestedAct } }) {
+      const { useBeta } = hooks ?? {}
+      const { fallbackAct } = actions ?? {}
+      const a = actions
+      a.aliasAct()
+      actions['literalAct']()
+      for (const name of ['loopActOne', 'loopActTwo']) {
+        if (actions[name]) actions[name]()
+      }
+      return null
+    })
+    export const B = ({ useGamma, hooks: { useDelta } }) => null
+  `
+  const actions = new Map()
+  const hooks = new Map()
+  collectSourceReferences(sample, 'sample.js', actions, hooks)
+  assert.deepEqual([...actions.keys()].sort(), ['aliasAct', 'fallbackAct', 'literalAct', 'loopActOne', 'loopActTwo', 'nestedAct'])
+  assert.deepEqual([...hooks.keys()].sort(), ['useAlpha', 'useBeta', 'useDelta', 'useGamma'])
 })

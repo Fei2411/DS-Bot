@@ -1582,13 +1582,19 @@ function TextSelectionOverlay({ sessionId, containerRef, insertQuoteRef, disable
     return { left, top }
   }, [])
 
-  useEffect(() => { dismiss() }, [sessionId, disabled, dismiss])
+  const interactingRef = useRef(false)
+  const hasSelection = selection !== null
+
+  useEffect(() => {
+    interactingRef.current = false
+    dismiss()
+  }, [sessionId, disabled, dismiss])
 
   useEffect(() => {
     if (disabled || typeof document === 'undefined' || typeof window === 'undefined') return undefined
     const isInHost = (node) => Boolean(hostRef.current && node && hostRef.current.contains(node))
-    const capture = () => {
-      if (isInHost(document.activeElement)) return
+    const capture = (event) => {
+      if (isInHost(event?.target) || isInHost(document.activeElement) || interactingRef.current) return
       const container = containerRef.current
       const sel = window.getSelection?.()
       if (!container || !sel || sel.isCollapsed || sel.rangeCount === 0) {
@@ -1625,34 +1631,53 @@ function TextSelectionOverlay({ sessionId, containerRef, insertQuoteRef, disable
         return { key: seqRef.current, text, rect: nextRect }
       })
     }
+    document.addEventListener('mouseup', capture)
+    document.addEventListener('keyup', capture)
+    return () => {
+      document.removeEventListener('mouseup', capture)
+      document.removeEventListener('keyup', capture)
+    }
+  }, [disabled, containerRef, dismiss])
+
+  useEffect(() => {
+    if (!hasSelection || disabled || typeof document === 'undefined' || typeof window === 'undefined') {
+      interactingRef.current = false
+      return undefined
+    }
+    const isInHost = (node) => Boolean(hostRef.current && node && hostRef.current.contains(node))
     const onPointerDown = (event) => {
-      if (isInHost(event.target)) return
+      if (isInHost(event.target)) {
+        interactingRef.current = true
+        return
+      }
+      interactingRef.current = false
       setSelection(prev => (prev ? null : prev))
       setBox(prev => (prev ? null : prev))
     }
+    const onFocusIn = (event) => {
+      if (isInHost(event.target)) interactingRef.current = true
+    }
     const onSelectionChange = () => {
-      if (isInHost(document.activeElement)) return
+      if (interactingRef.current || isInHost(document.activeElement)) return
       const sel = window.getSelection?.()
       if (!sel || sel.isCollapsed || sel.toString().trim() === '') dismiss()
     }
     const onScroll = () => {
-      if (isInHost(document.activeElement)) return
+      if (interactingRef.current || isInHost(document.activeElement)) return
       dismiss()
     }
     const scroller = containerRef.current
-    document.addEventListener('mouseup', capture)
-    document.addEventListener('keyup', capture)
     document.addEventListener('selectionchange', onSelectionChange)
     document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('focusin', onFocusIn, true)
     scroller?.addEventListener('scroll', onScroll, { passive: true })
     return () => {
-      document.removeEventListener('mouseup', capture)
-      document.removeEventListener('keyup', capture)
       document.removeEventListener('selectionchange', onSelectionChange)
       document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('focusin', onFocusIn, true)
       scroller?.removeEventListener('scroll', onScroll)
     }
-  }, [disabled, containerRef, dismiss])
+  }, [hasSelection, disabled, containerRef, dismiss])
 
   useLayoutEffect(() => {
     if (!selection) { setBox(null); return undefined }

@@ -839,7 +839,7 @@ const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actio
 const EMPTY_SPEAKERS = new Set()
 
 function renderTranscriptRows({
-  rows, initialSpeakers = EMPTY_SPEAKERS, initialUnseenShown = false, visit = null, canLoadEarlierParts,
+  rows, initialSpeakers = EMPTY_SPEAKERS, firstUnreadKey = null, canLoadEarlierParts,
   sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
   useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
   resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
@@ -851,7 +851,6 @@ function renderTranscriptRows({
 }) {
   const seenTurnSpeaker = new Set(initialSpeakers)
   let prevTime
-  let unseenShown = initialUnseenShown
 
   return rows.flatMap((row) => {
     if (row.kind === 'part-start') {
@@ -887,8 +886,7 @@ function renderTranscriptRows({
     }
 
     const pause = !classic && !silentTool && Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
-    const fresh = !classic && !silentTool && !unseenShown && Number.isFinite(row.time) && unseenSince(visit, row.time)
-    if (fresh) unseenShown = true
+    const fresh = !classic && !silentTool && firstUnreadKey !== null && row.key === firstUnreadKey
     if (!silentTool && Number.isFinite(row.time)) prevTime = row.time
 
     const renderDefault = () => {
@@ -939,8 +937,8 @@ function renderTranscriptRows({
 
     if (!pause && !fresh) return [node]
     const out = []
-    if (pause) out.push(h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)))
     if (fresh) out.push(h(NewDivider, { key: `${row.key}:new` }))
+    if (pause) out.push(h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)))
     out.push(node)
     return out
   })
@@ -1134,12 +1132,20 @@ export function SessionTranscript({
     }
   }, [actions, loadImage])
   const visit = resolvedUseUi(state => state?.visits?.[sessionId] ?? null)
-  const committedUnseenShown = useMemo(() => {
-    if (classic || !visit) return false
-    return rowParts.committed.some(row => Number.isFinite(row.time) && unseenSince(visit, row.time))
-  }, [classic, visit, rowParts.committed])
+  const firstUnreadKey = useMemo(() => {
+    if (classic || !visit) return null
+    for (const list of [rowParts.committed, rowParts.live]) {
+      for (const row of list) {
+        if (row.kind === 'part-start' || row.kind === 'compaction') continue
+        if (row.kind === 'tool' && !hasBotToolInTree(row.block)) continue
+        if (row.kind === 'assistant' && row.texts.length === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
+        if (Number.isFinite(row.time) && unseenSince(visit, row.time)) return row.key
+      }
+    }
+    return null
+  }, [classic, visit, rowParts.committed, rowParts.live, showThinking])
   const rowProps = {
-    visit,
+    firstUnreadKey,
     canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
     useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
     resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
@@ -1159,7 +1165,7 @@ export function SessionTranscript({
     thinkingAt: undefined,
     rows: rowParts.committed,
   }), [
-    rowParts.committed, visit, canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic,
+    rowParts.committed, firstUnreadKey, canLoadEarlierParts, sessionId, bot, roster, actions, toolActions, classic,
     useUi, useRoster, useTurnClock, useWork, useHeldCards,
     useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, registry, lang,
     resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
@@ -1171,7 +1177,7 @@ export function SessionTranscript({
   ])
   const liveElements = rowParts.live.length === 0
     ? []
-    : renderTranscriptRows({ ...rowProps, rows: rowParts.live, initialSpeakers: committedSpeakers, initialUnseenShown: committedUnseenShown })
+    : renderTranscriptRows({ ...rowProps, rows: rowParts.live, initialSpeakers: committedSpeakers })
   const projected = [...committedElements, ...liveElements]
 
   const feedbackDialog = feedbackEnabled ? h(ClassicFeedbackDialog, {

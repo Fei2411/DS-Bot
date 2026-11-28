@@ -38763,22 +38763,24 @@ function setupChoices(actions) {
 }
 function DeepSeekSignIn({ useUi, actions }) {
   const open = useUi((state) => state.signIn);
-  const entry = open ? actions.signInEntry?.() : null;
+  const [shown, leaving] = useLinger(open, 160);
+  const entry = shown ? actions.signInEntry?.() : null;
   if (!entry) return null;
-  return (0, import_react22.createElement)(SignInHost, { key: open, entry, actions });
+  return (0, import_react22.createElement)(SignInHost, { key: shown, entry, actions, leaving });
 }
 function makeSourceHook(source) {
   return function useBoundSource(selector) {
     return (0, import_react22.useSyncExternalStore)(source.subscribe, () => selector(source.getSnapshot()));
   };
 }
-function SignInHost({ entry, actions }) {
+function SignInHost({ entry, actions, leaving = false }) {
   const [ops] = (0, import_react22.useState)(() => entry.inject?.() ?? {});
   const close = () => actions.closeSignIn();
   const [hooks] = (0, import_react22.useState)(() => ({ useAccount: makeSourceHook(ops.hooks.account), useTheme: makeSourceHook(ops.hooks.theme) }));
   return (0, import_react22.createElement)(entry.component, {
     ...ops,
     ...hooks,
+    leaving,
     t: actions.accountT(),
     complete: close,
     useApiKey: () => {
@@ -75461,7 +75463,7 @@ function createAvatarRefCache(call2) {
 }
 
 // src/client/bot-completions.js
-function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
+function watchBotCompletions({ roster, sessions, statuses, unread, ui, onReconcile }) {
   const seen = /* @__PURE__ */ new Map();
   let lastTarget = null;
   let pendingTarget = null;
@@ -75520,12 +75522,20 @@ function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
   const offSessions = sessions.subscribe(sync);
   const offStatus = statuses?.subscribe(sync);
   const offUi = ui?.subscribe?.(sync);
+  const offReconcile = typeof onReconcile === "function" ? onReconcile((sessionId, maxTurn) => {
+    if (!seen.has(sessionId) || !Number.isInteger(maxTurn)) return;
+    if (seen.get(sessionId) > maxTurn) {
+      seen.set(sessionId, maxTurn);
+      sync();
+    }
+  }) : null;
   sync();
   return () => {
     offRoster();
     offSessions();
     offStatus?.();
     offUi?.();
+    offReconcile?.();
   };
 }
 

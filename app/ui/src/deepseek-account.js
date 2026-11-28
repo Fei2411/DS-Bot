@@ -35,7 +35,7 @@ function loopbackOrigin() {
     : undefined
 }
 
-function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSignIn, complete, useApiKey }) {
+function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSignIn, complete, useApiKey, leaving = false }) {
   const state = useAccount(value => value)
   const view = state?.view ?? null
   const attempt = view?.attempt ?? null
@@ -53,25 +53,26 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
     return () => { mountedRef.current = false }
   }, [])
 
-  useEscape(complete, true, { priority: ESCAPE_PRIORITY.DIALOG })
-  useModalFocusTrap(dialogRef, true, { initialFocusRef: closeRef })
+  useEscape(complete, !leaving, { priority: ESCAPE_PRIORITY.DIALOG })
+  useModalFocusTrap(dialogRef, !leaving, { initialFocusRef: closeRef })
 
   useEffect(() => {
+    if (leaving) return
     void refresh().catch(() => {})
-  }, [refresh])
+  }, [refresh, leaving])
 
   useEffect(() => {
-    if (!signedIn) return
+    if (leaving || !signedIn) return
     complete()
-  }, [signedIn, complete])
+  }, [signedIn, complete, leaving])
 
   useEffect(() => {
-    if (!signingIn) return undefined
+    if (leaving || !signingIn) return undefined
     const timer = setInterval(() => {
       void refresh().catch(() => {})
     }, SIGNIN_POLL_MS)
     return () => clearInterval(timer)
-  }, [signingIn, refresh])
+  }, [signingIn, refresh, leaving])
 
   const begin = useCallback(async () => {
     if (busy) return
@@ -105,7 +106,8 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
   const failureMessage = error || (attempt?.phase === 'failed' && attempt?.error ? hostText(String(attempt.error)) : '')
   const body = h('div', {
     className: 'dsb-signin-mask',
-    onMouseDown: (event) => { if (event.target === event.currentTarget) complete() },
+    'data-leaving': leaving || undefined,
+    onMouseDown: (event) => { if (!leaving && event.target === event.currentTarget) complete() },
   },
   h('section', {
     ref: dialogRef,
@@ -151,44 +153,76 @@ function DesktopDeepSeekSignInModal({ useAccount, refresh, startSignIn, cancelSi
   return target ? createPortal(body, target) : body
 }
 
-const ACCOUNT_LISTENERS_KEY = Symbol.for('ds-bot.desktopAccountListeners')
-const accountStateListeners = globalThis[ACCOUNT_LISTENERS_KEY] ?? (globalThis[ACCOUNT_LISTENERS_KEY] = new Set())
+const ACCOUNT_BUS_KEY = Symbol.for('ds-bot.desktopAccountBus')
+const accountBus = globalThis[ACCOUNT_BUS_KEY] ?? (globalThis[ACCOUNT_BUS_KEY] = { state: null, listeners: new Set() })
+
+export function getDesktopAccountState() {
+  return accountBus.state
+}
 
 /**
- * Broadcasts a freshly fetched `engine-account-state` payload (e.g. from Settings → Account)
- * to all active desktop account bridges so the sidebar Account menu stays in sync without reload.
+ * Subscribes to bidirectional desktop DeepSeek account state updates across
+ * the sidebar `AccountLauncher`, `DesktopDeepSeekSignInModal`, and Settings → Account.
  */
-export function publishDesktopAccountState(reply) {
+export function subscribeDesktopAccountState(listener) {
+  if (typeof listener !== 'function') return () => {}
+  accountBus.listeners.add(listener)
+  return () => { accountBus.listeners.delete(listener) }
+}
+
+/**
+ * Broadcasts a freshly fetched `engine-account-state` payload across all desktop surfaces.
+ */
+export function publishDesktopAccountState(reply, meta = {}) {
   if (!reply || typeof reply !== 'object') return
-  for (const listener of accountStateListeners) {
-    try { listener(reply) } catch {}
+  accountBus.state = reply
+  for (const listener of accountBus.listeners) {
+    try { listener(reply, meta) } catch {}
   }
 }
 
 export function createDesktopAccountBridge({ call, after, work, refreshModels }) {
+  const bridgeId = Symbol('desktop-account-bridge')
   const account = createSource({ available: null, view: null })
   const theme = createSource({ dark: typeof document !== 'undefined' && document.body?.hasAttribute?.('data-ds-dark-theme') === true })
   let inflight = null
+  let detailsInflight = null
 
-  const applyReply = (reply) => {
+  const fetchDetails = () => {
+    if (detailsInflight) return detailsInflight
+    detailsInflight = Promise.resolve(call('engine-account-state', { details: true, ...accountPayload() }))
+      .then((detailed) => applyReply(detailed, { broadcast: true, skipDetailsFetch: true }))
+      .catch(() => account.getSnapshot())
+      .finally(() => { detailsInflight = null })
+    return detailsInflight
+  }
+
+  const applyReply = (reply, { broadcast = true, skipDetailsFetch = false } = {}) => {
     if (!reply || typeof reply !== 'object') return account.getSnapshot()
     const next = {
       available: reply.available !== false,
       view: reply.view ?? null,
     }
     const prev = account.getSnapshot()
-    if (prev.available !== next.available || JSON.stringify(prev.view) !== JSON.stringify(next.view)) {
-      const becameSignedIn = prev.view?.status !== 'credential-stored' && next.view?.status === 'credential-stored'
-      account.set(next)
-      if (becameSignedIn) void Promise.resolve(refreshModels?.()).catch(() => {})
+    const changed = prev.available !== next.available || JSON.stringify(prev.view) !== JSON.stringify(next.view)
+    const becameSignedIn = prev.view?.status !== 'credential-stored' && next.view?.status === 'credential-stored'
+    if (changed) account.set(next)
+    if (broadcast && (changed || accountBus.state === null)) {
+      publishDesktopAccountState(reply, { source: bridgeId })
+    }
+    if (becameSignedIn) {
+      void Promise.resolve(refreshModels?.()).catch(() => {})
+      if (!skipDetailsFetch && !next.view?.profile && !next.view?.balance) {
+        void fetchDetails()
+      }
     }
     return next
   }
 
-  const subscribeExternal = () => {
-    accountStateListeners.add(applyReply)
-    return () => { accountStateListeners.delete(applyReply) }
-  }
+  const subscribeExternal = () => subscribeDesktopAccountState((reply, meta) => {
+    if (meta?.source === bridgeId) return
+    applyReply(reply, { broadcast: false })
+  })
 
   const refresh = () => {
     if (inflight) return inflight

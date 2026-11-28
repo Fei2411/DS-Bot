@@ -25,9 +25,9 @@ import { sectionFoldWrites, teamActions } from '../../../ds-bot/src/client/team-
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { registry } from '../../../ds-bot/src/client/themes.js'
 import { openFeed } from './api.js'
-import { createDesktopAccountBridge, publishDesktopAccountState } from './deepseek-account.js'
+import { createDesktopAccountBridge, publishDesktopAccountState, subscribeDesktopAccountState } from './deepseek-account.js'
 
-export { publishDesktopAccountState }
+export { publishDesktopAccountState, subscribeDesktopAccountState }
 import { pruneFailedSends } from './failed-send-bar.js'
 import { slots } from './slots.js'
 
@@ -564,6 +564,13 @@ export function createTeam() {
     notifyTurnWatchers(sessionId)
   }
 
+  const outlineReconcileListeners = new Set()
+  const notifyOutlineReconciled = (sessionId, maxTurn) => {
+    for (const listener of outlineReconcileListeners) {
+      try { listener(sessionId, maxTurn) } catch {}
+    }
+  }
+
   const syncOutlineFromFacts = (sessionId, facts) => {
     if (!facts?.turns || facts.turns.size === 0) return
     const closedReplies = facts.closingReplies
@@ -571,6 +578,7 @@ export function createTeam() {
       .filter(entry => Number.isInteger(entry.turn) && entry.turn >= 0)
       .sort((a, b) => a.turn - b.turn)
     if (ordered.length === 0) return
+    let prunedSynthetic = false
     sessions.set((list) => {
       const row = list.byId[sessionId] ?? { id: sessionId }
       const prev = Array.isArray(row.projectionValues?.turnOutline) ? row.projectionValues.turnOutline : []
@@ -585,6 +593,7 @@ export function createTeam() {
         }
         byTurn.set(item.turn, { ...item })
       }
+      if (droppedSynthetic) prunedSynthetic = true
       let changed = droppedSynthetic
       for (const entry of ordered) {
         const hasReply = Boolean(closedReplies?.has(entry.turn))
@@ -624,6 +633,9 @@ export function createTeam() {
         },
       }
     })
+    if (prunedSynthetic) {
+      notifyOutlineReconciled(sessionId, ordered[ordered.length - 1].turn)
+    }
   }
 
   const openWorkspaceTab = (tabId, updateFn, fallbackSubject = null) => {
@@ -667,9 +679,22 @@ export function createTeam() {
     },
     openSettings: (...args) => { clearShortcuts(); return baseActions.openSettings(...args) },
     selectPanel: (id) => {
-      if (id === 'schedules') { actions.openSettings('schedules'); return }
-      if (id === 'plugins') { actions.openSettings('plugins'); return }
-      if (id === 'connectors') { actions.openSettings('connectors'); return }
+      if (typeof id !== 'string' || id === '') return
+      if (id === 'files' || id === 'terminal' || id === 'preview' || id === 'changes') {
+        openWorkspaceTab(id)
+        return
+      }
+      if (
+        id === 'overview' || id === 'general' || id === 'shortcuts' || id === 'appearance'
+        || id === 'models' || id === 'local-agents' || id === 'bot-models' || id === 'deepseek-services'
+        || id === 'bots' || id === 'groups' || id === 'schedules'
+        || id === 'connectors' || id === 'im' || id === 'phone' || id === 'api'
+        || id === 'computer' || id === 'browser' || id === 'capabilities' || id === 'secrets'
+        || id === 'plugins' || id === 'usage' || id === 'about' || id === 'privacy' || id === 'feedback'
+      ) {
+        actions.openSettings(id)
+        return
+      }
       actions.openSettings('overview')
     },
     openPalette: (...args) => { clearShortcuts(); return baseActions.openPalette(...args) },
@@ -987,19 +1012,11 @@ export function createTeam() {
         if (target) show(target)
       })()
     },
-    selectPanel: (id) => {
-      if (typeof id !== 'string' || id === '') return
-      if (id === 'files' || id === 'terminal' || id === 'preview' || id === 'changes') {
-        openWorkspaceTab(id)
-        return
-      }
-      actions.openSettings(id === 'settings' ? 'overview' : id)
-    },
     steerQueued: async (sessionId) => {
       if (!sessionId) return
       const rows = sessionQueues.getSnapshot()[sessionId] ?? []
       const ids = rows
-        .filter(row => typeof row?.id === 'string' && row.id !== '' && row.source !== 'bot' && row.source !== 'relay')
+        .filter(row => typeof row?.id === 'string' && row.id !== '' && row?.source?.kind === 'user')
         .map(row => row.id)
       if (ids.length === 0) return
       try {
@@ -1029,9 +1046,16 @@ export function createTeam() {
       if (!Array.isArray(files) || files.length === 0) return []
       const ids = []
       for (const item of files) {
-        if (!item?.file) continue
+        if (!item || typeof item !== 'object') continue
+        const isWrapper = item.file && typeof item.file === 'object'
+        const file = isWrapper ? item.file : item
+        if (typeof file.name !== 'string' && typeof file.size !== 'number' && typeof file.type !== 'string') continue
+        const mime = typeof file.type === 'string' ? file.type : ''
+        const kind = isWrapper && typeof item.kind === 'string'
+          ? item.kind
+          : (mime.startsWith('image/') ? 'image' : 'file')
         const id = `draft-file-${++draftFileSeq}`
-        draftFileStore.set(id, { sessionId: sessionId ?? null, kind: item.kind ?? 'file', file: item.file })
+        draftFileStore.set(id, { sessionId: sessionId ?? null, kind, file })
         ids.push(id)
       }
       return ids
@@ -1244,6 +1268,7 @@ export function createTeam() {
       if (!sessionId || !Number.isInteger(turn) || turn < 0) return null
       const facts = turnFactsBySession.get(sessionId)
       const turnFact = facts?.turns?.get(turn)
+      if (turnFact && turnFact.status !== 'closed') return undefined
       const fromFacts = facts?.closingReplies?.get(turn)
       if (typeof fromFacts === 'string' && fromFacts !== '') return fromFacts
       if (turnFact?.status === 'closed') return ''
@@ -1289,13 +1314,10 @@ export function createTeam() {
       wakeUpdate()
     },
     openAppUpdates: async (verified) => {
-      if (appUpdates?.status) {
-        const app = await appUpdates.status()
-        if (app) update.set(previous => ({ ...previous, app }))
-        if (sameVersion(app?.version, verified)) await appUpdates.open?.()
-        return
-      }
-      await globalThis.dsBotApp?.updates?.open?.()
+      if (!appUpdates?.status) return
+      const app = await appUpdates.status()
+      if (app) update.set(previous => ({ ...previous, app }))
+      if (sameVersion(app?.version, verified)) await appUpdates.open?.()
     },
     checkOwnApp: async () => { await globalThis.dsBotApp?.updates?.check?.() },
     installOwnApp: async () => { await globalThis.dsBotApp?.updates?.install?.() },
@@ -1593,6 +1615,10 @@ export function createTeam() {
       statuses: status,
       unread: botCompletions,
       ui,
+      onReconcile: (listener) => {
+        outlineReconcileListeners.add(listener)
+        return () => { outlineReconcileListeners.delete(listener) }
+      },
     })
     const closeFeed = openFeed((event, data) => {
       if (READ_AGAIN.has(event)) read()
