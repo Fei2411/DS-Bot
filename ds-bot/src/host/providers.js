@@ -91,9 +91,55 @@ function lookupKnownModel(known, rawId) {
   return known.get(id) ?? known.get(bare) ?? (bare.startsWith('kimi-') ? known.get(bare.slice(5)) : known.get(`kimi-${bare}`))
 }
 
+const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+
+// DSH's llm-pi-ai schema accepts `false` (explicit non-reasoning) or a dict of
+// pi-ai thinking levels with at least one level beyond `off`.
+function normalizeReasoningEfforts(raw, allowed = THINKING_LEVELS) {
+  if (raw === false) return false
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const mapped = {}
+  for (const [level, wire] of Object.entries(raw)) {
+    if (!allowed.includes(level)) continue
+    if (wire === null && level === 'off') mapped.off = null
+    else if (typeof wire === 'string' && wire.trim() !== '') mapped[level] = wire.trim()
+  }
+  return Object.keys(mapped).some(level => level !== 'off') ? mapped : undefined
+}
+
+function openaiReasoningEfforts(info) {
+  const efforts = info?.reasoning?.efforts
+  if (!Array.isArray(efforts) || efforts.length === 0) return undefined
+  const mapped = {}
+  for (const effort of efforts) {
+    const id = typeof effort?.id === 'string' ? effort.id : ''
+    // Omit 'off' unless the server explicitly confirmed default_reasoning_level === 'none',
+    // so Default (unset effort) keeps omitting `reasoning` instead of sending effort='none'.
+    if (id === 'off' || !THINKING_LEVELS.includes(id)) continue
+    mapped[id] = id
+  }
+  return normalizeReasoningEfforts(mapped)
+}
+
+// Conservative fallback for OpenAI Responses reasoning families when /v1/models omits
+// supported_reasoning_levels and no official `openai` route is configured. Never guesses
+// 'off' so Default preserves upstream server defaults, and never matches chat-only models.
+function fallbackChatGPTReasoningEfforts(rawId) {
+  const id = typeof rawId === 'string' ? rawId.trim().toLowerCase() : ''
+  if (id === '' || id.includes('chat-latest') || /^gpt-4\b|^gpt-4[.-]|^gpt-3\b|^gpt-3[.-]/.test(id)) return undefined
+  if (/^gpt-5-pro(?:$|-)/.test(id)) return { high: 'high' }
+  if (/^gpt-5\.[245]-pro(?:$|-)/.test(id)) return { medium: 'medium', high: 'high', xhigh: 'xhigh' }
+  if (/^gpt-5(?:-mini|-nano)?(?:$|-\d)/.test(id)) return { minimal: 'minimal', low: 'low', medium: 'medium', high: 'high' }
+  if (/^gpt-5\.1(?:$|-)/.test(id)) return { low: 'low', medium: 'medium', high: 'high' }
+  if (/^gpt-5\.[2345](?:$|-)/.test(id)) return { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' }
+  if (/^gpt-(?:5\.[6-9]|[6-9](?:\.\d+)?)(?:$|-)/.test(id)) return { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' }
+  if (/^(?:o1|o3|o4-mini)(?:$|-)/.test(id)) return { low: 'low', medium: 'medium', high: 'high' }
+  return undefined
+}
+
 // A model as the route stores it: what discovery told about it, under pi-ai's names,
 // with any missing capacity or modalities filled from a known catalog model of the same id.
-function modelEntry(model, known) {
+function modelEntry(model, known, allowed) {
   const id = typeof model === 'string' ? model.trim() : typeof model?.id === 'string' ? model.id.trim() : ''
   if (id === '') throw invalid('Every model needs an id')
   const match = lookupKnownModel(known, id)
@@ -106,12 +152,14 @@ function modelEntry(model, known) {
       ? model.input
       : match?.inputModalities
   const input = Array.isArray(rawInput) ? rawInput.filter(kind => typeof kind === 'string') : []
+  const reasoningEfforts = normalizeReasoningEfforts(model?.reasoningEfforts, allowed)
   return {
     id,
     ...(typeof model?.name === 'string' && model.name.trim() !== '' ? { name: model.name.trim() } : {}),
     ...(contextWindow ? { contextWindow } : {}),
     ...(maxTokens ? { maxTokens } : {}),
     ...(input.length > 0 ? { input } : {}),
+    ...(reasoningEfforts !== undefined ? { reasoningEfforts } : {}),
   }
 }
 
@@ -225,7 +273,7 @@ export function install(rt) {
     for (const [id, profile] of Object.entries(userProviders)) {
       const nextCompat = compatForRoute(id, profile)
       if (nextCompat !== undefined) ops.push({ op: 'set', path: ['providers', id, 'compat'], value: nextCompat })
-      if (!rt.home || rt.readOnly?.() || rt.hasLoaded?.() === false || !Array.isArray(profile?.models) ||
+      if (id === CHATGPT_PROVIDER || !rt.home || rt.readOnly?.() || rt.hasLoaded?.() === false || !Array.isArray(profile?.models) ||
           !profile.baseURL || entryOf(id)?.declared !== true) continue
       const models = await Promise.all(profile.models.map(model => enrichModel(id, profile.api ?? 'openai-completions', model, changes, allowed)))
       if (models.some((model, i) => model !== profile.models[i])) {
@@ -367,10 +415,10 @@ export function install(rt) {
     if (key !== undefined && info.writable === false) throw invalid(`The API key for ${provider} is set outside DS Bot and cannot be changed here`)
     // A blank key keeps a key that is already there, else the provider's own sign-in.
     const keyed = key !== undefined || info.configured === true
-    const profile = custom ? customProfile(body, known, protocolsOf(map.get(PI_AI))) : {}
+    const allowed = routeOptions(map.get(PI_AI), 'reasoning')
+    const profile = custom ? customProfile(body, known, protocolsOf(map.get(PI_AI)), allowed) : {}
     const changes = new Map()
     if (custom) {
-      const allowed = routeOptions(map.get(PI_AI), 'reasoning')
       profile.models = await Promise.all(profile.models.map(model => enrichModel(provider, profile.api, model, changes, allowed)))
     }
     if (keyed) profile.apiKeyEnv = ref
@@ -381,9 +429,9 @@ export function install(rt) {
     return providersView()
   }
 
-  function customProfile(body, known, protocols = PROTOCOLS) {
+  function customProfile(body, known, protocols, allowed) {
     if (!protocols.includes(body.api)) throw invalid(`The protocol must be one of ${protocols.join(', ')}`)
-    const models = Array.isArray(body.models) ? body.models.slice(0, MAX_MODELS).map(model => modelEntry(model, known)) : []
+    const models = Array.isArray(body.models) ? body.models.slice(0, MAX_MODELS).map(model => modelEntry(model, known, allowed)) : []
     if (models.length === 0) throw invalid('Add at least one model')
     if (new Set(models.map(model => model.id)).size !== models.length) throw invalid('Two models have the same id')
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 80) : ''
@@ -428,7 +476,7 @@ export function install(rt) {
     const existing = new Map((Array.isArray(profile?.models) ? profile.models : []).map(m => [typeof m === 'string' ? m : m.id, m]))
     const allowed = routeOptions(map.get(PI_AI), 'reasoning')
     return Promise.all(models.slice(0, MAX_MODELS).map(async model => {
-      const levels = !entry || entry.declared === true ? await catalogEfforts(model.id, request.api ?? 'openai-completions', allowed) : undefined
+      const levels = provider !== CHATGPT_PROVIDER && (!entry || entry.declared === true) ? await catalogEfforts(model.id, request.api ?? 'openai-completions', allowed) : undefined
       const saved = existing.get(model.id)?.reasoningEfforts
       const manual = saved !== undefined && !isDeepStrictEqual(saved, trackedEfforts()[provider + '/' + model.id])
 
@@ -475,14 +523,44 @@ export function install(rt) {
       .filter(([id]) => typeof id === 'string' && id !== ''))
     const changes = new Map()
     const allowed = routeOptions(section, 'reasoning')
-    const models = await Promise.all(list.map(async model => {
+    const openaiEntry = provider === CHATGPT_PROVIDER ? entryOf('openai') : undefined
+    const openaiProfile = openaiEntry ? profileOf(openaiEntry, map) : undefined
+    const hasOfficialOpenAI = provider === CHATGPT_PROVIDER
+      && typeof ctx.llm.resolveModelInfo === 'function'
+      && (ctx.llm.listProviders?.() ?? []).some(item => item.id === 'openai')
+      && (typeof openaiProfile?.baseURL !== 'string' || openaiProfile.baseURL === '')
+    const models = await Promise.all(list.map(async (model) => {
       const id = typeof model === 'string' ? model.trim() : model?.id?.trim()
       const old = current.get(id)
-      const saved = typeof old === 'string' ? { id: old } : old
+      let saved = typeof old === 'string' ? { id: old } : old
+      const ref = provider + '/' + id
+      const managed = trackedEfforts()[ref]
+      if (provider === CHATGPT_PROVIDER && managed !== undefined) {
+        // Older versions also filled the plan route from the custom gateway catalog.
+        changes.set(ref, undefined)
+        if (isDeepStrictEqual(saved?.reasoningEfforts, managed)) {
+          saved = { ...saved }
+          delete saved.reasoningEfforts
+        }
+      }
       const incoming = typeof model === 'string' ? { id: model } : model
-      const next = modelEntry({ ...saved, ...incoming }, known)
-      const merged = { ...saved, ...next }
-      return entry.declared === true ? enrichModel(provider, profile.api ?? 'openai-completions', merged, changes, allowed, incoming.useCatalogLevels === true) : merged
+      const incomingHasEfforts = Object.prototype.hasOwnProperty.call(incoming, 'reasoningEfforts') && incoming.reasoningEfforts !== undefined
+      let fallbackEfforts
+      if (provider === CHATGPT_PROVIDER && !incomingHasEfforts && saved?.reasoningEfforts === undefined && id) {
+        if (hasOfficialOpenAI) {
+          const info = await ctx.llm.resolveModelInfo('openai', id).catch(() => undefined)
+          fallbackEfforts = openaiReasoningEfforts(info)
+        }
+        fallbackEfforts ??= fallbackChatGPTReasoningEfforts(id)
+      }
+      const mergedInput = { ...saved, ...incoming, ...(fallbackEfforts !== undefined ? { reasoningEfforts: fallbackEfforts } : {}) }
+      const next = modelEntry(mergedInput, known, allowed)
+      const combined = { ...saved, ...next }
+      // If the caller explicitly supplied reasoningEfforts that normalized to nothing
+      // (e.g. invalid keys or off-only), do not resurrect a stale saved.reasoningEfforts.
+      if (incomingHasEfforts && next.reasoningEfforts === undefined) delete combined.reasoningEfforts
+      if (provider === CHATGPT_PROVIDER || entry.declared !== true) return combined
+      return enrichModel(provider, profile.api ?? 'openai-completions', combined, changes, allowed, incoming.useCatalogLevels === true)
     }))
     const kept = new Set(models.map(model => model.id))
     for (const id of current.keys()) {

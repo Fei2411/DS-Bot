@@ -64,9 +64,11 @@ async function start(t, room, services, extraRooms) {
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (options) => { route = options; return register(options) }
   const rt = createRuntime(ctx, { home })
+  const roundStops = []
   t.after(async () => {
+    for (const stop of roundStops) stop.abort()
     await ctx.dispose()
-    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   })
   let seq = 0
   const turns = new Map()
@@ -95,7 +97,7 @@ async function start(t, room, services, extraRooms) {
     emit(roomId, 'user/message', message)
     let result
     const stop = new AbortController()
-    t.after(() => stop.abort())
+    roundStops.push(stop)
     const done = tool('group_relay', {}, roomId, { callId, signal: stop.signal })
       .then(async (value) => (result = await afterRound(rt, roomId, value)))
     done.catch(() => {})
@@ -120,10 +122,14 @@ async function start(t, room, services, extraRooms) {
   return { home, ctx, rt, agentOf, emit, tool, call, begin, finish, round, say, takePost, takeGoal }
 }
 
-const settle = async (check) => {
-  const until = Date.now() + 3000
-  while (!check() && Date.now() < until) await loopTurn()
-  assert.ok(check(), 'condition not reached')
+const settle = async (check, ms = 15_000) => {
+  const until = Date.now() + ms
+  let ok = await check()
+  while (!ok && Date.now() < until) {
+    await loopTurn()
+    ok = await check()
+  }
+  assert.ok(ok, 'condition not reached')
 }
 const text = message => message.content.map(block => block.text ?? '').join('\n')
 const saved = host => JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8'))

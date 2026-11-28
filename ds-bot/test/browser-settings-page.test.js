@@ -305,3 +305,32 @@ test('BrowserPage renders inline Import cookies section when desktop bridge and 
   assert.ok(menuAgain, 'toggling Bot on result stage should return to source menu')
   inst.unmount()
 })
+
+test('BrowserPage shares browserPaneMode classification for controlsPane providers and custom-renamed external plugins', () => {
+  const harness = createHarness()
+
+  // 1. Provider with controlsPane: true (without windowMode) must NOT be tagged External window.
+  const paneInst = harness.mount(harness.exports.BrowserPage, {
+    roster: {
+      bots: [{ id: 'chief', name: 'Chief' }],
+      plugins: { slots: { browser: { active: 'provider:custom-pane', activeName: 'Pane Browser', controlsPane: true } } },
+    },
+    actions: {}, run: () => {}, Section, Row,
+  })
+  const paneText = textOf(expand(paneInst.render()))
+  assert.match(paneText, /Pane Browser/)
+  assert.doesNotMatch(paneText, /External window/)
+  paneInst.unmount()
+
+  // 2. Custom-renamed external plugin preserves custom display name and appends External window.
+  const extInst = harness.mount(harness.exports.BrowserPage, {
+    roster: {
+      bots: [{ id: 'chief', name: 'Chief' }],
+      plugins: { slots: { browser: { active: 'dsh:dsh-ego-browser', activeName: 'My Ego', customName: true, controlsPane: false, windowMode: 'external' } } },
+    },
+    actions: {}, run: () => {}, Section, Row,
+  })
+  const extText = textOf(expand(extInst.render()))
+  assert.match(extText, /My Ego · External window/)
+  extInst.unmount()
+})

@@ -3,6 +3,7 @@
 // user picks one in its chat. The Session keeps the selection durably.
 import { BlockAssembler, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { normalize, splitRef } from './text.js'
+import { CHATGPT_PROVIDER } from './chatgpt.js'
 import { serviceOf } from './services.js'
 import { isLocalAgentRoute } from './local-agents/engines.js'
 import { isMissingSessionError, ownChatSessions } from './threads.js'
@@ -220,7 +221,6 @@ export function install(rt) {
   ctx.on?.('llm/adapters-updated', async () => {
     dropCatalog()
     syncedKey = undefined
-    reasoningCache.clear()
     await forgetChangedRefusals()
     syncAfterAdapters()
   })
@@ -269,7 +269,7 @@ export function install(rt) {
   }
 
   function mediumDefault(ref, reasoning) {
-    if (reasoning?.efforts.some(level => level.id === 'medium') && !isLocal(ref)) return 'medium'
+    if (reasoning?.efforts.some(level => level.id === 'medium') && !isLocal(ref) && splitRef(ref)?.provider !== CHATGPT_PROVIDER) return 'medium'
   }
 
   async function botReasoningOf(ref) {

@@ -425,3 +425,46 @@ test('a discovered ID gains catalog levels, preserves manual mappings, and can f
   await rt.saveProviderModels({ provider: 'relay', models })
   assert.deepEqual(route().user.providers.relay.models[0].reasoningEfforts, expected)
 })
+
+test('saving models normalizes incoming reasoningEfforts and never resurrects stale efforts on invalid or off-only input', async () => {
+  const user = { providers: { relay: { api: 'openai-responses', baseURL: 'https://relay.example/v1', models: [
+    { id: 'r1', reasoningEfforts: { low: 'low', high: 'high' } },
+    { id: 'r3', reasoningEfforts: { low: 'low', high: 'high' } },
+    { id: 'r4', reasoningEfforts: { low: 'low', high: 'high' } },
+  ] } } }
+  const { rt, writes } = dsh({ user })
+  const view = await rt.providersView()
+  await rt.saveProviderModels({
+    provider: 'relay', revision: view.revision,
+    models: [
+      { id: 'r1', reasoningEfforts: false },
+      { id: 'r2', reasoningEfforts: { off: 'none', low: 'low', high: 'high', ultra: 'ultra' } },
+      { id: 'r3', reasoningEfforts: { off: 'none' } },
+      { id: 'r4', reasoningEfforts: { bogus: 'x' } },
+    ],
+  })
+  const models = writes.at(-1)[1][0].value
+  assert.equal(models[0].reasoningEfforts, false)
+  assert.deepEqual(models[1].reasoningEfforts, { off: 'none', low: 'low', high: 'high' })
+  assert.equal(models[2].reasoningEfforts, undefined)
+  assert.equal(models[3].reasoningEfforts, undefined)
+  assert.doesNotThrow(() => PiAiConfig({ providers: { relay: { api: 'openai-responses', baseURL: 'https://relay.example/v1', models } } }))
+})
+
+test('refreshing the ChatGPT plan replaces old gateway catalog levels and keeps explicit mappings', async () => {
+  const provider = 'openai-chatgpt'
+  const managed = { low: 'low' }
+  const manual = { high: 'custom-high' }
+  const { rt, writes } = dsh({ user: { providers: { [provider]: {
+    api: 'openai-responses', baseURL: 'http://localhost/v1', models: [
+      { id: 'gpt-5.5', reasoningEfforts: managed }, { id: 'gpt-5.4', reasoningEfforts: manual },
+    ],
+  } } } })
+  await rt.providersView()
+  rt.state.prefs = { catalogEfforts: { [provider + '/gpt-5.5']: managed, [provider + '/gpt-5.4']: managed } }
+  await rt.saveProviderModels({ provider, models: ['gpt-5.5', 'gpt-5.4'] })
+  const [first, second] = writes.at(-1)[1][0].value
+  assert.equal(first.reasoningEfforts.medium, 'medium')
+  assert.deepEqual(second.reasoningEfforts, manual)
+  assert.deepEqual(rt.state.prefs.catalogEfforts, {})
+})

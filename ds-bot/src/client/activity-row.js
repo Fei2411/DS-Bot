@@ -4,7 +4,7 @@ import { BotMark, RoomAvatar } from './mark.js'
 import { Elapsed, Shimmer, PHRASES } from './cells.js'
 import { MoveIcon } from './icons.js'
 import { noteClientError } from './diagnostics.js'
-import { reducedEffects, reducedMotion } from './motion.js'
+import { noHover, reducedEffects, reducedMotion } from './motion.js'
 import { hostText, t } from './i18n.js'
 
 // -------------------------------------------------------------------------
@@ -164,8 +164,18 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   const liveKey = useLive(state => JSON.stringify(state[sessionId] ?? {}))
   const steeredAt = useWork?.(work => work.steered?.[sessionId])
   const bgInfo = useWork?.(work => work.canBackground?.[sessionId])
+  const rowRef = useRef(null)
   const [movingBg, setMovingBg] = useState(false)
-  useEffect(() => { setMovingBg(false) }, [sessionId, bgInfo?.turn])
+  const [bgOpen, setBgOpen] = useState(false)
+  useEffect(() => { setMovingBg(false); setBgOpen(false) }, [sessionId, bgInfo?.turn])
+  useEffect(() => {
+    if (!bgOpen) return undefined
+    const onDown = (event) => {
+      if (!rowRef.current?.contains(event.target)) setBgOpen(false)
+    }
+    window.addEventListener('pointerdown', onDown, true)
+    return () => window.removeEventListener('pointerdown', onDown, true)
+  }, [bgOpen])
   const pendingInput = useSession(snapshot => freshInputAt(snapshot?.pendingSubmissions, steeredAt))
   const bot = roster.byId[sessionId]
   const room = roster.roomsById[sessionId]
@@ -243,28 +253,44 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   const moveToBg = () => {
     if (movingBg || !bgInfo) return
     setMovingBg(true)
+    setBgOpen(false)
     void Promise.resolve(actions.moveToBackground(bgInfo.botId, sessionId, bgInfo.turn))
       .catch(error => {
         setMovingBg(false)
         actions.reportError?.(new Error(hostText(error?.message ?? String(error))), 'move-to-background')
       })
   }
-  return createPortal(h('div', { className: 'bt-typing', 'data-exiting': phase === 'out' ? '' : undefined },
+  const tapRow = (event) => {
+    if (!showBgAction || movingBg || !noHover()) return
+    const target = event?.target
+    if (typeof target?.closest === 'function' && target.closest('button,.bt-typing-mark')) return
+    setBgOpen(open => !open)
+  }
+  return createPortal(h('div', {
+    ref: rowRef,
+    className: 'bt-typing',
+    'data-exiting': phase === 'out' ? '' : undefined,
+    'data-bg-open': showBgAction && bgOpen ? '' : undefined,
+    'data-bg-busy': showBgAction && movingBg ? '' : undefined,
+    onClick: tapRow,
+  },
     h('span', { className: 'bt-typing-mark', 'aria-hidden': true },
       bot ? h(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : h(RoomAvatar, { room, roster, size: 28 })),
     h('span', { className: 'bt-typing-text', 'aria-hidden': true },
       h('span', { key: `${shown.key}:${shown.at}`, className: 'bt-typing-label' }, h(Shimmer, null, `${shown.text}…`)),
       h(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: 'bt-typing-time' })),
     showBgAction
-      ? h('button', {
-          type: 'button',
-          className: 'bt-typing-bg',
-          disabled: movingBg,
-          'aria-label': t('Move current work to background'),
-          title: t('Move current work to background'),
-          onClick: moveToBg,
-        },
-        h('span', { className: 'bt-typing-bg-ico', 'aria-hidden': true }, h(MoveIcon)),
-        h('span', null, movingBg ? t('Moving…') : t('Move to background')))
+      ? h('span', { className: 'bt-typing-bg-wrap' },
+        h('span', { className: 'bt-typing-bg-in' },
+          h('button', {
+            type: 'button',
+            className: 'bt-typing-bg',
+            disabled: movingBg,
+            'aria-label': t('Move current work to background'),
+            title: t('Move current work to background'),
+            onClick: moveToBg,
+          },
+          h('span', { className: 'bt-typing-bg-ico', 'aria-hidden': true }, h(MoveIcon)),
+          h('span', null, movingBg ? t('Moving…') : t('Move to background')))))
       : null), host)
 }
