@@ -2447,7 +2447,7 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, jump =
               },
             }, t('Retry')))
           : null))
-      : h('div', { className: 'dsb-engine-empty' }, data?.uiPluginsDir || '')) : null,
+      : h(EngineRow, { label: t('Folder'), hint: data?.uiPluginsDir || undefined })) : null,
     customPlugins.length > 0 ? h(EngineSection, {
       title: t('Custom profile plugins'),
       action: settingsData?.documentPath && settingsData?.writable && !readOnly ? h('button', {

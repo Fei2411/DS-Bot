@@ -122,29 +122,31 @@ const MEMORY_SIZES = [
   { scope: 'bot', label: 'Bot memory size', size: 8_000 },
   { scope: 'team', label: 'Team memory size', size: 4_000 },
 ]
-function MemorySize({ label, value, save }) {
+function MemorySize({ label, value, save, disabled = false }) {
   const [text, setText] = useState(String(value))
   useEffect(() => setText(String(value)), [value])
   const commit = () => {
+    if (disabled) return
     const number = Number(text)
     if (Number.isInteger(number) && number >= 1_000 && number <= 200_000 && number !== value) save(number)
     else setText(String(value))
   }
-  return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 1_000, max: 200_000, step: 1_000, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
+  return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 1_000, max: 200_000, step: 1_000, disabled, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
 }
 
 // Seconds a Bot's own chat waits for a command before it goes on in the background
 // (host default 5; the host checks the range again).
 const BACKGROUND_AFTER_SEC = 5
-function SecondsField({ label, value, save }) {
+function SecondsField({ label, value, save, disabled = false }) {
   const [text, setText] = useState(String(value))
   useEffect(() => setText(String(value)), [value])
   const commit = () => {
+    if (disabled) return
     const number = Number(text)
     if (text.trim() !== '' && Number.isInteger(number) && number >= 0 && number <= 600 && number !== value) save(number)
     else setText(String(value))
   }
-  return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 0, max: 600, step: 1, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
+  return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 0, max: 600, step: 1, disabled, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
 }
 
 function SetSection({ title, action = null, className = '', tour = null, children }) {
@@ -158,10 +160,10 @@ function SetRow({ label, hint, children, className = '', tour = null }) {
     children ? h('div', { className: 'bt-set-control' }, children) : null)
 }
 
-function Choice({ label, value, options, pick, className = 'bt-look-seg' }) {
+function Choice({ label, value, options, pick, className = 'bt-look-seg', disabled = false }) {
   return h(Segmented, { label, value, className }, options.map(([id, text]) => h('button', {
-    key: id, type: 'button', 'aria-pressed': value === id,
-    onClick: () => { if (value !== id) pick(id) },
+    key: id, type: 'button', 'aria-pressed': value === id, disabled,
+    onClick: () => { if (!disabled && value !== id) pick(id) },
   }, t(text))))
 }
 
@@ -170,6 +172,7 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
   const basicDsh = BASIC_ITEMS.filter(id => items.includes(id))
   const more = items.filter(id => !LOOK_ITEMS.includes(id) && !BASIC_ITEMS.includes(id) && !PRIVACY_ITEMS.includes(id))
   const prefs = roster.prefs ?? {}
+  const readOnly = Boolean(roster?.readOnly)
   const inAgentMode = Boolean(actions.setSurface && actions.surfaceMode?.() === 'agent')
   const [advancedOpen, setAdvancedOpen] = useState(() => Boolean(openAdvanced))
   useEffect(() => { if (openAdvanced) setAdvancedOpen(true) }, [openAdvanced])
@@ -183,23 +186,23 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
       h(SetRow, { label: t('Default model'), className: 'bt-set-model', tour: 'default-model' },
         h(ModelMenu, {
           bot: { id: 'new-bots', name: t('New Bots'), model: isLocalRoute(prefs.defaultBotModel) ? undefined : prefs.defaultBotModel },
-          roster, actions, run, wide: true, withEfforts: false,
+          roster, actions, run, wide: true, withEfforts: false, disabled: readOnly,
           fallbackModel: roster.defaultModel,
           onPick: ref => run(actions.setPrefs({ defaultBotModel: ref })),
         }),
-        prefs.defaultBotModel ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.setPrefs({ defaultBotModel: null })) }, t('Reset')) : null),
+        prefs.defaultBotModel ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => run(actions.setPrefs({ defaultBotModel: null })) }, t('Reset')) : null),
       h(SetRow, { label: t('Enter sends message') },
-        h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) })),
+        h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, disabled: readOnly, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) })),
       basicDsh.includes('composer-enter') ? dshItem(dsh, 'composer-enter') : null),
     h(SetSection, { key: 'approvals', title: t('Approvals') },
       h(SetRow, { label: t('Approval model'), className: 'bt-set-model' },
         h(ModelMenu, {
           bot: { id: 'approval-model', name: t('Approval model'), model: prefs.approvalModel || prefs.defaultBotModel || roster.defaultModel },
-          roster: { ...roster, models: (roster.models ?? []).filter(model => !isLocalRoute(model.ref)) }, actions, run, wide: true, withEfforts: false,
+          roster: { ...roster, models: (roster.models ?? []).filter(model => !isLocalRoute(model.ref)) }, actions, run, wide: true, withEfforts: false, disabled: readOnly,
           onPick: ref => run(actions.setPrefs({ approvalModel: ref })),
         }),
-        prefs.approvalModel ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.setPrefs({ approvalModel: null })) }, t('Follow team default')) : null)),
-    h(LocationsSection, { key: 'places', actions, run }),
+        prefs.approvalModel ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => run(actions.setPrefs({ approvalModel: null })) }, t('Follow team default')) : null)),
+    h(LocationsSection, { key: 'places', actions, run, readOnly }),
     actions.setSurface && !inAgentMode ? h(SetSection, { key: 'classic-mode', title: t('Mode') },
       h(SetRow, { label: t('Classic Agent mode') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('agent') }, t('Switch')))) : null,
@@ -217,11 +220,11 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
       h('span', { className: 'bt-chevron bt-collapse-chevron', 'data-open': advancedOpen || undefined }, h(ChevronDownIcon))),
       advancedOpen ? [
         h(SetRow, { key: 'recall', label: t('Bring up related memory') },
-          h(Switch, { label: t('Bring up related memory'), on: prefs.memoryAutoRecall !== false, onChange: memoryAutoRecall => run(actions.setPrefs({ memoryAutoRecall })) })),
+          h(Switch, { label: t('Bring up related memory'), on: prefs.memoryAutoRecall !== false, disabled: readOnly, onChange: memoryAutoRecall => run(actions.setPrefs({ memoryAutoRecall })) })),
         ...MEMORY_SIZES.map(({ scope, label, size }) => h(SetRow, { key: scope, label: t(label) },
-          h(MemorySize, { label: t(label), value: prefs.memoryLimits?.[scope] ?? size, save: value => run(actions.setPrefs({ memoryLimits: { [scope]: value } })) }))),
+          h(MemorySize, { label: t(label), value: prefs.memoryLimits?.[scope] ?? size, disabled: readOnly, save: value => run(actions.setPrefs({ memoryLimits: { [scope]: value } })) }))),
         h(SetRow, { key: 'bg', label: t('Background commands after (seconds)') },
-          h(SecondsField, { label: t('Background commands after (seconds)'), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, save: backgroundAfterSec => run(actions.setPrefs({ backgroundAfterSec })) })),
+          h(SecondsField, { label: t('Background commands after (seconds)'), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, disabled: readOnly, save: backgroundAfterSec => run(actions.setPrefs({ backgroundAfterSec })) })),
         ...more.map(id => dshItem(dsh, id)),
       ] : null),
   ]
@@ -229,7 +232,7 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
 
 // The desktop app's preload hands its window `dsBotApp` so data can be moved; in browser
 // or standalone DSH sessions, `folders` still reports the live data path as read-only.
-function LocationsSection({ actions, run }) {
+function LocationsSection({ actions, run, readOnly = false }) {
   const app = globalThis.dsBotApp
   const [team, setTeam] = useState(null)
   const [data, setData] = useState(null)
@@ -245,7 +248,7 @@ function LocationsSection({ actions, run }) {
     if (app !== undefined) void Promise.resolve(app.dataLocation()).then(setData).catch(() => {})
   }, [])
   const pickTeam = (path) => {
-    if (busy.current) return undefined
+    if (busy.current || readOnly) return undefined
     busy.current = true
     setMoving(true)
     return run(Promise.resolve(actions.setTeamWorkspace(path)).then((answer) => {
@@ -258,21 +261,23 @@ function LocationsSection({ actions, run }) {
   }
   return h(SetSection, { title: t('Locations'), className: 'bt-set-places', tour: 'locations' },
     h(SetRow, { label: t('Team workspace') },
-      team === null ? null : h(FolderMenu, { value: team, team: true, actions, run, onPick: pickTeam, disabled: moving })),
+      team === null ? null : h(FolderMenu, { value: team, team: true, actions, run, onPick: pickTeam, disabled: moving || readOnly })),
     data === null ? null : h(SetRow, { label: t('Data location'), hint: data.path },
-      data.fixed ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: moving, onClick: () => { if (!busy.current) void run(app.moveData(team ?? undefined)) } }, t('Change…'))))
+      data.fixed ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: moving || readOnly, onClick: () => { if (!busy.current && !readOnly) void run(app.moveData(team ?? undefined)) } }, t('Change…'))))
 }
 
 // Multiple Bots can hold the Main Bot role at once; clicking any Bot pill toggles it
 // (the last remaining Main Bot stays selected). When several are selected, the user can
 // pick which one appears as the primary sidebar tile.
 function MainBotsSection({ roster, actions, run }) {
+  const readOnly = Boolean(roster?.readOnly)
   const mains = (roster.mainBotIds ?? []).map(id => roster.byId[id]).filter(Boolean)
   const first = mains[0]
   const [confirmed, setConfirmed] = useState(null)
   const confirmTimer = useRef(0)
   useEffect(() => () => clearTimeout(confirmTimer.current), [])
   const toggleMain = (bot, isMain) => {
+    if (readOnly) return
     const turningOn = !isMain
     void Promise.resolve(run(actions.setMain(bot.id, turningOn))).then((ok) => {
       if (ok === false || !turningOn) return
@@ -292,7 +297,7 @@ function MainBotsSection({ roster, actions, run }) {
           className: 'bt-main-pill',
           'aria-pressed': isMain,
           'data-confirm': confirmed === bot.id ? '' : undefined,
-          disabled: isLastMain,
+          disabled: isLastMain || readOnly,
           title: isLastMain ? t('Keep at least one Main Bot') : undefined,
           onClick: () => toggleMain(bot, isMain),
         },
@@ -304,13 +309,15 @@ function MainBotsSection({ roster, actions, run }) {
       h(SelectMenu, {
         'aria-label': t('Primary tile'),
         value: first?.id ?? '',
+        disabled: readOnly,
         options: mains.map(bot => ({ value: bot.id, label: bot.name })),
-        onChange: id => { if (id && id !== first?.id) void run(actions.setMain(id, true, { primary: true })) },
+        onChange: id => { if (!readOnly && id && id !== first?.id) void run(actions.setMain(id, true, { primary: true })) },
       })) : null)
 }
 
 function BotsPage({ roster, actions, run }) {
-  const newBotBtn = h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-bot', onClick: () => actions.openSettings('bots', 'new') }, h(PlusIcon), t('New Bot'))
+  const readOnly = Boolean(roster?.readOnly)
+  const newBotBtn = h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-bot', disabled: readOnly, onClick: () => actions.openSettings('bots', 'new') }, h(PlusIcon), t('New Bot'))
   return [
     h(MainBotsSection, { key: 'main', roster, actions, run }),
     h(SetSection, { key: 'bots', title: t('All Bots · {count}', { count: roster.bots.length }), action: newBotBtn, tour: 'bot-list' },
@@ -327,8 +334,9 @@ function BotsPage({ roster, actions, run }) {
 }
 
 function GroupsPage({ roster, actions, run }) {
+  const readOnly = Boolean(roster?.readOnly)
   const [creating, setCreating] = useState(false)
-  const newGroupBtn = creating ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-group', disabled: roster.bots.length < 2, title: roster.bots.length < 2 ? t('A group chat needs at least two Bots') : undefined, onClick: () => setCreating(true) }, h(PlusIcon), t('Create group chat'))
+  const newGroupBtn = creating ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-group', disabled: readOnly || roster.bots.length < 2, title: roster.bots.length < 2 ? t('A group chat needs at least two Bots') : undefined, onClick: () => setCreating(true) }, h(PlusIcon), t('Create group chat'))
   return [
     creating ? h(NewGroupForm, { key: 'create', roster, actions, run, onCancel: () => setCreating(false), onCreated: room => actions.openSettings('groups', room.id) }) : null,
     h(SetSection, { key: 'groups', title: t('Group chats · {count}', { count: roster.rooms.length }), action: newGroupBtn, tour: 'group-list' },
@@ -527,7 +535,10 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     if (!hit) return
     setPalette(false)
     if (tourRef.current) dismissTour()
-    if (hit.expandAdvanced) setAdvancedToken(token => token + 1)
+    if (hit.expandAdvanced) {
+      pendingAdvancedScroll.current = true
+      setAdvancedToken(token => token + 1)
+    }
     if (hit.page === 'dsh') go('dsh', hit.dshId)
     else go(hit.page, hit.target)
   }
@@ -568,7 +579,12 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   }
   const request = part => requests.current.parts[part]
   useEffect(() => { setError('') }, [pageKey])
-  useEffect(() => { if (shown !== 'general' && advancedToken !== 0) setAdvancedToken(0) }, [shown])
+  useEffect(() => {
+    if (shown !== 'general') {
+      pendingAdvancedScroll.current = false
+      if (advancedToken !== 0) setAdvancedToken(0)
+    }
+  }, [shown])
   // A section guide runs while its domain stays open.
   useEffect(() => {
     if (!tour || tour.mode === 'full') return
@@ -580,9 +596,18 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   // arrive and move it, so the jump repeats once the page has settled unless the user
   // scrolled meanwhile. An anchor scrolls smoothly on its own and holds until arrival.
   const userScrolled = useRef(false)
+  const pendingAdvancedScroll = useRef(false)
   const heading = useRef(null)
   const headingTimer = useRef(0)
   useEffect(() => () => clearTimeout(headingTimer.current), [])
+  const scrollToAdvanced = () => {
+    const box = scrollRef.current ?? dialogRef.current?.querySelector?.('.bt-settings-scroll')
+    const target = box?.querySelector?.('[data-tour="advanced"]')
+    if (!box || !target) return false
+    const top = target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 16
+    box.scrollTo?.({ top: Math.max(0, top), behavior: 'auto' })
+    return true
+  }
   const scrollToPart = (key, smooth) => {
     const box = scrollRef.current
     const target = box?.querySelector?.(`[data-part="${key}"]`)
@@ -591,13 +616,59 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     box.scrollTo?.({ top: Math.max(0, top), behavior: smooth && !reducedMotion() ? 'smooth' : 'auto' })
   }
   useEffect(() => {
+    if (shown !== 'general' || advancedToken === 0 || !pendingAdvancedScroll.current) return undefined
+    userScrolled.current = false
+    const settle = () => {
+      if (userScrolled.current || !pendingAdvancedScroll.current) return
+      scrollToAdvanced()
+    }
+    const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(settle) : 0
+    const later = setTimeout(settle, 450)
+    let observer = null
+    let stopObserve = 0
+    const box = scrollRef.current ?? dialogRef.current?.querySelector?.('.bt-settings-scroll')
+    if (box && typeof ResizeObserver === 'function') {
+      observer = new ResizeObserver(() => {
+        if (userScrolled.current || !pendingAdvancedScroll.current) { observer?.disconnect(); observer = null; return }
+        settle()
+      })
+      const targets = [...(box.querySelectorAll?.('[data-part]') ?? [])]
+      if (targets.length > 0) {
+        for (const el of targets) observer.observe(el)
+      } else if (box.firstElementChild) {
+        observer.observe(box.firstElementChild)
+      } else {
+        observer.observe(box)
+      }
+      stopObserve = setTimeout(() => {
+        observer?.disconnect()
+        observer = null
+        pendingAdvancedScroll.current = false
+      }, 3000)
+    } else {
+      stopObserve = setTimeout(() => { pendingAdvancedScroll.current = false }, 3000)
+    }
+    return () => {
+      if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
+      clearTimeout(later)
+      clearTimeout(stopObserve)
+      observer?.disconnect()
+    }
+  }, [shown, advancedToken])
+  useEffect(() => {
+    userScrolled.current = false
     if (!parts) return undefined
     if (anchored.current === shown) { anchored.current = null; return undefined }
     anchored.current = null
     heading.current = null
     setSpied(shown)
-    userScrolled.current = false
-    const settle = () => { if (!userScrolled.current) scrollToPart(shown, false) }
+    const settle = () => {
+      if (userScrolled.current) return
+      if (shown === 'general' && pendingAdvancedScroll.current) {
+        if (scrollToAdvanced()) return
+      }
+      scrollToPart(shown, false)
+    }
     const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(settle) : 0
     const later = setTimeout(settle, 420)
     // Lazy sibling sections above the target part may resolve after 420 ms and grow;
@@ -611,7 +682,11 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         settle()
       })
       for (const el of box.querySelectorAll?.('[data-part]') ?? []) observer.observe(el)
-      stopObserve = setTimeout(() => { observer?.disconnect(); observer = null }, 3000)
+      stopObserve = setTimeout(() => {
+        observer?.disconnect()
+        observer = null
+        pendingAdvancedScroll.current = false
+      }, 3000)
     }
     return () => {
       if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
@@ -630,10 +705,13 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   }
   const takeOver = () => {
     userScrolled.current = true
+    pendingAdvancedScroll.current = false
     heading.current = null
   }
   const goPart = (key) => {
+    if (tourRef.current) dismissTour()
     userScrolled.current = true
+    pendingAdvancedScroll.current = false
     heading.current = key
     clearTimeout(headingTimer.current)
     headingTimer.current = setTimeout(() => { heading.current = null }, 900)
@@ -692,6 +770,11 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     return null
   }
 
+  const goUser = (nextPage, nextId) => {
+    if (tourRef.current) dismissTour()
+    go(nextPage, nextId)
+  }
+
   const groupButton = (group) => {
     const active = !section && activeGroup.id === group.id
     return h('button', {
@@ -699,7 +782,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       type: 'button',
       className: 'bt-settings-item',
       'aria-current': active ? 'page' : undefined,
-      onClick: () => go(group.pages[0][0]),
+      onClick: () => goUser(group.pages[0][0]),
     },
     h(PAGE_ICONS[group.icon]),
     h('span', { className: 'bt-settings-label' }, t(group.label)),
@@ -727,12 +810,12 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       case 'general': return h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken })
       case 'shortcuts': return h(ShortcutsPage, { roster, actions, surfaceMode: dsh?.surfaceMode ?? 'bot', Section: SetSection, Row: SetRow })
       case 'models': return h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null })
-      case 'local-agents': return h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow })
+      case 'local-agents': return h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow, readOnly: Boolean(roster?.readOnly) })
       // A preset opens the page afresh each time search offers it.
       case 'bot-models': return h(BotModelsPage, { key: request('bot-models')?.key ?? 'bot-models', roster, actions, run, Section: SetSection, preset: request('bot-models')?.id ?? null })
       // It reads the DeepSeek key once; a key saved under Providers changes the catalog's key.
       case 'deepseek-services': return h(DeepSeekServicesPage, {
-        key: roster.modelsKey ?? '', actions, run, Section: SetSection, Row: SetRow, Switch, Segmented,
+        key: roster.modelsKey ?? '', actions, run, Section: SetSection, Row: SetRow, Switch, Segmented, readOnly: Boolean(roster?.readOnly),
         onOpenWebSearch: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh:web-search') : undefined,
         openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null,
       })
@@ -747,7 +830,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       case 'browser': return h(BrowserPage, { roster, actions, run, Section: SetSection, Row: SetRow })
       case 'capabilities': return h(CapabilitiesPage, { roster, actions, run })
       case 'secrets': return h(SecretsPage, { roster, actions, run, Section: SetSection })
-      case 'privacy': return h(PrivacyPage, { actions, run, Section: SetSection, Row: SetRow })
+      case 'privacy': return h(PrivacyPage, { actions, run, Section: SetSection, Row: SetRow, readOnly: Boolean(roster?.readOnly) })
       case 'feedback': return h(FeedbackPage, { actions, run, Section: SetSection, Row: SetRow })
       case 'about': return h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow, Switch, onStartTour: () => startTour('full'), inlineFeedback: false })
       default: return null
@@ -791,7 +874,8 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
         atHome ? h(OverviewPage, {
           roster, actions, run, icons: PAGE_ICONS, hasProviders, needsModel, homeGroups,
           homeStatus: key => groupStatus(key),
-          onHomeOpen: item => (item.page === 'dsh' ? go('dsh', item.id) : go(item.page)),
+          onHomeOpen: item => (item.page === 'dsh' ? goUser('dsh', item.id) : goUser(item.page)),
+          onNavigate: goUser,
           onSearch: openPalette,
           narrow: narrowNav,
           keyMissing,
@@ -824,7 +908,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           extra.length > 0 ? h('span', { className: 'bt-settings-heading' }, t('Engine')) : null,
           extra.map(row => h('button', {
             key: `dsh:${row.id}`, type: 'button', className: 'bt-settings-item', 'aria-current': section?.id === row.id ? 'page' : undefined,
-            onClick: () => actions.openSettings('dsh', row.id),
+            onClick: () => goUser('dsh', row.id),
           }, h('span', { className: 'bt-settings-icon', 'aria-hidden': true }, dshIcon(row, 16, section?.id === row.id)), h('span', { className: 'bt-settings-label' }, row.label))),
           h('span', { className: 'bt-settings-fill', 'aria-hidden': true }),
           lastGroups.map(groupButton))),

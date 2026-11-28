@@ -655,10 +655,10 @@ body[data-ds-dark-theme] .bt-main-pill[aria-pressed=true]{background:color-mix(i
 .bt-key-compact .bt-secret-field{width:220px}
 .bt-key-compact .bt-send{height:32px}
 .bt-ov-section{display:flex;flex-direction:column;gap:10px}
-.bt-ov-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:0 4px}
+.bt-ov-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 4px}
 .bt-ov-head>h3{margin:0;font-size:13px;line-height:18px;font-weight:600}
-.bt-ov-link{display:inline-flex;gap:12px;border:0;background:none;padding:0;font:inherit;font-size:12px;line-height:16px;color:var(--bt-ink-2);cursor:pointer}
-.bt-ov-link:hover{color:var(--bt-ink)}
+.bt-ov-link{display:inline-flex;align-items:center;gap:12px;min-height:28px;border:0;border-radius:6px;background:none;padding:0 8px;margin-right:-8px;font:inherit;font-size:12px;line-height:16px;color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-ov-link:hover{color:var(--bt-ink);background:var(--bt-hover)}
 .bt-ov-team{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px}
 .bt-ov-bot{min-width:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 8px 12px;border-radius:12px;border:.5px solid var(--bt-glass-rim);background:var(--bt-card);box-shadow:var(--bt-card-shadow);color:var(--bt-ink);font:inherit;cursor:pointer;transition:border-color .14s ease,background-color .14s ease}
 .bt-ov-bot:hover{border-color:var(--bt-line-2)}
@@ -924,7 +924,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 @keyframes bt-plg-shine{0%{background-position:100% 0}100%{background-position:0 0}}
 @keyframes bt-plg-done{0%{opacity:.4;transform:scale(.94)}100%{opacity:1;transform:none}}
 .bt-plg-text{min-width:0;display:flex;flex-direction:column;gap:1px}
-.bt-plg-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink)}
+.bt-plg-name{display:flex;align-items:center;flex-wrap:wrap;gap:3px 6px;min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink)}
 .bt-plg-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-plg-name .bt-tag{flex:none}
 .bt-plg-sub{font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

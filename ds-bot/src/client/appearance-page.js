@@ -93,28 +93,29 @@ function useResting(value, save, delay = 350, scope = undefined) {
   return [shown, pick, cancel]
 }
 
-export function Slider({ label, value, min, max, step, format = String, save }) {
+export function Slider({ label, value, min, max, step, format = String, save, disabled = false }) {
   const [shown, pick] = useResting(value, save)
   return h('div', { className: 'bt-range', style: { '--bt-fill': `${((shown - min) / (max - min)) * 100}%` } },
-    h('input', { type: 'range', min, max, step, value: shown, 'aria-label': label, 'aria-valuetext': format(shown), onChange: event => pick(Number(event.target.value)) }),
+    h('input', { type: 'range', min, max, step, value: shown, disabled, 'aria-label': label, 'aria-valuetext': format(shown), onChange: event => { if (!disabled) pick(Number(event.target.value)) } }),
     h('output', null, format(shown)))
 }
 
-function ColorField({ label, value, save, hint }) {
+function ColorField({ label, value, save, hint, disabled = false }) {
   const [shown, pick] = useResting(value, save)
   return h('label', { className: 'bt-look-color', title: label },
-    h('input', { type: 'color', value: shown, 'aria-label': label, onChange: event => pick(event.target.value) }),
+    h('input', { type: 'color', value: shown, disabled, 'aria-label': label, onChange: event => { if (!disabled) pick(event.target.value) } }),
     h('span', null, label),
     hint ? h('span', { className: 'bt-look-warn' }, hint) : null)
 }
 
 // A color as a row's control: the swatch and its #rrggbb code, either one to change it.
 const HEX = /^#?([0-9a-f]{6})$/i
-function ColorInput({ label, value, save, hint, scope }) {
+function ColorInput({ label, value, save, hint, scope, disabled = false }) {
   const [shown, pick] = useResting(value, save, 350, scope)
   const [text, setText] = useState(value.toUpperCase())
   useEffect(() => setText(shown.toUpperCase()), [shown])
   const commit = () => {
+    if (disabled) return
     const match = HEX.exec(text.trim())
     if (match === null) { setText(shown.toUpperCase()); return }
     const next = `#${match[1].toLowerCase()}`
@@ -122,8 +123,8 @@ function ColorInput({ label, value, save, hint, scope }) {
   }
   return h('span', { className: 'bt-look-cin' },
     hint ? h('span', { className: 'bt-look-warn' }, hint) : null,
-    h('input', { className: 'bt-input bt-look-hex', value: text, spellCheck: false, maxLength: 7, 'aria-label': `${label} #RRGGBB`, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: (event) => { if (event.key === 'Enter') event.target.blur() } }),
-    h('input', { type: 'color', className: 'bt-look-well', value: shown, 'aria-label': label, onChange: event => pick(event.target.value) }))
+    h('input', { className: 'bt-input bt-look-hex', value: text, disabled, spellCheck: false, maxLength: 7, 'aria-label': `${label} #RRGGBB`, onChange: event => { if (!disabled) setText(event.target.value) }, onBlur: commit, onKeyDown: (event) => { if (event.key === 'Enter') event.target.blur() } }),
+    h('input', { type: 'color', className: 'bt-look-well', value: shown, disabled, 'aria-label': label, onChange: event => { if (!disabled) pick(event.target.value) } }))
 }
 
 // The look as it is now: the page's own colors, sizes, widths, real Bot avatars and
@@ -150,7 +151,7 @@ function LookPreview({ roster, prefs, background }) {
       h('div', { className: 'bt-look-composer' }, h('span', { className: 'bt-look-placeholder' }, t('Message')), h('span', { className: 'bt-look-send' }, h(ArrowUpIcon)))))
 }
 
-function ThemeCard({ id, theme, current, dark, pick, children }) {
+function ThemeCard({ id, theme, current, dark, pick, disabled = false, children }) {
   const mode = dark ? theme.dark : theme.light
   const label = theme.own ? theme.label : t(theme.label)
   const active = id === current
@@ -161,9 +162,10 @@ function ThemeCard({ id, theme, current, dark, pick, children }) {
     return h('button', {
       type: 'button',
       className: 'bt-look-theme',
+      disabled,
       'data-on': active ? '' : undefined,
       'aria-pressed': active,
-      onClick: () => pick(id),
+      onClick: () => { if (!disabled) pick(id) },
     },
     swatch,
     h('span', { className: 'bt-look-tname' }, h('span', null, label)))
@@ -171,13 +173,14 @@ function ThemeCard({ id, theme, current, dark, pick, children }) {
   return h('div', {
     className: 'bt-look-theme',
     'data-on': active ? '' : undefined,
-    onClick: () => pick(id),
+    onClick: () => { if (!disabled) pick(id) },
   },
   h('button', {
     type: 'button',
     className: 'bt-look-theme-pick',
+    disabled,
     'aria-pressed': active,
-    onClick: (event) => { event.stopPropagation(); pick(id) },
+    onClick: (event) => { event.stopPropagation(); if (!disabled) pick(id) },
   },
   swatch,
   h('span', { className: 'bt-look-tname bt-look-tname-own' }, h('span', null, label))),
@@ -201,7 +204,7 @@ const readFile = (file, as) => new Promise((resolve, reject) => {
   else reader.readAsDataURL(file)
 })
 
-function OwnThemeActions({ id, theme, prefs, actions, run }) {
+function OwnThemeActions({ id, theme, prefs, actions, run, disabled = false }) {
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(theme.label)
   const save = themes => run(actions.setPrefs({ themes }))
@@ -210,7 +213,7 @@ function OwnThemeActions({ id, theme, prefs, actions, run }) {
     const image = appearance.background?.kind === 'image' ? (await call('background-picture', { id: appearance.background.image }))?.image : undefined
     download(`${theme.label}.ds-bot-theme.json`, JSON.stringify(themeFile(theme, appearance, image), null, 2))
   }
-  if (renaming) {
+  if (renaming && !disabled) {
     const done = () => {
       setRenaming(false)
       if (name.trim() !== '' && name.trim() !== theme.label) void save({ [id]: { ...theme, label: name.trim() } })
@@ -218,20 +221,21 @@ function OwnThemeActions({ id, theme, prefs, actions, run }) {
     return h('input', { className: 'bt-input bt-look-rename', value: name, autoFocus: true, maxLength: 40, 'aria-label': t('Theme name'), onChange: event => setName(event.target.value), onBlur: done, onKeyDown: (event) => { if (event.key === 'Enter') event.target.blur(); if (event.key === 'Escape') { setName(theme.label); setRenaming(false) } } })
   }
   return h('span', { className: 'bt-look-tacts' },
-    h('button', { type: 'button', className: 'bt-look-tact', onClick: () => setRenaming(true) }, t('Rename')),
-    h('button', { type: 'button', className: 'bt-look-tact', onClick: () => save({ [newThemeId()]: { ...theme, label: t('{name} copy', { name: theme.label }) } }) }, t('Duplicate')),
+    h('button', { type: 'button', className: 'bt-look-tact', disabled, onClick: () => { if (!disabled) setRenaming(true) } }, t('Rename')),
+    h('button', { type: 'button', className: 'bt-look-tact', disabled, onClick: () => { if (!disabled) void save({ [newThemeId()]: { ...theme, label: t('{name} copy', { name: theme.label }) } }) } }, t('Duplicate')),
     h('button', { type: 'button', className: 'bt-look-tact', onClick: () => run(exportTheme()) }, t('Export')),
-    h(TwiceButton, { className: 'bt-look-tact', label: t('Delete'), armedLabel: t('Click again to delete'), act: () => save({ [id]: null }) }))
+    h(TwiceButton, { className: 'bt-look-tact', disabled, label: t('Delete'), armedLabel: t('Click again to delete'), act: () => save({ [id]: null }) }))
 }
 
-function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, dshRows }) {
+function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, dshRows, readOnly = false }) {
   const dark = useDarkMode()
   const themes = themesOf(prefs)
   const current = themes[prefs.theme] ? prefs.theme : 'deepseek'
   const appearance = readAppearance(prefs.appearance)
-  const pick = (id) => { triggerColorMorph(); return run(actions.setPrefs({ theme: id })) }
+  const pick = (id) => { if (readOnly) return undefined; triggerColorMorph(); return run(actions.setPrefs({ theme: id })) }
   const ownCount = Object.values(themes).filter(theme => theme.own).length
   const create = () => {
+    if (readOnly) return undefined
     const base = themes[current]
     return run(actions.setPrefs({ themes: { [newThemeId()]: { label: t('My theme {n}', { n: ownCount + 1 }), light: base.light, dark: base.dark } } }))
   }
@@ -269,31 +273,31 @@ function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, ds
   const [accent, pickAccent, dropAccent] = useResting(prefs.accent ?? themes.deepseek.light.accent, (value) => { triggerColorMorph(); return run(actions.setPrefs({ accent: value })) })
   const custom = Boolean(prefs.accent) && !ACCENT_INKS.some(ink => INKS[ink][0] === prefs.accent)
   return h(Section, { title: t('Theme') },
-    ownWindow ? h(Row, { label: t('Color mode') }, h(Choice, { label: t('Color mode'), value: appearance.mode ?? 'system', options: MODES, pick: (id) => { triggerColorMorph(); return run(actions.setPrefs({ appearance: { mode: id } })) } })) : null,
+    ownWindow ? h(Row, { label: t('Color mode') }, h(Choice, { label: t('Color mode'), value: appearance.mode ?? 'system', options: MODES, disabled: readOnly, pick: (id) => { triggerColorMorph(); return run(actions.setPrefs({ appearance: { mode: id } })) } })) : null,
     ownWindow ? null : dshRows.filter(row => dshRowId(row) === 'appearance'),
     h('div', { className: 'bt-look-themes', 'data-tour': 'theme-grid' },
-      Object.entries(themes).map(([id, theme]) => h(ThemeCard, { key: id, id, theme, current, dark, pick },
-        theme.own ? h(OwnThemeActions, { id, theme, prefs, actions, run }) : null)),
+      Object.entries(themes).map(([id, theme]) => h(ThemeCard, { key: id, id, theme, current, dark, pick, disabled: readOnly },
+        theme.own ? h(OwnThemeActions, { id, theme, prefs, actions, run, disabled: readOnly }) : null)),
       h('div', { className: 'bt-look-theme bt-look-new' },
-        h('button', { type: 'button', className: 'bt-look-tact', onClick: create }, t('New theme')),
-        h('label', { className: 'bt-look-tact' }, t('Import…'),
-          h('input', { type: 'file', accept: 'application/json,.json,.jsonc', hidden: true, onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run(importFile(file)) } })))),
+        h('button', { type: 'button', className: 'bt-look-tact', disabled: readOnly, onClick: create }, t('New theme')),
+        h('label', { className: 'bt-look-tact', 'data-disabled': readOnly ? '' : undefined }, t('Import…'),
+          h('input', { type: 'file', accept: 'application/json,.json,.jsonc', hidden: true, disabled: readOnly, onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; if (!readOnly && file) void run(importFile(file)) } })))),
     h(Row, { label: t('Accent'), tour: 'accent' },
       h('div', { className: 'bt-swatches' },
-        h('button', { type: 'button', className: 'bt-swatch bt-swatch-default', title: t('Theme accent'), 'aria-label': t('Theme accent'), 'aria-pressed': !prefs.accent, onClick: () => { dropAccent(); triggerColorMorph(); return run(actions.setPrefs({ accent: null })) } }),
+        h('button', { type: 'button', className: 'bt-swatch bt-swatch-default', disabled: readOnly, title: t('Theme accent'), 'aria-label': t('Theme accent'), 'aria-pressed': !prefs.accent, onClick: () => { if (readOnly) return undefined; dropAccent(); triggerColorMorph(); return run(actions.setPrefs({ accent: null })) } }),
         ACCENT_INKS.map(ink => h('button', {
-          key: ink, type: 'button', className: 'bt-swatch', title: t(capitalize(ink)), 'aria-label': t(capitalize(ink)), 'aria-pressed': prefs.accent === INKS[ink][0],
-          style: { background: `var(--bt-ink-${ink})` }, onClick: () => { dropAccent(); triggerColorMorph(); return run(actions.setPrefs({ accent: INKS[ink][0] })) },
+          key: ink, type: 'button', className: 'bt-swatch', disabled: readOnly, title: t(capitalize(ink)), 'aria-label': t(capitalize(ink)), 'aria-pressed': prefs.accent === INKS[ink][0],
+          style: { background: `var(--bt-ink-${ink})` }, onClick: () => { if (readOnly) return undefined; dropAccent(); triggerColorMorph(); return run(actions.setPrefs({ accent: INKS[ink][0] })) },
         })),
         h('label', { className: 'bt-swatch bt-swatch-custom', title: t('Custom accent'), 'data-on': custom },
-          h('input', { type: 'color', value: accent, 'aria-label': t('Custom accent'), onChange: event => pickAccent(event.target.value) })))))
+          h('input', { type: 'color', value: accent, disabled: readOnly, 'aria-label': t('Custom accent'), onChange: event => { if (!readOnly) pickAccent(event.target.value) } })))))
 }
 
 // The colors of the theme in use, for one mode: accent, background and text first, the
 // other surfaces following them (themes.js moveBasics); "More colors" sets each one. A
 // built-in theme is copied into a theme of your own on the first change, so the built-in
 // one stays as it is.
-export function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
+export function ColorsSection({ prefs, actions, run, Section, Row, Choice, readOnly = false }) {
   const dark = useDarkMode()
   const themes = themesOf(prefs)
   const current = themes[prefs.theme] ? prefs.theme : 'deepseek'
@@ -341,7 +345,7 @@ export function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
     const hint = ratio !== undefined && ratio < READABLE ? t('Hard to read · {ratio}:1', { ratio: ratio.toFixed(1) }) : undefined
     // Keyed by the color alone: the first change copies a built-in theme into your own, and
     // the fields must stay as they are then, or a color being typed in another one is lost.
-    return h(Row, { key: `${mode}-${key}`, label: t(label) }, h(ColorInput, { label: t(label), value, scope: target.current?.id === current ? target.current.from : current, save: color => save(colors => change(colors, color), extra), hint }))
+    return h(Row, { key: `${mode}-${key}`, label: t(label) }, h(ColorInput, { label: t(label), value, disabled: readOnly, scope: target.current?.id === current ? target.current.from : current, save: color => save(colors => change(colors, color), extra), hint }))
   }
   return h(Section, { title: theme.own ? t('Colors · {name}', { name: theme.label }) : t('Colors'), action: h(Choice, { label: t('Colors'), value: mode, options: [['light', 'Light mode'], ['dark', 'Dark mode']], pick: setMode }) },
     // The accent here is the theme's; the team's accent above gives way to it.
@@ -357,7 +361,7 @@ export function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
       h('span', { className: 'bt-chevron bt-collapse-chevron', 'data-open': more || undefined }, h(ChevronDownIcon))),
     h(Row, { key: `${mode}-derive`, label: t('Derive from 2 colors') },
       h(DeriveColors, {
-        colors, teamAccent: accentIn(theme, mode, prefs.accent), mode,
+        colors, teamAccent: accentIn(theme, mode, prefs.accent), mode, disabled: readOnly,
         save: derived => save(() => derived, { accent: null }),
       })))
 }
@@ -373,7 +377,7 @@ function useLocalFonts() {
   return [fonts ?? [], load]
 }
 
-export function FontField({ label, value, kind = 'ui', save, fonts = [], load }) {
+export function FontField({ label, value, kind = 'ui', save, fonts = [], load, disabled = false }) {
   const listboxId = useId()
   const button = useRef(null)
   const menu = useRef(null)
@@ -428,6 +432,7 @@ export function FontField({ label, value, kind = 'ui', save, fonts = [], load })
   }
 
   const open = () => {
+    if (disabled) return
     load?.()
     setQuery('')
     setActiveIdx(0)
@@ -550,15 +555,16 @@ export function FontField({ label, value, kind = 'ui', save, fonts = [], load })
       ref: button,
       type: 'button',
       className: 'bt-sel bt-look-font-btn',
+      disabled,
       'aria-haspopup': 'listbox',
       'aria-expanded': isOpen,
       'aria-controls': isOpen ? listboxId : undefined,
       'aria-label': label,
       'data-value': value ?? '',
       title: displayLabel,
-      onClick: () => { if (isOpen) close(); else open() },
+      onClick: () => { if (disabled) return; if (isOpen) close(); else open() },
       onKeyDown: (event) => {
-        if (isOpen) return
+        if (disabled || isOpen) return
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
           event.preventDefault()
           event.stopPropagation()
@@ -604,23 +610,23 @@ export function FontField({ label, value, kind = 'ui', save, fonts = [], load })
 
 // Fonts in both forms: DSH's documented font variables carry them into what DSH draws.
 // Size and line height are DS Bot's in the desktop app; in DSH they are DSH's own rows.
-function TextSection({ prefs, actions, run, Section, Row, ownWindow, dshRows }) {
+function TextSection({ prefs, actions, run, Section, Row, ownWindow, dshRows, readOnly = false }) {
   const appearance = readAppearance(prefs.appearance)
   const [fonts, load] = useLocalFonts()
   const set = change => run(actions.setPrefs({ appearance: change }))
   return h(Section, { title: t('Text') },
-    h(Row, { label: t('Interface font') }, h(FontField, { label: t('Interface font'), kind: 'ui', value: appearance.uiFont, save: uiFont => set({ uiFont }), fonts, load })),
-    h(Row, { label: t('Code font') }, h(FontField, { label: t('Code font'), kind: 'code', value: appearance.codeFont, save: codeFont => set({ codeFont }), fonts, load })),
-    ownWindow ? h(Row, { label: t('Font size') }, h(Slider, { label: t('Font size'), value: appearance.fontSize ?? FONT_SIZE.initial, min: FONT_SIZE.min, max: FONT_SIZE.max, step: 1, save: fontSize => set({ fontSize }) })) : null,
-    ownWindow ? h(Row, { label: t('Line height') }, h(Slider, { label: t('Line height'), value: appearance.lineHeight ?? LINE_HEIGHT.initial, min: LINE_HEIGHT.min, max: LINE_HEIGHT.max, step: 0.05, format: value => value.toFixed(2), save: lineHeight => set({ lineHeight }) })) : null,
+    h(Row, { label: t('Interface font') }, h(FontField, { label: t('Interface font'), kind: 'ui', value: appearance.uiFont, disabled: readOnly, save: uiFont => set({ uiFont }), fonts, load })),
+    h(Row, { label: t('Code font') }, h(FontField, { label: t('Code font'), kind: 'code', value: appearance.codeFont, disabled: readOnly, save: codeFont => set({ codeFont }), fonts, load })),
+    ownWindow ? h(Row, { label: t('Font size') }, h(Slider, { label: t('Font size'), value: appearance.fontSize ?? FONT_SIZE.initial, min: FONT_SIZE.min, max: FONT_SIZE.max, step: 1, disabled: readOnly, save: fontSize => set({ fontSize }) })) : null,
+    ownWindow ? h(Row, { label: t('Line height') }, h(Slider, { label: t('Line height'), value: appearance.lineHeight ?? LINE_HEIGHT.initial, min: LINE_HEIGHT.min, max: LINE_HEIGHT.max, step: 0.05, format: value => value.toFixed(2), disabled: readOnly, save: lineHeight => set({ lineHeight }) })) : null,
     ownWindow ? null : dshRows.filter(row => dshRowId(row) !== 'appearance'))
 }
 
 /**
  * The background editor, for the team and for one chat.
- * @param {{ value: object | undefined, save: (background: object | null) => unknown, actions: object, run: Function, Row: Function, Choice: Function }} props
+ * @param {{ value: object | undefined, save: (background: object | null) => unknown, actions: object, run: Function, Row: Function, Choice: Function, disabled?: boolean }} props
  */
-export function BackgroundEditor({ value, save, actions, run, Row, Choice }) {
+export function BackgroundEditor({ value, save, actions, run, Row, Choice, disabled = false }) {
   const kind = value?.kind ?? 'none'
   const [failure, setFailure] = useState('')
   // Every change builds on the newest background: the one sent but not back yet, else the
@@ -633,6 +639,7 @@ export function BackgroundEditor({ value, save, actions, run, Row, Choice }) {
   const newest = () => (draft.current === null ? latest.current : draft.current.value)
   const commonOf = background => ({ ...(background?.blur ? { blur: background.blur } : {}), ...(background?.dim ? { dim: background.dim } : {}), ...(background?.surface ? { surface: background.surface } : {}) })
   const send = (next) => {
+    if (disabled) return undefined
     const sent = { value: next }
     draft.current = sent
     return Promise.resolve(save(next)).finally(() => { if (draft.current === sent) draft.current = null })
@@ -640,6 +647,7 @@ export function BackgroundEditor({ value, save, actions, run, Row, Choice }) {
   // The last kind the user picked; a picture still uploading gives way to one picked after it.
   const choice = useRef(0)
   const pickKind = (next) => {
+    if (disabled) return undefined
     choice.current += 1
     const base = newest()
     if (next === 'none') return send(null)
@@ -648,6 +656,7 @@ export function BackgroundEditor({ value, save, actions, run, Row, Choice }) {
     return undefined
   }
   const pickPicture = async (file) => {
+    if (disabled) return
     setFailure('')
     if (file.size > MAX_BACKGROUND_BYTES) { setFailure(t('The picture is too large: the limit is {mb} MB', { mb: MAX_BACKGROUND_BYTES / 1024 / 1024 })); return }
     const mine = ++choice.current
@@ -657,40 +666,41 @@ export function BackgroundEditor({ value, save, actions, run, Row, Choice }) {
     await send({ kind: 'image', image: saved.id, ...(base?.kind === 'image' && base.fit ? { fit: base.fit } : {}), ...commonOf(base) })
   }
   const set = (change) => {
+    if (disabled) return undefined
     const base = newest()
     return base ? send({ ...base, ...change }) : undefined
   }
   return h(Fragment, null,
     h('div', { className: 'bt-look-kinds' }, KINDS.map(([id, label]) => id === 'image'
-      ? h('label', { key: id, className: 'bt-look-kind', 'data-on': kind === id ? '' : undefined, 'data-kind': id },
+      ? h('label', { key: id, className: 'bt-look-kind', 'data-on': kind === id ? '' : undefined, 'data-kind': id, 'data-disabled': disabled ? '' : undefined },
         h('span', null, t(label)),
-        h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: true, onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run(pickPicture(file)) } }))
-      : h('button', { key: id, type: 'button', className: 'bt-look-kind', 'aria-pressed': kind === id, 'data-on': kind === id ? '' : undefined, 'data-kind': id, onClick: () => pickKind(id) }, h('span', null, t(label))))),
+        h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: true, disabled, onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; if (!disabled && file) void run(pickPicture(file)) } }))
+      : h('button', { key: id, type: 'button', className: 'bt-look-kind', disabled, 'aria-pressed': kind === id, 'data-on': kind === id ? '' : undefined, 'data-kind': id, onClick: () => pickKind(id) }, h('span', null, t(label))))),
     failure ? h('div', { className: 'bt-set-note', role: 'alert' }, failure) : null,
-    kind === 'color' ? h(Row, { label: t('Color') }, h(ColorInput, { label: t('Color'), value: value.color, save: color => set({ color }) })) : null,
+    kind === 'color' ? h(Row, { label: t('Color') }, h(ColorInput, { label: t('Color'), value: value.color, disabled, save: color => set({ color }) })) : null,
     kind === 'gradient' ? h(Fragment, null,
-      h(Row, { label: t('Colors') }, h('span', { className: 'bt-look-pair' }, h(ColorField, { label: t('Start color'), value: value.from, save: from => set({ from }) }), h(ColorField, { label: t('End color'), value: value.to, save: to => set({ to }) }))),
-      h(Row, { label: t('Angle') }, h(Slider, { label: t('Angle'), value: value.angle ?? 180, min: 0, max: 359, step: 1, format: angle => `${angle}°`, save: angle => set({ angle }) }))) : null,
-    kind === 'image' ? h(Row, { label: t('Fit') }, h(Choice, { label: t('Fit'), value: value.fit ?? 'cover', options: FITS, pick: fit => set({ fit }) })) : null,
-    kind === 'image' ? h(Row, { label: t('Blur') }, h(Slider, { label: t('Blur'), value: value.blur ?? 0, min: BLUR.min, max: BLUR.max, step: 1, format: blur => `${blur} px`, save: blur => set({ blur }) })) : null,
-    kind === 'none' ? null : h(Row, { label: t('Dim') }, h(Slider, { label: t('Dim'), value: value.dim ?? 0, min: DIM.min, max: DIM.max, step: 5, format: dim => `${dim}%`, save: dim => set({ dim }) })),
-    kind === 'none' ? null : h(Row, { label: t('Surface opacity') }, h(Slider, { label: t('Surface opacity'), value: value.surface ?? SURFACE.initial, min: SURFACE.min, max: SURFACE.max, step: 2, format: surface => `${surface}%`, save: surface => set({ surface }) })))
+      h(Row, { label: t('Colors') }, h('span', { className: 'bt-look-pair' }, h(ColorField, { label: t('Start color'), value: value.from, disabled, save: from => set({ from }) }), h(ColorField, { label: t('End color'), value: value.to, disabled, save: to => set({ to }) }))),
+      h(Row, { label: t('Angle') }, h(Slider, { label: t('Angle'), value: value.angle ?? 180, min: 0, max: 359, step: 1, disabled, format: angle => `${angle}°`, save: angle => set({ angle }) }))) : null,
+    kind === 'image' ? h(Row, { label: t('Fit') }, h(Choice, { label: t('Fit'), value: value.fit ?? 'cover', options: FITS, disabled, pick: fit => set({ fit }) })) : null,
+    kind === 'image' ? h(Row, { label: t('Blur') }, h(Slider, { label: t('Blur'), value: value.blur ?? 0, min: BLUR.min, max: BLUR.max, step: 1, disabled, format: blur => `${blur} px`, save: blur => set({ blur }) })) : null,
+    kind === 'none' ? null : h(Row, { label: t('Dim') }, h(Slider, { label: t('Dim'), value: value.dim ?? 0, min: DIM.min, max: DIM.max, step: 5, disabled, format: dim => `${dim}%`, save: dim => set({ dim }) })),
+    kind === 'none' ? null : h(Row, { label: t('Surface opacity') }, h(Slider, { label: t('Surface opacity'), value: value.surface ?? SURFACE.initial, min: SURFACE.min, max: SURFACE.max, step: 2, disabled, format: surface => `${surface}%`, save: surface => set({ surface }) })))
 }
 
 // What cannot be undone (restore the default appearance, delete a theme) asks twice: the
 // first click arms it for a few seconds.
-function TwiceButton({ className, label, armedLabel, act }) {
+function TwiceButton({ className, label, armedLabel, act, disabled = false }) {
   const [armed, setArmed] = useState(false)
   useEffect(() => {
     if (!armed) return undefined
     const timer = setTimeout(() => setArmed(false), 4000)
     return () => clearTimeout(timer)
   }, [armed])
-  return h('button', { type: 'button', className, 'data-armed': armed ? '' : undefined, onClick: () => { if (armed) { setArmed(false); act() } else setArmed(true) } }, armed ? armedLabel : label)
+  return h('button', { type: 'button', className, disabled, 'data-armed': armed ? '' : undefined, onClick: () => { if (disabled) return; if (armed) { setArmed(false); act() } else setArmed(true) } }, armed ? armedLabel : label)
 }
-const RestoreButton = ({ restore }) => h(TwiceButton, { className: 'bt-soft bt-soft-sm', label: t('Restore'), armedLabel: t('Click again to restore'), act: restore })
+const RestoreButton = ({ restore, disabled = false }) => h(TwiceButton, { className: 'bt-soft bt-soft-sm', disabled, label: t('Restore'), armedLabel: t('Click again to restore'), act: restore })
 
-function StylesheetField({ value, save }) {
+function StylesheetField({ value, save, disabled = false }) {
   const [text, setText] = useState(value ?? '')
   useEffect(() => setText(value ?? ''), [value])
   const size = utf8Length(text)
@@ -699,7 +709,7 @@ function StylesheetField({ value, save }) {
       h('span', null, t('Your stylesheet')),
       h('span', { className: 'bt-set-hint' }, t('Loaded last, after every other style. Hold Shift while the window opens to start without it.'))),
     h('div', { className: 'bt-look-css' },
-      h('textarea', { className: 'bt-input', spellCheck: false, value: text, rows: 6, placeholder: '.bt-row-title { letter-spacing: .02em }', 'aria-label': t('Your stylesheet'), onChange: event => setText(event.target.value), onBlur: () => { if (text !== (value ?? '') && size <= MAX_CSS) save(text === '' ? null : text) } }),
+      h('textarea', { className: 'bt-input', spellCheck: false, value: text, rows: 6, disabled, placeholder: '.bt-row-title { letter-spacing: .02em }', 'aria-label': t('Your stylesheet'), onChange: event => { if (!disabled) setText(event.target.value) }, onBlur: () => { if (!disabled && text !== (value ?? '') && size <= MAX_CSS) save(text === '' ? null : text) } }),
       size > MAX_CSS ? h('div', { className: 'bt-set-note', role: 'alert' }, t('The stylesheet holds at most {kb} KB', { kb: MAX_CSS / 1024 })) : null))
 }
 
@@ -709,6 +719,7 @@ function StylesheetField({ value, save }) {
  * @param {Array<import('react').ReactElement>} props.dshRows - DSH's own appearance rows (light or dark, font size), keyed by id; DSH only
  */
 export function AppearancePage({ roster, actions, run, Section, Row, Choice, Switch, ownWindow, dshRows = [] }) {
+  const readOnly = Boolean(roster?.readOnly)
   const prefs = roster.prefs ?? {}
   const appearance = readAppearance(prefs.appearance)
   const motion = prefs.motion === 'quiet' || prefs.motion === 'lively' ? prefs.motion : 'normal'
@@ -727,32 +738,32 @@ export function AppearancePage({ roster, actions, run, Section, Row, Choice, Swi
       t('This window opened in safe appearance: the background and your stylesheet are off here.'), ' ',
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: leaveSafeAppearance }, t('Turn them back on'))) : null,
     h(LookPreview, { key: 'preview', roster, prefs, background: safe ? undefined : appearance.background }),
-    h(ThemeSection, { key: 'theme', prefs, actions, run, Section, Row, Choice, ownWindow, dshRows }),
-    h(ColorsSection, { key: 'colors', prefs, actions, run, Section, Row, Choice }),
-    h(TextSection, { key: 'text', prefs, actions, run, Section, Row, ownWindow, dshRows }),
+    h(ThemeSection, { key: 'theme', prefs, actions, run, Section, Row, Choice, ownWindow, dshRows, readOnly }),
+    h(ColorsSection, { key: 'colors', prefs, actions, run, Section, Row, Choice, readOnly }),
+    h(TextSection, { key: 'text', prefs, actions, run, Section, Row, ownWindow, dshRows, readOnly }),
     h(Section, { key: 'density' },
-      h(Row, { label: t('Density') }, h(Choice, { label: t('Density'), value: appearance.density ?? 'standard', options: DENSITIES.map(id => [id, DENSITY_LABELS[id]]), pick: density => set({ density }) }))),
+      h(Row, { label: t('Density') }, h(Choice, { label: t('Density'), value: appearance.density ?? 'standard', disabled: readOnly, options: DENSITIES.map(id => [id, DENSITY_LABELS[id]]), pick: density => set({ density }) }))),
     h(Section, { key: 'background', title: t('Window background') },
-      h(BackgroundEditor, { value: appearance.background, save: background => set({ background }), actions, run, Row, Choice }),
+      h(BackgroundEditor, { value: appearance.background, disabled: readOnly, save: background => set({ background }), actions, run, Row, Choice }),
       ownWindow ? h(Row, { label: t('Window material') },
         h(Switch, {
           label: t('Window material'),
           on: appearance.background === undefined && appearance.material !== false,
-          disabled: appearance.background !== undefined,
+          disabled: readOnly || appearance.background !== undefined,
           onChange: material => set({ material }),
         })) : null,
     ),
     h(Section, { key: 'messages', title: t('Messages'), tour: 'layout' },
-      h(Row, { label: t('Message layout') }, h(Choice, { label: t('Message layout'), value: layoutOf(prefs), options: LAYOUTS, pick: id => run(actions.setPrefs({ layout: id })) })),
-      layoutOf(prefs) === 'flat' ? h(Row, { label: t('Text width') }, h(Slider, { label: t('Text width'), value: flatWidthOf(prefs), ...MESSAGE_WIDTH, format: width => `${width}%`, save: flatWidth => run(actions.setPrefs({ flatWidth })) })) : null,
-      h(Row, { label: t('Bubble width') }, h(Slider, { label: t('Bubble width'), value: widthOf(prefs), ...MESSAGE_WIDTH, format: width => `${width}%`, save: width => run(actions.setPrefs({ width })) })),
-      h(Row, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), onChange: thinking => run(actions.setPrefs({ thinking })) }))),
+      h(Row, { label: t('Message layout') }, h(Choice, { label: t('Message layout'), value: layoutOf(prefs), disabled: readOnly, options: LAYOUTS, pick: id => run(actions.setPrefs({ layout: id })) })),
+      layoutOf(prefs) === 'flat' ? h(Row, { label: t('Text width') }, h(Slider, { label: t('Text width'), value: flatWidthOf(prefs), ...MESSAGE_WIDTH, disabled: readOnly, format: width => `${width}%`, save: flatWidth => run(actions.setPrefs({ flatWidth })) })) : null,
+      h(Row, { label: t('Bubble width') }, h(Slider, { label: t('Bubble width'), value: widthOf(prefs), ...MESSAGE_WIDTH, disabled: readOnly, format: width => `${width}%`, save: width => run(actions.setPrefs({ width })) })),
+      h(Row, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), disabled: readOnly, onChange: thinking => run(actions.setPrefs({ thinking })) }))),
     h(Section, { key: 'motion', title: t('Motion'), tour: 'motion' },
-      h(Row, { label: t('Interface motion') }, h(Choice, { label: t('Interface motion'), value: effectsOf(prefs), options: EFFECTS, pick: id => run(actions.setPrefs({ effects: id })) })),
-      h(Row, { label: t('Bot animation') }, h(Choice, { label: t('Bot animation'), value: motion, options: MOTIONS, className: 'bt-motion-seg', pick: id => run(actions.setPrefs({ motion: id })) }))),
+      h(Row, { label: t('Interface motion') }, h(Choice, { label: t('Interface motion'), value: effectsOf(prefs), disabled: readOnly, options: EFFECTS, pick: id => run(actions.setPrefs({ effects: id })) })),
+      h(Row, { label: t('Bot animation') }, h(Choice, { label: t('Bot animation'), value: motion, disabled: readOnly, options: MOTIONS, className: 'bt-motion-seg', pick: id => run(actions.setPrefs({ motion: id })) }))),
     h(Section, { key: 'advanced', title: t('Advanced') },
-      h(StylesheetField, { value: appearance.css, save: css => set({ css }) }),
-      h(Row, { label: t('Restore default appearance'), hint: t('Your own themes stay.') }, h(RestoreButton, { restore: () => { triggerColorMorph(); return run(actions.setPrefs(DEFAULT_APPEARANCE_CHANGE)) } }))),
+      h(StylesheetField, { value: appearance.css, disabled: readOnly, save: css => set({ css }) }),
+      h(Row, { label: t('Restore default appearance'), hint: t('Your own themes stay.') }, h(RestoreButton, { disabled: readOnly, restore: () => { triggerColorMorph(); return run(actions.setPrefs(DEFAULT_APPEARANCE_CHANGE)) } }))),
   ]
 }
 
@@ -763,44 +774,43 @@ function PlainRow({ label, hint, children }) {
     h('div', { className: 'bt-set-copy' }, h('span', null, label), hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
     children ? h('div', { className: 'bt-set-control' }, children) : null)
 }
-function PlainChoice({ label, value, options, pick }) {
+function PlainChoice({ label, value, options, pick, disabled = false }) {
   return h(Segmented, { label, value, className: 'bt-look-seg' }, options.map(([id, text]) => h('button', {
-    key: id, type: 'button', 'aria-pressed': value === id,
-    onClick: () => { if (value !== id) pick(id) },
+    key: id, type: 'button', 'aria-pressed': value === id, disabled,
+    onClick: () => { if (!disabled && value !== id) pick(id) },
   }, t(text))))
 }
 
 /** A chat's own background, in its Bot or group settings. */
-export function ChatBackgroundSection({ owner, ownerKind, actions, run, Section, Row = PlainRow, Choice = PlainChoice }) {
+export function ChatBackgroundSection({ owner, ownerKind, actions, run, Section, Row = PlainRow, Choice = PlainChoice, disabled = false }) {
   const save = background => run(actions.setChatBackground({ [ownerKind === 'room' ? 'roomId' : 'botId']: owner.id, background }))
   return h(Section, { title: t('Chat background') },
     h('div', { className: 'bt-look-note' }, owner.background ? t('While this chat is open, its background takes the place of the team background.') : t('This chat uses the team background.')),
-    h(BackgroundEditor, { value: readAppearance({ background: owner.background }).background, save, actions, run, Row, Choice }))
+    h(BackgroundEditor, { value: readAppearance({ background: owner.background }).background, disabled, save, actions, run, Row, Choice }))
 }
 
 // Deriving the mode's colors from a canvas and an accent (themes.js deriveThemeMode).
 // The two wells edit local copies only; the derived colors save like any color edit.
-function DeriveColors({ colors, teamAccent, mode, save }) {
+function DeriveColors({ colors, teamAccent, mode, save, disabled = false }) {
   const [pair, setPair] = useState(() => ({ canvas: colors.bg, accent: teamAccent }))
   // Another theme or another color edit moves the palette: the wells start from what is
   // in use now, not from when the row first mounted.
   useEffect(() => { setPair({ canvas: colors.bg, accent: teamAccent }) }, [colors.bg, teamAccent])
   const well = (label, key) => h('input', {
-    type: 'color', className: 'bt-look-well', value: pair[key], 'aria-label': label, title: label, 'data-derive': key,
-    onChange: event => setPair(current => ({ ...current, [key]: event.target.value })),
+    type: 'color', className: 'bt-look-well', value: pair[key], disabled, 'aria-label': label, title: label, 'data-derive': key,
+    onChange: event => { if (!disabled) setPair(current => ({ ...current, [key]: event.target.value })) },
   })
   return h('span', { className: 'bt-look-derive' },
     well(t('Canvas'), 'canvas'),
     well(t('Accent'), 'accent'),
-    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => save(deriveThemeMode(pair.canvas, pair.accent, mode)) }, t('Derive')))
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled, onClick: () => { if (!disabled) save(deriveThemeMode(pair.canvas, pair.accent, mode)) } }, t('Derive')))
 }
 
 // Colors from the --bt-* variables only; corners on the standard steps.
 export const APPEARANCE_PAGE_CSS = `
 .bt-look[data-bg] .bt-look-chat{background:var(--bt-pane,var(--bt-main))}
 .bt-look[data-bg] .bt-look-side{background:var(--bt-sidebar)}
-.bt-look-themes{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding:12px 16px}
-@media (max-width:680px){.bt-look-themes{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.bt-look-themes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 16px}
 @media (max-width:440px){.bt-look-themes{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .bt-look-theme{display:flex;flex-direction:column;width:100%;padding:0;margin:0;border:.5px solid var(--bt-line-2);border-radius:12px;overflow:hidden;background:var(--bt-card);color:inherit;font:inherit;text-align:left;box-sizing:border-box;transition:border-color .18s ease,box-shadow .18s ease,transform .14s cubic-bezier(.22,1,.36,1)}
 button.bt-look-theme{cursor:pointer}
@@ -827,6 +837,7 @@ body[data-bt-effects=off] :is(.bt-swatch,.bt-look-theme){animation:none;transiti
 .bt-look-tacts{display:flex;flex-wrap:wrap;gap:2px;margin:2px -6px -4px}
 .bt-look-tact{display:inline-flex;align-items:center;justify-content:center;min-width:28px;min-height:28px;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--bt-ink-2);font:inherit;font-size:11px;line-height:16px;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-look-tact:hover{color:var(--bt-ink);background:var(--bt-hover)}
+.bt-look-tact:disabled,.bt-look-tact[data-disabled],.bt-look-kind:disabled,.bt-look-kind[data-disabled],.bt-look-theme:disabled,.bt-look-theme-pick:disabled,.bt-swatch:disabled{opacity:.5;cursor:default;pointer-events:none}
 .bt-look-new{align-items:center;justify-content:center;gap:2px;min-height:78px;padding:6px;border-style:dashed;background:none}
 .bt-look-new .bt-look-tact{font-size:12px}
 .bt-look-rename{height:24px;font-size:12px;padding:0 6px}

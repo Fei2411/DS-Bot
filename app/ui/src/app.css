@@ -698,6 +698,7 @@ html[data-windows-titlebar] .dsb-frame[data-surface=agent][data-collapsed] .dsb-
 /* Lazy Engine settings pages (Account, Plugins, Presets, Archived). */
 .dsb-engine-page{display:flex;flex-direction:column;gap:14px}
 .dsb-engine-loading,.dsb-engine-empty{padding:18px 4px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
+.bt-set-card>.dsb-engine-empty{padding:14px 16px}
 .dsb-engine-notice{padding:8px 12px;border-radius:10px;background:color-mix(in srgb,var(--bt-accent) 10%,transparent);color:var(--bt-ink);font-size:13px;line-height:18px}
 .dsb-engine-inline{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .dsb-engine-link{text-decoration:none;display:inline-flex;align-items:center;min-height:28px}
@@ -756,7 +757,7 @@ button.dsb-plug-row:hover .dsb-plug-chev{color:var(--bt-ink-2)}
 .dsb-plug-back:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .dsb-plug-back:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .dsb-plug-back svg{width:15px;height:15px;flex:none}
-.dsb-plug-detail-sticky{position:sticky;top:-4px;z-index:2;display:flex;align-items:center;gap:10px;padding:8px 2px 10px;margin:-4px 0 4px;background:var(--bt-main);border-bottom:.5px solid var(--bt-line);box-sizing:border-box}
+.dsb-plug-detail-sticky{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;padding:6px 10px 6px 6px;margin:0;border-radius:10px;border:.5px solid var(--bt-line);background:var(--bt-sidebar);box-sizing:border-box}
 .dsb-plug-detail-sticky .dsb-plug-back{align-self:center;flex:none}
 .dsb-plug-detail-sticky .dsb-plug-detail-head{min-width:0;flex:1 1 auto;padding:0}
 .dsb-plug-detail-head{display:flex;align-items:center;gap:10px;padding:0 2px}
