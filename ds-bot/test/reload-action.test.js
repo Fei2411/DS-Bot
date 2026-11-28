@@ -66,17 +66,27 @@ test('registerReloadGuard composes external checks with hasKeptDraftFiles and su
   }
 })
 
-test('hasUnsentReloadRisk isolates throwing guards and still honors subsequent guards and kept draft files', () => {
-  let secondRisk = false
+test('hasUnsentReloadRisk fails closed when a registered guard throws', () => {
   const offThrow = registerReloadGuard(() => { throw new Error('boom') })
-  const offSecond = registerReloadGuard(() => secondRisk)
+  const offClean = registerReloadGuard(() => false)
   try {
-    assert.equal(hasUnsentReloadRisk(), false)
-
-    secondRisk = true
+    // Unknown state from a throwing guard must require confirmation rather than silently reloading.
     assert.equal(hasUnsentReloadRisk(), true)
 
-    secondRisk = false
+    let reloaded = 0
+    let confirmReq = null
+    const offHost = registerReloadConfirmHost((req) => { confirmReq = req })
+    try {
+      assert.equal(requestWindowReload({ reload: () => { reloaded += 1 } }), 'confirming')
+      assert.equal(reloaded, 0)
+      confirmReq.confirm()
+      assert.equal(reloaded, 1)
+    } finally {
+      offHost()
+    }
+
+    // Removing the throwing guard restores direct reload while clean guards return false.
+    offThrow()
     assert.equal(hasUnsentReloadRisk(), false)
 
     keepDraft({
@@ -88,6 +98,6 @@ test('hasUnsentReloadRisk isolates throwing guards and still honors subsequent g
     assert.equal(hasUnsentReloadRisk(), true)
   } finally {
     offThrow()
-    offSecond()
+    offClean()
   }
 })

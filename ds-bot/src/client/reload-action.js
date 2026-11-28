@@ -38,7 +38,8 @@ export function hasUnsentReloadRisk() {
     try {
       if (check()) return true
     } catch {
-      // A failing guard must not crash reload recovery or skip subsequent guards.
+      // Fail closed: an unreadable guard means unsent state is unknown, so require confirmation.
+      return true
     }
   }
   return false

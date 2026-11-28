@@ -52656,6 +52656,7 @@ function hasUnsentReloadRisk() {
     try {
       if (check()) return true;
     } catch {
+      return true;
     }
   }
   return false;
