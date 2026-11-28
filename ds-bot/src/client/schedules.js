@@ -9,35 +9,61 @@ import { SelectMenu } from './select-menu.js'
 import { dateLocale, hostText, t } from './i18n.js'
 
 const POLL_MS = 30_000
+const PENDING_POLL_MS = 1_000
 
 // One view for every surface that shows tasks; each asks again when it mounts.
 let shared = null
+let publishSeq = 0
 const listeners = new Set()
+const rescheduleListeners = new Set()
 function publish(view) {
+  publishSeq += 1
   shared = view
   for (const listener of listeners) listener(view)
+  for (const listener of rescheduleListeners) listener(view)
 }
-export function useSchedules(actions) {
+export function useSchedulesState(actions) {
   const [view, setView] = useState(shared)
+  const [error, setError] = useState('')
+  const loadRef = useRef(null)
   useEffect(() => {
     listeners.add(setView)
     let stopped = false
     let inFlight = false
     let timer
-    const schedule = () => {
+    const schedule = (nextView) => {
       clearTimeout(timer)
       if (stopped || (typeof document !== 'undefined' && document.hidden)) return
-      timer = setTimeout(load, POLL_MS)
+      timer = setTimeout(load, nextView?.pending === true ? PENDING_POLL_MS : POLL_MS)
     }
+    const onPublish = (nextView) => {
+      if (!stopped && !inFlight && nextView?.pending === true) schedule(nextView)
+    }
+    rescheduleListeners.add(onPublish)
     const load = () => {
       if (stopped || inFlight) return
       if (typeof document !== 'undefined' && document.hidden) return
       inFlight = true
+      const seq = publishSeq
+      let latest = shared
       Promise.resolve(actions.schedules?.())
-        .then((next) => { if (!stopped && next !== undefined) publish(next) })
-        .catch(() => {})
-        .finally(() => { inFlight = false; schedule() })
+        .then((next) => {
+          if (stopped) return
+          setError('')
+          if (next !== undefined && publishSeq === seq) {
+            latest = next
+            publish(next)
+          } else {
+            latest = shared
+          }
+        })
+        .catch((failure) => {
+          if (!stopped && publishSeq === seq) setError(hostText(failure?.message ?? String(failure)))
+          latest = shared
+        })
+        .finally(() => { inFlight = false; schedule(latest) })
     }
+    loadRef.current = load
     const onVisibility = () => {
       if (document.hidden) clearTimeout(timer)
       else if (!stopped) load()
@@ -46,12 +72,17 @@ export function useSchedules(actions) {
     load()
     return () => {
       stopped = true
+      loadRef.current = null
       clearTimeout(timer)
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility)
       listeners.delete(setView)
+      rescheduleListeners.delete(onPublish)
     }
   }, [])
-  return view
+  return { view, error, retry: () => { setError(''); loadRef.current?.() } }
+}
+export function useSchedules(actions) {
+  return useSchedulesState(actions).view
 }
 
 const localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -253,8 +284,58 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
       h('button', { type: 'submit', className: 'bt-send bt-soft-sm', disabled: busy || !target || title.trim() === '' || prompt.trim() === '' || !validAt || !validDays || !validEvery }, busy ? t('Creating…') : t('Create task'))))
 }
 
-// Settings has no schedule service to show: Automation tasks are off in DSH.
-function AutomationOff({ actions }) {
+// Settings has no schedule service to show: either the DSH schedule plugin is off
+// (and can be enabled directly on DSH 0.2.2+), waiting for a restart, failed to start,
+// or needs the older DSH Plugins page to turn on Automation tasks.
+function AutomationOff({ view, actions, readOnly, onEnabled, onRetry }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const restartRequired = view?.restartRequired === true
+  const canEnable = !restartRequired && view?.canEnable === true && typeof actions.scheduleEnable === 'function'
+  const failed = view?.reason === 'error'
+  const lockedDisabled = !restartRequired && !canEnable && view?.reason === 'disabled'
+  const enable = () => {
+    if (busy || !canEnable || readOnly) return
+    setBusy(true)
+    setError('')
+    void Promise.resolve(actions.scheduleEnable())
+      .then((next) => {
+        setBusy(false)
+        if (next?.error) setError(hostText(next.error))
+        if (next !== undefined) onEnabled?.(next)
+      }, (failure) => {
+        setBusy(false)
+        setError(hostText(failure?.message ?? String(failure)))
+      })
+  }
+  if (restartRequired) {
+    return h('div', { className: 'bt-set-card bt-task-off' },
+      h('span', { className: 'bt-task-off-mark' }, h(ClockIcon)),
+      h('span', { className: 'bt-task-off-title' }, t('Scheduled tasks are off')),
+      h('span', { className: 'bt-set-hint' }, t('Restart DS Bot for scheduled tasks to take effect.')))
+  }
+  if (canEnable) {
+    return h('div', { className: 'bt-set-card bt-task-off' },
+      h('span', { className: 'bt-task-off-mark' }, h(ClockIcon)),
+      h('span', { className: 'bt-task-off-title' }, t('Scheduled tasks are off')),
+      h('span', { className: 'bt-set-hint' }, t('Turn on scheduled tasks to run prompts automatically on a schedule.')),
+      error ? h('span', { className: 'bt-danger bt-set-hint', role: 'alert' }, error) : null,
+      h('button', { type: 'button', className: 'bt-send bt-soft-sm', 'data-tour': 'open-plugins', disabled: busy || readOnly, onClick: enable }, busy ? t('Turning on…') : t('Turn on scheduled tasks')))
+  }
+  if (failed) {
+    return h('div', { className: 'bt-set-card bt-task-off' },
+      h('span', { className: 'bt-task-off-mark' }, h(ClockIcon)),
+      h('span', { className: 'bt-task-off-title' }, t('Scheduled tasks failed to start')),
+      h('span', { className: 'bt-set-hint' }, t('Restart DS Bot, or refresh status after fixing the issue.')),
+      view?.error ? h('span', { className: 'bt-danger bt-set-hint', role: 'alert' }, hostText(view.error)) : null,
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => onRetry?.() }, t('Refresh status')))
+  }
+  if (lockedDisabled) {
+    return h('div', { className: 'bt-set-card bt-task-off' },
+      h('span', { className: 'bt-task-off-mark' }, h(ClockIcon)),
+      h('span', { className: 'bt-task-off-title' }, t('Scheduled tasks are off')),
+      h('span', { className: 'bt-set-hint' }, t('Scheduled tasks cannot be changed here.')))
+  }
   return h('div', { className: 'bt-set-card bt-task-off' },
     h('span', { className: 'bt-task-off-mark' }, h(ClockIcon)),
     h('span', { className: 'bt-task-off-title' }, t('Turn on Automation tasks in DSH')),
@@ -266,7 +347,7 @@ function AutomationOff({ actions }) {
 // `bot:<id>`/`room:<id>` form asks for just that owner's tasks, which is how a
 // Bot's own view gets here.
 export function SchedulesPage({ roster, actions, start }) {
-  const view = useSchedules(actions)
+  const { view, error: loadError, retry } = useSchedulesState(actions)
   // "Show all" lifts the owner filter here: Settings keeps one Scheduled tasks page per
   // visit, so a route back to the same page would not reach it.
   const [owner, setOwner] = useState(() => (start?.startsWith('bot:') ? start.slice(4) : start?.startsWith('room:') ? start.slice(5) : null))
@@ -274,8 +355,19 @@ export function SchedulesPage({ roster, actions, start }) {
   // filter; the form only ever gets a plain id, so a lifted filter leaves it unset.
   const filter = start?.startsWith('bot:') || start?.startsWith('room:')
   const [adding, setAdding] = useState(Boolean(start) && !filter)
-  if (view === null) return h('div', { className: 'bt-set-hint' }, t('Loading…'))
-  if (!view.available) return h(AutomationOff, { actions })
+  if (view === null) {
+    if (loadError) {
+      return h('div', { className: 'bt-set-card bt-task-off' },
+        h('span', { className: 'bt-task-off-mark' }, h(ClockIcon)),
+        h('span', { className: 'bt-danger bt-set-hint', role: 'alert' }, loadError),
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: retry }, t('Retry')))
+    }
+    return h('div', { className: 'bt-set-hint' }, t('Loading…'))
+  }
+  if (!view.available) {
+    if (view.pending === true) return h('div', { className: 'bt-set-hint' }, t('Starting scheduled tasks…'))
+    return h(AutomationOff, { view, actions, readOnly: Boolean(roster?.readOnly), onEnabled: publish, onRetry: retry })
+  }
   const shown = next => { publish(next); setAdding(false) }
   const byChat = [
     ...roster.bots.map(bot => [bot.id, h(BotAvatar, { bot, size: 18, badge: false, live: false }), bot.name, view.tasks.filter(task => task.botId === bot.id)]),
@@ -301,15 +393,50 @@ export function SchedulesPage({ roster, actions, start }) {
 // A Bot's tasks in its settings form, with the way to add one.
 export function BotSchedules({ bot, roster, actions }) {
   const view = useSchedules(actions)
+  const [enabling, setEnabling] = useState(false)
+  const [enableError, setEnableError] = useState('')
   if (view === null) return null
   const tasks = view.available ? view.tasks.filter(task => task.botId === bot.id) : []
+  const readOnly = Boolean(roster?.readOnly)
+  const restartRequired = !view.available && view.restartRequired === true
+  const pending = !view.available && view.pending === true
+  const canEnable = !view.available && !restartRequired && !pending && view.canEnable === true && typeof actions.scheduleEnable === 'function'
+  const lockedDisabled = !view.available && !restartRequired && !pending && !canEnable && view.reason === 'disabled'
+  const enable = () => {
+    if (enabling || !canEnable || readOnly) return
+    setEnabling(true)
+    setEnableError('')
+    void Promise.resolve(actions.scheduleEnable())
+      .then((next) => {
+        setEnabling(false)
+        if (next?.error) setEnableError(hostText(next.error))
+        if (next !== undefined) publish(next)
+      }, (failure) => {
+        setEnabling(false)
+        setEnableError(hostText(failure?.message ?? String(failure)))
+      })
+  }
   return h('section', { className: 'bt-set-section' },
     h('h3', null, t('Scheduled tasks')),
     h('div', { className: 'bt-set-card' },
       !view.available
-        ? h('div', { className: 'bt-set-row bt-bs-row' },
-            h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-set-hint' }, t('Switch on Automation tasks on the Plugins page in Settings.'))),
-            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('dsh', 'plugins') }, t('Open Plugins')))
+        ? [
+            h('div', { key: 'off', className: 'bt-set-row bt-bs-row' },
+              h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-set-hint' },
+                pending ? t('Starting scheduled tasks…')
+                  : restartRequired ? t('Restart DS Bot for scheduled tasks to take effect.')
+                    : canEnable || lockedDisabled ? t('Scheduled tasks are off')
+                      : view.reason === 'error' ? t('Scheduled tasks failed to start')
+                        : t('Switch on Automation tasks on the Plugins page in Settings.'))),
+              pending || restartRequired || lockedDisabled
+                ? null
+                : canEnable
+                  ? h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: enabling || readOnly, onClick: enable }, enabling ? t('Turning on…') : t('Turn on scheduled tasks'))
+                  : view.reason === 'error'
+                    ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('schedules', bot.id) }, t('Scheduled tasks'))
+                    : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('dsh', 'plugins') }, t('Open Plugins'))),
+            enableError ? h('div', { key: 'err', className: 'bt-set-row bt-task-failed', role: 'alert' }, h('span', { className: 'bt-danger bt-set-hint' }, enableError)) : null,
+          ]
         : [
             ...tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })),
             h('button', { key: 'new', type: 'button', className: 'bt-set-row bt-bs-row bt-gs-add', onClick: () => actions.openSettings('schedules', bot.id) }, h(PlusIcon), t('New task')),
@@ -320,10 +447,15 @@ export function BotSchedules({ bot, roster, actions }) {
 export function ScheduleSummary({ bot, actions }) {
   const view = useSchedules(actions)
   const tasks = view?.available ? view.tasks.filter(task => task.botId === bot.id && task.status === 'active') : []
+  const offLabel = view?.pending ? t('Starting scheduled tasks…')
+    : view?.restartRequired ? t('Restart DS Bot for scheduled tasks to take effect.')
+      : view?.canEnable || view?.reason === 'disabled' ? t('Scheduled tasks are off')
+        : view?.reason === 'error' ? t('Scheduled tasks failed to start')
+          : t('Switch on Automation tasks on the Plugins page in Settings.')
   return h('div', null,
     h('div', { className: 'bt-section-title' }, tasks.length === 0 ? t('Scheduled tasks') : t('Scheduled tasks · {count}', { count: tasks.length })),
     tasks.length === 0
-      ? h('button', { type: 'button', className: 'bt-more', onClick: () => actions.openSettings('schedules', bot.id) }, view?.available === false ? t('Switch on Automation tasks on the Plugins page in Settings.') : t('No scheduled tasks yet. Add one'))
+      ? h('button', { type: 'button', className: 'bt-more', onClick: () => actions.openSettings('schedules', bot.id) }, view?.available === false ? offLabel : t('No scheduled tasks yet. Add one'))
       : h('div', { className: 'bt-task-list' }, tasks.slice(0, 3).map(task => h('button', { key: task.id, type: 'button', className: 'bt-task-line', onClick: () => actions.openSettings('schedules', `bot:${bot.id}`) },
 
           h(ClockIcon), h('span', { className: 'bt-task-line-title' }, task.title), h('span', { className: 'bt-task-line-when' }, timingText(task))))))

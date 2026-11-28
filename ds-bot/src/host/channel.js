@@ -941,11 +941,12 @@ export function install(rt) {
           await rt.load()
           return ok(await rt.capabilityEndpoint(endpoint, body))
         case 'schedules':
+        case 'schedule-enable':
         case 'schedule-create':
         case 'schedule-delete':
         case 'schedule-pause':
           await rt.load()
-          return ok(await rt.scheduleEndpoint(endpoint, body))
+          return ok(await rt.scheduleEndpoint(endpoint, body, { remote }))
         case 'memory-view':
         case 'memory-ask':
         case 'memory-pin':

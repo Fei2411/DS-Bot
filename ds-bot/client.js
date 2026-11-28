@@ -1883,6 +1883,20 @@ var JA = {
   "Create task": "タスクを作成",
   "Turn on Automation tasks in DSH": "DSH で「自動化タスク」をオンにしてください",
   "Switch on Automation tasks on the Plugins page in Settings.": "設定のプラグインページで「自動化タスク」を有効にしてください。",
+  "Scheduled tasks are off": "定期タスクはオフになっています",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "定期タスクをオンにすると、設定したスケジュールで自動的に実行されます。",
+  "Turn on scheduled tasks": "定期タスクをオンにする",
+  "Turning on…": "有効化中…",
+  "Restart DS Bot for scheduled tasks to take effect.": "定期タスクを有効にするには DS Bot を再起動してください。",
+  "Scheduled tasks failed to start": "定期タスクの起動に失敗しました",
+  "Restart DS Bot, or refresh status after fixing the issue.": "DS Bot を再起動するか、問題解決後に状態を更新してください。",
+  "Refresh status": "状態を更新",
+  "Starting scheduled tasks…": "定期タスクを起動しています…",
+  "Scheduled tasks cannot be turned on from here.": "ここでは定期タスクをオンにできません。",
+  "Scheduled tasks are not available in this installation.": "このインストールでは定期タスクを利用できません。",
+  "Scheduled tasks cannot be changed here.": "ここでは定期タスクを変更できません。",
+  "Scheduled tasks are locked by your configuration.": "定期タスクは設定によってロックされています。",
+  "Could not turn on scheduled tasks.": "定期タスクをオンにできませんでした。",
   "New task": "新しいタスク",
   "No scheduled tasks yet.": "定期タスクはまだありません。",
   "No scheduled tasks yet. Add one": "定期タスクはまだありません。追加する",
@@ -5557,6 +5571,20 @@ var KO = {
   "Create task": "작업 만들기",
   "Turn on Automation tasks in DSH": 'DSH에서 "자동화 작업" 켜기',
   "Switch on Automation tasks on the Plugins page in Settings.": '설정의 플러그인 페이지에서 "자동화 작업"을 활성화하세요.',
+  "Scheduled tasks are off": "예약 작업이 꺼져 있습니다",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "예약 작업을 켜면 정해진 일정에 따라 자동으로 작업을 실행합니다.",
+  "Turn on scheduled tasks": "예약 작업 켜기",
+  "Turning on…": "켜는 중…",
+  "Restart DS Bot for scheduled tasks to take effect.": "예약 작업을 적용하려면 DS Bot을 다시 시작하세요.",
+  "Scheduled tasks failed to start": "예약 작업을 시작하지 못했습니다",
+  "Restart DS Bot, or refresh status after fixing the issue.": "DS Bot을 다시 시작하거나 문제를 해결한 뒤 상태를 새로 고치세요.",
+  "Refresh status": "상태 새로 고침",
+  "Starting scheduled tasks…": "예약 작업을 시작하는 중…",
+  "Scheduled tasks cannot be turned on from here.": "여기에서는 예약 작업을 켤 수 없습니다.",
+  "Scheduled tasks are not available in this installation.": "이 설치에서는 예약 작업을 사용할 수 없습니다.",
+  "Scheduled tasks cannot be changed here.": "여기에서는 예약 작업을 변경할 수 없습니다.",
+  "Scheduled tasks are locked by your configuration.": "예약 작업이 설정으로 잠겨 있습니다.",
+  "Could not turn on scheduled tasks.": "예약 작업을 켤 수 없습니다.",
   "New task": "새 작업",
   "No scheduled tasks yet.": "아직 예약 작업이 없습니다.",
   "No scheduled tasks yet. Add one": "아직 예약 작업이 없습니다. 추가하기",
@@ -9234,6 +9262,20 @@ var ES = {
   "Create task": "Crear tarea",
   "Turn on Automation tasks in DSH": "Activa las Tareas de automatización en DSH",
   "Switch on Automation tasks on the Plugins page in Settings.": "Activa las Tareas de automatización en la página de Plugins en Ajustes.",
+  "Scheduled tasks are off": "Las tareas programadas están desactivadas",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "Activa las tareas programadas para ejecutar instrucciones automáticamente según un horario.",
+  "Turn on scheduled tasks": "Activar tareas programadas",
+  "Turning on…": "Activando…",
+  "Restart DS Bot for scheduled tasks to take effect.": "Reinicia DS Bot para que las tareas programadas surtan efecto.",
+  "Scheduled tasks failed to start": "No se pudieron iniciar las tareas programadas",
+  "Restart DS Bot, or refresh status after fixing the issue.": "Reinicia DS Bot o actualiza el estado después de corregir el problema.",
+  "Refresh status": "Actualizar estado",
+  "Starting scheduled tasks…": "Iniciando tareas programadas…",
+  "Scheduled tasks cannot be turned on from here.": "No se pueden activar las tareas programadas desde aquí.",
+  "Scheduled tasks are not available in this installation.": "Las tareas programadas no están disponibles en esta instalación.",
+  "Scheduled tasks cannot be changed here.": "Las tareas programadas no se pueden cambiar aquí.",
+  "Scheduled tasks are locked by your configuration.": "Las tareas programadas están bloqueadas por tu configuración.",
+  "Could not turn on scheduled tasks.": "No se pudieron activar las tareas programadas.",
   "New task": "Nueva tarea",
   "No scheduled tasks yet.": "Aún no hay tareas programadas.",
   "No scheduled tasks yet. Add one": "Aún no hay tareas programadas. Añade una",
@@ -12869,6 +12911,20 @@ var FR = {
   "Create task": "Créer la tâche",
   "Turn on Automation tasks in DSH": "Activer les « Tâches d’automatisation » dans DSH",
   "Switch on Automation tasks on the Plugins page in Settings.": "Activez « Tâches d’automatisation » sur la page Extensions dans les Paramètres.",
+  "Scheduled tasks are off": "Les tâches planifiées sont désactivées",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "Activez les tâches planifiées pour exécuter automatiquement des consignes selon un calendrier.",
+  "Turn on scheduled tasks": "Activer les tâches planifiées",
+  "Turning on…": "Activation…",
+  "Restart DS Bot for scheduled tasks to take effect.": "Redémarrez DS Bot pour que les tâches planifiées prennent effet.",
+  "Scheduled tasks failed to start": "Échec du démarrage des tâches planifiées",
+  "Restart DS Bot, or refresh status after fixing the issue.": "Redémarrez DS Bot ou actualisez l’état après avoir corrigé le problème.",
+  "Refresh status": "Actualiser l’état",
+  "Starting scheduled tasks…": "Démarrage des tâches planifiées…",
+  "Scheduled tasks cannot be turned on from here.": "Impossible d’activer les tâches planifiées depuis ici.",
+  "Scheduled tasks are not available in this installation.": "Les tâches planifiées ne sont pas disponibles dans cette installation.",
+  "Scheduled tasks cannot be changed here.": "Les tâches planifiées ne peuvent pas être modifiées ici.",
+  "Scheduled tasks are locked by your configuration.": "Les tâches planifiées sont verrouillées par votre configuration.",
+  "Could not turn on scheduled tasks.": "Impossible d’activer les tâches planifiées.",
   "New task": "Nouvelle tâche",
   "No scheduled tasks yet.": "Aucune tâche planifiée pour le moment.",
   "No scheduled tasks yet. Add one": "Aucune tâche planifiée. En ajouter une",
@@ -16543,6 +16599,20 @@ var DE = {
   "Create task": "Aufgabe erstellen",
   "Turn on Automation tasks in DSH": "„Automatisierungsaufgaben“ in DSH aktivieren",
   "Switch on Automation tasks on the Plugins page in Settings.": "Aktiviere „Automatisierungsaufgaben“ auf der Seite „Plugins“ in den Einstellungen.",
+  "Scheduled tasks are off": "Geplante Aufgaben sind deaktiviert",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "Aktiviere geplante Aufgaben, um Aufträge automatisch nach Zeitplan auszuführen.",
+  "Turn on scheduled tasks": "Geplante Aufgaben aktivieren",
+  "Turning on…": "Wird aktiviert…",
+  "Restart DS Bot for scheduled tasks to take effect.": "Starte DS Bot neu, damit geplante Aufgaben wirksam werden.",
+  "Scheduled tasks failed to start": "Geplante Aufgaben konnten nicht gestartet werden",
+  "Restart DS Bot, or refresh status after fixing the issue.": "Starte DS Bot neu oder aktualisiere den Status nach der Behebung.",
+  "Refresh status": "Status aktualisieren",
+  "Starting scheduled tasks…": "Geplante Aufgaben werden gestartet…",
+  "Scheduled tasks cannot be turned on from here.": "Geplante Aufgaben können hier nicht aktiviert werden.",
+  "Scheduled tasks are not available in this installation.": "Geplante Aufgaben sind in dieser Installation nicht verfügbar.",
+  "Scheduled tasks cannot be changed here.": "Geplante Aufgaben können hier nicht geändert werden.",
+  "Scheduled tasks are locked by your configuration.": "Geplante Aufgaben sind durch deine Konfiguration gesperrt.",
+  "Could not turn on scheduled tasks.": "Geplante Aufgaben konnten nicht aktiviert werden.",
   "New task": "Neue Aufgabe",
   "No scheduled tasks yet.": "Noch keine geplanten Aufgaben.",
   "No scheduled tasks yet. Add one": "Noch keine geplanten Aufgaben. Jetzt hinzufügen",
@@ -20298,6 +20368,20 @@ var ZH = {
   "Create task": "创建任务",
   "Turn on Automation tasks in DSH": "在 DSH 里打开「自动化任务」",
   "Switch on Automation tasks on the Plugins page in Settings.": "在设置的插件页启用「自动化任务」。",
+  "Scheduled tasks are off": "定时任务已关闭",
+  "Turn on scheduled tasks to run prompts automatically on a schedule.": "开启后，Bot 会按设定时间自动运行任务。",
+  "Turn on scheduled tasks": "开启定时任务",
+  "Turning on…": "正在开启…",
+  "Restart DS Bot for scheduled tasks to take effect.": "请重启 DS Bot 使定时任务生效。",
+  "Scheduled tasks failed to start": "定时任务启动失败",
+  "Restart DS Bot, or refresh status after fixing the issue.": "请重启 DS Bot，或在排查后刷新状态。",
+  "Refresh status": "刷新状态",
+  "Starting scheduled tasks…": "正在启动定时任务…",
+  "Scheduled tasks cannot be turned on from here.": "当前环境无法直接开启定时任务。",
+  "Scheduled tasks are not available in this installation.": "当前安装未包含定时任务组件。",
+  "Scheduled tasks cannot be changed here.": "当前配置不允许在此修改定时任务。",
+  "Scheduled tasks are locked by your configuration.": "定时任务已被当前配置锁定。",
+  "Could not turn on scheduled tasks.": "无法开启定时任务。",
   "New task": "新建任务",
   "No scheduled tasks yet.": "还没有定时任务。",
   "No scheduled tasks yet. Add one": "还没有定时任务，去添加",
@@ -21694,7 +21778,7 @@ var clearClientErrors = () => {
 var clientErrors = () => entries.map((entry) => entry.count > 1 ? { ...entry, text: `${entry.text} (×${entry.count})` } : { ...entry });
 function clientFacts() {
   return {
-    surface: window.dshDesktop ? "DSH Desktop" : "DSH Web",
+    surface: globalThis.dsBotApp ? "DS Bot Desktop" : window.dshDesktop ? "DSH Desktop" : "DSH Web",
     language: language(),
     userAgent: navigator.userAgent
   };
@@ -23504,6 +23588,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     pluginsSourceRemove: (id) => after(call2("plugins-source-remove", { id })),
     pluginsRetry: () => after(call2("plugins-retry", {})),
     schedules: () => call2("schedules"),
+    scheduleEnable: () => call2("schedule-enable"),
     scheduleCreate: (task) => call2("schedule-create", task),
     scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
     schedulePause: (sessionId, id, active) => call2("schedule-pause", { sessionId, id, active }),
@@ -39458,36 +39543,59 @@ var FOLDER_CSS = `
 // src/client/schedules.js
 var import_react26 = require("react");
 var POLL_MS = 3e4;
+var PENDING_POLL_MS = 1e3;
 var shared = null;
+var publishSeq = 0;
 var listeners = /* @__PURE__ */ new Set();
+var rescheduleListeners = /* @__PURE__ */ new Set();
 function publish(view) {
+  publishSeq += 1;
   shared = view;
   for (const listener of listeners) listener(view);
+  for (const listener of rescheduleListeners) listener(view);
 }
-function useSchedules(actions) {
+function useSchedulesState(actions) {
   const [view, setView] = (0, import_react26.useState)(shared);
+  const [error, setError] = (0, import_react26.useState)("");
+  const loadRef = (0, import_react26.useRef)(null);
   (0, import_react26.useEffect)(() => {
     listeners.add(setView);
     let stopped = false;
     let inFlight = false;
     let timer2;
-    const schedule = () => {
+    const schedule = (nextView) => {
       clearTimeout(timer2);
       if (stopped || typeof document !== "undefined" && document.hidden) return;
-      timer2 = setTimeout(load, POLL_MS);
+      timer2 = setTimeout(load, nextView?.pending === true ? PENDING_POLL_MS : POLL_MS);
     };
+    const onPublish = (nextView) => {
+      if (!stopped && !inFlight && nextView?.pending === true) schedule(nextView);
+    };
+    rescheduleListeners.add(onPublish);
     const load = () => {
       if (stopped || inFlight) return;
       if (typeof document !== "undefined" && document.hidden) return;
       inFlight = true;
+      const seq = publishSeq;
+      let latest = shared;
       Promise.resolve(actions.schedules?.()).then((next) => {
-        if (!stopped && next !== void 0) publish(next);
-      }).catch(() => {
+        if (stopped) return;
+        setError("");
+        if (next !== void 0 && publishSeq === seq) {
+          latest = next;
+          publish(next);
+        } else {
+          latest = shared;
+        }
+      }).catch((failure) => {
+        if (!stopped && publishSeq === seq) setError(hostText(failure?.message ?? String(failure)));
+        latest = shared;
       }).finally(() => {
         inFlight = false;
-        schedule();
+        schedule(latest);
       });
     };
+    loadRef.current = load;
     const onVisibility2 = () => {
       if (document.hidden) clearTimeout(timer2);
       else if (!stopped) load();
@@ -39496,12 +39604,20 @@ function useSchedules(actions) {
     load();
     return () => {
       stopped = true;
+      loadRef.current = null;
       clearTimeout(timer2);
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility2);
       listeners.delete(setView);
+      rescheduleListeners.delete(onPublish);
     };
   }, []);
-  return view;
+  return { view, error, retry: () => {
+    setError("");
+    loadRef.current?.();
+  } };
+}
+function useSchedules(actions) {
+  return useSchedulesState(actions).view;
 }
 var localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 var clock3 = (time) => {
@@ -39754,7 +39870,66 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
     )
   );
 }
-function AutomationOff({ actions }) {
+function AutomationOff({ view, actions, readOnly, onEnabled, onRetry }) {
+  const [busy, setBusy] = (0, import_react26.useState)(false);
+  const [error, setError] = (0, import_react26.useState)("");
+  const restartRequired = view?.restartRequired === true;
+  const canEnable = !restartRequired && view?.canEnable === true && typeof actions.scheduleEnable === "function";
+  const failed = view?.reason === "error";
+  const lockedDisabled = !restartRequired && !canEnable && view?.reason === "disabled";
+  const enable = () => {
+    if (busy || !canEnable || readOnly) return;
+    setBusy(true);
+    setError("");
+    void Promise.resolve(actions.scheduleEnable()).then((next) => {
+      setBusy(false);
+      if (next?.error) setError(hostText(next.error));
+      if (next !== void 0) onEnabled?.(next);
+    }, (failure) => {
+      setBusy(false);
+      setError(hostText(failure?.message ?? String(failure)));
+    });
+  };
+  if (restartRequired) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks are off")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Restart DS Bot for scheduled tasks to take effect."))
+    );
+  }
+  if (canEnable) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks are off")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Turn on scheduled tasks to run prompts automatically on a schedule.")),
+      error ? (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, error) : null,
+      (0, import_react26.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", "data-tour": "open-plugins", disabled: busy || readOnly, onClick: enable }, busy ? t("Turning on…") : t("Turn on scheduled tasks"))
+    );
+  }
+  if (failed) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks failed to start")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Restart DS Bot, or refresh status after fixing the issue.")),
+      view?.error ? (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, hostText(view.error)) : null,
+      (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => onRetry?.() }, t("Refresh status"))
+    );
+  }
+  if (lockedDisabled) {
+    return (0, import_react26.createElement)(
+      "div",
+      { className: "bt-set-card bt-task-off" },
+      (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+      (0, import_react26.createElement)("span", { className: "bt-task-off-title" }, t("Scheduled tasks are off")),
+      (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Scheduled tasks cannot be changed here."))
+    );
+  }
   return (0, import_react26.createElement)(
     "div",
     { className: "bt-set-card bt-task-off" },
@@ -39765,12 +39940,26 @@ function AutomationOff({ actions }) {
   );
 }
 function SchedulesPage({ roster, actions, start }) {
-  const view = useSchedules(actions);
+  const { view, error: loadError, retry } = useSchedulesState(actions);
   const [owner, setOwner] = (0, import_react26.useState)(() => start?.startsWith("bot:") ? start.slice(4) : start?.startsWith("room:") ? start.slice(5) : null);
   const filter = start?.startsWith("bot:") || start?.startsWith("room:");
   const [adding, setAdding] = (0, import_react26.useState)(Boolean(start) && !filter);
-  if (view === null) return (0, import_react26.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
-  if (!view.available) return (0, import_react26.createElement)(AutomationOff, { actions });
+  if (view === null) {
+    if (loadError) {
+      return (0, import_react26.createElement)(
+        "div",
+        { className: "bt-set-card bt-task-off" },
+        (0, import_react26.createElement)("span", { className: "bt-task-off-mark" }, (0, import_react26.createElement)(ClockIcon)),
+        (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, loadError),
+        (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: retry }, t("Retry"))
+      );
+    }
+    return (0, import_react26.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
+  }
+  if (!view.available) {
+    if (view.pending === true) return (0, import_react26.createElement)("div", { className: "bt-set-hint" }, t("Starting scheduled tasks…"));
+    return (0, import_react26.createElement)(AutomationOff, { view, actions, readOnly: Boolean(roster?.readOnly), onEnabled: publish, onRetry: retry });
+  }
   const shown = (next) => {
     publish(next);
     setAdding(false);
@@ -39802,8 +39991,28 @@ function SchedulesPage({ roster, actions, start }) {
 }
 function BotSchedules({ bot, roster, actions }) {
   const view = useSchedules(actions);
+  const [enabling, setEnabling] = (0, import_react26.useState)(false);
+  const [enableError, setEnableError] = (0, import_react26.useState)("");
   if (view === null) return null;
   const tasks = view.available ? view.tasks.filter((task) => task.botId === bot.id) : [];
+  const readOnly = Boolean(roster?.readOnly);
+  const restartRequired = !view.available && view.restartRequired === true;
+  const pending = !view.available && view.pending === true;
+  const canEnable = !view.available && !restartRequired && !pending && view.canEnable === true && typeof actions.scheduleEnable === "function";
+  const lockedDisabled = !view.available && !restartRequired && !pending && !canEnable && view.reason === "disabled";
+  const enable = () => {
+    if (enabling || !canEnable || readOnly) return;
+    setEnabling(true);
+    setEnableError("");
+    void Promise.resolve(actions.scheduleEnable()).then((next) => {
+      setEnabling(false);
+      if (next?.error) setEnableError(hostText(next.error));
+      if (next !== void 0) publish(next);
+    }, (failure) => {
+      setEnabling(false);
+      setEnableError(hostText(failure?.message ?? String(failure)));
+    });
+  };
   return (0, import_react26.createElement)(
     "section",
     { className: "bt-set-section" },
@@ -39811,12 +40020,19 @@ function BotSchedules({ bot, roster, actions }) {
     (0, import_react26.createElement)(
       "div",
       { className: "bt-set-card" },
-      !view.available ? (0, import_react26.createElement)(
-        "div",
-        { className: "bt-set-row bt-bs-row" },
-        (0, import_react26.createElement)("span", { className: "bt-set-copy" }, (0, import_react26.createElement)("span", { className: "bt-set-hint" }, t("Switch on Automation tasks on the Plugins page in Settings."))),
-        (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
-      ) : [
+      !view.available ? [
+        (0, import_react26.createElement)(
+          "div",
+          { key: "off", className: "bt-set-row bt-bs-row" },
+          (0, import_react26.createElement)("span", { className: "bt-set-copy" }, (0, import_react26.createElement)(
+            "span",
+            { className: "bt-set-hint" },
+            pending ? t("Starting scheduled tasks…") : restartRequired ? t("Restart DS Bot for scheduled tasks to take effect.") : canEnable || lockedDisabled ? t("Scheduled tasks are off") : view.reason === "error" ? t("Scheduled tasks failed to start") : t("Switch on Automation tasks on the Plugins page in Settings.")
+          )),
+          pending || restartRequired || lockedDisabled ? null : canEnable ? (0, import_react26.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: enabling || readOnly, onClick: enable }, enabling ? t("Turning on…") : t("Turn on scheduled tasks")) : view.reason === "error" ? (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules", bot.id) }, t("Scheduled tasks")) : (0, import_react26.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
+        ),
+        enableError ? (0, import_react26.createElement)("div", { key: "err", className: "bt-set-row bt-task-failed", role: "alert" }, (0, import_react26.createElement)("span", { className: "bt-danger bt-set-hint" }, enableError)) : null
+      ] : [
         ...tasks.map((task) => (0, import_react26.createElement)(TaskRow2, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })),
         (0, import_react26.createElement)("button", { key: "new", type: "button", className: "bt-set-row bt-bs-row bt-gs-add", onClick: () => actions.openSettings("schedules", bot.id) }, (0, import_react26.createElement)(PlusIcon), t("New task"))
       ]
@@ -39826,11 +40042,12 @@ function BotSchedules({ bot, roster, actions }) {
 function ScheduleSummary({ bot, actions }) {
   const view = useSchedules(actions);
   const tasks = view?.available ? view.tasks.filter((task) => task.botId === bot.id && task.status === "active") : [];
+  const offLabel = view?.pending ? t("Starting scheduled tasks…") : view?.restartRequired ? t("Restart DS Bot for scheduled tasks to take effect.") : view?.canEnable || view?.reason === "disabled" ? t("Scheduled tasks are off") : view?.reason === "error" ? t("Scheduled tasks failed to start") : t("Switch on Automation tasks on the Plugins page in Settings.");
   return (0, import_react26.createElement)(
     "div",
     null,
     (0, import_react26.createElement)("div", { className: "bt-section-title" }, tasks.length === 0 ? t("Scheduled tasks") : t("Scheduled tasks · {count}", { count: tasks.length })),
-    tasks.length === 0 ? (0, import_react26.createElement)("button", { type: "button", className: "bt-more", onClick: () => actions.openSettings("schedules", bot.id) }, view?.available === false ? t("Switch on Automation tasks on the Plugins page in Settings.") : t("No scheduled tasks yet. Add one")) : (0, import_react26.createElement)("div", { className: "bt-task-list" }, tasks.slice(0, 3).map((task) => (0, import_react26.createElement)(
+    tasks.length === 0 ? (0, import_react26.createElement)("button", { type: "button", className: "bt-more", onClick: () => actions.openSettings("schedules", bot.id) }, view?.available === false ? offLabel : t("No scheduled tasks yet. Add one")) : (0, import_react26.createElement)("div", { className: "bt-task-list" }, tasks.slice(0, 3).map((task) => (0, import_react26.createElement)(
       "button",
       { key: task.id, type: "button", className: "bt-task-line", onClick: () => actions.openSettings("schedules", `bot:${bot.id}`) },
       (0, import_react26.createElement)(ClockIcon),
@@ -50735,7 +50952,7 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
       [t("Usage"), GaugeIcon, () => actions.openSettings("usage")],
       openModels ? [t("Models and API keys"), SlidersIcon, () => openModels()] : null,
       [t("Connectors"), ConnectorIcon, () => actions.openConnectors()],
-      [t("Scheduled tasks"), ClockIcon, () => actions.selectPanel("schedules")],
+      [t("Scheduled tasks"), ClockIcon, () => typeof actions.selectPanel === "function" ? actions.selectPanel("schedules") : actions.openSettings("schedules")],
       [t("Settings"), GearIcon, () => actions.openSettings("overview")]
     ].filter(Boolean),
     typeof actions.setSurface === "function" ? [[t("Classic Agent mode"), SwitchIcon, () => actions.setSurface("agent")]] : null
@@ -50776,7 +50993,11 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
           role: "menuitem",
           onClick: () => {
             if (stay !== true) setOpen(false);
-            void Promise.resolve(run2()).catch((error) => actions.reportError(error, "menu"));
+            try {
+              void Promise.resolve(run2()).catch((error) => actions.reportError?.(error, "menu"));
+            } catch (error) {
+              actions.reportError?.(error, "menu");
+            }
           }
         }, (0, import_react47.createElement)(Icon), (0, import_react47.createElement)("span", { className: "bt-menu-label" }, label), hint ? (0, import_react47.createElement)("span", { className: "bt-menu-hint" }, hint) : null))
       ))
@@ -61444,8 +61665,8 @@ var SECTION_TOURS = {
       cue: 'Click "+ New task" to pick a Bot, schedule, and prompt.',
       fallback: {
         target: "open-plugins",
-        title: "Turn on Automation tasks in DSH",
-        cue: "Switch on Automation tasks on the Plugins page in Settings."
+        title: "Turn on scheduled tasks",
+        cue: "Turn on scheduled tasks to run prompts automatically on a schedule."
       }
     }
   ],

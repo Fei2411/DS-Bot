@@ -14,6 +14,12 @@ const TIME = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/
 const withSeconds = time => (time.length === 5 ? `${time}:00` : time)
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
+const refused = message => Object.assign(new Error(message), { code: 'bot/refused' })
+
+const SCHEDULE_PLUGIN_MODULE = '@deepseek-ai/dsh-schedule'
+const SCHEDULE_PATCH_ID = 'schedule'
+const SCHEDULE_BUNDLE_RE = /^@deepseek-ai\/dsh-(?:experimental-)?(?:automation|schedule)(?:-bundle)?$/i
+const ENABLE_ATTACH_WAIT_MS = 3_000
 
 // What a group sees of a due reminder: DSH frames it for one Session's model
 // ("[SCHEDULE REMINDER]" with JSON fields); the group gets each prompt as one line.
@@ -94,8 +100,30 @@ export function install(rt) {
   const SCHEDULE_ATTACH_GRACE_MS = rt.config?.scheduleAttachWaitMs ?? 10_000
   let service = null
   let disposed = false
+  let restartRequired = false
+  let enableInFlight = null
   let scheduleDeadline = typeof ctx.inject === 'function' ? Date.now() + SCHEDULE_ATTACH_GRACE_MS : 0
   let scheduleGraceTimer
+  const attachWaiters = new Set()
+
+  const settleAttachWaiters = (attached) => {
+    for (const resolve of [...attachWaiters]) resolve(attached)
+    attachWaiters.clear()
+  }
+  const waitForAttach = (ms = ENABLE_ATTACH_WAIT_MS) => {
+    if (service !== null) return Promise.resolve(true)
+    if (disposed) return Promise.resolve(false)
+    return new Promise((resolve) => {
+      const done = (attached) => {
+        clearTimeout(timer)
+        attachWaiters.delete(done)
+        resolve(attached)
+      }
+      const timer = setTimeout(() => done(service !== null), ms)
+      timer.unref?.()
+      attachWaiters.add(done)
+    })
+  }
 
   const clearGraceTimer = () => {
     if (scheduleGraceTimer === undefined) return
@@ -105,7 +133,7 @@ export function install(rt) {
 
   // DSH injects its schedule service after the plugin starts; while inside the attach
   // grace window, parts wait before archiving so unmoved reminders are not destroyed.
-  const schedulesPending = () => !disposed && typeof ctx.inject === 'function' && service === null && Date.now() < scheduleDeadline
+  const schedulesPending = () => !disposed && service === null && Date.now() < scheduleDeadline
 
   const armGraceRetry = () => {
     if (scheduleGraceTimer !== undefined || !schedulesPending()) return
@@ -124,7 +152,9 @@ export function install(rt) {
     if (disposed) return
     const own = sub.schedule
     service = own
+    restartRequired = false
     clearGraceTimer()
+    settleAttachWaiters(true)
     sub.effect(() => () => {
       if (service === own) {
         service = null
@@ -139,9 +169,36 @@ export function install(rt) {
     ctx.effect(() => () => {
       disposed = true
       clearGraceTimer()
+      settleAttachWaiters(false)
     }, 'ds-bot: schedule attach grace')
     ctx.inject(['schedule'], attach)
   } else if (ctx.get?.('schedule') !== undefined) attach({ schedule: ctx.get('schedule'), effect: (execute, label) => ctx.effect(execute, label) })
+
+  // Only read pluginManager via ctx.get(...): real Cordis throws when accessing an
+  // uninjected service property directly on ctx.
+  const pluginManagerOf = () => ctx.get?.('pluginManager')
+  const diagnosticOf = (entry) => {
+    const raw = entry?.diagnostic ?? entry?.error?.diagnostic ?? (typeof entry?.error === 'string' ? entry.error : undefined)
+    return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : undefined
+  }
+  async function findScheduleTarget(pm) {
+    if (pm === undefined) return null
+    if (typeof pm.listPlugins === 'function') {
+      const plugins = await Promise.resolve(pm.listPlugins()).catch(() => [])
+      const row = Array.isArray(plugins)
+        ? plugins.find(entry => entry?.moduleName === SCHEDULE_PLUGIN_MODULE || entry?.patchId === SCHEDULE_PATCH_ID)
+        : undefined
+      if (row !== undefined) return { kind: 'plugin', row }
+    }
+    if (typeof pm.listBundles === 'function') {
+      const bundles = await Promise.resolve(pm.listBundles()).catch(() => [])
+      const bundle = Array.isArray(bundles)
+        ? bundles.find(entry => typeof entry?.name === 'string' && SCHEDULE_BUNDLE_RE.test(entry.name))
+        : undefined
+      if (bundle !== undefined) return { kind: 'bundle', bundle }
+    }
+    return null
+  }
 
   // The Bot (and group chat) a task's Session speaks for, the group chat for a group's
   // own Session, or nothing for a Session outside the team.
@@ -178,8 +235,55 @@ export function install(rt) {
     return entry === undefined || sessionOf(entry) !== sessionId ? undefined : entry
   }
 
-  async function schedulesView() {
-    if (service === null) return { available: false, tasks: [] }
+  async function schedulesView({ remote = false } = {}) {
+    if (service === null) {
+      if (restartRequired) return { available: false, tasks: [], restartRequired: true }
+      const pm = pluginManagerOf()
+      const target = await findScheduleTarget(pm)
+      let canEnable = false
+      let reason
+      let error
+      let pending = false
+      if (target?.kind === 'plugin') {
+        const { row } = target
+        const entryId = row.entryId ?? row.id
+        if (row.enabled === false) {
+          reason = 'disabled'
+          canEnable = !remote && row.readOnlyReason === undefined && typeof entryId === 'string' && entryId !== '' && typeof pm.setPluginEnabled === 'function'
+        } else if (row.fiberPhase === 'failed' || row.status === 'error' || diagnosticOf(row) !== undefined) {
+          reason = 'error'
+          if (!remote) error = diagnosticOf(row)
+        } else if (schedulesPending() || row.fiberPhase === 'pending' || row.fiberPhase === 'loading' || row.fiberPhase === 'unloading') {
+          pending = true
+        } else {
+          // Enabled plugin with no live fiber past the startup/enable grace window
+          // (e.g. Cordis failed to import the module before creating a fiber):
+          // surface startup failure with recovery guidance instead of looping forever.
+          reason = 'error'
+        }
+      } else if (target?.kind === 'bundle') {
+        const { bundle } = target
+        if (bundle.enabled === false) {
+          reason = 'disabled'
+          canEnable = !remote && bundle.readOnlyReason === undefined && typeof pm.setBundleEnabled === 'function'
+        } else if (diagnosticOf(bundle) !== undefined) {
+          reason = 'error'
+          if (!remote) error = diagnosticOf(bundle)
+        } else if (schedulesPending()) {
+          pending = true
+        }
+      } else if (schedulesPending()) {
+        pending = true
+      }
+      return {
+        available: false,
+        tasks: [],
+        ...(canEnable ? { canEnable: true } : {}),
+        ...(reason !== undefined ? { reason } : {}),
+        ...(error !== undefined ? { error } : {}),
+        ...(pending ? { pending: true } : {}),
+      }
+    }
     const now = Date.now()
     const tasks = []
     for (const entry of await service.catalog()) {
@@ -198,7 +302,56 @@ export function install(rt) {
   }
 
   const endpoints = {
-    schedules: () => schedulesView(),
+    schedules: (_body, meta) => schedulesView(meta),
+    async 'schedule-enable'() {
+      const readOnly = rt.readOnly?.()
+      if (readOnly !== undefined) throw Object.assign(new Error(readOnly), { code: 'bot/read-only' })
+      if (service !== null || restartRequired) return schedulesView()
+      if (enableInFlight !== null) return enableInFlight
+      enableInFlight = (async () => {
+        const pm = pluginManagerOf()
+        if (pm === undefined) throw refused('Scheduled tasks cannot be turned on from here.')
+        const target = await findScheduleTarget(pm)
+        if (target === null) throw refused('Scheduled tasks are not available in this installation.')
+        let outcome
+        if (target.kind === 'plugin') {
+          const { row } = target
+          const entryId = row.entryId ?? row.id
+          if (row.readOnlyReason !== undefined) throw refused('Scheduled tasks cannot be changed here.')
+          if (typeof entryId !== 'string' || entryId === '' || typeof pm.setPluginEnabled !== 'function') {
+            throw refused('Scheduled tasks cannot be turned on from here.')
+          }
+          outcome = await pm.setPluginEnabled(entryId, true)
+        } else {
+          const { bundle } = target
+          if (bundle.readOnlyReason !== undefined) throw refused('Scheduled tasks cannot be changed here.')
+          if (typeof pm.setBundleEnabled !== 'function') {
+            throw refused('Scheduled tasks cannot be turned on from here.')
+          }
+          outcome = await pm.setBundleEnabled(bundle.name, true)
+        }
+        if (outcome?.application === 'overridden' || outcome?.outcome === 'overridden') {
+          throw refused('Scheduled tasks are locked by your configuration.')
+        }
+        if (outcome?.error !== undefined || outcome?.application === 'failed' || outcome?.application === 'cancelled') {
+          const diagnostic = typeof outcome?.error?.diagnostic === 'string' ? outcome.error.diagnostic.trim() : ''
+          if (diagnostic !== '') throw refused(diagnostic)
+          const code = outcome?.error?.code
+          if (code === 'management-required' || code === 'unaddressable') {
+            throw refused('Scheduled tasks cannot be changed here.')
+          }
+          throw refused('Could not turn on scheduled tasks.')
+        }
+        if (outcome?.application === 'restart-required') {
+          restartRequired = true
+          return schedulesView()
+        }
+        scheduleDeadline = Math.max(scheduleDeadline, Date.now() + SCHEDULE_ATTACH_GRACE_MS)
+        await waitForAttach()
+        return schedulesView()
+      })().finally(() => { enableInFlight = null })
+      return enableInFlight
+    },
     async 'schedule-create'(body) {
       if (service === null) throw invalid('Automation tasks are off in DSH')
       const bot = rt.botOf(body.target)
@@ -389,5 +542,5 @@ export function install(rt) {
     return { ...result, value: { ...result.value, items, shown: items.length, total: positions.length, limit, offset } }
   })
 
-  Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}), moveSchedules, schedulesPending })
+  Object.assign(rt, { scheduleEndpoint: (endpoint, body, meta) => endpoints[endpoint](body ?? {}, meta ?? {}), moveSchedules, schedulesPending })
 }
