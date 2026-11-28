@@ -6,14 +6,19 @@
 // atomically via BEGIN IMMEDIATE transactions, while secondary windows open the same
 // file with `{ readonly: true }` and never take write locks or mutate state.
 import { createHash, randomUUID } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, realpathSync, renameSync, unlinkSync } from 'node:fs'
+import { constants as fsConstants, copyFileSync, existsSync, mkdirSync, realpathSync, statSync, unlinkSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
 export const SCHEMA_VERSION = 3
 
 const IS_WINDOWS = process.platform === 'win32'
+const CRITICAL_CORRUPT_SUFFIXES = ['', '-wal', '-journal']
+const ALL_CORRUPT_SUFFIXES = ['', '-wal', '-shm', '-journal']
 const isCorruptSqliteError = error => /malformed|not a database|corrupt|SQLITE_CORRUPT|SQLITE_NOTADB/i.test(String(error?.message ?? error))
+const isFatalCorruptError = error =>
+  error instanceof CoordinationError
+  && (error.code === 'coordination/corrupt_backup_failed' || error.code === 'coordination/corrupt_reset_failed')
 
 const LEGACY_V2_TABLES_SQL = `
   DROP TABLE IF EXISTS obligations;
@@ -427,31 +432,138 @@ export function openCoordinationDb({
     return `corrupt-${stamp}-${String(idGenerator()).slice(0, 8)}`
   }
 
-  const preserveCorruptFiles = (cause, preSaved = undefined) => {
-    if (inMemory || readonly) return
-    const tag = preSaved?.tag ?? makeCorruptTag()
-    const preserved = [...(preSaved?.preserved ?? [])]
-    for (const suffix of ['', '-wal', '-shm', '-journal']) {
-      const src = `${dbPath}${suffix}`
-      if (!existsSync(src)) continue
-      const dst = `${dbPath}.${tag}${suffix}`
-      if (preserved.includes(dst)) {
-        try { unlinkSync(src) } catch {}
-        continue
+  const createBackupContext = () => ({
+    tag: makeCorruptTag(),
+    created: [],
+    preserved: [],
+    backedUp: new Map(),
+  })
+
+  const cleanupCreatedBackups = (backupCtx) => {
+    for (const file of backupCtx.created) {
+      try { unlinkSync(file) } catch { /* best-effort cleanup of partial backup created in this attempt */ }
+    }
+  }
+
+  const copyAndVerifyBackupFile = (backupCtx, suffix) => {
+    const src = `${dbPath}${suffix}`
+    if (!existsSync(src)) return false
+    const dst = `${dbPath}.${backupCtx.tag}${suffix}`
+    const srcStat = statSync(src)
+    if (!srcStat.isFile()) {
+      throw new Error(`Refusing to back up non-file coordination path: ${src}`)
+    }
+    const existedBefore = existsSync(dst)
+    try {
+      copyFileSync(src, dst, fsConstants.COPYFILE_EXCL)
+    } catch (error) {
+      if (!existedBefore && error?.code !== 'EEXIST' && error?.code !== 'EISDIR' && existsSync(dst)) {
+        try { unlinkSync(dst) } catch { /* ignore cleanup failure on partial copy */ }
       }
+      throw error
+    }
+    backupCtx.created.push(dst)
+    const dstStat = statSync(dst)
+    if (!dstStat.isFile() || dstStat.size !== srcStat.size) {
+      throw new Error(`Backup verification failed for ${dst} (expected ${srcStat.size} bytes, got ${dstStat.size})`)
+    }
+    backupCtx.backedUp.set(suffix, { dst, size: srcStat.size })
+    backupCtx.preserved.push(dst)
+    return true
+  }
+
+  const wrapCorruptBackupError = (corruptCause, backupError, failedPath) => new CoordinationError(
+    'coordination/corrupt_backup_failed',
+    `Coordination database at ${dbPath} is corrupt (${corruptCause?.message ?? corruptCause}), and backing up ${failedPath ?? dbPath} failed (${backupError?.message ?? backupError}); original files were left untouched`,
+    {
+      cause: backupError,
+      corruptCause,
+      dbPath,
+      ...(failedPath ? { failedPath } : {}),
+    },
+  )
+
+  const snapshotCorruptFilesBeforeClose = (corruptCause) => {
+    const backupCtx = createBackupContext()
+    // Snapshot `-wal` and `-journal` BEFORE `conn.close()`, since SQLite may unlink
+    // sidecar files while closing a malformed database handle.
+    for (const suffix of ['-wal', '-journal']) {
       try {
-        renameSync(src, dst)
-        preserved.push(dst)
-      } catch {
-        try { unlinkSync(src) } catch {}
+        copyAndVerifyBackupFile(backupCtx, suffix)
+      } catch (backupError) {
+        cleanupCreatedBackups(backupCtx)
+        throw wrapCorruptBackupError(corruptCause, backupError, `${dbPath}${suffix}`)
       }
     }
-    if (preserved.length > 0) {
+    // Also snapshot the main database file before `conn.close()` when possible so main DB
+    // and WAL backups reflect the same pre-close state. On Windows, defer to post-close if
+    // the open handle triggers a sharing/lock error.
+    try {
+      copyAndVerifyBackupFile(backupCtx, '')
+    } catch (backupError) {
+      if (IS_WINDOWS && ['EBUSY', 'EACCES', 'EPERM'].includes(backupError?.code)) {
+        return backupCtx
+      }
+      cleanupCreatedBackups(backupCtx)
+      throw wrapCorruptBackupError(corruptCause, backupError, dbPath)
+    }
+    return backupCtx
+  }
+
+  const backupAndClearCorruptFiles = (corruptCause, preSaved = undefined) => {
+    if (inMemory || readonly) return
+    const backupCtx = preSaved ?? createBackupContext()
+    let currentPath = dbPath
+    try {
+      for (const suffix of CRITICAL_CORRUPT_SUFFIXES) {
+        currentPath = `${dbPath}${suffix}`
+        const already = backupCtx.backedUp.get(suffix)
+        if (already !== undefined) {
+          const dstStat = statSync(already.dst)
+          if (!dstStat.isFile() || dstStat.size !== already.size) {
+            throw new Error(`Pre-close backup verification failed for ${already.dst} (expected ${already.size} bytes, got ${dstStat.size})`)
+          }
+          continue
+        }
+        copyAndVerifyBackupFile(backupCtx, suffix)
+      }
+      currentPath = dbPath
+      if (existsSync(dbPath) && !backupCtx.backedUp.has('')) {
+        throw new Error(`Main database backup missing for ${dbPath}`)
+      }
+    } catch (backupError) {
+      cleanupCreatedBackups(backupCtx)
+      throw wrapCorruptBackupError(corruptCause, backupError, currentPath)
+    }
+
+    // Hard precondition satisfied: every existing critical file is verified on disk at its
+    // backup path. Only now remove originals before initializing a fresh ledger.
+    for (const suffix of ALL_CORRUPT_SUFFIXES) {
+      const src = `${dbPath}${suffix}`
+      if (!existsSync(src)) continue
+      try {
+        unlinkSync(src)
+      } catch (removeError) {
+        throw new CoordinationError(
+          'coordination/corrupt_reset_failed',
+          `Backed up corrupt coordination database (${backupCtx.preserved.join(', ')}) but failed to remove original file ${src}: ${removeError?.message ?? removeError}`,
+          {
+            cause: removeError,
+            corruptCause,
+            dbPath,
+            failedPath: src,
+            backups: [...backupCtx.preserved],
+          },
+        )
+      }
+    }
+
+    if (backupCtx.preserved.length > 0) {
       onWarn?.(
         'ds-bot: coordination database %s was corrupt (%s); preserved backup (%s) and initialized a fresh ledger',
         dbPath,
-        cause?.message ?? cause,
-        preserved.join(', '),
+        corruptCause?.message ?? corruptCause,
+        backupCtx.preserved.join(', '),
       )
     }
   }
@@ -464,7 +576,7 @@ export function openCoordinationDb({
         : new DatabaseSync(dbPath)
     } catch (error) {
       if (allowCorruptReset && !readonly && !inMemory && isCorruptSqliteError(error)) {
-        preserveCorruptFiles(error)
+        backupAndClearCorruptFiles(error)
         return openAndInit(false)
       }
       throw new CoordinationError('coordination/open_failed', `Failed to open coordination database at ${dbPath}: ${error?.message ?? error}`, { cause: error })
@@ -525,25 +637,20 @@ export function openCoordinationDb({
     } catch (error) {
       const willReset = allowCorruptReset && !readonly && !inMemory && isCorruptSqliteError(error)
       let preSaved
+      let preSaveError
       if (willReset) {
-        // Snapshot any `-wal` / `-journal` sidecar BEFORE `conn.close()`, since SQLite may
-        // unlink sidecar files during close of a malformed database handle.
-        const tag = makeCorruptTag()
-        const preserved = []
-        for (const suffix of ['-wal', '-journal']) {
-          const src = `${dbPath}${suffix}`
-          if (!existsSync(src)) continue
-          const dst = `${dbPath}.${tag}${suffix}`
-          try {
-            copyFileSync(src, dst)
-            preserved.push(dst)
-          } catch {}
+        try {
+          preSaved = snapshotCorruptFilesBeforeClose(error)
+        } catch (backupError) {
+          preSaveError = backupError
         }
-        preSaved = { tag, preserved }
       }
       try { conn.close() } catch {}
+      if (preSaveError !== undefined) {
+        throw preSaveError
+      }
       if (willReset) {
-        preserveCorruptFiles(error, preSaved)
+        backupAndClearCorruptFiles(error, preSaved)
         return openAndInit(false)
       }
       throw error
@@ -3316,11 +3423,13 @@ export function openCoordinationDb({
 export function install(rt) {
   const dbPath = join(rt.home, 'coordination.sqlite')
   let handle = null
+  let lastError = null
+  let lastErrorIsReadOnly = null
   let disposed = false
   let overridden = false
   let overrideValue
 
-  const openHandle = () => {
+  const openHandle = ({ propagateFatal = false, forceRetry = false } = {}) => {
     if (disposed) return null
     const isReadOnly = rt.readOnly?.() !== undefined
     if (handle !== null && !handle.isClosed() && handle.readonly === isReadOnly) {
@@ -3333,11 +3442,22 @@ export function install(rt) {
     if (isReadOnly && !existsSync(dbPath)) {
       return null
     }
+    if (!forceRetry && lastError !== null && lastErrorIsReadOnly === isReadOnly && isFatalCorruptError(lastError)) {
+      if (propagateFatal) throw lastError
+      return null
+    }
     try {
       handle = openCoordinationDb({ path: dbPath, readonly: isReadOnly, onWarn: rt.warn })
+      lastError = null
+      lastErrorIsReadOnly = null
     } catch (error) {
+      lastError = error
+      lastErrorIsReadOnly = isReadOnly
       rt.warn?.('ds-bot: coordination database unavailable: %s', error?.message ?? error)
       handle = null
+      if (propagateFatal && isFatalCorruptError(error)) {
+        throw error
+      }
     }
     return handle
   }
@@ -3353,10 +3473,10 @@ export function install(rt) {
     if (overridden) return overrideValue && !overrideValue.isClosed?.() ? overrideValue : null
     if (disposed) return null
     if (handle === null && !existsSync(dbPath)) return null
-    return openHandle()
+    return openHandle({ propagateFatal: false })
   }
 
-  const refreshCoordDb = () => {
+  const refreshCoordDb = ({ throwOnError = false } = {}) => {
     overridden = false
     overrideValue = undefined
     if (disposed) return null
@@ -3364,20 +3484,24 @@ export function install(rt) {
     // Keep SQLite lazy when no coordination.sqlite exists yet so hosts/tests that never
     // use coordination do not create an OS-locked DB handle during startup/load.
     if (handle === null && !existsSync(dbPath)) {
+      lastError = null
+      lastErrorIsReadOnly = null
       return null
     }
     if (handle !== null && !handle.isClosed() && handle.readonly === isReadOnly) {
       return handle
     }
-    return openHandle()
+    return openHandle({ propagateFatal: throwOnError, forceRetry: true })
   }
+
+  const coordDbError = () => lastError
 
   Object.defineProperty(rt, 'coordDb', {
     configurable: true,
     enumerable: true,
     get() {
       if (overridden) return overrideValue
-      return openHandle()
+      return openHandle({ propagateFatal: true })
     },
     set(value) {
       overridden = true
@@ -3396,9 +3520,11 @@ export function install(rt) {
       handle.close()
       handle = null
     }
+    lastError = null
+    lastErrorIsReadOnly = null
     overridden = false
     overrideValue = undefined
   }, 'ds-bot: coordination db')
 
-  Object.assign(rt, { refreshCoordDb, hasExistingCoordDb, existingCoordDb })
+  Object.assign(rt, { refreshCoordDb, hasExistingCoordDb, existingCoordDb, coordDbError })
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -1319,5 +1319,225 @@ test('createRuntime keeps coordination.sqlite uncreated on fresh/settled homes a
     } finally {
       await upgCtx.dispose()
     }
+  }
+})
+
+// Helper: creates a real SQLite database at `dbPath` with committed rows in `works` AND a
+// corrupted `meta` btree page under `user_version = 2`, so `openCoordinationDb` hits a real
+// SQLite `SQLITE_CORRUPT` ("database disk image is malformed") error during upgrade while
+// `SELECT ... FROM works` on the preserved file still reads every original committed row.
+function createPartiallyCorruptSqlite(dbPath, { withUncheckpointedWal = false } = {}) {
+  const seedPath = withUncheckpointedWal ? `${dbPath}.seed-wal` : dbPath
+  const raw = new DatabaseSync(seedPath)
+  raw.exec(withUncheckpointedWal
+    ? 'PRAGMA page_size = 4096; PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;'
+    : 'PRAGMA page_size = 4096; PRAGMA journal_mode = DELETE;')
+  raw.exec(`
+    CREATE TABLE works (work_id TEXT PRIMARY KEY, title TEXT NOT NULL);
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  `)
+  raw.exec("INSERT INTO works (work_id, title) VALUES ('w1', 'Committed main row');")
+  const insertMeta = raw.prepare('INSERT INTO meta (key, value) VALUES (?, ?)')
+  for (let i = 0; i < 40; i += 1) {
+    insertMeta.run(`k-${i}`, 'x'.repeat(300))
+  }
+  raw.exec('PRAGMA user_version = 2;')
+  const metaRoot = raw.prepare("SELECT rootpage FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get()?.rootpage
+  assert.ok(Number.isInteger(metaRoot) && metaRoot >= 2, 'meta table must live on its own page')
+
+  if (withUncheckpointedWal) {
+    raw.exec('PRAGMA wal_checkpoint(TRUNCATE);')
+    // Hold a concurrent read snapshot so committing `w2` stays inside `-wal` uncheckpointed,
+    // then snapshot main + `-wal` into `dbPath` + `${dbPath}-wal` to simulate a real crash.
+    const reader = new DatabaseSync(seedPath)
+    reader.exec('BEGIN DEFERRED; SELECT COUNT(*) FROM works;')
+    raw.exec("INSERT INTO works (work_id, title) VALUES ('w2', 'Committed WAL-only row');")
+    assert.equal(existsSync(`${seedPath}-wal`), true, 'WAL sidecar must exist for uncheckpointed commit')
+    copyFileSync(seedPath, dbPath)
+    copyFileSync(`${seedPath}-wal`, `${dbPath}-wal`)
+    reader.exec('ROLLBACK;')
+    reader.close()
+    raw.close()
+    for (const suffix of ['', '-wal', '-shm', '-journal']) {
+      try { rmSync(`${seedPath}${suffix}`, { force: true }) } catch {}
+    }
+  } else {
+    raw.exec("INSERT INTO works (work_id, title) VALUES ('w2', 'Second committed row');")
+    raw.close()
+  }
+
+  // Corrupt ONLY `meta`'s root btree page inside the main DB file; `works` stays intact.
+  const buf = readFileSync(dbPath)
+  const pageOffset = (metaRoot - 1) * 4096
+  buf.fill(0xff, pageOffset, pageOffset + 64)
+  writeFileSync(dbPath, buf)
+}
+
+function readWorksFromRealSqlite(sqlitePath) {
+  const raw = new DatabaseSync(sqlitePath)
+  try {
+    return raw.prepare('SELECT work_id, title FROM works ORDER BY work_id ASC').all()
+      .map(row => ({ workId: row.work_id, title: row.title }))
+  } finally {
+    raw.close()
+  }
+}
+
+test('corrupt recovery refuses to delete or replace DB when backup fails and preserves original committed SQLite rows', () => {
+  const fixedNow = () => Date.UTC(2026, 5, 1, 12, 0, 0)
+  const expectedTag = 'corrupt-2026-06-01T12-00-00-000Z-failback'
+
+  // 1a. Backup failure on the main DB target (pre-existing non-empty directory at `${dbPath}.${tag}`),
+  //     with an active `-wal` sidecar present: must throw `coordination/corrupt_backup_failed`,
+  //     clean up the partial `.corrupt-*-wal` copy created in this attempt, keep the blocking dir
+  //     untouched, NEVER unlink `dbPath`, and keep all original committed rows readable.
+  {
+    const dir = tempDir('dsb-coord-backup-fail-main-')
+    const dbPath = join(dir, 'coordination.sqlite')
+    createPartiallyCorruptSqlite(dbPath, { withUncheckpointedWal: true })
+    const blockingDir = `${dbPath}.${expectedTag}`
+    mkdirSync(blockingDir)
+    writeFileSync(join(blockingDir, 'keep.txt'), 'blocker')
+
+    const warnings = []
+    assert.throws(
+      () => openCoordinationDb({
+        path: dbPath,
+        now: fixedNow,
+        idGenerator: () => 'failback-uuid',
+        onWarn: (...args) => warnings.push(args),
+      }),
+      (err) => err instanceof CoordinationError
+        && err.code === 'coordination/corrupt_backup_failed'
+        && /malformed|corrupt/i.test(err.message)
+        && /original files were left untouched/i.test(err.message)
+        && err.details?.cause != null
+        && err.details?.corruptCause != null,
+    )
+
+    assert.equal(warnings.length, 0, 'must not emit fresh-ledger warning when backup failed')
+    assert.equal(existsSync(dbPath), true, 'original dbPath must still exist after backup failure')
+    assert.equal(existsSync(`${blockingDir}-wal`), false, 'partial -wal backup created during failed attempt must be cleaned up')
+    assert.equal(existsSync(join(blockingDir, 'keep.txt')), true, 'pre-existing blocking directory must not be modified')
+    assert.deepEqual(readWorksFromRealSqlite(dbPath), [
+      { workId: 'w1', title: 'Committed main row' },
+      { workId: 'w2', title: 'Committed WAL-only row' },
+    ], 'original SQLite DB must still open and return original committed rows')
+  }
+
+  // 1b. Backup failure on the `-wal` sidecar target (pre-close failure): must throw
+  //     `coordination/corrupt_backup_failed`, create NO partial main backup, and keep original rows readable.
+  {
+    const dir = tempDir('dsb-coord-backup-fail-wal-')
+    const dbPath = join(dir, 'coordination.sqlite')
+    createPartiallyCorruptSqlite(dbPath, { withUncheckpointedWal: true })
+    const blockingWalDir = `${dbPath}.${expectedTag}-wal`
+    mkdirSync(blockingWalDir)
+    writeFileSync(join(blockingWalDir, 'keep.txt'), 'blocker')
+
+    assert.throws(
+      () => openCoordinationDb({
+        path: dbPath,
+        now: fixedNow,
+        idGenerator: () => 'failback-uuid',
+      }),
+      err => err instanceof CoordinationError && err.code === 'coordination/corrupt_backup_failed',
+    )
+
+    assert.equal(existsSync(`${dbPath}.${expectedTag}`), false, 'main backup must not be created after -wal backup failed')
+    assert.equal(existsSync(dbPath), true, 'original dbPath must remain untouched')
+    assert.deepEqual(readWorksFromRealSqlite(dbPath), [
+      { workId: 'w1', title: 'Committed main row' },
+      { workId: 'w2', title: 'Committed WAL-only row' },
+    ], 'original SQLite DB rows must stay readable after -wal backup failure')
+  }
+
+  // 1c. Caller `install(rt)` propagates `coordination/corrupt_backup_failed` on `rt.coordDb`
+  //     instead of silently swallowing it and running on an empty ledger.
+  if (process.platform !== 'win32') {
+    const dir = tempDir('dsb-coord-install-backup-fail-')
+    const dbPath = join(dir, 'coordination.sqlite')
+    writeFileSync(dbPath, 'definitely-corrupt-header-for-install-test')
+    const warnings = []
+    const disposes = []
+    const rt = {
+      home: dir,
+      readOnly: () => undefined,
+      hasLoaded: () => true,
+      onAdopted: () => () => {},
+      warn: (...args) => warnings.push(args),
+      ctx: { effect: (fn) => { disposes.push(fn()) } },
+    }
+    chmodSync(dir, 0o555)
+    try {
+      install(rt)
+      assert.equal(rt.coordDbError()?.code, 'coordination/corrupt_backup_failed')
+      assert.equal(rt.existingCoordDb(), null, 'passive existingCoordDb returns null without creating an empty ledger')
+      assert.throws(
+        () => rt.coordDb,
+        err => err instanceof CoordinationError && err.code === 'coordination/corrupt_backup_failed',
+        'active rt.coordDb access must propagate backup failure instead of silently returning null or empty DB',
+      )
+      assert.equal(readFileSync(dbPath, 'utf8'), 'definitely-corrupt-header-for-install-test', 'original corrupt file stays untouched')
+      assert.equal(warnings.length, 1, 'failure warning logged once without spamming on repeated getter accesses')
+    } finally {
+      chmodSync(dir, 0o755)
+      for (const fn of disposes) fn()
+    }
+  }
+})
+
+test('corrupt recovery produces independently openable and readable real SQLite backups (main + WAL)', () => {
+  for (const { label, withUncheckpointedWal, expectedRows } of [
+    {
+      label: 'delete-journal-main',
+      withUncheckpointedWal: false,
+      expectedRows: [
+        { workId: 'w1', title: 'Committed main row' },
+        { workId: 'w2', title: 'Second committed row' },
+      ],
+    },
+    {
+      label: 'wal-uncheckpointed',
+      withUncheckpointedWal: true,
+      expectedRows: [
+        { workId: 'w1', title: 'Committed main row' },
+        { workId: 'w2', title: 'Committed WAL-only row' },
+      ],
+    },
+  ]) {
+    const dir = tempDir(`dsb-coord-backup-ok-${label}-`)
+    const dbPath = join(dir, 'coordination.sqlite')
+    createPartiallyCorruptSqlite(dbPath, { withUncheckpointedWal })
+
+    const warnings = []
+    const recovered = openCoordinationDb({
+      path: dbPath,
+      now: () => Date.UTC(2026, 5, 2, 8, 30, 0),
+      idGenerator: () => 'goodback-uuid',
+      onWarn: (...args) => warnings.push(args),
+    })
+    try {
+      assert.equal(recovered.schemaVersion(), SCHEMA_VERSION, `${label}: fresh ledger initialized at current schema`)
+      assert.deepEqual(recovered.listWorks({ limit: 10 }), [], `${label}: fresh ledger starts empty`)
+      const fresh = recovered.createWork({ botId: 'botA', kind: 'task', title: 'post-recovery work' }).work
+      assert.equal(recovered.getWork(fresh.workId).title, 'post-recovery work')
+    } finally {
+      recovered.close()
+    }
+
+    assert.equal(warnings.length, 1, `${label}: emits one diagnostic warning`)
+    const expectedBackup = `${dbPath}.corrupt-2026-06-02T08-30-00-000Z-goodback`
+    assert.equal(existsSync(expectedBackup), true, `${label}: main .corrupt-* backup file exists`)
+    if (withUncheckpointedWal && process.platform !== 'win32') {
+      assert.equal(existsSync(`${expectedBackup}-wal`), true, `${label}: -wal .corrupt-* backup sidecar exists on POSIX`)
+    }
+
+    // Independently open the backup DB with real node:sqlite DatabaseSync and verify committed rows!
+    assert.deepEqual(
+      readWorksFromRealSqlite(expectedBackup),
+      expectedRows,
+      `${label}: opening .corrupt-* backup with DatabaseSync must return all original committed records`,
+    )
   }
 })
