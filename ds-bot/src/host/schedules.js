@@ -174,7 +174,9 @@ export function install(rt) {
     ctx.inject(['schedule'], attach)
   } else if (ctx.get?.('schedule') !== undefined) attach({ schedule: ctx.get('schedule'), effect: (execute, label) => ctx.effect(execute, label) })
 
-  const pluginManagerOf = () => ctx.get?.('pluginManager') ?? ctx.pluginManager
+  // Only read pluginManager via ctx.get(...): real Cordis throws when accessing an
+  // uninjected service property directly on ctx.
+  const pluginManagerOf = () => ctx.get?.('pluginManager')
   const diagnosticOf = (entry) => {
     const raw = entry?.diagnostic ?? entry?.error?.diagnostic ?? (typeof entry?.error === 'string' ? entry.error : undefined)
     return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : undefined
@@ -251,7 +253,9 @@ export function install(rt) {
         } else if (row.fiberPhase === 'failed' || row.status === 'error' || diagnosticOf(row) !== undefined) {
           reason = 'error'
           if (!remote) error = diagnosticOf(row)
-        } else if (schedulesPending() || row.fiberPhase === 'pending' || row.fiberPhase === 'loading') {
+        } else {
+          // Enabled, non-failed plugin without an attached service yet (including null /
+          // 'unloading' during HMR recomposition right after schedule-enable).
           pending = true
         }
       } else if (target?.kind === 'bundle') {
@@ -327,8 +331,13 @@ export function install(rt) {
           throw refused('Scheduled tasks are locked by your configuration.')
         }
         if (outcome?.error !== undefined || outcome?.application === 'failed' || outcome?.application === 'cancelled') {
-          const detail = outcome?.error?.diagnostic || outcome?.error?.code
-          throw refused(typeof detail === 'string' && detail.trim() !== '' ? detail.trim() : 'Could not turn on scheduled tasks.')
+          const diagnostic = typeof outcome?.error?.diagnostic === 'string' ? outcome.error.diagnostic.trim() : ''
+          if (diagnostic !== '') throw refused(diagnostic)
+          const code = outcome?.error?.code
+          if (code === 'management-required' || code === 'unaddressable') {
+            throw refused('Scheduled tasks cannot be changed here.')
+          }
+          throw refused('Could not turn on scheduled tasks.')
         }
         if (outcome?.application === 'restart-required') {
           restartRequired = true

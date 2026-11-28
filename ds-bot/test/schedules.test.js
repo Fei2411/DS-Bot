@@ -628,7 +628,7 @@ test('schedules reports startup error diagnostic, redacts error/canEnable for re
   mode = 'pm-failed-code'
   const failedCodeRes = await call('schedule-enable')
   assert.equal(failedCodeRes.ok, false)
-  assert.equal(failedCodeRes.error.message, 'management-required')
+  assert.equal(failedCodeRes.error.message, 'Scheduled tasks cannot be changed here.')
 
   // Concurrent schedule-enable calls coalesce into one pluginManager call and persist restartRequired across subsequent polls.
   mode = 'coalesce'
@@ -643,6 +643,41 @@ test('schedules reports startup error diagnostic, redacts error/canEnable for re
   assert.equal(r2.ok, true)
   assert.deepEqual(r1.value, { available: false, tasks: [], restartRequired: true })
   assert.deepEqual((await call('schedules')).value, { available: false, tasks: [], restartRequired: true })
+})
+
+test('schedules safely handles real Cordis throwing proxy when pluginManager is absent and treats enabled fiberless plugin as pending', async (t) => {
+  // 1. Real Cordis throws on direct ctx.pluginManager access when uninjected.
+  const home1 = mkdtempSync(join(tmpdir(), 'ds-bot-sched-cordis-'))
+  const ctx1 = fakeContext({ services: {} })
+  Object.defineProperty(ctx1, 'pluginManager', {
+    get() { throw new Error('cannot get property "pluginManager" without inject') },
+  })
+  const reg1 = ctx1.connection.fetch.register
+  ctx1.connection.fetch.register = (route) => { ctx1.route = route; return reg1(route) }
+  createRuntime(ctx1, { home: home1 })
+  const call1 = async (endpoint, payload = {}) => (await ctx1.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  t.after(async () => { await ctx1.dispose(); rmSync(home1, { recursive: true, force: true, maxRetries: 5 }) })
+
+  assert.deepEqual((await call1('schedules')).value, { available: false, tasks: [] })
+  const refusedRes = await call1('schedule-enable')
+  assert.equal(refusedRes.ok, false)
+  assert.equal(refusedRes.error.message, 'Scheduled tasks cannot be turned on from here.')
+
+  // 2. Enabled non-failed plugin whose fiberPhase is null/'unloading' reports pending:true instead of legacy fallback.
+  const home2 = mkdtempSync(join(tmpdir(), 'ds-bot-sched-hmr-'))
+  const pluginManager = {
+    async listPlugins() {
+      return [{ entryId: 'e-sched', moduleName: '@deepseek-ai/dsh-schedule', patchId: 'schedule', enabled: true, fiberPhase: null }]
+    },
+  }
+  const ctx2 = fakeContext({ services: { pluginManager } })
+  const reg2 = ctx2.connection.fetch.register
+  ctx2.connection.fetch.register = (route) => { ctx2.route = route; return reg2(route) }
+  createRuntime(ctx2, { home: home2 })
+  const call2 = async (endpoint, payload = {}) => (await ctx2.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  t.after(async () => { await ctx2.dispose(); rmSync(home2, { recursive: true, force: true, maxRetries: 5 }) })
+
+  assert.deepEqual((await call2('schedules')).value, { available: false, tasks: [], pending: true })
 })
 
 test('bundle fallback with setBundleEnabled flipping enabled=true preserves restartRequired across polls until attach', async (t) => {
