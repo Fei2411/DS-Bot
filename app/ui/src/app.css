@@ -23,10 +23,10 @@ body[data-ds-dark-theme]{color-scheme:dark}
    no-drag would otherwise prevent moving the window while they are open. Keep a top drag
    strip on each layer (or on the scrim child when present, since Chromium collects app-region
    in layout-tree order) and stack the dialog surface and controls after it as no-drag. */
-html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-drawer-scrim)::before,html[data-windows-titlebar]:not([data-fullscreen]) .dsb-preset-modal-layer>.dsb-preset-modal-scrim::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-titlebar-h,var(--dsb-band));z-index:1;-webkit-app-region:drag;app-region:drag}
-html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-risk-layer,.dsb-fb-backdrop)[data-leaving]::before,html[data-windows-titlebar]:not([data-fullscreen]) .dsb-preset-modal-layer[data-leaving]>.dsb-preset-modal-scrim::before{-webkit-app-region:initial;app-region:initial}
-html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop){padding-top:max(20px,var(--bt-titlebar-h,var(--dsb-band)))}
-:is(.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-lightbox)>:is(.dsb-shortcuts,.dsb-preset-modal,.dsb-risk-dialog,.dsb-fb-dialog,.dsb-lightbox-fig){position:relative;z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-drawer-scrim,.dsb-signin-mask)::before,html[data-windows-titlebar]:not([data-fullscreen]) .dsb-preset-modal-layer>.dsb-preset-modal-scrim::before{content:"";position:absolute;inset:0 0 auto;height:var(--bt-titlebar-h,var(--dsb-band));z-index:1;-webkit-app-region:drag;app-region:drag}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-lightbox,.dsb-shortcuts-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-signin-mask)[data-leaving]::before,html[data-windows-titlebar]:not([data-fullscreen]) .dsb-preset-modal-layer[data-leaving]>.dsb-preset-modal-scrim::before{-webkit-app-region:initial;app-region:initial}
+html[data-windows-titlebar]:not([data-fullscreen]) :is(.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-signin-mask){padding-top:max(20px,var(--bt-titlebar-h,var(--dsb-band)))}
+:is(.dsb-shortcuts-layer,.dsb-preset-modal-layer,.dsb-risk-layer,.dsb-fb-backdrop,.dsb-lightbox,.dsb-signin-mask)>:is(.dsb-shortcuts,.dsb-preset-modal,.dsb-risk-dialog,.dsb-fb-dialog,.dsb-lightbox-fig,.dsb-signin-dialog){position:relative;z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
 .dsb-lightbox>.dsb-lightbox-close{z-index:2;-webkit-app-region:no-drag;app-region:no-drag}
 html[data-windows-titlebar]:not([data-fullscreen]) .dsb-lightbox>.dsb-lightbox-close{top:calc(var(--bt-titlebar-h,var(--dsb-band)) + 12px)}
 .bt-panel .bt-drawer-top{padding-top:6px;padding-right:calc(17px + var(--dsb-buttons-w))}
@@ -727,7 +727,11 @@ html[data-windows-titlebar] .dsb-frame[data-surface=agent][data-collapsed] .dsb-
 .dsb-subagent-opt-tag{flex:none;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .dsb-ui-plug-status{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font-size:11px;line-height:14px;font-weight:500}
 .dsb-ui-plug-status[data-status=active]{background:color-mix(in srgb,var(--bt-green) 14%,transparent);color:color-mix(in srgb,var(--bt-green) 76%,var(--bt-ink))}
+.dsb-ui-plug-status[data-status=warn]{background:color-mix(in srgb,var(--bt-warn) 14%,transparent);color:var(--bt-warn)}
 .dsb-ui-plug-status[data-status=error]{background:var(--bt-danger-soft);color:var(--bt-danger)}
+.dsb-plug-note{font-size:12px;line-height:17px;color:var(--bt-ink-2);word-break:break-word}
+.dsb-plug-note[data-tone=warn]{color:var(--bt-warn)}
+.dsb-plug-note[data-tone=error]{color:var(--bt-danger)}
 
 /* Redesigned Plugins page rows, icons, drill-down header, and More toggle. */
 .dsb-plug-row{display:flex;align-items:center;gap:12px;width:100%;min-height:54px;padding:12px 16px;border:0;background:none;color:inherit;font:inherit;text-align:left;box-sizing:border-box}
@@ -811,6 +815,25 @@ button.dsb-plug-row:hover .dsb-plug-chev{color:var(--bt-ink-2)}
 .dsb-preset-modal-titles h3{margin:0;font-size:15px;line-height:20px;font-weight:600;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsb-preset-modal-acts{display:inline-flex;align-items:center;gap:6px;flex:none}
 .dsb-preset-code{margin:0;padding:14px 18px;overflow:auto;flex:1 1 auto;background:var(--bt-sidebar);color:var(--bt-ink);font-family:var(--bt-mono);font-size:12.5px;line-height:19px;white-space:pre;tab-size:2}
+
+/* Text-selection Quote / Annotate popover host (`TextSelectionOverlay`). */
+.dsb-selection-host{position:fixed;z-index:60;pointer-events:auto}
+
+/* DeepSeek account sign-in dialog (`DesktopDeepSeekSignInModal`). */
+.dsb-signin-mask{position:fixed;inset:0;z-index:68;display:grid;place-items:center;padding:24px;background:var(--bt-palette-scrim);box-sizing:border-box;transition:opacity .16s ease-in}
+.dsb-signin-mask[data-leaving]{opacity:0;pointer-events:none}
+.dsb-signin-dialog{width:min(420px,calc(100vw - 32px));padding:18px 20px;border-radius:16px;border:.5px solid var(--bt-line-2);background:var(--bt-card);box-shadow:var(--bt-dialog-shadow);color:var(--bt-ink);box-sizing:border-box;display:flex;flex-direction:column;gap:14px}
+.dsb-signin-mask[data-leaving]>.dsb-signin-dialog{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
+@media (prefers-reduced-motion:reduce){.dsb-signin-mask{transition:none}.dsb-signin-mask[data-leaving]>.dsb-signin-dialog{animation:none}}
+body[data-bt-effects=off] .dsb-signin-mask{transition:none}
+body[data-bt-effects=off] .dsb-signin-mask[data-leaving]>.dsb-signin-dialog{animation:none}
+.dsb-signin-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.dsb-signin-title{margin:0;font-size:15px;line-height:20px;font-weight:600;color:var(--bt-ink)}
+.dsb-signin-body{display:flex;flex-direction:column;gap:8px;min-height:0}
+.dsb-signin-body:empty{display:none}
+.dsb-signin-note{margin:0;font-size:13px;line-height:19px;color:var(--bt-ink-2)}
+.dsb-signin-foot{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.dsb-signin-actions{display:inline-flex;align-items:center;gap:8px;margin-left:auto}
 
 body[data-bt-effects=off] :is(.dsb-tool-dot,.dsb-agent-hero-fish,.dsb-conn-banner,.dsb-conn-dot,.dsb-pending-dot){animation:none}
 body[data-bt-effects=off] :is(.dsb-conn-banner,.dsb-tool-head,.dsb-tool-action,.dsb-job-stop,.dsb-sub-back,.dsb-timg-btn,.dsb-tool-chev,.dsb-compaction-chev,.dsb-send,.dsb-stop,.dsb-attach-x,.dsb-cmenu-row,.dsb-ft-chev,.dsb-ft-row,.dsb-term-tab-x,.dsb-term-act-btn,.dsb-term-act-ico,.dsb-classic-row,.dsb-classic-new,.dsb-classic-acts,.dsb-classic-time,.dsb-classic-bar-more,.dsb-dsh-user-actions,.dsb-dsh-asst-time,.dsb-dsh-act-btn,.dsb-agent-hero-folder,.dsb-agent-hero-folder-ico,.dsb-preset-card,.dsb-preset-state-btn,.dsb-preset-creator,button.dsb-plug-row,.dsb-plug-back,.dsb-plug-more-btn),body[data-bt-effects=off] .dsb-preset-card::after{transition:none}

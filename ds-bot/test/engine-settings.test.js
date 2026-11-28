@@ -665,3 +665,154 @@ test('engine-settings-list exposes documentPath and engine-settings-open-file op
   assert.throws(() => buildOpenOsCommand('-a', 'edit', false, 'darwin'), { code: 'bot/invalid' })
   assert.throws(() => buildOpenOsCommand('relative\\cordis.patch.yml', 'edit', false, 'win32'), { code: 'bot/invalid' })
 })
+
+test('engine-plugins-list annotates clientSurface and custom cordis.patch.yml plugins, and gates UI dir / version exemption', async () => {
+  const { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { pathToFileURL } = await import('node:url')
+
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-eng-plugins-'))
+  try {
+    const profileDir = join(root, 'profiles', 'ds-bot')
+    const dshSkinDir = join(root, 'pkg-dsh-skin')
+    const desktopUiDir = join(root, 'pkg-desktop-ui')
+    const customPluginDir = join(root, 'my-custom-plugin')
+    mkdirSync(profileDir, { recursive: true })
+    mkdirSync(dshSkinDir, { recursive: true })
+    mkdirSync(desktopUiDir, { recursive: true })
+    mkdirSync(customPluginDir, { recursive: true })
+
+    writeFileSync(join(dshSkinDir, 'package.json'), JSON.stringify({
+      name: 'my-dsh-skin',
+      dsh: { client: { platform: 'web' } },
+    }))
+    writeFileSync(join(desktopUiDir, 'package.json'), JSON.stringify({
+      name: 'my-desktop-theme',
+      dsBot: { ui: './ui.js' },
+    }))
+    writeFileSync(join(customPluginDir, 'package.json'), JSON.stringify({
+      name: 'my-custom-local',
+      dsh: { client: { platform: 'web' } },
+    }))
+    writeFileSync(join(customPluginDir, 'index.js'), 'export function apply() {}')
+
+    const exemptions = []
+    const pluginManager = {
+      async listBundles() {
+        return [
+          {
+            name: 'ds-bot',
+            official: false,
+            availability: 'installation',
+            enabled: true,
+            installed: true,
+            optional: false,
+            removable: false,
+            updatable: false,
+            rows: [{ rowId: 'bot', entryId: 'entry-bot', moduleName: 'ds-bot' }],
+          },
+          {
+            name: 'my-dsh-skin',
+            official: false,
+            availability: 'profile',
+            enabled: true,
+            installed: true,
+            optional: false,
+            removable: true,
+            updatable: false,
+            rows: [{ rowId: 'skin-row', entryId: 'entry-skin', moduleName: 'my-dsh-skin' }],
+          },
+          {
+            name: 'my-desktop-theme',
+            official: false,
+            availability: 'profile',
+            enabled: true,
+            installed: true,
+            optional: false,
+            removable: true,
+            updatable: false,
+            rows: [],
+          },
+        ]
+      },
+      async listPlugins() {
+        return [
+          { entryId: 'include', moduleName: 'cordis:include', enabled: true, fiberPhase: 'active', readOnlyReason: 'unaddressable' },
+          { entryId: 'entry-bot', patchId: 'bot', moduleName: 'ds-bot', enabled: true, fiberPhase: 'active' },
+          { entryId: 'entry-subpath', patchId: 'web-search', moduleName: 'ds-bot/web-search', enabled: true, fiberPhase: 'active' },
+          { entryId: 'entry-scoped-subpath', patchId: 'scoped-sub', moduleName: '@deepseek-ai/ds-bot/extra', enabled: true, fiberPhase: 'active' },
+          { entryId: 'entry-skin', patchId: 'skin-row', moduleName: 'my-dsh-skin', enabled: true, fiberPhase: 'active' },
+          { entryId: 'include:entry-custom', patchId: 'my-custom', moduleName: pathToFileURL(join(customPluginDir, 'index.js')).href, enabled: true, fiberPhase: 'active' },
+        ]
+      },
+      async setVersionExemption(target, runtimeVersion, enabled, acceptRisk) {
+        exemptions.push({ target, runtimeVersion, enabled, acceptRisk })
+        return { changed: true, application: 'restart-required', restartReason: 'no-hmr', stage: 'enable', target }
+      },
+    }
+
+    const openedDirs = []
+    const { rt } = makeHarness({
+      services: {
+        pluginManager,
+        profileContext: {
+          name: 'ds-bot',
+          home: root,
+          dir: profileDir,
+          patchPath: join(profileDir, 'cordis.patch.yml'),
+          installAnchor: join(root, 'package.json'),
+        },
+      },
+    })
+    rt.resolveBundleDir = (name) => {
+      if (name === 'my-dsh-skin') return dshSkinDir
+      if (name === 'my-desktop-theme') return desktopUiDir
+      return null
+    }
+    rt.openUiPluginsDir = async (dir) => { openedDirs.push(dir) }
+
+    const list = await rt.engineEndpoint('plugins-list', {})
+    assert.equal(list.profileDir, profileDir)
+    assert.equal(list.uiPluginsDir, join(root, 'ui-plugins'))
+    assert.equal(list.bundles.find(b => b.name === 'ds-bot')?.clientSurface, 'host')
+    assert.equal(list.bundles.find(b => b.name === 'my-dsh-skin')?.clientSurface, 'dsh-web-only')
+    assert.equal(list.bundles.find(b => b.name === 'my-desktop-theme')?.clientSurface, 'ds-bot')
+
+    const custom = list.plugins.filter(p => p.custom)
+    assert.equal(custom.length, 1)
+    assert.equal(custom[0].id, 'include:entry-custom')
+    assert.equal(custom[0].clientSurface, 'dsh-web-only')
+    assert.equal(custom[0].sourcePath, join(customPluginDir, 'index.js'))
+
+    // Opening UI plugins folder creates <DSH_HOME>/ui-plugins and delegates to opener.
+    const openRes = await rt.engineEndpoint('plugins-open-ui-dir', {})
+    assert.equal(openRes.ok, true)
+    assert.equal(existsSync(join(root, 'ui-plugins')), true)
+    assert.deepEqual(openedDirs, [join(root, 'ui-plugins')])
+
+    // Version exemption requires explicit acceptRisk: true.
+    await assert.rejects(
+      () => rt.engineEndpoint('plugins-exempt-version', { target: 'old-pkg@1.0.0', runtimeVersion: '0.2.2-rc.5', enabled: true, acceptRisk: false }),
+      { code: 'bot/refused' },
+    )
+    const exemptRes = await rt.engineEndpoint('plugins-exempt-version', {
+      target: 'old-pkg@1.0.0',
+      runtimeVersion: '0.2.2-rc.5',
+      enabled: true,
+      acceptRisk: true,
+    })
+    assert.equal(exemptRes.application, 'restart-required')
+    assert.deepEqual(exemptions, [{ target: 'old-pkg@1.0.0', runtimeVersion: '0.2.2-rc.5', enabled: true, acceptRisk: true }])
+
+    // Read-only host refuses both mutations.
+    const { rt: roRt } = makeHarness({
+      readOnly: 'Another dsh holds this team',
+      services: { pluginManager, profileContext: { home: root, dir: profileDir } },
+    })
+    await assert.rejects(() => roRt.engineEndpoint('plugins-open-ui-dir', {}), { code: 'bot/read-only' })
+    await assert.rejects(() => roRt.engineEndpoint('plugins-exempt-version', { target: 'a@1.0.0', runtimeVersion: '0.2.2-rc.5', enabled: true, acceptRisk: true }), { code: 'bot/read-only' })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

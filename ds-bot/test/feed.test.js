@@ -648,3 +648,42 @@ test('HTTP feed reports resumed: false on sequence gap, future cursor, or mismat
   assert.equal(gappedHello.data.feedSeq >= startSeq + 600, true)
   t.mock.timers.tick(6_000)
 })
+
+test('HTTP feed stamps per-seq block ordinal on multi-block messages including identical text blocks', async (t) => {
+  const { ctx, call, stop, routes } = start()
+  t.after(stop)
+  await call('state')
+  const abort = new AbortController()
+  t.after(() => abort.abort())
+  const response = await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed', { signal: abort.signal }))
+  const next = reader(response)
+  assert.equal((await next()).event, 'hello')
+
+  const onEvent = ctx.listeners.get('session/event').at(-2)
+  onEvent({ id: 'm1c' }, {
+    type: 'assistant/message',
+    seq: 42,
+    time: 1200,
+    data: {
+      turn: 3,
+      message: {
+        content: [
+          { type: 'text', text: 'Ready' },
+          { type: 'tool-call', id: 'c1' },
+          { type: 'text', text: 'Set' },
+          { type: 'text', text: 'Ready' },
+        ],
+      },
+    },
+  })
+
+  const frames = [await next(), await next(), await next()]
+  assert.deepEqual(
+    frames.map(f => [f.event, f.data.item.kind, f.data.item.seq, f.data.item.block, f.data.item.text]),
+    [
+      ['message', 'bot', 42, 0, 'Ready'],
+      ['message', 'bot', 42, 1, 'Set'],
+      ['message', 'bot', 42, 2, 'Ready'],
+    ],
+  )
+})

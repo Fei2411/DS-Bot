@@ -725,9 +725,10 @@ function setupChoices(actions) {
 // plugin's model sign-in entry renders here with the plugin's own operations.
 export function DeepSeekSignIn({ useUi, actions }) {
   const open = useUi(state => state.signIn)
-  const entry = open ? actions.signInEntry?.() : null
+  const [shown, leaving] = useLinger(open, 160)
+  const entry = shown ? actions.signInEntry?.() : null
   if (!entry) return null
-  return h(SignInHost, { key: open, entry, actions })
+  return h(SignInHost, { key: shown, entry, actions, leaving })
 }
 
 function makeSourceHook(source) {
@@ -736,16 +737,21 @@ function makeSourceHook(source) {
   }
 }
 
-function SignInHost({ entry, actions }) {
+function SignInHost({ entry, actions, leaving = false }) {
   const [ops] = useState(() => entry.inject?.() ?? {})
   const close = () => actions.closeSignIn()
   const [hooks] = useState(() => ({ useAccount: makeSourceHook(ops.hooks.account), useTheme: makeSourceHook(ops.hooks.theme) }))
   return h(entry.component, {
     ...ops,
     ...hooks,
+    leaving,
     t: actions.accountT(),
     complete: close,
-    useApiKey: () => { close(); actions.openHarnessOnboarding('deepseek-official') },
+    useApiKey: () => {
+      close()
+      if (typeof actions.openHarnessOnboarding === 'function') actions.openHarnessOnboarding('deepseek-official')
+      else actions.openModels?.()
+    },
   })
 }
 

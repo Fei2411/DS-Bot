@@ -885,16 +885,23 @@ test('sidebar toggles cleanly between shown and 0px hidden, persists width, and 
 
 test('App unmounts .dsb-mobile-menu while narrow drawer is open and restores focus only on dismiss', async () => {
   const appStubs = {
+    'characters.js': 'export const maskOf = () => ""',
     'enter-key.js': 'export const sendsOnEnter = () => true',
     'feedback.js': 'export const ErrorToast = () => null',
     'header.js': 'export const HeaderPill = () => null',
     'i18n.js': 'export const t = s => s',
     'icons.js': 'export const SidebarIcon = () => ({ type: "svg", props: { children: [] } })',
+    'inks.js': 'export const inkText = () => ""; export const paintCss = () => ""',
+    'learning-card.js': 'export const PendingLearning = () => null',
+    'mark.js': 'export const lookOf = () => ({ color: "blue", icon: "", image: "" })',
+    'model-menu.js': 'export const DeepSeekSignIn = () => null',
     'motion.js': 'export const useLinger = (v) => [v, false]',
     'overlays.js': 'export const Overlays = () => null',
     'reload-recovery.js': 'export const ReloadConfirmHost = () => null',
     'overlay-hooks.js': 'export const ESCAPE_PRIORITY = { DRAWER: 10 }; export const useEscape = (fn, active) => { globalThis.__testEscape = active ? fn : null }',
     'sidebar.js': 'export const BotReturn = () => null; export const YouAvatar = () => null; export const TeamSidebar = (props) => ({ type: "team-sidebar", props })',
+    'styles.js': 'export const installStyles = () => {}',
+    'text.js': 'export const MENTION_ORIGIN = "https://bot.mention.invalid/"',
     'themes.js': 'export const allThemes = () => ({ deepseek: {} }); export const effectsOf = () => "full"; export const flatWidthOf = () => 100; export const layoutOf = () => "bubbles"; export const themeCss = () => ""; export const themesOf = () => ({}); export const widthOf = () => 100',
     'appearance.js': 'export const appearanceCss = () => ""; export const onSafeAppearance = () => () => {}; export const pictureUrl = () => ""; export const safeAppearance = () => false; export const watchSafeAppearance = () => () => {}',
     'api.js': 'export const call = async () => ({})',

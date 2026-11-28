@@ -532,6 +532,13 @@ test('extractTurnFacts, turn-tail BtwTurnTail/LearningTurnTail, deliverables Sav
     assert.equal(facts.openTurn, 2)
     assert.deepEqual(plain(facts.turns.get(1)), { turn: 1, status: 'closed', start: { seq: 1, time: 1000 }, end: { seq: 4, time: 1020 } })
     assert.deepEqual(plain(facts.turns.get(2)), { turn: 2, status: 'open', start: { seq: 5, time: 2000 } })
+    assert.deepEqual(plain(facts.userMessages), [])
+
+    const withUserFacts = extractTurnFacts([
+      { seq: 0, time: 990, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Generate Q4 report' }] } },
+      ...log.events,
+    ], { roster: { exchangeTurns: { b1: [99] } }, sessionId: 'b1' })
+    assert.deepEqual(plain(withUserFacts.userMessages), [{ seq: 0, text: 'Generate Q4 report', time: 990 }])
 
     // Hidden internal exchange turns are excluded so learning proposals never strand on a hidden turn.
     const hiddenFacts = extractTurnFacts([

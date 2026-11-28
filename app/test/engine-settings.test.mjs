@@ -1625,6 +1625,8 @@ test('Desktop PluginsSettingsPage hides disabled desktop-unsupported bundles whi
   for (const name of desktopUnsupported) {
     assert.equal(mod.isExcludedBundle(name), true, `${name} must be hidden when disabled`)
     assert.equal(mod.isExcludedBundle({ name, enabled: false }), true, `${name} must be hidden when enabled=false`)
+    assert.equal(mod.isExcludedBundle({ name, installed: false, enabled: false, error: { code: 'unsupported-platform' } }), true, `${name} must stay hidden when not installed even if errored`)
+    assert.equal(mod.isExcludedBundle({ name, installed: true, enabled: false, error: { code: 'incompatible-version' } }), false, `${name} must stay visible when installed and errored`)
     assert.equal(mod.isExcludedBundle({ name, enabled: true }), false, `${name} must remain visible when already enabled`)
   }
   // Internal / banned bundles stay hidden even when enabled.
@@ -1660,4 +1662,185 @@ test('Desktop PluginsSettingsPage hides disabled desktop-unsupported bundles whi
   tree = harness.render()
   assert.deepEqual(Array.from(toggled, item => [item.name, item.enabled]), [['@deepseek-ai/dsh-experimental-liveshare', false]])
   assert.equal(findAll(tree, n => n.props?.['data-plugin-bundle'] === '@deepseek-ai/dsh-experimental-liveshare').length, 0, 'once disabled, desktop-unsupported bundle disappears')
+})
+
+test('PluginsSettingsPage surfaces custom profile plugins, DSH Web UI-only labels, incompatible exemptions, and external window plugins', async () => {
+  const calls = []
+  let customEnabled = true
+  let exemptDone = false
+  const { mod, sandbox } = loadMod(async (endpoint, payload) => {
+    calls.push([endpoint, payload])
+    if (endpoint === 'engine-settings-list') {
+      return { available: true, writable: true, documentPath: '/tmp/profiles/ds-bot/cordis.patch.yml', namespaces: [] }
+    }
+    if (endpoint === 'engine-plugins-list') {
+      return {
+        available: true,
+        uiPluginsDir: '/tmp/dsh-home/ui-plugins',
+        patchPath: '/tmp/profiles/ds-bot/cordis.patch.yml',
+        bundles: [
+          {
+            name: 'my-dsh-skin',
+            official: false,
+            availability: 'profile',
+            version: '1.2.0',
+            installed: true,
+            enabled: true,
+            removable: true,
+            clientSurface: 'dsh-web-only',
+            rows: [],
+          },
+          {
+            name: 'old-tool-bundle',
+            official: false,
+            availability: 'profile',
+            version: '0.9.0',
+            installed: true,
+            enabled: exemptDone,
+            removable: true,
+            clientSurface: 'host',
+            ...(exemptDone
+              ? {}
+              : {
+                // Real DSH incompatible-version error shape (no `diagnostic` field).
+                error: {
+                  code: 'incompatible-version',
+                  incompatible: [{ name: 'old-tool-bundle', version: '0.9.0', runtimeVersion: '0.2.2-rc.5', requirements: { 'engines.dsh': '0.2.2-rc.1' } }],
+                },
+              }),
+            rows: [],
+          },
+        ],
+        plugins: [
+          {
+            id: 'entry-custom-1',
+            patchId: 'my-local-tool',
+            moduleName: '/tmp/my-local-tool/index.js',
+            name: 'My Local Tool',
+            enabled: customEnabled,
+            status: customEnabled ? 'active' : 'disabled',
+            custom: true,
+            clientSurface: 'host',
+          },
+        ],
+      }
+    }
+    if (endpoint === 'engine-plugins-toggle-plugin') {
+      customEnabled = payload.enabled
+      return { application: 'applied' }
+    }
+    if (endpoint === 'engine-plugins-exempt-version') {
+      exemptDone = true
+      return { application: 'restart-required' }
+    }
+    if (endpoint === 'engine-plugins-open-ui-dir') {
+      return { ok: true, path: '/tmp/dsh-home/ui-plugins' }
+    }
+    return {}
+  })
+
+  const runtime = mod.createPluginRuntime({ slots: mod.createSlotRegistry() })
+  runtime.use({
+    id: 'local:ocean-skin',
+    name: 'Ocean Skin',
+    source: 'local',
+    kind: 'theme',
+    external: true,
+  }, () => {})
+  runtime.use({
+    id: 'local:broken-widget',
+    name: 'Broken Widget',
+    source: 'local',
+    kind: 'esm',
+    external: true,
+    initialError: 'Broken manifest entry',
+  })
+
+  // Mock fetch for Window plugins Retry & Reload error surfacing.
+  let manifestShouldFail = true
+  sandbox.fetch = async (url) => {
+    if (String(url).includes('/api/ui-plugins/manifest')) {
+      if (manifestShouldFail) return { ok: false, status: 500, json: async () => ({}) }
+      return { ok: true, status: 200, json: async () => ({ uiPluginsDir: '/tmp/dsh-home/ui-plugins', plugins: [] }) }
+    }
+    return { ok: false, status: 404, json: async () => ({}) }
+  }
+
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, runtime })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  let tree = harness.render()
+
+  // Window plugins section displays external local theme plugin + Open folder button.
+  const uiRow = findAll(tree, n => n.props?.['data-ui-plugin'] === 'local:ocean-skin')[0]
+  assert.ok(uiRow, 'external local theme plugin is listed under Window plugins')
+  assert.match(textOf(uiRow), /Ocean Skin/)
+  assert.match(textOf(uiRow), /Theme/)
+  const openFolderBtn = findAll(tree, n => n.type === 'button' && /Open folder/.test(textOf(n)))[0]
+  assert.ok(openFolderBtn, 'Open folder button is rendered')
+  openFolderBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.ok(calls.some(([ep]) => ep === 'engine-plugins-open-ui-dir'))
+
+  // Clicking Retry on a broken external plugin surfaces reload HTTP error in the alert without unmounting Ocean Skin.
+  const brokenRow = findAll(tree, n => n.props?.['data-ui-plugin'] === 'local:broken-widget')[0]
+  assert.ok(brokenRow, 'broken external plugin is listed under Window plugins')
+  const retryBtn = findAll(brokenRow, n => n.type === 'button' && textOf(n) === 'Retry')[0]
+  assert.ok(retryBtn, 'Retry button renders for failed external plugin')
+  retryBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  tree = harness.render()
+  assert.match(textOf(tree), /HTTP 500/, 'manifest HTTP failure surfaces in PluginsSettingsPage alert')
+  assert.equal(runtime.getSnapshot().find(p => p.id === 'local:ocean-skin')?.status, 'active', 'healthy Ocean Skin stays active on targeted retry')
+  manifestShouldFail = false
+
+  // Custom profile plugins section renders standalone cordis.patch.yml plugin with working Switch and Open config file.
+  const customRow = findAll(tree, n => n.props?.['data-custom-plugin'] === 'my-local-tool')[0]
+  assert.ok(customRow, 'custom profile plugin is rendered')
+  assert.match(textOf(customRow), /My Local Tool/)
+  assert.equal(findAll(tree, n => n.type === 'button' && /Open config file/.test(textOf(n))).length, 1, 'Open config file button renders when settingsData.writable is true')
+  const customSwitch = findAll(customRow, n => n.type === 'button' && n.props?.role === 'switch')[0]
+  assert.ok(customSwitch)
+  customSwitch.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  tree = harness.render()
+  assert.ok(calls.some(([ep, p]) => ep === 'engine-plugins-toggle-plugin' && p?.id === 'entry-custom-1' && p?.enabled === false))
+
+  // DSH Web UI-only bundle displays explicit notice badge.
+  const dshSkinRow = findAll(tree, n => n.props?.['data-plugin-bundle'] === 'my-dsh-skin')[0]
+  assert.ok(dshSkinRow)
+  assert.match(textOf(dshSkinRow), /DSH Web UI only/)
+
+  // Incompatible bundle stays visible and supports two-step version exemption.
+  const incompatRow = findAll(tree, n => n.props?.['data-plugin-bundle'] === 'old-tool-bundle')[0]
+  assert.ok(incompatRow, 'incompatible bundle stays visible')
+  assert.match(textOf(incompatRow), /Incompatible/)
+  const allowBtn = findAll(incompatRow, n => n.type === 'button' && /Allow for this version/.test(textOf(n)))[0]
+  assert.ok(allowBtn)
+  allowBtn.props.onClick()
+  tree = harness.render()
+  const confirmBtn = findAll(tree, n => n.type === 'button' && /Confirm allow/.test(textOf(n)))[0]
+  assert.ok(confirmBtn, 'two-step confirmation button appears before exempting')
+  confirmBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.ok(calls.some(([ep, p]) => ep === 'engine-plugins-exempt-version' && p?.target === 'old-tool-bundle@0.9.0' && p?.acceptRisk === true))
+
+  // When engine-settings-list reports writable: false, Open config file is hidden even if readOnly is false.
+  const { mod: roMod } = loadMod(async (endpoint) => {
+    if (endpoint === 'engine-settings-list') return { available: true, writable: false, documentPath: '/tmp/profiles/ds-bot/cordis.patch.yml', namespaces: [] }
+    if (endpoint === 'engine-plugins-list') {
+      return {
+        available: true,
+        patchPath: '/tmp/profiles/ds-bot/cordis.patch.yml',
+        bundles: [],
+        plugins: [{ id: 'entry-custom-1', patchId: 'my-local-tool', moduleName: '/tmp/my-local-tool/index.js', name: 'My Local Tool', enabled: true, status: 'active', custom: true, clientSurface: 'host' }],
+      }
+    }
+    return {}
+  })
+  const roHarness = createHarness(roMod.PluginsSettingsPage, { readOnly: false })
+  roHarness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const roTree = roHarness.render()
+  assert.equal(findAll(roTree, n => n.type === 'button' && /Open config file/.test(textOf(n))).length, 0, 'Open config file button is hidden when settingsData.writable is false')
 })

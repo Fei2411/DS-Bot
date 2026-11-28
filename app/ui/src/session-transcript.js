@@ -223,23 +223,49 @@ function toResultBlock(prev, { seq, time, turn, step, content, isError, meta, er
  */
 export function extractTurnFacts(events, { roster, sessionId } = {}) {
   const turns = new Map()
+  const lastAssistantText = new Map()
+  const closingReplies = new Map()
+  const userMessages = []
   const hidden = turn => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)
   let openTurn
+  let currentTurn
   for (const event of Array.isArray(events) ? events : []) {
     if (!event || typeof event !== 'object') continue
-    const turn = event.data?.turn
-    if (!Number.isInteger(turn) || hidden(turn)) continue
-    const mark = Number.isFinite(event.time) ? { seq: event.seq, time: event.time } : { seq: event.seq }
-    if (event.type === 'turn/start') {
-      const existing = turns.get(turn)
-      turns.set(turn, {
-        turn,
+    const turn = Number.isInteger(event.data?.turn) ? event.data.turn : currentTurn
+    if (event.type === 'user/message') {
+      if (event.data?.source?.kind !== 'user') continue
+      const content = Array.isArray(event.data?.content) ? event.data.content : []
+      const { text } = contentParts(content)
+      userMessages.push({
+        ...(Number.isInteger(event.seq) ? { seq: event.seq } : {}),
+        text,
+        ...(Number.isFinite(event.time) ? { time: event.time } : {}),
+      })
+    } else if (event.type === 'turn/start') {
+      if (!Number.isInteger(event.data?.turn) || hidden(event.data.turn)) continue
+      const tNum = event.data.turn
+      currentTurn = tNum
+      const mark = Number.isFinite(event.time) ? { seq: event.seq, time: event.time } : { seq: event.seq }
+      const existing = turns.get(tNum)
+      turns.set(tNum, {
+        turn: tNum,
         status: existing?.end ? 'closed' : 'open',
         start: existing?.start ?? mark,
         ...(existing?.end ? { end: existing.end } : {}),
       })
-      if (!existing?.end) openTurn = turn
+      if (!existing?.end) openTurn = tNum
+    } else if (event.type === 'assistant/message') {
+      if (!Number.isInteger(turn) || hidden(turn)) continue
+      const content = Array.isArray(event.data?.message?.content) ? event.data.message.content : []
+      const text = content
+        .filter(block => block?.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '')
+        .map(block => stripToolCallTags(block.text))
+        .filter(part => part.trim() !== '')
+        .join('\n\n')
+      if (text !== '') lastAssistantText.set(turn, text)
     } else if (event.type === 'turn/end') {
+      if (!Number.isInteger(turn) || hidden(turn)) { currentTurn = undefined; continue }
+      const mark = Number.isFinite(event.time) ? { seq: event.seq, time: event.time } : { seq: event.seq }
       const existing = turns.get(turn)
       turns.set(turn, {
         turn,
@@ -247,10 +273,12 @@ export function extractTurnFacts(events, { roster, sessionId } = {}) {
         start: existing?.start ?? mark,
         end: mark,
       })
+      closingReplies.set(turn, lastAssistantText.get(turn) ?? '')
       if (openTurn === turn) openTurn = undefined
+      currentTurn = undefined
     }
   }
-  return { turns, openTurn }
+  return { turns, openTurn, closingReplies, userMessages }
 }
 
 const hiddenTurn = (roster, sessionId, turn) => (roster?.exchangeTurns && sessionId ? isHiddenTurn(roster, sessionId, turn) : false)

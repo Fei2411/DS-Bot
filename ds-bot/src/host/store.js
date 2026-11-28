@@ -401,6 +401,15 @@ export function install(rt) {
       // `bot.computer` holds the computer-use level and Always-grant apps; corrupt values reset.
       if (bot.computer !== undefined && (bot.computer === null || typeof bot.computer !== 'object' || Array.isArray(bot.computer))) delete bot.computer
       else if (bot.computer !== undefined && (bot.computer.apps === null || typeof bot.computer.apps !== 'object' || Array.isArray(bot.computer.apps))) delete bot.computer.apps
+      else if (bot.computer?.apps !== undefined) {
+        for (const [key, entry] of Object.entries(bot.computer.apps)) {
+          if (key.trim() === '' || entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+            delete bot.computer.apps[key]
+            migrated = true
+          }
+        }
+        if (Object.keys(bot.computer.apps).length === 0) delete bot.computer.apps
+      }
       // LEGACY: Bots saved with a lab ran on that lab's default model; the model they
       // last ran on becomes their own, so dropping the lab changes nothing for them.
       if ('lab' in bot) {
@@ -1000,8 +1009,26 @@ export function install(rt) {
   // archived and stay readable.
   /** @type {Map<string, string>} */
   const chatOwners = new Map()
-  /** @type {Map<string, {botId:string, taskId:string}>} */
+  /** @type {Map<string, {botId:string, taskId:string, roomId?:string, preservePrefix?:boolean}>} */
   const taskOwners = new Map()
+  /** @type {Map<string, string>} */
+  const cacheAffinityRoots = new Map()
+  const cacheAffinityOf = (id) => {
+    const sid = sessionIdOf(id)
+    if (sid === undefined) return undefined
+    return cacheAffinityRoots.get(sid)
+  }
+  const setCacheAffinity = (id, rootId) => {
+    const sid = sessionIdOf(id)
+    if (sid === undefined) return
+    const resolved = cacheAffinityOf(rootId) ?? sessionIdOf(rootId)
+    if (resolved === undefined || resolved === sid) cacheAffinityRoots.delete(sid)
+    else cacheAffinityRoots.set(sid, resolved)
+  }
+  const forgetCacheAffinity = (id) => {
+    const sid = sessionIdOf(id)
+    if (sid !== undefined) cacheAffinityRoots.delete(sid)
+  }
   /** @type {Map<string, {botId:string, roomId:string}>} */
   const groupOwners = new Map()
   /** @type {Map<string, string>} */
@@ -1037,6 +1064,7 @@ export function install(rt) {
   const indexSessions = () => {
     chatOwners.clear()
     taskOwners.clear()
+    cacheAffinityRoots.clear()
     groupOwners.clear()
     roomOwners.clear()
     pastOwners.clear()
@@ -1052,7 +1080,12 @@ export function install(rt) {
       if (botId === undefined) continue
       indexPast(bot.segments, { botId })
       const currentSid = chatOf(botId)
-      if (sessionIdOf(currentSid) !== undefined) chatOwners.set(currentSid, botId)
+      if (sessionIdOf(currentSid) !== undefined) {
+        chatOwners.set(currentSid, botId)
+        if (sessionIdOf(bot.cacheAffinitySessionId) === currentSid) {
+          setCacheAffinity(currentSid, bot.cacheAffinityId)
+        }
+      }
       // Background tasks keep their own stable records. Only
       // active tasks stay in chatOwners/taskOwners; settled tasks move to pastOwners
       // so folder/engine/model sweeps do not wake them again.
@@ -1062,7 +1095,14 @@ export function install(rt) {
         if (taskSid !== undefined) {
           if (isActiveTask(task)) {
             chatOwners.set(taskSid, botId)
-            taskOwners.set(taskSid, { botId, taskId: task.id, ...roomMeta })
+            const preservePrefix = sessionIdOf(task?.forkedPrefixSessionId) === taskSid
+              || (task?.forkedPrefixSessionId === undefined
+                && task?.origin === 'fg-handoff'
+                && (task?.segments?.length ?? 0) === 0)
+            taskOwners.set(taskSid, { botId, taskId: task.id, ...roomMeta, ...(preservePrefix ? { preservePrefix: true } : {}) })
+            if (preservePrefix && sessionIdOf(task?.cacheAffinityId) !== undefined) {
+              setCacheAffinity(taskSid, task.cacheAffinityId)
+            }
           } else {
             pastOwners.set(taskSid, { botId, ...roomMeta })
           }
@@ -1199,6 +1239,7 @@ export function install(rt) {
     teamWriteAccess,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession, isTeamSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
+    cacheAffinityOf, setCacheAffinity, forgetCacheAffinity,
     groupSessionsOf, roomsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })
 }
