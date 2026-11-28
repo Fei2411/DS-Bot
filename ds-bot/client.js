@@ -28803,7 +28803,1206 @@ function createFeedController({
   return { onFeed, start, restart };
 }
 
-// src/client/team-actions.js
+// src/client/reload-action.js
+var hostListeners = /* @__PURE__ */ new Set();
+var reloadGuards = /* @__PURE__ */ new Set();
+function registerReloadConfirmHost(listener) {
+  if (typeof listener !== "function") return () => {
+  };
+  hostListeners.add(listener);
+  return () => {
+    hostListeners.delete(listener);
+  };
+}
+function registerReloadGuard(check) {
+  if (typeof check !== "function") return () => {
+  };
+  reloadGuards.add(check);
+  return () => {
+    reloadGuards.delete(check);
+  };
+}
+function hasUnsentReloadRisk() {
+  if (hasKeptDraftFiles()) return true;
+  for (const check of Array.from(reloadGuards)) {
+    try {
+      if (check()) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+function performReload(reloadFn) {
+  try {
+    flushDrafts();
+  } catch {
+  }
+  if (typeof reloadFn === "function") reloadFn();
+  else globalThis.location?.reload?.();
+}
+function requestWindowReload({ reload, onBlocked } = {}) {
+  if (!hasUnsentReloadRisk()) {
+    performReload(reload);
+    return "reloaded";
+  }
+  const activeHost = Array.from(hostListeners).at(-1);
+  if (activeHost) {
+    activeHost({
+      confirm: () => performReload(reload)
+    });
+    return "confirming";
+  }
+  const warning = t("Unsent attachments will be removed.");
+  if (typeof globalThis.confirm === "function") {
+    if (globalThis.confirm(warning)) {
+      performReload(reload);
+      return "reloaded";
+    }
+    return "cancelled";
+  }
+  onBlocked?.(warning);
+  return "blocked";
+}
+
+// src/client/team-core/drafts.js
+var pendingFailedByChat = /* @__PURE__ */ new Map();
+var heldFailedUrls = /* @__PURE__ */ new Set();
+var inFlightUrls = /* @__PURE__ */ new Set();
+function hasPendingFailedAttachments() {
+  for (const list of pendingFailedByChat.values()) {
+    for (const entry of list ?? []) {
+      if (Array.isArray(entry?.items) && entry.items.length > 0) return true;
+    }
+  }
+  return false;
+}
+registerReloadGuard(hasPendingFailedAttachments);
+function revokeUrl(url) {
+  if (url && typeof URL?.revokeObjectURL === "function") URL.revokeObjectURL(url);
+}
+function trackFailedUrls(items, hold) {
+  for (const item of items ?? []) {
+    if (!item?.previewUrl) continue;
+    if (hold) heldFailedUrls.add(item.previewUrl);
+    else heldFailedUrls.delete(item.previewUrl);
+  }
+}
+function trackInFlightUrls(items, hold) {
+  for (const item of items ?? []) {
+    if (!item?.previewUrl) continue;
+    if (hold) inFlightUrls.add(item.previewUrl);
+    else inFlightUrls.delete(item.previewUrl);
+  }
+}
+function pruneFailedSends(chatIds) {
+  for (const chatId of chatIds ?? []) {
+    const list = pendingFailedByChat.get(chatId);
+    if (!list) continue;
+    pendingFailedByChat.delete(chatId);
+    for (const entry of list) {
+      for (const item of entry.items ?? []) {
+        if (!item?.previewUrl) continue;
+        heldFailedUrls.delete(item.previewUrl);
+        if (!inFlightUrls.has(item.previewUrl)) revokeUrl(item.previewUrl);
+      }
+    }
+  }
+}
+function clearFailedSends() {
+  for (const list of pendingFailedByChat.values()) {
+    for (const entry of list) {
+      for (const item of entry.items ?? []) {
+        if (item?.previewUrl) {
+          heldFailedUrls.delete(item.previewUrl);
+          revokeUrl(item.previewUrl);
+        }
+      }
+    }
+  }
+  pendingFailedByChat.clear();
+  heldFailedUrls.clear();
+  inFlightUrls.clear();
+}
+function createDraftFiles() {
+  const store = /* @__PURE__ */ new Map();
+  let seq = 0;
+  return {
+    draftFiles: (ids) => {
+      if (!Array.isArray(ids) || ids.length === 0) return [];
+      const out = [];
+      for (const id of ids) {
+        const entry = store.get(id);
+        if (entry) out.push({ kind: entry.kind, file: entry.file });
+      }
+      return out;
+    },
+    restoreDraftFiles: (sessionId, files) => {
+      if (!Array.isArray(files) || files.length === 0) return [];
+      const ids = [];
+      for (const item of files) {
+        if (!item || typeof item !== "object") continue;
+        const isWrapper = item.file && typeof item.file === "object";
+        const file = isWrapper ? item.file : item;
+        if (typeof file.name !== "string" && typeof file.size !== "number" && typeof file.type !== "string") continue;
+        const mime = typeof file.type === "string" ? file.type : "";
+        const kind = isWrapper && typeof item.kind === "string" ? item.kind : mime.startsWith("image/") ? "image" : "file";
+        const id = `draft-file-${++seq}`;
+        store.set(id, { sessionId: sessionId ?? null, kind, file });
+        ids.push(id);
+      }
+      return ids;
+    },
+    releaseDraftFiles: (ids) => {
+      if (!Array.isArray(ids)) return;
+      for (const id of ids) store.delete(id);
+    },
+    pruneBySessions: (keep) => {
+      for (const [fileId, entry] of store.entries()) {
+        if (entry?.sessionId && !keep(entry.sessionId)) store.delete(fileId);
+      }
+    }
+  };
+}
+function pruneRemovedChatDrafts(gone, questionDrafts, { storage = globalThis.localStorage } = {}) {
+  if (!Array.isArray(gone) || gone.length === 0) return;
+  questionDrafts?.pruneChats(gone);
+  pruneDrafts(gone, storage);
+  pruneFailedSends(gone);
+}
+
+// src/client/read-page.js
+var READ_LIMITS = {
+  chars: 4e5,
+  nodes: 15e4,
+  depth: 400,
+  ms: 1500,
+  items: 3e3,
+  tableRows: 5e3,
+  tableCols: 30,
+  frameDepth: 3
+};
+function readPage(limits) {
+  const started = performance.now();
+  const SKIP = /* @__PURE__ */ new Set(["script", "style", "noscript", "template", "head", "title", "meta", "link", "svg", "object", "embed", "audio", "video", "source", "track", "map", "datalist", "option", "optgroup"]);
+  const ITEM = 'a[href], button, input:not([type=hidden]), textarea, select, summary, [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [role=switch], [role=radio], [contenteditable=""], [contenteditable=true]';
+  const ROLES = { a: "link", button: "button", select: "select", textarea: "textbox", summary: "button" };
+  const INPUT_ROLES = { checkbox: "checkbox", radio: "radio", submit: "button", button: "button", reset: "button", image: "button", search: "searchbox", range: "slider", file: "button", color: "button" };
+  const NO_VALUE_TYPES = /* @__PURE__ */ new Set(["checkbox", "radio", "submit", "button", "reset", "image", "file", "color"]);
+  const SECRET_HINT = /(^|[-_\s])(cvv|cvc|csc|cc-?(num|number|csc|exp)|card-?(num|number)|otp|one-?time-?code|pin)([-_\s]|$)/i;
+  const BLOCK_DISPLAY = /^(block|flex|grid|list-item|table|flow-root|table-caption|table-row-group|table-header-group|table-footer-group|table-row|-webkit-box)$/;
+  const INLINE_BLOCK = /^(inline-block|inline-flex|inline-grid|inline-table|table-cell|-webkit-inline-box)$/;
+  const SEMANTIC = /^(ul|ol|table|pre|blockquote|h[1-6]|code|details)$/;
+  const items = [];
+  const stash = [];
+  const stats = { nodes: 0, frames: 0 };
+  let chars = 0;
+  let stop = "";
+  const collapse = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const isSecret = (el) => {
+    if (el.localName !== "input" && el.localName !== "textarea") return false;
+    const auto = String(el.getAttribute("autocomplete") || "").toLowerCase();
+    return el.type === "password" || /(^|\s)(cc-|one-time-code)/.test(auto) || SECRET_HINT.test(`${el.getAttribute("name") || ""} ${el.id || ""}`);
+  };
+  const keep = (text2, end = "") => {
+    if (text2 === "") return "";
+    stash.push(text2);
+    return `
+
+${stash.length - 1}${end}
+
+`;
+  };
+  const expand = (text2) => text2.replace(/\u0001(\d+)[\u0002\u0003]/g, (_, index) => expand(stash[Number(index)]));
+  const flow = (text2) => text2.split("\n").map((line) => line.replace(/[ \t\f\v\u00a0\u2028\u2029]+/g, " ").trim().replace(/^· /, "")).join("\n").replace(/\n{3,}/g, "\n\n").replace(/\u0003\n\n(?=\u0001\d+\u0003)/g, "\n").trim();
+  const block = (text2) => expand(flow(text2));
+  const oneLine = (text2) => block(text2).replace(/\s*\n+\s*/g, " ").trim();
+  const styleOf = (el) => (el.ownerDocument.defaultView || window).getComputedStyle(el);
+  const childrenOf = (el) => {
+    if (el.shadowRoot) return el.shadowRoot.childNodes;
+    if (el.localName === "slot" && typeof el.assignedNodes === "function") {
+      const assigned = el.assignedNodes();
+      if (assigned.length > 0) return assigned;
+    }
+    return el.childNodes;
+  };
+  const over2 = () => {
+    if (stop) return true;
+    if (chars > limits.chars) stop = `the text passed ${limits.chars} characters`;
+    else if (stats.nodes > limits.nodes) stop = `the page has more than ${limits.nodes} nodes`;
+    else if (stats.nodes % 512 === 0 && performance.now() - started > limits.ms) stop = `reading took longer than ${limits.ms} ms`;
+    return stop !== "";
+  };
+  const roleOf = (el) => el.getAttribute("role") || ROLES[el.localName] || (el.localName === "input" ? INPUT_ROLES[el.type] || "textbox" : el.isContentEditable ? "textbox" : el.localName);
+  const sized2 = (el) => {
+    const box = el.getBoundingClientRect();
+    return box.width > 0 && box.height > 0;
+  };
+  const itemFor = (el, style) => {
+    if (items.length >= limits.items || style.visibility !== "visible" || !el.matches(ITEM) || !sized2(el)) return null;
+    const item = { role: roleOf(el) };
+    const secret = isSecret(el);
+    if (el.href) item.href = String(el.href);
+    if ((el.localName === "input" || el.localName === "textarea") && !secret && !NO_VALUE_TYPES.has(el.type) && el.value) item.value = String(el.value).slice(0, 120);
+    if (el.localName === "select" && el.selectedOptions?.length) item.value = collapse([...el.selectedOptions].map((option) => option.label || option.text).join(", ")).slice(0, 120);
+    if (el.checked) item.checked = true;
+    if (el.disabled) item.disabled = true;
+    items.push(item);
+    return { item, number: items.length, secret };
+  };
+  const nameOf2 = (el, text2, secret) => collapse(
+    el.getAttribute("aria-label") || text2 || (el.localName === "input" && !secret && NO_VALUE_TYPES.has(el.type) ? el.value : "") || el.getAttribute("placeholder") || el.title || el.getAttribute("alt") || el.querySelector?.("img[alt]")?.alt || el.getAttribute("name") || ""
+  ).slice(0, 80);
+  const fenced = (code, lang) => {
+    const longest = Math.max(2, ...(code.match(/`{3,}/g) || []).map((run2) => run2.length));
+    const fence = "`".repeat(longest + 1);
+    return `${fence}${lang}
+${code.replace(/\n+$/, "")}
+${fence}`;
+  };
+  const langOf = (el) => {
+    const names = `${el.className || ""} ${el.querySelector?.("code")?.className || ""}`;
+    return /(?:^|\s)(?:lang|language)-([\w+#.-]+)/.exec(names)?.[1] || "";
+  };
+  const list = (el, ctx) => {
+    const ordered = el.localName === "ol";
+    let number = ordered ? Number(el.getAttribute("start") || 1) || 1 : 1;
+    const lines = [];
+    for (const child of childrenOf(el)) {
+      if (over2()) break;
+      if (child.nodeType !== 1 || child.localName !== "li") {
+        const loose = block(render(child, ctx));
+        if (loose) lines.push(loose);
+        continue;
+      }
+      const style = styleOf(child);
+      if (style.display === "none") continue;
+      let body2 = block(children(child, { ...ctx, depth: ctx.depth + 1, shown: style.visibility === "visible" }));
+      if (!body2.includes("```")) body2 = body2.replace(/\n{2,}/g, "\n");
+      const marker = ordered ? `${number++}. ` : "- ";
+      if (body2 === "") continue;
+      const pad2 = " ".repeat(marker.length);
+      lines.push(body2.split("\n").map((line, index) => (index === 0 ? marker : line ? pad2 : "") + line).join("\n"));
+    }
+    return keep(lines.join("\n"));
+  };
+  const cellText3 = (cell, ctx) => block(children(cell, ctx)).replace(/\n+/g, " <br> ").replace(/\|/g, "\\|");
+  const layoutTable = (table, rows2) => {
+    const role = table.getAttribute("role");
+    if (role === "presentation" || role === "none") return true;
+    if (table.querySelector("table")) return true;
+    return !rows2.some((row) => row.cells.length > 1);
+  };
+  const tableMarkdown = (table, ctx) => {
+    const rows2 = [...table.rows].filter((row) => styleOf(row).display !== "none");
+    const caption = table.caption ? oneLine(children(table.caption, ctx)) : "";
+    if (layoutTable(table, rows2)) {
+      return rows2.map((row) => [...row.cells].map((cell) => `
+
+${children(cell, ctx)}
+
+`).join("")).join("");
+    }
+    const grid = [];
+    const carry = [];
+    let width = 0;
+    for (const row of rows2.slice(0, limits.tableRows + 1)) {
+      if (over2()) break;
+      const line = [];
+      let column = 0;
+      const place = () => {
+        while (carry[column]?.left > 0) {
+          line[column] = carry[column].text;
+          carry[column].left -= 1;
+          column += 1;
+        }
+      };
+      for (const cell of row.cells) {
+        place();
+        if (styleOf(cell).display === "none") continue;
+        const text2 = cellText3(cell, ctx);
+        const span = Math.max(1, Math.min(limits.tableCols, Number(cell.colSpan) || 1));
+        const down = Math.max(1, Math.min(limits.tableRows, Number(cell.rowSpan) || 1));
+        for (let offset = 0; offset < span; offset += 1) {
+          line[column] = offset === 0 ? text2 : "";
+          if (down > 1) carry[column] = { text: offset === 0 ? text2 : "", left: down - 1 };
+          column += 1;
+        }
+      }
+      place();
+      width = Math.max(width, line.length);
+      grid.push(line);
+    }
+    width = Math.min(width, limits.tableCols);
+    if (grid.length === 0 || width === 0) return caption ? `
+
+${caption}
+
+` : "";
+    const format = (cells) => `| ${Array.from({ length: width }, (_, index) => cells[index] ?? "").join(" | ")} |`;
+    const out = [format(grid[0]), `|${" --- |".repeat(width)}`, ...grid.slice(1).map(format)];
+    if (rows2.length > limits.tableRows + 1) out.push(`… (table cut: ${rows2.length - limits.tableRows - 1} more rows)`);
+    return `${caption ? `
+
+Table: ${caption}` : ""}${keep(out.join("\n"))}`;
+  };
+  const frame3 = (el, ctx) => {
+    let doc = null;
+    try {
+      doc = el.contentDocument;
+    } catch {
+      doc = null;
+    }
+    const address = (() => {
+      try {
+        return doc?.location?.href || el.src || el.getAttribute("src") || "about:blank";
+      } catch {
+        return el.src || "about:blank";
+      }
+    })();
+    if (!doc) return `
+
+[iframe (cross-origin, not readable): ${address}]
+
+`;
+    if (ctx.frames >= limits.frameDepth) return `
+
+[iframe (nested too deep, not read): ${address}]
+
+`;
+    stats.frames += 1;
+    const title = collapse(el.title || doc.title);
+    const body2 = doc.body ? block(children(doc.body, { ...ctx, frames: ctx.frames + 1, depth: ctx.depth + 1, shown: true, pre: false })) : "";
+    return keep(`[iframe: ${title ? `${title} (${address})` : address}]
+${body2 || "(no text)"}
+[iframe end]`);
+  };
+  function children(el, ctx) {
+    let out = "";
+    for (const child of childrenOf(el)) {
+      if (over2()) break;
+      out += render(child, ctx);
+    }
+    return out;
+  }
+  function render(node, ctx) {
+    stats.nodes += 1;
+    if (node.nodeType === 3) {
+      if (!ctx.shown) return "";
+      const data = node.data.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "");
+      const text2 = ctx.pre ? data : data.replace(/[\t\n\r ]+/g, " ");
+      chars += text2.length;
+      return text2;
+    }
+    if (node.nodeType !== 1) return "";
+    const el = node;
+    const tag = el.localName;
+    if (SKIP.has(tag) || ctx.depth > limits.depth || over2()) return "";
+    const style = styleOf(el);
+    const display = style.display;
+    if (display === "none" || style.contentVisibility === "hidden") return "";
+    const shown = style.visibility === "visible";
+    const keepsSpace = String(style.whiteSpace || "").startsWith("pre") || style.whiteSpace === "break-spaces";
+    const next = { ...ctx, depth: ctx.depth + 1, shown };
+    if (display === "contents" && !SEMANTIC.test(tag) && !el.matches(ITEM)) return children(el, next);
+    if (style.overflowX !== "visible" || style.overflowY !== "visible") {
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) return "";
+    }
+    if (tag === "br") return "\n";
+    if (tag === "hr") return "\n\n---\n\n";
+    if (tag === "img") {
+      const alt = collapse(el.getAttribute("alt"));
+      return shown && alt ? `[image: ${alt}]` : "";
+    }
+    if (tag === "canvas") {
+      const box = el.getBoundingClientRect();
+      return box.width >= 200 && box.height >= 100 ? "\n\n[canvas: drawn content, not readable]\n\n" : "";
+    }
+    if (tag === "iframe" || tag === "frame") {
+      const box = el.getBoundingClientRect();
+      return tag === "iframe" && (box.width < 2 || box.height < 2) ? "" : frame3(el, next);
+    }
+    const found = itemFor(el, style);
+    const mark2 = found ? `[#${found.number}]` : "";
+    if (tag === "input" || tag === "textarea" || tag === "select") {
+      if (found) found.item.name = nameOf2(el, tag === "select" ? "" : el.labels?.[0] ? collapse(el.labels[0].textContent) : "", found.secret);
+      return mark2 ? ` ${mark2} ` : "";
+    }
+    let body2;
+    if (tag === "pre") {
+      const code = shown ? String(el.innerText || el.textContent || "") : "";
+      chars += code.length;
+      body2 = code.trim() ? keep(fenced(code, langOf(el))) : "";
+    } else if (tag === "table") {
+      body2 = tableMarkdown(el, next);
+    } else if (tag === "ul" || tag === "ol") {
+      body2 = list(el, next);
+    } else if (tag === "details" && !el.open) {
+      const summary = [...el.children].find((child) => child.localName === "summary");
+      body2 = summary ? render(summary, next) : "";
+    } else {
+      body2 = children(el, { ...next, pre: keepsSpace });
+    }
+    if (found) found.item.name = nameOf2(el, oneLine(body2), found.secret);
+    const level = /^h([1-6])$/.exec(tag)?.[1] || (el.getAttribute("role") === "heading" ? el.getAttribute("aria-level") || "2" : "");
+    if (level) {
+      const title = oneLine(body2);
+      return title ? `
+
+${"#".repeat(Math.min(6, Number(level) || 2))} ${title}${mark2}
+
+` : mark2;
+    }
+    if (tag === "code" && !ctx.pre) {
+      const code = oneLine(body2);
+      if (!code) return mark2;
+      const ticks = code.includes("`") ? "``" : "`";
+      return `${ticks}${code}${ticks}${mark2}`;
+    }
+    if (tag === "blockquote") {
+      const quoted2 = block(body2);
+      return quoted2 ? keep(quoted2.split("\n").map((line) => line ? `> ${line}` : ">").join("\n")) : "";
+    }
+    const end = body2.trimEnd().length;
+    const marked2 = mark2 ? `${body2.slice(0, end)}${mark2}${body2.slice(end)}` : body2;
+    if (ctx.pre && !BLOCK_DISPLAY.test(display)) return marked2;
+    if (keepsSpace && BLOCK_DISPLAY.test(display) && tag !== "pre") {
+      return keep(expand(marked2).replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").replace(/^\n+|\s+$/g, ""), "");
+    }
+    if (BLOCK_DISPLAY.test(display)) return `
+
+${marked2}
+
+`;
+    if (INLINE_BLOCK.test(display)) return ` ${marked2} `;
+    if (tag === "li") return ` · ${marked2}`;
+    return marked2;
+  }
+  const body = document.body;
+  let text = "";
+  if (body) {
+    text = block(render(body, { depth: 0, frames: 0, shown: true, pre: false })).replace(/\u00a0/g, " ");
+  }
+  if (text.length > limits.chars) {
+    text = text.slice(0, limits.chars);
+    stop ||= `the text passed ${limits.chars} characters`;
+  }
+  const page = {
+    url: location.href,
+    title: document.title,
+    lang: document.documentElement.lang || "",
+    description: document.querySelector('meta[name="description"]')?.content || "",
+    selection: String(getSelection() || "").slice(0, 4e3),
+    format: "markdown",
+    text,
+    items,
+    stats: { ...stats, ms: Math.round(performance.now() - started) }
+  };
+  if (stop) page.truncated = stop;
+  return page;
+}
+var readPageScript = (limits = READ_LIMITS) => `(${readPage})(${JSON.stringify(limits)})`;
+var READ_PAGE_SCRIPT = readPageScript();
+
+// src/client/bot-browsers.js
+var STORE_KEY = STORAGE.browsers;
+var MAX_LIVE = 6;
+var READ_TIMEOUT_MS = 1e4;
+var PREVIEW_TIMEOUT_MS = 3e3;
+var RESIZE_LATER_MS = 200;
+var SEARCH_URL = "https://www.bing.com/search?q=";
+var PREVIEW_SCRIPT = `(() => {
+  const meta = key => document.querySelector('meta[name="' + key + '"],meta[property="' + key + '"]')?.content ?? ''
+  const paragraph = [...document.querySelectorAll('main p, article p, p')].map(node => node.innerText ?? '').find(text => text.trim().length > 40) ?? ''
+  const text = meta('description') || meta('og:description') || paragraph || document.body?.innerText || ''
+  return text.replace(/\\s+/g, ' ').trim().slice(0, 200)
+})()`;
+var EMPTY = { url: "", title: "", favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, live: false, excerpt: "" };
+var CLASSIC_BROWSER_OWNER = "classic";
+var normalizeGuestUrl = (url) => !url || url === "about:blank" || String(url).startsWith("about:blank#") ? "" : String(url);
+function createAppViewProxy(bridge2, botId, tabId) {
+  const listeners3 = /* @__PURE__ */ new Map();
+  const state = { url: "", title: "", loading: false, canGoBack: false, canGoForward: false };
+  let readyOnce = false;
+  const fire = (name, event = {}) => {
+    for (const listener of listeners3.get(name) ?? []) listener({ type: name, ...event });
+  };
+  return {
+    isAppViewProxy: true,
+    style: {},
+    dataset: {},
+    addEventListener(name, listener, options = {}) {
+      listeners3.set(name, [...listeners3.get(name) ?? [], listener]);
+      options.signal?.addEventListener("abort", () => this.removeEventListener(name, listener), { once: true });
+    },
+    removeEventListener(name, listener) {
+      listeners3.set(name, (listeners3.get(name) ?? []).filter((item) => item !== listener));
+    },
+    setAttribute() {
+    },
+    remove() {
+      void bridge2.views.place(tabId, null, false);
+    },
+    getURL() {
+      return state.url;
+    },
+    getTitle() {
+      return state.title;
+    },
+    isLoading() {
+      return state.loading;
+    },
+    canGoBack() {
+      return state.canGoBack;
+    },
+    canGoForward() {
+      return state.canGoForward;
+    },
+    loadURL(url) {
+      return bridge2.views.navigate(botId, tabId, url);
+    },
+    executeJavaScript(script) {
+      return bridge2.views.read(botId, tabId, script);
+    },
+    goBack() {
+      return bridge2.views.command(botId, tabId, "back");
+    },
+    goForward() {
+      return bridge2.views.command(botId, tabId, "forward");
+    },
+    reload() {
+      return bridge2.views.command(botId, tabId, "reload");
+    },
+    stop() {
+      return bridge2.views.command(botId, tabId, "stop");
+    },
+    focus() {
+      return bridge2.views.focus(botId, tabId);
+    },
+    update(next, { silent = false } = {}) {
+      const wasLoading = state.loading;
+      const prevUrl = state.url;
+      const prevTitle = state.title;
+      Object.assign(state, next);
+      if (silent) {
+        if (!state.loading && state.live !== false) readyOnce = true;
+        return;
+      }
+      if (!state.loading && !readyOnce) {
+        readyOnce = true;
+        fire("dom-ready");
+        return;
+      }
+      if (wasLoading && !state.loading) {
+        fire("did-stop-loading");
+        return;
+      }
+      if (state.url !== prevUrl) fire("did-navigate");
+      else if (state.title !== prevTitle) fire("page-title-updated");
+    }
+  };
+}
+var METADATA_HOST = /^(169\.254\.\d+\.\d+|\[fd00:ec2::254\]|metadata\.google\.internal)$/i;
+var BLOCKED = "Cloud metadata addresses do not open here.";
+var blockedAddress = (url) => URL.canParse(url) && METADATA_HOST.test(new URL(url).hostname);
+function browserAddress(input) {
+  const text = String(input ?? "").trim();
+  if (text === "") return null;
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(text)) return /^https?:\/\//i.test(text) && URL.canParse(text) ? new URL(text).href : null;
+  if (/^(about|javascript|data|file|blob|chrome|devtools|view-source):/i.test(text)) return null;
+  const host = text.split(/[/?#]/)[0];
+  const local = /^(localhost|127(\.\d+){3}|10(\.\d+){3}|192\.168(\.\d+){2}|172\.(1[6-9]|2\d|3[01])(\.\d+){2}|\[[\da-f:]+\])(:\d+)?$/i.test(host);
+  const looksLikeHost = !/\s/.test(text) && (local || /^[^\s.]+(\.[^\s.]+)+(:\d+)?$/.test(host));
+  if (looksLikeHost && URL.canParse(`http://${text}`)) return new URL(`${local ? "http" : "https"}://${text}`).href;
+  return `${SEARCH_URL}${encodeURIComponent(text)}`;
+}
+function createBotBrowsers({ bridge: bridge2, createSource: createSource2, storage = globalThis.localStorage, document: doc = globalThis.document, guestFactory }) {
+  const views = /* @__PURE__ */ new Map();
+  const owner = /* @__PURE__ */ new Map();
+  const previewing = /* @__PURE__ */ new Set();
+  const tabs = createSource2({});
+  const pages = createSource2({});
+  const holds = createSource2({});
+  const store = sharedMap(STORE_KEY, storage);
+  let saved = store.read();
+  const seen = /* @__PURE__ */ new Set();
+  let layer;
+  let shown = null;
+  let rect = null;
+  let visible = false;
+  let resizeLater = 0;
+  let disposed = false;
+  let serial2 = 0;
+  const makeGuest = guestFactory ?? (bridge2.views ? ({ botId, tabId }) => ({ element: createAppViewProxy(bridge2, botId, tabId), appView: true }) : ({ document: document2 }) => ({ element: document2.createElement("webview"), appView: false }));
+  const appViewEvents = bridge2.views?.subscribe?.((change) => {
+    const { botId, tabId } = change ?? {};
+    if (!botId || !tabId) return;
+    if (change.type === "closed") {
+      const entry2 = views.get(tabId);
+      entry2?.stop();
+      views.delete(tabId);
+      owner.delete(tabId);
+      tabs.set((snapshot) => {
+        const current2 = snapshot[botId];
+        if (!current2) return snapshot;
+        const ids = current2.ids.filter((id) => id !== tabId);
+        if (ids.length === 0) {
+          const next = { ...snapshot };
+          delete next[botId];
+          return next;
+        }
+        return { ...snapshot, [botId]: { ids, active: current2.active === tabId ? ids.at(-1) : current2.active } };
+      });
+      pages.set((snapshot) => {
+        const { [tabId]: _, ...rest } = snapshot;
+        return rest;
+      });
+      persist(botId);
+      return;
+    }
+    if (!owner.has(tabId)) owner.set(tabId, botId);
+    if (change.type === "created") {
+      ensureTabs(botId);
+      tabs.set((snapshot) => {
+        const own = snapshot[botId] ?? { ids: [], active: null };
+        if (own.ids.includes(tabId)) return snapshot;
+        return { ...snapshot, [botId]: { ids: [...own.ids, tabId], active: tabId } };
+      });
+      publish2(tabId, { url: normalizeGuestUrl(change.url), title: change.title ?? "", live: true });
+      persist(botId);
+      void open(tabId);
+    }
+    const cleanChange = "url" in change ? { ...change, url: normalizeGuestUrl(change.url) } : change;
+    const entry = views.get(tabId);
+    if (entry?.appView) {
+      const wasLoading = entry.element.isLoading();
+      const prevUrl = entry.element.getURL();
+      entry.botAttached = cleanChange.botAttached === true;
+      entry.ready = cleanChange.live !== false && cleanChange.loading !== true;
+      entry.element.update(cleanChange, { silent: true });
+      if (entry.ready) {
+        observe(entry, cleanChange);
+        const nextUrl = entry.element.getURL();
+        if (wasLoading || nextUrl !== prevUrl || entry.previewedUrl !== nextUrl) {
+          void preview(tabId);
+        }
+      } else {
+        publish2(tabId, cleanChange);
+      }
+      return;
+    }
+    publish2(tabId, cleanChange);
+  });
+  const savedTab = (botId, tabId) => saved[botId]?.tabs?.find((entry) => entry.id === tabId);
+  const publish2 = (tabId, patch) => pages.set((state) => {
+    const botId = owner.get(tabId);
+    return { ...state, [tabId]: { ...EMPTY, ...savedTab(botId, tabId), ...state[tabId], ...patch } };
+  });
+  const save = (botId, entry) => {
+    saved = store.update((stored) => setEntry(stored, botId, entry), saved);
+  };
+  const persist = (botId) => {
+    const state = tabs.getSnapshot()[botId];
+    const snapshot = pages.getSnapshot();
+    const next = state && {
+      tabs: state.ids.map((id) => ({ id, url: snapshot[id]?.url ?? "", title: snapshot[id]?.title ?? "" })),
+      active: state.active
+    };
+    if (JSON.stringify(saved[botId] ?? null) === JSON.stringify(next ?? null)) return;
+    save(botId, next);
+  };
+  const ensureTabs = (botId) => {
+    if (tabs.getSnapshot()[botId] !== void 0) return;
+    const entries2 = saved[botId]?.tabs ?? [];
+    const ids = entries2.map((entry) => entry.id);
+    const active = ids.includes(saved[botId]?.active) ? saved[botId].active : ids.at(-1) ?? null;
+    for (const entry of entries2) owner.set(entry.id, botId);
+    tabs.set((state) => ({ ...state, [botId]: { ids, active } }));
+    for (const entry of entries2) publish2(entry.id, { url: entry.url ?? "", title: entry.title ?? "", live: false });
+  };
+  const ensureLayer = () => {
+    if (layer?.isConnected) return layer;
+    layer = doc.createElement("div");
+    layer.className = "bt-browser-layer";
+    Object.assign(layer.style, {
+      position: "fixed",
+      top: "0",
+      left: "0",
+      width: "0",
+      height: "0",
+      zIndex: "41",
+      pointerEvents: "none",
+      webkitAppRegion: "initial"
+    });
+    doc.body.append(layer);
+    return layer;
+  };
+  const place = (entry) => {
+    const box = rect ?? { left: 0, top: 0, width: 800, height: 600 };
+    const onScreen = shown === entry.tabId && visible && Boolean(rect);
+    if (entry.appView) {
+      void bridge2.views.place(entry.tabId, box, onScreen);
+      return;
+    }
+    Object.assign(entry.element.style, {
+      left: `${box.left}px`,
+      top: `${box.top}px`,
+      width: `${box.width}px`,
+      height: `${box.height}px`,
+      visibility: onScreen ? "visible" : "hidden",
+      pointerEvents: onScreen ? "auto" : "none"
+    });
+  };
+  async function preview(tabId) {
+    const entry = views.get(tabId);
+    const url = entry?.element.getURL() ?? "";
+    if (entry === void 0 || !entry.ready || !/^https?:/i.test(url) || previewing.has(tabId)) return false;
+    previewing.add(tabId);
+    let timer2;
+    const timeout = new Promise((resolve2) => {
+      timer2 = setTimeout(() => resolve2(""), PREVIEW_TIMEOUT_MS);
+    });
+    try {
+      const excerpt = await Promise.race([entry.element.executeJavaScript(PREVIEW_SCRIPT), timeout]);
+      if (typeof excerpt !== "string" || excerpt === "" || views.get(tabId) !== entry) return false;
+      entry.previewedUrl = url;
+      publish2(tabId, { excerpt });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer2);
+      previewing.delete(tabId);
+    }
+  }
+  const observe = (entry, extra) => {
+    const { element } = entry;
+    if (!entry.ready) return;
+    const rawUrl = element.getURL();
+    if (rawUrl === "about:blank" || rawUrl.startsWith("about:blank#")) return;
+    const url = normalizeGuestUrl(rawUrl);
+    if (entry.fresh) {
+      element.clearHistory();
+      entry.fresh = false;
+    }
+    const title = element.getTitle();
+    const safeExtra = extra && "url" in extra ? { ...extra, url: normalizeGuestUrl(extra.url) } : extra;
+    publish2(entry.tabId, { ...safeExtra, url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: extra?.live ?? true });
+    persist(entry.botId);
+  };
+  async function create(tabId) {
+    const botId = owner.get(tabId);
+    const guest = await makeGuest({ bridge: bridge2, document: doc, botId, tabId });
+    const pending = pages.getSnapshot()[tabId]?.url || savedTab(botId, tabId)?.url;
+    const reservation = guest.appView ? void 0 : await bridge2.acquire(`bot:${botId}`);
+    if (disposed) {
+      if (reservation) await bridge2.release(reservation.lease).catch(() => {
+      });
+      else await bridge2.views.close(botId, tabId).catch(() => {
+      });
+      return void 0;
+    }
+    if (guest.appView) await bridge2.views.create(botId, tabId, pending ?? "");
+    const element = guest.element;
+    element.dataset.sidebarBrowserFrame = "webview";
+    Object.assign(element.style, { position: "fixed", display: "flex", border: "0", pointerEvents: "auto", background: "#fff" });
+    element.dataset.btBrowser = tabId;
+    if (!guest.appView) {
+      element.setAttribute("name", reservation.lease);
+      element.setAttribute("partition", reservation.partition);
+      element.setAttribute("allowpopups", "");
+      element.setAttribute("src", `about:blank#${reservation.lease}`);
+    }
+    const entry = { botId, tabId, element, lease: reservation?.lease, appView: guest.appView, botAttached: false, ready: false, fresh: !guest.appView, pending: guest.appView ? void 0 : pending, usedAt: Date.now() };
+    const lifetime = new AbortController();
+    entry.stop = () => lifetime.abort();
+    const { signal } = lifetime;
+    if (!guest.appView) {
+      const unsubscribe = bridge2.onOpenRequested(reservation.lease, (url) => void openTab(botId, url));
+      signal.addEventListener("abort", unsubscribe, { once: true });
+    }
+    element.addEventListener("dom-ready", () => {
+      entry.ready = true;
+      observe(entry);
+      if (entry.pending) {
+        const url = entry.pending;
+        entry.pending = void 0;
+        void element.loadURL(url).catch(() => {
+        });
+      }
+    }, { signal });
+    for (const name of ["did-navigate", "did-navigate-in-page", "did-start-loading", "did-stop-loading", "page-title-updated"]) {
+      element.addEventListener(name, () => observe(entry), { signal });
+    }
+    element.addEventListener("did-stop-loading", () => {
+      void preview(tabId);
+    }, { signal });
+    element.addEventListener("page-favicon-updated", (event) => {
+      const favicon = event.favicons?.[0];
+      if (typeof favicon === "string" && favicon.startsWith("data:")) publish2(tabId, { favicon });
+    }, { signal });
+    element.addEventListener("did-start-navigation", (event) => {
+      if (!event.isMainFrame) return;
+      if (blockedAddress(event.url)) {
+        element.stop();
+        publish2(tabId, { loading: false, error: BLOCKED });
+        return;
+      }
+      publish2(tabId, { loading: true, error: null });
+    }, { signal });
+    element.addEventListener("did-fail-load", (event) => {
+      if (event.isMainFrame && event.errorCode !== -3) publish2(tabId, { loading: false, error: event.errorDescription || `Error ${event.errorCode}` });
+    }, { signal });
+    element.addEventListener("render-process-gone", () => {
+      if (views.get(tabId) === void 0) return;
+      void release(tabId);
+      publish2(tabId, { loading: false, error: "The page crashed." });
+    }, { signal });
+    views.set(tabId, entry);
+    if (!guest.appView) ensureLayer().append(element);
+    place(entry);
+    publish2(tabId, { live: true, loading: Boolean(entry.pending) });
+    if (guest.appView) {
+      const state = (await bridge2.views.sync(botId)).find((view) => view.tabId === tabId);
+      if (state) {
+        const cleanState = "url" in state ? { ...state, url: normalizeGuestUrl(state.url) } : state;
+        entry.botAttached = cleanState.botAttached === true;
+        if (cleanState.live === false) {
+          entry.ready = false;
+          element.update(cleanState, { silent: true });
+          publish2(tabId, cleanState);
+        } else {
+          element.update(cleanState);
+        }
+      }
+    }
+    return entry;
+  }
+  const opening = /* @__PURE__ */ new Map();
+  function open(tabId) {
+    const entry = views.get(tabId);
+    if (entry) return Promise.resolve(entry);
+    let job = opening.get(tabId);
+    if (job === void 0) {
+      job = create(tabId).catch((error) => {
+        console.warn("[ds-bot] browser acquire", error);
+        publish2(tabId, { loading: false, error: String(error?.message ?? error) });
+        return void 0;
+      }).finally(() => opening.delete(tabId));
+      opening.set(tabId, job);
+      void job.then(() => trim());
+    }
+    return job;
+  }
+  function trim() {
+    const idle = [...views.values()].filter((entry) => !entry.appView && !entry.botAttached && entry.tabId !== shown).sort((a, b2) => a.usedAt - b2.usedAt);
+    while ([...views.values()].filter((entry) => !entry.appView).length > MAX_LIVE && idle.length > 0) void release(idle.shift().tabId);
+  }
+  async function release(tabId) {
+    const entry = views.get(tabId);
+    if (entry === void 0) return;
+    if (entry.appView) {
+      await bridge2.views.place(tabId, rect ?? { left: 0, top: 0, width: 800, height: 600 }, false);
+      return;
+    }
+    views.delete(tabId);
+    entry.stop();
+    entry.element.remove();
+    publish2(tabId, { live: false, loading: false });
+    await bridge2.release(entry.lease).catch((error) => console.warn("[ds-bot] browser release", error));
+  }
+  function openTab(botId, url) {
+    ensureTabs(botId);
+    const tabId = `t${Date.now().toString(36)}-${++serial2}`;
+    owner.set(tabId, botId);
+    tabs.set((state) => {
+      const own = state[botId] ?? { ids: [], active: null };
+      return { ...state, [botId]: { ids: [...own.ids, tabId], active: tabId } };
+    });
+    publish2(tabId, { url: "", title: "", live: false });
+    if (typeof url === "string" && url !== "") void navigate(tabId, url);
+    persist(botId);
+    return tabId;
+  }
+  async function closeTab(botId, tabId) {
+    const state = tabs.getSnapshot()[botId];
+    if (state === void 0 || !state.ids.includes(tabId)) return;
+    await opening.get(tabId)?.catch(() => {
+    });
+    if (shown === tabId) await show2(null);
+    if (views.get(tabId)?.appView) {
+      await bridge2.views.close(botId, tabId);
+      views.get(tabId)?.stop();
+      views.delete(tabId);
+    } else await release(tabId);
+    tabs.set((snapshot) => {
+      const current2 = snapshot[botId];
+      if (current2 === void 0 || !current2.ids.includes(tabId)) return snapshot;
+      const at2 = current2.ids.indexOf(tabId);
+      const ids = current2.ids.filter((id) => id !== tabId);
+      const active = current2.active === tabId ? ids[Math.min(at2, ids.length - 1)] ?? null : current2.active;
+      const next = { ...snapshot };
+      if (ids.length === 0) delete next[botId];
+      else next[botId] = { ids, active };
+      return next;
+    });
+    owner.delete(tabId);
+    pages.set((snapshot) => {
+      if (snapshot[tabId] === void 0) return snapshot;
+      const { [tabId]: _, ...rest } = snapshot;
+      return rest;
+    });
+    persist(botId);
+  }
+  function activate(botId, tabId) {
+    ensureTabs(botId);
+    const state = tabs.getSnapshot()[botId];
+    if (state === void 0 || !state.ids.includes(tabId) || state.active === tabId) return;
+    tabs.set((snapshot) => ({ ...snapshot, [botId]: { ...state, active: tabId } }));
+    persist(botId);
+  }
+  const activeTab = (botId) => tabs.getSnapshot()[botId]?.active ?? null;
+  async function show2(tabId, box = null) {
+    if (tabId !== null && tabId === shown && visible && box !== null) {
+      rect = box;
+      const entry2 = views.get(tabId);
+      if (entry2) place(entry2);
+      clearTimeout(resizeLater);
+      resizeLater = setTimeout(() => {
+        for (const other of views.values()) place(other);
+      }, RESIZE_LATER_MS);
+      return;
+    }
+    shown = tabId;
+    if (box) rect = box;
+    visible = tabId !== null && box !== null;
+    for (const entry2 of views.values()) place(entry2);
+    if (tabId === null) return;
+    if (box === null && !views.has(tabId)) {
+      const knownUrl = normalizeGuestUrl(pages.getSnapshot()[tabId]?.url || savedTab(owner.get(tabId), tabId)?.url);
+      if (!knownUrl) return;
+    }
+    const entry = await open(tabId);
+    if (entry === void 0 || shown !== tabId) return;
+    entry.usedAt = Date.now();
+    place(entry);
+  }
+  async function navigate(tabId, input) {
+    const url = browserAddress(input);
+    if (url === null || blockedAddress(url)) {
+      publish2(tabId, { error: url === null ? "Only http and https addresses open here." : BLOCKED });
+      return false;
+    }
+    const entry = await open(tabId);
+    if (entry === void 0) return false;
+    publish2(tabId, { url, loading: true, error: null });
+    persist(owner.get(tabId));
+    if (!entry.ready) entry.pending = url;
+    else void entry.element.loadURL(url).catch(() => {
+    });
+    return true;
+  }
+  async function forget(botId) {
+    ensureTabs(botId);
+    for (const tabId of tabs.getSnapshot()[botId]?.ids ?? []) {
+      await opening.get(tabId)?.catch(() => {
+      });
+      if (shown === tabId) await show2(null);
+      if (views.get(tabId)?.appView) {
+        await bridge2.views.close(botId, tabId);
+        views.get(tabId)?.stop();
+        views.delete(tabId);
+      } else await release(tabId);
+      owner.delete(tabId);
+      pages.set((snapshot) => {
+        if (snapshot[tabId] === void 0) return snapshot;
+        const { [tabId]: _, ...rest } = snapshot;
+        return rest;
+      });
+    }
+    tabs.set((snapshot) => {
+      if (snapshot[botId] === void 0) return snapshot;
+      const { [botId]: _, ...rest } = snapshot;
+      return rest;
+    });
+    save(botId, void 0);
+    seen.delete(botId);
+    await bridge2.forget?.(`bot:${botId}`)?.catch((error) => console.warn("[ds-bot] browser forget", error));
+  }
+  return {
+    tabs,
+    pages,
+    holds,
+    setHolds(value) {
+      holds.set(value && typeof value === "object" ? value : {});
+    },
+    /** Restore a Bot's saved strip (or an empty one) so the panel can render it. */
+    ensureTabs,
+    openTab,
+    closeTab,
+    activate,
+    preview,
+    show: show2,
+    navigate,
+    command(tabId, name) {
+      const entry = views.get(tabId);
+      if (!entry?.ready) return;
+      if (name === "back" && entry.element.canGoBack()) entry.element.goBack();
+      else if (name === "forward" && entry.element.canGoForward()) entry.element.goForward();
+      else if (name === "reload") entry.element.reload();
+      else if (name === "stop") entry.element.stop();
+    },
+    focus(tabId) {
+      views.get(tabId)?.element.focus();
+    },
+    /** Pages a read can reach: each Bot's active tab, live and showing a document. */
+    openPages() {
+      const open2 = {};
+      const snapshot = pages.getSnapshot();
+      for (const [botId, state] of Object.entries(tabs.getSnapshot())) {
+        if (botId === CLASSIC_BROWSER_OWNER) continue;
+        const tabId = state.active;
+        const entry = tabId ? views.get(tabId) : void 0;
+        const page = tabId ? snapshot[tabId] : void 0;
+        const url = normalizeGuestUrl(page?.url);
+        if (entry?.ready && page?.live !== false && url) open2[botId] = { url, title: page.title };
+      }
+      return open2;
+    },
+    /** A Bot's read reaches its active tab. */
+    async read(botId) {
+      const tabId = activeTab(botId);
+      const entry = tabId ? views.get(tabId) : void 0;
+      if (!entry?.ready) throw new Error("This Bot has no browser page open.");
+      let timer2;
+      const timeout = new Promise((_, reject) => {
+        timer2 = setTimeout(() => reject(new Error("The page took too long to read.")), READ_TIMEOUT_MS);
+      });
+      try {
+        return await Promise.race([entry.element.executeJavaScript(READ_PAGE_SCRIPT), timeout]);
+      } finally {
+        clearTimeout(timer2);
+      }
+    },
+    noteRead(botId) {
+      const tabId = activeTab(botId);
+      if (tabId) publish2(tabId, { readAt: Date.now() });
+    },
+    release,
+    forget,
+    /** Forget every Bot outside `botIds`, as when Bots were deleted from another window. */
+    retain(botIds) {
+      const keep = new Set(botIds);
+      const known = /* @__PURE__ */ new Set([...Object.keys(tabs.getSnapshot()), ...Object.keys(saved), ...owner.values(), ...seen]);
+      for (const entry of views.values()) known.add(entry.botId);
+      for (const botId of keep) seen.add(botId);
+      return Promise.all([...known].filter((botId) => !keep.has(botId)).map(forget));
+    },
+    dispose() {
+      disposed = true;
+      clearTimeout(resizeLater);
+      for (const entry of views.values()) {
+        if (entry.appView) void bridge2.views.place(entry.tabId, rect ?? { left: 0, top: 0, width: 800, height: 600 }, false);
+        else void release(entry.tabId);
+      }
+      appViewEvents?.();
+      layer?.remove();
+    }
+  };
+}
+var POLL_TIMEOUT_MS = 8e3;
+function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.randomUUID(), retryMs = 1e3 }) {
+  let stopped = false;
+  let poll;
+  let stopBackoff;
+  let reported = "";
+  const answered = /* @__PURE__ */ new Map();
+  const answer = async ({ id, botId }) => {
+    let job = answered.get(id);
+    if (job === void 0) {
+      job = (async () => {
+        try {
+          const result = { id, ok: true, page: await browsers.read(botId) };
+          browsers.noteRead(botId);
+          return result;
+        } catch (error) {
+          return { id, ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      })();
+      answered.set(id, job);
+      if (answered.size > 200) answered.delete(answered.keys().next().value);
+    }
+    await post("browser-result", await job).catch((error) => console.warn("[ds-bot] browser result", error));
+  };
+  const loop2 = async () => {
+    let failures = 0;
+    while (!stopped) {
+      const current2 = poll = new AbortController();
+      const open = browsers.openPages();
+      reported = JSON.stringify(open);
+      let expired2 = false;
+      const timeout = setTimeout(() => {
+        expired2 = true;
+        current2.abort();
+      }, POLL_TIMEOUT_MS);
+      try {
+        const response = await post("browser-wait", { clientId, open }, current2.signal);
+        browsers.setHolds?.(response?.holds);
+        failures = 0;
+        const requests = Array.isArray(response) ? response : response?.requests;
+        for (const request of Array.isArray(requests) ? requests : []) void answer(request);
+        continue;
+      } catch (error) {
+        if (stopped) return;
+        if (current2.signal.aborted && !expired2 && error?.code !== "HTTP_503") continue;
+        failures += 1;
+      } finally {
+        clearTimeout(timeout);
+      }
+      await new Promise((resolve2) => {
+        const timer2 = setTimeout(resolve2, Math.min(3e4, retryMs * 2 ** Math.min(failures, 5)));
+        stopBackoff = () => {
+          clearTimeout(timer2);
+          resolve2();
+        };
+      });
+      stopBackoff = void 0;
+    }
+  };
+  const offPages = browsers.pages.subscribe(() => {
+    if (JSON.stringify(browsers.openPages()) !== reported) poll?.abort();
+  });
+  void loop2();
+  return () => {
+    stopped = true;
+    offPages();
+    poll?.abort();
+    stopBackoff?.();
+  };
+}
+
+// src/client/dsh-offer.js
+var APP_OFFER = /* @__PURE__ */ new Set(["available", "downloading", "verifying", "installing", "ready"]);
+var bare = (value) => String(value ?? "").trim().replace(/^v/i, "").split("+")[0];
+var sameVersion = (a, b2) => bare(a) !== "" && bare(a) === bare(b2);
+function showsDshRow(dsh, app) {
+  if (!dsh?.verified || !dsh.current || sameVersion(dsh.verified, dsh.current)) return false;
+  if (dsh.kind === "npm") return true;
+  return dsh.kind === "app" && APP_OFFER.has(app?.phase) && sameVersion(app.version, dsh.verified);
+}
+
+// src/client/polling.js
+var POLL_MAX_MS = 5e3;
+function pollDelay(base, unchanged) {
+  const steps = Math.min(Math.max(unchanged, 0), 8);
+  return Math.min(base * 2 ** steps, Math.max(base, POLL_MAX_MS));
+}
+function needsIdleSample(computer, settings) {
+  return Object.values(computer?.bots ?? {}).some((entry) => entry?.waitingFor === "user-idle") || Object.values(settings?.bots ?? {}).some((bot) => bot?.level === "foreground");
+}
+
+// src/client/team-core/actions.js
 function sectionFoldWrites() {
   const saved = /* @__PURE__ */ new Map();
   return {
@@ -28829,8 +30028,9 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
   const openSideChat = (sessionId, chatId) => {
     ui.set((state) => ({ ...state, details: sessionId, view: "side", side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, "side") }));
   };
+  const clearShortcutsPatch = (state) => state.shortcuts ? { shortcuts: false } : {};
   const openSettings = (page = "general", id = null) => {
-    ui.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
+    ui.set((state) => ({ ...state, ...clearShortcutsPatch(state), settings: { page, id }, menu: null, palette: null, newChat: null }));
   };
   const MAX_TURN_CLOCK_SESSIONS = 40;
   const turnClockOrder = /* @__PURE__ */ new Set();
@@ -28885,17 +30085,17 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => {
-      ui.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, inbox: false, inboxTarget: null, menu: null, palette: null, leftDrawer: false }));
+      ui.set((state) => ({ ...state, ...clearShortcutsPatch(state), newChat: mode, newChatSection: sectionId ?? null, inbox: false, inboxTarget: null, menu: null, palette: null, leftDrawer: false }));
     },
     // The inbox page sits over the conversation column like New chat (inbox.js).
     openInbox: () => {
-      ui.set((state) => ({ ...state, inbox: true, inboxTarget: null, newChat: null, newChatSection: null, exchange: null, menu: null, palette: null, groupSearch: null, leftDrawer: false }));
+      ui.set((state) => ({ ...state, ...clearShortcutsPatch(state), inbox: true, inboxTarget: null, newChat: null, newChatSection: null, exchange: null, menu: null, palette: null, groupSearch: null, leftDrawer: false }));
     },
     closeInbox: () => {
       ui.set((state) => state.inbox ? { ...state, inbox: false, inboxTarget: null } : state);
     },
     openPalette: (query = "") => {
-      ui.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
+      ui.set((state) => ({ ...state, ...clearShortcutsPatch(state), palette: { query, token: Date.now() }, newChat: null, menu: null }));
     },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => {
@@ -28903,7 +30103,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     },
     // Searching one group's own history, from its header.
     openGroupSearch: (roomId) => {
-      if (roomId) ui.set((state) => ({ ...state, groupSearch: { roomId, token: Date.now() }, palette: null, newChat: null, menu: null }));
+      if (roomId) ui.set((state) => ({ ...state, ...clearShortcutsPatch(state), groupSearch: { roomId, token: Date.now() }, palette: null, newChat: null, menu: null }));
     },
     closeGroupSearch: (token) => {
       ui.set((state) => state.groupSearch && (token === void 0 || state.groupSearch.token === token) ? { ...state, groupSearch: null } : state);
@@ -28974,10 +30174,15 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
       ui.set((state) => state.memory ? { ...state, memory: null } : state);
     },
     openConnectors: () => {
-      ui.set((state) => ({ ...state, settings: { page: "connectors", id: null }, menu: null, palette: null, newChat: null }));
+      ui.set((state) => ({ ...state, ...clearShortcutsPatch(state), settings: { page: "connectors", id: null }, menu: null, palette: null, newChat: null }));
     },
     hasPlugins: () => true,
     openPlugins: (focus = null) => openSettings("plugins", focus),
+    signIn: () => ui.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 })),
+    closeSignIn: () => ui.set((state) => ({ ...state, signIn: null })),
+    learningAnswer: (id, approve) => after(call2("learning-answer", { id, approve })),
+    beginAgentRename: (sessionId) => ui.set((state) => ({ ...state, renameAgent: sessionId })),
+    endAgentRename: () => ui.set((state) => state.renameAgent ? { ...state, renameAgent: null } : state),
     setPanelView: (view) => {
       if (view !== "details" && view !== "browser" && view !== "side" && view !== "task" && view !== "workspace") return;
       ui.set((state) => state.details && state.view !== view ? { ...state, view, ...view === "details" ? { tab: null } : {}, panelYield: yieldTo(state, view) } : state);
@@ -29392,6 +30597,556 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
       delete next[sessionId];
       return next;
     })
+  };
+}
+function createStoreActions({ store, clearPanelYieldOnToggle = false }) {
+  return {
+    surfaceMode: () => store.surface.getSnapshot().mode,
+    setSidebarPref: (pref) => store.setSidebarPref(pref),
+    setSidebarWidth: (width) => store.setSidebarWidth(width),
+    toggleLeftHidden: () => store.toggleLeftHidden({ clearPanelYield: clearPanelYieldOnToggle }),
+    setLeftDrawer: (on) => store.setLeftDrawer(on),
+    setPanelYield: (on) => store.setPanelYield(on),
+    markUnread: (id) => store.writeUnread(id, true),
+    clearUnread: (id) => store.writeUnread(id, false),
+    beginVisit: (id) => store.beginVisit(id),
+    endVisit: (id) => store.endVisit(id),
+    toggleReaction: (key, index, emoji) => store.toggleReaction(key, index, emoji)
+  };
+}
+function createNavigationActions({
+  call: call2,
+  after,
+  pull,
+  store,
+  onRetry,
+  onRecovered,
+  onMissingAfterRecover,
+  onLand,
+  shouldAbortLand = null,
+  canLandTarget = null,
+  reportError: reportError2
+}) {
+  const { roster, partFor } = store;
+  let seq = 0;
+  const recovering = /* @__PURE__ */ new Set();
+  const bumpNavSeq = () => {
+    seq += 1;
+    return seq;
+  };
+  const currentOfLast = (snap, last) => {
+    if (!last) return void 0;
+    const bot = last.kind === "room" ? void 0 : snap.byId?.[last.botId ?? last.id];
+    if (bot !== void 0) return currentPart(bot);
+    const room2 = snap.roomsById?.[last.roomId ?? last.id];
+    return room2 === void 0 ? void 0 : room2.sessionId ?? room2.id;
+  };
+  return {
+    bumpNavSeq,
+    actions: {
+      navSeq: () => seq,
+      retryOpening: (target) => {
+        if (!target) return;
+        onRetry(target);
+      },
+      recoverOpening: async (botId) => {
+        if (!botId || recovering.has(botId)) return;
+        recovering.add(botId);
+        const mySeq = ++seq;
+        try {
+          await after(call2("recover-session", { botId }));
+          if (mySeq !== seq) return;
+          const bot = roster.getSnapshot().byId?.[botId];
+          if (bot === void 0) {
+            onMissingAfterRecover?.();
+            return;
+          }
+          onRecovered(currentPart(bot));
+        } catch (error) {
+          reportError2?.(error, "reopen-session");
+        } finally {
+          recovering.delete(botId);
+        }
+      },
+      landOn: (id, last, expectedSeq) => {
+        if (expectedSeq !== void 0 && expectedSeq !== seq) return void 0;
+        const mySeq = ++seq;
+        if (!last && !shouldAbortLand) {
+          const target = partFor(id);
+          if (target && (!canLandTarget || canLandTarget(target, last))) onLand(target);
+          return void 0;
+        }
+        return (async () => {
+          let moved = currentOfLast(roster.getSnapshot(), last);
+          if (last && (moved === void 0 || moved === last.sessionId)) {
+            await pull().catch(() => {
+            });
+            if (mySeq !== seq) return;
+            moved = currentOfLast(roster.getSnapshot(), last);
+          }
+          if (mySeq !== seq) return;
+          if (shouldAbortLand?.(last)) return;
+          const target = moved !== void 0 && moved !== last?.sessionId ? moved : partFor(id);
+          if (!target) return;
+          if (canLandTarget && !canLandTarget(target, last)) return;
+          onLand(target);
+        })();
+      }
+    }
+  };
+}
+function createUpdateController({
+  call: call2,
+  update,
+  getAppUpdates = () => globalThis.dshDesktop?.protocolVersion === 1 ? globalThis.dshDesktop.updates ?? null : null,
+  getOwnAppUpdates = () => globalThis.dsBotApp?.updates ?? null
+}) {
+  const mergeUpdate = (value) => {
+    if (!value || typeof value !== "object") return;
+    update.set((previous) => ({ ...previous, ...value, app: previous.app, ownApp: previous.ownApp }));
+  };
+  let wakeUpdate = () => {
+  };
+  let scheduleUpdate = () => {
+  };
+  const start = () => {
+    let stopped = false;
+    let updateTimer;
+    const nextDelay = (value) => value?.phase === "installing" || value?.dsh?.phase === "installing" ? 2e3 : 60 * 6e4;
+    const arm = (value) => {
+      clearTimeout(updateTimer);
+      if (!stopped) updateTimer = setTimeout(() => {
+        void pollUpdate();
+      }, nextDelay(value));
+    };
+    const pollUpdate = async () => {
+      clearTimeout(updateTimer);
+      if (stopped) return;
+      const value = await call2("update-check", { fresh: false }).catch(() => null);
+      if (stopped) return;
+      mergeUpdate(value);
+      arm(value);
+    };
+    wakeUpdate = () => {
+      void pollUpdate();
+    };
+    scheduleUpdate = arm;
+    void pollUpdate();
+    let unsubscribeApp = null;
+    const appUpdates = getAppUpdates();
+    if (appUpdates?.status && appUpdates.subscribe) {
+      const takeApp = (app) => {
+        if (!stopped && app) update.set((previous) => ({ ...previous, app }));
+      };
+      void Promise.resolve(appUpdates.status()).then(takeApp, () => {
+      });
+      unsubscribeApp = appUpdates.subscribe(takeApp);
+    }
+    let unsubscribeOwn = null;
+    const ownAppUpdates = getOwnAppUpdates();
+    if (ownAppUpdates?.state && ownAppUpdates.subscribe) {
+      const takeOwn = (ownApp) => {
+        if (!stopped && ownApp) update.set((previous) => ({ ...previous, ownApp }));
+      };
+      void Promise.resolve(ownAppUpdates.state()).then(takeOwn, () => {
+      });
+      unsubscribeOwn = ownAppUpdates.subscribe(takeOwn);
+    }
+    return () => {
+      stopped = true;
+      clearTimeout(updateTimer);
+      wakeUpdate = () => {
+      };
+      scheduleUpdate = () => {
+      };
+      unsubscribeApp?.();
+      unsubscribeOwn?.();
+    };
+  };
+  const actions = {
+    checkUpdate: async () => {
+      const value = await call2("update-check", { fresh: true });
+      mergeUpdate(value);
+      scheduleUpdate(value);
+    },
+    installUpdate: async () => {
+      const value = await call2("update-install");
+      mergeUpdate(value);
+      wakeUpdate();
+    },
+    installDshUpdate: async () => {
+      const dsh = await call2("dsh-update-install");
+      update.set((previous) => ({ ...previous, dsh }));
+      wakeUpdate();
+    },
+    openAppUpdates: async (verified) => {
+      const appUpdates = getAppUpdates();
+      if (!appUpdates?.status) return;
+      const app = await appUpdates.status();
+      if (app) update.set((previous) => ({ ...previous, app }));
+      if (sameVersion(app?.version, verified)) await appUpdates.open?.();
+    },
+    checkOwnApp: async () => {
+      await getOwnAppUpdates()?.check?.();
+    },
+    installOwnApp: async () => {
+      await getOwnAppUpdates()?.install?.();
+    },
+    openOwnApp: async () => {
+      await getOwnAppUpdates()?.open?.();
+    },
+    downloadOwnApp: async () => {
+      await getOwnAppUpdates()?.download?.();
+    },
+    setOwnAppAutoUpdate: async (enabled) => {
+      await getOwnAppUpdates()?.setAutoUpdate?.(enabled === true);
+    }
+  };
+  return { actions, start };
+}
+function createBrowserController({
+  call: call2,
+  store,
+  bridge: bridge2 = (globalThis.dshDesktop?.protocolVersion === 1 ? globalThis.dshDesktop.browser : globalThis.dsBotApp?.browser) ?? null,
+  resolveOwner = null,
+  extraRetainIds = () => [],
+  yieldBrowser = () => true,
+  onTabsEmptied = null,
+  reconcileUi = null,
+  onClosePanel = null
+}) {
+  const { roster, ui } = store;
+  const browsers = bridge2 ? createBotBrowsers({ bridge: bridge2, createSource }) : null;
+  const browserHolds = browsers?.holds ?? createSource({});
+  const browserPages = browsers?.pages ?? createSource({});
+  const browserTabs = browsers?.tabs ?? createSource({});
+  const defaultResolveOwner = (id) => {
+    const bot = id ? roster.getSnapshot().byId?.[id] : void 0;
+    return bot ? { ownerId: bot.id, detailsId: id, isClassic: false } : null;
+  };
+  const ownerOf = resolveOwner ?? defaultResolveOwner;
+  const actions = {};
+  if (browsers) {
+    Object.assign(actions, {
+      openBrowser: (id) => {
+        const target = ownerOf(id);
+        if (!target) return;
+        browsers.ensureTabs(target.ownerId);
+        if (browsers.tabs.getSnapshot()[target.ownerId]?.active == null) browsers.openTab(target.ownerId);
+        ui.set((state) => ({
+          ...state,
+          inbox: false,
+          details: target.detailsId,
+          view: "browser",
+          renaming: false,
+          tab: null,
+          panelYield: yieldBrowser(state)
+        }));
+      },
+      toggleBrowser: (id) => {
+        const snap = roster.getSnapshot();
+        if (snap.browser === false) return;
+        const target = ownerOf(id);
+        if (!target) return;
+        const state = ui.getSnapshot();
+        const sameOwner = target.isClassic ? !snap.byId?.[state.details] && !snap.roomsById?.[state.details] : (snap.byId?.[state.details]?.id ?? state.details) === target.ownerId;
+        if (state.details && state.view === "browser" && sameOwner) {
+          onClosePanel?.();
+          return;
+        }
+        actions.openBrowser(target.toggleId ?? target.ownerId);
+      },
+      browserNewTab: (id) => {
+        const target = ownerOf(id);
+        if (!target) return null;
+        browsers.ensureTabs(target.ownerId);
+        const tabId = browsers.openTab(target.ownerId);
+        ui.set((state) => ({
+          ...state,
+          inbox: false,
+          details: target.detailsId,
+          view: "browser",
+          renaming: false,
+          tab: null,
+          panelYield: yieldBrowser(state)
+        }));
+        return tabId;
+      },
+      browserPick: (id, tabId) => {
+        const target = ownerOf(id);
+        if (!target) return;
+        browsers.activate(target.ownerId, tabId);
+        ui.set((state) => ({
+          ...state,
+          inbox: false,
+          details: target.detailsId,
+          view: "browser",
+          renaming: false,
+          tab: null,
+          panelYield: yieldBrowser(state)
+        }));
+      },
+      browserEnsure: (botId) => browsers.ensureTabs(botId),
+      browserCloseTab: onTabsEmptied ? async (botId, tabId) => {
+        await browsers.closeTab(botId, tabId);
+        const remaining = browsers.tabs.getSnapshot()[botId];
+        if (remaining && remaining.ids.length > 0) return;
+        onTabsEmptied(botId);
+      } : (botId, tabId) => browsers.closeTab(botId, tabId),
+      browserActivate: (botId, tabId) => browsers.activate(botId, tabId),
+      browserShow: (tabId, box) => browsers.show(tabId, box),
+      browserNavigate: (tabId, input) => browsers.navigate(tabId, input),
+      browserCommand: (tabId, name) => browsers.command(tabId, name),
+      browserFocus: (tabId) => browsers.focus(tabId),
+      browserTakeover: bridge2.views ? async (botId) => {
+        const result = await call2("browser-takeover", { botId });
+        await bridge2.views.hold(botId, true);
+        return result;
+      } : void 0,
+      browserStop: bridge2.views ? async (botId) => {
+        const result = await call2("browser-stop", { botId });
+        await bridge2.views.hold(botId, true);
+        return result;
+      } : void 0,
+      // `answer` is a handoff card's { callId, outcome }; the panel's Give back sends none.
+      browserGiveBack: bridge2.views ? async (botId, answer = {}) => {
+        const result = await call2("browser-give-back", { botId, ...answer });
+        await bridge2.views.hold(botId, false);
+        return result;
+      } : void 0,
+      // Cookie imports, only where the bridge offers them (the desktop app): an installed
+      // browser profile, a file, or pasted cookies/cURL is previewed, then applied into
+      // the Bot's storage key.
+      browserImport: typeof bridge2.importSources === "function" ? {
+        sources: () => bridge2.importSources(),
+        probe: typeof bridge2.importProbe === "function" ? (source) => bridge2.importProbe(source) : null,
+        pick: () => bridge2.importPick(),
+        paste: typeof bridge2.importPaste === "function" ? (text, defaultUrl) => bridge2.importPaste(text, defaultUrl) : null,
+        launch: typeof bridge2.importLaunch === "function" ? (source) => bridge2.importLaunch(source) : null,
+        openPermission: typeof bridge2.importOpenPermission === "function" ? () => bridge2.importOpenPermission() : null,
+        live: (source, close, requestId) => bridge2.importLive(source, close, requestId),
+        apply: (botId, pending, options) => bridge2.importApply(
+          Array.isArray(botId) ? botId.map((id) => `bot:${id}`) : `bot:${botId}`,
+          pending,
+          options
+        ),
+        cancel: (pending) => bridge2.importCancel(pending)
+      } : null
+    });
+  }
+  const start = () => {
+    if (!browsers) return () => {
+    };
+    let stopped = false;
+    let stopReads = null;
+    const sync = () => {
+      if (stopped) return;
+      const snapshot = roster.getSnapshot();
+      if (!snapshot.ready) return;
+      const on = snapshot.browser === true;
+      if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call2 });
+      if (!on && stopReads) {
+        stopReads();
+        stopReads = null;
+      }
+      const retainIds = [...snapshot.bots.map((bot) => bot.id), ...extraRetainIds()];
+      void Promise.resolve(browsers.retain(retainIds)).catch(() => {
+      });
+      if (reconcileUi) {
+        reconcileUi(snapshot, on);
+      } else {
+        ui.set((state) => state.details && state.view === "browser" && (!on || !snapshot.byId[state.details]) ? { ...state, view: "details" } : state);
+      }
+    };
+    sync();
+    const offRoster = roster.subscribe(sync);
+    return () => {
+      stopped = true;
+      offRoster();
+      stopReads?.();
+      stopReads = null;
+      browsers.dispose();
+    };
+  };
+  return {
+    browsers,
+    browserHolds,
+    browserPages,
+    browserTabs,
+    actions,
+    start
+  };
+}
+function startComputerBridge({
+  call: call2,
+  store,
+  onStop,
+  onAllowForeground,
+  appComputer = globalThis.dsBotApp
+}) {
+  if (!appComputer) return () => {
+  };
+  const { roster, computer } = store;
+  let stopped = false;
+  const cleanups = [];
+  if (typeof appComputer.computer === "function") {
+    const nameOf2 = (id) => roster.getSnapshot().byId[id]?.name ?? t("a Bot");
+    const syncComputer = () => {
+      if (stopped) return;
+      const live = computer.getSnapshot();
+      const look = (id) => lookOf(roster.getSnapshot().byId[id]);
+      const rows2 = (live.leases ?? []).map((entry) => ({
+        botId: entry.botId,
+        name: nameOf2(entry.botId),
+        app: entry.kind === "foreground" ? t("In the foreground") : entry.appName,
+        label: entry.kind === "foreground" ? t("{name} · foreground", { name: nameOf2(entry.botId) }) : `${nameOf2(entry.botId)} · ${entry.appName}`,
+        color: look(entry.botId).color,
+        avatar: look(entry.botId).image
+      }));
+      for (const [botId, entry] of Object.entries(live.bots ?? {})) {
+        if (entry.waitingFor === "user-idle") {
+          rows2.push({
+            botId,
+            waiting: true,
+            name: nameOf2(botId),
+            app: t("waits for the computer"),
+            label: t("{name} waits for the computer", { name: nameOf2(botId) }),
+            color: look(botId).color,
+            avatar: look(botId).image
+          });
+        }
+      }
+      appComputer.computer({
+        rows: rows2,
+        labels: { stop: t("Stop"), stopAll: t("Stop all"), letGo: t("Let it continue") }
+      });
+    };
+    syncComputer();
+    cleanups.push(computer.subscribe(syncComputer));
+    cleanups.push(roster.subscribe(() => {
+      const live = computer.getSnapshot();
+      if ((live.leases?.length ?? 0) > 0 || Object.values(live.bots ?? {}).some((entry) => entry?.waitingFor === "user-idle")) {
+        syncComputer();
+      }
+    }));
+  }
+  if (typeof appComputer.computerCursor === "function") {
+    let pollAbort = null;
+    let wakeEnabled = null;
+    let cancelPause = null;
+    const abortPoll = () => {
+      if (pollAbort) {
+        const ctrl = pollAbort;
+        pollAbort = null;
+        ctrl.abort();
+      }
+    };
+    const waitEnabled = () => new Promise((resolve2) => {
+      if (stopped || roster.getSnapshot().computer?.enabled === true) {
+        resolve2();
+        return;
+      }
+      wakeEnabled = resolve2;
+    });
+    const pause = (ms) => new Promise((resolve2) => {
+      if (stopped) {
+        resolve2();
+        return;
+      }
+      const delay = setTimeout(() => {
+        if (cancelPause === cancel) cancelPause = null;
+        resolve2();
+      }, ms);
+      const cancel = () => {
+        clearTimeout(delay);
+        if (cancelPause === cancel) cancelPause = null;
+        resolve2();
+      };
+      cancelPause = cancel;
+    });
+    const notifyEnabled = () => {
+      if (wakeEnabled) {
+        const fn = wakeEnabled;
+        wakeEnabled = null;
+        fn();
+      }
+    };
+    const offCursorRoster = roster.subscribe(() => {
+      if (roster.getSnapshot().computer?.enabled === true) notifyEnabled();
+      else abortPoll();
+    });
+    const runCursor = async () => {
+      let after = 0;
+      while (!stopped) {
+        if (roster.getSnapshot().computer?.enabled !== true) {
+          await waitEnabled();
+          continue;
+        }
+        const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+        pollAbort = ctrl;
+        try {
+          const reply = await call2("computer-cursor-wait", { after }, ctrl?.signal);
+          if (pollAbort === ctrl) pollAbort = null;
+          if (stopped || ctrl?.signal?.aborted) continue;
+          for (const event of reply?.events ?? []) {
+            if (Number.isFinite(event.seq) && event.seq > after) after = event.seq;
+            if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3e3) continue;
+            const botLook = lookOf(roster.getSnapshot().byId[event.botId]);
+            appComputer.computerCursor({ ...event, color: botLook.color, avatar: botLook.image });
+          }
+        } catch {
+          if (pollAbort === ctrl) pollAbort = null;
+          if (!stopped && roster.getSnapshot().computer?.enabled === true) await pause(2e3);
+        }
+      }
+    };
+    void runCursor();
+    cleanups.push(() => {
+      abortPoll();
+      offCursorRoster();
+      notifyEnabled();
+      cancelPause?.();
+    });
+  }
+  if (typeof appComputer.idleSeconds === "function") {
+    let idleTimer = 0;
+    const pushIdle = () => {
+      if (stopped) return;
+      const current2 = roster.getSnapshot();
+      if (current2.computer?.enabled !== true) return;
+      if (!needsIdleSample(computer.getSnapshot(), current2.computer)) return;
+      void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
+        if (!stopped && Number.isFinite(idle)) call2("computer-user-active", { idleSeconds: idle }).catch(() => {
+        });
+      }).catch(() => {
+      });
+    };
+    const syncIdle = () => {
+      const enabled = roster.getSnapshot().computer?.enabled === true;
+      if (enabled && !idleTimer) idleTimer = setInterval(pushIdle, 2e3);
+      else if (!enabled && idleTimer) {
+        clearInterval(idleTimer);
+        idleTimer = 0;
+      }
+    };
+    syncIdle();
+    const offIdleRoster = roster.subscribe(syncIdle);
+    cleanups.push(() => {
+      offIdleRoster();
+      if (idleTimer) clearInterval(idleTimer);
+    });
+  }
+  if (typeof appComputer.onComputerAction === "function") {
+    const offAction = appComputer.onComputerAction(({ kind, botId }) => {
+      if (kind === "stop") void onStop?.(botId, false);
+      else if (kind === "stopall") void onStop?.(null, true);
+      else if (kind === "letgo") void onAllowForeground?.(botId);
+    });
+    if (typeof offAction === "function") cleanups.push(offAction);
+  }
+  return () => {
+    stopped = true;
+    for (const cleanup of cleanups) cleanup();
   };
 }
 
@@ -50273,16 +52028,6 @@ function ActivityIndicator({ sessionId, away = false, useRoster, useSessionStatu
   ), host);
 }
 
-// src/client/dsh-offer.js
-var APP_OFFER = /* @__PURE__ */ new Set(["available", "downloading", "verifying", "installing", "ready"]);
-var bare = (value) => String(value ?? "").trim().replace(/^v/i, "").split("+")[0];
-var sameVersion = (a, b2) => bare(a) !== "" && bare(a) === bare(b2);
-function showsDshRow(dsh, app) {
-  if (!dsh?.verified || !dsh.current || sameVersion(dsh.verified, dsh.current)) return false;
-  if (dsh.kind === "npm") return true;
-  return dsh.kind === "app" && APP_OFFER.has(app?.phase) && sameVersion(app.version, dsh.verified);
-}
-
 // src/client/member-status.js
 var import_react42 = require("react");
 var NO_WORK2 = { bots: {}, rooms: {}, approvals: [] };
@@ -50627,7 +52372,7 @@ var MEMBER_CSS = `
 
 // src/client/work-pause-card.js
 var import_react43 = require("react");
-var EMPTY = [];
+var EMPTY2 = [];
 function titleFor(work, fromName, toName) {
   if (work.kind === "ask_back") {
     return t("Paused question from {from} to {to}", { from: toName, to: fromName });
@@ -50702,7 +52447,7 @@ function WorkPauseCard({ work, roster, actions, inline = false, showViewChat = f
 }
 function WorkPauseDock({ sessionId, useRoster, useWork, actions }) {
   const roster = useRoster((value) => value);
-  const paused = useWork((state) => state.paused ?? EMPTY);
+  const paused = useWork((state) => state.paused ?? EMPTY2);
   const bot = roster.byId[sessionId];
   if (!bot || paused.length === 0) return null;
   const own = paused.filter((item) => item.from === bot.id || item.to === bot.id);
@@ -54200,68 +55945,6 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
       )
     )
   );
-}
-
-// src/client/reload-action.js
-var hostListeners = /* @__PURE__ */ new Set();
-var reloadGuards = /* @__PURE__ */ new Set();
-function registerReloadConfirmHost(listener) {
-  if (typeof listener !== "function") return () => {
-  };
-  hostListeners.add(listener);
-  return () => {
-    hostListeners.delete(listener);
-  };
-}
-function registerReloadGuard(check) {
-  if (typeof check !== "function") return () => {
-  };
-  reloadGuards.add(check);
-  return () => {
-    reloadGuards.delete(check);
-  };
-}
-function hasUnsentReloadRisk() {
-  if (hasKeptDraftFiles()) return true;
-  for (const check of Array.from(reloadGuards)) {
-    try {
-      if (check()) return true;
-    } catch {
-      return true;
-    }
-  }
-  return false;
-}
-function performReload(reloadFn) {
-  try {
-    flushDrafts();
-  } catch {
-  }
-  if (typeof reloadFn === "function") reloadFn();
-  else globalThis.location?.reload?.();
-}
-function requestWindowReload({ reload, onBlocked } = {}) {
-  if (!hasUnsentReloadRisk()) {
-    performReload(reload);
-    return "reloaded";
-  }
-  const activeHost = Array.from(hostListeners).at(-1);
-  if (activeHost) {
-    activeHost({
-      confirm: () => performReload(reload)
-    });
-    return "confirming";
-  }
-  const warning = t("Unsent attachments will be removed.");
-  if (typeof globalThis.confirm === "function") {
-    if (globalThis.confirm(warning)) {
-      performReload(reload);
-      return "reloaded";
-    }
-    return "cancelled";
-  }
-  onBlocked?.(warning);
-  return "blocked";
 }
 
 // src/client/settings-preferences.js
@@ -72103,8 +73786,8 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
 // src/client/exchange.js
 var import_react90 = require("react");
 var SHEET_EXIT_MS = 220;
-var EMPTY2 = [];
-var useNullWork = () => EMPTY2;
+var EMPTY3 = [];
+var useNullWork = () => EMPTY3;
 var roleTagOf = (role) => {
   switch (role) {
     case "note":
@@ -72123,7 +73806,7 @@ function ExchangeDialog({ pair, paneLeft, roster, actions, useWork }) {
   const [entries2, setEntries] = (0, import_react90.useState)(null);
   const [leaving, setLeaving] = (0, import_react90.useState)(false);
   const useReadWork = useWork ?? useNullWork;
-  const pausedAll = useReadWork((state) => state.paused ?? EMPTY2);
+  const pausedAll = useReadWork((state) => state.paused ?? EMPTY3);
   const pausedHere = pausedAll.filter((item) => item.from === pair[0] && item.to === pair[1] || item.from === pair[1] && item.to === pair[0]);
   const log = (0, import_react90.useRef)(null);
   const atEnd = (0, import_react90.useRef)(true);
@@ -75643,1017 +77326,6 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   );
 }
 
-// src/client/read-page.js
-var READ_LIMITS = {
-  chars: 4e5,
-  nodes: 15e4,
-  depth: 400,
-  ms: 1500,
-  items: 3e3,
-  tableRows: 5e3,
-  tableCols: 30,
-  frameDepth: 3
-};
-function readPage(limits) {
-  const started = performance.now();
-  const SKIP = /* @__PURE__ */ new Set(["script", "style", "noscript", "template", "head", "title", "meta", "link", "svg", "object", "embed", "audio", "video", "source", "track", "map", "datalist", "option", "optgroup"]);
-  const ITEM = 'a[href], button, input:not([type=hidden]), textarea, select, summary, [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [role=switch], [role=radio], [contenteditable=""], [contenteditable=true]';
-  const ROLES = { a: "link", button: "button", select: "select", textarea: "textbox", summary: "button" };
-  const INPUT_ROLES = { checkbox: "checkbox", radio: "radio", submit: "button", button: "button", reset: "button", image: "button", search: "searchbox", range: "slider", file: "button", color: "button" };
-  const NO_VALUE_TYPES = /* @__PURE__ */ new Set(["checkbox", "radio", "submit", "button", "reset", "image", "file", "color"]);
-  const SECRET_HINT = /(^|[-_\s])(cvv|cvc|csc|cc-?(num|number|csc|exp)|card-?(num|number)|otp|one-?time-?code|pin)([-_\s]|$)/i;
-  const BLOCK_DISPLAY = /^(block|flex|grid|list-item|table|flow-root|table-caption|table-row-group|table-header-group|table-footer-group|table-row|-webkit-box)$/;
-  const INLINE_BLOCK = /^(inline-block|inline-flex|inline-grid|inline-table|table-cell|-webkit-inline-box)$/;
-  const SEMANTIC = /^(ul|ol|table|pre|blockquote|h[1-6]|code|details)$/;
-  const items = [];
-  const stash = [];
-  const stats = { nodes: 0, frames: 0 };
-  let chars = 0;
-  let stop = "";
-  const collapse = (value) => String(value || "").replace(/\s+/g, " ").trim();
-  const isSecret = (el) => {
-    if (el.localName !== "input" && el.localName !== "textarea") return false;
-    const auto = String(el.getAttribute("autocomplete") || "").toLowerCase();
-    return el.type === "password" || /(^|\s)(cc-|one-time-code)/.test(auto) || SECRET_HINT.test(`${el.getAttribute("name") || ""} ${el.id || ""}`);
-  };
-  const keep = (text2, end = "") => {
-    if (text2 === "") return "";
-    stash.push(text2);
-    return `
-
-${stash.length - 1}${end}
-
-`;
-  };
-  const expand = (text2) => text2.replace(/\u0001(\d+)[\u0002\u0003]/g, (_, index) => expand(stash[Number(index)]));
-  const flow = (text2) => text2.split("\n").map((line) => line.replace(/[ \t\f\v\u00a0\u2028\u2029]+/g, " ").trim().replace(/^· /, "")).join("\n").replace(/\n{3,}/g, "\n\n").replace(/\u0003\n\n(?=\u0001\d+\u0003)/g, "\n").trim();
-  const block = (text2) => expand(flow(text2));
-  const oneLine = (text2) => block(text2).replace(/\s*\n+\s*/g, " ").trim();
-  const styleOf = (el) => (el.ownerDocument.defaultView || window).getComputedStyle(el);
-  const childrenOf = (el) => {
-    if (el.shadowRoot) return el.shadowRoot.childNodes;
-    if (el.localName === "slot" && typeof el.assignedNodes === "function") {
-      const assigned = el.assignedNodes();
-      if (assigned.length > 0) return assigned;
-    }
-    return el.childNodes;
-  };
-  const over2 = () => {
-    if (stop) return true;
-    if (chars > limits.chars) stop = `the text passed ${limits.chars} characters`;
-    else if (stats.nodes > limits.nodes) stop = `the page has more than ${limits.nodes} nodes`;
-    else if (stats.nodes % 512 === 0 && performance.now() - started > limits.ms) stop = `reading took longer than ${limits.ms} ms`;
-    return stop !== "";
-  };
-  const roleOf = (el) => el.getAttribute("role") || ROLES[el.localName] || (el.localName === "input" ? INPUT_ROLES[el.type] || "textbox" : el.isContentEditable ? "textbox" : el.localName);
-  const sized2 = (el) => {
-    const box = el.getBoundingClientRect();
-    return box.width > 0 && box.height > 0;
-  };
-  const itemFor = (el, style) => {
-    if (items.length >= limits.items || style.visibility !== "visible" || !el.matches(ITEM) || !sized2(el)) return null;
-    const item = { role: roleOf(el) };
-    const secret = isSecret(el);
-    if (el.href) item.href = String(el.href);
-    if ((el.localName === "input" || el.localName === "textarea") && !secret && !NO_VALUE_TYPES.has(el.type) && el.value) item.value = String(el.value).slice(0, 120);
-    if (el.localName === "select" && el.selectedOptions?.length) item.value = collapse([...el.selectedOptions].map((option) => option.label || option.text).join(", ")).slice(0, 120);
-    if (el.checked) item.checked = true;
-    if (el.disabled) item.disabled = true;
-    items.push(item);
-    return { item, number: items.length, secret };
-  };
-  const nameOf2 = (el, text2, secret) => collapse(
-    el.getAttribute("aria-label") || text2 || (el.localName === "input" && !secret && NO_VALUE_TYPES.has(el.type) ? el.value : "") || el.getAttribute("placeholder") || el.title || el.getAttribute("alt") || el.querySelector?.("img[alt]")?.alt || el.getAttribute("name") || ""
-  ).slice(0, 80);
-  const fenced = (code, lang) => {
-    const longest = Math.max(2, ...(code.match(/`{3,}/g) || []).map((run2) => run2.length));
-    const fence = "`".repeat(longest + 1);
-    return `${fence}${lang}
-${code.replace(/\n+$/, "")}
-${fence}`;
-  };
-  const langOf = (el) => {
-    const names = `${el.className || ""} ${el.querySelector?.("code")?.className || ""}`;
-    return /(?:^|\s)(?:lang|language)-([\w+#.-]+)/.exec(names)?.[1] || "";
-  };
-  const list = (el, ctx) => {
-    const ordered = el.localName === "ol";
-    let number = ordered ? Number(el.getAttribute("start") || 1) || 1 : 1;
-    const lines = [];
-    for (const child of childrenOf(el)) {
-      if (over2()) break;
-      if (child.nodeType !== 1 || child.localName !== "li") {
-        const loose = block(render(child, ctx));
-        if (loose) lines.push(loose);
-        continue;
-      }
-      const style = styleOf(child);
-      if (style.display === "none") continue;
-      let body2 = block(children(child, { ...ctx, depth: ctx.depth + 1, shown: style.visibility === "visible" }));
-      if (!body2.includes("```")) body2 = body2.replace(/\n{2,}/g, "\n");
-      const marker = ordered ? `${number++}. ` : "- ";
-      if (body2 === "") continue;
-      const pad2 = " ".repeat(marker.length);
-      lines.push(body2.split("\n").map((line, index) => (index === 0 ? marker : line ? pad2 : "") + line).join("\n"));
-    }
-    return keep(lines.join("\n"));
-  };
-  const cellText3 = (cell, ctx) => block(children(cell, ctx)).replace(/\n+/g, " <br> ").replace(/\|/g, "\\|");
-  const layoutTable = (table, rows2) => {
-    const role = table.getAttribute("role");
-    if (role === "presentation" || role === "none") return true;
-    if (table.querySelector("table")) return true;
-    return !rows2.some((row) => row.cells.length > 1);
-  };
-  const tableMarkdown = (table, ctx) => {
-    const rows2 = [...table.rows].filter((row) => styleOf(row).display !== "none");
-    const caption = table.caption ? oneLine(children(table.caption, ctx)) : "";
-    if (layoutTable(table, rows2)) {
-      return rows2.map((row) => [...row.cells].map((cell) => `
-
-${children(cell, ctx)}
-
-`).join("")).join("");
-    }
-    const grid = [];
-    const carry = [];
-    let width = 0;
-    for (const row of rows2.slice(0, limits.tableRows + 1)) {
-      if (over2()) break;
-      const line = [];
-      let column = 0;
-      const place = () => {
-        while (carry[column]?.left > 0) {
-          line[column] = carry[column].text;
-          carry[column].left -= 1;
-          column += 1;
-        }
-      };
-      for (const cell of row.cells) {
-        place();
-        if (styleOf(cell).display === "none") continue;
-        const text2 = cellText3(cell, ctx);
-        const span = Math.max(1, Math.min(limits.tableCols, Number(cell.colSpan) || 1));
-        const down = Math.max(1, Math.min(limits.tableRows, Number(cell.rowSpan) || 1));
-        for (let offset = 0; offset < span; offset += 1) {
-          line[column] = offset === 0 ? text2 : "";
-          if (down > 1) carry[column] = { text: offset === 0 ? text2 : "", left: down - 1 };
-          column += 1;
-        }
-      }
-      place();
-      width = Math.max(width, line.length);
-      grid.push(line);
-    }
-    width = Math.min(width, limits.tableCols);
-    if (grid.length === 0 || width === 0) return caption ? `
-
-${caption}
-
-` : "";
-    const format = (cells) => `| ${Array.from({ length: width }, (_, index) => cells[index] ?? "").join(" | ")} |`;
-    const out = [format(grid[0]), `|${" --- |".repeat(width)}`, ...grid.slice(1).map(format)];
-    if (rows2.length > limits.tableRows + 1) out.push(`… (table cut: ${rows2.length - limits.tableRows - 1} more rows)`);
-    return `${caption ? `
-
-Table: ${caption}` : ""}${keep(out.join("\n"))}`;
-  };
-  const frame3 = (el, ctx) => {
-    let doc = null;
-    try {
-      doc = el.contentDocument;
-    } catch {
-      doc = null;
-    }
-    const address = (() => {
-      try {
-        return doc?.location?.href || el.src || el.getAttribute("src") || "about:blank";
-      } catch {
-        return el.src || "about:blank";
-      }
-    })();
-    if (!doc) return `
-
-[iframe (cross-origin, not readable): ${address}]
-
-`;
-    if (ctx.frames >= limits.frameDepth) return `
-
-[iframe (nested too deep, not read): ${address}]
-
-`;
-    stats.frames += 1;
-    const title = collapse(el.title || doc.title);
-    const body2 = doc.body ? block(children(doc.body, { ...ctx, frames: ctx.frames + 1, depth: ctx.depth + 1, shown: true, pre: false })) : "";
-    return keep(`[iframe: ${title ? `${title} (${address})` : address}]
-${body2 || "(no text)"}
-[iframe end]`);
-  };
-  function children(el, ctx) {
-    let out = "";
-    for (const child of childrenOf(el)) {
-      if (over2()) break;
-      out += render(child, ctx);
-    }
-    return out;
-  }
-  function render(node, ctx) {
-    stats.nodes += 1;
-    if (node.nodeType === 3) {
-      if (!ctx.shown) return "";
-      const data = node.data.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "");
-      const text2 = ctx.pre ? data : data.replace(/[\t\n\r ]+/g, " ");
-      chars += text2.length;
-      return text2;
-    }
-    if (node.nodeType !== 1) return "";
-    const el = node;
-    const tag = el.localName;
-    if (SKIP.has(tag) || ctx.depth > limits.depth || over2()) return "";
-    const style = styleOf(el);
-    const display = style.display;
-    if (display === "none" || style.contentVisibility === "hidden") return "";
-    const shown = style.visibility === "visible";
-    const keepsSpace = String(style.whiteSpace || "").startsWith("pre") || style.whiteSpace === "break-spaces";
-    const next = { ...ctx, depth: ctx.depth + 1, shown };
-    if (display === "contents" && !SEMANTIC.test(tag) && !el.matches(ITEM)) return children(el, next);
-    if (style.overflowX !== "visible" || style.overflowY !== "visible") {
-      const box = el.getBoundingClientRect();
-      if (box.width === 0 || box.height === 0) return "";
-    }
-    if (tag === "br") return "\n";
-    if (tag === "hr") return "\n\n---\n\n";
-    if (tag === "img") {
-      const alt = collapse(el.getAttribute("alt"));
-      return shown && alt ? `[image: ${alt}]` : "";
-    }
-    if (tag === "canvas") {
-      const box = el.getBoundingClientRect();
-      return box.width >= 200 && box.height >= 100 ? "\n\n[canvas: drawn content, not readable]\n\n" : "";
-    }
-    if (tag === "iframe" || tag === "frame") {
-      const box = el.getBoundingClientRect();
-      return tag === "iframe" && (box.width < 2 || box.height < 2) ? "" : frame3(el, next);
-    }
-    const found = itemFor(el, style);
-    const mark2 = found ? `[#${found.number}]` : "";
-    if (tag === "input" || tag === "textarea" || tag === "select") {
-      if (found) found.item.name = nameOf2(el, tag === "select" ? "" : el.labels?.[0] ? collapse(el.labels[0].textContent) : "", found.secret);
-      return mark2 ? ` ${mark2} ` : "";
-    }
-    let body2;
-    if (tag === "pre") {
-      const code = shown ? String(el.innerText || el.textContent || "") : "";
-      chars += code.length;
-      body2 = code.trim() ? keep(fenced(code, langOf(el))) : "";
-    } else if (tag === "table") {
-      body2 = tableMarkdown(el, next);
-    } else if (tag === "ul" || tag === "ol") {
-      body2 = list(el, next);
-    } else if (tag === "details" && !el.open) {
-      const summary = [...el.children].find((child) => child.localName === "summary");
-      body2 = summary ? render(summary, next) : "";
-    } else {
-      body2 = children(el, { ...next, pre: keepsSpace });
-    }
-    if (found) found.item.name = nameOf2(el, oneLine(body2), found.secret);
-    const level = /^h([1-6])$/.exec(tag)?.[1] || (el.getAttribute("role") === "heading" ? el.getAttribute("aria-level") || "2" : "");
-    if (level) {
-      const title = oneLine(body2);
-      return title ? `
-
-${"#".repeat(Math.min(6, Number(level) || 2))} ${title}${mark2}
-
-` : mark2;
-    }
-    if (tag === "code" && !ctx.pre) {
-      const code = oneLine(body2);
-      if (!code) return mark2;
-      const ticks = code.includes("`") ? "``" : "`";
-      return `${ticks}${code}${ticks}${mark2}`;
-    }
-    if (tag === "blockquote") {
-      const quoted2 = block(body2);
-      return quoted2 ? keep(quoted2.split("\n").map((line) => line ? `> ${line}` : ">").join("\n")) : "";
-    }
-    const end = body2.trimEnd().length;
-    const marked2 = mark2 ? `${body2.slice(0, end)}${mark2}${body2.slice(end)}` : body2;
-    if (ctx.pre && !BLOCK_DISPLAY.test(display)) return marked2;
-    if (keepsSpace && BLOCK_DISPLAY.test(display) && tag !== "pre") {
-      return keep(expand(marked2).replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").replace(/^\n+|\s+$/g, ""), "");
-    }
-    if (BLOCK_DISPLAY.test(display)) return `
-
-${marked2}
-
-`;
-    if (INLINE_BLOCK.test(display)) return ` ${marked2} `;
-    if (tag === "li") return ` · ${marked2}`;
-    return marked2;
-  }
-  const body = document.body;
-  let text = "";
-  if (body) {
-    text = block(render(body, { depth: 0, frames: 0, shown: true, pre: false })).replace(/\u00a0/g, " ");
-  }
-  if (text.length > limits.chars) {
-    text = text.slice(0, limits.chars);
-    stop ||= `the text passed ${limits.chars} characters`;
-  }
-  const page = {
-    url: location.href,
-    title: document.title,
-    lang: document.documentElement.lang || "",
-    description: document.querySelector('meta[name="description"]')?.content || "",
-    selection: String(getSelection() || "").slice(0, 4e3),
-    format: "markdown",
-    text,
-    items,
-    stats: { ...stats, ms: Math.round(performance.now() - started) }
-  };
-  if (stop) page.truncated = stop;
-  return page;
-}
-var readPageScript = (limits = READ_LIMITS) => `(${readPage})(${JSON.stringify(limits)})`;
-var READ_PAGE_SCRIPT = readPageScript();
-
-// src/client/bot-browsers.js
-var STORE_KEY = STORAGE.browsers;
-var MAX_LIVE = 6;
-var READ_TIMEOUT_MS = 1e4;
-var PREVIEW_TIMEOUT_MS = 3e3;
-var RESIZE_LATER_MS = 200;
-var SEARCH_URL = "https://www.bing.com/search?q=";
-var PREVIEW_SCRIPT = `(() => {
-  const meta = key => document.querySelector('meta[name="' + key + '"],meta[property="' + key + '"]')?.content ?? ''
-  const paragraph = [...document.querySelectorAll('main p, article p, p')].map(node => node.innerText ?? '').find(text => text.trim().length > 40) ?? ''
-  const text = meta('description') || meta('og:description') || paragraph || document.body?.innerText || ''
-  return text.replace(/\\s+/g, ' ').trim().slice(0, 200)
-})()`;
-var EMPTY3 = { url: "", title: "", favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, live: false, excerpt: "" };
-var CLASSIC_BROWSER_OWNER = "classic";
-var normalizeGuestUrl = (url) => !url || url === "about:blank" || String(url).startsWith("about:blank#") ? "" : String(url);
-function createAppViewProxy(bridge2, botId, tabId) {
-  const listeners3 = /* @__PURE__ */ new Map();
-  const state = { url: "", title: "", loading: false, canGoBack: false, canGoForward: false };
-  let readyOnce = false;
-  const fire = (name, event = {}) => {
-    for (const listener of listeners3.get(name) ?? []) listener({ type: name, ...event });
-  };
-  return {
-    isAppViewProxy: true,
-    style: {},
-    dataset: {},
-    addEventListener(name, listener, options = {}) {
-      listeners3.set(name, [...listeners3.get(name) ?? [], listener]);
-      options.signal?.addEventListener("abort", () => this.removeEventListener(name, listener), { once: true });
-    },
-    removeEventListener(name, listener) {
-      listeners3.set(name, (listeners3.get(name) ?? []).filter((item) => item !== listener));
-    },
-    setAttribute() {
-    },
-    remove() {
-      void bridge2.views.place(tabId, null, false);
-    },
-    getURL() {
-      return state.url;
-    },
-    getTitle() {
-      return state.title;
-    },
-    isLoading() {
-      return state.loading;
-    },
-    canGoBack() {
-      return state.canGoBack;
-    },
-    canGoForward() {
-      return state.canGoForward;
-    },
-    loadURL(url) {
-      return bridge2.views.navigate(botId, tabId, url);
-    },
-    executeJavaScript(script) {
-      return bridge2.views.read(botId, tabId, script);
-    },
-    goBack() {
-      return bridge2.views.command(botId, tabId, "back");
-    },
-    goForward() {
-      return bridge2.views.command(botId, tabId, "forward");
-    },
-    reload() {
-      return bridge2.views.command(botId, tabId, "reload");
-    },
-    stop() {
-      return bridge2.views.command(botId, tabId, "stop");
-    },
-    focus() {
-      return bridge2.views.focus(botId, tabId);
-    },
-    update(next, { silent = false } = {}) {
-      const wasLoading = state.loading;
-      const prevUrl = state.url;
-      const prevTitle = state.title;
-      Object.assign(state, next);
-      if (silent) {
-        if (!state.loading && state.live !== false) readyOnce = true;
-        return;
-      }
-      if (!state.loading && !readyOnce) {
-        readyOnce = true;
-        fire("dom-ready");
-        return;
-      }
-      if (wasLoading && !state.loading) {
-        fire("did-stop-loading");
-        return;
-      }
-      if (state.url !== prevUrl) fire("did-navigate");
-      else if (state.title !== prevTitle) fire("page-title-updated");
-    }
-  };
-}
-var METADATA_HOST = /^(169\.254\.\d+\.\d+|\[fd00:ec2::254\]|metadata\.google\.internal)$/i;
-var BLOCKED = "Cloud metadata addresses do not open here.";
-var blockedAddress = (url) => URL.canParse(url) && METADATA_HOST.test(new URL(url).hostname);
-function browserAddress(input) {
-  const text = String(input ?? "").trim();
-  if (text === "") return null;
-  if (/^[a-z][a-z\d+.-]*:\/\//i.test(text)) return /^https?:\/\//i.test(text) && URL.canParse(text) ? new URL(text).href : null;
-  if (/^(about|javascript|data|file|blob|chrome|devtools|view-source):/i.test(text)) return null;
-  const host = text.split(/[/?#]/)[0];
-  const local = /^(localhost|127(\.\d+){3}|10(\.\d+){3}|192\.168(\.\d+){2}|172\.(1[6-9]|2\d|3[01])(\.\d+){2}|\[[\da-f:]+\])(:\d+)?$/i.test(host);
-  const looksLikeHost = !/\s/.test(text) && (local || /^[^\s.]+(\.[^\s.]+)+(:\d+)?$/.test(host));
-  if (looksLikeHost && URL.canParse(`http://${text}`)) return new URL(`${local ? "http" : "https"}://${text}`).href;
-  return `${SEARCH_URL}${encodeURIComponent(text)}`;
-}
-function createBotBrowsers({ bridge: bridge2, createSource: createSource2, storage = globalThis.localStorage, document: doc = globalThis.document, guestFactory }) {
-  const views = /* @__PURE__ */ new Map();
-  const owner = /* @__PURE__ */ new Map();
-  const previewing = /* @__PURE__ */ new Set();
-  const tabs = createSource2({});
-  const pages = createSource2({});
-  const holds = createSource2({});
-  const store = sharedMap(STORE_KEY, storage);
-  let saved = store.read();
-  const seen = /* @__PURE__ */ new Set();
-  let layer;
-  let shown = null;
-  let rect = null;
-  let visible = false;
-  let resizeLater = 0;
-  let disposed = false;
-  let serial2 = 0;
-  const makeGuest = guestFactory ?? (bridge2.views ? ({ botId, tabId }) => ({ element: createAppViewProxy(bridge2, botId, tabId), appView: true }) : ({ document: document2 }) => ({ element: document2.createElement("webview"), appView: false }));
-  const appViewEvents = bridge2.views?.subscribe?.((change) => {
-    const { botId, tabId } = change ?? {};
-    if (!botId || !tabId) return;
-    if (change.type === "closed") {
-      const entry2 = views.get(tabId);
-      entry2?.stop();
-      views.delete(tabId);
-      owner.delete(tabId);
-      tabs.set((snapshot) => {
-        const current2 = snapshot[botId];
-        if (!current2) return snapshot;
-        const ids = current2.ids.filter((id) => id !== tabId);
-        if (ids.length === 0) {
-          const next = { ...snapshot };
-          delete next[botId];
-          return next;
-        }
-        return { ...snapshot, [botId]: { ids, active: current2.active === tabId ? ids.at(-1) : current2.active } };
-      });
-      pages.set((snapshot) => {
-        const { [tabId]: _, ...rest } = snapshot;
-        return rest;
-      });
-      persist(botId);
-      return;
-    }
-    if (!owner.has(tabId)) owner.set(tabId, botId);
-    if (change.type === "created") {
-      ensureTabs(botId);
-      tabs.set((snapshot) => {
-        const own = snapshot[botId] ?? { ids: [], active: null };
-        if (own.ids.includes(tabId)) return snapshot;
-        return { ...snapshot, [botId]: { ids: [...own.ids, tabId], active: tabId } };
-      });
-      publish2(tabId, { url: normalizeGuestUrl(change.url), title: change.title ?? "", live: true });
-      persist(botId);
-      void open(tabId);
-    }
-    const cleanChange = "url" in change ? { ...change, url: normalizeGuestUrl(change.url) } : change;
-    const entry = views.get(tabId);
-    if (entry?.appView) {
-      const wasLoading = entry.element.isLoading();
-      const prevUrl = entry.element.getURL();
-      entry.botAttached = cleanChange.botAttached === true;
-      entry.ready = cleanChange.live !== false && cleanChange.loading !== true;
-      entry.element.update(cleanChange, { silent: true });
-      if (entry.ready) {
-        observe(entry, cleanChange);
-        const nextUrl = entry.element.getURL();
-        if (wasLoading || nextUrl !== prevUrl || entry.previewedUrl !== nextUrl) {
-          void preview(tabId);
-        }
-      } else {
-        publish2(tabId, cleanChange);
-      }
-      return;
-    }
-    publish2(tabId, cleanChange);
-  });
-  const savedTab = (botId, tabId) => saved[botId]?.tabs?.find((entry) => entry.id === tabId);
-  const publish2 = (tabId, patch) => pages.set((state) => {
-    const botId = owner.get(tabId);
-    return { ...state, [tabId]: { ...EMPTY3, ...savedTab(botId, tabId), ...state[tabId], ...patch } };
-  });
-  const save = (botId, entry) => {
-    saved = store.update((stored) => setEntry(stored, botId, entry), saved);
-  };
-  const persist = (botId) => {
-    const state = tabs.getSnapshot()[botId];
-    const snapshot = pages.getSnapshot();
-    const next = state && {
-      tabs: state.ids.map((id) => ({ id, url: snapshot[id]?.url ?? "", title: snapshot[id]?.title ?? "" })),
-      active: state.active
-    };
-    if (JSON.stringify(saved[botId] ?? null) === JSON.stringify(next ?? null)) return;
-    save(botId, next);
-  };
-  const ensureTabs = (botId) => {
-    if (tabs.getSnapshot()[botId] !== void 0) return;
-    const entries2 = saved[botId]?.tabs ?? [];
-    const ids = entries2.map((entry) => entry.id);
-    const active = ids.includes(saved[botId]?.active) ? saved[botId].active : ids.at(-1) ?? null;
-    for (const entry of entries2) owner.set(entry.id, botId);
-    tabs.set((state) => ({ ...state, [botId]: { ids, active } }));
-    for (const entry of entries2) publish2(entry.id, { url: entry.url ?? "", title: entry.title ?? "", live: false });
-  };
-  const ensureLayer = () => {
-    if (layer?.isConnected) return layer;
-    layer = doc.createElement("div");
-    layer.className = "bt-browser-layer";
-    Object.assign(layer.style, {
-      position: "fixed",
-      top: "0",
-      left: "0",
-      width: "0",
-      height: "0",
-      zIndex: "41",
-      pointerEvents: "none",
-      webkitAppRegion: "initial"
-    });
-    doc.body.append(layer);
-    return layer;
-  };
-  const place = (entry) => {
-    const box = rect ?? { left: 0, top: 0, width: 800, height: 600 };
-    const onScreen = shown === entry.tabId && visible && Boolean(rect);
-    if (entry.appView) {
-      void bridge2.views.place(entry.tabId, box, onScreen);
-      return;
-    }
-    Object.assign(entry.element.style, {
-      left: `${box.left}px`,
-      top: `${box.top}px`,
-      width: `${box.width}px`,
-      height: `${box.height}px`,
-      visibility: onScreen ? "visible" : "hidden",
-      pointerEvents: onScreen ? "auto" : "none"
-    });
-  };
-  async function preview(tabId) {
-    const entry = views.get(tabId);
-    const url = entry?.element.getURL() ?? "";
-    if (entry === void 0 || !entry.ready || !/^https?:/i.test(url) || previewing.has(tabId)) return false;
-    previewing.add(tabId);
-    let timer2;
-    const timeout = new Promise((resolve2) => {
-      timer2 = setTimeout(() => resolve2(""), PREVIEW_TIMEOUT_MS);
-    });
-    try {
-      const excerpt = await Promise.race([entry.element.executeJavaScript(PREVIEW_SCRIPT), timeout]);
-      if (typeof excerpt !== "string" || excerpt === "" || views.get(tabId) !== entry) return false;
-      entry.previewedUrl = url;
-      publish2(tabId, { excerpt });
-      return true;
-    } catch {
-      return false;
-    } finally {
-      clearTimeout(timer2);
-      previewing.delete(tabId);
-    }
-  }
-  const observe = (entry, extra) => {
-    const { element } = entry;
-    if (!entry.ready) return;
-    const rawUrl = element.getURL();
-    if (rawUrl === "about:blank" || rawUrl.startsWith("about:blank#")) return;
-    const url = normalizeGuestUrl(rawUrl);
-    if (entry.fresh) {
-      element.clearHistory();
-      entry.fresh = false;
-    }
-    const title = element.getTitle();
-    const safeExtra = extra && "url" in extra ? { ...extra, url: normalizeGuestUrl(extra.url) } : extra;
-    publish2(entry.tabId, { ...safeExtra, url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: extra?.live ?? true });
-    persist(entry.botId);
-  };
-  async function create(tabId) {
-    const botId = owner.get(tabId);
-    const guest = await makeGuest({ bridge: bridge2, document: doc, botId, tabId });
-    const pending = pages.getSnapshot()[tabId]?.url || savedTab(botId, tabId)?.url;
-    const reservation = guest.appView ? void 0 : await bridge2.acquire(`bot:${botId}`);
-    if (disposed) {
-      if (reservation) await bridge2.release(reservation.lease).catch(() => {
-      });
-      else await bridge2.views.close(botId, tabId).catch(() => {
-      });
-      return void 0;
-    }
-    if (guest.appView) await bridge2.views.create(botId, tabId, pending ?? "");
-    const element = guest.element;
-    element.dataset.sidebarBrowserFrame = "webview";
-    Object.assign(element.style, { position: "fixed", display: "flex", border: "0", pointerEvents: "auto", background: "#fff" });
-    element.dataset.btBrowser = tabId;
-    if (!guest.appView) {
-      element.setAttribute("name", reservation.lease);
-      element.setAttribute("partition", reservation.partition);
-      element.setAttribute("allowpopups", "");
-      element.setAttribute("src", `about:blank#${reservation.lease}`);
-    }
-    const entry = { botId, tabId, element, lease: reservation?.lease, appView: guest.appView, botAttached: false, ready: false, fresh: !guest.appView, pending: guest.appView ? void 0 : pending, usedAt: Date.now() };
-    const lifetime = new AbortController();
-    entry.stop = () => lifetime.abort();
-    const { signal } = lifetime;
-    if (!guest.appView) {
-      const unsubscribe = bridge2.onOpenRequested(reservation.lease, (url) => void openTab(botId, url));
-      signal.addEventListener("abort", unsubscribe, { once: true });
-    }
-    element.addEventListener("dom-ready", () => {
-      entry.ready = true;
-      observe(entry);
-      if (entry.pending) {
-        const url = entry.pending;
-        entry.pending = void 0;
-        void element.loadURL(url).catch(() => {
-        });
-      }
-    }, { signal });
-    for (const name of ["did-navigate", "did-navigate-in-page", "did-start-loading", "did-stop-loading", "page-title-updated"]) {
-      element.addEventListener(name, () => observe(entry), { signal });
-    }
-    element.addEventListener("did-stop-loading", () => {
-      void preview(tabId);
-    }, { signal });
-    element.addEventListener("page-favicon-updated", (event) => {
-      const favicon = event.favicons?.[0];
-      if (typeof favicon === "string" && favicon.startsWith("data:")) publish2(tabId, { favicon });
-    }, { signal });
-    element.addEventListener("did-start-navigation", (event) => {
-      if (!event.isMainFrame) return;
-      if (blockedAddress(event.url)) {
-        element.stop();
-        publish2(tabId, { loading: false, error: BLOCKED });
-        return;
-      }
-      publish2(tabId, { loading: true, error: null });
-    }, { signal });
-    element.addEventListener("did-fail-load", (event) => {
-      if (event.isMainFrame && event.errorCode !== -3) publish2(tabId, { loading: false, error: event.errorDescription || `Error ${event.errorCode}` });
-    }, { signal });
-    element.addEventListener("render-process-gone", () => {
-      if (views.get(tabId) === void 0) return;
-      void release(tabId);
-      publish2(tabId, { loading: false, error: "The page crashed." });
-    }, { signal });
-    views.set(tabId, entry);
-    if (!guest.appView) ensureLayer().append(element);
-    place(entry);
-    publish2(tabId, { live: true, loading: Boolean(entry.pending) });
-    if (guest.appView) {
-      const state = (await bridge2.views.sync(botId)).find((view) => view.tabId === tabId);
-      if (state) {
-        const cleanState = "url" in state ? { ...state, url: normalizeGuestUrl(state.url) } : state;
-        entry.botAttached = cleanState.botAttached === true;
-        if (cleanState.live === false) {
-          entry.ready = false;
-          element.update(cleanState, { silent: true });
-          publish2(tabId, cleanState);
-        } else {
-          element.update(cleanState);
-        }
-      }
-    }
-    return entry;
-  }
-  const opening = /* @__PURE__ */ new Map();
-  function open(tabId) {
-    const entry = views.get(tabId);
-    if (entry) return Promise.resolve(entry);
-    let job = opening.get(tabId);
-    if (job === void 0) {
-      job = create(tabId).catch((error) => {
-        console.warn("[ds-bot] browser acquire", error);
-        publish2(tabId, { loading: false, error: String(error?.message ?? error) });
-        return void 0;
-      }).finally(() => opening.delete(tabId));
-      opening.set(tabId, job);
-      void job.then(() => trim());
-    }
-    return job;
-  }
-  function trim() {
-    const idle = [...views.values()].filter((entry) => !entry.appView && !entry.botAttached && entry.tabId !== shown).sort((a, b2) => a.usedAt - b2.usedAt);
-    while ([...views.values()].filter((entry) => !entry.appView).length > MAX_LIVE && idle.length > 0) void release(idle.shift().tabId);
-  }
-  async function release(tabId) {
-    const entry = views.get(tabId);
-    if (entry === void 0) return;
-    if (entry.appView) {
-      await bridge2.views.place(tabId, rect ?? { left: 0, top: 0, width: 800, height: 600 }, false);
-      return;
-    }
-    views.delete(tabId);
-    entry.stop();
-    entry.element.remove();
-    publish2(tabId, { live: false, loading: false });
-    await bridge2.release(entry.lease).catch((error) => console.warn("[ds-bot] browser release", error));
-  }
-  function openTab(botId, url) {
-    ensureTabs(botId);
-    const tabId = `t${Date.now().toString(36)}-${++serial2}`;
-    owner.set(tabId, botId);
-    tabs.set((state) => {
-      const own = state[botId] ?? { ids: [], active: null };
-      return { ...state, [botId]: { ids: [...own.ids, tabId], active: tabId } };
-    });
-    publish2(tabId, { url: "", title: "", live: false });
-    if (typeof url === "string" && url !== "") void navigate(tabId, url);
-    persist(botId);
-    return tabId;
-  }
-  async function closeTab(botId, tabId) {
-    const state = tabs.getSnapshot()[botId];
-    if (state === void 0 || !state.ids.includes(tabId)) return;
-    await opening.get(tabId)?.catch(() => {
-    });
-    if (shown === tabId) await show2(null);
-    if (views.get(tabId)?.appView) {
-      await bridge2.views.close(botId, tabId);
-      views.get(tabId)?.stop();
-      views.delete(tabId);
-    } else await release(tabId);
-    tabs.set((snapshot) => {
-      const current2 = snapshot[botId];
-      if (current2 === void 0 || !current2.ids.includes(tabId)) return snapshot;
-      const at2 = current2.ids.indexOf(tabId);
-      const ids = current2.ids.filter((id) => id !== tabId);
-      const active = current2.active === tabId ? ids[Math.min(at2, ids.length - 1)] ?? null : current2.active;
-      const next = { ...snapshot };
-      if (ids.length === 0) delete next[botId];
-      else next[botId] = { ids, active };
-      return next;
-    });
-    owner.delete(tabId);
-    pages.set((snapshot) => {
-      if (snapshot[tabId] === void 0) return snapshot;
-      const { [tabId]: _, ...rest } = snapshot;
-      return rest;
-    });
-    persist(botId);
-  }
-  function activate(botId, tabId) {
-    ensureTabs(botId);
-    const state = tabs.getSnapshot()[botId];
-    if (state === void 0 || !state.ids.includes(tabId) || state.active === tabId) return;
-    tabs.set((snapshot) => ({ ...snapshot, [botId]: { ...state, active: tabId } }));
-    persist(botId);
-  }
-  const activeTab = (botId) => tabs.getSnapshot()[botId]?.active ?? null;
-  async function show2(tabId, box = null) {
-    if (tabId !== null && tabId === shown && visible && box !== null) {
-      rect = box;
-      const entry2 = views.get(tabId);
-      if (entry2) place(entry2);
-      clearTimeout(resizeLater);
-      resizeLater = setTimeout(() => {
-        for (const other of views.values()) place(other);
-      }, RESIZE_LATER_MS);
-      return;
-    }
-    shown = tabId;
-    if (box) rect = box;
-    visible = tabId !== null && box !== null;
-    for (const entry2 of views.values()) place(entry2);
-    if (tabId === null) return;
-    if (box === null && !views.has(tabId)) {
-      const knownUrl = normalizeGuestUrl(pages.getSnapshot()[tabId]?.url || savedTab(owner.get(tabId), tabId)?.url);
-      if (!knownUrl) return;
-    }
-    const entry = await open(tabId);
-    if (entry === void 0 || shown !== tabId) return;
-    entry.usedAt = Date.now();
-    place(entry);
-  }
-  async function navigate(tabId, input) {
-    const url = browserAddress(input);
-    if (url === null || blockedAddress(url)) {
-      publish2(tabId, { error: url === null ? "Only http and https addresses open here." : BLOCKED });
-      return false;
-    }
-    const entry = await open(tabId);
-    if (entry === void 0) return false;
-    publish2(tabId, { url, loading: true, error: null });
-    persist(owner.get(tabId));
-    if (!entry.ready) entry.pending = url;
-    else void entry.element.loadURL(url).catch(() => {
-    });
-    return true;
-  }
-  async function forget(botId) {
-    ensureTabs(botId);
-    for (const tabId of tabs.getSnapshot()[botId]?.ids ?? []) {
-      await opening.get(tabId)?.catch(() => {
-      });
-      if (shown === tabId) await show2(null);
-      if (views.get(tabId)?.appView) {
-        await bridge2.views.close(botId, tabId);
-        views.get(tabId)?.stop();
-        views.delete(tabId);
-      } else await release(tabId);
-      owner.delete(tabId);
-      pages.set((snapshot) => {
-        if (snapshot[tabId] === void 0) return snapshot;
-        const { [tabId]: _, ...rest } = snapshot;
-        return rest;
-      });
-    }
-    tabs.set((snapshot) => {
-      if (snapshot[botId] === void 0) return snapshot;
-      const { [botId]: _, ...rest } = snapshot;
-      return rest;
-    });
-    save(botId, void 0);
-    seen.delete(botId);
-    await bridge2.forget?.(`bot:${botId}`)?.catch((error) => console.warn("[ds-bot] browser forget", error));
-  }
-  return {
-    tabs,
-    pages,
-    holds,
-    setHolds(value) {
-      holds.set(value && typeof value === "object" ? value : {});
-    },
-    /** Restore a Bot's saved strip (or an empty one) so the panel can render it. */
-    ensureTabs,
-    openTab,
-    closeTab,
-    activate,
-    preview,
-    show: show2,
-    navigate,
-    command(tabId, name) {
-      const entry = views.get(tabId);
-      if (!entry?.ready) return;
-      if (name === "back" && entry.element.canGoBack()) entry.element.goBack();
-      else if (name === "forward" && entry.element.canGoForward()) entry.element.goForward();
-      else if (name === "reload") entry.element.reload();
-      else if (name === "stop") entry.element.stop();
-    },
-    focus(tabId) {
-      views.get(tabId)?.element.focus();
-    },
-    /** Pages a read can reach: each Bot's active tab, live and showing a document. */
-    openPages() {
-      const open2 = {};
-      const snapshot = pages.getSnapshot();
-      for (const [botId, state] of Object.entries(tabs.getSnapshot())) {
-        if (botId === CLASSIC_BROWSER_OWNER) continue;
-        const tabId = state.active;
-        const entry = tabId ? views.get(tabId) : void 0;
-        const page = tabId ? snapshot[tabId] : void 0;
-        const url = normalizeGuestUrl(page?.url);
-        if (entry?.ready && page?.live !== false && url) open2[botId] = { url, title: page.title };
-      }
-      return open2;
-    },
-    /** A Bot's read reaches its active tab. */
-    async read(botId) {
-      const tabId = activeTab(botId);
-      const entry = tabId ? views.get(tabId) : void 0;
-      if (!entry?.ready) throw new Error("This Bot has no browser page open.");
-      let timer2;
-      const timeout = new Promise((_, reject) => {
-        timer2 = setTimeout(() => reject(new Error("The page took too long to read.")), READ_TIMEOUT_MS);
-      });
-      try {
-        return await Promise.race([entry.element.executeJavaScript(READ_PAGE_SCRIPT), timeout]);
-      } finally {
-        clearTimeout(timer2);
-      }
-    },
-    noteRead(botId) {
-      const tabId = activeTab(botId);
-      if (tabId) publish2(tabId, { readAt: Date.now() });
-    },
-    release,
-    forget,
-    /** Forget every Bot outside `botIds`, as when Bots were deleted from another window. */
-    retain(botIds) {
-      const keep = new Set(botIds);
-      const known = /* @__PURE__ */ new Set([...Object.keys(tabs.getSnapshot()), ...Object.keys(saved), ...owner.values(), ...seen]);
-      for (const entry of views.values()) known.add(entry.botId);
-      for (const botId of keep) seen.add(botId);
-      return Promise.all([...known].filter((botId) => !keep.has(botId)).map(forget));
-    },
-    dispose() {
-      disposed = true;
-      clearTimeout(resizeLater);
-      for (const entry of views.values()) {
-        if (entry.appView) void bridge2.views.place(entry.tabId, rect ?? { left: 0, top: 0, width: 800, height: 600 }, false);
-        else void release(entry.tabId);
-      }
-      appViewEvents?.();
-      layer?.remove();
-    }
-  };
-}
-var POLL_TIMEOUT_MS = 8e3;
-function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.randomUUID(), retryMs = 1e3 }) {
-  let stopped = false;
-  let poll;
-  let stopBackoff;
-  let reported = "";
-  const answered = /* @__PURE__ */ new Map();
-  const answer = async ({ id, botId }) => {
-    let job = answered.get(id);
-    if (job === void 0) {
-      job = (async () => {
-        try {
-          const result = { id, ok: true, page: await browsers.read(botId) };
-          browsers.noteRead(botId);
-          return result;
-        } catch (error) {
-          return { id, ok: false, error: error instanceof Error ? error.message : String(error) };
-        }
-      })();
-      answered.set(id, job);
-      if (answered.size > 200) answered.delete(answered.keys().next().value);
-    }
-    await post("browser-result", await job).catch((error) => console.warn("[ds-bot] browser result", error));
-  };
-  const loop2 = async () => {
-    let failures = 0;
-    while (!stopped) {
-      const current2 = poll = new AbortController();
-      const open = browsers.openPages();
-      reported = JSON.stringify(open);
-      let expired2 = false;
-      const timeout = setTimeout(() => {
-        expired2 = true;
-        current2.abort();
-      }, POLL_TIMEOUT_MS);
-      try {
-        const response = await post("browser-wait", { clientId, open }, current2.signal);
-        browsers.setHolds?.(response?.holds);
-        failures = 0;
-        const requests = Array.isArray(response) ? response : response?.requests;
-        for (const request of Array.isArray(requests) ? requests : []) void answer(request);
-        continue;
-      } catch (error) {
-        if (stopped) return;
-        if (current2.signal.aborted && !expired2 && error?.code !== "HTTP_503") continue;
-        failures += 1;
-      } finally {
-        clearTimeout(timeout);
-      }
-      await new Promise((resolve2) => {
-        const timer2 = setTimeout(resolve2, Math.min(3e4, retryMs * 2 ** Math.min(failures, 5)));
-        stopBackoff = () => {
-          clearTimeout(timer2);
-          resolve2();
-        };
-      });
-      stopBackoff = void 0;
-    }
-  };
-  const offPages = browsers.pages.subscribe(() => {
-    if (JSON.stringify(browsers.openPages()) !== reported) poll?.abort();
-  });
-  void loop2();
-  return () => {
-    stopped = true;
-    offPages();
-    poll?.abort();
-    stopBackoff?.();
-  };
-}
-
 // src/client/plugin-shortcuts.js
 function buildPluginShortcutCommands({ roster, ui, surface, actions, mainView, sessionsById }) {
   const activeBotTarget = () => {
@@ -77452,16 +78124,6 @@ function installTitle(document2, Observer = globalThis.MutationObserver) {
   return () => observer2.disconnect();
 }
 
-// src/client/polling.js
-var POLL_MAX_MS = 5e3;
-function pollDelay(base, unchanged) {
-  const steps = Math.min(Math.max(unchanged, 0), 8);
-  return Math.min(base * 2 ** steps, Math.max(base, POLL_MAX_MS));
-}
-function needsIdleSample(computer, settings) {
-  return Object.values(computer?.bots ?? {}).some((entry) => entry?.waitingFor === "user-idle") || Object.values(settings?.bots ?? {}).some((bot) => bot?.level === "foreground");
-}
-
 // src/client/agent-new.js
 function agentSessionToReuse(list, latest, pending) {
   if (pending !== void 0 && list.byId[pending] === void 0) return pending;
@@ -77984,6 +78646,9 @@ function apply(ctx) {
     call,
     store,
     foldWrites,
+    onChatsRemoved: (gone) => {
+      pruneRemovedChatDrafts(gone, questionDrafts);
+    },
     onHydrated: (indexed) => {
       try {
         const ids = (indexed.agents ?? []).flatMap((agent) => agent.sessions ?? []);
@@ -78050,85 +78715,30 @@ function apply(ctx) {
       document.removeEventListener("visibilitychange", wake);
     };
   }, "ds-bot: roster poll");
-  let wakeUpdate = () => {
+  const updateCtrl = createUpdateController({
+    call,
+    update,
+    getAppUpdates: () => window.dshDesktop?.protocolVersion === 1 ? window.dshDesktop.updates ?? null : null,
+    getOwnAppUpdates: () => globalThis.dsBotApp?.updates ?? null
+  });
+  ctx.effect(() => updateCtrl.start(), "ds-bot: update check");
+  const panelFolded = (view) => {
+    const state = ui.getSnapshot();
+    const f = frame3.getSnapshot();
+    return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true } }).panel === "folded";
   };
-  ctx.effect(() => {
-    let stopped = false;
-    let timer2;
-    const loop2 = async () => {
-      clearTimeout(timer2);
-      if (stopped) return;
-      const value = await call("update-check", { fresh: false }).catch(() => null);
-      if (stopped) return;
-      if (value) update.set((previous) => ({ ...value, app: previous.app, ownApp: previous.ownApp }));
-      timer2 = setTimeout(loop2, value?.phase === "installing" || value?.dsh?.phase === "installing" ? 2e3 : 60 * 6e4);
-    };
-    wakeUpdate = loop2;
-    void loop2();
-    return () => {
-      stopped = true;
-      clearTimeout(timer2);
-      wakeUpdate = () => {
-      };
-    };
-  }, "ds-bot: update check");
-  const appUpdates = window.dshDesktop?.protocolVersion === 1 ? window.dshDesktop.updates ?? null : null;
-  if (appUpdates?.status && appUpdates.subscribe) {
-    ctx.effect(() => {
-      let stopped = false;
-      const take = (app) => {
-        if (!stopped && app) update.set((previous) => ({ ...previous, app }));
-      };
-      void appUpdates.status().then(take, () => {
-      });
-      const unsubscribe = appUpdates.subscribe(take);
-      return () => {
-        stopped = true;
-        unsubscribe?.();
-      };
-    }, "ds-bot: app update status");
-  }
-  const ownAppUpdates = globalThis.dsBotApp?.updates ?? null;
-  if (ownAppUpdates?.state && ownAppUpdates.subscribe) {
-    ctx.effect(() => {
-      let stopped = false;
-      const take = (ownApp) => {
-        if (!stopped && ownApp) update.set((previous) => ({ ...previous, ownApp }));
-      };
-      void ownAppUpdates.state().then(take, () => {
-      });
-      const unsubscribe = ownAppUpdates.subscribe(take);
-      return () => {
-        stopped = true;
-        unsubscribe?.();
-      };
-    }, "ds-bot: own app update state");
-  }
-  const bridge2 = (window.dshDesktop?.protocolVersion === 1 ? window.dshDesktop.browser : globalThis.dsBotApp?.browser) ?? null;
-  const browsers = bridge2 ? createBotBrowsers({ bridge: bridge2, createSource }) : null;
-  if (browsers) {
-    ctx.effect(() => {
-      let stopReads = null;
-      const sync = () => {
-        const snapshot = roster.getSnapshot();
-        if (!snapshot.ready) return;
-        const on = snapshot.browser === true;
-        if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call });
-        if (!on && stopReads) {
-          stopReads();
-          stopReads = null;
-        }
-        void browsers.retain(snapshot.bots.map((bot) => bot.id));
-        ui.set((state) => state.details && state.view === "browser" && (!on || !snapshot.byId[state.details]) ? { ...state, view: "details" } : state);
-      };
-      sync();
-      const offRoster = roster.subscribe(sync);
-      return () => {
-        offRoster();
-        stopReads?.();
-        browsers.dispose();
-      };
-    }, "ds-bot: Bot browsers");
+  const yieldBrowser = (state) => state.panelYield === true || panelFolded("browser");
+  const browserBridge = (window.dshDesktop?.protocolVersion === 1 ? window.dshDesktop.browser : globalThis.dsBotApp?.browser) ?? null;
+  const browserCtrl = createBrowserController({
+    call,
+    store,
+    bridge: browserBridge,
+    yieldBrowser,
+    onClosePanel: () => actions.closePanel()
+  });
+  const { browserPages, browserTabs, browserHolds } = browserCtrl;
+  if (browserCtrl.browsers) {
+    ctx.effect(() => browserCtrl.start(), "ds-bot: Bot browsers");
   }
   ctx.effect(() => () => {
     markupCache.clear();
@@ -78348,7 +78958,6 @@ function apply(ctx) {
   const latestAgentSession = (agentId, list) => agentSessions(agentId).sort((a, b2) => (list.byId[b2]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0))[0];
   const mainView = () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id;
   const ownerOfSession2 = (sessionId) => ownerOfSession(roster.getSnapshot(), sessionId);
-  let navSeq = 0;
   const openingWait = bindOpeningWait(ui, {
     onSlow: () => {
       void Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions"));
@@ -78370,17 +78979,38 @@ function apply(ctx) {
     openingWait.fail(target, reason);
   };
   const lostSession = (target) => (roster.getSnapshot().bots ?? []).some((bot) => bot.sessionMissing === target);
-  const recovering = /* @__PURE__ */ new Set();
   const show2 = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions")), open: (target) => {
     expected2 = target;
     ctx.uiWorkspace.openSession(target);
   }, current: mainView, begin: beginOpening, done: endOpening, fail: failOpening, gone: lostSession });
-  const panelFolded = (view) => {
-    const state = ui.getSnapshot();
-    const f = frame3.getSnapshot();
-    return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true } }).panel === "folded";
-  };
-  const yieldBrowser = (state) => state.panelYield === true || panelFolded("browser");
+  const nav = createNavigationActions({
+    call,
+    after,
+    pull,
+    store,
+    onRetry: (target) => show2(target),
+    onRecovered: (target) => {
+      nav.bumpNavSeq();
+      setPlain(false);
+      show2(target);
+    },
+    onMissingAfterRecover: () => endOpening(),
+    shouldAbortLand: (last) => {
+      const now2 = mainView();
+      if (!last || now2 === void 0 || now2 === last.sessionId) return false;
+      const snap = roster.getSnapshot();
+      const list = ctx.sessions.list.getSnapshot();
+      const nowBot = snap.byId[now2];
+      const nowRoom = snap.roomsById[now2];
+      return nowBot !== void 0 && currentPart(nowBot) === now2 || nowRoom !== void 0 && (nowRoom.sessionId ?? nowRoom.id) === now2 || isAgentSessionId(now2) || nowBot === void 0 && nowRoom === void 0 && list.byId?.[now2]?.blank !== true;
+    },
+    canLandTarget: (target, last) => !(last && target === last.sessionId && ctx.sessions.list.getSnapshot().byId?.[target] === void 0),
+    onLand: (target) => {
+      setPlain(false);
+      show2(target);
+    },
+    reportError: (error, where) => actions.reportError(error, where)
+  });
   const homeToMainBot = () => {
     const snapshot = roster.getSnapshot();
     if (!snapshot.ready || !snapshot.mainBotId) return;
@@ -78401,6 +79031,10 @@ function apply(ctx) {
   };
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites }),
+    ...createStoreActions({ store, clearPanelYieldOnToggle: true }),
+    ...nav.actions,
+    ...updateCtrl.actions,
+    ...browserCtrl.actions,
     // The files a group row names open DSH's own review tab for that turn. The tab reads
     // the changes of the Session the shell shows, so that Session is opened first; the same
     // call then retries until its right column is mounted. This jump is the one place a
@@ -78425,51 +79059,22 @@ function apply(ctx) {
       }
       openChangesReview(changes);
     },
-    learningAnswer: (id, approve) => after(call("learning-answer", { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
     isAgentSession: (id) => isAgentSessionId(id),
     openSession: (id) => {
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
-      navSeq += 1;
+      nav.bumpNavSeq();
       const target = partFor(id);
       const fromInbox = ui.getSnapshot().inbox === true;
       ui.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox || state.inboxTarget ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? target : null } : state);
       setPlain(false);
       show2(target);
     },
-    retryOpening: (target) => {
-      if (!target) return;
-      show2(target);
-    },
-    // The Bot's current Session is gone from the library: a fresh part takes its place
-    // (the Host makes it without the lost part), then that part is opened. The failure
-    // card stays meanwhile, so a failed try leaves the way out on screen.
-    recoverOpening: async (botId) => {
-      if (recovering.has(botId)) return;
-      recovering.add(botId);
-      const seq = ++navSeq;
-      try {
-        await after(call("recover-session", { botId }));
-        if (seq !== navSeq) return;
-        const bot = roster.getSnapshot().byId[botId];
-        if (bot === void 0) {
-          endOpening();
-          return;
-        }
-        navSeq += 1;
-        setPlain(false);
-        show2(currentPart(bot));
-      } catch (error) {
-        actions.reportError(error, "reopen-session");
-      } finally {
-        recovering.delete(botId);
-      }
-    },
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
-      navSeq += 1;
+      nav.bumpNavSeq();
       const fromInbox = ui.getSnapshot().inbox === true;
       ui.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? sessionId : null, details: null, view: "details", renaming: false, tab: null, task: null, taskDeck: null }));
       setPlain(true);
@@ -78517,8 +79122,6 @@ function apply(ctx) {
       else if (roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
     },
     renameAgentSession: (agentId, sessionId, title) => after(call("agent-rename", { agentId, sessionId, title })),
-    beginAgentRename: (sessionId) => ui.set((state) => ({ ...state, renameAgent: sessionId })),
-    endAgentRename: () => ui.set((state) => state.renameAgent ? { ...state, renameAgent: null } : state),
     // Removing the Agent archives every Session it owns; one of them may fill the
     // main view, and it must not stay there wearing the Bot surface afterwards.
     removeAgent: async (agentId) => {
@@ -78529,56 +79132,14 @@ function apply(ctx) {
       if (main !== void 0 && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
       return result;
     },
-    navSeq: () => navSeq,
-    // `last` is the Bot or group conversation the view held before it cleared: when that
-    // part was archived for a fresh one, the view goes on in the fresh one.
-    landOn: async (id, last, expectedSeq) => {
-      if (expectedSeq !== void 0 && expectedSeq !== navSeq) return;
-      const seq = ++navSeq;
-      const currentOfLast = (snap) => {
-        if (!last) return void 0;
-        const bot = last.kind === "room" ? void 0 : snap.byId[last.botId ?? last.id];
-        if (bot !== void 0) return currentPart(bot);
-        const room2 = snap.roomsById[last.roomId ?? last.id];
-        return room2 === void 0 ? void 0 : room2.sessionId ?? room2.id;
-      };
-      let moved = currentOfLast(roster.getSnapshot());
-      if (last && (moved === void 0 || moved === last.sessionId)) {
-        await pull().catch(() => {
-        });
-        if (seq !== navSeq) return;
-        moved = currentOfLast(roster.getSnapshot());
-      }
-      if (seq !== navSeq) return;
-      const now2 = mainView();
-      if (last && now2 !== void 0 && now2 !== last.sessionId) {
-        const snap = roster.getSnapshot();
-        const list = ctx.sessions.list.getSnapshot();
-        const nowBot = snap.byId[now2];
-        const nowRoom = snap.roomsById[now2];
-        if (nowBot !== void 0 && currentPart(nowBot) === now2 || nowRoom !== void 0 && (nowRoom.sessionId ?? nowRoom.id) === now2 || isAgentSessionId(now2) || nowBot === void 0 && nowRoom === void 0 && list.byId?.[now2]?.blank !== true) return;
-      }
-      setPlain(false);
-      const target = moved !== void 0 && moved !== last?.sessionId ? moved : partFor(id);
-      if (last && target === last.sessionId && ctx.sessions.list.getSnapshot().byId?.[target] === void 0) return;
-      show2(target);
-    },
     selectPanel: (id) => {
       ctx.layout.selectPanel(id);
     },
     toggleSidebar: () => {
       ctx.layout.toggleSidebar();
     },
-    // The left column's own preference: 'open', 'rail' or 'hidden'. The switch
-    // remembers the shown one it hid; a drag sets the open column's width.
-    setSidebarPref: (pref) => store.setSidebarPref(pref),
-    toggleLeftHidden: () => store.toggleLeftHidden({ clearPanelYield: true }),
-    setSidebarWidth: (width) => store.setSidebarWidth(width),
-    setLeftDrawer: (on) => store.setLeftDrawer(on),
-    setPanelYield: (on) => store.setPanelYield(on),
     // Agent mode hands the surface back to the shell; everything open on the Bot
     // surface closes first so nothing stale reopens on the way back.
-    surfaceMode: () => surface.getSnapshot().mode,
     setSurface: (mode) => {
       if (mode !== "bot" && mode !== "agent") return;
       if (surface.getSnapshot().mode === mode) {
@@ -78593,102 +79154,11 @@ function apply(ctx) {
       if (mode === "agent" && window.innerWidth >= DSH_NARROW && frame3.getSnapshot().collapsed) ctx.layout.toggleSidebar();
       if (mode !== "bot") return;
       ensureBotHome();
-    },
-    markUnread: (id) => store.writeUnread(id, true),
-    beginVisit: (id) => store.beginVisit(id),
-    endVisit: (id) => store.endVisit(id),
-    toggleReaction: (key, index, emoji) => store.toggleReaction(key, index, emoji),
-    clearUnread: (id) => store.writeUnread(id, false)
+    }
   };
-  if (browsers) {
-    Object.assign(actions, {
-      // The globe button: the Bot's active tab in the browser view, or a new tab.
-      openBrowser: (id) => {
-        const bot = roster.getSnapshot().byId[id];
-        if (!bot) return;
-        browsers.ensureTabs(bot.id);
-        if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id);
-        ui.set((state) => ({ ...state, inbox: false, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
-      },
-      toggleBrowser: (id) => {
-        const snap = roster.getSnapshot();
-        if (snap.browser === false) return;
-        const bot = snap.byId?.[id];
-        if (!bot) return;
-        const state = ui.getSnapshot();
-        const detailsBotId = state.details ? snap.byId?.[state.details]?.id ?? state.details : null;
-        if (state.details && state.view === "browser" && detailsBotId === bot.id) {
-          actions.closePanel();
-          return;
-        }
-        actions.openBrowser(bot.id);
-      },
-      // '+' on the strip or the drawer's new-tab card: a blank tab in the browser view.
-      browserNewTab: (id) => {
-        const bot = roster.getSnapshot().byId[id];
-        if (!bot) return null;
-        browsers.ensureTabs(bot.id);
-        const tabId = browsers.openTab(bot.id);
-        ui.set((state) => ({ ...state, inbox: false, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
-        return tabId;
-      },
-      // A drawer card: its tab active, the panel on the browser view.
-      browserPick: (id, tabId) => {
-        const bot = roster.getSnapshot().byId[id];
-        if (!bot) return;
-        browsers.activate(bot.id, tabId);
-        ui.set((state) => ({ ...state, details: id, view: "browser", panelYield: yieldBrowser(state) }));
-      },
-      browserEnsure: (botId) => browsers.ensureTabs(botId),
-      browserCloseTab: (botId, tabId) => browsers.closeTab(botId, tabId),
-      browserActivate: (botId, tabId) => browsers.activate(botId, tabId),
-      browserShow: (tabId, box) => browsers.show(tabId, box),
-      browserNavigate: (tabId, input) => browsers.navigate(tabId, input),
-      browserCommand: (tabId, name) => browsers.command(tabId, name),
-      browserFocus: (tabId) => browsers.focus(tabId),
-      browserTakeover: bridge2.views ? async (botId) => {
-        const result = await call("browser-takeover", { botId });
-        await bridge2.views.hold(botId, true);
-        return result;
-      } : void 0,
-      browserStop: bridge2.views ? async (botId) => {
-        const result = await call("browser-stop", { botId });
-        await bridge2.views.hold(botId, true);
-        return result;
-      } : void 0,
-      // `answer` is a handoff card's { callId, outcome }; the panel's Give back sends none.
-      browserGiveBack: bridge2.views ? async (botId, answer = {}) => {
-        const result = await call("browser-give-back", { botId, ...answer });
-        await bridge2.views.hold(botId, false);
-        return result;
-      } : void 0,
-      // Cookie imports, only where the bridge offers them (the desktop app): an installed
-      // browser profile, a file, or pasted cookies/cURL is previewed, then applied into
-      // the Bot's storage key.
-      browserImport: typeof bridge2.importSources === "function" ? {
-        sources: () => bridge2.importSources(),
-        probe: typeof bridge2.importProbe === "function" ? (source) => bridge2.importProbe(source) : null,
-        pick: () => bridge2.importPick(),
-        paste: typeof bridge2.importPaste === "function" ? (text, defaultUrl) => bridge2.importPaste(text, defaultUrl) : null,
-        launch: typeof bridge2.importLaunch === "function" ? (source) => bridge2.importLaunch(source) : null,
-        openPermission: typeof bridge2.importOpenPermission === "function" ? () => bridge2.importOpenPermission() : null,
-        live: (source, close, requestId) => bridge2.importLive(source, close, requestId),
-        apply: (botId, pending, options) => bridge2.importApply(
-          Array.isArray(botId) ? botId.map((id) => `bot:${id}`) : `bot:${botId}`,
-          pending,
-          options
-        ),
-        cancel: (pending) => bridge2.importCancel(pending)
-      } : null
-    });
-  }
   actions.signInEntry = () => ctx.slots.entries?.("settings.models.sign-in")?.[0] ?? null;
   actions.canSignIn = () => Boolean(actions.signInEntry());
-  actions.signIn = () => ui.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
-  actions.closeSignIn = () => ui.set((state) => ({ ...state, signIn: null }));
   actions.accountT = () => ctx.get("locale")?.bind?.("settings.account") ?? ((key) => key);
-  actions.hasPlugins = () => true;
-  actions.openPlugins = (focus = null) => actions.openSettings("plugins", focus);
   actions.speech = () => ctx.get("remote.speech") ?? void 0;
   actions.openHarnessOnboarding = (id) => settingsShell?.openOnboarding(id);
   actions.voiceSetup = (providerId) => {
@@ -78707,180 +79177,12 @@ function apply(ctx) {
     }
   };
   actions.seatAccount = (on) => ui.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
-  actions.installUpdate = async () => {
-    const value = await call("update-install");
-    update.set((previous) => ({ ...previous, ...value }));
-    wakeUpdate();
-  };
-  actions.installDshUpdate = async () => {
-    const dsh = await call("dsh-update-install");
-    update.set((previous) => ({ ...previous, dsh }));
-    wakeUpdate();
-  };
-  actions.openAppUpdates = async (verified) => {
-    const app = await appUpdates?.status?.();
-    if (app) update.set((previous) => ({ ...previous, app }));
-    if (sameVersion(app?.version, verified)) await appUpdates.open();
-  };
-  actions.checkUpdate = async () => {
-    const value = await call("update-check", { fresh: true });
-    update.set((previous) => ({ ...value, app: previous.app, ownApp: previous.ownApp }));
-    wakeUpdate();
-  };
-  actions.checkOwnApp = async () => {
-    await ownAppUpdates?.check?.();
-  };
-  actions.installOwnApp = async () => {
-    await ownAppUpdates?.install?.();
-  };
-  actions.openOwnApp = async () => {
-    await ownAppUpdates?.open?.();
-  };
-  actions.downloadOwnApp = async () => {
-    await ownAppUpdates?.download?.();
-  };
-  actions.setOwnAppAutoUpdate = async (enabled) => {
-    await ownAppUpdates?.setAutoUpdate?.(enabled === true);
-  };
-  const browserPages = browsers?.pages ?? createSource({});
-  const browserTabs = browsers?.tabs ?? createSource({});
-  const browserHolds = browsers?.holds ?? createSource({});
-  const appComputer = globalThis.dsBotApp;
-  if (typeof appComputer?.computer === "function") {
-    ctx.effect(() => {
-      const nameOf2 = (id) => roster.getSnapshot().byId[id]?.name ?? "a Bot";
-      const sync = () => {
-        const live2 = computer.getSnapshot();
-        const name = (id) => nameOf2(id);
-        const look = (id) => lookOf(roster.getSnapshot().byId[id]);
-        const rows2 = (live2.leases ?? []).map((entry) => ({
-          botId: entry.botId,
-          name: name(entry.botId),
-          app: entry.kind === "foreground" ? t("In the foreground") : entry.appName,
-          label: entry.kind === "foreground" ? t("{name} · foreground", { name: name(entry.botId) }) : `${name(entry.botId)} · ${entry.appName}`,
-          color: look(entry.botId).color,
-          avatar: look(entry.botId).image
-        }));
-        for (const [botId, entry] of Object.entries(live2.bots ?? {})) {
-          if (entry.waitingFor === "user-idle") rows2.push({ botId, waiting: true, name: name(botId), app: t("waits for the computer"), label: t("{name} waits for the computer", { name: name(botId) }), color: look(botId).color, avatar: look(botId).image });
-        }
-        appComputer.computer({
-          rows: rows2,
-          labels: { stop: t("Stop"), stopAll: t("Stop all"), letGo: t("Let it continue") }
-        });
-      };
-      sync();
-      return computer.subscribe(sync);
-    }, "ds-bot: computer indicator");
-  }
-  if (typeof appComputer?.computerCursor === "function") {
-    ctx.effect(() => {
-      let dead = false;
-      let wakeEnabled = null;
-      let cancelPause = null;
-      const waitEnabled = () => new Promise((resolve2) => {
-        if (dead || roster.getSnapshot().computer?.enabled === true) {
-          resolve2();
-          return;
-        }
-        wakeEnabled = resolve2;
-      });
-      const pause = (ms) => new Promise((resolve2) => {
-        if (dead) {
-          resolve2();
-          return;
-        }
-        const timer2 = setTimeout(() => {
-          if (cancelPause === cancel) cancelPause = null;
-          resolve2();
-        }, ms);
-        const cancel = () => {
-          clearTimeout(timer2);
-          if (cancelPause === cancel) cancelPause = null;
-          resolve2();
-        };
-        cancelPause = cancel;
-      });
-      const notifyEnabled = () => {
-        if (wakeEnabled) {
-          const fn = wakeEnabled;
-          wakeEnabled = null;
-          fn();
-        }
-      };
-      const offRoster = roster.subscribe(() => {
-        if (roster.getSnapshot().computer?.enabled === true) notifyEnabled();
-      });
-      const run2 = async () => {
-        let after2 = 0;
-        while (!dead) {
-          if (roster.getSnapshot().computer?.enabled !== true) {
-            await waitEnabled();
-            continue;
-          }
-          try {
-            const reply = await call("computer-cursor-wait", { after: after2 });
-            if (dead) break;
-            for (const event of reply?.events ?? []) {
-              if (Number.isFinite(event.seq) && event.seq > after2) after2 = event.seq;
-              if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3e3) continue;
-              appComputer.computerCursor({ ...event, color: lookOf(roster.getSnapshot().byId[event.botId]).color, avatar: lookOf(roster.getSnapshot().byId[event.botId]).image });
-            }
-          } catch {
-            if (!dead) await pause(2e3);
-          }
-        }
-      };
-      void run2();
-      return () => {
-        dead = true;
-        offRoster();
-        notifyEnabled();
-        cancelPause?.();
-      };
-    }, "ds-bot: computer cursor");
-  }
-  if (typeof appComputer?.idleSeconds === "function") {
-    ctx.effect(() => {
-      let timer2 = 0;
-      const push = () => {
-        const current2 = roster.getSnapshot();
-        if (current2.computer?.enabled !== true) return;
-        if (!needsIdleSample(computer.getSnapshot(), current2.computer)) return;
-        void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
-          if (Number.isFinite(idle)) call("computer-user-active", { idleSeconds: idle }).catch(() => {
-          });
-        }).catch(() => {
-        });
-      };
-      const sync = () => {
-        const enabled = roster.getSnapshot().computer?.enabled === true;
-        if (enabled && !timer2) timer2 = setInterval(push, 2e3);
-        else if (!enabled && timer2) {
-          clearInterval(timer2);
-          timer2 = 0;
-        }
-      };
-      sync();
-      const offRoster = roster.subscribe(sync);
-      return () => {
-        offRoster();
-        if (timer2) clearInterval(timer2);
-      };
-    }, "ds-bot: computer user active");
-  }
-  if (typeof appComputer?.onComputerAction === "function") {
-    ctx.effect(() => {
-      const off = appComputer.onComputerAction(({ kind, botId }) => {
-        if (kind === "stop") void actions.computerStop(botId);
-        else if (kind === "stopall") void actions.computerStop(null, true);
-        else if (kind === "letgo") void actions.computerAllowForeground(botId);
-      });
-      return () => {
-        if (typeof off === "function") off();
-      };
-    }, "ds-bot: computer actions");
-  }
+  ctx.effect(() => startComputerBridge({
+    call,
+    store,
+    onStop: (botId, all) => actions.computerStop(botId, all),
+    onAllowForeground: (botId) => actions.computerAllowForeground(botId)
+  }), "ds-bot: computer bridge");
   const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, botCompletions, surface, update, frame: frame3, sidebarPref, settingsShellHeld } });
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === "function";
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), "ds-bot: bot command actions");
@@ -78912,36 +79214,6 @@ function apply(ctx) {
     updateQueue: async (itemId, action) => await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action) ?? { ok: false },
     loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment)
   });
-  ctx.effect(() => {
-    let chats = null;
-    return roster.subscribe(() => {
-      const snapshot = roster.getSnapshot();
-      if (!snapshot.ready) return;
-      const now2 = /* @__PURE__ */ new Map();
-      for (const bot of snapshot.bots) {
-        const ids = [bot.id, bot.sessionId, ...bot.parts ?? []].filter((id) => typeof id === "string" && id !== "");
-        now2.set(bot.id, [...new Set(ids)]);
-      }
-      for (const room2 of snapshot.rooms) {
-        const ids = [room2.id, room2.sessionId, ...room2.ownParts ?? []].filter((id) => typeof id === "string" && id !== "");
-        now2.set(room2.id, [...new Set(ids)]);
-      }
-      if (chats !== null) {
-        const goneChats = [];
-        const goneAll = [];
-        for (const [chatId, prevIds] of chats) {
-          if (now2.has(chatId)) continue;
-          goneChats.push(chatId);
-          for (const id of prevIds) goneAll.push(id);
-        }
-        if (goneChats.length > 0) {
-          pruneDrafts(goneChats);
-          questionDrafts.pruneChats([...new Set(goneAll)]);
-        }
-      }
-      chats = now2;
-    });
-  }, "ds-bot: drafts of removed chats");
   ctx.effect(() => {
     const offRoster = roster.subscribe(() => {
       questionDrafts.reconcileRoster(roster.getSnapshot());
