@@ -576,7 +576,21 @@ export function install(rt) {
       const sessionLines = partLines.flat()
       const kept = records.filter(record => Number.isInteger(record.seq))
       const recovered = alignGroupSessionLines(sessionLines, kept)
-      if (recovered !== undefined && recovered.length > 0) rt.ledger.prepend(book, recovered)
+      // The room counts as backfilled only once the recovered lines are on disk. A failed
+      // write takes them out of the book again, so the caller hears of it, and the room
+      // stays unmarked for the next call to retry. That throw also skips the warning on
+      // missing lines below: the lines were in the Session, and the caller warns instead.
+      // A read-only host keeps the recovered lines in its cache for the lookup at hand but
+      // writes nothing, so it leaves the room unmarked: once it takes over as the writer it
+      // reads the book from disk again, and the next call recovers the lines and saves them.
+      const writable = rt.readOnly?.() === undefined
+      const added = recovered !== undefined && recovered.length > 0 ? rt.ledger.prepend(book, recovered) : 0
+      if (!writable) return
+      if (added > 0) {
+        let unsaved
+        await rt.ledger.written(book).catch((error) => { unsaved = { error } })
+        if (unsaved !== undefined) throw new Error(`the lines recovered from its Session could not be saved: ${unsaved.error?.message ?? unsaved.error}`)
+      }
       let earliestSeq = oldestSeq
       for (const record of rt.ledger.records(book)) {
         if (Number.isInteger(record.seq) && (earliestSeq === undefined || record.seq < earliestSeq)) earliestSeq = record.seq
@@ -3054,10 +3068,13 @@ export function install(rt) {
         const line = room.log.find(entry => entry.seq === seq)
         if (line !== undefined) return lineText(line, memberText(room)(line))
         let kept = await rt.groupLine(room.id, seq).catch(() => undefined)
+        let unrecovered
         if (kept === undefined && Number.isInteger(seq) && seq >= 1 && seq <= room.seq) {
-          await backfillGroupLog(room.id, seq - 1).catch(() => {})
+          await backfillGroupLog(room.id, seq - 1).catch((error) => { unrecovered = error })
           kept = await rt.groupLine(room.id, seq).catch(() => undefined)
         }
+        // A recovery that failed is not a message that does not exist: a later read may find it.
+        if (kept === undefined && unrecovered !== undefined) return `Message ${args.seq} of "${room.name}" could not be recovered just now (${unrecovered?.message ?? unrecovered}). Try again later.`
         return kept === undefined ? `"${room.name}" has no message ${args.seq}.` : lineText(kept, headOf(kept.text ?? '', GROUP_LINE_READ))
       }
       if (typeof args.query === 'string' && args.query.trim() !== '') {
