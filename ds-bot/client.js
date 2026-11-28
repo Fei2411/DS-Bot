@@ -25248,15 +25248,15 @@ var HIGHLIGHT_MS = 1800;
 var HIGHLIGHT_CLASS = "bt-message-jump";
 var messageJumpTarget = (sessionId, target) => Number.isInteger(target?.turn) ? { sessionId, turn: target.turn, snippet: target.snippet, synthetic: target.synthetic === true, role: target.role } : null;
 var messageAnchor = (sessionId, turn, role) => sessionId !== void 0 ? { "data-bt-message-session": sessionId, "data-bt-message-turn": Number.isInteger(turn) ? turn : void 0, "data-bt-message-role": role } : void 0;
-var normalized = (text) => String(text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+var normalized = (text) => String(text ?? "").replace(/\s+/g, "").toLowerCase();
 function findMessageRow(root, { sessionId, turn, snippet, synthetic, role }, allowFallback = true) {
   const selector = synthetic ? "[data-bt-message-session]" : `[data-bt-message-turn="${turn}"]`;
   const rows2 = [...root?.querySelectorAll(selector) ?? []].filter((row) => row.getAttribute("data-bt-message-session") === sessionId);
+  const preferred = role === void 0 ? rows2 : rows2.filter((row) => row.getAttribute("data-bt-message-role") === role);
   const match = normalized(snippet).replace(/^…/, "");
-  const matches3 = match ? rows2.filter((row) => normalized(row.textContent).includes(match)) : [];
-  const preferred = role === void 0 ? matches3 : matches3.filter((row) => row.getAttribute("data-bt-message-role") === role);
-  if (synthetic) return preferred.length === 1 ? preferred[0] : void 0;
-  return preferred[0] ?? (allowFallback ? matches3[0] ?? rows2[0] : void 0);
+  const matches3 = match ? preferred.filter((row) => normalized(row.textContent).includes(match)) : [];
+  if (synthetic) return matches3.length === 1 ? matches3[0] : void 0;
+  return matches3[0] ?? (allowFallback ? preferred[0] ?? rows2[0] : void 0);
 }
 var highlights = /* @__PURE__ */ new WeakMap();
 function highlightMessage(row) {
