@@ -2,7 +2,7 @@
 // parts of a profile the app asks for. The app's own main process never calls them.
 import { applyEntryPatches } from '@deepseek-ai/cordis-plugin-include'
 
-export const getDshRuntimeVersion = () => ({ release: { version: '0.2.2-rc.5' } })
+export const getDshRuntimeVersion = () => '0.2.2-rc.5'
 export const evaluatePluginCompatibility = () => undefined
 export const loadLayeredEnv = () => ({})
 export const reportSkippedBundles = () => {}

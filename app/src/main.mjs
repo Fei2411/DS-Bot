@@ -804,11 +804,11 @@ async function startEngine(mine) {
     }, (error) => { console.error('DS Bot: the Sessions the import left out were not copied:', error) })
   }
   if (!shadowedAsked) {
-    const { bundledOfficialPackages, formatShadowedNames, removeShadowed, shadowedBundles } = await import('./profile-shadow.mjs')
+    const { formatShadowedNames, removeShadowed, shadowedBundles } = await import('./profile-shadow.mjs')
     const runtimeVersion = (() => { try { return getDshRuntimeVersion?.() } catch { return undefined } })()
     const shadowed = shadowedBundles(profileDir(), BUNDLES, {
       retiredNames: RETIRED_BUNDLES,
-      bundledOfficial: bundledOfficialPackages(INSTALL_ANCHOR),
+      installAnchor: INSTALL_ANCHOR,
       runtimeVersion,
     })
     if (shadowed.length > 0 && mine === attempt) {

@@ -309,3 +309,46 @@ test('never flags custom/third-party plugins or profile-only official packages, 
   assert.equal(existsSync(join(dir, 'node_modules', '@acme', 'dsh-custom-plugin')), true)
   assert.equal(existsSync(join(dir, 'node_modules', 'custom-community-plugin')), true)
 })
+
+test('skips bundledOfficial graph walk on clean profiles and walks lazily when an official package is present on disk', (t) => {
+  const dir = folder(t)
+  profile(dir, { 'other-plugin': '1.0.0', '@deepseek-ai/dsh-tool-subagent': '0.2.1-rc.4' })
+  plant(dir, 'other-plugin', '1.0.0')
+  plant(dir, 'ds-bot', '0.2.7')
+
+  let calls = 0
+  const lazyOfficial = () => {
+    calls += 1
+    return bundledOfficialPackages(INSTALL_ANCHOR)
+  }
+
+  // Only own bundle + third-party plugin on disk (pinned official pkg not on disk): must NOT walk the install graph.
+  const first = shadowedBundles(dir, OWN, {
+    retiredNames: RETIRED_BUNDLES,
+    bundledOfficial: lazyOfficial,
+    runtimeVersion: getDshRuntimeVersion(),
+  })
+  assert.deepEqual(first, [{ name: 'ds-bot', version: '0.2.7' }])
+  assert.equal(calls, 0, 'clean profiles without non-own official packages on disk must not walk bundledOfficial')
+
+  // Once a non-own official package exists on disk, the lazy getter runs once and detects it.
+  plant(dir, '@deepseek-ai/dsh-tool-subagent', '0.2.1-rc.4')
+  const second = shadowedBundles(dir, OWN, {
+    retiredNames: RETIRED_BUNDLES,
+    bundledOfficial: lazyOfficial,
+    runtimeVersion: getDshRuntimeVersion(),
+  })
+  assert.deepEqual(second, [
+    { name: 'ds-bot', version: '0.2.7' },
+    { name: '@deepseek-ai/dsh-tool-subagent', version: '0.2.1-rc.4' },
+  ])
+  assert.equal(calls, 1)
+
+  // Passing installAnchor directly also resolves lazily and matches.
+  const third = shadowedBundles(dir, OWN, {
+    retiredNames: RETIRED_BUNDLES,
+    installAnchor: INSTALL_ANCHOR,
+    runtimeVersion: getDshRuntimeVersion(),
+  })
+  assert.deepEqual(third, second)
+})

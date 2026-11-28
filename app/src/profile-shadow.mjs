@@ -127,16 +127,16 @@ const isIncompatibleWithRuntime = (pkgManifest, runtimeVersion) => {
  * Packages installed in the profile that shadow the app's bundled copies, as `{ name, version }`.
  * - Any `ownNames` (the app's bundles) or `retiredNames` (retired app bundles) present on disk
  *   under the profile's `node_modules` (or fallback dir) is always reported, regardless of version.
- * - Any official `@deepseek-ai/dsh*` package also shipped by the app (`bundledOfficial`) whose
- *   profile-local copy has a different version or is incompatible with `runtimeVersion` is reported
- *   even when it is hoisted without a row in `package.json`.
+ * - Any official `@deepseek-ai/dsh*` package also shipped by the app (`bundledOfficial` or walked
+ *   lazily from `installAnchor`) whose profile-local copy has a different version or is
+ *   incompatible with `runtimeVersion` is reported even when it is hoisted without a row in
+ *   `package.json`. When no non-own official `@deepseek-ai/dsh*` packages are present on disk in
+ *   the profile, `bundledOfficial` (when passed as a function) and `installAnchor` are never
+ *   evaluated, avoiding any startup graph-walk cost on clean profiles.
  */
-export function shadowedBundles(profileDir, ownNames, { retiredNames = [], bundledOfficial, runtimeVersion } = {}) {
+export function shadowedBundles(profileDir, ownNames, { retiredNames = [], bundledOfficial, installAnchor, runtimeVersion } = {}) {
   let manifest
   try { manifest = readJson(join(profileDir, 'package.json')) } catch {}
-  const officialMap = bundledOfficial instanceof Map
-    ? bundledOfficial
-    : (bundledOfficial && typeof bundledOfficial === 'object' ? new Map(Object.entries(bundledOfficial)) : undefined)
 
   const seen = new Set()
   const result = []
@@ -151,20 +151,33 @@ export function shadowedBundles(profileDir, ownNames, { retiredNames = [], bundl
     if (copy !== undefined) add(name, copy.version)
   }
 
-  if (officialMap !== undefined && officialMap.size > 0) {
-    const candidates = new Set(installedOfficialNames(profileDir))
-    for (const field of MANIFEST_DEP_FIELDS) {
-      for (const name of Object.keys(manifest?.[field] ?? {})) {
-        if (OFFICIAL_DSH.test(name)) candidates.add(name)
-      }
+  const candidateNames = new Set(installedOfficialNames(profileDir))
+  for (const field of MANIFEST_DEP_FIELDS) {
+    for (const name of Object.keys(manifest?.[field] ?? {})) {
+      if (OFFICIAL_DSH.test(name)) candidateNames.add(name)
     }
-    for (const name of [...candidates].sort()) {
-      if (seen.has(name) || !officialMap.has(name)) continue
-      const copy = installedCopy(profileDir, name, manifest)
-      if (copy === undefined) continue
-      const bundledVersion = officialMap.get(name)
-      if (copy.version !== bundledVersion || isIncompatibleWithRuntime(copy.manifest, runtimeVersion)) {
-        add(name, copy.version)
+  }
+  const pendingCandidates = []
+  for (const name of [...candidateNames].sort()) {
+    if (seen.has(name)) continue
+    const copy = installedCopy(profileDir, name, manifest)
+    if (copy !== undefined) pendingCandidates.push({ name, copy })
+  }
+
+  if (pendingCandidates.length > 0) {
+    const resolvedOfficial = typeof bundledOfficial === 'function'
+      ? bundledOfficial()
+      : (bundledOfficial ?? (installAnchor ? bundledOfficialPackages(installAnchor) : undefined))
+    const officialMap = resolvedOfficial instanceof Map
+      ? resolvedOfficial
+      : (resolvedOfficial && typeof resolvedOfficial === 'object' ? new Map(Object.entries(resolvedOfficial)) : undefined)
+    if (officialMap !== undefined && officialMap.size > 0) {
+      for (const { name, copy } of pendingCandidates) {
+        if (!officialMap.has(name)) continue
+        const bundledVersion = officialMap.get(name)
+        if (copy.version !== bundledVersion || isIncompatibleWithRuntime(copy.manifest, runtimeVersion)) {
+          add(name, copy.version)
+        }
       }
     }
   }
