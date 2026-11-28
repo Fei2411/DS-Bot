@@ -1010,28 +1010,37 @@ test('composer stays editable when bot.waiting has a model, focuses on card clic
     assert.equal(ta.props.disabled, false, 'waiting bot with an assigned model must keep composer enabled')
     assert.match(ta.props.placeholder, /Message Chief/)
 
-    // Clicking padding on [data-composer-card] focuses the textarea; clicking a button does not.
+    // Clicking padding on [data-composer-card] focuses the textarea; clicking a button, label,
+    // slider, or a React portal child rendered outside currentTarget does not.
     let focused = 0
     ta.props.ref.current = { focus() { focused += 1 }, style: {}, scrollHeight: 30 }
     const card = all(tree, n => n.props?.['data-composer-card'] !== undefined)[0]
     assert.ok(card)
     let prevented = 0
-    card.props.onMouseDown({ button: 0, target: { closest: () => null }, preventDefault() { prevented += 1 } })
+    const insideTarget = { closest: () => null }
+    const cardDom = { contains: el => el === insideTarget }
+    card.props.onMouseDown({ button: 0, currentTarget: cardDom, target: insideTarget, preventDefault() { prevented += 1 } })
     assert.equal(focused, 1)
     assert.equal(prevented, 1)
-    card.props.onMouseDown({ button: 0, target: { closest: sel => (sel.includes('button') ? {} : null) }, preventDefault() { prevented += 1 } })
+    card.props.onMouseDown({ button: 0, currentTarget: { contains: () => true }, target: { closest: sel => (sel.includes('button') ? {} : null) }, preventDefault() { prevented += 1 } })
     assert.equal(focused, 1, 'clicking an interactive control inside composer card must not hijack focus')
+    card.props.onMouseDown({ button: 0, currentTarget: { contains: () => true }, target: { closest: sel => (sel.includes('label') ? {} : null) }, preventDefault() { prevented += 1 } })
+    assert.equal(focused, 1, 'clicking a label inside composer card must not hijack focus')
+    card.props.onMouseDown({ button: 0, currentTarget: cardDom, target: { closest: () => null }, preventDefault() { prevented += 1 } })
+    assert.equal(focused, 1, 'portal events bubbling from outside currentTarget DOM must not hijack focus')
 
-    // IME compositionStart -> compositionEnd -> immediate Enter must not submit; Enter after keyUp submits.
-    ta.props.onChange({ target: { value: '你好', selectionStart: 2 } })
-    tree = inst.render()
+    // Real IME order: compositionStart -> compositionEnd -> onChange -> immediate Enter must NOT submit;
+    // Enter after Enter keyUp submits.
     textarea(tree).props.onCompositionStart()
     textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
     assert.equal(sent.length, 0, 'Enter during active IME composition must not submit')
     textarea(tree).props.onCompositionEnd()
+    textarea(tree).props.onChange({ target: { value: '你好', selectionStart: 2 } })
+    tree = inst.render()
+    textarea(tree).props.onKeyUp({ key: 'a', target: { selectionStart: 2 } })
     textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
-    assert.equal(sent.length, 0, 'Enter fired immediately after compositionend must not submit')
-    textarea(tree).props.onKeyUp({ target: { selectionStart: 2 } })
+    assert.equal(sent.length, 0, 'Enter fired immediately after compositionend + onChange must not submit')
+    textarea(tree).props.onKeyUp({ key: 'Enter', target: { selectionStart: 2 } })
     textarea(tree).props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
     await tick()
     assert.deepEqual(sent, ['你好'])

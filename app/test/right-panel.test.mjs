@@ -1581,9 +1581,13 @@ test('WorkspacePaneBody plugin tab Retry calls runtime.retry(), FileTree syncs m
 
 test('WorkspaceTerminal does not steal focus when hidden or while user is typing in the chat composer', async () => {
   sandbox.__xterms.length = 0
+  let openCalls = 0
+  let listPayload = [{ id: 'term-bg', cwd: '/repo', title: 'repo', pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null }]
   sandbox.__testCall = async (endpoint) => {
-    if (endpoint === 'terminal-list') {
-      return { terminals: [{ id: 'term-bg', cwd: '/repo', title: 'repo', cols: 88, rows: 26, pty: true, exited: false, output: '', end: 0 }] }
+    if (endpoint === 'terminal-list') return listPayload
+    if (endpoint === 'terminal-open') {
+      openCalls += 1
+      return { id: `term-opened-${openCalls}`, cwd: '/repo', title: 'repo', cols: 88, rows: 26, pty: true }
     }
     return {}
   }
@@ -1595,6 +1599,7 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
     hiddenTerm.render()
     await tick()
     hiddenTerm.render()
+    assert.equal(openCalls, 0, 'real array terminal-list contract must not trigger terminal-open')
     assert.equal(sandbox.__xterms.length, 1)
     assert.equal(sandbox.__xterms[0].focused, 0, 'hidden terminal must not steal focus on mount')
     team.chat.emit('hello', {})
@@ -1605,17 +1610,28 @@ test('WorkspaceTerminal does not steal focus when hidden or while user is typing
     hiddenTerm.unmount()
   }
 
-  // 2. Visible terminal pane must not yank focus away from an active chat composer textarea on async sync.
+  // 2. Visible terminal pane must not yank focus away from an active chat composer textarea on async sync,
+  //    and once an explicit focusNonce is consumed, later synced terminals must not steal focus either.
   sandbox.__xterms.length = 0
   const prevActive = sandbox.document.activeElement
   sandbox.document.activeElement = { closest: sel => (sel.includes('data-composer-input') ? {} : null) }
-  const visibleTerm = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat, active: true })
+  const visibleTerm = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat, active: true, focusNonce: 1 })
   try {
     visibleTerm.render()
     await tick()
     visibleTerm.render()
     assert.equal(sandbox.__xterms.length, 1)
-    assert.equal(sandbox.__xterms[0].focused, 0, 'async terminal mount must not steal focus from active chat composer')
+    assert.equal(sandbox.__xterms[0].focused, 1, 'explicit focusNonce focuses the active terminal once')
+    // Now SSE hello syncs a newly discovered terminal while user is back in composer: must NOT steal focus!
+    listPayload = [
+      ...listPayload,
+      { id: 'term-bg-2', cwd: '/repo', title: 'repo', pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null },
+    ]
+    team.chat.emit('hello', {})
+    await tick()
+    visibleTerm.render()
+    assert.equal(sandbox.__xterms.length, 2)
+    assert.equal(sandbox.__xterms[1].focused, 0, 'consumed focusNonce must not let a later synced terminal steal composer focus')
   } finally {
     sandbox.document.activeElement = prevActive
     visibleTerm.unmount()

@@ -1,4 +1,4 @@
-import { Component, createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, createElement as h, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
@@ -234,6 +234,7 @@ export function App() {
   const browserEnabled = hooks.useRoster(value => value.browser !== false)
   const isNarrowRef = useRef(isNarrow)
   isNarrowRef.current = isNarrow
+  const [terminalFocusNonce, setTerminalFocusNonce] = useState(0)
   const capabilitiesOf = useCallback((rosterSnap, mode = 'bot') => {
     const classic = mode === 'agent'
     return {
@@ -338,6 +339,7 @@ export function App() {
       if (uiSnap.details && uiSnap.view === 'workspace' && uiSnap.rightPanel?.tab === 'terminal') {
         actions.closePanel()
       } else if (actions.canOpenTerminal?.() !== false) {
+        setTerminalFocusNonce(n => n + 1)
         actions.setRightPanelTab?.('terminal')
       }
       return
@@ -533,25 +535,28 @@ export function App() {
         registry: slots,
         readOnly,
         visible,
+        terminalFocusNonce,
       })),
-  }), [workspaceTabs, rightPanel, inClassicMode, browserEnabled, actions, closeWorkspace, shown, team, readOnly])
+  }), [workspaceTabs, rightPanel, inClassicMode, browserEnabled, actions, closeWorkspace, shown, team, readOnly, terminalFocusNonce])
   const dialogCaps = capabilitiesOf({ browser: browserEnabled }, surfaceMode)
   // Key the conversation by stable Bot/room id so segment rollovers and initial roster
   // hydration on a rolled-over segment both preserve unsent drafts and composer focus.
   const chatKeyRef = useRef({ shown: null, chatId: null, key: null })
   const chatId = chat?.id ?? null
   let chatKey = chatId ?? shown
+  let nextChatKeyState = { shown: null, chatId: null, key: null }
   if (shown) {
     const prev = chatKeyRef.current
     const same = prev.key !== null && (
-      (prev.shown === shown && prev.chatId === null)
+      prev.shown === shown
       || (chatId !== null && prev.chatId === chatId)
     )
     if (same) chatKey = prev.key
-    chatKeyRef.current = { shown, chatId: same ? (chatId ?? prev.chatId) : chatId, key: chatKey }
-  } else {
-    chatKeyRef.current = { shown: null, chatId: null, key: null }
+    nextChatKeyState = { shown, chatId: same ? (chatId ?? prev.chatId) : chatId, key: chatKey }
   }
+  useLayoutEffect(() => {
+    chatKeyRef.current = nextChatKeyState
+  }, [nextChatKeyState.shown, nextChatKeyState.chatId, nextChatKeyState.key])
   return h('div', {
     className: 'dsb-frame',
     style: { '--dsb-side-w': `${effectiveSideW}px` },

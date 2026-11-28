@@ -162,7 +162,7 @@ export class BotViews {
       },
     })
     const entry = {
-      tabId, botId, view, createdByBot, openerId, shown: false,
+      tabId, botId, view, createdByBot, openerId, shown: false, visibleNow: false,
       favicon: dormant?.favicon ?? null,
       fallbackUrl: url || dormant?.url || 'about:blank',
       fallbackTitle: dormant?.title ?? '',
@@ -414,7 +414,7 @@ export class BotViews {
     this.#waiting.delete(tabId)
     this.#dormant.delete(tabId)
     this.#dropSaved(botId, tabId)
-    const wasVisible = entry.visibleNow === true || entry.shown === true
+    const wasVisible = entry.visibleNow === true
     const wasFocused = !entry.view.webContents.isDestroyed()
       && (typeof entry.view.webContents.isFocused === 'function' ? entry.view.webContents.isFocused() : wasVisible)
     // The view leaves the window too: only closing its contents would keep the child view.
@@ -507,7 +507,11 @@ export class BotViews {
    */
   release() {
     for (const [tabId, entry] of [...this.#views]) {
-      if (!entry.view.webContents.isDestroyed()) { this.#waiting.add(tabId); continue }
+      if (!entry.view.webContents.isDestroyed()) {
+        entry.visibleNow = false
+        this.#waiting.add(tabId)
+        continue
+      }
       for (const { item } of entry.downloads.values()) { try { item.cancel?.() } catch {} }
       entry.downloads.clear()
       entry.sessions.clear()
@@ -599,9 +603,11 @@ export class BotViews {
   }
 
   #returnFocusToWindow() {
+    if (this.#windowHidden || this.#systemPaused) return
     const win = this.#window()
     const main = win?.webContents
     if (!main || main.isDestroyed?.()) return
+    if (win.isVisible?.() === false || win.isMinimized?.() === true) return
     if (typeof win.isFocused === 'function' && !win.isFocused()) return
     main.focus?.()
   }

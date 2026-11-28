@@ -406,11 +406,12 @@ export function createLocalLineEditor(term, onLine, onEof) {
 
 function canStealFocusForTerminal(hostEl) {
   if (typeof document === 'undefined') return true
+  if (document.querySelector?.('[aria-modal="true"]')) return false
   const activeEl = document.activeElement
   if (!activeEl || activeEl === document.body || activeEl === document.documentElement) return true
   if (hostEl && typeof hostEl.contains === 'function' && hostEl.contains(activeEl)) return true
   if (typeof activeEl.closest === 'function'
-    && activeEl.closest('[data-composer-input], [data-composer-card], textarea, input, select, [contenteditable="true"]')) {
+    && activeEl.closest('[data-composer-input], [data-composer-card], textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
     return false
   }
   return true
@@ -421,6 +422,7 @@ function TerminalPane({
   active,
   paneVisible = true,
   focusNonce = 0,
+  consumedFocusNonceRef,
   readOnly,
   writersRef,
   pendingOutputRef,
@@ -567,7 +569,11 @@ function TerminalPane({
 
     if (activeRef.current && paneVisibleRef.current) {
       scheduleFit()
-      if (focusNonceRef.current > 0 || canStealFocusForTerminal(paneRef.current)) {
+      const pendingExplicit = focusNonceRef.current > (consumedFocusNonceRef?.current ?? 0)
+      if (pendingExplicit) {
+        if (consumedFocusNonceRef) consumedFocusNonceRef.current = focusNonceRef.current
+        xterm.focus()
+      } else if (canStealFocusForTerminal(paneRef.current)) {
         xterm.focus()
       }
     }
@@ -593,11 +599,14 @@ function TerminalPane({
     const api = writersRef.current.get(term.id)
     if (!api) return
     api.fit()
-    const explicitFocus = focusNonce !== prevNonce
-    if (explicitFocus || ((!wasActive || !wasVisible) && canStealFocusForTerminal(paneRef.current))) {
+    const pendingExplicit = focusNonce !== prevNonce || focusNonce > (consumedFocusNonceRef?.current ?? 0)
+    if (pendingExplicit && focusNonce > (consumedFocusNonceRef?.current ?? 0)) {
+      if (consumedFocusNonceRef) consumedFocusNonceRef.current = focusNonce
+      api.focus()
+    } else if ((!wasActive || !wasVisible) && canStealFocusForTerminal(paneRef.current)) {
       api.focus()
     }
-  }, [active, paneVisible, focusNonce, term.id, writersRef])
+  }, [active, paneVisible, focusNonce, consumedFocusNonceRef, term.id, writersRef])
 
   return h('div', {
     ref: paneRef,
@@ -615,11 +624,13 @@ function TerminalPane({
 /**
  * Interactive local terminal tabs bound to the active Bot/room workspace folder.
  */
-export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenNonce = 0, active: paneVisible = true }) {
+export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenNonce = 0, active: paneVisible = true, focusNonce: externalFocusNonce = 0 }) {
   const [state, setState] = useState({ terms: [], activeId: null })
   const [opening, setOpening] = useState(false)
   const [error, setError] = useState('')
-  const [focusNonce, setFocusNonce] = useState(() => (autoOpenNonce > 0 ? 1 : 0))
+  const [focusNonce, setFocusNonce] = useState(() => (autoOpenNonce > 0 || externalFocusNonce > 0 ? 1 : 0))
+  const consumedFocusNonceRef = useRef(0)
+  const lastExternalFocusRef = useRef(externalFocusNonce)
   const tabsRef = useRef(null)
   const mountedRef = useRef(true)
   const lastAutoNonceRef = useRef(0)
@@ -881,6 +892,13 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
     void openNew()
   }, [autoOpenNonce, readOnly, openNew])
 
+  // Triggered explicitly by keyboard shortcut (e.g. Ctrl+`) to focus the active terminal without spawning a new PTY.
+  useEffect(() => {
+    if (!externalFocusNonce || externalFocusNonce === lastExternalFocusRef.current || readOnly) return
+    lastExternalFocusRef.current = externalFocusNonce
+    setFocusNonce(n => n + 1)
+  }, [externalFocusNonce, readOnly])
+
   // Subscribe to live terminal output and exit events on the shared local SSE feed.
   useEffect(() => {
     if (!feed) return undefined
@@ -1033,6 +1051,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
             active: term.id === active?.id,
             paneVisible,
             focusNonce,
+            consumedFocusNonceRef,
             readOnly,
             writersRef,
             pendingOutputRef,

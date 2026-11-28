@@ -992,6 +992,25 @@ test('Bot browser views never steal focus over CDP and return focus to main wind
   windowFocused = true
   manager.place('T1', { left: 0, top: 0, width: 400, height: 300 }, true)
   view1Focused = true
+  // Window hidden or system paused must NOT re-focus the window even if isFocused() is still true.
+  manager.setWindowHidden(true)
+  assert.equal(mainFocusCalls, 2, 'setWindowHidden(true) must not call mainWindow.webContents.focus()')
+  manager.setWindowHidden(false)
+  view1Focused = true
+  manager.setSystemPaused(true)
+  assert.equal(mainFocusCalls, 2, 'setSystemPaused(true) must not call mainWindow.webContents.focus()')
+  manager.setSystemPaused(false)
+  view1Focused = true
+  // Closing a covered (invisible) tab must NOT call main.focus() again.
+  manager.cover(true)
+  assert.equal(mainFocusCalls, 3, 'covering visible focused view returns focus once')
   await manager.close('a', 'T1')
-  assert.equal(mainFocusCalls, 3, 'closing a visible focused view returns focus to the main window')
+  assert.equal(mainFocusCalls, 3, 'closing an already covered/hidden view must not return focus a second time')
+
+  // Closing an actively visible focused view returns focus to main window.
+  manager.cover(false)
+  manager.place(created.result.targetId, { left: 0, top: 0, width: 400, height: 300 }, true)
+  views[1].webContents.isFocused = () => true
+  await manager.close('a', created.result.targetId)
+  assert.equal(mainFocusCalls, 4, 'closing a visible focused view returns focus to the main window')
 })

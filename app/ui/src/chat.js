@@ -672,7 +672,22 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     node.style.height = 'auto'
     node.style.height = `${node.scrollHeight}px`
   }, [text])
-  useEffect(() => { if (!disabled) field.current?.focus() }, [sessionId, disabled])
+  const prevFocusChatKeyRef = useRef(chatKey)
+  useEffect(() => {
+    const sameChat = prevFocusChatKeyRef.current === chatKey
+    prevFocusChatKeyRef.current = chatKey
+    if (disabled) return
+    if (typeof document !== 'undefined') {
+      if (document.querySelector?.('[aria-modal="true"]')) return
+      const activeEl = document.activeElement
+      if (sameChat && activeEl && activeEl !== document.body && activeEl !== document.documentElement && activeEl !== field.current
+        && typeof activeEl.closest === 'function'
+        && activeEl.closest('.dsb-term, textarea, input, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) {
+        return
+      }
+    }
+    field.current?.focus?.()
+  }, [chatKey, sessionId, disabled])
   useEffect(() => { if (!running) setStopping(false) }, [running, sessionId])
   useEffect(() => {
     const owned = ownedUrlsRef.current
@@ -1326,7 +1341,6 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       'aria-label': effectivePlaceholder,
       'data-composer-input': '',
       onChange: (event) => {
-        compositionEndAtRef.current = 0
         draftEditSeqRef.current += 1
         setText(event.target.value)
         setReferenceTrigger(null)
@@ -1344,7 +1358,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       },
       onClick: syncCaret,
       onKeyUp: (event) => {
-        compositionEndAtRef.current = 0
+        if (event?.key === 'Enter') compositionEndAtRef.current = 0
         syncCaret(event)
       },
       onSelect: syncCaret,
@@ -1466,7 +1480,10 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       onMouseDown: (event) => {
         if (disabled || event.button !== 0) return
         const target = event.target
-        if (target && typeof target.closest === 'function' && target.closest('textarea, input, button, a, select, [role="button"], [contenteditable="true"]')) return
+        if (!target) return
+        // Ignore React portal events bubbling from dialogs/menus rendered outside the card DOM.
+        if (typeof event.currentTarget?.contains === 'function' && !event.currentTarget.contains(target)) return
+        if (typeof target.closest === 'function' && target.closest('textarea, input, button, a, select, label, [role="button"], [role="slider"], [contenteditable="true"]')) return
         event.preventDefault()
         field.current?.focus?.()
       },
@@ -1734,8 +1751,8 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: dmChat.retry }, t('Retry')))
     : null
 
-  // Only lock the composer while waiting for an initial model pick (when ModelChoiceDock is active).
-  // If a Bot already has a model and kickoff was held after a transient/quota error, the user can still write.
+  // Only lock the composer while waiting for an initial model assignment (no model set yet).
+  // Once a Bot has a model (even if kickoff was held after a blocking failure), keep input editable.
   const waitingForModel = bot?.waiting === true && !bot?.model
   const locked = waitingForModel || readOnly
   const useWork = hooks.useWork ?? NO_WORK_HOOK
