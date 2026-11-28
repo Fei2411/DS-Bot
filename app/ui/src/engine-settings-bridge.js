@@ -190,6 +190,7 @@ export function useDshSettingsBridge(registry = defaultSlots, extraProps = {}) {
 
     return {
       ownWindow: true,
+      pluginSubTarget: true,
       surfaceMode,
       sections,
       items,

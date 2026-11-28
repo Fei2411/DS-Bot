@@ -1801,7 +1801,7 @@ function PluginIconBox({ src, fallback, accent = false }) {
     : (fallback || h(PuzzleIcon)))
 }
 
-export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfaceMode = 'bot', runtime = pluginRuntime }) {
+export function PluginsSettingsPage({ readOnly = false, subTarget = null, jump = 0, surfaceMode = 'bot', runtime = pluginRuntime }) {
   const uiPlugins = usePlugins(runtime)
   const [data, setData] = useState(() => pluginsCache)
   const [settingsData, setSettingsData] = useState(() => settingsCache)
@@ -1821,15 +1821,15 @@ export function PluginsSettingsPage({ readOnly = false, subTarget = null, surfac
     return () => { mounted.current = false }
   }, [])
 
-  const prevSubTarget = useRef(subTarget)
+  const prevNav = useRef({ subTarget, jump })
   useEffect(() => {
-    if (prevSubTarget.current !== subTarget) {
-      prevSubTarget.current = subTarget
+    if (prevNav.current.subTarget !== subTarget || prevNav.current.jump !== jump) {
+      prevNav.current = { subTarget, jump }
       setDetailId(normalizeDetailTarget(subTarget, surfaceMode))
     } else if (detailId && isBannedNamespace(detailId, surfaceMode)) {
       setDetailId('')
     }
-  }, [subTarget, surfaceMode, detailId])
+  }, [subTarget, jump, surfaceMode, detailId])
 
   useEscape(() => setArmedRemove(''), Boolean(armedRemove), { priority: ESCAPE_PRIORITY.INLINE_ACTION })
 

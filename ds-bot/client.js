@@ -63149,9 +63149,10 @@ function searchHits(query, { roster, extra = [], dsh = null, pageAvailable = () 
   const dshSections = dsh?.sections ?? [];
   const hasDshPlugins = dshSections.some((row) => row?.id === "plugins");
   const hasDshModels = dshSections.some((row) => row?.id === "models");
+  const supportsPluginSubTarget = Boolean(dsh?.pluginSubTarget || dsh?.ownWindow);
   const surfaceMode = dsh?.surfaceMode ?? "bot";
   const engineEntries = [
-    ...hasDshPlugins ? ENGINE_PLUGIN_SEARCH_ENTRIES.filter((entry) => !entry.surfaceMode || entry.surfaceMode === surfaceMode).map((entry) => ({
+    ...hasDshPlugins ? ENGINE_PLUGIN_SEARCH_ENTRIES.filter((entry) => (entry.target === "dsh" || supportsPluginSubTarget) && (!entry.surfaceMode || entry.surfaceMode === surfaceMode)).map((entry) => ({
       ...entry,
       kind: "setting",
       title: t(entry.label),
@@ -64414,7 +64415,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         shown === "general" ? (0, import_react76.createElement)(GeneralPage, { roster, actions, run: run2, dsh, openAdvanced: advancedToken }) : null,
         shown === "appearance" ? (0, import_react76.createElement)(AppearancePage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Choice: Choice2, Switch, ownWindow: dsh?.ownWindow ?? dsh === void 0, dshRows: lookRows(dsh) }) : null,
         shown === "plugins" && !enginePlugins ? (0, import_react76.createElement)(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === "browser" ? "browser" : null, openEnginePlugins: hasSection(dsh, "plugins") ? () => actions.openSettings("plugins", "dsh") : null }) : null,
-        enginePlugins ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget }, { only: "plugins" })) : null,
+        enginePlugins ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget, jump }, { only: "plugins" })) : null,
         advanced ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: "models" })) : null,
         section ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget }, { only: section.id })) : null,
         creatingBot ? (0, import_react76.createElement)("div", { className: "bt-settings-form" }, (0, import_react76.createElement)(CreateBot, { roster, actions, inline: true, onBack: () => actions.openSettings("bots"), onCreated: (created) => actions.openSettings("bots", created.id) })) : null,

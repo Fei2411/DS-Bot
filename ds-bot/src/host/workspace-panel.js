@@ -226,7 +226,7 @@ export function buildOpenOsCommand(target, action, isDirectory, platform = proce
   if (platform === 'darwin') {
     return {
       command: 'open',
-      args: action === 'reveal' ? ['-R', target] : [target],
+      args: action === 'reveal' ? ['-R', target] : action === 'edit' ? ['-t', target] : [target],
       options: { detached: true, stdio: ['ignore', 'ignore', 'pipe'], shell: false, env: scrubbedOpenEnv() },
       waitForExit: true,
     }

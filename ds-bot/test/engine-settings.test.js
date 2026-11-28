@@ -620,4 +620,10 @@ test('engine-settings-list exposes documentPath and engine-settings-open-file op
   // Phone and remote links refuse opening host config files.
   assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, 'engine-settings-open-file').code, 'bot/refused')
   assert.equal(remoteAccessError({ deviceId: 'b1', kind: 'browser' }, 'engine-settings-open-file').code, 'bot/refused')
+
+  // macOS config editing uses `open -t` so YAML opens in a text editor rather than a viewer.
+  const { buildOpenOsCommand } = await import('../src/host/workspace-panel.js')
+  const macEdit = buildOpenOsCommand(patchFile, 'edit', false, 'darwin')
+  assert.equal(macEdit.command, 'open')
+  assert.deepEqual(macEdit.args, ['-t', patchFile])
 })

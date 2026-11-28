@@ -297,7 +297,7 @@ export function install(rt) {
         if (typeof rt.openConfigFile === 'function') {
           await rt.openConfigFile(target)
         } else {
-          await openOsPath(target, 'open', false)
+          await openOsPath(target, 'edit', false)
         }
         return { ok: true, path: target }
       }

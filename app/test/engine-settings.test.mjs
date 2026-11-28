@@ -1049,12 +1049,33 @@ test('PluginsSettingsPage surfaces failed UI plugins with Retry button and reset
   assert.equal(runtime.getSnapshot().find(p => p.id === 'ext.ui-broken').status, 'active')
   assert.equal(findAll(plugTree, n => n.props?.['data-ui-plugin'] === 'ext.ui-broken').length, 0)
 
-  // Navigating from a subTarget detail back to Engine plugins root clears detailId cleanly.
-  plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search' })
-  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search' })
+  // Navigating from a subTarget detail back to Engine plugins root clears detailId cleanly,
+  // and bumping `jump` re-applies the same destination even after local drill-down or Back.
+  plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search', jump: 1 })
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search', jump: 1 })
   assert.equal(plugTree.props['data-plugin-detail'], 'web-search')
-  plugHarness.render({ readOnly: false, runtime, subTarget: undefined })
-  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: undefined })
+
+  // Local Back clears detailId while route still holds subTarget='web-search'; a new ⌘K jump reopens it.
+  const backBtn = findAll(plugTree, n => n.type === 'button' && n.props?.className === 'dsb-plug-back')[0]
+  assert.ok(backBtn)
+  backBtn.props.onClick()
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search', jump: 1 })
+  assert.equal(plugTree.props['data-plugin-detail'], undefined)
+  plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search', jump: 2 })
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: 'web-search', jump: 2 })
+  assert.equal(plugTree.props['data-plugin-detail'], 'web-search')
+
+  // Return to root, locally open Web search, then trigger ⌘K Engine plugins again (same subTarget=undefined, new jump).
+  plugHarness.render({ readOnly: false, runtime, subTarget: undefined, jump: 3 })
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: undefined, jump: 3 })
+  assert.equal(plugTree.props['data-plugin-detail'], undefined)
+  const webRow = findAll(plugTree, n => n.type === 'button' && textOf(n).includes('Web search'))[0]
+  assert.ok(webRow)
+  webRow.props.onClick()
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: undefined, jump: 3 })
+  assert.equal(plugTree.props['data-plugin-detail'], 'web-search')
+  plugHarness.render({ readOnly: false, runtime, subTarget: undefined, jump: 4 })
+  plugTree = plugHarness.render({ readOnly: false, runtime, subTarget: undefined, jump: 4 })
   assert.equal(plugTree.props['data-plugin-detail'], undefined)
 })
 

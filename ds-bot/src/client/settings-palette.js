@@ -101,11 +101,12 @@ export function searchHits(query, { roster, extra = [], dsh = null, pageAvailabl
   const dshSections = dsh?.sections ?? []
   const hasDshPlugins = dshSections.some(row => row?.id === 'plugins')
   const hasDshModels = dshSections.some(row => row?.id === 'models')
+  const supportsPluginSubTarget = Boolean(dsh?.pluginSubTarget || dsh?.ownWindow)
   const surfaceMode = dsh?.surfaceMode ?? 'bot'
   const engineEntries = [
     ...(hasDshPlugins
       ? ENGINE_PLUGIN_SEARCH_ENTRIES
-        .filter(entry => !entry.surfaceMode || entry.surfaceMode === surfaceMode)
+        .filter(entry => (entry.target === 'dsh' || supportsPluginSubTarget) && (!entry.surfaceMode || entry.surfaceMode === surfaceMode))
         .map(entry => ({
           ...entry,
           kind: 'setting',

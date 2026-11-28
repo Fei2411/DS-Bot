@@ -1249,6 +1249,8 @@ test('searchHits indexes Engine settings subpages when DSH plugins/models sectio
   const { searchHits } = mod.exports
   const roster = { bots: [], rooms: [], models: [] }
   const dshBot = {
+    ownWindow: true,
+    pluginSubTarget: true,
     surfaceMode: 'bot',
     sections: [
       { id: 'account', label: 'Account' },
@@ -1272,6 +1274,12 @@ test('searchHits indexes Engine settings subpages when DSH plugins/models sectio
 
   const subBotHits = searchHits('subagents', { roster, extra, dsh: dshBot })
   assert.equal(subBotHits.some(h => h.target === 'dsh:subagent'), false, 'Subagents hidden in Bot mode search')
+
+  // Native DSH Web surface (no ownWindow / pluginSubTarget) keeps Engine plugins root but omits unsupported detail links.
+  const dshNativeWeb = { sections: dshBot.sections }
+  assert.ok(searchHits('engine plugins', { roster, extra, dsh: dshNativeWeb }).some(h => h.page === 'plugins' && h.target === 'dsh'))
+  assert.equal(searchHits('shell', { roster, extra, dsh: dshNativeWeb }).some(h => h.target === 'dsh:shell'), false)
+  assert.equal(searchHits('agent loop', { roster, extra, dsh: dshNativeWeb }).some(h => h.target === 'dsh:agent-loop'), false)
 
   const dshAgent = { ...dshBot, surfaceMode: 'agent', sections: [...dshBot.sections, { id: 'models', label: 'Models' }] }
   const subAgentHits = searchHits('subagents', { roster, extra, dsh: dshAgent })
