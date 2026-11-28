@@ -186,3 +186,57 @@ test('user image saved in LocalAttachmentStore reaches the local agent through t
   await waitForIdle(ctx, agent)
   assert.match(texts(agent), new RegExp(`"mimeType":"${stored.ref.mediaType}","data":"${expectedBase64}"`))
 })
+
+// An ordinary DSH Session (no Bot) on a custom local-agent route: install()
+// alone must serve the CLI's permission prompt, as it does for a Bot (#2466).
+async function bootWithoutBot(t, { approval, preset } = {}) {
+  const ctx = new Context()
+  await mountAgentLoopTestDependencies(ctx)
+  t.after(() => ctx.fiber.dispose())
+  if (approval !== undefined) ctx.provide('approval', approval)
+  if (preset !== undefined) {
+    ctx.provide('permissionPresets', {
+      current: () => preset,
+      resolve: name => ({ sandbox: name, approval: name === 'danger-full-access' ? 'never' : 'ask' }),
+      catalog: () => ({ options: [], defaultPreset: 'workspace-write' }),
+    })
+  }
+  const rt = {
+    ctx, state: { bots: {}, localAgents: { custom: [{ id: 'fake', name: 'Fake ACP', command: process.execPath, args: [FIXTURE] }], profiles: [], sessions: {} } },
+    teamTools: [], warn() {}, save: async () => {},
+    selfOf: () => undefined, botOf: () => undefined, roomOf: () => undefined,
+    config: {}, load: async () => {}, readOnly: () => undefined,
+    pastOwners: new Map(), chatOwners: new Map(), groupOwners: new Map(), roomOwners: new Map(), taskOwners: new Map(),
+    isBotSession: () => false, ownRequest: () => true,
+  }
+  installLocalAgents(rt, { probeSignIn: async () => ({ signedIn: true }), probeVersion: async () => '1.0.0' })
+  await mountAgentLoopTestHarness(ctx)
+  const agent = await ctx.agentLoop.create(SessionId('plain'), { provider: 'local-acp-fake', model: 'default' })
+  return { ctx, agent }
+}
+
+test('a Session with no Bot on a local route asks for the CLI permission prompt (#2466)', async (t) => {
+  const requests = []
+  const { ctx, agent } = await bootWithoutBot(t, {
+    approval: { request: (req) => { requests.push(req); return Promise.resolve('allowed-once') } },
+  })
+  send(agent, 'ask-permission')
+  await waitForIdle(ctx, agent)
+  const result = agent.session.snapshotEvents().find(event => event.type === 'tool/result')
+  assert.equal(result?.data.error?.code, undefined, result?.data.message.content[0]?.text)
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].toolName, 'approve_agent_action')
+  assert.match(texts(agent), /allowed via allow-once/)
+})
+
+test('a Session with no Bot on a local route follows its own full-access preset (#2466)', async (t) => {
+  const requests = []
+  const { ctx, agent } = await bootWithoutBot(t, {
+    preset: 'danger-full-access',
+    approval: { request: (req) => { requests.push(req); return Promise.resolve('denied') } },
+  })
+  send(agent, 'ask-permission')
+  await waitForIdle(ctx, agent)
+  assert.equal(requests.length, 0)
+  assert.match(texts(agent), /allowed via allow-once/)
+})
