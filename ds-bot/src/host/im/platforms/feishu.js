@@ -466,13 +466,15 @@ export default {
       send: async (chat, { text, buttons }) => {
         const chunks = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)
         let messageId
+        // A text message shows Markdown as literal symbols, so every chunk is a card;
+        // only the last one carries the buttons.
         for (const [index, chunk] of chunks.entries()) {
-          const interactive = buttons !== undefined && index === chunks.length - 1
+          const last = index === chunks.length - 1
           const sent = await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
             body: {
               receive_id: chat.key,
-              msg_type: interactive ? 'interactive' : 'text',
-              content: interactive ? card(chunk, buttons) : JSON.stringify({ text: chunk }),
+              msg_type: 'interactive',
+              content: card(chunk, last ? buttons : undefined),
             },
           })
           messageId = String(sent?.data?.message_id ?? messageId ?? '')

@@ -335,8 +335,31 @@ test('send drops blank lines at the start and end of the text', async (t) => {
   await handle.send({ key: 'oc_1', kind: 'direct' }, { text: '\n\nfirst\n\nsecond\n\n' })
   const posts = fake.calls.filter(call => call.path.startsWith('/open-apis/im/v1/messages?'))
   assert.equal(posts.length, 1)
-  assert.equal(posts[0].params.msg_type, 'text')
-  assert.equal(JSON.parse(posts[0].params.content).text, 'first\n\nsecond')
+  assert.equal(posts[0].params.msg_type, 'interactive')
+  const card = JSON.parse(posts[0].params.content)
+  assert.deepEqual(card.body.elements, [{ tag: 'markdown', content: 'first\n\nsecond' }])
+})
+
+test('a reply without buttons is a Markdown card, and a long one puts its buttons on the last card only', async (t) => {
+  const fake = await fakeFeishu()
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  await until(() => fake.calls.some(call => call.path === '/open-apis/bot/v3/info'))
+  await handle.send({ key: 'oc_1', kind: 'direct' }, { text: '**bold** and `code`' })
+  const plain = fake.calls.filter(call => call.path.startsWith('/open-apis/im/v1/messages?'))
+  assert.equal(plain.length, 1)
+  assert.equal(plain[0].params.msg_type, 'interactive')
+  assert.equal(JSON.parse(plain[0].params.content).body.elements[0].content, '**bold** and `code`')
+
+  const long = Array.from({ length: 3 }, (_, i) => `${i}`.repeat(3000)).join('\n\n')
+  await handle.send({ key: 'oc_1', kind: 'direct' }, { text: long, buttons: [{ data: 'q:q1:0', label: 'yes' }] })
+  const cards = fake.calls.filter(call => call.path.startsWith('/open-apis/im/v1/messages?')).slice(1)
+  assert.ok(cards.length > 1, 'the long reply is split')
+  for (const call of cards) assert.equal(call.params.msg_type, 'interactive')
+  const tags = cards.map(call => JSON.parse(call.params.content).body.elements.map(element => element.tag))
+  assert.deepEqual(tags.slice(0, -1), tags.slice(0, -1).map(() => ['markdown']))
+  assert.deepEqual(tags.at(-1), ['markdown', 'action'])
 })
 
 test('a dropped socket rediscovers the endpoint while OpenAPI calls still renew expired tokens', async (t) => {
