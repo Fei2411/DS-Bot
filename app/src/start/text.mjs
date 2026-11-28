@@ -25,6 +25,7 @@ export const TEXT = {
     // voice
     'voice.watchdog': '等太久了，要不要重试？',
     'voice.failed': 'DS Bot 没能启动',
+    'voice.stopped': '本机引擎停下了',
     'voice.viewFailed': '团队界面没有加载出来',
     // say
     'say.space': '{drive} 盘有点挤',
@@ -83,6 +84,7 @@ export const TEXT = {
     'reason.start.space': '磁盘空间不够。',
     'reason.start.files': '程序文件不完整，可能被杀毒软件拦掉了一部分。',
     'reason.start.engine': '本机引擎启动到一半停下了。',
+    'reason.start.stopped': '本机引擎在运行中意外停下了。',
     'reason.start.other': '出了点意外。',
     'reason.start.missing': '找不到放数据的文件夹，可能是移动硬盘没插上。',
     'card.failed.do.permission': '给这个文件夹写入权限后重试。',
@@ -211,6 +213,7 @@ export const TEXT = {
     // voice
     'voice.watchdog': 'This is taking too long. Try again?',
     'voice.failed': 'DS Bot couldn’t start',
+    'voice.stopped': 'The local engine stopped',
     'voice.viewFailed': 'The team view didn’t load',
     // say
     'say.space': 'Drive {drive} is a bit full',
@@ -269,6 +272,7 @@ export const TEXT = {
     'reason.start.space': 'Not enough disk space.',
     'reason.start.files': 'Program files are incomplete; antivirus software may have blocked some of them.',
     'reason.start.engine': 'The local engine stopped halfway through starting.',
+    'reason.start.stopped': 'The local engine stopped unexpectedly while running.',
     'reason.start.other': 'Something unexpected happened.',
     'reason.start.missing': 'The data folder can’t be found; the external drive may be unplugged.',
     'card.failed.do.permission': 'Allow writing to this folder and try again.',
@@ -396,6 +400,7 @@ export const TEXT = {
     // voice
     'voice.watchdog': '等太久了，要不要重試？',
     'voice.failed': 'DS Bot 沒能啟動',
+    'voice.stopped': '本機引擎停下了',
     'voice.viewFailed': '團隊介面沒有載入出來',
     // say
     'say.space': '{drive} 槽有點擠',
@@ -454,6 +459,7 @@ export const TEXT = {
     'reason.start.space': '磁碟空間不夠。',
     'reason.start.files': '程式檔案不完整，可能被防毒軟體攔掉了一部分。',
     'reason.start.engine': '本機引擎啟動到一半停下了。',
+    'reason.start.stopped': '本機引擎在執行中意外停下了。',
     'reason.start.other': '出了點意外。',
     'reason.start.missing': '找不到放資料的資料夾，可能是外接硬碟沒插上。',
     'card.failed.do.permission': '給這個資料夾寫入權限後重試。',
@@ -581,6 +587,7 @@ export const TEXT = {
     // voice
     'voice.watchdog': '時間がかかっています。再試行しますか？',
     'voice.failed': 'DS Bot を起動できませんでした',
+    'voice.stopped': 'ローカルエンジンが停止しました',
     'voice.viewFailed': 'チーム画面を読み込めませんでした',
     // say
     'say.space': '{drive} ドライブの空きが少なめです',
@@ -639,6 +646,7 @@ export const TEXT = {
     'reason.start.space': 'ディスクの空き容量が足りません。',
     'reason.start.files': 'プログラムファイルが不完全です。セキュリティソフトにブロックされた可能性があります。',
     'reason.start.engine': 'ローカルエンジンが起動の途中で停止しました。',
+    'reason.start.stopped': 'ローカルエンジンが実行中に予期せず停止しました。',
     'reason.start.other': '予期しない問題が発生しました。',
     'reason.start.missing': 'データフォルダが見つかりません。外付けドライブが外れている可能性があります。',
     'card.failed.do.permission': 'このフォルダに書き込み権限を付与してから再試行してください。',
@@ -766,6 +774,7 @@ export const TEXT = {
     // voice
     'voice.watchdog': '시간이 너무 걸립니다. 다시 시도할까요?',
     'voice.failed': 'DS Bot을 시작하지 못했습니다',
+    'voice.stopped': '로컬 엔진이 멈췄습니다',
     'voice.viewFailed': '팀 화면을 불러오지 못했습니다',
     // say
     'say.space': '{drive} 드라이브 공간이 부족합니다',
@@ -824,6 +833,7 @@ export const TEXT = {
     'reason.start.space': '디스크 공간이 부족합니다.',
     'reason.start.files': '프로그램 파일이 불완전합니다. 백신 프로그램이 일부를 차단했을 수 있습니다.',
     'reason.start.engine': '로컬 엔진이 시작 도중 멈췄습니다.',
+    'reason.start.stopped': '로컬 엔진이 실행 중 예기치 않게 멈췄습니다.',
     'reason.start.other': '예기치 않은 문제가 발생했습니다.',
     'reason.start.missing': '데이터 폴더를 찾을 수 없습니다. 외장 드라이브가 분리되었을 수 있습니다.',
     'card.failed.do.permission': '이 폴더에 쓰기 권한을 부여한 뒤 다시 시도해 주세요.',
@@ -951,6 +961,7 @@ export const TEXT = {
     // voice
     'voice.watchdog': 'Esto está tardando mucho. ¿Reintentar?',
     'voice.failed': 'DS Bot no pudo iniciarse',
+    'voice.stopped': 'El motor local se detuvo',
     'voice.viewFailed': 'La vista del equipo no cargó',
     // say
     'say.space': 'La unidad {drive} está casi llena',
@@ -1009,6 +1020,7 @@ export const TEXT = {
     'reason.start.space': 'No hay suficiente espacio en disco.',
     'reason.start.files': 'Los archivos del programa están incompletos; puede que el antivirus haya bloqueado algunos.',
     'reason.start.engine': 'El motor local se detuvo a mitad del arranque.',
+    'reason.start.stopped': 'El motor local se detuvo de forma inesperada mientras se ejecutaba.',
     'reason.start.other': 'Ocurrió algo inesperado.',
     'reason.start.missing': 'No se encuentra la carpeta de datos; puede que el disco externo esté desconectado.',
     'card.failed.do.permission': 'Concede permiso de escritura a esta carpeta e inténtalo de nuevo.',
@@ -1136,6 +1148,7 @@ export const TEXT = {
     // voice
     'voice.watchdog': 'Cela prend trop de temps. Réessayer ?',
     'voice.failed': 'DS Bot n’a pas pu démarrer',
+    'voice.stopped': 'Le moteur local s’est arrêté',
     'voice.viewFailed': 'La vue d’équipe ne s’est pas chargée',
     // say
     'say.space': 'Le disque {drive} manque un peu d’espace',
@@ -1194,6 +1207,7 @@ export const TEXT = {
     'reason.start.space': 'Espace disque insuffisant.',
     'reason.start.files': 'Les fichiers du programme sont incomplets ; un antivirus en a peut-être bloqué certains.',
     'reason.start.engine': 'Le moteur local s’est arrêté à mi-chemin du démarrage.',
+    'reason.start.stopped': 'Le moteur local s’est arrêté de façon inattendue en cours d’exécution.',
     'reason.start.other': 'Une erreur inattendue s’est produite.',
     'reason.start.missing': 'Le dossier de données est introuvable ; le disque externe est peut-être débranché.',
     'card.failed.do.permission': 'Autorisez l’écriture dans ce dossier et réessayez.',
@@ -1321,6 +1335,7 @@ export const TEXT = {
     // voice
     'voice.watchdog': 'Das dauert ungewöhnlich lange. Erneut versuchen?',
     'voice.failed': 'DS Bot konnte nicht starten',
+    'voice.stopped': 'Die lokale Engine wurde angehalten',
     'voice.viewFailed': 'Die Team-Ansicht wurde nicht geladen',
     // say
     'say.space': 'Auf Laufwerk {drive} wird der Platz knapp',
@@ -1379,6 +1394,7 @@ export const TEXT = {
     'reason.start.space': 'Nicht genügend Speicherplatz.',
     'reason.start.files': 'Programmdateien sind unvollständig; möglicherweise hat ein Virenscanner Teile blockiert.',
     'reason.start.engine': 'Die lokale Engine hat beim Starten auf halbem Weg angehalten.',
+    'reason.start.stopped': 'Die lokale Engine wurde im laufenden Betrieb unerwartet angehalten.',
     'reason.start.other': 'Etwas Unerwartetes ist passiert.',
     'reason.start.missing': 'Der Datenordner wurde nicht gefunden; vielleicht ist die externe Festplatte nicht angeschlossen.',
     'card.failed.do.permission': 'Gib diesem Ordner Schreibrechte und versuche es erneut.',
