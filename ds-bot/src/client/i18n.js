@@ -800,6 +800,7 @@ const ZH = {
   'Medium': '中',
   'High': '高',
   'Xhigh': '极高',
+  'Max': '最高',
   'Model: {model}': '模型：{model}',
   none: '无',
   'Choose a model': '选择模型',

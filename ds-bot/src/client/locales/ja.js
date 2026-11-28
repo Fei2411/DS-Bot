@@ -869,6 +869,7 @@ export const JA = {
   "Medium": "中",
   "High": "高",
   "Xhigh": "非常に高い",
+  "Max": "最大",
   "Model: {model}": "モデル: {model}",
   "none": "なし",
   "Choose a model": "モデルを選択",

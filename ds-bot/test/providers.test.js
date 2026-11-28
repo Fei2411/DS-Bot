@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { createServer } from 'node:http'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Config as PiAiConfig } from '@deepseek-ai/dsh-llm-pi-ai'
+import { Context } from '@deepseek-ai/cordis'
+import { createUserMessage, LlmRuntime } from '@deepseek-ai/dsh-llm'
+import * as piAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { install as installModels } from '../src/host/models.js'
 import { checkKey, install, keyRefFor } from '../src/host/providers.js'
+const PiAiConfig = piAi.Config
 
 // A DSH with the official DeepSeek route, an account route, and the pi-ai adapter: its
 // directory offers catalog providers, and its settings take path writes the way DSH's
@@ -396,6 +400,80 @@ test('retained models keep explicit metadata before catalog defaults fill absent
   assert.equal(models[0].name, 'My Model')
 })
 
+test('repairing an incompatible protocol preserves string IDs and removes only managed model fields', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'dsbot-protocol-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const levels = { high: 'high', xhigh: 'xhigh' }
+  const manual = { high: 'custom' }
+  const ids = ['xai/grok-a', 'xai/grok-b', 'xai/grok-c']
+  const user = { providers: { relay: {
+    api: 'google-generative-ai', baseURL: 'https://relay.example', models: [
+      ids[0], { id: ids[1], name: 'Keep name', reasoningEfforts: levels, compat: { forceAdaptiveThinking: true } },
+      { id: ids[2], reasoningEfforts: manual, compat: { forceAdaptiveThinking: true } },
+    ],
+  } } }
+  const { rt } = dsh({ home, user })
+  rt.state.prefs = { catalogEfforts: Object.fromEntries(ids.map(id => ['relay/' + id, { levels, adaptive: true }])) }
+  await rt.providersView()
+  assert.deepEqual(rt.ctx.get('settings').describe().at(-1).user.providers.relay.models, [
+    ids[0], { id: ids[1], name: 'Keep name' }, { id: ids[2], reasoningEfforts: manual },
+  ])
+  assert.deepEqual(rt.state.prefs.catalogEfforts, {})
+})
+
+test('a concurrent provider read observes the saved settings and their matching ownership record', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'dsbot-save-race-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const id = 'qwen3.8-max'
+  const old = { high: 'high' }
+  const user = { providers: { relay: { api: 'openai-responses', baseURL: 'https://token-plan.cn-beijing.maas.aliyuncs.com/v1',
+    models: [{ id, reasoningEfforts: old }] } } }
+  const { rt } = dsh({ home, user })
+  await rt.providersView()
+  const ref = 'relay/' + id
+  rt.state.prefs = { catalogEfforts: { [ref]: old } }
+  const written = Promise.withResolvers()
+  const release = Promise.withResolvers()
+  const settings = rt.ctx.get('settings')
+  const mutate = settings.mutate
+  settings.mutate = async (...args) => {
+    await mutate(...args)
+    written.resolve()
+    await release.promise
+  }
+  const save = rt.saveProviderModels({ provider: 'relay', models: [id] })
+  await written.promise
+  const read = rt.missingKeys([]).then(() => rt.state.prefs.catalogEfforts[ref])
+  await new Promise(resolve => setImmediate(resolve))
+  release.resolve()
+  await save
+  const expected = { low: 'low', medium: 'medium', xhigh: 'xhigh' }
+  assert.deepEqual(await read, expected)
+  assert.deepEqual(rt.state.prefs.catalogEfforts[ref], expected)
+})
+
+test('a repair retries an external revision conflict using the latest settings', async () => {
+  const { rt } = dsh({ user: { providers: { relay: {
+    api: 'openai-responses', baseURL: 'https://relay.example', models: ['m'],
+  } } } })
+  const settings = rt.ctx.get('settings')
+  const mutate = settings.mutate
+  let attempts = 0
+  settings.mutate = async (ns, ops, revision) => {
+    attempts++
+    if (attempts === 1) {
+      await mutate(ns, [{ op: 'set', path: ['providers', 'relay', 'compat'], value: { otherSetting: true } }], revision)
+      throw Object.assign(new Error('Concurrent edit'), { code: 'SETTINGS_CONFLICT' })
+    }
+    await mutate(ns, ops, revision)
+  }
+  // The install schedules the repair, and a failed first attempt must recover
+  // without a second read of the providers page.
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(attempts, 2)
+  assert.deepEqual(settings.describe().at(-1).user.providers.relay.compat, { otherSetting: true, supportsDeveloperRole: false })
+})
+
 test('a discovered ID gains catalog levels, preserves manual mappings, and can follow the catalog again', async t => {
   const home = await mkdtemp(join(tmpdir(), 'dsbot-efforts-'))
   t.after(() => rm(home, { recursive: true, force: true }))
@@ -404,7 +482,7 @@ test('a discovered ID gains catalog levels, preserves manual mappings, and can f
     updated: Date.now(), rows: [[model, ['low', 'high', 'max', 'ultra']]],
   }))
   await writeFile(join(home, 'model-catalog-vendor.json'), JSON.stringify({
-    version: 2, updated: Date.now(), rows: [['xai/grok-test', ['low', 'high']]],
+    version: 3, updated: Date.now(), rows: [['xai/grok-test', ['low', 'high']]],
   }))
   const { rt } = dsh({ home })
   const settings = rt.ctx.get('settings')
@@ -415,7 +493,9 @@ test('a discovered ID gains catalog levels, preserves manual mappings, and can f
   const preview = await rt.discoverModels({ api, baseURL })
   assert.deepEqual(preview[0].catalogLevels, ['low', 'high', 'max'])
   assert.equal(preview[1].catalogLevels, undefined)
-  await rt.addProvider({ custom: true, provider: 'relay', api, baseURL, models: preview })
+  const listed = await rt.discoverModels({ api, baseURL, includeCatalogLevels: false })
+  assert.deepEqual(listed, [{ id: model }, { id: 'unknown' }])
+  await rt.addProvider({ custom: true, provider: 'relay', api, baseURL, models: listed })
   const expected = { low: 'low', high: 'high', max: 'max' }
   assert.deepEqual(route().user.providers.relay.models[0].reasoningEfforts, expected)
   assert.equal(route().user.providers.relay.models[1].reasoningEfforts, undefined)
@@ -434,8 +514,11 @@ test('Claude gateway levels enable adaptive thinking per model and respect expli
   t.after(() => rm(home, { recursive: true, force: true }))
   const id = 'claude-opus-5'
   const levels = ['low', 'medium', 'high', 'max']
+  await writeFile(join(home, 'model-catalog-anthropic.json'), JSON.stringify({
+    updated: Date.now(), rows: [[id, levels], ['claude-haiku-4-5', { min: 1024, max: 128000 }]],
+  }))
   await writeFile(join(home, 'model-catalog-vendor.json'), JSON.stringify({
-    version: 2, updated: Date.now(), rows: [['claude/' + id, levels], ['claude/old', []]],
+    version: 3, updated: Date.now(), rows: [['claude/' + id, levels], ['claude/old', []]],
   }))
   const { rt } = dsh({ home })
   const settings = rt.ctx.get('settings')
@@ -443,10 +526,12 @@ test('Claude gateway levels enable adaptive thinking per model and respect expli
   settings.describe = () => baseDescribe().map(s => s.ns === 'llm-pi-ai' ? { ...s, schema: PiAiConfig.toJSON() } : s)
   const section = () => settings.describe().at(-1)
   const models = () => section().user.providers.relay.models
-  await rt.addProvider({ custom: true, provider: 'relay', api: 'anthropic-messages', baseURL: 'https://relay.example', models: [id, 'old'] })
+  await rt.addProvider({ custom: true, provider: 'relay', api: 'anthropic-messages', baseURL: 'https://relay.example', models: [id, 'old', 'claude-haiku-4-5'] })
   assert.deepEqual(models()[0].compat, { forceAdaptiveThinking: true })
   assert.deepEqual(Object.keys(models()[0].reasoningEfforts), levels)
   assert.equal(models()[1].compat, undefined)
+  assert.equal(models()[2].compat, undefined)
+  assert.deepEqual(Object.keys(models()[2].reasoningEfforts), ['low', 'medium', 'high'])
   await settings.mutate('llm-pi-ai', [{ op: 'set', path: ['providers', 'relay', 'compat'], value: { forceAdaptiveThinking: false } }], section().revision)
   await rt.saveProviderModels({ provider: 'relay', models: [id, 'old'] })
   assert.equal(models()[0].compat, undefined)
@@ -455,6 +540,103 @@ test('Claude gateway levels enable adaptive thinking per model and respect expli
   await rt.saveProviderModels({ provider: 'relay', models: [id, 'old'] })
   assert.deepEqual(models()[0].compat, { forceAdaptiveThinking: true })
   assert.deepEqual(Object.keys(models()[0].reasoningEfforts), levels)
+})
+
+test('preview, adding and refreshing a provider use the same endpoint-specific levels', async () => {
+  const provider = 'bailian-relay'
+  const baseURL = 'https://token-plan.cn-beijing.maas.aliyuncs.com/v1'
+  const api = 'openai-responses'
+  const { rt } = dsh()
+  rt.ctx.llm.discoverModels = async () => [{ id: 'qwen3.8-max' }]
+  const models = await rt.discoverModels({ api, baseURL })
+  assert.deepEqual(models[0].catalogLevels, ['low', 'medium', 'xhigh'])
+  await rt.addProvider({ provider, custom: true, api, baseURL, models })
+  const saved = () => rt.ctx.get('settings').describe().at(-1).user.providers[provider].models[0]
+  assert.deepEqual(Object.keys(saved().reasoningEfforts), models[0].catalogLevels)
+  const refreshed = await rt.discoverModels({ provider })
+  assert.deepEqual(refreshed[0].catalogLevels, models[0].catalogLevels)
+  await rt.saveProviderModels({ provider, models: refreshed })
+  assert.deepEqual(Object.keys(saved().reasoningEfforts), models[0].catalogLevels)
+})
+
+test('a preset pointed at a gateway uses its native protocol and preserves manually configured efforts', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'preset-efforts-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const id = 'claude-haiku-4-5'
+  const manual = { high: 'my-high' }
+  await writeFile(join(home, 'model-catalog-anthropic.json'), JSON.stringify({
+    version: 3, updated: Date.now(), rows: [[id, { min: 1024, max: 128000 }]],
+  }))
+  const { rt } = dsh({ home, user: { providers: {
+    anthropic: { baseURL: 'https://gateway.example', models: [id, { id: 'private', reasoningEfforts: manual }] },
+  } } })
+  await rt.providersView()
+  const models = rt.ctx.get('settings').describe().at(-1).user.providers.anthropic.models
+  assert.deepEqual(models[0], { id, reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' } })
+  assert.deepEqual(models[1].reasoningEfforts, manual)
+})
+
+test('selecting a budget or a named effort sends the corresponding parameter through DSH', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'dsbot-wire-efforts-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const writeRows = (kind, rows) => writeFile(join(home, 'model-catalog-' + kind + '.json'), JSON.stringify({ version: 3, updated: Date.now(), rows }))
+  await writeRows('anthropic', [['claude-haiku-4-5', { min: 1024, max: 128000 }], ['claude-sonnet-4-6', ['medium', 'max']]])
+  await writeRows('vendor', [
+    ['gemini/gemini-2.5-flash', { min: 0, max: 24576 }], ['xai/grok-4.3', ['none', 'low', 'medium', 'high']],
+  ])
+  let payload
+  const mock = createServer(async (req, res) => {
+    const chunks = []
+    for await (const chunk of req) chunks.push(chunk)
+    payload = JSON.parse(Buffer.concat(chunks))
+    res.writeHead(400, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: 'Mock captured request' } }))
+  })
+  await new Promise(resolve => mock.listen(0, '127.0.0.1', resolve))
+  t.after(() => { mock.closeAllConnections(); return new Promise(resolve => mock.close(resolve)) })
+
+  const { rt } = dsh({ home })
+  const settings = rt.ctx.get('settings')
+  const describe = settings.describe
+  settings.describe = () => describe().map(section => section.ns === 'llm-pi-ai' ? { ...section, schema: PiAiConfig.toJSON() } : section)
+  const baseURL = 'http://127.0.0.1:' + mock.address().port
+  await rt.addProvider({ provider: 'claude-relay', custom: true, api: 'anthropic-messages', baseURL, key: 'mock-key', models: ['claude-haiku-4-5', 'claude-sonnet-4-6'] })
+  await rt.addProvider({ provider: 'google-relay', custom: true, api: 'google-generative-ai', baseURL, key: 'mock-key', models: ['gemini-2.5-flash'] })
+  await rt.addProvider({ provider: 'grok-relay', custom: true, api: 'openai-responses', baseURL: 'https://api.x.ai/v1', key: 'mock-key', models: ['grok-4.3'] })
+  await rt.addProvider({ provider: 'qwen-relay', custom: true, api: 'openai-responses', baseURL: 'https://token-plan.cn-beijing.maas.aliyuncs.com/v1', key: 'mock-key', models: ['qwen3.8-max'] })
+  const ctx = new Context()
+  t.after(() => ctx.fiber.dispose())
+  ctx.plugin(LlmRuntime)
+  const providers = structuredClone(settings.describe().at(-1).value.providers)
+  for (const profile of Object.values(providers)) profile.baseURL = baseURL
+  ctx.plugin(piAi, { providers })
+  ctx.provide('credentials', { resolve: async () => ({ value: 'mock-key' }) })
+  ctx.provide('settings', { configure: () => () => {} })
+  ctx.provide('connection', { fetch: { register: () => () => {} } })
+  await new Promise(resolve => setImmediate(resolve))
+  const messages = [createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })]
+  async function send(provider, model, reasoningEffort) {
+    payload = undefined
+    try {
+      await Array.fromAsync(ctx.llm.stream({ provider, model, reasoningEffort, messages, signal: AbortSignal.timeout(5000) }))
+    } catch (error) { if (!payload) throw error }
+    assert.ok(payload, 'request reached the loopback mock')
+    return payload
+  }
+  for (const [effort, budget] of [['low', 2048], ['medium', 8192], ['high', 16384]]) {
+    const body = await send('claude-relay', 'claude-haiku-4-5', effort)
+    assert.equal(body.thinking.budget_tokens, budget)
+    assert.equal(body.output_config?.effort, undefined)
+  }
+  const adaptive = await send('claude-relay', 'claude-sonnet-4-6', 'max')
+  assert.equal(adaptive.thinking.type, 'adaptive')
+  assert.equal(adaptive.output_config.effort, 'max')
+  for (const [effort, budget] of [['minimal', 128], ['low', 2048], ['medium', 8192], ['high', 24576]]) {
+    const body = await send('google-relay', 'gemini-2.5-flash', effort)
+    assert.equal(body.generationConfig.thinkingConfig.thinkingBudget, budget)
+  }
+  assert.equal((await send('grok-relay', 'grok-4.3', 'off')).reasoning.effort, 'none')
+  assert.equal((await send('qwen-relay', 'qwen3.8-max', 'xhigh')).reasoning.effort, 'xhigh')
 })
 
 test('saving models normalizes incoming reasoningEfforts and never resurrects stale efforts on invalid or off-only input', async () => {

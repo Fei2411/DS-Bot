@@ -348,11 +348,8 @@ export function install(rt) {
     // A thinking level needs a model to resolve against; with none it would be dropped
     // silently, so the create fails before a Session is made.
     if (effort && modelRef === undefined) throw new Error('Pick a model before choosing a thinking level')
-    // An explicit level wins; an explicit Default (null) picks the model's own
-    // level; an untouched pick inherits the profile default's level.
-    const effortId = modelRef === undefined ? undefined
-      : effort === null || effort === '' ? undefined
-      : (await rt.resolveEffort(modelRef, effort)) ?? await rt.defaultEffort(modelRef)
+    // An unset effort follows the same per-model default as the Bot picker.
+    const effortId = modelRef === undefined ? undefined : await rt.resolveEffort(modelRef, effort)
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
     const clash = dir === undefined ? undefined : await rt.privateClash(dir)
     if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${cleanName} cannot work there`)

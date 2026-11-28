@@ -80,8 +80,11 @@ export function effortStops(reasoning) {
   return hasDefault ? levels : [{ effort: undefined, label: t('Default') }, ...levels]
 }
 
-const effortNames = new Set(['Minimal', 'Low', 'Medium', 'High', 'Xhigh'])
-const effortName = name => effortNames.has(name) ? t(name) : name
+const effortNames = new Map(['Off', 'Minimal', 'Low', 'Medium', 'High', 'Xhigh', 'Max'].map(name => [name.toLowerCase(), name]))
+function effortName(name) {
+  const key = effortNames.get(name?.toLowerCase())
+  return key ? t(key) : name
+}
 
 const ResetIcon = () => h('svg', { width: 12, height: 12, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
   h('path', { d: 'M2.8 6.5A5.5 5.5 0 1 1 4 11.8' }),

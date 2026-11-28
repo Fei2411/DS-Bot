@@ -894,6 +894,7 @@ export const DE = {
   'Medium': 'Mittel',
   'High': 'Hoch',
   'Xhigh': 'Sehr hoch',
+  'Max': 'Maximal',
   'Model: {model}': 'Modell: {model}',
   none: 'keine',
   'Choose a model': 'Modell wählen',

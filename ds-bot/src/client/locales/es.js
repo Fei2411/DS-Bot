@@ -894,6 +894,7 @@ export const ES = {
   'Medium': 'Medio',
   'High': 'Alto',
   'Xhigh': 'Muy alto',
+  'Max': 'Máximo',
   'Model: {model}': 'Modelo: {model}',
   none: 'ninguno',
   'Choose a model': 'Elegir un modelo',

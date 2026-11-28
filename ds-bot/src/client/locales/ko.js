@@ -894,6 +894,7 @@ export const KO = {
   'Medium': '중간',
   'High': '높음',
   'Xhigh': '매우 높음',
+  'Max': '최대',
   'Model: {model}': '모델: {model}',
   none: '없음',
   'Choose a model': '모델 선택',

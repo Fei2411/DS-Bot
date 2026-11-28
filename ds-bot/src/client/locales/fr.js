@@ -869,6 +869,7 @@ export const FR = {
   "Medium": "Moyen",
   "High": "Élevé",
   "Xhigh": "Très élevé",
+  "Max": "Maximum",
   "Model: {model}": "Modèle : {model}",
   "none": "aucun",
   "Choose a model": "Choisir un modèle",

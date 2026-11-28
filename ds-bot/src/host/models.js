@@ -443,16 +443,6 @@ export function install(rt) {
     throw new Error(`Thinking level ${wanted} is not available for ${ref}. Available: ${efforts.map(effort => effort.name).join(', ')}`)
   }
 
-  // The profile default model's thinking level, when the model a Bot starts on
-  // serves it. A level the model does not know is ignored, like an inherited
-  // `bot.effort` — the model's own default applies instead.
-  async function defaultEffort(ref) {
-    const wanted = ctx.get?.('agentDefaultModel')?.currentSelection?.()?.reasoningEffort
-    if (ref === undefined || wanted === undefined) return undefined
-    if (mediumDefault(ref, await reasoningOf(ref))) return undefined
-    return resolveEffort(ref, wanted).catch(() => undefined)
-  }
-
   // DSH's selectModel also saves the selection as the profile default model, in the
   // background. A Bot's model is its own, so the user's default is written back after
   // it. Selections run one at a time and wait for the write-back: profile writes land in
@@ -1056,7 +1046,7 @@ export function install(rt) {
     // Work that starts while the host runs can ask whether the host is still there.
     hostClosing: () => llm() === undefined,
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
-    defaultRef, defaultModel, defaultBotModel, defaultEffort, isUsable, resolveModel, desiredModel, reasoningOf, botReasoningOf, resolveEffort, desiredEffort,
+    defaultRef, defaultModel, defaultBotModel, isUsable, resolveModel, desiredModel, reasoningOf, botReasoningOf, resolveEffort, desiredEffort,
     selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, retryModel, reapplyModel, routeRefused, dropCatalog, assembleLlm, forgetSessionModel,
   })
 }

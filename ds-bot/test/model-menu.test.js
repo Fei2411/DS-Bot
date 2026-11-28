@@ -115,6 +115,8 @@ test('the Thinking section always offers Default, so a picked level can be clear
   // and include a leading Default stop when the provider did not name one.
   // Array.from: the stops come from the bundle's realm, whose arrays are not this one's.
   assert.equal(effortStops({ efforts: [] }).length, 0)
+  assert.deepEqual(Array.from(effortStops({ efforts: [{ id: 'off' }, { id: 'medium' }, { id: 'max' },
+    { id: 'high', name: 'Provider choice' }], defaultEffort: 'medium' }), row => row.label), ['Off', 'Medium', 'Max', 'Provider choice'])
   assert.deepEqual(Array.from(effortStops({ efforts, defaultEffort: 'high' }), row => row.effort), ['low', 'high'])
   assert.deepEqual(Array.from(effortStops({ efforts }), row => row.effort), [undefined, 'low', 'high'])
   const picked = []

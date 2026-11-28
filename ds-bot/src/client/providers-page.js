@@ -188,7 +188,7 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
       const view = await actions.providers()
       const fresh = view.providers.find(entry => entry.id === provider.id)
       if (fresh === undefined) throw new Error('The provider is no longer available')
-      const list = await actions.providerModels({ provider: provider.id })
+      const list = await actions.providerModels({ provider: provider.id, includeCatalogLevels: false })
       await apply(Promise.resolve(view))
       setDraft({ ...draftFrom(fresh, list), revision: view.revision, provider: fresh })
     })())
@@ -416,7 +416,7 @@ export function CustomForm({ view, apply, actions, onDone }) {
   const fetchModels = () => {
     const seq = ++discovery.current
     setAsking(true)
-    void apply(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => {
+    void apply(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key, includeCatalogLevels: false })).then((list) => {
       if (seq === discovery.current) { setFound(list); setPicked(current => current.filter(id => list.some(model => model.id === id))) }
     })).finally(() => { if (seq === discovery.current) setAsking(false) })
   }

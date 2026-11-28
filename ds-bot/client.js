@@ -999,6 +999,7 @@ var JA = {
   "Medium": "中",
   "High": "高",
   "Xhigh": "非常に高い",
+  "Max": "最大",
   "Model: {model}": "モデル: {model}",
   "none": "なし",
   "Choose a model": "モデルを選択",
@@ -4642,6 +4643,7 @@ var KO = {
   "Medium": "중간",
   "High": "높음",
   "Xhigh": "매우 높음",
+  "Max": "최대",
   "Model: {model}": "모델: {model}",
   none: "없음",
   "Choose a model": "모델 선택",
@@ -8315,6 +8317,7 @@ var ES = {
   "Medium": "Medio",
   "High": "Alto",
   "Xhigh": "Muy alto",
+  "Max": "Máximo",
   "Model: {model}": "Modelo: {model}",
   none: "ninguno",
   "Choose a model": "Elegir un modelo",
@@ -11973,6 +11976,7 @@ var FR = {
   "Medium": "Moyen",
   "High": "Élevé",
   "Xhigh": "Très élevé",
+  "Max": "Maximum",
   "Model: {model}": "Modèle : {model}",
   "none": "aucun",
   "Choose a model": "Choisir un modèle",
@@ -15616,6 +15620,7 @@ var DE = {
   "Medium": "Mittel",
   "High": "Hoch",
   "Xhigh": "Sehr hoch",
+  "Max": "Maximal",
   "Model: {model}": "Modell: {model}",
   none: "keine",
   "Choose a model": "Modell wählen",
@@ -19186,6 +19191,7 @@ var ZH = {
   "Medium": "中",
   "High": "高",
   "Xhigh": "极高",
+  "Max": "最高",
   "Model: {model}": "模型：{model}",
   none: "无",
   "Choose a model": "选择模型",
@@ -37901,8 +37907,11 @@ function effortStops(reasoning) {
   const levels = efforts.map((effort) => ({ effort: effort.id, label: effortName(effort.name ?? effort.id) }));
   return hasDefault ? levels : [{ effort: void 0, label: t("Default") }, ...levels];
 }
-var effortNames = /* @__PURE__ */ new Set(["Minimal", "Low", "Medium", "High", "Xhigh"]);
-var effortName = (name) => effortNames.has(name) ? t(name) : name;
+var effortNames = new Map(["Off", "Minimal", "Low", "Medium", "High", "Xhigh", "Max"].map((name) => [name.toLowerCase(), name]));
+function effortName(name) {
+  const key = effortNames.get(name?.toLowerCase());
+  return key ? t(key) : name;
+}
 var ResetIcon = () => (0, import_react22.createElement)(
   "svg",
   { width: 12, height: 12, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
@@ -60204,7 +60213,7 @@ function ProviderRow({ provider, apply: apply2, actions, roster, revision, open,
       const view = await actions.providers();
       const fresh = view.providers.find((entry) => entry.id === provider.id);
       if (fresh === void 0) throw new Error("The provider is no longer available");
-      const list = await actions.providerModels({ provider: provider.id });
+      const list = await actions.providerModels({ provider: provider.id, includeCatalogLevels: false });
       await apply2(Promise.resolve(view));
       setDraft({ ...draftFrom(fresh, list), revision: view.revision, provider: fresh });
     })()).catch((error) => setRefreshError(error?.message ?? String(error))).finally(() => setRefreshing(false));
@@ -60500,7 +60509,7 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
   const fetchModels = () => {
     const seq = ++discovery.current;
     setAsking(true);
-    void apply2(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => {
+    void apply2(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key, includeCatalogLevels: false })).then((list) => {
       if (seq === discovery.current) {
         setFound(list);
         setPicked((current2) => current2.filter((id) => list.some((model) => model.id === id)));
