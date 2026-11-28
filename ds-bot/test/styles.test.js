@@ -364,3 +364,51 @@ test('sidebar top stays a single clean row with New section moved to CommandPale
   assert.equal(sidebar.includes("t('New section')"), false)
   assert.match(palette, /key:\s*'cmd:section'[\s\S]*t\('New section'\)/)
 })
+
+test('full-window modal layers keep a top drag strip in frameless windows while dialogs stay no-drag', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const strip = /(:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) :is\([^)]+\)::before)\{([^}]*)\}/.exec(css)
+  assert.ok(strip, 'modal top drag strip rule exists')
+  assert.match(strip[2], /position:absolute/)
+  assert.match(strip[2], /inset:0 0 auto/)
+  assert.match(strip[2], /height:var\(--bt-modal-drag-h,0px\)/)
+  assert.match(strip[2], /z-index:1/)
+  assert.match(strip[2], /-webkit-app-region:drag/)
+  assert.match(strip[2], /app-region:drag/)
+
+  const leaving = /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) :is\([^)]+\)\[data-leaving\]::before\{([^}]*)\}/.exec(css)
+  assert.ok(leaving, 'leaving modal layers drop the drag strip')
+  assert.match(leaving[1], /-webkit-app-region:initial/)
+
+  const dialog = /(:is\(\.bt-settings-layer,\.bt-mem-layer,\.bt-palette-layer,\.bt-rn-layer,\.bt-priv-layer\)>:is\(\[role=dialog\],\[role=alertdialog\]\))\{([^}]*)\}/.exec(css)
+  assert.ok(dialog, 'dialog surfaces stay above the drag strip as no-drag')
+  assert.match(dialog[2], /z-index:2/)
+  assert.match(dialog[2], /-webkit-app-region:no-drag/)
+  assert.doesNotMatch(dialog[2], /position:relative/, 'keeps .bt-palette position:absolute intact')
+
+  const openingCard = /\.bt-opening>\.bt-opening-card\{([^}]*)\}/.exec(css)
+  assert.ok(openingCard)
+  assert.match(openingCard[1], /position:relative/)
+  assert.match(openingCard[1], /z-index:2/)
+  assert.match(openingCard[1], /-webkit-app-region:no-drag/)
+
+  // Verify selectors match all modal layers in both frameless modes and skip fullscreen/Linux.
+  const hostSelector = strip[1].replace(/::before$/, '')
+  const layers = ['bt-settings-layer', 'bt-mem-layer', 'bt-palette-layer', 'bt-rn-layer', 'bt-priv-layer', 'bt-opening']
+  for (const attrs of ['data-windows-titlebar=""', 'data-platform="darwin"']) {
+    const { window } = new JSDOM(`<!doctype html><html ${attrs}><body>${layers.map(c => `<div class="${c}"><div role="dialog"></div></div>`).join('')}</body></html>`)
+    for (const c of layers) {
+      assert.equal(window.document.querySelector(`.${c}`).matches(hostSelector), true, `${attrs} matches .${c}`)
+    }
+    window.document.documentElement.dataset.fullscreen = 'true'
+    for (const c of layers) {
+      assert.equal(window.document.querySelector(`.${c}`).matches(hostSelector), false, `fullscreen skips .${c}`)
+    }
+  }
+  const { window: linuxWin } = new JSDOM('<!doctype html><html><body><div class="bt-settings-layer"><div role="dialog"></div></div></body></html>')
+  assert.equal(linuxWin.document.querySelector('.bt-settings-layer').matches(hostSelector), false)
+
+  // Narrow-viewport fullscreen settings dialog keeps its own top drag strip and shifts close button.
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-settings::before\{[^}]*-webkit-app-region:drag/)
+  assert.match(css, /:is\(html\[data-windows-titlebar\],html\[data-platform=darwin\]\):not\(\[data-fullscreen\]\) \.bt-settings-close\{top:calc\(14px \+ var\(--bt-modal-drag-h,0px\)\)\}/)
+})

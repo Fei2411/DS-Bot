@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from '../src/window-frame.mjs'
 
@@ -60,4 +61,35 @@ test('a theme id does not reach the native theme', () => {
   assert.equal(nativeThemeSource('system'), 'system')
   assert.equal(nativeThemeSource('moonlight'), undefined)
   assert.equal(nativeThemeSource(null), undefined)
+})
+
+test('modal cards, pickers and app-shell dialogs keep a top drag strip in frameless windows', () => {
+  const cardCss = readFileSync(new URL('../src/page-card.css', import.meta.url), 'utf8')
+  const cardStrip = /:is\(html\[data-windows-titlebar\],html\[data-frame=band\]\):not\(\[data-fullscreen\]\) \.dsb-card-layer::before\{([^}]*)\}/u.exec(cardCss)
+  assert.ok(cardStrip, 'page-card.css defines a top drag strip for main and start windows')
+  assert.match(cardStrip[1], /position:absolute/)
+  assert.match(cardStrip[1], /inset:0 0 auto/)
+  assert.match(cardStrip[1], /z-index:1/)
+  assert.match(cardStrip[1], /-webkit-app-region:drag/)
+  assert.match(cardStrip[1], /app-region:drag/)
+
+  const cardBox = /\.dsb-card\{([^}]*)\}/u.exec(cardCss)
+  assert.ok(cardBox)
+  assert.match(cardBox[1], /position:relative/)
+  assert.match(cardBox[1], /z-index:2/)
+  assert.match(cardBox[1], /-webkit-app-region:no-drag/)
+  assert.match(cardBox[1], /var\(--dsb-card-top,16px\)/)
+
+  const appCss = readFileSync(new URL('../ui/src/app.css', import.meta.url), 'utf8')
+  const shellStrip = /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) :is\(([^)]+)\)::before\{([^}]*)\}/u.exec(appCss)
+  assert.ok(shellStrip, 'app.css defines a top drag strip for app-shell modal layers')
+  for (const cls of ['.dsb-lightbox', '.dsb-shortcuts-layer', '.dsb-preset-modal-layer', '.dsb-risk-layer', '.dsb-fb-backdrop', '.dsb-drawer-scrim']) {
+    assert.ok(shellStrip[1].includes(cls), `app.css drag strip includes ${cls}`)
+  }
+  assert.match(shellStrip[2], /z-index:1/)
+  assert.match(shellStrip[2], /-webkit-app-region:drag/)
+  assert.match(shellStrip[2], /app-region:drag/)
+
+  assert.match(appCss, /\.dsb-lightbox>\.dsb-lightbox-close\{[^}]*z-index:2[^}]*-webkit-app-region:no-drag/)
+  assert.match(appCss, /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) \.dsb-lightbox>\.dsb-lightbox-close\{top:calc\(var\(--dsh-windows-titlebar-height,var\(--dsb-band\)\) \+ 12px\)\}/)
 })

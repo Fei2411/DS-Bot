@@ -25,10 +25,16 @@
 /* /springs */
 
 .dsb-card-layer{position:fixed;inset:0;z-index:2147483646;display:grid;place-items:center;padding:16px;box-sizing:border-box;background:rgba(0,0,0,.28);font:14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:var(--bt-ink);-webkit-app-region:no-drag;app-region:no-drag;opacity:0;transition:opacity .16s ease-in}
+/* Frameless non-fullscreen windows (main window and start window): keep a caption-height strip
+   along the top draggable while a modal card or picker is up, and keep the card below it and
+   non-draggable so buttons and inputs always take clicks. */
+:is(html[data-windows-titlebar],html[data-frame=band]):not([data-fullscreen]) .dsb-card-layer{--dsb-card-top:var(--dsh-windows-titlebar-height,40px);padding-top:var(--dsb-card-top)}
+:is(html[data-windows-titlebar],html[data-frame=band]):not([data-fullscreen]) .dsb-card-layer::before{content:"";position:absolute;inset:0 0 auto;height:var(--dsb-card-top,40px);z-index:1;-webkit-app-region:drag;app-region:drag}
+:is(html[data-windows-titlebar],html[data-frame=band]):not([data-fullscreen]) .dsb-card-layer[data-leaving]::before{-webkit-app-region:initial;app-region:initial}
 @media (prefers-color-scheme:dark){.dsb-card-layer{background:rgba(0,0,0,.5)}}
 .dsb-card-layer[data-open]{opacity:1;transition:opacity .22s ease-out}
 .dsb-card-layer *{box-sizing:border-box}
-.dsb-card{width:min(440px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:20px 24px;border:1px solid var(--bt-line-2);border-radius:12px;background:var(--bt-card);box-shadow:0 12px 40px rgba(0,0,0,.18);text-align:left;translate:0 8px;scale:.98;transition:translate .16s ease-in,scale .16s ease-in,filter .16s ease-in}
+.dsb-card{position:relative;z-index:2;-webkit-app-region:no-drag;app-region:no-drag;width:min(440px,100%);max-height:calc(100vh - var(--dsb-card-top,16px) - 16px);overflow:auto;padding:20px 24px;border:1px solid var(--bt-line-2);border-radius:12px;background:var(--bt-card);box-shadow:0 12px 40px rgba(0,0,0,.18);text-align:left;translate:0 8px;scale:.98;transition:translate .16s ease-in,scale .16s ease-in,filter .16s ease-in}
 .dsb-card-layer[data-open] .dsb-card{translate:0 0;scale:1;transition:translate var(--spring-shape-ms) var(--spring-shape),scale var(--spring-shape-ms) var(--spring-shape)}
 /* The way out is the start window's card exit: down 6 px, to .975, blurred 3 px. */
 .dsb-card-layer[data-leaving] .dsb-card{translate:0 6px;scale:.975;filter:blur(3px)}
@@ -43,7 +49,7 @@
 .dsb-card-btn[data-look=primary]:hover{background:color-mix(in srgb,var(--bt-accent),var(--bt-ink) 10%)}
 /* The app's own folder and file picker (preload.cjs showPicker): the card made wide and tall,
    places and drives on the left, the folder's entries on the right. */
-.dsb-picker{display:flex;flex-direction:column;gap:10px;width:min(720px,100%);height:min(560px,calc(100vh - 32px));overflow:hidden;padding:18px 20px}
+.dsb-picker{display:flex;flex-direction:column;gap:10px;width:min(720px,100%);height:min(560px,calc(100vh - var(--dsb-card-top,16px) - 16px));overflow:hidden;padding:18px 20px}
 .dsb-picker[hidden],.dsb-picker [hidden]{display:none!important}
 .dsb-picker-bar{display:flex;align-items:center;gap:6px;min-width:0}
 .dsb-picker-up{all:unset;flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:999px;color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s,scale var(--spring-tap-ms) var(--spring-tap)}
