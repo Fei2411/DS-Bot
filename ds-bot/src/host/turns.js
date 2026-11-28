@@ -1474,14 +1474,18 @@ export function install(rt) {
             rt.resetBotLoops?.(own)
           }
           let dropped = false
-          if (state.questions[id] !== undefined) {
-            rt.closeCard(id, state.questions[id], 'replied')
+          const question = state.questions[id]
+          if (question !== undefined) {
+            rt.closeCard(id, question, 'replied')
             delete state.questions[id]
+            rt.resumeApiRunForComposerAnswer?.(session, question, source)
             dropped = true
           }
-          if (state.views?.[id] !== undefined) {
-            rt.closeCard(id, state.views[id], 'replied')
+          const view = state.views?.[id]
+          if (view !== undefined) {
+            rt.closeCard(id, view, 'replied')
             delete state.views[id]
+            rt.resumeApiRunForComposerAnswer?.(session, view, source)
             dropped = true
           }
           if (dropped) void rt.save().catch(() => {})

@@ -1003,6 +1003,20 @@ export function createRunCoordinator(rt, auth) {
     }
   }
 
+  function resumeApiRunForComposerAnswer(session, card, source) {
+    if (source.kind !== 'user' || source.handoff === true
+      || (typeof source.rpcId === 'string' && source.rpcId.startsWith('api:'))) return
+    const turn = sessionTurns.get(session)
+    if (turn === undefined) return
+    for (const tracker of activeSessionTrackers(session.id)) {
+      const action = tracker.run.pendingAction
+      if ((action?.kind === 'question' || action?.kind === 'view') && action.sessionId === session.id
+        && action.actionId === card.id && tracker.waitingReply?.callId === (card.callId ?? card.id)) {
+        bindChatTurn(tracker, session.id, turn)
+      }
+    }
+  }
+
   function handleSessionEvent(session, event) {
     const sid = session?.id
     if (!sid || !event) return
@@ -1912,6 +1926,7 @@ export function createRunCoordinator(rt, auth) {
   function dispose() {
     disposed = true
     if (rt.reconcileApiRuns === reconcileInterruptedApiRunsAsync) rt.reconcileApiRuns = undefined
+    if (rt.resumeApiRunForComposerAnswer === resumeApiRunForComposerAnswer) rt.resumeApiRunForComposerAnswer = undefined
     detachListeners()
     offApproval?.()
     offTaskEvent?.()
@@ -1929,6 +1944,7 @@ export function createRunCoordinator(rt, auth) {
   }
 
   rt.reconcileApiRuns = reconcileInterruptedApiRunsAsync
+  rt.resumeApiRunForComposerAnswer = resumeApiRunForComposerAnswer
   reconcileInterruptedApiRuns()
 
   return {

@@ -681,6 +681,53 @@ test('waiting_human loop: approval scope enforcement, question response, and sec
   assert.equal(doneS.output.text, 'Continued after human input.')
 })
 
+test('an API run waiting for ask_user completes after a typed composer answer', async t => {
+  const questionId = 'composer-question'
+  const h = createHarness(undefined, {
+    async onPrompt({ sessionId, text, emitSessionEvent, rt, nextSeq }) {
+      if (text === 'Ask a question') {
+        rt.state.questions[sessionId] = { id: questionId, callId: 'question-call', question: 'Proceed?' }
+      } else {
+        emitSessionEvent(sessionId, {
+          type: 'assistant/message', seq: nextSeq(), time: Date.now(),
+          data: { message: { content: [{ type: 'text', text: `Continuing: ${text}` }] } },
+        })
+      }
+      emitSessionEvent(sessionId, { type: 'turn/end', seq: nextSeq(), time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
+    },
+  })
+  t.after(h.stop)
+  await h.rt.load()
+  const view = await h.rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  const { token } = await h.rt.apiEndpoint('api-token-create', { name: 'Caller', scopes: ['read', 'message'], targetScope: 'all_public' })
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const post = text => fetch(`${view.baseUrl}/v1/bots/b1/messages`, {
+    method: 'POST', headers, body: JSON.stringify({ text, wait: 5 }),
+  })
+  const getRun = runId => fetch(`${view.baseUrl}/v1/runs/${runId}`, { headers }).then(r => r.json())
+  const response = await post('Ask a question')
+  assert.equal(response.status, 202)
+  const run = await response.json()
+  assert.equal(run.status, 'waiting_human')
+  assert.equal(run.pendingAction.actionId, questionId)
+
+  const sid = run.pendingAction.sessionId
+  await h.rt.sendUser({ sessionId: sid, requestId: 'composer-answer', content: [{ type: 'text', text: 'Yes, please' }] })
+  assert.equal(h.rt.state.questions[sid], undefined)
+  const done = await getRun(run.runId)
+  assert.equal(done.status, 'completed')
+  assert.equal(done.output.text, 'Continuing: Yes, please')
+
+  const waiting = await post('Ask a question').then(r => r.json())
+  assert.equal(waiting.status, 'waiting_human')
+  const other = await post('Separate API prompt').then(r => r.json())
+  assert.equal(other.status, 'completed')
+  assert.equal(other.output.text, 'Continuing: Separate API prompt')
+  const oldRun = await getRun(waiting.runId)
+  assert.notEqual(oldRun.status, 'completed')
+  assert.equal(oldRun.output.text, '')
+})
+
 test('group chat multi-member batch settlement collects ordered replies', async (t) => {
   const h = createHarness(undefined, {
     async onPrompt({ sessionId, rt, emitSessionEvent, nextSeq }) {
