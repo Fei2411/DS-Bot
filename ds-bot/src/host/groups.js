@@ -600,11 +600,17 @@ export function install(rt) {
   const roomLineListeners = new Set()
   // The one way anything is said in a group: into its book, then into the room's log for
   // the members' turns. `session` marks a message the group's own Session shows already.
-  const say = (room, line) => {
+  // A line takes its seq and starts its write here; the room draws it apart, in drawLine,
+  // so a caller that must not show a line the book refused can append without drawing.
+  const appendLine = (room, line) => {
     ensureRoomLog(room)
     room.seq += 1
     const record = { ...line, seq: room.seq, time: line.time ?? Date.now() }
     rt.ledger.append(bookOf(room.id), record)
+    return record
+  }
+  // What the room and its members see of a line the book was given.
+  const drawLine = (room, record) => {
     // The phone link hears every line the chat will draw (mobile.js).
     rt.roomLineAdded?.(room, record)
     if (!memberLine(record)) return record
@@ -613,6 +619,25 @@ export function install(rt) {
       try { listener(room, record) } catch (error) { rt.warn('ds-bot: room line listener failed: %s', error) }
     }
     return record
+  }
+  const say = (room, line) => {
+    // A line the book refused is handed back and may be refused again: the same warning twice in
+    // a row says nothing new, so the room hears it once and the caller still hears its rejection.
+    const last = room.log?.at(-1)
+    if (line.reason === 'unsaved' && last?.reason === 'unsaved' && last.text === line.text) return last
+    const record = appendLine(room, line)
+    // A line the book did not keep is told once to the room here, so every caller is
+    // covered; a caller that waits for written() hears the rejection as well. The notice
+    // itself is not told again.
+    if (record.reason !== 'unsaved') {
+      rt.ledger.written(bookOf(room.id)).catch((error) => {
+        rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
+        try {
+          say(room, { who: 'DS Bot', kind: 'notice', reason: 'unsaved', text: `The last line may not have been saved: ${error?.message ?? error}` })
+        } catch {}
+      })
+    }
+    return drawLine(room, record)
   }
 
   // What the group chat draws of a record, in the shape of a reply of the round.
@@ -641,6 +666,8 @@ export function install(rt) {
       case 'admin-passed': return { kind: 'admin-passed', ...who, time }
       case 'paused': return { kind: 'paused', idle: record.idle, ...(record.cause !== undefined ? { cause: record.cause } : {}), ...who, name: bot?.name ?? record.from, count: record.count ?? record.limit, limit: record.limit, names: record.names, time }
       case 'folder': return { kind: 'folder', text: noticeText(record), time }
+      // A line the book refused is said in the room; the history draws it as plain text.
+      case 'unsaved': return { kind: 'folder', text: noticeText(record), time }
       case 'goal': {
         const { who: _who, kind: _kind, reason: _reason, seq: _seq, time: _time, about: _about, ...fields } = record
         return { kind: 'goal', ...fields, time }
@@ -662,7 +689,26 @@ export function install(rt) {
       if (nextFrom !== undefined) end = nextFrom - 1
     }
     // Not the messages the group's own Session shows itself.
-    const rows = rt.ledger.range(bookOf(roomId), from, end).filter(record => record.session !== true).map(rowOf).filter(Boolean)
+    const found = rt.ledger.range(bookOf(roomId), from, end)
+    const kept = found.filter(record => record.session !== true)
+    // The room's log holds what the book would not: a line said while its write failed, and the
+    // notice about it, are drawn there but never reach the book's records. A fetch with no upper
+    // bound ends in that tail, so carry it across; the seq is the join key, and an anchor only
+    // ends the window, it does not stop the tail from belonging to it. A session line the book
+    // refused stays out the same way a saved one does, and the merge is ordered by seq: a
+    // refused line keeps the number it took, so its seq can lie below one the book already has.
+    const merged = [...kept]
+    if (to === undefined && room !== undefined) {
+      const inBook = new Set(found.map(record => record.seq))
+      for (const line of room.log ?? []) {
+        if (!Number.isInteger(line.seq) || line.seq < from) continue
+        if (end !== undefined && line.seq > end) continue
+        if (inBook.has(line.seq)) continue
+        if (line.session === true) continue
+        merged.push(line)
+      }
+    }
+    const rows = merged.sort((a, b) => a.seq - b.seq).map(rowOf).filter(Boolean)
     return { rows, open: end === undefined }
   }
   const groupRows = (roomId, from, to, anchor) => rowsView(roomId, from, to, anchor).rows
@@ -1890,10 +1936,11 @@ export function install(rt) {
   // every turn that starts from now on sees them. The members the message's own round
   // would open with answer it inside this round, as soon as they are free. Each message
   // leaves the Session's inbox, so it does not open another round when this one ends.
-  function drainRoomInbox(room, round, agent) {
-    // The greeting's prompt tells the admin the user has not written yet.
-    if (round.kickoff) return
-    const lines = waitingLines(agent).filter(line => agent.inbox.remove(line.id))
+  async function drainRoomInbox(room, round, agent) {
+    // The greeting's prompt tells the admin the user has not written yet; a line the book
+    // refused is handed back to the Session for a later round, not retried in this one.
+    if (round.kickoff || round.inboxHeld === true) return
+    const lines = waitingLines(agent)
     if (lines.length === 0) return
     const roomSid = rt.sessionOfRoom(room)
     unpauseRoomIdle(room)
@@ -1901,6 +1948,20 @@ export function install(rt) {
     rt.goalUserMessage?.(room.id)
     const members = room.members.map(rt.botOf).filter(Boolean)
     for (const line of lines) {
+      // The Session's copy is the only one that can be said again, so the line leaves it
+      // only once the book has it: a write that fails draws nothing and keeps the message.
+      const record = appendLine(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}) })
+      try {
+        await rt.ledger.written(bookOf(room.id))
+      } catch (error) {
+        rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
+        say(room, { who: 'DS Bot', kind: 'notice', reason: 'unsaved', text: `The last line may not have been saved: ${error?.message ?? error}` })
+        // The round goes on without the line; the Session's turn that follows says it once.
+        round.inboxHeld = true
+        break
+      }
+      // The line is on the book: only now is its origin claimed. A line handed back to the
+      // Session must keep its rpcId for the round that really saves it.
       const classified = rt.classifyRoomUserSource?.(roomSid, line.source)
       if (classified?.ignored !== true) {
         // Only a real IM platform may keep the group's IM origin; any other external
@@ -1909,14 +1970,19 @@ export function install(rt) {
         const origin = classified !== undefined ? classified.origin : (viaIsIm(line.via) ? rt.captureImOrigin?.(roomSid) : undefined)
         noteRoomUserOrigin(room, origin)
       }
-      say(room, { who: 'User', text: line.text, ...(line.via ? { via: line.via } : {}) })
+      drawLine(room, record)
+      if (!agent.inbox.remove(line.id)) continue
+      // A round stopped while the line was being written takes no more lines: this one is
+      // on the book and stays said, and the ones behind it wait for the next round.
+      if (round.closed || round.abort?.signal.aborted) break
       const { all, found } = mentionsIn(line.text, members)
       const note = all || found.length > 0 ? 'the user mentioned you' : 'new message from the user'
       const { speakers, ordered } = openingCall(room, { text: line.text })
       callIn(round, speakers, note, undefined, { ordered })
     }
-    releaseParked(room, round)
-    void rt.save().catch(() => {})
+    // A stopped or closed round takes no parked calls either: they wait for the next round.
+    if (!round.closed && !round.abort?.signal.aborted) releaseParked(room, round)
+    await rt.save().catch(() => {})
   }
 
   // Consecutive idle steps in this room since the user last wrote here or a member worked
@@ -2188,7 +2254,9 @@ export function install(rt) {
         if (!due) await new Promise((resolve) => { wake = resolve })
         due = false
         if (signal.aborted) break
-        drainRoomInbox(room, round, agent)
+        // Nothing queued adds no await: a round one microtask away from closing must not
+        // still look open to a Bot post that comes in at that moment.
+        if (waitingLines(agent).length > 0) await drainRoomInbox(room, round, agent)
         for (const slot of round.slots) {
           if (!startable(round, slot)) continue
           const turn = memberTurn(room, round, slot, signal)
@@ -2197,7 +2265,7 @@ export function install(rt) {
           turns.add(turn)
         }
         // The greeting round leaves the user's messages for a round of their own.
-        if (turns.size === 0 && !round.slots.some(slot => slot.status === 'waiting') && (round.kickoff || waitingLines(agent).length === 0)) break
+        if (turns.size === 0 && !round.slots.some(slot => slot.status === 'waiting') && (round.kickoff || round.inboxHeld === true || waitingLines(agent).length === 0)) break
       }
       // No new turns can start once the loop exits; mark closed before draining so late joiners queue for the next round.
       round.closed = true
@@ -2216,7 +2284,6 @@ export function install(rt) {
       await rt.save()
     }
   }
-
   // One call's turn in the round. Its status says how it ended; what it says calls
   // members as soon as each line is posted.
   async function memberTurn(room, round, slot, signal) {
@@ -2402,6 +2469,32 @@ export function install(rt) {
   const roundRuns = new Map()
   rt.roomRounds = roomId => [...(roundRuns.get(roomId) ?? [])]
   const runningRound = roomId => [...rt.roomProgress.values()].find(round => round.roomId === roomId)
+  // What came in for a round that takes no more. A round that runs, or one that still
+  // finishes, drains this queue as it ends. With neither, waiting on the queue would mean
+  // waiting for a relay that may never come, so the post opens the next round itself; after
+  // a stop it waits for the group's next message instead (the user's own stop).
+  async function holdForNextRound(room, posts, agent, { stopped = false } = {}) {
+    laterPosts.set(room.id, [...(laterPosts.get(room.id) ?? []), ...posts])
+    if (stopped || finalizing.has(room.id)) return
+    const open = [...rt.roomProgress.values()].find(other => other.roomId === room.id
+      && other.closed !== true && other.abort?.signal.aborted !== true)
+    if (open !== undefined) return
+    // Resolve the agent before taking the queue: a late post that lands while the lookup
+    // runs would otherwise see an empty queue and open a second round of its own, and a
+    // lookup that fails leaves every post waiting where the next relay finds it.
+    const resolved = agent ?? await rt.resolveAgent(rt.sessionOfRoom(room)).catch(() => undefined)
+    if (resolved === undefined) return
+    // The lookup yields. A relay, or another post that waited the same way, may have taken the
+    // queue and opened the round this post belongs to meanwhile: take nothing that has moved.
+    const later = laterPosts.get(room.id) ?? []
+    if (later.length === 0 || finalizing.has(room.id)) return
+    const claimed = [...rt.roomProgress.values()].some(other => other.roomId === room.id
+      && other.closed !== true && other.abort?.signal.aborted !== true)
+    if (claimed) return
+    laterPosts.delete(room.id)
+    startRound(room, later, resolved)
+  }
+
   // Stops the round running in a group, with the member turns it started.
   // A round still finishing is stopped too: what waits on it then waits for the group's
   // next message instead of starting.
@@ -2426,7 +2519,7 @@ export function install(rt) {
       return
     }
     if (round.closed || round.abort?.signal.aborted) {
-      laterPosts.set(room.id, [...(laterPosts.get(room.id) ?? []), ...posts])
+      await holdForNextRound(room, posts, agent, { stopped: round.abort?.signal.aborted === true })
       return
     }
     const members = room.members.map(rt.botOf).filter(Boolean)
@@ -2467,7 +2560,26 @@ export function install(rt) {
       // The user's message, as one the round takes in from the Session's inbox.
       noteRoomUserOrigin(room, viaIsIm(post.via) ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : undefined)
       const text = [post.text, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
-      say(room, { who: 'User', text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.via === undefined ? {} : { via: post.via }), session: true })
+      const line = say(room, { who: 'User', text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.via === undefined ? {} : { via: post.via }), session: true })
+      // Said once, here: a round that takes it up later must not say it again.
+      if (line?.seq !== undefined) post.logged = line.seq
+      // The round takes the line in now. A write that failed is reported where every said
+      // line reports it (`say`: the warning and the room's "not saved" notice), and the
+      // round goes on with the lines queued behind it, the rule the Session inbox drain
+      // follows too. The line is not handed over: the book never wrote this seq, so it
+      // cannot anchor the next relay.
+      const kept = await rt.ledger.written(bookOf(room.id)).then(() => true, () => false)
+      if (!kept) {
+        delete post.logged
+        continue
+      }
+      // The write can outlast the round: one that closed meanwhile takes no more lines.
+      // The line is handed to the next round, which starts at its seq, instead of waiting
+      // for a relay that may never come.
+      if (round.closed || round.abort?.signal.aborted) {
+        await holdForNextRound(room, [post], agent, { stopped: round.abort?.signal.aborted === true })
+        continue
+      }
       unpauseRoomIdle(room)
       round.userMessage = true
       rt.goalUserMessage?.(room.id)
@@ -2475,8 +2587,12 @@ export function install(rt) {
       const { speakers, ordered } = openingCall(room, { text: post.text ?? '' })
       callIn(round, speakers, all || found.length > 0 ? 'the user mentioned you' : 'new message from the user', undefined, { ordered })
     }
-    releaseParked(room, round)
-    round.nudge?.()
+    // A round that closed while a line was being written keeps its parked calls for the
+    // round that takes them, instead of being told to run in a round that is over.
+    if (!round.closed && !round.abort?.signal.aborted) {
+      releaseParked(room, round)
+      round.nudge?.()
+    }
     await rt.save()
   }
 
@@ -3260,22 +3376,94 @@ export function install(rt) {
       if (postExtra.reportBack === true) {
         registerQueuedReport(room, sender, postExtra, { imOrigin, tainted: imOrigin !== undefined && tainted })
       }
+      let said
+      // A kind line is drawn by say(); a post is drawn below, once its write landed.
+      let drawn = true
+      let line = ''
       if (postExtra.failed !== undefined) {
         // A failed model call is in the log already (noteFailure); the round names it.
         running.failed.push(sender.name)
       } else if (postExtra.resumed === true || postExtra.stopped === true || postExtra.done === true) {
         const kind = postExtra.done === true ? 'done' : postExtra.stopped === true ? 'stopped' : postExtra.again === true ? 'cut' : 'resumed'
-        say(room, { who: sender.name, botId: sender.id, kind, text: '', ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }) })
+        said = say(room, { who: sender.name, botId: sender.id, kind, text: '', ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }) })
       } else {
-        const line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
-        say(room, { who: sender.name, botId: sender.id, text: line, ...(postExtra.route ? { route: postExtra.route } : {}), ...(files.length > 0 ? { files } : {}), ...(presented.length > 0 ? { presented } : {}), ...(postExtra.claims === undefined ? {} : { claims: postExtra.claims }), ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }), ...(postExtra.late !== true && postExtra.progress !== true ? { openingPost: true } : {}) })
-        if (postExtra.batch !== undefined && (line !== '' || presented.length > 0)) recordResult(postExtra.batch, sender.name, room.seq)
+        line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
+        // A post reaches the room only once the book has it: rowsView merges the tail of
+        // room.log into the rows, so a post drawn before its write and refused by it would
+        // show as a message that was sent.
+        said = appendLine(room, { who: sender.name, botId: sender.id, text: line, ...(postExtra.route ? { route: postExtra.route } : {}), ...(files.length > 0 ? { files } : {}), ...(presented.length > 0 ? { presented } : {}), ...(postExtra.claims === undefined ? {} : { claims: postExtra.claims }), ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }), ...(postExtra.late !== true && postExtra.progress !== true ? { openingPost: true } : {}) })
+        drawn = false
       }
-      const callOutcome = callPost(room, running, sender, text, postExtra)
-      // If callPost held or called nobody during a running round, still track the report so it settles cleanly.
-      settleQueuedReportInRound(room, postExtra)
-      if (postExtra.batchEnd) closeBatch(postExtra.batch)
-      await rt.save()
+      // The write the line queued is taken here, before any await, so a record written
+      // later cannot stand in for this one.
+      const landed = said === undefined ? undefined : rt.ledger.written(bookOf(room.id))
+      // A line the book did not keep calls nobody: the caller hears the rejection (and
+      // closes its batch), the room hears a warning of its own.
+      if (landed !== undefined) {
+        await landed.catch((error) => {
+          // The receipt was queued before the write; a line the book did not keep has no
+          // delivery to report, so its receipt goes with it.
+          if (postExtra.reportId !== undefined) dropRoomReport(postExtra.reportId)
+          rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
+          // say() sends this warning for the lines it drew; a post it did not draw says it
+          // here, so the warning stays a line of its own.
+          if (!drawn) say(room, { who: 'DS Bot', kind: 'notice', reason: 'unsaved', text: `The last line may not have been saved: ${error?.message ?? error}` })
+          throw new Error(`the last line said may not have been saved: ${error?.message ?? error}`)
+        })
+      }
+      // On the book now, so the room draws it: a post the book refused is never drawn.
+      if (!drawn && said !== undefined) drawLine(room, said)
+      // On the book now, so the batch result is a fact about a seq the book took: recording it
+      // before the write remembered a seq the book never had.
+      if (postExtra.batch !== undefined && (line !== '' || presented.length > 0) && said !== undefined) recordResult(postExtra.batch, sender.name, said.seq)
+      // The round can close while that write is awaited. A post that would join it now belongs
+      // to the next round, which calls its members at the line: one already closed cannot.
+      if (!noticeOnly && (running.closed || running.abort?.signal.aborted)) {
+        // A stop already cleared the queue this post would join, and this one arrived after
+        // that: it ends here rather than wait for a round the user may never call for.
+        if (running.abort?.signal.aborted) {
+          if (postExtra.batchEnd) closeBatch(postExtra.batch)
+          // The stopped round is still in roomProgress while it unwinds, and a settle meanwhile
+          // reads it as work in flight. Its run leaves the map when it is really done.
+          void (async () => {
+            await Promise.allSettled(roundRuns.get(room.id) ?? [])
+            await settleRoomReports(room.id).catch(error => rt.warn('ds-bot: settling reports after a stopped post failed: %s', error?.message ?? error))
+          })()
+        } else {
+          await holdForNextRound(room, [{
+            ...postExtra,
+            botId: sender.id,
+            name: sender.name,
+            text,
+            ...(files.length > 0 ? { files } : {}),
+            ...(said?.seq === undefined ? {} : { logged: said.seq }),
+          }], undefined, { stopped: false })
+        }
+        // The line is said either way, so a failure to keep this state is not a reason to post
+        // it again.
+        try {
+          await rt.save()
+        } catch (error) {
+          const failure = error && typeof error === 'object' ? error : new Error(String(error))
+          failure.delivered = true
+          throw failure
+        }
+        return
+      }
+      let callOutcome
+      try {
+        callOutcome = callPost(room, running, sender, text, postExtra)
+        // If callPost held or called nobody during a running round, still track the report so it settles cleanly.
+        settleQueuedReportInRound(room, postExtra)
+        if (postExtra.batchEnd) closeBatch(postExtra.batch)
+        await rt.save()
+      } catch (error) {
+        // The members have the line by now, so a caller that reads this as "nothing landed"
+        // would post it a second time. Same mark the idle path below sets once a post is out.
+        const failure = error && typeof error === 'object' ? error : new Error(String(error))
+        failure.delivered = true
+        throw failure
+      }
       return callOutcome === 'paused' ? { paused: true } : undefined
     }
     const agent = await rt.resolveAgent(rt.sessionOfRoom(room))

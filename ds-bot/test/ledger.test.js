@@ -243,3 +243,95 @@ test('ledger.after uses indexed range and ledger.search applies filter before li
   const topOne = rt.ledger.search('group-r1', 'alpha', { filter: memberOnly, limit: 1 })
   assert.deepEqual(topOne.map(r => r.seq), [2])
 })
+
+// A read that fails for a reason other than "no book yet" is not "no book yet": the
+// importer must not replace what is on disk, and this process must not claim any of its
+// records were written.
+test('a book that could not be read is left alone and its writes are refused', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { rt, home, file, warnings } = host(t)
+  mkdirSync(join(home, 'ledger'), { recursive: true })
+  const rows = Array.from({ length: 200 }, (_, at) => ({ seq: at + 1, text: `line ${at + 1}` }))
+  writeFileSync(file('group-r1'), rows.map(record => `${JSON.stringify(record)}\n`).join(''), 'utf8')
+  chmodSync(file('group-r1'), 0o000)
+  try {
+    assert.deepEqual(rt.ledger.records('group-r1'), [])
+    await assert.rejects(rt.ledger.written('group-r1'))
+    rt.ledger.append('group-r1', { seq: 201, text: 'after the failure' })
+    assert.equal(rt.ledger.prepend('group-r1', [{ seq: 0, text: 'recovered' }]), 0)
+    assert.deepEqual(rt.ledger.records('group-r1'), [])
+    await assert.rejects(rt.ledger.written('group-r1'))
+  } finally {
+    chmodSync(file('group-r1'), 0o644)
+  }
+  assert.equal(parseBook(readFileSync(file('group-r1'), 'utf8')).length, 200)
+  assert.equal(warnings.length > 0, true)
+})
+
+test('an importer write that fails is reported, and the book starts again once it can', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { rt, home, file } = host(t)
+  mkdirSync(join(home, 'ledger'), { recursive: true })
+  rt.ledger.importer('group-', () => [{ seq: 1, text: 'from before' }])
+  chmodSync(join(home, 'ledger'), 0o500)
+  try {
+    assert.deepEqual(rt.ledger.records('group-r1'), [])
+    await assert.rejects(rt.ledger.written('group-r1'))
+  } finally {
+    chmodSync(join(home, 'ledger'), 0o700)
+  }
+  assert.equal(existsSync(file('group-r1')), false)
+  // Nothing was cached from the failure: the next use starts the book from the importer.
+  assert.deepEqual(rt.ledger.records('group-r1').map(record => record.text), ['from before'])
+  assert.equal(existsSync(file('group-r1')), true)
+  await rt.ledger.written('group-r1')
+})
+
+test('a book another host starts while the importer runs is read, not replaced', (t) => {
+  const { rt, home, file } = host(t)
+  mkdirSync(join(home, 'ledger'), { recursive: true })
+  rt.ledger.importer('group-', () => {
+    writeFileSync(file('group-r1'), `${JSON.stringify({ seq: 1, text: 'made elsewhere' })}\n`)
+    return [{ seq: 9, text: 'imported over it' }]
+  })
+  assert.deepEqual(rt.ledger.records('group-r1').map(record => record.text), ['made elsewhere'])
+  assert.equal(readFileSync(file('group-r1'), 'utf8').includes('imported'), false)
+})
+// #2066 review (6043116028): a book another host starts can end in a torn line. Its bytes
+// are read in the importer branch, so the same torn check must look at them: otherwise the
+// first write appended by this host fuses onto the cut line and is lost with it.
+test('a book another host starts with a torn tail is not fused by the next write', async (t) => {
+  const { rt, home, file } = host(t)
+  mkdirSync(join(home, 'ledger'), { recursive: true })
+  rt.ledger.importer('group-', () => {
+    // The other host's write was interrupted mid-line.
+    writeFileSync(file('group-r1'), `${JSON.stringify({ seq: 1, text: 'made elsewhere' })}\n{"seq":2,"text":"cut`)
+    return [{ seq: 9, text: 'imported over it' }]
+  })
+  assert.deepEqual(rt.ledger.records('group-r1').map(record => record.text), ['made elsewhere'])
+  rt.ledger.append('group-r1', { seq: 3, text: 'ours' })
+  await rt.ledger.written('group-r1')
+  const text = readFileSync(file('group-r1'), 'utf8')
+  assert.equal(parseBook(text).some(record => record.text === 'ours'), true, 'the next write starts on a line of its own')
+  assert.equal(parseBook(text).some(record => record.text === 'made elsewhere'), true, 'the line before it is kept')
+})
+// The slot holds the book's last write, not "the write after this record". A caller that
+// captures it right after its own append gets its own write; a later record cannot answer
+// for an earlier one.
+test('a capture of written() speaks for the record it followed, not for a later one', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { rt, home } = host(t)
+  const book = 'group-r1'
+  rt.ledger.append(book, { seq: 1, text: 'kept before' })
+  await rt.ledger.written(book)
+  const file = join(home, 'ledger', bookFile(book))
+  chmodSync(file, 0o444)
+  rt.ledger.append(book, { seq: 2, text: 'lost' })
+  const first = rt.ledger.written(book)
+  const outcome = first.then(() => 'resolved', () => 'rejected')
+  await assert.rejects(first)
+  chmodSync(file, 0o644)
+  rt.ledger.append(book, { seq: 3, text: 'kept after' })
+  // A later write does not rewrite what happened to the earlier record.
+  await rt.ledger.written(book)
+  assert.equal(await outcome, 'rejected')
+  assert.deepEqual(rt.ledger.records(book).map(record => record.seq), [1, 3])
+})
+

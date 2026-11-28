@@ -9,7 +9,7 @@
 // readers that draw a conversation can stay synchronous. Writes go out in order, one
 // queue per book. A window that only reads the team follows the file another host
 // writes: it reads a book again when the file has grown.
-import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
@@ -116,6 +116,17 @@ export function install(rt) {
     }
   }
 
+  // A book this process cannot read or start is refused until it is read again: no record
+  // of it is kept, nothing is written into it, and written() rejects. The slot keeps the
+  // raw promise; the empty catch only keeps an unobserved rejection from being reported as
+  // unhandled. A caller must not go on when its record is not on disk.
+  const refuse = (book, error) => {
+    const refusal = Promise.reject(error)
+    refusal.catch(() => {})
+    lastWrite.set(book, refusal)
+    return { records: [], bySeq: new Map(), size: -1, bytes: 0, ino: 0, dev: 0, readOnly: !writes(), torn: false, failed: true }
+  }
+
   // The first use of a book reads it. A book that does not exist yet starts from what
   // an importer finds of its conversation from before the ledger (writing hosts only).
   function open(book) {
@@ -197,7 +208,12 @@ export function install(rt) {
       size = buf.length
       text = buf.toString('utf8')
     } catch (error) {
-      if (error?.code !== 'ENOENT') rt.warn('ds-bot: ledger %s could not be read: %s', book, error?.message ?? error)
+      // Only a missing book may be started from an importer. Any other reason it could not
+      // be read leaves what is on disk alone, and this process refuses that book.
+      if (error?.code !== 'ENOENT') {
+        rt.warn('ds-bot: ledger %s could not be read: %s', book, error?.message ?? error)
+        if (writes()) return refuse(book, error)
+      }
     } finally {
       if (fd !== undefined) try { closeSync(fd) } catch {}
     }
@@ -211,14 +227,31 @@ export function install(rt) {
           try {
             mkdirSync(dir, { recursive: true })
             const temp = `${pathOf(book)}.${process.pid}.tmp`
-            writeFileSync(temp, records.map(record => `${JSON.stringify(record)}\n`).join(''), 'utf8')
-            renameSync(temp, pathOf(book))
-            const writtenStat = statOf(book)
-            size = writtenStat?.size ?? -1
-            ino = writtenStat?.ino ?? 0
-            dev = writtenStat?.dev ?? 0
+            if (existsSync(pathOf(book))) {
+              // Another host started the book while the importer ran: its records are the
+              // book, and what the importer found is only an older view of it.
+              text = readFileSync(pathOf(book), 'utf8')
+              // The bytes we just read are what the torn-tail check below must see.
+              buf = Buffer.from(text)
+              records = parseBook(text)
+              size = buf.length
+              const writtenStat = statOf(book)
+              ino = writtenStat?.ino ?? 0
+              dev = writtenStat?.dev ?? 0
+            } else {
+              writeFileSync(temp, records.map(record => `${JSON.stringify(record)}\n`).join(''), 'utf8')
+              renameSync(temp, pathOf(book))
+              const writtenStat = statOf(book)
+              size = writtenStat?.size ?? -1
+              ino = writtenStat?.ino ?? 0
+              dev = writtenStat?.dev ?? 0
+              // That write is the last one of this book, so an earlier failure no longer
+              // speaks for it.
+              lastWrite.delete(book)
+            }
           } catch (error) {
             rt.warn('ds-bot: ledger %s could not be started from earlier messages: %s', book, error?.message ?? error)
+            return refuse(book, error)
           }
         }
       }
@@ -242,6 +275,8 @@ export function install(rt) {
   // Appends a record: in memory at once, on disk in order.
   function append(book, record) {
     const entry = open(book)
+    // A book that could not be read keeps no record: written() is the only answer it gives.
+    if (entry.failed) return record
     entry.records.push(record)
     const merging = activeMerges.get(book)
     if (merging !== undefined) {
@@ -301,6 +336,7 @@ export function install(rt) {
   // Prepends earlier records before what the book already holds, once, oldest first.
   function prepend(book, records) {
     const entry = open(book)
+    if (entry.failed) return 0
     const added = []
     const seen = new Set()
     for (const record of records) {

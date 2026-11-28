@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -8,6 +8,7 @@ import { afterRound } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { ROOM_IDLE_RELAY_LIMIT } from '../src/host/constants.js'
 import { isIdleRelayText, lineText } from '../src/host/groups.js'
+import { bookFile } from '../src/host/ledger.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 
 // A fake team of two Bots in one group; member answers are played back through the
@@ -1997,4 +1998,991 @@ test('in-round pass-with-files reports admin goal tasks and late [PASS] with @me
   assert.equal(posts[0].message.source.route?.kind, 'result', 'late pass-with-files routes back to askedBy, not as a request')
   assert.deepEqual(posts[0].message.source.route?.to, [adminId])
   assert.deepEqual(posts[0].message.source.presented, [{ path: '/work/final.pdf', sessionId: second.sessionId, seq: 51, index: 0 }])
+})
+
+test('a line the book did not keep calls nobody, and the room hears it', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  // A post joins the round only once the round is the one a member's turn runs in.
+  const live = await waitFor(() => {
+    const round = [...rt.roomProgress.values()].find(entry => entry.roomId === room.id && entry.nudge !== undefined)
+    return round === undefined ? undefined : rt.roomOf(room.id)
+  })
+  assert.ok(live)
+  const sender = rt.botOf(room.members[0])
+  // The book is there and readable; its write is the one that fails.
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  const turnsBefore = sent.length
+  chmodSync(book, 0o444)
+  let refusal
+  try {
+    await rt.postToRoom(live, sender, 'a line that will not land').catch((error) => { refusal = error })
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  // A member turn a refused line did wake shows up here; give it the time to.
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  // The caller hears the rejection (and closes its batch); the room hears the notice `say`
+  // sent; nobody is woken for a line the book did not keep.
+  assert.match(String(refusal?.message), /may not have been saved/, 'the caller hears the line was not saved')
+  assert.notEqual(refusal?.delivered, true, 'a line nobody was called for is not delivered')
+  assert.ok(await waitFor(() => rt.roomOf(room.id).log.some(line => line.reason === 'unsaved')), 'the room hears the line was not saved')
+  assert.equal(sent.length, turnsBefore, 'the line the book did not keep calls nobody')
+  await answer(first.sessionId, first.message.source.exchangeId, 'fine', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  await running
+})
+
+// #2066 review (Devin blocker 1): the line's own write is awaited before anybody is called,
+// but the running path then settles the report, closes the batch and saves the state. A
+// failure there comes after the members already have the line, so the caller must hear that
+// it was delivered — otherwise it retries a post the room has already seen.
+test('a line the members already have is reported delivered when the round cannot be saved', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const live = await waitFor(() => {
+    const round = [...rt.roomProgress.values()].find(entry => entry.roomId === room.id && entry.nudge !== undefined)
+    return round === undefined ? undefined : rt.roomOf(room.id)
+  })
+  assert.ok(live)
+  const sender = rt.botOf(room.members[0])
+  const turnsBefore = sent.length
+  const realSave = rt.save
+  let failures = 1
+  rt.save = (...args) => {
+    if (failures > 0) {
+      failures -= 1
+      return Promise.reject(new Error('the state could not be saved'))
+    }
+    return realSave.apply(rt, args)
+  }
+  let refusal
+  try {
+    await rt.postToRoom(live, sender, 'a line the members will see').catch((error) => { refusal = error })
+  } finally {
+    rt.save = realSave
+  }
+  // Wait for the turn to come up: a fixed 100ms window loses to load (it went red in a full run).
+  await waitFor(() => (sent.length > turnsBefore ? true : undefined))
+  assert.match(String(refusal?.message), /could not be saved/, 'the caller hears the state was not saved')
+  assert.equal(refusal?.delivered, true, 'the caller hears the line reached the members')
+  assert.equal(sent.length, turnsBefore + 1, 'the member the line calls is woken once')
+  await answer(first.sessionId, first.message.source.exchangeId, 'fine', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  await running
+})
+
+// #2066 review: the line's write is awaited, and the round can close meanwhile. A line
+// that comes in then must not be taken into the round that closed: it waits for the next
+// round, which starts at its line, without being said a second time.
+test('a user line that joins a round closing meanwhile waits for the next round', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  // The user's next message waits in the group's inbox while the round runs.
+  await emit(room.id, userMessage('@Writer late question'))
+
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = () => gate
+  try {
+    const mid = relay(room.id, 'mid')
+    const line = await waitFor(() => rt.roomOf(room.id).log.find(entry => entry.text === '@Writer late question'))
+    assert.ok(line, 'the line is said before its write is awaited')
+    const round = [...rt.roomProgress.values()].find(progress => progress.roomId === room.id)
+    assert.ok(round, 'the round is running')
+
+    // The last member finishes while the line's write is still on its way: the round closes.
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    const second = await turnFor(sent, first)
+    await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+    await waitFor(() => round.closed === true)
+    const slots = round.slots.length
+    release()
+    const next = relay(room.id, 'after')
+
+    const late = await turnFor(sent, first, second)
+    assert.ok(late, 'the next round calls the member the line names')
+    const after = [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress !== round)
+    assert.ok(after, 'a round of its own runs it')
+    assert.equal(after.startSeq, line.seq, 'the next round starts at the line it carries')
+    // The closed round did not take the line in: no new call was left waiting in it.
+    assert.equal(round.slots.length, slots)
+    await answer(late.sessionId, late.message.source.exchangeId, 'Late answer', 3)
+    await Promise.all([mid, next, running])
+  } finally {
+    rt.ledger.written = realWritten
+  }
+})
+
+// #2066 review: the write can land after the round has finished for good, with no round
+// left to drain what waits. The line itself must open the next round: no further relay.
+test('a line whose write lands after the round finished opens the next round itself', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  await emit(room.id, userMessage('@Writer late question'))
+
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = () => gate
+  try {
+    const mid = relay(room.id, 'mid')
+    const line = await waitFor(() => rt.roomOf(room.id).log.find(entry => entry.text === '@Writer late question'))
+    assert.ok(line, 'the line is said before its write is awaited')
+    const round = [...rt.roomProgress.values()].find(progress => progress.roomId === room.id)
+    assert.ok(round, 'the round is running')
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    const second = await turnFor(sent, first)
+    await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+    // The round finishes all the way before the write lands: nothing of it is left.
+    assert.ok(await waitFor(() => rt.roomActive(room.id) === false ? true : undefined), 'the round finished')
+    release()
+    // No further relay: the line itself must bring the round that calls the member it names.
+    const late = await turnFor(sent, first, second)
+    assert.ok(late, 'the line itself opens the round that calls the member it names')
+    const after = [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress !== round)
+    assert.ok(after, 'a round of its own runs it')
+    assert.equal(after.startSeq, line.seq, 'the next round starts at the line it carries')
+    await answer(late.sessionId, late.message.source.exchangeId, 'Late answer', 3)
+    await Promise.all([mid, running])
+  } finally {
+    rt.ledger.written = realWritten
+  }
+})
+
+// #2066 review: the Session's copy is the only one that can be said again, so a composer
+// line leaves it only once the book has it. A write that fails keeps the line for a later
+// round and draws nothing: it is neither lost nor said twice.
+test('a composer follow-up the book did not keep waits in the session inbox', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, compose, emit, userMessage, relay, answer, stop, sent, rt, home, inboxOf } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  const wrote = '@Writer use the revised figures'
+  chmodSync(book, 0o444)
+  try {
+    // The shell's composer queues the line while a member is busy; the round drains it and
+    // the book refuses the write.
+    await compose(room.id, wrote)
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    const notice = await waitFor(() => rt.roomOf(room.id).log.find(line => line.reason === 'unsaved'))
+    assert.ok(notice, 'the room hears the line was not saved')
+    // Not handed over and not drawn: the Session still holds the only copy.
+    assert.equal(rt.roomOf(room.id).log.filter(line => line.text === wrote).length, 0, 'the line the book did not keep is not drawn')
+    const waiting = [...(inboxOf(room.id).nextTurn ?? []), ...(inboxOf(room.id).nextStep ?? [])]
+    assert.ok(waiting.some(message => JSON.stringify(message.content).includes('revised figures')), 'the line waits in the session inbox')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+  assert.ok(await waitFor(() => rt.roomActive(room.id) === false ? true : undefined), 'the round ends and hands the line back')
+  // Once the book takes writes again the next round says the line once and calls its member.
+  const again = relay(room.id, 'again').catch(() => undefined)
+  const late = await turnFor(sent, first, second)
+  assert.ok(late, 'the next round calls the member the line names')
+  assert.equal(rt.roomOf(room.id).log.filter(line => line.text === wrote).length, 1, 'the line is said once')
+  await answer(late.sessionId, late.message.source.exchangeId, 'Late answer', 3)
+  await running
+  void again
+})
+
+// #2066 review (6039570462, item 3): the relay takes its batch out of the group's inbox
+// before any line is written. A line the book refuses must not take the lines queued
+// behind it with it: each one is either said in the room, still waiting in the inbox, or
+// still waiting in the Session, never gone without a trace.
+test('a line the book refused does not take the rest of its batch with it', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt, home, inboxOf } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  const refused = 'the line the book refuses'
+  const behind = 'the line queued behind it'
+  chmodSync(book, 0o444)
+  let refusal
+  let mid
+  try {
+    // Two lines the Session folded into one relay: one batch, taken out of the inbox at once.
+    await emit(room.id, userMessage(refused))
+    await emit(room.id, userMessage(behind))
+    mid = relay(room.id, 'mid').catch((error) => { refusal = error })
+    // The relay says the first line and its write is the one that fails.
+    assert.ok(await waitFor(() => rt.roomOf(room.id).log.some(line => line.text === refused) ? true : undefined), 'the refused line is said before its write is awaited')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  // The round goes on: a fix that keeps the batch may call the members for the said
+  // lines, so answer what the round asks until it is done.
+  const answered = [first]
+  let turn = 0
+  await answer(first.sessionId, first.message.source.exchangeId, 'answer 0', 0)
+  for (; turn < 8; turn += 1) {
+    const next = await waitFor(() => sent.find(entry => !answered.includes(entry) && entry.message.source.role === 'room'))
+    if (next === undefined) break
+    answered.push(next)
+    await answer(next.sessionId, next.message.source.exchangeId, `answer ${turn + 1}`, turn + 1)
+  }
+  await running
+  await mid
+
+  const log = rt.roomOf(room.id).log
+  const queued = rt.roomInbox.get(room.id) ?? []
+  const waiting = [...(inboxOf(room.id).nextTurn ?? []), ...(inboxOf(room.id).nextStep ?? [])]
+  const kept = text => log.some(line => line.text === text)
+    || JSON.stringify(queued).includes(text)
+    || JSON.stringify(waiting).includes(text)
+  assert.equal(kept(refused), true, 'the refused line is not gone without a trace')
+  assert.ok(refusal !== undefined || log.some(line => line.reason === 'unsaved'), 'the room hears the line was not saved')
+  assert.equal(kept(behind), true, 'the line queued behind it is not dropped')
+})
+
+// #2066 review (6043116028, item 2): the IM origin of a drained line is claimed before the
+// book is known to have it, so a line the book refused has spent its rpcId by the time the
+// next round retries it. The claim must follow the write, not precede it.
+test('the origin of a line the book did not keep is claimed once, when it is saved', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, compose, emit, userMessage, relay, answer, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  // The real classifier consumes its rpcId on the first call: a second call is ignored.
+  const claims = []
+  const realClassify = rt.classifyRoomUserSource
+  rt.classifyRoomUserSource = (roomSid, source) => {
+    claims.push(source)
+    return claims.length === 1 ? { ignored: false, origin: { chatKey: 'g1' } } : { ignored: true, origin: undefined }
+  }
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  const wrote = '@Writer a line from IM'
+  try {
+    chmodSync(book, 0o444)
+    await compose(room.id, wrote)
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    const notice = await waitFor(() => rt.roomOf(room.id).log.find(line => line.reason === 'unsaved'))
+    assert.ok(notice, 'the room hears the line was not saved')
+    // The line is handed back to the Session: its origin must not be claimed yet.
+    assert.equal(claims.length, 0, 'a line the book refused does not claim its origin')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+  assert.ok(await waitFor(() => rt.roomActive(room.id) === false ? true : undefined), 'the round ends and hands the line back')
+  // The next round says the line and claims its origin, once.
+  const again = relay(room.id, 'again').catch(() => undefined)
+  const saved = await waitFor(() => claims.length === 1 && rt.roomOf(room.id).log.some(line => line.text === wrote) ? true : undefined)
+  assert.ok(saved, 'the next round saves the line and claims its origin')
+  assert.equal(rt.roomOf(room.id).log.filter(line => line.text === wrote).length, 1, 'the line is said once')
+  assert.equal(claims.length, 1, 'its origin is claimed once, by the round that saves it')
+  rt.stopRoomRound?.(room.id)
+  await new Promise((resolve) => setTimeout(resolve, 40))
+  await running
+  await again
+  rt.classifyRoomUserSource = realClassify
+})
+
+// #2066 review (6043116028, item 2): the drain awaits the book, and a round can be stopped
+// while it waits. A line whose write succeeded is on the book and stays said; the ones
+// behind it belong to the next round, not to a round that has already stopped.
+test('a line written while its round stops keeps the rest of the inbox', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, compose, emit, userMessage, relay, answer, stop, sent, rt, inboxOf } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const one = '@Writer the first line'
+  const two = '@Writer the second line'
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = () => gate
+  let admin
+  let round
+  try {
+    await compose(room.id, one)
+    await compose(room.id, two)
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    // The drain appended the first line and waits for the book.
+    const appended = await waitFor(() => rt.ledger.records(`group-${room.id}`).find(record => record.text === one))
+    assert.ok(appended, 'the first line is appended before its write is awaited')
+    // A parked call waits in the room for the next round; this one names the admin, who
+    // already posted in this round, so it has no open slot to hide behind.
+    admin = rt.botOf(room.members[0])
+    rt.roomOf(room.id).paused = [{ id: admin.id, name: admin.name, idle: true }]
+    round = [...rt.roomProgress.values()].find(progress => progress.roomId === room.id)
+    assert.ok(round, 'the round is running')
+    // The round stops while that write is on its way.
+    rt.stopRoomRound(room.id)
+    release()
+    assert.ok(await waitFor(() => rt.roomOf(room.id).log.some(line => line.text === one) ? true : undefined), 'the written line stays said')
+    await settle()
+  } finally {
+    rt.ledger.written = realWritten
+    release()
+  }
+  assert.equal(rt.roomOf(room.id).log.filter(line => line.text === one).length, 1, 'the written line is said once')
+  assert.equal(rt.roomOf(room.id).log.filter(line => line.text === two).length, 0, 'the line behind it is not said into a stopped round')
+  const waiting = [...(inboxOf(room.id).nextTurn ?? []), ...(inboxOf(room.id).nextStep ?? [])]
+  assert.ok(waiting.some(message => JSON.stringify(message.content).includes(two)), 'the line behind it waits in the Session inbox')
+  assert.equal(waiting.some(message => JSON.stringify(message.content).includes(one)), false, 'the written line left the Session inbox')
+  assert.equal(sent.filter(entry => JSON.stringify(entry.message.content).includes(one) || JSON.stringify(entry.message.content).includes(two)).length, 0, 'neither line calls a member into the stopped round')
+  assert.deepEqual((rt.roomOf(room.id).paused ?? []).map(entry => entry.id), [admin.id], 'the parked call waits for the next round')
+  assert.equal(round.slots.filter(slot => slot.id === admin.id).length, 1, 'the parked call is not handed to the stopped round')
+  await running
+})
+
+// #2066 review (6043116028, item 4): the room is told a line was not saved, but the group
+// history is built from the book through rowOf, which has no shape for that notice. The
+// user never sees it.
+test('the group history shows the notice of a line the book did not keep', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, compose, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const wrote = '@Writer a line the book refuses'
+  // The composed line's write is the one that fails; the notice's own write still lands.
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => rt.ledger.records(book).at(-1)?.text === wrote
+    ? Promise.reject(new Error('refused'))
+    : realWritten(book)
+  try {
+    await compose(room.id, wrote)
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    const notice = await waitFor(() => rt.roomOf(room.id).log.find(line => line.reason === 'unsaved'))
+    assert.ok(notice, 'the room is told the line was not saved')
+    const rows = rt.groupRows(room.id, 1)
+    assert.equal(rows.filter(row => row.text?.includes('may not have been saved')).length, 1, 'the group history shows the notice once')
+  } finally {
+    rt.ledger.written = realWritten
+  }
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+  await running
+})
+
+// #2066 review (Fei2411 6055704278, blocking): while the book keeps refusing every write,
+// the notice that says a line was not saved is itself appended to that book, so the write
+// rolls it back out of memory and the rows clients fetch (rowsView reads only the book)
+// never carry it. room.log is not the path the client reads; rt.groupRows is.
+test('the notice of a line the book refused is in the rows clients fetch while every write still fails', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, compose, emit, userMessage, relay, answer, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  const wrote = '@Writer a line the book keeps refusing'
+  chmodSync(book, 0o444)
+  try {
+    await compose(room.id, wrote)
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    const notice = await waitFor(() => rt.roomOf(room.id).log.find(line => line.reason === 'unsaved'))
+    assert.ok(notice, 'the room is told the line was not saved')
+    // Every write is refused, the notice's own included: the book holds no notice at all.
+    await rt.ledger.flush()
+    assert.equal(rt.ledger.records(`group-${room.id}`).some(record => record.reason === 'unsaved'), false,
+      'the book refused the notice too, so the rows cannot come from it')
+    const rows = rt.groupRows(room.id, 1)
+    assert.ok(rows.some(row => row.text?.includes('may not have been saved')),
+      'the rows clients fetch show the notice while the book keeps refusing writes')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+  await running
+  // The same refusal is met twice in this round (the drain and the handed-back line); the
+  // room hears one warning for it, not one per attempt.
+  assert.equal(rt.roomOf(room.id).log.filter(line => line.reason === 'unsaved').length, 1,
+    'two refused attempts say the same warning once')
+})
+// #2066 review (Fei2411 6055704278, blocking, part 2): once the book takes writes again,
+// the notice kept for the refused line must show exactly once: either the slot is written
+// to the book and cleared, or it is cleared without a second copy. Zero would lose the
+// warning; two would show the same notice twice.
+test('the notice of a refused line shows once after the book takes writes again', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, compose, emit, userMessage, relay, answer, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  const wrote = '@Writer a line the book keeps refusing'
+  chmodSync(book, 0o444)
+  let notice
+  try {
+    await compose(room.id, wrote)
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    notice = await waitFor(() => rt.roomOf(room.id).log.find(line => line.reason === 'unsaved'))
+    assert.ok(notice, 'the room is told the line was not saved')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  // The round hands the line back; the next round says it once the book takes writes.
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+  assert.ok(await waitFor(() => rt.roomActive(room.id) === false ? true : undefined), 'the round ends and hands the line back')
+  const again = relay(room.id, 'again').catch(() => undefined)
+  const saved = await waitFor(() => rt.roomOf(room.id).log.some(line => line.text === wrote) ? true : undefined)
+  assert.ok(saved, 'the next round saves the line once the book takes writes')
+  await rt.ledger.flush()
+  await new Promise(resolve => setTimeout(resolve, 40))
+  // Two refused writes leave two notices; each must reach the rows exactly once, so a
+  // lost notice and a notice shown twice both fail here.
+  const pending = (rt.roomOf(room.id).log ?? []).filter(line => line.reason === 'unsaved')
+  assert.ok(pending.length > 0, 'the refused writes left notices in the room log')
+  const notices = rt.groupRows(room.id, 1).filter(row => row.text?.includes('may not have been saved'))
+  assert.equal(notices.length, pending.length, 'every notice the book refused shows once in the rows after recovery')
+  rt.stopRoomRound?.(room.id)
+  await new Promise(resolve => setTimeout(resolve, 40))
+  await running
+  await again
+})
+
+// #2066 review (klarkxy 6052137086): postToRoom calls registerQueuedReport before it
+// awaits the line's write. A refused write must not leave a queued report behind.
+test('a Bot post the book refused leaves no queued report behind', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-leak-report')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const sender = rt.botOf(room.members[0])
+  const reportId = 'orphan-report'
+  const realWritten = rt.ledger.written
+  rt.ledger.written = () => Promise.reject(new Error('probe: refused'))
+  let refusal
+  try {
+    await rt.postToRoom(rt.roomOf(room.id), sender, '@Writer a post the book refuses', { reportBack: true, reportId })
+      .catch(error => { refusal = error })
+  } finally {
+    rt.ledger.written = realWritten
+  }
+  assert.match(String(refusal?.message), /may not have been saved/, 'the caller hears the line was not saved')
+  const reports = rt.state.roomReports ?? {}
+  assert.equal(reports[reportId], undefined, 'a refused post leaves no queued report behind')
+  await answer(first.sessionId, first.message.source.exchangeId, 'fine', 1)
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  await running
+})
+
+// #2066 review (klarkxy 6052137086): postToRoom records the line in its batch
+// (`recordResult`) before it awaits the write. A refused write must not leave a seq
+// in the batch that never reached the book.
+test('a Bot post the book refused records no result in its batch', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-leak-batch')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const sender = rt.botOf(room.members[0])
+  const batchKey = 'orphan-batch'
+  rt.state.roomBatches = {
+    [batchKey]: { key: batchKey, roomId: room.id, by: sender.id, pending: [], done: [], doneIds: [], results: [], worked: false, answered: false, at: Date.now() },
+  }
+  const realWritten = rt.ledger.written
+  rt.ledger.written = () => Promise.reject(new Error('probe: refused'))
+  let refusal
+  try {
+    await rt.postToRoom(rt.roomOf(room.id), sender, '@Writer a post the book refuses', { batch: batchKey, batchEnd: true })
+      .catch(error => { refusal = error })
+  } finally {
+    rt.ledger.written = realWritten
+  }
+  assert.match(String(refusal?.message), /may not have been saved/, 'the caller hears the line was not saved')
+  assert.deepEqual(rt.state.roomBatches[batchKey]?.results ?? [], [], 'a refused post records no batch result')
+  delete rt.state.roomBatches[batchKey]
+  await answer(first.sessionId, first.message.source.exchangeId, 'fine', 1)
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  await running
+})
+
+// #2066 review (Devin at 63f83141): the active-round Bot post is drawn as a normal
+// message before its own write lands, and rowsView's tail merge then shows a post the
+// book refused in the rows clients fetch. A refused post is drawn nowhere, the warning
+// keeps its own line, and a retry that lands draws the post exactly once.
+test('a Bot post the book refused in a running round is not drawn in the rows', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-refused-post-rows').catch(() => undefined)
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const live = await waitFor(() => {
+    const round = [...rt.roomProgress.values()].find(entry => entry.roomId === room.id && entry.nudge !== undefined)
+    return round === undefined ? undefined : rt.roomOf(room.id)
+  })
+  assert.ok(live)
+  const sender = rt.botOf(room.members[0])
+  const wrote = 'a Bot post the book refuses'
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  // The rows from here on: the refused post and its warning are the first lines after
+  // this seq, so the assertions do not depend on where the relay anchor sits.
+  const from = rt.roomOf(room.id).seq + 1
+  let refusal
+  chmodSync(book, 0o444)
+  try {
+    // The caller holds the promise: the round harness swallows a rejection from a post
+    // it drove, so only a directly awaited call can assert it.
+    await rt.postToRoom(live, sender, wrote, { progress: true }).catch((error) => { refusal = error })
+    assert.match(String(refusal?.message), /may not have been saved/, 'the caller hears the line was not saved')
+    const refused = rt.groupRows(room.id, from)
+    assert.equal(refused.filter(row => row.text === wrote).length, 0,
+      'a post the book refused is not drawn as a normal message')
+    assert.equal(refused.filter(row => row.text?.includes('may not have been saved')).length, 1,
+      'the warning still shows on its own line')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  // A retry that lands must not add a second copy of a post that was never drawn.
+  await rt.postToRoom(live, sender, wrote, { progress: true })
+  const retried = rt.groupRows(room.id, from).filter(row => row.text === wrote)
+  assert.equal(retried.length, 1, 'the retry that lands is drawn exactly once')
+  rt.stopRoomRound?.(room.id)
+  await new Promise(resolve => setTimeout(resolve, 40))
+  await running
+})
+
+// #2066 review (klarkxy 6052137086): the round can close while the Bot post waits for
+// its own write. callIn then pushes the named member into a round whose nudge is gone,
+// and nobody is woken. The member belongs to the round that follows.
+test('a Bot post held on its write belongs to the round that follows, not the round that closed', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-race')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const sender = rt.botOf(room.members[0])
+  const batchKey = 'held-batch'
+  rt.state.roomBatches = {
+    [batchKey]: { key: batchKey, roomId: room.id, by: sender.id, pending: [], done: [], doneIds: [], results: [], worked: false, answered: false, at: Date.now() },
+  }
+  const posted = '@Writer a post held on its write'
+  // Hold the line's own write: the post is appended before written() is taken, so the
+  // last record on the book names the call to hold.
+  let gated = false
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => {
+    if (!gated && rt.ledger.records(book).at(-1)?.text === posted) {
+      gated = true
+      return gate.then(() => 'held write resolved')
+    }
+    return realWritten(book)
+  }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, posted, { batch: batchKey })
+  await waitFor(() => gated ? true : undefined)
+  await answer(first.sessionId, first.message.source.exchangeId, 'done', 1)
+  const second = await turnFor(sent, first)
+  assert.ok(second, 'the other member is still called after the first answers')
+  await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  await waitFor(() => round.closed === true && round.nudge === undefined)
+  release()
+  await posting
+  rt.ledger.written = realWritten
+  const woken = await turnFor(sent, first, second)
+  assert.ok(woken, 'the member the held post names is called in a round that runs')
+  const said = rt.ledger.records(`group-${room.id}`).filter(record => record.text === posted)
+  assert.equal(said.length, 1, 'the held post is said once')
+  assert.deepEqual(rt.state.roomBatches[batchKey]?.results ?? [], [{ name: 'Chief', seq: said[0].seq }], 'the held post records its true seq once')
+  delete rt.state.roomBatches[batchKey]
+  await answer(woken.sessionId, woken.message.source.exchangeId, 'fine', 3)
+  await running
+})
+
+// #2066 review 6052818736: holdForNextRound with an undefined agent (the post_to_group
+// path) awaits resolveAgent after it has already pushed its posts. The window is a round
+// boundary: nothing may start a second round, and a stop must not be undone by it.
+
+test('two Bot posts held on their writes at once start one round, not an empty second one', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-held-pair')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const senderA = rt.botOf(room.members[0])
+  const senderB = rt.botOf(room.members[1])
+  const heldTexts = new Set(['@Writer A held', '@Chief B held'])
+  const releases = []
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => {
+    const text = rt.ledger.records(book).at(-1)?.text
+    if (text !== undefined && heldTexts.delete(text)) return new Promise(resolve => releases.push(resolve))
+    return realWritten(book)
+  }
+  const pa = rt.postToRoom(rt.roomOf(room.id), senderA, '@Writer A held', { progress: true })
+  const pb = rt.postToRoom(rt.roomOf(room.id), senderB, '@Chief B held', { progress: true })
+  assert.ok(await waitFor(() => heldTexts.size === 0 ? true : undefined), 'both landed writes are held')
+  await answer(first.sessionId, first.message.source.exchangeId, 'done', 1)
+  const second = await turnFor(sent, first)
+  assert.ok(second, 'the other member is called')
+  await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  assert.ok(await waitFor(() => rt.roomActive(room.id) === false ? true : undefined), 'the round finished all the way')
+  rt.ledger.written = realWritten
+  let resolveCalls = 0
+  let releaseResolve
+  const resolveGate = new Promise(resolve => { releaseResolve = resolve })
+  const realResolve = rt.resolveAgent
+  rt.resolveAgent = async (sessionId) => {
+    resolveCalls += 1
+    if (resolveCalls <= 2) await resolveGate
+    return realResolve(sessionId)
+  }
+  for (const release of releases) release()
+  assert.ok(await waitFor(() => resolveCalls >= 2 ? true : undefined), 'both posts wait on resolveAgent')
+  releaseResolve()
+  await Promise.all([pa, pb])
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const rounds = [...rt.roomProgress.values()].filter(progress => progress.roomId === room.id)
+  const emptyLines = rt.roomOf(room.id).log.filter(line => line.text === '' && line.who === 'User')
+  void running.catch(() => {})
+  assert.equal(rounds.length, 1, 'the two held posts start one round, not a second empty one')
+  assert.equal(emptyLines.length, 0, 'no empty user line is said')
+})
+
+test('a stop that lands while a held post resolves its agent starts no round', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-held-stop')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const sender = rt.botOf(room.members[0])
+  const heldPost = '@Writer held then stopped'
+  let gated = false
+  let releaseWrite
+  const writeGate = new Promise(resolve => { releaseWrite = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => {
+    if (!gated && rt.ledger.records(book).at(-1)?.text === heldPost) { gated = true; return writeGate }
+    return realWritten(book)
+  }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, heldPost, { progress: true })
+  assert.ok(await waitFor(() => gated ? true : undefined), 'the landed write is held')
+  await answer(first.sessionId, first.message.source.exchangeId, 'done', 1)
+  const second = await turnFor(sent, first)
+  assert.ok(second)
+  await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  assert.ok(await waitFor(() => rt.roomActive(room.id) === false ? true : undefined), 'the round finished all the way')
+  rt.ledger.written = realWritten
+  let resolveCalls = 0
+  let releaseResolve
+  const resolveGate = new Promise(resolve => { releaseResolve = resolve })
+  const realResolve = rt.resolveAgent
+  rt.resolveAgent = async (sessionId) => { resolveCalls += 1; if (resolveCalls === 1) await resolveGate; return realResolve(sessionId) }
+  releaseWrite()
+  assert.ok(await waitFor(() => resolveCalls >= 1 ? true : undefined), 'the post waits on resolveAgent')
+  await rt.stopRoomWork(room.id)
+  const beforeStop = sent.length
+  releaseResolve()
+  await posting
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const rounds = [...rt.roomProgress.values()].filter(progress => progress.roomId === room.id)
+  const emptyLines = rt.roomOf(room.id).log.filter(line => line.text === '' && line.who === 'User')
+  const turnsAfterStop = sent.slice(beforeStop).filter(entry => entry.message.source.role === 'room').length
+  void running.catch(() => {})
+  assert.equal(rounds.length, 0, 'a round starts after the user stopped the room')
+  assert.equal(emptyLines.length, 0, 'an empty user line is said after the stop')
+  assert.equal(turnsAfterStop, 0, 'a member is called after the stop')
+})
+
+test('a Bot post held on its write when the room is stopped is not queued and wakes nobody', async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-stopped-post')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const sender = rt.botOf(room.members[0])
+  const batchKey = 'stopped-batch'
+  rt.state.roomBatches = { [batchKey]: { key: batchKey, roomId: room.id, by: sender.id, pending: [], done: [], doneIds: [], results: [], worked: false, answered: false, at: Date.now() } }
+  const deliveries = []
+  const realDeliver = rt.deliver
+  rt.deliver = async (args) => { if (args?.role === 'report') deliveries.push(args); return realDeliver(args) }
+  const stoppedPost = '@Writer held for the stop'
+  let gated = false
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => {
+    if (!gated && rt.ledger.records(book).at(-1)?.text === stoppedPost) { gated = true; return gate }
+    return realWritten(book)
+  }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, stoppedPost, { reportBack: true, batch: batchKey, batchEnd: true })
+  assert.ok(await waitFor(() => gated ? true : undefined), 'the landed write is held')
+  await rt.stopRoomWork(room.id)
+  const beforeRelease = sent.length
+  release()
+  await posting
+  await new Promise(resolve => setTimeout(resolve, 400))
+  const reports = Object.values(rt.state.roomReports ?? {}).filter(report => report.roomId === room.id)
+  const summary = {
+    reports: reports.map(report => ({ status: report.status, stopped: report.stopped, neverStarted: report.neverStarted })),
+    batch: rt.state.roomBatches[batchKey] !== undefined,
+    delivered: deliveries.length,
+    heldLines: rt.ledger.records(`group-${room.id}`).filter(record => record.text === '@Writer held for the stop').length,
+    ghostRound: [...rt.roomProgress.values()].some(progress => progress.roomId === room.id),
+    turnsAfter: sent.slice(beforeRelease).filter(entry => entry.message.source.role === 'room').length,
+  }
+  // Known limit: the stopped receipt is deferred while the caller has unread input (its own
+  // queued turn from the stopped round); consuming that, as the caller's next turn does,
+  // lets the settle deliver it. Deferred, not lost.
+  const callerSid = rt.roomOf(room.id).sessions?.[room.members[0]]
+  for (const unread of rt.unreadOf(callerSid) ?? []) rt.forgetDelivery(unread.exchangeId)
+  await rt.settleRoomReports(room.id)
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const reportAfter = Object.values(rt.state.roomReports ?? {}).filter(report => report.roomId === room.id)
+  const deliveredAfter = deliveries.length
+  rt.deliver = realDeliver
+  void running.catch(() => {})
+  assert.deepEqual(summary.reports, [{ status: 'tracking', stopped: true, neverStarted: true }], 'the receipt is on record as stopped, not dropped')
+  assert.equal(summary.batch, false, 'the batch is closed')
+  assert.equal(summary.heldLines, 1, 'the held post was said once')
+  assert.equal(summary.ghostRound, false, 'no round was opened for the stopped post')
+  assert.equal(summary.turnsAfter, 0, 'no member was called after the stop')
+  assert.equal(summary.delivered, 0, 'nothing is reported while the caller has unread input')
+  assert.equal(deliveredAfter, 1, 'the stopped receipt arrives once the caller\'s unread is consumed')
+  assert.match(String(deliveries[0]?.text ?? ''), /stopped/i)
+  assert.deepEqual(reportAfter, [], 'the settled receipt is gone from the report list')
+})
+
+test('a stopped post without a report id is not replayed by the next message', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-no-report')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const sender = rt.botOf(room.members[0])
+  const held = '@Writer held for the stop'
+  let gated = false
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => {
+    if (!gated && rt.ledger.records(book).at(-1)?.text === held) { gated = true; return gate }
+    return realWritten(book)
+  }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, held, { progress: true })
+  assert.ok(await waitFor(() => gated ? true : undefined), 'the landed write is held')
+  await rt.stopRoomWork(room.id)
+  release()
+  await posting
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const before = sent.length
+  await emit(room.id, userMessage('@Chief next question'))
+  const running2 = relay(room.id, 'relay-no-report-next')
+  const newTurns = []
+  const deadline = Date.now() + 2500
+  while (Date.now() < deadline) {
+    for (const entry of sent.slice(before)) if (entry.message.source.role === 'room' && !newTurns.includes(entry)) newTurns.push(entry)
+    if (newTurns.length >= 2) break
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  const writerSession = rt.roomOf(room.id).sessions?.[room.members[1]]
+  const writerTurns = newTurns.filter(entry => entry.sessionId === writerSession).length
+  const heldCount = rt.ledger.records(`group-${room.id}`).filter(record => record.text === held).length
+  let turnNo = 10
+  for (const entry of newTurns) await answer(entry.sessionId, entry.message.source.exchangeId, 'answered', turnNo++)
+  void running.catch(() => {})
+  void running2.catch(() => {})
+  assert.equal(writerTurns, 0, 'the stopped post woke the member it names in the next round')
+  assert.equal(heldCount, 1, 'the stopped line is not said a second time')
+})
+
+test('a held post whose state cannot be saved is reported delivered, not posted again', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-held-save')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const sender = rt.botOf(room.members[0])
+  const heldSave = '@Writer held for a failed save'
+  let gated = false
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => {
+    if (!gated && rt.ledger.records(book).at(-1)?.text === heldSave) { gated = true; return gate }
+    return realWritten(book)
+  }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, heldSave, { reportBack: true })
+  assert.ok(await waitFor(() => gated ? true : undefined), 'the landed write is held')
+  await rt.stopRoomWork(room.id)
+  const realSave = rt.save
+  let saveCalls = 0
+  let failed = false
+  rt.save = (...args) => {
+    saveCalls += 1
+    // Fail only the save postToRoom awaits: the round's own saves run first and must succeed.
+    if (!failed && (new Error('save').stack ?? '').includes('at Object.postToRoom')) {
+      failed = true
+      return Promise.reject(new Error('the state could not be saved'))
+    }
+    return realSave.apply(rt, args)
+  }
+  const beforeRelease = sent.length
+  release()
+  const refusal = await posting.then(() => undefined, error => error)
+  rt.save = realSave
+  rt.ledger.written = realWritten
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const lines = rt.ledger.records(`group-${room.id}`).filter(record => record.text === '@Writer held for a failed save')
+  const summary = {
+    refused: refusal?.message,
+    delivered: refusal?.delivered,
+    lines: lines.length,
+    saveCalls,
+    turnsAfter: sent.slice(beforeRelease).filter(entry => entry.message.source.role === 'room').length,
+  }
+  void running.catch(() => {})
+  assert.match(String(summary.refused), /could not be saved/, 'the caller hears the state was not saved')
+  assert.equal(summary.delivered, true, 'the caller hears the line reached the book')
+  assert.equal(summary.lines, 1, 'the line is in the book once')
+  assert.equal(summary.turnsAfter, 0, 'no member was called for the held post')
+})
+
+// #2066 review (klarkxy 6058458578, item 1): rowsView drops `session` lines from the book
+// (the group's own Session draws those messages itself), but the room.log tail it merges in
+// had no such filter. A session line whose write failed lives only in room.log, so the tail
+// drew it as a sent message: absent while saved, present while refused, for the same message.
+test('a session line the book refused is not drawn as a sent message', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  // A book that already holds a line, so walling it off makes the next write fail for real.
+  rt.ledger.append(`group-${room.id}`, { who: 'User', text: 'Kick off', seq: 1, time: Date.now() })
+  await rt.ledger.flush()
+  chmodSync(book, 0o444)
+  const refused = 'a line the book refuses to keep'
+  try {
+    await emit(room.id, userMessage(refused))
+    const running = relay(room.id, 'relay').catch(() => undefined)
+    try {
+      const notice = await waitFor(() => (rt.roomOf(room.id).log ?? []).find(line => line.reason === 'unsaved'))
+      assert.ok(notice, 'the room is told the line was not saved')
+      const rows = rt.groupRows(room.id, 1)
+      assert.equal(rows.filter(row => row.kind === 'user' && row.text === refused).length, 0,
+        'a session line the book refused is not drawn as a sent message')
+      assert.equal(rows.filter(row => row.text?.includes('may not have been saved')).length, 1,
+        'the notice still says the line was not saved')
+    } finally {
+      chmodSync(book, 0o644)
+    }
+    rt.stopRoomRound?.(room.id)
+    void running.catch(() => {})
+  } finally {
+    try { chmodSync(book, 0o644) } catch {}
+  }
+})
+
+// #2066 review (klarkxy 6058458578, item 2): the tail was pushed after the book's rows
+// unconditionally, so a refused line with a lower seq was drawn after lines the book took
+// later. The client draws rows in the order it gets them, so the merge has to keep seq order.
+test('the rows keep the seq order when a refused line sits in the room log', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  await emit(room.id, userMessage('Start the round'))
+  const running = relay(room.id, 'relay')
+  const turn = await turnFor(sent)
+  assert.ok(turn, 'the round calls a member')
+  const refused = 'a line the book refuses to keep'
+  let refusedSeq
+  try {
+    chmodSync(book, 0o444)
+    await answer(turn.sessionId, turn.message.source.exchangeId, refused, 1).catch(() => undefined)
+    const kept = await waitFor(() => (rt.roomOf(room.id).log ?? []).find(line => line.reason === 'unsaved'))
+    assert.ok(kept, 'the room is told the line was not saved')
+    refusedSeq = (rt.roomOf(room.id).log ?? []).find(line => line.text === refused)?.seq
+    assert.ok(Number.isInteger(refusedSeq), 'the refused line kept its seq in the room log')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  // A line the book takes afterwards: its seq is higher than the refused line's.
+  const later = 'Writer done'
+  rt.ledger.append(`group-${room.id}`, { who: 'Chief', botId: room.members[0], text: later, seq: (rt.roomOf(room.id).seq ?? 0) + 1, time: Date.now() })
+  await rt.ledger.flush()
+  const texts = rt.groupRows(room.id, refusedSeq).map(row => row.text)
+  assert.ok(texts.includes(refused), 'the refused line is in the rows')
+  assert.ok(texts.includes(later), 'the later line is in the rows')
+  assert.ok(texts.indexOf(refused) < texts.indexOf(later),
+    'the rows keep the seq order when a refused line sits in the room log')
+  rt.stopRoomRound?.(room.id)
+  void running.catch(() => {})
 })
