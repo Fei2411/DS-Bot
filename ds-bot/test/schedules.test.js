@@ -535,3 +535,108 @@ test('on DSH 0.2.2 a one-time task whose time has come cannot be paused', async 
     assert.equal(schedule.tasks.get(id).status, 'active')
   }
 })
+
+// #2418: on DSH 0.2.2+, `@deepseek-ai/dsh-schedule` is a built-in plugin entry
+// (with `entryId` / `patchId: 'schedule'`), not an optional bundle. When disabled,
+// `schedules` reports `canEnable: true` and `schedule-enable` turns it back on.
+test('disabled DSH schedule plugin reports canEnable and schedule-enable re-enables it live', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-schedules-enable-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const schedule = hostSchedule()
+  let enabled = false
+  let attachFn = null
+  const enabledCalls = []
+  const pluginManager = {
+    async listPlugins() {
+      return [{
+        entryId: 'loader-entry-schedule',
+        moduleName: '@deepseek-ai/dsh-schedule',
+        patchId: 'schedule',
+        enabled,
+        fiberPhase: enabled ? 'active' : null,
+      }]
+    },
+    async setPluginEnabled(id, next) {
+      enabledCalls.push([id, next])
+      enabled = next
+      if (next && attachFn) attachFn({ schedule, effect: () => () => {} })
+      return { changed: true, application: 'applied' }
+    },
+  }
+  const ctx = fakeContext({ services: { pluginManager } })
+  ctx.inject = (deps, cb) => { if (Array.isArray(deps) && deps.includes('schedule')) attachFn = cb }
+  const register = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
+  createRuntime(ctx, { home })
+  const call = async (endpoint, payload = {}) => (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
+  const before = (await call('schedules')).value
+  assert.deepEqual(before, { available: false, tasks: [], canEnable: true, reason: 'disabled' })
+
+  const afterEnable = await call('schedule-enable')
+  assert.equal(afterEnable.ok, true, JSON.stringify(afterEnable))
+  assert.deepEqual(enabledCalls, [['loader-entry-schedule', true]])
+  assert.equal(afterEnable.value.available, true)
+  assert.equal(afterEnable.value.canPause, true)
+})
+
+test('schedules reports startup error diagnostic and schedule-enable handles restart-required, overridden, and bundle fallback', async (t) => {
+  let mode = 'failed'
+  const bundleCalls = []
+  const pluginManager = {
+    async listPlugins() {
+      if (mode === 'failed') {
+        return [{ entryId: 'e-sched', moduleName: '@deepseek-ai/dsh-schedule', patchId: 'schedule', enabled: true, fiberPhase: 'failed', diagnostic: 'corrupt_schedule_log' }]
+      }
+      if (mode === 'restart' || mode === 'overridden') {
+        return [{ entryId: 'e-sched', moduleName: '@deepseek-ai/dsh-schedule', patchId: 'schedule', enabled: false, fiberPhase: null }]
+      }
+      return []
+    },
+    async listBundles() {
+      if (mode === 'bundle') {
+        return [{ name: '@deepseek-ai/dsh-experimental-automation-bundle', enabled: false }]
+      }
+      return []
+    },
+    async setPluginEnabled() {
+      return mode === 'overridden'
+        ? { changed: false, application: 'overridden' }
+        : { changed: true, application: 'restart-required' }
+    },
+    async setBundleEnabled(name, next) {
+      bundleCalls.push([name, next])
+      return { changed: true, application: 'restart-required' }
+    },
+  }
+  const { ctx, home, call } = setup({ pluginManager })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+
+  assert.deepEqual((await call('schedules')).value, { available: false, tasks: [], reason: 'error', error: 'corrupt_schedule_log' })
+
+  mode = 'restart'
+  const restartRes = await call('schedule-enable')
+  assert.equal(restartRes.ok, true, JSON.stringify(restartRes))
+  assert.equal(restartRes.value.restartRequired, true)
+
+  mode = 'overridden'
+  const overriddenRes = await call('schedule-enable')
+  assert.equal(overriddenRes.ok, false)
+  assert.match(overriddenRes.error.message, /higher-priority profile patch/)
+
+  mode = 'bundle'
+  assert.deepEqual((await call('schedules')).value, { available: false, tasks: [], canEnable: true, reason: 'disabled' })
+  const bundleRes = await call('schedule-enable')
+  assert.equal(bundleRes.ok, true, JSON.stringify(bundleRes))
+  assert.deepEqual(bundleCalls, [['@deepseek-ai/dsh-experimental-automation-bundle', true]])
+  assert.equal(bundleRes.value.restartRequired, true)
+})
+
+test('schedule-enable stays local-only and is not exposed to remote browser or phone clients', async () => {
+  const { BROWSER_ALLOWED } = await import('../src/shared/browser-endpoints.js')
+  const { TEAM_ENDPOINTS, COMPUTER_ONLY_ENDPOINTS } = await import('../src/shared/remote-endpoints.js')
+  assert.equal(BROWSER_ALLOWED.has('schedule-enable'), false)
+  assert.equal(TEAM_ENDPOINTS.has('schedule-enable'), false)
+  assert.equal(COMPUTER_ONLY_ENDPOINTS.has('schedule-enable'), true)
+})

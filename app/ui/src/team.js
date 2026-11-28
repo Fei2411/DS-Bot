@@ -445,6 +445,12 @@ export function createTeam() {
       ui.set(state => (state.details === null && (state.rightPanel !== null || state.panelYield) ? { ...state, rightPanel: null, panelYield: false } : state))
     },
     openSettings: (...args) => { clearShortcuts(); return baseActions.openSettings(...args) },
+    selectPanel: (id) => {
+      if (id === 'schedules') { actions.openSettings('schedules'); return }
+      if (id === 'plugins') { actions.openSettings('plugins'); return }
+      if (id === 'connectors') { actions.openSettings('connectors'); return }
+      actions.openSettings('overview')
+    },
     openPalette: (...args) => { clearShortcuts(); return baseActions.openPalette(...args) },
     openGroupSearch: (...args) => { clearShortcuts(); return baseActions.openGroupSearch?.(...args) },
     openNewChat: (...args) => { clearShortcuts(); return baseActions.openNewChat(...args) },

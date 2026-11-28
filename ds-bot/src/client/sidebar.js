@@ -1202,7 +1202,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       [t('Usage'), GaugeIcon, () => actions.openSettings('usage')],
       openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
-      [t('Scheduled tasks'), ClockIcon, () => actions.selectPanel('schedules')],
+      [t('Scheduled tasks'), ClockIcon, () => (typeof actions.selectPanel === 'function' ? actions.selectPanel('schedules') : actions.openSettings('schedules'))],
       [t('Settings'), GearIcon, () => actions.openSettings('overview')],
     ].filter(Boolean),
     typeof actions.setSurface === 'function' ? [[t('Classic Agent mode'), SwitchIcon, () => actions.setSurface('agent')]] : null,
@@ -1223,7 +1223,14 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
           index > 0 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
           group.map(([label, Icon, run, hint, stay]) => h('button', {
             key: label, type: 'button', role: 'menuitem',
-            onClick: () => { if (stay !== true) setOpen(false); void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu')) },
+            onClick: () => {
+              if (stay !== true) setOpen(false)
+              try {
+                void Promise.resolve(run()).catch(error => actions.reportError?.(error, 'menu'))
+              } catch (error) {
+                actions.reportError?.(error, 'menu')
+              }
+            },
           }, h(Icon), h('span', { className: 'bt-menu-label' }, label), hint ? h('span', { className: 'bt-menu-hint' }, hint) : null))))), document.body) : null)
 }
 
