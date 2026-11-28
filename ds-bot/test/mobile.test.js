@@ -1267,6 +1267,36 @@ test('markdown-image only grants group author extra folders for attributed repli
   assert.equal((await read(writer.id, plot)).error?.code, 'bot/forbidden')
 })
 
+test('markdown-image verifies group replies returned by the PTC relay wrapper', async (t) => {
+  const { call, history, rt, stop } = start()
+  t.after(stop)
+  const { writer, room } = await team(call)
+  const root = await rt.real(mkdtempSync(join(tmpdir(), 'ds-bot-md-ptc-')))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  rt.state.bots[writer.id].extraDirs = [root]
+  const sessionId = rt.sessionOfRoom(rt.state.rooms[room.id])
+  const [legacy, current, spoofed] = ['legacy.png', 'current.png', 'spoofed.png'].map(name => join(root, name))
+  for (const path of [legacy, current, spoofed]) writeFileSync(path, path)
+  const ptc = (seq, callId, code) => ({
+    seq, type: 'tool/call', data: { callId, name: 'run_code', arguments: JSON.stringify({ code }) },
+  })
+  const reply = path => ({ botId: writer.id, text: `![Plot](<${path}>)` })
+  rt.ledger.append(`group-${room.id}`, { event: 'anchor', id: 'anchor', from: 1, time: 1 })
+  rt.logRoom(rt.roomOf(room.id), { who: 'Writer', ...reply(current) })
+  history[sessionId] = [
+    ptc(1, 'legacy', 'return await tools.group_relay({})'),
+    relayResult(2, 'legacy', [reply(legacy)]),
+    ptc(3, 'current', 'return await tools.group_relay({ roundId: "1-abcdef" })'),
+    relayResult(4, 'current', JSON.stringify({ from: 1, anchor: 'anchor' })),
+    ptc(5, 'spoofed', 'return []; // group_relay'),
+    relayResult(6, 'spoofed', [reply(spoofed)]),
+  ]
+  const read = path => call('markdown-image', { sessionId, path, botId: writer.id })
+  assert.equal((await read(legacy)).ok, true)
+  assert.equal((await read(current)).ok, true)
+  assert.equal((await read(spoofed)).error?.code, 'bot/forbidden')
+})
+
 test('markdown-image expands home links but limits default artifacts to the Antigravity author (#2405)', async (t) => {
   const { call, rt, stop } = start()
   t.after(stop)

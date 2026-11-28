@@ -786,6 +786,17 @@ export function install(rt) {
     ['.svg', 'image/svg+xml'],
   ])
 
+  function isRelayCall(event) {
+    if (event.type !== 'tool/call') return false
+    if (event.data?.name === 'group_relay') return true
+    if (event.data?.name !== 'run_code') return false
+    let args
+    try { args = JSON.parse(event.data.arguments) } catch { return false }
+    // Only the code that returns the relay itself can vouch for its result.
+    return typeof args?.code === 'string'
+      && /^return await tools\.group_relay\(\{(?: roundId: "[\da-f-]+" )?\}\)$/.test(args.code)
+  }
+
   async function roomHasImageReply(roomId, sessionId, botId, path) {
     if (!rt.partsOf(undefined, roomId).some(part => part.sessionId === sessionId)) return false
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
@@ -802,7 +813,7 @@ export function install(rt) {
       }, signal).catch(() => undefined)
       const records = page?.records ?? []
       for (const { event } of [...records].reverse()) {
-        if (event.type === 'tool/call' && event.data?.name === 'group_relay') {
+        if (isRelayCall(event)) {
           const callId = event.data.callId
           if (matchingResults.has(callId)) return true
           const round = rt.roomProgress.get(callId)
