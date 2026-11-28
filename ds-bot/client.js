@@ -101,6 +101,7 @@ var PHRASES = [
   ["标准", "標準"],
   ["为准", "為準"],
   ["关系", "關係"],
+  ["配置文件", "設定檔"],
   ["折叠", "摺疊"]
 ];
 var HANS = "与专业东丢两个丰临为么义书于云产仅从仓们优会传体侧俩储儿关内册写冲决况减凑几凭击则刚创删别划办务动势区协单占历压参双发变叠号叹后吗听启员响唤团围国图圆场坏块垫声处备复够头夹学宝实审宽对导将尝尽层属师带帮干并广库应开异弃张弹强归当录征径忆态总恶悬愿户执扩扫护报拦择挂挤损换据数断无旧时显暂术机杀权杠条来极构标栏树样档检横欢残气汇没泄泼洁浅测浏渐溃滚满潜灯点热状独猫环现电画盖盘着码础确离种称稳笔筛签简类粤紧红约级纯纸线组细织终经绑结绘给络绝统继绪续维绿缀缓编缩网联脑脚节范荐获营蓝补装见观规视览触计订认让议记许论设访证评识诉诊词译试话询该详语误说请读谁调谢负责败账贴费资赖赞赠趋跃踪车轨转轮软载较辅辑输边达迁过运还这进远连迟迹适选递邮释鉴钉钟钥钮钴铁铺链销锁错键镜长闭问闲间闻阅阈队阶际陆险随隐隶静韩页顶项顺须预频题颜额风飞饰馈马验骤鱼鲸麦黄齐志里余";
@@ -2718,6 +2719,7 @@ var JA = {
   "Usage details": "利用状況の詳細",
   "Web": "Web",
   "Web search API": "Web 検索 API",
+  "Edit in config file": "設定ファイルで編集",
   "Chat background": "チャットの背景",
   "While this chat is open, its background takes the place of the team background.": "このチャットを開いている間は、チームの背景の代わりにこの背景を使います。",
   "This chat uses the team background.": "このチャットはチームの背景を使います。",
@@ -6408,6 +6410,7 @@ var KO = {
   "Usage details": "사용 내역",
   "Web": "웹",
   "Web search API": "웹 검색 API",
+  "Edit in config file": "설정 파일에서 편집",
   "Chat background": "채팅 배경",
   "While this chat is open, its background takes the place of the team background.": "이 채팅을 여는 동안 팀 배경 대신 이 배경을 씁니다.",
   "This chat uses the team background.": "이 채팅은 팀 배경을 씁니다.",
@@ -10099,6 +10102,7 @@ var ES = {
   "Usage details": "Detalles de uso",
   "Web": "Web",
   "Web search API": "API de búsqueda web",
+  "Edit in config file": "Editar en el archivo de configuración",
   "Chat background": "Fondo del chat",
   "While this chat is open, its background takes the place of the team background.": "Mientras este chat está abierto, su fondo sustituye al fondo del equipo.",
   "This chat uses the team background.": "Este chat usa el fondo del equipo.",
@@ -13746,6 +13750,7 @@ var FR = {
   "Usage details": "Détails d'utilisation",
   "Web": "Web",
   "Web search API": "API de recherche web",
+  "Edit in config file": "Modifier dans le fichier de configuration",
   "Chat background": "Fond de la discussion",
   "While this chat is open, its background takes the place of the team background.": "Tant que cette discussion est ouverte, son fond remplace celui de l'équipe.",
   "This chat uses the team background.": "Cette discussion utilise le fond de l'équipe.",
@@ -17436,6 +17441,7 @@ var DE = {
   "Usage details": "Nutzungsdetails",
   "Web": "Web",
   "Web search API": "Websuche-API",
+  "Edit in config file": "In Konfigurationsdatei bearbeiten",
   "Chat background": "Chat-Hintergrund",
   "While this chat is open, its background takes the place of the team background.": "Solange dieser Chat offen ist, ersetzt sein Hintergrund den des Teams.",
   "This chat uses the team background.": "Dieser Chat nutzt den Hintergrund des Teams.",
@@ -20928,6 +20934,7 @@ var ZH = {
   "Usage details": "用量明细",
   "Web": "网页",
   "Web search API": "网页搜索 API",
+  "Edit in config file": "在配置文件中编辑",
   "Chat background": "聊天背景",
   "While this chat is open, its background takes the place of the team background.": "打开这个聊天时，它的背景代替团队背景。",
   "This chat uses the team background.": "这个聊天用团队背景。",
@@ -58467,6 +58474,44 @@ function browserMetaFor(plugin) {
   };
 }
 
+// src/shared/engine-bundles.js
+var HIDDEN_ENGINE_BUNDLES = /* @__PURE__ */ new Set([
+  "dsbot-engine",
+  "@deepseek-ai/dsh-base",
+  "@deepseek-ai/dsh-web-app",
+  "@deepseek-ai/dsh-headless",
+  "@deepseek-ai/dsh-sdk-app",
+  "@deepseek-ai/dsh-acp-app",
+  "@deepseek-ai/dsh-sdk-minimal",
+  "@deepseek-ai/dsh-experimental-terminal-bundle",
+  "@deepseek-ai/dsh-experimental-tool-worktree"
+]);
+var BANNED_ENGINE_BUNDLES = /* @__PURE__ */ new Set([
+  "@deepseek-ai/dsh-subagent-codex",
+  "@deepseek-ai/dsh-subagent-claude-code",
+  "@deepseek-ai/dsh-experimental-agent-team-profile",
+  "@deepseek-ai/dsh-experimental-ralph-bundle"
+]);
+var DESKTOP_UNSUPPORTED_UI_BUNDLES = /* @__PURE__ */ new Set([
+  "@deepseek-ai/dsh-experimental-inspector-profile",
+  "@deepseek-ai/dsh-experimental-cot-translation-bundle",
+  "@deepseek-ai/dsh-experimental-plugin-market-bundle",
+  "@deepseek-ai/dsh-experimental-liveshare",
+  "@deepseek-ai/dsh-experimental-forge-bundle",
+  "@deepseek-ai/dsh-personalized-recommendations",
+  "@deepseek-ai/dsh-deepseek-chat-import"
+]);
+var OFFICIAL_SUBAGENT_BUNDLE_RE = /^@deepseek-ai\/dsh-(?:experimental-)?subagent(?:$|-)/i;
+function isBlockedEngineBundle(name, { desktop = false, enabled = false } = {}) {
+  if (typeof name !== "string") return false;
+  const clean = name.trim();
+  if (clean === "") return false;
+  if (HIDDEN_ENGINE_BUNDLES.has(clean) || BANNED_ENGINE_BUNDLES.has(clean) || OFFICIAL_SUBAGENT_BUNDLE_RE.test(clean)) {
+    return true;
+  }
+  return desktop && !enabled && DESKTOP_UNSUPPORTED_UI_BUNDLES.has(clean);
+}
+
 // src/client/plugins-page.js
 var import_react63 = require("react");
 var PREVIEW_COUNT = 6;
@@ -58492,23 +58537,12 @@ var SLOT_CHOICES = [
   ["browser", "Browser slot"]
 ];
 var SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/;
-var HIDDEN_ENGINE_BUNDLES = /* @__PURE__ */ new Set([
-  "dsbot-engine",
-  "@deepseek-ai/dsh-acp-app",
-  "@deepseek-ai/dsh-headless",
-  "@deepseek-ai/dsh-sdk-app",
-  "@deepseek-ai/dsh-sdk-minimal",
-  "@deepseek-ai/dsh-experimental-agent-team-profile",
-  "@deepseek-ai/dsh-experimental-ralph-bundle",
-  "@deepseek-ai/dsh-experimental-terminal-bundle",
-  "@deepseek-ai/dsh-experimental-tool-worktree"
-]);
-function isHiddenEngineBundle(plugin) {
+function isHiddenEngineBundle(plugin, { ownWindow = false } = {}) {
   if (plugin.slot) return false;
   if (plugin.sourceId === "installed" && !plugin.installed) return true;
   const pkg = String(plugin.packageName ?? (String(plugin.id ?? "").startsWith("dsh:") ? String(plugin.id).slice(4) : "")).trim();
   if (!pkg) return false;
-  return HIDDEN_ENGINE_BUNDLES.has(pkg) || pkg.startsWith("@deepseek-ai/dsh-subagent-");
+  return isBlockedEngineBundle(pkg, { desktop: ownWindow, enabled: Boolean(plugin.enabled || plugin.active) });
 }
 function safeExternalUrl(raw) {
   if (typeof raw !== "string") return null;
@@ -59210,7 +59244,7 @@ function InstalledSummary({ plugins, count, onClick }) {
     (0, import_react63.createElement)(ChevronRightIcon)
   );
 }
-function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFilter = null, openEnginePlugins = null }) {
+function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFilter = null, openEnginePlugins = null, ownWindow = Boolean(globalThis.dsBotApp) }) {
   const [view, setView] = (0, import_react63.useState)(null);
   const [loading, setLoading] = (0, import_react63.useState)(true);
   const [error, setError] = (0, import_react63.useState)("");
@@ -59361,8 +59395,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
     });
   };
   const plugins = (0, import_react63.useMemo)(
-    () => (view?.plugins ?? []).filter((p) => !isHiddenEngineBundle(p)),
-    [view]
+    () => (view?.plugins ?? []).filter((p) => !isHiddenEngineBundle(p, { ownWindow })),
+    [view, ownWindow]
   );
   const bots = roster?.bots ?? [];
   const browserSlot = view?.slots?.browser;
@@ -59936,6 +59970,24 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
   const [state, setState] = (0, import_react65.useState)(null);
   const [showLog, setShowLog] = (0, import_react65.useState)(false);
   const [note, setNote] = (0, import_react65.useState)("");
+  const noteTimer = (0, import_react65.useRef)(0);
+  const mounted2 = (0, import_react65.useRef)(true);
+  (0, import_react65.useEffect)(() => {
+    mounted2.current = true;
+    return () => {
+      mounted2.current = false;
+      clearTimeout(noteTimer.current);
+    };
+  }, []);
+  const flashNote = (message) => {
+    clearTimeout(noteTimer.current);
+    setNote(message);
+    if (message) {
+      noteTimer.current = setTimeout(() => {
+        if (mounted2.current) setNote("");
+      }, 2200);
+    }
+  };
   const load = () => (typeof actions.telemetryStatus === "function" ? actions.telemetryStatus() : Promise.resolve(null)).then((next) => {
     setState(next);
     return next;
@@ -59943,18 +59995,27 @@ function PrivacyPage({ actions, run: run2, Section: Section2, Row: Row4 }) {
   (0, import_react65.useEffect)(() => {
     void run2(load());
   }, []);
-  const save = (patch) => run2((typeof actions.telemetryUpdate === "function" ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => {
-    setState(next);
-    setNote("");
-  }));
-  const resetId = () => run2((typeof actions.telemetryResetId === "function" ? actions.telemetryResetId() : Promise.resolve(state)).then((next) => {
-    setState(next);
-    setNote(t("Anonymous ID rotated."));
-  }));
-  const clearLog = () => run2((typeof actions.telemetryClearLog === "function" ? actions.telemetryClearLog() : Promise.resolve(state)).then((next) => {
-    setState(next);
-    setNote(t("Cleared sent telemetry history."));
-  }));
+  const save = (patch) => {
+    flashNote("");
+    return run2((typeof actions.telemetryUpdate === "function" ? actions.telemetryUpdate(patch) : Promise.resolve(state)).then((next) => {
+      setState(next);
+      flashNote(t("Saved"));
+    }));
+  };
+  const resetId = () => {
+    flashNote("");
+    return run2((typeof actions.telemetryResetId === "function" ? actions.telemetryResetId() : Promise.resolve(state)).then((next) => {
+      setState(next);
+      flashNote(t("Anonymous ID rotated."));
+    }));
+  };
+  const clearLog = () => {
+    flashNote("");
+    return run2((typeof actions.telemetryClearLog === "function" ? actions.telemetryClearLog() : Promise.resolve(state)).then((next) => {
+      setState(next);
+      flashNote(t("Cleared sent telemetry history."));
+    }));
+  };
   const disabled = state?.envDisabled === true;
   const recent = state?.recentSent ?? [];
   const logText = recent.length === 0 ? t("No telemetry data has been sent yet.") : JSON.stringify(recent, null, 2);
@@ -63393,10 +63454,25 @@ var SEARCH_ENTRIES = [
   { id: "feedback", label: "Feedback", group: "About DS Bot", page: "feedback", icon: "feedback", keywords: "bug error log diagnostics issue 反馈 报错 日志 诊断" }
 ];
 var DSH_KEYWORDS = {
-  account: "account profile login sign in sync 账户 账号 登录 个人资料",
+  account: "account profile login sign in sync billing balance top up 账户 账号 登录 个人资料 余额 账单 充值",
   plugins: "plugins web search shell bash agent loop extension 插件 网页搜索 命令执行 运行 扩展",
-  "agent-presets": "agent presets persona prompt template 预设 角色 提示词 模板",
-  "archived-sessions": "archived sessions history chats archive 归档 会话 历史 聊天"
+  "agent-presets": "agent presets persona prompt template standard ptc minimal creator 预设 角色 提示词 模板 标准 模式",
+  "archived-sessions": "archived sessions history chats archive restore 归档 会话 历史 聊天 恢复"
+};
+var ENGINE_PLUGIN_SEARCH_ENTRIES = [
+  { id: "engine:plugins", label: "Engine plugins", page: "plugins", target: "dsh", icon: "plugins", keywords: "engine plugins bundles extensions install 引擎插件 插件 扩展 安装" },
+  { id: "engine:web-search", label: "Web search", page: "plugins", target: "dsh:web-search", icon: "browser", keywords: "web search fetch provider billing deepseek search api 网页搜索 搜索引擎 抓取 计费" },
+  { id: "engine:shell", label: "Shell", page: "plugins", target: "dsh:shell", icon: "local-agents", keywords: "shell bash powershell sandbox timeout cwd working directory 命令执行 终端 沙箱 超时" },
+  { id: "engine:agent-loop", label: "Agent loop", page: "plugins", target: "dsh:agent-loop", icon: "models", keywords: "agent loop max parallel tool calls turns 智能体 运行 循环 并行 工具调用" },
+  { id: "engine:subagent", label: "Subagents", page: "plugins", target: "dsh:subagent", icon: "bot-models", surfaceMode: "agent", keywords: "subagents subagent max depth active models 子代理 子智能体 深度" }
+];
+var ENGINE_MODELS_SEARCH_ENTRY = {
+  id: "engine:models",
+  label: "Advanced settings",
+  page: "models",
+  target: "advanced",
+  icon: "models",
+  keywords: "advanced settings engine models provider config 高级设置 引擎 模型 配置"
 };
 var QUICK_IDS = ["general", "appearance", "models", "bots", "plugins", "connectors", "usage"];
 var matches2 = (haystack, tokens) => tokens.every((token) => haystack.includes(token));
@@ -63423,10 +63499,31 @@ function quickHits({ roster, pageAvailable = () => true, hasSurface = false }) {
   }));
   return [...settings, ...bots];
 }
-function searchHits(query, { roster, extra = [], pageAvailable = () => true, hasSurface = false }) {
+function searchHits(query, { roster, extra = [], dsh = null, pageAvailable = () => true, hasSurface = false }) {
   const raw = query.trim().toLowerCase();
   const tokens = raw.split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return [];
+  const dshSections = dsh?.sections ?? [];
+  const hasDshPlugins = dshSections.some((row) => row?.id === "plugins");
+  const hasDshModels = dshSections.some((row) => row?.id === "models");
+  const supportsPluginSubTarget = Boolean(dsh?.pluginSubTarget || dsh?.ownWindow);
+  const surfaceMode = dsh?.surfaceMode ?? "bot";
+  const engineEntries = [
+    ...hasDshPlugins && pageAvailable("plugins") ? ENGINE_PLUGIN_SEARCH_ENTRIES.filter((entry) => (entry.target === "dsh" || supportsPluginSubTarget) && (!entry.surfaceMode || entry.surfaceMode === surfaceMode)).map((entry) => ({
+      ...entry,
+      kind: "setting",
+      title: t(entry.label),
+      meta: t("Engine"),
+      haystack: `${entry.label} ${t(entry.label)} dsh engine ${t("Engine")} ${entry.keywords}`.toLowerCase()
+    })) : [],
+    ...hasDshModels && pageAvailable("models") ? [{
+      ...ENGINE_MODELS_SEARCH_ENTRY,
+      kind: "setting",
+      title: t(ENGINE_MODELS_SEARCH_ENTRY.label),
+      meta: t("Engine"),
+      haystack: `${ENGINE_MODELS_SEARCH_ENTRY.label} ${t(ENGINE_MODELS_SEARCH_ENTRY.label)} dsh engine ${t("Engine")} ${ENGINE_MODELS_SEARCH_ENTRY.keywords}`.toLowerCase()
+    }] : []
+  ];
   const settings = [
     ...SEARCH_ENTRIES.filter((entry) => pageAvailable(entry.page) && (!entry.requiresSurface || hasSurface)).map((entry) => ({
       ...entry,
@@ -63444,7 +63541,8 @@ function searchHits(query, { roster, extra = [], pageAvailable = () => true, has
       dshId: row.id,
       dshRow: row,
       haystack: `${row.label} ${row.id} dsh engine ${t("Engine")} ${DSH_KEYWORDS[row.id] ?? ""}`.toLowerCase()
-    }))
+    })),
+    ...engineEntries
   ].filter((entry) => matches2(entry.haystack, tokens)).sort((a, b2) => scoreSetting(b2, raw, tokens) - scoreSetting(a, raw, tokens));
   const bots = (roster.bots ?? []).map((bot) => ({
     id: `bot:${bot.id}`,
@@ -63492,8 +63590,8 @@ function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface,
   }, []);
   const empty = query.trim() === "";
   const hits = (0, import_react74.useMemo)(
-    () => empty ? quickHits({ roster, pageAvailable, hasSurface }) : searchHits(query, { roster, extra, pageAvailable, hasSurface }),
-    [empty, query, roster, extra, hasSurface]
+    () => empty ? quickHits({ roster, pageAvailable, hasSurface }) : searchHits(query, { roster, extra, dsh, pageAvailable, hasSurface }),
+    [empty, query, roster, extra, dsh, hasSurface]
   );
   (0, import_react74.useEffect)(() => {
     setIndex(0);
@@ -64673,8 +64771,8 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         }) : null,
         shown === "general" ? (0, import_react76.createElement)(GeneralPage, { roster, actions, run: run2, dsh, openAdvanced: advancedToken }) : null,
         shown === "appearance" ? (0, import_react76.createElement)(AppearancePage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Choice: Choice2, Switch, ownWindow: dsh?.ownWindow ?? dsh === void 0, dshRows: lookRows(dsh) }) : null,
-        shown === "plugins" && !enginePlugins ? (0, import_react76.createElement)(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === "browser" ? "browser" : null, openEnginePlugins: hasSection(dsh, "plugins") ? () => actions.openSettings("plugins", "dsh") : null }) : null,
-        enginePlugins ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget }, { only: "plugins" })) : null,
+        shown === "plugins" && !enginePlugins ? (0, import_react76.createElement)(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === "browser" ? "browser" : null, ownWindow: dsh?.ownWindow, openEnginePlugins: hasSection(dsh, "plugins") ? () => actions.openSettings("plugins", "dsh") : null }) : null,
+        enginePlugins ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget, jump }, { only: "plugins" })) : null,
         advanced ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: "models" })) : null,
         section ? (0, import_react76.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close, subTarget }, { only: section.id })) : null,
         creatingBot ? (0, import_react76.createElement)("div", { className: "bt-settings-form" }, (0, import_react76.createElement)(CreateBot, { roster, actions, inline: true, onBack: () => actions.openSettings("bots"), onCreated: (created) => actions.openSettings("bots", created.id) })) : null,

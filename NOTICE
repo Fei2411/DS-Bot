@@ -65,6 +65,10 @@ MIT License, Copyright (c) 2026 DeepSeek
     in DeepSeek Harness (.agents/skills/record-browser-gif/): SKILL.md is
     adapted and translated for this repository; scripts/encode_gif.py and
     scripts/test_encode_gif.py are copied unchanged.
+  - ds-bot/src/host/workspace-panel.js windowsExplorerFileUri follows
+    explorerTarget in @deepseek-ai/dsh-native-command (src/path-opener.ts):
+    Windows file-URI encoding for Explorer (decoding percent-encoded non-ASCII
+    and escaping `,` and `=`).
 
   Full license text:
 

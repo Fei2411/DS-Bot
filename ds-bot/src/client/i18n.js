@@ -2435,6 +2435,7 @@ const ZH = {
   "Usage details": "用量明细",
   "Web": "网页",
   "Web search API": "网页搜索 API",
+  "Edit in config file": "在配置文件中编辑",
   "Chat background": "聊天背景",
   "While this chat is open, its background takes the place of the team background.": "打开这个聊天时，它的背景代替团队背景。",
   "This chat uses the team background.": "这个聊天用团队背景。",
