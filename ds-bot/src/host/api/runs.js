@@ -1005,23 +1005,24 @@ export function createRunCoordinator(rt, auth) {
     }
   }
 
-  function isComposerAnswer(source) {
-    // DSH's owner composer mints a plain UUID. IM and the external API tag their request IDs.
+  function isComposerAnswer(source, ownerComposer) {
+    // Direct DSH composer submissions use UUIDs; linked submissions are marked at the host channel.
     return source?.kind === 'user' && source.handoff !== true && source.principal === undefined
-      && source.imOrigin === undefined && typeof source.rpcId === 'string' && COMPOSER_REQUEST_ID.test(source.rpcId)
+      && source.imOrigin === undefined && typeof source.rpcId === 'string'
+      && (ownerComposer === true || COMPOSER_REQUEST_ID.test(source.rpcId))
   }
 
   function stopForClosedCard(tracker) {
     finishRun(tracker, 'stopped', { error: { code: 'api/cancelled', message: 'The pending card closed without an answer for this run' } })
   }
 
-  function onApiCardClosed(sessionId, card, { session, source } = {}) {
+  function onApiCardClosed(sessionId, card, { session, source, ownerComposer } = {}) {
     const turn = session === undefined ? undefined : sessionTurns.get(session)
     for (const tracker of activeSessionTrackers(sessionId)) {
       const action = tracker.run.pendingAction
       if ((action?.kind !== 'question' && action?.kind !== 'view') || action.sessionId !== sessionId
         || action.actionId !== card.id || tracker.waitingReply?.callId !== (card.callId ?? card.id)) continue
-      if (turn !== undefined && !turn.hasPrompt && isComposerAnswer(source)) {
+      if (turn !== undefined && !turn.hasPrompt && isComposerAnswer(source, ownerComposer)) {
         bindChatTurn(tracker, sessionId, turn)
         tracker.composerAnswer = source
       } else if (turn === undefined || source?.kind !== REPLY_KIND || source.callId !== tracker.waitingReply.callId

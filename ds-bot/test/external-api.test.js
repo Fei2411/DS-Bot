@@ -3,7 +3,10 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 import { createRuntime } from '../index.js'
+import { RelayTransport, RpcClient, SecureTransport, deviceIdFor, generateKeyPair, parsePairingUri, randomToken } from '../link.js'
+import { startRelayServer } from '../../link/server/server.ts'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 
 function createHarness(initialState, { onPrompt } = {}) {
@@ -794,6 +797,72 @@ test('an IM turn does not reach an API stream waiting on an ask_user card', asyn
 
 test('an IM prompt sharing a composer answer turn does not reach the API stream', async t => {
   await assertImTurnIsPrivate(t, { mixed: true })
+})
+
+test('a linked phone owner can type an answer on a waiting API run', async t => {
+  const h = createHarness(undefined, {
+    async onPrompt({ sessionId, requestId, text, emitSessionEvent, emitStream, rt, nextSeq }) {
+      if (requestId.startsWith('api:')) {
+        rt.state.questions[sessionId] = { id: 'q-phone', callId: 'call-phone', question: 'Proceed?' }
+      } else {
+        emitStream(sessionId, `Continuing: ${text}`)
+        emitSessionEvent(sessionId, {
+          type: 'assistant/message', seq: nextSeq(), time: Date.now(),
+          data: { message: { content: [{ type: 'text', text: `Continuing: ${text}` }] } },
+        })
+      }
+      emitSessionEvent(sessionId, { type: 'turn/end', seq: nextSeq(), time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } } })
+    },
+  })
+  t.after(h.stop)
+  await h.rt.load()
+  const relay = await startRelayServer()
+  let phone
+  t.after(async () => {
+    await phone?.close()
+    await relay.close()
+  })
+  await h.rt.phoneEndpoint('phone-set', { server: relay.url, on: true })
+  const ready = AbortSignal.timeout(5000)
+  while (h.rt.phoneView().status !== 'online') await delay(25, undefined, { signal: ready })
+  const paired = await h.rt.phoneEndpoint('phone-pair', {})
+  const offer = parsePairingUri(paired.pairing.uri)
+  const keys = generateKeyPair()
+  const self = { deviceId: deviceIdFor(keys.publicKey), ...keys }
+  const transport = new RelayTransport(offer.server, {
+    deviceId: self.deviceId, identityKey: self.publicKey, accessToken: randomToken(), targetDeviceId: offer.hostDeviceId,
+  })
+  phone = new RpcClient(new SecureTransport(transport, self, { deviceId: offer.hostDeviceId, identityKey: offer.hostKey }, {
+    hello: { pairingCode: offer.code, name: 'Owner phone' }, handshakeTimeoutMs: 2000,
+  }), 5000)
+  await phone.connect()
+  const view = await h.rt.apiEndpoint('api-set', { enabled: true, port: 0 })
+  const { token } = await h.rt.apiEndpoint('api-token-create', { name: 'Caller', scopes: ['read', 'message'], targetScope: 'all_public' })
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const ask = () => fetch(`${view.baseUrl}/v1/bots/b1/messages`, {
+    method: 'POST', headers, body: JSON.stringify({ text: 'Ask a question', wait: 5 }),
+  }).then(response => response.json())
+  const get = runId => fetch(`${view.baseUrl}/v1/runs/${runId}`, { headers }).then(response => response.json())
+  const waiting = await ask()
+  assert.equal(waiting.status, 'waiting_human')
+  const sessionId = waiting.pendingAction.sessionId
+  const requestId = '1795886463884-ownerphone'
+  const sent = await phone.rpc('bot', { endpoint: 'send', payload: { sessionId, requestId, text: 'Yes, from my phone' } })
+  assert.equal(sent.ok, true)
+  assert.equal(h.rt.state.questions[sessionId], undefined)
+  assert.equal(h.prompted.at(-1).requestId, requestId)
+  const done = await get(waiting.runId)
+  assert.equal(done.status, 'completed')
+  assert.equal(done.output.text, 'Continuing: Yes, from my phone')
+
+  const unlinked = await ask()
+  assert.equal(unlinked.status, 'waiting_human')
+  assert.equal((await h.rt.channelCall('send', {
+    sessionId, requestId: '1795886463885-unlinked', text: 'Not a link answer', ownerComposer: true,
+  })).ok, true)
+  const stopped = await get(unlinked.runId)
+  assert.equal(stopped.status, 'stopped')
+  assert.equal(stopped.output.text, '')
 })
 
 test('group chat multi-member batch settlement collects ordered replies', async (t) => {

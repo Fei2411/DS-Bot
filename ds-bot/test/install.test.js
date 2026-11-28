@@ -217,6 +217,8 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: im',
     'effect ds-bot: external API gateway',
     'effect ds-bot: phone link',
+    'on agent/inbox/discarded',
+    'on agent/disposed',
     'effect ds-bot: api route',
     'route POST /api/bot',
     'effect ds-bot: load state',
